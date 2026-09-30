@@ -1,0 +1,10 @@
+{
+  "save": "Guardar",
+  "title": "Guardar los cambios",
+  "hint": "Se van a ejecutar estas sentencias sobre el servidor ({{cells}} en {{rows}}). Revisalas antes de guardar.",
+  "run": "Guardar",
+  "done": "Cambios guardados",
+  "doneRows_one": "Cambios guardados: 1 fila actualizada",
+  "doneRows_many": "Cambios guardados: {{count}} filas actualizadas",
+  "doneRows_other": "Cambios guardados: {{count}} filas actualizadas"
+}

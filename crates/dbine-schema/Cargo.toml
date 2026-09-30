@@ -1,0 +1,15 @@
+[package]
+name = "dbine-schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Converts table schemas between database engines (types, defaults, keys, indexes, identifiers)"
+
+[dependencies]
+dbine-driver = { path = "../dbine-driver" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+dbine-drivers = { path = "../dbine-drivers" }
+tokio.workspace = true

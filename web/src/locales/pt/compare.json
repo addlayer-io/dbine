@@ -1,0 +1,114 @@
+{
+  "connectFailed": "não foi possível conectar",
+  "pickLeftDatabase": "Escolha o banco da esquerda",
+  "pickRightConnection": "Escolha a conexão da direita",
+  "pickDifferent": "Escolha dois bancos (ou dois esquemas) diferentes",
+  "kinds": {
+    "table": "Tabelas",
+    "view": "Views",
+    "materializedView": "Views materializadas",
+    "procedure": "Procedimentos",
+    "function": "Funções",
+    "trigger": "Triggers",
+    "sequence": "Sequências",
+    "synonym": "Sinônimos",
+    "type": "Tipos",
+    "fulltextCatalog": "Catálogos de texto completo",
+    "fulltextStoplist": "Listas de palavras irrelevantes",
+    "domain": "Domínios",
+    "virtualTable": "Tabelas virtuais",
+    "dictionary": "Dicionários"
+  },
+  "status": {
+    "equal": "Igual",
+    "changed": "Diferente",
+    "onlyLeft": "Só à esquerda",
+    "onlyRight": "Só à direita"
+  },
+  "objectsSameEngine": "Views e procedimentos só podem ser passados entre bancos do mesmo motor",
+  "arrow": {
+    "table": {
+      "copyLeft": "Copiar a tabela para a esquerda",
+      "copyRight": "Copiar a tabela para a direita",
+      "createLeft": "Criar a tabela na esquerda",
+      "createRight": "Criar a tabela na direita",
+      "deleteLeft": "Excluir a tabela da esquerda",
+      "deleteRight": "Excluir a tabela da direita"
+    },
+    "object": {
+      "copyLeft": "Copiar o objeto para a esquerda",
+      "copyRight": "Copiar o objeto para a direita",
+      "createLeft": "Criar o objeto na esquerda",
+      "createRight": "Criar o objeto na direita",
+      "deleteLeft": "Excluir o objeto da esquerda",
+      "deleteRight": "Excluir o objeto da direita"
+    },
+    "item": {
+      "copyLeft": "Copiar isto para a esquerda",
+      "copyRight": "Copiar isto para a direita",
+      "createLeft": "Criar isto na esquerda",
+      "createRight": "Criar isto na direita",
+      "deleteLeft": "Excluir isto da esquerda",
+      "deleteRight": "Excluir isto da direita"
+    },
+    "pk": {
+      "copyLeft": "Copiar a chave primária para a esquerda",
+      "copyRight": "Copiar a chave primária para a direita"
+    },
+    "props": {
+      "copyLeft": "Copiar o comentário e as opções para a esquerda",
+      "copyRight": "Copiar o comentário e as opções para a direita"
+    }
+  },
+  "autoIncrement": "autoincremento",
+  "sections": {
+    "columns": "Colunas",
+    "indexes": "Índices",
+    "foreignKeys": "Chaves estrangeiras",
+    "checks": "Restrições CHECK"
+  },
+  "primaryKey": "Chave primária",
+  "sync": {
+    "button": "Sincronizar",
+    "readOnly": "A conexão é somente leitura",
+    "unsupported": "{{engine}} não aplica alterações de esquema a partir do DBine",
+    "queryTitle": "Sincronizar {{name}}",
+    "confirm_one": "Será executada {{count}} instrução em {{where}}.{{warnings}}",
+    "confirm_other": "Serão executadas {{count}} instruções em {{where}}.{{warnings}}",
+    "confirmWarnings": " Confira os avisos antes de continuar.",
+    "failed": "A instrução {{n}} de {{total}} falhou ({{done}} executadas): {{message}}",
+    "done": "{{where}} sincronizado",
+    "generating": "Gerando o script…",
+    "openAsQuery": "Abrir como consulta",
+    "confirm_many": "Serão executadas {{count}} instruções em {{where}}.{{warnings}}",
+    "noChanges": "Sem alterações: passe-as com as setas → / ←",
+    "changes_one": "{{count}} alteração (esquerda: {{left}}, direita: {{right}}): ver os scripts e executá-los",
+    "changes_many": "{{count}} alterações (esquerda: {{left}}, direita: {{right}}): ver os scripts e executá-los",
+    "changes_other": "{{count}} alterações (esquerda: {{left}}, direita: {{right}}): ver os scripts e executá-los",
+    "confirmOrder": "Primeiro a esquerda e depois a direita; se algo falhar, para aí.",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "Já executado"
+  },
+  "left": "Esquerda",
+  "right": "Direita",
+  "connection": "Conexão",
+  "database": "Banco",
+  "schema": "Esquema",
+  "allSchemas": "Todos os esquemas",
+  "discard": "Descartar as alterações deste lado",
+  "swap": "Trocar",
+  "undo": "Desfazer a última alteração",
+  "compare": "Comparar",
+  "empty": {
+    "pick": "Escolha os dois bancos (ou dois esquemas) e clique em {compare}.",
+    "help": "As diferenças passam de um lado para o outro com as setas e são aplicadas com {sync}, que mostra o script antes de executá-lo."
+  },
+  "onlyDiff": "Somente diferenças",
+  "ignoreCase": "Ignorar maiúsculas",
+  "ignoreComments": "Ignorar comentários",
+  "noDifferences": "Não há diferenças.",
+  "noObjects": "Não há objetos.",
+  "pendingChanges": "Com alterações não aplicadas",
+  "pickItem": "Escolha uma tabela ou objeto da lista.",
+  "tableProps": "Propriedades da tabela"
+}

@@ -1,0 +1,15 @@
+[package]
+name = "dbine-driver-odbc"
+version = "0.1.1"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+edition.workspace = true
+license.workspace = true
+description = "DBine ODBC driver: one generic session plus presets for engines that only ship an ODBC driver (DB2, Sybase, Informix, Teradata, Hive…)"
+
+[dependencies]
+dbine-driver = { path = "../../dbine-driver" }
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+# The ODBC driver manager is loaded at runtime (dlopen), never linked: the
+# app has to start on machines without unixODBC.
+libloading = "0.8"

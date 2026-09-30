@@ -1,0 +1,62 @@
+{
+  "primaryKey": "Clave primaria",
+  "foreignKey": "Clave foránea",
+  "unnamedForeignKey": "Clave foránea sin nombre",
+  "exportFailed": "No se pudo exportar la imagen: {{error}}",
+  "busy": "Distribuyendo {{tables}} tablas y {{relations}} relaciones…",
+  "hint": "Arrastrá para moverte · ⌘/pinch + rueda para zoom · doble clic abre la tabla",
+  "tab": {
+    "connectFailed": "No se pudo conectar.",
+    "reading": "Leyendo la estructura de la base…",
+    "drawFailed": "No se pudo dibujar el diagrama: {{error}}",
+    "fileName": "diagrama-{{name}}",
+    "fileNameDefault": "base"
+  },
+  "toolbar": {
+    "tables": "Tablas",
+    "relations": "Relaciones",
+    "simplifiedLayout": "distribución simplificada",
+    "simplifiedLayoutTitle": "La distribución automática falló con esta estructura: las tablas se muestran en grilla (podés moverlas a mano).",
+    "searchPlaceholder": "Buscar tabla…",
+    "allSchemas": "Todos los esquemas",
+    "allColumns": "Todas las columnas",
+    "keysOnly": "Solo claves",
+    "relayout": "Reordenar",
+    "relayoutTitle": "Volver a ordenar las tablas automáticamente",
+    "svgImage": "Imagen SVG",
+    "pngImage": "Imagen PNG"
+  },
+  "card": {
+    "openHint": "Doble clic para abrir",
+    "nullable": "Admite NULL",
+    "noColumns": "sin columnas",
+    "moreColumns_one": "+{{count}} columna",
+    "moreColumns_other": "+{{count}} columnas",
+    "showLess": "Mostrar menos",
+    "moreColumns_many": "+{{count}} columnas"
+  },
+  "empty": {
+    "title": "No hay tablas para mostrar",
+    "text": "La base no tiene tablas o el motor no informa su estructura.",
+    "noRelations": "Sin relaciones: la base no declara claves foráneas (o el motor no las informa). Se muestran solo las tablas."
+  },
+  "zoom": {
+    "zoomOut": "Alejar (−)",
+    "actualSize": "Tamaño real (0)",
+    "zoomIn": "Acercar (+)",
+    "fit": "Ajustar a la vista (F)",
+    "minimap": "Minimapa"
+  },
+  "props": {
+    "table": "tabla",
+    "openTable": "Abrir la tabla",
+    "close": "Cerrar (Esc)",
+    "columns": "Columnas",
+    "unnamed": "(sin nombre)",
+    "indexes": "Índices",
+    "unique": "único",
+    "references": "Referencia a",
+    "referencedBy": "Referenciada por",
+    "outside": "fuera del diagrama"
+  }
+}

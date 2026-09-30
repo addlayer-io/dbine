@@ -1,0 +1,13 @@
+/target
+/src-tauri/target
+/web/dist
+/web/node_modules
+/src-tauri/gen
+.DS_Store
+*.log
+
+# Local, per-user tool settings
+.claude/settings.local.json
+
+# Local build secrets (cloud client IDs): see docs/sincronizacion.md
+.env

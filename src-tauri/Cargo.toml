@@ -1,0 +1,59 @@
+[package]
+name = "dbine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Multi-database manager"
+
+[lib]
+name = "dbine_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "dbine"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# One process-wide TLS crypto provider, installed at start: with several
+# drivers in one process more than one is compiled in, and clients that rely
+# on the default (the AWS SDK's) can't pick one by themselves.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-window-state = "2"
+dbine-driver = { path = "../crates/dbine-driver" }
+dbine-core = { path = "../crates/dbine-core" }
+dbine-drivers = { path = "../crates/dbine-drivers" }
+dbine-tunnel = { path = "../crates/dbine-tunnel" }
+dbine-sync = { path = "../crates/dbine-sync" }
+dbine-schema = { path = "../crates/dbine-schema" }
+dbine-transfer = { path = "../crates/dbine-transfer" }
+dbine-ai = { path = "../crates/dbine-ai" }
+tauri-plugin-opener = "2"
+reqwest.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+dashmap.workspace = true
+base64.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+tracing-appender = "0.2"
+mimalloc = { version = "0.1", default-features = false }
+# The local MCP server (src/mcp): HTTP on 127.0.0.1, token hashes, its activity log.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+sha2 = "0.10"
+getrandom = "0.3"
+rusqlite.workspace = true
+
+[features]
+# Release builds: only the built-in drivers (dbine_drivers::BUILT_IN) stay
+# in the app; the rest are downloaded on first use. `cargo tauri build
+# --features plugins`, with DBINE_PLUGIN_CATALOG set (scripts/build-driver-hosts.py).
+plugins = ["dbine-drivers/plugins"]

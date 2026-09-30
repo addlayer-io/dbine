@@ -1,0 +1,46 @@
+{
+  "title": {
+    "new": "New connection",
+    "edit": "Edit connection · {{name}}",
+    "duplicate": "Duplicate connection"
+  },
+  "missingDriver": "This version doesn't include the driver \"{{driver}}\".",
+  "copyName": "{{name}} (copy)",
+  "pick": {
+    "searchPlaceholder": "Search engine…",
+    "port": "Port {{port}}",
+    "localFile": "Local file",
+    "cloudService": "Cloud service",
+    "noMatch": "No engine matches «{{search}}».",
+    "available": "{{n}} engines available"
+  },
+  "family": {
+    "relational": "Relational",
+    "analytical": "Analytical",
+    "document": "Document",
+    "key_value": "Key-value",
+    "wide_column": "Wide-column",
+    "search": "Search",
+    "time_series": "Time series",
+    "streaming": "Streaming",
+    "graph": "Graph"
+  },
+  "form": {
+    "changeEngine": "Change engine",
+    "name": "Name",
+    "color": "Color",
+    "noColor": "No color",
+    "folder": "Folder",
+    "tags": "Tags",
+    "tagsPlaceholder": "prod, dev, qa… (type a new one and press Enter)",
+    "secretKeptMasc": "(saved; leave it empty to keep it)",
+    "secretKeptFem": "(saved; leave it empty to keep it)",
+    "savePassword": "Save {{fields}} in the system keychain",
+    "and": " and ",
+    "couldNotConnect": "Couldn't connect",
+    "testConnection": "Test connection",
+    "connectionOk": "Connection successful",
+    "saveAndConnect": "Save and connect",
+    "missingFields": "Missing: {{fields}}"
+  }
+}

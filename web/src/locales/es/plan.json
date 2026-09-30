@@ -1,0 +1,61 @@
+{
+  "query": "Consulta {{n}}",
+  "actualPlan": "Plan real",
+  "estimatedPlan": "Plan estimado",
+  "diagram": "Diagrama",
+  "rawPlan": "Plan original",
+  "statementTitle": "Clic para ver completa",
+  "hint": "Arrastrá para moverte · ⌘/pinch + rueda para zoom · F ajusta",
+  "summary": {
+    "operators": "Operadores",
+    "cost": "Costo",
+    "time": "Tiempo",
+    "rows": "Filas",
+    "firstWarning": "Ir a la primera advertencia",
+    "warnings_one": "{{count}} advertencia",
+    "warnings_other": "{{count}} advertencias",
+    "warnings_many": "{{count}} advertencias"
+  },
+  "edge": {
+    "actualRows": "Filas reales: {{rows}}",
+    "estimatedRows": "Filas estimadas: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Costo del operador: {{pct}}%",
+    "noCost": "Sin costo",
+    "actualEstimatedRows": "Filas reales / estimadas",
+    "estimatedRows": "Filas estimadas",
+    "estimatedShort": "{{rows}} est.",
+    "expand_one": "Expandir ({{count}} operador)",
+    "expand_other": "Expandir ({{count}} operadores)",
+    "collapse": "Colapsar",
+    "expand_many": "Expandir ({{count}} operadores)"
+  },
+  "zoom": {
+    "zoomOut": "Alejar (−)",
+    "actualSize": "Tamaño real (0)",
+    "zoomIn": "Acercar (+)",
+    "fit": "Ajustar a la vista (F)",
+    "expandAll": "Expandir todo",
+    "collapseBelow": "Colapsar debajo del 3er nivel",
+    "minimap": "Minimapa"
+  },
+  "props": {
+    "close": "Cerrar (Esc)",
+    "operator": "Del operador",
+    "self": "Propio",
+    "subtree": "Subárbol",
+    "rowsAndTime": "Filas y tiempo",
+    "estimatedPerExecution": "Estimadas (por ejecución)",
+    "actualTotal": "Reales (total)",
+    "executions": "Ejecuciones",
+    "actualTime": "Tiempo real",
+    "object": "Objeto",
+    "properties": "Propiedades"
+  },
+  "raw": {
+    "save": "Guardar…",
+    "sqlServerPlan": "Plan de SQL Server",
+    "ssmsHint": "Se abre en SQL Server Management Studio (.sqlplan)"
+  }
+}

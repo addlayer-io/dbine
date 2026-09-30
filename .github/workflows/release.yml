@@ -1,0 +1,169 @@
+name: release
+
+# Push a tag like `v0.2.0` to build DBine for Windows, macOS (Apple
+# Silicon + Intel) and Linux and publish them as a GitHub release. The app
+# version is taken from the tag. A manual run (Actions → release → Run
+# workflow) builds everything and keeps the installers as workflow
+# artifacts, without publishing a release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          # A native Intel runner (no cross-compiling of native deps).
+          - name: macos-x64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux system dependencies (WebKitGTK)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libssl-dev libxdo-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: ${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci --prefix web
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e '
+            const fs = require("fs");
+            const v = process.argv[1];
+            const conf = "src-tauri/tauri.conf.json";
+            const j = JSON.parse(fs.readFileSync(conf, "utf8"));
+            j.version = v;
+            fs.writeFileSync(conf, JSON.stringify(j, null, 2) + "\n");
+            const cargo = fs.readFileSync("Cargo.toml", "utf8")
+              .replace(/(\[workspace\.package\][\s\S]*?version\s*=\s*)"[^"]*"/, `$1"${v}"`);
+            fs.writeFileSync("Cargo.toml", cargo);
+          ' "$VERSION"
+          echo "version -> $VERSION"
+
+      # Every driver except the built-in ones is its own small program that
+      # the app downloads the first time it's used. Drivers have their own
+      # versions and live in the permanent `drivers` release: only the ones
+      # whose version isn't published yet are built (docs/drivers-bajo-demanda.md).
+      - name: Build new driver versions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download drivers -p "index-${{ matrix.target }}.json" -D driver-index 2>/dev/null \
+            || echo "No published index for ${{ matrix.target }} yet: every driver gets built."
+          PY=$(command -v python3 || command -v python)
+          "$PY" scripts/build-driver-hosts.py ${{ matrix.target }} driver-hosts \
+            "https://github.com/${{ github.repository }}/releases/download/drivers" \
+            "driver-index/index-${{ matrix.target }}.json"
+          cat driver-hosts/summary.md >> "$GITHUB_STEP_SUMMARY"
+          echo "DBINE_PLUGIN_CATALOG=$PWD/driver-hosts/plugins.json" >> "$GITHUB_ENV"
+
+      # Before the app: a published app never points to a driver that isn't
+      # there. A driver file is never replaced (its id is its version);
+      # the index is.
+      - name: Publish new driver versions
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd driver-hosts
+          if [ -s new-files.txt ]; then
+            tr -d '\r' < new-files.txt | xargs gh release upload drivers
+          fi
+          gh release upload drivers "index-${{ matrix.target }}.json" --clobber
+
+      - name: Build (and publish on tags)
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Cloud sync app registrations (docs/sincronizacion.md); empty
+          # when the secrets aren't set: the providers show as unavailable.
+          DBINE_GOOGLE_CLIENT_ID: ${{ secrets.DBINE_GOOGLE_CLIENT_ID }}
+          DBINE_GOOGLE_CLIENT_SECRET: ${{ secrets.DBINE_GOOGLE_CLIENT_SECRET }}
+          DBINE_MICROSOFT_CLIENT_ID: ${{ secrets.DBINE_MICROSOFT_CLIENT_ID }}
+        with:
+          tauriScript: npx --yes @tauri-apps/cli@^2
+          args: --target ${{ matrix.target }} --features plugins
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: DBine ${{ github.ref_name }}
+          releaseBody: |
+            Instaladores de DBine ${{ github.ref_name }}.
+
+            - **Windows**: `.msi` o `-setup.exe` (requiere WebView2, incluido en Windows 10/11).
+            - **macOS**: `.dmg` — `aarch64` para Apple Silicon, `x64` para Intel.
+            - **Linux**: `.AppImage` (portable), `.deb` o `.rpm`.
+
+            Los binarios no están firmados por Apple ni por Microsoft:
+
+            - **macOS**: la primera vez avisa que no puede verificar al desarrollador. Abrí
+              Configuración del Sistema › Privacidad y seguridad › «Abrir igualmente», o
+              en la terminal: `xattr -dr com.apple.quarantine /Applications/DBine.app`.
+            - **Windows**: SmartScreen puede pedir "Más información" › "Ejecutar de todas formas".
+            - Los drivers de cada motor (salvo SQLite) se descargan la primera vez que te conectás.
+          releaseDraft: false
+          prerelease: false
+
+      - name: Keep drivers as artifacts (manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbine-drivers-${{ matrix.name }}
+          path: driver-hosts/
+          if-no-files-found: error
+
+      - name: Keep installers as artifacts (manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbine-${{ matrix.name }}
+          # Workspace build: installers land in <root>/target/<triple>/release/bundle.
+          path: target/${{ matrix.target }}/release/bundle/
+          if-no-files-found: error

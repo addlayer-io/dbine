@@ -1,0 +1,10 @@
+# gitleaks config for the PR secret scan: full default rule set, with the
+# self-signed TLS test fixtures under docker/certs/ allowlisted.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Self-signed TLS test fixtures for the local integration-test SQL Server container"
+paths = [
+    '''docker/certs/.*''',
+]

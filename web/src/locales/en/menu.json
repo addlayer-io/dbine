@@ -1,0 +1,42 @@
+{
+  "app": {
+    "about": "About DBine",
+    "settings": "Settings…",
+    "services": "Services",
+    "hide": "Hide DBine",
+    "hideOthers": "Hide others",
+    "showAll": "Show all",
+    "quit": "Quit DBine"
+  },
+  "file": {
+    "title": "File",
+    "newConnection": "New connection",
+    "newQuery": "New query",
+    "closeTab": "Close tab"
+  },
+  "edit": {
+    "title": "Edit",
+    "undo": "Undo",
+    "redo": "Redo",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "selectAll": "Select all"
+  },
+  "view": {
+    "title": "View",
+    "explorer": "Explorer",
+    "output": "Output",
+    "ai": "AI assistant",
+    "fullscreen": "Full screen"
+  },
+  "window": {
+    "title": "Window",
+    "minimize": "Minimize",
+    "zoom": "Zoom"
+  },
+  "help": {
+    "title": "Help",
+    "support": "Support the project"
+  }
+}

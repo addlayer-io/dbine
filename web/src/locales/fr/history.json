@@ -1,0 +1,18 @@
+{
+  "title": "Historique",
+  "search": "Rechercher dans l’historique",
+  "empty": "Vous n’avez encore rien exécuté. Ce que vous lancez depuis l’éditeur apparaît ici, regroupé par serveur.",
+  "noMatch": "Aucun résultat pour cette recherche.",
+  "clear": "Effacer l’historique",
+  "clearTitle": "Effacer l’historique",
+  "clearConfirm": "Effacer tout l’historique des requêtes de cette machine ?",
+  "openNew": "Ouvrir dans une nouvelle requête",
+  "copySql": "Copier le SQL",
+  "copied": "Copié",
+  "deleteHost": "Effacer l’historique de {{host}}",
+  "connectionGone": "La connexion « {{name}} » n’existe plus : copiez le SQL pour l’utiliser ailleurs.",
+  "more": "Voir plus",
+  "rows_one": "1 ligne",
+  "rows_many": "{{count}} lignes",
+  "rows_other": "{{count}} lignes"
+}

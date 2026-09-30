@@ -1,0 +1,31 @@
+{
+  "couldNotConnect": "Não foi possível conectar.",
+  "duration": {
+    "s": "{{s}} s",
+    "dh": "{{d}} d {{h}} h",
+    "hm": "{{h}} h {{m}} min",
+    "ms": "{{m}} min {{s}} s"
+  },
+  "level": {
+    "warn": "alto",
+    "crit": "crítico"
+  },
+  "justNow": "agora",
+  "secondsAgo": "há {{s}} s",
+  "connection": "Conexão",
+  "paused": "Pausado",
+  "every": "A cada {{s}} s",
+  "resume": "Retomar",
+  "pause": "Pausar",
+  "refresh": "Atualizar",
+  "unsupported": "{{engine}} não oferece monitoramento.",
+  "thisEngine": "Este motor",
+  "measuring": "medindo…",
+  "of": "de {{max}}",
+  "filter": "Filtrar…",
+  "noMatch": "Nenhuma linha corresponde.",
+  "noRows": "Sem linhas.",
+  "sparkline": {
+    "noData": "sem dado"
+  }
+}

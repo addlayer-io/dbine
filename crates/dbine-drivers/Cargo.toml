@@ -1,0 +1,137 @@
+[package]
+name = "dbine-drivers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Registry of every DBine driver; one cargo feature per driver crate"
+
+[dependencies]
+dbine-driver = { path = "../dbine-driver" }
+dbine-plugin = { path = "../dbine-plugin", optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+dbine-driver-athena = { path = "../drivers/athena", optional = true }
+dbine-driver-bigquery = { path = "../drivers/bigquery", optional = true }
+dbine-driver-cassandra = { path = "../drivers/cassandra", optional = true }
+dbine-driver-clickhouse = { path = "../drivers/clickhouse", optional = true }
+dbine-driver-cosmosdb = { path = "../drivers/cosmosdb", optional = true }
+dbine-driver-couchdb = { path = "../drivers/couchdb", optional = true }
+dbine-driver-databricks = { path = "../drivers/databricks", optional = true }
+dbine-driver-dsql = { path = "../drivers/dsql", optional = true }
+dbine-driver-duckdb = { path = "../drivers/duckdb", optional = true }
+dbine-driver-dynamodb = { path = "../drivers/dynamodb", optional = true }
+dbine-driver-elasticsearch = { path = "../drivers/elasticsearch", optional = true }
+dbine-driver-firebird = { path = "../drivers/firebird", optional = true }
+dbine-driver-hana = { path = "../drivers/hana", optional = true }
+dbine-driver-influxdb = { path = "../drivers/influxdb", optional = true }
+dbine-driver-iotdb = { path = "../drivers/iotdb", optional = true }
+dbine-driver-ksqldb = { path = "../drivers/ksqldb", optional = true }
+dbine-driver-mongodb = { path = "../drivers/mongodb", optional = true }
+dbine-driver-mysql = { path = "../drivers/mysql", optional = true }
+dbine-driver-odbc = { path = "../drivers/odbc", optional = true }
+dbine-driver-oracle = { path = "../drivers/oracle", optional = true }
+dbine-driver-phoenix = { path = "../drivers/phoenix", optional = true }
+dbine-driver-postgres = { path = "../drivers/postgres", optional = true }
+dbine-driver-redis = { path = "../drivers/redis", optional = true }
+dbine-driver-snowflake = { path = "../drivers/snowflake", optional = true }
+dbine-driver-solr = { path = "../drivers/solr", optional = true }
+dbine-driver-spanner = { path = "../drivers/spanner", optional = true }
+dbine-driver-sqlite = { path = "../drivers/sqlite", optional = true }
+dbine-driver-sqlserver = { path = "../drivers/sqlserver", optional = true }
+dbine-driver-trino = { path = "../drivers/trino", optional = true }
+dbine-driver-libsql = { path = "../drivers/libsql", optional = true }
+dbine-driver-neo4j = { path = "../drivers/neo4j", optional = true }
+dbine-driver-orientdb = { path = "../drivers/orientdb", optional = true }
+dbine-driver-couchbase = { path = "../drivers/couchbase", optional = true }
+dbine-driver-dremio = { path = "../drivers/dremio", optional = true }
+dbine-driver-drill = { path = "../drivers/drill", optional = true }
+dbine-driver-etcd = { path = "../drivers/etcd", optional = true }
+dbine-driver-flightsql = { path = "../drivers/flightsql", optional = true }
+dbine-driver-tdengine = { path = "../drivers/tdengine", optional = true }
+
+# Every driver is on by default; a build can leave heavy ones out, e.g.
+# `cargo build --no-default-features --features postgres,mysql,sqlite`.
+[features]
+# Release builds: the drivers left out of the build are downloaded on first
+# use (each crate's host, see crates/dbine-plugin). Needs the catalog the
+# release workflow writes: DBINE_PLUGIN_CATALOG=<path to plugins.json>.
+plugins = ["dep:dbine-plugin", "dep:serde", "dep:serde_json", "dep:tracing"]
+default = [
+    "athena",
+    "bigquery",
+    "cassandra",
+    "clickhouse",
+    "cosmosdb",
+    "couchdb",
+    "databricks",
+    "dsql",
+    "duckdb",
+    "dynamodb",
+    "elasticsearch",
+    "firebird",
+    "hana",
+    "influxdb",
+    "iotdb",
+    "ksqldb",
+    "mongodb",
+    "mysql",
+    "odbc",
+    "oracle",
+    "phoenix",
+    "postgres",
+    "redis",
+    "snowflake",
+    "solr",
+    "spanner",
+    "sqlite",
+    "sqlserver",
+    "trino",
+    "libsql",
+    "neo4j",
+    "orientdb",
+    "couchbase",
+    "dremio",
+    "drill",
+    "etcd",
+    "flightsql",
+    "tdengine",
+]
+athena = ["dep:dbine-driver-athena"]
+bigquery = ["dep:dbine-driver-bigquery"]
+cassandra = ["dep:dbine-driver-cassandra"]
+clickhouse = ["dep:dbine-driver-clickhouse"]
+cosmosdb = ["dep:dbine-driver-cosmosdb"]
+couchdb = ["dep:dbine-driver-couchdb"]
+databricks = ["dep:dbine-driver-databricks"]
+dsql = ["dep:dbine-driver-dsql"]
+duckdb = ["dep:dbine-driver-duckdb"]
+dynamodb = ["dep:dbine-driver-dynamodb"]
+elasticsearch = ["dep:dbine-driver-elasticsearch"]
+firebird = ["dep:dbine-driver-firebird"]
+hana = ["dep:dbine-driver-hana"]
+influxdb = ["dep:dbine-driver-influxdb"]
+iotdb = ["dep:dbine-driver-iotdb"]
+ksqldb = ["dep:dbine-driver-ksqldb"]
+mongodb = ["dep:dbine-driver-mongodb"]
+mysql = ["dep:dbine-driver-mysql"]
+odbc = ["dep:dbine-driver-odbc"]
+oracle = ["dep:dbine-driver-oracle"]
+phoenix = ["dep:dbine-driver-phoenix"]
+postgres = ["dep:dbine-driver-postgres"]
+redis = ["dep:dbine-driver-redis"]
+snowflake = ["dep:dbine-driver-snowflake"]
+solr = ["dep:dbine-driver-solr"]
+spanner = ["dep:dbine-driver-spanner"]
+sqlite = ["dep:dbine-driver-sqlite"]
+sqlserver = ["dep:dbine-driver-sqlserver"]
+trino = ["dep:dbine-driver-trino"]
+libsql = ["dep:dbine-driver-libsql"]
+neo4j = ["dep:dbine-driver-neo4j"]
+orientdb = ["dep:dbine-driver-orientdb"]
+couchbase = ["dep:dbine-driver-couchbase"]
+dremio = ["dep:dbine-driver-dremio"]
+drill = ["dep:dbine-driver-drill"]
+etcd = ["dep:dbine-driver-etcd"]
+flightsql = ["dep:dbine-driver-flightsql"]
+tdengine = ["dep:dbine-driver-tdengine"]

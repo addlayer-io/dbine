@@ -1,0 +1,31 @@
+[package]
+name = "dbine-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DBine core: local state (saved connections and queries) and keychain secrets"
+
+[dependencies]
+dbine-driver = { path = "../dbine-driver" }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+keyring = "4.2.0"
+# The secrets vault (one keychain key, secrets encrypted on disk).
+chacha20poly1305 = "0.10"
+rand = "0.8"
+csv = "1.4.0"
+rust_xlsxwriter = { version = "0.99.1", features = ["constant_memory"] }
+calamine = { version = "0.36.1", features = ["chrono"] }
+roxmltree = "0.21.1"
+# Reading other tools' encrypted connection files (DBeaver, DbGate).
+aes = "0.9.3"
+cbc = "0.2.1"
+hmac = "0.13.0"
+sha2 = "0.11.0"
+base64 = "0.22.1"
+hex = "0.4.3"
+
+[dev-dependencies]
+tempfile = "3.27.0"

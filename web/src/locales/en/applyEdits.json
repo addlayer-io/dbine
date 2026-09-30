@@ -1,0 +1,10 @@
+{
+  "save": "Save",
+  "title": "Save changes",
+  "hint": "These statements will run on the server ({{cells}} in {{rows}}). Review them before saving.",
+  "run": "Save",
+  "done": "Changes saved",
+  "doneRows_one": "Changes saved: 1 row updated",
+  "doneRows_many": "Changes saved: {{count}} rows updated",
+  "doneRows_other": "Changes saved: {{count}} rows updated"
+}

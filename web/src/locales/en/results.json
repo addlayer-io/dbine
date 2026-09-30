@@ -1,0 +1,209 @@
+{
+  "defaultFileName": "result",
+  "defaultTableName": "table",
+  "running": "Running…",
+  "empty": "Run with {key} (the selection or the whole text).",
+  "truncated": "Showing the first {{shown}} of {{total}} rows.",
+  "tabs": {
+    "result": "Result",
+    "plan": "Execution plan",
+    "messages": "Messages"
+  },
+  "view": {
+    "label": "Result view",
+    "table": "Table",
+    "chart": "Chart"
+  },
+  "export": {
+    "title": "Export the result",
+    "advanced": "Advanced export…",
+    "done_one": "Exported {{rows}} row",
+    "done_other": "Exported {{rows}} rows",
+    "doneLoaded_one": "Exported {{rows}} row (the loaded ones). For all of them: Advanced export (⌘E).",
+    "doneLoaded_other": "Exported {{rows}} rows (the loaded ones). For all of them: Advanced export (⌘E).",
+    "format": {
+      "json": "JSON",
+      "json_lines": "JSON Lines / NDJSON",
+      "sql": "SQL (INSERT)",
+      "csv": "CSV",
+      "csv_semicolon": "CSV (semicolon-separated)",
+      "csv_excel": "CSV for MS Excel",
+      "tsv": "TSV (tab-separated)",
+      "xlsx": "MS Excel (.xlsx)",
+      "xml": "XML"
+    },
+    "done_many": "Exported {{rows}} rows",
+    "doneLoaded_many": "Exported {{rows}} rows (the loaded ones). For all of them: Advanced export (⌘E)."
+  },
+  "messages": {
+    "statement": "Statement {{n}}: {{text}}.",
+    "rows_one": "{{rows}} row",
+    "rows_other": "{{rows}} rows",
+    "shown": " ({{rows}} shown)",
+    "affected_one": "{{rows}} row affected",
+    "affected_other": "{{rows}} rows affected",
+    "completed": "completed",
+    "rows_many": "{{rows}} rows",
+    "affected_many": "{{rows}} rows affected"
+  },
+  "edit": {
+    "lookingUpTable": "looking up the table and its key…",
+    "codeCopied": "Code copied",
+    "summary": "{{cells}} in {{rows}}, not saved yet.",
+    "cells_one": "{{count}} cell changed",
+    "cells_other": "{{count}} cells changed",
+    "rows_one": "{{count}} row",
+    "rows_other": "{{count}} rows",
+    "addToQuery": "Add to the query",
+    "discard": "Discard",
+    "cells_many": "{{count}} cells changed",
+    "rows_many": "{{count}} rows"
+  },
+  "exportDialog": {
+    "title": "Export result",
+    "format": "Format",
+    "rows": "Rows",
+    "loaded": "The loaded ones ({{rows}})",
+    "all": "All{{total}}: runs the query again",
+    "allHelp": "It runs again in a read-only session and is written to the file as the rows arrive, with no limit. If the query modifies data, the engine rejects it.",
+    "truncated": "The result is truncated by \"Max rows\": only the {{rows}} loaded rows are exported.",
+    "header": "Header with the column names",
+    "delimiter": "Delimiter",
+    "tab": "tab",
+    "nullText": "Text for NULL",
+    "empty": "(empty)",
+    "quoteAll": "Quote all fields",
+    "bom": "UTF-8 BOM (accents in Excel)",
+    "crlf": "Windows line endings (CRLF)",
+    "pretty": "Indented (readable)",
+    "targetTable": "Target table",
+    "targetTablePlaceholder": "schema.table",
+    "rowsPerInsert": "Rows per INSERT",
+    "quote": "Identifier quoting",
+    "quoteDouble": "\"column\" (ANSI, PostgreSQL, Oracle…)",
+    "quoteBracket": "[column] (SQL Server)",
+    "quoteBacktick": "`column` (MySQL, BigQuery…)",
+    "sheet": "Sheet name",
+    "xmlRoot": "Root element",
+    "xmlRow": "Element per row",
+    "progress": "Exporting…",
+    "progressRows_one": "Exporting… {{rows}} row",
+    "progressRows_other": "Exporting… {{rows}} rows",
+    "cancelExport": "Cancel export",
+    "submit": "Export…",
+    "done_one": "Exported {{rows}} row in {{seconds}} s",
+    "done_other": "Exported {{rows}} rows in {{seconds}} s",
+    "progressRows_many": "Exporting… {{rows}} rows",
+    "done_many": "Exported {{rows}} rows in {{seconds}} s"
+  },
+  "grid": {
+    "cantEdit": "Can't edit: {{reason}}",
+    "askValues": "One value per line (or comma-separated):",
+    "askSql": "Full SQL condition (goes as is in the WHERE):",
+    "askSqlRight": "What follows «{{name}}» in the WHERE:",
+    "filterTitle": "Filter «{{name}}»",
+    "valueRequired": "Type a value",
+    "copyCell": "Copy cell",
+    "viewValue": "View value…",
+    "editCell": "Edit cell",
+    "setNull": "Set NULL",
+    "undoChange": "Undo change",
+    "notEditable": "Not editable: {{reason}}",
+    "scopeSelected": "selected rows",
+    "scopeRow": "row",
+    "scopeAll": "all rows",
+    "copyHeader": "Copy ({{scope}})",
+    "copyAllWithHeaders": "Copy all with headers",
+    "copyFormatHeader": "⌘C format",
+    "hideColumn": "Hide column «{{name}}»",
+    "columnsMenu": "Columns…",
+    "columns": "Columns",
+    "filtered": "filtered",
+    "showAll": "Show all",
+    "columnFilters": "Column filters",
+    "filterHelp": "Enter to apply. Text: contains, =equals, !does not contain, ^starts with, ends with$. Numbers and dates: =, <>, >, >=, <, <=, 1,2,3. NULL / NOT NULL.",
+    "filterOptions": "Filter options",
+    "before": "Before: {{value}}",
+    "copyFormat": {
+      "tsv_headers": {
+        "label": "Copy with headers",
+        "name": "With headers"
+      },
+      "tsv": {
+        "label": "Copy without headers",
+        "name": "Without headers"
+      },
+      "headers": {
+        "label": "Copy headers only",
+        "name": "Headers only"
+      },
+      "csv": {
+        "label": "Copy as CSV",
+        "name": "CSV"
+      },
+      "json": {
+        "label": "Copy as JSON",
+        "name": "JSON"
+      },
+      "json_lines": {
+        "label": "Copy as JSON Lines / NDJSON",
+        "name": "JSON Lines / NDJSON"
+      },
+      "yaml": {
+        "label": "Copy as YAML",
+        "name": "YAML"
+      },
+      "sql_insert": {
+        "label": "Copy as SQL INSERTs",
+        "name": "SQL INSERTs"
+      },
+      "sql_update": {
+        "label": "Copy as SQL UPDATEs",
+        "name": "SQL UPDATEs"
+      },
+      "mongo_insert": {
+        "label": "Copy as Mongo INSERTs",
+        "name": "Mongo INSERTs"
+      }
+    }
+  },
+  "chart": {
+    "kind": {
+      "bar": "Bars",
+      "hbar": "Horizontal bars",
+      "stacked": "Stacked bars",
+      "line": "Lines",
+      "area": "Area",
+      "pie": "Pie",
+      "scatter": "Scatter"
+    },
+    "agg": {
+      "none": "No grouping",
+      "sum": "Sum",
+      "avg": "Average",
+      "count": "Count",
+      "min": "Minimum",
+      "max": "Maximum"
+    },
+    "others": "Others",
+    "null": "(null)",
+    "seriesName": "{{agg}} of {{column}}",
+    "fileName": "chart",
+    "kindTitle": "Chart type",
+    "category": "Category",
+    "xAxis": "X axis",
+    "values": "Values",
+    "numericColumns": "Numeric columns",
+    "splitBy": "Split by",
+    "splitByTitle": "One series for each value of this column",
+    "aggTitle": "Group by the category",
+    "sort": {
+      "none": "Original order",
+      "value": "Highest value first",
+      "label": "By category"
+    },
+    "noNumeric": "This result has no numeric columns to chart.",
+    "pickValues": "Pick at least one column in «Values».",
+    "tooMany": "Too many categories ({{n}}): group by another column or pick an aggregation."
+  }
+}

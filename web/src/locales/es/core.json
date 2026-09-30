@@ -1,0 +1,126 @@
+{
+  "actions": {
+    "createQueryFailed": "No se pudo crear la query: {{error}}",
+    "nameRequired": "Poné un nombre",
+    "create": "Crear",
+    "renameQuery": {
+      "prompt": "Nombre de la query:",
+      "title": "Renombrar"
+    },
+    "copyName": "{{name}} (copia)",
+    "copyNameN": "{{name}} (copia {{n}})",
+    "deleteQuery": {
+      "confirm": "¿Eliminar la query \"{{name}}\"? No se puede deshacer.",
+      "title": "Eliminar query"
+    },
+    "newObjectPrefix": "nuevo_",
+    "createDatabase": {
+      "prompt": "Nombre de la nueva base:",
+      "title": "Nueva base de datos",
+      "done": "Base «{{name}}» creada"
+    },
+    "dropObjects": {
+      "more": "{{list}} y {{count}} más",
+      "confirmOne": "¿Eliminar «{{name}}» de {{where}}? Se borra con todos sus datos y no se puede deshacer.",
+      "confirmMany": "Se van a eliminar {{count}} objetos de {{where}}, con todos sus datos: {{list}}.\n\nNo se puede deshacer. Escribí «{{word}}» para confirmar:",
+      "titleMany": "Eliminar {{count}} objetos",
+      "word": "eliminar",
+      "typeWord": "Escribí «{{word}}»",
+      "failed": "No se pudieron eliminar {{failed}} de {{total}}",
+      "droppedOne": "«{{name}}» eliminado",
+      "droppedMany": "{{count}} objetos eliminados"
+    },
+    "dropDatabase": {
+      "confirm": "Esto borra la base «{{name}}» de {{server}} con todo su contenido. No se puede deshacer.\n\nEscribí el nombre de la base para confirmar:",
+      "title": "Eliminar base de datos",
+      "mismatch": "El nombre no coincide",
+      "done": "Base «{{name}}» eliminada"
+    }
+  },
+  "files": {
+    "saved": "Guardado",
+    "saveFailed": "No se pudo guardar: {{error}}"
+  },
+  "format": {
+    "redis": "Los comandos de Redis van uno por línea: no hay nada que formatear.",
+    "unavailable": "Todavía no hay un formateador para este lenguaje."
+  },
+  "copy": {
+    "withHeadersLabel": "Copiar con encabezados",
+    "withHeaders": "Con encabezados",
+    "withoutHeadersLabel": "Copiar sin encabezados",
+    "withoutHeaders": "Sin encabezados",
+    "headersOnlyLabel": "Copiar solo encabezados",
+    "headersOnly": "Solo encabezados",
+    "as": "Copiar como {{format}}"
+  },
+  "export": {
+    "csvSemicolon": "CSV (separado por punto y coma)",
+    "csvExcel": "CSV para MS Excel",
+    "tsv": "TSV (separado por tabulaciones)",
+    "defaultTable": "tabla",
+    "defaultSheet": "Resultado",
+    "defaultFile": "resultado"
+  },
+  "filter": {
+    "clear": "Quitar filtro",
+    "values": "Filtrar varios valores…",
+    "isNull": "Es NULL",
+    "notNull": "No es NULL",
+    "isTrue": "Es verdadero",
+    "isFalse": "Es falso",
+    "trueOrNull": "Es verdadero o NULL",
+    "falseOrNull": "Es falso o NULL",
+    "isEmpty": "Es vacío",
+    "notEmpty": "No es vacío",
+    "eq": "Igual a…",
+    "ne": "Distinto de…",
+    "contains": "Contiene…",
+    "notContains": "No contiene…",
+    "startsWith": "Empieza con…",
+    "endsWith": "Termina con…",
+    "gt": "Mayor que…",
+    "ge": "Mayor o igual que…",
+    "lt": "Menor que…",
+    "le": "Menor o igual que…",
+    "sql": "Condición SQL…",
+    "sqlRight": "Condición SQL, lado derecho…",
+    "describeTrueOrNull": "TRUE o NULL",
+    "describeFalseOrNull": "FALSE o NULL"
+  },
+  "gridEdit": {
+    "notFind": "la consulta no es un find sobre una colección",
+    "engineCantEdit": "este motor no permite editar resultados de una consulta: abrí el objeto desde el explorador",
+    "queryNotFound": "no se encontró la consulta que generó este resultado",
+    "usesWith": "la consulta usa WITH: editá desde la tabla",
+    "combinesRows": "el resultado combina o agrupa filas: solo se editan consultas sobre una tabla",
+    "noTable": "la consulta no lee de una tabla",
+    "tableUnknown": "no se reconoce la tabla de la consulta",
+    "combinesTables": "el resultado combina tablas: solo se editan consultas sobre una tabla",
+    "missingKey": "el resultado no incluye la clave primaria ({{columns}}): agregala al SELECT para poder editar",
+    "noPrimaryKey": "La tabla no tiene clave primaria: el WHERE usa todas las columnas (puede afectar más de una fila si hay duplicados)."
+  },
+  "connections": {
+    "downloading": "Descargando {{component}}, solo esta vez… {{pct}} % ({{done}} de {{total}} MB)",
+    "connected": "Conectado: {{version}}",
+    "connectFailed": "No se pudo conectar: {{error}}",
+    "password": "Contraseña de {{user}} en {{connection}}:",
+    "queryName": "Query {{n}}"
+  },
+  "ai": {
+    "stopped": "Detenido.",
+    "downloading": "descargando",
+    "starting": "iniciando"
+  },
+  "families": {
+    "relational": "Relacionales",
+    "analytical": "Analíticas",
+    "document": "Documentos",
+    "keyValue": "Clave-valor",
+    "wideColumn": "Columnares anchas",
+    "search": "Búsqueda",
+    "timeSeries": "Series de tiempo",
+    "streaming": "Streaming",
+    "graph": "Grafos"
+  }
+}

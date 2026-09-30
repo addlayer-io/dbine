@@ -1,0 +1,75 @@
+{
+  "tab": "Data",
+  "menu": "Compare data…",
+  "left": "Left",
+  "right": "Right",
+  "table": "Table",
+  "key": "Key (the primary one)",
+  "compare": "Compare",
+  "pickBoth": "Pick a table on each side.",
+  "same": "same",
+  "changed": "different",
+  "onlyLeft": "only on the left",
+  "onlyRight": "only on the right",
+  "syncRight": "Make the right match →",
+  "syncLeft": "← Make the left match",
+  "truncated": "The first {{limit}} rows of each side were compared: the table has more.",
+  "duplicates_one": "1 row with a repeated key was compared once.",
+  "duplicates_many": "{{count}} rows with a repeated key were compared once.",
+  "duplicates_other": "{{count}} rows with a repeated key were compared once.",
+  "onlyLeftColumns": "Columns only the left has (not compared): {{list}}",
+  "onlyRightColumns": "Columns only the right has (not compared): {{list}}",
+  "nothing": "No rows here.",
+  "showingFirst": "Showing the first {{shown}} of {{total}}; the “All” buttons also mark the ones you can't see.",
+  "hint": "Pick the table on each side and hit Compare. Rows are matched by their primary key, even on another connection or another engine.",
+  "syncTitle": "Apply the chosen changes",
+  "scriptSummary": "{{parts}}, in the target's language. Review it before running it.",
+  "noChanges": "Nothing to apply.",
+  "copied": "Copied",
+  "openInQuery": "Open in a query",
+  "run": "Run",
+  "applied": "Changes applied",
+  "scriptName": "Sync data",
+  "keyLabel": "Key",
+  "matchHint": "Marks the different rows and the ones missing on that side. The ones that would have to be deleted are chosen separately, in their own view.",
+  "bulk_one": "{{n}} row marked in this view.",
+  "bulk_many": "{{n}} rows marked in this view.",
+  "bulk_other": "{{n}} rows marked in this view.",
+  "allLeft": "← All",
+  "allRight": "All →",
+  "allNone": "None",
+  "arrow": {
+    "update": {
+      "left": "The left gets the values from the right",
+      "right": "The right gets the values from the left"
+    },
+    "insert": {
+      "left": "Insert this row on the left",
+      "right": "Insert this row on the right"
+    },
+    "delete": {
+      "left": "Delete this row from the left",
+      "right": "Delete this row from the right"
+    }
+  },
+  "bothSides": "Both sides change: when you run it, the left script runs first and then the right one. If one fails, the other doesn't run.",
+  "failedOn": "Failed on {{side}}: {{error}}",
+  "mismatch": {
+    "title": "Not the same table",
+    "name": "Careful: you're not comparing the same table ({{left}} against {{right}}). Syncing would change the data of another table.",
+    "schema": "Careful: it's a different table with the same name in another schema ({{left}} against {{right}}). Syncing would change the data of another table.",
+    "runAnyway": "Run anyway"
+  },
+  "count": {
+    "insert_one": "{{n}} insert",
+    "insert_many": "{{n}} inserts",
+    "insert_other": "{{n}} inserts",
+    "update_one": "{{n}} update",
+    "update_many": "{{n}} updates",
+    "update_other": "{{n}} updates",
+    "delete_one": "{{n}} delete",
+    "delete_many": "{{n}} deletes",
+    "delete_other": "{{n}} deletes",
+    "and": "and"
+  }
+}

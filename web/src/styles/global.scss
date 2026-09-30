@@ -1,0 +1,392 @@
+/* ==========================================================================
+   DBine — IDE theme (VS Code Dark+ palette).
+   `--nm-*` are the app's design tokens (used by every view); `--ide-*` are
+   the workbench surfaces. Element Plus is re-themed below so its widgets
+   read as IDE controls: 1px borders, 2px radius, compact 13px type.
+   ========================================================================== */
+:root {
+  /* workbench surfaces */
+  --ide-activity: #333333;
+  --ide-sidebar: #252526;
+  --ide-editor: #1e1e1e;
+  --ide-tabs: #252526;
+  --ide-tab: #2d2d2d;
+  --ide-tab-active: #1e1e1e;
+  --ide-panel: #1e1e1e;
+  --ide-status: #007acc;
+  --ide-status-idle: #68217a;
+  --ide-input: #3c3c3c;
+  --ide-hover: #2a2d2e;
+  --ide-selection: #37373d;
+  --ide-selection-focus: #04395e;
+  --ide-focus: #007fd4;
+  --ide-button: #0e639c;
+  --ide-button-hover: #1177bb;
+  --ide-button-2: #3a3d41;
+  --ide-button-2-hover: #45494e;
+
+  /* app tokens */
+  --nm-bg: var(--ide-editor);
+  --nm-bg-elev: var(--ide-sidebar);
+  --nm-bg-card: var(--ide-editor);
+  --nm-border: #3c3c3c;
+  --nm-border-soft: #2b2b2b;
+  --nm-text: #cccccc;
+  --nm-text-strong: #e7e7e7;
+  --nm-text-dim: #9d9d9d;
+  --nm-text-muted: #6f6f6f;
+  --nm-accent: #3794ff;
+  --nm-accent-2: #75beff;
+  --nm-success: #89d185;
+  --nm-warning: #cca700;
+  --nm-danger: #f14c4c;
+  --nm-info: #75beff;
+  --nm-radius: 2px;
+  --nm-radius-sm: 2px;
+  --nm-shadow: none;
+  --nm-mono: "SF Mono", Menlo, Monaco, Consolas, "JetBrains Mono", ui-monospace, monospace;
+  --nm-font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, "Droid Sans", sans-serif;
+}
+
+html, body, #app {
+  margin: 0;
+  height: 100%;
+  background: var(--ide-editor);
+  color: var(--nm-text);
+  font-family: var(--nm-font);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* desktop app: labels, buttons and menus aren't selectable text */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+/* …except what's worth copying: fields, logs, errors, names, values */
+input, textarea, [contenteditable], code, pre,
+.nm-selectable, .el-message-box__message, .el-message__content {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Element Plus transitions (dialogs, menus, collapses) at native speed */
+:root {
+  --el-transition-duration: 0.12s;
+  --el-transition-duration-fast: 0.08s;
+}
+
+* { box-sizing: border-box; }
+
+/* thin VS Code-like scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(121, 121, 121, 0.4); border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100, 100, 100, 0.7); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+code { font-family: var(--nm-mono); font-size: 12px; color: #d7ba7d; }
+h1, h2, h3 { color: var(--nm-text-strong); font-weight: 600; }
+h2 { font-size: 16px; }
+h3 { font-size: 14px; }
+
+/* --------------------------------------------------------------------------
+   Element Plus → IDE controls
+   -------------------------------------------------------------------------- */
+html.dark {
+  --el-font-size-base: 13px;
+  --el-font-size-small: 12px;
+  --el-border-radius-base: 2px;
+  --el-border-radius-small: 2px;
+  --el-border-radius-round: 2px;
+  --el-bg-color: var(--ide-editor);
+  --el-bg-color-page: var(--ide-editor);
+  --el-bg-color-overlay: #252526;
+  --el-text-color-primary: var(--nm-text-strong);
+  --el-text-color-regular: var(--nm-text);
+  --el-text-color-secondary: var(--nm-text-dim);
+  --el-text-color-placeholder: var(--nm-text-muted);
+  --el-border-color: #3c3c3c;
+  --el-border-color-light: #3c3c3c;
+  --el-border-color-lighter: #2f2f2f;
+  --el-border-color-extra-light: #2b2b2b;
+  --el-border-color-hover: #5a5a5a;
+  --el-fill-color: #2d2d2d;
+  --el-fill-color-light: #2a2d2e;
+  --el-fill-color-lighter: #252526;
+  --el-fill-color-blank: var(--ide-input);
+  --el-color-primary: var(--ide-button);
+  --el-color-primary-light-3: var(--ide-button-hover);
+  --el-color-primary-light-5: #1f6fa8;
+  --el-color-primary-light-7: #0b3a57;
+  --el-color-primary-light-8: #0a3350;
+  --el-color-primary-light-9: #092c45;
+  --el-color-primary-dark-2: #0b5387;
+  --el-color-success: #3c9a45;
+  --el-color-warning: #cca700;
+  --el-color-danger: #d13d3d;
+  --el-color-info: #6f6f6f;
+  --el-box-shadow-light: 0 0 8px 2px rgba(0, 0, 0, 0.36);
+  --el-box-shadow: 0 0 8px 2px rgba(0, 0, 0, 0.36);
+  --el-mask-color: rgba(0, 0, 0, 0.45);
+}
+
+/* inputs */
+.el-input__wrapper, .el-textarea__inner, .el-select__wrapper {
+  background: var(--ide-input) !important;
+  box-shadow: 0 0 0 1px var(--ide-input) inset !important;
+  border-radius: 2px !important;
+}
+.el-input__wrapper.is-focus, .el-select__wrapper.is-focused, .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--ide-focus) inset !important;
+}
+.el-input-number__decrease, .el-input-number__increase { background: #333 !important; border-color: #3c3c3c !important; }
+
+/* buttons: primary = VS Code button, default = secondary button */
+.el-button { border-radius: 2px; font-weight: 400; }
+.el-button--default:not(.is-link):not(.is-text) {
+  --el-button-bg-color: var(--ide-button-2);
+  --el-button-border-color: var(--ide-button-2);
+  --el-button-hover-bg-color: var(--ide-button-2-hover);
+  --el-button-hover-border-color: var(--ide-button-2-hover);
+  --el-button-text-color: var(--nm-text-strong);
+  --el-button-hover-text-color: #ffffff;
+}
+.el-button--primary:not(.is-plain) {
+  --el-button-bg-color: var(--ide-button);
+  --el-button-border-color: var(--ide-button);
+  --el-button-hover-bg-color: var(--ide-button-hover);
+  --el-button-hover-border-color: var(--ide-button-hover);
+}
+.el-button.is-plain { background: transparent; }
+
+/* tables: dense rows, flat header */
+.el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: var(--ide-sidebar);
+  --el-table-row-hover-bg-color: var(--ide-hover);
+  --el-table-border-color: #2b2b2b;
+  --el-table-text-color: var(--nm-text);
+  --el-table-header-text-color: var(--nm-text-dim);
+  font-size: 12.5px;
+}
+.el-table th.el-table__cell { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 5px 0; }
+.el-table .el-table__cell { padding: 4px 0; }
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell { background: rgba(255, 255, 255, 0.015); }
+.el-table__inner-wrapper::before { display: none; }
+
+/* virtualized tables (el-table-v2): same look */
+.el-table-v2 {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: var(--ide-sidebar);
+  --el-table-row-hover-bg-color: var(--ide-hover);
+  --el-table-border-color: #2b2b2b;
+  --el-table-text-color: var(--nm-text);
+  --el-table-header-text-color: var(--nm-text-dim);
+  font-size: 12.5px;
+}
+.el-table-v2__header-cell { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* tags: small flat badges */
+.el-tag { border-radius: 2px; height: 20px; padding: 0 6px; font-size: 11px; }
+
+/* dialogs / message boxes / dropdowns look like VS Code widgets */
+.el-dialog, .el-message-box {
+  --el-dialog-bg-color: #252526;
+  background: #252526 !important;
+  border: 1px solid #454545;
+  border-radius: 4px !important;
+}
+.el-message-box { --el-messagebox-title-color: var(--nm-text-strong); }
+.el-dropdown-menu { --el-dropdown-menuItem-hover-fill: var(--ide-selection-focus); --el-dropdown-menuItem-hover-color: #fff; padding: 4px 0 !important; }
+.el-dropdown-menu__item { font-size: 12.5px; line-height: 26px; padding: 0 20px !important; }
+.el-popper.is-light, .el-dropdown__popper.el-popper { background: #252526 !important; border: 1px solid #454545 !important; }
+.el-tooltip__popper.is-dark, .el-popper.is-dark { background: #252526 !important; color: var(--nm-text) !important; border: 1px solid #454545 !important; }
+.el-message { border-radius: 2px; background: #252526; border-color: #454545; }
+
+/* alerts read as VS Code notifications: subtle, thin colored edge */
+.el-alert {
+  padding: 7px 10px !important;
+  border-radius: 2px !important;
+  background: #252526 !important;
+  border: 1px solid #3c3c3c;
+  border-left: 3px solid var(--nm-info);
+}
+.el-alert--warning { border-left-color: var(--nm-warning); }
+.el-alert--error { border-left-color: var(--nm-danger); }
+.el-alert--success { border-left-color: var(--nm-success); }
+.el-alert .el-alert__icon { font-size: 14px !important; width: 14px !important; margin-right: 8px; }
+.el-alert .el-alert__title, .el-alert .el-alert__description { font-size: 12.5px !important; color: var(--nm-text) !important; margin: 0; }
+.el-alert.is-light .el-alert__icon { color: inherit; }
+.el-alert--info .el-alert__icon { color: var(--nm-info); }
+.el-alert--warning .el-alert__icon { color: var(--nm-warning); }
+.el-alert--error .el-alert__icon { color: var(--nm-danger); }
+.el-alert--success .el-alert__icon { color: var(--nm-success); }
+
+/* form labels a bit quieter */
+.el-form-item__label { color: var(--nm-text); font-size: 12.5px; }
+.el-form-item { margin-bottom: 14px; }
+.el-checkbox__inner, .el-radio__inner { background: var(--ide-input); border-color: #5a5a5a; }
+.el-progress-bar__outer { background: #3c3c3c !important; border-radius: 1px !important; }
+.el-progress-bar__inner { border-radius: 1px !important; }
+
+/* --------------------------------------------------------------------------
+   App building blocks (used by the views)
+   -------------------------------------------------------------------------- */
+.nm-content {
+  padding: 16px 20px;
+  overflow: auto;
+  width: 100%;
+  min-width: 0;
+}
+.nm-content > * { width: 100%; }
+
+/* A flat section of the editor, like a settings group in VS Code. */
+.nm-card {
+  background: transparent;
+  border: 1px solid var(--nm-border-soft);
+  border-radius: 2px;
+  padding: 14px 16px;
+  box-shadow: none;
+  width: 100%;
+}
+
+.nm-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  width: 100%;
+}
+.nm-grid-2 > * { min-width: 0; }
+@media (max-width: 960px) {
+  .nm-grid-2 { grid-template-columns: 1fr; }
+}
+
+/* uppercase section header, like "EXPLORER" / settings groups */
+.nm-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--nm-text-dim);
+  margin-bottom: 10px;
+}
+
+.nm-footer-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.nm-muted { color: var(--nm-text-dim); font-size: 12px; }
+
+.nm-code {
+  font-family: var(--nm-mono);
+  font-size: 12px;
+  background: var(--ide-panel);
+  padding: 8px 10px;
+  border: 1px solid var(--nm-border-soft);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.nm-status-dot {
+  display: inline-block;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--nm-text-muted);
+}
+.nm-status-dot.ok { background: var(--nm-success); }
+.nm-status-dot.off { background: var(--nm-danger); }
+
+.nm-brand-img { width: 24px; height: 24px; display: block; }
+
+/* small icon button used in toolbars (sidebar header, panel header, tabs) */
+.ide-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--nm-text);
+  cursor: pointer;
+  font-size: 14px;
+}
+.ide-icon-btn:hover { background: rgba(90, 93, 94, 0.31); }
+.ide-icon-btn:disabled { opacity: 0.4; cursor: default; background: transparent; }
+
+@keyframes ide-pulse { 50% { opacity: 0.35; } }
+.ide-pulse { animation: ide-pulse 1.4s ease-in-out infinite; }
+
+/* --------------------------------------------------------------------------
+   DBine: explorer tree, code and data surfaces
+   -------------------------------------------------------------------------- */
+.el-tree, .el-tree-v2 {
+  --el-tree-node-hover-bg-color: var(--ide-hover);
+  --el-tree-text-color: var(--nm-text);
+  --el-tree-expand-icon-color: var(--nm-text-dim);
+  background: transparent;
+  font-size: 13px;
+}
+.el-tree-node__content { height: 22px; }
+.el-tree-node.is-current > .el-tree-node__content,
+.el-tree-v2 .el-tree-node.is-current > .el-tree-node__content { background: var(--ide-selection); }
+
+/* CodeMirror inherits the workbench fonts and background */
+.cm-editor { height: 100%; font-size: 13px; background: var(--ide-editor) !important; }
+.cm-editor .cm-scroller { font-family: var(--nm-mono); line-height: 1.5; }
+.cm-editor.cm-focused { outline: none; }
+.cm-gutters { background: var(--ide-editor) !important; border-right: none !important; color: #6e7681 !important; }
+.cm-tooltip-autocomplete { font-family: var(--nm-mono); }
+
+/* cell values in grids */
+.nm-null { color: var(--nm-text-muted); font-style: italic; }
+.nm-num { color: #b5cea8; font-variant-numeric: tabular-nums; }
+.nm-bool { color: #569cd6; }
+
+/* tab bar inside an editor (results / data / structure) */
+.nm-subtabs {
+  display: flex;
+  align-items: stretch;
+  height: 30px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--nm-border-soft);
+  background: var(--ide-editor);
+  overflow-x: auto;
+}
+.nm-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--nm-text-dim);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+  white-space: nowrap;
+}
+.nm-subtab:hover { color: var(--nm-text-strong); }
+.nm-subtab.active { color: var(--nm-text-strong); border-bottom-color: var(--ide-focus); }
+
+/* toolbar strip on top of an editor */
+.nm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--nm-border-soft);
+  background: var(--ide-editor);
+}
+.nm-toolbar .el-select { width: 180px; }
+.nm-spacer { flex: 1; }

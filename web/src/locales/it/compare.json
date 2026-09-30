@@ -1,0 +1,114 @@
+{
+  "connectFailed": "impossibile connettersi",
+  "pickLeftDatabase": "Scegli il database di sinistra",
+  "pickRightConnection": "Scegli la connessione di destra",
+  "pickDifferent": "Scegli due database (o due schemi) diversi",
+  "kinds": {
+    "table": "Tabelle",
+    "view": "Viste",
+    "materializedView": "Viste materializzate",
+    "procedure": "Procedure",
+    "function": "Funzioni",
+    "trigger": "Trigger",
+    "sequence": "Sequenze",
+    "synonym": "Sinonimi",
+    "type": "Tipi",
+    "fulltextCatalog": "Cataloghi full-text",
+    "fulltextStoplist": "Elenchi di parole non significative",
+    "domain": "Domini",
+    "virtualTable": "Tabelle virtuali",
+    "dictionary": "Dizionari"
+  },
+  "status": {
+    "equal": "Uguale",
+    "changed": "Diversa",
+    "onlyLeft": "Solo a sinistra",
+    "onlyRight": "Solo a destra"
+  },
+  "objectsSameEngine": "Viste e procedure si trasferiscono solo tra database dello stesso motore",
+  "arrow": {
+    "table": {
+      "copyLeft": "Copia la tabella a sinistra",
+      "copyRight": "Copia la tabella a destra",
+      "createLeft": "Crea la tabella a sinistra",
+      "createRight": "Crea la tabella a destra",
+      "deleteLeft": "Elimina la tabella a sinistra",
+      "deleteRight": "Elimina la tabella a destra"
+    },
+    "object": {
+      "copyLeft": "Copia l'oggetto a sinistra",
+      "copyRight": "Copia l'oggetto a destra",
+      "createLeft": "Crea l'oggetto a sinistra",
+      "createRight": "Crea l'oggetto a destra",
+      "deleteLeft": "Elimina l'oggetto a sinistra",
+      "deleteRight": "Elimina l'oggetto a destra"
+    },
+    "item": {
+      "copyLeft": "Copia questo a sinistra",
+      "copyRight": "Copia questo a destra",
+      "createLeft": "Crea questo a sinistra",
+      "createRight": "Crea questo a destra",
+      "deleteLeft": "Elimina questo a sinistra",
+      "deleteRight": "Elimina questo a destra"
+    },
+    "pk": {
+      "copyLeft": "Copia la chiave primaria a sinistra",
+      "copyRight": "Copia la chiave primaria a destra"
+    },
+    "props": {
+      "copyLeft": "Copia il commento e le opzioni a sinistra",
+      "copyRight": "Copia il commento e le opzioni a destra"
+    }
+  },
+  "autoIncrement": "autoincremento",
+  "sections": {
+    "columns": "Colonne",
+    "indexes": "Indici",
+    "foreignKeys": "Chiavi esterne",
+    "checks": "Vincoli CHECK"
+  },
+  "primaryKey": "Chiave primaria",
+  "sync": {
+    "button": "Sincronizza",
+    "readOnly": "La connessione è di sola lettura",
+    "unsupported": "{{engine}} non applica modifiche allo schema da DBine",
+    "queryTitle": "Sincronizza {{name}}",
+    "confirm_one": "Verrà eseguita {{count}} istruzione su {{where}}.{{warnings}}",
+    "confirm_other": "Verranno eseguite {{count}} istruzioni su {{where}}.{{warnings}}",
+    "confirmWarnings": " Controlla gli avvisi prima di proseguire.",
+    "failed": "L'istruzione {{n}} di {{total}} non è riuscita ({{done}} eseguite): {{message}}",
+    "done": "{{where}} sincronizzato",
+    "generating": "Generazione dello script…",
+    "openAsQuery": "Apri come query",
+    "confirm_many": "Verranno eseguite {{count}} istruzioni su {{where}}.{{warnings}}",
+    "noChanges": "Nessuna modifica: trasferiscile con le frecce → / ←",
+    "changes_one": "{{count}} modifica (sinistra: {{left}}, destra: {{right}}): vedi gli script ed eseguili",
+    "changes_many": "{{count}} modifiche (sinistra: {{left}}, destra: {{right}}): vedi gli script ed eseguili",
+    "changes_other": "{{count}} modifiche (sinistra: {{left}}, destra: {{right}}): vedi gli script ed eseguili",
+    "confirmOrder": "Prima la sinistra e poi la destra; se qualcosa fallisce, si ferma lì.",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "Già eseguito"
+  },
+  "left": "Sinistra",
+  "right": "Destra",
+  "connection": "Connessione",
+  "database": "Database",
+  "schema": "Schema",
+  "allSchemas": "Tutti gli schemi",
+  "discard": "Scarta le modifiche di questo lato",
+  "swap": "Scambia",
+  "undo": "Annulla l'ultima modifica",
+  "compare": "Confronta",
+  "empty": {
+    "pick": "Scegli i due database (o due schemi) e fai clic su {compare}.",
+    "help": "Le differenze si trasferiscono da un lato all'altro con le frecce e si applicano con {sync}, che mostra lo script prima di eseguirlo."
+  },
+  "onlyDiff": "Solo differenze",
+  "ignoreCase": "Ignora maiuscole",
+  "ignoreComments": "Ignora commenti",
+  "noDifferences": "Nessuna differenza.",
+  "noObjects": "Nessun oggetto.",
+  "pendingChanges": "Con modifiche non applicate",
+  "pickItem": "Scegli una tabella o un oggetto dall'elenco.",
+  "tableProps": "Proprietà della tabella"
+}

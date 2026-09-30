@@ -1,0 +1,75 @@
+{
+  "tab": "Dati",
+  "menu": "Confronta i dati…",
+  "left": "Sinistra",
+  "right": "Destra",
+  "table": "Tabella",
+  "key": "Chiave (la primaria)",
+  "compare": "Confronta",
+  "pickBoth": "Scegli una tabella per lato.",
+  "same": "uguali",
+  "changed": "diverse",
+  "onlyLeft": "solo a sinistra",
+  "onlyRight": "solo a destra",
+  "syncRight": "Allinea la destra →",
+  "syncLeft": "← Allinea la sinistra",
+  "truncated": "Sono state confrontate le prime {{limit}} righe per lato: la tabella ne ha di più.",
+  "duplicates_one": "1 riga con chiave ripetuta è stata confrontata una sola volta.",
+  "duplicates_many": "{{count}} righe con chiave ripetuta sono state confrontate una sola volta.",
+  "duplicates_other": "{{count}} righe con chiave ripetuta sono state confrontate una sola volta.",
+  "onlyLeftColumns": "Colonne presenti solo a sinistra (non confrontate): {{list}}",
+  "onlyRightColumns": "Colonne presenti solo a destra (non confrontate): {{list}}",
+  "nothing": "Nessuna riga qui.",
+  "showingFirst": "Mostrate le prime {{shown}} di {{total}}; i pulsanti «Tutte» segnano anche quelle che non si vedono.",
+  "hint": "Scegli la tabella per ogni lato e premi Confronta. Le righe vengono abbinate per chiave primaria, anche su un’altra connessione o un altro motore.",
+  "syncTitle": "Applica le modifiche scelte",
+  "scriptSummary": "{{parts}}, nel linguaggio della destinazione. Controllalo prima di eseguirlo.",
+  "noChanges": "Nulla da applicare.",
+  "copied": "Copiato",
+  "openInQuery": "Apri in una query",
+  "run": "Esegui",
+  "applied": "Modifiche applicate",
+  "scriptName": "Sincronizza i dati",
+  "keyLabel": "Chiave",
+  "matchHint": "Segna le righe diverse e quelle che mancano da quel lato. Quelle da eliminare si scelgono a parte, nella loro vista.",
+  "bulk_one": "{{n}} riga segnata in questa vista.",
+  "bulk_many": "{{n}} righe segnate in questa vista.",
+  "bulk_other": "{{n}} righe segnate in questa vista.",
+  "allLeft": "← Tutte",
+  "allRight": "Tutte →",
+  "allNone": "Nessuna",
+  "arrow": {
+    "update": {
+      "left": "La sinistra riceve i valori della destra",
+      "right": "La destra riceve i valori della sinistra"
+    },
+    "insert": {
+      "left": "Inserisci questa riga a sinistra",
+      "right": "Inserisci questa riga a destra"
+    },
+    "delete": {
+      "left": "Elimina questa riga dalla sinistra",
+      "right": "Elimina questa riga dalla destra"
+    }
+  },
+  "bothSides": "Cambiano entrambi i lati: all’esecuzione, prima viene eseguito lo script di sinistra e poi quello di destra. Se uno fallisce, l’altro non viene eseguito.",
+  "failedOn": "Errore su {{side}}: {{error}}",
+  "mismatch": {
+    "title": "Non è la stessa tabella",
+    "name": "Attenzione: non stai confrontando la stessa tabella ({{left}} con {{right}}). Sincronizzare modificherebbe i dati di un'altra tabella.",
+    "schema": "Attenzione: è un'altra tabella con lo stesso nome in un altro schema ({{left}} con {{right}}). Sincronizzare modificherebbe i dati di un'altra tabella.",
+    "runAnyway": "Esegui comunque"
+  },
+  "count": {
+    "insert_one": "{{n}} inserimento",
+    "insert_many": "{{n}} inserimenti",
+    "insert_other": "{{n}} inserimenti",
+    "update_one": "{{n}} aggiornamento",
+    "update_many": "{{n}} aggiornamenti",
+    "update_other": "{{n}} aggiornamenti",
+    "delete_one": "{{n}} eliminazione",
+    "delete_many": "{{n}} eliminazioni",
+    "delete_other": "{{n}} eliminazioni",
+    "and": "e"
+  }
+}

@@ -1,0 +1,209 @@
+{
+  "defaultFileName": "risultato",
+  "defaultTableName": "tabella",
+  "running": "Esecuzione…",
+  "empty": "Esegui con {key} (la selezione o tutto il testo).",
+  "truncated": "Sono mostrate le prime {{shown}} di {{total}} righe.",
+  "tabs": {
+    "result": "Risultato",
+    "plan": "Piano di esecuzione",
+    "messages": "Messaggi"
+  },
+  "view": {
+    "label": "Vista del risultato",
+    "table": "Tabella",
+    "chart": "Grafico"
+  },
+  "export": {
+    "title": "Esporta il risultato",
+    "advanced": "Esportazione avanzata…",
+    "done_one": "Esportata {{rows}} riga",
+    "done_other": "Esportate {{rows}} righe",
+    "doneLoaded_one": "Esportata {{rows}} riga (quelle caricate). Per tutte: Esportazione avanzata (⌘E).",
+    "doneLoaded_other": "Esportate {{rows}} righe (quelle caricate). Per tutte: Esportazione avanzata (⌘E).",
+    "format": {
+      "json": "JSON",
+      "json_lines": "JSON Lines / NDJSON",
+      "sql": "SQL (INSERT)",
+      "csv": "CSV",
+      "csv_semicolon": "CSV (separato da punto e virgola)",
+      "csv_excel": "CSV per MS Excel",
+      "tsv": "TSV (separato da tabulazioni)",
+      "xlsx": "MS Excel (.xlsx)",
+      "xml": "XML"
+    },
+    "done_many": "Esportate {{rows}} righe",
+    "doneLoaded_many": "Esportate {{rows}} righe (quelle caricate). Per tutte: Esportazione avanzata (⌘E)."
+  },
+  "messages": {
+    "statement": "Istruzione {{n}}: {{text}}.",
+    "rows_one": "{{rows}} riga",
+    "rows_other": "{{rows}} righe",
+    "shown": " (ne sono mostrate {{rows}})",
+    "affected_one": "{{rows}} riga interessata",
+    "affected_other": "{{rows}} righe interessate",
+    "completed": "completata",
+    "rows_many": "{{rows}} righe",
+    "affected_many": "{{rows}} righe interessate"
+  },
+  "edit": {
+    "lookingUpTable": "ricerca della tabella e della sua chiave…",
+    "codeCopied": "Codice copiato",
+    "summary": "{{cells}} in {{rows}}, non ancora salvato.",
+    "cells_one": "{{count}} cella modificata",
+    "cells_other": "{{count}} celle modificate",
+    "rows_one": "{{count}} riga",
+    "rows_other": "{{count}} righe",
+    "addToQuery": "Aggiungi alla query",
+    "discard": "Scarta",
+    "cells_many": "{{count}} celle modificate",
+    "rows_many": "{{count}} righe"
+  },
+  "exportDialog": {
+    "title": "Esporta risultato",
+    "format": "Formato",
+    "rows": "Righe",
+    "loaded": "Quelle caricate ({{rows}})",
+    "all": "Tutte{{total}}: esegue di nuovo la query",
+    "allHelp": "Viene eseguita di nuovo in una sessione di sola lettura e scritta nel file man mano che arrivano le righe, senza limite. Se la query modifica dati, il motore la rifiuta.",
+    "truncated": "Il risultato è troncato da \"Righe max.\": si esportano solo le {{rows}} righe caricate.",
+    "header": "Intestazione con i nomi delle colonne",
+    "delimiter": "Separatore",
+    "tab": "tabulazione",
+    "nullText": "Testo per NULL",
+    "empty": "(vuoto)",
+    "quoteAll": "Racchiudi tutti i campi tra virgolette",
+    "bom": "BOM UTF-8 (accenti in Excel)",
+    "crlf": "Fine riga di Windows (CRLF)",
+    "pretty": "Con rientro (leggibile)",
+    "targetTable": "Tabella di destinazione",
+    "targetTablePlaceholder": "schema.tabella",
+    "rowsPerInsert": "Righe per INSERT",
+    "quote": "Virgolette degli identificatori",
+    "quoteDouble": "\"colonna\" (ANSI, PostgreSQL, Oracle…)",
+    "quoteBracket": "[colonna] (SQL Server)",
+    "quoteBacktick": "`colonna` (MySQL, BigQuery…)",
+    "sheet": "Nome del foglio",
+    "xmlRoot": "Elemento radice",
+    "xmlRow": "Elemento per riga",
+    "progress": "Esportazione…",
+    "progressRows_one": "Esportazione… {{rows}} riga",
+    "progressRows_other": "Esportazione… {{rows}} righe",
+    "cancelExport": "Annulla esportazione",
+    "submit": "Esporta…",
+    "done_one": "Esportata {{rows}} riga in {{seconds}} s",
+    "done_other": "Esportate {{rows}} righe in {{seconds}} s",
+    "progressRows_many": "Esportazione… {{rows}} righe",
+    "done_many": "Esportate {{rows}} righe in {{seconds}} s"
+  },
+  "grid": {
+    "cantEdit": "Impossibile modificare: {{reason}}",
+    "askValues": "Un valore per riga (o separati da virgola):",
+    "askSql": "Condizione SQL completa (va così com’è nel WHERE):",
+    "askSqlRight": "Ciò che segue «{{name}}» nel WHERE:",
+    "filterTitle": "Filtra «{{name}}»",
+    "valueRequired": "Scrivi un valore",
+    "copyCell": "Copia cella",
+    "viewValue": "Vedi valore…",
+    "editCell": "Modifica cella",
+    "setNull": "Imposta NULL",
+    "undoChange": "Annulla modifica",
+    "notEditable": "Non modificabile: {{reason}}",
+    "scopeSelected": "righe selezionate",
+    "scopeRow": "riga",
+    "scopeAll": "tutte le righe",
+    "copyHeader": "Copia ({{scope}})",
+    "copyAllWithHeaders": "Copia tutto con intestazioni",
+    "copyFormatHeader": "Formato di ⌘C",
+    "hideColumn": "Nascondi la colonna «{{name}}»",
+    "columnsMenu": "Colonne…",
+    "columns": "Colonne",
+    "filtered": "filtrata",
+    "showAll": "Mostra tutte",
+    "columnFilters": "Filtri per colonna",
+    "filterHelp": "Invio per applicare. Testo: contiene, =uguale, !non contiene, ^inizia con, finisce con$. Numeri e date: =, <>, >, >=, <, <=, 1,2,3. NULL / NOT NULL.",
+    "filterOptions": "Opzioni di filtro",
+    "before": "Prima: {{value}}",
+    "copyFormat": {
+      "tsv_headers": {
+        "label": "Copia con intestazioni",
+        "name": "Con intestazioni"
+      },
+      "tsv": {
+        "label": "Copia senza intestazioni",
+        "name": "Senza intestazioni"
+      },
+      "headers": {
+        "label": "Copia solo intestazioni",
+        "name": "Solo intestazioni"
+      },
+      "csv": {
+        "label": "Copia come CSV",
+        "name": "CSV"
+      },
+      "json": {
+        "label": "Copia come JSON",
+        "name": "JSON"
+      },
+      "json_lines": {
+        "label": "Copia come JSON Lines / NDJSON",
+        "name": "JSON Lines / NDJSON"
+      },
+      "yaml": {
+        "label": "Copia come YAML",
+        "name": "YAML"
+      },
+      "sql_insert": {
+        "label": "Copia come SQL INSERTs",
+        "name": "SQL INSERTs"
+      },
+      "sql_update": {
+        "label": "Copia come SQL UPDATEs",
+        "name": "SQL UPDATEs"
+      },
+      "mongo_insert": {
+        "label": "Copia come Mongo INSERTs",
+        "name": "Mongo INSERTs"
+      }
+    }
+  },
+  "chart": {
+    "kind": {
+      "bar": "Barre",
+      "hbar": "Barre orizzontali",
+      "stacked": "Barre in pila",
+      "line": "Linee",
+      "area": "Area",
+      "pie": "Torta",
+      "scatter": "Dispersione"
+    },
+    "agg": {
+      "none": "Senza raggruppare",
+      "sum": "Somma",
+      "avg": "Media",
+      "count": "Conteggio",
+      "min": "Minimo",
+      "max": "Massimo"
+    },
+    "others": "Altri",
+    "null": "(null)",
+    "seriesName": "{{agg}} di {{column}}",
+    "fileName": "grafico",
+    "kindTitle": "Tipo di grafico",
+    "category": "Categoria",
+    "xAxis": "Asse X",
+    "values": "Valori",
+    "numericColumns": "Colonne numeriche",
+    "splitBy": "Dividi per",
+    "splitByTitle": "Una serie per ogni valore di questa colonna",
+    "aggTitle": "Raggruppa per categoria",
+    "sort": {
+      "none": "Ordine originale",
+      "value": "Valore più alto prima",
+      "label": "Per categoria"
+    },
+    "noNumeric": "Questo risultato non ha colonne numeriche da rappresentare.",
+    "pickValues": "Scegli almeno una colonna in «Valori».",
+    "tooMany": "Troppe categorie ({{n}}): raggruppa per un’altra colonna o scegli un’aggregazione."
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "tab": "Données",
+  "menu": "Comparer les données…",
+  "left": "Gauche",
+  "right": "Droite",
+  "table": "Table",
+  "key": "Clé (la primaire)",
+  "compare": "Comparer",
+  "pickBoth": "Choisissez une table de chaque côté.",
+  "same": "identiques",
+  "changed": "différentes",
+  "onlyLeft": "seulement à gauche",
+  "onlyRight": "seulement à droite",
+  "syncRight": "Aligner la droite →",
+  "syncLeft": "← Aligner la gauche",
+  "truncated": "Les {{limit}} premières lignes de chaque côté ont été comparées : la table en a plus.",
+  "duplicates_one": "1 ligne à clé répétée a été comparée une seule fois.",
+  "duplicates_many": "{{count}} lignes à clé répétée ont été comparées une seule fois.",
+  "duplicates_other": "{{count}} lignes à clé répétée ont été comparées une seule fois.",
+  "onlyLeftColumns": "Colonnes présentes seulement à gauche (non comparées) : {{list}}",
+  "onlyRightColumns": "Colonnes présentes seulement à droite (non comparées) : {{list}}",
+  "nothing": "Aucune ligne ici.",
+  "showingFirst": "Affichage des {{shown}} premières sur {{total}} ; les boutons « Toutes » marquent aussi celles qui ne sont pas visibles.",
+  "hint": "Choisissez la table de chaque côté puis Comparer. Les lignes sont appariées par leur clé primaire, même sur une autre connexion ou un autre moteur.",
+  "syncTitle": "Appliquer les modifications choisies",
+  "scriptSummary": "{{parts}}, dans le langage de la cible. Vérifiez-le avant de l’exécuter.",
+  "noChanges": "Rien à appliquer.",
+  "copied": "Copié",
+  "openInQuery": "Ouvrir dans une requête",
+  "run": "Exécuter",
+  "applied": "Modifications appliquées",
+  "scriptName": "Synchroniser les données",
+  "keyLabel": "Clé",
+  "matchHint": "Marque les lignes différentes et celles qui manquent de ce côté. Celles qu’il faudrait supprimer se choisissent à part, dans leur propre vue.",
+  "bulk_one": "{{n}} ligne marquée dans cette vue.",
+  "bulk_many": "{{n}} lignes marquées dans cette vue.",
+  "bulk_other": "{{n}} lignes marquées dans cette vue.",
+  "allLeft": "← Toutes",
+  "allRight": "Toutes →",
+  "allNone": "Aucune",
+  "arrow": {
+    "update": {
+      "left": "La gauche reprend les valeurs de la droite",
+      "right": "La droite reprend les valeurs de la gauche"
+    },
+    "insert": {
+      "left": "Insérer cette ligne à gauche",
+      "right": "Insérer cette ligne à droite"
+    },
+    "delete": {
+      "left": "Supprimer cette ligne de la gauche",
+      "right": "Supprimer cette ligne de la droite"
+    }
+  },
+  "bothSides": "Les deux côtés changent : à l’exécution, le script de gauche s’exécute d’abord, puis celui de droite. Si l’un échoue, l’autre ne s’exécute pas.",
+  "failedOn": "Échec sur {{side}} : {{error}}",
+  "mismatch": {
+    "title": "Ce n'est pas la même table",
+    "name": "Attention : vous ne comparez pas la même table ({{left}} avec {{right}}). La synchronisation modifierait les données d'une autre table.",
+    "schema": "Attention : c'est une autre table portant le même nom dans un autre schéma ({{left}} avec {{right}}). La synchronisation modifierait les données d'une autre table.",
+    "runAnyway": "Exécuter quand même"
+  },
+  "count": {
+    "insert_one": "{{n}} insertion",
+    "insert_many": "{{n}} insertions",
+    "insert_other": "{{n}} insertions",
+    "update_one": "{{n}} mise à jour",
+    "update_many": "{{n}} mises à jour",
+    "update_other": "{{n}} mises à jour",
+    "delete_one": "{{n}} suppression",
+    "delete_many": "{{n}} suppressions",
+    "delete_other": "{{n}} suppressions",
+    "and": "et"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "title": "Assistant",
+  "defaultModel": "par défaut",
+  "reasoning": "Raisonnement",
+  "head": {
+    "setup": "Modèles et fournisseurs",
+    "newChat": "Nouvelle conversation",
+    "close": "Fermer (⌘I)"
+  },
+  "context": {
+    "noDatabase": "Aucune base sélectionnée",
+    "openQuery": "requête ouverte",
+    "schema": "structure",
+    "sent": "contexte : {{context}}"
+  },
+  "suggest": {
+    "whyFails": "Pourquoi la dernière exécution échoue-t-elle ? Corrige-la.",
+    "explain": "Explique-moi la requête de l'éditeur",
+    "optimize": "Relis et optimise la requête de l'éditeur",
+    "largestTables": "Écris une requête qui liste les plus grandes tables",
+    "relatedTables": "Quelles tables sont liées aux clients ?",
+    "joinAggregate": "Comment écrire un JOIN avec agrégation ?"
+  },
+  "code": {
+    "appended": "Ajouté à la fin de la requête. Relisez-le et exécutez-le quand vous voulez.",
+    "newQueryTitle": "De l'assistant",
+    "replaced": "Requête remplacée (⌘Z pour annuler).",
+    "code": "code",
+    "appendHint": "Ajouter à la fin de la requête ouverte",
+    "newQueryHint": "Ouvrir dans une nouvelle requête",
+    "append": "Ajouter à la requête",
+    "newQuery": "Nouvelle requête",
+    "replaceHint": "Remplacer tout le contenu de l'éditeur (⌘Z annule)",
+    "replace": "Remplacer",
+    "destructive": "Modifie des données ou la structure. Rien n'a été exécuté : relisez-le avant de l'exécuter vous-même."
+  },
+  "phase": {
+    "schema": "Lecture de la structure de la base…",
+    "engine": "Téléchargement du moteur d'IA, une seule fois…",
+    "thinking": "Réflexion…"
+  },
+  "setup": {
+    "detecting": "Recherche d'outils d'IA sur cette machine…",
+    "lead": "L'assistant a besoin d'un modèle. Le plus simple : téléchargez le {model}. Il tourne sur cette machine, sans rien installer et sans que rien n'en sorte.",
+    "leadModel": "modèle intégré",
+    "embedded": "Intégré à DBine",
+    "embeddedUnavailable": "Le modèle intégré n'est pas disponible sur cette plateforme.",
+    "recommended": "recommandé pour cette machine",
+    "use": "Utiliser",
+    "pause": "Suspendre",
+    "pauseHint": "Reprend là où il s'est arrêté",
+    "download": "Télécharger ({{size}})",
+    "detected": "Détectés sur cette machine",
+    "pull": "Télécharger {{model}}",
+    "cliNote": "Claude Code et Codex utilisent votre propre compte (abonnement ou API). Ils tournent sans outils : ils ne peuvent ni lire de fichiers, ni exécuter de commandes, ni se connecter à vos bases.",
+    "redetect": "Détecter à nouveau"
+  },
+  "privacy": {
+    "local": "Local : rien ne quitte cette machine.",
+    "remote": "Envoyé à {{vendor}} avec votre compte : la question, la structure et l'éditeur, jamais les données."
+  },
+  "empty": {
+    "lead": "Demandez-lui des requêtes, d'expliquer ou de corriger celle de l'éditeur, ou interrogez-le sur la structure de la base.",
+    "neverRuns": "L'assistant n'exécute jamais rien : ce qu'il écrit va dans votre requête et vous décidez de l'exécuter ou non."
+  },
+  "compose": {
+    "placeholder": "Posez une question ou demandez une requête… (Entrée envoie, Maj+Entrée nouvelle ligne)",
+    "send": "Envoyer"
+  }
+}

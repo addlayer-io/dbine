@@ -1,0 +1,78 @@
+== Physical Plan ==
+AdaptiveSparkPlan (12)
++- HashAggregate (11)
+   +- Exchange (10)
+      +- HashAggregate (9)
+         +- Project (8)
+            +- BroadcastHashJoin Inner BuildRight (7)
+               :- Project (3)
+               :  +- Filter (2)
+               :     +- Scan parquet spark_catalog.default.o (1)
+               +- BroadcastExchange (6)
+                  +- Filter (5)
+                     +- Scan parquet spark_catalog.default.c (4)
+
+
+(1) Scan parquet spark_catalog.default.o
+Output [3]: [cid#5L, total#6, day#7]
+Batched: true
+Location: InMemoryFileIndex [file:/opt/spark/work-dir/spark-warehouse/o]
+PushedFilters: [IsNotNull(day), GreaterThan(day,2024-01-01), IsNotNull(cid)]
+ReadSchema: struct<cid:bigint,total:double,day:date>
+
+(2) Filter
+Input [3]: [cid#5L, total#6, day#7]
+Condition : ((isnotnull(day#7) AND (day#7 > 2024-01-01)) AND isnotnull(cid#5L))
+
+(3) Project
+Output [2]: [cid#5L, total#6]
+Input [3]: [cid#5L, total#6, day#7]
+
+(4) Scan parquet spark_catalog.default.c
+Output [2]: [id#8L, name#9]
+Batched: true
+Location: InMemoryFileIndex [file:/opt/spark/work-dir/spark-warehouse/c]
+PushedFilters: [IsNotNull(id)]
+ReadSchema: struct<id:bigint,name:string>
+
+(5) Filter
+Input [2]: [id#8L, name#9]
+Condition : isnotnull(id#8L)
+
+(6) BroadcastExchange
+Input [2]: [id#8L, name#9]
+Arguments: HashedRelationBroadcastMode(List(input[0, bigint, false]),false), [plan_id=50]
+
+(7) BroadcastHashJoin
+Left keys [1]: [cid#5L]
+Right keys [1]: [id#8L]
+Join type: Inner
+Join condition: None
+
+(8) Project
+Output [2]: [total#6, name#9]
+Input [4]: [cid#5L, total#6, id#8L, name#9]
+
+(9) HashAggregate
+Input [2]: [total#6, name#9]
+Keys [1]: [name#9]
+Functions [1]: [partial_sum(total#6)]
+Aggregate Attributes [1]: [sum#14]
+Results [2]: [name#9, sum#15]
+
+(10) Exchange
+Input [2]: [name#9, sum#15]
+Arguments: hashpartitioning(name#9, 200), ENSURE_REQUIREMENTS, [plan_id=55]
+
+(11) HashAggregate
+Input [2]: [name#9, sum#15]
+Keys [1]: [name#9]
+Functions [1]: [sum(total#6)]
+Aggregate Attributes [1]: [sum(total#6)#10]
+Results [2]: [name#9, sum(total#6)#10 AS sum(total)#11]
+
+(12) AdaptiveSparkPlan
+Output [2]: [name#9, sum(total)#11]
+Arguments: isFinalPlan=false
+
+

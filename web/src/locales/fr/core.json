@@ -1,0 +1,126 @@
+{
+  "actions": {
+    "createQueryFailed": "Impossible de créer la requête : {{error}}",
+    "nameRequired": "Saisissez un nom",
+    "create": "Créer",
+    "renameQuery": {
+      "prompt": "Nom de la requête :",
+      "title": "Renommer"
+    },
+    "copyName": "{{name}} (copie)",
+    "copyNameN": "{{name}} (copie {{n}})",
+    "deleteQuery": {
+      "confirm": "Supprimer la requête « {{name}} » ? Cette action est irréversible.",
+      "title": "Supprimer la requête"
+    },
+    "newObjectPrefix": "nouveau_",
+    "createDatabase": {
+      "prompt": "Nom de la nouvelle base :",
+      "title": "Nouvelle base de données",
+      "done": "Base « {{name}} » créée"
+    },
+    "dropObjects": {
+      "more": "{{list}} et {{count}} de plus",
+      "confirmOne": "Supprimer « {{name}} » de {{where}} ? Il sera supprimé avec toutes ses données et cette action est irréversible.",
+      "confirmMany": "{{count}} objets vont être supprimés de {{where}}, avec toutes leurs données : {{list}}.\n\nCette action est irréversible. Tapez « {{word}} » pour confirmer :",
+      "titleMany": "Supprimer {{count}} objets",
+      "word": "supprimer",
+      "typeWord": "Tapez « {{word}} »",
+      "failed": "Impossible de supprimer {{failed}} sur {{total}}",
+      "droppedOne": "« {{name}} » supprimé",
+      "droppedMany": "{{count}} objets supprimés"
+    },
+    "dropDatabase": {
+      "confirm": "Ceci supprime la base « {{name}} » de {{server}} avec tout son contenu. Cette action est irréversible.\n\nTapez le nom de la base pour confirmer :",
+      "title": "Supprimer la base de données",
+      "mismatch": "Le nom ne correspond pas",
+      "done": "Base « {{name}} » supprimée"
+    }
+  },
+  "files": {
+    "saved": "Enregistré",
+    "saveFailed": "Impossible d'enregistrer : {{error}}"
+  },
+  "format": {
+    "redis": "Les commandes Redis s'écrivent une par ligne : il n'y a rien à formater.",
+    "unavailable": "Il n'y a pas encore de formateur pour ce langage."
+  },
+  "copy": {
+    "withHeadersLabel": "Copier avec les en-têtes",
+    "withHeaders": "Avec en-têtes",
+    "withoutHeadersLabel": "Copier sans les en-têtes",
+    "withoutHeaders": "Sans en-têtes",
+    "headersOnlyLabel": "Copier uniquement les en-têtes",
+    "headersOnly": "En-têtes uniquement",
+    "as": "Copier en {{format}}"
+  },
+  "export": {
+    "csvSemicolon": "CSV (séparé par des points-virgules)",
+    "csvExcel": "CSV pour MS Excel",
+    "tsv": "TSV (séparé par des tabulations)",
+    "defaultTable": "table",
+    "defaultSheet": "Résultat",
+    "defaultFile": "resultat"
+  },
+  "filter": {
+    "clear": "Retirer le filtre",
+    "values": "Filtrer plusieurs valeurs…",
+    "isNull": "Est NULL",
+    "notNull": "N'est pas NULL",
+    "isTrue": "Est vrai",
+    "isFalse": "Est faux",
+    "trueOrNull": "Est vrai ou NULL",
+    "falseOrNull": "Est faux ou NULL",
+    "isEmpty": "Est vide",
+    "notEmpty": "N'est pas vide",
+    "eq": "Égal à…",
+    "ne": "Différent de…",
+    "contains": "Contient…",
+    "notContains": "Ne contient pas…",
+    "startsWith": "Commence par…",
+    "endsWith": "Se termine par…",
+    "gt": "Supérieur à…",
+    "ge": "Supérieur ou égal à…",
+    "lt": "Inférieur à…",
+    "le": "Inférieur ou égal à…",
+    "sql": "Condition SQL…",
+    "sqlRight": "Condition SQL, partie droite…",
+    "describeTrueOrNull": "TRUE ou NULL",
+    "describeFalseOrNull": "FALSE ou NULL"
+  },
+  "gridEdit": {
+    "notFind": "la requête n'est pas un find sur une collection",
+    "engineCantEdit": "ce moteur ne permet pas de modifier les résultats d'une requête : ouvrez l'objet depuis l'explorateur",
+    "queryNotFound": "la requête qui a produit ce résultat est introuvable",
+    "usesWith": "la requête utilise WITH : modifiez depuis la table",
+    "combinesRows": "le résultat combine ou regroupe des lignes : seules les requêtes sur une seule table sont modifiables",
+    "noTable": "la requête ne lit pas une table",
+    "tableUnknown": "la table de la requête n'est pas reconnue",
+    "combinesTables": "le résultat combine des tables : seules les requêtes sur une seule table sont modifiables",
+    "missingKey": "le résultat n'inclut pas la clé primaire ({{columns}}) : ajoutez-la au SELECT pour pouvoir modifier",
+    "noPrimaryKey": "La table n'a pas de clé primaire : le WHERE utilise toutes les colonnes (cela peut affecter plusieurs lignes en cas de doublons)."
+  },
+  "connections": {
+    "downloading": "Téléchargement de {{component}}, une seule fois… {{pct}} % ({{done}} sur {{total}} Mo)",
+    "connected": "Connecté : {{version}}",
+    "connectFailed": "Impossible de se connecter : {{error}}",
+    "password": "Mot de passe de {{user}} sur {{connection}} :",
+    "queryName": "Requête {{n}}"
+  },
+  "ai": {
+    "stopped": "Arrêté.",
+    "downloading": "téléchargement",
+    "starting": "démarrage"
+  },
+  "families": {
+    "relational": "Relationnelles",
+    "analytical": "Analytiques",
+    "document": "Documents",
+    "keyValue": "Clé-valeur",
+    "wideColumn": "Colonnes larges",
+    "search": "Recherche",
+    "timeSeries": "Séries temporelles",
+    "streaming": "Streaming",
+    "graph": "Graphes"
+  }
+}

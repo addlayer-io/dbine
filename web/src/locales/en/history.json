@@ -1,0 +1,18 @@
+{
+  "title": "History",
+  "search": "Search the history",
+  "empty": "You haven't run anything yet. What you run from the editor shows up here, grouped by server.",
+  "noMatch": "Nothing matches the search.",
+  "clear": "Clear history",
+  "clearTitle": "Clear history",
+  "clearConfirm": "Clear this machine's whole query history?",
+  "openNew": "Open in a new query",
+  "copySql": "Copy SQL",
+  "copied": "Copied",
+  "deleteHost": "Clear the history of {{host}}",
+  "connectionGone": "The connection “{{name}}” no longer exists: copy the SQL to use it in another one.",
+  "more": "Show more",
+  "rows_one": "1 row",
+  "rows_many": "{{count}} rows",
+  "rows_other": "{{count}} rows"
+}

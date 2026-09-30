@@ -1,0 +1,25 @@
+[package]
+name = "dbine-driver-flightsql"
+version = "0.1.1"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+edition.workspace = true
+license.workspace = true
+description = "DBine driver for Arrow Flight SQL servers (GizmoSQL, Dremio, InfluxDB 3, Doris…)"
+
+[dependencies]
+dbine-driver = { path = "../../dbine-driver" }
+tokio.workspace = true
+serde_json.workspace = true
+futures.workspace = true
+tracing.workspace = true
+# Same arrow version as duckdb's, so the arrow crates are shared; the
+# extra weight is tonic, prost and arrow-flight itself.
+arrow-flight = { version = "58.4", features = ["flight-sql", "tls-ring", "tls-webpki-roots"] }
+arrow-array = "58.4"
+arrow-schema = "58.4"
+arrow-cast = "58.4"
+arrow-ipc = "58.4"
+tonic = { version = "0.14", default-features = false, features = ["transport"] }
+prost = { version = "0.14", default-features = false }
+
+[dev-dependencies]
+reqwest.workspace = true

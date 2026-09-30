@@ -1,0 +1,23 @@
+[package]
+name = "dbine-driver-duckdb"
+version = "0.1.1"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dbine-driver = { path = "../../dbine-driver" }
+tokio.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+# DuckDB's library is not built in: its official build (parquet, json and
+# icu included) is downloaded on first use and loaded at runtime, which
+# keeps ~30 MB out of the app. `loadable-extension` makes every C API call
+# go through a function table that `loader` fills from that library.
+duckdb = { version = "=1.10505.0", default-features = false, features = ["loadable-extension"] }
+libloading = "0.8"
+sha2 = "0.10"
+zip = { version = "8", default-features = false, features = ["deflate"] }

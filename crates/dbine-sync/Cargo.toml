@@ -1,0 +1,26 @@
+[package]
+name = "dbine-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DBine cloud backup: an end-to-end encrypted snapshot of the IDE state kept in the user's own Google Drive, OneDrive or a folder"
+
+[dependencies]
+dbine-core = { path = "../dbine-core" }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+base64.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+rand = "0.8"
+sha2 = "0.10"
+url = "2"
+
+[dev-dependencies]
+tempfile = "3.27.0"

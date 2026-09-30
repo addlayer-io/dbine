@@ -1,0 +1,116 @@
+[package]
+name = "dbine-plugin-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A driver crate as its own process (downloaded on first use): `--no-default-features --features <crate>` builds the host of one crate"
+
+[[bin]]
+name = "dbine-plugin-host"
+path = "src/main.rs"
+
+# Bumped by hand to publish every driver again with the same versions: a
+# security fix in a dependency they all share (rustls, tokio…) or a change
+# in dbine-driver / dbine-plugin they should all get. Part of each
+# published file's id (docs/drivers-bajo-demanda.md).
+[package.metadata.dbine]
+drivers-epoch = 3
+
+[dependencies]
+# One process-wide TLS crypto provider, installed at start: with several
+# drivers in one process more than one is compiled in, and clients that rely
+# on the default (the AWS SDK's) can't pick one by themselves.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+dbine-plugin = { path = "../dbine-plugin" }
+dbine-drivers = { path = "../dbine-drivers", default-features = false }
+dbine-driver = { path = "../dbine-driver" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+tempfile = "3"
+flate2 = "1"
+sha2 = "0.10"
+
+[features]
+# Every driver crate, for tests and for writing the manifest; a release
+# host enables exactly one.
+default = [
+    "athena",
+    "bigquery",
+    "cassandra",
+    "clickhouse",
+    "cosmosdb",
+    "couchdb",
+    "databricks",
+    "dsql",
+    "duckdb",
+    "dynamodb",
+    "elasticsearch",
+    "firebird",
+    "hana",
+    "influxdb",
+    "iotdb",
+    "ksqldb",
+    "mongodb",
+    "mysql",
+    "odbc",
+    "oracle",
+    "phoenix",
+    "postgres",
+    "redis",
+    "snowflake",
+    "solr",
+    "spanner",
+    "sqlite",
+    "sqlserver",
+    "trino",
+    "libsql",
+    "neo4j",
+    "orientdb",
+    "couchbase",
+    "dremio",
+    "drill",
+    "etcd",
+    "flightsql",
+    "tdengine",
+]
+athena = ["dbine-drivers/athena"]
+bigquery = ["dbine-drivers/bigquery"]
+cassandra = ["dbine-drivers/cassandra"]
+clickhouse = ["dbine-drivers/clickhouse"]
+cosmosdb = ["dbine-drivers/cosmosdb"]
+couchdb = ["dbine-drivers/couchdb"]
+databricks = ["dbine-drivers/databricks"]
+dsql = ["dbine-drivers/dsql"]
+duckdb = ["dbine-drivers/duckdb"]
+dynamodb = ["dbine-drivers/dynamodb"]
+elasticsearch = ["dbine-drivers/elasticsearch"]
+firebird = ["dbine-drivers/firebird"]
+hana = ["dbine-drivers/hana"]
+influxdb = ["dbine-drivers/influxdb"]
+iotdb = ["dbine-drivers/iotdb"]
+ksqldb = ["dbine-drivers/ksqldb"]
+mongodb = ["dbine-drivers/mongodb"]
+mysql = ["dbine-drivers/mysql"]
+odbc = ["dbine-drivers/odbc"]
+oracle = ["dbine-drivers/oracle"]
+phoenix = ["dbine-drivers/phoenix"]
+postgres = ["dbine-drivers/postgres"]
+redis = ["dbine-drivers/redis"]
+snowflake = ["dbine-drivers/snowflake"]
+solr = ["dbine-drivers/solr"]
+spanner = ["dbine-drivers/spanner"]
+sqlite = ["dbine-drivers/sqlite"]
+sqlserver = ["dbine-drivers/sqlserver"]
+trino = ["dbine-drivers/trino"]
+libsql = ["dbine-drivers/libsql"]
+neo4j = ["dbine-drivers/neo4j"]
+orientdb = ["dbine-drivers/orientdb"]
+couchbase = ["dbine-drivers/couchbase"]
+dremio = ["dbine-drivers/dremio"]
+drill = ["dbine-drivers/drill"]
+etcd = ["dbine-drivers/etcd"]
+flightsql = ["dbine-drivers/flightsql"]
+tdengine = ["dbine-drivers/tdengine"]

@@ -1,0 +1,62 @@
+{
+  "primaryKey": "Clé primaire",
+  "foreignKey": "Clé étrangère",
+  "unnamedForeignKey": "Clé étrangère sans nom",
+  "exportFailed": "Impossible d'exporter l'image : {{error}}",
+  "busy": "Disposition de {{tables}} tables et {{relations}} relations…",
+  "hint": "Faites glisser pour vous déplacer · ⌘/pincement + molette pour zoomer · double-clic ouvre la table",
+  "tab": {
+    "connectFailed": "Impossible de se connecter.",
+    "reading": "Lecture de la structure de la base…",
+    "drawFailed": "Impossible de dessiner le diagramme : {{error}}",
+    "fileName": "diagramme-{{name}}",
+    "fileNameDefault": "base"
+  },
+  "toolbar": {
+    "tables": "Tables",
+    "relations": "Relations",
+    "simplifiedLayout": "disposition simplifiée",
+    "simplifiedLayoutTitle": "La disposition automatique a échoué avec cette structure : les tables sont affichées en grille (vous pouvez les déplacer à la main).",
+    "searchPlaceholder": "Rechercher une table…",
+    "allSchemas": "Tous les schémas",
+    "allColumns": "Toutes les colonnes",
+    "keysOnly": "Clés seulement",
+    "relayout": "Réorganiser",
+    "relayoutTitle": "Réorganiser les tables automatiquement",
+    "svgImage": "Image SVG",
+    "pngImage": "Image PNG"
+  },
+  "card": {
+    "openHint": "Double-clic pour ouvrir",
+    "nullable": "Accepte NULL",
+    "noColumns": "aucune colonne",
+    "moreColumns_one": "+{{count}} colonne",
+    "moreColumns_other": "+{{count}} colonnes",
+    "showLess": "Afficher moins",
+    "moreColumns_many": "+{{count}} colonnes"
+  },
+  "empty": {
+    "title": "Aucune table à afficher",
+    "text": "La base n'a pas de tables ou le moteur ne fournit pas sa structure.",
+    "noRelations": "Aucune relation : la base ne déclare pas de clés étrangères (ou le moteur ne les fournit pas). Seules les tables sont affichées."
+  },
+  "zoom": {
+    "zoomOut": "Zoom arrière (−)",
+    "actualSize": "Taille réelle (0)",
+    "zoomIn": "Zoom avant (+)",
+    "fit": "Ajuster à la vue (F)",
+    "minimap": "Mini-carte"
+  },
+  "props": {
+    "table": "table",
+    "openTable": "Ouvrir la table",
+    "close": "Fermer (Échap)",
+    "columns": "Colonnes",
+    "unnamed": "(sans nom)",
+    "indexes": "Index",
+    "unique": "unique",
+    "references": "Référence",
+    "referencedBy": "Référencée par",
+    "outside": "hors du diagramme"
+  }
+}

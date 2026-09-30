@@ -1,0 +1,49 @@
+{
+  "title": "Importa connessioni",
+  "source": {
+    "ssmsHint": "Server registrati o un .regsrvr esportato",
+    "pasteUrls": "Incolla URL",
+    "found": "Trovato su questo computer",
+    "notFound": "Non trovato: scegli la posizione"
+  },
+  "urlsPlaceholder": "Una per riga: postgres://utente:password@host:5432/database, mongodb+srv://…, jdbc:sqlserver://…, Server=host;Database=database;User Id=…, o il percorso di un file SQLite",
+  "read": "Leggi",
+  "chooseFolder": "Scegli cartella…",
+  "chooseFile": "Scegli file…",
+  "dialogFolder": "Cartella delle connessioni",
+  "dialogFile": "File delle connessioni",
+  "reading": "Lettura delle connessioni…",
+  "noneInText": "Nessuna connessione trovata nel testo.",
+  "noneAtPath": "Non ci sono connessioni in quella posizione.",
+  "columns": {
+    "name": "Nome",
+    "engine": "Motore",
+    "server": "Server",
+    "user": "Utente"
+  },
+  "hasSecret": "Ha una password salvata",
+  "inKeychain": "La password è nel portachiavi di sistema: durante l'importazione, il sistema può chiedere il permesso di leggerla",
+  "existsTitle": "Esiste già una connessione allo stesso server: «{{name}}»",
+  "exists": "Esiste già",
+  "passwords": "Importa le password (salvate nel portachiavi di sistema)",
+  "importN": "Importa {{n}}",
+  "imported_one": "{{count}} connessione importata",
+  "imported_other": "{{count}} connessioni importate",
+  "andFolders_one": " e {{count}} cartella",
+  "andFolders_other": " e {{count}} cartelle",
+  "failedTitle": "Non importate",
+  "gotIt": "Ho capito",
+  "suggestion": {
+    "title": "Importiamo le tue connessioni?",
+    "found": "Abbiamo trovato connessioni di altri strumenti su questo computer:",
+    "count_one": "{{count}} connessione",
+    "count_other": "{{count}} connessioni",
+    "hintBefore": "Vengono importate con le loro cartelle e password, che restano nel portachiavi di sistema. Altrimenti, puoi farlo quando vuoi dal pulsante",
+    "hintAfter": "di Esplora risorse.",
+    "notNow": "Non ora",
+    "viewAndImport": "Vedi e importa…",
+    "count_many": "{{count}} connessioni"
+  },
+  "imported_many": "{{count}} connessioni importate",
+  "andFolders_many": " e {{count}} cartelle"
+}

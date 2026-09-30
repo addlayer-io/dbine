@@ -1,0 +1,49 @@
+{
+  "title": "Importar conexões",
+  "source": {
+    "ssmsHint": "Servidores registrados ou um .regsrvr exportado",
+    "pasteUrls": "Colar URLs",
+    "found": "Encontrado nesta máquina",
+    "notFound": "Não encontrado: escolha o local"
+  },
+  "urlsPlaceholder": "Uma por linha: postgres://usuario:senha@host:5432/banco, mongodb+srv://…, jdbc:sqlserver://…, Server=host;Database=banco;User Id=…, ou o caminho de um arquivo SQLite",
+  "read": "Ler",
+  "chooseFolder": "Escolher pasta…",
+  "chooseFile": "Escolher arquivo…",
+  "dialogFolder": "Pasta de conexões",
+  "dialogFile": "Arquivo de conexões",
+  "reading": "Lendo conexões…",
+  "noneInText": "Nenhuma conexão encontrada no texto.",
+  "noneAtPath": "Não há conexões nesse local.",
+  "columns": {
+    "name": "Nome",
+    "engine": "Motor",
+    "server": "Servidor",
+    "user": "Usuário"
+  },
+  "hasSecret": "Tem senha salva",
+  "inKeychain": "A senha está no chaveiro do sistema: ao importar, o sistema pode pedir permissão para lê-la",
+  "existsTitle": "Já existe uma conexão ao mesmo servidor: «{{name}}»",
+  "exists": "Já existe",
+  "passwords": "Importar as senhas (salvas no chaveiro do sistema)",
+  "importN": "Importar {{n}}",
+  "imported_one": "{{count}} conexão importada",
+  "imported_other": "{{count}} conexões importadas",
+  "andFolders_one": " e {{count}} pasta",
+  "andFolders_other": " e {{count}} pastas",
+  "failedTitle": "Não foram importadas",
+  "gotIt": "Entendi",
+  "suggestion": {
+    "title": "Trazemos suas conexões?",
+    "found": "Encontramos conexões de outras ferramentas nesta máquina:",
+    "count_one": "{{count}} conexão",
+    "count_other": "{{count}} conexões",
+    "hintBefore": "São importadas com suas pastas e senhas, que ficam no chaveiro do sistema. Se preferir, você pode fazer isso quando quiser pelo botão",
+    "hintAfter": "do Explorador.",
+    "notNow": "Agora não",
+    "viewAndImport": "Ver e importar…",
+    "count_many": "{{count}} conexões"
+  },
+  "imported_many": "{{count}} conexões importadas",
+  "andFolders_many": " e {{count}} pastas"
+}

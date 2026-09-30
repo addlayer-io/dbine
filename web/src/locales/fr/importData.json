@@ -1,0 +1,89 @@
+{
+  "title": "Importer des données",
+  "steps": {
+    "file": "Fichier",
+    "preview": "Aperçu",
+    "target": "Destination",
+    "import": "Importer"
+  },
+  "formats": {
+    "auto": "Automatique (selon l'extension)",
+    "csv": "CSV (virgule)",
+    "csvSemicolon": "CSV (point-virgule)",
+    "tsv": "TSV (tabulation)",
+    "json": "JSON (tableau d'objets)",
+    "jsonLines": "JSON Lines (un objet par ligne)"
+  },
+  "types": {
+    "integer": "entier",
+    "number": "nombre",
+    "boolean": "booléen",
+    "date": "date",
+    "datetime": "date et heure",
+    "text": "texte"
+  },
+  "file": {
+    "filterData": "Données (CSV, TSV, JSON, JSONL, XLSX, XML)",
+    "pickHint": "Choisissez un fichier CSV, TSV, JSON, JSON Lines, Excel ou XML.",
+    "format": "Format",
+    "delimiter": "Séparateur",
+    "tab": "tabulation",
+    "commaDefault": ", (ou celui du format)",
+    "sheet": "Feuille",
+    "firstSheet": "Première feuille",
+    "header": "La première ligne contient les noms de colonne",
+    "detected_one": "{{count}} colonne détectée · format {{format}}",
+    "detected_other": "{{count}} colonnes détectées · format {{format}}",
+    "detected_many": "{{count}} colonnes détectées · format {{format}}"
+  },
+  "preview": {
+    "caption_one": "{{rows}} premières lignes de {file} · {{count}} colonne",
+    "caption_other": "{{rows}} premières lignes de {file} · {{count}} colonnes",
+    "empty": "Le fichier ne contient aucune ligne de données.",
+    "caption_many": "{{rows}} premières lignes de {file} · {{count}} colonnes"
+  },
+  "target": {
+    "existing": "Table existante",
+    "new": "Nouvelle table",
+    "pickTable": "Choisissez la table",
+    "schema": "schéma",
+    "tableName": "nom de la table",
+    "batch": "Lignes par lot",
+    "sourceColumn": "Colonne du fichier",
+    "detectedType": "Type détecté",
+    "targetColumn": "Colonne de destination",
+    "ignore": "(ignorer)",
+    "name": "Nom",
+    "type": "Type",
+    "nulls": "Nuls",
+    "toImport_one": "{{count}} colonne à importer",
+    "toImport_other": "{{count}} colonnes à importer",
+    "errors": {
+      "pickTable": "Choisissez la table de destination",
+      "mapOne": "Associez au moins une colonne",
+      "mappedTwice": "Certaines colonnes de destination sont associées deux fois",
+      "newName": "Saisissez le nom de la nouvelle table",
+      "exists": "Une table portant ce nom existe déjà",
+      "includeOne": "Incluez au moins une colonne",
+      "nameAndType": "Chaque colonne doit avoir un nom et un type",
+      "duplicateNames": "Certains noms de colonne sont en double"
+    },
+    "toImport_many": "{{count}} colonnes à importer"
+  },
+  "run": {
+    "importing": "Importation de {{file}}…",
+    "rows_one": "ligne",
+    "rows_other": "lignes",
+    "rowsPerSecond": "lignes/s",
+    "done": "Importation terminée",
+    "doneDetail_one": "{{n}} ligne dans {table} · {{seconds}} s",
+    "doneDetail_other": "{{n}} lignes dans {table} · {{seconds}} s",
+    "partial_one": "{{n}} ligne a été importée avant l'arrêt.",
+    "partial_other": "{{n}} lignes ont été importées avant l'arrêt.",
+    "cancelledMessage": "Importation annulée.",
+    "cancelImport": "Annuler l'importation",
+    "rows_many": "lignes",
+    "doneDetail_many": "{{n}} lignes dans {table} · {{seconds}} s",
+    "partial_many": "{{n}} lignes ont été importées avant l'arrêt."
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "tab": "Backups",
+  "menu": "Backups…",
+  "title": "Backups",
+  "copies": "Copias de DBine",
+  "copiesHint": "Un script con la estructura y los datos en un archivo. Sirven para cualquier motor.",
+  "noCopies": "Todavía no hay copias de esta base.",
+  "withData": "Estructura y datos",
+  "structureOnly": "Solo estructura",
+  "server": "Backups del servidor",
+  "noNative": "Este motor no tiene backups propios que se puedan manejar desde DBine. Las copias de DBine sí sirven.",
+  "noHistory": "El motor no informa su historial de backups.",
+  "noNativeHistory": "El servidor no tiene backups registrados.",
+  "wholeServer": "todo el servidor",
+  "restore": "Restaurar",
+  "restoreFrom": "Restaurar desde…",
+  "pick": "Elegir…",
+  "seeScript": "Ver el script",
+  "reviewTitle": "Revisar antes de ejecutar",
+  "reviewHint": "Esto es lo que se va a ejecutar en el servidor, en {{db}}.",
+  "run": "Ejecutar",
+  "copied": "Copiado",
+  "done": {
+    "backup": "Backup hecho",
+    "restore": "Restauración terminada",
+    "delete": "Backup eliminado"
+  },
+  "col": {
+    "date": "Fecha",
+    "content": "Contenido",
+    "objects": "Objetos",
+    "rows": "Filas",
+    "size": "Tamaño",
+    "file": "Archivo",
+    "kind": "Tipo",
+    "database": "Base",
+    "location": "Ubicación",
+    "status": "Estado"
+  },
+  "copy": {
+    "new": "Nueva copia",
+    "file": "Archivo",
+    "data": "Incluir los datos",
+    "hint": "El script borra y vuelve a crear cada objeto, así que restaurarlo reemplaza lo que haya en la base de destino.",
+    "run": "Hacer la copia",
+    "done": "Copia lista ({{size}})",
+    "cancelled": "Copia cancelada",
+    "empty": "La base no tiene objetos para copiar."
+  },
+  "restoreCopy": {
+    "title": "Restaurar una copia",
+    "into": "Restaurar en la base",
+    "continueOnError": "Seguir aunque falle una sentencia",
+    "hint": "Se ejecuta el script de la copia en la base elegida.",
+    "confirm": "Se van a reemplazar los objetos de la copia que existan en {{db}}. ¿Seguimos?",
+    "done": "Restauración terminada ({{n}} sentencias)",
+    "cancelled": "Restauración cancelada"
+  },
+  "deleteCopy": {
+    "title": "Eliminar la copia",
+    "message": "¿Borrar también el archivo {{path}}?",
+    "withFile": "Borrar el archivo también",
+    "listOnly": "Solo sacarla de la lista"
+  },
+  "native": {
+    "new": "Hacer backup",
+    "source": "Backup a restaurar",
+    "sourceHint": "El del historial, o una ubicación",
+    "into": "Restaurar como"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "tab": "Backups",
+  "menu": "Backups…",
+  "title": "Backups",
+  "copies": "Cópias do DBine",
+  "copiesHint": "Um script com a estrutura e os dados em um arquivo. Servem para qualquer motor.",
+  "noCopies": "Ainda não há cópias deste banco.",
+  "withData": "Estrutura e dados",
+  "structureOnly": "Só estrutura",
+  "server": "Backups do servidor",
+  "noNative": "Este motor não tem backups próprios que o DBine possa gerenciar. As cópias do DBine funcionam.",
+  "noHistory": "O motor não informa seu histórico de backups.",
+  "noNativeHistory": "O servidor não tem backups registrados.",
+  "wholeServer": "todo o servidor",
+  "restore": "Restaurar",
+  "restoreFrom": "Restaurar de…",
+  "pick": "Escolher…",
+  "seeScript": "Ver o script",
+  "reviewTitle": "Revisar antes de executar",
+  "reviewHint": "Isto é o que vai ser executado no servidor, em {{db}}.",
+  "run": "Executar",
+  "copied": "Copiado",
+  "done": {
+    "backup": "Backup feito",
+    "restore": "Restauração concluída",
+    "delete": "Backup excluído"
+  },
+  "col": {
+    "date": "Data",
+    "content": "Conteúdo",
+    "objects": "Objetos",
+    "rows": "Linhas",
+    "size": "Tamanho",
+    "file": "Arquivo",
+    "kind": "Tipo",
+    "database": "Banco",
+    "location": "Local",
+    "status": "Estado"
+  },
+  "copy": {
+    "new": "Nova cópia",
+    "file": "Arquivo",
+    "data": "Incluir os dados",
+    "hint": "O script apaga e recria cada objeto, então restaurá-lo substitui o que houver no banco de destino.",
+    "run": "Fazer a cópia",
+    "done": "Cópia pronta ({{size}})",
+    "cancelled": "Cópia cancelada",
+    "empty": "O banco não tem objetos para copiar."
+  },
+  "restoreCopy": {
+    "title": "Restaurar uma cópia",
+    "into": "Restaurar no banco",
+    "continueOnError": "Continuar mesmo se uma instrução falhar",
+    "hint": "O script da cópia é executado no banco escolhido.",
+    "confirm": "Os objetos da cópia que existirem em {{db}} serão substituídos. Continuar?",
+    "done": "Restauração concluída ({{n}} instruções)",
+    "cancelled": "Restauração cancelada"
+  },
+  "deleteCopy": {
+    "title": "Excluir a cópia",
+    "message": "Apagar também o arquivo {{path}}?",
+    "withFile": "Apagar o arquivo também",
+    "listOnly": "Só tirar da lista"
+  },
+  "native": {
+    "new": "Fazer backup",
+    "source": "Backup a restaurar",
+    "sourceHint": "Do histórico, ou um local",
+    "into": "Restaurar como"
+  }
+}

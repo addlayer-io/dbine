@@ -1,0 +1,22 @@
+[package]
+name = "dbine-transfer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DBine bulk transfer engine: parallel, resumable table copies between databases"
+
+[dependencies]
+dbine-driver = { path = "../dbine-driver" }
+tokio.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# The clone's end-to-end test (tests/clone_table.rs) and live harness
+# (tests/clone_table_live.rs) run against real drivers.
+dbine-driver-sqlite = { path = "../drivers/sqlite" }
+dbine-drivers = { path = "../dbine-drivers" }

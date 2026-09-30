@@ -1,0 +1,262 @@
+{
+  "migrate": "Migrar",
+  "preview": "Pré-visualização",
+  "pickEngine": "Escolha o motor de destino",
+  "pickTable": "Escolha pelo menos uma tabela",
+  "intro": "Passa as tabelas de {database} ({{engine}}) para o banco de destino que você escolher, mesmo de outro motor: cria as tabelas convertidas (tipos, valores padrão, chaves, índices e nomes), copia os dados com carga em massa e várias tabelas ao mesmo tempo, e adiciona as chaves estrangeiras no final. Se o aplicativo fechar no meio do caminho, a migração pode ser retomada. Com a pré-visualização você vê antes o relatório de cada mudança e o script, sem alterar nada.",
+  "severity": {
+    "dropped": "Omitido",
+    "droppedHint": "O destino não consegue expressá-lo: fica de fora",
+    "loss": "Perda",
+    "lossHint": "Os valores podem não caber ou perder detalhe",
+    "warning": "Aviso",
+    "warningHint": "Mesmos valores, comportamento diferente",
+    "info": "Info",
+    "infoHint": "Alteração fiel que convém saber"
+  },
+  "confirm": {
+    "message": "Serão criadas {{count}} tabela(s) em {{where}} ({{engine}}){{data}}{{drop}}. Continuar?",
+    "data": " e copiados todos os seus dados",
+    "drop": ", excluindo antes as que existirem com o mesmo nome",
+    "clone": "Serão clonadas {{count}} tabela(s) em {{where}} ({{engine}}) com a estrutura completa{{data}}. Continuar?",
+    "cloneData": " e todos os seus dados",
+    "sync": "Serão sincronizadas {{count}} tabela(s) em {{where}} ({{engine}}): as linhas que diferem da origem são inseridas, atualizadas e excluídas. Continuar?"
+  },
+  "run": {
+    "cancelled": "Migração cancelada",
+    "finishedWithErrors": "Migração concluída com {{count}} erro(s): confira o resumo",
+    "finished": "Migração concluída",
+    "running": "Migrando…",
+    "stopped": "A migração parou",
+    "stepOf": "{{step}} de {{total}}",
+    "fkErrors": "Chaves estrangeiras que não puderam ser criadas:",
+    "withErrors": "Migração concluída com erros",
+    "progress": "{{done}} de {{total}} tabela(s) · {{rows}} linha(s) · {{elapsed}}",
+    "parallel": "Tabelas ao mesmo tempo",
+    "cancelAll": "Cancelar tudo",
+    "retryFailed": "Tentar novamente as que falharam",
+    "synced": "Sincronização concluída",
+    "cloned": "Clonagem concluída",
+    "afterErrors": "Instruções finais que não puderam ser executadas:"
+  },
+  "phase": {
+    "drop": "Excluindo tabelas existentes",
+    "create": "Criando tabelas",
+    "foreignKeys": "Criando chaves estrangeiras",
+    "done": "Finalizando",
+    "schemas": "Criando esquemas",
+    "identity": "Ajustando a identidade das tabelas",
+    "script": "Lendo a estrutura da origem",
+    "before": "Preparando o destino",
+    "check": "Verificando as tabelas do destino",
+    "after": "Criando restrições, código e demais objetos"
+  },
+  "script": {
+    "pickConnection": "Escolha uma conexão de destino (do motor escolhido) para abrir o script nela",
+    "queryTitle": "Migração de {{name}}",
+    "copied": "Script copiado",
+    "fileName": "migracao-{{database}}-para-{{engine}}",
+    "fileNameDatabase": "banco",
+    "title": "Script de estrutura para {{engine}}",
+    "previewTag": "(pré-visualização)",
+    "openInQuery": "Abrir em uma consulta",
+    "saveAs": "Salvar como arquivo…",
+    "help": "É o que «Migrar» cria no destino antes de copiar os dados. Você também pode abri-lo em uma consulta, copiá-lo ou salvá-lo."
+  },
+  "target": {
+    "title": "Destino",
+    "engine": "Motor de destino",
+    "pickEngine": "Escolha o motor",
+    "connection": "Conexão de destino",
+    "connectionHint": "(onde tudo é criado)",
+    "connectionPlaceholder": "Conexão",
+    "noConnections": "Não há conexões de {{engine}}",
+    "thatEngine": "esse motor",
+    "database": "Banco de dados",
+    "keepSchemas": "Manter os esquemas da origem (são criados no destino)",
+    "singleSchema": "Esquema único",
+    "singleSchemaHint": "(opcional: todas as tabelas vão para este esquema)",
+    "eachInOwnSchema": "Cada tabela em seu esquema",
+    "engineDefault": "O padrão do motor"
+  },
+  "tables": {
+    "title": "Tabelas",
+    "pickedOf": "{{picked}} de {{total}}",
+    "all": "Todas",
+    "none": "Nenhuma",
+    "loading": "Lendo tabelas…",
+    "empty": "Este banco não tem tabelas."
+  },
+  "options": {
+    "title": "Opções",
+    "data": "Copiar os dados",
+    "indexes": "Índices",
+    "foreignKeys": "Chaves estrangeiras",
+    "foldCase": "Adaptar maiúsculas / minúsculas dos nomes ao destino",
+    "drop": "Excluir as tabelas no destino antes de criá-las (DROP)",
+    "ifExists": "Usar IF EXISTS / IF NOT EXISTS",
+    "needConnection": "Para migrar, escolha a conexão de destino. A pré-visualização mostra o relatório e o script sem mexer em nada.",
+    "needConnectionSame": "Para clonar ou sincronizar, escolha a conexão de destino."
+  },
+  "cols": {
+    "table": "Tabela",
+    "rows": "Linhas",
+    "column": "Coluna",
+    "sourceType": "Tipo de origem",
+    "targetType": "Tipo de destino",
+    "new": "(nova)"
+  },
+  "report": {
+    "title": "Relatório da conversão",
+    "summary": "{{tables}} tabela(s) · {{issues}} observação(ões)",
+    "clean": "A conversão é direta: não há observações.",
+    "byColumn": "Conversão por coluna ({{count}})",
+    "filterColumns": "Filtrar colunas"
+  },
+  "status": {
+    "pending": "Na fila",
+    "running": "Copiando",
+    "check": "Verificando",
+    "truncate": "Esvaziando",
+    "indexes": "Índices",
+    "copied": "Índices",
+    "done": "Copiada",
+    "failed": "Erro",
+    "cancelled": "Cancelada",
+    "summary": "Resumindo",
+    "compare": "Comparando",
+    "apply": "Aplicando",
+    "syncing": "Sincronizando",
+    "synced": "Sincronizada"
+  },
+  "path": {
+    "native": "Cópia direta",
+    "bulkLoad": "Carga em massa",
+    "insertScript": "INSERT em lotes",
+    "delta": "Por linhas"
+  },
+  "grid": {
+    "status": "Estado",
+    "speed": "Linhas/s",
+    "path": "Via",
+    "bottleneck": "Gargalo",
+    "source": "Origem",
+    "destination": "Destino",
+    "perSecond": "{{n}}/s",
+    "runNow": "Executar agora",
+    "cancel": "Cancelar esta tabela",
+    "reviewed": "Linhas revisadas",
+    "changes": "Alterações",
+    "changesValue": "{{inserted}} novas · {{updated}} alteradas · {{deleted}} excluídas"
+  },
+  "advanced": {
+    "title": "Opções avançadas",
+    "parallel": "Tabelas ao mesmo tempo",
+    "parallelHint": "(1 a 32; pode ser alterado durante a cópia)",
+    "order": "Ordem",
+    "largestFirst": "As maiores primeiro",
+    "smallestFirst": "As menores primeiro",
+    "alphabetical": "Alfabética",
+    "commitRows": "Confirmar a cada",
+    "commitRowsHint": "(linhas)"
+  },
+  "interrupted": {
+    "title": "Interrompidas",
+    "hint": "Migrações cortadas ao fechar o aplicativo: são retomadas de onde pararam",
+    "tables": "{{done}} de {{total}} tabela(s) copiadas",
+    "resume": "Retomar",
+    "forget": "Descartar",
+    "forgetConfirm": "Esta migração será esquecida e não poderá mais ser retomada. O que foi copiado fica no destino. Continuar?"
+  },
+  "mode": {
+    "title": "Modo",
+    "pickEngineFirst": "Escolha primeiro o motor de destino",
+    "noConvert": "Não há conversão de esquemas para este motor",
+    "noClone": "Estes motores não podem ser clonados entre si",
+    "noSync": "Estes motores não podem ser sincronizados entre si",
+    "label": {
+      "convert": "Migrar (converter)",
+      "clone": "Clonar",
+      "sync": "Sincronizar"
+    },
+    "hint": {
+      "convert": "Converte a estrutura para o motor de destino, cria as tabelas e copia os dados.",
+      "clone": "Clonar (deixar o destino idêntico): entre bancos do mesmo motor, cria tudo com o script do próprio motor e copia os dados.",
+      "sync": "Sincronizar só o que mudou: em tabelas que já existem, insere, atualiza e exclui só as linhas que diferem."
+    },
+    "action": {
+      "convert": "Migrar",
+      "clone": "Clonar",
+      "sync": "Sincronizar"
+    }
+  },
+  "clone": {
+    "needConnection": "Para ver o script da clonagem, escolha a conexão de destino: o script se adapta ao que esse servidor suporta (ele só é consultado).",
+    "help": "O destino fica igual à origem: tabelas com seu armazenamento, índices, restrições, sequências, código e demais objetos, com o script do próprio motor. O que já existe no destino não é alterado.",
+    "clean": "O destino pode ficar idêntico: não há observações.",
+    "reportTitle": "Observações da clonagem",
+    "scriptTitle": "Script da clonagem para {{engine}}",
+    "scriptHelp": "É o que «Clonar» executa no destino: primeiro o que vem antes das tabelas, depois cada tabela com seus índices e, no final, restrições, código e demais objetos."
+  },
+  "sync": {
+    "help": "As tabelas precisam existir no destino com as mesmas colunas: nada é criado nem esvaziado. Só as linhas que diferem são inseridas, atualizadas e excluídas, em uma transação por tabela.",
+    "depth": "O que comparar",
+    "depths": {
+      "full": "Completa",
+      "fullHint": "Todo o conteúdo de cada linha.",
+      "sizes": "Só tamanhos de colunas grandes",
+      "sizesHint": "As colunas grandes são comparadas pelo tamanho: muito mais rápido, mas não vê uma alteração que mantém o mesmo tamanho.",
+      "keys": "Só chaves",
+      "keysHint": "Encontra as linhas novas e as excluídas, não as modificadas."
+    },
+    "maxCores": "Núcleos do servidor",
+    "maxCoresHint": "(0: o servidor decide)",
+    "keysTitle": "Chaves para sincronizar",
+    "keysSummary": "{{tables}} tabela(s) · {{unsyncable}} sem chave",
+    "keysHelp": "Cada tabela é comparada pela chave primária; se não tiver, escolha uma chave única.",
+    "pickKey": "Escolha uma chave",
+    "primaryKey": "Chave primária ({{columns}})",
+    "uniqueKey": "Chave única ({{columns}})"
+  },
+  "panes": {
+    "preview": "Pré-visualização",
+    "run": "Execução"
+  },
+  "runFilter": {
+    "all": "Todas",
+    "pending": "Na fila",
+    "active": "Em andamento",
+    "done": "Concluídas",
+    "failed": "Com erro",
+    "cancelled": "Canceladas",
+    "search": "Buscar tabela…",
+    "none": "Nenhuma tabela corresponde ao filtro."
+  },
+  "saved": {
+    "untitled": "Nova migração",
+    "mode": {
+      "convert": "Converter",
+      "clone": "Clonar",
+      "sync": "Sincronizar"
+    },
+    "notSaved": "Não salva: salva sozinha na primeira alteração",
+    "renameHint": "Nome da migração (clique para alterar)",
+    "renameTitle": "Renomear migração",
+    "renamePrompt": "Novo nome da migração",
+    "delete": "Excluir",
+    "deleteTitle": "Excluir migração",
+    "deleteConfirm": "A migração «{{name}}» será excluída com sua configuração. Nem a origem nem o destino são alterados: o que foi copiado continua onde está. Continuar?",
+    "resume": "Retomar",
+    "history": "Execuções desta migração",
+    "runElsewhere": "Esta migração tem execuções, mas não nesta máquina: aqui só aparece a configuração dela.",
+    "state": {
+      "draft": "Rascunho",
+      "elsewhere": "Sem execuções nesta máquina",
+      "running": "Em andamento",
+      "done": "Concluída",
+      "failed": "Com erros",
+      "interrupted": "Interrompida",
+      "cancelled": "Cancelada"
+    }
+  }
+}

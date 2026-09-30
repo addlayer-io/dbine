@@ -1,0 +1,18 @@
+[package]
+name = "dbine-driver-redis"
+version = "0.1.1"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+edition.workspace = true
+license.workspace = true
+description = "DBine driver for Redis and its drop-in servers (Valkey, Dragonfly)"
+
+[dependencies]
+dbine-driver = { path = "../../dbine-driver" }
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+redis = { version = "1.7", default-features = false, features = ["acl", "streams", "tokio-comp", "tokio-rustls-comp", "tls-rustls-insecure", "tls-rustls-webpki-roots"] }
+# The TLS provider redis' rustls uses; installed once as the process default.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+
+[dev-dependencies]
+tokio.workspace = true

@@ -1,0 +1,22 @@
+{
+  "title": "Verrous",
+  "none": "Aucun blocage",
+  "blocked_one": "1 session en attente",
+  "blocked_many": "{{count}} sessions en attente",
+  "blocked_other": "{{count}} sessions en attente",
+  "session": "Session",
+  "user": "Utilisateur · client",
+  "database": "Base",
+  "wait": "Attente",
+  "time": "Durée",
+  "object": "Objet",
+  "sql": "Instruction",
+  "blocks_one": "bloque 1",
+  "blocks_many": "bloque {{count}}",
+  "blocks_other": "bloque {{count}}",
+  "blocksTitle": "Sessions qui attendent celle-ci, directement ou non",
+  "kill": "Terminer",
+  "killTitle": "Terminer la session",
+  "killConfirm": "Terminer la session {{id}} ({{user}}) ? Sa transaction en cours est annulée.",
+  "killed": "Session {{id}} terminée"
+}

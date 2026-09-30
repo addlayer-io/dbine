@@ -1,0 +1,62 @@
+[workspace]
+members = ["crates/dbine-driver", "crates/dbine-core", "crates/dbine-sync", "crates/dbine-schema", "crates/dbine-ai", "crates/dbine-drivers", "crates/dbine-plugin", "crates/dbine-plugin-host", "crates/dbine-tunnel", "crates/dbine-transfer", "crates/drivers/*", "src-tauri"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+tokio = { version = "1.40", features = ["full"] }
+rusqlite = { version = "0.31", features = ["bundled", "serde_json", "column_decltype"] }
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: parse doubles exactly (the default parser can change
+# the last digit, and transfers must be lossless).
+serde_json = { version = "1", features = ["float_roundtrip"] }
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+dashmap = "6"
+futures = "0.3"
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "gzip", "stream", "query", "form", "http2"] }
+base64 = "0.22"
+
+# Release builds: whole-program optimization, small executable. A panic's
+# backtrace has no function names.
+# DBine's own copy of tiberius (SQL Server), with its bulk-transfer patches:
+# vendor/tiberius/PATCHES.md.
+[patch.crates-io]
+tiberius = { path = "vendor/tiberius" }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+# Speed, not size: "s" made the driver-to-app batch serialization 1.8x
+# slower (measured); the binaries grow 8-17%.
+opt-level = 3
+strip = true
+
+# `cargo tauri build -- --profile profiling`: release speed plus line
+# tables, for a profiler (e.g. samply).
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = false
+
+# The backup's key derivation (Argon2id) is slow by design; unoptimized it
+# takes seconds in `cargo tauri dev`.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.poly1305]
+opt-level = 3

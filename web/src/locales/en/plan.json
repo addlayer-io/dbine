@@ -1,0 +1,61 @@
+{
+  "query": "Query {{n}}",
+  "actualPlan": "Actual plan",
+  "estimatedPlan": "Estimated plan",
+  "diagram": "Diagram",
+  "rawPlan": "Original plan",
+  "statementTitle": "Click to see it all",
+  "hint": "Drag to move around · ⌘/pinch + wheel to zoom · F fits",
+  "summary": {
+    "operators": "Operators",
+    "cost": "Cost",
+    "time": "Time",
+    "rows": "Rows",
+    "firstWarning": "Go to the first warning",
+    "warnings_one": "{{count}} warning",
+    "warnings_other": "{{count}} warnings",
+    "warnings_many": "{{count}} warnings"
+  },
+  "edge": {
+    "actualRows": "Actual rows: {{rows}}",
+    "estimatedRows": "Estimated rows: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Operator cost: {{pct}}%",
+    "noCost": "No cost",
+    "actualEstimatedRows": "Actual / estimated rows",
+    "estimatedRows": "Estimated rows",
+    "estimatedShort": "{{rows}} est.",
+    "expand_one": "Expand ({{count}} operator)",
+    "expand_other": "Expand ({{count}} operators)",
+    "collapse": "Collapse",
+    "expand_many": "Expand ({{count}} operators)"
+  },
+  "zoom": {
+    "zoomOut": "Zoom out (−)",
+    "actualSize": "Actual size (0)",
+    "zoomIn": "Zoom in (+)",
+    "fit": "Fit to view (F)",
+    "expandAll": "Expand all",
+    "collapseBelow": "Collapse below level 3",
+    "minimap": "Minimap"
+  },
+  "props": {
+    "close": "Close (Esc)",
+    "operator": "Operator",
+    "self": "Self",
+    "subtree": "Subtree",
+    "rowsAndTime": "Rows and time",
+    "estimatedPerExecution": "Estimated (per execution)",
+    "actualTotal": "Actual (total)",
+    "executions": "Executions",
+    "actualTime": "Actual time",
+    "object": "Object",
+    "properties": "Properties"
+  },
+  "raw": {
+    "save": "Save…",
+    "sqlServerPlan": "SQL Server plan",
+    "ssmsHint": "Opens in SQL Server Management Studio (.sqlplan)"
+  }
+}

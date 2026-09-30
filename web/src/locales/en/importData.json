@@ -1,0 +1,89 @@
+{
+  "title": "Import data",
+  "steps": {
+    "file": "File",
+    "preview": "Preview",
+    "target": "Target",
+    "import": "Import"
+  },
+  "formats": {
+    "auto": "Automatic (by extension)",
+    "csv": "CSV (comma)",
+    "csvSemicolon": "CSV (semicolon)",
+    "tsv": "TSV (tab)",
+    "json": "JSON (array of objects)",
+    "jsonLines": "JSON Lines (one object per line)"
+  },
+  "types": {
+    "integer": "integer",
+    "number": "number",
+    "boolean": "boolean",
+    "date": "date",
+    "datetime": "date and time",
+    "text": "text"
+  },
+  "file": {
+    "filterData": "Data (CSV, TSV, JSON, JSONL, XLSX, XML)",
+    "pickHint": "Choose a CSV, TSV, JSON, JSON Lines, Excel or XML file.",
+    "format": "Format",
+    "delimiter": "Delimiter",
+    "tab": "tab",
+    "commaDefault": ", (or the format's)",
+    "sheet": "Sheet",
+    "firstSheet": "First sheet",
+    "header": "The first row has the column names",
+    "detected_one": "{{count}} column detected · format {{format}}",
+    "detected_other": "{{count}} columns detected · format {{format}}",
+    "detected_many": "{{count}} columns detected · format {{format}}"
+  },
+  "preview": {
+    "caption_one": "First {{rows}} rows of {file} · {{count}} column",
+    "caption_other": "First {{rows}} rows of {file} · {{count}} columns",
+    "empty": "The file has no data rows.",
+    "caption_many": "First {{rows}} rows of {file} · {{count}} columns"
+  },
+  "target": {
+    "existing": "Existing table",
+    "new": "New table",
+    "pickTable": "Choose the table",
+    "schema": "schema",
+    "tableName": "table name",
+    "batch": "Rows per batch",
+    "sourceColumn": "File column",
+    "detectedType": "Detected type",
+    "targetColumn": "Target column",
+    "ignore": "(ignore)",
+    "name": "Name",
+    "type": "Type",
+    "nulls": "Nulls",
+    "toImport_one": "{{count}} column to import",
+    "toImport_other": "{{count}} columns to import",
+    "errors": {
+      "pickTable": "Choose the target table",
+      "mapOne": "Map at least one column",
+      "mappedTwice": "Some target columns are mapped twice",
+      "newName": "Enter the new table's name",
+      "exists": "A table with that name already exists",
+      "includeOne": "Include at least one column",
+      "nameAndType": "Each column needs a name and a type",
+      "duplicateNames": "There are duplicate column names"
+    },
+    "toImport_many": "{{count}} columns to import"
+  },
+  "run": {
+    "importing": "Importing {{file}}…",
+    "rows_one": "row",
+    "rows_other": "rows",
+    "rowsPerSecond": "rows/s",
+    "done": "Import finished",
+    "doneDetail_one": "{{n}} row into {table} · {{seconds}} s",
+    "doneDetail_other": "{{n}} rows into {table} · {{seconds}} s",
+    "partial_one": "{{n}} row was imported before it stopped.",
+    "partial_other": "{{n}} rows were imported before it stopped.",
+    "cancelledMessage": "Import cancelled.",
+    "cancelImport": "Cancel import",
+    "rows_many": "rows",
+    "doneDetail_many": "{{n}} rows into {table} · {{seconds}} s",
+    "partial_many": "{{n}} rows were imported before it stopped."
+  }
+}

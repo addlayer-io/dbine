@@ -1,0 +1,70 @@
+{
+  "title": "Assistente",
+  "defaultModel": "padrão",
+  "reasoning": "Raciocínio",
+  "head": {
+    "setup": "Modelos e provedores",
+    "newChat": "Nova conversa",
+    "close": "Fechar (⌘I)"
+  },
+  "context": {
+    "noDatabase": "Nenhum banco selecionado",
+    "openQuery": "consulta aberta",
+    "schema": "estrutura",
+    "sent": "contexto: {{context}}"
+  },
+  "suggest": {
+    "whyFails": "Por que a última execução falha? Corrija-a.",
+    "explain": "Explique a consulta do editor",
+    "optimize": "Revise e otimize a consulta do editor",
+    "largestTables": "Escreva uma consulta que liste as maiores tabelas",
+    "relatedTables": "Quais tabelas se relacionam com clientes?",
+    "joinAggregate": "Como escrevo um JOIN com agregação?"
+  },
+  "code": {
+    "appended": "Adicionado ao final da consulta. Revise e execute quando quiser.",
+    "newQueryTitle": "Do assistente",
+    "replaced": "Consulta substituída (⌘Z para desfazer).",
+    "code": "código",
+    "appendHint": "Adicionar ao final da consulta aberta",
+    "newQueryHint": "Abrir em uma nova consulta",
+    "append": "Adicionar à consulta",
+    "newQuery": "Nova consulta",
+    "replaceHint": "Substituir todo o conteúdo do editor (⌘Z desfaz)",
+    "replace": "Substituir",
+    "destructive": "Altera dados ou estrutura. Nada foi executado: revise antes de executar você mesmo."
+  },
+  "phase": {
+    "schema": "Lendo a estrutura do banco…",
+    "engine": "Baixando o motor de IA, só desta vez…",
+    "thinking": "Pensando…"
+  },
+  "setup": {
+    "detecting": "Procurando ferramentas de IA nesta máquina…",
+    "lead": "Para usar o assistente é preciso um modelo. O mais simples: baixe o {model}. Ele roda nesta máquina, sem instalar nada e sem que nada saia dela.",
+    "leadModel": "modelo integrado",
+    "embedded": "Integrado ao DBine",
+    "embeddedUnavailable": "O modelo integrado não está disponível nesta plataforma.",
+    "recommended": "recomendado para esta máquina",
+    "use": "Usar",
+    "pause": "Pausar",
+    "pauseHint": "Continua de onde parou",
+    "download": "Baixar ({{size}})",
+    "detected": "Detectados nesta máquina",
+    "pull": "Baixar {{model}}",
+    "cliNote": "Claude Code e Codex usam sua própria conta (assinatura ou API). Rodam sem ferramentas: não podem ler arquivos, executar comandos nem se conectar aos seus bancos.",
+    "redetect": "Detectar novamente"
+  },
+  "privacy": {
+    "local": "Local: nada sai desta máquina.",
+    "remote": "Vai para a {{vendor}} com sua conta: a pergunta, a estrutura e o editor, nunca os dados."
+  },
+  "empty": {
+    "lead": "Peça consultas, que explique ou corrija a do editor, ou pergunte sobre a estrutura do banco.",
+    "neverRuns": "O assistente nunca executa nada: o que ele escreve vai para sua consulta e você decide se executa."
+  },
+  "compose": {
+    "placeholder": "Pergunte ou peça uma consulta… (Enter envia, Shift+Enter nova linha)",
+    "send": "Enviar"
+  }
+}
