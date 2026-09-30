@@ -1,0 +1,91 @@
+{
+  "couldNotConnect": "Impossibile connettersi.",
+  "connection": "Connessione",
+  "thisEngine": "Questo motore",
+  "unsupported": "{{engine}} non permette di vedere le query di altri client.",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2,5s",
+    "text": "contiene… · !non contiene · =uguale",
+    "database": "contiene… · !non contiene"
+  },
+  "menu": {
+    "filter": {
+      "user": "Filtra per l'utente «{{value}}»",
+      "client": "Filtra per il client «{{value}}»",
+      "application": "Filtra per l'applicazione «{{value}}»",
+      "database": "Filtra per il database «{{value}}»"
+    },
+    "filterSame": "Filtra quelle uguali a questa query",
+    "copy": "Copia la query"
+  },
+  "openInQuery": "Apri in una query",
+  "column": {
+    "time": "Ora",
+    "duration": "Durata",
+    "query": "Query",
+    "database": "Database",
+    "user": "Utente",
+    "client": "Client",
+    "application": "Applicazione",
+    "rows": "Righe",
+    "cpu": "CPU",
+    "reads": "Letture",
+    "writes": "Scritture"
+  },
+  "columns": "Colonne",
+  "columnsHint": "Mostra o nascondi colonne",
+  "showAll": "Mostra tutte",
+  "status": {
+    "starting": "Avvio…",
+    "capturing": "Cattura in corso",
+    "stopped": "Fermato",
+    "notStarted": "Non avviato"
+  },
+  "source": "Origine: {{source}}",
+  "mode": {
+    "complete": "Cattura completa",
+    "sampled": "Campionamento"
+  },
+  "clearFilters": "Rimuovi filtri",
+  "resume": "Riprendi",
+  "sampledNote": "Questo motore mostra solo ciò che è in esecuzione: le query sotto i ~100 ms potrebbero non comparire.",
+  "enabled": "{{source}} è stato abilitato sul server.",
+  "disabled": "{{source}} è stato disabilitato.",
+  "stats": {
+    "title": "Questa query",
+    "runs_one": "{n} esecuzione",
+    "runs_other": "{n} esecuzioni",
+    "avg": "media",
+    "min": "min",
+    "max": "max",
+    "runs_many": "{n} esecuzioni"
+  },
+  "filtersHint": "Vengono conservate solo le query che passano i filtri",
+  "sameAs": "Uguali a: {{label}}",
+  "removeFilter": "Rimuovi questo filtro",
+  "noneYet": "Non ne è ancora comparso nessuno",
+  "noValues": "Nessun valore",
+  "empty": {
+    "noMatch": "Nessuna query corrisponde.",
+    "waitingFiltered": "In attesa di query che passino i filtri…",
+    "waiting": "In attesa di query…",
+    "none": "Nessuna query catturata."
+  },
+  "dragHint": "Trascina per cambiare l'altezza",
+  "detail": {
+    "rows_one": "{{n}} riga",
+    "rows_other": "{{n}} righe",
+    "rows_many": "{{n}} righe"
+  },
+  "foot": {
+    "queries_one": "{{n}} query",
+    "queries_other": "{{n}} query",
+    "passing": "{{n}} passano i filtri",
+    "skipped": "{{n}} scartate dai filtri",
+    "dropped": "le {{n}} più vecchie sono state scartate (si conservano le ultime {{max}})",
+    "arrivalOrder": "Torna all'ordine di arrivo",
+    "toEnd": "Vai alla fine",
+    "queries_many": "{{n}} query"
+  },
+  "unitHint": "In {{unit}}"
+}

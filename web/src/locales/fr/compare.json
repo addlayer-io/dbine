@@ -1,0 +1,114 @@
+{
+  "connectFailed": "connexion impossible",
+  "pickLeftDatabase": "Choisissez la base de gauche",
+  "pickRightConnection": "Choisissez la connexion de droite",
+  "pickDifferent": "Choisissez deux bases (ou deux schémas) différentes",
+  "kinds": {
+    "table": "Tables",
+    "view": "Vues",
+    "materializedView": "Vues matérialisées",
+    "procedure": "Procédures",
+    "function": "Fonctions",
+    "trigger": "Déclencheurs",
+    "sequence": "Séquences",
+    "synonym": "Synonymes",
+    "type": "Types",
+    "fulltextCatalog": "Catalogues de texte intégral",
+    "fulltextStoplist": "Listes de mots vides",
+    "domain": "Domaines",
+    "virtualTable": "Tables virtuelles",
+    "dictionary": "Dictionnaires"
+  },
+  "status": {
+    "equal": "Identique",
+    "changed": "Différente",
+    "onlyLeft": "Seulement à gauche",
+    "onlyRight": "Seulement à droite"
+  },
+  "objectsSameEngine": "Les vues et procédures ne se transfèrent qu'entre bases du même moteur",
+  "arrow": {
+    "table": {
+      "copyLeft": "Copier la table à gauche",
+      "copyRight": "Copier la table à droite",
+      "createLeft": "Créer la table à gauche",
+      "createRight": "Créer la table à droite",
+      "deleteLeft": "Supprimer la table de gauche",
+      "deleteRight": "Supprimer la table de droite"
+    },
+    "object": {
+      "copyLeft": "Copier l'objet à gauche",
+      "copyRight": "Copier l'objet à droite",
+      "createLeft": "Créer l'objet à gauche",
+      "createRight": "Créer l'objet à droite",
+      "deleteLeft": "Supprimer l'objet de gauche",
+      "deleteRight": "Supprimer l'objet de droite"
+    },
+    "item": {
+      "copyLeft": "Copier ceci à gauche",
+      "copyRight": "Copier ceci à droite",
+      "createLeft": "Créer ceci à gauche",
+      "createRight": "Créer ceci à droite",
+      "deleteLeft": "Supprimer ceci à gauche",
+      "deleteRight": "Supprimer ceci à droite"
+    },
+    "pk": {
+      "copyLeft": "Copier la clé primaire à gauche",
+      "copyRight": "Copier la clé primaire à droite"
+    },
+    "props": {
+      "copyLeft": "Copier le commentaire et les options à gauche",
+      "copyRight": "Copier le commentaire et les options à droite"
+    }
+  },
+  "autoIncrement": "auto-incrément",
+  "sections": {
+    "columns": "Colonnes",
+    "indexes": "Index",
+    "foreignKeys": "Clés étrangères",
+    "checks": "Contraintes CHECK"
+  },
+  "primaryKey": "Clé primaire",
+  "sync": {
+    "button": "Synchroniser",
+    "readOnly": "La connexion est en lecture seule",
+    "unsupported": "{{engine}} n'applique pas de changements de schéma depuis DBine",
+    "queryTitle": "Synchroniser {{name}}",
+    "confirm_one": "{{count}} instruction va être exécutée sur {{where}}.{{warnings}}",
+    "confirm_other": "{{count}} instructions vont être exécutées sur {{where}}.{{warnings}}",
+    "confirmWarnings": " Consultez les avertissements avant de continuer.",
+    "failed": "L'instruction {{n}} sur {{total}} a échoué ({{done}} exécutées) : {{message}}",
+    "done": "{{where}} synchronisée",
+    "generating": "Génération du script…",
+    "openAsQuery": "Ouvrir comme requête",
+    "confirm_many": "{{count}} instructions vont être exécutées sur {{where}}.{{warnings}}",
+    "noChanges": "Aucun changement : transférez-les avec les flèches → / ←",
+    "changes_one": "{{count}} changement (gauche : {{left}}, droite : {{right}}) : voir les scripts et les exécuter",
+    "changes_many": "{{count}} changements (gauche : {{left}}, droite : {{right}}) : voir les scripts et les exécuter",
+    "changes_other": "{{count}} changements (gauche : {{left}}, droite : {{right}}) : voir les scripts et les exécuter",
+    "confirmOrder": "D'abord la gauche, puis la droite ; en cas d'échec, l'exécution s'arrête là.",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "Déjà exécuté"
+  },
+  "left": "Gauche",
+  "right": "Droite",
+  "connection": "Connexion",
+  "database": "Base",
+  "schema": "Schéma",
+  "allSchemas": "Tous les schémas",
+  "discard": "Annuler les changements de ce côté",
+  "swap": "Inverser",
+  "undo": "Annuler le dernier changement",
+  "compare": "Comparer",
+  "empty": {
+    "pick": "Choisissez les deux bases (ou deux schémas) et cliquez sur {compare}.",
+    "help": "Les différences passent d'un côté à l'autre avec les flèches et s'appliquent avec {sync}, qui montre le script avant de l'exécuter."
+  },
+  "onlyDiff": "Différences uniquement",
+  "ignoreCase": "Ignorer la casse",
+  "ignoreComments": "Ignorer les commentaires",
+  "noDifferences": "Aucune différence.",
+  "noObjects": "Aucun objet.",
+  "pendingChanges": "Changements non appliqués",
+  "pickItem": "Choisissez une table ou un objet dans la liste.",
+  "tableProps": "Propriétés de la table"
+}

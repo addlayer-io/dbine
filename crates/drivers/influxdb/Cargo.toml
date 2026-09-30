@@ -1,0 +1,18 @@
+[package]
+name = "dbine-driver-influxdb"
+version = "0.1.1"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+edition.workspace = true
+license.workspace = true
+description = "DBine driver for InfluxDB: v2 (Flux), v1 (InfluxQL) and v3 (SQL) over HTTP"
+
+[dependencies]
+dbine-driver = { path = "../../dbine-driver" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

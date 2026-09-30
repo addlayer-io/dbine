@@ -1,0 +1,61 @@
+{
+  "query": "Consulta {{n}}",
+  "actualPlan": "Plano real",
+  "estimatedPlan": "Plano estimado",
+  "diagram": "Diagrama",
+  "rawPlan": "Plano original",
+  "statementTitle": "Clique para ver completa",
+  "hint": "Arraste para se mover · ⌘/pinça + roda para zoom · F ajusta",
+  "summary": {
+    "operators": "Operadores",
+    "cost": "Custo",
+    "time": "Tempo",
+    "rows": "Linhas",
+    "firstWarning": "Ir para o primeiro aviso",
+    "warnings_one": "{{count}} aviso",
+    "warnings_other": "{{count}} avisos",
+    "warnings_many": "{{count}} avisos"
+  },
+  "edge": {
+    "actualRows": "Linhas reais: {{rows}}",
+    "estimatedRows": "Linhas estimadas: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Custo do operador: {{pct}}%",
+    "noCost": "Sem custo",
+    "actualEstimatedRows": "Linhas reais / estimadas",
+    "estimatedRows": "Linhas estimadas",
+    "estimatedShort": "{{rows}} est.",
+    "expand_one": "Expandir ({{count}} operador)",
+    "expand_other": "Expandir ({{count}} operadores)",
+    "collapse": "Recolher",
+    "expand_many": "Expandir ({{count}} operadores)"
+  },
+  "zoom": {
+    "zoomOut": "Afastar (−)",
+    "actualSize": "Tamanho real (0)",
+    "zoomIn": "Aproximar (+)",
+    "fit": "Ajustar à visualização (F)",
+    "expandAll": "Expandir tudo",
+    "collapseBelow": "Recolher abaixo do 3º nível",
+    "minimap": "Minimapa"
+  },
+  "props": {
+    "close": "Fechar (Esc)",
+    "operator": "Do operador",
+    "self": "Próprio",
+    "subtree": "Subárvore",
+    "rowsAndTime": "Linhas e tempo",
+    "estimatedPerExecution": "Estimadas (por execução)",
+    "actualTotal": "Reais (total)",
+    "executions": "Execuções",
+    "actualTime": "Tempo real",
+    "object": "Objeto",
+    "properties": "Propriedades"
+  },
+  "raw": {
+    "save": "Salvar…",
+    "sqlServerPlan": "Plano do SQL Server",
+    "ssmsHint": "Abre no SQL Server Management Studio (.sqlplan)"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "primaryKey": "Chiave primaria",
+  "foreignKey": "Chiave esterna",
+  "unnamedForeignKey": "Chiave esterna senza nome",
+  "exportFailed": "Impossibile esportare l'immagine: {{error}}",
+  "busy": "Disposizione di {{tables}} tabelle e {{relations}} relazioni…",
+  "hint": "Trascina per spostarti · ⌘/pizzico + rotella per lo zoom · doppio clic apre la tabella",
+  "tab": {
+    "connectFailed": "Impossibile connettersi.",
+    "reading": "Lettura della struttura del database…",
+    "drawFailed": "Impossibile disegnare il diagramma: {{error}}",
+    "fileName": "diagramma-{{name}}",
+    "fileNameDefault": "database"
+  },
+  "toolbar": {
+    "tables": "Tabelle",
+    "relations": "Relazioni",
+    "simplifiedLayout": "disposizione semplificata",
+    "simplifiedLayoutTitle": "La disposizione automatica non è riuscita con questa struttura: le tabelle sono mostrate in griglia (puoi spostarle a mano).",
+    "searchPlaceholder": "Cerca tabella…",
+    "allSchemas": "Tutti gli schemi",
+    "allColumns": "Tutte le colonne",
+    "keysOnly": "Solo chiavi",
+    "relayout": "Riordina",
+    "relayoutTitle": "Riordina automaticamente le tabelle",
+    "svgImage": "Immagine SVG",
+    "pngImage": "Immagine PNG"
+  },
+  "card": {
+    "openHint": "Doppio clic per aprire",
+    "nullable": "Ammette NULL",
+    "noColumns": "nessuna colonna",
+    "moreColumns_one": "+{{count}} colonna",
+    "moreColumns_other": "+{{count}} colonne",
+    "showLess": "Mostra meno",
+    "moreColumns_many": "+{{count}} colonne"
+  },
+  "empty": {
+    "title": "Nessuna tabella da mostrare",
+    "text": "Il database non ha tabelle o il motore non ne comunica la struttura.",
+    "noRelations": "Nessuna relazione: il database non dichiara chiavi esterne (o il motore non le comunica). Sono mostrate solo le tabelle."
+  },
+  "zoom": {
+    "zoomOut": "Riduci (−)",
+    "actualSize": "Dimensioni reali (0)",
+    "zoomIn": "Ingrandisci (+)",
+    "fit": "Adatta alla vista (F)",
+    "minimap": "Minimappa"
+  },
+  "props": {
+    "table": "tabella",
+    "openTable": "Apri la tabella",
+    "close": "Chiudi (Esc)",
+    "columns": "Colonne",
+    "unnamed": "(senza nome)",
+    "indexes": "Indici",
+    "unique": "univoco",
+    "references": "Fa riferimento a",
+    "referencedBy": "Referenziata da",
+    "outside": "fuori dal diagramma"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "consent": {
+    "title": "Dados de uso anônimos",
+    "text": "O DBine envia dados de uso anônimos. Eles nos ajudam a saber quanto é usado e no que vale a pena trabalhar.",
+    "sent": "O que é enviado: a versão do DBine, o sistema operacional, o idioma, quais bancos de dados e quais módulos do DBine você usa (por exemplo PostgreSQL ou o monitor) e o país aproximado.",
+    "notSent": "Nunca é enviado: nomes de servidores, usuários, bancos, consultas ou dados. Não há nenhum identificador seu.",
+    "change": "Se quiser desativar, vá em Configurações › Geral › Compartilhar dados de uso anônimos.",
+    "ok": "Entendi"
+  },
+  "settings": {
+    "label": "Compartilhar dados de uso anônimos",
+    "help": "Versão, sistema operacional, idioma, bancos que você usa e país aproximado. Nunca servidores, consultas ou dados."
+  }
+}

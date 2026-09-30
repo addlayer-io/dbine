@@ -1,0 +1,114 @@
+{
+  "connectFailed": "no se pudo conectar",
+  "pickLeftDatabase": "Elegí la base de la izquierda",
+  "pickRightConnection": "Elegí la conexión de la derecha",
+  "pickDifferent": "Elegí dos bases (o dos esquemas) distintas",
+  "kinds": {
+    "table": "Tablas",
+    "view": "Vistas",
+    "materializedView": "Vistas materializadas",
+    "procedure": "Procedimientos",
+    "function": "Funciones",
+    "trigger": "Triggers",
+    "sequence": "Secuencias",
+    "synonym": "Sinónimos",
+    "type": "Tipos",
+    "fulltextCatalog": "Catálogos de texto completo",
+    "fulltextStoplist": "Listas de palabras irrelevantes",
+    "domain": "Dominios",
+    "virtualTable": "Tablas virtuales",
+    "dictionary": "Diccionarios"
+  },
+  "status": {
+    "equal": "Igual",
+    "changed": "Distinta",
+    "onlyLeft": "Solo a la izquierda",
+    "onlyRight": "Solo a la derecha"
+  },
+  "objectsSameEngine": "Las vistas y procedimientos solo se pasan entre bases del mismo motor",
+  "arrow": {
+    "table": {
+      "copyLeft": "Copiar la tabla a la izquierda",
+      "copyRight": "Copiar la tabla a la derecha",
+      "createLeft": "Crear la tabla en la izquierda",
+      "createRight": "Crear la tabla en la derecha",
+      "deleteLeft": "Borrar la tabla de la izquierda",
+      "deleteRight": "Borrar la tabla de la derecha"
+    },
+    "object": {
+      "copyLeft": "Copiar el objeto a la izquierda",
+      "copyRight": "Copiar el objeto a la derecha",
+      "createLeft": "Crear el objeto en la izquierda",
+      "createRight": "Crear el objeto en la derecha",
+      "deleteLeft": "Borrar el objeto de la izquierda",
+      "deleteRight": "Borrar el objeto de la derecha"
+    },
+    "item": {
+      "copyLeft": "Copiar esto a la izquierda",
+      "copyRight": "Copiar esto a la derecha",
+      "createLeft": "Crear esto en la izquierda",
+      "createRight": "Crear esto en la derecha",
+      "deleteLeft": "Borrar esto de la izquierda",
+      "deleteRight": "Borrar esto de la derecha"
+    },
+    "pk": {
+      "copyLeft": "Copiar la clave primaria a la izquierda",
+      "copyRight": "Copiar la clave primaria a la derecha"
+    },
+    "props": {
+      "copyLeft": "Copiar el comentario y las opciones a la izquierda",
+      "copyRight": "Copiar el comentario y las opciones a la derecha"
+    }
+  },
+  "autoIncrement": "autoincremental",
+  "sections": {
+    "columns": "Columnas",
+    "indexes": "Índices",
+    "foreignKeys": "Claves foráneas",
+    "checks": "Restricciones CHECK"
+  },
+  "primaryKey": "Clave primaria",
+  "sync": {
+    "button": "Sincronizar",
+    "readOnly": "La conexión es de solo lectura",
+    "unsupported": "{{engine}} no aplica cambios de esquema desde DBine",
+    "queryTitle": "Sincronizar {{name}}",
+    "confirm_one": "Se va a ejecutar {{count}} sentencia en {{where}}.{{warnings}}",
+    "confirm_other": "Se van a ejecutar {{count}} sentencias en {{where}}.{{warnings}}",
+    "confirmWarnings": " Revisá los avisos antes de seguir.",
+    "failed": "Falló la sentencia {{n}} de {{total}} (se ejecutaron {{done}}): {{message}}",
+    "done": "{{where}} sincronizada",
+    "generating": "Generando el script…",
+    "openAsQuery": "Abrir como query",
+    "confirm_many": "Se van a ejecutar {{count}} sentencias en {{where}}.{{warnings}}",
+    "noChanges": "Sin cambios: pasalos con las flechas → / ←",
+    "changes_one": "{{count}} cambio (izquierda: {{left}}, derecha: {{right}}): ver los scripts y ejecutarlos",
+    "changes_many": "{{count}} cambios (izquierda: {{left}}, derecha: {{right}}): ver los scripts y ejecutarlos",
+    "changes_other": "{{count}} cambios (izquierda: {{left}}, derecha: {{right}}): ver los scripts y ejecutarlos",
+    "confirmOrder": "Primero la izquierda y después la derecha; si algo falla, se detiene ahí.",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "Ya ejecutado"
+  },
+  "left": "Izquierda",
+  "right": "Derecha",
+  "connection": "Conexión",
+  "database": "Base",
+  "schema": "Esquema",
+  "allSchemas": "Todos los esquemas",
+  "discard": "Descartar los cambios de este lado",
+  "swap": "Intercambiar",
+  "undo": "Deshacer el último cambio",
+  "compare": "Comparar",
+  "empty": {
+    "pick": "Elegí las dos bases (o dos esquemas) y tocá {compare}.",
+    "help": "Las diferencias se pasan de un lado al otro con las flechas y se aplican con {sync}, que muestra el script antes de ejecutarlo."
+  },
+  "onlyDiff": "Solo diferencias",
+  "ignoreCase": "Ignorar mayúsculas",
+  "ignoreComments": "Ignorar comentarios",
+  "noDifferences": "No hay diferencias.",
+  "noObjects": "No hay objetos.",
+  "pendingChanges": "Con cambios sin aplicar",
+  "pickItem": "Elegí una tabla u objeto de la lista.",
+  "tableProps": "Propiedades de la tabla"
+}

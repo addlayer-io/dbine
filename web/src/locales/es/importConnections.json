@@ -1,0 +1,49 @@
+{
+  "title": "Importar conexiones",
+  "source": {
+    "ssmsHint": "Servidores registrados o un .regsrvr exportado",
+    "pasteUrls": "Pegar URLs",
+    "found": "Encontrado en esta máquina",
+    "notFound": "No encontrado: elegí la ubicación"
+  },
+  "urlsPlaceholder": "Una por línea: postgres://usuario:clave@host:5432/base, mongodb+srv://…, jdbc:sqlserver://…, Server=host;Database=base;User Id=…, o la ruta de un archivo SQLite",
+  "read": "Leer",
+  "chooseFolder": "Elegir carpeta…",
+  "chooseFile": "Elegir archivo…",
+  "dialogFolder": "Carpeta de conexiones",
+  "dialogFile": "Archivo de conexiones",
+  "reading": "Leyendo conexiones…",
+  "noneInText": "No se encontró ninguna conexión en el texto.",
+  "noneAtPath": "No hay conexiones en esa ubicación.",
+  "columns": {
+    "name": "Nombre",
+    "engine": "Motor",
+    "server": "Servidor",
+    "user": "Usuario"
+  },
+  "hasSecret": "Tiene contraseña guardada",
+  "inKeychain": "La contraseña está en el llavero del sistema: al importar, el sistema puede pedir permiso para leerla",
+  "existsTitle": "Ya existe una conexión al mismo servidor: «{{name}}»",
+  "exists": "Ya existe",
+  "passwords": "Importar las contraseñas (se guardan en el llavero del sistema)",
+  "importN": "Importar {{n}}",
+  "imported_one": "{{count}} conexión importada",
+  "imported_other": "{{count}} conexiones importadas",
+  "andFolders_one": " y {{count}} carpeta",
+  "andFolders_other": " y {{count}} carpetas",
+  "failedTitle": "No se importaron",
+  "gotIt": "Entendido",
+  "suggestion": {
+    "title": "¿Traemos tus conexiones?",
+    "found": "Encontramos conexiones de otras herramientas en esta máquina:",
+    "count_one": "{{count}} conexión",
+    "count_other": "{{count}} conexiones",
+    "hintBefore": "Se importan con sus carpetas y contraseñas, que quedan en el llavero del sistema. Si no, podés hacerlo cuando quieras desde el botón",
+    "hintAfter": "del Explorador.",
+    "notNow": "Ahora no",
+    "viewAndImport": "Ver e importar…",
+    "count_many": "{{count}} conexiones"
+  },
+  "imported_many": "{{count}} conexiones importadas",
+  "andFolders_many": " y {{count}} carpetas"
+}

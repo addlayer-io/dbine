@@ -1,0 +1,1101 @@
+//! Live round trips between the core families: PostgreSQL, MySQL, MariaDB,
+//! SQL Server, Oracle and SQLite. Each engine gets a table with every
+//! representative type it has (integers of every size, signed and not,
+//! decimals at the limit, floats, fixed/variable/unbounded text, unicode and
+//! not, binaries, dates, times and timestamps with and without zone and
+//! fractional digits, UUID, JSON, enum/set, booleans), defaults with
+//! functions, an auto-increment key, a foreign key with ON DELETE / ON
+//! UPDATE, a unique index and a filtered one where the engine has them.
+//!
+//! Every ordered pair: create on A, read with A's driver, convert, create on
+//! B with B's driver DDL, read back and check the types are the ones the
+//! conversion chose; then insert a row of boundary values on A and the same
+//! row on B (a smaller value where the report says something is lost) and
+//! read it back. A→B→A trips also compare the final table with the original.
+//!
+//! ```text
+//! docker start dbine-test-postgres dbine-test-mysql   # at most two at a time
+//! DBINE_TEST_POSTGRES_URL=postgres://postgres:pw@localhost:25010/postgres
+//! DBINE_TEST_MYSQL_URL=mysql://root:pw@localhost:25011/dbine_schema       # CREATE DATABASE dbine_schema
+//! DBINE_TEST_MARIADB_URL=mysql://root:pw@localhost:25012/dbine_schema
+//! DBINE_TEST_SQLSERVER_URL='mssql://sa:Pw_12345!@localhost:25013/master'
+//! DBINE_TEST_ORACLE_URL='oracle://dbine:Dbine123@localhost:25601/?service=FREEPDB1'
+//! cargo test -p dbine-schema --test live_core -- --ignored --test-threads=1
+//! ```
+//!
+//! SQLite needs nothing (a fresh file per test). A test whose servers
+//! aren't set skips.
+
+mod common;
+
+use common::RoundTrip;
+use dbine_driver::{ConnectionConfig, QueryOutcome, Session, TableSchema};
+use dbine_schema::convert::logical_of;
+use dbine_schema::dialect::for_driver;
+use dbine_schema::parse::parse;
+use dbine_schema::{convert, Conversion, Issue, IssueCode, LogicalType as L, Options, Severity};
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// The tests share tables on the servers: one at a time.
+static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+const TABLES: [&str; 2] = ["lc_padre", "lc_tipos"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum E {
+    Pg,
+    My,
+    Maria,
+    Ms,
+    Ora,
+    Lite,
+}
+
+impl E {
+    fn driver(self) -> &'static str {
+        match self {
+            E::Pg => "postgres",
+            E::My => "mysql",
+            E::Maria => "mariadb",
+            E::Ms => "sqlserver",
+            E::Ora => "oracle",
+            E::Lite => "sqlite",
+        }
+    }
+
+    fn env(self) -> &'static str {
+        match self {
+            E::Pg => "DBINE_TEST_POSTGRES_URL",
+            E::My => "DBINE_TEST_MYSQL_URL",
+            E::Maria => "DBINE_TEST_MARIADB_URL",
+            E::Ms => "DBINE_TEST_SQLSERVER_URL",
+            E::Ora => "DBINE_TEST_ORACLE_URL",
+            E::Lite => "",
+        }
+    }
+
+    fn q(self, id: &str) -> String {
+        match self {
+            E::My | E::Maria => format!("`{}`", id.replace('`', "``")),
+            E::Ms => format!("[{}]", id.replace(']', "]]")),
+            _ => format!("\"{}\"", id.replace('"', "\"\"")),
+        }
+    }
+}
+
+async fn connect(e: E) -> Option<Box<dyn Session>> {
+    if e != E::Lite {
+        return common::session(e.driver(), e.env()).await;
+    }
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let path = std::env::temp_dir().join(format!("dbine_live_core_{}_{}.db", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+    let _ = std::fs::remove_file(&path);
+    let cfg = ConnectionConfig { driver: "sqlite".into(), host: path.to_string_lossy().into_owned(), ..Default::default() };
+    Some(dbine_drivers::find("sqlite").unwrap().connect(&cfg, None).await.expect("sqlite"))
+}
+
+/// Drop the test tables in any case spelling a previous run left.
+async fn clean(e: E, s: &mut Box<dyn Session>) {
+    let names = ["lc_tipos", "LC_TIPOS", "lc_padre", "LC_PADRE"];
+    let stmts: Vec<String> = names
+        .iter()
+        .map(|n| match e {
+            E::Pg => format!("DROP TABLE IF EXISTS \"{n}\" CASCADE"),
+            E::My | E::Maria => format!("DROP TABLE IF EXISTS `{n}`"),
+            E::Ms => format!("DROP TABLE IF EXISTS [{n}]"),
+            E::Ora => format!("DROP TABLE \"{n}\" CASCADE CONSTRAINTS PURGE"),
+            E::Lite => format!("DROP TABLE IF EXISTS \"{n}\""),
+        })
+        .collect();
+    let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
+    common::exec_quiet(s, &refs).await;
+}
+
+// ------------------------------------------------------------------ tables
+
+fn ddl(e: E) -> Vec<String> {
+    let v: Vec<&str> = match e {
+        E::Pg => vec![
+            "CREATE TABLE lc_padre (id integer PRIMARY KEY, nombre varchar(50) NOT NULL)",
+            "CREATE TABLE lc_tipos (
+                id bigint GENERATED BY DEFAULT AS IDENTITY,
+                padre_id integer,
+                i2 smallint, i4 integer, i8 bigint,
+                dec_p numeric(38,10), dec_money numeric(19,4), num_libre numeric, dinero money,
+                f4 real, f8 double precision,
+                ch char(10), vc varchar(200), txt text, emoji text,
+                bin bytea,
+                d date, t time(6), ttz time(3) with time zone,
+                ts timestamp(6), ts0 timestamp(0), tstz timestamp(3) with time zone,
+                u uuid, j json, jb jsonb, b boolean,
+                intervalo interval, ip inet, arr integer[],
+                df_creado timestamptz DEFAULT now(),
+                df_ts timestamp DEFAULT CURRENT_TIMESTAMP,
+                df_alta date DEFAULT CURRENT_DATE,
+                df_uuid uuid DEFAULT gen_random_uuid(),
+                df_estado varchar(20) NOT NULL DEFAULT 'nuevo',
+                df_cant integer DEFAULT 0,
+                df_activo boolean DEFAULT true,
+                CONSTRAINT lc_tipos_pk PRIMARY KEY (id),
+                CONSTRAINT lc_tipos_fk FOREIGN KEY (padre_id) REFERENCES lc_padre (id) ON DELETE CASCADE ON UPDATE SET NULL
+            )",
+            "CREATE UNIQUE INDEX lc_tipos_ux ON lc_tipos (vc)",
+            "CREATE INDEX lc_tipos_fx ON lc_tipos (i4) WHERE i4 IS NOT NULL",
+            "CREATE INDEX lc_tipos_tx ON lc_tipos (txt)",
+        ],
+        E::My | E::Maria => {
+            let extra = if e == E::Maria { "mu uuid, ip inet6," } else { "" };
+            return vec![
+                "CREATE TABLE lc_padre (id int NOT NULL PRIMARY KEY, nombre varchar(50) NOT NULL)".into(),
+                format!(
+                    "CREATE TABLE lc_tipos (
+                        id bigint unsigned NOT NULL AUTO_INCREMENT,
+                        padre_id int NULL,
+                        i1 tinyint, u1 tinyint unsigned, i2 smallint, u2 smallint unsigned, i3 mediumint, u3 mediumint unsigned,
+                        i4 int, u4 int unsigned, i8 bigint, u8 bigint unsigned,
+                        dec_p decimal(65,30), dec_money decimal(19,4),
+                        f4 float, f8 double,
+                        ch char(10), vc varchar(200), txt text, mtxt mediumtext, emoji text,
+                        bin binary(16), vbin varbinary(200), blb blob,
+                        d date, t time(6), dt datetime(6), dt0 datetime, ts timestamp(3) NULL,
+                        y year, j json,
+                        e enum('rojo','verde','azul'), s set('a','b','c'),
+                        b tinyint(1), bt bit(1), bits bit(10),
+                        {extra}
+                        df_creado datetime(6) DEFAULT CURRENT_TIMESTAMP(6),
+                        df_modif timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        df_alta date DEFAULT (CURRENT_DATE),
+                        df_uuid char(36) DEFAULT (UUID()),
+                        df_estado varchar(20) NOT NULL DEFAULT 'nuevo',
+                        df_cant int DEFAULT 0,
+                        df_activo tinyint(1) DEFAULT 1,
+                        df_color enum('rojo','verde','azul') DEFAULT 'verde',
+                        PRIMARY KEY (id),
+                        UNIQUE KEY lc_tipos_ux (vc),
+                        KEY lc_tipos_ix (i4),
+                        KEY lc_tipos_tx (txt(100)),
+                        CONSTRAINT lc_tipos_fk FOREIGN KEY (padre_id) REFERENCES lc_padre (id) ON DELETE CASCADE ON UPDATE SET NULL
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                ),
+            ];
+        }
+        E::Ms => vec![
+            "CREATE TABLE lc_padre (id int NOT NULL PRIMARY KEY, nombre nvarchar(50) NOT NULL)",
+            "CREATE TABLE lc_tipos (
+                id bigint IDENTITY(1,1) NOT NULL CONSTRAINT lc_tipos_pk PRIMARY KEY,
+                padre_id int NULL,
+                u1 tinyint, i2 smallint, i4 int, i8 bigint,
+                dec_p decimal(38,10), dec_money decimal(19,4), mon money, smon smallmoney,
+                f4 real, f8 float,
+                ch char(10), nch nchar(10), vc varchar(200), nvc nvarchar(200), vmax varchar(max), txt nvarchar(max), emoji nvarchar(max),
+                bin binary(16), vbin varbinary(200), vbmax varbinary(max),
+                d date, t time(7), dt datetime, sdt smalldatetime, dt2 datetime2(7), dt23 datetime2(3), dto datetimeoffset(7),
+                u uniqueidentifier, x xml, rv rowversion, b bit,
+                df_creado datetime2 DEFAULT SYSDATETIME(),
+                df_creado_tz datetimeoffset DEFAULT SYSDATETIMEOFFSET(),
+                df_alta date DEFAULT CAST(GETDATE() AS date),
+                df_uuid uniqueidentifier DEFAULT NEWID(),
+                df_estado nvarchar(20) NOT NULL DEFAULT N'nuevo',
+                df_cant int DEFAULT 0,
+                df_activo bit DEFAULT 1,
+                CONSTRAINT lc_tipos_fk FOREIGN KEY (padre_id) REFERENCES lc_padre (id) ON DELETE CASCADE ON UPDATE SET NULL,
+                CONSTRAINT lc_tipos_ux UNIQUE (nvc)
+            )",
+            "CREATE INDEX lc_tipos_fx ON lc_tipos (i4) WHERE i4 IS NOT NULL",
+        ],
+        E::Ora => vec![
+            "CREATE TABLE lc_padre (id NUMBER(10) PRIMARY KEY, nombre VARCHAR2(50 CHAR) NOT NULL)",
+            "CREATE TABLE lc_tipos (
+                id NUMBER(19) GENERATED BY DEFAULT AS IDENTITY,
+                padre_id NUMBER(10),
+                n3 NUMBER(3), n5 NUMBER(5), n10 NUMBER(10), n19 NUMBER(19), nint INTEGER,
+                dec_p NUMBER(38,10), dec_money NUMBER(19,4), num_libre NUMBER, fl FLOAT(126),
+                f4 BINARY_FLOAT, f8 BINARY_DOUBLE,
+                ch CHAR(10 CHAR), nch NCHAR(10), vc VARCHAR2(200 CHAR), vcb VARCHAR2(200 BYTE), nvc NVARCHAR2(200),
+                cl CLOB, ncl NCLOB, emoji NCLOB,
+                rw RAW(200), bl BLOB,
+                d DATE, ts TIMESTAMP(6), ts9 TIMESTAMP(9), tstz TIMESTAMP(6) WITH TIME ZONE, tsl TIMESTAMP(6) WITH LOCAL TIME ZONE,
+                iv INTERVAL DAY(3) TO SECOND(6),
+                j JSON, b BOOLEAN,
+                df_creado TIMESTAMP DEFAULT SYSTIMESTAMP,
+                df_alta DATE DEFAULT SYSDATE,
+                df_uuid RAW(16) DEFAULT SYS_GUID(),
+                df_estado VARCHAR2(20 CHAR) DEFAULT 'nuevo' NOT NULL,
+                df_cant NUMBER(10) DEFAULT 0,
+                df_activo NUMBER(1) DEFAULT 1,
+                CONSTRAINT lc_tipos_pk PRIMARY KEY (id),
+                CONSTRAINT lc_tipos_fk FOREIGN KEY (padre_id) REFERENCES lc_padre (id) ON DELETE CASCADE,
+                CONSTRAINT lc_tipos_ux UNIQUE (vc)
+            )",
+            "CREATE INDEX lc_tipos_ix ON lc_tipos (n10)",
+        ],
+        E::Lite => vec![
+            "CREATE TABLE lc_padre (id INTEGER PRIMARY KEY, nombre VARCHAR(50) NOT NULL)",
+            "CREATE TABLE lc_tipos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                padre_id INTEGER REFERENCES lc_padre (id) ON DELETE CASCADE ON UPDATE SET NULL,
+                i1 TINYINT, i2 SMALLINT, i4 INT, i8 BIGINT, ubig UNSIGNED BIG INT,
+                dec NUMERIC(10, 2), f8 REAL, dbl DOUBLE,
+                ch CHAR(10), vc VARCHAR(200), txt TEXT, emoji TEXT, bl BLOB,
+                d DATE, t TIME, dt DATETIME, ts TIMESTAMP,
+                b BOOLEAN, u UUID, j JSON,
+                df_creado DATETIME DEFAULT CURRENT_TIMESTAMP,
+                df_alta DATE DEFAULT CURRENT_DATE,
+                df_estado VARCHAR(20) NOT NULL DEFAULT 'nuevo',
+                df_cant INTEGER DEFAULT 0,
+                df_activo BOOLEAN DEFAULT 1
+            )",
+            "CREATE UNIQUE INDEX lc_tipos_ux ON lc_tipos (vc)",
+            "CREATE INDEX lc_tipos_fx ON lc_tipos (i4) WHERE i4 IS NOT NULL",
+        ],
+    };
+    v.into_iter().map(String::from).collect()
+}
+
+// ------------------------------------------------------------------ values
+
+/// A value to insert, in neutral terms: each engine writes the literal for
+/// its column type.
+#[derive(Debug, Clone)]
+enum V {
+    /// Left NULL (types without a portable literal: intervals, arrays, bits).
+    Skip,
+    Int(String),
+    Num(String),
+    F(String),
+    Str(String),
+    Hex(String),
+    Date(String),
+    Time(String),
+    Ts(String),
+    /// `YYYY-MM-DD hh:mm:ss[.f] ±hh:mm`.
+    TsTz(String),
+    Uuid(String),
+    Json(String),
+    Bool(bool),
+    Set(String),
+}
+
+fn fill(n: usize) -> String {
+    // All in Windows-1252 too (SQL Server's varchar).
+    "ñá€ü".chars().cycle().take(n).collect()
+}
+
+fn hex(bytes: usize) -> String {
+    "deadbeef00ff7f80".chars().cycle().take(bytes * 2).collect()
+}
+
+const UUID: &str = "6f9619ff-8b86-d011-b42d-00c04fc964ff";
+const JSON: &str = r#"{"a": [1, 2.5, "ñ"], "b": null}"#;
+const EMOJI: &str = "😀 ñ 𝄞 €";
+
+/// (column, boundary value, value when the report says something is lost).
+fn values(e: E) -> HashMap<String, (V, V)> {
+    use V::*;
+    let s = |x: &str| x.to_string();
+    let same = |v: V| (v.clone(), v);
+    let mut m: Vec<(&str, (V, V))> = match e {
+        E::Pg => vec![
+            ("i2", same(Int(s("-32768")))),
+            ("i4", same(Int(s("-2147483648")))),
+            ("i8", same(Int(s("-9223372036854775808")))),
+            ("dec_p", (Num(s("-9999999999999999999999999999.9999999999")), Num(s("-12345.5")))),
+            ("dec_money", (Num(s("999999999999999.9999")), Num(s("1.5")))),
+            ("num_libre", (Num(s("12345678901234567890.123456789")), Num(s("1.5")))),
+            ("dinero", (Num(s("92233720368547758.07")), Num(s("1.5")))),
+            ("f4", (F(s("3.402823e38")), F(s("1.5")))),
+            ("f8", (F(s("-1.7976931348623157e308")), F(s("-1.5")))),
+            ("ch", same(Str(fill(10)))),
+            ("vc", same(Str(fill(200)))),
+            ("txt", (Str(fill(1000)), Str(s("corto ñ")))),
+            ("emoji", same(Str(s(EMOJI)))),
+            ("bin", (Hex(hex(64)), Hex(hex(4)))),
+            ("d", same(Date(s("9999-12-31")))),
+            ("t", (Time(s("23:59:59.999999")), Time(s("12:34:56")))),
+            ("ttz", same(Skip)),
+            ("ts", (Ts(s("9999-12-31 23:59:59.999999")), Ts(s("2024-02-29 12:34:56")))),
+            ("ts0", same(Ts(s("1000-01-01 00:00:00")))),
+            ("tstz", same(TsTz(s("2024-02-29 23:59:59.999 +05:30")))),
+            ("u", same(Uuid(s(UUID)))),
+            ("j", same(Json(s(JSON)))),
+            ("jb", same(Json(s(JSON)))),
+            ("b", same(Bool(true))),
+            ("intervalo", same(Skip)),
+            ("ip", same(Str(s("192.168.0.1")))),
+            ("arr", same(Skip)),
+        ],
+        E::My | E::Maria => vec![
+            ("i1", same(Int(s("-128")))),
+            ("u1", same(Int(s("255")))),
+            ("i2", same(Int(s("-32768")))),
+            ("u2", same(Int(s("65535")))),
+            ("i3", same(Int(s("-8388608")))),
+            ("u3", same(Int(s("16777215")))),
+            ("i4", same(Int(s("-2147483648")))),
+            ("u4", same(Int(s("4294967295")))),
+            ("i8", same(Int(s("-9223372036854775808")))),
+            ("u8", (Int(s("18446744073709551615")), Int(s("1")))),
+            ("dec_p", (Num(format!("{}.{}", "9".repeat(35), "9".repeat(30))), Num(s("1.5")))),
+            ("dec_money", (Num(s("-999999999999999.9999")), Num(s("1.5")))),
+            ("f4", (F(s("3.402823e38")), F(s("1.5")))),
+            ("f8", (F(s("1.7976931348623157e308")), F(s("1.5")))),
+            ("ch", same(Str(fill(10)))),
+            ("vc", same(Str(fill(200)))),
+            ("txt", (Str(fill(1000)), Str(s("corto ñ")))),
+            ("mtxt", (Str(fill(1000)), Str(s("corto ñ")))),
+            ("emoji", same(Str(s(EMOJI)))),
+            ("bin", same(Hex(hex(16)))),
+            ("vbin", same(Hex(hex(200)))),
+            ("blb", same(Hex(hex(300)))),
+            ("d", same(Date(s("9999-12-31")))),
+            ("t", (Time(s("23:59:59.999999")), Time(s("12:34:56")))),
+            ("dt", (Ts(s("9999-12-31 23:59:59.999999")), Ts(s("2024-02-29 12:34:56")))),
+            ("dt0", same(Ts(s("1000-01-01 00:00:00")))),
+            ("ts", same(Ts(s("2038-01-19 03:14:07.999")))),
+            ("y", same(Int(s("2155")))),
+            ("j", same(Json(s(JSON)))),
+            ("e", same(Str(s("azul")))),
+            ("s", same(Set(s("a,c")))),
+            ("b", same(Bool(true))),
+            ("bt", same(Bool(true))),
+            ("bits", same(Skip)),
+            ("mu", same(Uuid(s(UUID)))),
+            ("ip", same(Str(s("2001:db8::1")))),
+        ],
+        E::Ms => vec![
+            ("u1", same(Int(s("255")))),
+            ("i2", same(Int(s("-32768")))),
+            ("i4", same(Int(s("-2147483648")))),
+            ("i8", same(Int(s("-9223372036854775808")))),
+            ("dec_p", (Num(s("-9999999999999999999999999999.9999999999")), Num(s("-12345.5")))),
+            ("dec_money", (Num(s("999999999999999.9999")), Num(s("1.5")))),
+            ("mon", (Num(s("922337203685477.5807")), Num(s("1.5")))),
+            ("smon", (Num(s("-214748.3648")), Num(s("1.5")))),
+            ("f4", (F(s("3.402823e38")), F(s("1.5")))),
+            ("f8", (F(s("1.7976931348623157e308")), F(s("1.5")))),
+            ("ch", same(Str(fill(10)))),
+            ("nch", same(Str(fill(10)))),
+            ("vc", same(Str(fill(200)))),
+            ("nvc", same(Str(fill(200)))),
+            ("vmax", (Str(fill(1000)), Str(s("corto ñ")))),
+            ("txt", (Str(fill(1000)), Str(s("corto ñ")))),
+            ("emoji", same(Str(s(EMOJI)))),
+            ("bin", same(Hex(hex(16)))),
+            ("vbin", same(Hex(hex(200)))),
+            ("vbmax", same(Hex(hex(300)))),
+            ("d", same(Date(s("9999-12-31")))),
+            ("t", (Time(s("23:59:59.9999999")), Time(s("12:34:56")))),
+            ("dt", same(Ts(s("9999-12-31 23:59:59.997")))),
+            ("sdt", same(Ts(s("2079-06-06 23:59:00")))),
+            ("dt2", (Ts(s("9999-12-31 23:59:59.9999999")), Ts(s("2024-02-29 12:34:56.123456")))),
+            ("dt23", same(Ts(s("9999-12-31 23:59:59.999")))),
+            ("dto", (TsTz(s("9999-12-31 23:59:59.9999999 +14:00")), TsTz(s("2024-02-29 12:34:56.123 +05:30")))),
+            ("u", same(Uuid(s(UUID)))),
+            ("x", same(Str(s("<a>ñ</a>")))),
+            ("rv", same(Skip)),
+            ("b", same(Bool(true))),
+        ],
+        E::Ora => vec![
+            ("n3", same(Int(s("-999")))),
+            ("n5", same(Int(s("-99999")))),
+            ("n10", same(Int(s("-9999999999")))),
+            ("n19", same(Int(s("-9999999999999999999")))),
+            ("nint", (Num("9".repeat(38)), Num(s("1")))),
+            ("dec_p", (Num(s("-9999999999999999999999999999.9999999999")), Num(s("-12345.5")))),
+            ("dec_money", (Num(s("999999999999999.9999")), Num(s("1.5")))),
+            ("num_libre", (Num(s("12345678901234567890.123456789")), Num(s("1.5")))),
+            ("fl", (Num(s("123456789012345678901234567890.12345678")), Num(s("1.5")))),
+            ("f4", (F(s("3.402823e38")), F(s("1.5")))),
+            ("f8", (F(s("1.7976931348623157e308")), F(s("1.5")))),
+            ("ch", same(Str(fill(10)))),
+            ("nch", same(Str(fill(10)))),
+            ("vc", same(Str(fill(200)))),
+            ("vcb", same(Str("ñ".repeat(100)))),
+            ("nvc", same(Str(fill(200)))),
+            ("cl", (Str(fill(1000)), Str(s("corto ñ")))),
+            ("ncl", (Str(fill(1000)), Str(s("corto ñ")))),
+            ("emoji", same(Str(s(EMOJI)))),
+            ("rw", same(Hex(hex(200)))),
+            ("bl", same(Hex(hex(300)))),
+            ("d", same(Ts(s("9999-12-31 23:59:59")))),
+            ("ts", (Ts(s("9999-12-31 23:59:59.999999")), Ts(s("2024-02-29 12:34:56")))),
+            ("ts9", (Ts(s("9999-12-31 23:59:59.999999999")), Ts(s("2024-02-29 12:34:56.123456")))),
+            ("tstz", same(TsTz(s("2024-02-29 23:59:59.123456 +05:30")))),
+            ("tsl", same(TsTz(s("2024-02-29 23:59:59.123456 +05:30")))),
+            ("iv", same(Skip)),
+            ("j", same(Json(s(JSON)))),
+            ("b", same(Bool(true))),
+        ],
+        E::Lite => vec![
+            ("i1", same(Int(s("-128")))),
+            ("i2", same(Int(s("-32768")))),
+            ("i4", same(Int(s("-2147483648")))),
+            ("i8", same(Int(s("-9223372036854775808")))),
+            ("ubig", (Int(s("18446744073709551615")), Int(s("1")))),
+            ("dec", same(Num(s("99999999.99")))),
+            ("f8", (F(s("1.7976931348623157e308")), F(s("1.5")))),
+            ("dbl", same(F(s("-1.5e300")))),
+            ("ch", same(Str(fill(10)))),
+            ("vc", same(Str(fill(200)))),
+            ("txt", (Str(fill(1000)), Str(s("corto ñ")))),
+            ("emoji", same(Str(s(EMOJI)))),
+            ("bl", same(Hex(hex(100)))),
+            ("d", same(Date(s("9999-12-31")))),
+            ("t", same(Time(s("23:59:59.999")))),
+            ("dt", same(Ts(s("9999-12-31 23:59:59.999")))),
+            ("ts", same(Ts(s("2024-02-29 12:34:56")))),
+            ("b", same(Bool(true))),
+            ("u", same(Uuid(s(UUID)))),
+            ("j", same(Json(s(JSON)))),
+        ],
+    };
+    if e != E::Maria {
+        m.retain(|(n, _)| !matches!(*n, "mu") && !(e == E::My && *n == "ip"));
+    }
+    m.into_iter().map(|(n, v)| (n.to_string(), v)).collect()
+}
+
+fn text_lit(e: E, x: &str) -> String {
+    let body = x.replace('\'', "''");
+    match e {
+        E::Ms => format!("N'{body}'"),
+        E::My | E::Maria => format!("'{}'", body.replace('\\', "\\\\")),
+        _ => format!("'{body}'"),
+    }
+}
+
+fn hex_lit(e: E, h: &str) -> String {
+    match e {
+        E::Pg => format!("'\\x{h}'::bytea"),
+        E::Ms => format!("0x{h}"),
+        E::Ora => format!("HEXTORAW('{h}')"),
+        _ => format!("X'{h}'"),
+    }
+}
+
+fn bool_lit(e: E, l: &L, b: bool) -> String {
+    match (e, l) {
+        (E::Pg | E::Ora, L::Bool) => if b { "TRUE" } else { "FALSE" }.into(),
+        _ => if b { "1" } else { "0" }.into(),
+    }
+}
+
+fn is_binary(l: &L) -> bool {
+    matches!(l, L::Binary { .. } | L::Varbinary { .. } | L::Blob | L::RowVersion)
+}
+
+fn has_tz(l: &L) -> bool {
+    matches!(l, L::Timestamp { tz: true, .. } | L::Time { tz: true, .. })
+}
+
+fn strip_offset(x: &str) -> &str {
+    x.rsplit_once([' ', '+']).filter(|(_, o)| o.contains(':') && o.len() <= 6).map_or(x, |(t, _)| t.trim_end())
+}
+
+/// The literal for `v` in a column of type `l` on engine `e`.
+fn literal(e: E, l: &L, v: &V) -> Option<String> {
+    Some(match v {
+        V::Skip => return None,
+        V::Int(n) | V::Num(n) => match l {
+            L::Bool => bool_lit(e, l, n != "0"),
+            _ => n.clone(),
+        },
+        V::F(x) => match (e, l) {
+            (E::Ora, L::Float { bytes: 4 }) => format!("{x}f"),
+            (E::Ora, L::Float { .. }) => format!("{x}d"),
+            _ => x.clone(),
+        },
+        V::Str(x) | V::Json(x) => text_lit(e, x),
+        V::Hex(h) => hex_lit(e, h),
+        V::Date(d) => match e {
+            E::Pg | E::Ora => format!("DATE '{d}'"),
+            _ => format!("'{d}'"),
+        },
+        V::Time(t) => match (e, l) {
+            (E::Ora, _) => format!("TIMESTAMP '1970-01-01 {t}'"),
+            (_, L::Timestamp { .. }) => format!("'1970-01-01 {t}'"),
+            (E::Pg, _) => format!("TIME '{t}'"),
+            _ => format!("'{t}'"),
+        },
+        V::Ts(x) => match e {
+            E::Pg | E::Ora => format!("TIMESTAMP '{x}'"),
+            _ => format!("'{x}'"),
+        },
+        V::TsTz(x) => match (e, has_tz(l)) {
+            (E::Pg, true) => format!("TIMESTAMPTZ '{x}'"),
+            (E::Ora, true) => format!("TIMESTAMP '{x}'"),
+            (E::Ms, true) => format!("'{x}'"),
+            (E::Pg | E::Ora, false) => format!("TIMESTAMP '{}'", strip_offset(x)),
+            _ => format!("'{}'", strip_offset(x)),
+        },
+        V::Uuid(u) if is_binary(l) => hex_lit(e, &u.replace('-', "")),
+        V::Uuid(u) => text_lit(e, u),
+        V::Bool(b) => match l {
+            L::Bool | L::Int { .. } | L::Decimal { .. } => bool_lit(e, l, *b),
+            _ => text_lit(e, if *b { "1" } else { "0" }),
+        },
+        V::Set(x) => match l {
+            L::Array { .. } => format!("'{{{x}}}'"),
+            L::Json { .. } => text_lit(e, &serde_json::to_string(&x.split(',').collect::<Vec<_>>()).unwrap()),
+            _ => text_lit(e, x),
+        },
+    })
+}
+
+// ------------------------------------------------------------- comparing
+
+/// Long SQL cut for messages: every string literal to 40 characters.
+fn short(sql: &str) -> String {
+    let mut out = String::new();
+    let mut run = 0usize;
+    let mut quoted = false;
+    for c in sql.chars() {
+        if c == '\'' {
+            quoted = !quoted;
+            run = 0;
+        } else if quoted {
+            run += 1;
+            if run == 40 {
+                out.push('…');
+            }
+            if run >= 40 {
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn cell(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+/// `-0012.3400` → `-12.34`.
+fn norm_num(s: &str) -> String {
+    let s = s.trim();
+    let (neg, s) = s.strip_prefix('-').map_or((false, s), |r| (true, r));
+    let (int, frac) = s.split_once('.').unwrap_or((s, ""));
+    let int = int.trim_start_matches('0');
+    let frac = frac.trim_end_matches('0');
+    let int = if int.is_empty() { "0" } else { int };
+    let out = if frac.is_empty() { int.to_string() } else { format!("{int}.{frac}") };
+    if neg && out != "0" { format!("-{out}") } else { out }
+}
+
+fn norm_hex(s: &str) -> String {
+    let s = s.trim();
+    let s = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).or_else(|| s.strip_prefix("\\x")).unwrap_or(s);
+    s.to_ascii_lowercase().replace('-', "")
+}
+
+/// Digits of a date/time, trailing zeros of the fraction off.
+fn digits(s: &str) -> String {
+    let d: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+    d.trim_end_matches('0').to_string()
+}
+
+fn truthy(s: &str) -> Option<bool> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        // BIT(1) comes back as bytes on MariaDB.
+        "1" | "t" | "true" | "y" | "0x01" => Some(true),
+        "0" | "f" | "false" | "n" | "0x00" => Some(false),
+        _ => None,
+    }
+}
+
+/// Whether the value read back is the one inserted.
+fn check_value(l: &L, v: &V, got: &Value) -> Result<(), String> {
+    let g = cell(got);
+    let fail = |want: &str| Err(format!("se esperaba «{want}», volvió «{g}»"));
+    if has_tz(l) {
+        return Ok(()); // shown in the session's zone
+    }
+    match v {
+        V::Skip => Ok(()),
+        V::Int(n) | V::Num(n) => match l {
+            L::Bool => (truthy(&g) == Some(n != "0")).then_some(()).ok_or(()).or_else(|_| fail(n)),
+            L::Float { .. } => {
+                let (a, b) = (n.parse::<f64>().unwrap(), g.parse::<f64>().unwrap_or(f64::NAN));
+                ((a - b).abs() <= a.abs() * 1e-12).then_some(()).ok_or(()).or_else(|_| fail(n))
+            }
+            _ => (norm_num(n) == norm_num(&g)).then_some(()).ok_or(()).or_else(|_| fail(n)),
+        },
+        V::F(x) => {
+            let (a, b) = (x.parse::<f64>().unwrap(), g.parse::<f64>().unwrap_or(f64::NAN));
+            let tol = if matches!(l, L::Float { bytes: 4 }) { 1e-6 } else { 1e-12 };
+            ((a - b).abs() <= a.abs() * tol).then_some(()).ok_or(()).or_else(|_| fail(x))
+        }
+        V::Str(x) => {
+            let g2 = if matches!(l, L::Char { .. }) { g.trim_end().to_string() } else { g.clone() };
+            if matches!(l, L::Xml) {
+                // Engines re-serialize XML.
+                return Ok(());
+            }
+            (g2 == *x).then_some(()).ok_or(()).or_else(|_| fail(x))
+        }
+        V::Hex(h) => {
+            let got = norm_hex(&g);
+            // binary(n) pads with zeros.
+            (got == *h || (matches!(l, L::Binary { .. }) && got.starts_with(h.as_str()))).then_some(()).ok_or(()).or_else(|_| fail(h))
+        }
+        V::Date(d) => g.replace('T', " ").starts_with(d.as_str()).then_some(()).ok_or(()).or_else(|_| fail(d)),
+        V::Time(t) => {
+            let (want, got) = (digits(t), digits(&g));
+            (got == want || got.ends_with(&want) || got.starts_with(&format!("19700101{want}")))
+                .then_some(())
+                .ok_or(())
+                .or_else(|_| fail(t))
+        }
+        V::Ts(x) => {
+            if matches!(l, L::Date) {
+                return Ok(());
+            }
+            (digits(x) == digits(&g)).then_some(()).ok_or(()).or_else(|_| fail(x))
+        }
+        V::TsTz(x) => (digits(strip_offset(x)) == digits(&g)).then_some(()).ok_or(()).or_else(|_| fail(x)),
+        V::Uuid(u) => (norm_hex(u) == norm_hex(&g)).then_some(()).ok_or(()).or_else(|_| fail(u)),
+        V::Json(j) => {
+            let (a, b) = (serde_json::from_str::<Value>(j).unwrap(), serde_json::from_str::<Value>(&g));
+            (b.as_ref().ok() == Some(&a)).then_some(()).ok_or(()).or_else(|_| fail(j))
+        }
+        V::Bool(b) => (truthy(&g) == Some(*b)).then_some(()).ok_or(()).or_else(|_| fail(&b.to_string())),
+        V::Set(x) => {
+            if matches!(l, L::Array { .. } | L::Json { .. }) {
+                return Ok(());
+            }
+            (g == *x).then_some(()).ok_or(()).or_else(|_| fail(x))
+        }
+    }
+}
+
+// ------------------------------------------------------------ round trips
+
+/// Source columns (lower case) the reports say lose or drop something.
+fn lossy(issues: &[&[Issue]]) -> HashSet<String> {
+    issues
+        .iter()
+        .flat_map(|i| i.iter())
+        .filter(|i| i.severity >= Severity::Loss)
+        .filter_map(|i| i.object.as_ref().map(|o| o.to_ascii_lowercase()))
+        .collect()
+}
+
+fn issues_of<'a>(issues: &'a [Issue], column: &str) -> Vec<&'a Issue> {
+    issues.iter().filter(|i| i.object.as_deref().is_some_and(|o| o.eq_ignore_ascii_case(column))).collect()
+}
+
+/// `common::round_trip`, with this file's cleanup and messages.
+async fn rt(src: &mut Box<dyn Session>, from: E, dst: &mut Box<dyn Session>, to: E) -> RoundTrip {
+    let tables = common::read(src, &TABLES).await;
+    assert_eq!(tables.len(), 2, "{from:?}: no se leyeron las tablas de origen");
+    let conversion = convert(&tables, from.driver(), to.driver(), &Options::default()).expect("convert");
+    clean(to, dst).await;
+    let ddl = common::target_ddl(to.driver(), &conversion.tables);
+    for script in &ddl {
+        let mut out = QueryOutcome::default();
+        if let Err(e) = dst.execute(script, 10, &mut out).await {
+            panic!("{from:?} → {to:?}: el DDL del destino falló: {e}\n---\n{}", short(script));
+        }
+    }
+    let names: Vec<&str> = conversion.tables.iter().map(|t| t.name.as_str()).collect();
+    let back = common::read(dst, &names).await;
+    assert_eq!(back.len(), 2, "{from:?} → {to:?}: no se releyeron las tablas");
+    RoundTrip { conversion, ddl, back }
+}
+
+fn table<'a>(ts: &'a [TableSchema], name: &str) -> &'a TableSchema {
+    ts.iter().find(|t| t.name == name).or_else(|| ts.iter().find(|t| t.name.eq_ignore_ascii_case(name))).unwrap()
+}
+
+fn action(a: &Option<String>) -> Option<String> {
+    a.as_ref().map(|a| a.to_ascii_uppercase()).filter(|a| a != "NO ACTION" && a != "RESTRICT")
+}
+
+/// The target reports the types, keys and defaults the conversion chose.
+fn check_created(r: &RoundTrip, to: E) -> Vec<String> {
+    let d = for_driver(to.driver()).unwrap();
+    let mut errs = Vec::new();
+    for t in &r.conversion.tables {
+        let b = table(&r.back, &t.name);
+        for c in &t.columns {
+            let Some(bc) = b.columns.iter().find(|x| x.name.eq_ignore_ascii_case(&c.name)) else {
+                errs.push(format!("{}.{}: no está en el destino", t.name, c.name));
+                continue;
+            };
+            let (want, got) = (logical_of(d, &parse(&c.data_type)), logical_of(d, &parse(&bc.data_type)));
+            // MariaDB's JSON is LONGTEXT with a CHECK.
+            let maria_json = to == E::Maria && matches!(want, L::Json { .. }) && matches!(got, L::Text { .. });
+            if want != got && !maria_json {
+                errs.push(format!("{}.{}: se creó «{}» ({want:?}) y volvió «{}» ({got:?})", t.name, c.name, c.data_type, bc.data_type));
+            }
+            if c.auto_increment != bc.auto_increment {
+                errs.push(format!("{}.{}: autoincremental {} → {}", t.name, c.name, c.auto_increment, bc.auto_increment));
+            }
+            if c.default_value.is_some() != bc.default_value.is_some() && !c.auto_increment {
+                errs.push(format!("{}.{}: default {:?} → {:?}", t.name, c.name, c.default_value, bc.default_value));
+            }
+        }
+        let pk = |k: &Option<dbine_driver::KeyDef>| k.as_ref().map(|k| k.columns.iter().map(|c| c.to_ascii_lowercase()).collect::<Vec<_>>());
+        if pk(&t.primary_key) != pk(&b.primary_key) {
+            errs.push(format!("{}: clave primaria {:?} → {:?}", t.name, t.primary_key, b.primary_key));
+        }
+        if t.foreign_keys.len() != b.foreign_keys.len() {
+            errs.push(format!("{}: {} claves foráneas → {}", t.name, t.foreign_keys.len(), b.foreign_keys.len()));
+        }
+        for (f, g) in t.foreign_keys.iter().zip(&b.foreign_keys) {
+            if action(&f.on_delete) != action(&g.on_delete) || action(&f.on_update) != action(&g.on_update) {
+                errs.push(format!("{}: FK {:?}/{:?} → {:?}/{:?}", t.name, f.on_delete, f.on_update, g.on_delete, g.on_update));
+            }
+        }
+        for ix in &t.indexes {
+            if !b.indexes.iter().any(|x| x.name.eq_ignore_ascii_case(&ix.name) && x.unique == ix.unique) {
+                errs.push(format!("{}: falta el índice {} ({:?})", t.name, ix.name, ix.columns));
+            }
+        }
+    }
+    errs
+}
+
+/// Insert the parent row and a child row of `vals` (the safe value for
+/// `lossy` columns) into `tables` (as `e` reports them); returns the child
+/// columns inserted, with their values.
+async fn insert_row(
+    e: E,
+    s: &mut Box<dyn Session>,
+    tables: &[TableSchema],
+    vals: &HashMap<String, (V, V)>,
+    lossy: &HashSet<String>,
+) -> Result<Vec<(String, L, V)>, String> {
+    let d = for_driver(e.driver()).unwrap();
+    let (parent, child) = (table(tables, "lc_padre"), table(tables, "lc_tipos"));
+    let p = format!(
+        "INSERT INTO {} ({}, {}) VALUES (1, {})",
+        e.q(&parent.name),
+        e.q(&parent.columns[0].name),
+        e.q(&parent.columns[1].name),
+        text_lit(e, "padre ñ")
+    );
+    let mut out = QueryOutcome::default();
+    s.execute(&p, 10, &mut out).await.map_err(|err| format!("{p}: {err}"))?;
+    let mut cols = Vec::new();
+    let mut lits = Vec::new();
+    let mut used = Vec::new();
+    for c in &child.columns {
+        let lower = c.name.to_ascii_lowercase();
+        if c.auto_increment || lower.starts_with("df_") {
+            continue;
+        }
+        let l = logical_of(d, &parse(&c.data_type));
+        let v = if lower == "padre_id" {
+            V::Int("1".into())
+        } else {
+            match vals.get(&lower) {
+                Some((boundary, safe)) => if lossy.contains(&lower) { safe.clone() } else { boundary.clone() },
+                None => continue,
+            }
+        };
+        if let Some(lit) = literal(e, &l, &v) {
+            cols.push(e.q(&c.name));
+            lits.push(lit);
+            used.push((c.name.clone(), l, v));
+        }
+    }
+    let sql = format!("INSERT INTO {} ({}) VALUES ({})", e.q(&child.name), cols.join(", "), lits.join(", "));
+    let mut out = QueryOutcome::default();
+    s.execute(&sql, 10, &mut out).await.map_err(|err| format!("{err}\n---\n{}", short(&sql)))?;
+    Ok(used)
+}
+
+/// Read the child row back: every inserted value, the generated key and
+/// the defaults the target kept.
+async fn check_row(e: E, s: &mut Box<dyn Session>, tables: &[TableSchema], used: &[(String, L, V)], lossy: &HashSet<String>) -> Vec<String> {
+    let child = table(tables, "lc_tipos");
+    // The Oracle driver can't read XMLTYPE (an object type) yet.
+    let used: Vec<&(String, L, V)> = used.iter().filter(|(_, l, _)| !(e == E::Ora && *l == L::Xml)).collect();
+    let mut names: Vec<String> = used.iter().map(|(n, _, _)| n.clone()).collect();
+    let extra: Vec<&dbine_driver::ColumnDef> =
+        child.columns.iter().filter(|c| c.auto_increment || (c.default_value.is_some() && c.name.to_ascii_lowercase().starts_with("df_"))).collect();
+    names.extend(extra.iter().map(|c| c.name.clone()));
+    let sql = format!("SELECT {} FROM {}", names.iter().map(|n| e.q(n)).collect::<Vec<_>>().join(", "), e.q(&child.name));
+    let mut out = QueryOutcome::default();
+    if let Err(err) = s.execute(&sql, 10, &mut out).await {
+        return vec![format!("{sql}: {err}")];
+    }
+    let Some(row) = out.results.iter().rev().find(|r| !r.columns.is_empty()).and_then(|r| r.rows.first()) else {
+        return vec![format!("{sql}: no volvió la fila")];
+    };
+    let mut errs = Vec::new();
+    for (i, (name, l, v)) in used.iter().enumerate() {
+        if lossy.contains(&name.to_ascii_lowercase()) {
+            continue;
+        }
+        if let Err(m) = check_value(l, v, &row[i]) {
+            errs.push(format!("{}.{name} ({l:?}): {m}", child.name));
+        }
+    }
+    for (k, c) in extra.iter().enumerate() {
+        if row[used.len() + k].is_null() {
+            errs.push(format!("{}.{}: quedó NULL (autoincremental o default que no se aplicó)", child.name, c.name));
+        }
+    }
+    errs
+}
+
+/// Create the source tables and insert a boundary row there.
+async fn setup_source(e: E, s: &mut Box<dyn Session>) {
+    clean(e, s).await;
+    for st in ddl(e) {
+        common::exec(s, &st).await;
+    }
+    let tables = common::read(s, &TABLES).await;
+    insert_row(e, s, &tables, &values(e), &HashSet::new()).await.unwrap_or_else(|m| panic!("{e:?}: la fila de origen falló: {m}"));
+}
+
+/// A → B: the DDL runs, the types come back as chosen, the row fits.
+async fn pair(from: E, to: E) {
+    let _guard = LOCK.lock().await;
+    let (Some(mut s), Some(mut d)) = (connect(from).await, connect(to).await) else { return };
+    setup_source(from, &mut s).await;
+    clean(to, &mut d).await;
+    let r = rt(&mut s, from, &mut d, to).await;
+    let mut errs = check_created(&r, to);
+    let lossy = lossy(&[&r.conversion.issues]);
+    match insert_row(to, &mut d, &r.back, &values(from), &lossy).await {
+        Ok(used) => errs.extend(check_row(to, &mut d, &r.back, &used, &lossy).await),
+        Err(m) => errs.push(format!("la fila en el destino falló: {m}")),
+    }
+    report(from, to, &r.conversion);
+    assert!(errs.is_empty(), "{from:?} → {to:?}:\n  {}\n---\n{}", errs.join("\n  "), short(&r.ddl.join("\n")));
+}
+
+/// Print the conversion's report (for `--nocapture`).
+fn report(from: E, to: E, c: &Conversion) {
+    eprintln!("== {from:?} → {to:?}");
+    for m in &c.columns {
+        let notes: Vec<String> = issues_of(&c.issues, &m.column).iter().filter(|i| i.table == m.table).map(|i| format!("{:?}/{:?}", i.severity, i.code)).collect();
+        eprintln!("   {}.{}: {} → {} {}", m.table, m.column, m.source_type, m.target_type, notes.join(" "));
+    }
+    for i in c.issues.iter().filter(|i| i.object.as_ref().is_none_or(|o| !c.columns.iter().any(|m| m.column.eq_ignore_ascii_case(o)))) {
+        eprintln!("   [{}] {:?}/{:?} {:?}: {}", i.table, i.severity, i.code, i.object, i.message);
+    }
+}
+
+// ---------------------------------------------------------------- A → B → A
+
+/// Every value of `a` fits in `b`.
+fn fits(a: &L, b: &L) -> bool {
+    use L::*;
+    let int_digits = |bytes: u8, unsigned: bool| -> u32 {
+        match (bytes, unsigned) {
+            (1, _) => 3,
+            (2, _) => 5,
+            (3, _) => 8,
+            (4, _) => 10,
+            (8, false) => 19,
+            (8, true) => 20,
+            _ => 39,
+        }
+    };
+    let range = |bytes: u8, unsigned: bool| -> (i128, i128) {
+        let bits = u32::from(bytes) * 8;
+        if unsigned { (0, (1i128 << bits.min(126)) - 1) } else { (-(1i128 << (bits - 1).min(126)), (1i128 << (bits - 1).min(126)) - 1) }
+    };
+    let len_ok = |x: &Option<u32>, y: &Option<u32>| y.is_none() || x.is_some_and(|x| x <= y.unwrap());
+    match (a, b) {
+        _ if a == b => true,
+        (Bool, Int { .. } | Decimal { .. }) => true,
+        (Int { bytes: x, unsigned: u }, Int { bytes: y, unsigned: v }) => {
+            let (ra, rb) = (range(*x, *u), range(*y, *v));
+            rb.0 <= ra.0 && ra.1 <= rb.1
+        }
+        (Int { bytes, unsigned }, Decimal { precision, scale }) => {
+            precision.is_none() || precision.unwrap().saturating_sub(scale.unwrap_or(0)) >= int_digits(*bytes, *unsigned)
+        }
+        (Decimal { precision: Some(p), scale }, Int { bytes, unsigned }) => scale.unwrap_or(0) == 0 && *p < int_digits(*bytes, *unsigned),
+        (Decimal { precision: p1, scale: s1 }, Decimal { precision: p2, scale: s2 }) => match (p1, p2) {
+            (_, None) => true,
+            (None, Some(_)) => false,
+            (Some(p1), Some(p2)) => {
+                let (s1, s2) = (s1.unwrap_or(0), s2.unwrap_or(0));
+                s2 >= s1 && p2.saturating_sub(s2) >= p1.saturating_sub(s1)
+            }
+        },
+        (Float { bytes: x }, Float { bytes: y }) => x <= y,
+        (Money, Decimal { precision: Some(p), scale: Some(s) }) => *s >= 4 && p.saturating_sub(*s) >= 15,
+        (Char { len: x, unicode: u } | Varchar { len: x, unicode: u }, Char { len: y, unicode: v } | Varchar { len: y, unicode: v }) => {
+            (!u || *v) && len_ok(x, y)
+        }
+        (Char { unicode: u, .. } | Varchar { unicode: u, .. } | Text { unicode: u }, Text { unicode: v }) => !u || *v,
+        (Binary { len: x } | Varbinary { len: x }, Binary { len: y } | Varbinary { len: y }) => len_ok(x, y),
+        (Binary { .. } | Varbinary { .. } | Blob, Blob) => true,
+        (Date, Date | Timestamp { .. }) => true,
+        (Time { precision: p, tz: t }, Time { precision: q, tz: u }) => (!t || *u) && q.unwrap_or(6) >= p.unwrap_or(6),
+        (Timestamp { precision: p, tz: t }, Timestamp { precision: q, tz: u }) => t == u && q.unwrap_or(6) >= p.unwrap_or(6),
+        (Uuid, Char { len, .. } | Varchar { len, .. }) => len.is_none_or(|n| n >= 36),
+        (Uuid, Text { .. } | Blob) => true,
+        (Uuid, Binary { len } | Varbinary { len }) => len.is_none_or(|n| n >= 16),
+        (Json { .. }, Json { .. } | Text { .. }) => true,
+        (Enum { values }, Char { len, .. } | Varchar { len, .. }) => len.is_none_or(|n| n as usize >= values.iter().map(|v| v.chars().count()).max().unwrap_or(0)),
+        (Enum { .. } | Set { .. } | Xml | Inet | MacAddr | Interval, Text { .. }) => true,
+        (Year, Int { bytes, .. }) => *bytes >= 2,
+        (RowVersion, Binary { len } | Varbinary { len }) => len.is_none_or(|n| n >= 8),
+        (RowVersion, Blob) => true,
+        _ => false,
+    }
+}
+
+/// A → B → A: the final table holds everything the original did, except
+/// what either report says is lost or approximated.
+async fn there_and_back(a: E, b: E) {
+    let _guard = LOCK.lock().await;
+    let (Some(mut sa), Some(mut sb)) = (connect(a).await, connect(b).await) else { return };
+    setup_source(a, &mut sa).await;
+    clean(b, &mut sb).await;
+    let orig = common::read(&mut sa, &TABLES).await;
+    let r1 = rt(&mut sa, a, &mut sb, b).await;
+    let mut errs: Vec<String> = check_created(&r1, b).into_iter().map(|e| format!("ida: {e}")).collect();
+    let r2 = rt(&mut sb, b, &mut sa, a).await;
+    errs.extend(check_created(&r2, a).into_iter().map(|e| format!("vuelta: {e}")));
+    report(a, b, &r1.conversion);
+    report(b, a, &r2.conversion);
+
+    let d = for_driver(a.driver()).unwrap();
+    let noted = |col: &str, pred: &dyn Fn(&Issue) -> bool| {
+        issues_of(&r1.conversion.issues, col).into_iter().chain(issues_of(&r2.conversion.issues, col)).any(|i| pred(i))
+    };
+    eprintln!("== {a:?} → {b:?} → {a:?}: diferencias con el original");
+    for ot in &orig {
+        let ft = table(&r2.back, &ot.name);
+        for oc in &ot.columns {
+            let Some(fc) = ft.columns.iter().find(|c| c.name.eq_ignore_ascii_case(&oc.name)) else {
+                errs.push(format!("{}.{}: falta al volver", ot.name, oc.name));
+                continue;
+            };
+            let (lo, lf) = (logical_of(d, &parse(&oc.data_type)), logical_of(d, &parse(&fc.data_type)));
+            if oc.data_type != fc.data_type {
+                eprintln!("   {}.{}: {} → {}", ot.name, oc.name, oc.data_type, fc.data_type);
+            }
+            let reported = noted(&oc.name, &|i| i.severity >= Severity::Warning || matches!(i.code, IssueCode::TypeChanged | IssueCode::TypeApproximated));
+            if !fits(&lo, &lf) && !reported {
+                errs.push(format!("{}.{}: {} → {} sin aviso en el reporte ({lo:?} → {lf:?})", ot.name, oc.name, oc.data_type, fc.data_type));
+            }
+            if oc.auto_increment && !fc.auto_increment && !noted(&oc.name, &|i| i.code == IssueCode::AutoIncrementDropped) {
+                errs.push(format!("{}.{}: dejó de ser autoincremental sin aviso", ot.name, oc.name));
+            }
+            if oc.default_value.is_some() && fc.default_value.is_none() && !noted(&oc.name, &|i| i.code == IssueCode::DefaultDropped) {
+                errs.push(format!("{}.{}: perdió el default {:?} sin aviso", ot.name, oc.name, oc.default_value));
+            }
+        }
+        if ot.foreign_keys.len() != ft.foreign_keys.len() {
+            errs.push(format!("{}: {} claves foráneas → {}", ot.name, ot.foreign_keys.len(), ft.foreign_keys.len()));
+        }
+        for (f, g) in ot.foreign_keys.iter().zip(&ft.foreign_keys) {
+            if action(&f.on_delete) != action(&g.on_delete) {
+                errs.push(format!("{}: ON DELETE {:?} → {:?}", ot.name, f.on_delete, g.on_delete));
+            }
+            if action(&f.on_update) != action(&g.on_update) && !noted_fk(&r1.conversion, &r2.conversion) {
+                errs.push(format!("{}: ON UPDATE {:?} → {:?} sin aviso", ot.name, f.on_update, g.on_update));
+            }
+        }
+    }
+
+    let lossy = lossy(&[&r1.conversion.issues, &r2.conversion.issues]);
+    match insert_row(a, &mut sa, &r2.back, &values(a), &lossy).await {
+        Ok(used) => errs.extend(check_row(a, &mut sa, &r2.back, &used, &lossy).await),
+        Err(m) => errs.push(format!("la fila al volver falló: {m}")),
+    }
+    assert!(errs.is_empty(), "{a:?} → {b:?} → {a:?}:\n  {}", errs.join("\n  "));
+}
+
+fn noted_fk(a: &Conversion, b: &Conversion) -> bool {
+    a.issues.iter().chain(&b.issues).any(|i| i.code == IssueCode::ForeignKeyActionChanged)
+}
+
+// ------------------------------------------------------------------- tests
+
+macro_rules! pairs {
+    ($($name:ident: $from:ident -> $to:ident;)*) => {$(
+        #[tokio::test]
+        #[ignore]
+        async fn $name() {
+            pair(E::$from, E::$to).await;
+        }
+    )*};
+}
+
+pairs! {
+    pg_to_mysql: Pg -> My;
+    pg_to_mariadb: Pg -> Maria;
+    pg_to_sqlserver: Pg -> Ms;
+    pg_to_oracle: Pg -> Ora;
+    pg_to_sqlite: Pg -> Lite;
+    mysql_to_pg: My -> Pg;
+    mysql_to_mariadb: My -> Maria;
+    mysql_to_sqlserver: My -> Ms;
+    mysql_to_oracle: My -> Ora;
+    mysql_to_sqlite: My -> Lite;
+    mariadb_to_pg: Maria -> Pg;
+    mariadb_to_mysql: Maria -> My;
+    mariadb_to_sqlserver: Maria -> Ms;
+    mariadb_to_oracle: Maria -> Ora;
+    mariadb_to_sqlite: Maria -> Lite;
+    sqlserver_to_pg: Ms -> Pg;
+    sqlserver_to_mysql: Ms -> My;
+    sqlserver_to_mariadb: Ms -> Maria;
+    sqlserver_to_oracle: Ms -> Ora;
+    sqlserver_to_sqlite: Ms -> Lite;
+    oracle_to_pg: Ora -> Pg;
+    oracle_to_mysql: Ora -> My;
+    oracle_to_mariadb: Ora -> Maria;
+    oracle_to_sqlserver: Ora -> Ms;
+    oracle_to_sqlite: Ora -> Lite;
+    sqlite_to_pg: Lite -> Pg;
+    sqlite_to_mysql: Lite -> My;
+    sqlite_to_mariadb: Lite -> Maria;
+    sqlite_to_sqlserver: Lite -> Ms;
+    sqlite_to_oracle: Lite -> Ora;
+}
+
+macro_rules! there_and_back {
+    ($($name:ident: $a:ident <-> $b:ident;)*) => {$(
+        #[tokio::test]
+        #[ignore]
+        async fn $name() {
+            there_and_back(E::$a, E::$b).await;
+        }
+    )*};
+}
+
+there_and_back! {
+    back_pg_mysql_pg: Pg <-> My;
+    back_mysql_pg_mysql: My <-> Pg;
+    back_pg_sqlserver_pg: Pg <-> Ms;
+    back_sqlserver_pg_sqlserver: Ms <-> Pg;
+    back_pg_oracle_pg: Pg <-> Ora;
+    back_oracle_pg_oracle: Ora <-> Pg;
+    back_mysql_sqlserver_mysql: My <-> Ms;
+    back_sqlserver_mysql_sqlserver: Ms <-> My;
+}
+
+#[test]
+fn fits_is_a_partial_order() {
+    assert!(fits(&L::int(4), &L::int(8)));
+    assert!(!fits(&L::int(8), &L::int(4)));
+    assert!(fits(&L::Int { bytes: 4, unsigned: true }, &L::int(8)));
+    assert!(!fits(&L::Int { bytes: 8, unsigned: true }, &L::int(8)));
+    assert!(fits(&L::int(4), &L::Decimal { precision: Some(10), scale: Some(0) }));
+    assert!(fits(&L::Varchar { len: Some(10), unicode: false }, &L::Varchar { len: Some(20), unicode: true }));
+    assert!(!fits(&L::Varchar { len: Some(10), unicode: true }, &L::Varchar { len: Some(20), unicode: false }));
+    assert!(fits(&L::Timestamp { precision: Some(3), tz: false }, &L::Timestamp { precision: None, tz: false }));
+    assert_eq!(norm_num("-0012.3400"), "-12.34");
+    assert_eq!(digits("2024-02-29T23:59:59.120"), digits("2024-02-29 23:59:59.12"));
+    assert_eq!(strip_offset("2024-02-29 23:59:59.999 +05:30"), "2024-02-29 23:59:59.999");
+    assert_eq!(strip_offset("2024-02-29 23:59:59.999"), "2024-02-29 23:59:59.999");
+}

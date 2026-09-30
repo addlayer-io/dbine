@@ -1,0 +1,91 @@
+{
+  "couldNotConnect": "Couldn't connect.",
+  "connection": "Connection",
+  "thisEngine": "This engine",
+  "unsupported": "{{engine}} doesn't allow seeing other clients' queries.",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2.5s",
+    "text": "contains… · !doesn't contain · =equals",
+    "database": "contains… · !doesn't contain"
+  },
+  "menu": {
+    "filter": {
+      "user": "Filter by user “{{value}}”",
+      "client": "Filter by client “{{value}}”",
+      "application": "Filter by application “{{value}}”",
+      "database": "Filter by database “{{value}}”"
+    },
+    "filterSame": "Filter the ones like this query",
+    "copy": "Copy the query"
+  },
+  "openInQuery": "Open in a query",
+  "column": {
+    "time": "Time",
+    "duration": "Duration",
+    "query": "Query",
+    "database": "Database",
+    "user": "User",
+    "client": "Client",
+    "application": "Application",
+    "rows": "Rows",
+    "cpu": "CPU",
+    "reads": "Reads",
+    "writes": "Writes"
+  },
+  "columns": "Columns",
+  "columnsHint": "Show or hide columns",
+  "showAll": "Show all",
+  "status": {
+    "starting": "Starting…",
+    "capturing": "Capturing",
+    "stopped": "Stopped",
+    "notStarted": "Not started"
+  },
+  "source": "Source: {{source}}",
+  "mode": {
+    "complete": "Full capture",
+    "sampled": "Sampling"
+  },
+  "clearFilters": "Clear filters",
+  "resume": "Resume",
+  "sampledNote": "This engine only shows what's running: queries shorter than ~100 ms may not appear.",
+  "enabled": "{{source}} was enabled on the server.",
+  "disabled": "{{source}} was disabled.",
+  "stats": {
+    "title": "This query",
+    "runs_one": "{n} run",
+    "runs_other": "{n} runs",
+    "avg": "average",
+    "min": "min",
+    "max": "max",
+    "runs_many": "{n} runs"
+  },
+  "filtersHint": "Only queries that pass the filters are kept",
+  "sameAs": "Like: {{label}}",
+  "removeFilter": "Remove this filter",
+  "noneYet": "None has appeared yet",
+  "noValues": "No values",
+  "empty": {
+    "noMatch": "No queries match.",
+    "waitingFiltered": "Waiting for queries that pass the filters…",
+    "waiting": "Waiting for queries…",
+    "none": "No queries captured."
+  },
+  "dragHint": "Drag to change the height",
+  "detail": {
+    "rows_one": "{{n}} row",
+    "rows_other": "{{n}} rows",
+    "rows_many": "{{n}} rows"
+  },
+  "foot": {
+    "queries_one": "{{n}} query",
+    "queries_other": "{{n}} queries",
+    "passing": "{{n}} pass the filters",
+    "skipped": "{{n}} discarded by the filters",
+    "dropped": "the {{n}} oldest were discarded (the last {{max}} are kept)",
+    "arrivalOrder": "Back to arrival order",
+    "toEnd": "Go to the end",
+    "queries_many": "{{n}} queries"
+  },
+  "unitHint": "In {{unit}}"
+}

@@ -1,0 +1,61 @@
+{
+  "query": "Requête {{n}}",
+  "actualPlan": "Plan réel",
+  "estimatedPlan": "Plan estimé",
+  "diagram": "Diagramme",
+  "rawPlan": "Plan d'origine",
+  "statementTitle": "Cliquez pour tout voir",
+  "hint": "Faites glisser pour vous déplacer · ⌘/pincement + molette pour zoomer · F ajuste",
+  "summary": {
+    "operators": "Opérateurs",
+    "cost": "Coût",
+    "time": "Temps",
+    "rows": "Lignes",
+    "firstWarning": "Aller au premier avertissement",
+    "warnings_one": "{{count}} avertissement",
+    "warnings_other": "{{count}} avertissements",
+    "warnings_many": "{{count}} avertissements"
+  },
+  "edge": {
+    "actualRows": "Lignes réelles : {{rows}}",
+    "estimatedRows": "Lignes estimées : {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Coût de l'opérateur : {{pct}} %",
+    "noCost": "Sans coût",
+    "actualEstimatedRows": "Lignes réelles / estimées",
+    "estimatedRows": "Lignes estimées",
+    "estimatedShort": "{{rows}} est.",
+    "expand_one": "Développer ({{count}} opérateur)",
+    "expand_other": "Développer ({{count}} opérateurs)",
+    "collapse": "Réduire",
+    "expand_many": "Développer ({{count}} opérateurs)"
+  },
+  "zoom": {
+    "zoomOut": "Zoom arrière (−)",
+    "actualSize": "Taille réelle (0)",
+    "zoomIn": "Zoom avant (+)",
+    "fit": "Ajuster à la vue (F)",
+    "expandAll": "Tout développer",
+    "collapseBelow": "Réduire sous le 3e niveau",
+    "minimap": "Mini-carte"
+  },
+  "props": {
+    "close": "Fermer (Échap)",
+    "operator": "De l'opérateur",
+    "self": "Propre",
+    "subtree": "Sous-arbre",
+    "rowsAndTime": "Lignes et temps",
+    "estimatedPerExecution": "Estimées (par exécution)",
+    "actualTotal": "Réelles (total)",
+    "executions": "Exécutions",
+    "actualTime": "Temps réel",
+    "object": "Objet",
+    "properties": "Propriétés"
+  },
+  "raw": {
+    "save": "Enregistrer…",
+    "sqlServerPlan": "Plan SQL Server",
+    "ssmsHint": "S'ouvre dans SQL Server Management Studio (.sqlplan)"
+  }
+}

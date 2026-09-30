@@ -1,0 +1,126 @@
+{
+  "actions": {
+    "createQueryFailed": "Couldn't create the query: {{error}}",
+    "nameRequired": "Enter a name",
+    "create": "Create",
+    "renameQuery": {
+      "prompt": "Query name:",
+      "title": "Rename"
+    },
+    "copyName": "{{name}} (copy)",
+    "copyNameN": "{{name}} (copy {{n}})",
+    "deleteQuery": {
+      "confirm": "Delete the query \"{{name}}\"? This can't be undone.",
+      "title": "Delete query"
+    },
+    "newObjectPrefix": "new_",
+    "createDatabase": {
+      "prompt": "Name of the new database:",
+      "title": "New database",
+      "done": "Database “{{name}}” created"
+    },
+    "dropObjects": {
+      "more": "{{list}} and {{count}} more",
+      "confirmOne": "Delete “{{name}}” from {{where}}? It's dropped with all its data and this can't be undone.",
+      "confirmMany": "{{count}} objects will be deleted from {{where}}, with all their data: {{list}}.\n\nThis can't be undone. Type “{{word}}” to confirm:",
+      "titleMany": "Delete {{count}} objects",
+      "word": "delete",
+      "typeWord": "Type “{{word}}”",
+      "failed": "Couldn't delete {{failed}} of {{total}}",
+      "droppedOne": "“{{name}}” deleted",
+      "droppedMany": "{{count}} objects deleted"
+    },
+    "dropDatabase": {
+      "confirm": "This drops the database “{{name}}” from {{server}} with all its contents. This can't be undone.\n\nType the database name to confirm:",
+      "title": "Delete database",
+      "mismatch": "The name doesn't match",
+      "done": "Database “{{name}}” deleted"
+    }
+  },
+  "files": {
+    "saved": "Saved",
+    "saveFailed": "Couldn't save: {{error}}"
+  },
+  "format": {
+    "redis": "Redis commands go one per line: there's nothing to format.",
+    "unavailable": "There's no formatter for this language yet."
+  },
+  "copy": {
+    "withHeadersLabel": "Copy with headers",
+    "withHeaders": "With headers",
+    "withoutHeadersLabel": "Copy without headers",
+    "withoutHeaders": "Without headers",
+    "headersOnlyLabel": "Copy headers only",
+    "headersOnly": "Headers only",
+    "as": "Copy as {{format}}"
+  },
+  "export": {
+    "csvSemicolon": "CSV (semicolon-separated)",
+    "csvExcel": "CSV for MS Excel",
+    "tsv": "TSV (tab-separated)",
+    "defaultTable": "table",
+    "defaultSheet": "Result",
+    "defaultFile": "result"
+  },
+  "filter": {
+    "clear": "Clear filter",
+    "values": "Filter multiple values…",
+    "isNull": "Is NULL",
+    "notNull": "Is not NULL",
+    "isTrue": "Is true",
+    "isFalse": "Is false",
+    "trueOrNull": "Is true or NULL",
+    "falseOrNull": "Is false or NULL",
+    "isEmpty": "Is empty",
+    "notEmpty": "Is not empty",
+    "eq": "Equals…",
+    "ne": "Does not equal…",
+    "contains": "Contains…",
+    "notContains": "Does not contain…",
+    "startsWith": "Starts with…",
+    "endsWith": "Ends with…",
+    "gt": "Greater than…",
+    "ge": "Greater than or equal to…",
+    "lt": "Less than…",
+    "le": "Less than or equal to…",
+    "sql": "SQL condition…",
+    "sqlRight": "SQL condition, right-hand side…",
+    "describeTrueOrNull": "TRUE or NULL",
+    "describeFalseOrNull": "FALSE or NULL"
+  },
+  "gridEdit": {
+    "notFind": "the query isn't a find on a collection",
+    "engineCantEdit": "this engine doesn't allow editing query results: open the object from the explorer",
+    "queryNotFound": "the query that produced this result wasn't found",
+    "usesWith": "the query uses WITH: edit from the table",
+    "combinesRows": "the result combines or groups rows: only queries on a single table can be edited",
+    "noTable": "the query doesn't read from a table",
+    "tableUnknown": "the query's table isn't recognized",
+    "combinesTables": "the result combines tables: only queries on a single table can be edited",
+    "missingKey": "the result doesn't include the primary key ({{columns}}): add it to the SELECT to edit",
+    "noPrimaryKey": "The table has no primary key: the WHERE uses every column (it may affect more than one row if there are duplicates)."
+  },
+  "connections": {
+    "downloading": "Downloading {{component}}, just this once… {{pct}} % ({{done}} of {{total}} MB)",
+    "connected": "Connected: {{version}}",
+    "connectFailed": "Couldn't connect: {{error}}",
+    "password": "Password for {{user}} on {{connection}}:",
+    "queryName": "Query {{n}}"
+  },
+  "ai": {
+    "stopped": "Stopped.",
+    "downloading": "downloading",
+    "starting": "starting"
+  },
+  "families": {
+    "relational": "Relational",
+    "analytical": "Analytical",
+    "document": "Document",
+    "keyValue": "Key-value",
+    "wideColumn": "Wide-column",
+    "search": "Search",
+    "timeSeries": "Time series",
+    "streaming": "Streaming",
+    "graph": "Graph"
+  }
+}

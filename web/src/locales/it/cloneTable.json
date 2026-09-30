@@ -1,0 +1,25 @@
+{
+  "menu": "Clona…",
+  "title": "Clona {{name}}",
+  "name": "Nome della nuova tabella",
+  "nameHelp": "Viene creata nello stesso schema, con la stessa struttura. I suoi indici e vincoli prendono nomi basati sul nuovo nome.",
+  "withData": "Copia i dati",
+  "withIndexes": "Includi gli indici",
+  "clone": "Clona",
+  "stop": "Interrompi",
+  "starting": "Avvio…",
+  "rows": "{{done}} righe copiate",
+  "rowsOf": "{{done}} di {{total}} righe copiate",
+  "done": "«{{name}}» è stata clonata con {{rows}} righe",
+  "cancelled": "La clonazione è stata interrotta; della nuova tabella non è rimasto nulla",
+  "notes": "Da tenere presente",
+  "phase": {
+    "read": "Lettura della struttura della tabella…",
+    "create": "Creazione della nuova tabella…",
+    "copy": "Copia dei dati…",
+    "identity": "Regolazione del contatore di identità…",
+    "indexes": "Creazione degli indici…",
+    "foreign_keys": "Creazione delle chiavi esterne…",
+    "cleanup": "Eliminazione della tabella incompleta…"
+  }
+}

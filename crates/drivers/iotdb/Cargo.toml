@@ -1,0 +1,17 @@
+[package]
+name = "dbine-driver-iotdb"
+version = "0.1.1"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+edition.workspace = true
+license.workspace = true
+description = "DBine driver for Apache IoTDB through its REST API (v2)"
+
+[dependencies]
+dbine-driver = { path = "../../dbine-driver" }
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

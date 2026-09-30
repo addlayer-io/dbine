@@ -1,0 +1,25 @@
+{
+  "menu": "Clonar…",
+  "title": "Clonar {{name}}",
+  "name": "Nombre de la tabla nueva",
+  "nameHelp": "Se crea en el mismo esquema, con la misma estructura. Sus índices y restricciones toman nombres con el nombre nuevo.",
+  "withData": "Copiar los datos",
+  "withIndexes": "Incluir índices",
+  "clone": "Clonar",
+  "stop": "Detener",
+  "starting": "Empezando…",
+  "rows": "{{done}} filas copiadas",
+  "rowsOf": "{{done}} de {{total}} filas copiadas",
+  "done": "Se clonó «{{name}}» con {{rows}} filas",
+  "cancelled": "Se detuvo el clonado; no quedó nada de la tabla nueva",
+  "notes": "Para tener en cuenta",
+  "phase": {
+    "read": "Leyendo la estructura de la tabla…",
+    "create": "Creando la tabla nueva…",
+    "copy": "Copiando los datos…",
+    "identity": "Ajustando el contador de identidad…",
+    "indexes": "Creando los índices…",
+    "foreign_keys": "Creando las claves foráneas…",
+    "cleanup": "Borrando la tabla a medias…"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "title": "Import connections",
+  "source": {
+    "ssmsHint": "Registered servers or an exported .regsrvr",
+    "pasteUrls": "Paste URLs",
+    "found": "Found on this machine",
+    "notFound": "Not found: choose the location"
+  },
+  "urlsPlaceholder": "One per line: postgres://user:password@host:5432/db, mongodb+srv://…, jdbc:sqlserver://…, Server=host;Database=db;User Id=…, or the path of an SQLite file",
+  "read": "Read",
+  "chooseFolder": "Choose folder…",
+  "chooseFile": "Choose file…",
+  "dialogFolder": "Connections folder",
+  "dialogFile": "Connections file",
+  "reading": "Reading connections…",
+  "noneInText": "No connection found in the text.",
+  "noneAtPath": "There are no connections in that location.",
+  "columns": {
+    "name": "Name",
+    "engine": "Engine",
+    "server": "Server",
+    "user": "User"
+  },
+  "hasSecret": "Has a saved password",
+  "inKeychain": "The password is in the system keychain: when importing, the system may ask for permission to read it",
+  "existsTitle": "A connection to the same server already exists: «{{name}}»",
+  "exists": "Already exists",
+  "passwords": "Import the passwords (saved in the system keychain)",
+  "importN": "Import {{n}}",
+  "imported_one": "{{count}} connection imported",
+  "imported_other": "{{count}} connections imported",
+  "andFolders_one": " and {{count}} folder",
+  "andFolders_other": " and {{count}} folders",
+  "failedTitle": "Not imported",
+  "gotIt": "Got it",
+  "suggestion": {
+    "title": "Bring your connections over?",
+    "found": "We found connections from other tools on this machine:",
+    "count_one": "{{count}} connection",
+    "count_other": "{{count}} connections",
+    "hintBefore": "They're imported with their folders and passwords, which go to the system keychain. Otherwise, you can do it any time from the",
+    "hintAfter": "button in the Explorer.",
+    "notNow": "Not now",
+    "viewAndImport": "View and import…",
+    "count_many": "{{count}} connections"
+  },
+  "imported_many": "{{count}} connections imported",
+  "andFolders_many": " and {{count}} folders"
+}

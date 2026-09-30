@@ -1,0 +1,70 @@
+{
+  "title": "Assistant",
+  "defaultModel": "default",
+  "reasoning": "Reasoning",
+  "head": {
+    "setup": "Models and providers",
+    "newChat": "New conversation",
+    "close": "Close (⌘I)"
+  },
+  "context": {
+    "noDatabase": "No database selected",
+    "openQuery": "open query",
+    "schema": "schema",
+    "sent": "context: {{context}}"
+  },
+  "suggest": {
+    "whyFails": "Why does the last run fail? Fix it.",
+    "explain": "Explain the query in the editor",
+    "optimize": "Review and optimize the query in the editor",
+    "largestTables": "Write a query that lists the largest tables",
+    "relatedTables": "Which tables are related to customers?",
+    "joinAggregate": "How do I write a JOIN with aggregation?"
+  },
+  "code": {
+    "appended": "Appended to the end of the query. Review it and run it whenever you want.",
+    "newQueryTitle": "From the assistant",
+    "replaced": "Query replaced (⌘Z to undo).",
+    "code": "code",
+    "appendHint": "Append to the end of the open query",
+    "newQueryHint": "Open in a new query",
+    "append": "Add to query",
+    "newQuery": "New query",
+    "replaceHint": "Replace the whole editor content (⌘Z undoes)",
+    "replace": "Replace",
+    "destructive": "Changes data or structure. Nothing was run: review it before you run it yourself."
+  },
+  "phase": {
+    "schema": "Reading the database structure…",
+    "engine": "Downloading the AI engine, just this once…",
+    "thinking": "Thinking…"
+  },
+  "setup": {
+    "detecting": "Looking for AI tools on this machine…",
+    "lead": "The assistant needs a model. The simplest option: download the {model}. It runs on this machine, with nothing to install and nothing leaving it.",
+    "leadModel": "built-in model",
+    "embedded": "Built into DBine",
+    "embeddedUnavailable": "The built-in model isn't available on this platform.",
+    "recommended": "recommended for this machine",
+    "use": "Use",
+    "pause": "Pause",
+    "pauseHint": "Resumes where it left off",
+    "download": "Download ({{size}})",
+    "detected": "Detected on this machine",
+    "pull": "Download {{model}}",
+    "cliNote": "Claude Code and Codex use your own account (subscription or API). They run without tools: they can't read files, run commands or connect to your databases.",
+    "redetect": "Detect again"
+  },
+  "privacy": {
+    "local": "Local: nothing leaves this machine.",
+    "remote": "Goes to {{vendor}} with your account: the question, the structure and the editor, never the data."
+  },
+  "empty": {
+    "lead": "Ask it for queries, to explain or fix the one in the editor, or ask about the database structure.",
+    "neverRuns": "The assistant never runs anything: what it writes goes into your query and you decide whether to run it."
+  },
+  "compose": {
+    "placeholder": "Ask or request a query… (Enter sends, Shift+Enter new line)",
+    "send": "Send"
+  }
+}

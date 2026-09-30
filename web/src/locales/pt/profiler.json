@@ -1,0 +1,91 @@
+{
+  "couldNotConnect": "Não foi possível conectar.",
+  "connection": "Conexão",
+  "thisEngine": "Este motor",
+  "unsupported": "{{engine}} não permite ver as consultas de outros clientes.",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2,5s",
+    "text": "contém… · !não contém · =igual",
+    "database": "contém… · !não contém"
+  },
+  "menu": {
+    "filter": {
+      "user": "Filtrar pelo usuário «{{value}}»",
+      "client": "Filtrar pelo cliente «{{value}}»",
+      "application": "Filtrar pelo aplicativo «{{value}}»",
+      "database": "Filtrar pelo banco «{{value}}»"
+    },
+    "filterSame": "Filtrar as iguais a esta consulta",
+    "copy": "Copiar a consulta"
+  },
+  "openInQuery": "Abrir em uma consulta",
+  "column": {
+    "time": "Hora",
+    "duration": "Duração",
+    "query": "Consulta",
+    "database": "Banco",
+    "user": "Usuário",
+    "client": "Cliente",
+    "application": "Aplicativo",
+    "rows": "Linhas",
+    "cpu": "CPU",
+    "reads": "Leituras",
+    "writes": "Gravações"
+  },
+  "columns": "Colunas",
+  "columnsHint": "Mostrar ou ocultar colunas",
+  "showAll": "Mostrar todas",
+  "status": {
+    "starting": "Iniciando…",
+    "capturing": "Capturando",
+    "stopped": "Parado",
+    "notStarted": "Não iniciado"
+  },
+  "source": "Fonte: {{source}}",
+  "mode": {
+    "complete": "Captura completa",
+    "sampled": "Amostragem"
+  },
+  "clearFilters": "Remover filtros",
+  "resume": "Retomar",
+  "sampledNote": "Este motor só mostra o que está em execução: consultas de menos de ~100 ms podem não aparecer.",
+  "enabled": "{{source}} foi habilitado no servidor.",
+  "disabled": "{{source}} foi desabilitado.",
+  "stats": {
+    "title": "Esta consulta",
+    "runs_one": "{n} execução",
+    "runs_other": "{n} execuções",
+    "avg": "média",
+    "min": "mín",
+    "max": "máx",
+    "runs_many": "{n} execuções"
+  },
+  "filtersHint": "Só são mantidas as consultas que passam pelos filtros",
+  "sameAs": "Iguais a: {{label}}",
+  "removeFilter": "Remover este filtro",
+  "noneYet": "Nenhum apareceu ainda",
+  "noValues": "Sem valores",
+  "empty": {
+    "noMatch": "Nenhuma consulta corresponde.",
+    "waitingFiltered": "Aguardando consultas que passem pelos filtros…",
+    "waiting": "Aguardando consultas…",
+    "none": "Nenhuma consulta capturada."
+  },
+  "dragHint": "Arraste para mudar a altura",
+  "detail": {
+    "rows_one": "{{n}} linha",
+    "rows_other": "{{n}} linhas",
+    "rows_many": "{{n}} linhas"
+  },
+  "foot": {
+    "queries_one": "{{n}} consulta",
+    "queries_other": "{{n}} consultas",
+    "passing": "{{n}} passam pelos filtros",
+    "skipped": "{{n}} descartadas pelos filtros",
+    "dropped": "as {{n}} mais antigas foram descartadas (são mantidas as últimas {{max}})",
+    "arrivalOrder": "Voltar à ordem de chegada",
+    "toEnd": "Ir para o final",
+    "queries_many": "{{n}} consultas"
+  },
+  "unitHint": "Em {{unit}}"
+}

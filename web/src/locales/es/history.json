@@ -1,0 +1,18 @@
+{
+  "title": "Historial",
+  "search": "Buscar en el historial",
+  "empty": "Todavía no ejecutaste nada. Lo que corras desde el editor queda acá, agrupado por servidor.",
+  "noMatch": "Nada coincide con la búsqueda.",
+  "clear": "Borrar el historial",
+  "clearTitle": "Borrar el historial",
+  "clearConfirm": "¿Borrar todo el historial de consultas de esta máquina?",
+  "openNew": "Abrir en una consulta nueva",
+  "copySql": "Copiar el SQL",
+  "copied": "Copiado",
+  "deleteHost": "Borrar el historial de {{host}}",
+  "connectionGone": "La conexión «{{name}}» ya no existe: copiá el SQL para usarlo en otra.",
+  "more": "Ver más",
+  "rows_one": "1 fila",
+  "rows_many": "{{count}} filas",
+  "rows_other": "{{count}} filas"
+}

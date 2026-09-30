@@ -1,0 +1,62 @@
+{
+  "primaryKey": "Primary key",
+  "foreignKey": "Foreign key",
+  "unnamedForeignKey": "Unnamed foreign key",
+  "exportFailed": "Couldn't export the image: {{error}}",
+  "busy": "Laying out {{tables}} tables and {{relations}} relationships…",
+  "hint": "Drag to move around · ⌘/pinch + wheel to zoom · double-click opens the table",
+  "tab": {
+    "connectFailed": "Couldn't connect.",
+    "reading": "Reading the database structure…",
+    "drawFailed": "Couldn't draw the diagram: {{error}}",
+    "fileName": "diagram-{{name}}",
+    "fileNameDefault": "database"
+  },
+  "toolbar": {
+    "tables": "Tables",
+    "relations": "Relationships",
+    "simplifiedLayout": "simplified layout",
+    "simplifiedLayoutTitle": "The automatic layout failed with this structure: the tables are shown in a grid (you can move them by hand).",
+    "searchPlaceholder": "Search table…",
+    "allSchemas": "All schemas",
+    "allColumns": "All columns",
+    "keysOnly": "Keys only",
+    "relayout": "Rearrange",
+    "relayoutTitle": "Arrange the tables automatically again",
+    "svgImage": "SVG image",
+    "pngImage": "PNG image"
+  },
+  "card": {
+    "openHint": "Double-click to open",
+    "nullable": "Allows NULL",
+    "noColumns": "no columns",
+    "moreColumns_one": "+{{count}} column",
+    "moreColumns_other": "+{{count}} columns",
+    "showLess": "Show less",
+    "moreColumns_many": "+{{count}} columns"
+  },
+  "empty": {
+    "title": "No tables to show",
+    "text": "The database has no tables or the engine doesn't report its structure.",
+    "noRelations": "No relationships: the database declares no foreign keys (or the engine doesn't report them). Only the tables are shown."
+  },
+  "zoom": {
+    "zoomOut": "Zoom out (−)",
+    "actualSize": "Actual size (0)",
+    "zoomIn": "Zoom in (+)",
+    "fit": "Fit to view (F)",
+    "minimap": "Minimap"
+  },
+  "props": {
+    "table": "table",
+    "openTable": "Open the table",
+    "close": "Close (Esc)",
+    "columns": "Columns",
+    "unnamed": "(unnamed)",
+    "indexes": "Indexes",
+    "unique": "unique",
+    "references": "References",
+    "referencedBy": "Referenced by",
+    "outside": "outside the diagram"
+  }
+}

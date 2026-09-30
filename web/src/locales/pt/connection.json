@@ -1,0 +1,46 @@
+{
+  "title": {
+    "new": "Nova conexão",
+    "edit": "Editar conexão · {{name}}",
+    "duplicate": "Duplicar conexão"
+  },
+  "missingDriver": "Esta versão não inclui o driver \"{{driver}}\".",
+  "copyName": "{{name}} (cópia)",
+  "pick": {
+    "searchPlaceholder": "Buscar motor…",
+    "port": "Porta {{port}}",
+    "localFile": "Arquivo local",
+    "cloudService": "Serviço na nuvem",
+    "noMatch": "Nenhum motor corresponde a «{{search}}».",
+    "available": "{{n}} motores disponíveis"
+  },
+  "family": {
+    "relational": "Relacionais",
+    "analytical": "Analíticos",
+    "document": "Documentos",
+    "key_value": "Chave-valor",
+    "wide_column": "Colunares largos",
+    "search": "Busca",
+    "time_series": "Séries temporais",
+    "streaming": "Streaming",
+    "graph": "Grafos"
+  },
+  "form": {
+    "changeEngine": "Trocar motor",
+    "name": "Nome",
+    "color": "Cor",
+    "noColor": "Sem cor",
+    "folder": "Pasta",
+    "tags": "Tags",
+    "tagsPlaceholder": "prod, dev, qa… (digite uma nova e Enter)",
+    "secretKeptMasc": "(salvo; deixe vazio para mantê-lo)",
+    "secretKeptFem": "(salva; deixe vazia para mantê-la)",
+    "savePassword": "Salvar {{fields}} no chaveiro do sistema",
+    "and": " e ",
+    "couldNotConnect": "Não foi possível conectar",
+    "testConnection": "Testar conexão",
+    "connectionOk": "Conexão bem-sucedida",
+    "saveAndConnect": "Salvar e conectar",
+    "missingFields": "Falta preencher: {{fields}}"
+  }
+}

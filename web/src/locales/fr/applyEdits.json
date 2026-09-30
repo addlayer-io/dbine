@@ -1,0 +1,10 @@
+{
+  "save": "Enregistrer",
+  "title": "Enregistrer les modifications",
+  "hint": "Ces instructions vont s’exécuter sur le serveur ({{cells}} dans {{rows}}). Vérifiez-les avant d’enregistrer.",
+  "run": "Enregistrer",
+  "done": "Modifications enregistrées",
+  "doneRows_one": "Modifications enregistrées : 1 ligne mise à jour",
+  "doneRows_many": "Modifications enregistrées : {{count}} lignes mises à jour",
+  "doneRows_other": "Modifications enregistrées : {{count}} lignes mises à jour"
+}

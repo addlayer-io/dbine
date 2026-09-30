@@ -1,0 +1,22 @@
+{
+  "title": "Blocchi",
+  "none": "Nessun blocco",
+  "blocked_one": "1 sessione in attesa",
+  "blocked_many": "{{count}} sessioni in attesa",
+  "blocked_other": "{{count}} sessioni in attesa",
+  "session": "Sessione",
+  "user": "Utente · client",
+  "database": "Database",
+  "wait": "Attesa",
+  "time": "Tempo",
+  "object": "Oggetto",
+  "sql": "Istruzione",
+  "blocks_one": "blocca 1",
+  "blocks_many": "blocca {{count}}",
+  "blocks_other": "blocca {{count}}",
+  "blocksTitle": "Sessioni che attendono questa, direttamente o no",
+  "kill": "Termina",
+  "killTitle": "Termina la sessione",
+  "killConfirm": "Terminare la sessione {{id}} ({{user}})? La sua transazione in corso viene annullata.",
+  "killed": "Sessione {{id}} terminata"
+}

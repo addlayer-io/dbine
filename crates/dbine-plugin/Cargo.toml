@@ -1,0 +1,26 @@
+[package]
+name = "dbine-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Drivers as separate processes: the wire protocol, the host that serves a driver crate and the app-side proxy (RemoteDriver / RemoteSession)"
+
+[dependencies]
+dbine-driver = { path = "../dbine-driver" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+rmp-serde = "1"
+libc = "0.2"
+reqwest.workspace = true
+sha2 = "0.10"
+flate2 = "1"
+futures-util = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_Foundation"] }
+
+[dev-dependencies]
+tempfile = "3"

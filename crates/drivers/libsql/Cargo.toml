@@ -1,0 +1,20 @@
+[package]
+name = "dbine-driver-libsql"
+version = "0.1.1"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+edition.workspace = true
+license.workspace = true
+description = "libSQL / Turso driver for DBine (Hrana over HTTP, no native client)"
+
+[dependencies]
+dbine-driver = { path = "../../dbine-driver" }
+# The SQLite driver's designer, DDL, catalog reader, plans and monitor:
+# libSQL speaks SQLite's SQL.
+dbine-driver-sqlite = { path = "../sqlite" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+base64.workspace = true
+# sqlite3_complete splits scripts exactly as SQLite does (triggers' BEGIN … END).
+rusqlite.workspace = true

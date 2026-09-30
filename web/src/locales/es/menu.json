@@ -1,0 +1,42 @@
+{
+  "app": {
+    "about": "Acerca de DBine",
+    "settings": "Configuración…",
+    "services": "Servicios",
+    "hide": "Ocultar DBine",
+    "hideOthers": "Ocultar otros",
+    "showAll": "Mostrar todo",
+    "quit": "Salir de DBine"
+  },
+  "file": {
+    "title": "Archivo",
+    "newConnection": "Nueva conexión",
+    "newQuery": "Nueva query",
+    "closeTab": "Cerrar pestaña"
+  },
+  "edit": {
+    "title": "Edición",
+    "undo": "Deshacer",
+    "redo": "Rehacer",
+    "cut": "Cortar",
+    "copy": "Copiar",
+    "paste": "Pegar",
+    "selectAll": "Seleccionar todo"
+  },
+  "view": {
+    "title": "Vista",
+    "explorer": "Explorador",
+    "output": "Salida",
+    "ai": "Asistente de IA",
+    "fullscreen": "Pantalla completa"
+  },
+  "window": {
+    "title": "Ventana",
+    "minimize": "Minimizar",
+    "zoom": "Zoom"
+  },
+  "help": {
+    "title": "Ayuda",
+    "support": "Apoyar el proyecto"
+  }
+}

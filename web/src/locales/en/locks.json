@@ -1,0 +1,22 @@
+{
+  "title": "Locks",
+  "none": "No blocking",
+  "blocked_one": "1 session waiting",
+  "blocked_many": "{{count}} sessions waiting",
+  "blocked_other": "{{count}} sessions waiting",
+  "session": "Session",
+  "user": "User · client",
+  "database": "Database",
+  "wait": "Wait",
+  "time": "Time",
+  "object": "Object",
+  "sql": "Statement",
+  "blocks_one": "blocks 1",
+  "blocks_many": "blocks {{count}}",
+  "blocks_other": "blocks {{count}}",
+  "blocksTitle": "Sessions waiting on this one, directly or not",
+  "kill": "Kill",
+  "killTitle": "Kill session",
+  "killConfirm": "Kill session {{id}} ({{user}})? Its open transaction is rolled back.",
+  "killed": "Session {{id}} killed"
+}

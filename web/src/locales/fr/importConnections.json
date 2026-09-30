@@ -1,0 +1,49 @@
+{
+  "title": "Importer des connexions",
+  "source": {
+    "ssmsHint": "Serveurs inscrits ou un .regsrvr exporté",
+    "pasteUrls": "Coller des URL",
+    "found": "Trouvé sur cette machine",
+    "notFound": "Introuvable : choisissez l'emplacement"
+  },
+  "urlsPlaceholder": "Une par ligne : postgres://utilisateur:motdepasse@host:5432/base, mongodb+srv://…, jdbc:sqlserver://…, Server=host;Database=base;User Id=…, ou le chemin d'un fichier SQLite",
+  "read": "Lire",
+  "chooseFolder": "Choisir un dossier…",
+  "chooseFile": "Choisir un fichier…",
+  "dialogFolder": "Dossier de connexions",
+  "dialogFile": "Fichier de connexions",
+  "reading": "Lecture des connexions…",
+  "noneInText": "Aucune connexion trouvée dans le texte.",
+  "noneAtPath": "Il n'y a pas de connexions à cet emplacement.",
+  "columns": {
+    "name": "Nom",
+    "engine": "Moteur",
+    "server": "Serveur",
+    "user": "Utilisateur"
+  },
+  "hasSecret": "A un mot de passe enregistré",
+  "inKeychain": "Le mot de passe est dans le trousseau du système : à l'import, le système peut demander l'autorisation de le lire",
+  "existsTitle": "Une connexion au même serveur existe déjà : «{{name}}»",
+  "exists": "Existe déjà",
+  "passwords": "Importer les mots de passe (enregistrés dans le trousseau du système)",
+  "importN": "Importer {{n}}",
+  "imported_one": "{{count}} connexion importée",
+  "imported_other": "{{count}} connexions importées",
+  "andFolders_one": " et {{count}} dossier",
+  "andFolders_other": " et {{count}} dossiers",
+  "failedTitle": "Non importées",
+  "gotIt": "Compris",
+  "suggestion": {
+    "title": "On importe vos connexions ?",
+    "found": "Nous avons trouvé des connexions d'autres outils sur cette machine :",
+    "count_one": "{{count}} connexion",
+    "count_other": "{{count}} connexions",
+    "hintBefore": "Elles sont importées avec leurs dossiers et mots de passe, qui restent dans le trousseau du système. Sinon, vous pouvez le faire quand vous voulez avec le bouton",
+    "hintAfter": "de l'Explorateur.",
+    "notNow": "Pas maintenant",
+    "viewAndImport": "Voir et importer…",
+    "count_many": "{{count}} connexions"
+  },
+  "imported_many": "{{count}} connexions importées",
+  "andFolders_many": " et {{count}} dossiers"
+}

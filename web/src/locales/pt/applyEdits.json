@@ -1,0 +1,10 @@
+{
+  "save": "Salvar",
+  "title": "Salvar as alterações",
+  "hint": "Estas instruções vão ser executadas no servidor ({{cells}} em {{rows}}). Revise-as antes de salvar.",
+  "run": "Salvar",
+  "done": "Alterações salvas",
+  "doneRows_one": "Alterações salvas: 1 linha atualizada",
+  "doneRows_many": "Alterações salvas: {{count}} linhas atualizadas",
+  "doneRows_other": "Alterações salvas: {{count}} linhas atualizadas"
+}

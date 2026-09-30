@@ -1,0 +1,114 @@
+{
+  "connectFailed": "couldn't connect",
+  "pickLeftDatabase": "Choose the left database",
+  "pickRightConnection": "Choose the right connection",
+  "pickDifferent": "Choose two different databases (or schemas)",
+  "kinds": {
+    "table": "Tables",
+    "view": "Views",
+    "materializedView": "Materialized views",
+    "procedure": "Procedures",
+    "function": "Functions",
+    "trigger": "Triggers",
+    "sequence": "Sequences",
+    "synonym": "Synonyms",
+    "type": "Types",
+    "fulltextCatalog": "Full-text catalogs",
+    "fulltextStoplist": "Stoplists",
+    "domain": "Domains",
+    "virtualTable": "Virtual tables",
+    "dictionary": "Dictionaries"
+  },
+  "status": {
+    "equal": "Equal",
+    "changed": "Different",
+    "onlyLeft": "Only on the left",
+    "onlyRight": "Only on the right"
+  },
+  "objectsSameEngine": "Views and procedures can only be carried between databases of the same engine",
+  "arrow": {
+    "table": {
+      "copyLeft": "Copy the table to the left",
+      "copyRight": "Copy the table to the right",
+      "createLeft": "Create the table on the left",
+      "createRight": "Create the table on the right",
+      "deleteLeft": "Delete the table on the left",
+      "deleteRight": "Delete the table on the right"
+    },
+    "object": {
+      "copyLeft": "Copy the object to the left",
+      "copyRight": "Copy the object to the right",
+      "createLeft": "Create the object on the left",
+      "createRight": "Create the object on the right",
+      "deleteLeft": "Delete the object on the left",
+      "deleteRight": "Delete the object on the right"
+    },
+    "item": {
+      "copyLeft": "Copy this to the left",
+      "copyRight": "Copy this to the right",
+      "createLeft": "Create this on the left",
+      "createRight": "Create this on the right",
+      "deleteLeft": "Delete this on the left",
+      "deleteRight": "Delete this on the right"
+    },
+    "pk": {
+      "copyLeft": "Copy the primary key to the left",
+      "copyRight": "Copy the primary key to the right"
+    },
+    "props": {
+      "copyLeft": "Copy the comment and options to the left",
+      "copyRight": "Copy the comment and options to the right"
+    }
+  },
+  "autoIncrement": "auto-increment",
+  "sections": {
+    "columns": "Columns",
+    "indexes": "Indexes",
+    "foreignKeys": "Foreign keys",
+    "checks": "CHECK constraints"
+  },
+  "primaryKey": "Primary key",
+  "sync": {
+    "button": "Sync",
+    "readOnly": "The connection is read-only",
+    "unsupported": "{{engine}} doesn't apply schema changes from DBine",
+    "queryTitle": "Sync {{name}}",
+    "confirm_one": "{{count}} statement will run on {{where}}.{{warnings}}",
+    "confirm_other": "{{count}} statements will run on {{where}}.{{warnings}}",
+    "confirmWarnings": " Check the warnings before going on.",
+    "failed": "Statement {{n}} of {{total}} failed ({{done}} ran): {{message}}",
+    "done": "{{where}} synced",
+    "generating": "Generating the script…",
+    "openAsQuery": "Open as query",
+    "confirm_many": "{{count}} statements will run on {{where}}.{{warnings}}",
+    "noChanges": "Nothing to sync: carry changes with the → / ← arrows",
+    "changes_one": "{{count}} change (left: {{left}}, right: {{right}}): see the scripts and run them",
+    "changes_many": "{{count}} changes (left: {{left}}, right: {{right}}): see the scripts and run them",
+    "changes_other": "{{count}} changes (left: {{left}}, right: {{right}}): see the scripts and run them",
+    "confirmOrder": "Left first, then right; if anything fails, it stops there.",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "Already run"
+  },
+  "left": "Left",
+  "right": "Right",
+  "connection": "Connection",
+  "database": "Database",
+  "schema": "Schema",
+  "allSchemas": "All schemas",
+  "discard": "Discard this side's changes",
+  "swap": "Swap",
+  "undo": "Undo the last change",
+  "compare": "Compare",
+  "empty": {
+    "pick": "Choose the two databases (or two schemas) and click {compare}.",
+    "help": "Differences are carried from one side to the other with the arrows and applied with {sync}, which shows the script before running it."
+  },
+  "onlyDiff": "Differences only",
+  "ignoreCase": "Ignore case",
+  "ignoreComments": "Ignore comments",
+  "noDifferences": "No differences.",
+  "noObjects": "No objects.",
+  "pendingChanges": "Has unapplied changes",
+  "pickItem": "Choose a table or object from the list.",
+  "tableProps": "Table properties"
+}

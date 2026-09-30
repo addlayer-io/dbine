@@ -1,0 +1,91 @@
+{
+  "couldNotConnect": "No se pudo conectar.",
+  "connection": "Conexión",
+  "thisEngine": "Este motor",
+  "unsupported": "{{engine}} no permite ver las consultas de otros clientes.",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2,5s",
+    "text": "contiene… · !no contiene · =igual",
+    "database": "contiene… · !no contiene"
+  },
+  "menu": {
+    "filter": {
+      "user": "Filtrar por el usuario «{{value}}»",
+      "client": "Filtrar por el cliente «{{value}}»",
+      "application": "Filtrar por la aplicación «{{value}}»",
+      "database": "Filtrar por la base «{{value}}»"
+    },
+    "filterSame": "Filtrar las iguales a esta consulta",
+    "copy": "Copiar la consulta"
+  },
+  "openInQuery": "Abrir en una query",
+  "column": {
+    "time": "Hora",
+    "duration": "Duración",
+    "query": "Consulta",
+    "database": "Base",
+    "user": "Usuario",
+    "client": "Cliente",
+    "application": "Aplicación",
+    "rows": "Filas",
+    "cpu": "CPU",
+    "reads": "Lecturas",
+    "writes": "Escrituras"
+  },
+  "columns": "Columnas",
+  "columnsHint": "Mostrar u ocultar columnas",
+  "showAll": "Mostrar todas",
+  "status": {
+    "starting": "Iniciando…",
+    "capturing": "Capturando",
+    "stopped": "Detenido",
+    "notStarted": "Sin iniciar"
+  },
+  "source": "Fuente: {{source}}",
+  "mode": {
+    "complete": "Captura completa",
+    "sampled": "Muestreo"
+  },
+  "clearFilters": "Quitar filtros",
+  "resume": "Reanudar",
+  "sampledNote": "Este motor solo muestra lo que se está ejecutando: las consultas de menos de ~100 ms pueden no aparecer.",
+  "enabled": "Se habilitó {{source}} en el servidor.",
+  "disabled": "Se deshabilitó {{source}}.",
+  "stats": {
+    "title": "Esta consulta",
+    "runs_one": "{n} ejecución",
+    "runs_other": "{n} ejecuciones",
+    "avg": "promedio",
+    "min": "mín",
+    "max": "máx",
+    "runs_many": "{n} ejecuciones"
+  },
+  "filtersHint": "Solo se guardan las consultas que pasan los filtros",
+  "sameAs": "Iguales a: {{label}}",
+  "removeFilter": "Quitar este filtro",
+  "noneYet": "Todavía no apareció ninguno",
+  "noValues": "Sin valores",
+  "empty": {
+    "noMatch": "Ninguna consulta coincide.",
+    "waitingFiltered": "Esperando consultas que pasen los filtros…",
+    "waiting": "Esperando consultas…",
+    "none": "Sin consultas capturadas."
+  },
+  "dragHint": "Arrastrá para cambiar el alto",
+  "detail": {
+    "rows_one": "{{n}} fila",
+    "rows_other": "{{n}} filas",
+    "rows_many": "{{n}} filas"
+  },
+  "foot": {
+    "queries_one": "{{n}} consulta",
+    "queries_other": "{{n}} consultas",
+    "passing": "{{n}} pasan los filtros",
+    "skipped": "{{n}} descartadas por los filtros",
+    "dropped": "se descartaron las {{n}} más viejas (se guardan las últimas {{max}})",
+    "arrivalOrder": "Volver al orden de llegada",
+    "toEnd": "Ir al final",
+    "queries_many": "{{n}} consultas"
+  },
+  "unitHint": "En {{unit}}"
+}

@@ -1,0 +1,43 @@
+{
+  "folder": {
+    "new": "Nuova cartella",
+    "edit": "Modifica cartella · {{name}}",
+    "name": "Nome",
+    "namePlaceholder": "Cliente, ambiente…",
+    "nameRequired": "Inserisci un nome",
+    "color": "Colore",
+    "noColor": "Nessun colore",
+    "colorHelp": "Le connessioni senza un colore proprio prendono quello della loro cartella (utile per segnalare la produzione).",
+    "inside": "Dentro",
+    "create": "Crea",
+    "topLevel": "(Livello superiore)"
+  },
+  "move": {
+    "title": "Sposta «{{name}}» in…",
+    "move": "Sposta"
+  },
+  "database": {
+    "exportTitle": "Esporta database · {{db}}",
+    "scriptTitle": "Genera script · {{db}}",
+    "scriptName": "Script di {{db}}",
+    "scriptNameConverted": "Script di {{db}} (convertito)",
+    "theDatabase": "il database"
+  },
+  "drivers": {
+    "intro": "Ogni driver si scarica da solo la prima volta che ti connetti a quel motore. Qui puoi scaricarli in anticipo (ad esempio, se lavorerai senza internet) o eliminare quelli che non usi.",
+    "search": "Cerca motore",
+    "diskTitle": "Spazio su disco occupato dai driver scaricati",
+    "summary": "{{installed}} di {{total}} scaricati · {{size}} MB",
+    "downloadAll": "Scarica tutti ({{size}} MB)",
+    "downloading": "Download in corso",
+    "download": "Scarica",
+    "remove": "Elimina"
+  },
+  "support": {
+    "title": "Sostieni DBine",
+    "text": "DBine è gratuito e lo resterà. Il tuo sostegno ci aiuta a mantenere l'applicazione e a continuare ad aggiungere funzionalità.",
+    "notPayment": "È un sostegno, non un pagamento: l'app funziona allo stesso modo.",
+    "notNow": "Non ora",
+    "support": "Sostieni il progetto"
+  }
+}

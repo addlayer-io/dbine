@@ -1,0 +1,75 @@
+{
+  "tab": "Dados",
+  "menu": "Comparar dados…",
+  "left": "Esquerda",
+  "right": "Direita",
+  "table": "Tabela",
+  "key": "Chave (a primária)",
+  "compare": "Comparar",
+  "pickBoth": "Escolha uma tabela de cada lado.",
+  "same": "iguais",
+  "changed": "diferentes",
+  "onlyLeft": "só na esquerda",
+  "onlyRight": "só na direita",
+  "syncRight": "Igualar a direita →",
+  "syncLeft": "← Igualar a esquerda",
+  "truncated": "Foram comparadas as primeiras {{limit}} linhas de cada lado: a tabela tem mais.",
+  "duplicates_one": "1 linha com a chave repetida foi comparada uma só vez.",
+  "duplicates_many": "{{count}} linhas com a chave repetida foram comparadas uma só vez.",
+  "duplicates_other": "{{count}} linhas com a chave repetida foram comparadas uma só vez.",
+  "onlyLeftColumns": "Colunas que só a esquerda tem (não comparadas): {{list}}",
+  "onlyRightColumns": "Colunas que só a direita tem (não comparadas): {{list}}",
+  "nothing": "Não há linhas aqui.",
+  "showingFirst": "Mostrando as primeiras {{shown}} de {{total}}; os botões «Todas» também marcam as que não aparecem.",
+  "hint": "Escolha a tabela de cada lado e clique em Comparar. As linhas são pareadas pela chave primária, mesmo em outra conexão ou outro motor.",
+  "syncTitle": "Aplicar as mudanças escolhidas",
+  "scriptSummary": "{{parts}}, na linguagem do destino. Revise antes de executar.",
+  "noChanges": "Não há mudanças para aplicar.",
+  "copied": "Copiado",
+  "openInQuery": "Abrir em uma consulta",
+  "run": "Executar",
+  "applied": "Mudanças aplicadas",
+  "scriptName": "Sincronizar dados",
+  "keyLabel": "Chave",
+  "matchHint": "Marca as linhas diferentes e as que faltam nesse lado. As que teriam que ser excluídas são escolhidas à parte, na sua própria visão.",
+  "bulk_one": "{{n}} linha marcada nesta visão.",
+  "bulk_many": "{{n}} linhas marcadas nesta visão.",
+  "bulk_other": "{{n}} linhas marcadas nesta visão.",
+  "allLeft": "← Todas",
+  "allRight": "Todas →",
+  "allNone": "Nenhuma",
+  "arrow": {
+    "update": {
+      "left": "A esquerda fica com os valores da direita",
+      "right": "A direita fica com os valores da esquerda"
+    },
+    "insert": {
+      "left": "Inserir esta linha na esquerda",
+      "right": "Inserir esta linha na direita"
+    },
+    "delete": {
+      "left": "Excluir esta linha da esquerda",
+      "right": "Excluir esta linha da direita"
+    }
+  },
+  "bothSides": "Os dois lados mudam: ao executar, roda primeiro o script da esquerda e depois o da direita. Se um falhar, o outro não roda.",
+  "failedOn": "Falhou em {{side}}: {{error}}",
+  "mismatch": {
+    "title": "Não é a mesma tabela",
+    "name": "Atenção: você não está comparando a mesma tabela ({{left}} com {{right}}). Sincronizar alteraria os dados de outra tabela.",
+    "schema": "Atenção: é outra tabela com o mesmo nome em outro esquema ({{left}} com {{right}}). Sincronizar alteraria os dados de outra tabela.",
+    "runAnyway": "Executar mesmo assim"
+  },
+  "count": {
+    "insert_one": "{{n}} inserção",
+    "insert_many": "{{n}} inserções",
+    "insert_other": "{{n}} inserções",
+    "update_one": "{{n}} atualização",
+    "update_many": "{{n}} atualizações",
+    "update_other": "{{n}} atualizações",
+    "delete_one": "{{n}} exclusão",
+    "delete_many": "{{n}} exclusões",
+    "delete_other": "{{n}} exclusões",
+    "and": "e"
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "actions": {
+    "createQueryFailed": "Impossibile creare la query: {{error}}",
+    "nameRequired": "Inserisci un nome",
+    "create": "Crea",
+    "renameQuery": {
+      "prompt": "Nome della query:",
+      "title": "Rinomina"
+    },
+    "copyName": "{{name}} (copia)",
+    "copyNameN": "{{name}} (copia {{n}})",
+    "deleteQuery": {
+      "confirm": "Eliminare la query \"{{name}}\"? L'operazione non può essere annullata.",
+      "title": "Elimina query"
+    },
+    "newObjectPrefix": "nuovo_",
+    "createDatabase": {
+      "prompt": "Nome del nuovo database:",
+      "title": "Nuovo database",
+      "done": "Database «{{name}}» creato"
+    },
+    "dropObjects": {
+      "more": "{{list}} e altri {{count}}",
+      "confirmOne": "Eliminare «{{name}}» da {{where}}? Verrà eliminato con tutti i suoi dati e l'operazione non può essere annullata.",
+      "confirmMany": "Verranno eliminati {{count}} oggetti da {{where}}, con tutti i loro dati: {{list}}.\n\nL'operazione non può essere annullata. Scrivi «{{word}}» per confermare:",
+      "titleMany": "Elimina {{count}} oggetti",
+      "word": "elimina",
+      "typeWord": "Scrivi «{{word}}»",
+      "failed": "Impossibile eliminare {{failed}} di {{total}}",
+      "droppedOne": "«{{name}}» eliminato",
+      "droppedMany": "{{count}} oggetti eliminati"
+    },
+    "dropDatabase": {
+      "confirm": "Questo elimina il database «{{name}}» da {{server}} con tutto il suo contenuto. L'operazione non può essere annullata.\n\nScrivi il nome del database per confermare:",
+      "title": "Elimina database",
+      "mismatch": "Il nome non corrisponde",
+      "done": "Database «{{name}}» eliminato"
+    }
+  },
+  "files": {
+    "saved": "Salvato",
+    "saveFailed": "Impossibile salvare: {{error}}"
+  },
+  "format": {
+    "redis": "I comandi Redis vanno uno per riga: non c'è nulla da formattare.",
+    "unavailable": "Non esiste ancora un formattatore per questo linguaggio."
+  },
+  "copy": {
+    "withHeadersLabel": "Copia con intestazioni",
+    "withHeaders": "Con intestazioni",
+    "withoutHeadersLabel": "Copia senza intestazioni",
+    "withoutHeaders": "Senza intestazioni",
+    "headersOnlyLabel": "Copia solo intestazioni",
+    "headersOnly": "Solo intestazioni",
+    "as": "Copia come {{format}}"
+  },
+  "export": {
+    "csvSemicolon": "CSV (separato da punto e virgola)",
+    "csvExcel": "CSV per MS Excel",
+    "tsv": "TSV (separato da tabulazioni)",
+    "defaultTable": "tabella",
+    "defaultSheet": "Risultato",
+    "defaultFile": "risultato"
+  },
+  "filter": {
+    "clear": "Rimuovi filtro",
+    "values": "Filtra più valori…",
+    "isNull": "È NULL",
+    "notNull": "Non è NULL",
+    "isTrue": "È vero",
+    "isFalse": "È falso",
+    "trueOrNull": "È vero o NULL",
+    "falseOrNull": "È falso o NULL",
+    "isEmpty": "È vuoto",
+    "notEmpty": "Non è vuoto",
+    "eq": "Uguale a…",
+    "ne": "Diverso da…",
+    "contains": "Contiene…",
+    "notContains": "Non contiene…",
+    "startsWith": "Inizia con…",
+    "endsWith": "Termina con…",
+    "gt": "Maggiore di…",
+    "ge": "Maggiore o uguale a…",
+    "lt": "Minore di…",
+    "le": "Minore o uguale a…",
+    "sql": "Condizione SQL…",
+    "sqlRight": "Condizione SQL, lato destro…",
+    "describeTrueOrNull": "TRUE o NULL",
+    "describeFalseOrNull": "FALSE o NULL"
+  },
+  "gridEdit": {
+    "notFind": "la query non è un find su una collezione",
+    "engineCantEdit": "questo motore non consente di modificare i risultati di una query: apri l'oggetto da esplora risorse",
+    "queryNotFound": "non è stata trovata la query che ha generato questo risultato",
+    "usesWith": "la query usa WITH: modifica dalla tabella",
+    "combinesRows": "il risultato combina o raggruppa righe: si possono modificare solo query su una singola tabella",
+    "noTable": "la query non legge da una tabella",
+    "tableUnknown": "la tabella della query non è riconosciuta",
+    "combinesTables": "il risultato combina tabelle: si possono modificare solo query su una singola tabella",
+    "missingKey": "il risultato non include la chiave primaria ({{columns}}): aggiungila alla SELECT per poter modificare",
+    "noPrimaryKey": "La tabella non ha una chiave primaria: la WHERE usa tutte le colonne (può interessare più di una riga se ci sono duplicati)."
+  },
+  "connections": {
+    "downloading": "Download di {{component}}, solo questa volta… {{pct}} % ({{done}} di {{total}} MB)",
+    "connected": "Connesso: {{version}}",
+    "connectFailed": "Impossibile connettersi: {{error}}",
+    "password": "Password di {{user}} su {{connection}}:",
+    "queryName": "Query {{n}}"
+  },
+  "ai": {
+    "stopped": "Interrotto.",
+    "downloading": "download in corso",
+    "starting": "avvio"
+  },
+  "families": {
+    "relational": "Relazionali",
+    "analytical": "Analitici",
+    "document": "Documentali",
+    "keyValue": "Chiave-valore",
+    "wideColumn": "A colonne larghe",
+    "search": "Ricerca",
+    "timeSeries": "Serie temporali",
+    "streaming": "Streaming",
+    "graph": "A grafo"
+  }
+}

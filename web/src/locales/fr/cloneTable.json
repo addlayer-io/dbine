@@ -1,0 +1,25 @@
+{
+  "menu": "Cloner…",
+  "title": "Cloner {{name}}",
+  "name": "Nom de la nouvelle table",
+  "nameHelp": "Elle est créée dans le même schéma, avec la même structure. Ses index et contraintes prennent des noms basés sur le nouveau nom.",
+  "withData": "Copier les données",
+  "withIndexes": "Inclure les index",
+  "clone": "Cloner",
+  "stop": "Arrêter",
+  "starting": "Démarrage…",
+  "rows": "{{done}} lignes copiées",
+  "rowsOf": "{{done}} lignes copiées sur {{total}}",
+  "done": "« {{name}} » a été clonée avec {{rows}} lignes",
+  "cancelled": "Le clonage a été arrêté ; il ne reste rien de la nouvelle table",
+  "notes": "À prendre en compte",
+  "phase": {
+    "read": "Lecture de la structure de la table…",
+    "create": "Création de la nouvelle table…",
+    "copy": "Copie des données…",
+    "identity": "Ajustement du compteur d'identité…",
+    "indexes": "Création des index…",
+    "foreign_keys": "Création des clés étrangères…",
+    "cleanup": "Suppression de la table inachevée…"
+  }
+}

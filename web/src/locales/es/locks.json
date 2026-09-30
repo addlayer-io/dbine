@@ -1,0 +1,22 @@
+{
+  "title": "Bloqueos",
+  "none": "Sin bloqueos",
+  "blocked_one": "1 sesión esperando",
+  "blocked_many": "{{count}} sesiones esperando",
+  "blocked_other": "{{count}} sesiones esperando",
+  "session": "Sesión",
+  "user": "Usuario · cliente",
+  "database": "Base",
+  "wait": "Espera",
+  "time": "Tiempo",
+  "object": "Objeto",
+  "sql": "Sentencia",
+  "blocks_one": "bloquea 1",
+  "blocks_many": "bloquea {{count}}",
+  "blocks_other": "bloquea {{count}}",
+  "blocksTitle": "Sesiones que esperan a esta, directa o indirectamente",
+  "kill": "Terminar",
+  "killTitle": "Terminar la sesión",
+  "killConfirm": "¿Terminar la sesión {{id}} ({{user}})? Su transacción en curso se deshace.",
+  "killed": "Sesión {{id}} terminada"
+}

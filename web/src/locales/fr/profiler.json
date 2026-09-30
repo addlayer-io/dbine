@@ -1,0 +1,91 @@
+{
+  "couldNotConnect": "Connexion impossible.",
+  "connection": "Connexion",
+  "thisEngine": "Ce moteur",
+  "unsupported": "{{engine}} ne permet pas de voir les requêtes des autres clients.",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2,5s",
+    "text": "contient… · !ne contient pas · =égal",
+    "database": "contient… · !ne contient pas"
+  },
+  "menu": {
+    "filter": {
+      "user": "Filtrer par l'utilisateur « {{value}} »",
+      "client": "Filtrer par le client « {{value}} »",
+      "application": "Filtrer par l'application « {{value}} »",
+      "database": "Filtrer par la base « {{value}} »"
+    },
+    "filterSame": "Filtrer celles identiques à cette requête",
+    "copy": "Copier la requête"
+  },
+  "openInQuery": "Ouvrir dans une requête",
+  "column": {
+    "time": "Heure",
+    "duration": "Durée",
+    "query": "Requête",
+    "database": "Base",
+    "user": "Utilisateur",
+    "client": "Client",
+    "application": "Application",
+    "rows": "Lignes",
+    "cpu": "CPU",
+    "reads": "Lectures",
+    "writes": "Écritures"
+  },
+  "columns": "Colonnes",
+  "columnsHint": "Afficher ou masquer des colonnes",
+  "showAll": "Tout afficher",
+  "status": {
+    "starting": "Démarrage…",
+    "capturing": "Capture en cours",
+    "stopped": "Arrêté",
+    "notStarted": "Non démarré"
+  },
+  "source": "Source : {{source}}",
+  "mode": {
+    "complete": "Capture complète",
+    "sampled": "Échantillonnage"
+  },
+  "clearFilters": "Retirer les filtres",
+  "resume": "Reprendre",
+  "sampledNote": "Ce moteur n'affiche que ce qui est en cours d'exécution : les requêtes de moins de ~100 ms peuvent ne pas apparaître.",
+  "enabled": "{{source}} a été activé sur le serveur.",
+  "disabled": "{{source}} a été désactivé.",
+  "stats": {
+    "title": "Cette requête",
+    "runs_one": "{n} exécution",
+    "runs_other": "{n} exécutions",
+    "avg": "moyenne",
+    "min": "min",
+    "max": "max",
+    "runs_many": "{n} exécutions"
+  },
+  "filtersHint": "Seules les requêtes qui passent les filtres sont conservées",
+  "sameAs": "Identiques à : {{label}}",
+  "removeFilter": "Retirer ce filtre",
+  "noneYet": "Aucun n'est encore apparu",
+  "noValues": "Aucune valeur",
+  "empty": {
+    "noMatch": "Aucune requête ne correspond.",
+    "waitingFiltered": "En attente de requêtes qui passent les filtres…",
+    "waiting": "En attente de requêtes…",
+    "none": "Aucune requête capturée."
+  },
+  "dragHint": "Faites glisser pour changer la hauteur",
+  "detail": {
+    "rows_one": "{{n}} ligne",
+    "rows_other": "{{n}} lignes",
+    "rows_many": "{{n}} lignes"
+  },
+  "foot": {
+    "queries_one": "{{n}} requête",
+    "queries_other": "{{n}} requêtes",
+    "passing": "{{n}} passent les filtres",
+    "skipped": "{{n}} écartées par les filtres",
+    "dropped": "les {{n}} plus anciennes ont été écartées (les {{max}} dernières sont conservées)",
+    "arrivalOrder": "Revenir à l'ordre d'arrivée",
+    "toEnd": "Aller à la fin",
+    "queries_many": "{{n}} requêtes"
+  },
+  "unitHint": "En {{unit}}"
+}

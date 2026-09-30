@@ -1,0 +1,71 @@
+{
+  "tab": "Backup",
+  "menu": "Backup…",
+  "title": "Backup",
+  "copies": "Copie di DBine",
+  "copiesHint": "Uno script con la struttura e i dati in un file. Vanno bene per qualsiasi motore.",
+  "noCopies": "Ancora nessuna copia di questo database.",
+  "withData": "Struttura e dati",
+  "structureOnly": "Solo struttura",
+  "server": "Backup del server",
+  "noNative": "Questo motore non ha backup propri gestibili da DBine. Le copie di DBine funzionano.",
+  "noHistory": "Il motore non riporta la cronologia dei backup.",
+  "noNativeHistory": "Il server non ha backup registrati.",
+  "wholeServer": "tutto il server",
+  "restore": "Ripristina",
+  "restoreFrom": "Ripristina da…",
+  "pick": "Sfoglia…",
+  "seeScript": "Vedi lo script",
+  "reviewTitle": "Controlla prima di eseguire",
+  "reviewHint": "Questo è ciò che verrà eseguito sul server, in {{db}}.",
+  "run": "Esegui",
+  "copied": "Copiato",
+  "done": {
+    "backup": "Backup eseguito",
+    "restore": "Ripristino completato",
+    "delete": "Backup eliminato"
+  },
+  "col": {
+    "date": "Data",
+    "content": "Contenuto",
+    "objects": "Oggetti",
+    "rows": "Righe",
+    "size": "Dimensione",
+    "file": "File",
+    "kind": "Tipo",
+    "database": "Database",
+    "location": "Posizione",
+    "status": "Stato"
+  },
+  "copy": {
+    "new": "Nuova copia",
+    "file": "File",
+    "data": "Includi i dati",
+    "hint": "Lo script elimina e ricrea ogni oggetto, quindi ripristinarlo sostituisce ciò che c'è nel database di destinazione.",
+    "run": "Fai la copia",
+    "done": "Copia pronta ({{size}})",
+    "cancelled": "Copia annullata",
+    "empty": "Il database non ha oggetti da copiare."
+  },
+  "restoreCopy": {
+    "title": "Ripristina una copia",
+    "into": "Ripristina nel database",
+    "continueOnError": "Continua anche se un'istruzione fallisce",
+    "hint": "Lo script della copia viene eseguito sul database scelto.",
+    "confirm": "Gli oggetti della copia presenti in {{db}} verranno sostituiti. Continuare?",
+    "done": "Ripristino completato ({{n}} istruzioni)",
+    "cancelled": "Ripristino annullato"
+  },
+  "deleteCopy": {
+    "title": "Elimina la copia",
+    "message": "Eliminare anche il file {{path}}?",
+    "withFile": "Elimina anche il file",
+    "listOnly": "Toglila solo dall'elenco"
+  },
+  "native": {
+    "new": "Esegui backup",
+    "source": "Backup da ripristinare",
+    "sourceHint": "Dalla cronologia, o una posizione",
+    "into": "Ripristina come"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "tab": "Sauvegardes",
+  "menu": "Sauvegardes…",
+  "title": "Sauvegardes",
+  "copies": "Copies DBine",
+  "copiesHint": "Un script avec la structure et les données dans un fichier. Fonctionne avec tous les moteurs.",
+  "noCopies": "Aucune copie de cette base pour l'instant.",
+  "withData": "Structure et données",
+  "structureOnly": "Structure seule",
+  "server": "Sauvegardes du serveur",
+  "noNative": "Ce moteur n'a pas de sauvegardes propres que DBine puisse gérer. Les copies DBine fonctionnent.",
+  "noHistory": "Le moteur n'indique pas son historique de sauvegardes.",
+  "noNativeHistory": "Le serveur n'a aucune sauvegarde enregistrée.",
+  "wholeServer": "tout le serveur",
+  "restore": "Restaurer",
+  "restoreFrom": "Restaurer depuis…",
+  "pick": "Parcourir…",
+  "seeScript": "Voir le script",
+  "reviewTitle": "Vérifier avant d'exécuter",
+  "reviewHint": "Voici ce qui sera exécuté sur le serveur, dans {{db}}.",
+  "run": "Exécuter",
+  "copied": "Copié",
+  "done": {
+    "backup": "Sauvegarde effectuée",
+    "restore": "Restauration terminée",
+    "delete": "Sauvegarde supprimée"
+  },
+  "col": {
+    "date": "Date",
+    "content": "Contenu",
+    "objects": "Objets",
+    "rows": "Lignes",
+    "size": "Taille",
+    "file": "Fichier",
+    "kind": "Type",
+    "database": "Base",
+    "location": "Emplacement",
+    "status": "État"
+  },
+  "copy": {
+    "new": "Nouvelle copie",
+    "file": "Fichier",
+    "data": "Inclure les données",
+    "hint": "Le script supprime et recrée chaque objet : le restaurer remplace ce qui se trouve dans la base cible.",
+    "run": "Faire la copie",
+    "done": "Copie prête ({{size}})",
+    "cancelled": "Copie annulée",
+    "empty": "La base n'a aucun objet à copier."
+  },
+  "restoreCopy": {
+    "title": "Restaurer une copie",
+    "into": "Restaurer dans la base",
+    "continueOnError": "Continuer si une instruction échoue",
+    "hint": "Le script de la copie s'exécute sur la base choisie.",
+    "confirm": "Les objets de la copie qui existent dans {{db}} seront remplacés. Continuer ?",
+    "done": "Restauration terminée ({{n}} instructions)",
+    "cancelled": "Restauration annulée"
+  },
+  "deleteCopy": {
+    "title": "Supprimer la copie",
+    "message": "Supprimer aussi le fichier {{path}} ?",
+    "withFile": "Supprimer aussi le fichier",
+    "listOnly": "Seulement la retirer de la liste"
+  },
+  "native": {
+    "new": "Sauvegarder",
+    "source": "Sauvegarde à restaurer",
+    "sourceHint": "De l'historique, ou un emplacement",
+    "into": "Restaurer sous"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "couldNotConnect": "Couldn't connect.",
+  "duration": {
+    "s": "{{s}} s",
+    "dh": "{{d}} d {{h}} h",
+    "hm": "{{h}} h {{m}} min",
+    "ms": "{{m}} min {{s}} s"
+  },
+  "level": {
+    "warn": "high",
+    "crit": "critical"
+  },
+  "justNow": "just now",
+  "secondsAgo": "{{s}} s ago",
+  "connection": "Connection",
+  "paused": "Paused",
+  "every": "Every {{s}} s",
+  "resume": "Resume",
+  "pause": "Pause",
+  "refresh": "Refresh",
+  "unsupported": "{{engine}} doesn't offer monitoring.",
+  "thisEngine": "This engine",
+  "measuring": "measuring…",
+  "of": "of {{max}}",
+  "filter": "Filter…",
+  "noMatch": "No rows match.",
+  "noRows": "No rows.",
+  "sparkline": {
+    "noData": "no data"
+  }
+}

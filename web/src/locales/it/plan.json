@@ -1,0 +1,61 @@
+{
+  "query": "Query {{n}}",
+  "actualPlan": "Piano effettivo",
+  "estimatedPlan": "Piano stimato",
+  "diagram": "Diagramma",
+  "rawPlan": "Piano originale",
+  "statementTitle": "Clic per vederla completa",
+  "hint": "Trascina per spostarti · ⌘/pizzico + rotella per lo zoom · F adatta",
+  "summary": {
+    "operators": "Operatori",
+    "cost": "Costo",
+    "time": "Tempo",
+    "rows": "Righe",
+    "firstWarning": "Vai al primo avviso",
+    "warnings_one": "{{count}} avviso",
+    "warnings_other": "{{count}} avvisi",
+    "warnings_many": "{{count}} avvisi"
+  },
+  "edge": {
+    "actualRows": "Righe effettive: {{rows}}",
+    "estimatedRows": "Righe stimate: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Costo dell'operatore: {{pct}}%",
+    "noCost": "Nessun costo",
+    "actualEstimatedRows": "Righe effettive / stimate",
+    "estimatedRows": "Righe stimate",
+    "estimatedShort": "{{rows}} stim.",
+    "expand_one": "Espandi ({{count}} operatore)",
+    "expand_other": "Espandi ({{count}} operatori)",
+    "collapse": "Comprimi",
+    "expand_many": "Espandi ({{count}} operatori)"
+  },
+  "zoom": {
+    "zoomOut": "Riduci (−)",
+    "actualSize": "Dimensioni reali (0)",
+    "zoomIn": "Ingrandisci (+)",
+    "fit": "Adatta alla vista (F)",
+    "expandAll": "Espandi tutto",
+    "collapseBelow": "Comprimi sotto il 3° livello",
+    "minimap": "Minimappa"
+  },
+  "props": {
+    "close": "Chiudi (Esc)",
+    "operator": "Dell'operatore",
+    "self": "Proprio",
+    "subtree": "Sottoalbero",
+    "rowsAndTime": "Righe e tempo",
+    "estimatedPerExecution": "Stimate (per esecuzione)",
+    "actualTotal": "Effettive (totale)",
+    "executions": "Esecuzioni",
+    "actualTime": "Tempo effettivo",
+    "object": "Oggetto",
+    "properties": "Proprietà"
+  },
+  "raw": {
+    "save": "Salva…",
+    "sqlServerPlan": "Piano di SQL Server",
+    "ssmsHint": "Si apre in SQL Server Management Studio (.sqlplan)"
+  }
+}

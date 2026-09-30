@@ -1,0 +1,18 @@
+[package]
+name = "dbine-driver-oracle"
+version = "0.1.2"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+edition.workspace = true
+license.workspace = true
+description = "Oracle Database driver for DBine (pure-Rust thin client, no Instant Client)"
+
+[dependencies]
+dbine-driver = { path = "../../dbine-driver" }
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+# Oracle's own pure-Rust thin driver: speaks TNS/TTC directly, so it needs
+# no Instant Client / OCI library at build time or at run time.
+oracledb = "=26.0.0-beta.4"
+
+[dev-dependencies]
+tokio.workspace = true

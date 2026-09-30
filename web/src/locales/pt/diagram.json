@@ -1,0 +1,62 @@
+{
+  "primaryKey": "Chave primária",
+  "foreignKey": "Chave estrangeira",
+  "unnamedForeignKey": "Chave estrangeira sem nome",
+  "exportFailed": "Não foi possível exportar a imagem: {{error}}",
+  "busy": "Distribuindo {{tables}} tabelas e {{relations}} relacionamentos…",
+  "hint": "Arraste para se mover · ⌘/pinça + roda para zoom · clique duplo abre a tabela",
+  "tab": {
+    "connectFailed": "Não foi possível conectar.",
+    "reading": "Lendo a estrutura do banco…",
+    "drawFailed": "Não foi possível desenhar o diagrama: {{error}}",
+    "fileName": "diagrama-{{name}}",
+    "fileNameDefault": "banco"
+  },
+  "toolbar": {
+    "tables": "Tabelas",
+    "relations": "Relacionamentos",
+    "simplifiedLayout": "distribuição simplificada",
+    "simplifiedLayoutTitle": "A distribuição automática falhou com esta estrutura: as tabelas são exibidas em grade (você pode movê-las à mão).",
+    "searchPlaceholder": "Buscar tabela…",
+    "allSchemas": "Todos os esquemas",
+    "allColumns": "Todas as colunas",
+    "keysOnly": "Somente chaves",
+    "relayout": "Reorganizar",
+    "relayoutTitle": "Reorganizar as tabelas automaticamente",
+    "svgImage": "Imagem SVG",
+    "pngImage": "Imagem PNG"
+  },
+  "card": {
+    "openHint": "Clique duplo para abrir",
+    "nullable": "Aceita NULL",
+    "noColumns": "sem colunas",
+    "moreColumns_one": "+{{count}} coluna",
+    "moreColumns_other": "+{{count}} colunas",
+    "showLess": "Mostrar menos",
+    "moreColumns_many": "+{{count}} colunas"
+  },
+  "empty": {
+    "title": "Não há tabelas para mostrar",
+    "text": "O banco não tem tabelas ou o motor não informa sua estrutura.",
+    "noRelations": "Sem relacionamentos: o banco não declara chaves estrangeiras (ou o motor não as informa). Apenas as tabelas são exibidas."
+  },
+  "zoom": {
+    "zoomOut": "Afastar (−)",
+    "actualSize": "Tamanho real (0)",
+    "zoomIn": "Aproximar (+)",
+    "fit": "Ajustar à visualização (F)",
+    "minimap": "Minimapa"
+  },
+  "props": {
+    "table": "tabela",
+    "openTable": "Abrir a tabela",
+    "close": "Fechar (Esc)",
+    "columns": "Colunas",
+    "unnamed": "(sem nome)",
+    "indexes": "Índices",
+    "unique": "único",
+    "references": "Referencia",
+    "referencedBy": "Referenciada por",
+    "outside": "fora do diagrama"
+  }
+}

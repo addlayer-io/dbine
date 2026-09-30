@@ -1,0 +1,547 @@
+//! The contract between DBine and its database drivers. Each engine lives
+//! in its own crate under `crates/drivers/` and implements [`Driver`]; the
+//! `dbine-drivers` crate registers them.
+//!
+//! One [`Driver`] per engine describes itself ([`DriverInfo`]) and opens
+//! [`Session`]s, each a single live connection to one database (keyspace,
+//! index group… whatever the engine's namespace is). Sessions are not
+//! pooled on purpose: an editor tab needs its own connection so `USE`, temp
+//! tables, `SET`s and open transactions persist between runs, and
+//! cancelling can simply drop it.
+//!
+//! Results are always tabular ([`QueryOutcome`]); document and key-value
+//! engines flatten what they return (top-level fields as columns).
+
+pub mod alter;
+pub mod backup;
+pub mod config;
+pub mod ddl;
+pub mod error;
+pub mod info;
+pub mod keys;
+pub mod filter;
+pub mod model;
+pub mod monitor;
+pub mod permissions;
+pub mod security;
+pub mod plan;
+pub mod profiler;
+pub mod read_only;
+pub mod runtime;
+pub mod schema;
+pub mod serde_static;
+pub mod sql;
+pub mod transfer;
+
+pub use alter::{SyncScript, TableChange};
+pub use backup::{BackupAction, BackupEntry, BackupSpec};
+pub use config::ConnectionConfig;
+pub use error::{Error, Result};
+pub use info::{kinds, DriverInfo, Family, Field, FieldKind, FieldSection, FieldWhen, Language, ObjectKindInfo};
+pub use filter::{ColumnFilter, FilterOp};
+pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
+pub use model::{
+    json_bytes, json_f64, json_i64, json_u64, ColumnInfo, DbObject, ObjectRef, Plan, PlanNode, QueryOutcome,
+    ResultColumn, RowSink, RowSinkRef, StatementResult,
+    RowChange,
+};
+
+pub use security::{Grant, Principal, PrincipalKind, SecurityAction, SecuritySpec};
+pub use monitor::{BlockedSession, Metric, MetricUnit, MonitorSnapshot, MonitorTable};
+pub use permissions::{Access, Permissions};
+pub use profiler::{ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted};
+pub use schema::{
+    Capabilities, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, ForeignKeyDef, IndexDef, KeyDef, TableSchema,
+};
+
+pub use transfer::{
+    BatchBuilder, BatchSink, BatchSinkRef, BatchSource, BucketSum, Buckets, Cell, CloneScript, CloneTable, CopySpec, DeltaDepth, DeltaResult, DeltaSpec,
+    LoadSpec, ReadSpec, RowBatch, TransferColumn,
+};
+
+pub use async_trait::async_trait;
+use std::sync::Arc;
+
+#[async_trait]
+pub trait Driver: Send + Sync {
+    fn info(&self) -> &DriverInfo;
+
+    /// Short help on the query syntax, shown next to the editor (Spanish,
+    /// plain text). Worth writing for non-SQL languages.
+    fn query_help(&self) -> &'static str {
+        ""
+    }
+
+    /// Its sessions implement [`Session::explain`] (the UI offers the plan
+    /// buttons only then).
+    fn supports_explain(&self) -> bool {
+        false
+    }
+
+    /// Its sessions implement the profiler ([`Session::profiler_start`]);
+    /// the UI offers "Profiler" on its databases only then.
+    fn supports_profiler(&self) -> bool {
+        false
+    }
+
+    /// Its databases hold keys, too many to list at once: the explorer
+    /// searches them on the server a page at a time ([`Session::scan_keys`])
+    /// instead of listing them with `list_objects`. `None` for engines
+    /// whose objects are a list of tables.
+    fn key_search(&self) -> Option<KeySearch> {
+        None
+    }
+
+    /// Database-level operations it offers (create / drop database,
+    /// foreign keys for the ER diagram).
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::default()
+    }
+
+    /// The table designer for this engine ("Nueva tabla", "Nueva
+    /// colección", "Nuevo índice"…), or `None` when objects are only
+    /// created by script.
+    fn designer(&self) -> Option<DesignerSpec> {
+        None
+    }
+
+    /// Starting scripts for creating the other kinds of objects (views,
+    /// routines, triggers, sequences…), in the driver's language.
+    fn create_templates(&self) -> Vec<CreateTemplate> {
+        Vec::new()
+    }
+
+    /// Whether [`Driver::sync_script`] works: "Comparar esquemas" can apply
+    /// the differences it finds.
+    fn supports_schema_sync(&self) -> bool {
+        false
+    }
+
+    /// The statements that apply schema changes (create, drop and alter
+    /// tables), in an order that respects dependencies. SQL engines build it
+    /// with [`alter::sync_script`] and their [`alter::AlterStyle`].
+    fn sync_script(&self, _changes: &[TableChange]) -> Result<SyncScript> {
+        Err(Error::Unsupported("este motor no aplica cambios de esquema".into()))
+    }
+
+    /// DDL in the driver's language for a table (or collection, index…):
+    /// what the designer runs and what the script generator writes.
+    fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        let _ = (table, parts);
+        Err(Error::Unsupported("este motor no genera DDL de tablas".into()))
+    }
+
+    /// Rows as a script in the driver's language that inserts them (SQL
+    /// INSERTs, `insertMany`, `_bulk`, Redis commands…): copy, import and
+    /// the database script use it. `target` is the table / collection.
+    fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
+        if self.info().language != Language::Sql {
+            return Err(Error::Unsupported("este motor no genera scripts de inserción".into()));
+        }
+        let quote = match self.info().dialect {
+            "mssql" | "sybase" => sql::Quote::Bracket,
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => sql::Quote::Backtick,
+            _ => sql::Quote::Double,
+        };
+        let flavor = ddl::SqlFlavor { quote, ..ddl::SqlFlavor::ansi() };
+        Ok(ddl::insert_script(&flavor, target.schema(), &target.name, columns, rows, 100))
+    }
+
+    /// The browse query (`Session::browse_query`) restricted by the data
+    /// grid's column filters. SQL engines add a WHERE with their own quoting
+    /// and literals; other engines build their own filter, or say they can't
+    /// (the grid then filters the rows it loaded).
+    fn filtered_browse(&self, browse: &str, filters: &[ColumnFilter]) -> Result<String> {
+        if filters.is_empty() {
+            return Ok(browse.to_string());
+        }
+        if !matches!(self.info().language, Language::Sql | Language::Cql) {
+            return Err(Error::Unsupported("este motor no filtra en el servidor".into()));
+        }
+        let dialect = self.info().dialect;
+        let quote = match dialect {
+            "mssql" | "sybase" => sql::Quote::Bracket,
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => sql::Quote::Backtick,
+            _ => sql::Quote::Double,
+        };
+        let bits = matches!(dialect, "mssql" | "sybase" | "oracle" | "db2" | "informix");
+        let unicode = matches!(dialect, "mssql" | "sybase");
+        let flavor = ddl::SqlFlavor { quote, ..ddl::SqlFlavor::ansi() };
+        let literal = |v: &serde_json::Value| match v {
+            serde_json::Value::String(t) if unicode => format!("N'{}'", t.replace('\'', "''")),
+            serde_json::Value::Bool(b) if bits => (if *b { "1" } else { "0" }).to_string(),
+            other => ddl::sql_literal(&flavor, other),
+        };
+        let style = filter::SqlFilterStyle {
+            quote,
+            literal: &literal,
+            like: if dialect == "postgres" { "ILIKE" } else { "LIKE" },
+            true_literal: if bits { "1" } else { "TRUE" },
+            false_literal: if bits { "0" } else { "FALSE" },
+        };
+        let cond = filter::sql_condition(filters, &style)?;
+        filter::insert_where(browse, &cond).ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    }
+
+    /// Rows edited in the results grid as code in the driver's language
+    /// that applies the changes (`UPDATE … WHERE <key>` in SQL, `updateOne`
+    /// in MongoDB, `HSET` in Redis…). DBine only shows / inserts it: the
+    /// user runs it. `target` is the table / collection.
+    fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
+        if self.info().language != Language::Sql {
+            return Err(Error::Unsupported("este motor no genera scripts de actualización".into()));
+        }
+        let quote = match self.info().dialect {
+            "mssql" | "sybase" => sql::Quote::Bracket,
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => sql::Quote::Backtick,
+            _ => sql::Quote::Double,
+        };
+        let flavor = ddl::SqlFlavor { quote, ..ddl::SqlFlavor::ansi() };
+        Ok(ddl::update_script(&flavor, target.schema(), &target.name, changes))
+    }
+
+    /// What the "Usuarios y permisos" tab offers (see [`security`]);
+    /// `None`: the engine has no users/permissions DBine can manage.
+    fn security(&self) -> Option<security::SecuritySpec> {
+        None
+    }
+
+    /// The code that makes a change to users, roles or permissions, in the
+    /// driver's language (`CREATE LOGIN…`, `GRANT…`, `db.createUser(…)`,
+    /// `ACL SETUSER…`). DBine shows it and runs it only on the user's click.
+    fn security_script(&self, action: &security::SecurityAction) -> Result<String> {
+        let _ = action;
+        Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()))
+    }
+
+    /// Code in the driver's language that deletes the rows with these keys
+    /// (`DELETE … WHERE <key>` in SQL, `deleteOne` in MongoDB, `DEL` in
+    /// Redis…): data compare's sync script uses it. Each key is the row's
+    /// key columns with their values. `target` is the table / collection.
+    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, serde_json::Value)>]) -> Result<String> {
+        if self.info().language != Language::Sql {
+            return Err(Error::Unsupported("este motor no genera scripts de borrado".into()));
+        }
+        let quote = match self.info().dialect {
+            "mssql" | "sybase" => sql::Quote::Bracket,
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" => sql::Quote::Backtick,
+            _ => sql::Quote::Double,
+        };
+        let flavor = ddl::SqlFlavor { quote, ..ddl::SqlFlavor::ansi() };
+        Ok(ddl::delete_script(&flavor, target.schema(), &target.name, keys))
+    }
+
+    /// Statements around a table's data in a generated script, for engines
+    /// that need them to load explicit key values: SQL Server's
+    /// `SET IDENTITY_INSERT … ON/OFF`, PostgreSQL's sequence resync after
+    /// the load, Oracle's identity restart… Empty by default.
+    fn data_load_wrap(&self, table: &TableSchema) -> (String, String) {
+        let _ = table;
+        (String::new(), String::new())
+    }
+
+    /// Put between objects of a generated script (`GO` for SQL Server,
+    /// `/` after Oracle PL/SQL…). Empty when `;` already separates them.
+    fn script_separator(&self) -> &'static str {
+        ""
+    }
+
+    /// Open a session on `database` (the config's default when `None`).
+    async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>>;
+
+    /// Its sessions implement [`Session::bulk_load`], the engine's native
+    /// bulk load (see [`transfer`]). Without it the migration writes
+    /// [`Driver::insert_script`] batches.
+    fn supports_bulk_load(&self) -> bool {
+        false
+    }
+
+    /// [`Driver::copy_native`] works from this driver's sessions to those
+    /// of `target` (a driver id served by the same crate).
+    fn supports_native_copy(&self, target: &str) -> bool {
+        let _ = target;
+        false
+    }
+
+    /// Copy a table from `source` to `target` inside the driver, rows never
+    /// decoded (see [`transfer`]). `source` is only read from, never written
+    /// to. Returns the rows copied; `progress` gets the committed rows.
+    async fn copy_native(
+        &self,
+        source: &mut dyn Session,
+        target: &mut dyn Session,
+        spec: &transfer::CopySpec,
+        progress: transfer::Progress<'_>,
+    ) -> Result<u64> {
+        let _ = (source, target, spec, progress);
+        Err(Error::Unsupported("este motor no copia tablas directamente entre bases".into()))
+    }
+
+    /// [`Driver::clone_script`] works: a same-engine migration can leave
+    /// the target identical to the source ("clonar").
+    fn supports_clone(&self) -> bool {
+        false
+    }
+
+    /// Everything that makes `target` identical to `source` for these
+    /// tables (see [`transfer::CloneScript`]), adapted to what `target`
+    /// supports. `source` is only read from; nothing runs on `target` (it's
+    /// asked about its capabilities only).
+    async fn clone_script(&self, source: &mut dyn Session, target: &mut dyn Session, tables: &[ObjectRef]) -> Result<transfer::CloneScript> {
+        let _ = (source, target, tables);
+        Err(Error::Unsupported("este motor no clona bases".into()))
+    }
+
+    /// Sync by rows works between two sessions of this driver
+    /// ([`Session::delta_summary`], [`Session::delta_apply`]).
+    fn supports_delta(&self) -> bool {
+        false
+    }
+
+    /// The condition (for [`transfer::ReadSpec::filter`]) that selects the
+    /// rows of these buckets.
+    fn delta_filter(&self, spec: &transfer::DeltaSpec, buckets: &[i64]) -> Result<String> {
+        let _ = (spec, buckets);
+        Err(Error::Unsupported("este motor no sincroniza por filas".into()))
+    }
+
+    /// What the Backups tab offers for the engine's own backups (see
+    /// [`backup`]); `None`: only DBine's copies (a script with the
+    /// structure and the data), which need nothing from the driver.
+    fn backup(&self) -> Option<backup::BackupSpec> {
+        None
+    }
+
+    /// The code that backs up, restores or deletes a backup, in the
+    /// driver's language (`BACKUP DATABASE…`, `BACKUP … TO Disk(…)`,
+    /// `PUT _snapshot/…`). DBine shows it and runs it only on the user's
+    /// click, in [`backup::BackupSpec::script_database`].
+    fn backup_script(&self, action: &backup::BackupAction) -> Result<String> {
+        let _ = action;
+        Err(Error::Unsupported("este motor no tiene backups propios".into()))
+    }
+}
+
+#[async_trait]
+pub trait Session: Send {
+    /// Server product and version, for the status bar.
+    async fn server_version(&mut self) -> Result<String>;
+
+    /// Namespaces below the connection (databases, keyspaces, datasets…).
+    /// Engines with a single namespace return one entry (e.g. `["main"]`).
+    async fn list_databases(&mut self) -> Result<Vec<String>>;
+
+    /// Objects of the session's database, of the kinds the driver declares.
+    async fn list_objects(&mut self) -> Result<Vec<DbObject>>;
+
+    /// Columns (fields) of an object, in ordinal order. Schemaless engines
+    /// infer them from a sample.
+    async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>>;
+
+    /// Source of an object (view, routine, trigger, index mapping…); for a
+    /// table, its CREATE statement when the engine gives one. `None` when
+    /// there's nothing to show (the UI builds a CREATE TABLE from columns).
+    async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>>;
+
+    /// Query text, in the driver's language, that shows the first `limit`
+    /// rows / documents / entries of an object.
+    fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String;
+
+    /// Run a script (one or more statements / commands), appending each
+    /// one's result to `out` and keeping at most `max_rows` rows per result
+    /// set. An `Err` stops the script; what ran before it stays in `out`.
+    async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()>;
+
+    /// Execution plans of a script, pushed to `out.plans`.
+    /// - `analyze = false`: estimated plans; nothing runs.
+    /// - `analyze = true`: the script runs as with `execute` (its results go
+    ///   to `out` too) and the plans carry actual figures. Engines that can
+    ///   only get actual figures by running a statement again must not do so
+    ///   for statements that write (give the estimated plan for those).
+    async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let _ = (text, analyze, max_rows, out);
+        Err(Error::Unsupported("este motor todavía no muestra planes de ejecución".into()))
+    }
+
+    /// Something that stops the statement in flight from another thread,
+    /// for engines where dropping the session doesn't stop the server
+    /// (it keeps running a query nobody reads) or where work runs on a
+    /// blocking thread.
+    fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
+        None
+    }
+
+    /// Every table (collection…) of the session's database with columns,
+    /// primary key, foreign keys and indexes: the ER diagram and the script
+    /// generator. The default asks `columns` table by table and reports no
+    /// foreign keys or indexes; drivers override it with catalog queries.
+    async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
+        let objects = self.list_objects().await?;
+        let mut out = Vec::new();
+        for o in objects.into_iter().filter(|o| o.kind == kinds::TABLE || o.kind == kinds::COLLECTION) {
+            let obj = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+            let cols = self.columns(&obj).await?;
+            let pk: Vec<String> = cols.iter().filter(|c| c.primary_key).map(|c| c.name.clone()).collect();
+            out.push(TableSchema {
+                kind: o.kind,
+                schema: o.schema,
+                name: o.name,
+                primary_key: (!pk.is_empty()).then(|| KeyDef { name: None, columns: pk }),
+                columns: cols
+                    .into_iter()
+                    .map(|c| ColumnDef {
+                        name: c.name,
+                        data_type: c.data_type,
+                        nullable: c.nullable,
+                        default_value: c.default_value,
+                        auto_increment: c.auto_increment,
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            });
+        }
+        Ok(out)
+    }
+
+    /// Create a database (keyspace, dataset…) on the server.
+    async fn create_database(&mut self, name: &str) -> Result<()> {
+        let _ = name;
+        Err(Error::Unsupported("este motor no crea bases desde DBine".into()))
+    }
+
+    /// Drop a database (keyspace, dataset…) and everything in it.
+    async fn drop_database(&mut self, name: &str) -> Result<()> {
+        let _ = name;
+        Err(Error::Unsupported("este motor no borra bases desde DBine".into()))
+    }
+
+    /// A snapshot of the server's health for the monitor dashboard (see
+    /// [`monitor`]). Drivers that implement it set `Capabilities::monitor`.
+    async fn monitor(&mut self) -> Result<MonitorSnapshot> {
+        Err(Error::Unsupported("este motor todavía no ofrece monitoreo".into()))
+    }
+
+    /// The sessions in blocking chains right now: those waiting on another
+    /// and the ones they wait for (see [`monitor::BlockedSession`]). Empty
+    /// when nothing is blocked. Drivers that implement it set
+    /// `Capabilities::blocking`.
+    async fn blocking(&mut self) -> Result<Vec<monitor::BlockedSession>> {
+        Err(Error::Unsupported("este motor no informa bloqueos entre sesiones".into()))
+    }
+
+    /// The server's (or, when `SecuritySpec::per_database`, the
+    /// session's database's) users and roles.
+    async fn principals(&mut self) -> Result<Vec<security::Principal>> {
+        Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()))
+    }
+
+    /// A user's or role's permissions, direct and through its roles.
+    async fn grants(&mut self, principal: &str) -> Result<Vec<security::Grant>> {
+        let _ = principal;
+        Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()))
+    }
+
+    /// End another session of the server (its id as `blocking` or the
+    /// monitor reports it): its transaction rolls back. Drivers that
+    /// implement it set `Capabilities::kill_session`.
+    async fn kill_session(&mut self, id: &str) -> Result<()> {
+        let _ = id;
+        Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into()))
+    }
+
+    /// Start watching the statements run against a database (see
+    /// [`profiler`]). The session is dedicated to it until `profiler_stop`.
+    async fn profiler_start(&mut self, opts: &ProfilerOptions) -> Result<ProfilerStarted> {
+        let _ = opts;
+        Err(Error::Unsupported("este motor no permite ver las consultas de otros clientes".into()))
+    }
+
+    /// The statements seen since the last poll, oldest first.
+    async fn profiler_poll(&mut self) -> Result<Vec<ProfiledStatement>> {
+        Err(Error::Unsupported("el profiler no está iniciado".into()))
+    }
+
+    /// Stop, putting back any server setting `profiler_start` changed.
+    async fn profiler_stop(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    /// One page of the database's keys that match `scan` (see [`keys`]),
+    /// on drivers whose [`Driver::key_search`] is `Some`.
+    async fn scan_keys(&mut self, scan: &KeyScan) -> Result<KeyPage> {
+        let _ = scan;
+        Err(Error::Unsupported("este motor no busca claves en el servidor".into()))
+    }
+
+    /// Read a table in batches (see [`transfer`]), handing them to `sink`;
+    /// returns the rows read. The default runs `browse_query` and turns its
+    /// grid values into cells; drivers override it to read typed values.
+    async fn read_batches(&mut self, spec: &transfer::ReadSpec, sink: transfer::BatchSinkRef) -> Result<u64> {
+        transfer::read_via_execute(self, spec, sink).await
+    }
+
+    /// Bulk load `source`'s batches into `spec.table` with the engine's
+    /// native mechanism, committing by `spec`'s windows; returns the rows
+    /// loaded. Drivers that implement it set [`Driver::supports_bulk_load`].
+    async fn bulk_load(
+        &mut self,
+        spec: &transfer::LoadSpec,
+        columns: &[transfer::TransferColumn],
+        source: &mut dyn transfer::BatchSource,
+        progress: transfer::Progress<'_>,
+    ) -> Result<u64> {
+        let _ = (spec, columns, source, progress);
+        Err(Error::Unsupported("este motor no tiene carga masiva".into()))
+    }
+
+    /// The concrete session, for [`Driver::copy_native`] (a driver finds
+    /// its own sessions behind `dyn Session`).
+    fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
+        None
+    }
+
+    /// Rows and smallest / largest value of an integer column (to size a
+    /// sync's range buckets); `None` when the table is empty.
+    async fn key_range(&mut self, table: &ObjectRef, column: &str) -> Result<Option<(i64, i64, u64)>> {
+        let _ = (table, column);
+        Err(Error::Unsupported("este motor no sincroniza por filas".into()))
+    }
+
+    /// Each bucket's row count and hash sum (see [`transfer::DeltaSpec`]).
+    /// Only reads.
+    async fn delta_summary(&mut self, spec: &transfer::DeltaSpec) -> Result<Vec<transfer::BucketSum>> {
+        let _ = spec;
+        Err(Error::Unsupported("este motor no sincroniza por filas".into()))
+    }
+
+    /// Make the rows of `buckets` equal to `source`'s (the source's rows of
+    /// those buckets): staged, then inserted / updated / deleted in one
+    /// transaction.
+    async fn delta_apply(
+        &mut self,
+        spec: &transfer::DeltaSpec,
+        buckets: &[i64],
+        columns: &[transfer::TransferColumn],
+        source: &mut dyn transfer::BatchSource,
+        progress: transfer::Progress<'_>,
+    ) -> Result<transfer::DeltaResult> {
+        let _ = (spec, buckets, columns, source, progress);
+        Err(Error::Unsupported("este motor no sincroniza por filas".into()))
+    }
+
+    /// The backups the server has (of `database`, or all of them when
+    /// `None`), newest first. Drivers set [`backup::BackupSpec::history`].
+    async fn backups(&mut self, database: Option<&str>) -> Result<Vec<backup::BackupEntry>> {
+        let _ = database;
+        Err(Error::Unsupported("este motor no lista sus backups".into()))
+    }
+
+    /// What the login may do (see [`permissions`]): backups, restores, the
+    /// profiler, ending sessions, creating and dropping `database`, managing
+    /// users. The UI turns off what's denied. Actions left `Unknown` stay on.
+    async fn permissions(&mut self, database: Option<&str>) -> Result<Permissions> {
+        let _ = database;
+        Ok(Permissions::default())
+    }
+}

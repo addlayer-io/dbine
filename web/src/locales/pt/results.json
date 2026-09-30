@@ -1,0 +1,209 @@
+{
+  "defaultFileName": "resultado",
+  "defaultTableName": "tabela",
+  "running": "Executando…",
+  "empty": "Execute com {key} (a seleção ou todo o texto).",
+  "truncated": "Exibindo as primeiras {{shown}} de {{total}} linhas.",
+  "tabs": {
+    "result": "Resultado",
+    "plan": "Plano de execução",
+    "messages": "Mensagens"
+  },
+  "view": {
+    "label": "Visualização do resultado",
+    "table": "Tabela",
+    "chart": "Gráfico"
+  },
+  "export": {
+    "title": "Exportar o resultado",
+    "advanced": "Exportação avançada…",
+    "done_one": "Exportada {{rows}} linha",
+    "done_other": "Exportadas {{rows}} linhas",
+    "doneLoaded_one": "Exportada {{rows}} linha (as carregadas). Para todas: Exportação avançada (⌘E).",
+    "doneLoaded_other": "Exportadas {{rows}} linhas (as carregadas). Para todas: Exportação avançada (⌘E).",
+    "format": {
+      "json": "JSON",
+      "json_lines": "JSON Lines / NDJSON",
+      "sql": "SQL (INSERT)",
+      "csv": "CSV",
+      "csv_semicolon": "CSV (separado por ponto e vírgula)",
+      "csv_excel": "CSV para MS Excel",
+      "tsv": "TSV (separado por tabulações)",
+      "xlsx": "MS Excel (.xlsx)",
+      "xml": "XML"
+    },
+    "done_many": "Exportadas {{rows}} linhas",
+    "doneLoaded_many": "Exportadas {{rows}} linhas (as carregadas). Para todas: Exportação avançada (⌘E)."
+  },
+  "messages": {
+    "statement": "Instrução {{n}}: {{text}}.",
+    "rows_one": "{{rows}} linha",
+    "rows_other": "{{rows}} linhas",
+    "shown": " (exibindo {{rows}})",
+    "affected_one": "{{rows}} linha afetada",
+    "affected_other": "{{rows}} linhas afetadas",
+    "completed": "concluída",
+    "rows_many": "{{rows}} linhas",
+    "affected_many": "{{rows}} linhas afetadas"
+  },
+  "edit": {
+    "lookingUpTable": "procurando a tabela e sua chave…",
+    "codeCopied": "Código copiado",
+    "summary": "{{cells}} em {{rows}}, ainda não salvo.",
+    "cells_one": "{{count}} célula alterada",
+    "cells_other": "{{count}} células alteradas",
+    "rows_one": "{{count}} linha",
+    "rows_other": "{{count}} linhas",
+    "addToQuery": "Adicionar à consulta",
+    "discard": "Descartar",
+    "cells_many": "{{count}} células alteradas",
+    "rows_many": "{{count}} linhas"
+  },
+  "exportDialog": {
+    "title": "Exportar resultado",
+    "format": "Formato",
+    "rows": "Linhas",
+    "loaded": "As carregadas ({{rows}})",
+    "all": "Todas{{total}}: executa a consulta novamente",
+    "allHelp": "Ela é executada novamente em uma sessão somente leitura e gravada no arquivo à medida que as linhas chegam, sem limite. Se a consulta modificar dados, o motor a rejeita.",
+    "truncated": "O resultado está truncado por \"Máx. linhas\": somente as {{rows}} linhas carregadas são exportadas.",
+    "header": "Cabeçalho com os nomes das colunas",
+    "delimiter": "Separador",
+    "tab": "tabulação",
+    "nullText": "Texto para NULL",
+    "empty": "(vazio)",
+    "quoteAll": "Colocar todos os campos entre aspas",
+    "bom": "BOM UTF-8 (acentos no Excel)",
+    "crlf": "Fim de linha do Windows (CRLF)",
+    "pretty": "Com recuo (legível)",
+    "targetTable": "Tabela de destino",
+    "targetTablePlaceholder": "esquema.tabela",
+    "rowsPerInsert": "Linhas por INSERT",
+    "quote": "Aspas de identificadores",
+    "quoteDouble": "\"coluna\" (ANSI, PostgreSQL, Oracle…)",
+    "quoteBracket": "[coluna] (SQL Server)",
+    "quoteBacktick": "`coluna` (MySQL, BigQuery…)",
+    "sheet": "Nome da planilha",
+    "xmlRoot": "Elemento raiz",
+    "xmlRow": "Elemento por linha",
+    "progress": "Exportando…",
+    "progressRows_one": "Exportando… {{rows}} linha",
+    "progressRows_other": "Exportando… {{rows}} linhas",
+    "cancelExport": "Cancelar exportação",
+    "submit": "Exportar…",
+    "done_one": "Exportada {{rows}} linha em {{seconds}} s",
+    "done_other": "Exportadas {{rows}} linhas em {{seconds}} s",
+    "progressRows_many": "Exportando… {{rows}} linhas",
+    "done_many": "Exportadas {{rows}} linhas em {{seconds}} s"
+  },
+  "grid": {
+    "cantEdit": "Não é possível editar: {{reason}}",
+    "askValues": "Um valor por linha (ou separados por vírgula):",
+    "askSql": "Condição SQL completa (vai como está no WHERE):",
+    "askSqlRight": "O que vem depois de «{{name}}» no WHERE:",
+    "filterTitle": "Filtrar «{{name}}»",
+    "valueRequired": "Digite um valor",
+    "copyCell": "Copiar célula",
+    "viewValue": "Ver valor…",
+    "editCell": "Editar célula",
+    "setNull": "Definir NULL",
+    "undoChange": "Desfazer alteração",
+    "notEditable": "Não editável: {{reason}}",
+    "scopeSelected": "linhas selecionadas",
+    "scopeRow": "linha",
+    "scopeAll": "todas as linhas",
+    "copyHeader": "Copiar ({{scope}})",
+    "copyAllWithHeaders": "Copiar tudo com cabeçalhos",
+    "copyFormatHeader": "Formato do ⌘C",
+    "hideColumn": "Ocultar a coluna «{{name}}»",
+    "columnsMenu": "Colunas…",
+    "columns": "Colunas",
+    "filtered": "filtrada",
+    "showAll": "Mostrar todas",
+    "columnFilters": "Filtros por coluna",
+    "filterHelp": "Enter para aplicar. Texto: contém, =igual, !não contém, ^começa com, termina com$. Números e datas: =, <>, >, >=, <, <=, 1,2,3. NULL / NOT NULL.",
+    "filterOptions": "Opções de filtro",
+    "before": "Antes: {{value}}",
+    "copyFormat": {
+      "tsv_headers": {
+        "label": "Copiar com cabeçalhos",
+        "name": "Com cabeçalhos"
+      },
+      "tsv": {
+        "label": "Copiar sem cabeçalhos",
+        "name": "Sem cabeçalhos"
+      },
+      "headers": {
+        "label": "Copiar somente cabeçalhos",
+        "name": "Somente cabeçalhos"
+      },
+      "csv": {
+        "label": "Copiar como CSV",
+        "name": "CSV"
+      },
+      "json": {
+        "label": "Copiar como JSON",
+        "name": "JSON"
+      },
+      "json_lines": {
+        "label": "Copiar como JSON Lines / NDJSON",
+        "name": "JSON Lines / NDJSON"
+      },
+      "yaml": {
+        "label": "Copiar como YAML",
+        "name": "YAML"
+      },
+      "sql_insert": {
+        "label": "Copiar como SQL INSERTs",
+        "name": "SQL INSERTs"
+      },
+      "sql_update": {
+        "label": "Copiar como SQL UPDATEs",
+        "name": "SQL UPDATEs"
+      },
+      "mongo_insert": {
+        "label": "Copiar como Mongo INSERTs",
+        "name": "Mongo INSERTs"
+      }
+    }
+  },
+  "chart": {
+    "kind": {
+      "bar": "Barras",
+      "hbar": "Barras horizontais",
+      "stacked": "Barras empilhadas",
+      "line": "Linhas",
+      "area": "Área",
+      "pie": "Pizza",
+      "scatter": "Dispersão"
+    },
+    "agg": {
+      "none": "Sem agrupar",
+      "sum": "Soma",
+      "avg": "Média",
+      "count": "Contagem",
+      "min": "Mínimo",
+      "max": "Máximo"
+    },
+    "others": "Outros",
+    "null": "(nulo)",
+    "seriesName": "{{agg}} de {{column}}",
+    "fileName": "grafico",
+    "kindTitle": "Tipo de gráfico",
+    "category": "Categoria",
+    "xAxis": "Eixo X",
+    "values": "Valores",
+    "numericColumns": "Colunas numéricas",
+    "splitBy": "Dividir por",
+    "splitByTitle": "Uma série para cada valor desta coluna",
+    "aggTitle": "Agrupar pela categoria",
+    "sort": {
+      "none": "Ordem original",
+      "value": "Maior valor primeiro",
+      "label": "Por categoria"
+    },
+    "noNumeric": "Este resultado não tem colunas numéricas para o gráfico.",
+    "pickValues": "Escolha pelo menos uma coluna em «Valores».",
+    "tooMany": "Categorias demais ({{n}}): agrupe por outra coluna ou escolha uma agregação."
+  }
+}

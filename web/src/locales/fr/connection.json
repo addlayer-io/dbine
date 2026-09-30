@@ -1,0 +1,46 @@
+{
+  "title": {
+    "new": "Nouvelle connexion",
+    "edit": "Modifier la connexion · {{name}}",
+    "duplicate": "Dupliquer la connexion"
+  },
+  "missingDriver": "Cette version n'inclut pas le driver \"{{driver}}\".",
+  "copyName": "{{name}} (copie)",
+  "pick": {
+    "searchPlaceholder": "Rechercher un moteur…",
+    "port": "Port {{port}}",
+    "localFile": "Fichier local",
+    "cloudService": "Service cloud",
+    "noMatch": "Aucun moteur ne correspond à «{{search}}».",
+    "available": "{{n}} moteurs disponibles"
+  },
+  "family": {
+    "relational": "Relationnelles",
+    "analytical": "Analytiques",
+    "document": "Documents",
+    "key_value": "Clé-valeur",
+    "wide_column": "Orientées colonnes",
+    "search": "Recherche",
+    "time_series": "Séries temporelles",
+    "streaming": "Streaming",
+    "graph": "Graphes"
+  },
+  "form": {
+    "changeEngine": "Changer de moteur",
+    "name": "Nom",
+    "color": "Couleur",
+    "noColor": "Sans couleur",
+    "folder": "Dossier",
+    "tags": "Étiquettes",
+    "tagsPlaceholder": "prod, dev, qa… (saisissez-en une nouvelle et Entrée)",
+    "secretKeptMasc": "(enregistré ; laissez vide pour le conserver)",
+    "secretKeptFem": "(enregistrée ; laissez vide pour la conserver)",
+    "savePassword": "Enregistrer {{fields}} dans le trousseau du système",
+    "and": " et ",
+    "couldNotConnect": "Connexion impossible",
+    "testConnection": "Tester la connexion",
+    "connectionOk": "Connexion réussie",
+    "saveAndConnect": "Enregistrer et se connecter",
+    "missingFields": "À compléter : {{fields}}"
+  }
+}

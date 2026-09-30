@@ -1,0 +1,71 @@
+{
+  "tab": "Backups",
+  "menu": "Backups…",
+  "title": "Backups",
+  "copies": "DBine copies",
+  "copiesHint": "A script with the structure and the data in a file. Works with any engine.",
+  "noCopies": "No copies of this database yet.",
+  "withData": "Structure and data",
+  "structureOnly": "Structure only",
+  "server": "Server backups",
+  "noNative": "This engine has no backups of its own that DBine can manage. DBine copies do work.",
+  "noHistory": "The engine doesn't report its backup history.",
+  "noNativeHistory": "The server has no backups on record.",
+  "wholeServer": "whole server",
+  "restore": "Restore",
+  "restoreFrom": "Restore from…",
+  "pick": "Browse…",
+  "seeScript": "See the script",
+  "reviewTitle": "Review before running",
+  "reviewHint": "This is what will run on the server, in {{db}}.",
+  "run": "Run",
+  "copied": "Copied",
+  "done": {
+    "backup": "Backup done",
+    "restore": "Restore finished",
+    "delete": "Backup deleted"
+  },
+  "col": {
+    "date": "Date",
+    "content": "Content",
+    "objects": "Objects",
+    "rows": "Rows",
+    "size": "Size",
+    "file": "File",
+    "kind": "Type",
+    "database": "Database",
+    "location": "Location",
+    "status": "Status"
+  },
+  "copy": {
+    "new": "New copy",
+    "file": "File",
+    "data": "Include the data",
+    "hint": "The script drops and recreates each object, so restoring it replaces what's in the target database.",
+    "run": "Make the copy",
+    "done": "Copy ready ({{size}})",
+    "cancelled": "Copy cancelled",
+    "empty": "The database has no objects to copy."
+  },
+  "restoreCopy": {
+    "title": "Restore a copy",
+    "into": "Restore into database",
+    "continueOnError": "Keep going if a statement fails",
+    "hint": "The copy's script runs on the chosen database.",
+    "confirm": "The copy's objects that exist in {{db}} will be replaced. Continue?",
+    "done": "Restore finished ({{n}} statements)",
+    "cancelled": "Restore cancelled"
+  },
+  "deleteCopy": {
+    "title": "Delete the copy",
+    "message": "Also delete the file {{path}}?",
+    "withFile": "Delete the file too",
+    "listOnly": "Only remove it from the list"
+  },
+  "native": {
+    "new": "Back up",
+    "source": "Backup to restore",
+    "sourceHint": "From the history, or a location",
+    "into": "Restore as"
+  }
+}

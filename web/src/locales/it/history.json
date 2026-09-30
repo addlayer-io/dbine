@@ -1,0 +1,18 @@
+{
+  "title": "Cronologia",
+  "search": "Cerca nella cronologia",
+  "empty": "Non hai ancora eseguito nulla. Quello che lanci dall’editor compare qui, raggruppato per server.",
+  "noMatch": "Nessun risultato per la ricerca.",
+  "clear": "Cancella la cronologia",
+  "clearTitle": "Cancella la cronologia",
+  "clearConfirm": "Cancellare tutta la cronologia delle query di questa macchina?",
+  "openNew": "Apri in una nuova query",
+  "copySql": "Copia l’SQL",
+  "copied": "Copiato",
+  "deleteHost": "Cancella la cronologia di {{host}}",
+  "connectionGone": "La connessione «{{name}}» non esiste più: copia l’SQL per usarlo in un’altra.",
+  "more": "Mostra altro",
+  "rows_one": "1 riga",
+  "rows_many": "{{count}} righe",
+  "rows_other": "{{count}} righe"
+}
