@@ -2794,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-solr"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "dbine-driver",
  "dbine-driver-elasticsearch",
