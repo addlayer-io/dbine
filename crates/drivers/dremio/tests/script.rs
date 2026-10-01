@@ -32,6 +32,7 @@ async fn statements_one_by_one() {
     s.execute(&units[0].text, 10, &mut out).await.unwrap();
     assert_eq!(out.results[0].tag.as_deref(), Some("USE"));
     assert!(out.log.iter().any(|m| m.text == "Contexto: $scratch"), "{:?}", out.log);
+    assert_eq!(out.database.as_deref(), Some("$scratch"));
     s.execute(&units[1].text, 10, &mut out).await.unwrap();
     assert_eq!(out.results.len(), 2);
     let err = s.execute(&units[2].text, 10, &mut out).await.unwrap_err();

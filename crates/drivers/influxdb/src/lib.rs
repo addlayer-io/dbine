@@ -53,13 +53,12 @@ impl Driver for InfluxDriver {
         true
     }
 
-    /// InfluxQL (v1) goes whole to `/query`, which runs the statements in
-    /// order, as the influx CLI; a Flux script (v2) is one query. The SQL
-    /// of v3 takes one statement per request.
+    /// InfluxQL (v1) and the SQL of v3 take one statement per request, as
+    /// the influx CLI sends them; a Flux script (v2) is one query.
     fn script_mode(&self) -> dbine_driver::ScriptMode {
         match self.api {
-            Api::Sql => dbine_driver::ScriptMode::PerStatement,
-            Api::Flux | Api::InfluxQl => dbine_driver::ScriptMode::Whole,
+            Api::Sql | Api::InfluxQl => dbine_driver::ScriptMode::PerStatement,
+            Api::Flux => dbine_driver::ScriptMode::Whole,
         }
     }
 

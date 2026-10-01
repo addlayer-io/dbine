@@ -189,6 +189,30 @@ fn use_target(stmt: &str) -> Option<(String, Option<String>)> {
     }
 }
 
+/// A unit whose first line is a `USE` (the influx CLI reads a script line
+/// by line, so `USE db` needs no `;`): that line, and the rest of the unit
+/// as a unit of its own. `(None, None)` for any other unit.
+fn use_line(u: &dbine_driver::ScriptStatement) -> (Option<String>, Option<dbine_driver::ScriptStatement>) {
+    let first = u.text.split(char::is_whitespace).next().unwrap_or_default();
+    if !first.eq_ignore_ascii_case("use") {
+        return (None, None);
+    }
+    let Some(nl) = u.text.find('\n') else { return (Some(u.text.clone()), None) };
+    let rest = &u.text[nl + 1..];
+    let trimmed = rest.trim_start();
+    if trimmed.is_empty() {
+        return (Some(u.text[..nl].trim().to_string()), None);
+    }
+    let skip = nl + 1 + rest.len() - trimmed.len();
+    let next = dbine_driver::ScriptStatement {
+        text: trimmed.to_string(),
+        start: u.start + skip,
+        line: u.line + u.text[..skip].matches('\n').count() as u32,
+        ..u.clone()
+    };
+    (Some(u.text[..nl].trim().to_string()), Some(next))
+}
+
 /// A refused request: `error parsing query: … at line L, char C` placed in
 /// `text` (the request started at `base`).
 fn parse_error(msg: &str, text: &str, base: usize) -> Error {
@@ -231,6 +255,21 @@ pub fn first_write(script: &str) -> Option<String> {
 }
 
 impl InfluxQlSession {
+    /// Why `USE db[.rp]` can't switch, as the influx CLI checks it: the
+    /// database (or the retention policy) isn't on the server. `None` when
+    /// it is, or when the server won't list them (then the next statement
+    /// tells).
+    async fn missing(&mut self, db: &str, rp: Option<&str>) -> Option<String> {
+        let names = |rows: Vec<Vec<J>>| rows.iter().map(|r| str_at(r, 0)).collect::<Vec<_>>();
+        let dbs = names(self.first_column("SHOW DATABASES").await.ok()?);
+        if !dbs.iter().any(|d| d == db) {
+            return Some(format!("La base de datos «{db}» no existe. Ejecutá SHOW DATABASES para ver las que hay."));
+        }
+        let rp = rp?;
+        let rps = names(self.first_column(&format!("SHOW RETENTION POLICIES ON {}", ident(db))).await.ok()?);
+        (!rps.iter().any(|r| r == rp)).then(|| format!("La política de retención «{rp}» no existe en «{db}»."))
+    }
+
     /// Consecutive statements of `text` in one request; a failure placed
     /// in `text` (the parser's `at line L, char C`, or the statement the
     /// server stopped at).
@@ -523,40 +562,57 @@ impl Session for InfluxQlSession {
         format!("SELECT * FROM {} ORDER BY time DESC LIMIT {limit}", ident(&obj.name))
     }
 
-    /// The script goes to `/query` as the influx CLI's statements would:
-    /// the server runs them in order and stops at the first failure. `USE
-    /// db[.rp]` is the CLI's: it sets the database (and retention policy)
-    /// of the statements after it, and of later runs.
+    /// Each statement goes to `/query` on its own, as the influx CLI sends
+    /// them (with several in one request, 1.x reports a failure before the
+    /// last one as "not executed", losing its reason); the first failure
+    /// stops the run. `USE db[.rp]` is the CLI's: checked against the
+    /// server, it sets the database (and retention policy) of the
+    /// statements after it and of later runs, and the tab follows. Like in
+    /// the CLI it may end at its line, without `;`.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let write = first_write(text);
+        // Units, with a `USE` line split off the statement under it.
+        let mut units = Vec::new();
+        let mut queue: std::collections::VecDeque<_> = dbine_driver::sql::split_script(text, &dbine_driver::ScriptDialect::generic()).into();
+        while let Some(u) = queue.pop_front() {
+            let (head, rest) = use_line(&u);
+            match head.as_deref().and_then(use_target) {
+                Some(target) => {
+                    if let Some(rest) = rest {
+                        queue.push_front(rest);
+                    }
+                    units.push((Some(target), u));
+                }
+                None => units.push((None, u)),
+            }
+        }
         if self.read_only {
-            if let Some(kw) = &write {
+            if let Some(kw) = units.iter().filter(|(t, _)| t.is_none()).find_map(|(_, u)| first_write(&u.text)) {
                 return Err(Error::Query(format!(
                     "Conexión de solo lectura: se bloqueó una sentencia {kw}. Solo se permiten lecturas (SELECT, SHOW, EXPLAIN)."
                 )));
             }
         }
-        let units = dbine_driver::sql::split_script(text, &dbine_driver::ScriptDialect::generic());
-        let mut chunk: Vec<&dbine_driver::ScriptStatement> = Vec::new();
-        for u in &units {
-            if let Some((db, rp)) = use_target(&u.text) {
-                self.run_chunk(text, &chunk, max_rows, out).await?;
-                chunk.clear();
-                out.info(match &rp {
-                    Some(rp) => format!("Base de datos: {db} (política de retención {rp})"),
-                    None => format!("Base de datos: {db}"),
-                });
-                self.db = Some(db);
-                self.rp = rp;
-                out.push_affected(0);
-                if let Some(r) = out.results.last_mut() {
-                    r.tag = Some("USE".into());
-                }
-            } else {
-                chunk.push(u);
+        for (target, u) in units {
+            let Some((db, rp)) = target else {
+                self.run_chunk(text, &[&u], max_rows, out).await?;
+                continue;
+            };
+            if let Some(msg) = self.missing(&db, rp.as_deref()).await {
+                return Err(dbine_driver::ScriptError::new(msg).at_offset(u.start).at_line(u.line).into());
             }
+            out.info(match &rp {
+                Some(rp) => format!("Base de datos: {db} (política de retención {rp})"),
+                None => format!("Base de datos: {db}"),
+            });
+            self.db = Some(db.clone());
+            self.rp = rp;
+            out.push_affected(0);
+            if let Some(r) = out.results.last_mut() {
+                r.tag = Some("USE".into());
+            }
+            out.database = Some(db);
         }
-        self.run_chunk(text, &chunk, max_rows, out).await
+        Ok(())
     }
 
     /// `SHOW STATS`, `SHOW DIAGNOSTICS` and `SHOW QUERIES`, one request each
@@ -790,6 +846,15 @@ mod tests {
         assert_eq!(use_target("use \"my db\".\"a.rp\""), Some(("my db".into(), Some("a.rp".into()))));
         assert_eq!(use_target("USEFUL"), None);
         assert_eq!(use_target("USE"), None);
+        // `USE` ends at its line, as in the influx CLI.
+        let t = "SHOW DATABASES;\nUSE vwh.rp1\n  SHOW MEASUREMENTS\nLIMIT 1";
+        let units = dbine_driver::sql::split_script(t, &dbine_driver::ScriptDialect::generic());
+        let (head, rest) = use_line(&units[1]);
+        assert_eq!(head.as_deref(), Some("USE vwh.rp1"));
+        let rest = rest.unwrap();
+        assert_eq!((rest.text.as_str(), rest.line, &t[rest.start..rest.end]), ("SHOW MEASUREMENTS\nLIMIT 1", 3, "SHOW MEASUREMENTS\nLIMIT 1"));
+        assert_eq!(use_line(&units[0]), (None, None));
+        assert_eq!(use_line(&dbine_driver::sql::split_script("use x", &Default::default())[0]), (Some("use x".into()), None));
         let t = "USE a;\nSHOW DATABASES;\nSELECT * FROM;";
         let base = t.find("SHOW").unwrap();
         // The request was "SHOW DATABASES;\nSELECT * FROM": line 2, char 14.

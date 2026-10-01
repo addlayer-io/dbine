@@ -864,6 +864,7 @@ impl Session for DatabricksSession {
                 }
             }
             if let Some(u) = script::use_target(&unit.text) {
+                let before = self.catalog.clone();
                 match u {
                     script::Use::Catalog(c) => {
                         // A new catalog starts at its default schema.
@@ -878,6 +879,10 @@ impl Session for DatabricksSession {
                 }
                 let shown = [self.catalog.as_deref(), self.schema.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(".");
                 out.info(format!("Contexto: {shown}"));
+                if self.catalog != before {
+                    // Catalogs are the databases: the tab follows the USE.
+                    out.database = self.catalog.clone();
+                }
             }
         }
         Ok(())

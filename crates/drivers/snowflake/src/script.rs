@@ -49,6 +49,22 @@ pub fn changes_context(units: &[ScriptStatement]) -> bool {
     })
 }
 
+/// The script ends with a transaction open (`BEGIN` / `START TRANSACTION`
+/// after its last `COMMIT` / `ROLLBACK`): it doesn't reach the next run,
+/// which is another request (another server session).
+pub fn leaves_transaction_open(units: &[ScriptStatement]) -> bool {
+    let mut open = false;
+    for u in units.iter().filter(|u| u.kind != dbine_driver::StatementKind::Block) {
+        match head(&u.text) {
+            (a, b) if a == "BEGIN" && matches!(b.as_str(), "" | "TRANSACTION" | "WORK" | "NAME") => open = true,
+            (a, b) if a == "START" && b == "TRANSACTION" => open = true,
+            (a, _) if a == "COMMIT" || a == "ROLLBACK" => open = false,
+            _ => {}
+        }
+    }
+    open
+}
+
 /// Session state carried from one request to the next.
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Carry {
@@ -210,6 +226,15 @@ mod tests {
         assert!(changes_context(&units("EXECUTE IMMEDIATE 'USE DATABASE d'")));
         assert!(!changes_context(&units("CREATE ROLE r; GRANT ROLE r TO USER u; -- use x")));
         assert!(!changes_context(&units("CREATE DATABASE \"V_BKP_1\" CLONE \"V\";")));
+    }
+
+    #[test]
+    fn open_transactions_at_the_end_are_found() {
+        assert!(leaves_transaction_open(&units("BEGIN; INSERT INTO t VALUES (1)")));
+        assert!(leaves_transaction_open(&units("commit; begin transaction;\nselect 1")));
+        assert!(!leaves_transaction_open(&units("BEGIN; INSERT INTO t VALUES (1); COMMIT;")));
+        assert!(!leaves_transaction_open(&units("START TRANSACTION; ROLLBACK")));
+        assert!(!leaves_transaction_open(&units("BEGIN\n  INSERT INTO t VALUES (1);\nEND;")));
     }
 
     #[test]

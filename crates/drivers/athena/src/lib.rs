@@ -11,6 +11,8 @@ mod monitor;
 mod permissions;
 mod plan;
 mod profiler;
+#[path = "../../trino/src/script.rs"]
+mod script;
 mod sync;
 mod transfer;
 
@@ -20,7 +22,7 @@ use aws_sdk_athena::types::{
     StatementType, TableMetadata,
 };
 use aws_sdk_athena::Client;
-use dbine_driver::sql::{qualified_name, quote_ident, select_top, split_statements, Limit, Quote};
+use dbine_driver::sql::{qualified_name, quote_ident, select_top, Limit, Quote, ScriptDialect};
 use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef,
@@ -98,6 +100,12 @@ impl Driver for AthenaDriver {
 
     fn supports_explain(&self) -> bool {
         true
+    }
+
+    /// Each statement is a query execution of its own; the database (the
+    /// execution context) is kept by the session, so `USE` carries over.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::PerStatement
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -213,7 +221,10 @@ impl AthenaSession {
         self.set_running(Some(id.clone()));
         let result = self.wait_and_fetch(&id, max_rows).await;
         self.set_running(None);
-        result.map(|ex| (id, ex))
+        result.map(|ex| (id, ex)).map_err(|e| match e {
+            Error::Statement(se) => Error::Statement(Box::new(placed_error(*se, sql))),
+            other => other,
+        })
     }
 
     /// `EXPLAIN (FORMAT JSON)`: the statement is only planned. Athena runs
@@ -269,7 +280,8 @@ impl AthenaSession {
                 Some(QueryExecutionState::Succeeded) => break qe.and_then(|q| q.statement_type()).cloned(),
                 Some(QueryExecutionState::Failed) => {
                     let reason = status.and_then(|s| s.state_change_reason()).unwrap_or("la consulta falló");
-                    return Err(Error::Query(reason.to_string()));
+                    let kind = status.and_then(|s| s.athena_error()).and_then(|a| a.error_type());
+                    return Err(failed_error(reason, kind).into());
                 }
                 Some(QueryExecutionState::Cancelled) => return Err(Error::Cancelled),
                 _ => {
@@ -331,6 +343,40 @@ impl AthenaSession {
         Ok(ex)
     }
 
+    /// One statement of a script. `USE db` (or `USE catalog.db`) has no
+    /// query execution of its own in Athena: it changes the session's
+    /// execution context, as the Trino CLI does, after checking the
+    /// database exists.
+    async fn run_statement(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        if let Some((catalog, db)) = use_target(stmt) {
+            let catalog = catalog.unwrap_or_else(|| self.catalog.clone());
+            let previous = std::mem::replace(&mut self.catalog, catalog);
+            let known = match self.list_databases().await {
+                Ok(dbs) => dbs.iter().find(|d| d.eq_ignore_ascii_case(&db)).cloned(),
+                Err(e) => {
+                    self.catalog = previous;
+                    return Err(e);
+                }
+            };
+            let Some(db) = known else {
+                let msg = format!("La base de datos «{db}» no existe en el catálogo «{}».", self.catalog);
+                self.catalog = previous;
+                return Err(dbine_driver::ScriptError::new(msg).with_code("SCHEMA_NOT_FOUND").at_offset(0).at_line(1).into());
+            };
+            self.database = Some(db.clone());
+            out.info(format!("Base de datos: {}.{db}", self.catalog));
+            out.push_affected(0);
+            if let Some(last) = out.results.last_mut() {
+                last.tag = Some("USE".into());
+            }
+            out.database = Some(db);
+            return Ok(());
+        }
+        let ex = self.run(stmt, max_rows).await?;
+        Self::push_execution(&ex, max_rows, out);
+        Ok(())
+    }
+
     /// Every table and view of the session's database, as the catalog
     /// describes them.
     async fn table_metadata(&self) -> Result<Vec<TableMetadata>> {
@@ -362,6 +408,88 @@ impl AthenaSession {
         let ex = self.run(&format!("SHOW CREATE {what} {}", qualified_name(Quote::Backtick, db, name)), 10_000).await?;
         let lines: Vec<String> = ex.rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).collect();
         Ok((!lines.is_empty()).then(|| lines.join("\n")))
+    }
+}
+
+/// A failed execution's reason with its code: the error name Athena puts
+/// before the message (`COLUMN_NOT_FOUND: line 1:8: …`), else its numeric
+/// error type.
+fn failed_error(reason: &str, error_type: Option<i32>) -> dbine_driver::ScriptError {
+    let name = reason.split_once(": ").map(|(n, _)| n).filter(|n| {
+        !n.is_empty() && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') && n.contains(|c: char| c.is_ascii_uppercase())
+    });
+    let se = dbine_driver::ScriptError::new(reason);
+    match (name, error_type) {
+        (Some(n), _) => se.with_code(n),
+        (None, Some(t)) => se.with_code(t.to_string()),
+        (None, None) => se,
+    }
+}
+
+/// The error placed in `sql` (the text sent) by the `line L:C` its
+/// message gives.
+fn placed_error(se: dbine_driver::ScriptError, sql: &str) -> dbine_driver::ScriptError {
+    match script::line_col(&se.message) {
+        Some((l, c)) => script::placed(se, sql, Some(l), Some(c)),
+        None => se,
+    }
+}
+
+/// `USE db` / `USE catalog.db` (identifiers bare, "quoted" or `quoted`):
+/// the catalog when given and the database.
+fn use_target(stmt: &str) -> Option<(Option<String>, String)> {
+    let text = dbine_driver::sql::strip_comments(stmt, &ScriptDialect::generic(), false);
+    let text = text.trim().trim_end_matches(';').trim();
+    if script::head(text).0 != "USE" {
+        return None;
+    }
+    let (_, rest) = text.split_once(char::is_whitespace)?;
+    let mut parts = Vec::new();
+    let mut chars = rest.trim().chars().peekable();
+    loop {
+        let mut part = String::new();
+        match chars.peek().copied() {
+            Some(q @ ('"' | '`')) => {
+                chars.next();
+                loop {
+                    match chars.next()? {
+                        c if c == q && chars.peek() == Some(&q) => {
+                            chars.next();
+                            part.push(q);
+                        }
+                        c if c == q => break,
+                        c => part.push(c),
+                    }
+                }
+            }
+            _ => {
+                while let Some(&c) = chars.peek() {
+                    if c == '.' || c.is_whitespace() {
+                        break;
+                    }
+                    part.push(c);
+                    chars.next();
+                }
+                part = part.to_ascii_lowercase();
+            }
+        }
+        if part.is_empty() {
+            return None;
+        }
+        parts.push(part);
+        match chars.next() {
+            Some('.') => continue,
+            None => break,
+            Some(_) => return None,
+        }
+    }
+    match parts.len() {
+        1 => Some((None, parts.pop()?)),
+        2 => {
+            let db = parts.pop()?;
+            Some((parts.pop(), db))
+        }
+        _ => None,
     }
 }
 
@@ -495,9 +623,8 @@ impl Session for AthenaSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        for stmt in split_statements(text) {
-            let ex = self.run(&stmt, max_rows).await?;
-            Self::push_execution(&ex, max_rows, out);
+        for unit in script::units(text, &ScriptDialect::generic()) {
+            self.run_statement(&unit.text, max_rows, out).await.map_err(|e| script::shift(e, &unit))?;
         }
         Ok(())
     }
@@ -507,7 +634,8 @@ impl Session for AthenaSession {
     /// with measured rows, bytes and time.
     async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         use plan::StmtKind;
-        for stmt in split_statements(text) {
+        for unit in script::units(text, &ScriptDialect::generic()) {
+            let stmt = unit.text;
             let kind = plan::classify(&stmt);
             if !analyze {
                 if kind == StmtKind::Other {
@@ -689,6 +817,24 @@ mod tests {
         let target = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "t".into() };
         let ins = d.insert_script(&target, &["d".into()], &[vec![serde_json::json!("2024-01-31")]]).unwrap();
         assert_eq!(ins, "INSERT INTO \"t\" (\"d\") VALUES\n  (DATE '2024-01-31');");
+    }
+
+    #[test]
+    fn use_and_errors() {
+        assert_eq!(use_target("USE ventas;"), Some((None, "ventas".into())));
+        assert_eq!(use_target("-- x\nuse AwsDataCatalog.Ventas"), Some((Some("awsdatacatalog".into()), "ventas".into())));
+        assert_eq!(use_target("USE \"Mi Cat\".`db`"), Some((Some("Mi Cat".into()), "db".into())));
+        assert_eq!(use_target("USE a.b.c"), None);
+        assert_eq!(use_target("SELECT 1"), None);
+        assert_eq!(use_target("USE"), None);
+        let e = failed_error("COLUMN_NOT_FOUND: line 2:8: Column 'x' cannot be resolved", Some(1006));
+        assert_eq!(e.code.as_deref(), Some("COLUMN_NOT_FOUND"));
+        let e = placed_error(e, "select 1,\nselect x");
+        assert_eq!((e.line, e.offset), (Some(2), Some(17)));
+        let e = failed_error("Insufficient permissions to execute the query.", Some(1301));
+        assert_eq!(e.code.as_deref(), Some("1301"));
+        assert_eq!(placed_error(e, "select 1").line, None);
+        assert_eq!(failed_error("x", None).code, None);
     }
 
     #[test]
