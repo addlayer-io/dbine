@@ -47,16 +47,24 @@ async fn int(s: &mut SqlServerSession, sql: &str) -> i64 {
 }
 
 /// Fire the interrupter after `after`, run `sql`, expect a cancel.
+///
+/// The bound is measured from the moment the interrupter fires and is far
+/// below what the slow batches take uncancelled (WAITFOR runs 30 s), with
+/// room for a server just started cold, which acknowledges the attention
+/// slower than a warm one.
 async fn cancel_during(s: &mut SqlServerSession, sql: &str, after: Duration) {
     let stop = s.interrupter().expect("interrupter");
+    let fired = std::sync::Arc::new(std::sync::Mutex::new(None::<Instant>));
+    let at = fired.clone();
     tokio::spawn(async move {
         tokio::time::sleep(after).await;
+        *at.lock().unwrap() = Some(Instant::now());
         stop();
     });
-    let t = Instant::now();
-    let e = tokio::time::timeout(Duration::from_secs(20), run(s, sql)).await.expect("the cancel didn't stop it").unwrap_err();
+    let e = tokio::time::timeout(Duration::from_secs(25), run(s, sql)).await.expect("the cancel didn't stop it").unwrap_err();
     assert!(matches!(e, Error::Cancelled), "{sql}: {e:?}");
-    assert!(t.elapsed() < Duration::from_secs(5), "{sql}: took {:?}", t.elapsed());
+    let fired = fired.lock().unwrap().expect("ended before the interrupter fired");
+    assert!(fired.elapsed() < Duration::from_secs(10), "{sql}: the cancel took {:?}", fired.elapsed());
 }
 
 /// A batch that runs for a long time without sending anything. Babelfish

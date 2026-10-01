@@ -167,5 +167,15 @@ files kept). Every changed site is marked `PATCH(dbine)` in the source.
 certificate and private keys) and `tests/custom-cert.rs` are left out of this
 copy: DBine doesn't run tiberius's own TLS tests, and a private key in the
 repository sets off secret scanners even when it's a public test fixture.
-The unit tests in `src/client/tls_stream/certs.rs` that read those files are
-marked `#[ignore]` (`PATCH(dbine)`).
+The unit tests that read those files are marked `#[ignore]` (`PATCH(dbine)`):
+the ones in `src/client/tls_stream/certs.rs`, ten in
+`src/client/tls_stream/rustls_tls_stream.rs` (the `build_trust_store_*` ones
+that load a CA file, `load_client_auth_reads_pem_cert_and_key`,
+`read_private_key_reads_{pem,der}`, `read_private_key_unsupported_extension_errors`,
+`no_cert_verifier_accepts_any_certificate_when_opted_in` and
+`default_verifier_rejects_untrusted_certificate`) and the three
+`multi_cert_*` ones in `src/client/tls_stream/native_tls_stream.rs`. To run
+the crate's tests, copy it out of the workspace (cargo refuses to test it in
+place) and run `cargo test --lib`, with the default features (native-tls)
+and with `--no-default-features --features
+tds73,chrono,rust_decimal,rustls,rustls-webpki-roots,sql-browser-tokio`.
