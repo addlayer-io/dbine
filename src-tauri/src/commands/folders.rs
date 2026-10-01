@@ -1,6 +1,6 @@
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
-use dbine_core::ConnectionFolder;
+use dbine_core::{ConnectionFolder, ExplorerItem};
 use serde::Deserialize;
 use tauri::State;
 
@@ -48,4 +48,19 @@ pub struct MoveConnectionArgs {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn move_connection(state: State<'_, AppState>, args: MoveConnectionArgs) -> CommandResult<()> {
     Ok(state.store.move_connection(&args.connection_id, args.folder_id.as_deref())?)
+}
+
+#[derive(Deserialize)]
+pub struct ReorderExplorerArgs {
+    /// The level: a folder, or `None` = top level.
+    pub parent_id: Option<String>,
+    pub kind: ExplorerItem,
+    /// Every connection (or folder) of that level, in the new order.
+    pub ids: Vec<String>,
+}
+
+/// Drag and drop in the explorer: the items land in the level, in that order.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn reorder_explorer(state: State<'_, AppState>, args: ReorderExplorerArgs) -> CommandResult<()> {
+    Ok(state.store.reorder_explorer(args.kind, args.parent_id.as_deref(), &args.ids)?)
 }

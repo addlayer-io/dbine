@@ -10,4 +10,4 @@ pub mod state;
 
 pub use dbine_driver::{Error, Result};
 pub use cache::ExplorerCache;
-pub use state::{BackupCopy, ConnectionFolder, HistoryEntry, LibraryScript, SavedConnection, SavedMigration, SavedQuery, StateSnapshot, StateStore};
+pub use state::{BackupCopy, ConnectionFolder, ExplorerItem, HistoryEntry, LibraryScript, SavedConnection, SavedMigration, SavedQuery, StateSnapshot, StateStore};

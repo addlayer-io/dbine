@@ -168,6 +168,7 @@ pub fn run() {
             commands::folders::save_folder,
             commands::folders::delete_folder,
             commands::folders::move_connection,
+            commands::folders::reorder_explorer,
             commands::compare::schema_compare_load,
             commands::compare::schema_compare,
             commands::compare::schema_compare_convert,

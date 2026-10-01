@@ -45,6 +45,9 @@ export const api = {
   deleteFolder: (id: string) => invoke<void>('delete_folder', { args: { id } }),
   moveConnection: (connectionId: string, folderId: string | null) =>
     invoke<void>('move_connection', { args: { connection_id: connectionId, folder_id: folderId } }),
+  /** One explorer level (`parentId` null = top level): its connections or folders, in this order. */
+  reorderExplorer: (parentId: string | null, kind: 'connection' | 'folder', ids: string[]) =>
+    invoke<void>('reorder_explorer', { args: { parent_id: parentId, kind, ids } }),
 
   listDatabases: (connectionId: string) =>
     invoke<string[]>('list_databases', { args: { connection_id: connectionId, database: '' } }),
