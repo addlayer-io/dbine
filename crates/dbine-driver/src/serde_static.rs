@@ -46,10 +46,10 @@ mod tests {
 
     #[test]
     fn equal_strings_are_leaked_once() {
+        // Same pointer = the second call reused the first leak. (The global
+        // count isn't compared: tests running in parallel intern too.)
         let a = intern("dbine-test-interned");
-        let n = interned();
         let b = intern(&String::from("dbine-test-interned"));
         assert!(std::ptr::eq(a, b));
-        assert_eq!(interned(), n);
     }
 }

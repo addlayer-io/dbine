@@ -4,6 +4,10 @@
   "formatFailed": "Impossibile formattare: {{error}}",
   "defaultDatabase": "(predefinito)",
   "runTitle": "Esegui (⌘↵)",
+  "runStatement": "Esegui l'istruzione al cursore",
+  "runStatementTip": "Esegui l'istruzione dove si trova il cursore (⌘⇧↵)",
+  "continueOnError": "Continua in caso di errore",
+  "continueOnErrorTip": "Se un'istruzione fallisce, esegue comunque le successive. Parte come fa lo strumento del motore.",
   "estimatedPlanTip": "Piano di esecuzione stimato, senza eseguire (⌘L)",
   "estimatedPlan": "Piano stimato",
   "actualPlanTip": "Esegui e includi il piano effettivo (⌘⇧↵)",
@@ -18,6 +22,41 @@
   "maxRows": "Righe max.",
   "editorPlaceholder": "Scrivi la query… (⌘↵ esegue)",
   "resultName": "risultato",
+  "tx": {
+    "label": "Transazioni",
+    "auto": "Auto",
+    "manual": "Manuale",
+    "autoTip": "Transazioni automatiche: ogni istruzione viene confermata da sola",
+    "manualTip": "Transazioni manuali: le modifiche restano in sospeso fino a Conferma o Annulla",
+    "open": "Transazione aperta",
+    "failed": "Transazione con errore",
+    "commit": "Conferma",
+    "rollback": "Annulla",
+    "committed": "Transazione confermata",
+    "rolledBack": "Transazione annullata",
+    "lostOnCancel": "L'annullamento ha chiuso la sessione: la transazione aperta è stata annullata.",
+    "dialogTitle": "Transazione aperta",
+    "ask": {
+      "close": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di chiuderla?",
+      "database": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di cambiare database?",
+      "mode": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di passare alle transazioni automatiche?"
+    }
+  },
+  "unsafe": {
+    "title": "UPDATE o DELETE senza WHERE",
+    "intro_one": "Questa istruzione non ha WHERE: modifica tutte le righe della tabella.",
+    "intro_many": "Queste istruzioni non hanno WHERE: modificano tutte le righe delle loro tabelle.",
+    "intro_other": "Queste istruzioni non hanno WHERE: modificano tutte le righe delle loro tabelle.",
+    "run": "Esegui comunque"
+  },
+  "status": {
+    "ready": "Pronto",
+    "noStatement": "Non c'è nessuna istruzione al cursore.",
+    "server": "Server",
+    "user": "Utente",
+    "elapsed": "Tempo di esecuzione",
+    "rowsTip": "Righe restituite"
+  },
   "object": {
     "data": "Dati",
     "columns": "Colonne",

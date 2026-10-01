@@ -355,7 +355,31 @@ fn unsafe_dml(driver: &dyn Driver, sql: &str) -> Vec<sql::UnsafeStatement> {
     if !driver.script_defaults().confirm_unsafe_dml {
         return Vec::new();
     }
-    sql::unsafe_statements(sql, &driver.script_dialect())
+    let dialect = driver.script_dialect();
+    if !sqlplus_units(&dialect) {
+        return sql::unsafe_statements(sql, &dialect);
+    }
+    // Only its SQL statements: words of a PROMPT or REM line aren't DML.
+    driver
+        .split_script(sql)
+        .into_iter()
+        .filter(|u| u.kind == StatementKind::Sql)
+        .flat_map(|u| {
+            sql::unsafe_statements(&u.text, &dialect).into_iter().map(move |mut x| {
+                x.start += u.start;
+                x.end += u.start;
+                x.line += u.line - 1;
+                x
+            })
+        })
+        .collect()
+}
+
+/// SQL*Plus scripts (`/` lines): they have no batches, so the driver's own
+/// units are its statements, and only its splitter reads SQL*Plus command
+/// lines (`PROMPT`, `EXEC`…) as units of their own.
+fn sqlplus_units(dialect: &sql::ScriptDialect) -> bool {
+    dialect.batch == sql::BatchLine::Slash
 }
 
 /// Byte offsets of a script as JS string (UTF-16) indices. For non-ASCII
@@ -501,7 +525,13 @@ async fn run_script(session: &mut dyn Session, run: ScriptRun<'_>, out: &mut Que
                     }
                     let cancelled = run.cancelled.load(Ordering::SeqCst);
                     if !cancelled {
-                        failed = Some(e);
+                        // It ran (and failed): sqlcmd counts it and goes on
+                        // with the next repetition. The first error is kept,
+                        // unless a later one ends the script.
+                        done += 1;
+                        if failed.is_none() || e.ends_script() {
+                            failed = Some(e);
+                        }
                     }
                     cancelled
                 }
@@ -533,7 +563,8 @@ async fn run_script(session: &mut dyn Session, run: ScriptRun<'_>, out: &mut Que
                 log: &out.log[l0..],
                 errors: &out.errors[e0..],
             });
-            if failed.is_some() {
+            // Only an error that ends the script stops `GO N` (as in sqlcmd).
+            if failed.as_ref().is_some_and(|e| e.ends_script()) {
                 break;
             }
         }
@@ -779,6 +810,7 @@ pub async fn split_script(state: State<'_, AppState>, args: SplitArgs) -> Comman
 fn split_for_ui(driver: Option<&dyn Driver>, sql: &str, statements: bool) -> Vec<SplitStatement> {
     let dialect = driver.map_or_else(sql::ScriptDialect::generic, |d| d.script_dialect());
     let units = match (driver, statements) {
+        (Some(d), true) if sqlplus_units(&dialect) => d.split_script(sql),
         (_, true) => sql::split_script(sql, &dialect.statements()),
         (Some(d), false) => d.split_script(sql),
         (None, false) => sql::split_script(sql, &dialect),
@@ -1071,10 +1103,11 @@ mod tests {
         assert_eq!(r.out.results.len(), 4);
         assert!(r.out.messages.contains(&"Lote ejecutado 3 veces.".to_string()));
         assert_eq!(r.progress.iter().map(|p| (p.0, p.1)).collect::<Vec<_>>(), vec![(0, 1), (0, 2), (0, 3), (1, 1)]);
-        // A failing run ends the repeats.
+        // A failing repetition doesn't end the repeats (sqlcmd runs all of
+        // them and counts them); the script goes on after them.
         let r = run_units("select boom\nGO 5\nselect 2", sql::ScriptDialect::tsql(), true).await;
-        assert_eq!(r.ran, vec!["select boom", "select 2"]);
-        assert!(r.out.messages.contains(&"Lote ejecutado 0 veces.".to_string()));
+        assert_eq!(r.ran, vec!["select boom", "select boom", "select boom", "select boom", "select boom", "select 2"]);
+        assert!(r.out.messages.contains(&"Lote ejecutado 5 veces.".to_string()), "{:?}", r.out.messages);
     }
 
     #[tokio::test]
@@ -1178,6 +1211,18 @@ select
         let found = unsafe_dml(ms, p);
         assert_eq!(found.iter().map(|u| (&p[u.start..u.end], u.line)).collect::<Vec<_>>(), vec![("UPDATE t SET a = 2", 3)]);
         assert_eq!(split_for_ui(Some(ms), p, true)[0].text, "CREATE PROCEDURE p AS SET NOCOUNT ON; UPDATE t SET a = 1;");
+    }
+
+    #[test]
+    fn sqlplus_scripts_use_the_drivers_units() {
+        // Oracle: SQL*Plus lines are units of their own, for the statement
+        // at the cursor and the UPDATE/DELETE check too.
+        let ora = dbine_drivers::find("oracle").unwrap().as_ref();
+        let sql = "PROMPT Delete old rows\nEXEC p(1)\nSELECT 1 FROM dual;\nUPDATE t SET a = 1;";
+        let st = split_for_ui(Some(ora), sql, true);
+        assert_eq!(st.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(), ["PROMPT Delete old rows", "EXEC p(1)", "SELECT 1 FROM dual", "UPDATE t SET a = 1"]);
+        let found = unsafe_dml(ora, sql);
+        assert_eq!(found.iter().map(|u| (&sql[u.start..u.end], u.line)).collect::<Vec<_>>(), vec![("UPDATE t SET a = 1", 4)]);
     }
 
     #[test]

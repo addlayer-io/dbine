@@ -80,6 +80,12 @@ de cada base.
 - **Editor CodeMirror 6**, con el dialecto de cada motor y autocompletado de
   tablas y columnas. Ejecuta la selección o la sentencia bajo el cursor, y se
   puede cancelar con el mecanismo nativo de cada motor.
+- **Ejecución de scripts** en todos los motores: el script se corta
+  sentencia por sentencia respetando los terminadores de cada motor, los
+  mensajes del servidor llegan en vivo y en orden, los errores traen su
+  código y su línea, hay transacciones manuales por pestaña donde el motor las
+  tiene, y cancelar conserva la sesión. Detalle:
+  [`docs/ejecucion-de-scripts.md`](docs/ejecucion-de-scripts.md).
 - **Edición de celdas:** al modificar una celda se genera el código de
   actualización en el lenguaje del motor. DBine no lo ejecuta: lo agrega a la
   query y vos decidís.

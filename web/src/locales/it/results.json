@@ -44,7 +44,14 @@
     "affected_other": "{{rows}} righe interessate",
     "completed": "completata",
     "rows_many": "{{rows}} righe",
-    "affected_many": "{{rows}} righe interessate"
+    "affected_many": "{{rows}} righe interessate",
+    "elapsed": "{{ms}} ms",
+    "line": "Riga {{line}}",
+    "goToLine": "Vai a questa riga nell'editor"
+  },
+  "status": {
+    "done": "Completato",
+    "doneWithErrors": "Completato con errori"
   },
   "edit": {
     "lookingUpTable": "ricerca della tabella e della sua chiave…",

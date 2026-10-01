@@ -44,7 +44,14 @@
     "affected_other": "{{rows}} rows affected",
     "completed": "completed",
     "rows_many": "{{rows}} rows",
-    "affected_many": "{{rows}} rows affected"
+    "affected_many": "{{rows}} rows affected",
+    "elapsed": "{{ms}} ms",
+    "line": "Line {{line}}",
+    "goToLine": "Go to this line in the editor"
+  },
+  "status": {
+    "done": "Completed",
+    "doneWithErrors": "Completed with errors"
   },
   "edit": {
     "lookingUpTable": "looking up the table and its key…",

@@ -1410,6 +1410,9 @@
  "Base de datos: {0} (política de retención {1})": [
   "crates/drivers/influxdb/src/v1.rs"
  ],
+ "Base de datos: {0}.{1}": [
+  "crates/drivers/athena/src/lib.rs"
+ ],
  "Base de inicio": [
   "crates/drivers/neo4j/src/security.rs"
  ],
@@ -8112,6 +8115,12 @@
  "La base de H2: un nombre bajo el directorio base del servidor (-baseDir), como «test».": [
   "crates/drivers/postgres/src/lib.rs"
  ],
+ "La base de datos «{0}» no existe en el catálogo «{1}».": [
+  "crates/drivers/athena/src/lib.rs"
+ ],
+ "La base de datos «{0}» no existe. Ejecutá SHOW DATABASES para ver las que hay.": [
+  "crates/drivers/influxdb/src/v1.rs"
+ ],
  "La base es grande: el espacio por tabla (dbstat) no se calcula en cada lectura.": [
   "crates/drivers/sqlite/src/monitor.rs"
  ],
@@ -8394,6 +8403,9 @@
  "La política de indexación no es un objeto JSON válido.": [
   "crates/drivers/cosmosdb/src/ddl.rs"
  ],
+ "La política de retención «{0}» no existe en «{1}».": [
+  "crates/drivers/influxdb/src/v1.rs"
+ ],
  "La predeterminada de TDengine es taosdata.": [
   "crates/drivers/tdengine/src/lib.rs"
  ],
@@ -8499,6 +8511,9 @@
  ],
  "La transacción abierta se perdió al reiniciar la conexión: sus cambios no se guardaron.": [
   "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "La transacción quedó abierta al terminar el script y no pasa a la ejecución siguiente (la API de Snowflake usa una sesión por ejecución): confirmala con COMMIT en el mismo script.": [
+  "crates/drivers/snowflake/src/lib.rs"
  ],
  "La transacción se deshizo por el error: sus cambios no se guardaron.": [
   "crates/drivers/neo4j/src/lib.rs"
@@ -9486,6 +9501,9 @@
  "Message": [
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/mysql/src/session.rs"
+ ],
+ "Metacomando de psql ignorado: {0} (DBine ejecuta solo SQL)": [
+  "crates/drivers/postgres/src/session.rs"
  ],
  "Microsoft Entra ID rechazó el inicio de sesión: {0}": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -13540,6 +13558,9 @@
  "Se muestran los tamaños de las primeras {0} de {1} bases.": [
   "crates/drivers/couchdb/src/monitor.rs"
  ],
+ "Se omitieron los datos de COPY … FROM stdin: DBine no los envía (usá Importar datos).": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
  "Se pierde la zona horaria de la hora.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs",
   "crates/dbine-schema/src/dialect/databend.rs",
@@ -16375,6 +16396,9 @@
  ],
  "Zulu": [
   "crates/drivers/clickhouse/src/transfer.rs"
+ ],
+ "\\connect {0}: DBine no cambia de base dentro de una sesión de PostgreSQL. Abrí esa base en otra pestaña y ejecutá allí el resto del script.": [
+  "crates/drivers/postgres/src/session.rs"
  ],
  "_admin (administrador del servidor)": [
   "crates/drivers/couchdb/src/permissions.rs"
@@ -23073,6 +23097,9 @@
  ],
  "{0}: Athena no tiene NOT NULL, valores por defecto, claves ni índices; esos cambios se omiten.": [
   "crates/drivers/athena/src/sync.rs"
+ ],
+ "{0}: COPY … FROM STDIN lee los datos desde psql y el editor no los envía. Usá Importar datos, o COPY … FROM 'archivo' en el servidor.": [
+  "crates/drivers/postgres/src/session.rs"
  ],
  "{0}: CrateDB no agrega {1} a una tabla que ya existe. Para aplicarlos hay que recrear la tabla (crearla de nuevo, copiar los datos y reemplazar la vieja); la sincronización no lo hace.": [
   "crates/drivers/postgres/src/compare.rs"

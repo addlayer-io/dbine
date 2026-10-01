@@ -1911,3 +1911,116 @@ Snowflake, BigQuery, Cloud Spanner, Aurora DSQL, Databricks, Athena, Dremio
 Enterprise, Db2 LUW, SAP ASE, Redshift, RisingWave, CrateDB, YugabyteDB y los
 demás derivados de PostgreSQL, Aurora MySQL, Cloud SQL, Memgraph Enterprise,
 InfluxDB 3 Enterprise, Amazon DocumentDB y Open Distro.
+
+## Ejecución de scripts
+
+Cómo funciona: [`ejecucion-de-scripts.md`](ejecucion-de-scripts.md). Todos los
+motores que ejecutan texto corren el script sentencia por sentencia, con
+mensajes, errores con código y línea, y cancelación. Las excepciones son
+estas.
+
+Probado contra servidores reales: SQL Server, Babelfish, PostgreSQL,
+TimescaleDB, YugabyteDB, CockroachDB, MySQL, MariaDB, TiDB, Oracle, SQLite,
+DuckDB, Firebird, ClickHouse, Flight SQL (GizmoSQL), Drill, Phoenix, Trino,
+Dremio, InfluxDB 1, MongoDB, Neo4j, Redis, Elasticsearch, ScyllaDB, Couchbase y el emulador de
+Cloud Spanner. Spanner y Phoenix son emuladores o contenedores: sus códigos de
+error pueden diferir del servicio real.
+
+Implementados según la documentación y probados solo con tests unitarios y de
+corte, sin servidor: SAP HANA, ODBC (presets), libSQL, Aurora DSQL, Presto,
+Snowflake, BigQuery, Databricks, Athena, InfluxDB 2 y 3, etcd,
+Cosmos DB, CouchDB, OrientDB, ksqlDB y Manticore (su contenedor de prueba no
+arrancó por un puerto ocupado en la máquina de pruebas; solo tests unitarios).
+
+### Modo de envío
+
+| Motor | Modo | Motivo |
+|---|---|---|
+| Snowflake, BigQuery, InfluxDB 2 (Flux) | Todo el texto de una vez; "Seguir si hay un error" no tiene efecto | El servidor ejecuta el script como un solo pedido. Los bloques de Snowflake Scripting y de BigQuery se cortan bien. |
+| Firebird | Todo el texto de una vez | Acepta `SET TERM` y bloques sin terminador. Los comandos propios de `isql` se saltean con un aviso. |
+| ODBC distinto de Teradata (ODBC genérico, cuerpos SPL de Informix y GBase, scripts de Exasol terminados en `/`, Netezza, NuoDB, IRIS…) | Se corta por `;` con el lexer genérico | Esos cuerpos necesitan el modo "Todo el texto de una vez" en la conexión. |
+| Db2 | Un bloque `BEGIN [ATOMIC] … END` suelto se corta en su primer `;` | `CREATE TRIGGER` / `PROCEDURE … BEGIN … END` quedan enteros. Para bloques anónimos hay que usar `--#SET TERMINATOR`, que es lo que hace el cliente de Db2 sin terminador alternativo. |
+| Athena, InfluxDB 1 | Una sentencia por pedido | Athena crea una ejecución por sentencia; InfluxDB 1.x pierde el motivo del error de una sentencia que comparte pedido. |
+
+### Transacciones manuales
+
+Ofrecen Auto/Manual, Confirmar y Deshacer: SQL Server, Babelfish, PostgreSQL y
+derivados, CockroachDB, MySQL, MariaDB, TiDB, OceanBase (y Aurora y Cloud SQL
+MySQL), Oracle, SQLite, DuckDB, Flight SQL, Phoenix, Trino, Spanner, Neo4j y
+Couchbase.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| StarRocks, Manticore, GreptimeDB y otras variantes analíticas de MySQL | Transacciones manuales | El motor no tiene transacciones de varias sentencias. |
+| ClickHouse | Transacciones manuales | El motor no tiene transacciones de varias sentencias (solo una función experimental, desactivada por defecto). |
+| Snowflake | Una transacción abierta al final del script se pierde | Hay una sesión de la API por ejecución. DBine avisa si el script termina con una transacción abierta. |
+| Spanner | `DDL` dentro de una transacción | Spanner no lo admite; DBine lo rechaza con un mensaje. |
+| Oracle | Estado "fallida" | Oracle no lo tiene: una sentencia fallida deshace solo ella y la transacción sigue abierta. En el editor el modo arranca en Auto porque la conexión tiene autocommit activo. |
+| MySQL, TiDB (autocommit apagado) | Un `SELECT` deja la transacción "abierta" | Es lo que informa el servidor (`SERVER_STATUS_IN_TRANS`). |
+| Trino | Tras un error la transacción queda "fallida" | El servidor la aborta y las sentencias siguientes dan `TRANSACTION_ALREADY_ABORTED` hasta deshacer. |
+| SQL Server | Una transacción que no se puede confirmar se deshace al final del lote | Lo hace el servidor (error 3998). |
+
+Los demás motores no ofrecen Auto/Manual; el selector no aparece.
+
+### `USE` y base de la pestaña
+
+La pestaña sigue el cambio de base en todos los motores que tienen el
+concepto. Particularidades:
+
+| Motor | Comportamiento | Motivo |
+|---|---|---|
+| Oracle | `ALTER SESSION SET CURRENT_SCHEMA` (también dentro de `EXECUTE IMMEDIATE`) hace de `USE` | Oracle cambia de esquema, no de base. |
+| Databricks | `USE CATALOG` mueve la pestaña; `USE SCHEMA` solo cambia el contexto (`Contexto: cat.schema`) | La pestaña muestra el catálogo. |
+| Athena | `USE` se comprueba contra las bases del catálogo; una desconocida da `SCHEMA_NOT_FOUND` | El motor no valida el `USE`. |
+| InfluxDB 1 | `USE db[.rp]` puede terminar en su línea sin `;`; se comprueba con `SHOW DATABASES` / `SHOW RETENTION POLICIES` | Es la sintaxis de InfluxQL. |
+| Redis | `SELECT n` cambia a `db{n}`; dentro de `MULTI` el cambio ocurre en `EXEC`, y no si el `EXEC` falla, hay `DISCARD` o `EXECABORT` | El servidor no cambia de base hasta que se ejecuta la transacción. |
+| ODBC | Solo en los presets que tienen lista de bases | Hive, Teradata y similares no tienen el concepto. |
+
+### Cancelar
+
+Conservan la sesión: todos, salvo Oracle y Babelfish (ver
+[Cancelar](ejecucion-de-scripts.md#cancelar)). En Elasticsearch, si una
+petición ignora la cancelación de `_tasks` (por ejemplo, una espera de salud
+del cluster), la cancelación espera a que esa petición termine; las siguientes
+no corren.
+
+### Qué falta
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| Todos los motores | Modo SQLCMD, variables (`&var`, `:var`, `$(var)`), tiempo máximo del editor, comandos de cliente más allá de `PROMPT` y `SHOW ERRORS` | Pendiente explícito: no están hechos. |
+| PostgreSQL y derivados | `COPY … FROM stdin` | Pendiente explícito: el editor no envía datos por el canal de COPY (ver abajo). |
+| PostgreSQL y derivados | Ejecutar la sentencia bajo el cursor corta con el lexer del dialecto, no con el corte de psql | Pendiente explícito: `split_for_ui` con `statements` usa el lexer del núcleo en lugar de `split_script` del driver. Los metacomandos con apóstrofos y las filas de `COPY` no se cortan al estilo psql en esa ejecución. |
+| PostgreSQL y derivados | Un metacomando en medio de una sentencia sin cerrar corta la sentencia en esa línea | Pendiente explícito: psql conserva el buffer y sigue la sentencia después del metacomando. |
+| PostgreSQL y derivados | `SHOW` dentro de una transacción abierta no informa el tipo de la columna; `RETURNING` no informa `rows_affected` (solo la etiqueta) | Pendiente explícito. |
+| Oracle | La línea `select …;` seguida de `/` corre una vez | Diferencia deliberada: SQL*Plus la corre dos veces porque `/` reejecuta el buffer. |
+| Oracle | Cancelar sin el privilegio `ALTER SYSTEM` | El cliente no tiene llamada de interrupción; sin el privilegio la cancelación solo se registra. |
+| Oracle, motores con plugin | El corte de SQL*Plus en builds publicados | Llega cuando se republique el host del plugin; un host anterior contesta `Unsupported` y la app corta con el dialecto. |
+| Oracle | Un backup "Consistente" tomado 1 a 5 segundos después de un commit puede perder esas filas | `FLASHBACK_TIME` usa un mapa de tiempo a SCN grueso; el arreglo es usar `FLASHBACK_SCN`. Pendiente explícito. |
+| MySQL y familia | Los errores que no son de sintaxis (por ejemplo 1054) apuntan a la primera línea de la sentencia | El servidor no da la posición. |
+| Presto | `TABLE_NOT_FOUND` se ubica al comienzo de la sentencia | Presto no informa línea ni columna. |
+| Dremio | Los errores no llevan código | La API REST no lo devuelve. |
+| Spanner (emulador) | Algunos errores llegan como `failed to marshal error message` (`INTERNAL`) y un error de clave duplicada aparece en la sentencia siguiente | Comportamiento del emulador; no se probó contra una instancia real. |
+| Redis | El texto de los errores conserva prefijos del cliente (`ResponseError:`, `"WRONGTYPE":`) | Pendiente explícito. |
+| Redis, Elasticsearch, MongoDB | Un error de sintaxis que impide cortar rechaza todo el script antes de correr nada | Pendiente explícito: no se corren las líneas anteriores al error. |
+| Phoenix | Un `UPSERT` sin confirmar no se ve en un `COUNT` dentro de la transacción | Comportamiento de Phoenix con tablas no transaccionales. |
+| Timeplus, Proton | Sin probar | No se levantó el contenedor `dbine-test-proton`. |
+| Firebird | La suite de pruebas en vivo debe correr con `--test-threads=1` | Las pruebas comparten un mismo `test.fdb` y chocan en DDL concurrente; no es del driver. |
+
+### Scripts de psql en PostgreSQL y compatibles
+
+El editor corta el script como psql, sentencia por sentencia. Lo que psql
+resuelve del lado del cliente no llega al servidor:
+
+| Qué | Qué hace DBine | Motivo |
+|---|---|---|
+| `\echo`, `\qecho`, `\warn` | Muestra el texto en los mensajes. | — |
+| `\restrict` / `\unrestrict` (pg_dump) | Se saltean sin aviso. | Solo protegen a psql. |
+| Otros metacomandos (`\set`, `\pset`, `\i`, `\gexec`…) | Se ignoran con un aviso; el script sigue. | DBine ejecuta solo SQL; no hay variables ni archivos del cliente. |
+| `\connect` / `\c` | Error que detiene el script. | La sesión no cambia de base: el resto correría en la base equivocada. Hay que abrir esa base en otra pestaña. |
+| `COPY … FROM stdin` | Error en esa sentencia; sus filas, hasta la línea `\.`, no se envían y el script sigue con lo que viene después. | El editor no envía datos por el canal de COPY. Para cargarlos: Importar datos o `COPY … FROM 'archivo'` en el servidor. |
+
+Un metacomando termina en el fin de su línea, aunque tenga comillas o `;`, y
+las filas de COPY terminan en su `\.` aunque tengan apóstrofos o `;`, como en
+psql. Una línea que empieza con `\` dentro de un texto entre comillas, un
+cuerpo `$$ … $$` o un comentario es parte de ese texto.

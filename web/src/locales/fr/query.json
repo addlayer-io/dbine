@@ -4,6 +4,10 @@
   "formatFailed": "Impossible de formater : {{error}}",
   "defaultDatabase": "(par défaut)",
   "runTitle": "Exécuter (⌘↵)",
+  "runStatement": "Exécuter l'instruction au curseur",
+  "runStatementTip": "Exécuter l'instruction où se trouve le curseur (⌘⇧↵)",
+  "continueOnError": "Continuer en cas d'erreur",
+  "continueOnErrorTip": "Si une instruction échoue, exécuter quand même les suivantes. Démarre comme le fait l'outil du moteur.",
   "estimatedPlanTip": "Plan d'exécution estimé, sans exécuter (⌘L)",
   "estimatedPlan": "Plan estimé",
   "actualPlanTip": "Exécuter et inclure le plan réel (⌘⇧↵)",
@@ -18,6 +22,41 @@
   "maxRows": "Lignes max.",
   "editorPlaceholder": "Saisissez la requête… (⌘↵ exécute)",
   "resultName": "resultat",
+  "tx": {
+    "label": "Transactions",
+    "auto": "Auto",
+    "manual": "Manuel",
+    "autoTip": "Transactions automatiques : chaque instruction est validée seule",
+    "manualTip": "Transactions manuelles : les modifications restent en attente jusqu'à Valider ou Annuler",
+    "open": "Transaction ouverte",
+    "failed": "Transaction en erreur",
+    "commit": "Valider",
+    "rollback": "Annuler",
+    "committed": "Transaction validée",
+    "rolledBack": "Transaction annulée",
+    "lostOnCancel": "L'annulation a fermé la session : la transaction ouverte a été annulée.",
+    "dialogTitle": "Transaction ouverte",
+    "ask": {
+      "close": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de le fermer ?",
+      "database": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de changer de base de données ?",
+      "mode": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de passer aux transactions automatiques ?"
+    }
+  },
+  "unsafe": {
+    "title": "UPDATE ou DELETE sans WHERE",
+    "intro_one": "Cette instruction n'a pas de WHERE : elle modifie toutes les lignes de la table.",
+    "intro_many": "Ces instructions n'ont pas de WHERE : elles modifient toutes les lignes de leurs tables.",
+    "intro_other": "Ces instructions n'ont pas de WHERE : elles modifient toutes les lignes de leurs tables.",
+    "run": "Exécuter quand même"
+  },
+  "status": {
+    "ready": "Prêt",
+    "noStatement": "Il n'y a aucune instruction au curseur.",
+    "server": "Serveur",
+    "user": "Utilisateur",
+    "elapsed": "Temps d'exécution",
+    "rowsTip": "Lignes retournées"
+  },
   "object": {
     "data": "Données",
     "columns": "Colonnes",
