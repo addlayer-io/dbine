@@ -27,6 +27,7 @@ import KeySearchRow from './KeySearchRow.vue';
 import CloneTableDialog from './CloneTableDialog.vue';
 import SchemaDialog from './SchemaDialog.vue';
 import { tagColor } from '../composables/tags';
+import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
 
 // The explorer: user folders (clients, environments… nested at will) →
 // connections → databases → Queries + the kinds of objects the driver
@@ -747,44 +748,73 @@ async function onContext(e: MouseEvent, n: TNode) {
 }
 
 // -- drag and drop ------------------------------------------------------------------------
-// Connections and folders drag onto a folder, or onto the header / empty
-// area for the top level.
-type Dragged = { kind: 'connection' | 'folder'; id: string };
-const dropTarget = ref<string | null>(null);
-let dragged: Dragged | null = null;
+// Connections and folders drag onto a row: its top quarter inserts before it,
+// the bottom quarter after it, the middle of a folder goes into it (a
+// connection's row only splits in before / after). The header / empty area
+// means the end of the top level. Folders stay before connections at every
+// level (explorerDrop.ts).
+const dropTarget = ref<{ id: string; zone: DropZone } | 'root' | null>(null);
+let dragged: DragItem | null = null;
 
 function onDragStart(e: DragEvent, n: TNode) {
   dragged = n.type === 'group' ? { kind: 'folder', id: n.folder!.id } : { kind: 'connection', id: n.connectionId! };
   e.dataTransfer?.setData('text/plain', n.label);
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
 }
-function onDragOver(e: DragEvent, target: string) {
+/** What a drop on this row is about; `undefined` = not a drop target (it falls to the top level). */
+function dropOnOf(n: TNode): DropOn | undefined {
+  if (n.type === 'group') return { kind: 'folder', id: n.folder!.id };
+  if (n.type === 'connection') return { kind: 'connection', id: n.connectionId! };
+  return undefined;
+}
+function zoneOf(e: DragEvent, on: DropOn): DropZone {
+  const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  return dropZone(e.clientY - box.top, box.height, on !== 'root' && on.kind === 'folder');
+}
+function planFor(on: DropOn, zone: DropZone) {
+  return dragged ? planDrop(conns.folders, conns.list, dragged, on, zone) : null;
+}
+function onRowDragOver(e: DragEvent, n: TNode) {
+  const on = dropOnOf(n);
+  if (!on || !dragged) return;
+  e.stopPropagation();
+  const zone = zoneOf(e, on);
+  // Nothing would change, or a folder over its own subtree: no drop here.
+  if (!planFor(on, zone)) { dropTarget.value = null; return; }
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  dropTarget.value = { id: n.id, zone };
+}
+function onRowDrop(e: DragEvent, n: TNode) {
+  const on = dropOnOf(n);
+  if (!on || !dragged) return;
+  e.stopPropagation();
+  void applyDrop(e, on, zoneOf(e, on));
+}
+function onRootDragOver(e: DragEvent) {
   if (!dragged) return;
   e.preventDefault();
-  dropTarget.value = target;
+  dropTarget.value = 'root';
 }
-async function onDrop(e: DragEvent, folderId: string | null) {
-  // A folder dropped on a connection of its own subtree, or on itself.
-  if (dragged?.kind === 'folder' && dragged.id === folderId) { onDragEnd(); return; }
+function onRootDrop(e: DragEvent) {
+  if (dragged) void applyDrop(e, 'root', 'into');
+}
+async function applyDrop(e: DragEvent, on: DropOn, zone: DropZone) {
   e.preventDefault();
-  dropTarget.value = null;
-  const d = dragged;
-  dragged = null;
-  if (!d) return;
+  const plan = planFor(on, zone);
+  onDragEnd();
+  if (!plan) return;
   try {
-    if (d.kind === 'connection') await conns.moveConnection(d.id, folderId);
-    else await conns.moveFolder(d.id, folderId);
-    if (folderId && !expanded.value.includes(`g:${folderId}`)) expanded.value = [...expanded.value, `g:${folderId}`];
+    await conns.reorderExplorer(plan.kind, plan.parentId, plan.ids);
+    const g = plan.parentId && `g:${plan.parentId}`;
+    if (g && !expanded.value.includes(g)) expanded.value = [...expanded.value, g];
   } catch (err) {
     ElMessage.error(String((err as { message?: string })?.message ?? err));
   }
 }
-/** Where a drop on this node puts things: into a folder, or next to a
- *  connection (its folder). `undefined` = not a drop target. */
-function dropFolderOf(n: TNode): string | null | undefined {
-  if (n.type === 'group') return n.folder!.id;
-  if (n.type === 'connection') return conns.byId(n.connectionId!)?.folder_id ?? null;
-  return undefined;
+function isDropOn(n: TNode, zone: DropZone): boolean {
+  const d = dropTarget.value;
+  return typeof d === 'object' && d !== null && d.id === n.id && d.zone === zone;
 }
 function onDragEnd() {
   dragged = null;
@@ -1063,8 +1093,8 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
       @mouseleave="hideTip"
       @mousedown="hideTip"
       @wheel.passive="hideTip"
-      @dragover="onDragOver($event, 'root')"
-      @drop="onDrop($event, null)"
+      @dragover="onRootDragOver"
+      @drop="onRootDrop"
     >
       <div v-if="conns.loaded && !conns.list.length && !conns.folders.length" class="ex-empty">
         <p class="nm-muted">{{ $t('explorer:empty.noConnections') }}</p>
@@ -1089,13 +1119,16 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
         <template #default="{ data: n }">
           <span
             class="ex-node"
-            :class="[n.type, n.status, { 'drop-here': dropTarget === n.id, picked: picked.has(n.id) }]"
+            :class="[n.type, n.status, {
+              'drop-here': isDropOn(n, 'into'), 'drop-before': isDropOn(n, 'before'), 'drop-after': isDropOn(n, 'after'),
+              picked: picked.has(n.id),
+            }]"
             :draggable="n.type === 'group' || n.type === 'connection'"
             :data-dnd="n.type === 'group' || n.type === 'connection' ? '' : undefined"
             @dragstart.stop="onDragStart($event, n)"
             @dragend="onDragEnd"
-            @dragover.stop="dropFolderOf(n) !== undefined ? onDragOver($event, n.id) : undefined"
-            @drop.stop="dropFolderOf(n) !== undefined ? onDrop($event, dropFolderOf(n)!) : undefined"
+            @dragover="onRowDragOver($event, n)"
+            @drop="onRowDrop($event, n)"
           >
             <template v-if="n.type === 'connection'">
               <span class="ex-conn-ic">
@@ -1190,6 +1223,14 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-node.connection { font-weight: 600; color: var(--nm-text-strong); }
 .ex-node.group { color: var(--nm-text-strong); }
 .ex-node.drop-here { outline: 1px dashed var(--ide-focus); outline-offset: 1px; border-radius: 2px; }
+/* Insertion line: where the item lands, at the target's indentation. */
+.ex-node.drop-before, .ex-node.drop-after { position: relative; }
+.ex-node.drop-before::after, .ex-node.drop-after::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px; pointer-events: none;
+  background: var(--ide-focus); border-radius: 1px;
+}
+.ex-node.drop-before::after { top: 0; }
+.ex-node.drop-after::after { bottom: 0; }
 .ex-tree.drop-root { outline: 1px dashed var(--ide-focus); outline-offset: -3px; }
 .ex-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ex-tags { display: inline-flex; gap: 3px; flex-shrink: 0; margin-left: 6px; }

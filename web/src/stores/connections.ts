@@ -162,8 +162,12 @@ export const useConnectionsStore = defineStore('connections', {
     async save(conn: SavedConnection) {
       const saved = await api.saveConnection(conn);
       const i = this.list.findIndex((c) => c.id === saved.id);
-      if (i >= 0) this.list[i] = saved;
-      else this.list.push(saved);
+      // Same place; new, or in another folder, last (as the backend orders it).
+      if (i >= 0 && (this.list[i].folder_id ?? null) === (saved.folder_id ?? null)) this.list[i] = saved;
+      else {
+        if (i >= 0) this.list.splice(i, 1);
+        this.list.push(saved);
+      }
       // The backend dropped its sessions: start over on next expand.
       this.forget(saved.id);
       return saved;
@@ -172,9 +176,12 @@ export const useConnectionsStore = defineStore('connections', {
     async saveFolder(f: ConnectionFolder) {
       const saved = await api.saveFolder(f);
       const i = this.folders.findIndex((x) => x.id === saved.id);
-      if (i >= 0) this.folders[i] = saved;
-      else this.folders.push(saved);
-      this.folders.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }));
+      // Same place; new, or under another folder, last (as the backend orders it).
+      if (i >= 0 && (this.folders[i].parent_id ?? null) === (saved.parent_id ?? null)) this.folders[i] = saved;
+      else {
+        if (i >= 0) this.folders.splice(i, 1);
+        this.folders.push(saved);
+      }
       return saved;
     },
 
@@ -189,8 +196,20 @@ export const useConnectionsStore = defineStore('connections', {
 
     async moveConnection(connectionId: string, folderId: string | null) {
       await api.moveConnection(connectionId, folderId);
-      const c = this.byId(connectionId);
-      if (c) c.folder_id = folderId;
+      const i = this.list.findIndex((c) => c.id === connectionId);
+      if (i >= 0 && (this.list[i].folder_id ?? null) !== folderId) {
+        const [c] = this.list.splice(i, 1);
+        c.folder_id = folderId;
+        this.list.push(c); // last in its new folder
+      }
+    },
+
+    /** Drag and drop: one level's connections or folders, in this order
+     *  (`parentId` null = top level); then the store reads them back. */
+    async reorderExplorer(kind: 'connection' | 'folder', parentId: string | null, ids: string[]) {
+      await api.reorderExplorer(parentId, kind, ids);
+      if (kind === 'connection') this.list = await api.listConnections();
+      else this.folders = await api.listFolders();
     },
 
     /** Move a folder under another (null = top level). */

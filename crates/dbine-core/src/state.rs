@@ -47,6 +47,14 @@ pub struct ConnectionFolder {
     pub color: Option<String>,
 }
 
+/// What [`StateStore::reorder_explorer`] orders: a level's connections or its folders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExplorerItem {
+    Connection,
+    Folder,
+}
+
 /// A query kept under a database in the explorer.
 /// A statement run from the editor (the history sidebar). Local to this
 /// machine: not in the cloud backup.
@@ -289,6 +297,13 @@ impl StateStore {
         if !has_mcp {
             conn.execute_batch("ALTER TABLE connections ADD COLUMN mcp_level TEXT").map_err(db_err)?;
         }
+        // Folders were listed by name; existing ones start equal (0) and keep that order.
+        let has_folder_order: bool = conn
+            .query_row("SELECT COUNT(*) FROM pragma_table_info('folders') WHERE name = 'sort_order'", [], |r| r.get(0))
+            .map_err(db_err)?;
+        if !has_folder_order {
+            conn.execute_batch("ALTER TABLE folders ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0").map_err(db_err)?;
+        }
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -332,17 +347,20 @@ impl StateStore {
     }
 
     /// Insert or update; the password in `config` is dropped (store it with
-    /// [`crate::secrets`]).
+    /// [`crate::secrets`]). A new connection, or one that changes folder,
+    /// goes last in its level.
     pub fn save_connection(&self, conn: &SavedConnection) -> Result<SavedConnection> {
         let mut config = conn.config.clone();
         config.password = None;
         let json = serde_json::to_string(&config)?;
         let ts = now();
         self.lock()?.execute(
-            "INSERT INTO connections (id, name, color, config_json, save_password, created_at, updated_at, folder_id, tags_json, mcp_level)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8, ?9)
+            "INSERT INTO connections (id, name, color, config_json, save_password, created_at, updated_at, folder_id, tags_json, mcp_level, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8, ?9,
+                     (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM connections WHERE folder_id IS ?7))
              ON CONFLICT(id) DO UPDATE SET name = ?2, color = ?3, config_json = ?4,
-                 save_password = ?5, updated_at = ?6, folder_id = ?7, tags_json = ?8, mcp_level = ?9",
+                 save_password = ?5, updated_at = ?6, folder_id = ?7, tags_json = ?8, mcp_level = ?9,
+                 sort_order = CASE WHEN folder_id IS ?7 THEN sort_order ELSE excluded.sort_order END",
             params![conn.id, conn.name, conn.color, json, conn.save_password, ts, conn.folder_id, tags_json(&conn.tags)?, conn.mcp_level],
         )
         .map_err(db_err)?;
@@ -355,12 +373,48 @@ impl StateStore {
         self.touch()
     }
 
-    /// Put a connection in a folder (`None` = top level).
+    /// Put a connection in a folder (`None` = top level), last in it.
     pub fn move_connection(&self, id: &str, folder_id: Option<&str>) -> Result<()> {
         self.lock()?
-            .execute("UPDATE connections SET folder_id = ?2 WHERE id = ?1", params![id, folder_id])
+            .execute(
+                "UPDATE connections SET folder_id = ?2,
+                     sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM connections WHERE folder_id IS ?2 AND id <> ?1)
+                  WHERE id = ?1 AND folder_id IS NOT ?2",
+                params![id, folder_id],
+            )
             .map_err(db_err)?;
         self.touch()
+    }
+
+    /// Reorder one level of the explorer: `ids` (all connections, or all
+    /// folders, of the level under `parent`; `None` = top level) end up in it,
+    /// in that order. One transaction. Refuses to put a folder inside itself
+    /// or one of its descendants.
+    pub fn reorder_explorer(&self, kind: ExplorerItem, parent: Option<&str>, ids: &[String]) -> Result<()> {
+        let mut c = self.lock()?;
+        let tx = c.transaction().map_err(db_err)?;
+        if kind == ExplorerItem::Folder {
+            let mut at = parent.map(str::to_string);
+            while let Some(id) = at {
+                if ids.contains(&id) {
+                    return Err(Error::State("una carpeta no puede ir dentro de sí misma".into()));
+                }
+                at = tx
+                    .query_row("SELECT parent_id FROM folders WHERE id = ?1", [&id], |r| r.get(0))
+                    .optional()
+                    .map_err(db_err)?
+                    .flatten();
+            }
+        }
+        let sql = match kind {
+            ExplorerItem::Connection => "UPDATE connections SET folder_id = ?2, sort_order = ?3 WHERE id = ?1",
+            ExplorerItem::Folder => "UPDATE folders SET parent_id = ?2, sort_order = ?3 WHERE id = ?1",
+        };
+        for (i, id) in ids.iter().enumerate() {
+            tx.execute(sql, params![id, parent, i as i64]).map_err(db_err)?;
+        }
+        bump(&tx)?;
+        tx.commit().map_err(db_err)
     }
 
     // -- folders ------------------------------------------------------------
@@ -368,7 +422,7 @@ impl StateStore {
     pub fn list_folders(&self) -> Result<Vec<ConnectionFolder>> {
         let c = self.lock()?;
         let mut stmt = c
-            .prepare("SELECT id, name, parent_id, color FROM folders ORDER BY name COLLATE NOCASE")
+            .prepare("SELECT id, name, parent_id, color FROM folders ORDER BY sort_order, name COLLATE NOCASE")
             .map_err(db_err)?;
         let rows = stmt
             .query_map([], |r| Ok(ConnectionFolder { id: r.get(0)?, name: r.get(1)?, parent_id: r.get(2)?, color: r.get(3)? }))
@@ -389,10 +443,13 @@ impl StateStore {
                 at = folders.iter().find(|x| x.id == id).and_then(|x| x.parent_id.clone());
             }
         }
+        // New, or moved to another folder: last in its level.
         self.lock()?
             .execute(
-                "INSERT INTO folders (id, name, parent_id, color) VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT(id) DO UPDATE SET name = ?2, parent_id = ?3, color = ?4",
+                "INSERT INTO folders (id, name, parent_id, color, sort_order)
+                 VALUES (?1, ?2, ?3, ?4, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM folders WHERE parent_id IS ?3))
+                 ON CONFLICT(id) DO UPDATE SET name = ?2, parent_id = ?3, color = ?4,
+                     sort_order = CASE WHEN parent_id IS ?3 THEN sort_order ELSE excluded.sort_order END",
                 params![f.id, f.name, f.parent_id, f.color],
             )
             .map_err(db_err)?;
@@ -836,10 +893,11 @@ impl StateStore {
             )
             .map_err(db_err)?;
         }
-        for f in &snap.folders {
+        // Like connections, the order is the snapshot's (older ones list folders by name).
+        for (i, f) in snap.folders.iter().enumerate() {
             tx.execute(
-                "INSERT INTO folders (id, name, parent_id, color) VALUES (?1, ?2, ?3, ?4)",
-                params![f.id, f.name, f.parent_id, f.color],
+                "INSERT INTO folders (id, name, parent_id, color, sort_order) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![f.id, f.name, f.parent_id, f.color, i as i64],
             )
             .map_err(db_err)?;
         }
@@ -1018,6 +1076,105 @@ mod tests {
         s.save_connection(&conn("c1")).unwrap();
         s.move_connection("c1", Some("x")).unwrap();
         assert_eq!(s.get_connection("c1").unwrap().unwrap().folder_id.as_deref(), Some("x"));
+    }
+
+    fn folder_ids(s: &StateStore, parent: Option<&str>) -> Vec<String> {
+        s.list_folders().unwrap().into_iter().filter(|f| f.parent_id.as_deref() == parent).map(|f| f.id).collect()
+    }
+
+    fn conn_ids(s: &StateStore, folder: Option<&str>) -> Vec<String> {
+        s.list_connections().unwrap().into_iter().filter(|c| c.folder_id.as_deref() == folder).map(|c| c.id).collect()
+    }
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn old_state_files_gain_the_folder_order_and_keep_name_order() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE folders (id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT, color TEXT);
+             INSERT INTO folders (id, name) VALUES ('z', 'Zeta'), ('a', 'alfa'), ('m', 'Medio');",
+        )
+        .unwrap();
+        let s = StateStore::init(c).unwrap();
+        assert_eq!(folder_ids(&s, None), ["a", "m", "z"]);
+        s.save_folder(&folder("b", None)).unwrap();
+        assert_eq!(folder_ids(&s, None), ["a", "m", "z", "b"], "a new folder goes last");
+        s.reorder_explorer(ExplorerItem::Folder, None, &ids(&["z", "b", "a", "m"])).unwrap();
+        assert_eq!(folder_ids(&s, None), ["z", "b", "a", "m"]);
+    }
+
+    #[test]
+    fn reorder_sets_the_level_and_order_in_one_go() {
+        let s = StateStore::open_in_memory().unwrap();
+        for id in ["c1", "c2", "c3"] {
+            s.save_connection(&conn(id)).unwrap();
+        }
+        assert_eq!(conn_ids(&s, None), ["c1", "c2", "c3"], "new connections go last, not by name");
+        s.save_folder(&folder("f", None)).unwrap();
+        s.save_connection(&SavedConnection { folder_id: Some("f".into()), ..conn("c4") }).unwrap();
+
+        s.reorder_explorer(ExplorerItem::Connection, None, &ids(&["c3", "c1", "c2"])).unwrap();
+        assert_eq!(conn_ids(&s, None), ["c3", "c1", "c2"]);
+        // Into another level: it leaves the top level, its new siblings are renumbered.
+        s.reorder_explorer(ExplorerItem::Connection, Some("f"), &ids(&["c1", "c4"])).unwrap();
+        assert_eq!(conn_ids(&s, Some("f")), ["c1", "c4"]);
+        assert_eq!(conn_ids(&s, None), ["c3", "c2"]);
+        // Editing keeps its place; changing folder by editing puts it last there.
+        s.save_connection(&SavedConnection { folder_id: Some("f".into()), name: "otro".into(), ..conn("c1") }).unwrap();
+        assert_eq!(conn_ids(&s, Some("f")), ["c1", "c4"]);
+        s.save_connection(&conn("c4")).unwrap();
+        assert_eq!(conn_ids(&s, None), ["c3", "c2", "c4"]);
+        s.move_connection("c3", Some("f")).unwrap();
+        assert_eq!(conn_ids(&s, Some("f")), ["c1", "c3"]);
+    }
+
+    #[test]
+    fn reorder_refuses_a_folder_inside_its_own_subtree() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_folder(&folder("a", None)).unwrap();
+        s.save_folder(&folder("b", Some("a"))).unwrap();
+        s.save_folder(&folder("c", Some("b"))).unwrap();
+        let rev = s.revision().unwrap();
+        assert!(s.reorder_explorer(ExplorerItem::Folder, Some("a"), &ids(&["a"])).is_err());
+        assert!(s.reorder_explorer(ExplorerItem::Folder, Some("c"), &ids(&["a"])).is_err());
+        assert_eq!(s.revision().unwrap(), rev, "nothing changed");
+        assert_eq!(folder_ids(&s, None), ["a"]);
+        // Up a level is fine.
+        s.reorder_explorer(ExplorerItem::Folder, None, &ids(&["c", "a"])).unwrap();
+        assert_eq!(folder_ids(&s, None), ["c", "a"]);
+        assert_eq!(folder_ids(&s, Some("b")), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_explorer_order_travels_in_the_snapshot() {
+        let s = StateStore::open_in_memory().unwrap();
+        for id in ["x", "y", "z"] {
+            s.save_folder(&folder(id, None)).unwrap();
+        }
+        s.save_folder(&folder("y1", Some("y"))).unwrap();
+        s.save_folder(&folder("y2", Some("y"))).unwrap();
+        for id in ["c1", "c2"] {
+            s.save_connection(&conn(id)).unwrap();
+        }
+        s.reorder_explorer(ExplorerItem::Folder, None, &ids(&["z", "x", "y"])).unwrap();
+        s.reorder_explorer(ExplorerItem::Folder, Some("y"), &ids(&["y2", "y1"])).unwrap();
+        s.reorder_explorer(ExplorerItem::Connection, None, &ids(&["c2", "c1"])).unwrap();
+        let json = serde_json::to_string(&s.snapshot().unwrap()).unwrap();
+        let other = StateStore::open_in_memory().unwrap();
+        other.replace_all(&serde_json::from_str(&json).unwrap()).unwrap();
+        assert_eq!(folder_ids(&other, None), ["z", "x", "y"]);
+        assert_eq!(folder_ids(&other, Some("y")), ["y2", "y1"]);
+        assert_eq!(conn_ids(&other, None), ["c2", "c1"]);
+
+        // An older snapshot (folders by name, no order of their own) restores as it was listed.
+        let old = r#"{"connections": [], "queries": [], "folders": [
+            {"id": "b", "name": "Beta"}, {"id": "a", "name": "Alfa", "parent_id": "b"}, {"id": "c", "name": "Gamma"}]}"#;
+        other.replace_all(&serde_json::from_str(old).unwrap()).unwrap();
+        assert_eq!(folder_ids(&other, None), ["b", "c"]);
+        assert_eq!(folder_ids(&other, Some("b")), ["a"]);
     }
 
     #[test]
