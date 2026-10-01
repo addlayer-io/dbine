@@ -189,18 +189,6 @@ fn autonomous_connect_string(cfg: &ConnectionConfig) -> Result<String> {
     Ok(format!("{}_{}", name.to_ascii_lowercase(), cfg.option("adb_service").unwrap_or("low")))
 }
 
-/// Whether the app's lexer reads SQL*Plus command lines as units of their
-/// own (the `sqlplus_commands` rule of the oracle dialect). Statement by
-/// statement needs it: without it, `SET SERVEROUTPUT ON` or `PROMPT` before
-/// a PL/SQL block would hide the block, which would be cut at its first `;`.
-fn lexer_reads_sqlplus_lines() -> bool {
-    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *OK.get_or_init(|| {
-        let units = dbine_driver::sql::split_script("SET SERVEROUTPUT ON\nBEGIN NULL; END;\n/\n", &ScriptDialect::oracle());
-        units.len() == 2 && units[1].text == "BEGIN NULL; END;"
-    })
-}
-
 // ---------------------------------------------------------------- errors
 
 fn err(e: oracledb::Error) -> Error {
@@ -329,15 +317,22 @@ impl Driver for OracleDriver {
         ScriptDialect::oracle()
     }
 
-    /// Statement by statement, as SQL*Plus runs a script, once the app's
-    /// lexer reads SQL*Plus command lines (see [`lexer_reads_sqlplus_lines`]);
-    /// until then the whole script comes in one `execute`.
+    /// The units SQL*Plus runs, cut by this driver's own splitter (the one
+    /// `execute` uses), so the app's statement map, the statement at the
+    /// cursor and the UPDATE/DELETE check see what runs: every SQL*Plus
+    /// command line (`PROMPT`, `SET SERVEROUTPUT`, `SHOW ERRORS`, `REM`…)
+    /// and every `EXEC` is a unit of its own, a PL/SQL unit ends at its `/`
+    /// line. Each unit's text is the script's own (`EXEC` as written), which
+    /// `execute` reads again as one unit. Commands and `EXEC` are `Block`s:
+    /// they run, and their words are never read as DML.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        script_units(text)
+    }
+
+    /// Statement by statement, as SQL*Plus runs a script (units from
+    /// [`Driver::split_script`]).
     fn script_mode(&self) -> ScriptMode {
-        if lexer_reads_sqlplus_lines() {
-            ScriptMode::PerStatement
-        } else {
-            ScriptMode::Whole
-        }
+        ScriptMode::PerStatement
     }
 
     /// SQL*Plus and SQL Developer go on after a failed statement.
@@ -489,7 +484,7 @@ fn open(config: oracledb::Config, schema: Option<&str>, serveroutput: bool) -> R
         conn.execute(&format!("ALTER SESSION SET CURRENT_SCHEMA = {}", quote(s)), &[]).map_err(err)?;
     }
     let schema: String = conn
-        .query_row("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual", &[])
+        .query_row(CURRENT_SCHEMA, &[])
         .and_then(|r| r.get(0))
         .map_err(err)?;
     // Server output becomes messages; unlimited buffer.
@@ -879,6 +874,7 @@ impl Session for OracleSession {
     /// DBMS_OUTPUT lines of each statement follow it as messages.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let statements = script::split(text);
+        let switches_schema = switches_schema(&statements);
         let text = text.to_string();
         let autocommit = self.autocommit;
         let last_compiled = self.last_compiled.clone();
@@ -897,6 +893,19 @@ impl Session for OracleSession {
         // The statement died because the interrupter killed the session.
         if result.is_err() && self.shared.killed.load(Ordering::SeqCst) {
             return Err(Error::Cancelled);
+        }
+        // ALTER SESSION SET CURRENT_SCHEMA, Oracle's USE (also from a block's
+        // EXECUTE IMMEDIATE, even one that failed later): the tab follows
+        // the schema, and a reconnect goes back to it.
+        if switches_schema && !self.shared.killed.load(Ordering::SeqCst) {
+            let current: Result<String> = self.run(|c| c.query_row(CURRENT_SCHEMA, &[]).and_then(|r| r.get(0)).map_err(err)).await;
+            match current {
+                Ok(schema) => {
+                    self.schema = schema.clone();
+                    out.database = Some(schema);
+                }
+                Err(e) => tracing::debug!("oracle: reading CURRENT_SCHEMA failed: {e}"),
+            }
         }
         result
     }
@@ -1177,7 +1186,18 @@ struct Ctx<'a> {
 
 const SERVEROUTPUT_ON: &str = "BEGIN DBMS_OUTPUT.ENABLE(NULL); END;";
 const SERVEROUTPUT_OFF: &str = "BEGIN DBMS_OUTPUT.DISABLE; END;";
+const CURRENT_SCHEMA: &str = "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual";
 const TRANSACTION_ID: &str = "SELECT DBMS_TRANSACTION.LOCAL_TRANSACTION_ID FROM dual";
+
+/// A statement of the script may switch the current schema: an `ALTER
+/// SESSION` or a PL/SQL unit that names `CURRENT_SCHEMA`.
+fn switches_schema(statements: &[script::Statement]) -> bool {
+    statements.iter().any(|s| {
+        s.command.is_none()
+            && (s.plsql || script::first_word(&s.text) == "ALTER")
+            && s.text.to_ascii_uppercase().contains("CURRENT_SCHEMA")
+    })
+}
 
 /// The units of `statements` in order. When the app hands over the whole
 /// script (`Whole`: no running statement), this driver numbers them, stamps
@@ -1312,6 +1332,27 @@ fn db_statement_error(code: usize, offset: usize, message: &str, text: &str, s: 
     let place = if s.verbatim { error_place(&s.text, message, offset) } else { None };
     let at = (s.start + place.unwrap_or(0)).min(text.len());
     se.at_offset(at).at_line(line_of(text, at)).into()
+}
+
+/// The script cut as SQL*Plus runs it (see [`Driver::split_script`]).
+fn script_units(text: &str) -> Vec<dbine_driver::ScriptStatement> {
+    use dbine_driver::sql::StatementKind;
+    script::split(text)
+        .into_iter()
+        .filter_map(|s| {
+            let (start, end) = (s.start.min(text.len()), s.end.min(text.len()));
+            let written = text.get(start..end)?.trim_end();
+            (!written.is_empty()).then(|| dbine_driver::ScriptStatement {
+                text: written.to_string(),
+                start,
+                end: start + written.len(),
+                line: line_of(text, start),
+                kind: if s.plsql || s.command.is_some() { StatementKind::Block } else { StatementKind::Sql },
+                repeat: 1,
+                error: None,
+            })
+        })
+        .collect()
 }
 
 /// 1-based line of byte `at` in `text`.
@@ -2055,11 +2096,49 @@ mod tests {
             assert_eq!(d.script_dialect(), ScriptDialect::oracle());
             assert_eq!(d.script_defaults(), ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true });
             assert!(d.supports_manual_transactions());
-            // Statement by statement only once the app's lexer reads
-            // SQL*Plus lines.
-            let expected = if lexer_reads_sqlplus_lines() { ScriptMode::PerStatement } else { ScriptMode::Whole };
-            assert_eq!(d.script_mode(), expected);
+            assert_eq!(d.script_mode(), ScriptMode::PerStatement);
         }
+    }
+
+    #[test]
+    fn split_script_cuts_sqlplus_lines() {
+        use dbine_driver::sql::StatementKind;
+        let sql = "SET SERVEROUTPUT ON\nPROMPT Creando tabla;\nCREATE TABLE t (a NUMBER);\n-- c\nBEGIN\n  NULL;\nEND;\n/\nSHOW ERRORS\nSELECT 1 FROM dual\n/\nEXEC p(1, -\n  2);\nSELECT * FROM no_such_table;\nselect q'[a;b]' from dual;\n";
+        let d = drivers().into_iter().next().unwrap();
+        let units = d.split_script(sql);
+        let got: Vec<_> = units.iter().map(|u| (u.text.as_str(), u.line, u.kind)).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("SET SERVEROUTPUT ON", 1, StatementKind::Block),
+                ("PROMPT Creando tabla;", 2, StatementKind::Block),
+                ("CREATE TABLE t (a NUMBER)", 3, StatementKind::Sql),
+                ("BEGIN\n  NULL;\nEND;", 5, StatementKind::Block),
+                ("SHOW ERRORS", 9, StatementKind::Block),
+                ("SELECT 1 FROM dual", 10, StatementKind::Sql),
+                ("EXEC p(1, -\n  2);", 12, StatementKind::Block),
+                ("SELECT * FROM no_such_table", 14, StatementKind::Sql),
+                ("select q'[a;b]' from dual", 15, StatementKind::Sql),
+            ]
+        );
+        for u in &units {
+            assert_eq!(&sql[u.start..u.end], u.text);
+            // `execute` reads each unit again as one unit, the same one.
+            let again = script::split(&u.text);
+            assert_eq!(again.len(), 1, "{u:?}");
+        }
+        // The units are the ones `execute` runs.
+        assert_eq!(units.len(), script::split(sql).len());
+    }
+
+    #[test]
+    fn schema_switches() {
+        let yes = |sql: &str| switches_schema(&script::split(sql));
+        assert!(yes("alter session set current_schema = hr"));
+        assert!(yes("BEGIN EXECUTE IMMEDIATE 'ALTER SESSION SET CURRENT_SCHEMA = HR'; END;"));
+        assert!(!yes("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual"));
+        assert!(!yes("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD'"));
+        assert!(!yes("PROMPT current_schema"));
     }
 
     #[test]

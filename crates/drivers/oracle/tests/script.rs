@@ -6,9 +6,11 @@
 //!   cargo test -p dbine-driver-oracle --test script -- --ignored
 //! ```
 //!
-//! The app runs an editor script statement by statement; these tests send
-//! the units its oracle lexer cuts (one `execute` each), plus whole scripts
-//! as the other screens send them.
+//! The app runs an editor script statement by statement (`PerStatement`):
+//! it cuts it with the driver's `split_script` and sends each unit in its
+//! own `execute`. These tests send such units, the units `split_script`
+//! cuts for a whole script, and whole scripts as the other screens (and the
+//! editor's `Whole` mode) send them.
 
 use dbine_driver::{ConnectionConfig, Error, Message, MessageLevel, MessageSinkRef, QueryOutcome, Session, TxState};
 use serde_json::json;
@@ -287,6 +289,83 @@ async fn cancel_ends_the_server_session() {
     assert_ne!(sid, now, "a new server session");
     let out = run(&mut s, "begin dbms_output.put_line('no'); end;").await;
     assert!(out.log.is_empty(), "SERVEROUTPUT stays off: {:?}", out.log);
+
+    // A schema switched with ALTER SESSION survives the reconnect.
+    let out = run(&mut s, "ALTER SESSION SET CURRENT_SCHEMA = SYS").await;
+    assert_eq!(out.database.as_deref(), Some("SYS"));
+    let stop = s.interrupter().expect("an interrupter");
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        stop();
+    });
+    let e = s.execute("BEGIN DBMS_SESSION.SLEEP(30); END;", 10, &mut QueryOutcome::default()).await.unwrap_err();
+    assert!(matches!(e, Error::Cancelled), "{e:?}");
+    let out = run(&mut s, "select sys_context('USERENV', 'CURRENT_SCHEMA') from dual").await;
+    assert_eq!(out.results[0].rows[0][0], json!("SYS"));
+}
+
+/// ALTER SESSION SET CURRENT_SCHEMA is Oracle's USE: the tab follows it
+/// (`out.database`), from a block too.
+#[tokio::test]
+#[ignore]
+async fn current_schema_switch_is_reported() {
+    let mut s = session().await;
+    let out = run(&mut s, "ALTER SESSION SET CURRENT_SCHEMA = SYSTEM").await;
+    assert_eq!(out.database.as_deref(), Some("SYSTEM"));
+    let out = run(&mut s, "select sys_context('USERENV', 'CURRENT_SCHEMA') from dual").await;
+    assert_eq!((out.results[0].rows[0][0].clone(), out.database), (json!("SYSTEM"), None));
+    let out = run(&mut s, "BEGIN EXECUTE IMMEDIATE 'ALTER SESSION SET CURRENT_SCHEMA = ' || USER; END;").await;
+    let me = run(&mut s, "select user from dual").await.results[0].rows[0][0].clone();
+    assert_eq!(out.database.map(serde_json::Value::String), Some(me));
+}
+
+/// The editor's run (`PerStatement`): the units `split_script` cuts, one
+/// `execute` each, as the app's loop sends them (it sets the statement
+/// first and moves each place from the unit to the script).
+#[tokio::test]
+#[ignore]
+async fn per_statement_units_run_as_sqlplus() {
+    let driver = dbine_driver_oracle::drivers().remove(0);
+    let mut s = driver.connect(&config(), None).await.expect("connect");
+    quiet(&mut s, "DROP TABLE dbine_units_t PURGE").await;
+    let sql = "SET SERVEROUTPUT ON\n\
+               PROMPT Creando tabla\n\
+               CREATE TABLE dbine_units_t (id NUMBER PRIMARY KEY);\n\
+               INSERT INTO dbine_units_t VALUES (1);\n\
+               INSERT INTO dbine_units_t VALUES (1);\n\
+               BEGIN\n  DBMS_OUTPUT.PUT_LINE('bloque');\nEND;\n/\n\
+               DECLARE\n  n NUMBER;\nBEGIN\n  n := 1 / 0;\nEND;\n/\n\
+               SELECT COUNT(*) FROM dbine_units_t;\n\
+               DROP TABLE dbine_units_t PURGE;\n";
+    let units = driver.split_script(sql);
+    assert_eq!(units.len(), 9, "{units:?}");
+    let mut out = QueryOutcome { continue_on_error: Some(true), ..Default::default() };
+    let mut failed = Vec::new();
+    for (i, u) in units.iter().enumerate() {
+        out.current_statement = Some(i);
+        match s.execute(&u.text, 100, &mut out).await {
+            Ok(()) => {}
+            Err(Error::Statement(e)) => failed.push((i, e.code.unwrap_or_default(), u.line + e.line.unwrap_or(1) - 1)),
+            Err(e) => panic!("{}: {e}", u.text),
+        }
+    }
+    assert_eq!(failed, [(4, "ORA-00001".to_string(), 5), (6, "ORA-01476".to_string(), 13)]);
+    assert_eq!(texts(&out, MessageLevel::Info), vec!["Creando tabla", "bloque"]);
+    let count = out.results.iter().find(|r| r.tag.as_deref() == Some("SELECT")).expect("the SELECT ran");
+    assert_eq!(count.rows[0][0], json!(1));
+}
+
+/// 12c inline PL/SQL in a query: one unit up to its `/`, rows back.
+#[tokio::test]
+#[ignore]
+async fn with_function_query_is_one_unit() {
+    let driver = dbine_driver_oracle::drivers().remove(0);
+    let mut s = driver.connect(&config(), None).await.expect("connect");
+    let sql = "WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 41 + 1; END;\nSELECT f FROM dual\n/\nSELECT 2 FROM dual;\n";
+    let units = driver.split_script(sql);
+    assert_eq!(units.len(), 2, "{units:?}");
+    let out = run(&mut s, &units[0].text).await;
+    assert_eq!(out.results[0].rows[0][0], json!(42));
 }
 
 /// The editor's run of a whole script (`Whole`): each unit reported live,

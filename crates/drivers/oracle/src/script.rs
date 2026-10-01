@@ -18,6 +18,10 @@ pub struct Statement {
     /// Byte offset of `text` in the script (of the line, for a command or
     /// an `EXEC`).
     pub start: usize,
+    /// Byte offset in the script where it ends: `script[start..end]` is
+    /// what it was written as (the lines of a command or an `EXEC`, without
+    /// the `;` or `/` that ended a statement).
+    pub end: usize,
     /// `text` is the script's own (an `EXEC` is rewritten as a block):
     /// positions the server reports in it are positions in the script.
     pub verbatim: bool,
@@ -348,6 +352,9 @@ struct Splitter {
     /// A command line ended by `-` (SQL*Plus continuation): its text so
     /// far, without the `-`, and where it starts.
     cont: Option<(String, usize)>,
+    /// Where the last line read ends in the script, trailing whitespace
+    /// left out: the end of a command or an `EXEC`.
+    line_end: usize,
 }
 
 impl Splitter {
@@ -357,6 +364,7 @@ impl Splitter {
 
     fn line(&mut self, line: &str, base: usize) {
         let trimmed = line.trim();
+        self.line_end = base + line.trim_end().len();
         if let Some((mut text, start)) = self.cont.take() {
             text.push_str(trimmed);
             match text.strip_suffix('-') {
@@ -484,12 +492,12 @@ impl Splitter {
         if let Some(cmd) = command(text) {
             // Comments before it are dropped with it.
             self.cur.clear();
-            self.out.push(Statement { text: text.to_string(), plsql: false, start, verbatim, command: Some(cmd) });
+            self.out.push(Statement { text: text.to_string(), plsql: false, start, end: self.line_end, verbatim, command: Some(cmd) });
             return true;
         }
         if let Some(call) = exec_call(text) {
             self.cur.clear();
-            self.out.push(Statement { text: format!("BEGIN {call}; END;"), plsql: true, start, verbatim: false, command: None });
+            self.out.push(Statement { text: format!("BEGIN {call}; END;"), plsql: true, start, end: self.line_end, verbatim: false, command: None });
             return true;
         }
         false
@@ -507,7 +515,7 @@ impl Splitter {
         let start = self.cur_start + (cur.len() - stripped.len());
         let text = stripped.trim_end();
         if !text.is_empty() {
-            self.out.push(Statement { text: text.to_string(), plsql, start, verbatim: true, command: None });
+            self.out.push(Statement { text: text.to_string(), plsql, start, end: start + text.len(), verbatim: true, command: None });
         }
     }
 }
@@ -616,9 +624,12 @@ pub fn first_word(sql: &str) -> String {
     strip_leading_comments(sql).chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_uppercase()
 }
 
-/// Whether a statement is a PL/SQL unit (its `;`s don't end it).
+/// Whether a statement is a PL/SQL unit (its `;`s don't end it): also a
+/// query with inline PL/SQL (12c `WITH FUNCTION|PROCEDURE …`), which
+/// SQL*Plus also ends at a `/` line.
 fn is_plsql(stmt: &str) -> bool {
-    let words: Vec<String> = strip_leading_comments(stmt)
+    let body = strip_leading_comments(stmt);
+    let words: Vec<String> = body
         .split(|c: char| !is_ident(c))
         .filter(|w| !w.is_empty())
         .take(6)
@@ -627,6 +638,12 @@ fn is_plsql(stmt: &str) -> bool {
     let w: Vec<&str> = words.iter().map(String::as_str).collect();
     match w.first() {
         Some(&"BEGIN" | &"DECLARE") => true,
+        // Not a CTE named `function` (`WITH function AS (…)`, `WITH function(a) AS …`).
+        Some(&"WITH") => {
+            matches!(w.get(1), Some(&"FUNCTION" | &"PROCEDURE"))
+                && w.get(2) != Some(&"AS")
+                && body.to_ascii_uppercase().get(4..).and_then(|r| r.find(w[1]).map(|i| r[i + w[1].len()..].trim_start().starts_with('('))) == Some(false)
+        }
         Some(&"CREATE") => w[1..]
             .iter()
             .find(|x| !matches!(**x, "OR" | "REPLACE" | "EDITIONABLE" | "NONEDITIONABLE" | "EDITIONING"))
@@ -749,6 +766,7 @@ mod tests {
         let sql = "-- head\nselect 'é' from dual;\n  /* c */ insert into t values (1);\nPROMPT x\nbegin\n  null;\nend;\n/\nselect 2 from dual";
         for s in split(sql) {
             assert_eq!(&sql[s.start..s.start + s.text.len()], s.text, "{s:?}");
+            assert_eq!(s.end, s.start + s.text.len(), "{s:?}");
         }
         let starts: Vec<usize> = split(sql).iter().map(|s| s.start).collect();
         assert_eq!(starts.len(), 5);
@@ -805,5 +823,17 @@ mod tests {
         assert!(is_plsql("CREATE OR REPLACE EDITIONABLE PACKAGE BODY x AS"));
         assert!(is_plsql("/* c */ create trigger t before insert on x"));
         assert!(!is_plsql("create or replace view v as select 1 from dual"));
+        assert!(is_plsql("WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 1"));
+        assert!(is_plsql("with\n  procedure p is begin null"));
+        assert!(!is_plsql("with function as (select 1 a from dual) select a from function"));
+        assert!(!is_plsql("with function(a) as (select 1 from dual) select a from function"));
+        assert!(!is_plsql("with x as (select 1 a from dual) select a from x"));
+    }
+
+    #[test]
+    fn inline_plsql_in_a_query_ends_at_slash() {
+        let sql = "WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END;\nSELECT f FROM dual\n/\nselect 2 from dual;\n";
+        assert_eq!(texts(sql), vec!["WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END;\nSELECT f FROM dual", "select 2 from dual"]);
+        assert!(split(sql)[0].plsql);
     }
 }

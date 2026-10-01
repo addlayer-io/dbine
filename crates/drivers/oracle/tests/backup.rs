@@ -65,6 +65,20 @@ async fn export_import_delete() {
     run(&mut s, "INSERT INTO DBINE_BK_SRC.T VALUES (1, 'uno')").await;
     run(&mut s, "INSERT INTO DBINE_BK_SRC.T VALUES (2, 'dos')").await;
     run(&mut s, "COMMIT").await;
+    // The export reads the tables as of SYSTIMESTAMP (FLASHBACK_TIME), and
+    // the timestamp-to-SCN map is coarse (seconds): right after the COMMIT
+    // on a fresh instance SYSTIMESTAMP can still map to an SCN before the
+    // table and its rows, and the export takes no rows. Wait until it maps
+    // past them. (A flashback query to check instead fails with ORA-01466
+    // there, and repeated, crashes Oracle Free's server process.)
+    let caught_up = "SELECT CASE WHEN TIMESTAMP_TO_SCN(SYSTIMESTAMP) >= (SELECT MAX(ORA_ROWSCN) FROM DBINE_BK_SRC.T) THEN 1 ELSE 0 END FROM dual";
+    for _ in 0..30 {
+        let out = run(&mut s, caught_up).await;
+        if out.results.first().and_then(|r| r.rows.first()).is_some_and(|r| text(&r[0]) == "1") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
 
     let file = format!("dbine_bk_{}.dmp", std::process::id());
     let opts: BTreeMap<String, String> = [("file".to_string(), file.clone())].into();
