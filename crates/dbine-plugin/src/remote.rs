@@ -504,6 +504,9 @@ impl Driver for RemoteDriver {
     fn supports_profiler(&self) -> bool {
         self.meta.supports_profiler
     }
+    fn supports_index_usage(&self) -> bool {
+        self.meta.supports_index_usage
+    }
     fn key_search(&self) -> Option<KeySearch> {
         self.meta.key_search.clone()
     }
@@ -1062,6 +1065,15 @@ impl Session for RemoteSession {
     }
     async fn rollback(&mut self) -> Result<()> {
         self.host.call(Call::Rollback { session: self.id }).await.map(|_| ())
+    }
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        match self.host.call(Call::IndexUsage { session: self.id, table: table.clone() }).await {
+            Ok(Reply::IndexUsage(r)) => Ok(r),
+            // A host built before the call: not reported.
+            Err(Error::Unsupported(_)) => Ok(None),
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
     }
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
         match self.host.call(Call::ListSchemas { session: self.id }).await {

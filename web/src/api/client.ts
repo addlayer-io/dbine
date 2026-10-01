@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
-  ColumnInfo, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DriverInfo, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
+  ColumnInfo, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
   ExecuteResponse, RunMode, SavedConnection, SavedQuery, ScriptUnit, TestResult, TxState, UpdateInfo,
 } from './types';
 
@@ -67,6 +67,9 @@ export const api = {
     invoke<KeyPage>('scan_keys', { args: { connection_id: connectionId, database, scan } }),
   getColumns: (connectionId: string, database: string, object: ObjectRef) =>
     invoke<ColumnInfo[]>('get_columns', { args: { connection_id: connectionId, database, object } }),
+  /** A table's indexes and their usage; null: the driver doesn't report it. */
+  getIndexUsage: (connectionId: string, database: string, object: ObjectRef) =>
+    invoke<IndexUsageReport | null>('get_index_usage', { args: { connection_id: connectionId, database, object } }),
   getDefinition: (connectionId: string, database: string, object: ObjectRef) =>
     invoke<string>('get_definition', { args: { connection_id: connectionId, database, object } }),
   browseQuery: (connectionId: string, database: string, object: ObjectRef, limit: number) =>

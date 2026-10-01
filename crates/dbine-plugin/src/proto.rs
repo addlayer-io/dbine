@@ -173,6 +173,9 @@ pub enum Call {
     /// app's lexer can't reproduce from the dialect. A host published before
     /// it answers `Unsupported`, and the app splits with the dialect.
     SplitScript { driver: String, text: String },
+    /// A table's indexes and their usage. A host published before it
+    /// answers `Unsupported`, which the app reads as "not reported" (`None`).
+    IndexUsage { session: u64, table: ObjectRef },
 }
 
 /// Host → app.
@@ -228,6 +231,7 @@ pub enum Reply {
     Schemas(Option<Vec<dbine_driver::SchemaInfo>>),
     TxState(Option<dbine_driver::TxState>),
     Units(Vec<dbine_driver::ScriptStatement>),
+    IndexUsage(Option<dbine_driver::IndexUsageReport>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -288,6 +292,10 @@ pub struct DriverMeta {
     /// Auto/Manual, Commit and Rollback in the editor.
     #[serde(default)]
     pub supports_manual_transactions: bool,
+    /// A table's indexes and their usage (`Session::index_usage`; absent
+    /// in older manifests: not offered).
+    #[serde(default)]
+    pub supports_index_usage: bool,
 }
 
 /// The contract's metadata types hold `&'static str` (interned when read),
@@ -337,6 +345,7 @@ impl DriverMeta {
             script_mode: Some(d.script_mode()),
             script_defaults: Some(d.script_defaults()),
             supports_manual_transactions: d.supports_manual_transactions(),
+            supports_index_usage: d.supports_index_usage(),
         }
     }
 }
@@ -563,6 +572,7 @@ mod tests {
                 "SchemaGrantScript",
             ),
             (10, Call::SplitScript { driver: "oracle".into(), text: "PROMPT a\n".into() }, "SplitScript"),
+            (11, Call::IndexUsage { session: 3, table: ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "t".into() } }, "IndexUsage"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
@@ -577,6 +587,30 @@ mod tests {
         let body = rmp_serde::to_vec_named(&OldPermissions { backup: dbine_driver::Access::Allowed }).unwrap();
         let p: dbine_driver::Permissions = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(p.create_schema, dbine_driver::Access::Unknown);
+    }
+
+    #[test]
+    fn an_index_usage_report_round_trips() {
+        let report = Some(dbine_driver::IndexUsageReport {
+            since: Some("2026-01-02 03:04:05".into()),
+            stats_available: true,
+            note: None,
+            indexes: vec![dbine_driver::IndexUsage {
+                name: "ix".into(),
+                kind: "NONCLUSTERED".into(),
+                key_columns: vec!["a".into(), "b DESC".into()],
+                size_kb: Some(16),
+                seeks: 4,
+                last_read: Some("2026-01-02 04:00:00".into()),
+                ..Default::default()
+            }],
+            foreign_keys: vec![dbine_driver::ForeignKeyDef { columns: vec!["p".into()], ref_table: "p".into(), ref_columns: vec!["id".into()], ..Default::default() }],
+        });
+        let body = rmp_serde::to_vec_named(&Reply::IndexUsage(report.clone())).unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::IndexUsage(back) => assert_eq!(back, report),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

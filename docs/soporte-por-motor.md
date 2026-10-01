@@ -2058,3 +2058,47 @@ Un metacomando termina en el fin de su línea, aunque tenga comillas o `;`, y
 las filas de COPY terminan en su `\.` aunque tengan apóstrofos o `;`, como en
 psql. Una línea que empieza con `\` dentro de un texto entre comillas, un
 cuerpo `$$ … $$` o un comentario es parte de ese texto.
+
+## Uso de índices
+
+Al expandir una tabla, el explorador marca las columnas de clave primaria
+(llave) y las de clave foránea (eslabón, con la tabla y la columna a la que
+apuntan) y agrega la carpeta **Índices**: cada índice con su tipo (PK, UNIQUE,
+CLUSTERED, NC, COLUMNSTORE) y qué parte de las lecturas de la tabla pasan por
+él, o **sin uso** en rojo cuando se escribe pero nadie lo lee. Clic en un índice
+o clic derecho en la tabla › **Índices…** abre la pestaña con el detalle
+(columnas clave e INCLUDE, filtro, tamaño, seeks, scans, lookups, updates,
+porcentaje de lecturas, escrituras por lectura y últimos accesos). **Comparar
+esquemas** muestra el uso de cada índice en cada lado, leído en su propia
+conexión. El contrato está en `crates/dbine-driver/src/index_usage.rs`
+(`Driver::supports_index_usage` y `Session::index_usage`); los números
+derivados se calculan ahí, en `IndexUsageReport::derive`.
+
+- **Lecturas** = seeks + scans + lookups.
+- **% lecturas** = las lecturas del índice sobre las de todos los índices de la
+  tabla (vacío si la tabla no tuvo lecturas).
+- **Sin uso** = ninguna lectura y alguna escritura.
+
+| Motor | Índices | Contadores | Desde cuándo | Notas |
+|---|---|---|---|---|
+| SQL Server | `sys.indexes`, `sys.index_columns` | `sys.dm_db_index_usage_stats` (LEFT JOIN: los índices nunca usados quedan en cero) | `sqlserver_start_time` | Sin VIEW SERVER STATE se listan los índices sin contadores, con un aviso. Tamaño de `sys.dm_db_partition_stats`. Los heaps (`index_id` 0) no se listan: son la tabla, no un índice, y sus lecturas no cuentan en el porcentaje. |
+| Azure SQL Database | Igual | Igual (necesita VIEW DATABASE STATE) | Si la base deja leer `sys.dm_os_sys_info`; si no, «desde el último reinicio» | Los contadores también se reinician en un failover. |
+| Babelfish | `sys.indexes`, `sys.index_columns` | No tiene `sys.dm_db_index_usage_stats`: se listan los índices sin contadores, con un aviso | — | — |
+| Fabric Warehouse | — | — | — | No tiene índices. |
+
+### Motores sin uso de índices
+
+Pendiente en todos los demás motores (la carpeta **Índices** y la pestaña no
+aparecen). Varios tienen de dónde leerlo y quedan para la próxima tanda:
+PostgreSQL y compatibles (`pg_stat_user_indexes`), MySQL y MariaDB
+(`performance_schema.table_io_waits_summary_by_index_usage`), Oracle
+(`V$OBJECT_USAGE` / `DBA_INDEX_USAGE`), MongoDB (`$indexStats`). Los motores sin
+índices secundarios (Redis, etcd, Trino, BigQuery, Snowflake…) no lo tienen.
+
+### Probado contra servidores reales
+
+`index_usage_live` (SQL Server 2022, `dbine-test-sqlserver`): una tabla con
+clave primaria y dos índices; cinco seeks sobre uno dan 5 seeks, el otro queda
+en cero lecturas con escrituras (sin uso), y `since` viene con la hora de
+inicio. `index_usage_babelfish_live` (`dbine-test-babelfish`): lista los
+índices y avisa que no hay contadores.

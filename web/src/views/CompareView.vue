@@ -12,6 +12,8 @@ import type { CheckDef, ColumnDef, ForeignKeyDef, IndexDef, KeyDef, TableSchema 
 import CodeEditor from '../components/CodeEditor.vue';
 import { newQuery } from '../composables/actions';
 import { lineDiff } from '../composables/lineDiff';
+import { indexUsageEntry, loadIndexUsage, sharePct, usageBadge } from '../composables/indexUsage';
+import type { IndexUsage } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { readJson, writeJson } from '../stores/storage';
 import { useTabsStore, type CompareTab } from '../stores/tabs';
@@ -854,6 +856,41 @@ const pkText = (t: TableSchema | null) => (t?.primary_key?.columns.length ? `PRI
 const rowMark = (k: string) => touched.has(k) && !!selected.value && isPending(selected.value);
 const codeDiff = computed(() => (selObject.value ? lineDiff(objectOf('left')?.definition ?? '', objectOf('right')?.definition ?? '') : []));
 
+// -- index usage: each side's numbers, read on that side's own connection -------------------
+// Only on drivers that report it; cached per connection, database and table
+// (composables/indexUsage), so going back to a table doesn't read it again.
+function usageTable(s: SideId) {
+  const tbl = tableOf(s);
+  return tbl && driverOf(sides[s].connectionId)?.supports_index_usage ? { kind: 'table', schema: tbl.schema, name: tbl.name } : null;
+}
+watch(
+  () => (['left', 'right'] as SideId[]).map((s) => { const x = usageTable(s); return x ? `${sides[s].connectionId}|${sides[s].database}|${x.schema ?? ''}|${x.name}` : ''; }).join('\n'),
+  () => {
+    for (const s of ['left', 'right'] as SideId[]) {
+      const x = usageTable(s);
+      if (x) loadIndexUsage(sides[s].connectionId, sides[s].database, x);
+    }
+  },
+  { immediate: true },
+);
+/** The usage of `name` on side `s` (the primary key's with `pk`). */
+function ixUsage(s: SideId, name: string | null, pk = false): IndexUsage | null {
+  const x = usageTable(s);
+  const report = x ? indexUsageEntry(sides[s].connectionId, sides[s].database, x)?.report : null;
+  if (!report) return null;
+  return report.indexes.find((i) => (pk ? i.primary_key : i.name.toLowerCase() === (name ?? '').toLowerCase())) ?? null;
+}
+function ixBadge(s: SideId, name: string | null, pk = false) {
+  const u = ixUsage(s, name, pk);
+  return u ? usageBadge(u) : null;
+}
+function ixBadgeTip(s: SideId, name: string | null, pk = false) {
+  const u = ixUsage(s, name, pk);
+  if (!u) return '';
+  if (u.unused) return t('compare:indexUsage.unused', { updates: u.updates.toLocaleString() });
+  return t('compare:indexUsage.share', { pct: sharePct(u.read_share ?? 0), reads: u.reads.toLocaleString() });
+}
+
 // -- sync --------------------------------------------------------------------------------------
 // One "Sincronizar" for both sides: a script per side with pending changes,
 // one tab each; "Ejecutar" runs left then right, each on its own connection,
@@ -1117,6 +1154,10 @@ async function runSync() {
                     <template v-if="itemOf('left', sec.id, d)">
                       <b>{{ titleOf(sec.id, itemOf('left', sec.id, d)!) }}</b>
                       <span v-for="p in partsOf(sec.id, itemOf('left', sec.id, d)!)" :key="p.f" :class="{ hl: d.fields.includes(p.f) }">{{ p.t }}</span>
+                      <span
+                        v-if="sec.id === 'indexes' && ixBadge('left', d.name)" class="cv-ixbadge" :class="{ unused: ixBadge('left', d.name)!.unused }"
+                        :title="ixBadgeTip('left', d.name)"
+                      >{{ ixBadge('left', d.name)!.text }}</span>
                     </template>
                   </div>
                   <div class="cv-mid">
@@ -1130,6 +1171,10 @@ async function runSync() {
                     <template v-if="itemOf('right', sec.id, d)">
                       <b>{{ titleOf(sec.id, itemOf('right', sec.id, d)!) }}</b>
                       <span v-for="p in partsOf(sec.id, itemOf('right', sec.id, d)!)" :key="p.f" :class="{ hl: d.fields.includes(p.f) }">{{ p.t }}</span>
+                      <span
+                        v-if="sec.id === 'indexes' && ixBadge('right', d.name)" class="cv-ixbadge" :class="{ unused: ixBadge('right', d.name)!.unused }"
+                        :title="ixBadgeTip('right', d.name)"
+                      >{{ ixBadge('right', d.name)!.text }}</span>
                     </template>
                   </div>
                 </div>
@@ -1159,7 +1204,10 @@ async function runSync() {
               </template>
               <div v-if="pkText(tableOf('left')) || pkText(tableOf('right')) || keyMark(selTable, 'primary_key')" class="cv-sec">{{ $t('compare:primaryKey') }}</div>
               <div v-if="pkText(tableOf('left')) || pkText(tableOf('right')) || keyMark(selTable, 'primary_key')" class="cv-row" :class="selTable.primary_key">
-                <div class="cv-cell" :class="{ none: !pkText(tableOf('left')) }"><span :class="{ hl: selTable.primary_key !== 'equal' }">{{ pkText(tableOf('left')) }}</span></div>
+                <div class="cv-cell" :class="{ none: !pkText(tableOf('left')) }">
+                  <span :class="{ hl: selTable.primary_key !== 'equal' }">{{ pkText(tableOf('left')) }}</span>
+                  <span v-if="pkText(tableOf('left')) && ixBadge('left', null, true)" class="cv-ixbadge" :class="{ unused: ixBadge('left', null, true)!.unused }" :title="ixBadgeTip('left', null, true)">{{ ixBadge('left', null, true)!.text }}</span>
+                </div>
                 <div class="cv-mid">
                   <template v-if="selTable.primary_key !== 'equal' || keyMark(selTable, 'primary_key')">
                     <button :class="{ on: keyMark(selTable, 'primary_key')?.from === 'right' }" :title="keyTip(selTable, 'primary_key', 'right')" @click="arrowKey(selTable, 'primary_key', 'right')">←</button>
@@ -1167,7 +1215,10 @@ async function runSync() {
                   </template>
                   <span v-else-if="rowMark(itemKey(selTable, 'primary_key', null))" class="cv-dot" :title="$t('compare:pendingChanges')" />
                 </div>
-                <div class="cv-cell" :class="{ none: !pkText(tableOf('right')) }"><span :class="{ hl: selTable.primary_key !== 'equal' }">{{ pkText(tableOf('right')) }}</span></div>
+                <div class="cv-cell" :class="{ none: !pkText(tableOf('right')) }">
+                  <span :class="{ hl: selTable.primary_key !== 'equal' }">{{ pkText(tableOf('right')) }}</span>
+                  <span v-if="pkText(tableOf('right')) && ixBadge('right', null, true)" class="cv-ixbadge" :class="{ unused: ixBadge('right', null, true)!.unused }" :title="ixBadgeTip('right', null, true)">{{ ixBadge('right', null, true)!.text }}</span>
+                </div>
               </div>
             </template>
             <template v-else>
@@ -1334,6 +1385,8 @@ async function runSync() {
 .cv-cell b { font-family: var(--nm-font); color: var(--nm-text-strong); }
 .cv-cell.none { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--nm-text-muted) 10%, transparent) 6px 7px); }
 .cv-cell .hl { color: var(--nm-warning); font-weight: 600; }
+.cv-cell .cv-ixbadge { font-family: var(--nm-font); font-size: 10.5px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--nm-accent) 18%, transparent); color: var(--nm-text); }
+.cv-cell .cv-ixbadge.unused { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
 .cv-code { flex: 1; overflow: auto; font-family: var(--nm-mono); font-size: 12px; }
 .cv-cline { display: grid; grid-template-columns: 1fr 1fr; }
 .cv-cl { margin: 0; padding: 0 12px; white-space: pre-wrap; word-break: break-all; min-height: 18px; line-height: 18px; border-right: 1px solid var(--nm-border-soft); }

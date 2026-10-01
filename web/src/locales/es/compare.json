@@ -112,5 +112,9 @@
   "noObjects": "No hay objetos.",
   "pendingChanges": "Con cambios sin aplicar",
   "pickItem": "Elegí una tabla u objeto de la lista.",
-  "tableProps": "Propiedades de la tabla"
+  "tableProps": "Propiedades de la tabla",
+  "indexUsage": {
+    "share": "{{pct}} de las lecturas de la tabla en esta base ({{reads}} lecturas)",
+    "unused": "Sin lecturas en esta base y {{updates}} escrituras desde que empezaron las estadísticas"
+  }
 }

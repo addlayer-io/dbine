@@ -318,7 +318,7 @@ impl Call {
             | CreateDatabase { session, .. } | DropDatabase { session, .. } | Monitor { session } | Blocking { session } | Principals { session } | Grants { session, .. } | Backups { session, .. } | KillSession { session, .. } | ProfilerStart { session, .. }
             | ProfilerPoll { session } | ProfilerStop { session } | ScanKeys { session, .. } | ReadBatches { session, .. }
             | BulkLoad { session, .. } | KeyRange { session, .. } | DeltaSummary { session, .. } | DeltaApply { session, .. }
-            | Permissions { session, .. } | ListSchemas { session } => Some(*session),
+            | Permissions { session, .. } | ListSchemas { session } | IndexUsage { session, .. } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
             CopyNative { from, .. } => Some(*from),
@@ -593,6 +593,7 @@ impl State {
                 Reply::Unit
             }
             Call::SplitScript { driver, text } => Reply::Units(self.driver(&driver)?.split_script(&text)),
+            Call::IndexUsage { session, table } => Reply::IndexUsage(self.slot(session)?.session.lock().await.index_usage(&table).await?),
         })
     }
 }

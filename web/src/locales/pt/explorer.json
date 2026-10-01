@@ -103,5 +103,32 @@
     "helpEnter": "Enter para buscar no servidor.",
     "typeTitle": "Só as chaves deste tipo",
     "showAll": "Ver todas as chaves"
+  },
+  "indexes": {
+    "folder": "Índices",
+    "tab": "Índices",
+    "menu": "Índices…",
+    "none": "Sem índices",
+    "unused": "sem uso",
+    "unusedTitle": "É escrito, mas nenhuma consulta o leu desde que as estatísticas começaram",
+    "shareTitle": "Parte das leituras da tabela que passam por este índice",
+    "fkTitle": "Chave estrangeira → {{target}}",
+    "refresh": "Atualizar",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "since": "Estatísticas desde {{since}} (o SQL Server as reinicia ao reiniciar o serviço; no Azure SQL também em um failover).",
+    "sinceRestart": "Estatísticas desde a última reinicialização do serviço (o SQL Server as reinicia ao reiniciar o serviço; no Azure SQL também em um failover).",
+    "unsupported": "Este motor não informa o uso dos índices.",
+    "col": {
+      "name": "Nome",
+      "type": "Tipo",
+      "keys": "Colunas-chave",
+      "filter": "Filtro",
+      "size": "Tamanho",
+      "readShare": "% leituras",
+      "writesPerRead": "Escritas/leituras",
+      "lastRead": "Última leitura",
+      "lastWrite": "Última escrita"
+    }
   }
 }
