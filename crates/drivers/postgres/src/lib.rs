@@ -22,6 +22,7 @@ mod clone;
 mod compare;
 mod delta;
 mod design;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -429,6 +430,11 @@ impl Driver for PgDriver {
 
     fn supports_profiler(&self) -> bool {
         profiler::supported(self.variant)
+    }
+
+    /// Every variant but Denodo (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
+        index_usage::supported(self.variant)
     }
 
     fn capabilities(&self) -> Capabilities {

@@ -9,6 +9,7 @@
 
 #[path = "../../dynamodb/src/aws.rs"]
 mod aws;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -220,6 +221,11 @@ impl Driver for DsqlDriver {
                 template: "CREATE FUNCTION \"{schema}\".\"{name}\"(p_id integer)\nRETURNS integer\nLANGUAGE sql\nAS $$\n    SELECT p_id * 2\n$$;".into(),
             },
         ]
+    }
+
+    /// The indexes, without usage counters (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
+        true
     }
 
     fn supports_schema_sync(&self) -> bool {
@@ -959,6 +965,10 @@ impl Session for DsqlSession {
     /// Role attributes from `pg_roles` (see `permissions`).
     async fn permissions(&mut self, _database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(&self.client).await
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        index_usage::report(&self.client, table).await.map(Some)
     }
 }
 
