@@ -631,6 +631,18 @@ impl FlightSession {
             .map_err(|e| Error::Connect(format!("no se pudo abrir el catálogo «{c}»: {e}")))
     }
 
+    /// After a `USE`: the catalog the server now runs in (DuckDB-backed
+    /// servers say it with `current_database()`), so the explorer and the
+    /// tab follow it. Servers without it keep the session's.
+    async fn follow_use(&mut self, out: &mut QueryOutcome) {
+        let Ok((_, rows)) = self.rows("SELECT current_database()").await else { return };
+        let Some(now) = rows.first().and_then(|r| r.first()).map(text).filter(|c| !c.is_empty()) else { return };
+        if self.catalog.as_deref() != Some(now.as_str()) {
+            self.catalog = Some(now.clone());
+            out.database = Some(now);
+        }
+    }
+
     /// Tables with their Arrow schemas (`GetTables` with `include_schema`).
     async fn tables(&self, schema: Option<&str>, name: Option<&str>, with_schema: bool) -> Result<Vec<(Option<String>, String, String, Option<arrow_schema::Schema>)>> {
         let mut c = self.conn.client();
@@ -865,6 +877,9 @@ impl Session for FlightSession {
                 }
                 e => e,
             })?;
+            if first_word(&stmt) == "USE" {
+                self.follow_use(out).await;
+            }
         }
         Ok(())
     }

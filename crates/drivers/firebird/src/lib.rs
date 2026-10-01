@@ -12,6 +12,7 @@ mod profiler;
 mod schema;
 mod script;
 mod security;
+mod steps;
 mod transfer;
 
 use dbine_driver::sql::{quote_ident, Quote, ScriptDefaults, ScriptDialect};
@@ -400,7 +401,9 @@ impl Driver for FirebirdDriver {
     // unit written without SET TERM whole when it declares variables before
     // its BEGIN (or is a RECREATE, an EXECUTE BLOCK, a package), which this
     // driver's splitter (`script`) does. The driver runs the script
-    // statement by statement itself and stops at the first error.
+    // statement by statement itself, as the app would: on editor runs it
+    // goes on after errors (`out.continue_on_error`) and reports each
+    // statement live (`out.progress_sink`).
 
     /// isql goes on after an error unless `SET BAIL ON`.
     fn script_defaults(&self) -> ScriptDefaults {
@@ -732,25 +735,32 @@ impl Session for FirebirdSession {
         let dirty = self.dirty.clone();
         let conn = self.conn.clone();
         let fork = out.fork();
+        // The app didn't number the statements (`Whole`): this driver does,
+        // and on editor runs goes on after errors and reports each one live.
+        let own = out.current_statement.is_none();
         let (local, result) = tokio::task::spawn_blocking(move || {
             let mut local = fork;
             let result = match conn.lock() {
-                Ok(mut c) => script::pieces(&script).iter().try_for_each(|p| {
-                    if p.skipped {
+                Ok(mut c) => script::pieces(&script).iter().enumerate().try_for_each(|(i, p)| {
+                    let step = steps::Step::start(&mut local, own, i, p.start, steps::line_at(&script, p.start));
+                    let r = if p.skipped {
                         local.info(format!("Comando de isql omitido (no es SQL del servidor): {}", first_line(&p.text)));
-                        return Ok(());
-                    }
-                    let r = run_statement(&mut c, &p.text, max_rows, autocommit, &mut local);
-                    match &r {
-                        Ok(Some(StmtType::Commit | StmtType::Rollback)) => dirty.store(false, Ordering::SeqCst),
-                        Ok(Some(StmtType::Select)) | Ok(None) => {}
-                        Ok(Some(_)) if !autocommit => dirty.store(true, Ordering::SeqCst),
-                        _ => {}
-                    }
-                    r.map(|_| ()).map_err(|e| match e {
-                        StmtFailure::Fb(e) => stmt_err(e, &script, p.start),
-                        StmtFailure::Other(e) => e,
-                    })
+                        Ok(())
+                    } else {
+                        let r = run_statement(&mut c, &p.text, max_rows, autocommit, &mut local);
+                        match &r {
+                            Ok(Some(StmtType::Commit | StmtType::Rollback)) => dirty.store(false, Ordering::SeqCst),
+                            Ok(Some(StmtType::Select)) | Ok(None) => {}
+                            Ok(Some(_)) if !autocommit => dirty.store(true, Ordering::SeqCst),
+                            _ => {}
+                        }
+                        // Placed in the statement; the step moves it into the script.
+                        r.map(|_| ()).map_err(|e| match e {
+                            StmtFailure::Fb(e) => stmt_err(e, &p.text, 0),
+                            StmtFailure::Other(e) => e,
+                        })
+                    };
+                    step.end(&mut local, r)
                 }),
                 Err(_) => Err(poisoned()),
             };

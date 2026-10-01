@@ -13,6 +13,7 @@ mod profiler;
 mod schema;
 mod script;
 mod security;
+mod steps;
 mod structure;
 mod transfer;
 
@@ -284,6 +285,13 @@ impl Driver for HanaDriver {
     }
 }
 
+/// `SET SCHEMA name`: switches the session's schema.
+fn sets_schema(stmt: &str) -> bool {
+    let plain = dbine_driver::sql::strip_comments(stmt, &ScriptDialect::generic(), false);
+    let mut words = plain.split_whitespace();
+    words.next().is_some_and(|w| w.eq_ignore_ascii_case("set")) && words.next().is_some_and(|w| w.eq_ignore_ascii_case("schema"))
+}
+
 // --------------------------------------------------------------- session
 
 struct HanaSession {
@@ -347,6 +355,29 @@ fn int(v: &HdbValue) -> Option<i64> {
 }
 
 impl HanaSession {
+    /// One statement of a script; its error is placed in the statement.
+    async fn run_one(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let response = self.conn.statement(stmt).await;
+        self.warnings(out).await;
+        let response = response.map_err(|e| stmt_err(e, stmt, 0))?;
+        let before = out.results.len();
+        push_response(response, max_rows, out).await?;
+        let reads = out.results[before..].iter().all(|r| !r.columns.is_empty());
+        match leading_keyword(stmt, &ScriptDialect::generic()).as_deref() {
+            Some("commit" | "rollback") => self.dirty = false,
+            Some("set") if sets_schema(stmt) => {
+                // The schema is the connection's database level: the tab follows it.
+                if let Some(schema) = single_text(&self.conn, "SELECT CURRENT_SCHEMA FROM DUMMY").await? {
+                    self.schema = schema.clone();
+                    out.database = Some(schema);
+                }
+            }
+            _ if !reads => self.dirty = true,
+            _ => {}
+        }
+        Ok(())
+    }
+
     /// The server's warnings of the last statement, with their codes.
     async fn warnings(&self, out: &mut QueryOutcome) {
         for w in self.conn.pop_warnings().await.unwrap_or_default() {
@@ -559,19 +590,15 @@ impl Session for HanaSession {
         select_top(Quote::Double, Limit::Limit, Some(obj.schema().unwrap_or(&self.schema)), &obj.name, limit)
     }
 
+    /// The driver splits the script (`Whole`) and runs it as the app would:
+    /// on editor runs it goes on after errors (`out.continue_on_error`, as
+    /// hdbsql) and reports each statement live (`out.progress_sink`).
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        for (stmt, start) in script::pieces(text) {
-            let response = self.conn.statement(&stmt).await;
-            self.warnings(out).await;
-            let response = response.map_err(|e| stmt_err(e, text, start))?;
-            let before = out.results.len();
-            push_response(response, max_rows, out).await?;
-            let reads = out.results[before..].iter().all(|r| !r.columns.is_empty());
-            match leading_keyword(&stmt, &ScriptDialect::generic()).as_deref() {
-                Some("commit" | "rollback") => self.dirty = false,
-                _ if !reads => self.dirty = true,
-                _ => {}
-            }
+        let own = out.current_statement.is_none();
+        for (i, (stmt, start)) in script::pieces(text).into_iter().enumerate() {
+            let step = steps::Step::start(out, own, i, start, steps::line_at(text, start));
+            let r = self.run_one(&stmt, max_rows, out).await;
+            step.end(out, r)?;
         }
         Ok(())
     }
@@ -983,5 +1010,13 @@ mod tests {
         assert_eq!(i.id, "hana");
         assert_eq!(i.databases_label, "Esquemas");
         assert!(!i.has_schemas);
+    }
+
+    #[test]
+    fn set_schema_is_recognised() {
+        assert!(super::sets_schema("SET SCHEMA \"OTHER\""));
+        assert!(super::sets_schema("/* c */ set\n  schema x"));
+        assert!(!super::sets_schema("SET TRANSACTION ISOLATION LEVEL READ COMMITTED"));
+        assert!(!super::sets_schema("SELECT 1 FROM DUMMY"));
     }
 }

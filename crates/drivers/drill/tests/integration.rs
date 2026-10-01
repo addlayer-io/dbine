@@ -86,7 +86,10 @@ async fn drill() {
     s.execute("USE cp.`default`; SELECT count(*) FROM `employee.json`", 10, &mut out).await.unwrap();
     s.execute("SELECT count(*) AS n FROM `employee.json`", 10, &mut out).await.unwrap();
     assert_eq!(out.results[2].rows[0][0], json!(1155));
+    assert_eq!(out.database.as_deref(), Some("cp.default"), "the tab follows USE");
+    let mut out = QueryOutcome::default();
     s.execute("USE dfs.tmp", 10, &mut out).await.unwrap();
+    assert_eq!(out.database.as_deref(), Some("dfs.tmp"));
 
     // Errors carry Drill's message and stop the script.
     let mut out = QueryOutcome::default();

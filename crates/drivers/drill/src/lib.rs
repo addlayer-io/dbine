@@ -461,6 +461,12 @@ fn use_target(stmt: &str) -> Option<String> {
     (first_words(s, 1) == "USE").then(|| s[3..].trim().replace('`', "")).filter(|x| !x.is_empty())
 }
 
+/// The schema in Drill's `USE` summary: "Default schema changed to [x]".
+fn changed_schema(summary: &str) -> Option<String> {
+    let rest = &summary[summary.find("schema changed to [")? + "schema changed to [".len()..];
+    Some(rest[..rest.rfind(']')?].to_string()).filter(|x| !x.is_empty())
+}
+
 impl DrillSession {
     fn body(&self, sql: &str) -> Value {
         let mut options: serde_json::Map<String, Value> = self.options.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect();
@@ -525,7 +531,11 @@ impl DrillSession {
         *self.cancel.current.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let a = r?;
         if let Some(s) = use_target(bare) {
-            self.schema = Some(s);
+            // Drill's answer names the schema in full ("Default schema
+            // changed to [dfs.tmp]"); the tab follows it.
+            let s = a.rows.iter().flatten().find_map(|v| changed_schema(&text(v))).unwrap_or(s);
+            self.schema = Some(s.clone());
+            out.database = Some(s);
         }
         if let Some((k, v)) = session_option(bare) {
             match v {
@@ -994,6 +1004,8 @@ mod tests {
         assert_eq!(use_target("USE `dfs`.`tmp`").as_deref(), Some("dfs.tmp"));
         assert_eq!(use_target("use dfs.tmp").as_deref(), Some("dfs.tmp"));
         assert_eq!(use_target("USE cp.`default`").as_deref(), Some("cp.default"));
+        assert_eq!(changed_schema("Default schema changed to [dfs.tmp]").as_deref(), Some("dfs.tmp"));
+        assert_eq!(changed_schema("ok"), None);
         let long = format!("SELECT {} FROM t", "x, ".repeat(60));
         assert!(same_query(&format!("{}...", &long[..150]), &long) && same_query("select 1", " select 1") && !same_query("select 2", "select 1"));
         assert!(is_read(" with x as (select 1) select * from x") && !is_read("create table t as select 1"));
