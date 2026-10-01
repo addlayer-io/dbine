@@ -4,6 +4,7 @@ mod babelfish;
 mod backup;
 mod clone;
 mod delta;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -89,6 +90,11 @@ impl Driver for SqlServerDriver {
 
     fn supports_explain(&self) -> bool {
         true
+    }
+
+    /// A Fabric warehouse has no indexes.
+    fn supports_index_usage(&self) -> bool {
+        self.variant != Variant::Fabric
     }
 
     fn supports_profiler(&self) -> bool {
@@ -1045,6 +1051,14 @@ impl Session for SqlServerSession {
     /// One query: IS_SRVROLEMEMBER and HAS_PERMS_BY_NAME (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+
+    /// The catalog plus `sys.dm_db_index_usage_stats` (see `index_usage`).
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        if self.variant == Variant::Fabric {
+            return Ok(None);
+        }
+        index_usage::report(self, table).await.map(Some)
     }
 }
 

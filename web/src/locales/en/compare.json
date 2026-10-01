@@ -112,5 +112,9 @@
   "noObjects": "No objects.",
   "pendingChanges": "Has unapplied changes",
   "pickItem": "Choose a table or object from the list.",
-  "tableProps": "Table properties"
+  "tableProps": "Table properties",
+  "indexUsage": {
+    "share": "{{pct}} of the table's reads in this database ({{reads}} reads)",
+    "unused": "No reads in this database and {{updates}} writes since statistics began"
+  }
 }

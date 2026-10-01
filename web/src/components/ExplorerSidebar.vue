@@ -29,6 +29,7 @@ import CloneTableDialog from './CloneTableDialog.vue';
 import SchemaDialog from './SchemaDialog.vue';
 import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
+import { foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge } from '../composables/indexUsage';
 
 // The explorer: user folders (clients, environments… nested at will) →
 // connections → databases → Queries + the kinds of objects the driver
@@ -41,7 +42,9 @@ type NodeType = 'group' | 'connection' | 'database' | 'schema' | 'folder' | 'que
   // "Migraciones" and its saved migrations.
   | 'migrations' | 'migration'
   // A key database's search row, namespace folders and "Cargar más".
-  | 'keysearch' | 'keyns' | 'keymore';
+  | 'keysearch' | 'keyns' | 'keymore'
+  // A table's "Índices" folder and its indexes.
+  | 'indexes' | 'index';
 
 interface TNode {
   id: string;
@@ -61,6 +64,10 @@ interface TNode {
   count?: number;
   status?: 'loading' | 'error' | 'empty';
   pk?: boolean;
+  /** A foreign-key column: what it references (`dbo.clientes.id`). */
+  fk?: string;
+  /** An index's usage badge ("37%", "sin uso"). */
+  badge?: { text: string; unused: boolean } | null;
   folder?: ConnectionFolder;
   color?: string | null;
   /** A key found by a key search: its type and time to live. */
@@ -349,17 +356,46 @@ function objectNode(c: SavedConnection, db: string, o: DbObject, hasColumns: boo
   };
   if (hasColumns) {
     const cols = conns.columns[objKey(c.id, db, o.schema, o.name)];
+    const usage = indexesShown(c.id, o) ? indexUsageEntry(c.id, db, o) : undefined;
+    const fks = foreignKeyColumns(usage?.report);
     node.children = !cols || cols.status === 'loading'
       ? [status(id, 'loading', t('common:loading'))]
       : cols.status === 'error'
         ? [status(id, 'error', cols.error ?? t('common:error'))]
         : cols.items.length
           ? cols.items.map((col) => ({
-            id: `col:${id}:${col.name}`, label: col.name, type: 'column' as const, hint: col.data_type, pk: col.primary_key,
+            id: `col:${id}:${col.name}`, label: col.name, type: 'column' as const, hint: col.data_type, pk: col.primary_key, fk: fks.get(col.name),
           }))
           : [status(id, 'empty', t('explorer:tree.noColumns'))];
+    if (indexesShown(c.id, o) && cols && cols.status !== 'loading' && cols.status !== 'error') node.children.push(indexesNode(c, db, o, id));
   }
   return node;
+}
+
+/** Tables of engines that report their indexes' usage (SQL Server…). */
+function indexesShown(connectionId: string, o: DbObject): boolean {
+  return o.kind === 'table' && !!conns.driverOf(connectionId)?.supports_index_usage;
+}
+
+/** The "Índices" folder below a table's columns. */
+function indexesNode(c: SavedConnection, db: string, o: DbObject, parentId: string): TNode {
+  const id = `ixs:${parentId}`;
+  const usage = indexUsageEntry(c.id, db, o);
+  const list = usage?.report?.indexes ?? [];
+  return {
+    id, label: t('explorer:indexes.folder'), type: 'indexes', connectionId: c.id, database: db, object: o,
+    count: usage?.status === 'ready' ? list.length : undefined,
+    children: !usage || (usage.status === 'loading' && !usage.report)
+      ? [status(id, 'loading', t('common:loading'))]
+      : usage.status === 'error'
+        ? [status(id, 'error', usage.error ?? t('common:error'))]
+        : list.length
+          ? list.map((i) => ({
+            id: `ix:${id}:${i.name}`, label: i.name, type: 'index' as const, connectionId: c.id, database: db, object: o,
+            hint: indexTag(i), badge: usageBadge(i),
+          }))
+          : [status(id, 'empty', t('explorer:indexes.none'))],
+  };
 }
 
 function connectionNode(c: SavedConnection): TNode {
@@ -452,6 +488,8 @@ async function onExpand(n: TNode) {
     loadDatabase(n.connectionId, n.database ?? '');
   } else if (n.type === 'object' && n.object && n.connectionId) {
     conns.loadColumns(n.connectionId, n.database ?? '', n.object);
+    // The indexes and foreign keys load with the columns.
+    if (indexesShown(n.connectionId, n.object)) loadIndexUsage(n.connectionId, n.database ?? '', n.object);
   }
 }
 function loadDatabase(connectionId: string, database: string, force = false) {
@@ -728,13 +766,31 @@ async function onContext(e: MouseEvent, n: TNode) {
         });
       }
       items.push({ label: t('explorer:menu.copyName'), divided: true, action: () => copy(o.schema ? `${o.schema}.${o.name}` : o.name) });
-      if (kind?.has_columns) items.push({ label: t('explorer:menu.refreshColumns'), action: () => conns.loadColumns(cid!, db, o, true) });
+      if (indexesShown(cid!, o)) items.splice(kind?.has_columns ?? true ? 2 : 1, 0, { label: t('explorer:indexes.menu'), action: () => tabs.openIndexes(cid!, db, ref) });
+      if (kind?.has_columns) {
+        items.push({
+          label: t('explorer:menu.refreshColumns'),
+          action: () => {
+            conns.loadColumns(cid!, db, o, true);
+            if (indexesShown(cid!, o)) loadIndexUsage(cid!, db, ref, true);
+          },
+        });
+      }
       items.push({ label: t('explorer:menu.deleteEllipsis'), danger: true, divided: true, action: () => dropObjects(cid!, db, [ref]) });
       break;
     }
     case 'column':
       items.push({ label: t('explorer:menu.copyName'), action: () => copy(n.label) });
       break;
+    case 'indexes':
+    case 'index': {
+      const o = n.object!;
+      const ref = { kind: o.kind, schema: o.schema, name: o.name };
+      items.push({ label: t('explorer:indexes.menu'), action: () => tabs.openIndexes(cid!, db, ref, n.type === 'index' ? n.label : null) });
+      if (n.type === 'index') items.push({ label: t('explorer:menu.copyName'), action: () => copy(n.label) });
+      items.push({ label: t('common:refresh'), divided: true, action: () => loadIndexUsage(cid!, db, ref, true) });
+      break;
+    }
     case 'keyns': {
       const ks = conns.driverOf(cid!)?.key_search;
       const shown = ks?.syntax === 'glob' ? `${n.prefix}*` : n.prefix;
@@ -1028,6 +1084,11 @@ function onClick(n: TNode, node: { expanded: boolean; isLeaf?: boolean }, e?: Mo
     return;
   }
   if (n.type === 'keysearch') return;
+  if (n.type === 'index' && n.object && n.connectionId) {
+    const o = n.object;
+    tabs.openIndexes(n.connectionId, n.database ?? '', { kind: o.kind, schema: o.schema, name: o.name }, n.label);
+    return;
+  }
   if (picked.value.size) picked.value = new Set();
   anchor = n;
   // Objects and queries open on click (expanding them needs the arrow);
@@ -1158,7 +1219,12 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
               <ei-circle-close-filled v-else-if="n.state === 'failed'" /><ei-warning-filled v-else-if="n.state === 'interrupted'" />
               <ei-remove-filled v-else-if="n.state === 'cancelled'" /><ei-edit-pen v-else />
             </el-icon>
-            <el-icon v-else-if="n.type === 'column'" class="ex-ic" :class="{ pk: n.pk }"><ei-key v-if="n.pk" /><ei-minus v-else /></el-icon>
+            <el-icon
+              v-else-if="n.type === 'column'" class="ex-ic" :class="{ pk: n.pk, fk: n.fk && !n.pk }"
+              :title="n.fk ? $t('explorer:indexes.fkTitle', { target: n.fk }) : undefined"
+            ><ei-key v-if="n.pk" /><ei-link v-else-if="n.fk" /><ei-minus v-else /></el-icon>
+            <el-icon v-else-if="n.type === 'indexes'" class="ex-ic o"><ei-collection /></el-icon>
+            <el-icon v-else-if="n.type === 'index'" class="ex-ic ix"><ei-sort /></el-icon>
             <el-icon v-else-if="n.type === 'status' && n.status === 'loading'" class="ex-ic is-loading"><ei-loading /></el-icon>
             <el-icon v-else-if="n.type === 'status' && n.status === 'error'" class="ex-ic err"><ei-warning /></el-icon>
             <KeySearchRow v-else-if="n.type === 'keysearch'" :connection-id="n.connectionId" :database="n.database ?? ''" />
@@ -1181,6 +1247,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
               </span>
             </span>
             <span v-if="n.count !== undefined" class="ex-count">{{ n.count }}</span>
+            <span v-if="n.badge" class="ex-ixbadge" :class="{ unused: n.badge.unused }" :title="n.badge.unused ? $t('explorer:indexes.unusedTitle') : $t('explorer:indexes.shareTitle')">{{ n.badge.text }}</span>
             <span v-if="n.hint" class="ex-hint">{{ n.hint }}</span>
           </span>
         </template>
@@ -1260,6 +1327,10 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ic.q { color: #75beff; }
 .ex-ic.o { color: #4ec9b0; }
 .ex-ic.pk { color: #d7ba7d; }
+.ex-ic.fk { color: #8ab4f8; }
+.ex-ic.ix { color: var(--nm-text-dim); }
+.ex-ixbadge { flex: none; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; line-height: 15px; background: color-mix(in srgb, var(--nm-accent) 18%, transparent); color: var(--nm-text); }
+.ex-ixbadge.unused { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
 .ex-ic.err { color: var(--nm-danger); }
 .ex-ic.mg { color: var(--nm-text-dim); }
 .ex-ic.mg.running { color: var(--nm-accent); }

@@ -16,6 +16,8 @@ pub struct DriverDescriptor {
     /// "Comparar esquemas" can apply changes to it.
     supports_schema_sync: bool,
     supports_profiler: bool,
+    /// A table's indexes with their usage (`Session::index_usage`).
+    supports_index_usage: bool,
     /// Databases of keys, searched on the server (Redis, etcd).
     key_search: Option<dbine_driver::KeySearch>,
     capabilities: dbine_driver::Capabilities,
@@ -46,6 +48,7 @@ pub async fn list_drivers() -> CommandResult<Vec<DriverDescriptor>> {
             supports_explain: d.supports_explain(),
             supports_schema_sync: d.supports_schema_sync(),
             supports_profiler: d.supports_profiler(),
+            supports_index_usage: d.supports_index_usage(),
             key_search: d.key_search(),
             capabilities: d.capabilities(),
             designer: d.designer(),

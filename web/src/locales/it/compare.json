@@ -112,5 +112,9 @@
   "noObjects": "Nessun oggetto.",
   "pendingChanges": "Con modifiche non applicate",
   "pickItem": "Scegli una tabella o un oggetto dall'elenco.",
-  "tableProps": "Proprietà della tabella"
+  "tableProps": "Proprietà della tabella",
+  "indexUsage": {
+    "share": "{{pct}} delle letture della tabella in questo database ({{reads}} letture)",
+    "unused": "Nessuna lettura in questo database e {{updates}} scritture da quando sono iniziate le statistiche"
+  }
 }

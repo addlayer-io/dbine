@@ -17,6 +17,7 @@ pub mod backup;
 pub mod config;
 pub mod ddl;
 pub mod error;
+pub mod index_usage;
 pub mod info;
 pub mod keys;
 pub mod filter;
@@ -37,6 +38,7 @@ pub use alter::{SyncScript, TableChange};
 pub use backup::{BackupAction, BackupEntry, BackupSpec};
 pub use config::ConnectionConfig;
 pub use error::{Error, Result};
+pub use index_usage::{IndexUsage, IndexUsageReport};
 pub use info::{kinds, DriverInfo, Family, Field, FieldKind, FieldSection, FieldWhen, Language, ObjectKindInfo};
 pub use filter::{ColumnFilter, FilterOp};
 pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
@@ -83,6 +85,12 @@ pub trait Driver: Send + Sync {
     /// Its sessions implement the profiler ([`Session::profiler_start`]);
     /// the UI offers "Profiler" on its databases only then.
     fn supports_profiler(&self) -> bool {
+        false
+    }
+
+    /// Its sessions implement [`Session::index_usage`]: the explorer lists a
+    /// table's indexes with their usage, and "Índices…" opens the details.
+    fn supports_index_usage(&self) -> bool {
         false
     }
 
@@ -697,6 +705,14 @@ pub trait Session: Send {
     async fn permissions(&mut self, database: Option<&str>) -> Result<Permissions> {
         let _ = database;
         Ok(Permissions::default())
+    }
+
+    /// `table`'s indexes and how they're used (see [`index_usage`]). `None`:
+    /// the engine doesn't report it ([`Driver::supports_index_usage`]).
+    /// The app fills the derived numbers ([`IndexUsageReport::derive`]).
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<IndexUsageReport>> {
+        let _ = table;
+        Ok(None)
     }
 }
 

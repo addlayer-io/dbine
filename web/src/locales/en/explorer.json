@@ -103,5 +103,32 @@
     "helpEnter": "Enter to search on the server.",
     "typeTitle": "Only keys of this type",
     "showAll": "Show all keys"
+  },
+  "indexes": {
+    "folder": "Indexes",
+    "tab": "Indexes",
+    "menu": "Indexes…",
+    "none": "No indexes",
+    "unused": "unused",
+    "unusedTitle": "Written to but never read by any query since statistics began",
+    "shareTitle": "Share of the table's reads that go through this index",
+    "fkTitle": "Foreign key → {{target}}",
+    "refresh": "Refresh",
+    "copy": "Copy",
+    "copied": "Copied",
+    "since": "Statistics since {{since}} (SQL Server resets them when the service restarts; on Azure SQL also on a failover).",
+    "sinceRestart": "Statistics since the last service restart (SQL Server resets them when the service restarts; on Azure SQL also on a failover).",
+    "unsupported": "This engine doesn't report index usage.",
+    "col": {
+      "name": "Name",
+      "type": "Type",
+      "keys": "Key columns",
+      "filter": "Filter",
+      "size": "Size",
+      "readShare": "% reads",
+      "writesPerRead": "Writes/reads",
+      "lastRead": "Last read",
+      "lastWrite": "Last write"
+    }
   }
 }

@@ -1316,6 +1316,9 @@
  "Babelfish no admite permisos sobre la base entera: elegí un esquema o un objeto": [
   "crates/drivers/sqlserver/src/security.rs"
  ],
+ "Babelfish no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/sqlserver/src/index_usage.rs"
+ ],
  "Babelfish no permite otorgar sobre un esquema con opción de otorgar: hacelo sin ella o sobre cada objeto": [
   "crates/drivers/sqlserver/src/security.rs"
  ],
@@ -11876,6 +11879,12 @@
  ],
  "Para ver consultas por segundo y las más costosas, instalá pg_stat_statements en esta base (shared_preload_libraries y CREATE EXTENSION pg_stat_statements).": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Para ver cuánto se usa cada índice el usuario necesita el permiso VIEW DATABASE STATE. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/sqlserver/src/index_usage.rs"
+ ],
+ "Para ver cuánto se usa cada índice el usuario necesita el permiso VIEW SERVER STATE (VIEW SERVER PERFORMANCE STATE desde SQL Server 2022). Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/sqlserver/src/index_usage.rs"
  ],
  "Para ver las consultas de las demás sesiones el usuario necesita leer V$SESSION y V$SQLSTATS (SELECT_CATALOG_ROLE o SELECT ANY DICTIONARY).": [
   "crates/drivers/oracle/src/profiler.rs"

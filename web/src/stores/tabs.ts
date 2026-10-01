@@ -115,7 +115,15 @@ export interface BackupsTab extends TabBase {
   kind: 'backups';
 }
 
-export type Tab = QueryTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | ConnectionFormTab;
+/** "Índices · <tabla>": a table's indexes and how they're used. */
+export interface IndexesTab extends TabBase {
+  kind: 'indexes';
+  object: ObjectRef;
+  /** The index to show highlighted (clicked in the explorer). */
+  focus?: string | null;
+}
+
+export type Tab = QueryTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | ConnectionFormTab;
 
 const KEY = 'dbine.tabs';
 
@@ -298,6 +306,19 @@ export const useTabsStore = defineStore('tabs', {
       const open = this.tabs.find((t) => t.kind === 'backups' && t.connectionId === connectionId && t.database === database);
       if (open) return this.activate(open.id);
       this.place({ id: newId(), kind: 'backups', connectionId, database, preview: false });
+    },
+
+    /** A table's "Índices" tab (one per table), focusing `focus` when given. */
+    openIndexes(connectionId: string, database: string, object: ObjectRef, focus: string | null = null) {
+      const open = this.tabs.find(
+        (t) => t.kind === 'indexes' && t.connectionId === connectionId && t.database === database &&
+          t.object.schema === object.schema && t.object.name === object.name,
+      ) as IndexesTab | undefined;
+      if (open) {
+        open.focus = focus;
+        return this.activate(open.id);
+      }
+      this.place({ id: newId(), kind: 'indexes', connectionId, database, object, focus, preview: false });
     },
 
     openDataCompare(connectionId: string, database: string, object: ObjectRef | null) {

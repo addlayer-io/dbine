@@ -77,6 +77,48 @@ export interface DriverInfo {
   script_defaults?: ScriptDefaults;
   /** The editor offers the Auto/Manual transactions toggle. */
   supports_manual_transactions?: boolean;
+  /** A table's indexes with their usage (`Session::index_usage`). */
+  supports_index_usage?: boolean;
+}
+
+/** One index and how it's used (`dbine_driver::IndexUsage`). The last four
+ *  fields are derived by the backend (`IndexUsageReport::derive`). */
+export interface IndexUsage {
+  name: string;
+  /** `CLUSTERED`, `NONCLUSTERED`, `CLUSTERED COLUMNSTORE`… */
+  kind: string;
+  unique: boolean;
+  primary_key: boolean;
+  /** In key order; descending ones end in ` DESC`. */
+  key_columns: string[];
+  included_columns: string[];
+  filter: string | null;
+  size_kb: number | null;
+  seeks: number;
+  scans: number;
+  lookups: number;
+  updates: number;
+  last_read: string | null;
+  last_write: string | null;
+  /** seeks + scans + lookups. */
+  reads: number;
+  /** This index's reads over the table's (0–1); null when the table has none. */
+  read_share: number | null;
+  /** Written but never read. */
+  unused: boolean;
+  /** updates / reads; null without reads. */
+  writes_per_read: number | null;
+}
+
+/** A table's indexes, their usage and its foreign keys. */
+export interface IndexUsageReport {
+  /** When the counters started (server time), when the engine says. */
+  since: string | null;
+  /** false: the login can't see the counters (all 0; see `note`). */
+  stats_available: boolean;
+  note: string | null;
+  indexes: IndexUsage[];
+  foreign_keys: import('./schema-types').ForeignKeyDef[];
 }
 
 /** `Driver::script_mode`: statement by statement, batch by batch (T-SQL `GO`), or one call. */

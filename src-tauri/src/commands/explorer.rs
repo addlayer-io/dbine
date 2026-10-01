@@ -106,6 +106,18 @@ pub async fn get_permissions(state: State<'_, AppState>, args: DatabaseArgs) -> 
         .await
 }
 
+/// A table's indexes and how they're used, with the derived numbers
+/// (reads, read share, unused) filled here for every driver. `None`: the
+/// driver doesn't report it.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_index_usage(state: State<'_, AppState>, args: ObjectArgs) -> CommandResult<Option<dbine_driver::IndexUsageReport>> {
+    let object = args.object;
+    let report = state
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| Box::pin(async move { s.index_usage(&object).await }))
+        .await?;
+    Ok(report.map(dbine_driver::IndexUsageReport::derived))
+}
+
 #[derive(Deserialize)]
 pub struct ScanKeysArgs {
     pub connection_id: String,
