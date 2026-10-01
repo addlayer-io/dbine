@@ -69,6 +69,7 @@ use packstream::{map, Value as Bolt};
 use steps::Step;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub use ddl::CONSTRAINT;
@@ -332,6 +333,8 @@ impl Driver for GraphDriver {
             params: Vec::new(),
             tx: false,
             manual: false,
+            interrupted: Arc::default(),
+            line_base: 0,
         };
         if self.flavor == Flavor::Memgraph && !s.db.is_empty() && s.db != MEMGRAPH_DEFAULT_DB {
             let q = format!("USE DATABASE {}", cypher::ident(&s.db));
@@ -373,6 +376,15 @@ pub struct GraphSession {
     tx: bool,
     /// Manual transactions: the first statement opens one.
     manual: bool,
+    /// Set by the interrupter: the server fails the terminated statement
+    /// with an ordinary error (Neo.ClientError.Transaction.Terminated), so
+    /// `execute` turns it into a cancel and runs nothing more, even on a
+    /// run that continues on errors.
+    interrupted: Arc<AtomicBool>,
+    /// Lines before the running statement in the text `execute` numbers
+    /// itself (`Whole`), so its notifications carry their script line;
+    /// 0 otherwise (the app moves them).
+    line_base: u32,
 }
 
 /// What a statement returned, besides its rows.
@@ -508,7 +520,8 @@ impl GraphSession {
             out.info(summary);
         }
         if let Some(m) = meta {
-            for n in notification_messages(m) {
+            for mut n in notification_messages(m) {
+                n.line = n.line.map(|l| l + self.line_base);
                 out.message(n);
             }
             if let Some(p) = plan::neo4j(stmt, m) {
@@ -1358,13 +1371,22 @@ impl Session for GraphSession {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
         }
         let own = out.current_statement.is_none();
+        self.interrupted.store(false, Ordering::SeqCst);
         for (i, u) in units.iter().enumerate() {
+            if self.interrupted.load(Ordering::SeqCst) {
+                return Err(Error::Cancelled);
+            }
             let step = Step::start(out, own, i, u.start, u.line);
             let in_tx = self.tx;
+            self.line_base = if own { u.line.saturating_sub(1) } else { 0 };
             let r = if u.command { self.command(&u.text, max_rows, out).await } else { self.cypher(&u.text, max_rows, out).await };
+            self.line_base = 0;
             let r = r.map_err(|e| {
                 if in_tx && !self.tx {
                     out.warning("La transacción se deshizo por el error: sus cambios no se guardaron.");
+                }
+                if self.interrupted.load(Ordering::SeqCst) {
+                    return Error::Cancelled;
                 }
                 structured(e, &u.text)
             });
@@ -1494,11 +1516,13 @@ impl Session for GraphSession {
 
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         let handle = tokio::runtime::Handle::try_current().ok()?;
+        let interrupted = self.interrupted.clone();
         match &self.transport {
             Transport::Bolt(c) => {
                 let target = self.target.clone()?;
                 let (flavor, tag, conn_id) = (self.flavor, self.tag.clone(), c.connection_id.clone());
                 Some(Arc::new(move || {
+                    interrupted.store(true, Ordering::SeqCst);
                     let (target, tag, conn_id) = (target.clone(), tag.clone(), conn_id.clone());
                     handle.spawn(async move {
                         if let Err(e) = terminate(flavor, &target, &tag, &conn_id).await {
@@ -1510,6 +1534,7 @@ impl Session for GraphSession {
             Transport::Http(c) => {
                 let (c, current) = (c.clone(), self.current.clone());
                 Some(Arc::new(move || {
+                    interrupted.store(true, Ordering::SeqCst);
                     let q = current.lock().expect("current").clone();
                     if q.is_empty() {
                         return;

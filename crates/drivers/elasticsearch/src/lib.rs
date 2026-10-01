@@ -33,7 +33,7 @@ use dbine_driver::{
 };
 use json::J;
 use steps::Step;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -174,6 +174,17 @@ fn es_error_code(status: u16, body: &str) -> String {
         .ok()
         .and_then(|j| j.at(&["error", "type"]).and_then(J::as_str).map(str::to_string))
         .unwrap_or_else(|| format!("HTTP {status}"))
+}
+
+/// `line N:M` of a SQL error message: where in the statement the server
+/// found the problem (1-based line and column).
+fn sql_position(msg: &str) -> Option<(u32, u32)> {
+    msg.match_indices("line ").find_map(|(i, _)| {
+        let rest = &msg[i + 5..];
+        let (l, rest) = rest.split_once(':')?;
+        let c: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        Some((l.parse().ok().filter(|l| *l > 0)?, c.parse().ok()?))
+    })
 }
 
 pub fn es_error_message(status: u16, body: &str) -> String {
@@ -371,6 +382,7 @@ impl Driver for Es {
             version,
             opaque_id: new_opaque_id(),
             profiler: None,
+            interrupted: Arc::default(),
         }))
     }
 }
@@ -388,6 +400,10 @@ struct EsSession {
     opaque_id: String,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// Set by the interrupter: a cancelled task fails its request with an
+    /// ordinary HTTP error, so `execute` turns it into a cancel and runs
+    /// nothing more, even on a run that continues on errors.
+    interrupted: Arc<AtomicBool>,
 }
 
 fn rcol(name: &str, ty: &str) -> ResultColumn {
@@ -602,7 +618,15 @@ impl EsSession {
         if !self.opensearch || stmt.trim_start().get(..6).is_some_and(|w| w.eq_ignore_ascii_case("select")) {
             body["fetch_size"] = fetch.into();
         }
-        let text = self.call(self.request("POST", path).json(&body)).await?;
+        let (status, text) = http::send(self.request("POST", path).json(&body)).await?;
+        if status >= 400 {
+            let msg = es_error_message(status, &text);
+            let mut se = ScriptError::new(msg.clone()).with_code(es_error_code(status, &text));
+            if let Some((line, col)) = sql_position(&msg) {
+                se = se.at_line(line).at_offset(steps::offset_of(stmt, line, col));
+            }
+            return Err(Error::Statement(Box::new(se)));
+        }
         let resp = J::parse(&text).map_err(|e| Error::Query(format!("Respuesta SQL inesperada: {e}")))?;
         self.push_sql(&resp, max_rows, out).await
     }
@@ -748,12 +772,17 @@ impl Session for EsSession {
             return Err(Error::Query("No hay ninguna petición para ejecutar.".into()));
         }
         let own = out.current_statement.is_none();
+        self.interrupted.store(false, Ordering::SeqCst);
         for (i, c) in cmds.iter().enumerate() {
+            if self.interrupted.load(Ordering::SeqCst) {
+                return Err(Error::Cancelled);
+            }
             let step = Step::start(out, own, i, c.offset, c.line);
             let r = match &c.command {
                 Command::Http(r) => self.run_request(r, max_rows, out).await,
                 Command::Sql(s) => self.run_sql(s, max_rows, out).await,
             };
+            let r = r.map_err(|e| if self.interrupted.load(Ordering::SeqCst) { Error::Cancelled } else { e });
             step.end(out, r)?;
         }
         Ok(())
@@ -899,7 +928,9 @@ impl Session for EsSession {
 
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         let (client, base, id) = (self.client.clone(), self.base.clone(), self.opaque_id.clone());
+        let interrupted = self.interrupted.clone();
         Some(Arc::new(move || {
+            interrupted.store(true, Ordering::SeqCst);
             let (client, base, id) = (client.clone(), base.clone(), id.clone());
             // Called from any thread, maybe outside a runtime: use our own.
             std::thread::spawn(move || {
@@ -933,6 +964,15 @@ async fn cancel_tasks(client: &reqwest::Client, base: &str, opaque_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sql_error_positions() {
+        let m = "verification_exception: Found 1 problem\nline 2:8: Unknown column [nope]";
+        assert_eq!(sql_position(m), Some((2, 8)));
+        assert_eq!(sql_position("parsing_exception: line 1:15: mismatched input"), Some((1, 15)));
+        assert_eq!(sql_position("no position here"), None);
+        assert_eq!(steps::offset_of("SELECT a\nFROM t WHERE", 2, 6), 14);
+    }
 
     #[test]
     fn error_codes() {

@@ -2,7 +2,7 @@
 //! one's results carry its place in the script and its time, and its
 //! error the script offset and line, as when the app splits the script.
 
-use dbine_driver::{Error, QueryOutcome, ScriptError};
+use dbine_driver::{Error, QueryOutcome, Result, ScriptError, StatementEnd};
 use std::time::Instant;
 
 /// A statement of the text `execute` got, while it runs.
@@ -10,7 +10,10 @@ pub struct Step {
     /// The app handed over the text without numbering its statements
     /// (`Whole`): this driver numbers them.
     own: bool,
+    index: usize,
     r0: usize,
+    l0: usize,
+    e0: usize,
     /// Byte offset and 1-based line of the statement in that text.
     offset: usize,
     line: u32,
@@ -24,7 +27,51 @@ impl Step {
         if own {
             out.current_statement = Some(index);
         }
-        Step { own, r0: out.results.len(), offset, line, started: Instant::now() }
+        out.adopt_plain_messages();
+        Step { own, index, r0: out.results.len(), l0: out.log.len(), e0: out.errors.len(), offset, line, started: Instant::now() }
+    }
+
+    /// It ended with `r`: [`Self::finish`], then, on an editor run, its
+    /// failure is recorded and the statement reported live. `Ok` when the
+    /// script goes on: it succeeded, or it failed and the run continues on
+    /// errors (as the engine's shell does) and the error doesn't end the
+    /// script. Otherwise the placed error, already recorded on an editor
+    /// run (the app doesn't record it twice).
+    pub fn end(&self, out: &mut QueryOutcome, r: Result<()>) -> Result<()> {
+        self.finish(out);
+        let failed = match r {
+            Ok(()) => None,
+            Err(e) => Some(self.place(e)),
+        };
+        if !self.own {
+            return failed.map_or(Ok(()), Err);
+        }
+        let editor = out.continue_on_error.is_some() || out.progress_sink.is_some();
+        if let Some(e) = &failed {
+            if matches!(e, Error::Cancelled) {
+                return Err(Error::Cancelled);
+            }
+            if editor {
+                out.push_error(e.to_script_error());
+            }
+        }
+        out.adopt_plain_messages();
+        if let Some(sink) = out.progress_sink.clone() {
+            let end = StatementEnd {
+                statement: self.index,
+                offset: self.offset,
+                line: self.line,
+                elapsed_ms: self.started.elapsed().as_millis() as u64,
+                results: out.results.get(self.r0..).unwrap_or_default().to_vec(),
+                log: out.log.get(self.l0..).unwrap_or_default().to_vec(),
+                errors: out.errors.get(self.e0..).unwrap_or_default().to_vec(),
+            };
+            (sink.0)(&end);
+        }
+        match failed {
+            Some(e) if out.continue_on_error != Some(true) || e.ends_script() => Err(e),
+            _ => Ok(()),
+        }
     }
 
     /// It ended: its results get its number, place and time.
@@ -107,5 +154,39 @@ mod tests {
         assert_eq!(offset_of("ab\ncdé f", 2, 4), 7);
         assert_eq!(offset_of("abc", 1, 1), 0);
         assert_eq!(line_at("a\nb\nc", 4), 3);
+    }
+
+    #[test]
+    fn steps_continue_and_report_on_editor_runs() {
+        use std::sync::{Arc, Mutex};
+        // Not an editor run: the first failure stops it, unrecorded.
+        let mut out = QueryOutcome::default();
+        let s = Step::start(&mut out, true, 0, 0, 1);
+        assert!(s.end(&mut out, Err(Error::Query("x".into()))).is_err());
+        assert!(out.errors.is_empty());
+        // Editor run that continues: recorded, reported, goes on.
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let s2 = seen.clone();
+        let mut out = QueryOutcome {
+            continue_on_error: Some(true),
+            progress_sink: Some(dbine_driver::ProgressSinkRef(Arc::new(move |e: &StatementEnd| {
+                s2.lock().unwrap().push((e.statement, e.errors.len(), e.results.len()))
+            }))),
+            ..Default::default()
+        };
+        let s = Step::start(&mut out, true, 0, 0, 1);
+        out.push_affected(1);
+        assert!(s.end(&mut out, Ok(())).is_ok());
+        let s = Step::start(&mut out, true, 1, 5, 2);
+        assert!(s.end(&mut out, Err(Error::Query("boom".into()))).is_ok());
+        assert_eq!(out.errors[0].line, Some(2));
+        assert_eq!(*seen.lock().unwrap(), vec![(0, 0, 1), (1, 1, 0)]);
+        // A lost connection ends it anyway; a stopping run returns the error.
+        let s = Step::start(&mut out, true, 2, 9, 3);
+        assert!(s.end(&mut out, Err(Error::Connect("gone".into()))).is_err());
+        out.continue_on_error = Some(false);
+        let s = Step::start(&mut out, true, 3, 12, 4);
+        assert!(s.end(&mut out, Err(Error::Query("x".into()))).is_err());
+        assert_eq!(out.errors.len(), 3);
     }
 }

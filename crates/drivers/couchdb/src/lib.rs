@@ -201,10 +201,7 @@ impl Driver for CouchDriver {
         let db = database.filter(|d| !d.is_empty()).unwrap_or(&cfg.database).to_string();
         let auth = cfg.username.clone().filter(|u| !u.is_empty()).map(|u| (u, cfg.password.clone()));
         let mut s = CouchSession { http, base: base_url(cfg), db, auth, read_only: cfg.read_only, version: String::new() };
-        let welcome = s.call(Method::GET, "/", None).await.map_err(|e| match e {
-            Error::Query(m) => Error::Connect(m),
-            e => e,
-        })?;
+        let welcome = s.call(Method::GET, "/", None).await.map_err(|e| if e.is_query() { Error::Connect(e.to_string()) } else { e })?;
         s.version = welcome.get("version").and_then(Value::as_str).unwrap_or("?").to_string();
         // With no database chosen, the first user database.
         if s.db.is_empty() {
@@ -245,7 +242,14 @@ impl CouchSession {
             (Some(e), Some(r)) => format!("{}: {}", as_text(e), as_text(r)),
             _ => format!("HTTP {status}: {}", as_text(&v)),
         };
-        Err(if status == StatusCode::UNAUTHORIZED { Error::AuthFailed(msg) } else { Error::Query(msg) })
+        if status == StatusCode::UNAUTHORIZED {
+            return Err(Error::AuthFailed(msg));
+        }
+        // CouchDB's `error` ("not_found", "bad_request", "conflict"…) is its code.
+        Err(match v.get("error").map(as_text).filter(|c| !c.is_empty()) {
+            Some(code) => Error::Statement(Box::new(dbine_driver::ScriptError::new(msg).with_code(code))),
+            None => Error::Query(msg),
+        })
     }
 
     fn db_path(&self) -> Result<String> {
@@ -506,7 +510,7 @@ impl Session for CouchSession {
             }
             Ok(other) => Err(Error::Query(format!("respuesta inesperada de /_all_dbs: {other}"))),
             // Non-admins can't list databases (CouchDB 3): the session's one.
-            Err(Error::Query(_)) | Err(Error::AuthFailed(_)) if !self.db.is_empty() => Ok(vec![self.db.clone()]),
+            Err(Error::Query(_) | Error::Statement(_) | Error::AuthFailed(_)) if !self.db.is_empty() => Ok(vec![self.db.clone()]),
             Err(e) => Err(e),
         }
     }

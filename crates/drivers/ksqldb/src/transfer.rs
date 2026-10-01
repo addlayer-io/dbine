@@ -193,7 +193,7 @@ impl KsqlSession {
             .await
             .map_err(http_error)?;
         let resp = match check(resp).await {
-            Err(Error::Query(m)) if m.contains("isn't queryable") => {
+            Err(e) if e.is_query() && e.to_string().contains("isn't queryable") => {
                 return Err(Error::Unsupported(format!(
                     "{} no se puede leer entera: ksqlDB solo lee hasta el final las tablas consultables (CREATE SOURCE TABLE o CREATE TABLE … AS SELECT); de una tabla común solo da consultas push, que no terminan",
                     spec.table.name

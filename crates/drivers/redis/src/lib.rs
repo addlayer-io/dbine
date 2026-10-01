@@ -202,7 +202,7 @@ impl Driver for RedisDriver {
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
             .map_err(connect_err)?;
-        Ok(Box::new(RedisSession { conn, client, db, read_only: cfg.read_only, types: HashMap::new(), profiler: None, scan_type: true, multi: false }))
+        Ok(Box::new(RedisSession { conn, client, db, read_only: cfg.read_only, types: HashMap::new(), profiler: None, scan_type: true, multi: false, queued: 0, queued_db: None }))
     }
 }
 
@@ -270,6 +270,11 @@ pub struct RedisSession {
     scan_type: bool,
     /// A `MULTI` is open: commands are queued until `EXEC` / `DISCARD`.
     multi: bool,
+    /// Commands queued in the open `MULTI`.
+    queued: usize,
+    /// The last `SELECT` queued in the open `MULTI` (its place in the
+    /// queue and the database): it only switches at `EXEC`.
+    queued_db: Option<(usize, i64)>,
 }
 
 impl RedisSession {
@@ -310,12 +315,41 @@ impl RedisSession {
         let reply = self.send_raw(&args).await.map_err(command_err);
         // A refused command inside MULTI makes EXEC fail (EXECABORT): the
         // transaction is over either way.
+        let was_multi = self.multi;
+        let mut switch_to = None;
         match (name.as_str(), &reply) {
-            ("MULTI", Ok(_)) => self.multi = true,
-            ("EXEC" | "DISCARD", _) => self.multi = false,
+            ("MULTI", Ok(_)) => {
+                self.multi = true;
+                self.queued = 0;
+                self.queued_db = None;
+            }
+            ("EXEC" | "DISCARD", _) => {
+                self.multi = false;
+                // EXEC switches to the last queued SELECT that didn't fail.
+                if let (Some((at, db)), "EXEC", Ok(Value::Array(items))) = (self.queued_db.take(), name.as_str(), &reply) {
+                    if !matches!(items.get(at), Some(Value::ServerError(_))) {
+                        switch_to = Some(db);
+                    }
+                }
+            }
             _ => {}
         }
         let reply = reply?;
+        let select = (name == "SELECT").then(|| cmd.get(1).and_then(|d| std::str::from_utf8(d).ok()?.parse::<i64>().ok())).flatten();
+        if was_multi && self.multi && name != "MULTI" {
+            if let Some(db) = select {
+                self.queued_db = Some((self.queued, db));
+            }
+            self.queued += 1;
+        } else if let Some(db) = select {
+            switch_to = Some(db);
+        }
+        if let Some(db) = switch_to {
+            self.db = db;
+            self.types.clear();
+            // The tab's database selector follows it.
+            out.database = Some(format!("db{db}"));
+        }
         if name == "EXEC" {
             // As redis-cli: a command that failed inside the transaction is
             // an error line of the reply; the others were applied.
@@ -327,12 +361,6 @@ impl RedisSession {
                         items.len()
                     ));
                 }
-            }
-        }
-        if name == "SELECT" {
-            if let Some(db) = cmd.get(1).and_then(|d| std::str::from_utf8(d).ok()?.parse().ok()) {
-                self.db = db;
-                self.types.clear();
             }
         }
         let table = shape::shape(cmd, reply);
