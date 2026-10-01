@@ -29,7 +29,9 @@ import CloneTableDialog from './CloneTableDialog.vue';
 import SchemaDialog from './SchemaDialog.vue';
 import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
-import { foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge } from '../composables/indexUsage';
+import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
+import DropIndexDialog from './DropIndexDialog.vue';
+import { dropIndexItem, type DropIndexTarget } from '../composables/dropIndex';
 
 // The explorer: user folders (clients, environments… nested at will) →
 // connections → databases → Queries + the kinds of objects the driver
@@ -67,7 +69,7 @@ interface TNode {
   /** A foreign-key column: what it references (`dbo.clientes.id`). */
   fk?: string;
   /** An index's usage badge ("37%", "sin uso"). */
-  badge?: { text: string; unused: boolean } | null;
+  badge?: UsageBadge | null;
   folder?: ConnectionFolder;
   color?: string | null;
   /** A key found by a key search: its type and time to live. */
@@ -521,6 +523,8 @@ function open(n: TNode, preview: boolean) {
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 /** "Clonar…": the table being cloned. */
 const cloning = ref<{ connectionId: string; database: string; object: { kind: string; schema: string | null; name: string } } | null>(null);
+/** "Eliminar índice…": the index being dropped. */
+const droppingIndex = ref<DropIndexTarget | null>(null);
 /** "Nuevo esquema…" / "Borrar esquema…": the dialog open. */
 const schemaDialog = ref<{ connectionId: string; database: string; mode: 'create' | 'drop'; schema?: string } | null>(null);
 /** Schemas can be created and dropped here: the engine has them and the connection isn't read-only. */
@@ -789,6 +793,8 @@ async function onContext(e: MouseEvent, n: TNode) {
       items.push({ label: t('explorer:indexes.menu'), action: () => tabs.openIndexes(cid!, db, ref, n.type === 'index' ? n.label : null) });
       if (n.type === 'index') items.push({ label: t('explorer:menu.copyName'), action: () => copy(n.label) });
       items.push({ label: t('common:refresh'), divided: true, action: () => loadIndexUsage(cid!, db, ref, true) });
+      const drop = n.type === 'index' && dropIndexItem({ connectionId: cid!, database: db, table: ref, index: n.label }, (x) => { droppingIndex.value = x; });
+      if (drop) items.push(drop);
       break;
     }
     case 'keyns': {
@@ -1247,13 +1253,17 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
               </span>
             </span>
             <span v-if="n.count !== undefined" class="ex-count">{{ n.count }}</span>
-            <span v-if="n.badge" class="ex-ixbadge" :class="{ unused: n.badge.unused }" :title="n.badge.unused ? $t('explorer:indexes.unusedTitle') : $t('explorer:indexes.shareTitle')">{{ n.badge.text }}</span>
+            <span
+              v-if="n.badge" class="ex-ixbadge" :class="badgeClass(n.badge)"
+              :title="n.badge.unused ? $t('explorer:indexes.unusedTitle') : [$t('explorer:indexes.shareTitle'), n.badge.healthTip].filter(Boolean).join('\n')"
+            >{{ n.badge.text }}</span>
             <span v-if="n.hint" class="ex-hint">{{ n.hint }}</span>
           </span>
         </template>
       </el-tree-v2>
     </div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
+    <DropIndexDialog v-if="droppingIndex" :target="droppingIndex" @close="droppingIndex = null" />
     <CloneTableDialog v-if="cloning" :connection-id="cloning.connectionId" :database="cloning.database" :object="cloning.object" @close="cloning = null" />
     <SchemaDialog
       v-if="schemaDialog" :connection-id="schemaDialog.connectionId" :database="schemaDialog.database" :mode="schemaDialog.mode" :schema="schemaDialog.schema"
@@ -1331,6 +1341,9 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ic.ix { color: var(--nm-text-dim); }
 .ex-ixbadge { flex: none; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; line-height: 15px; background: color-mix(in srgb, var(--nm-accent) 18%, transparent); color: var(--nm-text); }
 .ex-ixbadge.unused { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
+.ex-ixbadge.h-good { background: color-mix(in srgb, var(--nm-success) 20%, transparent); color: var(--nm-success); }
+.ex-ixbadge.h-warn { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); color: var(--nm-warning); }
+.ex-ixbadge.h-bad { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
 .ex-ic.err { color: var(--nm-danger); }
 .ex-ic.mg { color: var(--nm-text-dim); }
 .ex-ic.mg.running { color: var(--nm-accent); }

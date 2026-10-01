@@ -119,6 +119,30 @@
     "since": "Estadísticas desde {{since}} (SQL Server las reinicia al reiniciar el servicio; en Azure SQL también en un failover).",
     "sinceRestart": "Estadísticas desde el último reinicio del servicio (SQL Server las reinicia al reiniciar el servicio; en Azure SQL también en un failover).",
     "unsupported": "Este motor no informa el uso de los índices.",
+    "health": {
+      "good": "Se usa con seeks ({{seeks}} seeks, {{scans}} scans).",
+      "warn": "Bastantes scans para la cantidad de seeks ({{scans}} scans, {{seeks}} seeks): conviene revisar las columnas del índice o las consultas que lo usan.",
+      "bad": "Más scans que seeks ({{scans}} scans, {{seeks}} seeks): revisá las columnas del índice o las consultas que lo usan.",
+      "columnstore": "Índice columnstore: está hecho para leerse con scans ({{scans}} scans, {{seeks}} seeks).",
+      "smallTables": "En tablas chicas SQL Server prefiere el scan porque es más barato: ahí el rojo no siempre es un problema."
+    },
+    "drop": {
+      "menu": "Eliminar índice…",
+      "title": "Eliminar índice {{name}}",
+      "intro": "Se va a eliminar el índice «{{name}}» de {{table}}.",
+      "usageUnused": "Sin uso: 0 lecturas, {{writes}} escrituras.",
+      "usageShare": "{{share}} de las lecturas de la tabla: {{seeks}} seeks, {{scans}} scans, {{lookups}} lookups.",
+      "usageNone": "Sin lecturas ni escrituras desde que empezaron las estadísticas.",
+      "script": "Script",
+      "empty": "El motor no generó sentencias para este cambio.",
+      "openInQuery": "Abrir como query",
+      "scriptName": "Eliminar {{name}}",
+      "run": "Eliminar",
+      "done": "Índice eliminado",
+      "pkHint": "La clave primaria se cambia desde el diseñador de tablas",
+      "tableNotFound": "No se encontró la tabla {{table}} en la base.",
+      "indexNotFound": "La estructura de la tabla no incluye el índice «{{name}}»: no se puede generar el script."
+    },
     "col": {
       "name": "Nombre",
       "type": "Tipo",
@@ -126,6 +150,7 @@
       "filter": "Filtro",
       "size": "Tamaño",
       "readShare": "% lecturas",
+      "seekShare": "% seeks",
       "writesPerRead": "Escrituras/lecturas",
       "lastRead": "Última lectura",
       "lastWrite": "Última escritura"

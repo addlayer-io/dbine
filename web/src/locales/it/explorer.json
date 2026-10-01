@@ -128,7 +128,32 @@
       "readShare": "% letture",
       "writesPerRead": "Scritture/letture",
       "lastRead": "Ultima lettura",
-      "lastWrite": "Ultima scrittura"
+      "lastWrite": "Ultima scrittura",
+      "seekShare": "% seeks"
+    },
+    "health": {
+      "good": "Usato con seeks ({{seeks}} seeks, {{scans}} scans).",
+      "warn": "Parecchi scans rispetto al numero di seeks ({{scans}} scans, {{seeks}} seeks): conviene rivedere le colonne dell'indice o le query che lo usano.",
+      "bad": "Più scans che seeks ({{scans}} scans, {{seeks}} seeks): rivedi le colonne dell'indice o le query che lo usano.",
+      "columnstore": "Indice columnstore: è fatto per essere letto con scans ({{scans}} scans, {{seeks}} seeks).",
+      "smallTables": "Sulle tabelle piccole SQL Server preferisce lo scan perché costa meno: lì il rosso non è sempre un problema."
+    },
+    "drop": {
+      "menu": "Elimina indice…",
+      "title": "Elimina indice {{name}}",
+      "intro": "L'indice «{{name}}» verrà eliminato da {{table}}.",
+      "usageUnused": "Inutilizzato: 0 letture, {{writes}} scritture.",
+      "usageShare": "{{share}} delle letture della tabella: {{seeks}} seeks, {{scans}} scans, {{lookups}} lookups.",
+      "usageNone": "Nessuna lettura né scrittura da quando sono iniziate le statistiche.",
+      "script": "Script",
+      "empty": "Il motore non ha generato istruzioni per questa modifica.",
+      "openInQuery": "Apri come query",
+      "scriptName": "Elimina {{name}}",
+      "run": "Elimina",
+      "done": "Indice eliminato",
+      "pkHint": "La chiave primaria si modifica dal designer delle tabelle",
+      "tableNotFound": "Tabella {{table}} non trovata nel database.",
+      "indexNotFound": "La struttura della tabella non include l'indice «{{name}}»: impossibile generare lo script."
     }
   }
 }
