@@ -1,0 +1,16 @@
+{
+  "dialog": {
+    "title": "Une nouvelle version de DBine est disponible",
+    "text": "La version {{latest}} est disponible. Vous avez la {{current}}.",
+    "skip": "Ignorer cette version",
+    "later": "Plus tard",
+    "download": "Télécharger"
+  },
+  "settings": {
+    "installed": "Version installée : {{version}}",
+    "help": "DBine vérifie seul à l'ouverture. Les mises à jour se téléchargent depuis la page de la version.",
+    "check": "Rechercher des mises à jour"
+  },
+  "upToDate": "Vous avez la dernière version ({{version}}).",
+  "failed": "Impossible de rechercher des mises à jour : {{error}}"
+}

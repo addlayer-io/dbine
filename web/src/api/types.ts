@@ -500,3 +500,18 @@ export interface Permissions {
   manage_security: Access;
   create_schema: Access;
 }
+
+/** `check_for_update`'s answer (`UpdateInfo` in Rust). */
+export interface UpdateInfo {
+  /** The running app's version. */
+  current: string;
+  /** The latest release's version, without the leading `v`. */
+  latest: string;
+  /** `latest` is newer than `current`. */
+  available: boolean;
+  /** The release page (opened with `openReleasePage`). */
+  url: string;
+  /** The release notes as written (Markdown), already cut short. */
+  notes: string;
+  published_at: string | null;
+}

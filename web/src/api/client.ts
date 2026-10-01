@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
   ColumnInfo, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DriverInfo, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
-  ExecuteResponse, RunMode, SavedConnection, SavedQuery, ScriptUnit, TestResult, TxState,
+  ExecuteResponse, RunMode, SavedConnection, SavedQuery, ScriptUnit, TestResult, TxState, UpdateInfo,
 } from './types';
 
 // Every backend command, in one place. Commands take one `args` object whose
@@ -124,4 +124,8 @@ export const api = {
     invoke<ProfilerStarted>('profiler_start', { args: { profiler_id: profilerId, connection_id: connectionId, database } }),
   profilerPoll: (profilerId: string) => invoke<ProfiledStatement[]>('profiler_poll', { args: { profiler_id: profilerId } }),
   profilerStop: (profilerId: string) => invoke<void>('profiler_stop', { args: { profiler_id: profilerId } }),
+  /** Ask GitHub for the latest release. Nothing is installed: the UI offers its page. */
+  checkForUpdate: () => invoke<UpdateInfo>('check_for_update', { args: {} }),
+  /** Open a release page of DBine in the browser (other URLs are refused). */
+  openReleasePage: (url: string) => invoke<void>('open_release_page', { args: { url } }),
 };
