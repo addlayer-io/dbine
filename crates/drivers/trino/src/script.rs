@@ -1,7 +1,5 @@
-//! Script helpers: error positions and statement units. Shared with
-//! Athena (Trino underneath: same `line L:C:` messages) via `#[path]`.
-
-#![allow(dead_code)]
+//! Script helpers: error positions and statement units. Athena (Trino
+//! underneath: same `line L:C:` messages) includes this file via `#[path]`.
 
 use dbine_driver::sql::{split_script, ScriptDialect, ScriptStatement};
 use dbine_driver::{Error, ScriptError};

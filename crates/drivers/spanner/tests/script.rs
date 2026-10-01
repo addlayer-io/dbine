@@ -51,9 +51,10 @@ async fn scripts_and_transactions() {
     let err = s.execute(script, 10, &mut out).await.unwrap_err();
     assert!(err.is_query(), "{err:?}");
     assert_eq!(out.results.len(), 1);
-    if let Error::Statement(e) = err {
-        assert_eq!(e.line, Some(3), "{}", e.message);
-    }
+    // The gRPC status is the code, with or without a position.
+    let Error::Statement(e) = err else { panic!("{err:?}") };
+    assert_eq!(e.line, Some(3), "{}", e.message);
+    assert!(e.code.as_deref().is_some_and(|c| c.chars().all(|c| c.is_ascii_uppercase() || c == '_')), "{e:?}");
 
     // BEGIN … COMMIT across statements (and runs).
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));

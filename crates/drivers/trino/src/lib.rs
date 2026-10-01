@@ -16,7 +16,7 @@ mod sync;
 mod transfer;
 
 use base64::Engine as _;
-use dbine_driver::sql::{quote_ident, select_top, split_statements, Limit, Quote};
+use dbine_driver::sql::{quote_ident, select_top, Limit, Quote};
 use dbine_driver::{
     json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef, QueryOutcome,
@@ -268,6 +268,9 @@ struct SessionState {
     properties: BTreeMap<String, String>,
     prepared: BTreeMap<String, String>,
     transaction: Option<String>,
+    /// A statement failed inside the open transaction: the server aborted
+    /// it and only a ROLLBACK ends it.
+    tx_failed: bool,
 }
 
 #[derive(Default)]
@@ -472,9 +475,11 @@ impl SessionState {
         }
         if let Some(t) = all("started-transaction-id").pop() {
             self.transaction = Some(t);
+            self.tx_failed = false;
         }
         if !all("clear-transaction-id").is_empty() {
             self.transaction = None;
+            self.tx_failed = false;
         }
     }
 }
@@ -513,6 +518,8 @@ impl TrinoSession {
                 Err(e) => break Err(Error::Query(e.to_string())),
             };
             if let Some(e) = page.error {
+                // Any failure inside a transaction aborts it on the server.
+                self.state.tx_failed |= self.state.transaction.is_some();
                 self.last_error = Some(e.clone());
                 break Err(query_error(e));
             }
@@ -561,6 +568,11 @@ impl TrinoSession {
             };
         };
         *self.in_flight.next_uri.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        // A statement stopped before its first row (cancelled, failed) has
+        // no result set to show: only the error.
+        if res.is_err() && started && out.results.last().is_some_and(|r| r.rows.is_empty()) {
+            out.results.pop();
+        }
         res
     }
 
@@ -607,7 +619,13 @@ impl TrinoSession {
         if self.manual && self.state.transaction.is_none() && !tx_control {
             self.run("START TRANSACTION", 1, &mut QueryOutcome::default()).await?;
         }
-        match self.run(stmt, max_rows, out).await {
+        let r = self.run(stmt, max_rows, out).await;
+        if r.is_err() && matches!(w1.as_str(), "COMMIT" | "ROLLBACK") {
+            // A failed COMMIT / ROLLBACK ends the transaction on the server.
+            self.state.transaction = None;
+            self.state.tx_failed = false;
+        }
+        match r {
             Err(Error::Query(m)) => match self.last_error.take() {
                 Some(e) => Err(statement_error(&e, stmt).into()),
                 None => Err(Error::Query(m)),
@@ -622,9 +640,11 @@ impl TrinoSession {
             return Ok(());
         }
         let r = self.run(sql, 1, &mut QueryOutcome::default()).await;
-        if r.is_err() && sql == "ROLLBACK" {
-            // The server forgot it (it failed or expired): nothing to undo.
+        if r.is_err() {
+            // The server forgot it (it failed or expired): a failed COMMIT
+            // ends it too ("Current transaction has already been aborted").
             self.state.transaction = None;
+            self.state.tx_failed = false;
         }
         r
     }
@@ -842,7 +862,11 @@ impl Session for TrinoSession {
     }
 
     async fn transaction_state(&mut self) -> Result<Option<dbine_driver::TxState>> {
-        Ok(Some(if self.state.transaction.is_some() { dbine_driver::TxState::Open } else { dbine_driver::TxState::Idle }))
+        Ok(Some(match (&self.state.transaction, self.state.tx_failed) {
+            (None, _) => dbine_driver::TxState::Idle,
+            (Some(_), false) => dbine_driver::TxState::Open,
+            (Some(_), true) => dbine_driver::TxState::Failed,
+        }))
     }
 
     async fn set_autocommit(&mut self, on: bool) -> Result<()> {
@@ -868,7 +892,8 @@ impl Session for TrinoSession {
     /// while a write gets its estimated plan before running.
     async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         use plan::StmtKind;
-        for stmt in split_statements(sql) {
+        for unit in script::units(sql, &script_dialect()) {
+            let stmt = unit.text;
             match (analyze, plan::classify(&stmt)) {
                 (false, StmtKind::Other) => out.messages.push(format!("Sin plan (no se ejecutó): {}", plan::short(&stmt))),
                 (false, _) => {
@@ -1040,12 +1065,15 @@ mod tests {
     fn errors_are_classified() {
         let e = query_error(QueryError { message: "Query was canceled".into(), error_name: "USER_CANCELED".into(), ..Default::default() });
         assert!(matches!(e, Error::Cancelled));
-        let qe = QueryError { message: "line 1:15: Table 'x' does not exist".into(), error_name: "TABLE_NOT_FOUND".into(), ..Default::default() };
+        // The position comes from the message when there's no errorLocation.
+        let qe = QueryError { message: "line 2:6: Table 'x' does not exist".into(), error_name: "TABLE_NOT_FOUND".into(), ..Default::default() };
         assert!(matches!(query_error(qe.clone()), Error::Query(_)));
         let se = statement_error(&qe, "select *\nfrom x");
-        assert_eq!((se.code.as_deref(), se.line, se.offset), (Some("TABLE_NOT_FOUND"), Some(1), Some(14)));
-        let qe = QueryError { error_location: Some(ErrorLocation { line_number: 2, column_number: 6 }), ..qe };
-        assert_eq!(statement_error(&qe, "select *\nfrom x").offset, Some(14));
+        assert_eq!((se.code.as_deref(), se.line, se.offset), (Some("TABLE_NOT_FOUND"), Some(2), Some(14)));
+        // errorLocation wins over the message.
+        let qe = QueryError { error_location: Some(ErrorLocation { line_number: 1, column_number: 8 }), ..qe };
+        let se = statement_error(&qe, "select *\nfrom x");
+        assert_eq!((se.line, se.offset), (Some(1), Some(7)));
         assert_eq!(lit("o'k"), "'o''k'");
     }
 }

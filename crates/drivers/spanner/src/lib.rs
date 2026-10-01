@@ -61,6 +61,9 @@ struct Api {
     http: reqwest::Client,
     tokens: gcp::Tokens,
     base: String,
+    /// The gRPC status of the last refused call (`INVALID_ARGUMENT`…): the
+    /// code of a failed statement in a script.
+    last_status: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl Api {
@@ -75,6 +78,7 @@ impl Api {
         if !(200..300).contains(&status) {
             // The emulator's gateway answers `{"code", "message"}`.
             let flat: Option<Json> = serde_json::from_str(&body).ok();
+            *self.last_status.lock().unwrap_or_else(|e| e.into_inner()) = flat.as_ref().and_then(script::grpc_status);
             if let Some(m) = flat.as_ref().and_then(|j| j.get("message")).and_then(Json::as_str) {
                 return Err(if status == 401 { Error::AuthFailed(m.into()) } else { Error::Query(m.into()) });
             }
@@ -254,6 +258,7 @@ impl Driver for SpannerDriver {
             tokens: gcp::Tokens::from_config(cfg, http.clone())?,
             http,
             base: cfg.option("endpoint_url").unwrap_or(API).trim_end_matches('/').to_string(),
+            last_status: Default::default(),
         };
         let database = format!("{instance}/databases/{db}");
         let session = tokio::time::timeout(Duration::from_secs(20), create_session(&api, &database))
@@ -526,6 +531,7 @@ impl SpannerSession {
             op = self.api.get(&name).await?;
         }
         if let Some(m) = op.pointer("/error/message").and_then(Json::as_str) {
+            *self.api.last_status.lock().unwrap_or_else(|e| e.into_inner()) = op.get("error").and_then(script::grpc_status);
             return Err(Error::Query(m.to_string()));
         }
         Ok(())
@@ -867,9 +873,13 @@ impl Session for SpannerSession {
             if stmt.is_empty() {
                 continue;
             }
+            self.api.last_status.lock().unwrap_or_else(|e| e.into_inner()).take();
             match self.run_statement(&unit.text, &stmt, max_rows, out).await {
                 Ok(()) => {}
-                Err(Error::Query(m)) => return Err(script::shift(script::error(&m, &unit.text), &unit)),
+                Err(Error::Query(m)) => {
+                    let code = self.api.last_status.lock().unwrap_or_else(|e| e.into_inner()).take();
+                    return Err(script::shift(script::error(&m, &unit.text, code), &unit));
+                }
                 Err(e) => return Err(e),
             }
         }

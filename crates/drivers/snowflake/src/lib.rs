@@ -665,6 +665,11 @@ impl SnowflakeSession {
         let pre = self.carry.preamble();
         match self.run_units(&stmts, &pre, &trail, max_rows, out).await {
             Ok((ids, sets)) => {
+                if script::leaves_transaction_open(&units) {
+                    out.warning(
+                        "La transacción quedó abierta al terminar el script y no pasa a la ejecución siguiente (la API de Snowflake usa una sesión por ejecución): confirmala con COMMIT en el mismo script.",
+                    );
+                }
                 self.carry.absorb_alters(&units);
                 let mut sets = sets.iter();
                 if trail.first() == Some(&script::CONTEXT_QUERY) {

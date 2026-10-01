@@ -480,6 +480,8 @@ impl DremioSession {
                 r.tag = Some("USE".into());
             }
             out.info(format!("Contexto: {c}"));
+            // The connection's database is that context: the tab follows.
+            out.database = Some(c);
             return Ok(String::new());
         }
         let (id, st) = self.job(stmt).await?;

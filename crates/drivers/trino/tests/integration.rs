@@ -102,6 +102,7 @@ async fn trino() {
     let r = s.execute("SELECT sum(quantity) FROM tpch.sf1000.lineitem", 10, &mut out).await;
     assert!(matches!(r, Err(Error::Cancelled)), "{r:?}");
     assert!(t.elapsed() < Duration::from_secs(20));
+    assert!(out.results.is_empty(), "no empty result set before the cancel: {:?}", out.results);
 
     // Read-only (the registry wraps SQL sessions).
     let mut ro = ReadOnlySession::new(d.connect(&c, None).await.unwrap());
@@ -461,4 +462,38 @@ async fn trino_profiler() {
 async fn presto_profiler() {
     let Ok(url) = std::env::var("DBINE_TEST_PRESTO_URL") else { return };
     profile("presto", &url, "tpch", "system").await;
+}
+
+/// Editor scripts: USE moves the tab's database, and manual transactions
+/// go open → failed (the server aborts them on any error) → idle.
+#[tokio::test]
+#[ignore]
+async fn trino_script_session() {
+    use dbine_driver::TxState;
+    let Some(c) = cfg() else { return };
+    let d = dbine_driver_trino::drivers().remove(0);
+    let mut s = d.connect(&c, None).await.unwrap();
+
+    let mut out = QueryOutcome::default();
+    s.execute("USE system.runtime", 10, &mut out).await.unwrap();
+    assert_eq!(out.database.as_deref(), Some("system"));
+    let mut out = QueryOutcome::default();
+    s.execute("SELECT count(*) FROM nodes", 10, &mut out).await.unwrap();
+    assert_eq!(out.database, None);
+    s.execute("USE memory.default", 10, &mut QueryOutcome::default()).await.unwrap();
+
+    s.set_autocommit(false).await.unwrap();
+    s.execute("SELECT 1", 10, &mut QueryOutcome::default()).await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Open));
+    let Err(Error::Statement(e)) = s.execute("SELECT 1;\nSELECT * FROM nope_t", 10, &mut QueryOutcome::default()).await else { panic!() };
+    assert_eq!((e.code.as_deref(), e.line), (Some("TABLE_NOT_FOUND"), Some(2)));
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Failed));
+    // COMMIT of an aborted transaction fails and ends it.
+    assert!(s.commit().await.is_err());
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
+    s.execute("SELECT 2", 10, &mut QueryOutcome::default()).await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Open));
+    s.rollback().await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
+    s.set_autocommit(true).await.unwrap();
 }
