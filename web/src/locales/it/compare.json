@@ -27,6 +27,7 @@
   },
   "objectsSameEngine": "Viste e procedure si trasferiscono solo tra database dello stesso motore",
   "arrow": {
+    "revert": "Annulla solo questa modifica",
     "table": {
       "copyLeft": "Copia la tabella a sinistra",
       "copyRight": "Copia la tabella a destra",

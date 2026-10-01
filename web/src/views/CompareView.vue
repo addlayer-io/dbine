@@ -8,7 +8,7 @@ import {
   compareApi, type CodeObject, type CompareResult, type DbModel, type ItemDiff, type ObjectChange, type ObjectDiff,
   type Status, type SyncScript, type TableChange, type TableDiff,
 } from '../api/compare';
-import type { CheckDef, ColumnDef, ForeignKeyDef, IndexDef, TableSchema } from '../api/schema-types';
+import type { CheckDef, ColumnDef, ForeignKeyDef, IndexDef, KeyDef, TableSchema } from '../api/schema-types';
 import CodeEditor from '../components/CodeEditor.vue';
 import { newQuery } from '../composables/actions';
 import { lineDiff } from '../composables/lineDiff';
@@ -166,6 +166,7 @@ async function compareBoth() {
   comparing.value = true;
   history.length = 0;
   touched.clear();
+  applied.clear();
   try {
     await Promise.all([load('left', gen), load('right', gen)]);
     if (gen === generation) await recompare();
@@ -231,6 +232,7 @@ function swap() {
     Object.assign(sides.right, l);
     history.length = 0;
     touched.clear();
+    applied.clear();
     recompare();
   });
 }
@@ -260,12 +262,20 @@ const shows = (status: Status, key: string, id: string) => (!onlyDiff.value || s
 const groups = computed(() => {
   const r = result.value;
   if (!r) return [];
-  const out: { label: string; items: { id: string; key: string; status: Status; table?: TableDiff; object?: ObjectDiff }[] }[] = [];
-  const tables = r.tables.filter((t) => shows(t.status, t.key, tid(t))).map((t) => ({ id: tid(t), key: t.key, status: t.status, table: t }));
+  type Row = { id: string; key: string; status: Status; table?: TableDiff; object?: ObjectDiff; mark: Mark | null; ghost?: string };
+  const out: { label: string; items: Row[] }[] = [];
+  // Marked elements an arrow removed from both sides stay listed, to undo it.
+  const here = new Set([...r.tables.map((x) => `t:${tableCk(x)}`), ...r.objects.map((o) => `o:${o.kind}:${objectCk(o)}`)]);
+  const ghosts: Row[] = [...applied]
+    .filter(([k, m]) => m.type !== 'item' && !here.has(k) && shows('changed', m.label, ''))
+    .map(([k, m]) => ({ id: `g:${k}`, key: m.label, status: 'equal', mark: m, ghost: k }));
+  const tables: Row[] = r.tables.filter((t) => shows(t.status, t.key, tid(t))).map((t) => ({ id: tid(t), key: t.key, status: t.status, table: t, mark: tableMark(t) }));
+  tables.push(...ghosts.filter((g) => g.mark!.type === 'table'));
   if (tables.length) out.push({ label: t('compare:kinds.table'), items: tables });
-  const kinds = [...new Set(r.objects.map((o) => o.kind))];
+  const kinds = [...new Set([...r.objects.map((o) => o.kind), ...ghosts.flatMap((g) => (g.mark!.okind ? [g.mark!.okind] : []))])];
   for (const k of kinds) {
-    const items = r.objects.filter((o) => o.kind === k && shows(o.status, o.key, oid(o))).map((o) => ({ id: oid(o), key: o.key, status: o.status, object: o }));
+    const items: Row[] = r.objects.filter((o) => o.kind === k && shows(o.status, o.key, oid(o))).map((o) => ({ id: oid(o), key: o.key, status: o.status, object: o, mark: objectMark(o) }));
+    items.push(...ghosts.filter((g) => g.mark!.okind === k));
     if (items.length) out.push({ label: KIND_LABELS.value[k] ?? k, items });
   }
   return out;
@@ -313,7 +323,8 @@ const pendingKeys = computed(() => {
   }
   return set;
 });
-const isPending = (item: { table?: TableDiff; object?: ObjectDiff }) => {
+const isPending = (item: { table?: TableDiff; object?: ObjectDiff; ghost?: string }) => {
+  if (item.ghost) return true;
   if (item.table) {
     const t = item.table;
     const any = [views.left?.tables[t.left ?? -1], views.right?.tables[t.right ?? -1]].filter(Boolean) as TableSchema[];
@@ -328,10 +339,12 @@ const isPending = (item: { table?: TableDiff; object?: ObjectDiff }) => {
 };
 
 // -- undo --------------------------------------------------------------------------------------
-const history: { left: string; right: string }[] = [];
+// Each step also keeps the arrows' marks (`applied`), so an undo brings back
+// which way each element had been carried.
+const history: { left: string; right: string; marks: string }[] = [];
 const canUndo = ref(false);
 function snapshot() {
-  history.push({ left: JSON.stringify(sides.left.work), right: JSON.stringify(sides.right.work) });
+  history.push({ left: JSON.stringify(sides.left.work), right: JSON.stringify(sides.right.work), marks: JSON.stringify([...applied]) });
   if (history.length > 50) history.shift();
   canUndo.value = true;
 }
@@ -341,13 +354,156 @@ function undo() {
   if (!h) return;
   sides.left.work = JSON.parse(h.left);
   sides.right.work = JSON.parse(h.right);
+  applied.clear();
+  for (const [k, m] of JSON.parse(h.marks) as [string, Mark][]) applied.set(k, m);
+  prune();
   recompare();
 }
 function discard(s: SideId) {
   if (!sides[s].orig) return;
   snapshot();
   sides[s].work = clone(sides[s].orig);
+  prune();
   recompare();
+}
+
+// -- per-element pushes: the pure part -------------------------------------------------------
+// Plain functions over TableSchema values (no component state).
+type Section = 'columns' | 'indexes' | 'foreign_keys' | 'checks';
+/** What an item arrow carries: an item of a section, the primary key, or the comment and options. */
+type ItemSection = Section | 'primary_key' | 'props';
+const lc = (s: string | null | undefined) => (s ?? '').toLowerCase();
+const colsKey = (cols: string[]) => cols.map(lc).join(',');
+/** A table's or object's key the way the backend pairs them (case-insensitive here). */
+const pairKey = (x: { schema: string | null; name: string }, noSchema: boolean) => (x.schema && !noSchema ? `${lc(x.schema)}.${lc(x.name)}` : lc(x.name));
+/** JSON with sorted object keys: equal values give equal text. */
+const sj = (x: unknown) => JSON.stringify(x ?? null, (_k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
+/** How an item is told apart, as the backend pairs them: [first try, fallback]. */
+function itemIds(section: Section, x: Item): [string, string] {
+  if (section === 'columns') return [lc((x as ColumnDef).name), ''];
+  if (section === 'indexes') {
+    const ix = x as IndexDef;
+    return [lc(ix.name), `${colsKey(ix.columns)}|${ix.unique}`];
+  }
+  if (section === 'foreign_keys') {
+    const fk = x as ForeignKeyDef;
+    return [`${colsKey(fk.columns)}>${lc(fk.ref_table)}(${colsKey(fk.ref_columns)})`, lc(fk.name)];
+  }
+  const c = x as CheckDef;
+  return [lc(c.name), c.expression.replace(/[\s()]/g, '').toLowerCase()];
+}
+/** Where `list` has the item that any of `probe` stands for (-1: nowhere). */
+function findItem(section: Section, list: Item[] | undefined, probe: Item[]): number {
+  if (!list) return -1;
+  const ids = probe.map((p) => itemIds(section, p));
+  for (const k of [0, 1] as const) {
+    const i = list.findIndex((x) => {
+      const id = itemIds(section, x)[k];
+      return !!id && ids.some((p) => p[k] === id);
+    });
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+/** Put `next` where `old` is (or at `at` when there's no `old`), or drop `old` when `next` is null. */
+function replaceIn<T>(list: T[], old: T | null, next: T | null, at = list.length) {
+  const i = old ? list.indexOf(old) : -1;
+  if (next && i >= 0) list.splice(i, 1, next);
+  else if (next) list.splice(Math.min(Math.max(at, 0), list.length), 0, next);
+  else if (i >= 0) list.splice(i, 1);
+}
+/** Insert a column after the nearest one before it in `order` that `list` also has. */
+function insertColumn(list: ColumnDef[], col: ColumnDef, order: ColumnDef[], idx: number, fallback: number) {
+  let at = fallback;
+  for (let k = idx - 1; k >= 0; k--) {
+    const j = list.findIndex((c) => c.name.toLowerCase() === lc(order[k]?.name));
+    if (j >= 0) { at = j + 1; break; }
+  }
+  list.splice(at, 0, col);
+}
+/** What an item arrow replaced; for a section item, with its position. */
+type Before = { item: Item | null; at: number } | KeyDef | Pick<TableSchema, 'comment' | 'options'> | null;
+const isSection = (section: ItemSection): section is Section => section !== 'primary_key' && section !== 'props';
+/** The piece `before` keeps, comparable with `pieceOf`. */
+const beforePiece = (section: ItemSection, before: Before | undefined) => (isSection(section) ? (before as { item: Item | null } | null)?.item ?? null : before ?? null);
+/** That item (or the primary key, or the comment and options) as `t` has it. */
+function pieceOf(t: TableSchema, section: ItemSection, probe: Item[]): unknown {
+  if (section === 'primary_key') return t.primary_key;
+  if (section === 'props') return { comment: t.comment, options: t.options };
+  const list = t[section] as Item[] | undefined;
+  const i = findItem(section, list, probe);
+  return i >= 0 ? list![i] : null;
+}
+/**
+ * `dst` with one item of `src` (already in dst's terms) carried over, and
+ * what `dst` had there before. No item in `src` drops it from `dst`.
+ */
+function carryItem(dst: TableSchema, src: TableSchema, section: ItemSection, probe: Item[]): { next: TableSchema; before: Before } {
+  const next: TableSchema = clone(dst);
+  let before = clone(pieceOf(dst, section, probe) ?? null) as Before;
+  if (isSection(section)) before = { item: before as Item | null, at: findItem(section, dst[section] as Item[] | undefined, probe) };
+  if (section === 'primary_key') {
+    next.primary_key = src.primary_key ? clone(src.primary_key) : null;
+  } else if (section === 'props') {
+    next.comment = src.comment;
+    next.options = { ...(src.options ?? {}) };
+  } else {
+    const si = findItem(section, src[section] as Item[] | undefined, probe);
+    const item = si >= 0 ? clone((src[section] as Item[])[si]) : null;
+    if (section === 'checks' && !next.checks) next.checks = [];
+    const list = next[section] as Item[];
+    const di = findItem(section, list, probe);
+    if (!item) {
+      if (di >= 0) list.splice(di, 1);
+    } else if (di >= 0) {
+      // A column keeps the target's spelling of its name.
+      if (section === 'columns') (item as ColumnDef).name = (list[di] as ColumnDef).name;
+      list.splice(di, 1, item);
+    } else if (section === 'columns') {
+      insertColumn(list as ColumnDef[], item as ColumnDef, src.columns, si, list.length);
+    } else {
+      list.push(item);
+    }
+  }
+  return { next, before };
+}
+/**
+ * `cur` with that item put back as `base` (the side's original table) has it:
+ * restored, removed, or re-added. Without an original table (it was created
+ * by a whole-table arrow) `before`, what the item arrow replaced, stands in.
+ */
+function restoreItem(cur: TableSchema, base: TableSchema | null, before: Before | undefined, section: ItemSection, probe: Item[]): TableSchema {
+  const next: TableSchema = clone(cur);
+  if (section === 'primary_key') {
+    const pk = base ? base.primary_key : (before as KeyDef | null);
+    next.primary_key = pk ? clone(pk) : null;
+    return next;
+  }
+  if (section === 'props') {
+    const p = base ?? (before as Pick<TableSchema, 'comment' | 'options'> | null);
+    next.comment = p?.comment ?? null;
+    next.options = p?.options ? clone(p.options) : (p?.options as Record<string, string>);
+    return next;
+  }
+  const orig = base ? (base[section] as Item[] | undefined) : undefined;
+  const b = before as { item: Item | null; at: number } | null | undefined;
+  const oi = base ? findItem(section, orig, probe) : b?.item ? b.at : -1;
+  const item = base ? (oi >= 0 ? clone(orig![oi]) : null) : b?.item ? clone(b.item) : null;
+  if (section === 'checks' && !next.checks) next.checks = [];
+  const list = next[section] as Item[];
+  const ci = findItem(section, list, probe);
+  if (!item) {
+    if (ci >= 0) list.splice(ci, 1);
+  } else if (ci >= 0) {
+    list.splice(ci, 1, item);
+  } else if (section === 'columns') {
+    insertColumn(list as ColumnDef[], item as ColumnDef, (base ?? cur).columns, oi, 0);
+  } else {
+    list.splice(oi >= 0 ? Math.min(oi, list.length) : list.length, 0, item);
+  }
+  // Back to no CHECK list at all when that's how the table came.
+  if (section === 'checks' && !next.checks!.length && base && !base.checks) delete next.checks;
+  return next;
 }
 
 // -- carrying changes ------------------------------------------------------------------------
@@ -365,110 +521,255 @@ async function convertFor(from: SideId, tables: TableSchema[]): Promise<TableSch
   return r.tables;
 }
 
-function replaceTable(s: SideId, old: TableSchema | null, next: TableSchema | null) {
-  const list = sides[s].work!.tables;
-  const i = old ? list.indexOf(old) : -1;
-  if (next && i >= 0) list.splice(i, 1, next);
-  else if (next) list.push(next);
-  else if (i >= 0) list.splice(i, 1);
+function replaceTable(s: SideId, old: TableSchema | null, next: TableSchema | null, at?: number) {
+  replaceIn(sides[s].work!.tables, old, next, at);
+}
+
+/**
+ * Which way each element was carried. Its arrows stay after both sides
+ * become equal, with the one used lit: clicking it again puts back only that
+ * element on the side it went to, as `orig` has it (restored, removed or
+ * re-added); the other arrow puts it back the same way and then carries it
+ * in the new direction. Other elements' changes stay as they are.
+ *
+ * Keys: `t:<table>` and `o:<kind>:<key>` by the backend's pairing (stable
+ * when a push removes one side), `t:<table>|primary_key` and `|props`, and
+ * `t:<table>|<section>|<n>` for items, which are found by what they are
+ * (`findItem` over `probe`), since a column or index can be named
+ * differently on each side.
+ *
+ * Items and the whole table: a whole-table arrow replaces the target's
+ * table, so it drops the item marks aimed at that side. An item arrow used
+ * after it (on what still differs, e.g. between engines) is like any other:
+ * undoing it restores that item from the side's original table.
+ */
+interface Mark {
+  type: 'table' | 'object' | 'item';
+  /** The side it was carried from. */
+  from: SideId;
+  /** The table's (or object's) pairing key. */
+  ck: string;
+  label: string;
+  okind?: string;
+  section?: ItemSection;
+  /** The item as each side had it when carried: what identifies it. */
+  probe?: Item[];
+  /** What the item arrow replaced (used when the target had no original table). */
+  before?: Before;
+}
+const applied = reactive(new Map<string, Mark>());
+let markSeq = 0;
+
+function findTable(m: DbModel | null | undefined, s: SideId, ck: string): TableSchema | null {
+  return m?.tables.find((x) => (!sides[s].schema || x.schema === sides[s].schema) && pairKey(x, ignoreSchema.value) === ck) ?? null;
+}
+function findObject(m: DbModel | null | undefined, s: SideId, kind: string, ck: string): CodeObject | null {
+  return m?.objects.find((x) => x.kind === kind && (!sides[s].schema || x.schema === sides[s].schema) && pairKey(x, ignoreSchema.value) === ck) ?? null;
+}
+const tableCk = (t: TableDiff) => {
+  const x = views.left?.tables[t.left ?? -1] ?? views.right?.tables[t.right ?? -1];
+  return x ? pairKey(x, ignoreSchema.value) : lc(t.key);
+};
+const objectCk = (o: ObjectDiff) => {
+  const x = views.left?.objects[o.left ?? -1] ?? views.right?.objects[o.right ?? -1];
+  return x ? pairKey(x, ignoreSchema.value) : lc(o.key);
+};
+const itemAt = (s: SideId, t: TableDiff, section: Section, d: ItemDiff): Item | null => {
+  const x = views[s]?.tables[t[s] ?? -1];
+  const i = d[s];
+  return x && i !== null ? ((x[section] ?? []) as Item[])[i] ?? null : null;
+};
+const tableMark = (t: TableDiff) => applied.get(`t:${tableCk(t)}`) ?? null;
+const objectMark = (o: ObjectDiff) => applied.get(`o:${o.kind}:${objectCk(o)}`) ?? null;
+const keyMark = (t: TableDiff, section: 'primary_key' | 'props') => applied.get(`t:${tableCk(t)}|${section}`) ?? null;
+function itemMarkKey(t: TableDiff, section: Section, d: ItemDiff): string | null {
+  const ck = tableCk(t);
+  const here = (['left', 'right'] as SideId[]).map((s) => itemAt(s, t, section, d)).filter((x): x is Item => !!x);
+  for (const [k, m] of applied) {
+    if (m.type === 'item' && m.ck === ck && m.section === section && here.some((x) => findItem(section, m.probe, [x]) >= 0)) return k;
+  }
+  return null;
+}
+const itemMark = (t: TableDiff, section: Section, d: ItemDiff) => {
+  const k = itemMarkKey(t, section, d);
+  return k ? applied.get(k) ?? null : null;
+};
+/** Item marks of a table whose item is on neither side now (an arrow removed it): rows to undo them. */
+function ghostItems(t: TableDiff, section: Section): [string, Mark][] {
+  const ck = tableCk(t);
+  const seen = new Set((t[section] ?? []).map((d) => itemMarkKey(t, section, d)));
+  return [...applied].filter(([k, m]) => m.type === 'item' && m.ck === ck && m.section === section && !seen.has(k));
+}
+
+/** Whether the target side still differs from `orig` in that element. */
+function stillApplied(m: Mark): boolean {
+  const to = other(m.from);
+  const side = sides[to];
+  if (!side.work) return false;
+  if (m.type === 'object') return sj(findObject(side.work, to, m.okind!, m.ck)) !== sj(findObject(side.orig, to, m.okind!, m.ck));
+  const cur = findTable(side.work, to, m.ck);
+  const base = findTable(side.orig, to, m.ck);
+  if (m.type === 'table') return sj(cur) !== sj(base);
+  if (!cur) return false;
+  return sj(pieceOf(cur, m.section!, m.probe ?? [])) !== sj(base ? pieceOf(base, m.section!, m.probe ?? []) : beforePiece(m.section!, m.before));
+}
+/** Forget the marks whose element is back as it was (a revert, undo, discard or sync). */
+function prune() {
+  for (const [k, m] of applied) if (!stillApplied(m)) applied.delete(k);
+}
+
+/** Put the element back on the side it was carried to, as `orig` has it. */
+function revert(m: Mark) {
+  const to = other(m.from);
+  const side = sides[to];
+  if (!side.work) return;
+  if (m.type === 'object') {
+    const o = findObject(side.orig, to, m.okind!, m.ck);
+    replaceIn(side.work.objects, findObject(side.work, to, m.okind!, m.ck), o ? clone(o) : null, o ? side.orig!.objects.indexOf(o) : undefined);
+    return;
+  }
+  const cur = findTable(side.work, to, m.ck);
+  const base = findTable(side.orig, to, m.ck);
+  if (m.type === 'table') replaceTable(to, cur, base ? clone(base) : null, base ? side.orig!.tables.indexOf(base) : undefined);
+  else if (cur) replaceTable(to, cur, restoreItem(cur, base, m.before, m.section!, m.probe ?? []));
 }
 
 /** Make the other side's table like this one (`from`), whole. */
-async function pushTable(t: TableDiff, from: SideId) {
+async function pushTable(ck: string, from: SideId) {
   const to = other(from);
-  const src = views[from]!.tables[t[from] ?? -1] ?? null;
-  const dst = views[to]!.tables[t[to] ?? -1] ?? null;
-  try {
-    snapshot();
-    touched.add(tid(t));
-    if (!src) {
-      replaceTable(to, dst, null);
-    } else {
-      const [conv] = await convertFor(from, [src]);
-      // Keep the target's own spelling of its name.
-      if (dst) { conv.name = dst.name; conv.schema = dst.schema; }
-      replaceTable(to, dst, conv);
-    }
-    await recompare();
-  } catch (e) {
-    history.pop();
-    ElMessage.error(errorMessage(e));
-  }
-}
-
-type Section = 'columns' | 'indexes' | 'foreign_keys' | 'checks';
-/** Carry one column, index or foreign key (or the primary key) to the other side. */
-async function pushItem(t: TableDiff, section: Section | 'primary_key' | 'props', item: ItemDiff | null, from: SideId) {
-  const to = other(from);
-  const src = views[from]!.tables[t[from] ?? -1];
-  const dst = views[to]!.tables[t[to] ?? -1];
-  if (!src || !dst) return;
-  try {
-    snapshot();
-    touched.add(tid(t));
-    touched.add(itemKey(t, section, item));
+  const src = findTable(sides[from].work, from, ck);
+  const dst = findTable(sides[to].work, to, ck);
+  if (!src) {
+    replaceTable(to, dst, null);
+  } else {
     const [conv] = await convertFor(from, [src]);
-    const next: TableSchema = clone(dst);
-    if (section === 'primary_key') {
-      next.primary_key = conv.primary_key ? { ...conv.primary_key } : null;
-    } else if (section === 'props') {
-      next.comment = conv.comment;
-      next.options = { ...(conv.options ?? {}) };
-    } else if (item) {
-      const si = item[from];
-      const di = item[to];
-      // The converted table keeps the source's order.
-      const srcItem = si !== null ? clone((conv[section] as unknown[])[si]) : null;
-      if (section === 'checks' && !next.checks) next.checks = [];
-      const list = next[section] as unknown[];
-      if (!srcItem && di !== null) {
-        list.splice(di, 1);
-      } else if (srcItem && di !== null) {
-        if (section === 'columns') (srcItem as ColumnDef).name = (list[di] as ColumnDef).name;
-        list.splice(di, 1, srcItem);
-      } else if (srcItem) {
-        if (section === 'columns') {
-          // After the nearest preceding column the target also has.
-          let at = list.length;
-          for (let k = (si ?? 0) - 1; k >= 0; k--) {
-            const prev = conv.columns[k]?.name.toLowerCase();
-            const j = next.columns.findIndex((c) => c.name.toLowerCase() === prev);
-            if (j >= 0) { at = j + 1; break; }
-          }
-          list.splice(at, 0, srcItem);
-        } else {
-          list.push(srcItem);
-        }
-      }
-    }
-    replaceTable(to, dst, next);
-    await recompare();
-  } catch (e) {
-    history.pop();
-    ElMessage.error(errorMessage(e));
+    // Keep the target's own spelling of its name.
+    if (dst) { conv.name = dst.name; conv.schema = dst.schema; }
+    replaceTable(to, dst, conv);
   }
+  // The whole table replaced what single items had carried to that side.
+  for (const [k, m] of applied) if (m.type === 'item' && m.ck === ck && m.from === from) applied.delete(k);
 }
 
-async function pushObject(o: ObjectDiff, from: SideId) {
-  const to = other(from);
-  if (sides.left.work?.driver !== sides.right.work?.driver) {
+/** Carry one column, index, foreign key or CHECK (or the primary key, or the comment and options) to the other side. */
+async function pushItem(m: Mark) {
+  const to = other(m.from);
+  const src = findTable(sides[m.from].work, m.from, m.ck);
+  const dst = findTable(sides[to].work, to, m.ck);
+  if (!src || !dst) return;
+  const [conv] = await convertFor(m.from, [src]);
+  const { next, before } = carryItem(dst, conv, m.section!, m.probe ?? []);
+  m.before = before;
+  replaceTable(to, dst, next);
+}
+
+function pushObject(m: Mark) {
+  const to = other(m.from);
+  const src = findObject(sides[m.from].work, m.from, m.okind!, m.ck);
+  const dst = findObject(sides[to].work, to, m.okind!, m.ck);
+  let copy: CodeObject | null = null;
+  if (src) {
+    copy = clone(src);
+    if (ignoreSchema.value) copy.schema = sides[to].schema;
+  }
+  replaceIn(sides[to].work!.objects, dst, copy);
+}
+
+/**
+ * An arrow: carries the element `m.from` → the other side, or, when it was
+ * already carried, puts it back first (and stops there if it was this same
+ * arrow). One undo step either way.
+ */
+async function arrow(key: string, m: Mark) {
+  const cur = applied.get(key);
+  const pushing = cur?.from !== m.from;
+  if (pushing && m.type === 'object' && sides.left.work?.driver !== sides.right.work?.driver) {
     ElMessage.warning(t('compare:objectsSameEngine'));
     return;
   }
-  const src = views[from]!.objects[o[from] ?? -1] ?? null;
-  const dst = views[to]!.objects[o[to] ?? -1] ?? null;
+  if (cur?.probe) m.probe = [...(m.probe ?? []), ...cur.probe];
+  // The list row changes id when the element leaves both sides or comes back: keep it selected.
+  const keepSel = !!selected.value && rowMarkKey(selected.value) === key;
   snapshot();
-  touched.add(oid(o));
-  const list = sides[to].work!.objects;
-  const i = dst ? list.indexOf(dst) : -1;
-  if (!src) { if (i >= 0) list.splice(i, 1); }
-  else {
-    const copy = clone(src);
-    if (ignoreSchema.value) copy.schema = sides[to].schema;
-    if (i >= 0) list.splice(i, 1, copy);
-    else list.push(copy);
+  try {
+    if (cur) {
+      revert(cur);
+      applied.delete(key);
+    }
+    if (pushing) {
+      if (m.type === 'table') await pushTable(m.ck, m.from);
+      else if (m.type === 'object') pushObject(m);
+      else await pushItem(m);
+      applied.set(key, m);
+    }
+    prune();
+    await recompare();
+    if (keepSel) {
+      const row = groups.value.flatMap((g) => g.items).find((i) => rowMarkKey(i) === key);
+      if (row) selectedId.value = row.id;
+    }
+  } catch (e) {
+    undo();
+    ElMessage.error(errorMessage(e));
   }
-  await recompare();
+}
+/** A list row's key in `applied`. */
+const rowMarkKey = (it: { table?: TableDiff; object?: ObjectDiff; ghost?: string }) =>
+  it.ghost ?? (it.table ? `t:${tableCk(it.table)}` : it.object ? `o:${it.object.kind}:${objectCk(it.object)}` : '');
+function arrowTable(td: TableDiff, from: SideId) {
+  touched.add(tid(td));
+  const ck = tableCk(td);
+  return arrow(`t:${ck}`, { type: 'table', from, ck, label: td.key });
+}
+function arrowObject(o: ObjectDiff, from: SideId) {
+  touched.add(oid(o));
+  const ck = objectCk(o);
+  return arrow(`o:${o.kind}:${ck}`, { type: 'object', from, ck, okind: o.kind, label: o.key });
+}
+function arrowItem(td: TableDiff, section: Section, d: ItemDiff, from: SideId) {
+  touched.add(tid(td));
+  touched.add(itemKey(td, section, d));
+  const ck = tableCk(td);
+  const probe = (['left', 'right'] as SideId[]).map((s) => itemAt(s, td, section, d)).filter((x): x is Item => !!x).map(clone);
+  return arrow(itemMarkKey(td, section, d) ?? `t:${ck}|${section}|${++markSeq}`, { type: 'item', from, ck, section, probe, label: d.name });
+}
+function arrowKey(td: TableDiff, section: 'primary_key' | 'props', from: SideId) {
+  touched.add(tid(td));
+  touched.add(itemKey(td, section, null));
+  const ck = tableCk(td);
+  return arrow(`t:${ck}|${section}`, { type: 'item', from, ck, section, label: section });
+}
+/** The arrows of an element an arrow removed from both sides. */
+function arrowGhost(key: string, from: SideId) {
+  const m = applied.get(key);
+  if (m) return arrow(key, { ...m, from, probe: [] });
+}
+function arrowRow(it: { table?: TableDiff; object?: ObjectDiff; ghost?: string }, from: SideId) {
+  if (it.ghost) return arrowGhost(it.ghost, from);
+  return it.table ? arrowTable(it.table, from) : arrowObject(it.object!, from);
+}
+
+/** Whether each side had the element at first: what the arrows would do once it's put back. */
+function origStatus(m: Mark): Status {
+  const had = (s: SideId) => {
+    const side = sides[s];
+    if (m.type === 'object') return !!findObject(side.orig, s, m.okind!, m.ck);
+    const x = findTable(side.orig, s, m.ck);
+    if (m.type === 'table' || !x) return !!x;
+    return m.section === 'primary_key' || m.section === 'props' || findItem(m.section!, x[m.section!] as Item[] | undefined, m.probe ?? []) >= 0;
+  };
+  const l = had('left');
+  const r = had('right');
+  return l && !r ? 'only_left' : r && !l ? 'only_right' : 'changed';
+}
+/** An arrow's tooltip; the lit one undoes that element. */
+function tip(m: Mark | null, status: Status, from: SideId, what: 'table' | 'object' | 'item') {
+  if (m?.from === from) return t('compare:arrow.revert');
+  return arrowTip(m ? origStatus(m) : status, from, what);
+}
+function keyTip(td: TableDiff, section: 'primary_key' | 'props', from: SideId) {
+  if (keyMark(td, section)?.from === from) return t('compare:arrow.revert');
+  return t(`compare:arrow.${section === 'primary_key' ? 'pk' : 'props'}.${from === 'right' ? 'copyLeft' : 'copyRight'}`);
 }
 
 /** What an arrow does, for its tooltip. */
@@ -687,6 +988,9 @@ async function runSync() {
     if (finished) {
       sync.open = false;
       touched.clear();
+      applied.clear();
+    } else {
+      prune();
     }
     await recompare();
     // What the sync made equal leaves "Solo diferencias", the selected row too.
@@ -781,9 +1085,9 @@ async function runSync() {
               <span class="cv-st" :class="it.status" :title="STATUS[it.status].label">{{ STATUS[it.status].icon }}</span>
               <span class="cv-name" :title="it.key">{{ it.key }}</span>
               <span v-if="isPending(it)" class="cv-dot" :title="$t('compare:pendingChanges')" />
-              <span v-if="it.status !== 'equal'" class="cv-arrows" @click.stop>
-                <button :title="arrowTip(it.status, 'right', it.table ? 'table' : 'object')" @click="it.table ? pushTable(it.table, 'right') : pushObject(it.object!, 'right')">←</button>
-                <button :title="arrowTip(it.status, 'left', it.table ? 'table' : 'object')" @click="it.table ? pushTable(it.table, 'left') : pushObject(it.object!, 'left')">→</button>
+              <span v-if="it.status !== 'equal' || it.mark" class="cv-arrows" :class="{ keep: !!it.mark }" @click.stop>
+                <button :class="{ on: it.mark?.from === 'right' }" :title="tip(it.mark, it.status, 'right', it.table || it.mark?.type === 'table' ? 'table' : 'object')" @click="arrowRow(it, 'right')">←</button>
+                <button :class="{ on: it.mark?.from === 'left' }" :title="tip(it.mark, it.status, 'left', it.table || it.mark?.type === 'table' ? 'table' : 'object')" @click="arrowRow(it, 'left')">→</button>
               </span>
             </div>
           </template>
@@ -797,16 +1101,18 @@ async function runSync() {
           <div class="cv-dhead">
             <div class="cv-dside">{{ tableOf('left') ? `${sides.left.database} · ${selTable.key}` : '—' }}</div>
             <div class="cv-mid">
-              <button v-if="selTable.status !== 'equal'" :title="arrowTip(selTable.status, 'right')" @click="pushTable(selTable, 'right')">←</button>
-              <button v-if="selTable.status !== 'equal'" :title="arrowTip(selTable.status, 'left')" @click="pushTable(selTable, 'left')">→</button>
+              <template v-if="selTable.status !== 'equal' || tableMark(selTable)">
+                <button :class="{ on: tableMark(selTable)?.from === 'right' }" :title="tip(tableMark(selTable), selTable.status, 'right', 'table')" @click="arrowTable(selTable, 'right')">←</button>
+                <button :class="{ on: tableMark(selTable)?.from === 'left' }" :title="tip(tableMark(selTable), selTable.status, 'left', 'table')" @click="arrowTable(selTable, 'left')">→</button>
+              </template>
             </div>
             <div class="cv-dside">{{ tableOf('right') ? `${sides.right.database} · ${selTable.key}` : '—' }}</div>
           </div>
           <div class="cv-grid">
             <template v-if="tableOf('left') && tableOf('right')">
               <template v-for="sec in SECTIONS" :key="sec.id">
-                <div v-if="(selTable[sec.id] ?? []).length" class="cv-sec">{{ sec.label }}</div>
-                <div v-for="d in (selTable[sec.id] ?? []).filter((x) => !onlyDiff || x.status !== 'equal' || sec.id === 'columns' || touched.has(itemKey(selTable!, sec.id, x)))" :key="sec.id + d.name + d.left + d.right" class="cv-row" :class="d.status">
+                <div v-if="(selTable[sec.id] ?? []).length || ghostItems(selTable, sec.id).length" class="cv-sec">{{ sec.label }}</div>
+                <div v-for="d in (selTable[sec.id] ?? []).filter((x) => !onlyDiff || x.status !== 'equal' || sec.id === 'columns' || touched.has(itemKey(selTable!, sec.id, x)) || !!itemMarkKey(selTable!, sec.id, x))" :key="sec.id + d.name + d.left + d.right" class="cv-row" :class="d.status">
                   <div class="cv-cell" :class="{ none: d.left === null }">
                     <template v-if="itemOf('left', sec.id, d)">
                       <b>{{ titleOf(sec.id, itemOf('left', sec.id, d)!) }}</b>
@@ -814,9 +1120,9 @@ async function runSync() {
                     </template>
                   </div>
                   <div class="cv-mid">
-                    <template v-if="d.status !== 'equal'">
-                      <button :title="arrowTip(d.status, 'right', 'item')" @click="pushItem(selTable, sec.id, d, 'right')">←</button>
-                      <button :title="arrowTip(d.status, 'left', 'item')" @click="pushItem(selTable, sec.id, d, 'left')">→</button>
+                    <template v-if="d.status !== 'equal' || itemMark(selTable, sec.id, d)">
+                      <button :class="{ on: itemMark(selTable, sec.id, d)?.from === 'right' }" :title="tip(itemMark(selTable, sec.id, d), d.status, 'right', 'item')" @click="arrowItem(selTable, sec.id, d, 'right')">←</button>
+                      <button :class="{ on: itemMark(selTable, sec.id, d)?.from === 'left' }" :title="tip(itemMark(selTable, sec.id, d), d.status, 'left', 'item')" @click="arrowItem(selTable, sec.id, d, 'left')">→</button>
                     </template>
                     <span v-else-if="rowMark(itemKey(selTable, sec.id, d))" class="cv-dot" :title="$t('compare:pendingChanges')" />
                   </div>
@@ -827,28 +1133,37 @@ async function runSync() {
                     </template>
                   </div>
                 </div>
+                <!-- Removed from both sides by an arrow: its name where undoing it brings it back. -->
+                <div v-for="[gk, gm] in ghostItems(selTable, sec.id)" :key="gk" class="cv-row equal">
+                  <div class="cv-cell none"><b v-if="gm.from === 'right'" class="cv-ghost">{{ gm.label }}</b></div>
+                  <div class="cv-mid">
+                    <button :class="{ on: gm.from === 'right' }" :title="tip(gm, 'equal', 'right', 'item')" @click="arrowGhost(gk, 'right')">←</button>
+                    <button :class="{ on: gm.from === 'left' }" :title="tip(gm, 'equal', 'left', 'item')" @click="arrowGhost(gk, 'left')">→</button>
+                  </div>
+                  <div class="cv-cell none"><b v-if="gm.from === 'left'" class="cv-ghost">{{ gm.label }}</b></div>
+                </div>
               </template>
-              <template v-if="propParts(tableOf('left')).length || propParts(tableOf('right')).length">
+              <template v-if="propParts(tableOf('left')).length || propParts(tableOf('right')).length || keyMark(selTable, 'props')">
                 <div class="cv-sec">{{ $t('compare:tableProps') }}</div>
                 <div class="cv-row" :class="selTable.fields.length ? 'changed' : 'equal'">
                   <div class="cv-cell"><span v-for="p in propParts(tableOf('left'))" :key="p.f" :class="{ hl: selTable.fields.includes(p.f) }">{{ p.t }}</span></div>
                   <div class="cv-mid">
-                    <template v-if="selTable.fields.length">
-                      <button :title="$t('compare:arrow.props.copyLeft')" @click="pushItem(selTable, 'props', null, 'right')">←</button>
-                      <button :title="$t('compare:arrow.props.copyRight')" @click="pushItem(selTable, 'props', null, 'left')">→</button>
+                    <template v-if="selTable.fields.length || keyMark(selTable, 'props')">
+                      <button :class="{ on: keyMark(selTable, 'props')?.from === 'right' }" :title="keyTip(selTable, 'props', 'right')" @click="arrowKey(selTable, 'props', 'right')">←</button>
+                      <button :class="{ on: keyMark(selTable, 'props')?.from === 'left' }" :title="keyTip(selTable, 'props', 'left')" @click="arrowKey(selTable, 'props', 'left')">→</button>
                     </template>
                     <span v-else-if="rowMark(itemKey(selTable, 'props', null))" class="cv-dot" :title="$t('compare:pendingChanges')" />
                   </div>
                   <div class="cv-cell"><span v-for="p in propParts(tableOf('right'))" :key="p.f" :class="{ hl: selTable.fields.includes(p.f) }">{{ p.t }}</span></div>
                 </div>
               </template>
-              <div v-if="pkText(tableOf('left')) || pkText(tableOf('right'))" class="cv-sec">{{ $t('compare:primaryKey') }}</div>
-              <div v-if="pkText(tableOf('left')) || pkText(tableOf('right'))" class="cv-row" :class="selTable.primary_key">
+              <div v-if="pkText(tableOf('left')) || pkText(tableOf('right')) || keyMark(selTable, 'primary_key')" class="cv-sec">{{ $t('compare:primaryKey') }}</div>
+              <div v-if="pkText(tableOf('left')) || pkText(tableOf('right')) || keyMark(selTable, 'primary_key')" class="cv-row" :class="selTable.primary_key">
                 <div class="cv-cell" :class="{ none: !pkText(tableOf('left')) }"><span :class="{ hl: selTable.primary_key !== 'equal' }">{{ pkText(tableOf('left')) }}</span></div>
                 <div class="cv-mid">
-                  <template v-if="selTable.primary_key !== 'equal'">
-                    <button :title="$t('compare:arrow.pk.copyLeft')" @click="pushItem(selTable, 'primary_key', null, 'right')">←</button>
-                    <button :title="$t('compare:arrow.pk.copyRight')" @click="pushItem(selTable, 'primary_key', null, 'left')">→</button>
+                  <template v-if="selTable.primary_key !== 'equal' || keyMark(selTable, 'primary_key')">
+                    <button :class="{ on: keyMark(selTable, 'primary_key')?.from === 'right' }" :title="keyTip(selTable, 'primary_key', 'right')" @click="arrowKey(selTable, 'primary_key', 'right')">←</button>
+                    <button :class="{ on: keyMark(selTable, 'primary_key')?.from === 'left' }" :title="keyTip(selTable, 'primary_key', 'left')" @click="arrowKey(selTable, 'primary_key', 'left')">→</button>
                   </template>
                   <span v-else-if="rowMark(itemKey(selTable, 'primary_key', null))" class="cv-dot" :title="$t('compare:pendingChanges')" />
                 </div>
@@ -875,8 +1190,10 @@ async function runSync() {
           <div class="cv-dhead">
             <div class="cv-dside">{{ objectOf('left') ? `${sides.left.database} · ${selObject.key}` : '—' }}</div>
             <div class="cv-mid">
-              <button v-if="selObject.status !== 'equal'" :title="arrowTip(selObject.status, 'right', 'object')" @click="pushObject(selObject, 'right')">←</button>
-              <button v-if="selObject.status !== 'equal'" :title="arrowTip(selObject.status, 'left', 'object')" @click="pushObject(selObject, 'left')">→</button>
+              <template v-if="selObject.status !== 'equal' || objectMark(selObject)">
+                <button :class="{ on: objectMark(selObject)?.from === 'right' }" :title="tip(objectMark(selObject), selObject.status, 'right', 'object')" @click="arrowObject(selObject, 'right')">←</button>
+                <button :class="{ on: objectMark(selObject)?.from === 'left' }" :title="tip(objectMark(selObject), selObject.status, 'left', 'object')" @click="arrowObject(selObject, 'left')">→</button>
+              </template>
             </div>
             <div class="cv-dside">{{ objectOf('right') ? `${sides.right.database} · ${selObject.key}` : '—' }}</div>
           </div>
@@ -885,6 +1202,18 @@ async function runSync() {
               <pre class="cv-cl" :class="{ none: l.left === null }">{{ l.left ?? '' }}</pre>
               <pre class="cv-cl" :class="{ none: l.right === null }">{{ l.right ?? '' }}</pre>
             </div>
+          </div>
+        </template>
+
+        <!-- A table or object an arrow removed from both sides: only its arrows, to undo it. -->
+        <template v-else-if="selected.ghost && selected.mark">
+          <div class="cv-dhead">
+            <div class="cv-dside"><span v-if="selected.mark.from === 'right'" class="cv-ghost">{{ selected.key }}</span><template v-else>—</template></div>
+            <div class="cv-mid">
+              <button :class="{ on: selected.mark.from === 'right' }" :title="tip(selected.mark, 'equal', 'right', selected.mark.type === 'table' ? 'table' : 'object')" @click="arrowGhost(selected.ghost, 'right')">←</button>
+              <button :class="{ on: selected.mark.from === 'left' }" :title="tip(selected.mark, 'equal', 'left', selected.mark.type === 'table' ? 'table' : 'object')" @click="arrowGhost(selected.ghost, 'left')">→</button>
+            </div>
+            <div class="cv-dside"><span v-if="selected.mark.from === 'left'" class="cv-ghost">{{ selected.key }}</span><template v-else>—</template></div>
           </div>
         </template>
       </div>
@@ -982,6 +1311,10 @@ async function runSync() {
   width: 24px; height: 20px; line-height: 16px; padding: 0; cursor: pointer; font-size: 13px;
 }
 .cv-arrows button:hover, .cv-mid button:hover { border-color: var(--ide-focus); background: color-mix(in srgb, var(--ide-focus) 20%, transparent); }
+/* The arrow already used on an element: lit, and kept visible in the list. */
+.cv-arrows.keep { display: inline-flex; }
+.cv-arrows button.on, .cv-mid button.on { background: var(--el-color-primary); border-color: var(--el-color-primary); color: #fff; }
+.cv-ghost { color: var(--nm-text-muted); text-decoration: line-through; }
 .changed { --st: var(--nm-warning); }
 .only_left { --st: #3794ff; }
 .only_right { --st: #89d185; }
