@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { open as openFile } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
@@ -14,6 +14,7 @@ import SshTunnelSection, { type SshValues } from '../components/SshTunnelSection
 import { askTrustSshHost } from '../composables/sshTrust';
 import { TAG_SUGGESTIONS, tagColor, tagsInUse } from '../composables/tags';
 import { mcpApi, type McpLevel } from '../api/mcp';
+import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
 
 // New / edit connection, as an editor tab. Step 1 picks the engine; step 2 is
 // the form the driver declares (its `fields`). Secret fields are never read
@@ -303,6 +304,17 @@ async function save() {
   }
 }
 
+// ⌘S (Ctrl+S on Windows / Linux) is the form's "Guardar" / "Guardar y
+// conectar", when this tab is the visible one and no dialog is open.
+const root = ref<HTMLDivElement | null>(null);
+function onSaveKey(e: KeyboardEvent) {
+  if (!isSaveShortcut(e) || inCodeEditor(e) || !root.value?.offsetParent) return;
+  e.preventDefault();
+  if (step.value === 'form' && !saving.value && !modalOpen()) save();
+}
+onMounted(() => window.addEventListener('keydown', onSaveKey));
+onBeforeUnmount(() => window.removeEventListener('keydown', onSaveKey));
+
 async function browse(f: Field) {
   try {
     const p = await openFile({ multiple: false, directory: false });
@@ -316,7 +328,7 @@ function selectOptions(f: Field): [string, string][] {
 </script>
 
 <template>
-  <div class="cv">
+  <div ref="root" class="cv">
     <div class="cv-body">
     <h2 class="cv-title">{{ editing ? $t('connection:title.edit', { name: editing.name }) : tab.duplicateOf ? $t('connection:title.duplicate') : $t('connection:title.new') }}</h2>
     <!-- step 1: engine -->

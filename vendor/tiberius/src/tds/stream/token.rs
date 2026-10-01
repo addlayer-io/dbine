@@ -178,6 +178,9 @@ pub(crate) struct TokenStream<'a, S: AsyncRead + AsyncWrite + Unpin + Send> {
     last_error: Option<Error>,
     /// PATCH(dbine): yield rows as raw bytes instead of decoded values.
     raw_rows: bool,
+    /// PATCH(dbine): ERROR tokens are items of the stream (see
+    /// `MessageStream`), not its final error.
+    errors_as_items: bool,
 }
 
 impl<'a, S> TokenStream<'a, S>
@@ -189,6 +192,7 @@ where
             conn,
             last_error: None,
             raw_rows: false,
+            errors_as_items: false,
         }
     }
 
@@ -199,6 +203,18 @@ where
             conn,
             last_error: None,
             raw_rows: true,
+            errors_as_items: false,
+        }
+    }
+
+    /// PATCH(dbine): like `new`, but every ERROR token is only an item:
+    /// the stream doesn't end with the first one as its error.
+    pub(crate) fn new_messages(conn: &'a mut Connection<S>) -> Self {
+        Self {
+            conn,
+            last_error: None,
+            raw_rows: false,
+            errors_as_items: true,
         }
     }
 
@@ -338,7 +354,8 @@ where
     async fn get_error(&mut self) -> crate::Result<ReceivedToken> {
         let err = TokenError::decode(self.conn).await?;
 
-        if self.last_error.is_none() {
+        // PATCH(dbine): `errors_as_items` leaves them to the caller.
+        if self.last_error.is_none() && !self.errors_as_items {
             self.last_error = Some(Error::Server(err.clone()));
         }
 
@@ -483,6 +500,13 @@ where
         let poison = self.conn.command_desync_flag();
 
         let stream = futures_util::stream::try_unfold(self, |mut this| async move {
+            // PATCH(dbine): a request stopped by a `CancelHandle` attention
+            // ends its message first (DONE with the error bit) and the
+            // acknowledgement follows as a message of its own: read on into
+            // it, so the stream ends with the cancel and the connection clean.
+            if this.conn.is_eof() && this.conn.attention_pending() {
+                this.conn.read_attention_ack();
+            }
             if this.conn.is_eof() {
                 match this.last_error {
                     None => return Ok(None),

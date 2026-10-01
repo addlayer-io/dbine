@@ -99,7 +99,7 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
             };
             s.call("/v3/auth/user/add", body).await?;
             out.push_affected(1);
-            out.messages.push(format!("usuario {name} creado"));
+            out.info(format!("usuario {name} creado"));
         }
         "user delete" => {
             let name = arg(c, 2, "un usuario")?;
@@ -111,7 +111,7 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
             let p = password(c).ok_or_else(|| Error::Query("user passwd necesita la contraseña nueva (user passwd <usuario> <contraseña>)".into()))?;
             s.call("/v3/auth/user/changepw", json!({"name": name, "password": p})).await?;
             out.push_affected(1);
-            out.messages.push(format!("contraseña de {name} cambiada"));
+            out.info(format!("contraseña de {name} cambiada"));
         }
         "user get" => {
             let name = arg(c, 2, "un usuario")?;
@@ -135,7 +135,7 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
             let name = arg(c, 2, "un nombre")?;
             s.call("/v3/auth/role/add", json!({"name": name})).await?;
             out.push_affected(1);
-            out.messages.push(format!("rol {name} creado"));
+            out.info(format!("rol {name} creado"));
         }
         "role delete" => {
             let name = arg(c, 2, "un rol")?;
@@ -191,12 +191,12 @@ pub async fn run(s: &EtcdSession, c: &Command, max_rows: usize, out: &mut QueryO
         "auth enable" => {
             s.call("/v3/auth/enable", json!({})).await?;
             out.push_affected(0);
-            out.messages.push("autenticación habilitada: desde ahora hace falta usuario y contraseña".into());
+            out.info("autenticación habilitada: desde ahora hace falta usuario y contraseña");
         }
         "auth disable" => {
             s.call("/v3/auth/disable", json!({})).await?;
             out.push_affected(0);
-            out.messages.push("autenticación deshabilitada".into());
+            out.info("autenticación deshabilitada");
         }
         other => return Err(Error::Query(format!("Comando desconocido: {other}"))),
     }

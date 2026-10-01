@@ -41,6 +41,9 @@ de cada base.
     archivo de script;
   - comparar esquemas, migrar, clonar o sincronizar, y Profiler;
   - crear o eliminar la base, copiar su nombre o el del servidor.
+- **Crear y borrar esquemas**, con su dueño y sus permisos en el mismo script,
+  que se revisa antes de ejecutarlo. Detalle:
+  [`docs/esquemas.md`](docs/esquemas.md).
 - **Conexiones de solo lectura**: DBine bloquea todo lo que no sea lectura.
 
 ### Monitor y Profiler
@@ -478,6 +481,7 @@ Documentación:
   motor.
 - [`docs/cache-del-explorador.md`](docs/cache-del-explorador.md): la caché del
   árbol del explorador.
+- [`docs/esquemas.md`](docs/esquemas.md): crear y borrar esquemas.
 - [`docs/comparacion-de-esquemas.md`](docs/comparacion-de-esquemas.md): cómo
   se comparan y sincronizan dos bases.
 - [`docs/migracion.md`](docs/migracion.md) y

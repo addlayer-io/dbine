@@ -6,5 +6,10 @@
   "done": "Alterações salvas",
   "doneRows_one": "Alterações salvas: 1 linha atualizada",
   "doneRows_many": "Alterações salvas: {{count}} linhas atualizadas",
-  "doneRows_other": "Alterações salvas: {{count}} linhas atualizadas"
+  "doneRows_other": "Alterações salvas: {{count}} linhas atualizadas",
+  "hintDeletes": "Estas instruções vão ser executadas no servidor ({{deletes}}). Revise-as antes de salvar.",
+  "hintBoth": "Estas instruções vão ser executadas no servidor ({{deletes}}; {{cells}} em {{rows}}). Primeiro as linhas são excluídas e depois as demais são atualizadas. Revise-as antes de salvar.",
+  "doneAffected_one": "Alterações salvas: 1 linha afetada",
+  "doneAffected_many": "Alterações salvas: {{count}} linhas afetadas",
+  "doneAffected_other": "Alterações salvas: {{count}} linhas afetadas"
 }

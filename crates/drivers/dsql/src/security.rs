@@ -9,7 +9,7 @@
 
 use crate::{err, DATABASE, SYSTEM_SCHEMAS};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
 use std::collections::HashMap;
 use tokio_postgres::{Client, SimpleQueryMessage, SimpleQueryRow};
 
@@ -322,6 +322,41 @@ pub fn script(a: &SecurityAction) -> Result<String> {
     })
 }
 
+// -- schemas -----------------------------------------------------------------
+
+/// "Nuevo esquema…": the schema, grants on it, then `ALTER SCHEMA … OWNER
+/// TO` (the creator, not a superuser, couldn't grant once it's someone
+/// else's; handing it over needs the creator to be able to act as the new
+/// owner, as in PostgreSQL). Dropping offers no CASCADE: DSQL runs one DDL
+/// statement per transaction and takes no DDL that drops other objects
+/// with it, so a schema is dropped once it's empty.
+pub fn schema_spec() -> SchemaSpec {
+    SchemaSpec { owner: true, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: false, privileges: vec!["USAGE", "CREATE", "ALL PRIVILEGES"], grant_option: true }
+}
+
+fn schema_name(name: &str) -> Result<String> {
+    match name.trim() {
+        "" => Err(Error::Query("escribí el nombre del esquema".into())),
+        n => Ok(q(n)),
+    }
+}
+
+/// Owned by the creator; `schema_owner` hands it over afterwards.
+pub fn create_schema(name: &str) -> Result<String> {
+    Ok(format!("CREATE SCHEMA {};", schema_name(name)?))
+}
+
+pub fn schema_owner(name: &str, owner: &str) -> Result<String> {
+    match owner.trim() {
+        "" => Err(Error::Query("elegí el dueño del esquema".into())),
+        o => Ok(format!("ALTER SCHEMA {} OWNER TO {};", schema_name(name)?, q(o))),
+    }
+}
+
+pub fn drop_schema(name: &str) -> Result<String> {
+    Ok(format!("DROP SCHEMA {};", schema_name(name)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,5 +415,24 @@ mod tests {
         assert!(script(&g("SELECT; DROP TABLE x", "f")).is_err());
         assert!(script(&g("EXECUTE", "f(int); DROP TABLE x; --)")).is_err());
         assert!(script(&g("EXECUTE", "f(int")).is_err());
+    }
+
+    #[test]
+    fn schema_scripts() {
+        assert_eq!(create_schema(" ventas ").unwrap(), "CREATE SCHEMA \"ventas\";");
+        assert_eq!(schema_owner("Ven\"tas", " dq ana ").unwrap(), "ALTER SCHEMA \"Ven\"\"tas\" OWNER TO \"dq ana\";");
+        assert!(schema_owner("ventas", "").is_err());
+        assert!(create_schema(" ").is_err());
+        assert_eq!(drop_schema("ventas").unwrap(), "DROP SCHEMA \"ventas\";");
+        let spec = schema_spec();
+        assert!(spec.owner && !spec.cascade);
+        let g = script(&SecurityAction::Grant {
+            privileges: spec.privileges.iter().map(|p| p.to_string()).collect(),
+            object: obj("schema", None, "ventas"),
+            to: "r".into(),
+            grantable: true,
+        })
+        .unwrap();
+        assert_eq!(g, "GRANT USAGE, CREATE, ALL PRIVILEGES ON SCHEMA \"ventas\" TO \"r\" WITH GRANT OPTION;");
     }
 }

@@ -75,6 +75,66 @@ pub struct SecuritySpec {
     pub per_database: bool,
 }
 
+/// "Nuevo esquema…" / "Borrar esquema…" in the explorer
+/// (`Driver::schema_spec`): what the engine lets the dialog offer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SchemaSpec {
+    /// A schema has an owner, set when creating it (`AUTHORIZATION`, or
+    /// `Driver::schema_owner_script` after the grants): the dialog offers
+    /// the server's principals of the `owner_kinds`.
+    #[serde(default)]
+    pub owner: bool,
+    /// Which principals can own a schema.
+    #[serde(default)]
+    pub owner_kinds: SchemaOwnerKinds,
+    /// Dropping can take the schema's objects with it (`CASCADE`).
+    #[serde(default)]
+    pub cascade: bool,
+    /// Schema-level privileges offered when granting on the new schema, in
+    /// order (the engine's names: USAGE, CREATE, SELECT…). Empty: no grants
+    /// at creation. They go through `Driver::security_script` with a
+    /// `SecurityAction::Grant` whose object is `ObjectRef { kind: "schema",
+    /// schema: None, name }`.
+    #[serde(default, deserialize_with = "crate::serde_static::strs")]
+    pub privileges: Vec<&'static str>,
+    /// Those grants can carry "con opción de otorgar" (`grantable`): false
+    /// where the engine refuses it on a schema, and the dialog hides the
+    /// switch. Absent (an older plugin or host): true.
+    #[serde(default = "yes")]
+    pub grant_option: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for SchemaSpec {
+    fn default() -> Self {
+        SchemaSpec { owner: false, owner_kinds: SchemaOwnerKinds::Both, cascade: false, privileges: Vec::new(), grant_option: true }
+    }
+}
+
+/// Which principals can own a schema (`SchemaSpec::owner_kinds`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SchemaOwnerKinds {
+    /// Users and roles.
+    #[default]
+    Both,
+    Users,
+    Roles,
+}
+
+impl SchemaOwnerKinds {
+    pub fn allows(self, kind: PrincipalKind) -> bool {
+        match self {
+            SchemaOwnerKinds::Both => true,
+            SchemaOwnerKinds::Users => kind == PrincipalKind::User,
+            SchemaOwnerKinds::Roles => kind == PrincipalKind::Role,
+        }
+    }
+}
+
 /// A change to users, roles or permissions: `Driver::security_script`
 /// writes the code for it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,7 +146,9 @@ pub enum SecurityAction {
     SetPassword { name: String, password: String },
     /// Enable / disable signing in.
     SetLogin { name: String, enabled: bool },
-    /// `object`: None for database/server-wide privileges.
+    /// `object`: None for database/server-wide privileges. A driver with
+    /// a `SchemaSpec` whose `privileges` aren't empty accepts `kind:
+    /// "schema"` (`schema: None`, `name`: the schema) here.
     Grant { privileges: Vec<String>, object: Option<crate::ObjectRef>, to: String, grantable: bool },
     Revoke { privileges: Vec<String>, object: Option<crate::ObjectRef>, from: String },
     AddMember { role: String, member: String },
@@ -102,5 +164,27 @@ impl SecurityAction {
             SecurityAction::SetPassword { password, .. } => Some(password),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_spec_reads_back_and_defaults() {
+        let spec = SchemaSpec { owner: true, owner_kinds: SchemaOwnerKinds::Roles, cascade: true, privileges: vec!["USAGE", "CREATE"], grant_option: false };
+        let back: SchemaSpec = serde_json::from_value(serde_json::to_value(&spec).unwrap()).unwrap();
+        assert_eq!(back, spec);
+        // A spec from before `grant_option` keeps offering the switch.
+        let old: SchemaSpec = serde_json::from_value(serde_json::json!({"owner": true, "privileges": ["USAGE"]})).unwrap();
+        assert!(old.grant_option);
+        assert_eq!(serde_json::to_value(spec).unwrap()["owner_kinds"], "roles");
+        let empty: SchemaSpec = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(empty, SchemaSpec::default());
+        assert!(empty.grant_option);
+        assert_eq!(empty.owner_kinds, SchemaOwnerKinds::Both);
+        assert!(SchemaOwnerKinds::Both.allows(PrincipalKind::Role) && SchemaOwnerKinds::Users.allows(PrincipalKind::User));
+        assert!(!SchemaOwnerKinds::Users.allows(PrincipalKind::Role) && !SchemaOwnerKinds::Roles.allows(PrincipalKind::User));
     }
 }

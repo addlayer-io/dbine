@@ -126,7 +126,8 @@ async fn ksqldb() {
     // Error mid-script.
     let mut out = QueryOutcome::default();
     let e = s.execute("SHOW TOPICS; SELECT * FROM NOPE; SHOW STREAMS", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
+    assert_eq!(e.to_script_error().offset, Some(13), "the failing statement's place");
     assert_eq!(out.results.len(), 1);
 
     // Cancel a push query that would wait forever for new events.

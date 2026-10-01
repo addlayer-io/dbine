@@ -87,8 +87,19 @@ pub async fn track_event(app: tauri::AppHandle, args: TrackEventArgs) -> Command
     }]);
     tauri::async_runtime::spawn(async move {
         let sent = client().post(INGEST_URL).header("App-Key", APP_KEY).json(&event).send().await;
+        // Logged (not shown): the only way to tell why a machine's events
+        // never arrive (proxy, firewall, TLS). The event carries nothing
+        // identifying, and neither does the error.
         if let Err(e) = sent.and_then(|r| r.error_for_status()) {
-            tracing::debug!("telemetry event not sent: {e}");
+            // The whole chain: "error sending request" alone hides the cause.
+            let mut why = e.to_string();
+            let mut src = std::error::Error::source(&e);
+            while let Some(s) = src {
+                why.push_str(": ");
+                why.push_str(&s.to_string());
+                src = s.source();
+            }
+            tracing::warn!("telemetry event not sent: {why}");
         }
     });
     Ok(())

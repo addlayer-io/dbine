@@ -31,6 +31,9 @@
 //!     `db.runCommand({…})`, `db.adminCommand({…})`, `db.stats()`,
 //!     `db.version()`, `db.getCollection("name").<method>(…)`,
 //!     `db["name"].<method>(…)`.
+//! - **Shell helpers**, each on its own line: `use <db>` switches the
+//!   session's database for the rest of the session; `show dbs`,
+//!   `show collections`, `show users`, `show roles`.
 //! - **Raw commands**: a JSON document run with `runCommand`, e.g.
 //!   `{ "find": "users", "filter": { "age": { "$gt": 30 } }, "limit": 10 }`.
 //!
@@ -39,6 +42,10 @@
 //! `ISODate("…")`/`new Date(…)`, `NumberLong(…)`, `NumberInt(…)`,
 //! `NumberDecimal("…")`, `Timestamp(t, i)`, `UUID("…")`, `BinData(t, "…")`
 //! and `/regex/flags`. Extended JSON (`{"$oid": "…"}`) works too.
+//!
+//! As `mongosh --file`, a script that doesn't parse runs nothing (the
+//! error points at its line), and the first failing statement stops it;
+//! server errors carry their code.
 //!
 //! # Results
 //!
@@ -65,6 +72,7 @@ mod plan;
 mod profiler;
 mod security;
 mod shell;
+mod steps;
 mod sync;
 mod transfer;
 
@@ -72,14 +80,15 @@ use dbine_driver::async_trait;
 use dbine_driver::{
     kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver,
     DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn,
-    MonitorSnapshot, Session, TableSchema,
+    MonitorSnapshot, ScriptError, Session, TableSchema,
 };
 use futures::TryStreamExt;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::error::ErrorKind;
 use mongodb::options::{ClientOptions, Credential, ServerAddress, Tls, TlsOptions};
 use mongodb::{Client, Database};
-use shell::{Shape, Stmt};
+use shell::{Item, Shape, Stmt};
+use steps::Step;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -422,6 +431,64 @@ impl MongoSession {
         Ok(())
     }
 
+    async fn run_checked(&self, stmt: Stmt, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        if self.read_only {
+            if let Some(w) = shell::write_reason(&stmt.cmd) {
+                return Err(Error::Query(format!(
+                    "Conexión de solo lectura: se bloqueó `{w}`. Solo se permiten lecturas (find, aggregate, count, distinct, list…)."
+                )));
+            }
+        }
+        self.run(stmt, max_rows, out).await
+    }
+
+    /// `use <db>`: the session's database for the rest of the session.
+    fn use_db(&mut self, name: &str, out: &mut QueryOutcome) -> Result<()> {
+        if name.is_empty() || name.contains(['/', '\\', '.', ' ', '"', '$']) {
+            return Err(Error::Query(format!("Nombre de base inválido: {name}")));
+        }
+        self.db = self.client.database(name);
+        // The tab's database selector follows it (the session keeps it).
+        out.database = Some(name.to_string());
+        out.info(format!("Base de datos actual: {name}"));
+        Ok(())
+    }
+
+    /// mongosh's `show …` helpers.
+    async fn show(&self, what: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let admin = self.client.database("admin");
+        let docs: Vec<Document> = match what {
+            "dbs" | "databases" => {
+                let r = admin.run_command(doc! { "listDatabases": 1 }).await.map_err(cmd_err)?;
+                let mut v: Vec<Document> = r.get_array("databases").map(|a| a.iter().filter_map(Bson::as_document).cloned().collect()).unwrap_or_default();
+                v.sort_by(|a, b| a.get_str("name").unwrap_or("").cmp(b.get_str("name").unwrap_or("")));
+                v
+            }
+            "collections" | "tables" => {
+                let mut cur = self.db.run_cursor_command(doc! { "listCollections": 1, "nameOnly": true, "authorizedCollections": true }).await.map_err(cmd_err)?;
+                let mut names = Vec::new();
+                while let Some(d) = cur.try_next().await.map_err(cmd_err)? {
+                    if let Ok(n) = d.get_str("name") {
+                        names.push(doc! { "name": n });
+                    }
+                }
+                names.sort_by(|a, b| a.get_str("name").unwrap_or("").cmp(b.get_str("name").unwrap_or("")));
+                names
+            }
+            "users" => {
+                let r = self.db.run_command(doc! { "usersInfo": 1 }).await.map_err(cmd_err)?;
+                r.get_array("users").map(|a| a.iter().filter_map(Bson::as_document).cloned().collect()).unwrap_or_default()
+            }
+            "roles" => {
+                let r = self.db.run_command(doc! { "rolesInfo": 1, "showBuiltinRoles": true }).await.map_err(cmd_err)?;
+                r.get_array("roles").map(|a| a.iter().filter_map(Bson::as_document).cloned().collect()).unwrap_or_default()
+            }
+            other => return Err(Error::Unsupported(format!("`show {other}` no está disponible (sí show dbs, collections, users y roles)."))),
+        };
+        push_docs(out, &docs, max_rows);
+        Ok(())
+    }
+
     async fn first_batch(&self, cmd: Document, limit: usize) -> Result<Vec<Document>> {
         let mut cur = self.db.run_cursor_command(cmd).await.map_err(err)?;
         let mut out = Vec::new();
@@ -439,7 +506,7 @@ impl MongoSession {
         let mut cmd = stmt.cmd;
         if stmt.shape == Shape::IfExists {
             if let Some(skip) = security::missing_principal(&db, &cmd).await? {
-                out.messages.push(skip);
+                out.info(skip);
                 return Ok(());
             }
         }
@@ -449,9 +516,9 @@ impl MongoSession {
                 if matches!(first.as_str(), "find" | "aggregate") && !cmd.contains_key("comment") {
                     cmd.insert("comment", self.tag.as_str());
                 }
-                let mut cur = db.run_cursor_command(cmd).await.map_err(err)?;
+                let mut cur = db.run_cursor_command(cmd).await.map_err(cmd_err)?;
                 if stmt.shape == Shape::CountAgg {
-                    let n = match cur.try_next().await.map_err(err)? {
+                    let n = match cur.try_next().await.map_err(cmd_err)? {
                         Some(d) => d.get("count").cloned().unwrap_or(Bson::Int32(0)),
                         None => Bson::Int32(0),
                     };
@@ -459,7 +526,7 @@ impl MongoSession {
                 }
                 let mut docs = Vec::new();
                 let mut more = false;
-                while let Some(d) = cur.try_next().await.map_err(err)? {
+                while let Some(d) = cur.try_next().await.map_err(cmd_err)? {
                     if docs.len() == max_rows {
                         more = true;
                         break;
@@ -471,17 +538,17 @@ impl MongoSession {
                     let r = out.results.last_mut().expect("a result set");
                     r.truncated = true;
                     r.total_rows += 1;
-                    out.messages.push(format!(
+                    out.info(format!(
                         "Se muestran los primeros {max_rows} documentos; el cursor se cerró sin leer el resto."
                     ));
                 }
             }
             Shape::Count => {
-                let r = db.run_command(cmd).await.map_err(err)?;
+                let r = db.run_command(cmd).await.map_err(cmd_err)?;
                 scalar(out, "count", r.get("n").unwrap_or(&Bson::Int32(0)))?;
             }
             Shape::Distinct(key) => {
-                let r = db.run_command(cmd).await.map_err(err)?;
+                let r = db.run_command(cmd).await.map_err(cmd_err)?;
                 out.begin_result(vec![ResultColumn { name: key, type_name: String::new() }]);
                 for v in r.get_array("values").map(|a| a.as_slice()).unwrap_or(&[]) {
                     out.push_row(vec![convert::cell(v)], max_rows);
@@ -489,7 +556,7 @@ impl MongoSession {
             }
             Shape::Write => {
                 let upd = cmd.contains_key("update");
-                let r = db.run_command(cmd).await.map_err(err)?;
+                let r = db.run_command(cmd).await.map_err(cmd_err)?;
                 check_write_errors(&r)?;
                 let n = if upd {
                     count_of(&r, "nModified") + r.get_array("upserted").map(|a| a.len() as u64).unwrap_or(0)
@@ -505,14 +572,14 @@ impl MongoSession {
                     // As in mongosh, dropping a missing collection is not an
                     // error (servers before 7.0 answer NamespaceNotFound).
                     Err(e) if first == "drop" && command_code(&e) == Some(26) => {
-                        out.messages.push("La colección no existía; no se borró nada.".into());
+                        out.info("La colección no existía; no se borró nada.");
                         return Ok(());
                     }
                     Err(e) if stmt.shape == Shape::CreateIfMissing && command_code(&e) == Some(48) => {
-                        out.messages.push("La colección ya existía; se dejó como estaba.".into());
+                        out.info("La colección ya existía; se dejó como estaba.");
                         return Ok(());
                     }
-                    Err(e) => return Err(err(e)),
+                    Err(e) => return Err(cmd_err(e)),
                 };
                 check_write_errors(&r)?;
                 for k in ["$clusterTime", "operationTime", "$db"] {
@@ -522,6 +589,17 @@ impl MongoSession {
             }
         }
         Ok(())
+    }
+}
+
+/// A failed editor command with the server's code (its number; the
+/// message ends with the code name, as mongosh shows it).
+fn cmd_err(e: mongodb::error::Error) -> Error {
+    match e.kind.as_ref() {
+        ErrorKind::Command(c) if c.code != 18 => {
+            Error::Statement(Box::new(ScriptError::new(format!("{} ({})", c.message, c.code_name)).with_code(c.code.to_string())))
+        }
+        _ => err(e),
     }
 }
 
@@ -542,12 +620,18 @@ fn count_of(r: &Document, key: &str) -> u64 {
 }
 
 fn check_write_errors(r: &Document) -> Result<()> {
-    let msg = |d: &Document| d.get_str("errmsg").unwrap_or("error de escritura").to_string();
+    let fail = |d: &Document| {
+        let mut se = ScriptError::new(d.get_str("errmsg").unwrap_or("error de escritura"));
+        if let Some(code) = d.get("code").and_then(|c| c.as_i32().or_else(|| c.as_i64().map(|n| n as i32))) {
+            se = se.with_code(code.to_string());
+        }
+        Err(Error::Statement(Box::new(se)))
+    };
     if let Some(e) = r.get_array("writeErrors").ok().and_then(|a| a.first()).and_then(Bson::as_document) {
-        return Err(Error::Query(msg(e)));
+        return fail(e);
     }
     if let Ok(e) = r.get_document("writeConcernError") {
-        return Err(Error::Query(msg(e)));
+        return fail(e);
     }
     Ok(())
 }
@@ -732,20 +816,23 @@ impl Session for MongoSession {
         browse_text(&obj.name, limit)
     }
 
+    /// As `mongosh --file`: a script that doesn't parse runs nothing, and
+    /// the first failing statement stops it.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let stmts = shell::parse_script(text).map_err(Error::Query)?;
-        if stmts.is_empty() {
+        let units = shell::parse_units(text)
+            .map_err(|e| Error::Statement(Box::new(ScriptError::new(e.message).at_offset(e.offset).at_line(e.line))))?;
+        if units.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
         }
-        for stmt in stmts {
-            if self.read_only {
-                if let Some(w) = shell::write_reason(&stmt.cmd) {
-                    return Err(Error::Query(format!(
-                        "Conexión de solo lectura: se bloqueó `{w}`. Solo se permiten lecturas (find, aggregate, count, distinct, list…)."
-                    )));
-                }
-            }
-            self.run(stmt, max_rows, out).await?;
+        let own = out.current_statement.is_none();
+        for (i, u) in units.into_iter().enumerate() {
+            let step = Step::start(out, own, i, u.start, u.line);
+            let r = match u.item {
+                Item::Run(stmt) => self.run_checked(stmt, max_rows, out).await,
+                Item::Use(name) => self.use_db(&name, out),
+                Item::Show(what) => self.show(&what, max_rows, out).await,
+            };
+            step.end(out, r)?;
         }
         Ok(())
     }
@@ -777,7 +864,7 @@ impl Session for MongoSession {
             }
             let name = stmt.cmd.keys().next().map(|k| k.to_ascii_lowercase()).unwrap_or_default();
             if !plan::explainable(&name) {
-                out.messages.push(format!("`{}`: el comando {name} no tiene plan de ejecución.", clip(&src, 80)));
+                out.info(format!("`{}`: el comando {name} no tiene plan de ejecución.", clip(&src, 80)));
                 if analyze {
                     self.run(stmt, max_rows, out).await?;
                 }

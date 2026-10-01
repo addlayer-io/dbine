@@ -10,11 +10,11 @@ pub mod plan;
 pub mod schema;
 pub mod transfer;
 
-use dbine_driver::sql::{quote_ident, select_top, split_statements, Limit, Quote};
+use dbine_driver::sql::{leading_keyword, quote_ident, select_top, split_statements, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode};
 use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef,
-    QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema, TxState,
 };
 use rusqlite::types::ValueRef;
 use rusqlite::{Batch, Connection, ErrorCode, InterruptHandle, OpenFlags, OptionalExtension};
@@ -47,6 +47,8 @@ pub struct SqliteDriver {
 pub struct SqliteSession {
     conn: Arc<Mutex<Connection>>,
     interrupt: Arc<InterruptHandle>,
+    /// Manual transactions: the first statement that writes opens one.
+    manual: bool,
 }
 
 /// An interrupted statement reads as a cancellation; anything else is the
@@ -59,6 +61,23 @@ fn err(e: rusqlite::Error) -> Error {
     }
 }
 
+/// A statement of `script` failed: SQLite's extended result code as the
+/// code ("1" for a syntax error, "2067" for a UNIQUE violation…), and where
+/// the bad token is when SQLite says (`sqlite3_error_offset`, relative to
+/// the rest of `script` the statement was prepared from).
+fn stmt_err(e: rusqlite::Error, script: &str) -> Error {
+    match e {
+        rusqlite::Error::SqlInputError { error, msg, sql, offset } => {
+            let at = script.len().saturating_sub(sql.len()) + offset.max(0) as usize;
+            ScriptError::new(msg).with_code(error.extended_code.to_string()).at_offset(at.min(script.len())).into()
+        }
+        rusqlite::Error::SqliteFailure(f, msg) if f.code != ErrorCode::OperationInterrupted => {
+            ScriptError::new(msg.unwrap_or_else(|| f.to_string())).with_code(f.extended_code.to_string()).into()
+        }
+        other => err(other),
+    }
+}
+
 #[async_trait]
 impl Driver for SqliteDriver {
     fn info(&self) -> &DriverInfo {
@@ -66,6 +85,27 @@ impl Driver for SqliteDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// sqlite3's: `;` outside quotes and comments (`[name]` and `` `name` ``
+    /// too), trigger bodies kept whole until their `END`.
+    fn script_dialect(&self) -> ScriptDialect {
+        ScriptDialect { bracket_idents: true, ..ScriptDialect::generic() }
+    }
+
+    /// One statement per call on the tab's connection, which keeps its
+    /// state (temp tables, PRAGMAs, ATTACH, an open transaction).
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// sqlite3 goes on after an error unless `.bail on`.
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+    }
+
+    fn supports_manual_transactions(&self) -> bool {
         true
     }
 
@@ -147,7 +187,7 @@ impl Driver for SqliteDriver {
         })
         .await?;
         let interrupt = Arc::new(conn.get_interrupt_handle());
-        Ok(Box::new(SqliteSession { conn: Arc::new(Mutex::new(conn)), interrupt }))
+        Ok(Box::new(SqliteSession { conn: Arc::new(Mutex::new(conn)), interrupt, manual: false }))
     }
 }
 
@@ -280,18 +320,43 @@ impl Session for SqliteSession {
 
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let sql = sql.to_string();
+        let manual = self.manual;
         // The outcome can't cross into the blocking thread by reference;
         // fill a local one and move its results over, error or not.
         let fork = out.fork();
         let (local, res) = self
             .with(move |c| {
                 let mut local = fork;
-                let res = run_script(c, &sql, max_rows, &mut local);
+                let res = run_script_tx(c, &sql, max_rows, manual, &mut local);
                 Ok((local, res))
             })
             .await?;
         out.merge(local);
         res
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        self.with(|c| Ok(Some(if c.is_autocommit() { TxState::Idle } else { TxState::Open }))).await
+    }
+
+    /// Off: the next statement that writes opens a transaction (`BEGIN`),
+    /// which stays open until Commit / Rollback. On: a transaction still
+    /// open is committed, as turning autocommit on does in other engines
+    /// (the UI asks Commit / Rollback first).
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if on {
+            self.with(|c| if c.is_autocommit() { Ok(()) } else { c.execute_batch("COMMIT").map_err(err) }).await?;
+        }
+        self.manual = !on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.with(|c| if c.is_autocommit() { Ok(()) } else { c.execute_batch("COMMIT").map_err(err) }).await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.with(|c| if c.is_autocommit() { Ok(()) } else { c.execute_batch("ROLLBACK").map_err(err) }).await
     }
 
     /// `EXPLAIN QUERY PLAN` per statement. SQLite has no costs, row
@@ -399,8 +464,50 @@ fn local_figures(c: &Connection, snap: &mut dbine_driver::MonitorSnapshot) {
 }
 
 fn run_script(c: &Connection, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    run_script_tx(c, sql, max_rows, false, out)
+}
+
+/// Run every statement of `sql`. `manual`: a statement that writes opens a
+/// transaction first when none is open (transaction control, reads and
+/// ATTACH don't), as autocommit off does in other engines.
+fn run_script_tx(c: &Connection, sql: &str, max_rows: usize, manual: bool, out: &mut QueryOutcome) -> Result<()> {
     let mut batch = Batch::new(c, sql);
-    while let Some(mut stmt) = batch.next().map_err(err)? {
+    while let Some(mut stmt) = batch.next().map_err(|e| stmt_err(e, sql))? {
+        // Manual mode opens the transaction for the first statement that
+        // writes; one opened here for a statement that then fails is
+        // rolled back (it holds nothing else), so it isn't left open empty.
+        let opened = manual && c.is_autocommit() && !stmt.readonly() && !stmt.expanded_sql().is_some_and(|s| outside_transaction(&s));
+        if opened {
+            c.execute_batch("BEGIN").map_err(err)?;
+        }
+        let before = out.results.len();
+        let r = run_stmt(c, &mut stmt, sql, max_rows, out);
+        if r.is_err() {
+            // A query cancelled or failed mid-way leaves no empty grid.
+            if out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+                out.results.truncate(before);
+            }
+            if opened && !c.is_autocommit() {
+                let _ = c.execute_batch("ROLLBACK");
+            }
+        }
+        r?;
+    }
+    Ok(())
+}
+
+/// Statements SQLite refuses inside a transaction (`VACUUM`, `ATTACH`,
+/// `DETACH`) or that manage it themselves: manual mode doesn't open one
+/// for them.
+fn outside_transaction(stmt: &str) -> bool {
+    matches!(
+        leading_keyword(stmt, &ScriptDialect::generic()).as_deref(),
+        Some("vacuum" | "attach" | "detach" | "begin" | "commit" | "end" | "rollback" | "savepoint" | "release")
+    )
+}
+
+fn run_stmt(c: &Connection, stmt: &mut rusqlite::Statement<'_>, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+    {
         let n = stmt.column_count();
         if n > 0 {
             out.begin_result(
@@ -410,14 +517,14 @@ fn run_script(c: &Connection, sql: &str, max_rows: usize, out: &mut QueryOutcome
                     .collect(),
             );
             let mut rows = stmt.raw_query();
-            while let Some(row) = rows.next().map_err(err)? {
+            while let Some(row) = rows.next().map_err(|e| stmt_err(e, sql))? {
                 out.push_row((0..n).map(|i| cell(row.get_ref_unwrap(i))).collect(), max_rows);
             }
         } else {
             // changes() keeps the last DML's count across DDL; only trust it
             // when this statement actually changed something.
             let before = total_changes(c)?;
-            stmt.raw_execute().map_err(err)?;
+            stmt.raw_execute().map_err(|e| stmt_err(e, sql))?;
             let changed = total_changes(c)? != before;
             out.push_affected(if changed { c.changes() } else { 0 });
         }
@@ -494,8 +601,46 @@ mod tests {
         let c = Connection::open_in_memory().unwrap();
         let mut out = QueryOutcome::default();
         let e = run_script(&c, "SELECT 1; SELECT * FROM missing; SELECT 2;", 10, &mut out).unwrap_err();
-        assert!(matches!(e, Error::Query(_)));
+        assert!(e.is_query());
         assert_eq!(out.results.len(), 1);
+    }
+
+    #[test]
+    fn errors_carry_the_code_and_where_the_bad_token_is() {
+        let c = Connection::open_in_memory().unwrap();
+        let mut out = QueryOutcome::default();
+        let script = "SELECT 1;\nSELEC 2;";
+        let e = run_script(&c, script, 10, &mut out).unwrap_err().to_script_error();
+        assert_eq!(e.code.as_deref(), Some("1"));
+        assert_eq!(e.offset, Some(script.find("SELEC 2").unwrap()));
+        assert!(e.message.contains("syntax error"), "{}", e.message);
+        c.execute_batch("CREATE TABLE u (id INTEGER PRIMARY KEY); INSERT INTO u VALUES (1)").unwrap();
+        let e = run_script(&c, "INSERT INTO u VALUES (1)", 10, &mut out).unwrap_err().to_script_error();
+        assert_eq!(e.code.as_deref(), Some("1555"), "{e:?}");
+    }
+
+    #[test]
+    fn manual_mode_opens_a_transaction_only_for_writes() {
+        let c = Connection::open_in_memory().unwrap();
+        let mut out = QueryOutcome::default();
+        run_script_tx(&c, "CREATE TABLE t (a)", 10, true, &mut out).unwrap();
+        assert!(!c.is_autocommit());
+        c.execute_batch("ROLLBACK").unwrap();
+        assert!(c.prepare("SELECT * FROM t").is_err(), "the CREATE was rolled back");
+        run_script_tx(&c, "SELECT 1", 10, true, &mut out).unwrap();
+        assert!(c.is_autocommit(), "a read opens nothing");
+        run_script_tx(&c, "BEGIN; CREATE TABLE t (a); INSERT INTO t VALUES (1)", 10, true, &mut out).unwrap();
+        run_script_tx(&c, "COMMIT", 10, true, &mut out).unwrap();
+        assert!(c.is_autocommit());
+        assert_eq!(c.query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    }
+
+    #[test]
+    fn dialect_keeps_trigger_bodies_and_brackets() {
+        let d = SqliteDriver { info: info() };
+        let units = d.split_script("CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE t SET a = 1; SELECT ';'; END; SELECT [a;b] FROM t;");
+        assert_eq!(units.len(), 2, "{units:?}");
+        assert_eq!(units[1].text, "SELECT [a;b] FROM t");
     }
 
     #[test]

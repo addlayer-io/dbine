@@ -88,7 +88,7 @@ async fn trino() {
     // Error mid-script.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Cancel.
@@ -141,7 +141,7 @@ async fn presto() {
     s.execute("SELECT x FROM UNNEST(sequence(1, 10)) AS t(x); SET SESSION query_max_run_time = '1h'", 3, &mut out).await.unwrap();
     assert_eq!((out.results[0].rows.len(), out.results[0].total_rows), (3, 10));
     let e = s.execute("SELECT * FROM nope", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
 }
 
 #[tokio::test]

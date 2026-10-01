@@ -16,6 +16,7 @@ mod ddl;
 mod prom;
 mod security;
 mod permissions;
+mod steps;
 mod transfer;
 
 use base64::engine::general_purpose::STANDARD as B64;
@@ -448,10 +449,10 @@ impl EtcdSession {
                         out.push_row(kv_row(kv, keys_only), max_rows);
                     }
                     if r.get("more").and_then(Value::as_bool) == Some(true) {
-                        out.messages.push(format!("Hay más claves en el rango (total: {}).", int(r.get("count"))));
+                        out.info(format!("Hay más claves en el rango (total: {}).", int(r.get("count"))));
                     }
                 }
-                out.messages.push(format!("revisión {}", int(r.pointer("/header/revision"))));
+                out.info(format!("revisión {}", int(r.pointer("/header/revision"))));
             }
             "put" => {
                 let key = c.args.get(1).ok_or_else(|| Error::Query("put necesita una clave y un valor".into()))?;
@@ -463,7 +464,7 @@ impl EtcdSession {
                 if let Some(ttl) = int_flag(c, "ttl")? {
                     let g = self.call("/v3/lease/grant", json!({"TTL": ttl.to_string()})).await?;
                     let id = int(g.get("ID"));
-                    out.messages.push(format!("lease {} otorgado (TTL {ttl} s)", lease_hex(id)));
+                    out.info(format!("lease {} otorgado (TTL {ttl} s)", lease_hex(id)));
                     body["lease"] = json!(id.to_string());
                 }
                 let r = self.call("/v3/kv/put", body).await?;
@@ -473,7 +474,7 @@ impl EtcdSession {
                 } else {
                     out.push_affected(1);
                 }
-                out.messages.push(format!("revisión {}", int(r.pointer("/header/revision"))));
+                out.info(format!("revisión {}", int(r.pointer("/header/revision"))));
             }
             "del" | "delete" => {
                 let (key, end) = range(c)?;
@@ -566,7 +567,7 @@ impl EtcdSession {
                 let rev: i64 = c.word(1).parse().map_err(|_| Error::Query("compaction necesita una revisión".into()))?;
                 self.call("/v3/kv/compaction", json!({"revision": rev.to_string(), "physical": c.flag("physical")})).await?;
                 out.push_affected(0);
-                out.messages.push(format!("historial compactado hasta la revisión {rev}"));
+                out.info(format!("historial compactado hasta la revisión {rev}"));
             }
             "user list" | "role list" => {
                 let what = if c.verb() == "user" { "user" } else { "role" };
@@ -584,7 +585,7 @@ impl EtcdSession {
                 }
                 let bytes = self.cancel.run(backup::save(&self.conn, &path)).await?;
                 out.push_affected(0);
-                out.messages.push(format!("snapshot guardado en {path} ({bytes} bytes)"));
+                out.info(format!("snapshot guardado en {path} ({bytes} bytes)"));
             }
             "watch" | "lease keep-alive" | "elect" | "lock" => {
                 return Err(Error::Unsupported(format!("El editor no admite {}: deja la conexión esperando eventos.", c.name())));
@@ -768,19 +769,25 @@ impl Session for EtcdSession {
         transfer::load(self, spec, source, progress).await
     }
 
+    /// One etcdctl command per line; a line that doesn't parse runs
+    /// nothing, and the first failing command stops the script.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
-        let script = command::parse_script(text).map_err(Error::Query)?;
+        let script = command::parse_placed(text)
+            .map_err(|(m, line, at)| Error::from(dbine_driver::ScriptError::new(m).at_line(line).at_offset(at)))?;
         if self.read_only {
-            if let Some(w) = script.iter().find(|c| !command::is_read(c)) {
+            if let Some(w) = script.iter().find(|c| !command::is_read(&c.command)) {
                 return Err(Error::Query(format!(
                     "Conexión de solo lectura: se bloqueó el comando {}. Solo se permiten lecturas (get, lease list, member list…).",
-                    w.name()
+                    w.command.name()
                 )));
             }
         }
-        for c in &script {
-            self.run(c, max_rows, out).await?;
+        let own = out.current_statement.is_none();
+        for (i, c) in script.iter().enumerate() {
+            let step = steps::Step::start(out, own, i, c.start, c.line);
+            let r = self.run(&c.command, max_rows, out).await;
+            step.end(out, r)?;
         }
         Ok(())
     }

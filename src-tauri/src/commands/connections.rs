@@ -25,7 +25,15 @@ pub struct DriverDescriptor {
     security: Option<dbine_driver::SecuritySpec>,
     /// The engine's own backups (docs/backups.md).
     backup: Option<dbine_driver::BackupSpec>,
+    /// "Nuevo esquema…" / "Borrar esquema…"; `None`: not offered.
+    schema_spec: Option<dbine_driver::SchemaSpec>,
     script_separator: &'static str,
+    /// How the editor runs a script ("Seguir si hay un error" only matters
+    /// when it isn't `whole`) and the engine's defaults for it.
+    script_mode: dbine_driver::ScriptMode,
+    script_defaults: dbine_driver::ScriptDefaults,
+    /// The editor offers the Auto/Manual transactions toggle.
+    supports_manual_transactions: bool,
 }
 
 #[tauri::command]
@@ -44,7 +52,11 @@ pub async fn list_drivers() -> CommandResult<Vec<DriverDescriptor>> {
             create_templates: d.create_templates(),
             security: d.security(),
             backup: d.backup(),
+            schema_spec: d.schema_spec(),
             script_separator: d.script_separator(),
+            script_mode: d.script_mode(),
+            script_defaults: d.script_defaults(),
+            supports_manual_transactions: d.supports_manual_transactions(),
         })
         .collect())
 }

@@ -90,7 +90,21 @@ pub enum Call {
     BrowseQuery { session: u64, obj: ObjectRef, limit: u32 },
     /// `sink`: the app streams the rows (export, migration): they come back
     /// as `SinkBegin` / `SinkRow` events instead of in the outcome.
-    Execute { session: u64, text: String, max_rows: u64, sink: bool },
+    ///
+    /// `continue_on_error`: [`QueryOutcome::continue_on_error`] of an editor
+    /// run. `live`: messages and ended statements come back as `Message` /
+    /// `StatementEnded` events as they happen. Hosts published before them
+    /// ignore both (one call that stops at the first error).
+    Execute {
+        session: u64,
+        text: String,
+        max_rows: u64,
+        sink: bool,
+        #[serde(default)]
+        continue_on_error: Option<bool>,
+        #[serde(default)]
+        live: bool,
+    },
     Explain { session: u64, text: String, analyze: bool, max_rows: u64, sink: bool },
     DatabaseSchema { session: u64 },
     CreateDatabase { session: u64, name: String },
@@ -122,6 +136,39 @@ pub enum Call {
     /// Like `BulkLoad`: the app sends the source rows as `ToHost::Batch`.
     DeltaApply { session: u64, spec: DeltaSpec, buckets: Vec<i64>, columns: Vec<TransferColumn> },
     Permissions { session: u64, database: Option<String> },
+    /// "Nuevo esquema…" / "Borrar esquema…". A host published before them
+    /// answers `Unsupported` (see `unknown_call`). `database` came later: a
+    /// host that doesn't know it ignores it, and an app that doesn't send
+    /// it reads as `None`.
+    CreateSchemaScript {
+        driver: String,
+        name: String,
+        owner: Option<String>,
+        #[serde(default)]
+        database: Option<String>,
+    },
+    DropSchemaScript {
+        driver: String,
+        name: String,
+        cascade: bool,
+        #[serde(default)]
+        database: Option<String>,
+    },
+    /// A host published before it answers `Unsupported`, which the app
+    /// reads as `None` (the owner goes in the create).
+    SchemaOwnerScript { driver: String, database: Option<String>, name: String, owner: String },
+    /// A host published before it answers `Unsupported`, and the app asks
+    /// `SecurityScript` instead (what that host did).
+    SchemaGrantScript { driver: String, database: Option<String>, name: String, privileges: Vec<String>, to: String, grantable: bool },
+    /// Every schema, even empty ones. A host published before it answers
+    /// `Unsupported`, which the app reads as "not listed" (`None`).
+    ListSchemas { session: u64 },
+    /// Manual transactions. A host published before them answers
+    /// `Unsupported`: `TransactionState` then reads as "not tracked" (`None`).
+    TransactionState { session: u64 },
+    SetAutocommit { session: u64, on: bool },
+    Commit { session: u64 },
+    Rollback { session: u64 },
 }
 
 /// Host → app.
@@ -130,6 +177,10 @@ pub enum FromHost {
     Reply { id: u64, result: Result<Reply, WireError> },
     SinkBegin { id: u64, index: u64, columns: Vec<ResultColumn> },
     SinkRow { id: u64, index: u64, row: Vec<Value> },
+    /// A message of a `live` `Execute`, as it arrives.
+    Message { id: u64, message: dbine_driver::Message },
+    /// A statement of a `live` `Execute` ended.
+    StatementEnded { id: u64, end: dbine_driver::StatementEnd },
     /// A component download of a driver (DuckDB's library…).
     Progress(ComponentProgress),
     BatchBegin { id: u64, columns: Vec<TransferColumn> },
@@ -170,6 +221,8 @@ pub enum Reply {
     Buckets(Vec<BucketSum>),
     Delta(DeltaResult),
     Permissions(dbine_driver::Permissions),
+    Schemas(Option<Vec<dbine_driver::SchemaInfo>>),
+    TxState(Option<dbine_driver::TxState>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -213,6 +266,23 @@ pub struct DriverMeta {
     /// Sync by rows (`Driver::supports_delta`).
     #[serde(default)]
     pub supports_delta: bool,
+    /// Creating and dropping schemas (absent in older manifests: `None`,
+    /// the explorer doesn't offer them).
+    #[serde(default, deserialize_with = "owned")]
+    pub schema_spec: Option<dbine_driver::SchemaSpec>,
+    /// How the app splits and runs its scripts (absent in older manifests:
+    /// the dialect hint's preset, the whole script in one call, stop on
+    /// errors). Read leniently: a value this build can't read (a newer
+    /// host's) falls back to that default instead of failing the manifest.
+    #[serde(default, deserialize_with = "lenient")]
+    pub script_dialect: Option<dbine_driver::ScriptDialect>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub script_mode: Option<dbine_driver::ScriptMode>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub script_defaults: Option<dbine_driver::ScriptDefaults>,
+    /// Auto/Manual, Commit and Rollback in the editor.
+    #[serde(default)]
+    pub supports_manual_transactions: bool,
 }
 
 /// The contract's metadata types hold `&'static str` (interned when read),
@@ -225,6 +295,16 @@ where
 {
     let v = Value::deserialize(d)?;
     T::deserialize(v).map_err(serde::de::Error::custom)
+}
+
+/// `None` instead of an error when the value doesn't read as a `T`.
+fn lenient<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let v = Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).ok())
 }
 
 impl DriverMeta {
@@ -247,6 +327,11 @@ impl DriverMeta {
             native_copy: d.supports_native_copy(d.info().id),
             supports_clone: d.supports_clone(),
             supports_delta: d.supports_delta(),
+            schema_spec: d.schema_spec(),
+            script_dialect: Some(d.script_dialect()),
+            script_mode: Some(d.script_mode()),
+            script_defaults: Some(d.script_defaults()),
+            supports_manual_transactions: d.supports_manual_transactions(),
         }
     }
 }
@@ -257,6 +342,10 @@ impl DriverMeta {
 pub struct WireError {
     pub kind: String,
     pub message: String,
+    /// An `Error::Statement`'s details; its `kind` is "query", so an app
+    /// that doesn't know them still gets the query error.
+    #[serde(default)]
+    pub detail: Option<dbine_driver::ScriptError>,
 }
 
 impl From<&Error> for WireError {
@@ -266,13 +355,14 @@ impl From<&Error> for WireError {
             Error::AuthFailed(m) => ("auth_failed", m.clone()),
             Error::Unsupported(m) => ("unsupported", m.clone()),
             Error::Query(m) => ("query", m.clone()),
+            Error::Statement(d) => return WireError { kind: "query".into(), message: d.message.clone(), detail: Some((**d).clone()) },
             Error::State(m) => ("state", m.clone()),
             Error::Secrets(m) => ("secrets", m.clone()),
             Error::Cancelled => ("cancelled", String::new()),
             Error::Io(e) => ("io", e.to_string()),
             Error::Serde(e) => ("serde", e.to_string()),
         };
-        WireError { kind: kind.into(), message }
+        WireError { kind: kind.into(), message, detail: None }
     }
 }
 
@@ -282,7 +372,10 @@ impl From<WireError> for Error {
             "connect" => Error::Connect(w.message),
             "auth_failed" => Error::AuthFailed(w.message),
             "unsupported" => Error::Unsupported(w.message),
-            "query" => Error::Query(w.message),
+            "query" => match w.detail {
+                Some(d) => Error::Statement(Box::new(d)),
+                None => Error::Query(w.message),
+            },
             "secrets" => Error::Secrets(w.message),
             "cancelled" => Error::Cancelled,
             "io" => Error::Io(io::Error::other(w.message)),
@@ -346,6 +439,46 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn script_settings_a_newer_host_sends_fall_back() {
+        #[derive(Serialize)]
+        #[serde(rename_all = "snake_case")]
+        enum NewMode {
+            Parallel,
+        }
+        #[derive(Serialize)]
+        struct NewMeta {
+            script_mode: NewMode,
+            script_dialect: Value,
+            script_defaults: Value,
+        }
+        #[derive(Deserialize)]
+        struct Meta {
+            #[serde(default, deserialize_with = "lenient")]
+            script_mode: Option<dbine_driver::ScriptMode>,
+            #[serde(default, deserialize_with = "lenient")]
+            script_dialect: Option<dbine_driver::ScriptDialect>,
+            #[serde(default, deserialize_with = "lenient")]
+            script_defaults: Option<dbine_driver::ScriptDefaults>,
+        }
+        let body = rmp_serde::to_vec_named(&NewMeta {
+            script_mode: NewMode::Parallel,
+            script_dialect: json!({ "batch": "semicolon_line", "plsql_blocks": true, "future": 1 }),
+            script_defaults: json!("not a struct"),
+        })
+        .unwrap();
+        let m: Meta = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(m.script_mode, Some(dbine_driver::ScriptMode::Whole));
+        let d = m.script_dialect.unwrap();
+        assert_eq!((d.batch, d.plsql_blocks), (dbine_driver::sql::BatchLine::None, true));
+        assert!(m.script_defaults.is_none());
+        // Known values still read.
+        let body = rmp_serde::to_vec_named(&json!({ "script_mode": "batches" })).unwrap();
+        let m: Meta = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(m.script_mode, Some(dbine_driver::ScriptMode::Batches));
+        assert!(m.script_dialect.is_none());
+    }
+
+    #[test]
     fn an_unknown_call_is_identified() {
         // What a newer app sends: a call this host's `Call` doesn't have.
         #[derive(Serialize)]
@@ -362,6 +495,92 @@ mod tests {
         // A known one still reads as such.
         let known = rmp_serde::to_vec_named(&ToHost::Call { id: 1, call: Call::Manifest }).unwrap();
         assert!(rmp_serde::from_slice::<ToHost>(&known).is_ok());
+    }
+
+    #[test]
+    fn the_schema_calls_database_is_optional_both_ways() {
+        // An app built before `database`: a new host reads `None`.
+        #[derive(Serialize)]
+        enum OldCall {
+            CreateSchemaScript { driver: String, name: String, owner: Option<String> },
+        }
+        #[derive(Serialize)]
+        enum OldToHost {
+            Call { id: u64, call: OldCall },
+        }
+        let body = rmp_serde::to_vec_named(&OldToHost::Call {
+            id: 1,
+            call: OldCall::CreateSchemaScript { driver: "dremio".into(), name: "a.b".into(), owner: None },
+        })
+        .unwrap();
+        match rmp_serde::from_slice::<ToHost>(&body).unwrap() {
+            ToHost::Call { call: Call::CreateSchemaScript { database, name, .. }, .. } => assert_eq!((database, name.as_str()), (None, "a.b")),
+            other => panic!("{other:?}"),
+        }
+        // A host built before `database` ignores it.
+        #[derive(Deserialize, Debug)]
+        #[allow(dead_code)]
+        enum HostCall {
+            DropSchemaScript { driver: String, name: String, cascade: bool },
+        }
+        #[derive(Deserialize, Debug)]
+        #[allow(dead_code)]
+        enum HostToHost {
+            Call { id: u64, call: HostCall },
+        }
+        let call = Call::DropSchemaScript { driver: "dremio".into(), name: "a.b".into(), cascade: true, database: Some("lake".into()) };
+        let body = rmp_serde::to_vec_named(&ToHost::Call { id: 2, call }).unwrap();
+        assert!(rmp_serde::from_slice::<HostToHost>(&body).is_ok());
+    }
+
+    #[test]
+    fn a_host_older_than_schema_calls_answers_unsupported() {
+        // A host published before the schema calls: its `Call` lacks them.
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        enum OldCall {
+            Manifest,
+            SecurityScript { driver: String, action: dbine_driver::SecurityAction },
+        }
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        enum OldToHost {
+            Call { id: u64, call: OldCall },
+        }
+        for (id, call, name) in [
+            (5, Call::CreateSchemaScript { driver: "postgres".into(), name: "ventas".into(), owner: Some("ana".into()), database: None }, "CreateSchemaScript"),
+            (6, Call::DropSchemaScript { driver: "postgres".into(), name: "ventas".into(), cascade: true, database: None }, "DropSchemaScript"),
+            (7, Call::ListSchemas { session: 3 }, "ListSchemas"),
+            (8, Call::SchemaOwnerScript { driver: "postgres".into(), database: None, name: "ventas".into(), owner: "ana".into() }, "SchemaOwnerScript"),
+            (
+                9,
+                Call::SchemaGrantScript { driver: "postgres".into(), database: None, name: "v".into(), privileges: vec![], to: "ana".into(), grantable: false },
+                "SchemaGrantScript",
+            ),
+        ] {
+            let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
+            assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
+            // What the host loop answers with: an `Unsupported` reply for that id.
+            assert_eq!(unknown_call(&body), Some((id, name.to_string())));
+        }
+        // An older host's `Permissions` reply, without `create_schema`.
+        #[derive(Serialize)]
+        struct OldPermissions {
+            backup: dbine_driver::Access,
+        }
+        let body = rmp_serde::to_vec_named(&OldPermissions { backup: dbine_driver::Access::Allowed }).unwrap();
+        let p: dbine_driver::Permissions = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(p.create_schema, dbine_driver::Access::Unknown);
+    }
+
+    #[test]
+    fn a_schema_list_round_trips() {
+        let list = Some(vec![dbine_driver::SchemaInfo { name: "ventas".into(), system: false }, dbine_driver::SchemaInfo { name: "sys".into(), system: true }]);
+        let body = rmp_serde::to_vec_named(&Reply::Schemas(list.clone())).unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::Schemas(back) => assert_eq!(back, list),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -394,5 +613,47 @@ mod tests {
         }
         let io = Error::Io(io::Error::other("x"));
         assert_eq!(Error::from(WireError::from(&io)).to_string(), io.to_string());
+    }
+
+    #[test]
+    fn statement_errors_cross_with_their_details() {
+        let e = Error::from(dbine_driver::ScriptError::new("Invalid object name 't'.").with_code("208").at_line(3));
+        let body = rmp_serde::to_vec_named(&WireError::from(&e)).unwrap();
+        let back = Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap());
+        let Error::Statement(d) = back else { panic!("{back:?}") };
+        assert_eq!((d.code.as_deref(), d.line), (Some("208"), Some(3)));
+        // An app built before the details reads a plain query error.
+        #[derive(Deserialize)]
+        struct OldWire {
+            kind: String,
+            message: String,
+        }
+        let old: OldWire = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!((old.kind.as_str(), old.message.as_str()), ("query", "Invalid object name 't'."));
+        // A host built before them sends no detail.
+        #[derive(Serialize)]
+        struct OldHost {
+            kind: String,
+            message: String,
+        }
+        let body = rmp_serde::to_vec_named(&OldHost { kind: "query".into(), message: "x".into() }).unwrap();
+        assert!(matches!(Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap()), Error::Query(_)));
+    }
+
+    #[test]
+    fn run_replies_of_older_hosts_still_read() {
+        #[derive(Serialize)]
+        struct OldOutcome {
+            results: Vec<Value>,
+            messages: Vec<String>,
+            error: Option<String>,
+            elapsed_ms: u64,
+        }
+        let old = OldOutcome { results: vec![], messages: vec!["PRINT".into()], error: None, elapsed_ms: 1 };
+        let body = rmp_serde::to_vec_named(&Reply::Run(QueryOutcome::default(), None)).unwrap();
+        assert!(rmp_serde::from_slice::<Reply>(&body).is_ok());
+        let o: QueryOutcome = rmp_serde::from_slice(&rmp_serde::to_vec_named(&old).unwrap()).unwrap();
+        assert_eq!(o.messages, vec!["PRINT"]);
+        assert!(o.log.is_empty() && o.errors.is_empty());
     }
 }

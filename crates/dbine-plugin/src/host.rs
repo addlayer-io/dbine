@@ -5,7 +5,7 @@
 
 use crate::proto::{read_frame, read_raw, unknown_call, write_frame, Call, DriverMeta, FromHost, Hello, Ready, Reply, ToHost, WireError, BATCH_WINDOW, PROTOCOL};
 use dbine_driver::transfer::{BatchSink, BatchSinkRef, BatchSource, RowBatch, TransferColumn};
-use dbine_driver::{Driver, Error, QueryOutcome, ResultColumn, RowSink, RowSinkRef, Session};
+use dbine_driver::{Driver, Error, MessageSinkRef, ProgressSinkRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef, Session};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{self, BufWriter};
@@ -318,7 +318,7 @@ impl Call {
             | CreateDatabase { session, .. } | DropDatabase { session, .. } | Monitor { session } | Blocking { session } | Principals { session } | Grants { session, .. } | Backups { session, .. } | KillSession { session, .. } | ProfilerStart { session, .. }
             | ProfilerPoll { session } | ProfilerStop { session } | ScanKeys { session, .. } | ReadBatches { session, .. }
             | BulkLoad { session, .. } | KeyRange { session, .. } | DeltaSummary { session, .. } | DeltaApply { session, .. }
-            | Permissions { session, .. } => Some(*session),
+            | Permissions { session, .. } | ListSchemas { session } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
             CopyNative { from, .. } => Some(*from),
@@ -430,6 +430,18 @@ impl State {
             Call::DeleteScript { driver, target, keys } => Reply::Text(self.driver(&driver)?.delete_script(&target, &keys)?),
             Call::SecurityScript { driver, action } => Reply::Text(self.driver(&driver)?.security_script(&action)?),
             Call::BackupScript { driver, action } => Reply::Text(self.driver(&driver)?.backup_script(&action)?),
+            Call::CreateSchemaScript { driver, name, owner, database } => {
+                Reply::Text(self.driver(&driver)?.create_schema_script(database.as_deref(), &name, owner.as_deref())?)
+            }
+            Call::DropSchemaScript { driver, name, cascade, database } => {
+                Reply::Text(self.driver(&driver)?.drop_schema_script(database.as_deref(), &name, cascade)?)
+            }
+            Call::SchemaOwnerScript { driver, database, name, owner } => {
+                Reply::MaybeText(self.driver(&driver)?.schema_owner_script(database.as_deref(), &name, &owner)?)
+            }
+            Call::SchemaGrantScript { driver, database, name, privileges, to, grantable } => {
+                Reply::Text(self.driver(&driver)?.schema_grant_script(database.as_deref(), &name, &privileges, &to, grantable)?)
+            }
             Call::DataLoadWrap { driver, table } => {
                 let (a, b) = self.driver(&driver)?.data_load_wrap(&table);
                 Reply::Pair(a, b)
@@ -440,9 +452,20 @@ impl State {
             Call::Columns { session, obj } => Reply::Columns(self.slot(session)?.session.lock().await.columns(&obj).await?),
             Call::Definition { session, obj } => Reply::MaybeText(self.slot(session)?.session.lock().await.definition(&obj).await?),
             Call::BrowseQuery { session, obj, limit } => Reply::Text(self.slot(session)?.session.lock().await.browse_query(&obj, limit)),
-            Call::Execute { session, text, max_rows, sink } => {
+            Call::Execute { session, text, max_rows, sink, continue_on_error, live } => {
                 let slot = self.slot(session)?;
                 let mut out = self.outcome(id, sink, &sink_failed);
+                out.continue_on_error = continue_on_error;
+                if live {
+                    let tx = self.tx.clone();
+                    out.message_sink = Some(MessageSinkRef(Arc::new(move |m: &dbine_driver::Message| {
+                        let _ = send(&tx, FromHost::Message { id, message: m.clone() });
+                    })));
+                    let tx = self.tx.clone();
+                    out.progress_sink = Some(ProgressSinkRef(Arc::new(move |e: &dbine_driver::StatementEnd| {
+                        let _ = send(&tx, FromHost::StatementEnded { id, end: e.clone() });
+                    })));
+                }
                 let r = slot.session.lock().await.execute(&text, max_rows as usize, &mut out).await;
                 run_reply(out, r)
             }
@@ -554,6 +577,20 @@ impl State {
             }
             Call::Permissions { session, database } => {
                 Reply::Permissions(self.slot(session)?.session.lock().await.permissions(database.as_deref()).await?)
+            }
+            Call::ListSchemas { session } => Reply::Schemas(self.slot(session)?.session.lock().await.list_schemas().await?),
+            Call::TransactionState { session } => Reply::TxState(self.slot(session)?.session.lock().await.transaction_state().await?),
+            Call::SetAutocommit { session, on } => {
+                self.slot(session)?.session.lock().await.set_autocommit(on).await?;
+                Reply::Unit
+            }
+            Call::Commit { session } => {
+                self.slot(session)?.session.lock().await.commit().await?;
+                Reply::Unit
+            }
+            Call::Rollback { session } => {
+                self.slot(session)?.session.lock().await.rollback().await?;
+                Reply::Unit
             }
         })
     }

@@ -72,6 +72,16 @@ pub fn user_schema(v: Variant, col: &str) -> String {
     )
 }
 
+/// `name` is one of the server's or an extension's schemas: the ones
+/// [`user_schema`] leaves out, plus each engine's internal families
+/// (`mz_*` on Materialize, `_timescaledb*` anywhere).
+pub fn system_schema(v: Variant, name: &str) -> bool {
+    SYSTEM_SCHEMAS.contains(&name)
+        || variant_schemas(v).contains(&name)
+        || ["pg_toast", "pg_temp_", "_timescaledb"].iter().any(|p| name.starts_with(p))
+        || (v == Variant::Materialize && name.starts_with("mz_"))
+}
+
 /// A string literal for a text-protocol query. Redshift treats backslashes
 /// in literals as escapes, so they are doubled there.
 pub fn lit(v: Variant, s: &str) -> String {
@@ -135,6 +145,20 @@ mod tests {
         assert!(!user_schema(Variant::Postgres, "n.nspname").contains("'sys_catalog'"));
         assert!(user_schema(Variant::Kingbase, "n.nspname").contains("'sys_catalog'"));
         assert!(user_schema(Variant::Postgres, "x").starts_with("x NOT IN ('pg_catalog'"));
+    }
+
+    #[test]
+    fn system_schemas_by_engine() {
+        for name in ["pg_catalog", "information_schema", "pg_toast", "pg_toast_temp_3", "pg_temp_3", "crdb_internal", "pg_extension", "_timescaledb_catalog", "timescaledb_information"] {
+            assert!(system_schema(Variant::Postgres, name), "{name}");
+        }
+        for name in ["public", "ventas", "pg_ventas", "mz_ventas", "sys"] {
+            assert!(!system_schema(Variant::Postgres, name), "{name}");
+        }
+        assert!(system_schema(Variant::Materialize, "mz_catalog_unstable") && system_schema(Variant::Materialize, "mz_whatever"));
+        assert!(system_schema(Variant::RisingWave, "rw_catalog") && system_schema(Variant::Kingbase, "sys_catalog"));
+        assert!(system_schema(Variant::OpenGauss, "dbe_perf") && system_schema(Variant::H2, "INFORMATION_SCHEMA"));
+        assert!(!system_schema(Variant::H2, "PUBLIC") && !system_schema(Variant::CrateDb, "doc"));
     }
 
     #[test]

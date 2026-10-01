@@ -86,3 +86,62 @@ async fn users_roles_and_grants() {
     assert!(!s.principals().await.unwrap().iter().any(|p| p.name.starts_with("dq")));
     run(&mut s, "DROP SCHEMA dq_s CASCADE").await;
 }
+
+async fn value(s: &mut Box<dyn Session>, sql: &str) -> serde_json::Value {
+    let mut out = QueryOutcome::default();
+    s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    out.results.last().and_then(|r| r.rows.first()).and_then(|r| r.first()).cloned().unwrap_or_default()
+}
+
+/// "Nuevo esquema…" with an owner and grants, as DBine builds it (create,
+/// grants, owner change), run by a role that isn't superuser (DSQL's admin
+/// isn't), checked in the catalog; the new empty schema is listed; then
+/// "Borrar esquema…" (no CASCADE: only an empty schema goes). Plain
+/// PostgreSQL stands in for DSQL, which has no emulator.
+#[tokio::test]
+#[ignore]
+async fn schema_with_owner_and_grants() {
+    let Ok(url) = std::env::var("DBINE_TEST_DSQL_URL") else { return };
+    let (host, port) = url.split_once(':').unwrap();
+    let cfg = ConnectionConfig { driver: "dsql".into(), host: host.into(), port: port.parse().unwrap(), username: Some("postgres".into()), ..Default::default() };
+    let d = dbine_driver_dsql::drivers().pop().unwrap();
+    let spec = d.schema_spec().unwrap();
+    assert!(spec.owner && !spec.cascade);
+    let mut s = dbine_driver_dsql::connect_with_password(&cfg, "dbine").await.unwrap();
+    run(
+        &mut s,
+        "DROP SCHEMA IF EXISTS \"dq Sch\" CASCADE; DROP ROLE IF EXISTS dsch_creator; DROP ROLE IF EXISTS dsch_own; DROP ROLE IF EXISTS dsch_lect2;
+         CREATE ROLE dsch_own; CREATE ROLE dsch_lect2;
+         CREATE ROLE dsch_creator LOGIN PASSWORD 'dbine'; GRANT CREATE ON DATABASE postgres TO dsch_creator; GRANT dsch_own TO dsch_creator",
+    )
+    .await;
+    assert_eq!(s.permissions(None).await.unwrap().create_schema, dbine_driver::Access::Allowed);
+
+    // As DBine's "Nuevo esquema…" assembles it, run by the non-superuser.
+    let mut creator = dbine_driver_dsql::connect_with_password(&ConnectionConfig { username: Some("dsch_creator".into()), ..cfg.clone() }, "dbine").await.unwrap();
+    let owner = d.schema_owner_script(None, "dq Sch", "dsch_own").unwrap().expect("the owner goes after the grants");
+    let mut script = d.create_schema_script(None, "dq Sch", None).unwrap();
+    for (p, grantable) in [("USAGE", true), ("CREATE", false)] {
+        script.push('\n');
+        script.push_str(&d.schema_grant_script(None, "dq Sch", &[p.into()], "dsch_lect2", grantable).unwrap());
+    }
+    script.push('\n');
+    script.push_str(&owner);
+    run(&mut creator, &script).await;
+    let listed = creator.list_schemas().await.unwrap().expect("DSQL lists schemas");
+    assert!(listed.iter().any(|x| x.name == "dq Sch" && !x.system), "{listed:?}");
+    assert!(listed.iter().any(|x| x.name == "pg_catalog" && x.system) && listed.iter().any(|x| x.name == "public" && !x.system), "{listed:?}");
+    assert_eq!(value(&mut s, "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'dq Sch'").await, "dsch_own");
+    let acl = value(&mut s, "SELECT nspacl::text FROM pg_namespace WHERE nspname = 'dq Sch'").await;
+    assert!(acl.as_str().is_some_and(|a| a.contains("dsch_lect2=U*C/")), "{acl}");
+
+    run(&mut s, "CREATE TABLE \"dq Sch\".t (id int PRIMARY KEY)").await;
+    let mut out = QueryOutcome::default();
+    let drop = d.drop_schema_script(None, "dq Sch", false).unwrap();
+    let refused = s.execute(&drop, 10, &mut out).await.is_err() || out.error.is_some();
+    assert!(refused, "a schema with a table isn't dropped without CASCADE");
+    run(&mut s, "DROP TABLE \"dq Sch\".t").await;
+    run(&mut s, &drop).await;
+    assert_eq!(value(&mut s, "SELECT count(*) FROM pg_namespace WHERE nspname = 'dq Sch'").await.to_string().trim_matches('"'), "0");
+    run(&mut s, "REVOKE CREATE ON DATABASE postgres FROM dsch_creator; DROP ROLE dsch_creator; DROP ROLE dsch_own; DROP ROLE dsch_lect2").await;
+}

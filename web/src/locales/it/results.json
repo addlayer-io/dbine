@@ -57,7 +57,12 @@
     "addToQuery": "Aggiungi alla query",
     "discard": "Scarta",
     "cells_many": "{{count}} celle modificate",
-    "rows_many": "{{count}} righe"
+    "rows_many": "{{count}} righe",
+    "summaryDeletes": "{{deletes}}, non ancora salvato.",
+    "summaryBoth": "{{cells}} in {{rows}}, {{deletes}}, non ancora salvato.",
+    "deletes_one": "{{count}} riga da eliminare",
+    "deletes_many": "{{count}} righe da eliminare",
+    "deletes_other": "{{count}} righe da eliminare"
   },
   "exportDialog": {
     "title": "Esporta risultato",
@@ -165,7 +170,14 @@
         "label": "Copia come Mongo INSERTs",
         "name": "Mongo INSERTs"
       }
-    }
+    },
+    "deleteRow": "Elimina riga",
+    "deleteRows": "Elimina {{count}} righe",
+    "restoreRow": "Ripristina riga",
+    "restoreRows": "Ripristina {{count}} righe",
+    "cantDelete": "Impossibile eliminare: {{reason}}",
+    "rowDeleted": "La riga è contrassegnata per l'eliminazione: ripristinala per modificarla",
+    "markedDelete": "Contrassegnata per l'eliminazione"
   },
   "chart": {
     "kind": {

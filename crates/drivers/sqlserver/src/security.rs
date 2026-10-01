@@ -4,7 +4,7 @@
 
 use crate::variant::Variant;
 use crate::SqlServerSession;
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
 use tiberius::Row;
 
 pub fn spec(v: Variant) -> SecuritySpec {
@@ -48,6 +48,92 @@ pub fn spec(v: Variant) -> SecuritySpec {
 
 /// What Babelfish grants through T-SQL, in PostgreSQL's ACL names too.
 const BABELFISH_PRIVILEGES: &[&str] = &["SELECT", "INSERT", "UPDATE", "DELETE", "REFERENCES", "EXECUTE"];
+
+/// "Nuevo esquema…" / "Borrar esquema…". T-SQL's DROP SCHEMA has no
+/// CASCADE (it fails while the schema holds objects), so `cascade` is off
+/// everywhere.
+/// - SQL Server and Azure SQL: `CREATE SCHEMA … AUTHORIZATION`, and the
+///   schema class's permissions (`sys.fn_builtin_permissions('SCHEMA')`,
+///   without SQL Server 2022's UNMASK, which older servers reject).
+/// - Fabric: no owner offered (its CREATE SCHEMA's AUTHORIZATION isn't
+///   verifiable without a warehouse); the schema grants its granular
+///   permissions document.
+/// - Babelfish: `AUTHORIZATION` works (a database user); grants on a schema
+///   are the object privileges it maps onto PostgreSQL's ACLs.
+pub fn schema_spec(v: Variant) -> SchemaSpec {
+    match v {
+        Variant::SqlServer | Variant::AzureSql => SchemaSpec {
+            owner: true,
+            owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+            cascade: false,
+            privileges: vec![
+                "SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "REFERENCES", "VIEW DEFINITION", "ALTER", "CONTROL", "TAKE OWNERSHIP",
+                "CREATE SEQUENCE", "VIEW CHANGE TRACKING",
+            ],
+            grant_option: true,
+        },
+        Variant::Fabric => SchemaSpec {
+            owner: false,
+            owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+            cascade: false,
+            privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "REFERENCES", "VIEW DEFINITION", "ALTER", "CONTROL"],
+            grant_option: true,
+        },
+        // "GRANT on SCHEMA .. WITH GRANT OPTION is not yet supported in Babelfish".
+        Variant::Babelfish => SchemaSpec {
+            owner: true,
+            owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+            cascade: false,
+            privileges: BABELFISH_PRIVILEGES.to_vec(),
+            grant_option: false,
+        },
+    }
+}
+
+/// Babelfish 5.4 can't read `]]` inside brackets (see `script`).
+fn babelfish_name(v: Variant, names: &[&str]) -> Result<()> {
+    if v == Variant::Babelfish && names.iter().any(|n| n.contains(']')) {
+        return Err(Error::Query("Babelfish no acepta «]» en los nombres de esquemas ni de usuarios".into()));
+    }
+    Ok(())
+}
+
+/// `CREATE SCHEMA` must open its batch: the Tauri command closes it with
+/// `GO` (`script_separator`) before the grants.
+pub fn create_schema(v: Variant, name: &str, owner: Option<&str>) -> Result<String> {
+    let owner = owner.map(str::trim).filter(|o| !o.is_empty());
+    if owner.is_some() && !schema_spec(v).owner {
+        return Err(Error::Unsupported("en este motor el esquema se crea sin dueño explícito".into()));
+    }
+    babelfish_name(v, &[name, owner.unwrap_or_default()])?;
+    Ok(match owner {
+        Some(o) => format!("CREATE SCHEMA {} AUTHORIZATION {};", q(name), q(o)),
+        None => format!("CREATE SCHEMA {};", q(name)),
+    })
+}
+
+pub fn drop_schema(v: Variant, name: &str, cascade: bool) -> Result<String> {
+    if cascade {
+        return Err(Error::Unsupported("SQL Server no borra un esquema con su contenido: primero hay que borrar o mover sus objetos".into()));
+    }
+    babelfish_name(v, &[name])?;
+    Ok(format!("DROP SCHEMA {};", q(name)))
+}
+
+/// Every schema of the current database (`Session::list_schemas`). System:
+/// `sys`, `INFORMATION_SCHEMA`, `guest` and the schemas the fixed database
+/// roles own (`db_owner`, `db_datareader`…); Fabric adds `queryinsights`,
+/// its read-only views of the warehouse's query history.
+pub fn list_schemas_sql(v: Variant) -> String {
+    let extra = if v == Variant::Fabric { ", 'queryinsights'" } else { "" };
+    format!(
+        "SELECT s.name,
+                CAST(CASE WHEN s.name IN ('sys', 'INFORMATION_SCHEMA', 'guest'{extra}) OR p.is_fixed_role = 1 THEN 1 ELSE 0 END AS int)
+           FROM sys.schemas s
+           LEFT JOIN sys.database_principals p ON p.principal_id = s.principal_id
+          ORDER BY s.name"
+    )
+}
 
 const PRINCIPALS: &str = "
 SELECT dp.name, dp.type,
@@ -668,5 +754,51 @@ mod tests {
         assert_eq!((g[0].privilege.as_str(), g[0].grantable, g[0].via.as_deref()), ("UPDATE", true, None));
         assert!(g[1].denied && g[1].privilege == "DELETE");
         assert_eq!((g[2].privilege.as_str(), g[2].via.as_deref()), ("SELECT", Some("lectores")));
+    }
+
+    #[test]
+    fn lists_schemas_with_the_system_ones() {
+        for v in Variant::ALL {
+            let sql = list_schemas_sql(v);
+            assert!(sql.contains("'sys', 'INFORMATION_SCHEMA', 'guest'") && sql.contains("p.is_fixed_role = 1"), "{v:?}");
+            assert_eq!(sql.contains("'queryinsights'"), v == Variant::Fabric, "{v:?}");
+        }
+    }
+
+    #[test]
+    fn writes_schema_scripts() {
+        assert_eq!(create_schema(Variant::SqlServer, "ven]tas", Some("ana")).unwrap(), "CREATE SCHEMA [ven]]tas] AUTHORIZATION [ana];");
+        assert_eq!(create_schema(Variant::AzureSql, "ventas", Some("  ")).unwrap(), "CREATE SCHEMA [ventas];");
+        assert_eq!(create_schema(Variant::Fabric, "ventas", None).unwrap(), "CREATE SCHEMA [ventas];");
+        assert!(matches!(create_schema(Variant::Fabric, "ventas", Some("ana")), Err(Error::Unsupported(_))));
+        assert_eq!(create_schema(Variant::Babelfish, "v'e.ntas", Some("dbo")).unwrap(), "CREATE SCHEMA [v'e.ntas] AUTHORIZATION [dbo];");
+        assert!(matches!(create_schema(Variant::Babelfish, "a]b", None), Err(Error::Query(_))));
+        for v in Variant::ALL {
+            assert_eq!(drop_schema(v, "ventas", false).unwrap(), "DROP SCHEMA [ventas];");
+            assert!(matches!(drop_schema(v, "ventas", true), Err(Error::Unsupported(_))));
+            let spec = schema_spec(v);
+            assert!(!spec.cascade && !spec.privileges.is_empty());
+            // Every privilege offered goes through the GRANT on the schema.
+            let g = SecurityAction::Grant {
+                privileges: spec.privileges.iter().map(|p| p.to_string()).collect(),
+                object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "ventas".into() }),
+                to: "ana".into(),
+                grantable: false,
+            };
+            assert!(script(v, &g).unwrap().starts_with(&format!("GRANT {} ON SCHEMA::[ventas] TO [ana]", spec.privileges.join(", "))), "{v:?}");
+        }
+        assert_eq!(
+            script(
+                Variant::SqlServer,
+                &SecurityAction::Grant {
+                    privileges: vec!["SELECT".into(), "TAKE OWNERSHIP".into()],
+                    object: Some(ObjectRef { kind: "schema".into(), schema: None, name: "ventas".into() }),
+                    to: "lectores".into(),
+                    grantable: true
+                }
+            )
+            .unwrap(),
+            "GRANT SELECT, TAKE OWNERSHIP ON SCHEMA::[ventas] TO [lectores] WITH GRANT OPTION;"
+        );
     }
 }

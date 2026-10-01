@@ -201,6 +201,7 @@ pub(crate) fn from_grants(product: Variant, g: &Grants, database: Option<&str>) 
         create_database,
         drop_database: database.map_or(Access::Unknown, |db| Access::check(g.on(db, "DROP"), "DROP sobre la base")),
         manage_security: Access::check(has("CREATE_USER"), "CREATE USER"),
+        create_schema: Access::Unknown,
     }
 }
 

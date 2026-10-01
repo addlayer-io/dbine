@@ -47,6 +47,7 @@ type R<T> = std::result::Result<T, String>;
 /// Parse a script: statements are `db.…` calls or `{…}` command documents,
 /// separated by `;` or simply following each other (a newline is enough;
 /// a line starting with `.` continues the previous call chain).
+#[cfg(test)]
 pub fn parse_script(text: &str) -> R<Vec<Stmt>> {
     Ok(parse_script_text(text)?.into_iter().map(|(_, s)| s).collect())
 }
@@ -68,6 +69,68 @@ pub fn parse_script_text(text: &str) -> R<Vec<(String, Stmt)>> {
         out.push((src.trim().to_string(), stmt));
     }
     Ok(out)
+}
+
+/// What a unit of an editor script does.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    Run(Stmt),
+    /// `use <db>`: the session's database from here on (as mongosh).
+    Use(String),
+    /// `show dbs|databases|collections|tables|users|roles` (lowercase).
+    Show(String),
+}
+
+/// A unit of an editor script, with its place (byte offset, 1-based line).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Unit {
+    pub item: Item,
+    pub start: usize,
+    pub line: u32,
+}
+
+/// Where a script doesn't parse (byte offset, 1-based line).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParseError {
+    pub message: String,
+    pub offset: usize,
+    pub line: u32,
+}
+
+/// The script's units, as mongosh reads a file: `db.…` calls, `{…}`
+/// command documents and the `use` / `show` shell helpers (each on its
+/// line). A syntax error anywhere runs nothing, as a script file that
+/// doesn't parse.
+pub fn parse_units(text: &str) -> std::result::Result<Vec<Unit>, ParseError> {
+    let mut p = P { s: text.chars().collect(), i: 0 };
+    let bytes: Vec<usize> = text.char_indices().map(|(b, _)| b).chain(std::iter::once(text.len())).collect();
+    let line = |b: usize| text.as_bytes()[..b].iter().filter(|&&c| c == b'\n').count() as u32 + 1;
+    let mut out = Vec::new();
+    loop {
+        p.ws();
+        while p.peek() == Some(';') {
+            p.i += 1;
+            p.ws();
+        }
+        let Some(c) = p.peek() else { return Ok(out) };
+        let start = bytes[p.i];
+        let item = if c == '{' {
+            p.value().and_then(to_doc).map(|d| Item::Run(command_stmt(d, false)))
+        } else if let Some(h) = p.helper() {
+            h
+        } else {
+            p.db_call().map(Item::Run)
+        };
+        match item {
+            Ok(item) => out.push(Unit { item, start, line: line(start) }),
+            Err(m) => {
+                let at = bytes[p.i.min(p.s.len())];
+                // `err` prefixes the line; the error carries it apart.
+                let message = m.split_once(": ").filter(|(pre, _)| pre.starts_with("línea ")).map_or(m.clone(), |(_, rest)| rest.to_string());
+                return Err(ParseError { message, offset: at, line: line(at) });
+            }
+        }
+    }
 }
 
 /// How a raw command document runs, from its first key.
@@ -416,6 +479,34 @@ impl P {
             modifier(&mut stmt, &m, a).or_else(|e| self.err(e))?;
         }
         Ok(stmt)
+    }
+
+    /// `use <db>` / `show <what>`: the shell helper and the rest of its
+    /// line, or `None` (nothing consumed) when the line isn't one.
+    fn helper(&mut self) -> Option<R<Item>> {
+        let save = self.i;
+        let word = self.ident();
+        let Some(word @ ("use" | "show")) = word.as_deref() else {
+            self.i = save;
+            return None;
+        };
+        let mut end = self.i;
+        while end < self.s.len() && self.s[end] != '\n' {
+            end += 1;
+        }
+        let rest: String = self.s[self.i..end].iter().collect();
+        let arg = rest.trim().trim_end_matches(';').trim();
+        if self.s.get(self.i).is_some_and(|c| !c.is_whitespace()) || arg.is_empty() {
+            self.i = save;
+            return None;
+        }
+        let item = match word {
+            "use" if arg.contains(char::is_whitespace) => return Some(self.err(format!("`use` lleva solo el nombre de la base, no `{arg}`"))),
+            "use" => Item::Use(arg.trim_matches(|c| c == '"' || c == '\'').to_string()),
+            _ => Item::Show(arg.to_ascii_lowercase()),
+        };
+        self.i = end;
+        Some(Ok(item))
     }
 
     fn eat_peek(&mut self, c: char) -> bool {
@@ -984,6 +1075,26 @@ mod tests {
         assert_eq!(write_reason(&one("db.runCommand({dropDatabase: 1})").cmd).as_deref(), Some("dropDatabase"));
         assert_eq!(write_reason(&one("db.c.find().explain()").cmd), None);
         assert_eq!(write_reason(&one("db.c.find().count()").cmd), None);
+    }
+
+    #[test]
+    fn units_with_use_and_show() {
+        let u = parse_units("use ventas\nshow collections;\ndb.c.find({ a: 1 })\n  .limit(2); { ping: 1 }\nuse = 3").unwrap_err();
+        // `use = 3` isn't the helper: it's an unparsable call.
+        assert_eq!(u.line, 5);
+        let u = parse_units("use ventas\nshow collections;\ndb.c.find({ a: 'é' })\n  .limit(2); { ping: 1 }").unwrap();
+        let items: Vec<(&Item, u32, usize)> = u.iter().map(|u| (&u.item, u.line, u.start)).collect();
+        assert_eq!(items[0], (&Item::Use("ventas".into()), 1, 0));
+        assert_eq!(items[1], (&Item::Show("collections".into()), 2, 11));
+        assert!(matches!(items[2], (Item::Run(_), 3, 29)));
+        assert!(matches!(items[3], (Item::Run(_), 4, 65)));
+        assert_eq!(u.len(), 4);
+        // A collection called `use` is still a call.
+        assert!(matches!(parse_units("db.use.find()").unwrap()[0].item, Item::Run(_)));
+        let e = parse_units("db.c.find({})\n  db.c.find({a: })").unwrap_err();
+        assert_eq!((e.line, e.offset), (2, 30));
+        assert!(e.message.starts_with("se esperaba un valor") || !e.message.starts_with("línea"), "{e:?}");
+        assert!(parse_units("use a b").is_err());
     }
 
     #[test]

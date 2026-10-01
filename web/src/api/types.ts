@@ -58,6 +58,8 @@ export interface DriverInfo {
   security?: SecuritySpec | null;
   /** The engine's own backups (docs/backups.md); null: only DBine's copies. */
   backup?: BackupSpec | null;
+  /** "Nuevo esquema…" / "Borrar esquema…"; null: not offered. */
+  schema_spec?: SchemaSpec | null;
   /** Its sessions implement the profiler ("Profiler" on its databases). */
   supports_profiler: boolean;
   /** Databases of keys, searched on the server a page at a time (Redis, etcd). */
@@ -69,6 +71,22 @@ export interface DriverInfo {
   create_templates: import('./schema-types').CreateTemplate[];
   /** Between objects of a generated script (GO, /…). */
   script_separator: string;
+  /** How the editor runs a script (`Driver::script_mode`); absent: 'whole'. */
+  script_mode?: ScriptMode;
+  /** The engine's own tool defaults for a script (`Driver::script_defaults`). */
+  script_defaults?: ScriptDefaults;
+  /** The editor offers the Auto/Manual transactions toggle. */
+  supports_manual_transactions?: boolean;
+}
+
+/** `Driver::script_mode`: statement by statement, batch by batch (T-SQL `GO`), or one call. */
+export type ScriptMode = 'per_statement' | 'batches' | 'whole';
+
+export interface ScriptDefaults {
+  /** Go on after a failed statement (the tab's toggle starts here). */
+  continue_on_error: boolean;
+  /** Ask before an UPDATE / DELETE without WHERE. */
+  confirm_unsafe_dml: boolean;
 }
 
 export interface ConnectionConfig {
@@ -163,6 +181,20 @@ export interface DbObject {
   parent: string | null;
 }
 
+/** A schema of a database, listed even when empty (`SchemaInfo` in Rust). */
+export interface SchemaInfo {
+  name: string;
+  /** Built into the engine (sys, INFORMATION_SCHEMA…): hidden while it has no objects. */
+  system: boolean;
+}
+
+/** What the explorer loads for a database (`DatabaseObjects` in Rust). */
+export interface DatabaseObjects {
+  objects: DbObject[];
+  /** null: the driver doesn't list schemas (they're derived from the objects). */
+  schemas: SchemaInfo[] | null;
+}
+
 export interface ObjectRef {
   kind: string;
   schema: string | null;
@@ -191,14 +223,114 @@ export interface StatementResult {
   total_rows: number;
   truncated: boolean;
   rows_affected: number | null;
+  /** Statement of the script that produced it (index into `split_script`'s
+   *  units); null when the driver got the whole script at once. */
+  statement?: number | null;
+  /** Where that statement starts in the `sql` sent (JS string index) and its line (1-based). */
+  offset?: number | null;
+  line?: number | null;
+  /** The engine's completion tag ("INSERT 0 3", "Table created"…). */
+  tag?: string | null;
+  elapsed_ms?: number | null;
 }
+
+export type MessageLevel = 'info' | 'warning' | 'error';
+
+/** A message of a run, in arrival order (`QueryOutcome.log`). */
+export interface Message {
+  level: MessageLevel;
+  text: string;
+  statement: number | null;
+  code: string | null;
+  /** 1-based line of the `sql` sent. */
+  line: number | null;
+}
+
+/** A failed statement. `offset` is a JS string index into the `sql` sent. */
+export interface ScriptError {
+  message: string;
+  code: string | null;
+  sqlstate: string | null;
+  statement: number | null;
+  offset: number | null;
+  line: number | null;
+  /** The script stopped here even if it continues on errors. */
+  fatal: boolean;
+}
+
+export type TxState = 'idle' | 'open' | 'failed';
 
 export interface QueryOutcome {
   results: StatementResult[];
   messages: string[];
+  /** The first failure's text (what older screens show). */
   error: string | null;
   elapsed_ms: number;
   plans: Plan[];
+  /** Messages and errors in order; empty from drivers built before it (use `messages`/`error`). */
+  log?: Message[];
+  errors?: ScriptError[];
+  /** The tab's transaction after the run (editor runs, drivers that track it). */
+  transaction?: TxState | null;
+  /** The session's database after the run, when a statement switched it (`USE`). */
+  database?: string | null;
+}
+
+/** How `execute_query` runs a script: 'whole' (default, every screen but the
+ *  editor), 'auto' (the editor: as the driver says), or forced. */
+export type RunMode = 'whole' | 'auto' | 'per_statement' | 'batches';
+
+/** An UPDATE/DELETE without WHERE; offsets are JS string indices into the `sql` sent. */
+export interface UnsafeDml {
+  keyword: 'UPDATE' | 'DELETE';
+  start: number;
+  end: number;
+  line: number;
+}
+
+/** `execute_query`'s answer. With `needs_confirmation`, nothing ran: ask,
+ *  then run again with `confirmedUnsafe`. */
+export interface ExecuteResponse extends QueryOutcome {
+  needs_confirmation?: UnsafeDml[];
+  /** A cancel closed the tab's session: its open transaction was rolled back. */
+  session_closed?: boolean;
+}
+
+export type StatementKind = 'sql' | 'block' | 'batch' | 'client_command';
+
+/** A unit of a script (`split_script`); offsets are JS string indices. */
+export interface ScriptUnit {
+  text: string;
+  start: number;
+  end: number;
+  line: number;
+  kind: StatementKind;
+  /** `GO 5`: 5. */
+  repeat: number;
+  /** A client-side error found while splitting (`GO 99999999999`). */
+  error?: string;
+}
+
+/** Event `query-progress`: a statement of an editor run ended. */
+export interface QueryProgress {
+  session_id: string;
+  statement: number;
+  total: number;
+  start: number;
+  end: number;
+  line: number;
+  iteration: number;
+  repeat: number;
+  elapsed_ms: number;
+  results: StatementResult[];
+  log: Message[];
+  errors: ScriptError[];
+}
+
+/** Event `query-message`: a message while a statement runs. */
+export interface QueryMessage {
+  session_id: string;
+  message: Message;
 }
 
 export interface PlanNode {
@@ -337,6 +469,23 @@ export interface SecuritySpec {
   per_database: boolean;
 }
 
+/** Which principals can own a schema (`SchemaOwnerKinds` in Rust). */
+export type SchemaOwnerKinds = 'both' | 'users' | 'roles';
+
+/** What "Nuevo esquema…" / "Borrar esquema…" offer for an engine (`SchemaSpec` in Rust). */
+export interface SchemaSpec {
+  /** A schema has an owner, set when creating it. */
+  owner: boolean;
+  /** Which principals can own a schema (absent: both). */
+  owner_kinds?: SchemaOwnerKinds;
+  /** Dropping can take its objects with it (CASCADE). */
+  cascade: boolean;
+  /** Schema-level privileges offered when granting on the new schema. */
+  privileges: string[];
+  /** Those grants can carry "con opción de otorgar" (absent: true). */
+  grant_option?: boolean;
+}
+
 /** Whether the login may do one action (`Access` in Rust). */
 export type Access = { state: 'unknown' } | { state: 'allowed' } | { state: 'denied'; missing: string };
 
@@ -349,4 +498,5 @@ export interface Permissions {
   create_database: Access;
   drop_database: Access;
   manage_security: Access;
+  create_schema: Access;
 }

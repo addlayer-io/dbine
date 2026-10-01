@@ -45,6 +45,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod security;
+mod steps;
 mod transfer;
 
 use base64::engine::general_purpose::STANDARD as B64;
@@ -480,7 +481,7 @@ impl CosmosSession {
         let link = format!("{}/colls/{coll}", self.db_link()?);
         let path = format!("{}/colls/{}/pkranges", self.db_path()?, enc(coll));
         let ranges = self.list(&path, "pkranges", &link, "PartitionKeyRanges").await?;
-        out.messages.push(format!(
+        out.info(format!(
             "El gateway no resuelve esta consulta entre particiones: se ejecutó en cada uno de los {} rangos de partición y los resultados no se combinan (ORDER BY y agregados son por rango).",
             ranges.len()
         ));
@@ -580,7 +581,7 @@ impl CosmosSession {
         match admin {
             Admin::CreateContainer { name, if_not_exists, mut body } => {
                 if if_not_exists && self.containers().await?.contains(&name) {
-                    out.messages.push(format!("El contenedor {name} ya existe; no se creó."));
+                    out.info(format!("El contenedor {name} ya existe; no se creó."));
                     return Ok(());
                 }
                 let mut headers = vec![json_body];
@@ -607,11 +608,11 @@ impl CosmosSession {
                     o.insert("id".into(), name.clone().into());
                 }
                 self.call(Method::POST, "colls", &db_link, &format!("{db_path}/colls"), Some(&body), &headers).await?;
-                out.messages.push(format!("Contenedor {name} creado."));
+                out.info(format!("Contenedor {name} creado."));
             }
             Admin::DropContainer { name, if_exists } => {
                 if if_exists && !self.containers().await?.contains(&name) {
-                    out.messages.push(format!("El contenedor {name} no existe; no se borró nada."));
+                    out.info(format!("El contenedor {name} no existe; no se borró nada."));
                     return Ok(());
                 }
                 let link = format!("{db_link}/colls/{name}");
@@ -621,7 +622,7 @@ impl CosmosSession {
                 if self.container.as_deref() == Some(name.as_str()) {
                     self.container = None;
                 }
-                out.messages.push(format!("Contenedor {name} borrado."));
+                out.info(format!("Contenedor {name} borrado."));
             }
             Admin::Insert { container, upsert, doc } => {
                 if !doc.get("id").is_some_and(Value::is_string) {
@@ -691,12 +692,12 @@ impl CosmosSession {
             }
             Admin::CreateUser { name } => {
                 self.call(Method::POST, "users", &db_link, &format!("{db_path}/users"), Some(&json!({ "id": name })), &[json_body]).await?;
-                out.messages.push(format!("Usuario {name} creado."));
+                out.info(format!("Usuario {name} creado."));
             }
             Admin::DropUser { name } => {
                 let link = format!("{db_link}/users/{name}");
                 self.call(Method::DELETE, "users", &link, &format!("{db_path}/users/{}", enc(&name)), None, &[]).await?;
-                out.messages.push(format!("Usuario {name} borrado."));
+                out.info(format!("Usuario {name} borrado."));
             }
             Admin::Grant { mode, container, user } => {
                 let link = format!("{db_link}/users/{user}");
@@ -717,7 +718,7 @@ impl CosmosSession {
                         self.call(Method::POST, "permissions", &link, &path, Some(&body), &[json_body]).await?;
                     }
                 }
-                out.messages.push(format!("Permiso {mode} sobre {container} otorgado a {user}."));
+                out.info(format!("Permiso {mode} sobre {container} otorgado a {user}."));
             }
             Admin::Revoke { mode, container, user } => {
                 let resource = format!("{db_link}/colls/{container}");
@@ -731,13 +732,13 @@ impl CosmosSession {
                     .filter_map(|p| p.get("id")?.as_str().map(str::to_string))
                     .collect();
                 if matching.is_empty() {
-                    out.messages.push(format!("{user} no tiene el permiso {mode} sobre {container}; no se revocó nada."));
+                    out.info(format!("{user} no tiene el permiso {mode} sobre {container}; no se revocó nada."));
                 }
                 for id in matching {
                     let link = format!("{db_link}/users/{user}/permissions/{id}");
                     let path = format!("{db_path}/users/{}/permissions/{}", enc(&user), enc(&id));
                     self.call(Method::DELETE, "permissions", &link, &path, None, &[]).await?;
-                    out.messages.push(format!("Permiso {mode} sobre {container} revocado a {user}."));
+                    out.info(format!("Permiso {mode} sobre {container} revocado a {user}."));
                 }
             }
         }
@@ -757,7 +758,7 @@ impl CosmosSession {
                 r.truncated = true;
             }
         }
-        out.messages.push(format!("Costo de la consulta: {:.2} RU", run.charge));
+        out.info(format!("Costo de la consulta: {:.2} RU", run.charge));
         Ok(run)
     }
 }
@@ -796,6 +797,52 @@ pub enum Stmt {
 /// `-- container: x` lines become `USE` statements, then the script is
 /// split on `;` (outside JSON bodies).
 pub fn parse_script(text: &str) -> Result<Vec<Stmt>> {
+    Ok(parse_located(text)?.into_iter().map(|(s, _)| s).collect())
+}
+
+/// [`parse_script`], with where each statement starts in `text`.
+pub fn parse_located(text: &str) -> Result<Vec<(Stmt, usize)>> {
+    let pieces = split_pieces(text);
+    let mut from = 0;
+    let mut out = Vec::new();
+    for s in pieces {
+        let (at, next) = anchor(text, from, &s);
+        from = next;
+        let stmt = if let Some(a) = ddl::parse_admin(&s)? {
+            Stmt::Admin(a)
+        } else {
+            let mut words = s.splitn(2, char::is_whitespace);
+            match (words.next(), words.next()) {
+                (Some(w), Some(rest)) if w.eq_ignore_ascii_case("use") => Stmt::Use(unquote(rest.trim())),
+                _ => Stmt::Query { sql: s },
+            }
+        };
+        out.push((stmt, at));
+    }
+    Ok(out)
+}
+
+/// Where a statement (comments taken out) starts in the script, from
+/// `from` (its first line, or the `-- container:` line it came from), and
+/// where to look for the next one.
+fn anchor(text: &str, from: usize, piece: &str) -> (usize, usize) {
+    let first = piece.lines().next().unwrap_or("").trim();
+    let found = text[from..].find(first).filter(|_| !first.is_empty());
+    let directive = text[from..].to_ascii_lowercase().find("container:");
+    // A `USE "x"` the directive wrote isn't in the text (unless typed after it).
+    let injected = first.starts_with("USE \"") && directive.is_some_and(|d| found.is_none_or(|i| d < i));
+    match (found, directive) {
+        (Some(i), _) if !injected => (from + i, from + i + first.len()),
+        (_, Some(d)) => {
+            let start = text[..from + d].rfind('\n').map_or(0, |n| n + 1).max(from);
+            let end = text[from + d..].find('\n').map_or(text.len(), |n| from + d + n);
+            (start, end)
+        }
+        _ => (from, from),
+    }
+}
+
+fn split_pieces(text: &str) -> Vec<String> {
     let mut pre = String::with_capacity(text.len());
     for line in text.lines() {
         let t = line.trim();
@@ -812,18 +859,6 @@ pub fn parse_script(text: &str) -> Result<Vec<Stmt>> {
         }
     }
     ddl::split_script(&pre)
-        .into_iter()
-        .map(|s| {
-            if let Some(a) = ddl::parse_admin(&s)? {
-                return Ok(Stmt::Admin(a));
-            }
-            let mut words = s.splitn(2, char::is_whitespace);
-            Ok(match (words.next(), words.next()) {
-                (Some(w), Some(rest)) if w.eq_ignore_ascii_case("use") => Stmt::Use(unquote(rest.trim())),
-                _ => Stmt::Query { sql: s },
-            })
-        })
-        .collect()
 }
 
 fn unquote(s: &str) -> String {
@@ -1216,27 +1251,33 @@ impl Session for CosmosSession {
         format!("-- container: {}\nSELECT TOP {limit} * FROM c", obj.name)
     }
 
+    /// Statements one by one; the first failing one stops the script (the
+    /// app gets it whole).
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let stmts = parse_script(text)?;
+        let stmts = parse_located(text)?;
         if stmts.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
         }
+        let own = out.current_statement.is_none();
         let mut known: Option<Vec<String>> = None;
-        for stmt in stmts {
-            let sql = match stmt {
+        for (i, (stmt, at)) in stmts.into_iter().enumerate() {
+            let line = steps::line_at(text, at);
+            let step = steps::Step::start(out, own, i, at, line);
+            let r = match stmt {
                 Stmt::Use(c) => {
                     self.container = Some(c);
-                    continue;
+                    Ok(())
                 }
                 Stmt::Admin(a) => {
                     known = None;
-                    self.run_admin(a, out).await?;
-                    continue;
+                    self.run_admin(a, out).await
                 }
-                Stmt::Query { sql } => sql,
+                Stmt::Query { sql } => match self.container_for(&sql, &mut known).await {
+                    Ok(coll) => self.run_into(&coll, &sql, max_rows, out, false).await.map(|_| ()),
+                    Err(e) => Err(e),
+                },
             };
-            let coll = self.container_for(&sql, &mut known).await?;
-            self.run_into(&coll, &sql, max_rows, out, false).await?;
+            step.end(out, r)?;
         }
         Ok(())
     }
@@ -1280,7 +1321,7 @@ impl Session for CosmosSession {
                     continue;
                 }
                 Stmt::Admin(_) => {
-                    out.messages.push("Sin plan para las sentencias de administración o escritura (no se ejecutaron).".into());
+                    out.info("Sin plan para las sentencias de administración o escritura (no se ejecutaron).");
                     continue;
                 }
                 Stmt::Query { sql } => sql,
@@ -1289,7 +1330,7 @@ impl Session for CosmosSession {
             if analyze {
                 let run = self.run_into(&coll, &sql, max_rows, out, true).await?;
                 if run.metrics.is_empty() {
-                    out.messages.push("El servidor no devolvió métricas de la consulta (x-ms-documentdb-query-metrics).".into());
+                    out.info("El servidor no devolvió métricas de la consulta (x-ms-documentdb-query-metrics).");
                 }
                 out.plans.push(plan::from_metrics(&sql, &coll, &run.metrics, &run.index_metrics, run.charge, run.pages, run.by_range));
             } else {
@@ -1297,7 +1338,7 @@ impl Session for CosmosSession {
                     Ok(qp) => out.plans.push(plan::from_query_plan(&sql, &coll, &qp)),
                     Err(e @ (Error::Connect(_) | Error::AuthFailed(_))) => return Err(e),
                     Err(e) => {
-                        out.messages.push(format!("El servidor no devolvió el plan de la consulta: {e}"));
+                        out.info(format!("El servidor no devolvió el plan de la consulta: {e}"));
                         out.plans.push(plan::from_query_plan(&sql, &coll, &Value::Null));
                     }
                 }
@@ -1354,6 +1395,21 @@ mod tests {
         push_items(&mut out, &[json!(3)], 10);
         assert_eq!(out.results[0].columns[0].name, "value");
         assert_eq!(out.results[0].rows[0][0], json!(3));
+    }
+
+    #[test]
+    fn statements_keep_their_place() {
+        let s = "-- container: items\nSELECT * FROM c;\n/* x */ SELECT 1;\n-- container: other\nUSE \"third\";\nSELECT c.é FROM c";
+        let v = parse_located(s).unwrap();
+        let at: Vec<usize> = v.iter().map(|(_, a)| *a).collect();
+        assert_eq!(at.len(), 6);
+        assert_eq!(&s[at[0]..at[0] + 13], "-- container:");
+        assert!(s[at[1]..].starts_with("SELECT * FROM c"));
+        assert!(s[at[2]..].starts_with("SELECT 1"));
+        assert!(s[at[3]..].starts_with("-- container: other"));
+        assert!(s[at[4]..].starts_with("USE \"third\""));
+        assert!(s[at[5]..].starts_with("SELECT c.é"));
+        assert!(matches!(&v[3].0, Stmt::Use(c) if c == "other"));
     }
 
     #[test]

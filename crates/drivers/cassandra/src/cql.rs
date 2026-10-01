@@ -76,6 +76,104 @@ pub fn split(script: &str) -> Vec<String> {
     out
 }
 
+/// A unit of an editor script, as cqlsh reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unit {
+    /// The statement (without its `;`; a batch whole), or the command line.
+    pub text: String,
+    /// Byte offset and 1-based line in the script.
+    pub start: usize,
+    pub line: u32,
+    /// A cqlsh command (`CONSISTENCY`, `PAGING`…): the client handles it.
+    /// It takes the rest of its line; the `;` is optional.
+    pub command: bool,
+}
+
+/// cqlsh's own commands (the server doesn't know them).
+const SHELL_COMMANDS: &[&str] =
+    &["consistency", "serial", "paging", "tracing", "expand", "show", "source", "capture", "copy", "login", "exit", "quit", "clear", "cls", "help"];
+
+/// Bytes of whitespace and comments (`--`, `//`, `/* */`) from `at`.
+fn trivia(s: &str, mut at: usize) -> usize {
+    let b = s.as_bytes();
+    loop {
+        if at < b.len() && b[at].is_ascii_whitespace() {
+            at += 1;
+        } else if b[at..].starts_with(b"--") || b[at..].starts_with(b"//") {
+            at = s[at..].find('\n').map_or(b.len(), |n| at + n + 1);
+        } else if b[at..].starts_with(b"/*") {
+            at = s[at + 2..].find("*/").map_or(b.len(), |n| at + 2 + n + 2);
+        } else {
+            return at;
+        }
+    }
+}
+
+/// Where the statement starting at `at` ends: its `;` (outside '…', "…",
+/// `$$…$$` and comments) or the end of the script.
+fn statement_end(s: &str, mut at: usize) -> usize {
+    let b = s.as_bytes();
+    while at < b.len() {
+        match b[at] {
+            q @ (b'\'' | b'"') => {
+                // A doubled quote is just two toggles: same result.
+                at = s[at + 1..].find(q as char).map_or(b.len(), |n| at + 1 + n + 1);
+            }
+            b'$' if b.get(at + 1) == Some(&b'$') => at = s[at + 2..].find("$$").map_or(b.len(), |n| at + 2 + n + 2),
+            b'-' | b'/' if b[at..].starts_with(b"--") || b[at..].starts_with(b"//") => {
+                at = s[at..].find('\n').map_or(b.len(), |n| at + n + 1)
+            }
+            b'/' if b.get(at + 1) == Some(&b'*') => at = s[at + 2..].find("*/").map_or(b.len(), |n| at + 2 + n + 2),
+            b';' => return at,
+            _ => at += 1,
+        }
+    }
+    b.len()
+}
+
+/// The script's statements and cqlsh commands, in order. As [`split`], a
+/// `BEGIN … BATCH` up to `APPLY BATCH` is one statement.
+pub fn script(text: &str) -> Vec<Unit> {
+    let line = |at: usize| text.as_bytes()[..at].iter().filter(|&&c| c == b'\n').count() as u32 + 1;
+    let mut out: Vec<Unit> = Vec::new();
+    // The open batch: its start in `text`.
+    let mut batch: Option<usize> = None;
+    let mut at = 0;
+    loop {
+        at = trivia(text, at);
+        if at >= text.len() {
+            break;
+        }
+        let rest = &text[at..];
+        let words = first_words(rest, 2);
+        let first = words.first().map(String::as_str).unwrap_or("");
+        let alone = rest.len() == first.len() || rest[first.len()..].starts_with(|c: char| c.is_whitespace() || c == ';');
+        if batch.is_none() && SHELL_COMMANDS.contains(&first) && alone {
+            let end = rest.find('\n').unwrap_or(rest.len());
+            let cmd = rest[..end].trim_end().trim_end_matches(';').trim_end();
+            out.push(Unit { text: cmd.to_string(), start: at, line: line(at), command: true });
+            at += end;
+            continue;
+        }
+        let end = statement_end(text, at);
+        match batch {
+            Some(from) if words.len() >= 2 && first == "apply" && words[1] == "batch" => {
+                out.push(Unit { text: text[from..end].trim_end().to_string(), start: from, line: line(from), command: false });
+                batch = None;
+            }
+            Some(_) => {}
+            None if first == "begin" => batch = Some(at),
+            None => out.push(Unit { text: text[at..end].trim_end().to_string(), start: at, line: line(at), command: false }),
+        }
+        at = (end + 1).min(text.len());
+    }
+    if let Some(from) = batch {
+        // No APPLY BATCH: the server says what's missing.
+        out.push(Unit { text: text[from..].trim_end().to_string(), start: from, line: line(from), command: false });
+    }
+    out
+}
+
 /// Up to the end of the line (kept, so line numbers in errors still match).
 fn skip_line(chars: &[char], mut i: usize, cur: &mut String) -> usize {
     while i < chars.len() && chars[i] != '\n' {
@@ -174,6 +272,31 @@ pub fn unqualify(text: &str, keyspace: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn script_units_batches_and_shell_commands() {
+        let s = "CONSISTENCY QUORUM\nSELECT * FROM t WHERE a = 'x;y'; -- c;\nBEGIN BATCH\n  INSERT INTO t (a) VALUES ('é');\n  INSERT INTO t (a) VALUES ($$b;c$$);\nAPPLY BATCH;\npaging off;\n// d; e\nSELECT 1 FROM t";
+        let u = script(s);
+        let t: Vec<(&str, u32, bool)> = u.iter().map(|u| (u.text.as_str(), u.line, u.command)).collect();
+        assert_eq!(
+            t,
+            [
+                ("CONSISTENCY QUORUM", 1, true),
+                ("SELECT * FROM t WHERE a = 'x;y'", 2, false),
+                ("BEGIN BATCH\n  INSERT INTO t (a) VALUES ('é');\n  INSERT INTO t (a) VALUES ($$b;c$$);\nAPPLY BATCH", 3, false),
+                ("paging off", 7, true),
+                ("SELECT 1 FROM t", 9, false),
+            ]
+        );
+        for x in &u {
+            assert!(s[x.start..].starts_with(&x.text), "{x:?}");
+        }
+        // A column called `paging` in a statement isn't a command.
+        assert_eq!(script("SELECT paging FROM t").len(), 1);
+        assert!(script("SELECT paging FROM t")[0].command == false);
+        assert!(script("PAGING")[0].command);
+        assert!(script("-- only\n/* comments */").is_empty());
+    }
 
     #[test]
     fn keyspace_qualifiers_come_off() {

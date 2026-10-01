@@ -18,6 +18,21 @@ pub struct SessionEntry {
     /// steps, where no statement is waiting on `cancel`.
     pub cancelled: std::sync::atomic::AtomicBool,
     pub interrupter: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// The session commits each statement: it starts as the connection's
+    /// «autocommit» option says (on when missing), and follows the tab's
+    /// Auto/Manual toggle after that.
+    pub autocommit: std::sync::atomic::AtomicBool,
+    /// The database a statement switched the session to (T-SQL `USE`…, see
+    /// `QueryOutcome::database`): the tab now asks for it and keeps this
+    /// session instead of opening a new one.
+    pub switched_to: std::sync::Mutex<Option<String>>,
+}
+
+/// Whether a new session commits each statement: drivers with an
+/// «autocommit» connection option (Oracle, Firebird) open it off when the
+/// option is off, so the tab's Auto toggle has to switch it on.
+fn starts_in_autocommit(cfg: &ConnectionConfig) -> bool {
+    cfg.option("autocommit").is_none_or(|v| v == "true")
 }
 
 #[derive(Clone)]
@@ -160,7 +175,9 @@ impl AppState {
     /// elsewhere.
     pub async fn session(&self, key: &str, connection_id: &str, database: &str) -> CommandResult<Arc<SessionEntry>> {
         if let Some(e) = self.sessions.get(key) {
-            if e.connection_id == connection_id && e.database == database {
+            // Where the session is now: a `USE` may have moved it.
+            let now = e.switched_to.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            if e.connection_id == connection_id && now.as_deref().unwrap_or(e.database.as_str()) == database {
                 return Ok(e.clone());
             }
         }
@@ -175,6 +192,8 @@ impl AppState {
             session: Mutex::new(session),
             cancel: Notify::new(),
             cancelled: Default::default(),
+            autocommit: std::sync::atomic::AtomicBool::new(starts_in_autocommit(&cfg)),
+            switched_to: Default::default(),
         });
         self.sessions.insert(key.to_string(), entry.clone());
         Ok(entry)
@@ -236,6 +255,8 @@ impl AppState {
             session: Mutex::new(session),
             cancel: Notify::new(),
             cancelled: Default::default(),
+            autocommit: std::sync::atomic::AtomicBool::new(starts_in_autocommit(&cfg)),
+            switched_to: Default::default(),
         });
         self.sessions.insert(key.to_string(), entry.clone());
         Ok(entry)

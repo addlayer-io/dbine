@@ -133,22 +133,11 @@ pub fn script(action: &BackupAction) -> Result<String> {
     }
 }
 
-/// The statements of a script: a single SQL scripting block (`BEGIN …
-/// END`, not `BEGIN TRANSACTION`) goes whole, as one statement; anything
-/// else is split on `;`.
+/// The statements of a script, compound `BEGIN … END` blocks (not
+/// `BEGIN TRANSACTION`) whole.
+#[cfg(test)]
 pub(crate) fn statements(text: &str) -> Vec<String> {
-    let body = text.trim().trim_end_matches(';').trim_end();
-    let mut words = body.split_whitespace();
-    let first = words.next().unwrap_or_default();
-    let second = words.next().unwrap_or_default().trim_end_matches(';');
-    let last = body.rsplit(|c: char| c.is_whitespace() || c == ';').next().unwrap_or_default();
-    if first.eq_ignore_ascii_case("BEGIN")
-        && !["TRANSACTION", "WORK", ""].iter().any(|w| second.eq_ignore_ascii_case(w))
-        && last.eq_ignore_ascii_case("END")
-    {
-        return vec![body.to_string()];
-    }
-    dbine_driver::sql::split_statements(text)
+    crate::script::units(text).into_iter().map(|u| u.text).collect()
 }
 
 // -- history -----------------------------------------------------------------
@@ -272,7 +261,7 @@ mod tests {
         assert_eq!(statements("begin\n select 1;\nend"), vec!["begin\n select 1;\nend"]);
         assert_eq!(statements("BEGIN TRANSACTION; INSERT INTO t VALUES (1); COMMIT;").len(), 3);
         assert_eq!(statements("BEGIN; SELECT 1; COMMIT;").len(), 3);
-        assert_eq!(statements("BEGIN SELECT 1; END; SELECT 2;").len(), 3);
+        assert_eq!(statements("BEGIN SELECT 1; END; SELECT 2;").len(), 2);
     }
 
     #[test]

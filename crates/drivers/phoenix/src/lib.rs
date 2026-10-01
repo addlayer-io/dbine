@@ -18,11 +18,13 @@ mod sync;
 mod transfer;
 
 use base64::Engine as _;
-use dbine_driver::sql::{select_top, split_statements, Limit, Quote};
+use dbine_driver::sql::{
+    leading_keyword, select_top, split_script, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
+};
 use dbine_driver::{
     json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
     Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn,
-    Result, RowChange, Session, TableSchema,
+    Result, RowChange, ScriptError, Session, TableSchema, TxState,
 };
 use async_trait::async_trait;
 use prost::Message;
@@ -92,6 +94,27 @@ impl Driver for PhoenixDriver {
         true
     }
 
+    fn script_dialect(&self) -> ScriptDialect {
+        dialect()
+    }
+
+    /// One `prepareAndExecute` per statement on the session's server
+    /// connection, which keeps its state.
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// sqlline / psql.py stop at the first error.
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: false, confirm_unsafe_dml: true }
+    }
+
+    /// Autocommit off keeps UPSERTs and DELETEs on the server connection
+    /// until COMMIT (atomic only on TRANSACTIONAL tables).
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     /// A prepared `UPSERT` / `INSERT` with `executeBatch` (see `transfer.rs`).
     fn supports_bulk_load(&self) -> bool {
         true
@@ -156,6 +179,28 @@ impl Driver for PhoenixDriver {
         ddl::filtered_browse(browse, filters, !self.generic)
     }
 
+    /// Phoenix schemas (namespace mapping on): no owner, dropped only when
+    /// empty, and HBase-ACL permissions (R, W, X, C, A) granted on them. A
+    /// generic Avatica server's DDL is the backend's.
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        (!self.generic).then(|| dbine_driver::SchemaSpec { owner: false, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: false, privileges: ddl::SCHEMA_PERMISSIONS.to_vec(), grant_option: true })
+    }
+
+    fn create_schema_script(&self, _database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+        self.phoenix_only()?;
+        ddl::create_schema(name, owner)
+    }
+
+    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        self.phoenix_only()?;
+        ddl::drop_schema(name, cascade)
+    }
+
+    fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
+        self.phoenix_only()?;
+        ddl::schema_security(action)
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
         let scheme = if cfg.encrypt { "https" } else { "http" };
         let host = if cfg.host.trim().is_empty() { "localhost" } else { cfg.host.trim() };
@@ -191,7 +236,16 @@ impl Driver for PhoenixDriver {
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
         let hbase = monitor::HBaseUis::from_config(host, cfg.option("hbase_master"), cfg.option("hbase_regionservers"));
-        Ok(Box::new(PhoenixSession { client, statement, hbase, generic: self.generic }))
+        Ok(Box::new(PhoenixSession { client, statement, hbase, generic: self.generic, manual: false, dirty: false }))
+    }
+}
+
+impl PhoenixDriver {
+    fn phoenix_only(&self) -> Result<()> {
+        if self.generic {
+            return Err(Error::Unsupported("el DDL depende de la base detrás del servidor Avatica".into()));
+        }
+        Ok(())
     }
 }
 
@@ -259,7 +313,62 @@ fn http_error(e: reqwest::Error) -> Error {
 
 fn server_error(message: String, code: u32, state: &str) -> Error {
     let msg = if message.is_empty() { format!("error {code} ({state})") } else { message };
-    Error::Query(msg)
+    // The Query Server wraps Phoenix's "ERROR 601 (42P00): …" in Java
+    // exception names and leaves its own code at -1.
+    let phoenix = msg.find("ERROR ").and_then(|i| {
+        let rest = &msg[i..];
+        let (head, _) = rest.split_once("): ")?;
+        let (n, st) = head.strip_prefix("ERROR ")?.split_once(" (")?;
+        let n: u32 = n.parse().ok()?;
+        let text = rest.split(" -> ").next().unwrap_or(rest).trim().to_string();
+        Some((n, st.to_string(), text))
+    });
+    let (code, state, msg) = match phoenix {
+        Some((n, st, text)) => (n, st, text),
+        None => (code, state.trim().to_string(), msg),
+    };
+    let mut e = ScriptError::new(msg);
+    if code != 0 && code != u32::MAX {
+        e = e.with_code(code.to_string());
+    }
+    if !state.is_empty() && state != "00000" {
+        e = e.with_sqlstate(state);
+    }
+    e.into()
+}
+
+/// Phoenix's SQL: `;` outside quotes and comments, no procedural bodies.
+fn dialect() -> ScriptDialect {
+    ScriptDialect { backtick_idents: false, compound_blocks: false, ..ScriptDialect::generic() }
+}
+
+/// The statements of a script with their byte offsets.
+fn statements(sql: &str) -> Vec<(String, usize)> {
+    split_script(sql, &dialect()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand).map(|s| (s.text, s.start)).collect()
+}
+
+/// A failed statement of `script` (at byte `start`), placed where Phoenix
+/// says ("… at line 2, column 7.").
+fn place(e: Error, script: &str, start: usize) -> Error {
+    let Error::Statement(mut se) = e else { return e };
+    let start = start.min(script.len());
+    let pos = se.message.rsplit_once("at line ").and_then(|(_, r)| {
+        let (l, rest) = r.split_once(", column ")?;
+        let c: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        Some((l.trim().parse::<usize>().ok()?, c.parse::<usize>().ok()?))
+    });
+    let stmt = &script[start..];
+    let offset = match pos.filter(|(l, c)| *l >= 1 && *c >= 1) {
+        Some((line, col)) => {
+            let line_start: usize = stmt.split_inclusive('\n').take(line - 1).map(str::len).sum();
+            let rest = &stmt[line_start.min(stmt.len())..];
+            start + line_start.min(stmt.len()) + rest.char_indices().nth(col - 1).map_or(rest.len(), |(b, _)| b)
+        }
+        None => start,
+    };
+    se.offset = Some(offset);
+    se.line = Some(script[..offset].matches('\n').count() as u32 + 1);
+    Error::Statement(se)
 }
 
 impl Client {
@@ -615,6 +724,10 @@ pub struct PhoenixSession {
     hbase: monitor::HBaseUis,
     /// A generic Avatica server: catalog from Avatica's metadata calls.
     generic: bool,
+    /// Autocommit off (manual transactions).
+    manual: bool,
+    /// In manual mode: something changed since the last commit or rollback.
+    dirty: bool,
 }
 
 impl Drop for PhoenixSession {
@@ -764,6 +877,29 @@ impl Session for PhoenixSession {
         Ok(out)
     }
 
+    /// Every schema: those made with `CREATE SCHEMA` (a `SYSTEM.CATALOG` row
+    /// of their own, so an empty one shows and can be dropped) and those
+    /// only named by tables or sequences. A generic Avatica server: `None`.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
+        if self.generic {
+            return Ok(None);
+        }
+        let mut names: Vec<String> = Vec::new();
+        for sql in [
+            "SELECT DISTINCT TABLE_SCHEM FROM SYSTEM.CATALOG WHERE TENANT_ID IS NULL AND TABLE_SCHEM IS NOT NULL",
+            "SELECT DISTINCT SEQUENCE_SCHEMA FROM SYSTEM.\"SEQUENCE\" WHERE TENANT_ID IS NULL AND SEQUENCE_SCHEMA IS NOT NULL",
+        ] {
+            for r in self.rows(sql).await? {
+                let n = r.first().map(text).unwrap_or_default();
+                if !n.is_empty() && !names.contains(&n) {
+                    names.push(n);
+                }
+            }
+        }
+        names.sort();
+        Ok(Some(names.into_iter().map(|name| dbine_driver::SchemaInfo { system: name == "SYSTEM", name }).collect()))
+    }
+
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         if self.generic {
             return self.avatica_columns(obj).await;
@@ -867,9 +1003,40 @@ impl Session for PhoenixSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        for stmt in split_statements(text) {
-            self.run(&stmt, max_rows, out).await?;
+        for (stmt, start) in statements(text) {
+            let before = out.results.len();
+            self.run(&stmt, max_rows, out).await.map_err(|e| place(e, text, start))?;
+            match leading_keyword(&stmt, &dialect()).as_deref() {
+                Some("commit" | "rollback") => self.dirty = false,
+                _ if self.manual && out.results[before..].iter().any(|r| r.columns.is_empty()) => self.dirty = true,
+                _ => {}
+            }
         }
+        Ok(())
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        Ok(Some(if self.manual && self.dirty { TxState::Open } else { TxState::Idle }))
+    }
+
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        self.client.set_auto_commit(on).await?;
+        self.manual = !on;
+        if on {
+            self.dirty = false;
+        }
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.client.end(true).await?;
+        self.dirty = false;
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.client.end(false).await?;
+        self.dirty = false;
         Ok(())
     }
 
@@ -878,7 +1045,7 @@ impl Session for PhoenixSession {
             return self.avatica_explain(script, analyze, max_rows, out).await;
         }
         let mut noted = false;
-        for stmt in split_statements(script) {
+        for (stmt, _) in statements(script) {
             let first = stmt.split_whitespace().next().unwrap_or_default().to_ascii_uppercase();
             if matches!(first.as_str(), "SELECT" | "UPSERT" | "DELETE" | "WITH") {
                 let mut local = QueryOutcome::default();
@@ -912,6 +1079,19 @@ impl Session for PhoenixSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(None, "VENTAS", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
 
     #[test]
     fn typed_values_become_cells() {
@@ -964,7 +1144,16 @@ mod tests {
 
         let err = proto::ErrorResponse { error_message: "ERROR 1012 (42M03): Table undefined.".into(), ..Default::default() };
         let wire = proto::WireMessage { name: format!("{}ErrorResponse", proto::RESP), wrapped_message: err.encode_to_vec() };
-        assert!(matches!(parse_proto(&Req::Close, &wire.encode_to_vec()), Err(Error::Query(m)) if m.contains("1012")));
+        let e = parse_proto(&Req::Close, &wire.encode_to_vec()).err().unwrap().to_script_error();
+        assert_eq!((e.code.as_deref(), e.sqlstate.as_deref()), (Some("1012"), Some("42M03")));
+        assert!(e.message.contains("Table undefined"));
+
+        // Phoenix's own code inside the Query Server's wrapping, and where.
+        let e = server_error("RuntimeException: x: ERROR 603 (42P00): Syntax error. Got \"x\" at line 2, column 3. -> y".into(), u32::MAX, "");
+        let script = "SELECT 1;\nSELECT 2\n  x";
+        let e = place(e, script, 10).to_script_error();
+        assert_eq!(e.message, "ERROR 603 (42P00): Syntax error. Got \"x\" at line 2, column 3.");
+        assert_eq!((e.code.as_deref(), e.offset, e.line), (Some("603"), Some(script.rfind('x').unwrap()), Some(3)));
     }
 
     #[test]

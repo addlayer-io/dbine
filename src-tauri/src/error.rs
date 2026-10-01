@@ -88,6 +88,7 @@ impl From<dbine_driver::Error> for CommandError {
             AuthFailed(m) => Self::AuthFailed(m),
             Unsupported(m) => Self::BadRequest(m),
             Query(m) => Self::Sql(m),
+            Statement(e) => Self::Sql(e.message),
             State(m) => Self::State(m),
             Secrets(m) => Self::State(format!("llavero del sistema: {m}")),
             Cancelled => Self::Cancelled,

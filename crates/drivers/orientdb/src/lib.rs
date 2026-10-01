@@ -31,6 +31,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod security;
+mod steps;
 mod transfer;
 
 use dbine_driver::{
@@ -59,6 +60,12 @@ CREATE VERTEX Persona SET nombre = 'Ana' · CREATE EDGE Conoce FROM #12:0 TO #12
 INSERT INTO Clase CONTENT {\"a\": 1} · UPDATE … · DELETE VERTEX …\n\
 EXPLAIN / PROFILE delante de una consulta muestran su plan.\n\
 Una sentencia que empieza con g. es Gremlin (solo en servidores con TinkerPop).";
+
+/// How the console reads a script: `;` ends a statement, strings take
+/// backslash escapes, and there are no `BEGIN … END` bodies.
+fn dialect() -> dbine_driver::ScriptDialect {
+    dbine_driver::ScriptDialect { backslash_escapes: true, compound_blocks: false, ..dbine_driver::ScriptDialect::generic() }
+}
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![Arc::new(OrientDriver)]
@@ -125,6 +132,17 @@ impl Driver for OrientDriver {
 
     fn supports_explain(&self) -> bool {
         true
+    }
+
+    /// One command per HTTP request (`/command`), so the app runs the
+    /// script statement by statement; as the console (`ignoreErrors`
+    /// off), a failure stops it unless the tab says otherwise.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::PerStatement
+    }
+
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        dialect()
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -280,6 +298,22 @@ impl OrientSession {
 
     /// Run one statement; `limit` rows at most (-1 = all). Returns the rows
     /// with their keys in server order, plus the raw reply (for plans).
+    /// One editor statement into `out`.
+    async fn statement(&self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        if self.read_only && is_gremlin(stmt) && gremlin_writes(stmt) {
+            return Err(Error::Query("Conexión de solo lectura: el script Gremlin tiene pasos que escriben.".into()));
+        }
+        let limit = if is_read(strip_plan_prefix(stmt)) { max_rows as i64 + 1 } else { -1 };
+        let rows = self.command(stmt, limit).await?;
+        // EXPLAIN / PROFILE typed in the editor: the plan too.
+        if let Some(p) = rows.records.first().and_then(|r| r.iter().find(|(k, _)| k == "executionPlan")) {
+            let actual = stmt.trim_start().to_ascii_uppercase().starts_with("PROFILE");
+            out.plans.push(plan::from_execution_plan(strip_plan_prefix(stmt), &p.1, actual));
+        }
+        push_rows(out, &rows, max_rows);
+        Ok(())
+    }
+
     async fn command(&self, stmt: &str, limit: i64) -> Result<Rows> {
         let db = self.db_seg()?;
         let gremlin = is_gremlin(stmt);
@@ -860,22 +894,19 @@ impl Session for OrientSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let stmts = dbine_driver::sql::split_statements(text);
-        if stmts.is_empty() {
+        let units: Vec<_> = dbine_driver::sql::split_script(text, &dialect())
+            .into_iter()
+            .filter(|u| u.kind != dbine_driver::StatementKind::ClientCommand)
+            .collect();
+        if units.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
         }
-        for stmt in stmts {
-            if self.read_only && is_gremlin(&stmt) && gremlin_writes(&stmt) {
-                return Err(Error::Query("Conexión de solo lectura: el script Gremlin tiene pasos que escriben.".into()));
-            }
-            let limit = if is_read(strip_plan_prefix(&stmt)) { max_rows as i64 + 1 } else { -1 };
-            let rows = self.command(&stmt, limit).await?;
-            // EXPLAIN / PROFILE typed in the editor: the plan too.
-            if let Some(p) = rows.records.first().and_then(|r| r.iter().find(|(k, _)| k == "executionPlan")) {
-                let actual = stmt.trim_start().to_ascii_uppercase().starts_with("PROFILE");
-                out.plans.push(plan::from_execution_plan(strip_plan_prefix(&stmt), &p.1, actual));
-            }
-            push_rows(out, &rows, max_rows);
+        let own = out.current_statement.is_none();
+        for (i, u) in units.iter().enumerate() {
+            let step = steps::Step::start(out, own, i, u.start, u.line);
+            let r = self.statement(&u.text, max_rows, out).await;
+            step.finish(out);
+            r.map_err(|e| step.place(e))?;
         }
         Ok(())
     }
@@ -891,7 +922,7 @@ impl Session for OrientSession {
         for stmt in stmts {
             let body = strip_plan_prefix(&stmt).to_string();
             if is_gremlin(&body) {
-                out.messages.push("Gremlin no tiene plan de ejecución en OrientDB.".into());
+                out.info("Gremlin no tiene plan de ejecución en OrientDB.");
                 if analyze {
                     self.execute(&body, max_rows, out).await?;
                 }
@@ -902,14 +933,14 @@ impl Session for OrientSession {
             match self.command(&q, -1).await {
                 Ok(rows) => match rows.records.first().and_then(|r| r.iter().find(|(k, _)| k == "executionPlan")) {
                     Some(p) => out.plans.push(plan::from_execution_plan(&body, &p.1, profile)),
-                    None => out.messages.push(format!("`{body}`: el servidor no devolvió un plan.")),
+                    None => out.info(format!("`{body}`: el servidor no devolvió un plan.")),
                 },
-                Err(Error::Query(m)) => out.messages.push(format!("`{body}`: sin plan de ejecución ({m}).")),
+                Err(Error::Query(m)) => out.info(format!("`{body}`: sin plan de ejecución ({m}).")),
                 Err(e) => return Err(e),
             }
             if analyze {
                 if !profile {
-                    out.messages.push(format!("`{body}` no es una consulta: se muestra el plan estimado y se ejecutó una sola vez."));
+                    out.info(format!("`{body}` no es una consulta: se muestra el plan estimado y se ejecutó una sola vez."));
                 }
                 self.execute(&body, max_rows, out).await?;
             }

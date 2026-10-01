@@ -20,13 +20,15 @@ mod transfer;
 
 use arrow_array::RecordBatch;
 use arrow_flight::sql::client::FlightSqlServiceClient;
-use arrow_flight::sql::{CommandGetTables, SqlInfo};
+use arrow_flight::sql::{CommandGetDbSchemas, CommandGetTables, SqlInfo};
 use arrow_flight::{Action, CancelFlightInfoRequest, FlightInfo};
-use dbine_driver::sql::{quote_ident, split_statements, Quote};
+use dbine_driver::sql::{
+    quote_ident, split_script, split_statements, Quote, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
+};
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, DbObject, Driver, DriverInfo, Error, Family, Field, FieldKind,
     Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn,
-    Session,
+    ScriptError, Session, TxState,
 };
 use futures::TryStreamExt;
 use prost::Message;
@@ -87,6 +89,25 @@ impl Driver for FlightSqlDriver {
         Err(Error::Unsupported("Flight SQL es un protocolo, no un motor: el DDL para cambiar el esquema depende de la base que está detrás (DuckDB, Dremio, InfluxDB 3, Doris…) y varias no lo aceptan por Flight SQL; conectate con el driver propio de ese motor para sincronizar esquemas".into()))
     }
 
+    fn script_dialect(&self) -> ScriptDialect {
+        dialect()
+    }
+
+    /// One Flight SQL command per statement (as before, now one call each).
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: false, confirm_unsafe_dml: true }
+    }
+
+    /// Flight SQL transactions (`BeginTransaction` / `EndTransaction`), on
+    /// servers that have them.
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     fn supports_explain(&self) -> bool {
         true
     }
@@ -101,6 +122,24 @@ impl Driver for FlightSqlDriver {
     /// what the engine behind exposes.
     fn capabilities(&self) -> Capabilities {
         Capabilities { monitor: true, ..Default::default() }
+    }
+
+    /// Standard SQL `CREATE SCHEMA` / `DROP SCHEMA … [CASCADE]`, which the
+    /// engine behind runs or refuses (DuckDB/GizmoSQL runs them; InfluxDB 3
+    /// has no DDL). Flight SQL can't list users, so no owner and no grants.
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(dbine_driver::SchemaSpec { owner: false, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: true, privileges: Vec::new(), grant_option: true })
+    }
+
+    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+        if owner.is_some() {
+            return Err(Error::Unsupported("por Flight SQL DBine no conoce los usuarios del motor: creá el esquema sin dueño".into()));
+        }
+        Ok(format!("CREATE SCHEMA {}", schema_path(database, name)))
+    }
+
+    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        Ok(format!("DROP SCHEMA {}{}", schema_path(database, name), if cascade { " CASCADE" } else { "" }))
     }
 
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
@@ -148,6 +187,9 @@ impl Driver for FlightSqlDriver {
             server: ServerInfo::default(),
             cancel: Arc::new(Cancel::default()),
             rt: tokio::runtime::Handle::current(),
+            tx: None,
+            dirty: false,
+            failed: false,
         };
         s.server = s.sql_info().await.unwrap_or_default();
         // Something every server answers: the catalogs (or a trivial query).
@@ -158,6 +200,9 @@ impl Driver for FlightSqlDriver {
             }
         };
         tokio::time::timeout(Duration::from_secs(20), check)
+            .await
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+        tokio::time::timeout(Duration::from_secs(20), s.use_catalog())
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
         Ok(Box::new(s))
@@ -201,6 +246,20 @@ fn auth_error(e: impl std::fmt::Display) -> Error {
     }
 }
 
+/// The server refuses statements until a rollback (DuckDB's "Current
+/// transaction is aborted", PostgreSQL's "current transaction is aborted").
+fn is_aborted(m: &str) -> bool {
+    m.to_ascii_lowercase().contains("transaction is aborted")
+}
+
+/// A statement that failed (or was cancelled) after its columns arrived
+/// leaves no empty result set next to its error.
+fn drop_empty_result(out: &mut QueryOutcome, before: usize) {
+    if out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+        out.results.truncate(before);
+    }
+}
+
 fn flight_error(e: impl std::fmt::Display) -> Error {
     let m = e.to_string();
     if m.contains("Unauthenticated") {
@@ -211,9 +270,47 @@ fn flight_error(e: impl std::fmt::Display) -> Error {
         Error::Connect(m)
     } else {
         // Strip tonic's wrapping down to the server's message.
-        let msg = m.split("message: \"").nth(1).and_then(|r| r.split("\", details").next()).map(|s| s.replace("\\n", "\n").replace("\\\"", "\"")).unwrap_or(m);
-        Error::Query(msg)
+        let msg = m.split("message: \"").nth(1).and_then(|r| r.split("\", details").next()).map(|s| s.replace("\\n", "\n").replace("\\\"", "\"")).unwrap_or(m.clone());
+        // The engine's error class ("Catalog Error: …" on DuckDB), else the
+        // gRPC status ("InvalidArgument"…).
+        // GizmoSQL wraps it ("Can't prepare statement: '…' - Error:
+        // Catalog Error: …"): the message starts at the class.
+        let (class, msg) = match engine_class(&msg) {
+            Some((at, class)) => (Some(class), msg[at..].trim_end_matches('"').to_string()),
+            None => (None, msg),
+        };
+        let status = m.split("status: ").nth(1).and_then(|r| r.split(|c: char| !c.is_ascii_alphanumeric()).next()).filter(|s| !s.is_empty());
+        let mut e = ScriptError::new(msg.clone());
+        if let Some(code) = class.or(status.map(str::to_string)) {
+            e = e.with_code(code);
+        }
+        if let Some(line) = msg.lines().find_map(|l| l.strip_prefix("LINE ")?.split_once(':')?.0.parse::<u32>().ok()) {
+            e = e.at_line(line);
+        }
+        e.into()
     }
+}
+
+/// Where `<Class> Error: ` starts in `msg`, and the class ("Catalog",
+/// "Parser"…).
+fn engine_class(msg: &str) -> Option<(usize, String)> {
+    msg.match_indices(" Error: ").chain(msg.starts_with("Error: ").then_some((0, "")).into_iter()).find_map(|(i, _)| {
+        let before = &msg[..i];
+        let start = before.rfind(|c: char| !c.is_ascii_alphanumeric()).map_or(0, |p| p + 1);
+        let class = &before[start..];
+        (!class.is_empty()).then(|| (start, class.to_string()))
+    })
+}
+
+/// `;` outside quotes and comments; `$$` strings (DuckDB behind GizmoSQL).
+fn dialect() -> ScriptDialect {
+    ScriptDialect { dollar_quotes: true, compound_blocks: false, backtick_idents: false, ..ScriptDialect::generic() }
+}
+
+/// The statements of a script, comments left in place (so the server's
+/// line numbers hold), with the line each starts on (0-based).
+fn statements(sql: &str) -> Vec<(String, u32)> {
+    split_script(sql, &dialect()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand).map(|s| (s.text, s.line - 1)).collect()
 }
 
 #[derive(Default)]
@@ -277,6 +374,23 @@ pub struct FlightSession {
     server: ServerInfo,
     cancel: Arc<Cancel>,
     rt: tokio::runtime::Handle,
+    /// Manual transactions: the open Flight SQL transaction.
+    tx: Option<tonic::codegen::Bytes>,
+    /// Something changed in it.
+    dirty: bool,
+    /// A statement failed and the server aborted the transaction (DuckDB:
+    /// "Current transaction is aborted"): only Rollback gets out of it.
+    failed: bool,
+}
+
+/// `"catalog"."schema"` (standard SQL) with the catalog the explorer menu
+/// was opened on, so the script lands there whatever catalog the session
+/// runs in; a bare name on servers without catalogs.
+fn schema_path(database: Option<&str>, name: &str) -> String {
+    match database {
+        Some(c) => format!("{}.{}", quote_ident(Quote::Double, c), quote_ident(Quote::Double, name)),
+        None => quote_ident(Quote::Double, name),
+    }
 }
 
 fn first_word(stmt: &str) -> String {
@@ -396,22 +510,63 @@ impl FlightSession {
         Ok(out)
     }
 
+    /// Whether the error `e`, in a manual transaction, left it aborted. The
+    /// server's text says so on the next statement only ("Current
+    /// transaction is aborted"), so a trivial query in the same transaction
+    /// finds out; a cancel or a lost connection proves nothing.
+    async fn aborted(&mut self, e: Option<&Error>) -> bool {
+        match e {
+            Some(Error::Cancelled | Error::Connect(_) | Error::AuthFailed(_)) | None => return false,
+            Some(e) if is_aborted(&e.to_string()) => return true,
+            Some(_) => {}
+        }
+        let mut probe = QueryOutcome::default();
+        match self.run("SELECT 1", 1, &mut probe).await {
+            Ok(()) => false,
+            Err(e) => is_aborted(&e.to_string()),
+        }
+    }
+
+    /// A new Flight SQL transaction.
+    async fn begin(&self) -> Result<tonic::codegen::Bytes> {
+        let mut c = self.conn.client();
+        c.begin_transaction().await.map_err(|e| {
+            let m = flight_error(e).to_string();
+            Error::Unsupported(format!("este servidor Flight SQL no admite transacciones: {m}"))
+        })
+    }
+
+    /// Commit or roll back the open transaction.
+    async fn end(&mut self, commit: bool) -> Result<()> {
+        let Some(id) = self.tx.take() else { return Ok(()) };
+        let how = if commit { arrow_flight::sql::EndTransaction::Commit } else { arrow_flight::sql::EndTransaction::Rollback };
+        let mut c = self.conn.client();
+        let r = c.end_transaction(id, how).await.map_err(flight_error);
+        self.dirty = false;
+        self.failed = false;
+        r
+    }
+
     async fn run(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let tx = self.tx.clone();
         if !is_query(stmt) {
             let mut c = self.conn.client();
-            let r = self.cancel.run(async { c.execute_update(stmt.to_string(), None).await.map_err(flight_error) }).await;
+            let r = self.cancel.run(async { c.execute_update(stmt.to_string(), tx.clone()).await.map_err(flight_error) }).await;
             match r {
                 Ok(n) => {
                     out.push_affected(n.max(0) as u64);
+                    if self.tx.is_some() {
+                        self.dirty = true;
+                    }
                     return Ok(());
                 }
                 // Servers without updates answer them as queries.
-                Err(Error::Query(m)) if m.contains("Unimplemented") || m.to_ascii_lowercase().contains("not implemented") => {}
+                Err(e) if e.is_query() && (e.to_string().contains("Unimplemented") || e.to_string().to_ascii_lowercase().contains("not implemented")) => {}
                 Err(e) => return Err(e),
             }
         }
         let mut c = self.conn.client();
-        let info = self.cancel.run(async { c.execute(stmt.to_string(), None).await.map_err(flight_error) }).await?;
+        let info = self.cancel.run(async { c.execute(stmt.to_string(), tx).await.map_err(flight_error) }).await?;
         *self.cancel.info.lock().unwrap_or_else(|e| e.into_inner()) = Some(info.clone());
         let schema = info.clone().try_decode_schema().ok();
         let mut started = false;
@@ -449,6 +604,31 @@ impl FlightSession {
         }
         parts.push(quote_ident(Quote::Double, name));
         parts.join(".")
+    }
+
+    /// Makes the session's catalog the one unqualified statements run in.
+    /// Flight SQL has no standard way to pick it, so without this a
+    /// DuckDB-backed server (GizmoSQL) runs `CREATE SCHEMA x` or
+    /// `DROP SCHEMA x CASCADE` in its default catalog, not the one open in
+    /// the explorer. DuckDB's `USE` lasts for the server-side session (each
+    /// DBine session has its own). Other engines are left as they are.
+    async fn use_catalog(&self) -> Result<()> {
+        let Some(c) = self.catalog.as_deref().filter(|c| !c.is_empty()) else { return Ok(()) };
+        if self.server.engine() != Engine::DuckDb {
+            return Ok(());
+        }
+        // SQLite behind GizmoSQL has no `current_database()` and one catalog.
+        let Ok((_, rows)) = self.rows("SELECT current_database()").await else { return Ok(()) };
+        if rows.first().and_then(|r| r.first()).map(text).as_deref() == Some(c) {
+            return Ok(());
+        }
+        let mut cl = self.conn.client();
+        let stmt = format!("USE {}", quote_ident(Quote::Double, c));
+        self.cancel
+            .run(async { cl.execute_update(stmt, None).await.map_err(flight_error) })
+            .await
+            .map(|_| ())
+            .map_err(|e| Error::Connect(format!("no se pudo abrir el catálogo «{c}»: {e}")))
     }
 
     /// Tables with their Arrow schemas (`GetTables` with `include_schema`).
@@ -555,6 +735,28 @@ impl Session for FlightSession {
             .collect())
     }
 
+    /// `GetDbSchemas` of the session's catalog, so an empty schema (one just
+    /// made with "Nuevo esquema…") shows too. `None` when the server doesn't
+    /// answer it: the explorer derives the schemas from the tables.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
+        let mut c = self.conn.client();
+        let req = CommandGetDbSchemas { catalog: self.catalog.clone(), db_schema_filter_pattern: None };
+        let Ok(info) = self.cancel.run(async { c.get_db_schemas(req).await.map_err(flight_error) }).await else { return Ok(None) };
+        let mut out: Vec<dbine_driver::SchemaInfo> = Vec::new();
+        for b in self.batches(info).await? {
+            let Some(a) = b.column_by_name("db_schema_name") else { continue };
+            for r in 0..b.num_rows() {
+                let name = text(&cells::cell(a.as_ref(), r));
+                if name.is_empty() || out.iter().any(|s| s.name == name) {
+                    continue;
+                }
+                let system = name.eq_ignore_ascii_case("information_schema") || name == "pg_catalog" || name == "sys";
+                out.push(dbine_driver::SchemaInfo { name, system });
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// SQL types and nullability from `information_schema.columns` (DuckDB,
     /// DataFusion, Dremio, Doris…); else the Arrow schema of `GetTables`.
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -635,7 +837,7 @@ impl Session for FlightSession {
                     format!("CREATE VIEW {} AS\n{d};", self.qualified(obj.schema(), &obj.name))
                 }
             })),
-            Err(Error::Query(_)) => Ok(None),
+            Err(e) if e.is_query() => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -646,8 +848,67 @@ impl Session for FlightSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
-        for stmt in split_statements(text) {
-            self.run(&stmt, max_rows, out).await?;
+        for (stmt, line) in statements(text) {
+            let before = out.results.len();
+            let r = self.run(&stmt, max_rows, out).await;
+            if r.is_err() {
+                drop_empty_result(out, before);
+                if self.tx.is_some() && !self.failed {
+                    self.failed = self.aborted(r.as_ref().err()).await;
+                }
+            }
+            r.map_err(|e| match e {
+                // Lines of the statement become lines of the text.
+                Error::Statement(mut se) => {
+                    se.line = Some(se.line.unwrap_or(1) + line);
+                    Error::Statement(se)
+                }
+                e => e,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// `Open` when, in manual mode, something changed in the transaction;
+    /// `Failed` when an error aborted it.
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        Ok(Some(match self.tx {
+            Some(_) if self.failed => TxState::Failed,
+            Some(_) if self.dirty => TxState::Open,
+            _ => TxState::Idle,
+        }))
+    }
+
+    /// Off: a Flight SQL transaction (`BeginTransaction`) holds every
+    /// statement until Commit / Rollback; servers without transactions say
+    /// so. On: the pending transaction is committed.
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        match (on, self.tx.is_some()) {
+            (false, false) => {
+                self.tx = Some(self.begin().await?);
+                self.dirty = false;
+            }
+            (true, true) => {
+                self.end(true).await?;
+                self.tx = None;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        if self.tx.is_some() {
+            self.end(true).await?;
+            self.tx = Some(self.begin().await?);
+        }
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        if self.tx.is_some() {
+            self.end(false).await?;
+            self.tx = Some(self.begin().await?);
         }
         Ok(())
     }
@@ -864,10 +1125,17 @@ mod tests {
     #[test]
     fn errors() {
         assert!(matches!(flight_error("status: Unauthenticated, message: \"bad\""), Error::AuthFailed(_)));
-        match flight_error("Tonic error: status: Internal, message: \"Catalog Error: Table with name nope does not exist!\", details: [], metadata: {}") {
-            Error::Query(m) => assert_eq!(m, "Catalog Error: Table with name nope does not exist!"),
-            e => panic!("{e:?}"),
-        }
+        let e = flight_error("Tonic error: status: Internal, message: \"Catalog Error: Table with name nope does not exist!\\n\\nLINE 2: select\", details: [], metadata: {}");
+        assert!(e.is_query(), "{e:?}");
+        let se = e.to_script_error();
+        assert_eq!(se.message, "Catalog Error: Table with name nope does not exist!\n\nLINE 2: select");
+        assert_eq!((se.code.as_deref(), se.line), (Some("Catalog"), Some(2)));
+        let se = flight_error("status: Internal, message: \"Can't prepare statement: 'x' - Error: Parser Error: syntax error\", details: []").to_script_error();
+        assert_eq!((se.code.as_deref(), se.message.as_str()), (Some("Parser"), "Parser Error: syntax error"));
+        let se = flight_error("status: InvalidArgument, message: \"bad\", details: [], metadata: {}").to_script_error();
+        assert_eq!(se.code.as_deref(), Some("InvalidArgument"));
+        let units = statements("select $$a;b$$;\n-- c\nselect 2");
+        assert_eq!(units, vec![("select $$a;b$$".to_string(), 0), ("select 2".to_string(), 2)]);
     }
 
     #[test]
@@ -875,5 +1143,18 @@ mod tests {
         let d = drivers();
         assert_eq!(d[0].info().id, "flightsql");
         assert!(d[0].supports_explain() && d[0].capabilities().monitor);
+    }
+
+    #[test]
+    fn schema_scripts() {
+        let d = drivers().remove(0);
+        let spec = d.schema_spec().unwrap();
+        assert!(!spec.owner && spec.cascade && spec.privileges.is_empty());
+        assert_eq!(d.create_schema_script(None, "Ven\"tas", None).unwrap(), r#"CREATE SCHEMA "Ven""tas""#);
+        assert!(matches!(d.create_schema_script(None, "v", Some("ana")), Err(Error::Unsupported(_))));
+        assert_eq!(d.drop_schema_script(None, "v", false).unwrap(), r#"DROP SCHEMA "v""#);
+        assert_eq!(d.drop_schema_script(None, "v", true).unwrap(), r#"DROP SCHEMA "v" CASCADE"#);
+        assert_eq!(d.create_schema_script(Some("mi\"cat"), "v", None).unwrap(), r#"CREATE SCHEMA "mi""cat"."v""#);
+        assert_eq!(d.drop_schema_script(Some("memory"), "v", false).unwrap(), r#"DROP SCHEMA "memory"."v""#);
     }
 }

@@ -6,5 +6,10 @@
   "done": "Changes saved",
   "doneRows_one": "Changes saved: 1 row updated",
   "doneRows_many": "Changes saved: {{count}} rows updated",
-  "doneRows_other": "Changes saved: {{count}} rows updated"
+  "doneRows_other": "Changes saved: {{count}} rows updated",
+  "hintDeletes": "These statements will run on the server ({{deletes}}). Review them before saving.",
+  "hintBoth": "These statements will run on the server ({{deletes}}; {{cells}} in {{rows}}). Rows are deleted first and then the others are updated. Review them before saving.",
+  "doneAffected_one": "Changes saved: 1 row affected",
+  "doneAffected_many": "Changes saved: {{count}} rows affected",
+  "doneAffected_other": "Changes saved: {{count}} rows affected"
 }

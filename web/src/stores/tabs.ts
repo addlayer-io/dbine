@@ -23,6 +23,23 @@ interface TabBase {
 export interface QueryTab extends TabBase {
   kind: 'query';
   queryId: string;
+  /** "Seguir si hay un error"; absent: the engine's default. */
+  continueOnError?: boolean;
+  /** Manual transactions (autocommit off), on drivers that offer it. */
+  manualTx?: boolean;
+}
+
+/** Tabs that must ask before closing (a query tab with an open
+ *  transaction): resolves true to go on. QueryView registers them. */
+export const closeGuards = new Map<string, () => Promise<boolean>>();
+
+/** Ask every guarded tab of `ids`, one after another; false if one says no. */
+async function confirmClose(ids: string[]): Promise<boolean> {
+  for (const id of ids) {
+    const guard = closeGuards.get(id);
+    if (guard && !(await guard())) return false;
+  }
+  return true;
 }
 
 export interface ObjectTab extends TabBase {
@@ -182,11 +199,25 @@ export const useTabsStore = defineStore('tabs', {
     },
 
     closeGroup(connectionId: string) {
-      this.closeWhere((t) => t.connectionId === connectionId);
+      this.closeAsking((t) => t.connectionId === connectionId);
     },
 
     closeOtherGroups(connectionId: string) {
-      this.closeWhere((t) => t.connectionId !== connectionId);
+      this.closeAsking((t) => t.connectionId !== connectionId);
+    },
+
+    /** Close the tabs that match, after the guarded ones agree. */
+    closeAsking(pred: (t: Tab) => boolean) {
+      const ids = this.tabs.filter(pred).map((t) => t.id);
+      confirmClose(ids).then((ok) => { if (ok) this.closeWhere((t) => ids.includes(t.id)); });
+    },
+
+    /** A query tab's run options ("Seguir si hay un error", transactions). */
+    setQueryOptions(id: string, patch: Pick<QueryTab, 'continueOnError' | 'manualTx'>) {
+      const t = this.tabs.find((x) => x.id === id);
+      if (t?.kind !== 'query') return;
+      Object.assign(t, patch);
+      this.persist();
     },
 
     openQuery(q: SavedQuery, preview = false) {
@@ -326,7 +357,13 @@ export const useTabsStore = defineStore('tabs', {
       this.persist();
     },
 
-    close(id: string) {
+    /** Close a tab; one with an open transaction asks first (unless `force`). */
+    close(id: string, force = false) {
+      const guard = !force && closeGuards.get(id);
+      if (guard) {
+        guard().then((ok) => { if (ok) this.close(id, true); });
+        return;
+      }
       const i = this.tabs.findIndex((t) => t.id === id);
       if (i < 0) return;
       const gone = this.tabs[i];
@@ -342,14 +379,24 @@ export const useTabsStore = defineStore('tabs', {
       this.persist();
     },
 
-    closeOthers(id: string) {
+    closeOthers(id: string, force = false) {
+      const others = this.tabs.filter((x) => x.id !== id).map((t) => t.id);
+      if (!force && others.some((x) => closeGuards.has(x))) {
+        confirmClose(others).then((ok) => { if (ok) this.closeOthers(id, true); });
+        return;
+      }
       for (const t of this.tabs.filter((x) => x.id !== id)) this.release(t);
       this.tabs = this.tabs.filter((x) => x.id === id);
       this.collapsed = [];
       this.activate(id);
     },
 
-    closeAll() {
+    closeAll(force = false) {
+      const ids = this.tabs.map((t) => t.id);
+      if (!force && ids.some((x) => closeGuards.has(x))) {
+        confirmClose(ids).then((ok) => { if (ok) this.closeAll(true); });
+        return;
+      }
       for (const t of this.tabs) this.release(t);
       this.tabs = [];
       this.activeId = null;
@@ -359,7 +406,7 @@ export const useTabsStore = defineStore('tabs', {
 
     /** Tabs of a query / connection that no longer exists. */
     closeWhere(pred: (t: Tab) => boolean) {
-      for (const t of this.tabs.filter(pred)) this.close(t.id);
+      for (const t of this.tabs.filter(pred)) this.close(t.id, true);
     },
 
     /** The tab's backend session (its connection) is no longer needed. */

@@ -99,14 +99,14 @@ async fn clickhouse() {
     // Error mid-script (and mid-stream).
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
     let mut out = QueryOutcome::default();
     let e = s
         .execute("SELECT throwIf(number = 50000) FROM numbers(100000) SETTINGS max_block_size = 10", 5, &mut out)
         .await
         .unwrap_err();
-    assert!(matches!(e, Error::Query(ref m) if m.contains("Code: 395")), "{e:?}");
+    assert!(e.is_query() && e.to_string().contains("Code: 395"), "{e:?}");
 
     // Cancel.
     let stop = s.interrupter().unwrap();
@@ -124,7 +124,7 @@ async fn clickhouse() {
     let mut ro = d.connect(&cfg("DBINE_TEST_CLICKHOUSE_URL", "clickhouse", true).unwrap(), Some("dbine_it")).await.unwrap();
     let mut out = QueryOutcome::default();
     let e = ro.execute("INSERT INTO t (id) VALUES (1)", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(ref m) if m.contains("readonly")), "{e:?}");
+    assert!(e.is_query() && e.to_string().contains("readonly"), "{e:?}");
     ro.execute("SELECT count() FROM t", 10, &mut out).await.unwrap();
 
     let mut s = d.connect(&c, None).await.unwrap();
@@ -529,4 +529,44 @@ async fn clickhouse_profiler() {
 #[ignore]
 async fn timeplus_profiler() {
     profile("DBINE_TEST_TIMEPLUS_URL", "timeplus", false).await;
+}
+
+/// The editor's script contract: the app's units (heredocs, backslash
+/// escapes), errors with code and position, session state between calls.
+#[tokio::test]
+#[ignore]
+async fn clickhouse_script_contract() {
+    let Some(c) = cfg("DBINE_TEST_CLICKHOUSE_URL", "clickhouse", false) else { return };
+    let d = driver("clickhouse");
+    assert_eq!(d.script_mode(), dbine_driver::sql::ScriptMode::PerStatement);
+    let script = "SET max_threads = 3;\nSELECT 'it\\'s; ok' AS a, $h$x;y$h$ AS b;\nSELECT getSetting('max_threads');\nSELEC 1;";
+    let units = d.split_script(script);
+    assert_eq!(units.len(), 4, "{units:?}");
+    let mut s = d.connect(&c, None).await.unwrap();
+    let mut out = QueryOutcome::default();
+    for u in &units[..3] {
+        s.execute(&u.text, 10, &mut out).await.unwrap_or_else(|e| panic!("{}: {e}", u.text));
+    }
+    assert_eq!(out.results[1].rows[0], vec![serde_json::json!("it's; ok"), serde_json::json!("x;y")]);
+    assert_eq!(out.results[2].rows[0][0].to_string().trim_matches('"'), "3");
+    let e = s.execute(&units[3].text, 10, &mut out).await.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert_eq!((e.code.as_deref(), e.offset, e.line), (Some("62"), Some(0), Some(1)));
+    let e = s.execute("SELECT 1;\nSELECT * FROM nope_nope", 10, &mut out).await.unwrap_err().to_script_error();
+    assert_eq!((e.code.as_deref(), e.line), (Some("60"), Some(2)), "{e:?}");
+
+    // USE moves the session (and the tab) as in clickhouse-client.
+    let mut go = QueryOutcome::default();
+    s.execute("CREATE DATABASE IF NOT EXISTS dbine_use_db2", 10, &mut go).await.unwrap();
+    let mut out = QueryOutcome::default();
+    for u in d.split_script("USE `dbine_use_db2`;\nSELECT currentDatabase();") {
+        s.execute(&u.text, 10, &mut out).await.unwrap();
+    }
+    assert_eq!(out.database.as_deref(), Some("dbine_use_db2"));
+    assert_eq!(out.results.last().unwrap().rows[0][0], serde_json::json!("dbine_use_db2"));
+    let mut out = QueryOutcome::default();
+    s.execute("USE default", 10, &mut out).await.unwrap();
+    s.execute("SELECT currentDatabase()", 10, &mut out).await.unwrap();
+    assert_eq!(out.results.last().unwrap().rows[0][0], serde_json::json!("default"));
+    s.execute("DROP DATABASE dbine_use_db2", 10, &mut go).await.unwrap();
 }

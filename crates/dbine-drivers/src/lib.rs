@@ -218,7 +218,7 @@ pub fn infos() -> Vec<DriverInfo> {
 pub async fn open_session(cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
     let driver = find(&cfg.driver).ok_or_else(|| Error::Unsupported(format!("no hay driver '{}'", cfg.driver)))?;
     let s = driver.connect(cfg, database).await?;
-    Ok(if cfg.read_only && driver.info().language == Language::Sql { Box::new(ReadOnlySession::new(s)) } else { s })
+    Ok(if cfg.read_only && driver.info().language == Language::Sql { Box::new(ReadOnlySession::with_dialect(s, driver.script_dialect())) } else { s })
 }
 
 #[cfg(test)]

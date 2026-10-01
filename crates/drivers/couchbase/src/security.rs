@@ -12,7 +12,7 @@
 //! `REVOKE` role. `GRANT` says whether it's for a user or a group
 //! (`TO GROUP g`), so DBine names groups `group:<name>`.
 
-use crate::ddl::q;
+use crate::ddl::{q, scope_ref};
 use crate::{text, CbSession};
 use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
 use serde_json::Value;
@@ -196,13 +196,30 @@ fn roles(p: &[String]) -> Result<String> {
     Ok(out.join(", "))
 }
 
-/// ` ON <keyspace>`: a bucket or a collection, always from the `default`
+/// Roles that take a scope (`role[bucket:scope]`, Enterprise Edition):
+/// what "Nuevo esquema…" offers to grant on the new scope.
+pub fn scope_roles() -> Vec<&'static str> {
+    vec![
+        "data_reader", "data_writer", "query_select", "query_insert", "query_update", "query_delete", "query_manage_index",
+        "query_execute_functions", "query_manage_functions", "scope_admin", "data_monitoring", "fts_searcher",
+    ]
+}
+
+/// ` ON <keyspace>`: a bucket, a scope or a collection, always from the `default`
 /// namespace (the session's query context would otherwise read a bare name
 /// as a collection).
 fn on(object: &Option<ObjectRef>) -> Result<String> {
     let Some(o) = object else { return Ok(String::new()) };
     if o.kind == "database" {
         return Ok(format!(" ON default:{}", q(&o.name)));
+    }
+    // A scope: `bucket.scope` as the explorer and a listed grant name it.
+    if o.kind == "schema" {
+        let full = match o.schema() {
+            Some(b) => format!("{b}.{}", o.name),
+            None => o.name.clone(),
+        };
+        return Ok(format!(" ON {}", scope_ref(&full)?));
     }
     // `bucket.scope` + `collection` (the explorer) or `bucket` +
     // `scope.collection` (a listed grant): scopes and collections have no
@@ -216,9 +233,6 @@ fn on(object: &Option<ObjectRef>) -> Result<String> {
         (Some(c), Some(sc), Some(b)) if o.kind == kinds::COLLECTION && ![c, sc, b].contains(&"") => {
             Ok(format!(" ON default:{}.{}.{}", q(b), q(sc), q(c)))
         }
-        _ if o.kind == "schema" => Err(Error::Unsupported(
-            "SQL++ no otorga roles sobre un scope: otorgalo sobre el bucket o sobre una colección".into(),
-        )),
         _ => Err(Error::Query(format!("«{full}» no es una colección (bucket.scope.colección)"))),
     }
 }
@@ -289,10 +303,16 @@ mod tests {
             sc(SecurityAction::Revoke { privileges: vec!["bucket_full_access".into()], object: obj("database", None, "b1"), from: "ana".into() }),
             "REVOKE bucket_full_access ON default:`b1` FROM `ana`;"
         );
-        assert!(matches!(
-            script(&SecurityAction::Grant { privileges: vec!["query_select".into()], object: obj("schema", None, "b1.s"), to: "a".into(), grantable: false }),
-            Err(Error::Unsupported(_))
-        ));
+        // A scope (Enterprise Edition's scope roles), as "Nuevo esquema…" and a listed grant name it.
+        assert_eq!(
+            sc(SecurityAction::Grant { privileges: vec!["query_select".into(), "data_reader".into()], object: obj("schema", None, "b.1.s"), to: "ana".into(), grantable: false }),
+            "GRANT query_select, data_reader ON default:`b.1`.`s` TO `ana`;"
+        );
+        assert_eq!(
+            sc(SecurityAction::Revoke { privileges: vec!["scope_admin".into()], object: obj("schema", Some("b"), "s"), from: "group:g".into() }),
+            "REVOKE scope_admin ON default:`b`.`s` FROM GROUP `g`;"
+        );
+        assert!(script(&SecurityAction::Grant { privileges: vec!["query_select".into()], object: obj("schema", None, "s"), to: "a".into(), grantable: false }).is_err());
         assert!(script(&SecurityAction::Grant { privileges: vec!["admin TO x; DROP USER y".into()], object: None, to: "a".into(), grantable: false }).is_err());
         for a in [
             SecurityAction::SetLogin { name: "a".into(), enabled: false },

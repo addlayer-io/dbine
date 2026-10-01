@@ -41,18 +41,20 @@ pub use info::{kinds, DriverInfo, Family, Field, FieldKind, FieldSection, FieldW
 pub use filter::{ColumnFilter, FilterOp};
 pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
 pub use model::{
-    json_bytes, json_f64, json_i64, json_u64, ColumnInfo, DbObject, ObjectRef, Plan, PlanNode, QueryOutcome,
-    ResultColumn, RowSink, RowSinkRef, StatementResult,
-    RowChange,
+    json_bytes, json_f64, json_i64, json_u64, ColumnInfo, DbObject, Message, MessageLevel, MessageSinkRef, ObjectRef, Plan,
+    PlanNode, ProgressSinkRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef, ScriptError, StatementEnd, StatementResult,
+    TxState, RowChange, SchemaInfo,
 };
 
-pub use security::{Grant, Principal, PrincipalKind, SecurityAction, SecuritySpec};
+pub use security::{Grant, Principal, PrincipalKind, SchemaOwnerKinds, SchemaSpec, SecurityAction, SecuritySpec};
 pub use monitor::{BlockedSession, Metric, MetricUnit, MonitorSnapshot, MonitorTable};
 pub use permissions::{Access, Permissions};
 pub use profiler::{ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted};
 pub use schema::{
     Capabilities, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, ForeignKeyDef, IndexDef, KeyDef, TableSchema,
 };
+
+pub use sql::{ScriptDefaults, ScriptDialect, ScriptMode, ScriptStatement, StatementKind};
 
 pub use transfer::{
     BatchBuilder, BatchSink, BatchSinkRef, BatchSource, BucketSum, Buckets, Cell, CloneScript, CloneTable, CopySpec, DeltaDepth, DeltaResult, DeltaSpec,
@@ -214,6 +216,70 @@ pub trait Driver: Send + Sync {
         Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()))
     }
 
+    /// What "Nuevo esquema…" / "Borrar esquema…" offer (see
+    /// [`security::SchemaSpec`]); `None`: the engine has no schemas DBine
+    /// creates as plain objects (none at all, or a schema is a user or a
+    /// database there). With `Some`, [`Driver::create_schema_script`] and
+    /// [`Driver::drop_schema_script`] work, and so does
+    /// [`Driver::schema_grant_script`] when `privileges` isn't empty.
+    ///
+    /// The schema methods get `database`: the database the explorer menu
+    /// was opened on (`None` when there's none), for engines where a
+    /// schema's path depends on it (a Dremio source, a Flight SQL catalog).
+    ///
+    /// "Nuevo esquema…" builds one script, in this order: the create, each
+    /// grant, then the owner change when [`Driver::schema_owner_script`]
+    /// gives one (see there).
+    fn schema_spec(&self) -> Option<security::SchemaSpec> {
+        None
+    }
+
+    /// The code that creates schema `name` (quoted as the engine needs) in
+    /// `database`, owned by `owner` when given. `owner` comes only when the
+    /// spec says `owner` and [`Driver::schema_owner_script`] returned
+    /// `None` for it. DBine shows it and runs it only on the user's click.
+    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+        let _ = (database, name, owner);
+        Err(Error::Unsupported("este motor no crea esquemas desde DBine".into()))
+    }
+
+    /// The code that hands the new schema `name` to `owner`, run after the
+    /// create and the grants. `None` (the default): the owner goes inside
+    /// [`Driver::create_schema_script`] (`AUTHORIZATION`), right where the
+    /// creator keeps the right to grant on it afterwards (PostgreSQL run by
+    /// a superuser or by a member of the owner, SQL Server).
+    ///
+    /// Engines where the creator loses the right to grant once the schema
+    /// is someone else's return the change here, and DBine then creates the
+    /// schema without owner: Snowflake (`GRANT OWNERSHIP`), Databricks
+    /// (`ALTER SCHEMA … OWNER TO`), Trino (`ALTER SCHEMA … SET
+    /// AUTHORIZATION`), Aurora DSQL and PostgreSQL run by someone who isn't
+    /// superuser (`ALTER SCHEMA … OWNER TO`). An invalid owner is an error,
+    /// never `Unsupported` (an older plugin host answers that, read as
+    /// `None`).
+    fn schema_owner_script(&self, database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+        let _ = (database, name, owner);
+        Ok(None)
+    }
+
+    /// The code that grants `privileges` (names from the spec's
+    /// `privileges`) on schema `name` of `database` to `to`. By default
+    /// [`Driver::security_script`] with a `SecurityAction::Grant` whose
+    /// object is `ObjectRef { kind: "schema", schema: None, name }`;
+    /// engines whose schema path depends on the database override it.
+    fn schema_grant_script(&self, database: Option<&str>, name: &str, privileges: &[String], to: &str, grantable: bool) -> Result<String> {
+        let _ = database;
+        let object = ObjectRef { kind: "schema".into(), schema: None, name: name.to_string() };
+        self.security_script(&security::SecurityAction::Grant { privileges: privileges.to_vec(), object: Some(object), to: to.to_string(), grantable })
+    }
+
+    /// The code that drops schema `name` of `database`; `cascade`: with its
+    /// objects (only asked when the spec says `cascade`).
+    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        let _ = (database, name, cascade);
+        Err(Error::Unsupported("este motor no borra esquemas desde DBine".into()))
+    }
+
     /// Code in the driver's language that deletes the rows with these keys
     /// (`DELETE … WHERE <key>` in SQL, `deleteOne` in MongoDB, `DEL` in
     /// Redis…): data compare's sync script uses it. Each key is the row's
@@ -244,6 +310,48 @@ pub trait Driver: Send + Sync {
     /// `/` after Oracle PL/SQL…). Empty when `;` already separates them.
     fn script_separator(&self) -> &'static str {
         ""
+    }
+
+    /// How the engine's own tool reads a script: quotes, comments, blocks,
+    /// batch lines, terminator switches (see [`sql::ScriptDialect`]). The
+    /// app splits editor scripts with it ([`Driver::split_script`]), and so
+    /// do "run the statement at the cursor", the read-only guard and the
+    /// UPDATE/DELETE check. Plugin drivers send it in their manifest. By
+    /// default, the preset for [`DriverInfo::dialect`]
+    /// ([`sql::ScriptDialect::for_hint`]: PostgreSQL's dollar quotes, MySQL's
+    /// `#` comments, T-SQL's `GO`, PL/SQL blocks…), else the generic one.
+    fn script_dialect(&self) -> sql::ScriptDialect {
+        sql::ScriptDialect::for_hint(self.info().dialect)
+    }
+
+    /// The script cut into the units the app runs one by one, with their
+    /// positions. Express the engine's rules through
+    /// [`Driver::script_dialect`] rather than overriding this: a plugin
+    /// driver's override isn't seen by the app (it splits with the dialect).
+    fn split_script(&self, text: &str) -> Vec<sql::ScriptStatement> {
+        sql::split_script(text, &self.script_dialect())
+    }
+
+    /// How the app runs an editor script on this engine (see
+    /// [`sql::ScriptMode`]). `Whole` by default: the driver gets the script
+    /// in one `execute`, as before. Drivers switch to `PerStatement` /
+    /// `Batches` once their `execute` takes single statements well.
+    fn script_mode(&self) -> sql::ScriptMode {
+        sql::ScriptMode::Whole
+    }
+
+    /// The engine tool's defaults for scripts: continue after an error or
+    /// stop, and whether to ask before an UPDATE/DELETE without WHERE.
+    fn script_defaults(&self) -> sql::ScriptDefaults {
+        sql::ScriptDefaults::for_language(self.info().language)
+    }
+
+    /// Its sessions implement manual transactions
+    /// ([`Session::set_autocommit`], [`Session::commit`],
+    /// [`Session::rollback`]): the editor offers Auto/Manual, Commit and
+    /// Rollback only then.
+    fn supports_manual_transactions(&self) -> bool {
+        false
     }
 
     /// Open a session on `database` (the config's default when `None`).
@@ -334,6 +442,14 @@ pub trait Session: Send {
     /// Objects of the session's database, of the kinds the driver declares.
     async fn list_objects(&mut self) -> Result<Vec<DbObject>>;
 
+    /// Every schema of the session's database, including those without
+    /// objects (a schema just made with `CREATE SCHEMA` shows in the
+    /// explorer). `None`: the driver doesn't list schemas; the UI falls back
+    /// to deriving them from [`Session::list_objects`].
+    async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
+        Ok(None)
+    }
+
     /// Columns (fields) of an object, in ordinal order. Schemaless engines
     /// infer them from a sample.
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>>;
@@ -350,7 +466,43 @@ pub trait Session: Send {
     /// Run a script (one or more statements / commands), appending each
     /// one's result to `out` and keeping at most `max_rows` rows per result
     /// set. An `Err` stops the script; what ran before it stays in `out`.
+    ///
+    /// When the driver's [`Driver::script_mode`] isn't `Whole`, the app
+    /// calls it with one statement (or batch) of the script at a time and
+    /// decides itself whether to go on after an error. Either way: messages
+    /// go through [`QueryOutcome::info`] / [`QueryOutcome::warning`] as they
+    /// arrive (the UI shows them live), and a failure with a code or a
+    /// position is returned as [`Error::Statement`].
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()>;
+
+    /// Whether a transaction is open. `None`: the driver doesn't track it
+    /// (the UI shows nothing). Asked after every editor run, so it must be
+    /// cheap.
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        Ok(None)
+    }
+
+    /// Autocommit on (each statement commits) or off (the first statement
+    /// opens a transaction that stays open until [`Session::commit`] or
+    /// [`Session::rollback`]). Sessions start in autocommit. Drivers that
+    /// implement it set [`Driver::supports_manual_transactions`].
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if on {
+            Ok(())
+        } else {
+            Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()))
+        }
+    }
+
+    /// Commit the open transaction (nothing to do when there's none).
+    async fn commit(&mut self) -> Result<()> {
+        Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()))
+    }
+
+    /// Roll back the open transaction (nothing to do when there's none).
+    async fn rollback(&mut self) -> Result<()> {
+        Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()))
+    }
 
     /// Execution plans of a script, pushed to `out.plans`.
     /// - `analyze = false`: estimated plans; nothing runs.
@@ -543,5 +695,117 @@ pub trait Session: Send {
     async fn permissions(&mut self, database: Option<&str>) -> Result<Permissions> {
         let _ = database;
         Ok(Permissions::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A driver that only says who it is: every other method is the default.
+    struct Bare(DriverInfo);
+
+    #[async_trait]
+    impl Driver for Bare {
+        fn info(&self) -> &DriverInfo {
+            &self.0
+        }
+        async fn connect(&self, _: &ConnectionConfig, _: Option<&str>) -> Result<Box<dyn Session>> {
+            Err(Error::Unsupported("test".into()))
+        }
+    }
+
+    fn bare() -> Bare {
+        Bare(DriverInfo {
+            id: "bare",
+            name: "Bare",
+            family: Family::Relational,
+            language: Language::Sql,
+            dialect: "standard",
+            default_port: 0,
+            fields: vec![],
+            databases_label: "",
+            has_schemas: true,
+            object_kinds: vec![],
+        })
+    }
+
+    #[test]
+    fn schemas_are_unsupported_by_default() {
+        let d = bare();
+        assert!(d.schema_spec().is_none());
+        assert!(matches!(d.create_schema_script(None, "ventas", Some("ana")), Err(Error::Unsupported(_))));
+        assert!(matches!(d.schema_owner_script(None, "ventas", "ana"), Ok(None)));
+        assert!(matches!(d.schema_grant_script(None, "ventas", &["USAGE".into()], "ana", false), Err(Error::Unsupported(_))));
+        assert!(matches!(d.drop_schema_script(None, "ventas", true), Err(Error::Unsupported(_))));
+    }
+
+    /// A session that only implements the required methods.
+    struct BareSession;
+
+    #[async_trait]
+    impl Session for BareSession {
+        async fn server_version(&mut self) -> Result<String> {
+            Ok(String::new())
+        }
+        async fn list_databases(&mut self) -> Result<Vec<String>> {
+            Ok(vec![])
+        }
+        async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
+            Ok(vec![])
+        }
+        async fn columns(&mut self, _: &ObjectRef) -> Result<Vec<ColumnInfo>> {
+            Ok(vec![])
+        }
+        async fn definition(&mut self, _: &ObjectRef) -> Result<Option<String>> {
+            Ok(None)
+        }
+        fn browse_query(&self, _: &ObjectRef, _: u32) -> String {
+            String::new()
+        }
+        async fn execute(&mut self, _: &str, _: usize, _: &mut QueryOutcome) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    /// The default's future is ready at once: poll it without a runtime.
+    fn ready<T>(f: impl std::future::Future<Output = T>) -> T {
+        let mut f = std::pin::pin!(f);
+        match f.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())) {
+            std::task::Poll::Ready(v) => v,
+            std::task::Poll::Pending => panic!("the default list_schemas waited"),
+        }
+    }
+
+    #[test]
+    fn scripts_run_whole_by_default() {
+        let d = bare();
+        assert_eq!(d.script_mode(), sql::ScriptMode::Whole);
+        assert_eq!(d.script_dialect(), sql::ScriptDialect::generic());
+        assert_eq!(d.script_defaults(), sql::ScriptDefaults { continue_on_error: false, confirm_unsafe_dml: true });
+        assert!(!d.supports_manual_transactions());
+        let st = d.split_script("select 1; select 2");
+        assert_eq!(st.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(), vec!["select 1", "select 2"]);
+    }
+
+    #[test]
+    fn transactions_are_not_tracked_by_default() {
+        let mut s = BareSession;
+        assert_eq!(ready(s.transaction_state()).unwrap(), None);
+        assert!(ready(s.set_autocommit(true)).is_ok());
+        assert!(matches!(ready(s.set_autocommit(false)), Err(Error::Unsupported(_))));
+        assert!(matches!(ready(s.commit()), Err(Error::Unsupported(_))));
+        assert!(matches!(ready(s.rollback()), Err(Error::Unsupported(_))));
+        let mut ro = read_only::ReadOnlySession::new(Box::new(BareSession));
+        assert_eq!(ready(ro.transaction_state()).unwrap(), None);
+        assert!(matches!(ready(ro.commit()), Err(Error::Unsupported(_))));
+    }
+
+    #[test]
+    fn schemas_are_not_listed_by_default() {
+        assert_eq!(ready(BareSession.list_schemas()).unwrap(), None);
+        // The read-only wrapper passes the driver's list through.
+        let mut ro = read_only::ReadOnlySession::new(Box::new(BareSession));
+        assert_eq!(ready(ro.list_schemas()).unwrap(), None);
     }
 }

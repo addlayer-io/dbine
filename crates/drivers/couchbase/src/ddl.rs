@@ -34,6 +34,48 @@ pub fn path(schema: Option<&str>, name: &str) -> String {
     }
 }
 
+/// A scope's full path, `` default:`bucket`.`scope` ``, from its schema name
+/// (`bucket.scope`, as the explorer names it). The bucket must be written:
+/// the session's query context is the bucket's `_default` scope, which
+/// can't resolve a bare scope name.
+pub fn scope_ref(schema: &str) -> Result<String> {
+    split_schema(schema.trim()).map(|(b, s)| format!("default:{}.{}", q(b), q(s))).ok_or_else(|| {
+        Error::Query(format!("escribí el scope con su bucket, «bucket.scope» (por ejemplo «mibucket.{}»)", schema.trim()))
+    })
+}
+
+/// `bucket.scope` from the dialog's name: a bare scope (scopes have no
+/// dots) goes into the bucket the menu was opened on; a name that already
+/// has its bucket is left as it is.
+pub fn full_scope(database: Option<&str>, name: &str) -> String {
+    let n = name.trim();
+    match database.map(str::trim).filter(|b| !b.is_empty()) {
+        Some(b) if !n.contains('.') => format!("{b}.{n}"),
+        _ => n.to_string(),
+    }
+}
+
+/// "Nuevo esquema…": a scope in a bucket. Scopes have no owner.
+pub fn create_scope(schema: &str, owner: Option<&str>) -> Result<String> {
+    if owner.is_some() {
+        return Err(Error::Unsupported("en Couchbase un scope no tiene dueño: otorgá roles sobre él".into()));
+    }
+    Ok(format!("CREATE SCOPE {}", scope_ref(schema)?))
+}
+
+/// "Borrar esquema…": `DROP SCOPE` always drops the scope's collections
+/// with it, so it's written only when the user asked for that (`cascade`).
+pub fn drop_scope(schema: &str, cascade: bool) -> Result<String> {
+    let path = scope_ref(schema)?;
+    if split_schema(schema.trim()).is_some_and(|(_, s)| s == "_default") {
+        return Err(Error::Unsupported("el scope _default de un bucket no se puede borrar".into()));
+    }
+    if !cascade {
+        return Err(Error::Unsupported("Couchbase borra el scope con todas sus colecciones: marcá «con su contenido» para confirmarlo".into()));
+    }
+    Ok(format!("DROP SCOPE {path}"))
+}
+
 pub fn designer() -> DesignerSpec {
     DesignerSpec {
         kind: kinds::COLLECTION,
@@ -481,5 +523,19 @@ mod tests {
         );
         let s = insert_script(&target, &["id".into(), "v".into()], &[vec![json!(7), json!(1)]]).unwrap();
         assert!(s.contains("(\"7\", {\"id\":7,\"v\":1})"), "{s}");
+    }
+    #[test]
+    fn scope_scripts() {
+        assert_eq!(create_scope("travel.sample.ventas", None).unwrap(), "CREATE SCOPE default:`travel.sample`.`ventas`");
+        assert_eq!(create_scope(" b.v`x ", None).unwrap(), "CREATE SCOPE default:`b`.`v``x`");
+        assert!(matches!(create_scope("ventas", None), Err(Error::Query(m)) if m.contains("bucket.scope")));
+        assert!(matches!(create_scope("b.ventas", Some("ana")), Err(Error::Unsupported(_))));
+        assert_eq!(drop_scope("b.ventas", true).unwrap(), "DROP SCOPE default:`b`.`ventas`");
+        assert!(matches!(drop_scope("b.ventas", false), Err(Error::Unsupported(_))));
+        assert!(matches!(drop_scope("b._default", true), Err(Error::Unsupported(_))));
+        assert_eq!(full_scope(Some("travel.sample"), " ventas "), "travel.sample.ventas");
+        assert_eq!(full_scope(Some("travel.sample"), "travel.sample.ventas"), "travel.sample.ventas");
+        assert_eq!(full_scope(Some(" "), "ventas"), "ventas");
+        assert_eq!(full_scope(None, "b.ventas"), "b.ventas");
     }
 }

@@ -44,7 +44,14 @@
     "affected_other": "{{rows}} filas afectadas",
     "completed": "completada",
     "rows_many": "{{rows}} filas",
-    "affected_many": "{{rows}} filas afectadas"
+    "affected_many": "{{rows}} filas afectadas",
+    "elapsed": "{{ms}} ms",
+    "line": "Línea {{line}}",
+    "goToLine": "Ir a esta línea en el editor"
+  },
+  "status": {
+    "done": "Completado",
+    "doneWithErrors": "Completado con errores"
   },
   "edit": {
     "lookingUpTable": "buscando la tabla y su clave…",
@@ -57,7 +64,12 @@
     "addToQuery": "Agregar a la query",
     "discard": "Descartar",
     "cells_many": "{{count}} celdas modificadas",
-    "rows_many": "{{count}} filas"
+    "rows_many": "{{count}} filas",
+    "summaryDeletes": "{{deletes}}, sin guardar.",
+    "summaryBoth": "{{cells}} en {{rows}}, {{deletes}}, sin guardar.",
+    "deletes_one": "{{count}} fila para eliminar",
+    "deletes_many": "{{count}} filas para eliminar",
+    "deletes_other": "{{count}} filas para eliminar"
   },
   "exportDialog": {
     "title": "Exportar resultado",
@@ -165,7 +177,14 @@
         "label": "Copiar como Mongo INSERTs",
         "name": "Mongo INSERTs"
       }
-    }
+    },
+    "deleteRow": "Eliminar fila",
+    "deleteRows": "Eliminar {{count}} filas",
+    "restoreRow": "Restaurar fila",
+    "restoreRows": "Restaurar {{count}} filas",
+    "cantDelete": "No se puede eliminar: {{reason}}",
+    "rowDeleted": "La fila está marcada para eliminar: restaurala para editarla",
+    "markedDelete": "Marcada para eliminar"
   },
   "chart": {
     "kind": {

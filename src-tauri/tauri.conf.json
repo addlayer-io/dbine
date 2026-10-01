@@ -16,8 +16,8 @@
         "title": "DBine",
         "width": 1400,
         "height": 880,
-        "minWidth": 1024,
-        "minHeight": 640,
+        "minWidth": 640,
+        "minHeight": 400,
         "visible": false,
         "backgroundColor": "#1e1e1e",
         "dragDropEnabled": false

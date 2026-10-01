@@ -26,6 +26,8 @@ mod monitor;
 mod permissions;
 mod plan;
 mod profiler;
+mod schemas;
+mod script;
 mod security;
 mod session;
 mod structure;
@@ -352,6 +354,24 @@ impl Driver for PgDriver {
         &self.info
     }
 
+    fn script_dialect(&self) -> dbine_driver::sql::ScriptDialect {
+        script::DIALECT
+    }
+
+    /// One statement per simple query, as psql sends them; the session
+    /// (SET, temp tables, an open transaction) carries over.
+    fn script_mode(&self) -> dbine_driver::sql::ScriptMode {
+        dbine_driver::sql::ScriptMode::PerStatement
+    }
+
+    fn script_defaults(&self) -> dbine_driver::sql::ScriptDefaults {
+        dbine_driver::sql::ScriptDefaults { continue_on_error: self.variant.continue_on_error(), confirm_unsafe_dml: true }
+    }
+
+    fn supports_manual_transactions(&self) -> bool {
+        self.variant.manual_transactions()
+    }
+
     /// `COPY … FROM STDIN` (see `transfer`).
     fn supports_bulk_load(&self) -> bool {
         transfer::bulk_capable(self.variant)
@@ -436,6 +456,22 @@ impl Driver for PgDriver {
         security::script(self.variant, action)
     }
 
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        schemas::spec(self.variant)
+    }
+
+    fn create_schema_script(&self, _database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+        schemas::create_script(self.variant, name, owner)
+    }
+
+    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+        schemas::owner_script(self.variant, name, owner)
+    }
+
+    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        schemas::drop_script(self.variant, name, cascade)
+    }
+
     fn backup(&self) -> Option<dbine_driver::BackupSpec> {
         backup::spec(self.variant)
     }
@@ -506,7 +542,7 @@ impl Driver for PgDriver {
             loop {
                 match futures::future::poll_fn(|cx| connection.poll_message(cx)).await {
                     Some(Ok(AsyncMessage::Notice(n))) => {
-                        let _ = tx.send(format!("{}: {}", n.severity(), n.message()));
+                        let _ = tx.send(n);
                     }
                     Some(Ok(_)) => {}
                     Some(Err(e)) => {
@@ -599,9 +635,14 @@ pub(crate) fn err(e: tokio_postgres::Error) -> Error {
 }
 
 fn db_message(e: &tokio_postgres::Error) -> String {
-    let Some(db) = e.as_db_error() else {
-        return e.to_string();
-    };
+    match e.as_db_error() {
+        Some(db) => db_text(db),
+        None => e.to_string(),
+    }
+}
+
+/// "SEVERITY: message", then the detail and the hint when there are.
+pub(crate) fn db_text(db: &tokio_postgres::error::DbError) -> String {
     let mut m = format!("{}: {}", db.severity(), db.message());
     if let Some(d) = db.detail() {
         m.push_str(&format!("\nDetalle: {d}"));
@@ -615,6 +656,19 @@ fn db_message(e: &tokio_postgres::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
 
     #[test]
     fn ids_are_unique_and_ports_known() {

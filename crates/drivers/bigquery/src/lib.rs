@@ -3,6 +3,7 @@
 //! `max_rows` rows are in); BigQuery runs multi-statement scripts itself and
 //! returns the last statement's result. Datasets are the databases.
 
+mod blocks;
 mod ddl;
 mod gcp;
 mod indexes;
@@ -10,6 +11,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod profiler;
+mod script;
 mod security;
 mod sync;
 mod backup;
@@ -161,6 +163,18 @@ impl Api {
     }
 }
 
+/// Whether a job runs in a BigQuery session.
+#[derive(Clone, Copy)]
+enum InSession<'a> {
+    No,
+    /// Opens one (its id comes back in `sessionInfo`).
+    Create,
+    Use(&'a str),
+}
+
+/// Child jobs of a script fetched one by one, at most.
+const MAX_CHILDREN: usize = 50;
+
 /// A finished query: its schema, the rows kept and what the job reported.
 #[derive(Debug, Default)]
 struct QueryResult {
@@ -175,6 +189,9 @@ struct QueryResult {
 pub struct BigQuerySession {
     api: Api,
     dataset: Option<String>,
+    /// The BigQuery session editor runs share once one needed it (temp
+    /// tables, variables, transactions last between runs).
+    session_id: Option<String>,
     job: Arc<Mutex<Option<JobRef>>>,
     /// The monitor's storage figures, refreshed every few minutes.
     storage: monitor::StorageCache,
@@ -184,6 +201,21 @@ pub struct BigQuerySession {
 
 #[async_trait]
 impl Driver for BigQueryDriver {
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        script::dialect()
+    }
+
+    /// Scripting blocks (`BEGIN … END`, `LOOP`, `IF`…) go whole.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        script::units(text)
+    }
+
+    /// One job with the whole script: BigQuery scripting runs it (variables
+    /// and blocks span its statements), as the console and `bq` do.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::Whole
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }
@@ -288,7 +320,14 @@ impl Driver for BigQueryDriver {
             .map(str::trim)
             .filter(|d| !d.is_empty())
             .map(str::to_string);
-        Ok(Box::new(BigQuerySession { api, dataset, job: Arc::new(Mutex::new(None)), storage: Default::default(), profiler: None }))
+        Ok(Box::new(BigQuerySession {
+            api,
+            dataset,
+            session_id: None,
+            job: Arc::new(Mutex::new(None)),
+            storage: Default::default(),
+            profiler: None,
+        }))
     }
 }
 
@@ -306,6 +345,18 @@ impl BigQuerySession {
 
     /// Runs `sql` as one job; also gives the job.
     async fn query_job(&self, sql: &str, max_rows: usize, params: Option<Json>) -> Result<(JobRef, QueryResult)> {
+        self.query_job_in(sql, max_rows, params, InSession::No).await.map(|(j, r, _)| (j, r))
+    }
+
+    /// Runs `sql` as one job, in a BigQuery session or not; also gives the
+    /// job and the session it ran in.
+    async fn query_job_in(
+        &self,
+        sql: &str,
+        max_rows: usize,
+        params: Option<Json>,
+        session: InSession<'_>,
+    ) -> Result<(JobRef, QueryResult, Option<String>)> {
         let page = max_rows.clamp(1, PAGE);
         let mut body = json!({
             "query": sql,
@@ -324,7 +375,13 @@ impl BigQuerySession {
             body["parameterMode"] = json!("NAMED");
             body["queryParameters"] = p;
         }
+        match session {
+            InSession::No => {}
+            InSession::Create => body["createSession"] = json!(true),
+            InSession::Use(id) => body["connectionProperties"] = json!([{ "key": "session_id", "value": id }]),
+        }
         let mut resp = self.api.post(&["queries"], &[], &body).await?;
+        let session_id = resp.pointer("/sessionInfo/sessionId").and_then(Json::as_str).map(str::to_string);
         let job = JobRef {
             id: resp.pointer("/jobReference/jobId").and_then(Json::as_str).unwrap_or_default().to_string(),
             location: resp
@@ -336,7 +393,84 @@ impl BigQuerySession {
         self.set_job(Some(job.clone()));
         let result = self.collect(&job, &mut resp, max_rows, page).await;
         self.set_job(None);
-        result.map(|r| (job, r))
+        result.map(|r| (job, r, session_id))
+    }
+
+    /// An editor run: in the tab's BigQuery session when it has one or the
+    /// script needs one (`want`).
+    async fn run_editor(&mut self, text: &str, max_rows: usize, want: bool) -> Result<(JobRef, QueryResult)> {
+        let id = self.session_id.clone();
+        let mode = match (&id, want) {
+            (Some(id), _) => InSession::Use(id),
+            (None, true) => InSession::Create,
+            (None, false) => InSession::No,
+        };
+        let (job, r, sid) = self.query_job_in(text, max_rows, None, mode).await?;
+        if self.session_id.is_none() {
+            self.session_id = sid;
+        }
+        Ok((job, r))
+    }
+
+    /// One result per statement of a script, as the console lists them:
+    /// its child jobs in order, each with its statement type as the tag.
+    /// `false` (nothing pushed) when there are none or too many to fetch
+    /// (a long loop): the script's last result is shown then.
+    async fn push_children(&self, job: &JobRef, max_rows: usize, out: &mut QueryOutcome) -> Result<bool> {
+        let mut q = vec![("parentJobId", job.id.clone())];
+        if let Some(l) = &job.location {
+            q.push(("location", l.clone()));
+        }
+        let list = self.api.get(&["jobs"], &q).await?;
+        let mut kids: Vec<(f64, String, Option<String>)> = list
+            .get("jobs")
+            .and_then(Json::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|c| {
+                let id = c.pointer("/jobReference/jobId").and_then(Json::as_str)?.to_string();
+                let at = c.pointer("/statistics/creationTime").and_then(|v| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0.0);
+                let loc = c.pointer("/jobReference/location").and_then(Json::as_str).map(str::to_string);
+                Some((at, id, loc))
+            })
+            .collect();
+        if kids.is_empty() || kids.len() > MAX_CHILDREN || list.get("nextPageToken").and_then(Json::as_str).is_some_and(|t| !t.is_empty()) {
+            if kids.len() > MAX_CHILDREN {
+                out.info(format!("El script ejecutó más de {MAX_CHILDREN} sentencias: se muestra el resultado de la última."));
+            }
+            return Ok(false);
+        }
+        kids.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let page = max_rows.clamp(1, PAGE);
+        for (_, id, loc) in kids {
+            let c = self.get_job(&id, loc.as_deref()).await?;
+            let st = c.pointer("/statistics/query/statementType").and_then(Json::as_str).unwrap_or("").to_string();
+            if let Some(m) = c.pointer("/status/errorResult/message").and_then(Json::as_str) {
+                // Failed and handled by the script (EXCEPTION).
+                out.warning(format!("{st}: {m}"));
+                continue;
+            }
+            let child = JobRef { id: id.clone(), location: loc.clone().or_else(|| job.location.clone()) };
+            if st == "SELECT" {
+                let mut rq = vec![
+                    ("maxResults", page.to_string()),
+                    ("formatOptions.useInt64Timestamp", "true".to_string()),
+                ];
+                if let Some(l) = &child.location {
+                    rq.push(("location", l.clone()));
+                }
+                let mut resp = self.api.get(&["queries", &id], &rq).await?;
+                let r = self.collect(&child, &mut resp, max_rows, page).await?;
+                push_result(&r, max_rows, out);
+            } else {
+                let n = c.pointer("/statistics/query/numDmlAffectedRows").and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or(v.as_u64()));
+                out.push_affected(n.unwrap_or(0));
+            }
+            if let Some(last) = out.results.last_mut() {
+                last.tag = (!st.is_empty()).then(|| st.clone());
+            }
+        }
+        Ok(true)
     }
 
     /// A dry run of one statement (`jobs.insert` with `dryRun`): validated
@@ -693,11 +827,37 @@ impl Session for BigQuerySession {
         select_top(Quote::Backtick, Limit::Limit, ds.as_deref(), &obj.name, limit)
     }
 
+    /// The whole script as one job (BigQuery scripting), as the console
+    /// runs it, then each statement's result from its child job. Scripts
+    /// that leave temp tables, variables or a transaction open a BigQuery
+    /// session, which the tab's later runs share.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         if text.trim().is_empty() {
             return Ok(());
         }
-        let r = self.query(text, max_rows, None).await?;
+        let units = script::units(text);
+        let want = !self.api.emulator && (self.session_id.is_some() || script::needs_session(&units));
+        let ran = match self.run_editor(text, max_rows, want).await {
+            Err(Error::Query(m)) if self.session_id.is_some() && script::session_gone(&m) => {
+                self.session_id = None;
+                out.warning(
+                    "La sesión de BigQuery terminó (venció por inactividad) y se abrió una nueva: sus tablas temporales y variables ya no están.",
+                );
+                self.run_editor(text, max_rows, true).await
+            }
+            other => other,
+        };
+        let (job, r) = ran.map_err(|e| match e {
+            Error::Query(m) => script::error(&m, text).into(),
+            other => other,
+        })?;
+        if script::is_script(&units) {
+            match self.push_children(&job, max_rows, out).await {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(e) => tracing::debug!("bigquery script children: {e}"),
+            }
+        }
         push_result(&r, max_rows, out);
         Ok(())
     }

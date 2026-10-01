@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watchEffect } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
+import { setWindowTitle } from '../native';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
@@ -39,6 +40,15 @@ const active = computed(() => tabs.active);
 const conn = computed(() => (active.value ? conns.byId(active.value.connectionId) : null));
 const server = computed(() => (active.value ? conns.live[active.value.connectionId]?.serverVersion ?? '' : ''));
 const driver = computed(() => (active.value ? conns.driverOf(active.value.connectionId) : null));
+
+// The window's title says where the active tab is: "DBine — connection —
+// database" (a long database name gets lost in the editor's combo).
+watchEffect(() => {
+  const parts = ['DBine'];
+  if (conn.value) parts.push(conn.value.name);
+  if (active.value?.database) parts.push(active.value.database);
+  setWindowTitle(parts.join(' — '));
+});
 
 const version = ref('');
 onMounted(async () => {

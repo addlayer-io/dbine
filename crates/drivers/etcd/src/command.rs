@@ -67,13 +67,33 @@ pub fn is_read(c: &Command) -> bool {
     )
 }
 
+#[cfg(test)]
 pub fn parse_script(text: &str) -> Result<Vec<Command>, String> {
+    parse_placed(text).map(|v| v.into_iter().map(|p| p.command).collect()).map_err(|(e, line, _)| format!("línea {line}: {e}"))
+}
+
+/// A command of an editor script with its place: byte offset of its first
+/// word and 1-based line.
+pub struct Placed {
+    pub command: Command,
+    pub start: usize,
+    pub line: u32,
+}
+
+/// [`parse_script`] with each command's place; an error carries the line
+/// and where it starts.
+pub fn parse_placed(text: &str) -> Result<Vec<Placed>, (String, u32, usize)> {
     let mut out = Vec::new();
-    for (n, line) in text.lines().enumerate() {
-        let words = parse_line(line).map_err(|e| format!("línea {}: {e}", n + 1))?;
+    let mut at = 0;
+    for (n, raw) in text.split('\n').enumerate() {
+        let line_start = at;
+        at += raw.len() + 1;
+        let line = raw.strip_suffix('\r').unwrap_or(raw);
+        let words = parse_line(line).map_err(|e| (e, n as u32 + 1, line_start))?;
         if words.is_empty() {
             continue;
         }
+        let start = line_start + (line.len() - line.trim_start().len());
         let mut c = Command::default();
         for (w, quoted) in words {
             match std::str::from_utf8(&w).ok().filter(|s| !quoted && s.starts_with("--") && s.len() > 2) {
@@ -88,7 +108,7 @@ pub fn parse_script(text: &str) -> Result<Vec<Command>, String> {
                 None => c.args.push(w),
             }
         }
-        out.push(c);
+        out.push(Placed { command: c, start, line: n as u32 + 1 });
     }
     Ok(out)
 }
@@ -215,6 +235,15 @@ pub fn lease_hex(id: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn placed_commands() {
+        let p = parse_placed("get a\r\n# c\n\n  put \"é\" v\nlease list").unwrap();
+        let v: Vec<(usize, u32, String)> = p.iter().map(|c| (c.start, c.line, c.command.verb())).collect();
+        assert_eq!(v, [(0, 1, "get".into()), (14, 4, "put".into()), (25, 5, "lease".into())]);
+        assert_eq!(parse_placed("get a\nget \"open").err().map(|e| (e.1, e.2)), Some((2, 6)));
+        assert!(parse_script("get a\nget \"open").unwrap_err().starts_with("línea 2: "));
+    }
 
     #[test]
     fn lines_words_flags_and_quotes() {

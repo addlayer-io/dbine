@@ -91,7 +91,7 @@ async fn drill() {
     // Errors carry Drill's message and stop the script.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1 FROM (VALUES(1)); SELECT * FROM nope; SELECT 2 FROM (VALUES(1))", 10, &mut out).await.unwrap_err();
-    assert!(matches!(&e, Error::Query(m) if m.contains("nope")), "{e:?}");
+    assert!(e.is_query() && e.to_string().contains("nope"), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Plans.
@@ -214,4 +214,24 @@ async fn profiler() {
     let bad = mine.iter().find(|s| s.text.contains("_bad")).unwrap();
     assert!(bad.error.as_deref().is_some_and(|e| e.contains("nope")), "{:?}", bad.error);
     assert!(mine.iter().all(|s| s.duration_ms.is_some() && s.user.is_some()));
+}
+
+/// The editor's script contract: one REST query per statement, Drill's
+/// error kind and position in the script, USE kept between statements.
+#[tokio::test]
+#[ignore]
+async fn script_errors_and_session() {
+    let Some(c) = cfg() else { return };
+    let d = dbine_driver_drill::drivers().remove(0);
+    assert_eq!(d.script_mode(), dbine_driver::sql::ScriptMode::PerStatement);
+    let mut s = d.connect(&c, None).await.unwrap();
+    let script = "USE cp;\n-- a comment\nSELECT 1 AS a FROM (VALUES(1));\nSELECT *\n  FROM nope_nope";
+    let mut out = QueryOutcome::default();
+    let e = s.execute(script, 10, &mut out).await.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert_eq!(e.code.as_deref(), Some("CalciteContextException"), "{e:?}");
+    assert_eq!(e.line, Some(5));
+    assert_eq!(e.offset, Some(script.find("nope_nope").unwrap()));
+    let e = s.execute("SELECT 1 FROM (VALUES(1))\n WHERE x = 1", 10, &mut out).await.unwrap_err().to_script_error();
+    assert_eq!((e.line, e.offset), (Some(2), Some(" SELECT 1 FROM (VALUES(1))\n WHERE ".len() - 1)), "{e:?}");
 }

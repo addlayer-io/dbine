@@ -63,8 +63,9 @@ pub fn map(instance: Option<&BTreeSet<String>>, database: Option<&BTreeSet<Strin
         },
         create_database: need(&[(instance, DATABASES_CREATE)]),
         drop_database: need(&[(database, DATABASES_DROP)]),
-        // Roles and grants are DDL.
+        // Roles and grants are DDL, and so is CREATE SCHEMA.
         manage_security: need(&[(database, DATABASES_UPDATE_DDL)]),
+        create_schema: need(&[(database, DATABASES_UPDATE_DDL)]),
         ..Default::default()
     }
 }
@@ -114,7 +115,7 @@ mod tests {
     #[test]
     fn everything_granted() {
         let p = map(Some(&set(INSTANCE)), Some(&set(DATABASE)));
-        for a in [&p.backup, &p.restore, &p.profiler, &p.create_database, &p.drop_database, &p.manage_security] {
+        for a in [&p.backup, &p.restore, &p.profiler, &p.create_database, &p.drop_database, &p.manage_security, &p.create_schema] {
             assert_eq!(*a, Access::Allowed);
         }
         assert_eq!(p.kill_session, Access::Unknown);
@@ -128,6 +129,7 @@ mod tests {
         assert_eq!(p.create_database, Access::Denied { missing: DATABASES_CREATE.into() });
         assert_eq!(p.drop_database, Access::Denied { missing: DATABASES_DROP.into() });
         assert_eq!(p.manage_security, Access::Denied { missing: DATABASES_UPDATE_DDL.into() });
+        assert_eq!(p.create_schema, Access::Denied { missing: DATABASES_UPDATE_DDL.into() });
         assert_eq!(p.profiler, Access::Allowed);
     }
 

@@ -14,7 +14,9 @@
 
 use crate::SnowflakeSession;
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, QueryOutcome, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, ObjectRef, Principal, PrincipalKind, QueryOutcome, Result, SchemaSpec, SecurityAction, SecuritySpec,
+};
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -422,6 +424,60 @@ pub fn script(a: &SecurityAction) -> Result<String> {
     })
 }
 
+// -- schemas -----------------------------------------------------------------
+
+/// "Nuevo esquema…": the owner is a role (`GRANT OWNERSHIP … TO ROLE`,
+/// there's no `AUTHORIZATION` and a user can't own one), handed over after
+/// the grants; dropping always takes the contents with it: the default is
+/// CASCADE, and RESTRICT only refuses when another schema's foreign keys
+/// point in, so there's no "only if empty" drop to offer.
+pub fn schema_spec() -> SchemaSpec {
+    SchemaSpec {
+        owner: true,
+        owner_kinds: dbine_driver::SchemaOwnerKinds::Roles,
+        cascade: false,
+        privileges: vec![
+            "USAGE", "MONITOR", "MODIFY", "CREATE TABLE", "CREATE VIEW", "CREATE MATERIALIZED VIEW", "CREATE SEQUENCE",
+            "CREATE FUNCTION", "CREATE PROCEDURE", "CREATE STAGE", "CREATE FILE FORMAT", "CREATE STREAM", "CREATE TASK",
+            "CREATE PIPE", "ALL PRIVILEGES",
+        ],
+        grant_option: true,
+    }
+}
+
+/// The name as typed, quoted: the grants that follow name it the same way.
+fn schema_name(name: &str) -> Result<String> {
+    match name.trim() {
+        "" => Err(Error::Query("escribí el nombre del esquema".into())),
+        n => Ok(q(n)),
+    }
+}
+
+/// Owned by the creating role; `schema_owner` hands it over afterwards.
+pub fn create_schema(name: &str) -> Result<String> {
+    Ok(format!("CREATE SCHEMA {};", schema_name(name)?))
+}
+
+/// Hands the schema to role `owner`, keeping the grants already made on it
+/// (without COPY CURRENT GRANTS, Snowflake refuses the transfer when the
+/// schema has any; REVOKE would drop the ones the dialog just made). Runs
+/// after the grants: once it's given away, the creating role can't grant
+/// on it unless it inherits `owner` or has MANAGE GRANTS.
+pub fn schema_owner(name: &str, owner: &str) -> Result<String> {
+    match owner.trim() {
+        "" => Err(Error::Query("elegí el rol dueño del esquema".into())),
+        o => Ok(format!(
+            "-- En Snowflake el dueño es un rol; COPY CURRENT GRANTS conserva los permisos ya otorgados.\nGRANT OWNERSHIP ON SCHEMA {} TO ROLE {} COPY CURRENT GRANTS;",
+            schema_name(name)?,
+            q(o)
+        )),
+    }
+}
+
+pub fn drop_schema(name: &str) -> Result<String> {
+    Ok(format!("-- En Snowflake, borrar un esquema borra también todo lo que contiene.\nDROP SCHEMA {};", schema_name(name)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,5 +557,28 @@ mod tests {
         assert_eq!(grant_of(&row(&[("privilege", "USAGE"), ("granted_on", "ROLE"), ("name", "SYSADMIN")]), None), Err("SYSADMIN".to_string()));
         assert!(has_members(&row(&[("assigned_to_users", "0"), ("granted_to_roles", "1")])));
         assert!(!has_members(&row(&[("assigned_to_users", "0"), ("granted_to_roles", "0")])));
+    }
+
+    #[test]
+    fn schema_scripts() {
+        assert_eq!(create_schema(" ventas ").unwrap(), "CREATE SCHEMA \"ventas\";");
+        assert_eq!(create_schema("Ven\"tas").unwrap(), "CREATE SCHEMA \"Ven\"\"tas\";");
+        let o = schema_owner("Ven\"tas", " R1 ").unwrap();
+        assert!(o.starts_with("-- ") && o.ends_with("\nGRANT OWNERSHIP ON SCHEMA \"Ven\"\"tas\" TO ROLE \"R1\" COPY CURRENT GRANTS;"), "{o}");
+        assert!(schema_owner("ventas", " ").is_err());
+        assert!(create_schema(" ").is_err());
+        assert!(drop_schema("ventas").unwrap().ends_with("\nDROP SCHEMA \"ventas\";"));
+        let spec = schema_spec();
+        assert!(spec.owner && !spec.cascade && spec.owner_kinds == dbine_driver::SchemaOwnerKinds::Roles);
+        // Every offered privilege goes through the grant script on the schema.
+        let g = script(&SecurityAction::Grant {
+            privileges: spec.privileges.iter().map(|p| p.to_string()).collect(),
+            object: obj("schema", None, "ventas"),
+            to: "LECT".into(),
+            grantable: true,
+        })
+        .unwrap();
+        assert!(g.ends_with("ON SCHEMA \"ventas\" TO ROLE \"LECT\" WITH GRANT OPTION;"), "{g}");
+        assert!(g.contains("GRANT USAGE, MONITOR, MODIFY, CREATE TABLE"), "{g}");
     }
 }

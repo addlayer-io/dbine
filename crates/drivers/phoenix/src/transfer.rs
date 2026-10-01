@@ -397,7 +397,7 @@ impl Client {
         )
     }
 
-    async fn set_auto_commit(&self, on: bool) -> Result<()> {
+    pub(crate) async fn set_auto_commit(&self, on: bool) -> Result<()> {
         self.send(self.auto_commit_body(on), false).await.map(|_| ())
     }
 
@@ -408,7 +408,7 @@ impl Client {
         self.body(|| (name, ConnectionIdRequest { connection_id: c.clone() }.encode_to_vec()), || json!({"request": req, "connectionId": c}))
     }
 
-    async fn end(&self, commit: bool) -> Result<()> {
+    pub(crate) async fn end(&self, commit: bool) -> Result<()> {
         self.send(self.end_body(commit), false).await.map(|_| ())
     }
 

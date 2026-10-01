@@ -112,67 +112,17 @@ fn words(stmt: &str) -> Vec<String> {
     out
 }
 
-/// Like `dbine_driver::sql::split_statements`, but optimizer hints
+/// The statements of a script as the mysql CLI reads them; optimizer hints
 /// (`/*+ … */`) and MySQL's versioned comments (`/*! … */`) stay: they
 /// change the plan.
-pub(crate) fn split_keeping_hints(sql: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut chars = sql.chars().peekable();
-    let mut quote: Option<char> = None;
-    while let Some(c) = chars.next() {
-        if let Some(q) = quote {
-            cur.push(c);
-            if c == q {
-                quote = None;
-            }
-            continue;
-        }
-        match c {
-            '\'' | '"' | '`' => {
-                quote = Some(c);
-                cur.push(c);
-            }
-            '-' if chars.peek() == Some(&'-') => {
-                for n in chars.by_ref() {
-                    if n == '\n' {
-                        cur.push('\n');
-                        break;
-                    }
-                }
-            }
-            '#' => {
-                for n in chars.by_ref() {
-                    if n == '\n' {
-                        cur.push('\n');
-                        break;
-                    }
-                }
-            }
-            '/' if chars.peek() == Some(&'*') => {
-                chars.next();
-                let mut body = String::new();
-                let mut prev = ' ';
-                for n in chars.by_ref() {
-                    if prev == '*' && n == '/' {
-                        body.pop();
-                        break;
-                    }
-                    body.push(n);
-                    prev = n;
-                }
-                if body.starts_with('+') || body.starts_with('!') {
-                    cur.push_str(&format!("/*{body}*/"));
-                } else {
-                    cur.push(' ');
-                }
-            }
-            ';' => out.push(std::mem::take(&mut cur)),
-            _ => cur.push(c),
-        }
-    }
-    out.push(cur);
-    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+pub(crate) fn split_keeping_hints(variant: Variant, sql: &str) -> Vec<String> {
+    let d = crate::script_dialect(variant);
+    dbine_driver::sql::split_script(sql, &d)
+        .into_iter()
+        .filter(|u| u.kind != dbine_driver::StatementKind::ClientCommand)
+        .map(|u| dbine_driver::sql::strip_comments(&u.text, &d, true).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// The statement, cut to a line for messages.
@@ -787,8 +737,11 @@ mod tests {
 
     #[test]
     fn hints_survive_the_split() {
-        let s = split_keeping_hints("SELECT /*+ NO_INDEX(a) */ * FROM a; -- x;\n/* c */ select 2 # y;\n;");
+        let s = split_keeping_hints(Variant::MySql, "SELECT /*+ NO_INDEX(a) */ * FROM a; -- x;\n/* c */ select 2 # y;\n;");
         assert_eq!(s, vec!["SELECT /*+ NO_INDEX(a) */ * FROM a", "select 2"]);
+        // DELIMITER, backslash escapes and routine bodies, as the mysql CLI reads them.
+        let s = split_keeping_hints(Variant::MySql, "select 'a\\';b';\nDELIMITER //\nselect /*!40001 SQL_NO_CACHE */ 1; select 2//\nDELIMITER ;\nselect 3");
+        assert_eq!(s, vec!["select 'a\\';b'", "select /*!40001 SQL_NO_CACHE */ 1; select 2", "select 3"]);
         assert_eq!(classify("SELECT /*+ x */ 1"), StmtKind::Read);
         assert_eq!(classify("replace into t values (1)"), StmtKind::Write);
         assert_eq!(classify("select * from t into outfile '/tmp/x'"), StmtKind::Write);

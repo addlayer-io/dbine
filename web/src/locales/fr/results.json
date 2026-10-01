@@ -57,7 +57,12 @@
     "addToQuery": "Ajouter à la requête",
     "discard": "Abandonner",
     "cells_many": "{{count}} cellules modifiées",
-    "rows_many": "{{count}} lignes"
+    "rows_many": "{{count}} lignes",
+    "summaryDeletes": "{{deletes}}, pas encore enregistré.",
+    "summaryBoth": "{{cells}} dans {{rows}}, {{deletes}}, pas encore enregistré.",
+    "deletes_one": "{{count}} ligne à supprimer",
+    "deletes_many": "{{count}} lignes à supprimer",
+    "deletes_other": "{{count}} lignes à supprimer"
   },
   "exportDialog": {
     "title": "Exporter le résultat",
@@ -165,7 +170,14 @@
         "label": "Copier en Mongo INSERTs",
         "name": "Mongo INSERTs"
       }
-    }
+    },
+    "deleteRow": "Supprimer la ligne",
+    "deleteRows": "Supprimer {{count}} lignes",
+    "restoreRow": "Restaurer la ligne",
+    "restoreRows": "Restaurer {{count}} lignes",
+    "cantDelete": "Suppression impossible : {{reason}}",
+    "rowDeleted": "La ligne est marquée pour suppression : restaurez-la pour la modifier",
+    "markedDelete": "Marquée pour suppression"
   },
   "chart": {
     "kind": {

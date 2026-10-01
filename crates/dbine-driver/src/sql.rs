@@ -3,6 +3,12 @@
 
 use crate::model::ColumnInfo;
 
+mod script;
+pub use script::{
+    expose_versioned, leading_keyword, split_script, strip_comments, unsafe_dml, unsafe_statements, BatchLine, ScriptDefaults, ScriptDialect, ScriptMode,
+    ScriptStatement, StatementKind, UnsafeStatement, GO_COUNT_ERROR,
+};
+
 /// How a dialect quotes identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quote {
@@ -72,51 +78,17 @@ pub fn create_table_from_columns(q: Quote, schema: Option<&str>, name: &str, col
 }
 
 /// Split a script on `;` outside quotes and comments, dropping empty
-/// statements. For drivers whose server takes one statement per request
-/// (HTTP APIs, CQL…). Handles '…', "…", `…`, -- and /* */.
+/// statements and comments. For drivers whose server takes one statement
+/// per request (HTTP APIs, CQL…). The generic [`split_script`] underneath:
+/// '…', "…", `…`, -- and /* */, trigger and routine bodies kept whole.
 pub fn split_statements(sql: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut chars = sql.chars().peekable();
-    let mut quote: Option<char> = None;
-    while let Some(c) = chars.next() {
-        if let Some(q) = quote {
-            cur.push(c);
-            if c == q {
-                quote = None;
-            }
-            continue;
-        }
-        match c {
-            '\'' | '"' | '`' => {
-                quote = Some(c);
-                cur.push(c);
-            }
-            '-' if chars.peek() == Some(&'-') => {
-                for n in chars.by_ref() {
-                    if n == '\n' {
-                        cur.push('\n');
-                        break;
-                    }
-                }
-            }
-            '/' if chars.peek() == Some(&'*') => {
-                chars.next();
-                let mut prev = ' ';
-                for n in chars.by_ref() {
-                    if prev == '*' && n == '/' {
-                        break;
-                    }
-                    prev = n;
-                }
-                cur.push(' ');
-            }
-            ';' => out.push(std::mem::take(&mut cur)),
-            _ => cur.push(c),
-        }
-    }
-    out.push(cur);
-    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    let d = ScriptDialect::generic();
+    split_script(sql, &d)
+        .into_iter()
+        .filter(|s| s.kind != StatementKind::ClientCommand)
+        .map(|s| strip_comments(&s.text, &d, false).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 #[cfg(test)]

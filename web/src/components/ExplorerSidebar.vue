@@ -3,12 +3,13 @@ import ImportConnectionsDialog from './ImportConnectionsDialog.vue';
 import ImportSuggestion from './ImportSuggestion.vue';
 import SupportReminder from './SupportReminder.vue';
 import TelemetryConsent from './TelemetryConsent.vue';
+import SchemaIcon from './SchemaIcon.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
-import type { ConnectionFolder, DbObject, DriverInfo, KeyEntry, KeySearch, Permissions, SavedConnection, SavedQuery } from '../api/types';
+import type { ConnectionFolder, DbObject, DriverInfo, KeyEntry, KeySearch, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
 import { dbKey, objKey, useConnectionsStore, type KeyBrowse } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
@@ -24,6 +25,7 @@ import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
 import KeySearchRow from './KeySearchRow.vue';
 import CloneTableDialog from './CloneTableDialog.vue';
+import SchemaDialog from './SchemaDialog.vue';
 import { tagColor } from '../composables/tags';
 
 // The explorer: user folders (clients, environments… nested at will) →
@@ -126,7 +128,8 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
     });
     return out;
   }
-  const { schemas, rank } = schemasOf(c, d, objs.items);
+  // Flat mode ignores the listed schemas: only those with objects count.
+  const { schemas, rank } = schemasOf(c, d, objs.items, groupBySchema.value ? conns.schemas[k] : null);
   if (schemas && groupBySchema.value) {
     // One node per schema, its kind folders inside; objects without a
     // schema stay at the database level, after them.
@@ -137,7 +140,7 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
       const sid = `s:${c.id}:${db}:${s}`;
       out.push({
         id: sid, label: s, type: 'schema', connectionId: c.id, database: db, schema: s, count: items.length,
-        children: kindFolders(c, d, db, items, s, 'none', rank),
+        children: items.length ? kindFolders(c, d, db, items, s, 'none', rank) : [status(sid, 'empty', t('explorer:tree.noSchemaObjects'))],
       });
     }
     out.push(...kindFolders(c, d, db, loose, undefined, 'hint', rank));
@@ -200,24 +203,30 @@ const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base'
  *  tree build (driverOf walks reactive arrays: too slow per object). */
 type SchemaRank = Map<string, number>;
 
-/** The schemas the objects span, in tree order (the default one first,
- *  then by name, the system ones last) or null when there aren't several
- *  (the tree then looks as it always did), and each one's rank. Defaults
- *  match case-insensitively (PUBLIC in Snowflake/H2); engines without a
- *  fixed default (Oracle, DB2) default to the user's own schema. */
-function schemasOf(c: SavedConnection, d: DriverInfo, objs: DbObject[]): { schemas: string[] | null; rank: SchemaRank } {
+/** The schemas of a database, in tree order (the default one first, then
+ *  by name, the system ones last) or null when there aren't several (the
+ *  tree then looks as it always did), and each one's rank. They're those the
+ *  objects span plus, when the driver lists them (`listed`), every listed
+ *  one, empty or not, except empty system schemas. Defaults match
+ *  case-insensitively (PUBLIC in Snowflake/H2); engines without a fixed
+ *  default (Oracle, DB2) default to the user's own schema. */
+function schemasOf(c: SavedConnection, d: DriverInfo, objs: DbObject[], listed?: SchemaInfo[] | null): { schemas: string[] | null; rank: SchemaRank } {
   const rank: SchemaRank = new Map();
+  const system = new Set(listed?.filter((s) => s.system).map((s) => s.name));
   let defaults: Set<string> | null = null;
-  for (const o of objs) {
-    if (o.schema == null || rank.has(o.schema)) continue;
+  const add = (s: string) => {
+    if (rank.has(s)) return;
     if (!defaults) {
       defaults = new Set(DEFAULT_SCHEMAS);
       const own = d.has_schemas ? dialectSchema(d) ?? c.config.username : null;
       if (own) defaults.add(own.toLowerCase());
     }
-    const l = o.schema.toLowerCase();
-    rank.set(o.schema, defaults.has(l) ? 0 : SYSTEM_SCHEMAS.has(l) ? 2 : 1);
-  }
+    const l = s.toLowerCase();
+    rank.set(s, defaults.has(l) ? 0 : SYSTEM_SCHEMAS.has(l) || system.has(s) ? 2 : 1);
+  };
+  for (const o of objs) if (o.schema != null) add(o.schema);
+  // Listed after the objects: a system schema only shows when it has some.
+  for (const s of listed ?? []) if (!s.system) add(s.name);
   const schemas = rank.size > 1 ? [...rank.keys()].sort((a, b) => rank.get(a)! - rank.get(b)! || byName(a, b)) : null;
   return { schemas, rank };
 }
@@ -225,9 +234,10 @@ function schemasOf(c: SavedConnection, d: DriverInfo, objs: DbObject[]): { schem
 function schemaLevel(connectionId: string, db: string): string[] | null {
   const c = conns.byId(connectionId);
   const d = conns.driverOf(connectionId);
-  const objs = conns.objects[dbKey(connectionId, db)];
+  const k = dbKey(connectionId, db);
+  const objs = conns.objects[k];
   if (!groupBySchema.value || !c || !d || d.key_search || !objs?.items) return null;
-  return schemasOf(c, d, objs.items).schemas;
+  return schemasOf(c, d, objs.items, conns.schemas[k]).schemas;
 }
 
 // -- key databases (Redis, etcd) -----------------------------------------------------------
@@ -471,6 +481,13 @@ function open(n: TNode, preview: boolean) {
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 /** "Clonar…": the table being cloned. */
 const cloning = ref<{ connectionId: string; database: string; object: { kind: string; schema: string | null; name: string } } | null>(null);
+/** "Nuevo esquema…" / "Borrar esquema…": the dialog open. */
+const schemaDialog = ref<{ connectionId: string; database: string; mode: 'create' | 'drop'; schema?: string } | null>(null);
+/** Schemas can be created and dropped here: the engine has them and the connection isn't read-only. */
+function schemasEditable(cid: string): boolean {
+  const d = conns.driverOf(cid);
+  return !!d?.has_schemas && !!d.schema_spec && !conns.byId(cid)?.config.read_only;
+}
 /** Kinds whose objects hold no rows of their own, and engines without tables to clone (see `check_cloneable` in Rust). */
 const NOT_CLONEABLE = new Set(['view', 'materialized_view', 'stream', 'topic', 'virtual_table', 'alias', 'dictionary', 'source', 'file']);
 /** `driver:kind` pairs one engine can't clone faithfully (`NOT_CLONEABLE_ON` in `clone_table/timeseries.rs`). */
@@ -519,6 +536,9 @@ function dbItems(cid: string, db: string, items: MenuItem[]) {
   if (!d) return;
   if (d.designer) items.push({ label: `${tb(d.designer.label)}…`, action: () => tabs.openDesigner(cid, db, null) });
   for (const tpl of d.create_templates) items.push({ label: tb(tpl.label), action: () => newFromTemplate(cid, db, tpl, defaultSchema(cid)) });
+  if (schemasEditable(cid)) {
+    items.push(guarded(cid, db, 'create_schema', { label: t('schemas:menuNew'), action: () => { schemaDialog.value = { connectionId: cid, database: db, mode: 'create' }; } }));
+  }
   items.push({ label: t('explorer:menu.databaseDiagram'), divided: true, action: () => tabs.openDiagram(cid, db) });
   if (d.supports_profiler) items.push(guarded(cid, db, 'profiler', { label: t('explorer:menu.profiler'), action: () => tabs.openProfiler(cid, db) }));
   items.push({ label: t('explorer:menu.generateScript'), action: () => ui.openDbDialog('script', cid, db) });
@@ -682,6 +702,9 @@ async function onContext(e: MouseEvent, n: TNode) {
       for (const tpl of d?.create_templates ?? []) items.push({ label: tb(tpl.label), action: () => newFromTemplate(cid!, db, tpl, s) });
       items.push({ label: t('common:refresh'), divided: true, action: () => loadDatabase(cid!, db, true) });
       items.push({ label: t('explorer:menu.copyName'), action: () => copy(s) });
+      if (schemasEditable(cid!)) {
+        items.push({ label: t('schemas:menuDrop'), danger: true, divided: true, action: () => { schemaDialog.value = { connectionId: cid!, database: db, mode: 'drop', schema: s }; } });
+      }
       break;
     }
     case 'object': {
@@ -1084,7 +1107,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
               <ei-folder-opened v-if="expanded.includes(n.id)" /><ei-folder v-else />
             </el-icon>
             <el-icon v-else-if="n.type === 'database'" class="ex-ic"><ei-coin /></el-icon>
-            <el-icon v-else-if="n.type === 'schema'" class="ex-ic s"><ei-folder-opened v-if="expanded.includes(n.id)" /><ei-folder v-else /></el-icon>
+            <el-icon v-else-if="n.type === 'schema'" class="ex-ic s"><SchemaIcon /></el-icon>
             <el-icon v-else-if="n.type === 'queries'" class="ex-ic q"><ei-tickets /></el-icon>
             <!-- A kind's group (Tablas, Vistas…) shows its kind's icon; "Otros" a folder. -->
             <el-icon v-else-if="n.type === 'folder' && n.kindId && KIND_ICONS[n.kindId]" class="ex-ic o"><component :is="`ei-${KIND_ICONS[n.kindId]}`" /></el-icon>
@@ -1131,6 +1154,10 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     </div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
     <CloneTableDialog v-if="cloning" :connection-id="cloning.connectionId" :database="cloning.database" :object="cloning.object" @close="cloning = null" />
+    <SchemaDialog
+      v-if="schemaDialog" :connection-id="schemaDialog.connectionId" :database="schemaDialog.database" :mode="schemaDialog.mode" :schema="schemaDialog.schema"
+      @done="loadDatabase(schemaDialog!.connectionId, schemaDialog!.database, true)" @close="schemaDialog = null"
+    />
     <Teleport to="body">
       <div v-if="tip" class="ex-tip" :style="{ left: `${tip.x}px`, top: `${tip.y}px` }">{{ tip.text }}</div>
     </Teleport>

@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-oracle"
-version = "0.1.2"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+version = "0.1.3"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
 edition.workspace = true
 license.workspace = true
 description = "Oracle Database driver for DBine (pure-Rust thin client, no Instant Client)"

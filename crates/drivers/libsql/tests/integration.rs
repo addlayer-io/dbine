@@ -82,7 +82,7 @@ async fn full_session() {
     // A failing statement stops the script and keeps what ran.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(&e, Error::Query(m) if m.contains("no such table")), "{e:?}");
+    assert!(e.is_query() && e.to_string().contains("no such table"), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // The stream keeps the session: a transaction spans executes.
@@ -206,4 +206,46 @@ async fn schema_sync_applies() {
     for st in &script.statements {
         run(&mut s, st).await;
     }
+}
+
+/// The editor's script contract: one statement per call, errors with their
+/// code and line, manual transactions over Hrana 3.
+#[tokio::test]
+#[ignore]
+async fn script_statements_errors_and_transactions() {
+    let Some(cfg) = config() else {
+        eprintln!("DBINE_TEST_LIBSQL_URL not set; skipping");
+        return;
+    };
+    let d = driver();
+    assert_eq!(d.script_mode(), dbine_driver::sql::ScriptMode::PerStatement);
+    assert!(d.script_defaults().continue_on_error);
+    let units = d.split_script("CREATE TRIGGER tr AFTER INSERT ON t BEGIN SELECT 1; END;\nSELECT [a;b] FROM t;");
+    assert_eq!(units.len(), 2, "{units:?}");
+    let mut s = d.connect(&cfg, None).await.expect("connect");
+    run(&mut s, "DROP TABLE IF EXISTS tx_t").await;
+    run(&mut s, "CREATE TABLE tx_t (id INTEGER PRIMARY KEY)").await;
+    let mut out = QueryOutcome::default();
+    let e = s.execute("SELECT 1 FROM\n  nope_nope", 10, &mut out).await.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert!(e.code.is_some(), "{e:?}");
+    let mut out = QueryOutcome::default();
+    let e = s.execute("SELEC 1", 10, &mut out).await.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert!(e.code.is_some(), "{e:?}");
+
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    s.set_autocommit(false).await.expect("manual");
+    run(&mut s, "SELECT 1").await;
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle), "a read opens nothing");
+    run(&mut s, "INSERT INTO tx_t VALUES (1)").await;
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    s.rollback().await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    run(&mut s, "INSERT INTO tx_t VALUES (2)").await;
+    s.commit().await.unwrap();
+    s.set_autocommit(true).await.unwrap();
+    let out = run(&mut s, "SELECT group_concat(id) FROM tx_t").await;
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!("2"));
+    run(&mut s, "DROP TABLE tx_t").await;
 }

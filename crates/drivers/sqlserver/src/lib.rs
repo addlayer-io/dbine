@@ -9,6 +9,7 @@ mod permissions;
 mod plan;
 mod profiler;
 mod schema;
+mod script;
 mod security;
 mod structure;
 mod transfer;
@@ -19,10 +20,13 @@ use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
     CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema,
 };
+#[cfg(test)]
 use futures::TryStreamExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel, FromSql, QueryItem, Row, SqlBrowser};
+use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel, FromSql, Row, SqlBrowser};
+#[cfg(test)]
+use tiberius::QueryItem;
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
@@ -40,15 +44,36 @@ pub struct SqlServerDriver {
 pub struct SqlServerSession {
     client: Client<Compat<TcpStream>>,
     /// The config the session logged in with (after any Azure redirect),
-    /// for the second connection that cancels.
+    /// for reconnecting.
     config: Config,
     spid: i32,
     variant: Variant,
-    /// Set by the interrupter so the error of the killed batch reads as a
+    /// Set by the interrupter so the error of the stopped batch reads as a
     /// cancellation.
     cancelled: Arc<AtomicBool>,
+    /// What the interrupter stops: the CURRENT connection, replaced on
+    /// reconnect, so the interrupter (taken once per tab) never aims at an
+    /// old one.
+    cancel: Arc<std::sync::Mutex<CancelTarget>>,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// The database a script switched to (`USE`), restored on reconnect.
+    database: Option<String>,
+    /// Off: `SET IMPLICIT_TRANSACTIONS ON` (manual transactions), restored
+    /// on reconnect.
+    autocommit: bool,
+}
+
+/// How to stop what runs on the session's current connection.
+struct CancelTarget {
+    /// A TDS attention on the connection itself.
+    attention: tiberius::CancelHandle,
+    /// Babelfish: its `@@SPID` and login time. Babelfish reads the attention
+    /// only once the batch is over (and refuses `pg_cancel_backend` from
+    /// T-SQL), so the session is ended with KILL from a second connection,
+    /// after checking on the server that the session with that id is still
+    /// this one (same login time).
+    backend: Option<(i32, String)>,
 }
 
 #[async_trait]
@@ -202,6 +227,26 @@ impl Driver for SqlServerDriver {
         Ok(schema::delete_script(target.schema(), &target.name, keys))
     }
 
+    /// T-SQL: `GO` batches (`GO N`), not split inside comments or strings.
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        dbine_driver::ScriptDialect::tsql()
+    }
+
+    /// The editor sends one `GO` batch per call, as SSMS does.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::Batches
+    }
+
+    /// SSMS goes on with the next batch after an error.
+    fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
+        dbine_driver::ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+    }
+
+    /// `SET IMPLICIT_TRANSACTIONS ON`, `@@TRANCOUNT` / `XACT_STATE()`.
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     fn script_separator(&self) -> &'static str {
         "GO"
     }
@@ -212,6 +257,18 @@ impl Driver for SqlServerDriver {
 
     fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
         security::script(self.variant, action)
+    }
+
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(security::schema_spec(self.variant))
+    }
+
+    fn create_schema_script(&self, _database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+        security::create_schema(self.variant, name, owner)
+    }
+
+    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        security::drop_schema(self.variant, name, cascade)
     }
 
     /// SQL Server (and Managed Instance) only: Azure SQL Database's backups
@@ -231,13 +288,31 @@ impl Driver for SqlServerDriver {
     }
 
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
+        Ok(Box::new(self.open(cfg, database).await?))
+    }
+}
+
+impl SqlServerDriver {
+    async fn open(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<SqlServerSession> {
         let login = variant::login(cfg, self.variant).await?;
         let config = build_config(cfg, database, self.variant, login)?;
         let (client, config) = connect_routed(config).await.map_err(connect_error)?;
-        let mut s = SqlServerSession { client, config, spid: 0, variant: self.variant, cancelled: Arc::default(), profiler: None };
+        let cancel = Arc::new(std::sync::Mutex::new(CancelTarget { attention: client.cancel_handle(), backend: None }));
+        let mut s = SqlServerSession {
+            client,
+            config,
+            spid: 0,
+            variant: self.variant,
+            cancelled: Arc::default(),
+            cancel,
+            profiler: None,
+            database: None,
+            autocommit: true,
+        };
         let rows = s.rows("SELECT CAST(@@SPID AS int)", &[]).await?;
         s.spid = rows.first().and_then(|r| r.get::<i32, _>(0)).unwrap_or(0);
-        Ok(Box::new(s))
+        s.arm_cancel().await.map_err(err)?;
+        Ok(s)
     }
 }
 
@@ -325,6 +400,8 @@ fn connect_error(e: tiberius::error::Error) -> Error {
 fn err(e: tiberius::error::Error) -> Error {
     match &e {
         tiberius::error::Error::Server(t) => Error::Query(t.message().to_string()),
+        // The server acknowledged the interrupter's attention.
+        tiberius::error::Error::Cancelled => Error::Cancelled,
         _ => Error::Query(e.to_string()),
     }
 }
@@ -395,23 +472,7 @@ fn parse_host(host: &str, port: u16) -> (&str, Option<&str>, u16) {
     }
 }
 
-/// Batches separated by `GO` lines, as SSMS and sqlcmd split them.
-fn split_batches(sql: &str) -> Vec<String> {
-    let mut out = vec![String::new()];
-    for line in sql.lines() {
-        if line.trim().eq_ignore_ascii_case("go") {
-            out.push(String::new());
-        } else {
-            let cur = out.last_mut().expect("non-empty");
-            cur.push_str(line);
-            cur.push('\n');
-        }
-    }
-    out.retain(|b| !b.trim().is_empty());
-    out
-}
-
-fn cell(data: ColumnData<'static>) -> serde_json::Value {
+pub(crate) fn cell(data: ColumnData<'static>) -> serde_json::Value {
     use serde_json::Value;
     fn opt<T>(v: Option<T>, f: impl FnOnce(T) -> Value) -> Value {
         v.map_or(Value::Null, f)
@@ -480,6 +541,45 @@ impl SqlServerSession {
         self.client = connect_once(self.config.clone()).await.map_err(connect_error)?;
         let rows = self.try_rows("SELECT CAST(@@SPID AS int)", &[]).await.map_err(err)?;
         self.spid = rows.first().and_then(|r| r.get::<i32, _>(0)).unwrap_or(0);
+        self.arm_cancel().await.map_err(err)?;
+        // What the tab sees stays true: the database it followed and its
+        // manual-transaction mode (the transaction itself is gone).
+        let mut restore = Vec::new();
+        if let Some(db) = &self.database {
+            restore.push(format!("USE [{}]", db.replace(']', "]]")));
+        }
+        if !self.autocommit {
+            restore.push("SET IMPLICIT_TRANSACTIONS ON".into());
+        }
+        for sql in restore {
+            let run = async { self.client.simple_query(sql.as_str()).await?.into_results().await };
+            if let Err(e) = run.await {
+                tracing::debug!("could not restore `{sql}` after reconnecting: {e}");
+            }
+        }
+        Ok(())
+    }
+
+    /// A batch whose results don't matter (SET, COMMIT…).
+    async fn batch(&mut self, sql: &str) -> Result<()> {
+        let sent = self.client.simple_query(sql).await;
+        if matches!(&sent, Err(e) if is_desync(e)) {
+            drop(sent);
+            return Err(self.lost_connection().await);
+        }
+        sent.map_err(err)?.into_results().await.map_err(err)?;
+        Ok(())
+    }
+
+    /// Point the interrupter at the current connection.
+    async fn arm_cancel(&mut self) -> tiberius::Result<()> {
+        let backend = if self.variant == Variant::Babelfish {
+            let rows = self.try_rows(BABELFISH_LOGIN_TIME, &[]).await?;
+            rows.first().and_then(|r| text(r, 0)).map(|t| (self.spid, t))
+        } else {
+            None
+        };
+        *self.cancel.lock().unwrap_or_else(|e| e.into_inner()) = CancelTarget { attention: self.client.cancel_handle(), backend };
         Ok(())
     }
 
@@ -490,71 +590,12 @@ impl SqlServerSession {
         match self.reconnect().await {
             Ok(()) => Error::Query(
                 "La conexión con el servidor había quedado inutilizable y se abrió una nueva. \
-                 Se perdió el estado de la sesión anterior (transacción abierta, tablas #temp, USE y SET): \
+                 Se perdió el estado de la sesión anterior (transacción abierta, tablas #temp y SET): \
                  volvé a ejecutar."
                     .into(),
             ),
             Err(re) => re,
         }
-    }
-
-    /// Run the batches. With `plans`, showplan result sets (SHOWPLAN_XML /
-    /// STATISTICS XML) are taken out of the results and collected there.
-    async fn run_batches(
-        &mut self,
-        sql: &str,
-        max_rows: usize,
-        out: &mut QueryOutcome,
-        mut plans: Option<&mut Vec<String>>,
-    ) -> Result<()> {
-        let variant = self.variant;
-        for batch in split_batches(sql) {
-            let sent = self.client.simple_query(batch).await;
-            if matches!(&sent, Err(e) if is_desync(e)) {
-                drop(sent);
-                return Err(self.lost_connection().await);
-            }
-            let mut stream = sent.map_err(err)?;
-            let mut had_result = false;
-            let mut in_plan = false;
-            while let Some(item) = stream.try_next().await.map_err(err)? {
-                match item {
-                    QueryItem::Metadata(meta) => {
-                        let cols = meta.columns();
-                        in_plan = plans.is_some() && cols.len() == 1 && is_plan_column(variant, cols[0].name());
-                        if in_plan {
-                            // SQL Server sends one XML row per plan; Babelfish
-                            // one row per line of the text plan.
-                            if let Some(p) = plans.as_deref_mut() {
-                                p.push(String::new());
-                            }
-                            continue;
-                        }
-                        had_result = true;
-                        out.begin_result(
-                            cols.iter()
-                                .map(|c| ResultColumn { name: c.name().to_string(), type_name: format!("{:?}", c.column_type()) })
-                                .collect(),
-                        );
-                    }
-                    QueryItem::Row(row) if in_plan => {
-                        if let (Some(last), Some(text)) =
-                            (plans.as_deref_mut().and_then(|p| p.last_mut()), row.try_get::<&str, _>(0).ok().flatten())
-                        {
-                            last.push_str(text);
-                            last.push('\n');
-                        }
-                    }
-                    QueryItem::Row(row) => out.push_row(row.into_iter().map(cell).collect(), max_rows),
-                }
-            }
-            if !had_result {
-                // TDS reports counts per statement, but tiberius drops them
-                // on this path: the batch just shows as done.
-                out.results.push(Default::default());
-            }
-        }
-        Ok(())
     }
 }
 
@@ -614,6 +655,15 @@ impl Session for SqlServerSession {
             .collect();
         objects.extend(structure::list_objects(self).await);
         Ok(objects)
+    }
+
+    async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
+        let rows = self.rows(&security::list_schemas_sql(self.variant), &[]).await?;
+        Ok(Some(
+            rows.iter()
+                .filter_map(|r| Some(dbine_driver::SchemaInfo { name: text(r, 0)?, system: r.get::<i32, _>(1).unwrap_or(0) == 1 }))
+                .collect(),
+        ))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -726,6 +776,36 @@ impl Session for SqlServerSession {
             Err(_) if self.cancelled.swap(false, Ordering::SeqCst) => Err(Error::Cancelled),
             other => other,
         }
+    }
+
+    /// `@@TRANCOUNT` and `XACT_STATE()` (-1: only a rollback ends it).
+    async fn transaction_state(&mut self) -> Result<Option<dbine_driver::TxState>> {
+        let rows = self.rows("SELECT CAST(@@TRANCOUNT AS int), CAST(XACT_STATE() AS int)", &[]).await?;
+        let r = rows.first();
+        let open = r.and_then(|r| r.get::<i32, _>(0)).unwrap_or(0) > 0;
+        let state = r.and_then(|r| r.get::<i32, _>(1)).unwrap_or(0);
+        Ok(Some(match (open, state) {
+            (_, -1) => dbine_driver::TxState::Failed,
+            (true, _) => dbine_driver::TxState::Open,
+            _ => dbine_driver::TxState::Idle,
+        }))
+    }
+
+    /// Manual: `SET IMPLICIT_TRANSACTIONS ON`, so the first statement opens
+    /// a transaction that stays open until Commit / Rollback (as SSMS's
+    /// option of the same name).
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        self.batch(if on { "SET IMPLICIT_TRANSACTIONS OFF" } else { "SET IMPLICIT_TRANSACTIONS ON" }).await?;
+        self.autocommit = on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.batch("WHILE @@TRANCOUNT > 0 COMMIT TRANSACTION").await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.batch("IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION").await
     }
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
@@ -938,34 +1018,53 @@ impl Session for SqlServerSession {
         delta::apply(self, spec, buckets, columns, source, progress).await
     }
 
+    /// A TDS attention on the session's own connection, as SSMS sends: the
+    /// server stops the batch and the session lives on (transaction, #temp
+    /// tables, SET options). Nothing goes to another connection, so no other
+    /// session can be hit, and after a reconnect it reaches the new one.
+    /// Babelfish: KILL of the verified session (see `CancelTarget`), which
+    /// ends it.
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
-        // tiberius can't send an attention packet, and dropping the client
-        // leaves the batch running; KILL from a second connection stops it
-        // (and ends this session). Needs ALTER ANY CONNECTION.
-        if self.spid <= 0 {
-            return None;
-        }
-        let (config, spid, flag) = (self.config.clone(), self.spid, self.cancelled.clone());
-        let rt = tokio::runtime::Handle::try_current().ok()?;
+        let (target, flag, config) = (self.cancel.clone(), self.cancelled.clone(), self.config.clone());
+        let rt = tokio::runtime::Handle::try_current().ok();
         Some(Arc::new(move || {
-            let (config, flag) = (config.clone(), flag.clone());
-            rt.spawn(async move {
-                flag.store(true, Ordering::SeqCst);
-                match connect_once(config).await {
-                    Ok(mut c) => {
-                        if let Err(e) = c.simple_query(format!("KILL {spid}")).await {
-                            tracing::debug!("sqlserver cancel failed: {e}");
-                        }
-                    }
-                    Err(e) => tracing::debug!("sqlserver cancel connection failed: {e}"),
+            flag.store(true, Ordering::SeqCst);
+            let t = target.lock().unwrap_or_else(|e| e.into_inner());
+            match (&t.backend, &rt) {
+                (Some((spid, login)), Some(rt)) => {
+                    rt.spawn(babelfish_kill(config.clone(), *spid, login.clone()));
                 }
-            });
+                _ => t.attention.cancel(),
+            }
         }))
     }
 
     /// One query: IS_SRVROLEMEMBER and HAS_PERMS_BY_NAME (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+}
+
+/// The session's login time, as text, identifying its Babelfish backend.
+const BABELFISH_LOGIN_TIME: &str =
+    "SELECT CONVERT(varchar(40), login_time, 121) FROM sys.dm_exec_sessions WHERE session_id = @@SPID";
+
+/// `KILL spid`, only if that session is still the one that logged in at
+/// `login`: once that connection is gone the id can be another client's.
+/// The check and the KILL go in one statement.
+async fn babelfish_kill(config: Config, spid: i32, login: String) {
+    let sql = format!(
+        "IF EXISTS (SELECT 1 FROM sys.dm_exec_sessions \
+                     WHERE session_id = {spid} AND CONVERT(varchar(40), login_time, 121) = @P1) \
+         KILL {spid}"
+    );
+    let run = async {
+        let mut c = connect_once(config).await?;
+        c.execute(sql.as_str(), &[&login.as_str()]).await?;
+        Ok::<_, tiberius::error::Error>(())
+    };
+    if let Err(e) = run.await {
+        tracing::debug!("babelfish cancel failed: {e}");
     }
 }
 
@@ -988,13 +1087,32 @@ fn format_type(ty: &str, max_len: i32, precision: i32, scale: i32) -> String {
 }
 
 #[cfg(test)]
+mod cancel_live;
+
+#[cfg(test)]
+mod script_live;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
+
     #[test]
     fn go_splits_batches() {
-        let b = split_batches("select 1\nGO\n  go  \nselect 2\n");
-        assert_eq!(b, vec!["select 1\n", "select 2\n"]);
+        let b: Vec<String> = script::batches("select 1\nGO\n  go  \nselect 2\n").into_iter().map(|u| u.text).collect();
+        assert_eq!(b, vec!["select 1", "select 2"]);
     }
 
     #[test]

@@ -14,6 +14,7 @@
 mod ddl;
 mod permissions;
 mod profiler;
+mod script;
 mod security;
 mod sync;
 mod transfer;
@@ -86,6 +87,12 @@ pub struct TdDriver {
 impl Driver for TdDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// One request per statement, as taosAdapter takes them; `USE` stays
+    /// in the session (sent as the database of the next ones).
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::PerStatement
     }
 
     fn supports_explain(&self) -> bool {
@@ -235,7 +242,8 @@ fn td_error(code: i64, desc: String) -> Error {
     match code {
         0x0357 => Error::AuthFailed(desc),
         0x020B => Error::Cancelled,
-        _ => Error::Query(desc),
+        // TDengine documents its codes in hex (0x2600: syntax error).
+        _ => dbine_driver::ScriptError::new(desc).with_code(format!("0x{:04X}", code)).into(),
     }
 }
 
@@ -383,6 +391,7 @@ impl TdSession {
         *self.cancel.current.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let a = r?;
         if let Some(db) = use_target(stmt) {
+            out.info(format!("Base de datos: {db}"));
             self.db = Some(db);
         }
         let affected = a.columns.len() == 1 && a.columns[0].0 == "affected_rows" && !returns_rows(stmt);
@@ -641,8 +650,13 @@ impl Session for TdSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
-        for stmt in split_statements(text) {
-            self.run(&stmt, max_rows, out).await?;
+        let d = dbine_driver::ScriptDialect::generic();
+        for unit in dbine_driver::sql::split_script(text, &d) {
+            let stmt = dbine_driver::sql::strip_comments(&unit.text, &d, false);
+            if stmt.trim().is_empty() {
+                continue;
+            }
+            self.run(stmt.trim(), max_rows, out).await.map_err(|e| script::shift(script::place(e, &unit.text), &unit))?;
         }
         Ok(())
     }
@@ -976,7 +990,7 @@ mod tests {
         assert_eq!(use_target("USE `power`").as_deref(), Some("power"));
         assert_eq!(use_target("select 1"), None);
         assert!(matches!(td_error(855, "Authentication failure".into()), Error::AuthFailed(_)));
-        assert!(matches!(td_error(9750, "x".into()), Error::Query(_)));
+        assert!(matches!(td_error(9750, "x".into()), Error::Statement(e) if e.code.as_deref() == Some("0x2616")));
     }
 
     #[test]

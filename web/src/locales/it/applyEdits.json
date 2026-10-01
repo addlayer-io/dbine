@@ -6,5 +6,10 @@
   "done": "Modifiche salvate",
   "doneRows_one": "Modifiche salvate: 1 riga aggiornata",
   "doneRows_many": "Modifiche salvate: {{count}} righe aggiornate",
-  "doneRows_other": "Modifiche salvate: {{count}} righe aggiornate"
+  "doneRows_other": "Modifiche salvate: {{count}} righe aggiornate",
+  "hintDeletes": "Queste istruzioni verranno eseguite sul server ({{deletes}}). Controllale prima di salvare.",
+  "hintBoth": "Queste istruzioni verranno eseguite sul server ({{deletes}}; {{cells}} in {{rows}}). Prima vengono eliminate le righe e poi vengono aggiornate le altre. Controllale prima di salvare.",
+  "doneAffected_one": "Modifiche salvate: 1 riga interessata",
+  "doneAffected_many": "Modifiche salvate: {{count}} righe interessate",
+  "doneAffected_other": "Modifiche salvate: {{count}} righe interessate"
 }

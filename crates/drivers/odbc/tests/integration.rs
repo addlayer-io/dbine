@@ -146,7 +146,7 @@ INSERT INTO dbo.items (name, price, created, day, data, flag, big, ratio) VALUES
     let (out, r) = run(&mut s, "SELECT 1\nGO\nSELECT * FROM dbo.nope\nGO\nSELECT 2", 10).await;
     let e = r.unwrap_err();
     println!("error: {e}");
-    assert!(matches!(e, Error::Query(ref m) if m.contains("nope")));
+    assert!(e.is_query() && e.to_string().contains("nope"), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // max_rows keeps the first rows and counts the rest.
@@ -382,4 +382,33 @@ async fn monitor() {
     // Presets without a monitor say why.
     let spark = dbine_driver_odbc::drivers().into_iter().find(|d| d.info().id == "spark").unwrap();
     assert!(!spark.capabilities().monitor);
+}
+
+/// The editor's script contract over ODBC: errors with SQLSTATE and native
+/// code, server messages with theirs, manual transactions.
+#[tokio::test]
+#[ignore]
+async fn script_errors_messages_and_transactions() {
+    let c = cfg("statements");
+    let mut s = open(&c, None).await;
+    let mut other = open(&c, None).await;
+    let _ = run(&mut s, "DROP TABLE dbine_tx", 10).await;
+    run(&mut s, "CREATE TABLE dbine_tx (id INT PRIMARY KEY)", 10).await.1.unwrap();
+    let (_, r) = run(&mut s, "SELECT * FROM nope_nope", 10).await;
+    let e = r.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert!(e.sqlstate.is_some() && e.code.is_some(), "{e:?}");
+
+    s.set_autocommit(false).await.unwrap();
+    run(&mut s, "INSERT INTO dbine_tx VALUES (1)", 10).await.1.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    s.rollback().await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    run(&mut s, "INSERT INTO dbine_tx VALUES (2)", 10).await.1.unwrap();
+    s.commit().await.unwrap();
+    s.set_autocommit(true).await.unwrap();
+    let (out, r) = run(&mut other, "SELECT COUNT(*) FROM dbine_tx", 10).await;
+    r.unwrap();
+    assert_eq!(out.results[0].rows[0][0], json!(1));
+    run(&mut s, "DROP TABLE dbine_tx", 10).await.1.unwrap();
 }

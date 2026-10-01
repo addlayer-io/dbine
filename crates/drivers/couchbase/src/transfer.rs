@@ -176,7 +176,7 @@ impl ResultsScanner {
             serde_json::from_slice(&self.buf).map_err(|_| Error::Query(format!("Respuesta inesperada de Couchbase: {}", String::from_utf8_lossy(&self.buf).trim())))?
         };
         if let Some(errs) = tail.get("errors").and_then(Value::as_array).filter(|e| !e.is_empty()) {
-            return Err(query_error(errs));
+            return Err(query_error(errs, None));
         }
         match tail.get("status").and_then(Value::as_str) {
             Some("stopped") => Err(Error::Cancelled),
@@ -561,7 +561,7 @@ async fn insert(conn: &Conn, body: Vec<u8>, docs: usize) -> (u64, Result<()>) {
     };
     let written = v.pointer("/metrics/mutationCount").and_then(Value::as_u64).unwrap_or(0);
     if let Some(errs) = v.get("errors").and_then(Value::as_array).filter(|e| !e.is_empty()) {
-        return (written, Err(query_error(errs)));
+        return (written, Err(query_error(errs, None)));
     }
     if v.get("status").and_then(Value::as_str) == Some("stopped") {
         return (written, Err(Error::Cancelled));
@@ -871,10 +871,10 @@ mod tests {
     fn results_errors_are_reported() {
         let mut s = ResultsScanner::default();
         assert_eq!(s.feed(br#"{"requestID":"x","results":[{"k":"a"}],"errors":[{"code":5000,"msg":"boom"}],"status":"errors"}"#).unwrap().len(), 1);
-        assert!(matches!(s.finish(), Err(Error::Query(m)) if m == "boom"));
+        assert!(matches!(s.finish(), Err(e) if e.is_query() && e.to_string() == "boom"));
         let mut s = ResultsScanner::default();
         assert!(s.feed(br#"{"requestID":"x","errors":[{"code":3000,"msg":"syntax error"}],"status":"fatal"}"#).unwrap().is_empty());
-        assert!(matches!(s.finish(), Err(Error::Query(m)) if m == "syntax error"));
+        assert!(matches!(s.finish(), Err(e) if e.is_query() && e.to_string() == "syntax error"));
         let mut s = ResultsScanner::default();
         s.feed(br#"{"results":[{"k":1},"#).unwrap();
         assert!(s.finish().is_err());

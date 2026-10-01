@@ -329,6 +329,12 @@ impl<'a> Stream for CommandStream<'a> {
                         data: rv.value,
                     }))))
                 }
+                // PATCH(dbine): the acknowledgement of a `CancelHandle` attention.
+                ReceivedToken::Done(done) | ReceivedToken::DoneProc(done) | ReceivedToken::DoneInProc(done)
+                    if done.is_attention() =>
+                {
+                    Poll::Ready(Some(Err(crate::Error::Cancelled)))
+                }
                 ReceivedToken::DoneProc(done) if done.is_final() => continue,
                 ReceivedToken::DoneProc(done) => {
                     Poll::Ready(Some(Ok(CommandItem::RowsAffected(done.rows()))))

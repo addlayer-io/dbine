@@ -107,7 +107,7 @@ async fn drill_transfer() {
     // An unknown column is an error (Drill itself answers it with NULLs).
     let sink = Arc::new(Mutex::new(Collect::default()));
     let spec = ReadSpec { table: obj.clone(), columns: Some(vec!["nope".into(), "id".into()]), filter: None };
-    assert!(matches!(s.read_batches(&spec, sink).await, Err(Error::Query(m)) if m.contains("nope")));
+    assert!(matches!(s.read_batches(&spec, sink).await, Err(e) if e.is_query() && e.to_string().contains("nope")));
 
     // Lists (Drill types them by their element) and NaN/±Infinity (quoted).
     run(&mut s, "DROP TABLE IF EXISTS dfs.tmp.`dbine_xfer_l`").await;
@@ -135,7 +135,7 @@ async fn drill_transfer() {
     // A failing query is an error.
     let sink = Arc::new(Mutex::new(Collect::default()));
     let bad = ObjectRef { kind: "table".into(), schema: Some("dfs.tmp".into()), name: "no_existe".into() };
-    assert!(matches!(s.read_batches(&ReadSpec { table: bad, columns: None, filter: None }, sink).await, Err(Error::Query(_))));
+    assert!(matches!(s.read_batches(&ReadSpec { table: bad, columns: None, filter: None }, sink).await, Err(e) if e.is_query()));
 
     // No bulk load, with the reason.
     let load = LoadSpec {

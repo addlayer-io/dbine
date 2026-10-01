@@ -12,7 +12,8 @@
 //! - profiler: reading V$SESSION and V$SQLSTATS (SELECT_CATALOG_ROLE,
 //!   SELECT ANY DICTIONARY or grants on both views).
 //! - kill: ALTER SYSTEM. Create / drop (schema-only accounts): CREATE USER /
-//!   DROP USER. Security: CREATE USER, ALTER USER, CREATE ROLE or GRANT ANY
+//!   DROP USER; `create_schema` too is CREATE USER (a schema is a user, so
+//!   DBine has no "Nuevo esquema…" for Oracle: see `Driver::schema_spec`). Security: CREATE USER, ALTER USER, CREATE ROLE or GRANT ANY
 //!   PRIVILEGE / ROLE.
 //!
 //! A check the server refuses leaves everything unknown; only a broken
@@ -76,6 +77,8 @@ pub(crate) fn map(g: &Grants, database: Option<&str>) -> Permissions {
             g.any(&["CREATE USER", "ALTER USER", "CREATE ROLE", "GRANT ANY PRIVILEGE", "GRANT ANY ROLE"]),
             "CREATE USER, ALTER USER o GRANT ANY PRIVILEGE",
         ),
+        // A schema is a user: creating one is CREATE USER.
+        create_schema: Access::check(g.has("CREATE USER"), "CREATE USER"),
     }
 }
 
@@ -147,6 +150,7 @@ mod tests {
         assert_eq!(other.restore, Access::Denied { missing: "DATAPUMP_IMP_FULL_DATABASE".into() });
         assert_eq!(other.kill_session, Access::Denied { missing: "ALTER SYSTEM".into() });
         assert_eq!(other.create_database, Access::Denied { missing: "CREATE USER".into() });
+        assert_eq!(other.create_schema, Access::Denied { missing: "CREATE USER".into() });
         assert_eq!(other.drop_database, Access::Denied { missing: "DROP USER".into() });
         assert!(other.profiler.is_denied());
         assert!(other.manage_security.is_denied());

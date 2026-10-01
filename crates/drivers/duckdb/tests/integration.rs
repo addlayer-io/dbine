@@ -61,7 +61,7 @@ async fn full_session() {
 
         let mut out = QueryOutcome::default();
         let err = s2.execute("SELECT twice(21); SELECT * FROM nope; SELECT 3", 10, &mut out).await.unwrap_err();
-        assert!(matches!(err, Error::Query(_)));
+        assert!(err.is_query(), "{err:?}");
         assert_eq!(out.results.len(), 1);
         assert_eq!(out.results[0].rows[0][0], serde_json::json!(42));
 
@@ -76,6 +76,7 @@ async fn full_session() {
         let r = s2.execute("SELECT count(*) FROM range(10000000000) a", 10, &mut out).await;
         assert!(matches!(r, Err(Error::Cancelled)), "{r:?}");
         assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(out.results.is_empty(), "{:?}", out.results);
     }
 
     // Read-only: the file is reopened in READ_ONLY access mode.
@@ -411,4 +412,77 @@ async fn schema_sync_applies() {
     let script = driver.sync_script(&[TableChange::Drop { table: last }, TableChange::Drop { table: sync_padre }]).unwrap();
     apply(&mut s, &script).await;
     assert!(!s.database_schema().await.unwrap().iter().any(|t| t.name.starts_with("sync_")));
+}
+
+/// "Nuevo esquema…" / "Borrar esquema…": the scripts run, the catalog shows
+/// the schema, and dropping a schema with objects needs CASCADE.
+#[tokio::test]
+async fn create_and_drop_schema() {
+    let path = std::env::temp_dir().join(format!("dbine-duck-schema-{}.duckdb", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let driver = dbine_driver_duckdb::drivers().remove(0);
+    let mut s = driver.connect(&cfg(&path.to_string_lossy(), false), None).await.unwrap();
+    let exists = |out: &QueryOutcome| out.results[0].rows.len();
+    for cascade in [false, true] {
+        let mut out = QueryOutcome::default();
+        s.execute(&driver.create_schema_script(None, "Ventas \"2\"", None).unwrap(), 10, &mut out).await.unwrap();
+        let mut out = QueryOutcome::default();
+        s.execute("SELECT schema_name FROM duckdb_schemas() WHERE schema_name = 'Ventas \"2\"'", 10, &mut out).await.unwrap();
+        assert_eq!(exists(&out), 1);
+        // Empty, it still shows in the explorer.
+        let schemas = s.list_schemas().await.unwrap().expect("DuckDB lists schemas");
+        let find = |n: &str| schemas.iter().find(|x| x.name == n).map(|x| x.system);
+        assert_eq!((find("Ventas \"2\""), find("main"), find("information_schema")), (Some(false), Some(false), None), "{schemas:?}");
+        if cascade {
+            let mut out = QueryOutcome::default();
+            s.execute("CREATE TABLE \"Ventas \"\"2\"\"\".t (x INT)", 10, &mut out).await.unwrap();
+            let mut out = QueryOutcome::default();
+            assert!(s.execute(&driver.drop_schema_script(None, "Ventas \"2\"", false).unwrap(), 10, &mut out).await.is_err());
+        }
+        let mut out = QueryOutcome::default();
+        s.execute(&driver.drop_schema_script(None, "Ventas \"2\"", cascade).unwrap(), 10, &mut out).await.unwrap();
+        let mut out = QueryOutcome::default();
+        s.execute("SELECT schema_name FROM duckdb_schemas() WHERE schema_name = 'Ventas \"2\"'", 10, &mut out).await.unwrap();
+        assert_eq!(exists(&out), 0);
+    }
+    drop(s);
+    let _ = std::fs::remove_file(&path);
+}
+
+/// The scripts take the catalog the menu was opened on: run from a session
+/// that `USE`s another one, the schema still lands in (and leaves) that
+/// catalog, and a session opened there lists it while it's empty.
+#[tokio::test]
+async fn schema_in_the_menus_catalog() {
+    let dir = std::env::temp_dir();
+    let main = dir.join(format!("dbine-duck-cat-{}.duckdb", std::process::id()));
+    let other = dir.join(format!("dbine-duck-cat-{}-b.duckdb", std::process::id()));
+    for p in [&main, &other] {
+        let _ = std::fs::remove_file(p);
+    }
+    let driver = dbine_driver_duckdb::drivers().remove(0);
+    let mut s = driver.connect(&cfg(&main.to_string_lossy(), false), None).await.unwrap();
+    async fn run(s: &mut Box<dyn dbine_driver::Session>, sql: &str) -> QueryOutcome {
+        let mut out = QueryOutcome::default();
+        s.execute(sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+        out
+    }
+    run(&mut s, &format!("ATTACH '{}' AS dbine_other", other.to_string_lossy())).await;
+    let where_ = "SELECT database_name FROM duckdb_schemas() WHERE schema_name = 'Esq 2' ORDER BY 1";
+    run(&mut s, &driver.create_schema_script(Some("dbine_other"), "Esq 2", None).unwrap()).await;
+    assert_eq!(run(&mut s, where_).await.results[0].rows, vec![vec![serde_json::json!("dbine_other")]]);
+
+    let mut there = driver.connect(&cfg(&main.to_string_lossy(), false), Some("dbine_other")).await.unwrap();
+    let listed = there.list_schemas().await.unwrap().expect("DuckDB lists schemas");
+    let find = |n: &str| listed.iter().find(|x| x.name == n).map(|x| x.system);
+    assert_eq!((find("Esq 2"), find("main"), find("information_schema"), find("pg_catalog")), (Some(false), Some(false), None, None), "{listed:?}");
+    drop(there);
+
+    run(&mut s, &driver.drop_schema_script(Some("dbine_other"), "Esq 2", false).unwrap()).await;
+    assert!(run(&mut s, where_).await.results[0].rows.is_empty());
+    run(&mut s, "DETACH dbine_other").await;
+    drop(s);
+    for p in [&main, &other] {
+        let _ = std::fs::remove_file(p);
+    }
 }

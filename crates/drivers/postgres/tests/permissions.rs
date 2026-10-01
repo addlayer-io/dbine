@@ -63,6 +63,7 @@ const ADMIN_PG: Permissions = Permissions {
     create_database: Access::Allowed,
     drop_database: Access::Allowed,
     manage_security: Access::Allowed,
+    create_schema: Access::Allowed,
 };
 
 #[tokio::test]
@@ -94,6 +95,7 @@ async fn postgres() {
     assert!(denied(&p.create_database, "CREATEDB"));
     assert!(denied(&p.drop_database, "dueño"));
     assert!(denied(&p.manage_security, "CREATEROLE"));
+    assert!(denied(&p.create_schema, "CREATE sobre la base"));
     drop(lim);
 
     let mut opt = as_user(&d, &admin, "dbine_perm_opt", Some("pw")).await;
@@ -140,6 +142,7 @@ async fn cockroach() {
     assert!(denied(&p.create_database, "CREATEDB"));
     assert!(denied(&p.drop_database, "dueño"));
     assert!(denied(&p.manage_security, "CREATEROLE"));
+    assert!(denied(&p.create_schema, "CREATE sobre la base"));
     assert_eq!((p.profiler, p.kill_session), (Access::Unknown, Access::Unknown));
     drop(lim);
 

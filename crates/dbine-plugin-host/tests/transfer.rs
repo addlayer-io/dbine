@@ -108,7 +108,7 @@ fn the_host_ends_when_the_app_dies_mid_read() {
     let fill = "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT);
          WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 25000)
          INSERT INTO t SELECT i, 'fila ' || i FROM n;";
-    call(&mut input, 2, Call::Execute { session, text: fill.into(), max_rows: 10, sink: false });
+    call(&mut input, 2, Call::Execute { session, text: fill.into(), max_rows: 10, sink: false, continue_on_error: None, live: false });
     reply(&mut output, 2);
 
     // Take the whole window and never acknowledge it.

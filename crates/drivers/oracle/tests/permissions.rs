@@ -66,6 +66,7 @@ async fn dba_and_limited_user() {
     assert!(other.profiler.is_denied());
     assert_eq!(other.kill_session, Access::Denied { missing: "ALTER SYSTEM".into() });
     assert_eq!(other.create_database, Access::Denied { missing: "CREATE USER".into() });
+    assert_eq!(other.create_schema, Access::Denied { missing: "CREATE USER".into() });
     assert_eq!(other.drop_database, Access::Denied { missing: "DROP USER".into() });
     assert!(other.manage_security.is_denied());
     drop(u);

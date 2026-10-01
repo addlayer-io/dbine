@@ -53,6 +53,24 @@ impl Driver for InfluxDriver {
         true
     }
 
+    /// InfluxQL (v1) goes whole to `/query`, which runs the statements in
+    /// order, as the influx CLI; a Flux script (v2) is one query. The SQL
+    /// of v3 takes one statement per request.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        match self.api {
+            Api::Sql => dbine_driver::ScriptMode::PerStatement,
+            Api::Flux | Api::InfluxQl => dbine_driver::ScriptMode::Whole,
+        }
+    }
+
+    /// Flux has no statement terminator: the script is one unit.
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        match self.api {
+            Api::Flux => dbine_driver::ScriptDialect { semicolons: false, ..dbine_driver::ScriptDialect::generic() },
+            Api::InfluxQl | Api::Sql => dbine_driver::ScriptDialect::generic(),
+        }
+    }
+
     /// Line protocol through the write API of each version (see
     /// `transfer.rs`).
     fn supports_bulk_load(&self) -> bool {

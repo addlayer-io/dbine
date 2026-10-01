@@ -117,12 +117,12 @@ async fn end_to_end() {
     assert_eq!(out.results[0].rows_affected, Some(2));
     assert_eq!(out.results[1].rows_affected, Some(1));
 
-    // Server errors and parse errors come back as Query errors.
+    // Server errors and parse errors come back as query errors (with code and place).
     let mut out = QueryOutcome::default();
     let e = s.execute("db.people.aggregate([{ $nope: 1 }])", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     let e = s.execute("db.people.find({ a: })", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
 
     // Cancel handle exists and doesn't panic with nothing running.
     let stop = s.interrupter().expect("interrupter");

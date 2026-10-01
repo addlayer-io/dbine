@@ -108,8 +108,11 @@ async fn sqlserver() {
     // An error in the second batch keeps the first one's result.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1 AS a\nGO\nSELECT * FROM dbo.nope\nGO\nSELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
+    // The driver recorded it with its code and line (the third line).
+    assert_eq!(out.errors.len(), 1);
+    assert_eq!((out.errors[0].code.as_deref(), out.errors[0].line), (Some("208"), Some(3)));
     run(&mut s, "SELECT 1").await.unwrap();
 
     let mut out = QueryOutcome::default();
@@ -126,7 +129,7 @@ async fn sqlserver() {
     assert!(matches!(run(&mut wrapped, "DELETE FROM dbo.items").await, Err(Error::Query(_))));
     drop(wrapped);
 
-    // Cancel: KILL from a second connection.
+    // Cancel: a TDS attention on the session's connection, which survives.
     let stop = s.interrupter().expect("interrupter");
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -137,6 +140,7 @@ async fn sqlserver() {
     let e = s.execute("WAITFOR DELAY '00:00:30'", 10, &mut out).await.unwrap_err();
     assert!(matches!(e, Error::Cancelled), "{e:?}");
     assert!(t.elapsed() < Duration::from_secs(10));
+    run(&mut s, "SELECT 1").await.expect("the session survives the cancel");
     drop(s);
 
     run(

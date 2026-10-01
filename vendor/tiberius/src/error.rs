@@ -68,6 +68,11 @@ pub enum Error {
         /// The requested port.
         port: u16,
     },
+    // PATCH(dbine): the server acknowledged a `CancelHandle` attention.
+    #[error("The request was cancelled")]
+    /// The request was cancelled with a [`CancelHandle`](crate::CancelHandle):
+    /// the server stopped it and the connection can be used again.
+    Cancelled,
     #[error("BULK UPLOAD input failure: {0}")]
     /// Invalid input in Bulk Upload
     BulkInput(Cow<'static, str>),

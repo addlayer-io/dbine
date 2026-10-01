@@ -98,7 +98,10 @@
     "tableUnknown": "la table de la requête n'est pas reconnue",
     "combinesTables": "le résultat combine des tables : seules les requêtes sur une seule table sont modifiables",
     "missingKey": "le résultat n'inclut pas la clé primaire ({{columns}}) : ajoutez-la au SELECT pour pouvoir modifier",
-    "noPrimaryKey": "La table n'a pas de clé primaire : le WHERE utilise toutes les colonnes (cela peut affecter plusieurs lignes en cas de doublons)."
+    "noPrimaryKey": "La table n'a pas de clé primaire : le WHERE utilise toutes les colonnes (cela peut affecter plusieurs lignes en cas de doublons).",
+    "keyNotComparable": "la clé de la ligne inclut « {{column}} », avec une valeur binaire ou longue qui ne peut pas être comparée dans le WHERE",
+    "noComparableColumns": "aucune colonne de la ligne ne peut être comparée dans le WHERE : elles sont toutes binaires ou longues",
+    "skippedColumns": "Les colonnes binaires ou longues ({{columns}}) sont exclues du WHERE."
   },
   "connections": {
     "downloading": "Téléchargement de {{component}}, une seule fois… {{pct}} % ({{done}} sur {{total}} Mo)",

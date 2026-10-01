@@ -21,6 +21,12 @@ export function showWindow() {
   }, 0);
 }
 
+/** The window's title (the OS title bar, the window list, the Dock menu). */
+export function setWindowTitle(title: string) {
+  document.title = title;
+  currentWindow()?.setTitle(title).catch(() => {});
+}
+
 const editable = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || !!t.closest('input, textarea, [contenteditable], .cm-editor'));
 
@@ -49,8 +55,9 @@ export function installNativeBehavior() {
   });
 
   // Reload (would drop open sessions), print, find in page, view source,
-  // caret browsing, history back / forward. App shortcuts are handled
-  // elsewhere; ⌘F stays available inside the SQL editor (its own search).
+  // caret browsing, history back / forward, save page. App shortcuts are
+  // handled elsewhere; ⌘F and ⌘S stay available inside the SQL editor (its
+  // own search and save); screens that save on ⌘S listen for it themselves.
   window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
@@ -58,7 +65,7 @@ export function installNativeBehavior() {
     const blocked =
       e.key === 'F5' || e.key === 'F3' || e.key === 'F7' ||
       (mod && ['r', 'p', 'g', 'u'].includes(k)) ||
-      (mod && k === 'f' && !inEditor) ||
+      (mod && (k === 'f' || k === 's') && !inEditor) ||
       (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inEditor) ||
       e.key === 'BrowserBack' || e.key === 'BrowserForward' || e.key === 'BrowserRefresh';
     if (blocked) e.preventDefault();

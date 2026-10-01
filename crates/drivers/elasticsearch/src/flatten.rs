@@ -86,7 +86,7 @@ pub fn push_search(out: &mut QueryOutcome, resp: &J, max_rows: usize) {
     }
     if let Some(total) = total_hits(resp) {
         let took = resp.get("took").map(J::text).unwrap_or_default();
-        out.messages.push(format!("{total} documentos coinciden ({took} ms)."));
+        out.info(format!("{total} documentos coinciden ({took} ms)."));
     }
     if let Some(aggs) = resp.get("aggregations") {
         push_aggs(out, aggs, max_rows);
@@ -138,7 +138,7 @@ fn walk_aggs(out: &mut QueryOutcome, aggs: &J, prefix: &str, metrics: &mut Obj, 
         let full = if prefix.is_empty() { name.clone() } else { format!("{prefix}.{name}") };
         if let Some(bs) = buckets(agg) {
             let docs = bs.into_iter().map(|(key, b)| bucket_doc(key, b));
-            out.messages.push(format!("Agregación {full}: {} buckets.", agg.get("buckets").map_or(0, count_of)));
+            out.info(format!("Agregación {full}: {} buckets.", agg.get("buckets").map_or(0, count_of)));
             push_docs(out, docs, max_rows);
         } else if agg.get("doc_count").is_some() && agg.as_obj().is_some_and(|o| o.iter().any(|(_, v)| v.as_obj().is_some())) {
             // Single-bucket wrapper: its count is a metric, its children aggs.

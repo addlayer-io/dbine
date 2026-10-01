@@ -5,7 +5,8 @@
 //! the others enforce read-only themselves (see `ConnectionConfig::read_only`).
 
 use crate::error::{Error, Result};
-use crate::model::{ColumnInfo, DbObject, ObjectRef, QueryOutcome};
+use crate::model::{ColumnInfo, DbObject, ObjectRef, QueryOutcome, TxState};
+use crate::sql::{expose_versioned, split_script, strip_comments, BatchLine, ScriptDialect, StatementKind};
 use crate::Session;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -14,94 +15,57 @@ const READ_KEYWORDS: &[&str] = &["select", "with", "show", "explain", "describe"
 
 pub struct ReadOnlySession {
     inner: Box<dyn Session>,
+    dialect: ScriptDialect,
 }
 
 impl ReadOnlySession {
+    /// Checks statements split on `;` and `GO` lines (any dialect's quotes
+    /// and comments). Prefer [`Self::with_dialect`].
     pub fn new(inner: Box<dyn Session>) -> Self {
-        Self { inner }
+        Self::with_dialect(inner, ScriptDialect { batch: BatchLine::Go, ..ScriptDialect::generic() })
+    }
+
+    /// Checks statements split as the driver's dialect says
+    /// ([`crate::Driver::script_dialect`]), statement by statement.
+    pub fn with_dialect(inner: Box<dyn Session>, dialect: ScriptDialect) -> Self {
+        let mut dialect = dialect.statements();
+        if dialect.batch == BatchLine::None {
+            dialect.batch = BatchLine::Go;
+        }
+        Self { inner, dialect }
+    }
+
+    fn first_write(&self, sql: &str) -> Option<String> {
+        first_write_in(sql, &self.dialect)
     }
 }
 
-/// The first statement that isn't a read, if any.
+/// The first statement that isn't a read, if any (`;` and `GO` lines).
 pub fn first_write(sql: &str) -> Option<String> {
-    split_statements(sql).into_iter().find_map(|stmt| {
-        let kw = first_keyword(&stmt)?;
+    first_write_in(sql, &ScriptDialect { batch: BatchLine::Go, ..ScriptDialect::generic() })
+}
+
+/// The first statement of `sql` (split as `dialect` says) that isn't a read.
+/// MySQL's versioned comments (`/*!50000 delete … */`) are read as the code
+/// they are. MySQL's `--` rule (a comment only with a space after it, so
+/// `select 1--1; delete …` is two statements) comes with the MySQL dialect
+/// ([`ScriptDialect::dash_comment_space`]); elsewhere `--` is a comment, as
+/// the server reads it.
+pub fn first_write_in(sql: &str, dialect: &ScriptDialect) -> Option<String> {
+    writes_in(&expose_versioned(sql, dialect), dialect)
+}
+
+fn writes_in(sql: &str, dialect: &ScriptDialect) -> Option<String> {
+    split_script(sql, &dialect.statements()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand).find_map(|stmt| {
+        let kw = first_keyword(&stmt.text, dialect)?;
         (!READ_KEYWORDS.contains(&kw.as_str())).then(|| kw.to_uppercase())
     })
 }
 
-fn first_keyword(stmt: &str) -> Option<String> {
-    let s = strip_comments(stmt);
+fn first_keyword(stmt: &str, dialect: &ScriptDialect) -> Option<String> {
+    let s = strip_comments(stmt, dialect, false);
     let word: String = s.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
     (!word.is_empty()).then(|| word.to_ascii_lowercase())
-}
-
-fn strip_comments(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '-' if chars.peek() == Some(&'-') => {
-                for n in chars.by_ref() {
-                    if n == '\n' {
-                        break;
-                    }
-                }
-                out.push('\n');
-            }
-            '/' if chars.peek() == Some(&'*') => {
-                chars.next();
-                let mut prev = ' ';
-                for n in chars.by_ref() {
-                    if prev == '*' && n == '/' {
-                        break;
-                    }
-                    prev = n;
-                }
-                out.push(' ');
-            }
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-/// Statements split on `;` and `GO` lines, ignoring those inside quotes.
-fn split_statements(sql: &str) -> Vec<String> {
-    let sql = strip_comments(sql);
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut quote: Option<char> = None;
-    for c in sql.chars() {
-        match quote {
-            Some(q) if c == q => quote = None,
-            Some(_) => {}
-            None if c == '\'' || c == '"' || c == '`' => quote = Some(c),
-            None if c == ';' => {
-                out.push(std::mem::take(&mut cur));
-                continue;
-            }
-            None => {}
-        }
-        cur.push(c);
-    }
-    out.push(cur);
-    out.into_iter()
-        .flat_map(|s| {
-            s.split('\n')
-                .fold(vec![String::new()], |mut acc, line| {
-                    if line.trim().eq_ignore_ascii_case("go") {
-                        acc.push(String::new());
-                    } else {
-                        let last = acc.last_mut().expect("non-empty");
-                        last.push_str(line);
-                        last.push('\n');
-                    }
-                    acc
-                })
-        })
-        .filter(|s| !s.trim().is_empty())
-        .collect()
 }
 
 #[async_trait]
@@ -115,6 +79,9 @@ impl Session for ReadOnlySession {
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         self.inner.list_objects().await
     }
+    async fn list_schemas(&mut self) -> Result<Option<Vec<crate::SchemaInfo>>> {
+        self.inner.list_schemas().await
+    }
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         self.inner.columns(obj).await
     }
@@ -125,7 +92,7 @@ impl Session for ReadOnlySession {
         self.inner.browse_query(obj, limit)
     }
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        if let Some(kw) = first_write(sql) {
+        if let Some(kw) = self.first_write(sql) {
             return Err(Error::Query(format!(
                 "Conexión de solo lectura: se bloqueó una sentencia {kw}. Solo se permiten lecturas (SELECT, WITH, SHOW, EXPLAIN…)."
             )));
@@ -135,7 +102,7 @@ impl Session for ReadOnlySession {
     async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         // An estimated plan runs nothing; an actual one runs the script.
         if analyze {
-            if let Some(kw) = first_write(sql) {
+            if let Some(kw) = self.first_write(sql) {
                 return Err(Error::Query(format!(
                     "Conexión de solo lectura: el plan real ejecutaría una sentencia {kw}. Pedí el plan estimado."
                 )));
@@ -145,6 +112,18 @@ impl Session for ReadOnlySession {
     }
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         self.inner.interrupter()
+    }
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        self.inner.transaction_state().await
+    }
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        self.inner.set_autocommit(on).await
+    }
+    async fn commit(&mut self) -> Result<()> {
+        self.inner.commit().await
+    }
+    async fn rollback(&mut self) -> Result<()> {
+        self.inner.rollback().await
     }
     async fn database_schema(&mut self) -> Result<Vec<crate::TableSchema>> {
         self.inner.database_schema().await
@@ -236,5 +215,51 @@ mod tests {
     fn writes_are_caught() {
         assert_eq!(first_write("select 1; delete from t").as_deref(), Some("DELETE"));
         assert_eq!(first_write("select 1\nGO\ndrop table t").as_deref(), Some("DROP"));
+        // GO inside a comment doesn't split; GO 2 and GO -- x do.
+        assert_eq!(first_write("select 1 /*\nGO\n*/\nGO 2\nupdate t set a = 1").as_deref(), Some("UPDATE"));
+        assert_eq!(first_write("select 1\nGO -- next\ninsert into t values (1)").as_deref(), Some("INSERT"));
+    }
+
+    #[test]
+    fn the_driver_dialect_keeps_blocks_and_quotes_whole() {
+        use crate::sql::ScriptDialect;
+        // A dollar-quoted body is one statement (a DO block is a write).
+        let pg = ScriptDialect::postgres();
+        assert_eq!(super::first_write_in("select $$; delete from t; $$", &pg), None);
+        assert_eq!(super::first_write_in("DO $$ begin delete from t; end $$", &pg).as_deref(), Some("DO"));
+        // DELIMITER is the client's: not a write.
+        let my = ScriptDialect::mysql();
+        assert_eq!(super::first_write_in("DELIMITER //\nselect 1//\nDELIMITER ;\nselect 2;", &my), None);
+    }
+
+    #[test]
+    fn mysql_comment_quirks_dont_hide_writes() {
+        use crate::sql::ScriptDialect;
+        for d in [ScriptDialect::mysql(), ScriptDialect::generic(), ScriptDialect::postgres()] {
+            // MySQL runs a versioned comment's content.
+            assert_eq!(super::first_write_in("select 1; /*!50000 delete from t */;", &d).as_deref(), Some("DELETE"), "{d:?}");
+            assert_eq!(super::first_write_in("select 1 /*!; delete from t */", &d).as_deref(), Some("DELETE"), "{d:?}");
+            assert_eq!(super::first_write_in("select 1; /*M!100101 drop table t */", &d).as_deref(), Some("DROP"), "{d:?}");
+            // Real comments still hide nothing and block nothing.
+            assert_eq!(super::first_write_in("select 1 -- ; delete from t\n", &d), None, "{d:?}");
+            assert_eq!(super::first_write_in("select /*+ hint */ 1; /* delete */ select 2", &d), None, "{d:?}");
+        }
+        // A plain comment that hides a write in PostgreSQL: still caught.
+        assert_eq!(super::first_write_in("select 1; --x\ndelete from t", &ScriptDialect::postgres()).as_deref(), Some("DELETE"));
+        // `--1` isn't a comment in MySQL: the delete after it runs.
+        assert_eq!(super::first_write_in("select 1--1; delete from t;", &ScriptDialect::mysql()).as_deref(), Some("DELETE"));
+        assert_eq!(super::first_write_in("select 1 --note; drop\n", &ScriptDialect::mysql()).as_deref(), Some("DROP"));
+    }
+
+    #[test]
+    fn mysql_dash_rule_only_applies_to_mysql() {
+        use crate::sql::ScriptDialect;
+        // Elsewhere `--note` is a comment to the end of the line: a read.
+        for d in [ScriptDialect::postgres(), ScriptDialect::generic(), ScriptDialect::tsql(), ScriptDialect::oracle()] {
+            assert_eq!(super::first_write_in("select 1 --note; drop\n", &d), None, "{d:?}");
+            assert_eq!(super::first_write_in("select 1--1; delete from t;", &d), None, "{d:?}");
+            // A write on the next line is still caught.
+            assert_eq!(super::first_write_in("select 1 --note\n; drop table t", &d).as_deref(), Some("DROP"), "{d:?}");
+        }
     }
 }

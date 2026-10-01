@@ -156,7 +156,7 @@ END;
 
     let q = s.browse_query(&obj("table", "DBINE_T"), 10);
     assert_eq!(q, "SELECT *\nFROM \"DBINE\".\"DBINE_T\"\nFETCH FIRST 10 ROWS ONLY");
-    let out = run(&mut s, &format!("{q}")).await;
+    let out = run(&mut s, &q).await;
     let r = &out.results[0];
     assert_eq!(r.total_rows, 2);
     let row = r.rows.iter().find(|row| row[0] == json!(1)).unwrap();
@@ -609,4 +609,30 @@ INSERT INTO dbine_sync_hijo VALUES (1, 1, 'uno', NULL);
     for st in &script.statements {
         run(&mut s, st).await;
     }
+}
+
+/// Oracle's schemas are its users, listed one level up (`list_databases`):
+/// a user just created shows there while still empty, seen by a plain
+/// user; the Oracle-maintained ones don't; `list_schemas` stays `None`.
+/// Needs DBINE_TEST_ORACLE_ADMIN_URL to create the user.
+#[tokio::test]
+#[ignore]
+async fn empty_schemas_are_listed() {
+    let Ok(url) = std::env::var("DBINE_TEST_ORACLE_ADMIN_URL") else { return };
+    let driver = dbine_driver_oracle::drivers().remove(0);
+    let mut admin = driver.connect(&config_from(&url), None).await.unwrap();
+    let _ = admin.execute("DROP USER DBINE_VACIO CASCADE", 10, &mut QueryOutcome::default()).await;
+    run(&mut admin, "CREATE USER DBINE_VACIO NO AUTHENTICATION").await;
+
+    let mut s = session().await;
+    let dbs = s.list_databases().await.unwrap();
+    assert!(dbs.contains(&"DBINE_VACIO".to_string()) && dbs.contains(&"DBINE".to_string()), "{dbs:?}");
+    for sys in ["SYS", "SYSTEM", "XDB", "OUTLN", "AUDSYS"] {
+        assert!(!dbs.contains(&sys.to_string()), "{sys}: {dbs:?}");
+    }
+    assert_eq!(s.list_schemas().await.unwrap(), None);
+    assert!(driver.schema_spec().is_none());
+
+    run(&mut admin, "DROP USER DBINE_VACIO CASCADE").await;
+    assert!(!s.list_databases().await.unwrap().contains(&"DBINE_VACIO".to_string()));
 }

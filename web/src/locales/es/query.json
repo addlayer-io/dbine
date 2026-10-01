@@ -3,10 +3,14 @@
   "scriptAppended": "Código agregado al final de la query. Revisalo y ejecutalo cuando quieras.",
   "formatFailed": "No se pudo formatear: {{error}}",
   "defaultDatabase": "(predeterminada)",
-  "runTitle": "Ejecutar (⌘↵)",
+  "runTitle": "Ejecutar la selección, o todo si no hay selección (⌘↵)",
+  "runStatement": "Ejecutar la sentencia del cursor",
+  "runStatementTip": "Ejecutar la sentencia donde está el cursor (⌘⇧↵)",
+  "continueOnError": "Seguir si hay un error",
+  "continueOnErrorTip": "Si una sentencia falla, ejecutar igual las siguientes. Empieza como lo hace la herramienta del motor.",
   "estimatedPlanTip": "Plan de ejecución estimado, sin ejecutar (⌘L)",
   "estimatedPlan": "Plan estimado",
-  "actualPlanTip": "Ejecutar e incluir el plan real (⌘⇧↵)",
+  "actualPlanTip": "Ejecutar e incluir el plan real (⌘⇧L)",
   "runWithPlan": "Ejecutar + plan",
   "formatTip": "Formatear la selección, o todo si no hay selección (⇧⌥F)",
   "format": "Formatear",
@@ -18,6 +22,41 @@
   "maxRows": "Filas máx.",
   "editorPlaceholder": "Escribí la consulta… (⌘↵ ejecuta)",
   "resultName": "resultado",
+  "tx": {
+    "label": "Transacciones",
+    "auto": "Auto",
+    "manual": "Manual",
+    "autoTip": "Transacciones automáticas: cada sentencia se confirma sola",
+    "manualTip": "Transacciones manuales: los cambios quedan pendientes hasta Confirmar o Deshacer",
+    "open": "Transacción abierta",
+    "failed": "Transacción con error",
+    "commit": "Confirmar",
+    "rollback": "Deshacer",
+    "committed": "Transacción confirmada",
+    "rolledBack": "Transacción deshecha",
+    "lostOnCancel": "La cancelación cerró la sesión: se deshizo la transacción abierta.",
+    "dialogTitle": "Transacción abierta",
+    "ask": {
+      "close": "Esta pestaña tiene una transacción abierta. ¿Confirmar o deshacer los cambios antes de cerrarla?",
+      "database": "Esta pestaña tiene una transacción abierta. ¿Confirmar o deshacer los cambios antes de cambiar de base de datos?",
+      "mode": "Esta pestaña tiene una transacción abierta. ¿Confirmar o deshacer los cambios antes de pasar a transacciones automáticas?"
+    }
+  },
+  "unsafe": {
+    "title": "UPDATE o DELETE sin WHERE",
+    "intro_one": "Esta sentencia no tiene WHERE: modifica todas las filas de la tabla.",
+    "intro_many": "Estas sentencias no tienen WHERE: modifican todas las filas de sus tablas.",
+    "intro_other": "Estas sentencias no tienen WHERE: modifican todas las filas de sus tablas.",
+    "run": "Ejecutar igual"
+  },
+  "status": {
+    "ready": "Listo",
+    "noStatement": "No hay ninguna sentencia en el cursor.",
+    "server": "Servidor",
+    "user": "Usuario",
+    "elapsed": "Tiempo de ejecución",
+    "rowsTip": "Filas devueltas"
+  },
   "object": {
     "data": "Datos",
     "columns": "Columnas",

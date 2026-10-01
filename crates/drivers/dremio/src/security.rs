@@ -13,7 +13,7 @@
 
 use crate::ddl::{lit, q};
 use crate::{text, DremioSession};
-use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
 use serde_json::{Map, Value};
 use std::collections::{HashSet, VecDeque};
 
@@ -225,6 +225,62 @@ fn dotted(p: &str) -> String {
     p.split('.').map(q).collect::<Vec<_>>().join(".")
 }
 
+/// A folder path's parts: split at the dots, except inside a part written
+/// between double quotes (`nessie."a.b"`, `""` for a quote in it), so a
+/// folder whose name has a dot can be written.
+fn path(p: &str) -> Result<Vec<String>> {
+    let bad = || Error::Query(format!("la ruta «{p}» tiene comillas sin cerrar o texto después de una parte entre comillas"));
+    let mut parts = Vec::new();
+    let mut chars = p.trim().chars().peekable();
+    loop {
+        let mut part = String::new();
+        if chars.peek() == Some(&'"') {
+            chars.next();
+            loop {
+                match chars.next() {
+                    Some('"') if chars.peek() == Some(&'"') => {
+                        chars.next();
+                        part.push('"');
+                    }
+                    Some('"') => break,
+                    Some(c) => part.push(c),
+                    None => return Err(bad()),
+                }
+            }
+            match chars.next() {
+                None => {
+                    parts.push(part);
+                    return Ok(parts);
+                }
+                Some('.') => {}
+                Some(_) => return Err(bad()),
+            }
+        } else {
+            loop {
+                match chars.next() {
+                    Some('.') => break,
+                    Some(c) => part.push(c),
+                    None => {
+                        parts.push(part);
+                        return Ok(parts);
+                    }
+                }
+            }
+        }
+        parts.push(part);
+    }
+}
+
+/// A folder's path quoted, `None` when it has a single part (a space or a
+/// source) or an empty one.
+fn folder_path(p: &str) -> Result<Option<String>> {
+    let parts = path(p)?;
+    if parts.len() < 2 || parts.iter().any(|x| x.trim().is_empty()) {
+        return Ok(None);
+    }
+    Ok(Some(parts.iter().map(|x| q(x)).collect::<Vec<_>>().join(".")))
+}
+
 /// `ON <object>`. The UI hands a listed grant's object back split at the
 /// first dot, so the path is rebuilt whole.
 fn on(object: &Option<ObjectRef>) -> Result<String> {
@@ -240,12 +296,12 @@ fn on(object: &Option<ObjectRef>) -> Result<String> {
         "source" => "SOURCE",
         "space" => "SPACE",
         "schema" | "folder" => {
-            if !full.contains('.') {
-                return Err(Error::Query(format!(
+            return match folder_path(&full)? {
+                Some(f) => Ok(format!("FOLDER {f}")),
+                None => Err(Error::Query(format!(
                     "«{full}» es un espacio o un origen: escribí el script con ON SPACE o ON SOURCE en el editor"
-                )));
-            }
-            "FOLDER"
+                ))),
+            };
         }
         other => return Err(Error::Unsupported(format!("DBine no otorga permisos sobre objetos «{other}» de Dremio"))),
     };
@@ -276,15 +332,95 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             return Err(Error::Unsupported("Dremio no deshabilita usuarios por SQL: hacelo desde la administración de usuarios de Dremio".into()))
         }
         SecurityAction::Grant { privileges: p, object, to, grantable } => {
-            if *grantable {
+            let privs = privileges(p)?;
+            let on = on(object)?;
+            let is_folder = object.as_ref().is_some_and(|o| matches!(o.kind.as_str(), "schema" | "folder"));
+            if *grantable && !is_folder {
                 return Err(Error::Unsupported("Dremio no tiene WITH GRANT OPTION: otorgá MANAGE GRANTS sobre el objeto".into()));
             }
-            format!("GRANT {} ON {} TO {};", privileges(p)?, on(object)?, to_whom(to))
+            let mut s = format!("GRANT {privs} ON {on} TO {};", to_whom(to));
+            // "Con opción de otorgar" on a new folder ("Nuevo esquema…"):
+            // Dremio's way is MANAGE GRANTS on it.
+            if *grantable && !p.iter().any(|x| matches!(x.trim().to_uppercase().replace('_', " ").as_str(), "MANAGE GRANTS" | "OWNERSHIP")) {
+                s.push_str(&format!("\n-- Dremio no tiene WITH GRANT OPTION: poder otorgar es MANAGE GRANTS sobre la carpeta.\nGRANT MANAGE GRANTS ON {on} TO {};", to_whom(to)));
+            }
+            s
         }
         SecurityAction::Revoke { privileges: p, object, from } => format!("REVOKE {} ON {} FROM {};", privileges(p)?, on(object)?, to_whom(from)),
         SecurityAction::AddMember { role, member } => format!("GRANT ROLE {} TO {};", q(grantee(role).1), to_whom(member)),
         SecurityAction::RemoveMember { role, member } => format!("REVOKE ROLE {} FROM {};", q(grantee(role).1), to_whom(member)),
     })
+}
+
+// -- schemas (folders) ---------------------------------------------------------
+
+/// "Nuevo esquema…": a schema is a folder, `CREATE FOLDER` / `DROP FOLDER`
+/// by its whole path: the space or source the menu was opened on (taken
+/// whole: a home space's name can have dots, `@ana.b`), then the folders
+/// (`origen.carpeta`, as the explorer shows it, or just `carpeta`). Dremio
+/// takes them in catalog sources (Nessie, Iceberg REST, Arctic); folders of
+/// spaces are made in the UI or the REST API ("Create folder is not
+/// supported for this source"). There's no owner clause (ownership is the
+/// OWNERSHIP grant) and no CASCADE; grants on folders are Enterprise's.
+pub fn schema_spec() -> SchemaSpec {
+    SchemaSpec {
+        owner: false,
+        owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+        cascade: false,
+        privileges: vec![
+            "SELECT", "ALTER", "CREATE TABLE", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "DROP", "VIEW REFLECTION",
+            "ALTER REFLECTION", "MODIFY", "MANAGE GRANTS", "OWNERSHIP",
+        ],
+        grant_option: true,
+    }
+}
+
+/// A folder's whole path, quoted. `database`: the space or source the
+/// explorer menu was opened on, one part even with dots in it; `name` is
+/// the explorer's schema (`origen.carpeta.sub`, starting with `database`)
+/// or a path inside `database`. Without `database`, `name` is the whole
+/// path and its first part is the space or source. The folders after the
+/// space or source split at the dots, except inside a part written between
+/// double quotes (`nessie."a.b"`): INFORMATION_SCHEMA writes a path with
+/// plain dots, so a folder whose name has a dot (only possible in a
+/// source) can't be told from nested folders unless quoted.
+pub fn folder_in(database: Option<&str>, name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::Query("escribí el nombre del esquema".into()));
+    }
+    let top = database.map(str::trim).filter(|d| !d.is_empty());
+    let parts = match top {
+        Some(db) => {
+            let rest = name.strip_prefix(db).and_then(|r| r.strip_prefix('.')).unwrap_or(if name == db { "" } else { name });
+            let mut parts = vec![db.to_string()];
+            if !rest.is_empty() {
+                parts.extend(path(rest)?);
+            }
+            parts
+        }
+        None => path(name)?,
+    };
+    if parts.len() < 2 || parts.iter().any(|x| x.trim().is_empty()) {
+        return Err(Error::Query(format!(
+            "en Dremio un esquema es una carpeta: escribí su ruta completa, origen.carpeta (como se ve en el explorador), no «{name}»"
+        )));
+    }
+    Ok(parts.iter().map(|x| q(x)).collect::<Vec<_>>().join("."))
+}
+
+pub fn create_schema(database: Option<&str>, name: &str) -> Result<String> {
+    Ok(format!("CREATE FOLDER {};", folder_in(database, name)?))
+}
+
+pub fn drop_schema(database: Option<&str>, name: &str) -> Result<String> {
+    Ok(format!("DROP FOLDER {};", folder_in(database, name)?))
+}
+
+/// A grant on the new folder, by its whole path (see `folder_in`).
+pub fn schema_grant(database: Option<&str>, name: &str, privileges: &[String], to: &str, grantable: bool) -> Result<String> {
+    let object = Some(ObjectRef { kind: "schema".into(), schema: None, name: folder_in(database, name)? });
+    script(&SecurityAction::Grant { privileges: privileges.to_vec(), object, to: to.to_string(), grantable })
 }
 
 #[cfg(test)]
@@ -350,5 +486,62 @@ mod tests {
         assert_eq!((g.object.as_deref(), g.object_kind.as_deref()), (Some("sp.f.t"), Some(kinds::TABLE)));
         let g = grant_of(&rows(json!([{"privilege": "CREATE_USER", "object_id": "", "object_type": "SYSTEM"}]))[0], Some("role:lect".into()));
         assert_eq!((g.privilege.as_str(), g.object, g.via.as_deref()), ("CREATE USER", None, Some("role:lect")));
+    }
+
+    #[test]
+    fn folder_scripts() {
+        let create_schema = |n: &str| super::create_schema(None, n);
+        let drop_schema = |n: &str| super::drop_schema(None, n);
+        assert_eq!(create_schema(" nessie.ventas ").unwrap(), "CREATE FOLDER \"nessie\".\"ventas\";");
+        assert_eq!(drop_schema("nessie.ve\"n.sub").unwrap(), "DROP FOLDER \"nessie\".\"ve\"\"n\".\"sub\";");
+        assert!(create_schema("ventas").is_err());
+        assert!(create_schema("nessie.").is_err());
+        assert!(drop_schema(" ").is_err());
+        // With the menu's space or source: a bare folder goes in it, the
+        // explorer's whole path keeps it as one part even with dots.
+        assert_eq!(super::create_schema(Some("nessie"), "ventas").unwrap(), "CREATE FOLDER \"nessie\".\"ventas\";");
+        assert_eq!(super::create_schema(Some("nessie"), "nessie.ventas").unwrap(), "CREATE FOLDER \"nessie\".\"ventas\";");
+        assert_eq!(super::drop_schema(Some("@ana.b"), "@ana.b.f1.sub").unwrap(), "DROP FOLDER \"@ana.b\".\"f1\".\"sub\";");
+        assert_eq!(super::drop_schema(Some("nessie"), "nessie.\"a.b\"").unwrap(), "DROP FOLDER \"nessie\".\"a.b\";");
+        assert_eq!(super::create_schema(Some("nessie"), "\"a.b\".c").unwrap(), "CREATE FOLDER \"nessie\".\"a.b\".\"c\";");
+        assert!(super::drop_schema(Some("nessie"), "nessie").is_err(), "the source itself isn't a folder");
+        assert!(super::create_schema(Some("nessie"), "nessie.").is_err());
+        assert_eq!(
+            schema_grant(Some("@ana.b"), "@ana.b.f1", &["SELECT".into()], "role:lect", false).unwrap(),
+            "GRANT SELECT ON FOLDER \"@ana.b\".\"f1\" TO ROLE \"lect\";"
+        );
+        let spec = schema_spec();
+        assert!(!spec.owner && !spec.cascade);
+        let g = script(&SecurityAction::Grant {
+            privileges: spec.privileges.iter().map(|p| p.to_string()).collect(),
+            object: obj("schema", None, "nessie.ventas"),
+            to: "role:lect".into(),
+            grantable: false,
+        })
+        .unwrap();
+        assert!(g.starts_with("GRANT SELECT, ALTER, CREATE TABLE") && g.ends_with(" ON FOLDER \"nessie\".\"ventas\" TO ROLE \"lect\";"), "{g}");
+        // A dot inside a folder's name, between double quotes.
+        assert_eq!(create_schema("nessie.\"a.b\".c").unwrap(), "CREATE FOLDER \"nessie\".\"a.b\".\"c\";");
+        assert_eq!(create_schema("\"nes\"\"sie\".x").unwrap(), "CREATE FOLDER \"nes\"\"sie\".\"x\";");
+        assert!(create_schema("nessie.\"a.b").is_err());
+        assert!(create_schema("nessie.\"a\"b").is_err());
+        assert!(create_schema("\"nessie.ventas\"").is_err(), "one quoted part is a space or a source");
+        // "Con opción de otorgar" on the new folder: MANAGE GRANTS on it.
+        let grant = |p: &[&str]| {
+            script(&SecurityAction::Grant {
+                privileges: p.iter().map(|x| x.to_string()).collect(),
+                object: obj("schema", None, "nessie.\"a.b\""),
+                to: "ana".into(),
+                grantable: true,
+            })
+            .unwrap()
+        };
+        assert_eq!(
+            grant(&["SELECT"]),
+            "GRANT SELECT ON FOLDER \"nessie\".\"a.b\" TO USER \"ana\";\n-- Dremio no tiene WITH GRANT OPTION: poder otorgar es MANAGE GRANTS sobre la carpeta.\nGRANT MANAGE GRANTS ON FOLDER \"nessie\".\"a.b\" TO USER \"ana\";"
+        );
+        assert_eq!(grant(&["SELECT", "manage_grants"]), "GRANT SELECT, MANAGE GRANTS ON FOLDER \"nessie\".\"a.b\" TO USER \"ana\";");
+        // Elsewhere the grant option is still refused.
+        assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT".into()], object: obj("table", Some("nessie"), "t"), to: "ana".into(), grantable: true }).is_err());
     }
 }

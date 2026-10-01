@@ -98,7 +98,10 @@
     "tableUnknown": "the query's table isn't recognized",
     "combinesTables": "the result combines tables: only queries on a single table can be edited",
     "missingKey": "the result doesn't include the primary key ({{columns}}): add it to the SELECT to edit",
-    "noPrimaryKey": "The table has no primary key: the WHERE uses every column (it may affect more than one row if there are duplicates)."
+    "noPrimaryKey": "The table has no primary key: the WHERE uses every column (it may affect more than one row if there are duplicates).",
+    "keyNotComparable": "the row key includes «{{column}}», with a binary or long value that can't be compared in the WHERE",
+    "noComparableColumns": "no column of the row can be compared in the WHERE: they are all binary or long",
+    "skippedColumns": "Binary or long columns ({{columns}}) are left out of the WHERE."
   },
   "connections": {
     "downloading": "Downloading {{component}}, just this once… {{pct}} % ({{done}} of {{total}} MB)",

@@ -138,7 +138,7 @@ async fn exercise(id: &str, env: &str) {
     // Several statements; one fails in the middle.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1 AS a; SELECT * FROM dbine_t.nope; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1, "{id}: {out:?}");
 
     // Truncation past max_rows.
@@ -178,7 +178,7 @@ async fn exercise(id: &str, env: &str) {
     let mut ro = d.connect(&ro_cfg, None).await.unwrap();
     let e = run(&mut ro, "INSERT INTO dbine_t.items (name) VALUES ('z')").await.unwrap_err();
     eprintln!("{id}: read-only refusal: {e}");
-    assert!(matches!(e, Error::Query(_)));
+    assert!(e.is_query(), "{e:?}");
 
     // A second database through `connect(.., Some(db))`.
     let other = dbs.iter().find(|d| d.as_str() != cfg.database).cloned();
@@ -446,7 +446,7 @@ async fn exercise_light(id: &str, env: &str) {
 
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1 AS a; SELECT * FROM dbine_t.nope; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1, "{id}: {out:?}");
 
     let mut out = QueryOutcome::default();

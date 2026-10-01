@@ -1,4 +1,4 @@
-import type { Cell, ObjectRef } from '../api/types';
+import type { Cell, ObjectRef, ResultColumn } from '../api/types';
 import { t } from '../i18n';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 
@@ -135,14 +135,57 @@ export function sameValue(a: Cell, b: Cell) {
   return a === b || (a !== null && b !== null && String(a) === String(b) && typeof a === typeof b);
 }
 
-/** The edits as changes: key = original key values, set = new values. */
-export function buildChanges(columns: string[], rows: Cell[][], edits: Edits, keyColumns: string[]): RowChange[] {
+/** Column types whose values can't be matched with `=` in a WHERE, or come
+ *  cut (binary is shown as `0x…` hex, up to 1 KiB): binary, LOBs, XML,
+ *  spatial. SQL Server's legacy `text` and `timestamp` (rowversion) can't
+ *  be compared either. Only the column's type decides: a text value that
+ *  reads like hex (`'0xAB'`) is still compared, or the WHERE would match
+ *  more rows than the one edited. */
+const UNCOMPARABLE = /blob|binary|bytea|^bytes\b|^byte$|bindata|bytearray|octets|image|clob|ntext|xml|geometry|geography|^raw$|long raw|hierarchyid|sql_variant/i;
+
+function comparableType(col: ResultColumn | undefined, dialect: string) {
+  const ty = col?.type_name ?? '';
+  // SQL Server's `timestamp` is rowversion (binary), not a date.
+  return !UNCOMPARABLE.test(ty) && !((dialect === 'mssql' || dialect === 'sybase') && /^(text|timestamp|rowversion)$/i.test(ty));
+}
+
+/** Columns left out of an all-columns WHERE (their values can't be
+ *  compared): exactly the ones `rowKey` leaves out. */
+export function skippedKeyColumns(columns: ResultColumn[], setup: EditSetup, dialect: string): string[] {
+  if (!setup.all) return [];
+  const byName = new Map(columns.map((c) => [c.name, c]));
+  return setup.keyColumns.filter((k) => !comparableType(byName.get(k), dialect));
+}
+
+/**
+ * How the WHERE finds a row: its key values (NULLs stay NULL: the driver
+ * writes `IS NULL`). With every column as the key, binary and large values
+ * are left out; a primary key with one of them can't identify the row
+ * (throws, with the reason).
+ */
+export function rowKey(columns: ResultColumn[], row: Cell[], setup: EditSetup, dialect = ''): [string, Cell][] {
+  const names = columns.map((c) => c.name);
+  const key: [string, Cell][] = [];
+  for (const k of setup.keyColumns) {
+    const i = names.indexOf(k);
+    const v = row[i] ?? null;
+    if (comparableType(columns[i], dialect)) key.push([k, v]);
+    else if (!setup.all) throw new Error(t('core:gridEdit.keyNotComparable', { column: k }));
+  }
+  if (!key.length) throw new Error(t('core:gridEdit.noComparableColumns'));
+  return key;
+}
+
+/** The edits as changes: key = original key values, set = new values. Rows
+ *  in `skip` (marked for deletion) are left out. */
+export function buildChanges(columns: ResultColumn[], rows: Cell[][], edits: Edits, setup: EditSetup, dialect = '', skip: Set<number> = new Set()): RowChange[] {
+  const names = columns.map((c) => c.name);
   return Object.entries(edits)
+    .filter(([r]) => !skip.has(Number(r)))
     .map(([r, cells]) => {
       const row = rows[Number(r)];
-      const set = Object.entries(cells).map(([c, v]) => [columns[Number(c)], v] as [string, Cell]);
-      const key = keyColumns.map((k) => [k, row[columns.indexOf(k)] ?? null] as [string, Cell]);
-      return { key, set, row: columns.map((c, i) => [c, row[i] ?? null] as [string, Cell]) };
+      const set = Object.entries(cells).map(([c, v]) => [names[Number(c)], v] as [string, Cell]);
+      return { key: rowKey(columns, row, setup, dialect), set, row: names.map((c, i) => [c, row[i] ?? null] as [string, Cell]) };
     })
     .filter((c) => c.set.length);
 }

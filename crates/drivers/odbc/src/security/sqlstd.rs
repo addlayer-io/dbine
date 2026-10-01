@@ -653,6 +653,10 @@ pub fn script(d: Dialect, a: &SecurityAction) -> Result<String> {
             let option = match (d, grantable, object) {
                 (_, false, _) => "",
                 (Dialect::HeavyDb | Dialect::Sqream, true, _) => return unsupported_action("este motor no otorga permisos con opción de otorgarlos a otros"),
+                // MaxDB's GRANT on a schema (CREATEIN, DROPIN) has no WITH GRANT OPTION.
+                (Dialect::MaxDb, true, Some(o)) if o.kind == "schema" => {
+                    return unsupported_action("MaxDB no otorga permisos sobre un esquema con opción de otorgarlos a otros")
+                }
                 (Dialect::Iris, true, None) => " WITH ADMIN OPTION",
                 _ => option(true),
             };

@@ -20,7 +20,8 @@ mod transfer;
 
 use dbine_driver::{
     async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
-    Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, Result, Session, TableSchema,
+    Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, Result, ScriptDefaults, ScriptDialect, ScriptError,
+    ScriptMode, Session, TableSchema,
 };
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Opts, OptsBuilder, SslOpts};
@@ -137,6 +138,12 @@ impl Variant {
     /// A single namespace: no databases to pick.
     pub(crate) fn single_namespace(self) -> bool {
         self == Variant::Manticore
+    }
+
+    /// `SET autocommit = 0` keeps a transaction open until COMMIT /
+    /// ROLLBACK, and OK packets carry SERVER_STATUS_IN_TRANS.
+    pub(crate) fn has_transactions(self) -> bool {
+        matches!(self, Variant::MySql | Variant::MariaDb | Variant::TiDb | Variant::OceanBase)
     }
 
     fn info(product: Variant) -> DriverInfo {
@@ -269,6 +276,25 @@ impl Driver for MySqlDriver {
         true
     }
 
+    fn script_dialect(&self) -> ScriptDialect {
+        script_dialect(self.variant)
+    }
+
+    /// One statement per request on the tab's connection, as the mysql CLI
+    /// sends them: USE, SET, @vars and temporary tables carry over.
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// The mysql CLI stops at the first error (`--force` goes on).
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: false, ..ScriptDefaults::for_language(Language::Sql) }
+    }
+
+    fn supports_manual_transactions(&self) -> bool {
+        self.variant.has_transactions()
+    }
+
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
         security::supported(self.variant).then(|| security::spec_for(self.variant))
     }
@@ -399,6 +425,96 @@ pub(crate) fn err(e: mysql_async::Error) -> Error {
     }
 }
 
+/// How the mysql CLI reads a script: `DELIMITER`, backslash escapes, `#`
+/// and `-- ` comments. Manticore has no routines (no DELIMITER, no bodies).
+pub(crate) fn script_dialect(v: Variant) -> ScriptDialect {
+    let d = ScriptDialect::mysql();
+    if v == Variant::Manticore {
+        ScriptDialect { delimiter_command: false, compound_blocks: false, ..d }
+    } else {
+        d
+    }
+}
+
+/// A statement's failure with the server's error number, SQLSTATE and,
+/// for syntax errors, where in `sql` (the text that was sent) it is.
+pub(crate) fn stmt_err(sql: &str, e: mysql_async::Error) -> Error {
+    match e {
+        mysql_async::Error::Server(s) if s.code != 1317 => {
+            let mut e = ScriptError::new(s.message.clone()).with_code(s.code.to_string());
+            if !s.state.is_empty() && s.state != "HY000" {
+                e = e.with_sqlstate(s.state.clone());
+            }
+            let (offset, line) = error_position(sql, &s.message);
+            if let Some(o) = offset {
+                e = e.at_offset(o);
+            }
+            if let Some(l) = line {
+                e = e.at_line(l);
+            }
+            // ER_SERVER_SHUTDOWN, MariaDB's ER_CONNECTION_KILLED, MySQL's
+            // ER_CLIENT_INTERACTION_TIMEOUT: the connection is gone.
+            if matches!(s.code, 1053 | 1927 | 4031) {
+                e = e.fatal();
+            }
+            e.into()
+        }
+        other => err(other),
+    }
+}
+
+/// Where a syntax error is, from the server's message: MySQL / MariaDB say
+/// `… near 'rest of the text' at line N`, TiDB `… line N column C near "…"`.
+/// The offset is that of the quoted text in `sql` (the end of the text
+/// when the server quotes nothing: the statement ended too soon).
+pub(crate) fn error_position(sql: &str, message: &str) -> (Option<usize>, Option<u32>) {
+    let digits = |s: &str| -> Option<u32> {
+        let n: String = s.chars().take_while(char::is_ascii_digit).collect();
+        n.parse().ok().filter(|&n| n > 0)
+    };
+    let (near, line, column) = if let Some(i) = message.rfind("' at line ") {
+        let Some(start) = message[..i].find("near '") else { return (None, None) };
+        (&message[start + "near '".len()..i], digits(&message[i + "' at line ".len()..]), None)
+    } else if let Some(i) = message.find("line ").filter(|_| message.contains(" column ")) {
+        // TiDB: `line 1 column 13 near "t" `.
+        let rest = &message[i + "line ".len()..];
+        let line = digits(rest);
+        let column = rest.find(" column ").and_then(|c| digits(&rest[c + " column ".len()..]));
+        let near = rest
+            .find("near \"")
+            .map(|n| &rest[n + "near \"".len()..])
+            .map(|r| r.rfind('"').map_or(r, |q| &r[..q]))
+            .unwrap_or("");
+        (near, line, column)
+    } else {
+        return (None, None);
+    };
+    let Some(line) = line else { return (None, None) };
+    let line_start = if line == 1 {
+        0
+    } else {
+        match sql.match_indices('\n').nth(line as usize - 2) {
+            Some((i, _)) => i + 1,
+            None => return (None, Some(line)),
+        }
+    };
+    let offset = if near.is_empty() {
+        Some(sql.trim_end().len().max(line_start))
+    } else if near.chars().count() < 80 && sql.trim_end().ends_with(near) && sql.trim_end().len() - near.len() >= line_start {
+        // The server quotes the rest of the statement, up to 80 characters: an uncut
+        // tail sits at the end, even when the same text shows up earlier on the line.
+        Some(sql.trim_end().len() - near.len())
+    } else {
+        // The server cuts the quoted text (at 80 characters): look for its start.
+        let probe: String = near.chars().take(40).collect();
+        sql[line_start..].find(probe.as_str()).map(|i| line_start + i).or_else(|| {
+            // TiDB's column is where the parser stopped, past the token.
+            column.map(|c| (line_start + c as usize).min(sql.len())).filter(|&o| sql.is_char_boundary(o))
+        })
+    };
+    (offset, Some(line))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -422,6 +538,78 @@ mod tests {
         for (id, seq) in [("mariadb", true), ("tidb", true), ("oceanbase", true), ("databend", true), ("mysql", false), ("starrocks", false)] {
             assert_eq!(info(id).object_kinds.iter().any(|k| k.id == kinds::SEQUENCE), seq, "{id}");
         }
+    }
+
+    #[test]
+    fn syntax_errors_point_at_the_text() {
+        let sql = "select 1,\n  frm t\nwhere x";
+        let m = "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 't\nwhere x' at line 2";
+        assert_eq!(error_position(sql, m), (Some(sql.find("t\nwhere").unwrap()), Some(2)));
+        // Nothing quoted: the statement ended too soon.
+        let m = "You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '' at line 1";
+        assert_eq!(error_position("select (1  ", m), (Some(9), Some(1)));
+        // Quotes inside the quoted text.
+        let sql = "insert into t values ('it''s' x)";
+        let m = "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'x)' at line 1";
+        assert_eq!(error_position(sql, m), (Some(sql.len() - 2), Some(1)));
+        let m = "[parser:1064]You have an error in your SQL syntax; check the manual that corresponds to your TiDB version for the right syntax to use line 1 column 11 near \"frm t\" ";
+        assert_eq!(error_position("select 1, frm t", m), (Some(10), Some(1)));
+        assert_eq!(error_position("select 1", "Table 'a.b' doesn't exist"), (None, None));
+        // A line past the text: the line alone.
+        assert_eq!(error_position("x", "near 'y' at line 3"), (None, Some(3)));
+        // A short tail that also shows up earlier on its line: the tail wins.
+        let sql = "SELECT a FROM emp e\nWHERE e.id = 1 e";
+        let m = "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'e' at line 2";
+        assert_eq!(error_position(sql, m), (Some(sql.len() - 1), Some(2)));
+        let sql = "SELECT 'x' AS x, 'x' AS y x";
+        let m = "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'x' at line 1";
+        assert_eq!(error_position(sql, m), (Some(sql.len() - 1), Some(1)));
+    }
+
+    #[test]
+    fn server_errors_keep_number_state_and_position() {
+        let server = |code: u16, state: &str, message: &str| {
+            mysql_async::Error::Server(mysql_async::ServerError { code, state: state.into(), message: message.into() })
+        };
+        match stmt_err("selec 1", server(1064, "42000", "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'selec 1' at line 1")) {
+            Error::Statement(e) => {
+                assert_eq!((e.code.as_deref(), e.sqlstate.as_deref(), e.offset, e.line, e.fatal), (Some("1064"), Some("42000"), Some(0), Some(1), false));
+            }
+            other => panic!("{other:?}"),
+        }
+        match stmt_err("x", server(1146, "42S02", "Table 'd.x' doesn't exist")) {
+            Error::Statement(e) => assert_eq!((e.code.as_deref(), e.sqlstate.as_deref(), e.line), (Some("1146"), Some("42S02"), None)),
+            other => panic!("{other:?}"),
+        }
+        // HY000 says nothing; a shutdown ends the script.
+        match stmt_err("x", server(1053, "HY000", "Server shutdown in progress")) {
+            Error::Statement(e) => assert!(e.sqlstate.is_none() && e.fatal),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(stmt_err("x", server(1317, "70100", "Query execution was interrupted")), Error::Cancelled));
+    }
+
+    #[test]
+    fn scripts_run_statement_by_statement_and_stop_on_errors() {
+        let ds = drivers();
+        let get = |id: &str| ds.iter().find(|d| d.info().id == id).unwrap();
+        for d in &ds {
+            assert_eq!(d.script_mode(), ScriptMode::PerStatement, "{}", d.info().id);
+            assert!(!d.script_defaults().continue_on_error);
+            assert!(d.script_defaults().confirm_unsafe_dml);
+        }
+        for (id, tx) in [("mysql", true), ("mariadb", true), ("tidb", true), ("aurora-mysql", true), ("starrocks", false), ("manticore", false), ("greptimedb", false)] {
+            assert_eq!(get(id).supports_manual_transactions(), tx, "{id}");
+        }
+        let script = "DELIMITER //\nCREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END//\nDELIMITER ;\nCALL p(); # done\nSELECT 'a;b'";
+        let units = get("mysql").split_script(script);
+        let kinds: Vec<_> = units.iter().map(|u| u.kind).collect();
+        use dbine_driver::StatementKind::*;
+        assert_eq!(kinds.iter().filter(|k| **k != ClientCommand).count(), 3, "{units:?}");
+        assert!(units.iter().any(|u| u.text == "CREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END"), "{units:?}");
+        // Manticore: comments don't split, no DELIMITER.
+        let units = get("manticore").split_script("SELECT 1 /* ; */; -- x;\nSELECT 2");
+        assert_eq!(units.len(), 2, "{units:?}");
     }
 
     #[test]

@@ -103,7 +103,7 @@ async fn end_to_end() {
 
     // Server errors.
     let e = run(&mut s, "{\"selector\": {\"age\": {\"$nope\": 1}}}", 10).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     let e = run(&mut s, "GET /dbine_it/missing", 10).await.unwrap_err();
     assert!(e.to_string().contains("not_found"), "{e}");
 

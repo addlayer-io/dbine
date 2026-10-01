@@ -125,9 +125,27 @@ enum Cur {
     Sql(Vec<String>),
 }
 
-fn finish(cur: Cur, out: &mut Vec<Command>) {
-    match cur {
-        Cur::None => {}
+/// A command with where it starts in the script.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    pub command: Command,
+    /// Byte offset of its first line's first non-blank character.
+    pub offset: usize,
+    /// 1-based line of that character.
+    pub line: u32,
+}
+
+/// A line that's neither a request nor SQL, and where it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseError {
+    pub message: String,
+    pub offset: usize,
+    pub line: u32,
+}
+
+fn finish(cur: Cur, at: (usize, u32), out: &mut Vec<Located>) {
+    let command = match cur {
+        Cur::None => return,
         Cur::Req(method, path, body) => {
             let body = body.join("\n");
             let body = body.trim();
@@ -135,28 +153,42 @@ fn finish(cur: Cur, out: &mut Vec<Command>) {
             if !path.starts_with('/') {
                 path.insert(0, '/');
             }
-            out.push(Command::Http(Request {
+            Command::Http(Request {
                 method,
                 path,
                 body: (!body.is_empty()).then(|| body.to_string()),
-            }));
+            })
         }
         Cur::Sql(lines) => {
             let s = lines.join("\n");
             let s = s.trim().trim_end_matches(';').trim();
-            if !s.is_empty() {
-                out.push(Command::Sql(s.to_string()));
+            if s.is_empty() {
+                return;
             }
+            Command::Sql(s.to_string())
         }
-    }
+    };
+    out.push(Located { command, offset: at.0, line: at.1 });
 }
 
 /// Split a console script into requests and SQL statements.
 /// `Err` names the first line that's neither.
 pub fn parse(text: &str) -> Result<Vec<Command>, String> {
+    parse_located(text).map(|v| v.into_iter().map(|l| l.command).collect()).map_err(|e| e.message)
+}
+
+/// [`parse`], keeping where each command starts in `text`.
+pub fn parse_located(text: &str) -> Result<Vec<Located>, ParseError> {
     let mut out = Vec::new();
     let mut cur = Cur::None;
-    for (n, line) in text.lines().enumerate() {
+    let mut at = (0usize, 1u32);
+    let mut pos = 0usize;
+    for (n, raw) in text.split_inclusive('\n').enumerate() {
+        let start = pos;
+        pos += raw.len();
+        let line = raw.strip_suffix('\n').unwrap_or(raw);
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        let here = (start + (line.len() - line.trim_start().len()), n as u32 + 1);
         if is_comment(line) {
             continue;
         }
@@ -169,40 +201,46 @@ pub fn parse(text: &str) -> Result<Vec<Command>, String> {
             }
         }
         if blank {
-            finish(std::mem::replace(&mut cur, Cur::None), &mut out);
+            finish(std::mem::replace(&mut cur, Cur::None), at, &mut out);
             continue;
         }
         if let Some(m) = method_of(line) {
-            finish(std::mem::replace(&mut cur, Cur::None), &mut out);
+            finish(std::mem::replace(&mut cur, Cur::None), at, &mut out);
             let path = line.trim_start()[m.len()..].trim().to_string();
             if path.is_empty() {
-                return Err(format!("Línea {}: falta la ruta después de {m}.", n + 1));
+                return Err(ParseError { message: format!("Línea {}: falta la ruta después de {m}.", n + 1), offset: here.0, line: here.1 });
             }
             cur = Cur::Req(m, path, Vec::new());
+            at = here;
             continue;
         }
         if is_sql_start(line) && !matches!(cur, Cur::Sql(_)) {
-            finish(std::mem::replace(&mut cur, Cur::None), &mut out);
+            finish(std::mem::replace(&mut cur, Cur::None), at, &mut out);
             cur = Cur::Sql(Vec::new());
+            at = here;
         }
         match &mut cur {
             Cur::Req(_, _, body) => body.push(line.to_string()),
             Cur::Sql(lines) => {
                 lines.push(line.to_string());
                 if line.trim_end().ends_with(';') {
-                    finish(std::mem::replace(&mut cur, Cur::None), &mut out);
+                    finish(std::mem::replace(&mut cur, Cur::None), at, &mut out);
                 }
             }
             Cur::None => {
-                return Err(format!(
-                    "Línea {}: se esperaba una petición (GET /ruta, POST /ruta…) o una sentencia SQL: {}",
-                    n + 1,
-                    line.trim()
-                ))
+                return Err(ParseError {
+                    message: format!(
+                        "Línea {}: se esperaba una petición (GET /ruta, POST /ruta…) o una sentencia SQL: {}",
+                        n + 1,
+                        line.trim()
+                    ),
+                    offset: here.0,
+                    line: here.1,
+                })
             }
         }
     }
-    finish(cur, &mut out);
+    finish(cur, at, &mut out);
     Ok(out)
 }
 
@@ -282,6 +320,23 @@ mod tests {
         assert_eq!(r.query_param("format"), Some("json"));
         assert_eq!(r.query_param("v"), Some(""));
         assert_eq!(r.segments(), vec!["a", "_cat", "indices"]);
+    }
+
+    #[test]
+    fn located_offsets_and_lines() {
+        let s = "# c\r\nGET /a\r\n\n  PUT /b\n{\n  \"x\": 1\n}\nSELECT 1;\nDELETE /c";
+        let v = parse_located(s).unwrap();
+        let at: Vec<(usize, u32)> = v.iter().map(|l| (l.offset, l.line)).collect();
+        assert_eq!(at.len(), 4);
+        assert_eq!(&s[at[0].0..at[0].0 + 6], "GET /a");
+        assert_eq!(at[0].1, 2);
+        assert_eq!(&s[at[1].0..at[1].0 + 6], "PUT /b");
+        assert_eq!(at[1].1, 4);
+        assert_eq!(&s[at[2].0..at[2].0 + 6], "SELECT");
+        assert_eq!(at[2].1, 8);
+        assert_eq!(at[3].1, 9);
+        let e = parse_located("GET /a\n\nhola").unwrap_err();
+        assert_eq!((e.offset, e.line), (8, 3));
     }
 
     #[test]

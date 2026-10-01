@@ -15,6 +15,7 @@ mod ddl;
 mod permissions;
 mod plan;
 mod profiler;
+mod script;
 mod security;
 mod sync;
 mod transfer;
@@ -25,7 +26,7 @@ use dbine_driver::sql::split_statements;
 use dbine_driver::{
     async_trait, json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, Metric, MetricUnit, MonitorSnapshot,
-    MonitorTable, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, Session, TableSchema,
+    MonitorTable, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, SchemaInfo, Session, TableSchema,
 };
 use serde_json::{json, Value};
 use std::future::Future;
@@ -76,6 +77,16 @@ pub struct DremioDriver {
 impl Driver for DremioDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// Each statement is a job of its own, as the SQL runner sends them;
+    /// `USE` stays in the session (the jobs' context).
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::PerStatement
+    }
+
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        dbine_driver::ScriptDialect { backtick_idents: false, ..dbine_driver::ScriptDialect::generic() }
     }
 
     fn supports_explain(&self) -> bool {
@@ -135,6 +146,24 @@ impl Driver for DremioDriver {
 
     fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
         security::script(action)
+    }
+
+    /// Schemas are folders (see `security::schema_spec`).
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(security::schema_spec())
+    }
+
+    /// In the menu's space or source (see `security::folder_in`).
+    fn create_schema_script(&self, database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+        security::create_schema(database, name)
+    }
+
+    fn schema_grant_script(&self, database: Option<&str>, name: &str, privileges: &[String], to: &str, grantable: bool) -> Result<String> {
+        security::schema_grant(database, name, privileges, to, grantable)
+    }
+
+    fn drop_schema_script(&self, database: Option<&str>, name: &str, _cascade: bool) -> Result<String> {
+        security::drop_schema(database, name)
     }
 
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
@@ -447,7 +476,10 @@ impl DremioSession {
             // Dremio has no USE: the context travels with each job.
             self.context = Some(c.clone());
             out.push_affected(0);
-            out.messages.push(format!("Contexto: {c}"));
+            if let Some(r) = out.results.last_mut() {
+                r.tag = Some("USE".into());
+            }
+            out.info(format!("Contexto: {c}"));
             return Ok(String::new());
         }
         let (id, st) = self.job(stmt).await?;
@@ -533,6 +565,22 @@ impl Session for DremioSession {
             .collect())
     }
 
+    /// The space or source and its folders, from INFORMATION_SCHEMA.SCHEMATA
+    /// (which lists a space's folders even when empty), written as the
+    /// objects' schemas are (plain dots).
+    async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
+        let Ok(c) = self.context() else { return Ok(None) };
+        let rows = self
+            .strings(&format!(
+                "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA
+                 WHERE SCHEMA_NAME = {0} OR SCHEMA_NAME LIKE {1} ESCAPE '\\' ORDER BY SCHEMA_NAME",
+                lit(&c),
+                lit(&format!("{}.%", c.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")))
+            ))
+            .await?;
+        Ok(Some(rows.into_iter().filter_map(|r| r.into_iter().next()).map(|name| SchemaInfo { name, system: false }).collect()))
+    }
+
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let schema = self.schema_of(obj)?;
         let rows = self
@@ -608,8 +656,13 @@ impl Session for DremioSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
-        for stmt in split_statements(text) {
-            self.run(&stmt, max_rows, out).await?;
+        let d = dbine_driver::ScriptDialect { backtick_idents: false, ..dbine_driver::ScriptDialect::generic() };
+        for unit in dbine_driver::sql::split_script(text, &d) {
+            match self.run(&unit.text, max_rows, out).await {
+                Ok(_) => {}
+                Err(Error::Query(m)) => return Err(script::shift(script::job_error(&m, &unit.text), &unit)),
+                Err(e) => return Err(e),
+            }
         }
         Ok(())
     }
@@ -875,6 +928,19 @@ fn encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(Some("nessie"), "ventas", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
 
     #[test]
     fn cells_and_types() {

@@ -6,7 +6,7 @@
 //! The REST API is stateless: `SET` / `UNSET` of properties are kept here
 //! and sent with every request, as the ksqlDB CLI does.
 
-use dbine_driver::sql::{quote_ident, split_statements, Quote};
+use dbine_driver::sql::{quote_ident, split_script, split_statements, Quote, ScriptDialect, ScriptMode, StatementKind};
 use dbine_driver::{
     json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver,
     DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result,
@@ -24,6 +24,7 @@ mod ddl;
 mod sync;
 mod monitor;
 mod plan;
+mod steps;
 mod transfer;
 
 const KSQL_JSON: &str = "application/vnd.ksql.v1+json";
@@ -78,6 +79,18 @@ impl Driver for KsqlDriver {
 
     fn supports_explain(&self) -> bool {
         true
+    }
+
+    /// One statement per `/ksql` or `/query-stream` request; the session's
+    /// `SET` properties live in the session. As the ksql CLI's `RUN
+    /// SCRIPT`, a failure stops the script unless the tab says otherwise.
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// No `BEGIN … END` bodies in ksqlDB.
+    fn script_dialect(&self) -> ScriptDialect {
+        ScriptDialect { compound_blocks: false, ..ScriptDialect::generic() }
     }
 
     /// `/inserts-stream` (see `transfer.rs`).
@@ -309,6 +322,33 @@ impl KsqlSession {
         })
     }
 
+    fn dialect(&self) -> ScriptDialect {
+        ScriptDialect { compound_blocks: false, ..ScriptDialect::generic() }
+    }
+
+    /// One editor statement into `out`.
+    async fn statement(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        match route(stmt) {
+            Route::Query { push } => self.query(stmt, push, max_rows, out).await?,
+            Route::Print => self.print(stmt, max_rows, out).await?,
+            Route::Set(k, v) => {
+                out.info(format!("Propiedad '{k}' = '{v}'"));
+                self.properties.insert(k, v);
+                out.push_affected(0);
+            }
+            Route::Unset(k) => {
+                out.info(format!("Propiedad '{k}' quitada"));
+                self.properties.remove(&k);
+                out.push_affected(0);
+            }
+            Route::Ksql => {
+                let ents = self.ksql(stmt).await?;
+                apply_entities(ents, stmt, max_rows, out);
+            }
+        }
+        Ok(())
+    }
+
     /// One `DESCRIBE`'s source description.
     async fn describe(&mut self, name: &str) -> Result<Value> {
         let ents = self.ksql(&format!("DESCRIBE {}", quote_ident(Quote::Backtick, name))).await?;
@@ -342,7 +382,7 @@ impl KsqlSession {
                 Ok(Some(l)) => l,
                 Ok(None) => break Ok(()),
                 Err(Stop::Timeout) => {
-                    out.messages.push(format!("La consulta push se detuvo a los {} s.", self.push_timeout.as_secs()));
+                    out.info(format!("La consulta push se detuvo a los {} s.", self.push_timeout.as_secs()));
                     break Ok(());
                 }
                 Err(Stop::Cancelled) => break Err(Error::Cancelled),
@@ -388,7 +428,7 @@ impl KsqlSession {
                 // Final messages ("Limit Reached", "Query Completed"…).
                 Value::Object(o) => {
                     if let Some(m) = o.get("finalMessage").and_then(Value::as_str) {
-                        out.messages.push(m.to_string());
+                        out.info(m.to_string());
                     }
                 }
                 _ => {}
@@ -427,7 +467,7 @@ impl KsqlSession {
                 }
                 Ok(None) => return Ok(()),
                 Err(Stop::Timeout) => {
-                    out.messages.push(format!("PRINT se detuvo a los {} s.", self.push_timeout.as_secs()));
+                    out.info(format!("PRINT se detuvo a los {} s.", self.push_timeout.as_secs()));
                     return Ok(());
                 }
                 Err(Stop::Cancelled) => return Err(Error::Cancelled),
@@ -611,12 +651,12 @@ fn apply_entities(ents: Vec<Value>, stmt: &str, max_rows: usize, out: &mut Query
     }
     for e in ents {
         for w in e.get("warnings").and_then(Value::as_array).into_iter().flatten() {
-            out.messages.push(text(w.get("message").unwrap_or(w)));
+            out.warning(text(w.get("message").unwrap_or(w)));
         }
         match e.get("@type").and_then(Value::as_str) {
             Some("currentStatus") => {
                 if let Some(m) = e.pointer("/commandStatus/message").and_then(Value::as_str) {
-                    out.messages.push(m.to_string());
+                    out.info(m.to_string());
                 }
                 out.push_affected(0);
             }
@@ -713,24 +753,13 @@ impl Session for KsqlSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        for stmt in split_statements(text) {
-            match route(&stmt) {
-                Route::Query { push } => self.query(&stmt, push, max_rows, out).await?,
-                Route::Print => self.print(&stmt, max_rows, out).await?,
-                Route::Set(k, v) => {
-                    out.messages.push(format!("Propiedad '{k}' = '{v}'"));
-                    self.properties.insert(k, v);
-                    out.push_affected(0);
-                }
-                Route::Unset(k) => {
-                    self.properties.remove(&k);
-                    out.push_affected(0);
-                }
-                Route::Ksql => {
-                    let ents = self.ksql(&stmt).await?;
-                    apply_entities(ents, &stmt, max_rows, out);
-                }
-            }
+        let own = out.current_statement.is_none();
+        let units = split_script(text, &self.dialect());
+        for (i, u) in units.iter().filter(|u| u.kind != StatementKind::ClientCommand).enumerate() {
+            let step = steps::Step::start(out, own, i, u.start, u.line);
+            let r = self.statement(&u.text, max_rows, out).await;
+            step.finish(out);
+            r.map_err(|e| step.place(e))?;
         }
         Ok(())
     }
@@ -742,16 +771,16 @@ impl Session for KsqlSession {
                 let ents = self.ksql(&format!("EXPLAIN {}", stmt.trim().trim_end_matches(';'))).await?;
                 match ents.iter().find_map(|e| e.get("queryDescription")) {
                     Some(d) => out.plans.push(plan::from_description(&stmt, d)),
-                    None => out.messages.push(format!("ksqlDB no devolvió un plan para «{}».", short(&stmt))),
+                    None => out.info(format!("ksqlDB no devolvió un plan para «{}».", short(&stmt))),
                 }
                 if analyze && !noted {
-                    out.messages.push(
-                        "ksqlDB no da cifras reales por operador: se muestra el plan estimado junto al resultado.".into(),
+                    out.info(
+                        "ksqlDB no da cifras reales por operador: se muestra el plan estimado junto al resultado.",
                     );
                     noted = true;
                 }
             } else if !analyze && !matches!(route(&stmt), Route::Set(..) | Route::Unset(_)) {
-                out.messages.push(format!("Sin plan para «{}»: ksqlDB solo explica consultas.", short(&stmt)));
+                out.info(format!("Sin plan para «{}»: ksqlDB solo explica consultas.", short(&stmt)));
             }
             // SET / UNSET shape the plans after them; the rest only runs
             // when asked to.

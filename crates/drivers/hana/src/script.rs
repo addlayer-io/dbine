@@ -14,7 +14,14 @@ enum State {
 }
 
 pub fn split(sql: &str) -> Vec<String> {
+    pieces(sql).into_iter().map(|(text, _)| text).collect()
+}
+
+/// The statements of a script, each with its byte offset in it.
+pub fn pieces(sql: &str) -> Vec<(String, usize)> {
     let chars: Vec<char> = sql.chars().collect();
+    let bytes: Vec<usize> = sql.char_indices().map(|(b, _)| b).chain(std::iter::once(sql.len())).collect();
+    let mut seg = 0usize;
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut state = State::Code;
@@ -58,9 +65,10 @@ pub fn split(sql: &str) -> Vec<String> {
                     unit.word(&std::mem::take(&mut word));
                 }
                 if c == ';' && unit.may_end() {
-                    push(&mut out, &std::mem::take(&mut cur));
+                    push(&mut out, &std::mem::take(&mut cur), bytes[seg]);
                     unit = Unit::default();
                     i += 1;
+                    seg = i;
                     continue;
                 }
                 match c {
@@ -80,14 +88,16 @@ pub fn split(sql: &str) -> Vec<String> {
         }
         i += 1;
     }
-    push(&mut out, &cur);
+    push(&mut out, &cur, bytes[seg.min(chars.len())]);
     out
 }
 
-fn push(out: &mut Vec<String>, stmt: &str) {
-    let text = strip_leading_comments(stmt).trim_end();
+/// `stmt` (found at byte `at`) without its leading comments and spaces.
+fn push(out: &mut Vec<(String, usize)>, stmt: &str, at: usize) {
+    let lead = strip_leading_comments(stmt);
+    let text = lead.trim_end();
     if !text.is_empty() {
-        out.push(text.to_string());
+        out.push((text.to_string(), at + stmt.len() - lead.len()));
     }
 }
 
@@ -188,6 +198,16 @@ mod tests {
         assert_eq!(s[1], "select 1 from dummy");
         assert_eq!(s[2], "DO BEGIN SELECT 1 FROM dummy; END");
         assert_eq!(s[3], "ALTER PROCEDURE p RECOMPILE");
+    }
+
+    #[test]
+    fn pieces_know_where_they_are() {
+        let sql = "-- x\nselect 'ñ;' from dummy;\n  DO BEGIN SELECT 1 FROM dummy; END;\nselect 2 from dummy";
+        let p = pieces(sql);
+        assert_eq!(p.len(), 3, "{p:#?}");
+        for (t, at) in &p {
+            assert_eq!(&sql[*at..*at + t.len()], t);
+        }
     }
 
     #[test]

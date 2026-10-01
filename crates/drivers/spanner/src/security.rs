@@ -7,7 +7,7 @@
 //! option.
 
 use crate::SpannerSession;
-use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
@@ -277,6 +277,7 @@ fn target(object: &Option<ObjectRef>) -> Result<String> {
         kinds::VIEW => format!("VIEW {name}"),
         "change_stream" => format!("CHANGE STREAM {name}"),
         kinds::FUNCTION => format!("TABLE FUNCTION {name}"),
+        "schema" => format!("SCHEMA {}", bq(&o.name)),
         _ => format!("TABLE {name}"),
     })
 }
@@ -308,6 +309,33 @@ pub fn script(a: &SecurityAction) -> Result<String> {
         SecurityAction::AddMember { role, member } => format!("GRANT ROLE {} TO ROLE {};", bq(role), bq(member)),
         SecurityAction::RemoveMember { role, member } => format!("REVOKE ROLE {} FROM ROLE {};", bq(role), bq(member)),
     })
+}
+
+// -- named schemas -----------------------------------------------------------
+
+/// "Nuevo esquema…": named schemas have no owner and `DROP SCHEMA` takes
+/// only an empty one (no CASCADE). Fine-grained access control grants
+/// `USAGE ON SCHEMA` to a database role (what lets it reach the schema's
+/// objects); the emulator doesn't parse `ON SCHEMA`, production Spanner
+/// does. No grant option (Spanner has no WITH GRANT OPTION).
+pub fn schema_spec() -> SchemaSpec {
+    // No WITH GRANT OPTION in Spanner (see `script`).
+    SchemaSpec { privileges: vec!["USAGE"], grant_option: false, ..SchemaSpec::default() }
+}
+
+fn schema_name(name: &str) -> Result<String> {
+    match name.trim() {
+        "" => Err(Error::Query("escribí el nombre del esquema".into())),
+        n => Ok(bq(n)),
+    }
+}
+
+pub fn create_schema(name: &str) -> Result<String> {
+    Ok(format!("CREATE SCHEMA {};", schema_name(name)?))
+}
+
+pub fn drop_schema(name: &str) -> Result<String> {
+    Ok(format!("DROP SCHEMA {};", schema_name(name)?))
 }
 
 #[cfg(test)]
@@ -357,5 +385,20 @@ mod tests {
         assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT".into()], object: obj("table", "t"), to: "r".into(), grantable: true }).is_err());
         assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT; DROP".into()], object: obj("table", "t"), to: "r".into(), grantable: false }).is_err());
         assert!(script(&SecurityAction::Grant { privileges: vec!["SELECT (a".into()], object: obj("table", "t"), to: "r".into(), grantable: false }).is_err());
+    }
+
+    #[test]
+    fn schema_scripts() {
+        assert_eq!(create_schema(" ventas ").unwrap(), "CREATE SCHEMA `ventas`;");
+        assert_eq!(drop_schema("ven`tas").unwrap(), "DROP SCHEMA `ven\\`tas`;");
+        assert!(create_schema("").is_err());
+        let spec = schema_spec();
+        assert!(!spec.owner && !spec.cascade && spec.privileges == vec!["USAGE"]);
+        let schema = obj("schema", "ven`tas");
+        assert_eq!(
+            script(&SecurityAction::Grant { privileges: vec!["usage".into()], object: schema.clone(), to: "lect".into(), grantable: false }).unwrap(),
+            "GRANT USAGE ON SCHEMA `ven\\`tas` TO ROLE `lect`;"
+        );
+        assert!(script(&SecurityAction::Grant { privileges: vec!["USAGE".into()], object: schema, to: "lect".into(), grantable: true }).is_err());
     }
 }

@@ -94,7 +94,8 @@ async fn etcd() {
     // Errors stop the script; what ran stays.
     let mut out = QueryOutcome::default();
     let e = s.execute("get /dbine_it/a\nfrobnicate\nget /dbine_it/b", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)));
+    assert!(e.is_query(), "{e:?}");
+    assert_eq!(e.to_script_error().line, Some(2));
     assert_eq!(out.results.len(), 1);
     assert!(s.execute("watch /x", 10, &mut QueryOutcome::default()).await.is_err());
 

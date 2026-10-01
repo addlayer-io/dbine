@@ -73,13 +73,32 @@ pub struct UpdateScriptArgs {
     pub connection_id: String,
     pub target: ObjectRef,
     pub changes: Vec<RowChange>,
+    /// Rows marked for deletion in the grid: each one's key columns with
+    /// their values. `None` (older callers): only the UPDATEs.
+    #[serde(default)]
+    pub deletes: Option<Vec<Vec<(String, Value)>>>,
 }
 
-/// Cells edited in the results grid as code that applies them (it's only
-/// generated: the user runs it).
+/// Cells edited (and rows marked for deletion) in the results grid as code
+/// that applies them (it's only generated: the user runs it). With
+/// `deletes`, the DELETEs go first and then the UPDATEs, like data
+/// compare's sync script: the rows are disjoint (a deleted row's edits are
+/// dropped by the UI) and deleting first means no UPDATE can make a row
+/// match a DELETE's WHERE (by all columns when there's no key) or collide
+/// with a unique value that's about to go. An empty `deletes` still asks
+/// the driver: it's how the UI learns the engine can't delete rows.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn update_script(state: State<'_, AppState>, args: UpdateScriptArgs) -> CommandResult<String> {
-    Ok(driver_of(&state, &args.connection_id)?.update_script(&args.target, &args.changes)?)
+    let driver = driver_of(&state, &args.connection_id)?;
+    let Some(deletes) = args.deletes else {
+        return Ok(driver.update_script(&args.target, &args.changes)?);
+    };
+    let mut parts = vec![driver.delete_script(&args.target, &deletes)?];
+    if !args.changes.is_empty() {
+        parts.push(driver.update_script(&args.target, &args.changes)?);
+    }
+    let sep = driver.script_separator();
+    Ok(parts.into_iter().filter(|p| !p.trim().is_empty()).collect::<Vec<_>>().join(&format!("\n{sep}\n")))
 }
 
 #[derive(Deserialize)]

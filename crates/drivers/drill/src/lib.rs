@@ -18,7 +18,7 @@ mod profiler;
 mod transfer;
 
 use base64::Engine as _;
-use dbine_driver::sql::{split_statements, Quote};
+use dbine_driver::sql::{split_script, split_statements, strip_comments, Quote, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind};
 use dbine_driver::{
     async_trait, json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     Driver, DriverInfo, Error, Family, Field, Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable, ObjectKindInfo,
@@ -75,6 +75,21 @@ pub struct DrillDriver {
 impl Driver for DrillDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    fn script_dialect(&self) -> ScriptDialect {
+        dialect()
+    }
+
+    /// One REST query per statement; the session's `USE` and options are
+    /// kept by the driver and sent with each one.
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// sqlline stops at the first error.
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: false, confirm_unsafe_dml: true }
     }
 
     fn supports_explain(&self) -> bool {
@@ -409,6 +424,37 @@ fn session_option(stmt: &str) -> Option<(String, Option<String>)> {
     Some((k.trim().trim_matches('`').to_string(), Some(v)))
 }
 
+/// Drill's error as a script error: its kind as the code ("PARSE",
+/// "VALIDATION"…, else the exception's class, "CalciteContextException")
+/// and where, from "at line 1, column 8" or "From line 1, column 15 to …"
+/// (in `sql`, the statement sent).
+fn drill_error(msg: String, exception: Option<&str>, sql: &str) -> Error {
+    let mut e = dbine_driver::ScriptError::new(msg.clone());
+    let kind = msg.split_once(" ERROR:").map(|(k, _)| k).filter(|k| !k.is_empty() && k.chars().all(|c| c.is_ascii_uppercase() || c == '_'));
+    let class = exception.and_then(|x| x.rsplit('.').next()).filter(|c| !c.is_empty() && *c != "Exception");
+    if let Some(code) = kind.or(class) {
+        e = e.with_code(code);
+    }
+    let pos = msg.split("line ").nth(1).and_then(|r| {
+        let (l, rest) = r.split_once(", column ")?;
+        let c: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        Some((l.trim().parse::<usize>().ok()?, c.parse::<usize>().ok()?))
+    });
+    if let Some((line, col)) = pos.filter(|(l, c)| *l >= 1 && *c >= 1) {
+        let line_start: usize = sql.split_inclusive('\n').take(line - 1).map(str::len).sum();
+        if line_start <= sql.len() {
+            let rest = &sql[line_start..];
+            e = e.at_offset(line_start + rest.char_indices().nth(col - 1).map_or(rest.len(), |(b, _)| b)).at_line(line as u32);
+        }
+    }
+    e.into()
+}
+
+/// sqlline's: `;` outside quotes and comments, `` `name` ``.
+fn dialect() -> ScriptDialect {
+    ScriptDialect { compound_blocks: false, ..ScriptDialect::generic() }
+}
+
 /// `USE x` → `x`.
 fn use_target(stmt: &str) -> Option<String> {
     let s = stmt.trim();
@@ -439,7 +485,8 @@ impl DrillSession {
             let msg = v.get("errorMessage").map(text).unwrap_or_else(|| {
                 "La consulta falló durante la ejecución; Drill no informa el detalle por REST (mirá el perfil de la consulta).".into()
             });
-            return Err(Error::Query(msg));
+            let exception = v.get("exception").map(text);
+            return Err(drill_error(msg, exception.as_deref(), sql));
         }
         let names: Vec<String> = v.get("columns").and_then(Value::as_array).into_iter().flatten().map(text).collect();
         let types: Vec<String> = v.get("metadata").and_then(Value::as_array).into_iter().flatten().map(text).collect();
@@ -468,14 +515,19 @@ impl DrillSession {
 
     /// Run one statement; its result goes to `out`. Returns the query id.
     async fn run(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<String> {
+        self.run_as(stmt, stmt, max_rows, out).await
+    }
+
+    /// [`Self::run`] of `stmt`, whose text without comments is `bare`.
+    async fn run_as(&mut self, stmt: &str, bare: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<String> {
         *self.cancel.current.lock().unwrap_or_else(|e| e.into_inner()) = Some(stmt.to_string());
         let r = self.query(stmt).await;
         *self.cancel.current.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let a = r?;
-        if let Some(s) = use_target(stmt) {
+        if let Some(s) = use_target(bare) {
             self.schema = Some(s);
         }
-        if let Some((k, v)) = session_option(stmt) {
+        if let Some((k, v)) = session_option(bare) {
             match v {
                 Some(v) => {
                     self.options.insert(k, v);
@@ -638,8 +690,19 @@ impl Session for DrillSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
-        for stmt in split_statements(text) {
-            self.run(&stmt, max_rows, out).await?;
+        let d = dialect();
+        for unit in split_script(text, &d).into_iter().filter(|u| u.kind != StatementKind::ClientCommand) {
+            // Sent as written (Drill reads comments), so its positions hold;
+            // USE and SET are recognised without the comments.
+            let bare = strip_comments(&unit.text, &d, false).trim().to_string();
+            self.run_as(&unit.text, &bare, max_rows, out).await.map_err(|e| match e {
+                Error::Statement(mut se) => {
+                    se.offset = se.offset.map(|o| unit.start + o);
+                    se.line = Some(se.line.map_or(unit.line, |l| unit.line + l - 1));
+                    Error::Statement(se)
+                }
+                e => e,
+            })?;
         }
         Ok(())
     }
@@ -863,6 +926,18 @@ impl Session for DrillSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn errors_carry_kind_and_position() {
+        let sql = "SELECT *\n  FROM nope";
+        let e = drill_error("VALIDATION ERROR: From line 2, column 8 to line 2, column 11: Object 'nope' not found\n\n[Error Id: x]".into(), None, sql)
+            .to_script_error();
+        assert_eq!((e.code.as_deref(), e.line, e.offset), (Some("VALIDATION"), Some(2), Some(sql.find("nope").unwrap())));
+        let e = drill_error("At line 1, column 3: x".into(), Some("org.apache.calcite.runtime.CalciteContextException"), sql).to_script_error();
+        assert_eq!((e.code.as_deref(), e.offset), (Some("CalciteContextException"), Some(2)));
+        let e = drill_error("La consulta falló".into(), Some("java.lang.Exception"), sql).to_script_error();
+        assert_eq!((e.code, e.line, e.offset), (None, None, None));
+    }
 
     #[test]
     fn delete_script_is_unsupported() {

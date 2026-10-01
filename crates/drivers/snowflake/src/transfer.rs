@@ -1776,8 +1776,9 @@ mod tests {
 
     fn session(base: String) -> SnowflakeSession {
         SnowflakeSession {
-            api: Api { http: reqwest::Client::new(), base, auth: super::super::Auth::Pat("t".into()) },
+            api: Api { http: reqwest::Client::new(), base, auth: super::super::Auth::Pat("t".into()), last_error: Default::default() },
             ctx: super::super::Context { database: Some("DB".into()), schema: Some("PUBLIC".into()), ..Default::default() },
+            carry: Default::default(),
             handle: Arc::new(Mutex::new(None)),
             mon: Default::default(),
             profiler: None,

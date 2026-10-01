@@ -83,7 +83,7 @@ async fn round_trip() {
     // Errors keep what ran before.
     let mut out = QueryOutcome::default();
     let e = s.execute("SHOW DATABASES; SELECT nope FROM", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Read-only.

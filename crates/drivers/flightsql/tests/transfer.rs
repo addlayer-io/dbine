@@ -259,7 +259,7 @@ async fn flightsql_failed_window_rolls_back() {
         run(&mut s, "DELETE FROM rv.t").await;
         let reports = Mutex::new(Vec::new());
         let r = s.bulk_load(&spec(t.clone(), &["id", "s"], commit), &[], &mut Batches(batches().into_iter()), &|n| reports.lock().unwrap().push(n)).await;
-        assert!(matches!(&r, Err(Error::Query(m)) if m.contains("no es un entero")), "{r:?}");
+        assert!(matches!(&r, Err(e) if e.is_query() && e.to_string().contains("no es un entero")), "{r:?}");
         assert_eq!(count(&mut s, &t).await, want_rows, "commit {commit}");
         assert_eq!(reports.into_inner().unwrap(), want_progress);
     }
@@ -523,7 +523,7 @@ async fn flightsql_duckdb_interval() {
     // load fails whole instead of storing another value.
     let load = |rows: Vec<Vec<Cell>>| Batches(vec![RowBatch { rows, bytes: 0 }].into_iter());
     let r = s.bulk_load(&spec(table("rv", "b"), &["id", "iv"], 1000), &[], &mut load(a.clone()), &|_| {}).await;
-    assert!(matches!(&r, Err(Error::Query(m)) if m.contains("INTERVAL")), "{r:?}");
+    assert!(matches!(&r, Err(e) if e.is_query() && e.to_string().contains("INTERVAL")), "{r:?}");
     assert_eq!(count(&mut s, &table("rv", "b")).await, 0);
     run(&mut s, "DELETE FROM rv.a WHERE id = 2").await;
     let a: Vec<Vec<Cell>> = a.into_iter().filter(|r| r[0] != Cell::Int(2)).collect();

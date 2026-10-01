@@ -93,6 +93,90 @@ pub fn split(text: &str) -> Vec<String> {
     out
 }
 
+/// A unit of an editor script, as cypher-shell reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unit {
+    /// The statement (without its `;`), or the whole command line.
+    pub text: String,
+    /// Byte offset and 1-based line in the script.
+    pub start: usize,
+    pub line: u32,
+    /// A client command (`:use`, `:begin`, `:param`…): a line starting
+    /// with `:` where a statement would start. It takes its line and needs
+    /// no `;`.
+    pub command: bool,
+}
+
+/// Bytes of whitespace and comments at the start of `s`.
+fn trivia(s: &str) -> usize {
+    let b = s.as_bytes();
+    let mut i = 0;
+    loop {
+        if i < b.len() && b[i].is_ascii_whitespace() {
+            i += 1;
+        } else if b[i..].starts_with(b"//") {
+            i = s[i..].find('\n').map_or(b.len(), |n| i + n + 1);
+        } else if b[i..].starts_with(b"/*") {
+            i = s[i + 2..].find("*/").map_or(b.len(), |n| i + 2 + n + 2);
+        } else {
+            return i;
+        }
+    }
+}
+
+/// The script's statements and client commands, in order.
+pub fn script(text: &str) -> Vec<Unit> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    loop {
+        at += trivia(&text[at..]);
+        if at >= text.len() {
+            return out;
+        }
+        let line = text.as_bytes()[..at].iter().filter(|&&c| c == b'\n').count() as u32 + 1;
+        let rest = &text[at..];
+        if rest.starts_with(':') {
+            let end = rest.find('\n').unwrap_or(rest.len());
+            let cmd = rest[..end].trim_end().trim_end_matches(';').trim_end();
+            out.push(Unit { text: cmd.to_string(), start: at, line, command: true });
+            at += end;
+            continue;
+        }
+        let bytes: Vec<usize> = rest.char_indices().map(|(i, _)| i).collect();
+        let mut semi = None;
+        scan(rest, |s, _, kind| {
+            if kind == 'p' && rest[bytes[s]..].starts_with(';') {
+                semi = Some(bytes[s]);
+                return false;
+            }
+            true
+        });
+        let end = semi.unwrap_or(rest.len());
+        let stmt = rest[..end].trim_end();
+        if !stmt.is_empty() {
+            out.push(Unit { text: stmt.to_string(), start: at, line, command: false });
+        }
+        at += semi.map_or(rest.len(), |s| s + 1);
+    }
+}
+
+/// A statement Neo4j only runs in an implicit (auto-commit) transaction:
+/// `CALL { … } IN TRANSACTIONS`, `LOAD CSV … PERIODIC COMMIT`, and the
+/// administration commands (databases, users, roles, privileges, `SHOW`).
+pub fn implicit_only(stmt: &str) -> bool {
+    let w = words(stmt);
+    let has = |a: &str, b: &str| w.windows(2).any(|p| p[0] == a && p[1] == b);
+    if has("IN", "TRANSACTIONS") || has("PERIODIC", "COMMIT") {
+        return true;
+    }
+    let at = |i: usize| w.get(i).map(String::as_str).unwrap_or("");
+    // `CREATE OR REPLACE DATABASE x`: the object is the fourth word.
+    let object = if at(1) == "OR" { at(3) } else { at(1) };
+    matches!(at(0), "SHOW" | "GRANT" | "DENY" | "REVOKE" | "TERMINATE" | "ENABLE" | "DEALLOCATE" | "REALLOCATE" | "DRYRUN")
+        || (matches!(at(0), "CREATE" | "DROP" | "ALTER" | "START" | "STOP" | "RENAME")
+            && matches!(object, "DATABASE" | "COMPOSITE" | "ALIAS" | "USER" | "ROLE" | "SERVER"))
+}
+
 /// Upper-cased words of a statement (outside strings/comments/quoted names).
 pub fn words(stmt: &str) -> Vec<String> {
     let chars: Vec<char> = stmt.chars().collect();
@@ -211,6 +295,44 @@ mod tests {
         let s = split("MATCH (n) RETURN n; // a; comment\nRETURN 'a;b', \"c\\\";\" /* ; */ ;\n;  \n// only a comment\nRETURN `x;y`");
         assert_eq!(s, ["MATCH (n) RETURN n", "// a; comment\nRETURN 'a;b', \"c\\\";\" /* ; */", "// only a comment\nRETURN `x;y`"]);
         assert!(split("  ; // nothing\n").is_empty());
+    }
+
+    #[test]
+    fn script_units_and_commands() {
+        let s = ":use movies\nMATCH (n)\nRETURN n;\n  :begin\nCREATE (:A {t: 'x;y'}); // c; d\n:param n => 1 + 2;\n:commit\nRETURN 'é' AS a; RETURN 2";
+        let u = script(s);
+        let t: Vec<(&str, u32, bool)> = u.iter().map(|u| (u.text.as_str(), u.line, u.command)).collect();
+        assert_eq!(
+            t,
+            [
+                (":use movies", 1, true),
+                ("MATCH (n)\nRETURN n", 2, false),
+                (":begin", 4, true),
+                ("CREATE (:A {t: 'x;y'})", 5, false),
+                (":param n => 1 + 2", 6, true),
+                (":commit", 7, true),
+                ("RETURN 'é' AS a", 8, false),
+                ("RETURN 2", 8, false),
+            ]
+        );
+        for x in &u {
+            assert!(s[x.start..].starts_with(&x.text), "{x:?}");
+        }
+        // A colon inside a statement is Cypher.
+        assert_eq!(script("MATCH (n\n:Person) RETURN n").len(), 1);
+        assert!(script("  // only\n/* comments */ ;").is_empty());
+        assert!(script("// x\n").is_empty());
+    }
+
+    #[test]
+    fn implicit_only_statements() {
+        assert!(implicit_only("CALL { MATCH (n) DETACH DELETE n } IN TRANSACTIONS OF 100 ROWS"));
+        assert!(implicit_only("CREATE DATABASE x IF NOT EXISTS"));
+        assert!(implicit_only("create or replace database x"));
+        assert!(implicit_only("show databases"));
+        assert!(implicit_only("GRANT ROLE r TO u"));
+        assert!(!implicit_only("CREATE (n:User {name: 'x'})"));
+        assert!(!implicit_only("MATCH (n) RETURN n"));
     }
 
     #[test]
