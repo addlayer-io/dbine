@@ -87,7 +87,8 @@
     "changes_other": "{{count}} changes (left: {{left}}, right: {{right}}): see the scripts and run them",
     "confirmOrder": "Left first, then right; if anything fails, it stops there.",
     "failedSide": "{{side}}: {{message}}",
-    "doneTab": "Already run"
+    "doneTab": "Already run",
+    "emptyScript": "This side has pending changes, but the script is empty: there is no statement to apply them. Nothing will run here. Review the changes or discard them."
   },
   "left": "Left",
   "right": "Right",

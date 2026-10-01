@@ -87,7 +87,8 @@
     "changes_other": "{{count}} changements (gauche : {{left}}, droite : {{right}}) : voir les scripts et les exécuter",
     "confirmOrder": "D'abord la gauche, puis la droite ; en cas d'échec, l'exécution s'arrête là.",
     "failedSide": "{{side}}: {{message}}",
-    "doneTab": "Déjà exécuté"
+    "doneTab": "Déjà exécuté",
+    "emptyScript": "Ce côté a des modifications en attente, mais le script est vide : aucune instruction ne les applique. Rien ne sera exécuté ici. Vérifiez les modifications ou abandonnez-les."
   },
   "left": "Gauche",
   "right": "Droite",

@@ -581,6 +581,8 @@ const syncTip = computed(() => {
   if (syncBlockedAny.value) return syncBlockedAny.value;
   return t('compare:sync.changes', { count: totalPending.value, left: pendingCount('left'), right: pendingCount('right') });
 });
+/** Pending changes that came out as no statement and no warning: nothing would apply them. */
+const emptyScript = (tab: SyncTab | null) => !!tab?.script && !tab.done && !tab.error && !tab.script.statements.length && !tab.script.warnings.length;
 /** Something to run, and every side's script generated. */
 const canRun = computed(() => sync.tabs.some((x) => !x.done && x.script?.statements.length) && sync.tabs.every((x) => x.done || (x.script && !x.error)));
 
@@ -665,11 +667,14 @@ async function runSync() {
     }
     history.length = 0;
     canUndo.value = false;
-    if (sync.tabs.every((x) => x.done || !x.script?.statements.length)) {
+    const finished = sync.tabs.every((x) => x.done || !x.script?.statements.length);
+    if (finished) {
       sync.open = false;
       touched.clear();
     }
     await recompare();
+    // What the sync made equal leaves "Solo diferencias", the selected row too.
+    if (finished && onlyDiff.value && selected.value?.status === 'equal') selectedId.value = null;
   } finally {
     sync.running = false;
   }
@@ -885,18 +890,19 @@ async function runSync() {
               <span :title="tab.done ? $t('compare:sync.doneTab') : ''">{{ tabLabel(tab.side) }}</span>
               <span v-if="tab.script" class="cv-scount">{{ tab.script.statements.length }}</span>
               <el-icon v-if="tab.done" class="cv-ok"><ei-circle-check /></el-icon>
-              <el-icon v-else-if="tab.error" class="cv-err"><ei-warning-filled /></el-icon>
+              <el-icon v-else-if="tab.error || emptyScript(tab)" class="cv-err"><ei-warning-filled /></el-icon>
             </template>
           </el-tab-pane>
         </el-tabs>
         <template v-if="activeTab">
           <el-alert v-if="activeTab.error" type="error" :title="activeTab.error" :closable="false" show-icon style="margin-bottom: 8px" />
           <el-alert v-for="w in activeTab.script?.warnings ?? []" :key="w" type="warning" :title="tb(w)" :closable="false" show-icon style="margin-bottom: 6px" />
-          <div v-if="activeTab.script" class="cv-stools">
+          <el-alert v-if="emptyScript(activeTab)" type="warning" :title="$t('compare:sync.emptyScript')" :closable="false" show-icon style="margin-bottom: 6px" />
+          <div v-if="activeTab.script && !emptyScript(activeTab)" class="cv-stools">
             <el-button size="small" text :disabled="!activeTab.script.statements.length" @click="syncCopy(activeTab)"><el-icon><ei-document-copy /></el-icon>&nbsp;{{ $t('common:copy') }}</el-button>
             <el-button size="small" text :disabled="!activeTab.script.statements.length" @click="syncAsQuery(activeTab)"><el-icon><ei-edit-pen /></el-icon>&nbsp;{{ $t('compare:sync.openAsQuery') }}</el-button>
           </div>
-          <div v-if="activeTab.script" class="cv-script">
+          <div v-if="activeTab.script && !emptyScript(activeTab)" class="cv-script">
             <CodeEditor :key="activeTab.side" :model-value="scriptText(activeTab)" :language="driverOf(sides[activeTab.side].connectionId)?.language" :dialect="driverOf(sides[activeTab.side].connectionId)?.dialect" read-only />
           </div>
         </template>
