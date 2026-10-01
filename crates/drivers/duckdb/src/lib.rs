@@ -8,6 +8,7 @@
 
 mod backup;
 mod files;
+mod index_usage;
 mod loader;
 mod monitor;
 mod permissions;
@@ -148,6 +149,12 @@ impl Driver for DuckDbDriver {
 
     fn supports_schema_sync(&self) -> bool {
         true
+    }
+
+    /// The ART indexes and keys, without counters (see [`index_usage`]);
+    /// the files preset has no indexes.
+    fn supports_index_usage(&self) -> bool {
+        !self.files
     }
 
     /// The files preset has nothing of its own to back up: its tables are
@@ -627,6 +634,12 @@ impl Session for DuckDbSession {
             )
             .await?;
         Ok(schema::assemble(schema::Catalog { tables, columns, constraints, indexes }))
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let tables = self.database_schema().await?;
+        let found = tables.iter().find(|t| t.name == table.name && (table.schema().is_none() || t.schema.as_deref() == table.schema()));
+        Ok(Some(index_usage::report(found)))
     }
 
     /// Attaches `<dir of the main file>/<name>.duckdb` (a new in-memory

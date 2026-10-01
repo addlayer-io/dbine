@@ -4,6 +4,7 @@
 // Public for the libSQL driver, which reuses the designer, the DDL, the
 // catalog reader, the plans and the monitor over HTTP.
 pub mod backup;
+pub mod index_usage;
 pub mod monitor;
 mod permissions;
 pub mod plan;
@@ -128,6 +129,11 @@ impl Driver for SqliteDriver {
     }
 
     fn supports_schema_sync(&self) -> bool {
+        true
+    }
+
+    /// The indexes, keys and sizes; SQLite has no usage counters (see [`index_usage`]).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -378,6 +384,11 @@ impl Session for SqliteSession {
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         self.with(|c| schema::read_schema(c).map_err(err)).await
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let name = table.name.clone();
+        self.with(move |c| index_usage::report_with(&mut |sql| schema::query_rows(c, sql), &name).map_err(err)).await.map(Some)
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {

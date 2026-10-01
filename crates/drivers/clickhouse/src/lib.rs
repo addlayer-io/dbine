@@ -8,6 +8,7 @@
 //! line. A `session_id` keeps `SET`s and temporary tables between runs.
 
 mod backup;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -187,6 +188,12 @@ impl Driver for ClickHouseDriver {
     }
 
     fn supports_schema_sync(&self) -> bool {
+        true
+    }
+
+    /// The sorting key, skip indexes and projections with their sizes; no
+    /// usage counters (see [`index_usage`]).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -415,6 +422,62 @@ impl ClickHouseSession {
     }
 
     /// Run a catalog query and collect its rows (at most 100 000).
+    /// Three catalog queries: tables (with engine clauses, and the CREATE
+    /// statement for CHECK / ASSUME constraints and projections), columns
+    /// and data-skipping indexes; `only`: just that table.
+    pub(crate) async fn catalog(&self, only: Option<&str>) -> Result<Vec<TableSchema>> {
+        let db = self.database.clone();
+        let mut params: Vec<(&str, &str)> = vec![("db", &db)];
+        let (only_table, only_column) = match only {
+            Some(t) => {
+                params.push(("t", t));
+                (" AND name = {t:String}", " AND table = {t:String}")
+            }
+            None => ("", ""),
+        };
+        let engines = match self.flavor {
+            Flavor::ClickHouse => "engine NOT IN ('View', 'LiveView', 'WindowView', 'MaterializedView', 'Dictionary')",
+            Flavor::Timeplus => "engine IN ('Stream', 'MergeTree')",
+        };
+        let tables = self
+            .rows(
+                &format!(
+                    "SELECT name, engine, engine_full, comment, sorting_key, primary_key, partition_key, sampling_key,
+                            create_table_query
+                     FROM system.tables
+                     WHERE database = {{db:String}} AND NOT is_temporary AND name NOT LIKE '.inner%' AND {engines}{only_table}
+                     ORDER BY name"
+                ),
+                &params,
+            )
+            .await?;
+        let columns = self
+            .rows(
+                &format!(
+                    "SELECT table, name, type, default_kind, default_expression, comment, compression_codec
+                     FROM system.columns WHERE database = {{db:String}}{only_column} ORDER BY table, position"
+                ),
+                &params,
+            )
+            .await?;
+        // Timeplus has no `type_full` (and its `type` drops the arguments).
+        let index_type = match self.flavor {
+            Flavor::ClickHouse => "type_full",
+            Flavor::Timeplus => "type",
+        };
+        let indexes = self
+            .rows(
+                &format!(
+                    "SELECT table, name, {index_type}, expr, granularity
+                     FROM system.data_skipping_indices WHERE database = {{db:String}}{only_column} ORDER BY table, name"
+                ),
+                &params,
+            )
+            .await
+            .unwrap_or_default();
+        Ok(schema::assemble(self.flavor, &db, schema::Catalog { tables, columns, indexes }))
+    }
+
     async fn rows(&self, sql: &str, params: &[(&str, &str)]) -> Result<Vec<Vec<Value>>> {
         let mut out = QueryOutcome::default();
         if let Body::Rows(resp) = self.send(sql, params, false).await? {
@@ -1014,50 +1077,14 @@ impl Session for ClickHouseSession {
         res
     }
 
-    /// Three catalog queries: tables (with engine clauses, and the CREATE
-    /// statement for CHECK / ASSUME constraints and projections), columns
-    /// and data-skipping indexes.
+    /// See [`ClickHouseSession::catalog`].
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        let db = self.database.clone();
-        let engines = match self.flavor {
-            Flavor::ClickHouse => "engine NOT IN ('View', 'LiveView', 'WindowView', 'MaterializedView', 'Dictionary')",
-            Flavor::Timeplus => "engine IN ('Stream', 'MergeTree')",
-        };
-        let tables = self
-            .rows(
-                &format!(
-                    "SELECT name, engine, engine_full, comment, sorting_key, primary_key, partition_key, sampling_key,
-                            create_table_query
-                     FROM system.tables
-                     WHERE database = {{db:String}} AND NOT is_temporary AND name NOT LIKE '.inner%' AND {engines}
-                     ORDER BY name"
-                ),
-                &[("db", &db)],
-            )
-            .await?;
-        let columns = self
-            .rows(
-                "SELECT table, name, type, default_kind, default_expression, comment, compression_codec
-                 FROM system.columns WHERE database = {db:String} ORDER BY table, position",
-                &[("db", &db)],
-            )
-            .await?;
-        // Timeplus has no `type_full` (and its `type` drops the arguments).
-        let index_type = match self.flavor {
-            Flavor::ClickHouse => "type_full",
-            Flavor::Timeplus => "type",
-        };
-        let indexes = self
-            .rows(
-                &format!(
-                    "SELECT table, name, {index_type}, expr, granularity
-                     FROM system.data_skipping_indices WHERE database = {{db:String}} ORDER BY table, name"
-                ),
-                &[("db", &db)],
-            )
-            .await
-            .unwrap_or_default();
-        Ok(schema::assemble(self.flavor, &db, schema::Catalog { tables, columns, indexes }))
+        self.catalog(None).await
+    }
+
+    /// The table's skip indexes, projections and sorting key (see [`index_usage`]).
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        index_usage::report(self, table).await.map(Some)
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

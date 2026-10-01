@@ -89,11 +89,12 @@ pub(crate) fn fulltext_options(row: &BTreeMap<String, String>) -> BTreeMap<Strin
 }
 
 /// Fills in the CHECK constraints and full-text indexes of `tables`.
-pub(crate) async fn complete(s: &HanaSession, tables: &mut [TableSchema]) {
+pub(crate) async fn complete(s: &HanaSession, tables: &mut [TableSchema], only: Option<&str>) {
     let schema = s.schema.as_str();
     let at: HashMap<String, usize> = tables.iter().enumerate().map(|(i, t)| (t.name.clone(), i)).collect();
 
-    match s.rows(CHECKS, &[schema]).await {
+    let (q, p) = crate::schema::scoped(CHECKS, schema, only);
+    match s.rows(&q, &p).await {
         Ok(rows) => {
             for r in rows {
                 let t = |i: usize| r.get(i).and_then(text);
@@ -110,7 +111,8 @@ pub(crate) async fn complete(s: &HanaSession, tables: &mut [TableSchema]) {
         Err(e) => tracing::warn!("hana: CHECK constraints not read: {e}"),
     }
 
-    match named_rows(s, FULLTEXT_INDEXES, &[schema]).await {
+    let (q, p) = crate::schema::scoped(FULLTEXT_INDEXES, schema, only);
+    match named_rows(s, &q, &p).await {
         Ok(rows) => {
             for r in rows {
                 let Some(&ti) = r.get("TABLE_NAME").and_then(|n| at.get(n)) else { continue };

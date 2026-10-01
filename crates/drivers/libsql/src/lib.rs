@@ -14,7 +14,7 @@ use dbine_driver::{
     QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
 };
 use dbine_driver_sqlite::schema::Rows;
-use dbine_driver_sqlite::{monitor as sqlite_monitor, plan, schema};
+use dbine_driver_sqlite::{index_usage, monitor as sqlite_monitor, plan, schema};
 use hrana::{Client, StmtResult};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -107,6 +107,12 @@ impl Driver for LibsqlDriver {
     }
 
     fn supports_schema_sync(&self) -> bool {
+        true
+    }
+
+    /// SQLite's catalog read (indexes, keys, `dbstat` sizes where the
+    /// server has it); no usage counters (see `dbine_driver_sqlite::index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -444,6 +450,11 @@ impl Session for LibsqlSession {
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         self.replay(|q| schema::read_schema_with(q)).await?.map_err(Error::Query)
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let name = table.name.clone();
+        self.replay(|q| index_usage::report_with(q, &name)).await?.map_err(Error::Query).map(Some)
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
