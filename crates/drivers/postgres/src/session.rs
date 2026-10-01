@@ -7,11 +7,11 @@
 use crate::catalog::{cell, first_cell, info_type, lit, rows, system_schema, user_schema};
 use crate::{err, Variant};
 use crate::plan::{self, StmtKind};
-use dbine_driver::sql::{qualified_name, select_top, split_statements, Limit, Quote};
+use dbine_driver::sql::{qualified_name, select_top, Limit, Quote, ScriptStatement};
 use crate::script;
 use dbine_driver::{
     async_trait, kinds, ColumnDef, ColumnInfo, DbObject, Error, KeyDef, ObjectRef, Plan, QueryOutcome, ResultColumn,
-    Result, Session, StatementResult, TableSchema, TxState,
+    Result, ScriptError, Session, StatementResult, TableSchema, TxState,
 };
 use futures::{pin_mut, StreamExt};
 use postgres_native_tls::MakeTlsConnector;
@@ -563,14 +563,25 @@ impl PgSession {
     /// pipeline, before the statement: no extra round trip, the statement
     /// stays the session's last activity, and a describe that fails ends
     /// with its own Sync. Only outside a transaction block, where a failure
-    /// can't abort the user's transaction.
+    /// can't abort the user's transaction; inside one, a query is described
+    /// after it ran (see [`script::describable_in_transaction`]).
+    ///
+    /// A failed statement leaves no result, as in psql: no rows or columns
+    /// the server sent before the error (a division by zero on the third
+    /// row, a cancelled query).
     async fn run_statement(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let v = self.variant;
         let head = script::head(sql);
         let begin = !self.autocommit && self.tx == TxState::Idle && !script::no_begin(v, &head);
-        let types = self.tx == TxState::Idle
-            && v.has_pg_catalog()
-            && matches!(script::verb(sql, &head).as_str(), "select" | "values" | "table");
+        let verb = script::verb(sql, &head);
+        let returns_rows = match verb.as_str() {
+            "select" | "values" | "table" | "show" | "explain" => true,
+            "insert" | "update" | "delete" | "merge" => sql.to_ascii_lowercase().contains("returning"),
+            _ => false,
+        };
+        let catalog = v.has_pg_catalog();
+        let types = self.tx == TxState::Idle && catalog && returns_rows;
+        let in_transaction = self.tx == TxState::Open;
         let first = out.results.len();
         let client = &self.client;
         let notices = &mut self.notices;
@@ -601,6 +612,26 @@ impl PgSession {
         }
         self.tx = script::next_state(v, self.tx, &head, res.is_ok());
         self.drain_notices(out);
+        if res.is_err() && out.sink.is_none() {
+            out.results.truncate(first);
+        }
+        let after = !types
+            && in_transaction
+            && catalog
+            && returns_rows
+            && script::describable_in_transaction(&verb)
+            && matches!(&out.results[first..], [r] if !r.columns.is_empty());
+        let stmt = match stmt {
+            Some(s) => Some(s),
+            None if res.is_ok() && after => match self.client.prepare(&format!("{}{sql}", script::DESCRIBE)).await {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    tracing::debug!("{v:?}: column types unavailable: {e}");
+                    None
+                }
+            },
+            None => None,
+        };
         if let (Ok(()), Some(stmt), [r]) = (&res, stmt, &mut out.results[first..]) {
             if stmt.columns().len() == r.columns.len() {
                 for (c, t) in r.columns.iter_mut().zip(stmt.columns()) {
@@ -609,6 +640,21 @@ impl PgSession {
             }
         }
         res
+    }
+
+    /// After `USE` / `SET database`: the database the server says the
+    /// session is on now, for the explorer's queries and the editor tab.
+    async fn follow_database(&mut self, out: &mut QueryOutcome) {
+        match self.client.simple_query("SELECT current_database()").await {
+            Ok(msgs) => {
+                if let Some(db) = first_cell(&msgs).filter(|d| !d.is_empty()) {
+                    self.database.clone_from(&db);
+                    out.database = Some(db);
+                }
+            }
+            Err(e) => tracing::debug!("{:?}: current database unknown: {e}", self.variant),
+        }
+        while self.notices.try_recv().is_ok() {}
     }
 
     /// Notices still queued once the statement ended.
@@ -820,9 +866,43 @@ impl Session for PgSession {
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         // Notices of earlier requests (catalog reads, the state probe).
         while self.notices.try_recv().is_ok() {}
+        let (clean, commands) = script::client_commands(sql);
+        for c in &commands {
+            match c {
+                script::ClientCommand::Echo(text) => out.info(text.clone()),
+                script::ClientCommand::Ignored(cmd) => {
+                    out.warning(format!("Metacomando de psql ignorado: {cmd} (DBine ejecuta solo SQL)"))
+                }
+                script::ClientCommand::CopyData => {
+                    out.warning("Se omitieron los datos de COPY … FROM stdin: DBine no los envía (usá Importar datos).")
+                }
+                script::ClientCommand::Silent => {}
+                script::ClientCommand::Connect(db) => {
+                    // The rest of the script would run on the wrong database.
+                    return Err(Error::Statement(Box::new(
+                        ScriptError::new(format!(
+                            "\\connect {db}: DBine no cambia de base dentro de una sesión de PostgreSQL. \
+                             Abrí esa base en otra pestaña y ejecutá allí el resto del script."
+                        ))
+                        .fatal(),
+                    )));
+                }
+            }
+        }
+        let sql = clean.as_str();
         let units = dbine_driver::sql::split_script(sql, &script::DIALECT);
+        if units.is_empty() && !commands.is_empty() {
+            return Ok(());
+        }
+        if let Some(u) = units.iter().find(|u| script::copy_from_stdin(&u.text, &script::head(&u.text))) {
+            return Err(Error::Statement(Box::new(ScriptError::new(format!(
+                "{}: COPY … FROM STDIN lee los datos desde psql y el editor no los envía. \
+                 Usá Importar datos, o COPY … FROM 'archivo' en el servidor.",
+                plan::short(&u.text)
+            )))));
+        }
         if units.len() != 1 {
-            let res = match one_by_one(self.variant, sql) {
+            let res = match one_by_one(self.variant, &units) {
                 Some(stmts) => {
                     let mut res = Ok(());
                     for stmt in stmts {
@@ -853,10 +933,13 @@ impl Session for PgSession {
             }
             out.warning("La transacción tenía un error: COMMIT la deshizo (ROLLBACK) y no se confirmó ningún cambio.");
         }
+        if res.is_ok() && script::switches_database(&head) {
+            self.follow_database(out).await;
+        }
         res
     }
 
-    /// Plans per statement (the script is split with `split_statements`).
+    /// Plans per statement (the script is split with PostgreSQL's lexer).
     ///
     /// Estimated: `EXPLAIN (FORMAT JSON)` for each statement EXPLAIN takes
     /// (reads and DML); nothing runs, and other statements (DDL, SET…) are
@@ -968,7 +1051,7 @@ impl Session for PgSession {
                     out.push(TableSchema {
                         kind: o.kind,
                         name: o.name,
-                        primary_key: (!pk.is_empty()).then(|| KeyDef { name: None, columns: pk }),
+                        primary_key: (!pk.is_empty()).then_some(KeyDef { name: None, columns: pk }),
                         columns: cols
                             .into_iter()
                             .map(|c| ColumnDef { name: c.name, data_type: c.data_type, nullable: c.nullable, ..Default::default() })
@@ -1120,15 +1203,11 @@ fn joined(rows: Vec<tokio_postgres::Row>) -> Result<Option<String>> {
 
 /// Materialize runs a multi-statement query as one implicit transaction,
 /// where DDL isn't allowed ("cannot be run inside a transaction block"):
-/// its scripts go one statement at a time. `None`: send the script as is
-/// (other engines, a single statement, or dollar quotes the splitter
-/// doesn't know).
-fn one_by_one(v: Variant, sql: &str) -> Option<Vec<String>> {
-    if v != Variant::Materialize || sql.contains('$') {
-        return None;
-    }
-    let stmts = split_statements(sql);
-    (stmts.len() > 1).then_some(stmts)
+/// its scripts go one statement at a time (`units`, split with
+/// PostgreSQL's lexer). `None`: send the script as is (other engines, a
+/// single statement).
+fn one_by_one(v: Variant, units: &[ScriptStatement]) -> Option<Vec<String>> {
+    (v == Variant::Materialize && units.len() > 1).then(|| units.iter().map(|u| u.text.clone()).collect())
 }
 
 /// Run `sql` as one simple query. Notices go to `out` as they arrive, in
@@ -1202,10 +1281,12 @@ mod tests {
 
     #[test]
     fn only_materialize_scripts_go_one_by_one() {
-        let script = "CREATE SCHEMA s;\nGRANT USAGE ON SCHEMA s TO a;";
-        assert_eq!(one_by_one(Variant::Materialize, script).unwrap().len(), 2);
-        assert!(one_by_one(Variant::Postgres, script).is_none());
-        assert!(one_by_one(Variant::Materialize, "SELECT 1;").is_none());
-        assert!(one_by_one(Variant::Materialize, "SELECT $$a;b$$; SELECT 2").is_none());
+        let units = |s: &str| dbine_driver::sql::split_script(s, &script::DIALECT);
+        let script = units("CREATE SCHEMA s;\nGRANT USAGE ON SCHEMA s TO a;");
+        assert_eq!(one_by_one(Variant::Materialize, &script).unwrap().len(), 2);
+        assert!(one_by_one(Variant::Postgres, &script).is_none());
+        assert!(one_by_one(Variant::Materialize, &units("SELECT 1;")).is_none());
+        // Dollar quotes stay whole.
+        assert_eq!(one_by_one(Variant::Materialize, &units("SELECT $$a;b$$; SELECT 2")).unwrap(), ["SELECT $$a;b$$", "SELECT 2"]);
     }
 }
