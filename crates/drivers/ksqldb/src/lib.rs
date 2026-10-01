@@ -10,7 +10,7 @@ use dbine_driver::sql::{quote_ident, split_script, split_statements, Quote, Scri
 use dbine_driver::{
     json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver,
     DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result,
-    RowChange, Session, TableSchema,
+    RowChange, ScriptError, Session, TableSchema,
 };
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
@@ -67,6 +67,11 @@ fn info() -> DriverInfo {
     }
 }
 
+/// How the editor splits a ksqlDB script (also `execute`'s split).
+fn dialect() -> ScriptDialect {
+    ScriptDialect { compound_blocks: false, ..ScriptDialect::generic() }
+}
+
 pub struct KsqlDriver {
     info: DriverInfo,
 }
@@ -90,7 +95,7 @@ impl Driver for KsqlDriver {
 
     /// No `BEGIN … END` bodies in ksqlDB.
     fn script_dialect(&self) -> ScriptDialect {
-        ScriptDialect { compound_blocks: false, ..ScriptDialect::generic() }
+        dialect()
     }
 
     /// `/inserts-stream` (see `transfer.rs`).
@@ -220,21 +225,31 @@ fn http_error(e: reqwest::Error) -> Error {
     }
 }
 
-/// A non-2xx answer: `{"@type": "statement_error", "message": …}`.
+/// A non-2xx answer: `{"@type": "statement_error", "error_code": …,
+/// "message": …}`; the error carries ksqlDB's code.
 async fn check(resp: reqwest::Response) -> Result<reqwest::Response> {
     let status = resp.status();
     if status.is_success() {
         return Ok(resp);
     }
     let text = resp.text().await.unwrap_or_default();
-    let msg = serde_json::from_str::<Value>(&text)
-        .ok()
+    let v = serde_json::from_str::<Value>(&text).ok();
+    let msg = v
+        .as_ref()
         .and_then(|v| v.get("message").and_then(Value::as_str).map(str::to_string))
         .unwrap_or_else(|| if text.trim().is_empty() { format!("HTTP {status}") } else { text.trim().to_string() });
     Err(match status.as_u16() {
         401 | 403 => Error::AuthFailed(msg),
-        _ => Error::Query(msg),
+        _ => coded(msg, v.as_ref()),
     })
+}
+
+/// A statement error with ksqlDB's `error_code`, when the reply has one.
+fn coded(msg: String, reply: Option<&Value>) -> Error {
+    match reply.and_then(|v| v.get("error_code")).filter(|c| !c.is_null()).map(text) {
+        Some(code) => Error::Statement(Box::new(ScriptError::new(msg).with_code(code))),
+        None => Error::Query(msg),
+    }
 }
 
 /// What kind of request a statement needs.
@@ -320,10 +335,6 @@ impl KsqlSession {
             Value::Array(a) => a,
             v => vec![v],
         })
-    }
-
-    fn dialect(&self) -> ScriptDialect {
-        ScriptDialect { compound_blocks: false, ..ScriptDialect::generic() }
     }
 
     /// One editor statement into `out`.
@@ -421,9 +432,9 @@ impl KsqlSession {
                         break Ok(());
                     }
                 }
-                Value::Object(o) if o.contains_key("message") || o.contains_key("errorMessage") => {
+                Value::Object(ref o) if o.contains_key("message") || o.contains_key("errorMessage") => {
                     let msg = o.get("message").or(o.get("errorMessage")).map(text).unwrap_or_default();
-                    break Err(Error::Query(msg));
+                    break Err(coded(msg, Some(&v)));
                 }
                 // Final messages ("Limit Reached", "Query Completed"…).
                 Value::Object(o) => {
@@ -754,12 +765,11 @@ impl Session for KsqlSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let own = out.current_statement.is_none();
-        let units = split_script(text, &self.dialect());
+        let units = split_script(text, &dialect());
         for (i, u) in units.iter().filter(|u| u.kind != StatementKind::ClientCommand).enumerate() {
             let step = steps::Step::start(out, own, i, u.start, u.line);
             let r = self.statement(&u.text, max_rows, out).await;
-            step.finish(out);
-            r.map_err(|e| step.place(e))?;
+            step.end(out, r)?;
         }
         Ok(())
     }

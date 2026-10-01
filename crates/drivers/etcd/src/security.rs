@@ -295,7 +295,7 @@ pub async fn grants(s: &EtcdSession, principal: &str) -> Result<Vec<Grant>> {
                 role_grants(s, &role, Some(&role), &mut out).await?;
             }
         }
-        Err(Error::Query(m)) if m.contains("user name not found") => role_grants(s, principal, None, &mut out).await?,
+        Err(e) if e.is_query() && e.to_string().contains("user name not found") => role_grants(s, principal, None, &mut out).await?,
         Err(e) => return Err(e),
     }
     Ok(out)

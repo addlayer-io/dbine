@@ -217,6 +217,14 @@ fn http_error(e: reqwest::Error) -> Error {
     }
 }
 
+/// A refused call, with the gateway's gRPC status code when it gave one.
+fn coded(code: i64, msg: String) -> Error {
+    if code == 0 {
+        return Error::Query(msg);
+    }
+    Error::Statement(Box::new(dbine_driver::ScriptError::new(msg).with_code(code.to_string())))
+}
+
 /// gRPC status 16 = UNAUTHENTICATED, 7 = PERMISSION_DENIED.
 fn is_auth_error(code: i64, msg: &str) -> bool {
     code == 16 || msg.contains("invalid auth token") || msg.contains("user name is empty")
@@ -280,11 +288,11 @@ impl Conn {
                 match self.post_once(path, &body).await? {
                     Ok(v) => Ok(v),
                     Err((code, msg)) if is_auth_error(code, &msg) => Err(Error::AuthFailed(msg)),
-                    Err((_, msg)) => Err(Error::Query(msg)),
+                    Err((code, msg)) => Err(coded(code, msg)),
                 }
             }
             Err((code, msg)) if is_auth_error(code, &msg) => Err(Error::AuthFailed(msg)),
-            Err((_, msg)) => Err(Error::Query(msg)),
+            Err((code, msg)) => Err(coded(code, msg)),
         }
     }
 

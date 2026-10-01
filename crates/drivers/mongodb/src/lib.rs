@@ -89,7 +89,7 @@ use mongodb::options::{ClientOptions, Credential, ServerAddress, Tls, TlsOptions
 use mongodb::{Client, Database};
 use shell::{Item, Shape, Stmt};
 use steps::Step;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -408,7 +408,7 @@ impl Driver for MongoDriver {
         client.database("admin").run_command(doc! { "ping": 1 }).await.map_err(err)?;
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let tag = format!("dbine-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed));
-        Ok(Box::new(MongoSession { db: client.database(&db_name), client, read_only: cfg.read_only, tag, flavor: self.flavor, profiler: None }))
+        Ok(Box::new(MongoSession { db: client.database(&db_name), client, read_only: cfg.read_only, tag, flavor: self.flavor, profiler: None, interrupted: Arc::default() }))
     }
 }
 
@@ -421,6 +421,11 @@ pub struct MongoSession {
     flavor: Flavor,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// Set by the interrupter: the server only fails the killed operation
+    /// with an ordinary error (11601 Interrupted), so `execute` turns it
+    /// into a cancel and runs nothing more, even on a run that continues
+    /// on errors.
+    interrupted: Arc<AtomicBool>,
 }
 
 impl MongoSession {
@@ -825,13 +830,18 @@ impl Session for MongoSession {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
         }
         let own = out.current_statement.is_none();
+        self.interrupted.store(false, Ordering::SeqCst);
         for (i, u) in units.into_iter().enumerate() {
+            if self.interrupted.load(Ordering::SeqCst) {
+                return Err(Error::Cancelled);
+            }
             let step = Step::start(out, own, i, u.start, u.line);
             let r = match u.item {
                 Item::Run(stmt) => self.run_checked(stmt, max_rows, out).await,
                 Item::Use(name) => self.use_db(&name, out),
                 Item::Show(what) => self.show(&what, max_rows, out).await,
             };
+            let r = r.map_err(|e| if self.interrupted.load(Ordering::SeqCst) { Error::Cancelled } else { e });
             step.end(out, r)?;
         }
         Ok(())
@@ -948,7 +958,9 @@ impl Session for MongoSession {
         let handle = tokio::runtime::Handle::try_current().ok()?;
         let client = self.client.clone();
         let tag = self.tag.clone();
+        let interrupted = self.interrupted.clone();
         Some(Arc::new(move || {
+            interrupted.store(true, Ordering::SeqCst);
             handle.spawn(kill_tagged(client.clone(), tag.clone()));
         }))
     }

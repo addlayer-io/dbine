@@ -278,10 +278,7 @@ impl Driver for CosmosDriver {
             monitor_cache: None,
         };
         // Proves the endpoint and the key.
-        let dbs = s.list_databases().await.map_err(|e| match e {
-            Error::Query(m) => Error::Connect(m),
-            e => e,
-        })?;
+        let dbs = s.list_databases().await.map_err(|e| if e.is_query() { Error::Connect(e.to_string()) } else { e })?;
         if s.db.is_empty() {
             s.db = dbs.into_iter().next().unwrap_or_default();
         }
@@ -379,7 +376,14 @@ impl CosmosSession {
             StatusCode::BAD_REQUEST if substatus == "1004" || msg.contains("cannot be directly served by the gateway") => {
                 Error::Unsupported(msg)
             }
-            _ => Error::Query(msg),
+            // The service's code ("BadRequest", "Conflict"…), with its substatus.
+            _ => match body.get("code").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+                Some(code) => {
+                    let code = if substatus.is_empty() || substatus == "0" { code.to_string() } else { format!("{code}/{substatus}") };
+                    Error::Statement(Box::new(dbine_driver::ScriptError::new(msg).with_code(code)))
+                }
+                None => Error::Query(msg),
+            },
         })
     }
 
@@ -808,7 +812,9 @@ pub fn parse_located(text: &str) -> Result<Vec<(Stmt, usize)>> {
     for s in pieces {
         let (at, next) = anchor(text, from, &s);
         from = next;
-        let stmt = if let Some(a) = ddl::parse_admin(&s)? {
+        // In the script: where the statement starts.
+        let placed = |e: Error| if e.is_query() { Error::from(e.to_script_error().at_offset(at).at_line(steps::line_at(text, at))) } else { e };
+        let stmt = if let Some(a) = ddl::parse_admin(&s).map_err(placed)? {
             Stmt::Admin(a)
         } else {
             let mut words = s.splitn(2, char::is_whitespace);

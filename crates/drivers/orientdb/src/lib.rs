@@ -37,7 +37,7 @@ mod transfer;
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
     DesignerSpec, Driver, DriverInfo, Error, Family, Field, IndexDef, Language, MonitorSnapshot, ObjectKindInfo,
-    ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema,
 };
 use dbine_driver::{json_f64, json_i64, json_u64};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
@@ -255,7 +255,37 @@ fn error_text(status: StatusCode, body: &str) -> String {
     }
 }
 
+/// The engine's code of an error reply: the Java exception's class
+/// (`OCommandSQLParsingException`), else the reply's `errors[0].code`.
+fn error_code(body: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(body).ok()?;
+    let e = v.get("errors")?.get(0)?;
+    let content = e.get("content").and_then(Value::as_str).unwrap_or_default();
+    let class = content.split_once(':').map(|(c, _)| c.trim()).filter(|c| c.ends_with("Exception") && !c.contains(char::is_whitespace));
+    match class {
+        Some(c) => Some(c.rsplit('.').next().unwrap_or(c).to_string()),
+        None => e.get("code").filter(|c| !c.is_null()).map(|c| c.as_str().map_or_else(|| c.to_string(), str::to_string)),
+    }
+}
+
+/// [`request_coded`] with plain errors, for the internal requests that
+/// read the message.
 async fn request(
+    http: &reqwest::Client,
+    base: &str,
+    auth: &Option<(String, Option<String>)>,
+    method: Method,
+    path: &str,
+    body: Option<&Value>,
+) -> Result<String> {
+    request_coded(http, base, auth, method, path, body).await.map_err(|e| match e {
+        Error::Statement(se) => Error::Query(se.message),
+        e => e,
+    })
+}
+
+/// A request whose failure carries the engine's code (editor statements).
+async fn request_coded(
     http: &reqwest::Client,
     base: &str,
     auth: &Option<(String, Option<String>)>,
@@ -277,7 +307,14 @@ async fn request(
         return Ok(text);
     }
     let msg = error_text(status, &text);
-    Err(if status == StatusCode::UNAUTHORIZED { Error::AuthFailed(msg) } else { Error::Query(msg) })
+    Err(if status == StatusCode::UNAUTHORIZED {
+        Error::AuthFailed(msg)
+    } else {
+        match error_code(&text) {
+            Some(code) => Error::Statement(Box::new(ScriptError::new(msg).with_code(code))),
+            None => Error::Query(msg),
+        }
+    })
 }
 
 impl OrientSession {
@@ -322,20 +359,23 @@ impl OrientSession {
         let r = if self.read_only && !gremlin {
             // The server refuses non-idempotent statements here.
             let path = format!("/query/{db}/sql/{}/{limit}", seg(stmt));
-            request(&self.http, &self.base, &self.auth, Method::GET, &path, None).await
+            request_coded(&self.http, &self.base, &self.auth, Method::GET, &path, None).await
         } else {
             let path = format!("/command/{db}/{lang}/-/{limit}");
-            request(&self.http, &self.base, &self.auth, Method::POST, &path, Some(&json!({ "command": stmt }))).await
+            request_coded(&self.http, &self.base, &self.auth, Method::POST, &path, Some(&json!({ "command": stmt }))).await
         };
         self.current.lock().expect("current").clear();
-        let text = r.map_err(|e| match e {
-            Error::Query(m) if m.contains("Cannot execute query on non idempotent") => {
+        let text = r.map_err(|e| {
+            let m = e.to_string();
+            if e.is_query() && m.contains("Cannot execute query on non idempotent") {
                 Error::Query("Conexión de solo lectura: el servidor rechazó una sentencia que escribe.".into())
+            } else if e.is_query() && gremlin && m.contains("script executor") {
+                Error::Query(format!(
+                    "Este servidor no tiene Gremlin (hace falta OrientDB con el plugin TinkerPop, p. ej. la imagen orientdb:3.x-tp3): {m}"
+                ))
+            } else {
+                e
             }
-            Error::Query(m) if gremlin && m.contains("script executor") => Error::Query(format!(
-                "Este servidor no tiene Gremlin (hace falta OrientDB con el plugin TinkerPop, p. ej. la imagen orientdb:3.x-tp3): {m}"
-            )),
-            e => e,
         })?;
         parse_reply(&text).map_err(Error::Query)
     }
@@ -905,8 +945,7 @@ impl Session for OrientSession {
         for (i, u) in units.iter().enumerate() {
             let step = steps::Step::start(out, own, i, u.start, u.line);
             let r = self.statement(&u.text, max_rows, out).await;
-            step.finish(out);
-            r.map_err(|e| step.place(e))?;
+            step.end(out, r)?;
         }
         Ok(())
     }
@@ -935,7 +974,7 @@ impl Session for OrientSession {
                     Some(p) => out.plans.push(plan::from_execution_plan(&body, &p.1, profile)),
                     None => out.info(format!("`{body}`: el servidor no devolvió un plan.")),
                 },
-                Err(Error::Query(m)) => out.info(format!("`{body}`: sin plan de ejecución ({m}).")),
+                Err(e) if e.is_query() => out.info(format!("`{body}`: sin plan de ejecución ({e}).")),
                 Err(e) => return Err(e),
             }
             if analyze {
@@ -1063,6 +1102,10 @@ mod tests {
         assert_eq!(e, "Class not found: X");
         let e = error_text(StatusCode::BAD_REQUEST, r#"{"errors":[{"content":"Error parsing query:\nSELEC x\n    ^"}]}"#);
         assert!(e.starts_with("Error parsing query"));
+        let body = r#"{"errors":[{"code":500,"content":"com.x.OCommandExecutionException: Class not found: X"}]}"#;
+        assert_eq!(error_code(body).as_deref(), Some("OCommandExecutionException"));
+        assert_eq!(error_code(r#"{"errors":[{"code":400,"content":"Error parsing query"}]}"#).as_deref(), Some("400"));
+        assert_eq!(error_code("not json"), None);
         let c = ConnectionConfig { host: "db".into(), encrypt: true, ..Default::default() };
         assert_eq!(base_url(&c), "https://db:2480");
         assert!(is_gremlin(" g.V().count()") && !is_gremlin("SELECT g.x FROM T"));
