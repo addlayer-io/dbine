@@ -37,6 +37,7 @@
   },
   "help": {
     "title": "Aiuto",
+    "checkUpdates": "Verifica aggiornamenti…",
     "support": "Sostieni il progetto"
   }
 }

@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import i18next, { t } from '../i18n';
 import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
+import { checkForUpdateNow } from './updates';
 
 // The native menu bar (macOS only: Windows and Linux have none, as VS Code).
 // Its labels follow the app's language, so the UI builds it and sends it to
@@ -58,7 +59,7 @@ function menus() {
       native('fullscreen', 'view.fullscreen'),
     ] },
     { label: t('menu:window.title'), items: [native('minimize', 'window.minimize'), native('zoom', 'window.zoom')] },
-    { label: t('menu:help.title'), items: [item('help.support')] },
+    { label: t('menu:help.title'), items: [item('help.checkUpdates'), sep, item('help.support')] },
   ] satisfies { label: string; items: Entry[] }[];
 }
 
@@ -86,6 +87,7 @@ export function useAppMenu(actions: AppMenuActions) {
     'view.explorer': actions.toggleExplorer,
     'view.output': actions.toggleOutput,
     'view.ai': () => { ui.aiOpen = !ui.aiOpen; },
+    'help.checkUpdates': () => { checkForUpdateNow(); },
     'help.support': () => { invoke('open_support_page').catch(() => {}); },
   };
 

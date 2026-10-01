@@ -262,6 +262,8 @@ pub fn run() {
             mcp::commands::mcp_clear_approve_all,
             menu::app_menu_set,
             commands::telemetry::track_event,
+            commands::updates::check_for_update,
+            commands::updates::open_release_page,
             commands::drivers::drivers_packages,
             commands::drivers::drivers_install,
             commands::drivers::drivers_remove,

@@ -27,3 +27,4 @@ pub mod data_compare;
 pub mod security;
 pub mod backup;
 pub mod telemetry;
+pub mod updates;

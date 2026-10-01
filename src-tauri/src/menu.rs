@@ -192,13 +192,25 @@ mod tests {
                 { "label": "Ventana", "items": [
                     { "kind": "native", "item": "minimize" },
                     { "kind": "native", "item": "zoom" }
+                ]},
+                { "label": "Ayuda", "items": [
+                    { "kind": "item", "id": "help.checkUpdates", "label": "Buscar actualizaciones…" },
+                    { "kind": "separator" },
+                    { "kind": "item", "id": "help.support", "label": "Apoyar el proyecto" }
                 ]}
             ]
         }))
         .unwrap();
 
-        assert_eq!(args.menus.len(), 3);
-        assert_eq!(item_ids(&args.menus), ["app.settings", "file.newConnection", "file.newQuery"]);
+        assert_eq!(args.menus.len(), 4);
+        assert_eq!(
+            item_ids(&args.menus),
+            ["app.settings", "file.newConnection", "file.newQuery", "help.checkUpdates", "help.support"],
+        );
+        assert_eq!(
+            args.menus[3].items[0],
+            Entry::Item { id: "help.checkUpdates".into(), label: "Buscar actualizaciones…".into(), accelerator: None },
+        );
         let app = &args.menus[0].items;
         assert_eq!(app[0], Entry::Native { item: NativeItem::About, label: Some("Acerca de DBine".into()) });
         assert_eq!(app[2], Entry::Separator);

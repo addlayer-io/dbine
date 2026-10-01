@@ -37,6 +37,7 @@
   },
   "help": {
     "title": "Help",
+    "checkUpdates": "Check for updates…",
     "support": "Support the project"
   }
 }

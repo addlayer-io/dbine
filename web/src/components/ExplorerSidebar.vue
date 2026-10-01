@@ -3,6 +3,7 @@ import ImportConnectionsDialog from './ImportConnectionsDialog.vue';
 import ImportSuggestion from './ImportSuggestion.vue';
 import SupportReminder from './SupportReminder.vue';
 import TelemetryConsent from './TelemetryConsent.vue';
+import UpdateNotice from './UpdateNotice.vue';
 import SchemaIcon from './SchemaIcon.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
@@ -1198,6 +1199,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <ImportSuggestion @import="(s) => { importSource = s; importing = true; }" />
     <SupportReminder />
     <TelemetryConsent />
+    <UpdateNotice />
   </div>
 </template>
 

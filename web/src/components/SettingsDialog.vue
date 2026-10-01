@@ -16,6 +16,7 @@ import { useSyncStore } from '../stores/sync';
 import { useUiStore } from '../stores/ui';
 import DriversSettings from './DriversSettings.vue';
 import McpSettings from './McpSettings.vue';
+import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 
 // Configuración (⌘,): preferences and the cloud backup (docs/sincronizacion.md).
 
@@ -57,6 +58,11 @@ const telemetry = computed({
   set: (v) => { settings.set(TELEMETRY_CONSENT, v); if (v) trackAppStarted(); },
 });
 const MAX_ROWS = [100, 500, 1000, 5000, 10000, 50000, 100000];
+/** The running app's version ("Versión instalada"). */
+const appVersion = ref('');
+if ('__TAURI_INTERNALS__' in window) {
+  import('@tauri-apps/api/app').then(({ getVersion }) => getVersion()).then((v) => { appVersion.value = v; }).catch(() => {});
+}
 /** Explorer: schemas as a tree level (ExplorerSidebar) or one qualified list. */
 const groupBySchema = computed({
   get: () => settings.get<boolean>('explorer.groupBySchema', true),
@@ -332,6 +338,10 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <div class="st-row">
           <div><strong>{{ $t('telemetry:settings.label') }}</strong><span>{{ $t('telemetry:settings.help') }}</span></div>
           <el-switch v-model="telemetry" />
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('updates:settings.installed', { version: appVersion || '…' }) }}</strong><span>{{ $t('updates:settings.help') }}</span></div>
+          <el-button :loading="checkingForUpdate" @click="checkForUpdateNow">{{ $t('updates:settings.check') }}</el-button>
         </div>
       </section>
 

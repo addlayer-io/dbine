@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settings';
+import { updateOffer } from '../composables/updates';
 
 // "Apoyá el proyecto": voluntary support through GitHub Sponsors, not a
 // license (nothing in the app depends on it, and the app can't see who
@@ -23,7 +24,13 @@ function evaluate() {
   const next = Date.parse(settings.get<string | null>(NEXT, null) ?? '');
   // First time (no date yet) or due: a little after opening the app, not
   // over what the user is starting to do.
-  if (!Number.isFinite(next) || Date.now() >= next) setTimeout(() => { open.value = true; }, 8000);
+  if (!Number.isFinite(next) || Date.now() >= next) setTimeout(show, 8000);
+}
+
+/** Not over the update notice: wait until it's closed. */
+function show() {
+  if (!updateOffer.value) { open.value = true; return; }
+  const stop = watch(updateOffer, (u) => { if (!u) { stop(); open.value = true; } });
 }
 
 /** Close, and come back in a month. */

@@ -6994,6 +6994,9 @@
  "Geometría genérica como texto (WKT).": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
+ "GitHub respondió {0}": [
+  "src-tauri/src/commands/updates.rs"
+ ],
  "GizmoSQL (DuckDB) no acepta un HUGEINT de más de 38 dígitos como parámetro de un INSERT, y cargar solo algunas columnas de la tabla usa un INSERT preparado; cargá todas las columnas para usar la carga masiva (columna {0})": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
@@ -17019,6 +17022,9 @@
  "dirección MAC": [
   "crates/dbine-schema/src/logical.rs"
  ],
+ "dirección de descarga inválida": [
+  "src-tauri/src/commands/updates.rs"
+ ],
  "dirección de subida inválida: {0}": [
   "crates/drivers/bigquery/src/transfer.rs"
  ],
@@ -20396,6 +20402,7 @@
  ],
  "no se pudo abrir el navegador: {0}": [
   "src-tauri/src/commands/settings.rs",
+  "src-tauri/src/commands/updates.rs",
   "src-tauri/src/sync.rs"
  ],
  "no se pudo abrir {0}: {1}": [
@@ -20482,6 +20489,9 @@
  ],
  "no se pudo confirmar: otra conexión mantiene abierta una lectura de este archivo (por ejemplo, el origen de esta copia está en el mismo archivo y se lee por lotes). Con el diario de reversión (journal_mode DELETE, TRUNCATE o PERSIST) SQLite no confirma mientras dure esa lectura; en modo WAL sí (PRAGMA journal_mode = WAL) ({0})": [
   "crates/drivers/sqlite/src/transfer.rs"
+ ],
+ "no se pudo consultar GitHub: {0}": [
+  "src-tauri/src/commands/updates.rs"
  ],
  "no se pudo contar las filas de {0}: {1}": [
   "crates/drivers/phoenix/src/transfer.rs"
@@ -21266,6 +21276,9 @@
  ],
  "repite el campo «{0}»": [
   "crates/drivers/mongodb/src/transfer.rs"
+ ],
+ "respuesta de GitHub inválida: {0}": [
+  "src-tauri/src/commands/updates.rs"
  ],
  "respuesta de inicio de sesión inválida (state)": [
   "crates/dbine-sync/src/oauth.rs"
@@ -22203,6 +22216,9 @@
  ],
  "versión de jsonb desconocida": [
   "crates/drivers/postgres/src/transfer.rs"
+ ],
+ "versión inválida: {0}": [
+  "src-tauri/src/commands/updates.rs"
  ],
  "versión vieja": [
   "crates/dbine-plugin/src/remote.rs"
