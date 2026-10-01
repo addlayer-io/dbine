@@ -10,7 +10,7 @@
 //!   cargo test -p dbine-driver-postgres --test script -- --ignored --test-threads 1
 //! ```
 
-use dbine_driver::sql::ScriptMode;
+use dbine_driver::sql::{ScriptMode, StatementKind};
 use dbine_driver::{ConnectionConfig, Driver, Error, MessageLevel, MessageSinkRef, QueryOutcome, Session, TxState};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -41,6 +41,9 @@ fn driver(id: &str) -> Arc<dyn Driver> {
 async fn script(d: &dyn Driver, s: &mut Box<dyn Session>, sql: &str, out: &mut QueryOutcome) -> Vec<(usize, Error)> {
     let mut errors = Vec::new();
     for (i, u) in d.split_script(sql).iter().enumerate() {
+        if u.kind == StatementKind::ClientCommand {
+            continue;
+        }
         out.current_statement = Some(i);
         if let Err(e) = s.execute(&u.text, 100, out).await {
             errors.push((i, e));
@@ -205,6 +208,64 @@ async fn exercise(id: &str, env: &str) {
     s.set_autocommit(true).await.unwrap();
     assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
     assert_eq!(count(&mut other, "dbine_script_t").await, "5");
+
+    // A failed query leaves no partial rows; psql meta-commands are the
+    // client's: `\echo` prints, the statement after it runs.
+    let mut out = QueryOutcome::default();
+    let errors = script(d.as_ref(), &mut s, "SELECT 10 / (x - 3) FROM generate_series(1, 5) x;\n\\echo hola\nSELECT 2 AS dos", &mut out).await;
+    assert_eq!(errors.len(), 1, "{id}: {errors:?}");
+    assert_eq!(out.results.len(), 1, "{id}: {:?}", out.results);
+    assert_eq!(out.results[0].columns[0].name, "dos");
+    assert!(out.log.iter().any(|m| m.text == "hola" && m.statement == Some(1)), "{id}: {:?}", out.log);
+    // COPY … FROM stdin: refused before the server waits for the rows; the
+    // rows are the client's (not sent).
+    let mut out = QueryOutcome::default();
+    let errors = script(d.as_ref(), &mut s, "COPY dbine_script_t (id, name) FROM stdin;\n9\tx\n\\.\nSELECT 1", &mut out).await;
+    assert_eq!(errors.len(), 1, "{id}: {errors:?}");
+    assert!(errors[0].1.to_string().contains("STDIN"), "{id}: {errors:?}");
+    assert_eq!(out.results.last().unwrap().tag.as_deref(), Some("SELECT 1"));
+    assert_eq!(count(&mut s, "dbine_script_t").await, "5");
+    // pg_dump: data rows with `'` or `;` end at their `\.`, and what
+    // follows runs on its own.
+    let mut out = QueryOutcome::default();
+    let dump = "\\restrict X\nSET client_min_messages = warning;\nCOPY dbine_script_t (id, name) FROM stdin;\n1\tO'Brien\n2\ta;b\n\\.\n\nSELECT 'after copy' AS x;\n\\unrestrict X";
+    let errors = script(d.as_ref(), &mut s, dump, &mut out).await;
+    assert!(matches!(&errors[..], [(2, Error::Statement(e))] if e.message.contains("STDIN")), "{id}: {errors:?}");
+    assert_eq!(out.results.last().unwrap().columns[0].name, "x", "{id}: {:?}", out.results);
+    assert_eq!(out.results.last().unwrap().rows[0][0].as_str(), Some("after copy"));
+    assert_eq!(count(&mut s, "dbine_script_t").await, "5");
+    // A meta-command ends at its newline, whatever it holds.
+    let mut out = QueryOutcome::default();
+    let errors = script(d.as_ref(), &mut s, "\\echo it's done\nSELECT 1 AS a;\nSELECT 2 AS b;\n\\set x 1;", &mut out).await;
+    assert!(errors.is_empty(), "{id}: {errors:?}");
+    let got: Vec<_> = out.results.iter().map(|r| (r.columns[0].name.clone(), r.tag.clone(), r.columns[0].type_name.is_empty())).collect();
+    assert_eq!(got, [("a".into(), Some("SELECT 1".into()), false), ("b".into(), Some("SELECT 1".into()), false)], "{id}");
+    assert!(out.log.iter().any(|m| m.text == "it's done" && m.statement == Some(0)), "{id}: {:?}", out.log);
+    assert!(out.log.iter().any(|m| m.level == MessageLevel::Warning && m.statement == Some(3)), "{id}: {:?}", out.log);
+    // `\connect` stops the script.
+    let mut out = QueryOutcome::default();
+    let errors = script(d.as_ref(), &mut s, "\\connect otra\nSELECT 1", &mut out).await;
+    assert!(matches!(&errors[..], [(0, Error::Statement(e))] if e.fatal), "{id}: {errors:?}");
+
+    // Column types inside a transaction block too, after the first query.
+    let mut out = QueryOutcome::default();
+    let sql = "BEGIN; SELECT 1 AS a; SELECT now() AS b; INSERT INTO dbine_script_t VALUES (9, 'i') RETURNING id; ROLLBACK";
+    assert!(script(d.as_ref(), &mut s, sql, &mut out).await.is_empty());
+    let types: Vec<_> = out.results.iter().flat_map(|r| r.columns.iter().map(|c| c.type_name.clone())).collect();
+    eprintln!("{id}: types in a transaction {types:?}");
+    assert!(types.iter().all(|t| !t.is_empty()) && types.len() == 3, "{id}: {types:?}");
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
+
+    // CockroachDB's USE / SET database: the tab follows the session.
+    if !pg_like {
+        let mut out = QueryOutcome::default();
+        script(d.as_ref(), &mut s, "CREATE DATABASE IF NOT EXISTS dbine_script_db; USE dbine_script_db", &mut out).await;
+        assert_eq!(out.database.as_deref(), Some("dbine_script_db"), "{id}");
+        let mut out = QueryOutcome::default();
+        script(d.as_ref(), &mut s, &format!("SET database = {}", cfg.database), &mut out).await;
+        assert_eq!(out.database.as_deref(), Some(cfg.database.as_str()), "{id}");
+        run(&mut s, "DROP DATABASE dbine_script_db").await.unwrap();
+    }
 
     // Several statements in one text (other callers): the server is asked.
     run(&mut s, "BEGIN; SELECT 1").await.unwrap();

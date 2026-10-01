@@ -358,6 +358,12 @@ impl Driver for PgDriver {
         script::DIALECT
     }
 
+    /// The lexer's units, plus what psql reads outside SQL: meta-command
+    /// lines and `COPY … FROM stdin` data (see [`script::split`]).
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::sql::ScriptStatement> {
+        script::split(text)
+    }
+
     /// One statement per simple query, as psql sends them; the session
     /// (SET, temp tables, an open transaction) carries over.
     fn script_mode(&self) -> dbine_driver::sql::ScriptMode {

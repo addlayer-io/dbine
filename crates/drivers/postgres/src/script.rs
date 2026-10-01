@@ -11,7 +11,7 @@
 //! sends with `AUTOCOMMIT off`).
 
 use crate::{db_text, err, Variant};
-use dbine_driver::sql::{self, ScriptDialect};
+use dbine_driver::sql::{self, ScriptDialect, ScriptStatement, StatementKind};
 use dbine_driver::{Error, Message, MessageLevel, QueryOutcome, ScriptError, TxState};
 use tokio_postgres::error::{DbError, ErrorPosition, Severity, SqlState};
 
@@ -53,6 +53,231 @@ impl Variant {
     pub(crate) fn continue_on_error(self) -> bool {
         self != Variant::Cockroach
     }
+}
+
+/// What psql does itself, found at the start of a statement's text.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ClientCommand {
+    /// `\echo`, `\qecho`, `\warn`: their text.
+    Echo(String),
+    /// `\connect` / `\c`: another database, which this session can't reach.
+    Connect(String),
+    /// Another meta-command (`\set`, `\pset`…), as written.
+    Ignored(String),
+    /// `\restrict` / `\unrestrict` of pg_dump: nothing to do outside psql.
+    Silent,
+    /// The rows of a `COPY … FROM stdin`, up to their `\.`.
+    CopyData,
+}
+
+/// psql meta-commands (`\echo`, `\connect`, pg_dump's `\restrict`…) and
+/// `COPY … FROM stdin` data ending in `\.`: psql handles them, the server
+/// would see a syntax error. The lexer leaves them in front of the next
+/// statement; here they're blanked out byte for byte (the server's
+/// positions and lines stay right) and returned.
+pub(crate) fn client_commands(text: &str) -> (String, Vec<ClientCommand>) {
+    let mut found = Vec::new();
+    let mut bytes = text.as_bytes().to_vec();
+    let blank = |from: usize, to: usize, bytes: &mut Vec<u8>| {
+        for b in &mut bytes[from..to] {
+            if *b != b'\n' && *b != b'\r' {
+                *b = b' ';
+            }
+        }
+    };
+    // Lines with their byte ranges.
+    let mut lines = Vec::new();
+    let mut at = 0;
+    for l in text.split_inclusive('\n') {
+        lines.push((at, at + l.len(), l.trim_end_matches(['\n', '\r'])));
+        at += l.len();
+    }
+    // COPY data: everything up to its `\.` line, when that's all there is
+    // before it (a text of several statements keeps its SQL).
+    let mut first = 0;
+    let data_end = lines.iter().position(|(_, _, l)| l.trim() == r"\.");
+    // A unit that opens with an SQL statement isn't COPY data, even with a
+    // `\.` line inside it (a string literal can hold one).
+    let starts_as_sql = lines.iter().map(|(_, _, l)| l.trim()).find(|l| !l.is_empty() && !l.starts_with("--")).is_some_and(|l| {
+        let word: String = l.chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_lowercase();
+        matches!(
+            word.as_str(),
+            "select" | "with" | "insert" | "update" | "delete" | "merge" | "create" | "alter" | "drop" | "copy" | "do" | "begin"
+                | "start" | "commit" | "rollback" | "set" | "reset" | "values" | "table" | "explain" | "analyze" | "vacuum" | "grant"
+                | "revoke" | "truncate" | "call" | "comment" | "show" | "prepare" | "execute" | "declare" | "fetch" | "listen"
+                | "notify" | "lock" | "refresh" | "reindex" | "cluster" | "security" | "import"
+        )
+    });
+    if let Some(end) = data_end.filter(|&e| !starts_as_sql && !text[..lines[e].0].contains(';')) {
+        blank(0, lines[end].1, &mut bytes);
+        found.push(ClientCommand::CopyData);
+        first = end + 1;
+    }
+    for &(from, to, line) in &lines[first..] {
+        let t = line.trim_start();
+        if t.is_empty() || t.starts_with("--") {
+            continue;
+        }
+        let Some(cmd) = t.strip_prefix('\\') else { break };
+        let (name, arg) = cmd.split_once(char::is_whitespace).map_or((cmd, ""), |(n, a)| (n, a.trim()));
+        found.push(match name {
+            "echo" | "qecho" | "warn" => {
+                let arg = arg.strip_prefix("-n ").unwrap_or(arg);
+                let unquoted = arg.strip_prefix('\'').and_then(|a| a.strip_suffix('\'')).map(|a| a.replace("''", "'"));
+                ClientCommand::Echo(unquoted.unwrap_or_else(|| arg.to_string()))
+            }
+            "c" | "connect" => ClientCommand::Connect(arg.to_string()),
+            "restrict" | "unrestrict" => ClientCommand::Silent,
+            _ => ClientCommand::Ignored(t.to_string()),
+        });
+        blank(from, to, &mut bytes);
+    }
+    // Only ASCII bytes were replaced by ASCII spaces, whole lines at a time.
+    (String::from_utf8(bytes).unwrap_or_else(|_| text.to_string()), found)
+}
+
+/// The script cut into the units psql would run. The lexer reads SQL; on
+/// top of it, as psql: a line starting with `\` (outside quotes, comments
+/// and bodies) is a meta-command that ends at its newline, and the lines
+/// after `COPY … FROM stdin;` are data up to their `\.` line. Both would
+/// otherwise reach the lexer as SQL, where an apostrophe in them (`\echo
+/// it's`, a row with `O'Brien`) opens a string that swallows the
+/// statements after it.
+///
+/// Meta-commands are units `execute` handles ([`client_commands`]), except
+/// pg_dump's `\restrict` / `\unrestrict`, which need nothing. COPY data is
+/// a client unit: the app doesn't send it, and its COPY already says why.
+pub(crate) fn split(text: &str) -> Vec<ScriptStatement> {
+    /// Ends the text the lexer sees: whether it comes back as a unit of its
+    /// own tells if the text ended outside quotes, comments and bodies.
+    const PROBE: &str = "\n;dbine_probe";
+    let mut out = Vec::new();
+    let mut pos = 0;
+    let mut line = 1;
+    let push = |out: &mut Vec<ScriptStatement>, mut u: ScriptStatement, base: usize, base_line: u32| {
+        u.start += base;
+        u.end += base;
+        u.line += base_line - 1;
+        out.push(u);
+    };
+    while pos < text.len() {
+        // The next line that starts with `\`: a meta-command, the `\.` of
+        // COPY data, or text inside a quote (then it's taken in).
+        let mut cut = backslash_line(text, pos, pos);
+        let (units, cut) = loop {
+            let mut seg = text[pos..cut].to_string();
+            if cut == text.len() {
+                break (sql::split_script(&seg, &DIALECT), cut);
+            }
+            seg.push_str(PROBE);
+            let mut units = sql::split_script(&seg, &DIALECT);
+            let clean = units.last().is_some_and(|u| u.text == PROBE[2..] && u.start == cut - pos + 2);
+            let copy = units.iter().any(|u| copy_from_stdin(&u.text, &head(&u.text)));
+            if clean || copy {
+                if clean {
+                    units.pop();
+                }
+                break (units, cut);
+            }
+            cut = backslash_line(text, pos, cut + 1);
+        };
+        let mut next = cut;
+        for u in units {
+            let is_copy = copy_from_stdin(&u.text, &head(&u.text));
+            let end = u.end + pos;
+            push(&mut out, u, pos, line);
+            if is_copy {
+                // Data: from the line after the terminator to its `\.` line.
+                let after = &text[end..];
+                let term = end + (after.len() - after.trim_start().len()) + usize::from(after.trim_start().starts_with(';'));
+                let start = text[term..].find('\n').map_or(text.len(), |n| term + n + 1);
+                let mut stop = text.len();
+                let mut at = start;
+                for l in text[start..].split_inclusive('\n') {
+                    at += l.len();
+                    if l.trim() == r"\." {
+                        stop = at;
+                        break;
+                    }
+                }
+                let data = text[start..stop].trim_end();
+                if !data.is_empty() {
+                    out.push(ScriptStatement {
+                        text: data.to_string(),
+                        start,
+                        end: start + data.len(),
+                        line: line + text[pos..start].bytes().filter(|&b| b == b'\n').count() as u32,
+                        kind: StatementKind::ClientCommand,
+                        repeat: 1,
+                        error: None,
+                    });
+                }
+                next = stop;
+                break;
+            }
+        }
+        if next == cut && cut < text.len() {
+            // The meta-command line at `cut`.
+            let eol = text[cut..].find('\n').map_or(text.len(), |n| cut + n);
+            let raw = &text[cut..eol];
+            let cmd = raw.trim();
+            let start = cut + (raw.len() - raw.trim_start().len());
+            let name = cmd[1..].split(char::is_whitespace).next().unwrap_or("");
+            let silent = matches!(name, "restrict" | "unrestrict");
+            out.push(ScriptStatement {
+                text: cmd.to_string(),
+                start,
+                end: start + cmd.len(),
+                line: line + text[pos..start].bytes().filter(|&b| b == b'\n').count() as u32,
+                kind: if silent { StatementKind::ClientCommand } else { StatementKind::Sql },
+                repeat: 1,
+                error: None,
+            });
+            next = (eol + 1).min(text.len());
+        }
+        line += text[pos..next].bytes().filter(|&b| b == b'\n').count() as u32;
+        pos = next;
+    }
+    out
+}
+
+/// Where the first line starting with `\` (after spaces) begins, among the
+/// lines that start at or after `from` (`pos` being a line start), or the
+/// end of `text`.
+fn backslash_line(text: &str, pos: usize, from: usize) -> usize {
+    let mut at = pos;
+    for l in text[pos..].split_inclusive('\n') {
+        if at >= from && l.trim_start().starts_with('\\') {
+            return at;
+        }
+        at += l.len();
+    }
+    text.len()
+}
+
+/// `USE db` / `SET [SESSION] database = db` (CockroachDB, Materialize):
+/// the session now works on another database.
+pub(crate) fn switches_database(head: &[String]) -> bool {
+    let w: Vec<&str> = head.iter().map(String::as_str).collect();
+    matches!(w.as_slice(), ["use", _, ..] | ["set", "database", ..] | ["set", "session", "database", ..])
+}
+
+/// Statements whose column types are asked inside an open transaction,
+/// after they ran: queries the server just parsed and planned, so the
+/// describe can't fail where they didn't (and abort the transaction).
+pub(crate) fn describable_in_transaction(verb: &str) -> bool {
+    matches!(verb, "select" | "values" | "table" | "insert" | "update" | "delete" | "merge")
+}
+
+/// `COPY … FROM STDIN`: the server would wait for rows the editor doesn't
+/// send, and the client library can't answer it in a simple query.
+pub(crate) fn copy_from_stdin(text: &str, head: &[String]) -> bool {
+    if head.first().map(String::as_str) != Some("copy") {
+        return false;
+    }
+    let t = sql::strip_comments(text, &DIALECT, false).to_ascii_lowercase();
+    let words: Vec<&str> = t.split_whitespace().collect();
+    words.windows(2).any(|w| w[0] == "from" && w[1].trim_end_matches(';') == "stdin")
 }
 
 /// The first words of a statement, lowercase, comments left out: enough
@@ -100,10 +325,8 @@ fn main_verb(text: &str) -> Option<String> {
                 let tag_end = t[i + 1..].find('$').map(|e| i + 1 + e);
                 if let Some(e) = tag_end.filter(|&e| t[i + 1..e].bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')) {
                     let tag = &t[i..=e];
-                    match t[e + 1..].find(tag) {
-                        Some(close) => i = e + 1 + close + tag.len() - 1,
-                        None => return None,
-                    }
+                    let close = t[e + 1..].find(tag)?;
+                    i = e + 1 + close + tag.len() - 1;
                 }
             }
             c if depth == 0 && (c.is_ascii_alphabetic() || c == b'_') => {
@@ -411,6 +634,88 @@ mod tests {
         let atomic = "create function g() returns int language sql begin atomic select 1; select 2; end;\nselect g()";
         assert_eq!(texts(atomic).len(), 2, "{:?}", texts(atomic));
         assert_eq!(texts("do $$ begin raise notice 'a;b'; end $$; vacuum").len(), 2);
+    }
+
+    #[test]
+    fn psql_meta_commands_are_the_clients() {
+        let text = "\\restrict abc\n-- note\n\\echo 'hola ''mundo'''\n\\set ON_ERROR_STOP on\nselect ñ frm t";
+        let (clean, found) = client_commands(text);
+        assert_eq!(clean.len(), text.len());
+        assert_eq!(clean.lines().count(), text.lines().count());
+        assert!(clean.ends_with("select ñ frm t") && !clean.contains('\\'), "{clean:?}");
+        assert_eq!(
+            found,
+            [ClientCommand::Silent, ClientCommand::Echo("hola 'mundo'".into()), ClientCommand::Ignored("\\set ON_ERROR_STOP on".into())]
+        );
+        let (clean, found) = client_commands("1\ta\n2\tb\n\\.\n\n\\connect other\nselect 1");
+        assert_eq!(found, [ClientCommand::CopyData, ClientCommand::Connect("other".into())]);
+        assert_eq!(clean.trim(), "select 1");
+        // Statements before the data (a whole file's chunk): kept.
+        let chunk = "copy t from stdin;\n1\ta\n\\.\nselect 1";
+        assert_eq!(client_commands(chunk), (chunk.to_string(), vec![]));
+        // A string literal holding a `\.` line is SQL, not COPY data.
+        let literal = "SELECT 'a\n\\.\nb' AS s";
+        assert_eq!(client_commands(literal), (literal.to_string(), vec![]));
+        // Not at the start: SQL, left alone.
+        let (clean, found) = client_commands("select '\\echo'");
+        assert!(found.is_empty() && clean == "select '\\echo'");
+        assert!(copy_from_stdin("COPY public.t (a, b) FROM stdin", &h("COPY public.t (a, b) FROM stdin")));
+        assert!(copy_from_stdin("copy t from STDIN with (format csv);", &h("copy t")));
+        assert!(!copy_from_stdin("copy t to stdout", &h("copy t to stdout")));
+        assert!(!copy_from_stdin("select 'from stdin'", &h("select")));
+    }
+
+    fn units(s: &str) -> Vec<(String, u32, StatementKind)> {
+        let st = split(s);
+        for u in &st {
+            assert_eq!(&s[u.start..u.end], u.text, "{u:?}");
+            assert_eq!(line_of(s, u.start), u.line, "{u:?}");
+        }
+        st.into_iter().map(|u| (u.text, u.line, u.kind)).collect()
+    }
+
+    #[test]
+    fn copy_data_and_meta_commands_end_where_psql_ends_them() {
+        use StatementKind::{ClientCommand as C, Sql as S};
+        let s = "\\restrict X\nSET a = 1;\nCOPY public.v2_t (id, n) FROM stdin;\n1\tO'Brien\n\\N\ta;b\n\\.\n\nSELECT 'after copy' AS x;\n\\unrestrict X";
+        assert_eq!(
+            units(s),
+            [
+                ("\\restrict X".into(), 1, C),
+                ("SET a = 1".into(), 2, S),
+                ("COPY public.v2_t (id, n) FROM stdin".into(), 3, S),
+                ("1\tO'Brien\n\\N\ta;b\n\\.".into(), 4, C),
+                ("SELECT 'after copy' AS x".into(), 8, S),
+                ("\\unrestrict X".into(), 9, C),
+            ]
+        );
+        assert_eq!(
+            units("\\echo it's done\nSELECT 1 AS a;\nSELECT 2 AS b;\n  \\set x 1;\nselect 3"),
+            [
+                ("\\echo it's done".into(), 1, S),
+                ("SELECT 1 AS a".into(), 2, S),
+                ("SELECT 2 AS b".into(), 3, S),
+                ("\\set x 1;".into(), 4, S),
+                ("select 3".into(), 5, S),
+            ]
+        );
+        // A `\` line inside a string, a body or a comment is theirs.
+        let s = "select 'a\n\\b';\ndo $$\n\\echo x\n$$;\n/*\n\\c y\n*/ select 2;";
+        assert_eq!(units(s).iter().map(|u| u.0.as_str()).collect::<Vec<_>>(), ["select 'a\n\\b'", "do $$\n\\echo x\n$$", "select 2"]);
+        // Data with no `\.` runs to the end; two COPYs in a row.
+        let s = "copy a from stdin;\n1\tx'\n\\.\ncopy b from stdin;\n2\t'y;\n";
+        assert_eq!(
+            units(s),
+            [
+                ("copy a from stdin".into(), 1, S),
+                ("1\tx'\n\\.".into(), 2, C),
+                ("copy b from stdin".into(), 4, S),
+                ("2\t'y;".into(), 5, C),
+            ]
+        );
+        // Plain SQL: the lexer's units as they are.
+        let s = "select 1;\n-- c\nselect $$a;b$$;";
+        assert_eq!(split(s), sql::split_script(s, &DIALECT));
     }
 
     #[test]
