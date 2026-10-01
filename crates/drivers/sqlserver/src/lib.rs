@@ -210,7 +210,9 @@ impl Driver for SqlServerDriver {
         // Indexes that depend on a remade one are remade too; UNIQUE
         // constraints and memory-optimized indexes drop their own way.
         let changes = structure::prepare_changes(changes);
-        let mut script = dbine_driver::alter::sync_script(&st, &changes)?;
+        // Comments are MS_Description extended properties (Fabric has none).
+        let comments = |t: &TableSchema, c: Option<&dbine_driver::ColumnDef>, v: Option<&str>| Some(schema::comment_change(t, c, v));
+        let mut script = dbine_driver::alter::sync_script_with_comments(&st, (!fabric).then_some(&comments as dbine_driver::alter::CommentSql), &changes)?;
         structure::fix_drops(&mut script.statements, &changes);
         Ok(script)
     }
@@ -857,6 +859,7 @@ impl Session for SqlServerSession {
                 text(&r, 5).unwrap_or_default(),
                 text(&r, 6),
                 text(&r, 7).unwrap_or_default(),
+                r.get(8).unwrap_or(false),
             );
         }
         for r in self.rows(schema::FOREIGN_KEYS_SQL, &[]).await? {

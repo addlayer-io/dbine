@@ -82,6 +82,9 @@ CREATE INDEX docs_id_brin ON app.docs USING brin (id) WITH (pages_per_range = 16
 CREATE UNIQUE INDEX docs_sala_ux ON app.docs (sala) NULLS NOT DISTINCT WHERE sala > 0;
 CREATE INDEX docs_cuerpo_hash ON app.docs USING hash (cuerpo);
 CREATE SEQUENCE app.suelta OWNED BY app.docs.sala;
+COMMENT ON TABLE app.docs IS 'Documentos';
+COMMENT ON COLUMN app.docs.titulo IS 'Título nuevo';
+COMMENT ON COLUMN app.docs.animo IS 'ánimo (columna nueva)';
 ";
 
 const PG_TARGET: &str = "
@@ -103,6 +106,8 @@ CREATE UNIQUE INDEX docs_codigo_uq ON app.docs (codigo);
 CREATE INDEX docs_titulo_ix ON app.docs (titulo);
 CREATE INDEX docs_fts_ix ON app.docs USING gin (to_tsvector('english', titulo));
 CREATE INDEX docs_id_brin ON app.docs USING brin (id);
+COMMENT ON COLUMN app.docs.titulo IS 'Título viejo';
+COMMENT ON COLUMN app.docs.cuerpo IS 'se va';
 ";
 
 const CRDB_SOURCE: &str = "

@@ -1445,9 +1445,41 @@ mod tests {
         st.add_column = "ADD";
         st.drop_index = DropIndex::OnTable;
         let prepared = prepare_changes(changes);
-        let mut s = dbine_driver::alter::sync_script(&st, &prepared).unwrap();
+        let comments = |t: &TableSchema, c: Option<&ColumnDef>, v: Option<&str>| Some(crate::schema::comment_change(t, c, v));
+        let mut s = dbine_driver::alter::sync_script_with_comments(&st, Some(&comments), &prepared).unwrap();
         fix_drops(&mut s.statements, &prepared);
         s.statements
+    }
+
+    #[test]
+    fn comments_sync_as_extended_properties() {
+        let mut old = table(vec![]);
+        old.columns.push(ColumnDef { name: "nombre".into(), data_type: "nvarchar(50)".into(), nullable: true, comment: Some("viejo".into()), ..Default::default() });
+        old.columns.push(ColumnDef { name: "baja".into(), data_type: "date".into(), nullable: true, comment: Some("se va".into()), ..Default::default() });
+        let mut new = old.clone();
+        new.comment = Some("Documentos".into());
+        new.columns[1].comment = Some("it's new".into());
+        new.columns[2].comment = None;
+        new.columns.push(ColumnDef { name: "email".into(), data_type: "nvarchar(100)".into(), nullable: true, comment: Some("correo".into()), ..Default::default() });
+        let s = sync(&[TableChange::Alter { old: old.clone(), new: new.clone() }]);
+        assert_eq!(s.len(), 5, "{s:#?}");
+        assert_eq!(s[0], "ALTER TABLE [dbo].[docs] ADD [email] nvarchar(100) NULL;");
+        let upsert = |s: &str, levels: &str| {
+            s.contains(&format!("IF NOT EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', {levels}))"))
+                && s.contains("EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = @v")
+                && s.contains("ELSE\n    EXEC sys.sp_updateextendedproperty @name = N'MS_Description', @value = @v")
+        };
+        assert!(upsert(&s[1], "N'SCHEMA', N'dbo', N'TABLE', N'docs', N'COLUMN', N'email'") && s[1].starts_with("DECLARE @v sql_variant = N'correo';"), "{}", s[1]);
+        assert!(upsert(&s[2], "N'SCHEMA', N'dbo', N'TABLE', N'docs', N'COLUMN', N'nombre'") && s[2].starts_with("DECLARE @v sql_variant = N'it''s new';"), "{}", s[2]);
+        assert_eq!(
+            s[3],
+            "IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'docs', N'COLUMN', N'baja'))\n    EXEC sys.sp_dropextendedproperty @name = N'MS_Description', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'docs', @level2type = N'COLUMN', @level2name = N'baja';"
+        );
+        assert!(upsert(&s[4], "N'SCHEMA', N'dbo', N'TABLE', N'docs', NULL, NULL") && s[4].starts_with("DECLARE @v sql_variant = N'Documentos';"), "{}", s[4]);
+        // And back: the table's comment goes.
+        let s = sync(&[TableChange::Alter { old: new, new: old }]);
+        assert!(s.last().unwrap().starts_with("IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'docs', NULL, NULL))\n    EXEC sys.sp_dropextendedproperty"), "{s:#?}");
+        assert!(!s.last().unwrap().contains("@level2type"), "{s:#?}");
     }
 
     #[test]

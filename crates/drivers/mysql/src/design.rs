@@ -251,12 +251,30 @@ pub(crate) fn sync_script(v: Variant, changes: &[dbine_driver::TableChange]) -> 
     st.drop_index = if matches!(v, Variant::StarRocks | Variant::Doris | Variant::VeloDb) { DropIndex::OnTable } else { DropIndex::AlterTable };
     st.drop_fk = "DROP FOREIGN KEY";
     st.drop_pk_keyword = true;
-    let mut script = dbine_driver::alter::sync_script(&st, changes)?;
+    let comments = |t: &TableSchema, c: Option<&dbine_driver::ColumnDef>, text: Option<&str>| comment_change(v, t, c, text);
+    let mut script = dbine_driver::alter::sync_script_with_comments(&st, Some(&comments), changes)?;
     if matches!(v, Variant::StarRocks | Variant::Doris | Variant::VeloDb) && changes.iter().any(|c| matches!(c, dbine_driver::TableChange::Alter { .. })) {
         script.warnings.push("Los cambios de columnas e índices son trabajos asincrónicos del servidor: cada uno tiene que terminar antes del siguiente en la misma tabla (SHOW ALTER TABLE COLUMN). Si una sentencia falla porque la tabla está ocupada, volvé a ejecutarla cuando termine.".into());
     }
     engine_sync(v, changes, &mut script)?;
     Ok(script)
+}
+
+/// A table comment change (the schema sync): `ALTER TABLE … COMMENT =`
+/// (Doris: `MODIFY COMMENT`; GreptimeDB: `COMMENT ON`). A column's goes
+/// with `MODIFY COLUMN` and its `COMMENT`, except in GreptimeDB, whose
+/// `MODIFY COLUMN` only changes the type.
+fn comment_change(v: Variant, t: &TableSchema, c: Option<&dbine_driver::ColumnDef>, text: Option<&str>) -> Option<String> {
+    let name = dbine_driver::sql::qualified_name(Quote::Backtick, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
+    let value = |null: &str| text.map(lit).unwrap_or_else(|| null.to_string());
+    match (v, c) {
+        (Variant::Manticore, _) => None,
+        (Variant::GreptimeDb, Some(c)) => Some(format!("COMMENT ON COLUMN {name}.{} IS {};", quote_ident(Quote::Backtick, &c.name), value("NULL"))),
+        (Variant::GreptimeDb, None) => Some(format!("COMMENT ON TABLE {name} IS {};", value("NULL"))),
+        (_, Some(_)) => None,
+        (Variant::Doris | Variant::VeloDb, None) => Some(format!("ALTER TABLE {name} MODIFY COMMENT {};", value("''"))),
+        (_, None) => Some(format!("ALTER TABLE {name} COMMENT = {};", value("''"))),
+    }
 }
 
 /// What the generic plan can't write for these engines: CHECKs that aren't
@@ -1297,6 +1315,26 @@ mod tests {
         old.columns[2].data_type = "varchar(20)".into();
         let s = sync_script(Variant::MariaDb, &[dbine_driver::TableChange::Alter { old, new: t }]).unwrap();
         assert_eq!(s.statements, ["ALTER TABLE `pedidos` MODIFY COLUMN `estado` varchar(20) DEFAULT 'nuevo' NULL CHECK (`estado` <> '');"]);
+    }
+
+    #[test]
+    fn table_comments_sync_with_alter_table() {
+        let old = TableSchema { comment: None, ..pedidos() };
+        let mut new = old.clone();
+        new.comment = Some("it's \\ new".into());
+        let sync = |v, old: &TableSchema, new: &TableSchema| sync_script(v, &[dbine_driver::TableChange::Alter { old: old.clone(), new: new.clone() }]).unwrap().statements;
+        assert_eq!(sync(Variant::MySql, &old, &new), ["ALTER TABLE `pedidos` COMMENT = 'it''s \\\\ new';"]);
+        assert_eq!(sync(Variant::MySql, &new, &old), ["ALTER TABLE `pedidos` COMMENT = '';"]);
+        assert_eq!(sync(Variant::StarRocks, &old, &new), ["ALTER TABLE `pedidos` COMMENT = 'it''s \\\\ new';"]);
+        assert_eq!(sync(Variant::Doris, &new, &old), ["ALTER TABLE `pedidos` MODIFY COMMENT '';"]);
+        assert_eq!(sync(Variant::GreptimeDb, &new, &old), ["COMMENT ON TABLE `pedidos` IS NULL;"]);
+        assert!(sync(Variant::Manticore, &old, &new).is_empty());
+        // A column's comment goes with MODIFY COLUMN (GreptimeDB: COMMENT ON).
+        let mut new = old.clone();
+        new.columns[2].comment = Some("estado".into());
+        let s = sync(Variant::MySql, &old, &new);
+        assert!(s.len() == 1 && s[0].starts_with("ALTER TABLE `pedidos` MODIFY COLUMN `estado`") && s[0].ends_with(" COMMENT 'estado';"), "{s:?}");
+        assert_eq!(sync(Variant::GreptimeDb, &old, &new), ["COMMENT ON COLUMN `pedidos`.`estado` IS 'estado';"]);
     }
 
     #[test]

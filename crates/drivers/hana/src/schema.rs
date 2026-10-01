@@ -308,7 +308,16 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver
     let mut st = AlterStyle::from_flavor(&f, ColumnAlter::Modify { keyword: "ALTER" }, &cd, &dd);
     st.add_column = "ADD";
     st.drop_pk_keyword = true;
-    let mut script = alter::sync_script(&st, &changes)?;
+    // COMMENT ON also for added columns (ALTER (…) doesn't carry comments).
+    let comment_on = |t: &TableSchema, c: Option<&ColumnDef>, text: Option<&str>| {
+        let name = dbine_driver::sql::qualified_name(Quote::Double, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
+        let v = text.map(lit).unwrap_or_else(|| "NULL".into());
+        Some(match c {
+            Some(c) => format!("COMMENT ON COLUMN {name}.{} IS {v};", quote(&c.name)),
+            None => format!("COMMENT ON TABLE {name} IS {v};"),
+        })
+    };
+    let mut script = alter::sync_script_with_comments(&st, Some(&comment_on), &changes)?;
     for s in &mut script.statements {
         if let Some((_, block)) = unique_drops.iter().find(|(plain, _)| plain == s) {
             *s = block.clone();
@@ -550,6 +559,20 @@ mod tests {
             [
                 "ALTER TABLE \"PEDIDOS\" ALTER (\"ESTADO\" NVARCHAR(20) DEFAULT 'nuevo' NULL);",
                 "COMMENT ON COLUMN \"PEDIDOS\".\"CLIENTE_ID\" IS 'cliente';",
+            ]
+        );
+        // An added column's comment and the table's.
+        let old = table();
+        let mut new = table();
+        new.comment = Some("Pedidos 2".into());
+        new.columns.push(ColumnDef { name: "NOTA".into(), data_type: "NVARCHAR(50)".into(), nullable: true, comment: Some("nota".into()), ..Default::default() });
+        let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
+        assert_eq!(
+            s.statements,
+            [
+                "ALTER TABLE \"PEDIDOS\" ADD (\"NOTA\" NVARCHAR(50) NULL);",
+                "COMMENT ON COLUMN \"PEDIDOS\".\"NOTA\" IS 'nota';",
+                "COMMENT ON TABLE \"PEDIDOS\" IS 'Pedidos 2';",
             ]
         );
     }

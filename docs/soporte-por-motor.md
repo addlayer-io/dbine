@@ -966,6 +966,40 @@ Sin sincronización (la comparación funciona igual):
 - **Neptune:** no tiene esquema definido por el usuario.
 - **Denodo y NetSuite:** los motivos están en la tabla de motores relacionales.
 
+### Sincronización: comentarios de tablas y columnas
+
+Un comentario que se agrega, cambia o quita en el origen se lleva al destino,
+también el de una columna que la misma sincronización agrega. Cada motor lo
+escribe con su sintaxis (el contrato: `alter::sync_script_with_comments`;
+sin ella, `COMMENT ON`).
+
+| Motor | Cómo se escribe | Probado contra servidor |
+|---|---|---|
+| SQL Server, Azure SQL, Babelfish | Propiedad extendida `MS_Description`: `sp_addextendedproperty` o `sp_updateextendedproperty` si ya existe; `sp_dropextendedproperty` al quitarlo | SQL Server 2022; Babelfish (las tres sentencias) |
+| PostgreSQL y compatibles, Oracle, Firebird, DuckDB, Snowflake, SAP HANA, Db2, Exasol y los demás con `COMMENT ON` | `COMMENT ON TABLE` / `COMMENT ON COLUMN` | PostgreSQL 16 |
+| MySQL, MariaDB, TiDB, OceanBase, SingleStore, Aurora/Cloud SQL, StarRocks, Databend | Columna: `MODIFY COLUMN … COMMENT`. Tabla: `ALTER TABLE … COMMENT =` | MySQL 8, MariaDB 11, StarRocks |
+| Doris, VeloDB | Tabla: `ALTER TABLE … MODIFY COMMENT` | no |
+| GreptimeDB | `COMMENT ON TABLE` / `COMMENT ON COLUMN` (su `MODIFY COLUMN` solo cambia el tipo) | sí |
+| CUBRID (ODBC) | Columna: `MODIFY`. Tabla: `ALTER TABLE … COMMENT =` | no |
+| Hive, Impala, Spark (ODBC) | Columna: `CHANGE COLUMN` (Spark: `ALTER COLUMN … COMMENT`). Tabla: `SET TBLPROPERTIES ('comment' = …)` | no |
+| Vertica (ODBC) | Tabla: `COMMENT ON TABLE` | no |
+| Cassandra, ScyllaDB | Opción `comment` de la tabla; al quitarlo, `comment = ''` | Cassandra 5 |
+| ClickHouse, Trino, Athena, BigQuery, Databricks, TDengine, Elasticsearch | Los propios de cada motor (ver su fila en las tablas de arriba) | según el motor |
+
+Sin sincronización de comentarios:
+
+- **Fabric Warehouse:** no tiene propiedades extendidas.
+- **Manticore, Spanner, Phoenix, SQLite, libSQL:** el motor no tiene comentarios
+  que se puedan escribir con SQL. Phoenix muestra `REMARKS` del catálogo, pero
+  no tiene sentencia para cambiarlos.
+- **Vertica (ODBC), columnas:** `COMMENT ON COLUMN` comenta columnas de
+  proyecciones, no de tablas.
+- **Presets ODBC sin `COMMENT ON` ni comentarios en línea** (Sybase ASE,
+  Informix, Ocient, Virtuoso, IRIS, Zen, OpenEdge, Machbase, SQream, Access,
+  dBase, NuoDB, HeavyDB, Ignite, ODBC genérico): no se escriben. Pendiente
+  explícito para los que tengan sintaxis propia: hay que confirmarla contra
+  cada servidor, y no hay contenedores para hacerlo.
+
 ## Búsqueda de claves en el explorador
 
 En los motores clave-valor, una base puede tener millones de claves. DBine no

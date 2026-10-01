@@ -102,6 +102,15 @@ impl<'a> AlterStyle<'a> {
     }
 }
 
+/// How a driver writes a comment change in its own syntax, for engines
+/// without `COMMENT ON` (SQL Server's extended properties, MySQL's
+/// `ALTER TABLE … COMMENT =`): the table's comment (`column` is `None`) or a
+/// column's, set to `comment` (`None` when it's removed). Returning `None`
+/// writes nothing (the column's own DDL already carries it, as `MODIFY
+/// COLUMN … COMMENT` does). Called for changed comments and for the
+/// comments of added columns.
+pub type CommentSql<'a> = &'a dyn Fn(&TableSchema, Option<&ColumnDef>, Option<&str>) -> Option<String>;
+
 /// `table_ddl` for a flavor, as an [`AlterStyle::table_ddl`].
 pub fn flavor_ddl(f: &SqlFlavor) -> impl Fn(&TableSchema, DdlParts) -> Result<String> + '_ {
     move |t, p| Ok(flavor_table_ddl(f, t, p))
@@ -271,8 +280,15 @@ impl ColumnChanges {
     }
 }
 
-/// Plan the changes with `st`.
+/// Plan the changes with `st`. Comments change with `COMMENT ON` when
+/// [`AlterStyle::comment_on`] says so.
 pub fn sync_script(st: &AlterStyle, changes: &[TableChange]) -> Result<SyncScript> {
+    sync_script_with_comments(st, None, changes)
+}
+
+/// [`sync_script`] with comment changes written by `comments` (the default,
+/// `None`, is `COMMENT ON` where [`AlterStyle::comment_on`]).
+pub fn sync_script_with_comments(st: &AlterStyle, comments: Option<CommentSql>, changes: &[TableChange]) -> Result<SyncScript> {
     let mut p = Plan::default();
     for ch in changes {
         match ch {
@@ -289,7 +305,7 @@ pub fn sync_script(st: &AlterStyle, changes: &[TableChange]) -> Result<SyncScrip
                 p.warnings.push(format!("Se borra la tabla {} con todos sus datos.", display(table)));
                 p.drop_tables.push((st.table_ddl)(table, DROP)?);
             }
-            TableChange::Alter { old, new } => alter_table(st, old, new, &mut p)?,
+            TableChange::Alter { old, new } => alter_table(st, comments, old, new, &mut p)?,
         }
     }
     let statements = [p.drop_fks, p.drop_tables, p.pre, p.columns, p.post, p.creates, p.add_fks].into_iter().flatten().filter(|s| !s.trim().is_empty()).collect();
@@ -303,10 +319,26 @@ fn display(t: &TableSchema) -> String {
     }
 }
 
-fn alter_table(st: &AlterStyle, old: &TableSchema, new: &TableSchema, p: &mut Plan) -> Result<()> {
+fn alter_table(st: &AlterStyle, comments: Option<CommentSql>, old: &TableSchema, new: &TableSchema, p: &mut Plan) -> Result<()> {
     let name = qualified_name(st.quote, new.schema.as_deref().filter(|s| !s.is_empty()), &new.name);
     let q = |c: &str| quote_ident(st.quote, c);
     let tname = display(new);
+    // A comment change: the driver's own statement, or COMMENT ON (where the
+    // column's DDL doesn't already carry it: MODIFY writes the whole column).
+    let comment_sql = |col: Option<&ColumnDef>, text: Option<&str>| -> Option<String> {
+        match comments {
+            Some(f) => f(new, col, text.filter(|s| !s.is_empty())),
+            None if !st.comment_on => None,
+            None => {
+                let v = text.map(lit).unwrap_or_else(|| "NULL".into());
+                match col {
+                    Some(_) if matches!(st.column, ColumnAlter::Modify { .. }) => None,
+                    Some(c) => Some(format!("COMMENT ON COLUMN {name}.{} IS {v};", q(&c.name))),
+                    None => Some(format!("COMMENT ON TABLE {name} IS {v};")),
+                }
+            }
+        }
+    };
 
     let dropped: Vec<&ColumnDef> = old.columns.iter().filter(|c| !new.columns.iter().any(|n| eq_name(&n.name, &c.name))).collect();
     let added: Vec<&ColumnDef> = new.columns.iter().filter(|c| !old.columns.iter().any(|o| eq_name(&o.name, &c.name))).collect();
@@ -396,6 +428,9 @@ fn alter_table(st: &AlterStyle, old: &TableSchema, new: &TableSchema, p: &mut Pl
             p.warnings.push(format!("{tname}.{} es NOT NULL sin valor por defecto: falla si la tabla tiene filas.", c.name));
         }
         p.columns.push(format!("ALTER TABLE {name} {} {};", st.add_column, (st.column_def)(new, c)));
+        if let Some(s) = c.comment.as_deref().filter(|s| !s.is_empty()).and_then(|t| comment_sql(Some(c), Some(t))) {
+            p.columns.push(s);
+        }
     }
     for (o, n, ch) in &changed {
         if ch.ty {
@@ -439,7 +474,11 @@ fn alter_table(st: &AlterStyle, old: &TableSchema, new: &TableSchema, p: &mut Pl
                 }
             }
             ColumnAlter::Modify { keyword } => {
-                p.columns.push(format!("ALTER TABLE {name} {keyword} {};", (st.column_def)(new, n)));
+                // Only the comment changed and the driver writes it apart: no MODIFY.
+                let comment_apart = ch.comment && !(ch.ty || ch.null || ch.default || ch.auto) && comments.is_some_and(|f| f(new, Some(n), n.comment.as_deref().filter(|s| !s.is_empty())).is_some());
+                if !comment_apart {
+                    p.columns.push(format!("ALTER TABLE {name} {keyword} {};", (st.column_def)(new, n)));
+                }
             }
             ColumnAlter::Oracle => {
                 if ch.ty {
@@ -459,8 +498,10 @@ fn alter_table(st: &AlterStyle, old: &TableSchema, new: &TableSchema, p: &mut Pl
                 }
             }
         }
-        if ch.comment && st.comment_on && !matches!(st.column, ColumnAlter::Modify { .. }) {
-            p.columns.push(format!("COMMENT ON COLUMN {name}.{col} IS {};", n.comment.as_deref().map(lit).unwrap_or_else(|| "NULL".into())));
+        if ch.comment {
+            if let Some(s) = comment_sql(Some(n), n.comment.as_deref()) {
+                p.columns.push(s);
+            }
         }
     }
 
@@ -497,8 +538,10 @@ fn alter_table(st: &AlterStyle, old: &TableSchema, new: &TableSchema, p: &mut Pl
         p.post.push(format!("ALTER TABLE {name} ADD {};", crate::ddl::check_clause(&f, n)));
         p.warnings.push(format!("La restricción CHECK nueva de {tname} falla si hay filas que no la cumplen."));
     }
-    if st.comment_on && old.comment.as_deref().unwrap_or("") != new.comment.as_deref().unwrap_or("") {
-        p.post.push(format!("COMMENT ON TABLE {name} IS {};", new.comment.as_deref().map(lit).unwrap_or_else(|| "NULL".into())));
+    if old.comment.as_deref().unwrap_or("") != new.comment.as_deref().unwrap_or("") {
+        if let Some(s) = comment_sql(None, new.comment.as_deref()) {
+            p.post.push(s);
+        }
     }
     Ok(())
 }
@@ -723,5 +766,60 @@ mod tests {
             f.name = Some(format!("{}_x", f.name.as_deref().unwrap()));
         }
         assert!(run(ColumnAlter::SqlServer, old, new).statements.is_empty());
+    }
+
+    #[test]
+    fn comments_go_through_the_drivers_own_syntax() {
+        let mut old = table(vec![col("id", "int", false), col("nombre", "varchar(10)", true), col("baja", "date", true)]);
+        old.columns[2].comment = Some("se va".into());
+        old.comment = Some("viejo".into());
+        let mut new = old.clone();
+        new.columns[1].comment = Some("el nombre".into());
+        new.columns[2].comment = None;
+        new.comment = None;
+        let mut added = col("email", "text", true);
+        added.comment = Some("correo".into());
+        new.columns.push(added);
+        let f = SqlFlavor { comment_on: false, ..SqlFlavor::ansi() };
+        let cd = |t: &TableSchema, c: &ColumnDef| column_def(&f, t, c);
+        let dd = flavor_ddl(&f);
+        let st = AlterStyle::from_flavor(&f, ColumnAlter::SqlServer, &cd, &dd);
+        let hook = |t: &TableSchema, c: Option<&ColumnDef>, v: Option<&str>| Some(format!("SET {}.{} = {v:?}", t.name, c.map_or("-", |c| c.name.as_str())));
+        let changes = [TableChange::Alter { old: old.clone(), new: new.clone() }];
+        let s = sync_script_with_comments(&st, Some(&hook), &changes).unwrap();
+        assert_eq!(
+            s.statements,
+            vec![
+                "ALTER TABLE \"dbo\".\"clientes\" ADD COLUMN \"email\" text NULL;",
+                "SET clientes.email = Some(\"correo\")",
+                "SET clientes.nombre = Some(\"el nombre\")",
+                "SET clientes.baja = None",
+                "SET clientes.- = None",
+            ]
+        );
+        // Without a hook nor COMMENT ON: nothing but the column.
+        assert_eq!(sync_script(&st, &changes).unwrap().statements.len(), 1);
+        // The hook can leave a column to its own DDL (MODIFY carries the comment).
+        let st = AlterStyle::from_flavor(&f, ColumnAlter::Modify { keyword: "MODIFY COLUMN" }, &cd, &dd);
+        let only_table = |_: &TableSchema, c: Option<&ColumnDef>, v: Option<&str>| c.is_none().then(|| format!("ALTER TABLE t COMMENT = '{}';", v.unwrap_or("")));
+        let s = sync_script_with_comments(&st, Some(&only_table), &changes).unwrap();
+        assert_eq!(s.statements.iter().filter(|x| x.contains("COMMENT")).collect::<Vec<_>>(), vec!["ALTER TABLE t COMMENT = '';"]);
+        assert_eq!(s.statements.iter().filter(|x| x.contains("MODIFY COLUMN")).count(), 2);
+        // Written apart, a comment-only change takes no MODIFY.
+        let s = sync_script_with_comments(&st, Some(&hook), &changes).unwrap();
+        assert!(!s.statements.iter().any(|x| x.contains("MODIFY COLUMN")), "{:?}", s.statements);
+        assert_eq!(s.statements.len(), 5, "{:?}", s.statements);
+        // COMMENT ON: changed ones and the added column's.
+        let s = run(ColumnAlter::Standard { set_data_type: false, using_cast: false }, old, new);
+        assert_eq!(
+            s.statements,
+            vec![
+                "ALTER TABLE \"dbo\".\"clientes\" ADD COLUMN \"email\" text NULL;",
+                "COMMENT ON COLUMN \"dbo\".\"clientes\".\"email\" IS 'correo';",
+                "COMMENT ON COLUMN \"dbo\".\"clientes\".\"nombre\" IS 'el nombre';",
+                "COMMENT ON COLUMN \"dbo\".\"clientes\".\"baja\" IS NULL;",
+                "COMMENT ON TABLE \"dbo\".\"clientes\" IS NULL;",
+            ]
+        );
     }
 }
