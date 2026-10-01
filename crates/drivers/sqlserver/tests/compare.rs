@@ -380,3 +380,130 @@ async fn babelfish_objects() {
     drop(s);
     admin.drop_database("dbine_bbf_cmp").await.unwrap();
 }
+
+async fn tables_of(s: &mut Box<dyn Session>) -> BTreeMap<String, TableSchema> {
+    s.database_schema().await.expect("database_schema").into_iter().map(|t| (t.name.clone(), normalized(t))).collect()
+}
+
+/// Sync `target` to `want` (the other side's version of `name`) with the
+/// driver's script, run it statement by statement, read again: equal.
+async fn sync_table(d: &dyn Driver, target: &mut Box<dyn Session>, name: &str, want: &TableSchema) -> Vec<String> {
+    let have = tables_of(target).await.remove(name).expect("table on the target");
+    let script = d.sync_script(&[TableChange::Alter { old: have, new: want.clone() }]).expect("sync_script");
+    for (i, s) in script.statements.iter().enumerate() {
+        if let Err(e) = run(target, s).await {
+            panic!("statement {i} failed: {e}\n---\n{s}\n---\nwhole script:\n{}", script.statements.join("\nGO\n"));
+        }
+    }
+    let after = tables_of(target).await.remove(name).unwrap();
+    assert_eq!(&after, want, "{name} after the sync:\n{}", script.statements.join("\nGO\n"));
+    script.statements
+}
+
+/// MS_Description comments (table and column) carried both ways: added,
+/// changed and removed, and on a column added by the same sync. And the
+/// included columns of a nonclustered index read the same whether the table
+/// is a heap, has a clustered key or a clustered columnstore index.
+///
+/// ```sh
+/// DBINE_TEST_SQLSERVER_URL='mssql://sa:Pw_12345!@localhost:25013' \
+///   cargo test -p dbine-driver-sqlserver --test compare comments -- --ignored --nocapture
+/// ```
+#[tokio::test]
+#[ignore]
+async fn comments_and_included_columns_sync() {
+    let Ok(url) = std::env::var("DBINE_TEST_SQLSERVER_URL") else {
+        eprintln!("DBINE_TEST_SQLSERVER_URL not set; skipping");
+        return;
+    };
+    let cfg = parse_url(&url);
+    let d = dbine_driver_sqlserver::drivers().remove(0);
+    let mut admin = d.connect(&cfg, Some("master")).await.expect("connect");
+    let (a_db, b_db) = ("dbine_cmt_a", "dbine_cmt_b");
+    for db in [a_db, b_db] {
+        let _ = admin.drop_database(db).await;
+        admin.create_database(db).await.expect("create_database");
+    }
+    let mut a = d.connect(&cfg, Some(a_db)).await.unwrap();
+    let mut b = d.connect(&cfg, Some(b_db)).await.unwrap();
+    let table = "CREATE TABLE dbo.clientes (id int NOT NULL CONSTRAINT PK_clientes PRIMARY KEY, nombre nvarchar(50) NULL);";
+    let details = |pk: &str, cci: bool| {
+        format!(
+            "CREATE TABLE dbo.EntityChangeDetails (
+                 Id bigint NOT NULL CONSTRAINT PK_EntityChangeDetails PRIMARY KEY {pk},
+                 Module nvarchar(50) NULL, FieldCode nvarchar(50) NULL, ValueType int NULL,
+                 EntityChangeId bigint NOT NULL);
+             {}
+             CREATE NONCLUSTERED INDEX IX_EntityChangeDetails_EntityChangeId ON dbo.EntityChangeDetails (EntityChangeId)
+                 INCLUDE (Id, Module, FieldCode, ValueType);",
+            if cci { "CREATE CLUSTERED COLUMNSTORE INDEX CCI_EntityChangeDetails ON dbo.EntityChangeDetails;" } else { "" }
+        )
+    };
+    run(&mut a, &format!("{table}\n{}", details("NONCLUSTERED", true))).await.unwrap();
+    run(&mut b, &format!("{table}\n{}", details("NONCLUSTERED", false))).await.unwrap();
+    // A third shape: the key clustered.
+    run(&mut b, "CREATE TABLE dbo.ecd_clustered (Id bigint NOT NULL PRIMARY KEY CLUSTERED, Module nvarchar(50) NULL, EntityChangeId bigint NOT NULL);
+                 CREATE INDEX IX_ecd_clustered ON dbo.ecd_clustered (EntityChangeId) INCLUDE (Id, Module);").await.unwrap();
+
+    // Included columns: the same with and without the columnstore index.
+    let ix = |t: &TableSchema, n: &str| t.indexes.iter().find(|i| i.name == n).cloned().unwrap_or_else(|| panic!("{n} in {:#?}", t.indexes));
+    let (ta, tb) = (tables_of(&mut a).await, tables_of(&mut b).await);
+    let name = "IX_EntityChangeDetails_EntityChangeId";
+    for t in [&ta["EntityChangeDetails"], &tb["EntityChangeDetails"]] {
+        let i = ix(t, name);
+        assert_eq!(i.columns, ["EntityChangeId"], "{i:#?}");
+        assert_eq!(i.include, ["Id", "Module", "FieldCode", "ValueType"], "{i:#?}");
+    }
+    assert_eq!(ix(&ta["EntityChangeDetails"], name), ix(&tb["EntityChangeDetails"], name));
+    let c = ix(&tb["ecd_clustered"], "IX_ecd_clustered");
+    assert_eq!((c.columns.as_slice(), c.include.as_slice()), (&["EntityChangeId".to_string()][..], &["Id".to_string(), "Module".to_string()][..]));
+    assert_eq!(ix(&ta["EntityChangeDetails"], "CCI_EntityChangeDetails").kind.as_deref(), Some("CLUSTERED COLUMNSTORE"));
+    // The columnstore index is the only difference, and the sync adds it.
+    let s = sync_table(d.as_ref(), &mut b, "EntityChangeDetails", &ta["EntityChangeDetails"]).await;
+    assert!(s.iter().any(|x| x.contains("CLUSTERED COLUMNSTORE INDEX")) && !s.iter().any(|x| x.contains(name)), "{s:#?}");
+
+    // Comments, from A to B: added, changed (and a new column with one), removed.
+    let add = |lvl: &str, v: &str| format!("EXEC sys.sp_addextendedproperty N'MS_Description', N'{v}', N'SCHEMA', N'dbo', N'TABLE', N'clientes'{lvl};");
+    let upd = |lvl: &str, v: &str| format!("EXEC sys.sp_updateextendedproperty N'MS_Description', N'{v}', N'SCHEMA', N'dbo', N'TABLE', N'clientes'{lvl};");
+    let del = |lvl: &str| format!("EXEC sys.sp_dropextendedproperty N'MS_Description', N'SCHEMA', N'dbo', N'TABLE', N'clientes'{lvl};");
+    let col = |c: &str| format!(", N'COLUMN', N'{c}'");
+    let steps = [
+        ("add", format!("{}\n{}", add("", "Clientes"), add(&col("nombre"), "El nombre"))),
+        (
+            "change",
+            format!(
+                "{}\n{}\nALTER TABLE dbo.clientes ADD email nvarchar(100) NULL;\n{}",
+                upd("", "Clientes activos"),
+                upd(&col("nombre"), "Nombre y apellido, con ''comillas''"),
+                add(&col("email"), "Correo")
+            ),
+        ),
+        ("remove", format!("{}\n{}\n{}", del(""), del(&col("nombre")), del(&col("email")))),
+    ];
+    for (step, sql) in &steps {
+        run(&mut a, sql).await.unwrap_or_else(|e| panic!("{step}: {e}"));
+        let want = tables_of(&mut a).await.remove("clientes").unwrap();
+        match *step {
+            "add" => assert_eq!((want.comment.as_deref(), want.columns[1].comment.as_deref()), (Some("Clientes"), Some("El nombre"))),
+            "change" => assert_eq!(want.columns[2].comment.as_deref(), Some("Correo")),
+            _ => assert!(want.comment.is_none() && want.columns.iter().all(|c| c.comment.is_none()), "{want:#?}"),
+        }
+        let s = sync_table(d.as_ref(), &mut b, "clientes", &want).await;
+        eprintln!("-- {step} (A → B)\n{}", s.join("\nGO\n"));
+        assert!(!s.is_empty());
+    }
+    // And from B to A: B gets comments of its own, A takes them, then B drops one.
+    run(&mut b, &format!("{}\n{}", add("", "Desde B"), add(&col("email"), "Correo de B"))).await.unwrap();
+    let want = tables_of(&mut b).await.remove("clientes").unwrap();
+    sync_table(d.as_ref(), &mut a, "clientes", &want).await;
+    run(&mut b, &format!("{}\n{}", upd("", "Otra vez B"), del(&col("email")))).await.unwrap();
+    let want = tables_of(&mut b).await.remove("clientes").unwrap();
+    sync_table(d.as_ref(), &mut a, "clientes", &want).await;
+    assert_eq!(tables_of(&mut a).await["clientes"].comment.as_deref(), Some("Otra vez B"));
+
+    drop(a);
+    drop(b);
+    for db in [a_db, b_db] {
+        admin.drop_database(db).await.expect("drop_database");
+    }
+}

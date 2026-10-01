@@ -202,7 +202,21 @@ fn sql(p: &Preset, changes: &[TableChange]) -> Result<SyncScript> {
         e,
         Eng::Db2 | Eng::Db2i | Eng::Db2zos | Eng::Sqla | Eng::Exasol | Eng::Altibase | Eng::Cubrid | Eng::Dameng | Eng::Zen | Eng::MaxDb
     );
-    let script = alter::sync_script(&st, &changes)?;
+    // CUBRID: a table's comment with ALTER TABLE (a column's goes with
+    // MODIFY). MODIFY engines without inline comments: COMMENT ON, also for
+    // the columns they add (the changed ones were set apart above).
+    let comment_hook = |t: &TableSchema, c: Option<&ColumnDef>, text: Option<&str>| {
+        let name = qualified_name(q, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
+        match c {
+            None if e == Eng::Cubrid => Some(format!("ALTER TABLE {name} COMMENT = {};", lit(text.unwrap_or("")))),
+            // Vertica comments projection columns, not table columns.
+            Some(_) if matches!(e, Eng::Cubrid | Eng::Vertica) => None,
+            None => Some(format!("COMMENT ON TABLE {name} IS {};", text.map(lit).unwrap_or_else(|| "NULL".into()))),
+            Some(c) => Some(format!("COMMENT ON COLUMN {name}.{} IS {};", quote_ident(q, &c.name), text.map(lit).unwrap_or_else(|| "NULL".into()))),
+        }
+    };
+    let hook = matches!(e, Eng::Cubrid | Eng::Vertica) || (modify && f.comment_on && !f.inline_comments);
+    let script = alter::sync_script_with_comments(&st, hook.then_some(&comment_hook as alter::CommentSql), &changes)?;
 
     // The engine's own spelling of each statement.
     let mut out: Vec<String> = Vec::new();
@@ -385,6 +399,10 @@ fn hive(p: &Preset, changes: &[TableChange]) -> SyncScript {
                     if ty || cm {
                         changed.push((o, n, ty));
                     }
+                }
+                // The table's comment is its `comment` property in all three.
+                if old.comment.as_deref().unwrap_or("") != new.comment.as_deref().unwrap_or("") {
+                    alters.push(format!("ALTER TABLE {name} SET TBLPROPERTIES ('comment' = {});", lit(new.comment.as_deref().unwrap_or(""))));
                 }
                 if e == Eng::Hive && !dropped.is_empty() {
                     // Hive can't drop a column: the whole list is replaced (metadata only).
@@ -607,5 +625,26 @@ mod tests {
         let s = sync_script(preset("spark"), &[TableChange::Alter { old: o, new: new() }]).unwrap();
         assert_eq!(s.statements, ["ALTER TABLE `S`.`T` ADD COLUMNS (`E` INTEGER);"]);
         assert!(s.warnings.iter().any(|w| w.contains("Spark no borra")));
+    }
+
+    #[test]
+    fn table_comments_without_comment_on() {
+        let mut n = old();
+        n.comment = Some("it's T".into());
+        for id in ["hive", "impala", "spark"] {
+            let s = sync_script(preset(id), &[TableChange::Alter { old: old(), new: n.clone() }]).unwrap();
+            assert_eq!(s.statements, ["ALTER TABLE `S`.`T` SET TBLPROPERTIES ('comment' = 'it''s T');"], "{id}");
+        }
+        let s = sync_script(preset("cubrid"), &[TableChange::Alter { old: n.clone(), new: old() }]).unwrap();
+        assert_eq!(s.statements, ["ALTER TABLE \"S\".\"T\" COMMENT = '';"]);
+        let s = sync_script(preset("cubrid"), &[TableChange::Alter { old: old(), new: n.clone() }]).unwrap();
+        assert_eq!(s.statements, ["ALTER TABLE \"S\".\"T\" COMMENT = 'it''s T';"]);
+        let s = sync_script(preset("vertica"), &[TableChange::Alter { old: n.clone(), new: old() }]).unwrap();
+        assert_eq!(s.statements, ["COMMENT ON TABLE \"S\".\"T\" IS NULL;"]);
+        // A MODIFY engine without inline comments: the added column's goes with COMMENT ON.
+        let mut n = old();
+        n.columns.push(ColumnDef { name: "E".into(), data_type: "INTEGER".into(), nullable: true, comment: Some("nueva".into()), ..Default::default() });
+        let s = sync_script(preset("exasol"), &[TableChange::Alter { old: old(), new: n }]).unwrap();
+        assert_eq!(s.statements.last().map(String::as_str), Some("COMMENT ON COLUMN \"S\".\"T\".\"E\" IS 'nueva';"), "{:?}", s.statements);
     }
 }

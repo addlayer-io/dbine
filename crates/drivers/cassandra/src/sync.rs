@@ -158,6 +158,11 @@ fn alter_table(keyspaces: bool, old: &TableSchema, new: &TableSchema, p: &mut Pl
         p.post.push(format!("ALTER TABLE {name} WITH {};", set.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" AND ")));
     }
     for o in old_opts.iter().filter(|o| !new_opts.iter().any(|n| key(n) == key(o))) {
+        // A removed comment is an empty one.
+        if key(o) == "comment" {
+            p.post.push(format!("ALTER TABLE {name} WITH comment = '';"));
+            continue;
+        }
         p.warnings.push(format!("{tname}: la opción {} se quitó en el origen; CQL no la vuelve al valor por defecto, se deja como está.", key(o)));
     }
     Ok(())
@@ -212,6 +217,18 @@ mod tests {
                 "ks.users.age: int → bigint. CQL no cambia el tipo de una columna; se deja como está.",
             ]
         );
+    }
+
+    #[test]
+    fn table_comment_set_changed_and_removed() {
+        let old = table(vec![col("id", "uuid")], &["id"]);
+        let mut new = old.clone();
+        new.options.insert("comment".into(), "it's users".into());
+        let s = sync_script(false, &[TableChange::Alter { old: old.clone(), new: new.clone() }]).unwrap();
+        assert_eq!(s.statements, ["ALTER TABLE ks.users WITH comment = 'it''s users';"]);
+        let s = sync_script(false, &[TableChange::Alter { old: new, new: old }]).unwrap();
+        assert_eq!(s.statements, ["ALTER TABLE ks.users WITH comment = '';"]);
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
     }
 
     #[test]

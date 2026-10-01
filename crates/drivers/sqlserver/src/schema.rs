@@ -117,6 +117,35 @@ fn comment_stmt(t: &TableSchema, column: Option<&str>, text: &str) -> String {
     s
 }
 
+/// A comment change for the schema sync (`MS_Description`): added or
+/// updated (as a clone writes it), or dropped when `text` is `None`.
+pub fn comment_change(t: &TableSchema, column: Option<&ColumnDef>, text: Option<&str>) -> String {
+    let mut levels = vec![("SCHEMA".to_string(), schema_of(t).to_string()), ("TABLE".to_string(), t.name.clone())];
+    if let Some(c) = column {
+        levels.push(("COLUMN".to_string(), c.name.clone()));
+    }
+    match text {
+        Some(v) => crate::clone::extended_property(&crate::clone::ExtendedProperty {
+            name: "MS_Description".into(),
+            value: v.into(),
+            base_type: "nvarchar".into(),
+            levels,
+        }),
+        None => {
+            let list: Vec<String> = (0..3)
+                .map(|i| levels.get(i).map_or("NULL, NULL".to_string(), |(ty, nm)| format!("{}, {}", nlit(ty), nlit(nm))))
+                .collect();
+            let args: Vec<String> =
+                levels.iter().enumerate().map(|(i, (ty, nm))| format!("@level{i}type = {}, @level{i}name = {}", nlit(ty), nlit(nm))).collect();
+            format!(
+                "IF EXISTS (SELECT 1 FROM sys.fn_listextendedproperty(N'MS_Description', {}))\n    EXEC sys.sp_dropextendedproperty @name = N'MS_Description', {};",
+                list.join(", "),
+                args.join(", ")
+            )
+        }
+    }
+}
+
 pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     let name = qualified_name(Quote::Bracket, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
     let object_id = |kind: &str| format!("OBJECT_ID({}, N'{kind}')", nlit(&name));
@@ -397,17 +426,19 @@ SELECT s.name, t.name, c.name, TYPE_NAME(c.user_type_id), CAST(c.max_length AS i
  WHERE t.is_ms_shipped = 0
  ORDER BY s.name, t.name, c.column_id";
 
-/// Primary keys and indexes (key columns only, in key order).
+/// Primary keys and indexes: key columns in key order, then the included
+/// ones (a columnstore index's columns are all "included").
 pub const INDEXES_SQL: &str = "
-SELECT s.name, t.name, i.name, i.is_primary_key, i.is_unique, i.type_desc, i.filter_definition, c.name
+SELECT s.name, t.name, i.name, i.is_primary_key, i.is_unique, i.type_desc, i.filter_definition, c.name,
+       ic.is_included_column
   FROM sys.indexes i
   JOIN sys.tables t ON t.object_id = i.object_id
   JOIN sys.schemas s ON s.schema_id = t.schema_id
   JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
   JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
  WHERE t.is_ms_shipped = 0 AND i.index_id > 0 AND i.is_hypothetical = 0
-   AND (ic.key_ordinal > 0 OR i.type IN (5, 6))
- ORDER BY s.name, t.name, i.name, ic.key_ordinal, ic.index_column_id";
+   AND (ic.key_ordinal > 0 OR ic.is_included_column = 1 OR i.type IN (5, 6))
+ ORDER BY s.name, t.name, i.name, ic.is_included_column, ic.key_ordinal, ic.index_column_id";
 
 pub const FOREIGN_KEYS_SQL: &str = "
 SELECT s.name, t.name, fk.name, pc.name, rs.name, rt.name, rc.name,
@@ -467,6 +498,7 @@ impl Builder {
         kind: String,
         filter: Option<String>,
         column: String,
+        included: bool,
     ) {
         let Some(t) = self.get(schema, table) else { return };
         if primary {
@@ -474,7 +506,10 @@ impl Builder {
             pk.columns.push(column);
             return;
         }
+        // INCLUDE (…) of a rowstore index; a columnstore index lists them all as its columns.
+        let include = included && !kind.to_ascii_uppercase().contains("COLUMNSTORE");
         match t.indexes.last_mut() {
+            Some(ix) if ix.name == index && include => ix.include.push(column),
             Some(ix) if ix.name == index => ix.columns.push(column),
             _ => t.indexes.push(IndexDef {
                 name: index,
@@ -697,5 +732,26 @@ mod tests {
         assert_eq!(strip_parens("([a]>(1)) AND ([b]<(2))"), "([a]>(1)) AND ([b]<(2))");
         assert_eq!(fk_rule(Some("SET_NULL".into())).as_deref(), Some("SET NULL"));
         assert_eq!(fk_rule(Some("NO_ACTION".into())), None);
+    }
+
+    /// The basic reading (Babelfish, or when the detailed one fails) keeps
+    /// INCLUDE columns apart from the key, as the detailed one does.
+    #[test]
+    fn basic_index_rows_keep_included_columns_apart() {
+        let mut b = Builder::default();
+        b.table("dbo".into(), "d".into(), None);
+        let row = |b: &mut Builder, ix: &str, kind: &str, col: &str, inc: bool| b.index_column("dbo", "d", ix.into(), false, false, kind.into(), None, col.into(), inc);
+        // In INDEXES_SQL's order: keys first, then the included ones.
+        row(&mut b, "IX", "NONCLUSTERED", "EntityChangeId", false);
+        for c in ["Id", "Module"] {
+            row(&mut b, "IX", "NONCLUSTERED", c, true);
+        }
+        for c in ["a", "b"] {
+            row(&mut b, "NCCI", "NONCLUSTERED COLUMNSTORE", c, true);
+        }
+        let t = b.finish().remove(0);
+        assert_eq!((t.indexes[0].columns.as_slice(), t.indexes[0].include.as_slice()), (&["EntityChangeId".to_string()][..], &["Id".to_string(), "Module".to_string()][..]));
+        assert_eq!(t.indexes[1].columns, ["a", "b"]);
+        assert!(t.indexes[1].include.is_empty());
     }
 }

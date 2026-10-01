@@ -498,3 +498,57 @@ async fn manticore() {
     assert_eq!(read(s.database_schema().await.unwrap(), "dbine_cmp_src").options, src.options);
     run(&mut s, "DROP TABLE dbine_cmp_src; DROP TABLE dbine_cmp").await.unwrap();
 }
+
+/// Table and column comments: added, changed and removed by the sync, per
+/// engine (MySQL and MariaDB with `ALTER TABLE … COMMENT =` and `MODIFY
+/// COLUMN`, StarRocks the same, GreptimeDB with `COMMENT ON`).
+#[tokio::test]
+#[ignore]
+async fn comments() {
+    let mysql = |table_opts: &str| {
+        let t = |name: &str, tc: Option<&str>, cc: Option<&str>| {
+            let cc = cc.map(|c| format!(" COMMENT '{c}'")).unwrap_or_default();
+            let tc = tc.map(|c| format!(" COMMENT='{c}'")).unwrap_or_default();
+            format!("CREATE TABLE {name} (id int NOT NULL PRIMARY KEY, nombre varchar(50) NULL{cc}){tc}{table_opts}")
+        };
+        (
+            [t("c_add", Some("Clientes"), Some("El nombre")), t("c_change", Some("Nuevo"), Some("nuevo")), t("c_remove", None, None)].join(";\n"),
+            [t("c_add", None, None), t("c_change", Some("Viejo"), Some("viejo")), t("c_remove", Some("Se va"), Some("se va"))].join(";\n"),
+        )
+    };
+    let starrocks = {
+        let t = |name: &str, tc: Option<&str>, cc: Option<&str>| {
+            let cc = cc.map(|c| format!(" COMMENT '{c}'")).unwrap_or_default();
+            let tc = tc.map(|c| format!(" COMMENT '{c}'")).unwrap_or_default();
+            format!("CREATE TABLE {name} (id int NOT NULL, nombre varchar(50) NULL{cc}) DUPLICATE KEY(id){tc} DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')")
+        };
+        (
+            [t("c_add", Some("Clientes"), Some("El nombre")), t("c_change", Some("Nuevo"), Some("nuevo")), t("c_remove", None, None)].join(";\n"),
+            [t("c_add", None, None), t("c_change", Some("Viejo"), Some("viejo")), t("c_remove", Some("Se va"), Some("se va"))].join(";\n"),
+        )
+    };
+    let greptime = {
+        let t = |name: &str, tc: Option<&str>, cc: Option<&str>| {
+            let cc = cc.map(|c| format!(" COMMENT '{c}'")).unwrap_or_default();
+            let tc = tc.map(|c| format!(" WITH (comment = '{c}')")).unwrap_or_default();
+            format!("CREATE TABLE {name} (ts TIMESTAMP TIME INDEX, host STRING, v DOUBLE{cc}, PRIMARY KEY(host)){tc}")
+        };
+        (
+            [t("c_add", Some("Clientes"), Some("El valor")), t("c_change", Some("Nuevo"), Some("nuevo")), t("c_remove", None, None)].join(";\n"),
+            [t("c_add", None, None), t("c_change", Some("Viejo"), Some("viejo")), t("c_remove", Some("Se va"), Some("se va"))].join(";\n"),
+        )
+    };
+    let cases = [
+        ("mysql", "DBINE_TEST_MYSQL_URL", mysql(""), 0),
+        ("mariadb", "DBINE_TEST_MARIADB_URL", mysql(""), 0),
+        ("starrocks", "DBINE_TEST_STARROCKS_URL", starrocks, 180),
+        ("greptimedb", "DBINE_TEST_GREPTIMEDB_URL", greptime, 0),
+    ];
+    for (id, env, (source, target), settle) in cases {
+        let case = Case { id, env, source: Box::leak(source.into_boxed_str()), target: Box::leak(target.into_boxed_str()), changed: &["c_add", "c_change", "c_remove"], settle };
+        let Some((ta, _)) = compare(&case).await else { continue };
+        assert_eq!(ta["c_add"].comment.as_deref(), Some("Clientes"), "{id}");
+        assert!(ta["c_add"].columns.iter().any(|c| c.comment.is_some()), "{id}: {:#?}", ta["c_add"]);
+        assert!(ta["c_remove"].comment.is_none() && ta["c_remove"].columns.iter().all(|c| c.comment.is_none()), "{id}: {:#?}", ta["c_remove"]);
+    }
+}
