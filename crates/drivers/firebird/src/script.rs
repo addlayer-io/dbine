@@ -49,7 +49,26 @@ enum State {
 }
 
 pub fn split(sql: &str) -> Vec<String> {
+    pieces(sql).into_iter().filter(|p| !p.skipped).map(|p| p.text).collect()
+}
+
+/// One statement of a script, or an isql command it skips.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Piece {
+    pub text: String,
+    /// Byte offset of `text` in the script.
+    pub start: usize,
+    /// An isql-only command (`SHOW`, `SET AUTODDL`…): not sent.
+    pub skipped: bool,
+}
+
+/// The statements of a script with their positions, isql-only commands
+/// included (marked `skipped`).
+pub fn pieces(sql: &str) -> Vec<Piece> {
     let chars: Vec<char> = sql.chars().collect();
+    // Byte offset of each char (and of the end).
+    let bytes: Vec<usize> = sql.char_indices().map(|(b, _)| b).chain(std::iter::once(sql.len())).collect();
+    let mut seg = 0usize;
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut term: Vec<char> = vec![';'];
@@ -95,14 +114,16 @@ pub fn split(sql: &str) -> Vec<String> {
                     psql.word(&std::mem::take(&mut word));
                 }
                 if chars[i..].starts_with(&term) && (term != [';'] || psql.may_end()) {
-                    i += term.len();
                     let stmt = std::mem::take(&mut cur);
+                    let at = bytes[seg];
+                    i += term.len();
+                    seg = i;
                     psql = Psql::default();
                     word.clear();
                     if let Some(t) = set_term(&stmt) {
                         term = t.chars().collect();
                     } else {
-                        push(&mut out, &stmt);
+                        push(&mut out, &stmt, at);
                     }
                     continue;
                 }
@@ -128,21 +149,21 @@ pub fn split(sql: &str) -> Vec<String> {
         psql.word(&word);
     }
     if set_term(&cur).is_none() {
-        push(&mut out, &cur);
+        push(&mut out, &cur, bytes[seg.min(chars.len())]);
     }
     out
 }
 
-fn push(out: &mut Vec<String>, stmt: &str) {
-    let text = strip_leading_comments(stmt).trim_end();
+/// `stmt` (found at byte `at`) without its leading comments and spaces.
+fn push(out: &mut Vec<Piece>, stmt: &str, at: usize) {
+    let lead = strip_leading_comments(stmt);
+    let text = lead.trim_end();
     if text.is_empty() {
         return;
     }
     let upper = text.to_ascii_uppercase();
-    if ISQL_ONLY.iter().any(|c| upper == *c || upper.starts_with(&format!("{c} "))) {
-        return;
-    }
-    out.push(text.to_string());
+    let skipped = ISQL_ONLY.iter().any(|c| upper == *c || upper.starts_with(&format!("{c} ")));
+    out.push(Piece { text: text.to_string(), start: at + (stmt.len() - lead.len()), skipped });
 }
 
 /// The new terminator when `stmt` is `SET TERM <t>`.
@@ -269,6 +290,20 @@ mod tests {
         let s = split(sql);
         assert_eq!(s.len(), 2, "{s:#?}");
         assert!(s[0].ends_with("end\nend"));
+    }
+
+    #[test]
+    fn pieces_know_where_they_are() {
+        let sql = "-- head\nselect 1 from rdb$database;\n  SHOW TABLES;\nSET TERM ^ ;\nexecute block as begin end^";
+        let p = pieces(sql);
+        assert_eq!(p.len(), 3, "{p:#?}");
+        for x in &p {
+            assert_eq!(&sql[x.start..x.start + x.text.len()], x.text);
+        }
+        assert!(!p[0].skipped && p[1].skipped && !p[2].skipped);
+        let s = "select 'ñ;' from rdb$database; select 2 from rdb$database";
+        let p = pieces(s);
+        assert_eq!(&s[p[1].start..], "select 2 from rdb$database");
     }
 
     #[test]

@@ -304,3 +304,45 @@ async fn schema_sync() {
     s.execute("INSERT INTO dq_sync.t (id) VALUES (2); SELECT email, nota FROM dq_sync.t WHERE id = 2", 10, &mut out).await.unwrap();
     s.execute("DROP SCHEMA dq_sync CASCADE", 10, &mut out).await.unwrap();
 }
+
+/// The editor's script contract: SQLSTATE and position in the script,
+/// notices, manual transactions (a failed one until rolled back).
+#[tokio::test]
+#[ignore]
+async fn script_errors_notices_and_transactions() {
+    let Ok(url) = std::env::var("DBINE_TEST_DSQL_URL") else { return };
+    let (host, port) = url.split_once(':').unwrap();
+    let cfg = ConnectionConfig { driver: "dsql".into(), host: host.into(), port: port.parse().unwrap(), username: Some("postgres".into()), ..Default::default() };
+    let mut s = dbine_driver_dsql::connect_with_password(&cfg, "dbine").await.unwrap();
+    let mut other = dbine_driver_dsql::connect_with_password(&cfg, "dbine").await.unwrap();
+    let script = "SELECT $$a;b$$;\nSELECT 1 FROM\n  nope_nope;";
+    let mut out = QueryOutcome::default();
+    let e = s.execute(script, 10, &mut out).await.unwrap_err().to_script_error();
+    assert_eq!((e.sqlstate.as_deref(), e.line), (Some("42P01"), Some(3)), "{e:?}");
+    assert_eq!(e.offset, Some(script.find("nope_nope").unwrap()));
+    assert_eq!(out.results[0].rows[0][0], json!("a;b"));
+    let mut out = QueryOutcome::default();
+    s.execute("DO $$ BEGIN RAISE WARNING 'cuidado'; END $$", 10, &mut out).await.unwrap();
+    assert!(out.log.iter().any(|m| m.text.contains("cuidado") && m.level == dbine_driver::MessageLevel::Warning), "{:?}", out.log);
+
+    let mut go = QueryOutcome::default();
+    s.execute("DROP TABLE IF EXISTS dq_tx; CREATE TABLE dq_tx (id int PRIMARY KEY)", 10, &mut go).await.unwrap();
+    s.set_autocommit(false).await.unwrap();
+    s.execute("SELECT 1", 10, &mut go).await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    s.execute("INSERT INTO dq_tx VALUES (1)", 10, &mut go).await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    assert!(s.execute("INSERT INTO dq_tx VALUES (1)", 10, &mut go).await.is_err());
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Failed));
+    s.rollback().await.unwrap();
+    s.execute("INSERT INTO dq_tx VALUES (2)", 10, &mut go).await.unwrap();
+    let mut out = QueryOutcome::default();
+    other.execute("SELECT count(*) FROM dq_tx", 10, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows[0][0], json!(0));
+    s.commit().await.unwrap();
+    s.set_autocommit(true).await.unwrap();
+    let mut out = QueryOutcome::default();
+    other.execute("SELECT id FROM dq_tx", 10, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows, vec![vec![json!(2)]]);
+    s.execute("DROP TABLE dq_tx", 10, &mut go).await.unwrap();
+}

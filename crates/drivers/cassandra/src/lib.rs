@@ -1,8 +1,10 @@
 //! Apache Cassandra and ScyllaDB over the CQL native protocol, with the
 //! `scylla` crate. A session is one driver session (one connection per
 //! node) with the keyspace selected; the explorer reads `system_schema`.
-//! Scripts are split on `;` (batches stay whole) and every `SELECT` is
-//! paged until `max_rows`.
+//! Scripts are split on `;` as cqlsh does (batches stay whole), with
+//! cqlsh's `CONSISTENCY`, `SERIAL CONSISTENCY` and `PAGING` commands, each
+//! on its line, kept for the rest of the session; every `SELECT` is paged
+//! until `max_rows`. Server errors carry their code and position.
 
 mod backup;
 mod cql;
@@ -12,6 +14,7 @@ mod permissions;
 mod plan;
 mod profiler;
 mod security;
+mod steps;
 mod sync;
 mod transfer;
 mod value;
@@ -19,9 +22,12 @@ mod value;
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
     DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, IndexDef, KeyDef, Language, MonitorSnapshot,
-    ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session as DbSession, TableSchema,
+    ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, ScriptError, Session as DbSession, TableSchema,
 };
+use scylla::errors::{ExecutionError, RequestAttemptError};
+use scylla::frame::types::{Consistency, SerialConsistency};
 use std::collections::BTreeMap;
+use steps::Step;
 use scylla::observability::tracing::TracingInfo;
 use scylla::client::session::Session;
 use scylla::client::session_builder::SessionBuilder;
@@ -140,6 +146,19 @@ impl Driver for CassandraDriver {
         true
     }
 
+    /// For "run the statement at the cursor": `$$` bodies, and no `BEGIN …
+    /// END` blocks (a CQL batch ends with `APPLY BATCH`). Editor scripts
+    /// are split by the driver itself, as cqlsh does.
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        dbine_driver::ScriptDialect { dollar_quotes: true, backtick_idents: false, compound_blocks: false, ..dbine_driver::ScriptDialect::generic() }
+    }
+
+    /// As cqlsh -f: a failed statement doesn't stop the script (the tab's
+    /// toggle overrides it).
+    fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
+        dbine_driver::ScriptDefaults { continue_on_error: true, ..dbine_driver::ScriptDefaults::for_language(self.info().language) }
+    }
+
     /// Keyspaces are created and dropped; CQL has no foreign keys.
     fn capabilities(&self) -> Capabilities {
         Capabilities { create_database: true, drop_database: true, foreign_keys: false, monitor: true, ..Default::default() }
@@ -247,6 +266,9 @@ impl Driver for CassandraDriver {
             flavor: self.flavor,
             user: cfg.username.clone().filter(|u| !u.is_empty()),
             profiler: None,
+            consistency: None,
+            serial: None,
+            paging: Paging::Default,
         }))
     }
 }
@@ -352,9 +374,61 @@ pub struct CassandraSession {
     user: Option<String>,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// cqlsh's `CONSISTENCY` / `SERIAL CONSISTENCY` for the editor's
+    /// statements (`None`: the driver's default, LOCAL_QUORUM).
+    consistency: Option<Consistency>,
+    serial: Option<SerialConsistency>,
+    /// cqlsh's `PAGING`.
+    paging: Paging,
 }
 
-/// Keyspaces that belong to the server (Cassandra, Scylla, Astra).
+/// Page size of the editor's SELECTs (cqlsh `PAGING`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Paging {
+    /// From the row limit (100 to 5000 rows a page).
+    Default,
+    /// `PAGING OFF`: as few pages as possible.
+    Off,
+    /// `PAGING n`.
+    Size(i32),
+}
+
+const CONSISTENCIES: &[(&str, Consistency)] = &[
+    ("ANY", Consistency::Any),
+    ("ONE", Consistency::One),
+    ("TWO", Consistency::Two),
+    ("THREE", Consistency::Three),
+    ("QUORUM", Consistency::Quorum),
+    ("ALL", Consistency::All),
+    ("LOCAL_QUORUM", Consistency::LocalQuorum),
+    ("EACH_QUORUM", Consistency::EachQuorum),
+    ("LOCAL_ONE", Consistency::LocalOne),
+    ("SERIAL", Consistency::Serial),
+    ("LOCAL_SERIAL", Consistency::LocalSerial),
+];
+
+/// A failed statement with the server's error code (hex, as cqlsh shows
+/// it: 2000 syntax, 2200 invalid…) and, from `line L:C` in the message,
+/// its place in `stmt`.
+fn cql_err(e: ExecutionError, stmt: &str) -> Error {
+    let ExecutionError::LastAttemptError(RequestAttemptError::DbError(db, msg)) = &e else {
+        return Error::Query(e.to_string());
+    };
+    let code = db.code(&scylla::frame::protocol_features::ProtocolFeatures::default());
+    let mut se = ScriptError::new(msg.clone()).with_code(format!("{code:04X}"));
+    if let Some((line, col)) = position(msg) {
+        se = se.at_line(line).at_offset(steps::offset_of(stmt, line, col + 1));
+    }
+    Error::Statement(Box::new(se))
+}
+
+/// `line 1:7 no viable alternative…`: line (1-based) and column (0-based).
+fn position(msg: &str) -> Option<(u32, u32)> {
+    let rest = &msg[msg.find("line ")? + 5..];
+    let (l, rest) = rest.split_once(':')?;
+    let c: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    Some((l.trim().parse().ok()?, c.parse().ok()?))
+}
 fn is_system_keyspace(name: &str) -> bool {
     name == "system" || name.starts_with("system_") || matches!(name, "data_endpoint_auth" | "datastax_sla")
 }
@@ -523,6 +597,69 @@ impl CassandraSession {
         Ok(Some(format!("CREATE TABLE {q} (\n{}\n){order};", lines.join(",\n"))))
     }
 
+    /// A cqlsh command: `CONSISTENCY [level]`, `SERIAL CONSISTENCY
+    /// [level]`, `PAGING [ON|OFF|n]`; the rest are refused.
+    fn shell(&mut self, line: &str, out: &mut QueryOutcome) -> Result<()> {
+        let words: Vec<String> = line.split_whitespace().map(str::to_ascii_uppercase).collect();
+        let w = |i: usize| words.get(i).map(String::as_str).unwrap_or("");
+        let name = |c: Consistency| CONSISTENCIES.iter().find(|(_, x)| *x == c).map_or("?", |(n, _)| n);
+        match (w(0), w(1)) {
+            ("CONSISTENCY", "") => out.info(format!("Nivel de consistencia actual: {}.", name(self.consistency.unwrap_or(Consistency::LocalQuorum)))),
+            ("CONSISTENCY", level) => {
+                let Some((n, c)) = CONSISTENCIES.iter().find(|(n, _)| *n == level) else {
+                    return Err(Error::Query(format!("Nivel de consistencia desconocido: {level}.")));
+                };
+                self.consistency = Some(*c);
+                out.info(format!("Nivel de consistencia: {n}."));
+            }
+            ("SERIAL", "CONSISTENCY") => match w(2) {
+                "" => out.info(format!(
+                    "Consistencia serial actual: {}.",
+                    if self.serial == Some(SerialConsistency::Serial) { "SERIAL" } else { "LOCAL_SERIAL" }
+                )),
+                "SERIAL" => {
+                    self.serial = Some(SerialConsistency::Serial);
+                    out.info("Consistencia serial: SERIAL.");
+                }
+                "LOCAL_SERIAL" => {
+                    self.serial = Some(SerialConsistency::LocalSerial);
+                    out.info("Consistencia serial: LOCAL_SERIAL.");
+                }
+                other => return Err(Error::Query(format!("Consistencia serial desconocida: {other} (SERIAL o LOCAL_SERIAL)."))),
+            },
+            ("PAGING", arg) => {
+                self.paging = match arg {
+                    "" => {
+                        out.info(match self.paging {
+                            Paging::Default => "Paginación activada.".to_string(),
+                            Paging::Off => "Paginación desactivada.".to_string(),
+                            Paging::Size(n) => format!("Paginación activada, de a {n} filas."),
+                        });
+                        return Ok(());
+                    }
+                    "ON" => Paging::Default,
+                    "OFF" => Paging::Off,
+                    n => match n.parse::<i32>() {
+                        Ok(n) if n > 0 => Paging::Size(n),
+                        _ => return Err(Error::Query(format!("PAGING: «{n}» no es ON, OFF ni un tamaño de página."))),
+                    },
+                };
+                out.info(match self.paging {
+                    Paging::Off => "Paginación desactivada.".to_string(),
+                    Paging::Size(n) => format!("Tamaño de página: {n}."),
+                    Paging::Default => "Paginación activada.".to_string(),
+                });
+            }
+            ("TRACING", _) => return Err(Error::Unsupported("TRACING no está en DBine: «Ejecutar + plan» muestra el trace de la consulta.".into())),
+            (other, _) => {
+                return Err(Error::Unsupported(format!(
+                    "{other} es un comando de cqlsh que DBine no tiene (sí CONSISTENCY, SERIAL CONSISTENCY y PAGING)."
+                )))
+            }
+        }
+        Ok(())
+    }
+
     /// Run one statement, paging a SELECT until `max_rows`.
     async fn run(&self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.run_traced(stmt, max_rows, out, false).await.map(|_| ())
@@ -530,10 +667,20 @@ impl CassandraSession {
 
     /// [`Self::run`], with the server's trace of the first page when asked.
     async fn run_traced(&self, stmt: &str, max_rows: usize, out: &mut QueryOutcome, trace: bool) -> Result<Option<TracingInfo>> {
-        let page = max_rows.clamp(100, 5000) as i32;
+        let page = match self.paging {
+            Paging::Default => max_rows.clamp(100, 5000) as i32,
+            Paging::Off => max_rows.saturating_add(1).clamp(5000, i32::MAX as usize) as i32,
+            Paging::Size(n) => n,
+        };
         let mut statement = Statement::new(stmt).with_page_size(page);
         statement.set_request_timeout(Some(Duration::from_secs(300)));
         statement.set_tracing(trace);
+        if let Some(c) = self.consistency {
+            statement.set_consistency(c);
+        }
+        if self.serial.is_some() {
+            statement.set_serial_consistency(self.serial);
+        }
         let mut paging = PagingState::start();
         let mut started = false;
         let mut trace_id = None;
@@ -542,14 +689,18 @@ impl CassandraSession {
                 .session
                 .query_single_page(statement.clone(), (), paging)
                 .await
-                .map_err(|e| Error::Query(e.to_string()))?;
+                .map_err(|e| cql_err(e, stmt))?;
             if trace && trace_id.is_none() {
                 trace_id = res.tracing_id();
                 statement.set_tracing(false);
             }
-            out.messages.extend(res.warnings().map(str::to_string));
+            for w in res.warnings() {
+                out.warning(w);
+            }
             if !res.is_rows() {
-                out.push_affected(0);
+                // CQL doesn't count what a write or DDL changed: "done",
+                // not "0 rows affected" (cqlsh prints nothing).
+                out.results.push(dbine_driver::StatementResult::default());
                 break;
             }
             let rows = res.into_rows_result().map_err(Error::query)?;
@@ -572,7 +723,7 @@ impl CassandraSession {
                     let r = out.results.last_mut().expect("a result set");
                     if r.rows.len() >= max_rows {
                         r.truncated = true;
-                        out.messages.push(format!("Se muestran las primeras {max_rows} filas; la consulta tiene más."));
+                        out.info(format!("Se muestran las primeras {max_rows} filas; la consulta tiene más."));
                         break;
                     }
                     paging = state;
@@ -584,7 +735,7 @@ impl CassandraSession {
         match self.session.get_tracing_info(&id).await {
             Ok(info) => Ok(Some(info)),
             Err(e) => {
-                out.messages.push(format!("No se pudo leer el trace de la ejecución: {e}"));
+                out.info(format!("No se pudo leer el trace de la ejecución: {e}"));
                 Ok(None)
             }
         }
@@ -816,20 +967,32 @@ impl DbSession for CassandraSession {
         format!("SELECT * FROM {} LIMIT {limit};", cql::qualified(ks.as_deref(), &obj.name))
     }
 
+    /// As cqlsh: statements end at `;`, a batch goes whole, and its own
+    /// commands (`CONSISTENCY`, `PAGING`…) take their line. The first
+    /// failing statement stops the script unless the editor run continues
+    /// on errors, as cqlsh does (see `Step::end`).
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let statements = cql::split(text);
+        let units = cql::script(text);
         if self.read_only {
+            let statements: Vec<String> = units.iter().filter(|u| !u.command).map(|u| u.text.clone()).collect();
             if let Some(kw) = cql::first_write(&statements) {
                 return Err(Error::Query(format!(
                     "Conexión de solo lectura: se bloqueó una sentencia {kw}. Solo se permiten lecturas (SELECT, DESCRIBE, USE, LIST)."
                 )));
             }
         }
-        for stmt in statements {
-            self.run(&stmt, max_rows, out).await?;
+        let own = out.current_statement.is_none();
+        for (i, u) in units.iter().enumerate() {
+            let step = Step::start(out, own, i, u.start, u.line);
+            let r = if u.command { self.shell(&u.text, out) } else { self.run(&u.text, max_rows, out).await };
             if let Some(ks) = self.session.get_keyspace() {
+                if self.keyspace.as_deref() != Some(&*ks) {
+                    // `USE ks`: the tab's database selector follows it.
+                    out.database = Some(ks.to_string());
+                }
                 self.keyspace = Some(ks.to_string());
             }
+            step.end(out, r)?;
         }
         Ok(())
     }
@@ -1119,6 +1282,13 @@ fn trace(info: &TracingInfo) -> plan::Trace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn error_positions() {
+        assert_eq!(position("line 1:7 no viable alternative at input 'x'"), Some((1, 7)));
+        assert_eq!(position("line 3:0 mismatched input"), Some((3, 0)));
+        assert_eq!(position("Undefined column name nope"), None);
+    }
 
     #[test]
     fn frozen_collections_take_full_indexes() {

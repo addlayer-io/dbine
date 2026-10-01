@@ -15,11 +15,14 @@ mod plan;
 mod schema;
 mod transfer;
 
-use dbine_driver::sql::{quote_ident, select_top, split_statements, Limit, Quote};
+use dbine_driver::sql::{
+    leading_keyword, quote_ident, select_top, split_script, strip_comments, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode,
+    StatementKind,
+};
 use dbine_driver::{
     json_bytes, json_f64, json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef,
-    QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema, TxState,
 };
 use async_trait::async_trait;
 use duckdb::types::Value;
@@ -105,6 +108,25 @@ impl Driver for DuckDbDriver {
         true
     }
 
+    fn script_dialect(&self) -> ScriptDialect {
+        dialect()
+    }
+
+    /// One statement per call on the tab's connection, which keeps its
+    /// state (`USE`, `SET`, temp tables, variables, an open transaction).
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// The duckdb CLI goes on after an error unless `-bail`.
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+    }
+
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     /// A "database" is an attached catalog: creating one attaches a new
     /// file next to the main one, dropping it detaches it and deletes the
     /// file.
@@ -143,6 +165,23 @@ impl Driver for DuckDbDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         schema::sync_script(changes)
+    }
+
+    /// Schemas of the attached catalog the session `USE`s. DuckDB has no
+    /// logins, so no owner and no grants. The files preset's database lives
+    /// in memory and is rebuilt on each connection: nothing to keep there.
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        (!self.files).then(|| dbine_driver::SchemaSpec { owner: false, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: true, privileges: Vec::new(), grant_option: true })
+    }
+
+    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+        schema_guard(self.files, owner)?;
+        Ok(format!("CREATE SCHEMA {}", schema_path(database, name)))
+    }
+
+    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        schema_guard(self.files, None)?;
+        Ok(format!("DROP SCHEMA {}{}", schema_path(database, name), if cascade { " CASCADE" } else { "" }))
     }
 
     /// DuckDB's Appender, a transaction per commit window (see [`transfer`]).
@@ -189,7 +228,7 @@ impl Driver for DuckDbDriver {
         })
         .await?;
         let interrupt = conn.interrupt_handle();
-        Ok(Box::new(DuckDbSession { _db: db, conn: Arc::new(Mutex::new(conn)), interrupt, catalog, read_only }))
+        Ok(Box::new(DuckDbSession { _db: db, conn: Arc::new(Mutex::new(conn)), interrupt, catalog, read_only, tx: Tx::default() }))
     }
 }
 
@@ -218,7 +257,7 @@ async fn connect_files(cfg: &ConnectionConfig) -> Result<Box<dyn Session>> {
     })
     .await?;
     let interrupt = conn.interrupt_handle();
-    Ok(Box::new(DuckDbSession { _db: db, conn: Arc::new(Mutex::new(conn)), interrupt, catalog, read_only: cfg.read_only }))
+    Ok(Box::new(DuckDbSession { _db: db, conn: Arc::new(Mutex::new(conn)), interrupt, catalog, read_only: cfg.read_only, tx: Tx::default() }))
 }
 
 pub struct DuckDbSession {
@@ -231,6 +270,32 @@ pub struct DuckDbSession {
     /// Refuses attaching/detaching databases (and deleting their files)
     /// even when the session isn't wrapped by `ReadOnlySession`.
     read_only: bool,
+    /// Its transaction, as the statements run left it (DuckDB doesn't say).
+    tx: Tx,
+}
+
+/// A session's transaction. DuckDB's C API doesn't tell whether one is
+/// open, and probing with `BEGIN` aborts an open one, so it's followed
+/// statement by statement: `BEGIN`/`START` open it, `COMMIT`/`END`/
+/// `ROLLBACK`/`ABORT` close it, and after an error inside one a harmless
+/// `SELECT 1` tells whether DuckDB aborted it.
+#[derive(Debug, Clone, Copy)]
+struct Tx {
+    /// Autocommit off: a statement that writes opens a transaction.
+    manual: bool,
+    state: TxState,
+}
+
+impl Default for Tx {
+    fn default() -> Self {
+        Self { manual: false, state: TxState::Idle }
+    }
+}
+
+/// DuckDB's script rules: PostgreSQL's parser (dollar quotes, `E'…'`,
+/// nested comments).
+fn dialect() -> ScriptDialect {
+    ScriptDialect::postgres()
 }
 
 async fn blocking<T, F>(f: F) -> Result<T>
@@ -242,6 +307,19 @@ where
 }
 
 impl DuckDbSession {
+    /// `COMMIT` / `ROLLBACK` when a transaction is open (a failed one
+    /// commits as a rollback).
+    async fn end_transaction(&mut self, sql: &'static str) -> Result<()> {
+        if self.tx.state == TxState::Idle {
+            return Ok(());
+        }
+        let r = self.with(move |c| c.execute_batch(sql).map_err(duck_error)).await;
+        if !matches!(r, Err(Error::Cancelled)) {
+            self.tx.state = TxState::Idle;
+        }
+        r
+    }
+
     async fn with<T, F>(&self, f: F) -> Result<T>
     where
         T: Send + 'static,
@@ -352,6 +430,14 @@ impl Session for DuckDbSession {
             .collect())
     }
 
+    /// Every schema of the open database, so an empty one (just made with
+    /// "Nuevo esquema…") shows too. DuckDB's own (`information_schema`,
+    /// `pg_catalog`) live in the `system` catalog, not here.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
+        let rows = self.strings("SELECT schema_name FROM duckdb_schemas() WHERE database_name = ?1 ORDER BY 1", vec![self.catalog.clone()], 1).await?;
+        Ok(Some(rows.into_iter().filter_map(|mut r| r.remove(0)).map(|name| dbine_driver::SchemaInfo { name, system: false }).collect()))
+    }
+
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let rows = self
             .strings(
@@ -414,15 +500,40 @@ impl Session for DuckDbSession {
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let text = text.to_string();
         let fork = out.fork();
-        let (local, res) = self
+        let mut tx = self.tx;
+        let (local, res, tx) = self
             .with(move |c| {
                 let mut local = fork;
-                let res = run_script(c, &text, max_rows, &mut local);
-                Ok((local, res))
+                let res = run_script_tx(c, &text, max_rows, &mut tx, &mut local);
+                Ok((local, res, tx))
             })
             .await?;
+        self.tx = tx;
         out.merge(local);
         res
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        Ok(Some(self.tx.state))
+    }
+
+    /// Off: the next statement that writes opens a transaction, which stays
+    /// open until Commit / Rollback. On: one still open is committed (the
+    /// UI asks Commit / Rollback first), so later statements don't join it.
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if on {
+            self.end_transaction("COMMIT").await?;
+        }
+        self.tx.manual = !on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.end_transaction("COMMIT").await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.end_transaction("ROLLBACK").await
     }
 
     /// Plans per statement. Estimated: `EXPLAIN (FORMAT JSON)`, nothing
@@ -588,32 +699,139 @@ impl Session for DuckDbSession {
     }
 }
 
+/// What "Nuevo esquema…" / "Borrar esquema…" can't do in DuckDB.
+/// `"catalog"."schema"`: the catalog the explorer menu was opened on, so the
+/// script lands there whatever the session `USE`s (a bare name without it).
+fn schema_path(database: Option<&str>, name: &str) -> String {
+    match database {
+        Some(d) => format!("{}.{}", quote_ident(Quote::Double, d), quote_ident(Quote::Double, name)),
+        None => quote_ident(Quote::Double, name),
+    }
+}
+
+fn schema_guard(files: bool, owner: Option<&str>) -> Result<()> {
+    if files {
+        return Err(Error::Unsupported("la base de una carpeta de archivos vive en memoria: sus esquemas no se guardan".into()));
+    }
+    if owner.is_some() {
+        return Err(Error::Unsupported("DuckDB no tiene usuarios: sus esquemas no tienen dueño".into()));
+    }
+    Ok(())
+}
+
 /// Statements that always return a result set.
 const QUERIES: &[&str] =
     &["select", "with", "from", "values", "table", "show", "describe", "desc", "summarize", "pragma", "explain", "call", "pivot", "unpivot"];
 
 fn first_keyword(stmt: &str) -> String {
-    stmt.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect::<String>().to_ascii_lowercase()
+    leading_keyword(stmt, &dialect()).unwrap_or_default()
+}
+
+/// The statements of a script, comments dropped (for plans).
+fn split_statements(sql: &str) -> Vec<String> {
+    let d = dialect();
+    split_script(sql, &d)
+        .into_iter()
+        .filter(|s| s.kind != StatementKind::ClientCommand)
+        .map(|s| strip_comments(&s.text, &d, false).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Words that never open a transaction in manual mode: reads, transaction
+/// control, and what DuckDB refuses inside one.
+const NO_TRANSACTION: &[&str] = &[
+    "select", "with", "from", "values", "table", "show", "describe", "desc", "summarize", "explain", "pivot", "unpivot", "begin", "start",
+    "commit", "end", "rollback", "abort", "use", "set", "reset", "pragma", "checkpoint", "vacuum", "attach", "detach", "load", "install",
+    "prepare", "deallocate",
+];
+
+/// A failed statement: DuckDB's error class as the code ("Parser",
+/// "Catalog", "Constraint"…) and, from its `LINE n:` excerpt, the line and
+/// the position of the caret. `base`: where the statement starts in `script`.
+fn statement_error(e: duckdb::Error, script: &str, base: usize) -> Error {
+    let err = duck_error(e);
+    let Error::Query(msg) = err else { return err };
+    let mut se = ScriptError::new(msg.clone());
+    if let Some((class, _)) = msg.split_once(" Error: ") {
+        if !class.is_empty() && class.chars().all(|c| c.is_ascii_alphanumeric()) {
+            se = se.with_code(class);
+        }
+    }
+    let base_line = script[..base].matches('\n').count() as u32;
+    let mut lines = msg.lines();
+    while let Some(l) = lines.next() {
+        let Some((n, shown)) = l.strip_prefix("LINE ").and_then(|r| r.split_once(": ")) else { continue };
+        let Ok(n) = n.parse::<u32>() else { continue };
+        se = se.at_line(base_line + n);
+        // The caret's column, when the excerpt is the line itself (DuckDB
+        // cuts long lines).
+        let prefix = l.len() - shown.len();
+        let caret = lines.next().and_then(|c| c.find('^')).and_then(|c| c.checked_sub(prefix));
+        let line_start = script[base..].split_inclusive('\n').take(n as usize - 1).map(str::len).sum::<usize>() + base;
+        let actual = script[line_start..].lines().next().unwrap_or("");
+        if let Some(col) = caret.filter(|&c| actual.starts_with(shown.trim_end()) && c <= actual.len()) {
+            se = se.at_offset(line_start + col);
+        }
+        break;
+    }
+    se.into()
 }
 
 fn run_script(c: &Connection, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-    for stmt_sql in split_statements(sql) {
-        let mut stmt = c.prepare(&stmt_sql).map_err(duck_error)?;
-        let changed = stmt.execute([]).map_err(duck_error)?;
+    run_script_tx(c, sql, max_rows, &mut Tx::default(), out)
+}
+
+/// Run every statement of `sql`, following the session's transaction (see
+/// [`Tx`]).
+fn run_script_tx(c: &Connection, sql: &str, max_rows: usize, tx: &mut Tx, out: &mut QueryOutcome) -> Result<()> {
+    for unit in split_script(sql, &dialect()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand) {
+        let kw = first_keyword(&unit.text);
+        if tx.manual && tx.state == TxState::Idle && !kw.is_empty() && !NO_TRANSACTION.contains(&kw.as_str()) {
+            c.execute_batch("BEGIN TRANSACTION").map_err(duck_error)?;
+            tx.state = TxState::Open;
+        }
+        let before = out.results.len();
+        let r = run_statement(c, &unit.text, &kw, max_rows, out).map_err(|e| statement_error(e, sql, unit.start));
+        // A query cancelled or failed mid-way leaves no empty grid.
+        if r.is_err() && out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+            out.results.truncate(before);
+        }
+        match (&r, kw.as_str()) {
+            (Ok(()), "begin" | "start") => tx.state = TxState::Open,
+            (_, "commit" | "end" | "rollback" | "abort") => tx.state = TxState::Idle,
+            (Err(Error::Cancelled), _) => {}
+            (Err(_), _) if tx.state == TxState::Open => {
+                // Execution errors abort the transaction; parser and binder
+                // errors don't.
+                if c.execute_batch("SELECT 1").is_err() {
+                    tx.state = TxState::Failed;
+                }
+            }
+            _ => {}
+        }
+        r?;
+    }
+    Ok(())
+}
+
+fn run_statement(c: &Connection, stmt_sql: &str, kw: &str, max_rows: usize, out: &mut QueryOutcome) -> duckdb::Result<()> {
+    {
+        let mut stmt = c.prepare(stmt_sql)?;
+        let changed = stmt.execute([])?;
         let names = stmt.column_names();
-        let kw = first_keyword(&stmt_sql);
         // DML without RETURNING and DDL come back as a lone "Count" (or
         // "Success") column, or no columns at all.
         let status_only = names.is_empty() || (names.len() == 1 && (names[0] == "Count" || names[0] == "Success"));
-        if status_only && !QUERIES.contains(&kw.as_str()) {
+        if status_only && !QUERIES.contains(&kw) {
             out.push_affected(changed as u64);
-            continue;
+            return Ok(());
         }
         let types: Vec<String> = (0..names.len()).map(|i| type_name(&stmt, i)).collect();
         out.begin_result(names.into_iter().zip(types).map(|(name, type_name)| ResultColumn { name, type_name }).collect());
         let n = stmt.column_count();
         let mut rows = stmt.raw_query();
-        while let Some(row) = rows.next().map_err(duck_error)? {
+        while let Some(row) = rows.next()? {
             out.push_row((0..n).map(|i| cell(row.get_ref_unwrap(i).to_owned())).collect(), max_rows);
         }
     }
@@ -815,8 +1033,57 @@ mod tests {
     fn a_failing_statement_keeps_earlier_results() {
         let c = memory();
         let (out, r) = run(&c, "SELECT 1; SELECT * FROM missing; SELECT 2;", 10);
-        assert!(matches!(r, Err(Error::Query(_))));
+        assert!(r.is_err_and(|e| e.is_query()));
         assert_eq!(out.results.len(), 1);
+    }
+
+    #[test]
+    fn errors_carry_class_line_and_caret() {
+        let c = memory();
+        let script = "SELECT 1;\nSELECT *\n  FROM missing;";
+        let e = run(&c, script, 10).1.unwrap_err().to_script_error();
+        assert_eq!(e.code.as_deref(), Some("Catalog"), "{e:?}");
+        assert_eq!(e.line, Some(3));
+        assert_eq!(e.offset, Some(script.find("missing").unwrap()), "{e:?}");
+        let e = run(&c, "selec 1", 10).1.unwrap_err().to_script_error();
+        assert_eq!((e.code.as_deref(), e.line, e.offset), (Some("Parser"), Some(1), Some(0)));
+    }
+
+    #[test]
+    fn dollar_quotes_and_escapes_stay_in_their_statement() {
+        let c = memory();
+        let (out, r) = run(&c, "SELECT $$a;b$$ AS x; SELECT $t$c;'d$t$; SELECT E'it\\'s;' AS y", 10);
+        r.unwrap();
+        assert_eq!(out.results.len(), 3, "{:?}", out.results);
+        assert_eq!(out.results[0].rows[0][0], serde_json::json!("a;b"));
+        assert_eq!(out.results[2].rows[0][0], serde_json::json!("it's;"));
+    }
+
+    #[test]
+    fn transactions_are_followed() {
+        let c = memory();
+        let mut tx = Tx { manual: true, ..Default::default() };
+        let mut out = QueryOutcome::default();
+        let mut go = |sql: &str, tx: &mut Tx| run_script_tx(&c, sql, 10, tx, &mut out);
+        go("SELECT 1", &mut tx).unwrap();
+        assert_eq!(tx.state, TxState::Idle, "a read opens nothing");
+        go("CREATE TABLE t (a INT PRIMARY KEY)", &mut tx).unwrap();
+        assert_eq!(tx.state, TxState::Open);
+        go("ROLLBACK", &mut tx).unwrap();
+        assert_eq!(tx.state, TxState::Idle);
+        assert!(go("SELECT * FROM t", &mut tx).is_err(), "rolled back");
+        go("CREATE TABLE t (a INT PRIMARY KEY)", &mut tx).unwrap();
+        go("INSERT INTO t VALUES (1)", &mut tx).unwrap();
+        assert!(go("SELECT * FROM nope", &mut tx).is_err());
+        assert_eq!(tx.state, TxState::Open, "a binder error doesn't abort");
+        assert!(go("INSERT INTO t VALUES (1)", &mut tx).is_err());
+        assert_eq!(tx.state, TxState::Failed);
+        go("ROLLBACK", &mut tx).unwrap();
+        let mut auto = Tx::default();
+        go("BEGIN", &mut auto).unwrap();
+        assert_eq!(auto.state, TxState::Open);
+        go("COMMIT", &mut auto).unwrap();
+        assert_eq!(auto.state, TxState::Idle);
     }
 
     #[test]
@@ -824,5 +1091,21 @@ mod tests {
         assert_eq!(time_of_day(3_723_000_001), "01:02:03.000001");
         assert_eq!(interval(14, 3, 0), "1 years 2 months 3 days");
         assert_eq!(timestamp(0), "1970-01-01 00:00:00");
+    }
+
+    #[test]
+    fn schema_scripts() {
+        let [db, files] = <[_; 2]>::try_from(drivers()).ok().unwrap();
+        let spec = db.schema_spec().unwrap();
+        assert!(!spec.owner && spec.cascade && spec.privileges.is_empty());
+        assert_eq!(db.create_schema_script(None, "ven\"tas", None).unwrap(), r#"CREATE SCHEMA "ven""tas""#);
+        assert!(matches!(db.create_schema_script(None, "v", Some("ana")), Err(Error::Unsupported(_))));
+        assert_eq!(db.drop_schema_script(None, "v", false).unwrap(), r#"DROP SCHEMA "v""#);
+        assert_eq!(db.drop_schema_script(None, "v", true).unwrap(), r#"DROP SCHEMA "v" CASCADE"#);
+        // The menu's catalog qualifies the schema.
+        assert_eq!(db.create_schema_script(Some("mi base"), "v", None).unwrap(), r#"CREATE SCHEMA "mi base"."v""#);
+        assert_eq!(db.drop_schema_script(Some("b\"x"), "v", true).unwrap(), r#"DROP SCHEMA "b""x"."v" CASCADE"#);
+        assert!(files.schema_spec().is_none());
+        assert!(matches!(files.create_schema_script(None, "v", None), Err(Error::Unsupported(_))));
     }
 }

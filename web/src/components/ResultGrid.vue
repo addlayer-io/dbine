@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { t } from '../i18n';
 import { Filter, MoreFilled } from '@element-plus/icons-vue';
 import { coerce, sameValue, type Edits } from '../composables/gridEdit';
+import { isSaveShortcut } from '../composables/shortcuts';
 import type { Cell, ResultColumn } from '../api/types';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import CellViewer from './CellViewer.vue';
@@ -27,6 +28,12 @@ const props = defineProps<{
   noEditReason?: string | null;
   /** Edited values, row → column → value. */
   edits?: Edits;
+  /** Rows marked for deletion (their edits are ignored). */
+  deleted?: Set<number>;
+  /** Rows can be marked for deletion (the DELETE code is generated, never run). */
+  deletable?: boolean;
+  /** Why they can't, shown on the menu item. */
+  noDeleteReason?: string | null;
   /** Show the filter row under the headers. */
   filterable?: boolean;
   /** The column filters, by column name. */
@@ -35,6 +42,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** A cell's new value; `undefined` reverts it. */
   edit: [row: number, col: number, value: Cell | undefined];
+  /** Mark (`true`) or unmark rows for deletion. */
+  delete: [rows: number[], mark: boolean];
   /** A column's filter changed; `null` clears it. */
   filter: [column: string, state: FilterState | null];
 }>();
@@ -108,12 +117,14 @@ function display(v: Cell): string {
   if (typeof v === 'string') return v.length > 500 ? v.slice(0, 500) + '…' : v;
   return String(v);
 }
-/** The value shown: the edit, if any. */
+const isDeleted = (r: number) => !!props.deleted?.has(r);
+/** The value shown: the edit, if any (a row marked for deletion shows its
+ *  original values: its edits are ignored). */
 function valueAt(r: number, c: number): Cell {
-  const e = props.edits?.[r];
+  const e = isDeleted(r) ? undefined : props.edits?.[r];
   return e && c in e ? e[c] : props.rows[r]?.[c] ?? null;
 }
-const isEdited = (r: number, c: number) => !!props.edits?.[r] && c in props.edits[r];
+const isEdited = (r: number, c: number) => !isDeleted(r) && !!props.edits?.[r] && c in props.edits[r];
 
 function cellClass(v: Cell) {
   if (v === null) return 'nm-null';
@@ -176,6 +187,7 @@ function onKey(e: KeyboardEvent) {
     if (props.editable && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); startEdit(sel.r, sel.c, ''); return; }
     if (props.editable && e.key.length === 1) { e.preventDefault(); startEdit(sel.r, sel.c, e.key); return; }
   }
+  if (rowSel.value && !mod && !e.altKey && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); toggleDelete(selectedRows()); return; }
   if (mod && e.key.toLowerCase() === 'c') { e.preventDefault(); copyAs(copyFormat.value); return; }
   if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); rowSel.value = { from: 0, to: props.rows.length - 1 }; selection.value = null; return; }
   const s = selection.value;
@@ -206,6 +218,7 @@ function startEdit(r: number, c: number, text?: string) {
     if (props.noEditReason) ElMessage.info({ message: t('results:grid.cantEdit', { reason: props.noEditReason }), duration: 3500 });
     return;
   }
+  if (isDeleted(r)) { ElMessage.info({ message: t('results:grid.rowDeleted'), duration: 3500 }); return; }
   const v = valueAt(r, c);
   selection.value = { r, c };
   editing.value = { r, c, text: text ?? (v === null ? '' : String(v)) };
@@ -241,13 +254,35 @@ function onEditKey(ev: KeyboardEvent) {
   if (ev.key === 'Enter') { ev.preventDefault(); commitEdit([1, 0]); }
   else if (ev.key === 'Tab') { ev.preventDefault(); commitEdit([0, ev.shiftKey ? -1 : 1]); }
   else if (ev.key === 'Escape') { ev.preventDefault(); cancelEdit(); }
+  // ⌘S keeps the value and goes on to the pane, which saves.
+  else if (isSaveShortcut(ev)) { commitEdit(); return; }
   ev.stopPropagation();
 }
 function setNull(r: number, c: number) {
-  if (!props.editable) return startEdit(r, c);
+  if (!props.editable || isDeleted(r)) return startEdit(r, c);
   emit('edit', r, c, props.rows[r]?.[c] === null ? undefined : null);
 }
 watch(() => props.rows, () => { editing.value = null; });
+
+// -- deleting rows (marked here; the DELETE code comes with the UPDATEs) -----------------
+function selectedRows(): number[] {
+  const s = rowSel.value;
+  if (!s) return [];
+  const out: number[] = [];
+  for (let i = Math.min(s.from, s.to); i <= Math.max(s.from, s.to); i++) out.push(i);
+  return out;
+}
+/** Marks the rows, or unmarks them when they're all marked already. */
+function toggleDelete(rows: number[]) {
+  if (!rows.length) return;
+  if (!props.deletable) {
+    const reason = props.noDeleteReason ?? props.noEditReason;
+    if (reason) ElMessage.info({ message: t('results:grid.cantDelete', { reason }), duration: 3500 });
+    return;
+  }
+  if (editing.value && rows.includes(editing.value.r)) editing.value = null;
+  emit('delete', rows, !rows.every(isDeleted));
+}
 
 // -- column resize -------------------------------------------------------------
 function startResize(e: PointerEvent, c: number) {
@@ -350,11 +385,26 @@ function onContext(e: MouseEvent, r: number, c: number | null) {
   e.preventDefault();
   if (c !== null && !rowSelected(r)) selectCell(r, c);
   const items: MenuItem[] = [];
+  // The rows the delete item takes: the selection when the click is on it.
+  const targets = rowSelected(r) ? selectedRows() : [r];
+  const restore = targets.every(isDeleted);
+  const delItem: MenuItem = {
+    label: targets.length > 1
+      ? t(restore ? 'results:grid.restoreRows' : 'results:grid.deleteRows', { count: targets.length })
+      : t(restore ? 'results:grid.restoreRow' : 'results:grid.deleteRow'),
+    shortcut: rowSel.value && rowSelected(r) ? '⌦' : undefined,
+    danger: !restore && props.deletable,
+    disabled: !props.deletable,
+    hint: props.deletable ? undefined : (props.noDeleteReason ?? props.noEditReason ?? undefined),
+    action: () => toggleDelete(targets),
+  };
+  if (c === null) items.push(delItem);
   if (c !== null) items.push({ label: t('results:grid.copyCell'), shortcut: copyFormat.value === 'tsv' ? '⌘C' : undefined, action: () => copy(tsv(props.rows[r][c])) });
   if (c !== null) items.push({ label: t('results:grid.viewValue'), action: () => openViewer(r, c) });
   if (c !== null) {
     items.push({ label: t('results:grid.editCell'), shortcut: 'F2', divided: true, disabled: !props.editable, action: () => startEdit(r, c) });
-    items.push({ label: t('results:grid.setNull'), disabled: !props.editable, action: () => setNull(r, c) });
+    items.push({ label: t('results:grid.setNull'), disabled: !props.editable || isDeleted(r), action: () => setNull(r, c) });
+    items.push(delItem);
     if (isEdited(r, c)) items.push({ label: t('results:grid.undoChange'), action: () => emit('edit', r, c, undefined) });
     if (!props.editable && props.noEditReason) items.push({ label: t('results:grid.notEditable', { reason: props.noEditReason }), disabled: true });
   }
@@ -471,7 +521,8 @@ function columnsMenu(e: MouseEvent) {
         v-for="{ r, i } in visible"
         :key="i"
         class="rg-row"
-        :class="{ odd: i % 2 === 1, selected: rowSelected(i) }"
+        :class="{ odd: i % 2 === 1, selected: rowSelected(i), deleted: isDeleted(i) }"
+        :title="isDeleted(i) ? $t('results:grid.markedDelete') : undefined"
         :style="{ top: (i + HEAD) * ROW_H + 'px', width: totalW + 'px' }"
       >
         <div class="rg-num" :style="{ width: NUM_W + 'px' }" @click="selectRow(i, $event)" @contextmenu="onContext($event, i, null)">
@@ -635,6 +686,9 @@ function columnsMenu(e: MouseEvent) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 .rg-cell.active { outline: 1px solid var(--ide-focus); outline-offset: -1px; background: var(--ide-selection); }
+.rg-row.deleted { background: color-mix(in srgb, var(--nm-danger) 14%, transparent); }
+.rg-row.deleted .rg-cell { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--nm-danger) 70%, transparent); opacity: 0.7; }
+.rg-row.deleted .rg-num { color: var(--nm-danger); box-shadow: inset 2px 0 0 var(--nm-danger); }
 .rg-cell.edited { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); box-shadow: inset 2px 0 0 var(--nm-warning); }
 .rg-editor {
   position: absolute; z-index: 5; height: 22px; box-sizing: border-box; padding: 0 5px; border: 1px solid var(--ide-focus, var(--nm-accent));

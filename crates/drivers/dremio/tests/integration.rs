@@ -113,7 +113,7 @@ async fn dremio() {
     // Errors stop the script.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(&e, Error::Query(m) if m.contains("nope")), "{e:?}");
+    assert!(e.is_query() && e.to_string().contains("nope"), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Plans.

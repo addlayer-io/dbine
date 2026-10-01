@@ -4,9 +4,17 @@
 //!
 //! # Query language (`Language::Cypher`)
 //!
-//! A script holds Cypher statements separated by `;`. Besides Cypher, a
-//! line `:use nombre` switches the session's database (Neo4j, Memgraph
-//! Enterprise).
+//! A script holds Cypher statements separated by `;`, plus cypher-shell's
+//! client commands, each on its own line where a statement would start
+//! (no `;` needed): `:use nombre` switches the session's database (Neo4j,
+//! Memgraph Enterprise); `:begin`, `:commit`, `:rollback` open and end an
+//! explicit transaction that lasts across runs; `:param nombre => expr`
+//! (or `:param {a: 1}`) sets a `$nombre` parameter, evaluated by the
+//! server, for the rest of the session; `:params` lists them and `:params
+//! clear` drops them. As cypher-shell, the script stops at the first error
+//! (a failed statement inside a transaction rolls it back). Manual
+//! transactions (Auto/Manual in the editor) open one before the first
+//! statement that can run in it.
 //!
 //! # Results
 //!
@@ -46,6 +54,7 @@ mod permissions;
 mod plan;
 mod profiler;
 mod security;
+mod steps;
 mod sync;
 mod transfer;
 mod value;
@@ -54,9 +63,10 @@ use bolt::{Conn, Target};
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
     DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, IndexDef, Language, MonitorSnapshot, ObjectKindInfo,
-    ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    Message, MessageLevel, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
 };
 use packstream::{map, Value as Bolt};
+use steps::Step;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -84,7 +94,8 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 pub const QUERY_HELP: &str = "Cypher, con las sentencias separadas por «;»:\n\
 MATCH (p:Persona)-[:CONOCE]->(q) WHERE p.edad > 30 RETURN p, q LIMIT 25;\n\
 CREATE (:Persona {nombre: 'Ana'}) · MERGE (c:Ciudad {nombre: 'Rosario'}) · MATCH (n) DETACH DELETE n\n\
-Parámetros no hay: escribí los valores en la consulta.\n\
+:param nombre => valor   define $nombre para las consultas siguientes (:params los lista).\n\
+:begin · :commit · :rollback   transacción explícita, que sigue abierta entre ejecuciones.\n\
 Los nodos y relaciones se muestran como JSON (~id, ~labels, ~properties).\n\
 EXPLAIN / PROFILE delante de una consulta muestran su plan (o usá los botones de plan).\n\
 :use base   cambia la base de datos de la sesión (Neo4j, Memgraph Enterprise).";
@@ -202,6 +213,18 @@ impl Driver for GraphDriver {
         true
     }
 
+    /// Cypher strings take backslash escapes, and there are no `BEGIN …
+    /// END` bodies (for "run the statement at the cursor"; the driver
+    /// splits editor scripts itself, with the client commands).
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        dbine_driver::ScriptDialect { backslash_escapes: true, compound_blocks: false, ..dbine_driver::ScriptDialect::generic() }
+    }
+
+    /// `:begin` … `:commit` and the Auto/Manual switch (Neo4j, Memgraph).
+    fn supports_manual_transactions(&self) -> bool {
+        self.flavor != Flavor::Neptune
+    }
+
     fn supports_profiler(&self) -> bool {
         true
     }
@@ -306,6 +329,9 @@ impl Driver for GraphDriver {
             dirty: false,
             current: Arc::new(Mutex::new(String::new())),
             profiler: None,
+            params: Vec::new(),
+            tx: false,
+            manual: false,
         };
         if self.flavor == Flavor::Memgraph && !s.db.is_empty() && s.db != MEMGRAPH_DEFAULT_DB {
             let q = format!("USE DATABASE {}", cypher::ident(&s.db));
@@ -340,6 +366,13 @@ pub struct GraphSession {
     current: Arc<Mutex<String>>,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// `:param` values, sent with every editor statement.
+    params: Vec<(String, Bolt)>,
+    /// An explicit transaction is open on the Bolt connection (`:begin`,
+    /// or manual mode): statements go in it until commit / rollback.
+    tx: bool,
+    /// Manual transactions: the first statement opens one.
+    manual: bool,
 }
 
 /// What a statement returned, besides its rows.
@@ -372,22 +405,23 @@ impl GraphSession {
         &mut self,
         q: &str,
         db: Option<&str>,
+        params: Bolt,
         on_row: &mut (dyn FnMut(&[String], Vec<Value>) + Send),
     ) -> Result<Ran> {
-        let extra = self.run_extra(db);
-        if self.dirty {
-            if let (Transport::Bolt(_), Some(t)) = (&self.transport, &self.target) {
-                self.transport = Transport::Bolt(Conn::open(t, USER_AGENT).await?);
-            }
-            self.dirty = false;
-        }
+        // Inside an explicit transaction RUN takes no extra: the database,
+        // access mode and metadata went with BEGIN.
+        let extra = if self.tx { Bolt::Map(Vec::new()) } else { self.run_extra(db) };
+        self.reconnect_if_dirty().await?;
         match &mut self.transport {
             Transport::Bolt(c) => {
                 self.dirty = true;
-                let r = c
-                    .run(q, Bolt::Map(Vec::new()), extra, &mut |f, row| on_row(f, row.iter().map(value::to_json).collect()))
-                    .await;
+                let r = c.run(q, params, extra, &mut |f, row| on_row(f, row.iter().map(value::to_json).collect())).await;
                 self.dirty = matches!(r, Err(Error::Connect(_)));
+                // A failure ends the transaction (the server rolls it back
+                // on the RESET that follows).
+                if r.is_err() {
+                    self.tx = false;
+                }
                 let s = r?;
                 Ok(Ran { fields: s.fields, meta: Some(s.meta) })
             }
@@ -411,7 +445,7 @@ impl GraphSession {
 
     async fn query_on(&mut self, q: &str, db: Option<&str>) -> Result<(Vec<String>, Vec<Vec<Value>>)> {
         let mut rows = Vec::new();
-        let ran = self.run_with(q, db, &mut |_, r| rows.push(r)).await?;
+        let ran = self.run_with(q, db, Bolt::Map(Vec::new()), &mut |_, r| rows.push(r)).await?;
         Ok((ran.fields, rows))
     }
 
@@ -449,9 +483,10 @@ impl GraphSession {
     /// as messages, and its plan when the server sent one.
     async fn run_into(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<Ran> {
         let mut begun = false;
+        let params = Bolt::Map(self.params.clone());
         let ran = {
             let out_ref = &mut *out;
-            self.run_with(stmt, None, &mut |fields, row| {
+            self.run_with(stmt, None, params, &mut |fields, row| {
                 if !begun {
                     out_ref.begin_result(columns(fields));
                     begun = true;
@@ -470,10 +505,12 @@ impl GraphSession {
             }
         }
         if !summary.is_empty() {
-            out.messages.push(summary);
+            out.info(summary);
         }
         if let Some(m) = meta {
-            out.messages.extend(notifications(m));
+            for n in notification_messages(m) {
+                out.message(n);
+            }
             if let Some(p) = plan::neo4j(stmt, m) {
                 out.plans.push(p);
             }
@@ -576,8 +613,10 @@ impl GraphSession {
         let name = name.trim().trim_matches('`').to_string();
         match self.flavor {
             Flavor::Neo4j => {
-                // Proves it exists.
-                self.query_on("RETURN 1", Some(&name)).await?;
+                // Proves it exists. The system database only takes
+                // administration commands, so `RETURN 1` fails there.
+                let probe = if name.eq_ignore_ascii_case("system") { "SHOW DEFAULT DATABASE YIELD name" } else { "RETURN 1" };
+                self.query_on(probe, Some(&name)).await?;
             }
             Flavor::Memgraph => {
                 self.query(&format!("USE DATABASE {}", cypher::ident(&name))).await?;
@@ -587,6 +626,206 @@ impl GraphSession {
         self.db = name;
         Ok(())
     }
+
+    /// The Bolt connection is replaced when a statement was abandoned
+    /// mid-stream; an open transaction goes with the old one.
+    async fn reconnect_if_dirty(&mut self) -> Result<()> {
+        if !self.dirty {
+            return Ok(());
+        }
+        if let (Transport::Bolt(_), Some(t)) = (&self.transport, &self.target) {
+            self.transport = Transport::Bolt(Conn::open(t, USER_AGENT).await?);
+        }
+        self.dirty = false;
+        if std::mem::take(&mut self.tx) {
+            return Err(Error::Query("La transacción abierta se perdió al reiniciar la conexión: sus cambios no se guardaron.".into()));
+        }
+        Ok(())
+    }
+
+    async fn bolt(&mut self) -> Result<&mut Conn> {
+        self.reconnect_if_dirty().await?;
+        match &mut self.transport {
+            Transport::Bolt(c) => Ok(c),
+            Transport::Http(_) => Err(Error::Unsupported("Neptune no tiene transacciones explícitas ni parámetros de sesión.".into())),
+        }
+    }
+
+    async fn begin_tx(&mut self) -> Result<()> {
+        let extra = self.run_extra(None);
+        self.bolt().await?.begin(extra).await?;
+        self.tx = true;
+        Ok(())
+    }
+
+    /// Commit (or roll back) the open transaction; it ends either way.
+    async fn end_tx(&mut self, commit: bool) -> Result<()> {
+        if !self.tx {
+            return Ok(());
+        }
+        let c = self.bolt().await?;
+        let r = if commit { c.commit().await } else { c.rollback().await };
+        self.tx = false;
+        r
+    }
+
+    /// An editor Cypher statement: in the open transaction, opening one
+    /// first in manual mode.
+    async fn cypher(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        self.check_read_only(stmt)?;
+        if self.manual && !self.tx && self.flavor != Flavor::Neptune && !cypher::implicit_only(stmt) {
+            self.begin_tx().await?;
+            out.info("Transacción iniciada.");
+        }
+        self.run_into(stmt, max_rows, out).await.map_err(security::edition_hint)?;
+        Ok(())
+    }
+
+    /// A cypher-shell client command (a line starting with `:`).
+    async fn command(&mut self, line: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let body = line.trim_start_matches(':');
+        let (name, arg) = body.split_once(char::is_whitespace).map_or((body, ""), |(n, a)| (n, a.trim()));
+        match name.to_ascii_lowercase().as_str() {
+            "use" => {
+                if self.tx {
+                    return Err(Error::Query("Hay una transacción abierta: confirmala (:commit) o deshacela (:rollback) antes de cambiar de base.".into()));
+                }
+                self.use_database(arg).await?;
+                if !self.db.is_empty() {
+                    // The tab's database selector follows it.
+                    out.database = Some(self.db.clone());
+                }
+                out.info(format!("Base de datos actual: {}", if self.db.is_empty() { "(la predeterminada)" } else { &self.db }));
+            }
+            "begin" => {
+                if self.tx {
+                    return Err(Error::Query("Ya hay una transacción abierta.".into()));
+                }
+                self.begin_tx().await?;
+                out.info("Transacción iniciada.");
+            }
+            "commit" | "rollback" => {
+                if !self.tx {
+                    return Err(Error::Query("No hay ninguna transacción abierta.".into()));
+                }
+                let commit = name.eq_ignore_ascii_case("commit");
+                self.end_tx(commit).await?;
+                out.info(if commit { "Transacción confirmada." } else { "Transacción deshecha." });
+            }
+            "param" | "params" if arg.is_empty() || arg.eq_ignore_ascii_case("list") => {
+                out.begin_result(columns(&["nombre".to_string(), "valor".to_string()]));
+                for (k, v) in &self.params {
+                    out.push_row(vec![Value::String(format!("${k}")), value::cell(&value::to_json(v))], max_rows);
+                }
+            }
+            "param" | "params" if arg.eq_ignore_ascii_case("clear") => {
+                self.params.clear();
+                out.info("Se borraron los parámetros.");
+            }
+            "param" | "params" => self.set_param(arg, out).await?,
+            other => {
+                return Err(Error::Unsupported(format!(
+                    "El comando :{other} no está disponible en DBine (sí :use, :begin, :commit, :rollback, :param y :params)."
+                )))
+            }
+        }
+        Ok(())
+    }
+
+    /// `:param nombre => expr`, `:param nombre: expr` or `:param {a: 1}`:
+    /// the server evaluates the expression (it may use earlier parameters).
+    async fn set_param(&mut self, arg: &str, out: &mut QueryOutcome) -> Result<()> {
+        let (name, expr) = if arg.starts_with('{') {
+            (None, arg)
+        } else {
+            let split = arg.split_once("=>").or_else(|| arg.split_once(':'));
+            let Some((n, e)) = split.filter(|(n, e)| !n.trim().is_empty() && !e.trim().is_empty()) else {
+                return Err(Error::Query("Usá :param nombre => valor (o :param {nombre: valor}).".into()));
+            };
+            (Some(n.trim().trim_matches('`').to_string()), e.trim())
+        };
+        let q = format!("RETURN {expr} AS value");
+        self.check_read_only(&q)?;
+        let params = Bolt::Map(self.params.clone());
+        let extra = if self.tx { Bolt::Map(Vec::new()) } else { self.run_extra(None) };
+        let r = self.bolt().await?.query(&q, params, extra).await;
+        if r.is_err() {
+            // As any failed RUN, it ended an open transaction.
+            self.tx = false;
+        }
+        let (_, rows) = r?;
+        let v = rows.into_iter().next().and_then(|r| r.into_iter().next()).unwrap_or(Bolt::Null);
+        let set: Vec<(String, Bolt)> = match (name, v) {
+            (Some(n), v) => vec![(n, v)],
+            (None, Bolt::Map(m)) => m,
+            (None, _) => return Err(Error::Query(":param {…} necesita un mapa.".into())),
+        };
+        for (k, v) in set {
+            out.info(format!("${k} = {}", value::to_json(&v)));
+            match self.params.iter_mut().find(|(n, _)| *n == k) {
+                Some(p) => p.1 = v,
+                None => self.params.push((k, v)),
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A server failure of an editor statement with its code
+/// (`Neo.ClientError…`, `Memgraph.ClientError…`, which the Bolt client
+/// appends to the message) and its place in `stmt` (`(line 1, column 8
+/// (offset: 7))`), relative to the statement.
+fn structured(e: Error, stmt: &str) -> Error {
+    let Error::Query(m) = e else { return e };
+    let coded = m.strip_suffix(')').and_then(|s| s.rsplit_once(" (")).filter(|(_, code)| {
+        let parts: Vec<&str> = code.split('.').collect();
+        parts.len() >= 3 && !code.contains(' ') && parts[1].ends_with("Error")
+    });
+    let mut se = match coded {
+        Some((msg, code)) => ScriptError::new(msg).with_code(code),
+        None => ScriptError::new(m.clone()),
+    };
+    let offset = m.rfind("(offset: ").and_then(|i| m[i + 9..].split(')').next()?.trim().parse::<usize>().ok());
+    if let Some(chars) = offset {
+        let at = stmt.char_indices().nth(chars).map_or(stmt.len(), |(i, _)| i);
+        se = se.at_offset(at).at_line(steps::line_at(stmt, at));
+    } else if let Some((line, col)) = memgraph_position(&m) {
+        // Memgraph: "Error on line 3 position 13" (1-based, in the statement).
+        let at = steps::offset_of(stmt, line, col);
+        se = se.at_offset(at).at_line(line);
+    }
+    Error::Statement(Box::new(se))
+}
+
+/// Memgraph's place of a syntax error: `line L position P`.
+fn memgraph_position(m: &str) -> Option<(u32, u32)> {
+    let i = m.find("on line ")?;
+    let mut w = m[i + 8..].split_whitespace();
+    let line = w.next()?.trim_end_matches([',', ':']).parse().ok()?;
+    if w.next()? != "position" {
+        return None;
+    }
+    let col = w.next()?.trim_end_matches(|c: char| !c.is_ascii_digit()).parse().ok()?;
+    Some((line, col))
+}
+
+/// Notifications of a Bolt summary as messages: warnings and information,
+/// with their code and line in the statement.
+fn notification_messages(meta: &Bolt) -> Vec<Message> {
+    let list = meta.get("notifications").map(Bolt::as_list).unwrap_or_default();
+    list.iter()
+        .zip(notifications(meta))
+        .map(|(n, text)| {
+            let sev = n.get("severity").and_then(Bolt::as_str).unwrap_or_default();
+            Message {
+                level: if sev.eq_ignore_ascii_case("WARNING") { MessageLevel::Warning } else { MessageLevel::Info },
+                text,
+                code: n.get("code").and_then(Bolt::as_str).map(str::to_string),
+                line: n.get("position").and_then(|p| p.get("line")).and_then(Bolt::as_i64).filter(|l| *l > 0).map(|l| l as u32),
+                ..Default::default()
+            }
+        })
+        .collect()
 }
 
 fn scan_query(rel: bool) -> &'static str {
@@ -1114,20 +1353,47 @@ impl Session for GraphSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let stmts = cypher::split(text);
-        if stmts.is_empty() {
+        let units = cypher::script(text);
+        if units.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
         }
-        for stmt in stmts {
-            if let Some(db) = stmt.trim_start().strip_prefix(":use ").or_else(|| stmt.trim_start().strip_prefix(":USE ")) {
-                self.use_database(db).await?;
-                out.messages.push(format!("Base de datos actual: {}", self.db));
-                continue;
-            }
-            self.check_read_only(&stmt)?;
-            self.run_into(&stmt, max_rows, out).await.map_err(security::edition_hint)?;
+        let own = out.current_statement.is_none();
+        for (i, u) in units.iter().enumerate() {
+            let step = Step::start(out, own, i, u.start, u.line);
+            let in_tx = self.tx;
+            let r = if u.command { self.command(&u.text, max_rows, out).await } else { self.cypher(&u.text, max_rows, out).await };
+            let r = r.map_err(|e| {
+                if in_tx && !self.tx {
+                    out.warning("La transacción se deshizo por el error: sus cambios no se guardaron.");
+                }
+                structured(e, &u.text)
+            });
+            step.end(out, r)?;
         }
         Ok(())
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        if self.flavor == Flavor::Neptune {
+            return Ok(None);
+        }
+        Ok(Some(if self.tx { TxState::Open } else { TxState::Idle }))
+    }
+
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if !on && self.flavor == Flavor::Neptune {
+            return Err(Error::Unsupported("Neptune no tiene transacciones explícitas.".into()));
+        }
+        self.manual = !on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.end_tx(true).await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.end_tx(false).await
     }
 
     async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -1152,10 +1418,10 @@ impl Session for GraphSession {
                                 p.statement = body.clone();
                             }
                         }
-                        Ok(_) => out.messages.push(format!("`{}`: el servidor no devolvió un plan.", short(&body))),
+                        Ok(_) => out.info(format!("`{}`: el servidor no devolvió un plan.", short(&body))),
                         // Administration commands (SHOW, CREATE INDEX…) have no plan.
                         Err(Error::Query(m)) => {
-                            out.messages.push(format!("`{}`: sin plan de ejecución ({m}).", short(&body)));
+                            out.info(format!("`{}`: sin plan de ejecución ({m}).", short(&body)));
                             if analyze {
                                 self.run_into(&body, max_rows, out).await?;
                             }
@@ -1181,12 +1447,12 @@ impl Session for GraphSession {
                                 .collect();
                             out.plans.push(plan::memgraph(&body, &lines, profile));
                         }
-                        Err(Error::Query(m)) => out.messages.push(format!("`{}`: sin plan de ejecución ({m}).", short(&body))),
+                        Err(Error::Query(m)) => out.info(format!("`{}`: sin plan de ejecución ({m}).", short(&body))),
                         Err(e) => return Err(e),
                     }
                     if analyze {
                         if writes {
-                            out.messages.push(format!("`{}` escribe: se muestra el plan estimado y se ejecutó una sola vez.", short(&body)));
+                            out.info(format!("`{}` escribe: se muestra el plan estimado y se ejecutó una sola vez.", short(&body)));
                         }
                         self.run_into(&body, max_rows, out).await?;
                     }
@@ -1197,12 +1463,12 @@ impl Session for GraphSession {
                     let c = c.clone();
                     match c.explain(&body, if dynamic { "dynamic" } else { "static" }).await {
                         Ok(t) => out.plans.push(plan::neptune(&body, &t, dynamic)),
-                        Err(Error::Query(m)) => out.messages.push(format!("`{}`: sin plan de ejecución ({m}).", short(&body))),
+                        Err(Error::Query(m)) => out.info(format!("`{}`: sin plan de ejecución ({m}).", short(&body))),
                         Err(e) => return Err(e),
                     }
                     if analyze {
                         if writes {
-                            out.messages.push(format!("`{}` escribe: se muestra el plan estimado y se ejecutó una sola vez.", short(&body)));
+                            out.info(format!("`{}` escribe: se muestra el plan estimado y se ejecutó una sola vez.", short(&body)));
                         }
                         self.run_into(&body, max_rows, out).await?;
                     }
@@ -1414,6 +1680,34 @@ mod tests {
         assert_eq!(c[0].data_type, "INTEGER|FLOAT");
         assert!(!c[0].nullable && c[1].nullable && c[2].nullable);
         assert_eq!(c[2].data_type, "NULL");
+    }
+
+    #[test]
+    fn errors_keep_code_and_place() {
+        let m = "Invalid input 'RETRN': expected 'RETURN' (line 2, column 1 (offset: 10))\n\"RETRN 1\"\n ^ (Neo.ClientError.Statement.SyntaxError)";
+        let e = structured(Error::Query(m.into()), "MATCH (n)\nRETRN 1").to_script_error();
+        assert_eq!(e.code.as_deref(), Some("Neo.ClientError.Statement.SyntaxError"));
+        assert!(e.message.starts_with("Invalid input 'RETRN'") && !e.message.contains("(Neo."), "{}", e.message);
+        assert_eq!((e.offset, e.line), (Some(10), Some(2)));
+        let e = structured(Error::Query("Unbound variable: x (Memgraph.ClientError.MemgraphError.MemgraphError)".into()), "RETURN x").to_script_error();
+        assert_eq!((e.message.as_str(), e.code.as_deref(), e.offset), ("Unbound variable: x", Some("Memgraph.ClientError.MemgraphError.MemgraphError"), None));
+        let stmt = "MATCH (n)\nWITH n\nRETURN n.a +  ;";
+        let e = structured(Error::Query("Error on line 3 position 13. (Memgraph.ClientError.MemgraphError.MemgraphError)".into()), stmt).to_script_error();
+        assert_eq!((e.line, e.offset), (Some(3), Some(29)));
+        let e = structured(Error::Query("x (y z)".into()), "RETURN x").to_script_error();
+        assert_eq!((e.message.as_str(), e.code), ("x (y z)", None));
+        assert!(matches!(structured(Error::Cancelled, "x"), Error::Cancelled));
+        let meta = map([(
+            "notifications",
+            Bolt::List(vec![map([
+                ("severity", Bolt::from("WARNING")),
+                ("code", Bolt::from("Neo.ClientNotification.Statement.CartesianProduct")),
+                ("title", Bolt::from("t")),
+                ("position", map([("line", Bolt::from(2i64))])),
+            ])]),
+        )]);
+        let n = notification_messages(&meta);
+        assert_eq!((n[0].level, n[0].code.as_deref(), n[0].line), (MessageLevel::Warning, Some("Neo.ClientNotification.Statement.CartesianProduct"), Some(2)));
     }
 
     #[test]

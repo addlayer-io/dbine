@@ -4,6 +4,7 @@
 
 /// Commands of a script, each as its raw arguments. A `#` at the start of
 /// an argument (outside quotes) comments out the rest of the line.
+#[cfg(test)]
 pub fn parse_script(text: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
     let mut out = Vec::new();
     for (n, line) in text.lines().enumerate() {
@@ -11,6 +12,30 @@ pub fn parse_script(text: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
         if !args.is_empty() {
             out.push(args);
         }
+    }
+    Ok(out)
+}
+
+/// A command of an editor script with its place: byte offset of its first
+/// argument and 1-based line.
+pub struct Placed {
+    pub args: Vec<Vec<u8>>,
+    pub start: usize,
+    pub line: u32,
+}
+
+/// [`parse_script`] with each command's place; an error carries the line
+/// and its start.
+pub fn parse_placed(text: &str) -> Result<Vec<Placed>, (String, u32, usize)> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    for (n, line) in text.split('\n').enumerate() {
+        let args = parse_line(line.trim_end_matches('\r')).map_err(|e| (e, n as u32 + 1, at))?;
+        if !args.is_empty() {
+            let indent = line.len() - line.trim_start().len();
+            out.push(Placed { args, start: at + indent, line: n as u32 + 1 });
+        }
+        at += line.len() + 1;
     }
     Ok(out)
 }
@@ -200,6 +225,14 @@ pub fn is_streaming(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn placed_commands() {
+        let p = parse_placed("SET a 1\r\n# c\n\n  GET \"é\"\nDEL a").unwrap();
+        let v: Vec<(usize, u32)> = p.iter().map(|c| (c.start, c.line)).collect();
+        assert_eq!(v, [(0, 1), (16, 4), (25, 5)]);
+        assert_eq!(parse_placed("GET a\nGET \"open").err(), Some(("comillas sin cerrar".to_string(), 2, 6)));
+    }
 
     fn words(line: &str) -> Vec<String> {
         parse_line(line).unwrap().into_iter().map(|a| String::from_utf8(a).unwrap()).collect()

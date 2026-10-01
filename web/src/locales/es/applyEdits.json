@@ -6,5 +6,10 @@
   "done": "Cambios guardados",
   "doneRows_one": "Cambios guardados: 1 fila actualizada",
   "doneRows_many": "Cambios guardados: {{count}} filas actualizadas",
-  "doneRows_other": "Cambios guardados: {{count}} filas actualizadas"
+  "doneRows_other": "Cambios guardados: {{count}} filas actualizadas",
+  "hintDeletes": "Se van a ejecutar estas sentencias sobre el servidor ({{deletes}}). Revisalas antes de guardar.",
+  "hintBoth": "Se van a ejecutar estas sentencias sobre el servidor ({{deletes}}; {{cells}} en {{rows}}). Primero se eliminan las filas y después se actualizan las demás. Revisalas antes de guardar.",
+  "doneAffected_one": "Cambios guardados: 1 fila afectada",
+  "doneAffected_many": "Cambios guardados: {{count}} filas afectadas",
+  "doneAffected_other": "Cambios guardados: {{count}} filas afectadas"
 }

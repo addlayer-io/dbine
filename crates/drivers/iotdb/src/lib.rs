@@ -30,6 +30,7 @@ const ROW_LIMIT_EXCEEDED: i64 = 708;
 mod monitor;
 mod permissions;
 mod profiler;
+mod script;
 mod security;
 mod sync;
 mod transfer;
@@ -80,6 +81,12 @@ struct IotDbDriver {
 impl Driver for IotDbDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// One request per statement, as the CLI's `-e`/file runs do: the REST
+    /// API is stateless, so nothing is lost between statements.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::PerStatement
     }
 
     fn supports_profiler(&self) -> bool {
@@ -952,16 +959,29 @@ impl Session for IotDbSession {
                 )));
             }
         }
-        for stmt in statements {
-            if is_query(&stmt) {
-                let t = self.query(&stmt, max_rows).await?;
-                out.begin_result(t.columns);
-                for row in t.rows {
-                    out.push_row(row, max_rows);
-                }
+        for unit in dbine_driver::sql::split_script(text, &dbine_driver::ScriptDialect::generic()) {
+            let stmt = dbine_driver::sql::strip_comments(&unit.text, &dbine_driver::ScriptDialect::generic(), false);
+            let stmt = stmt.trim();
+            if stmt.is_empty() {
+                continue;
+            }
+            let r = if is_query(stmt) {
+                self.query(stmt, max_rows).await.map(|t| {
+                    out.begin_result(t.columns);
+                    for row in t.rows {
+                        out.push_row(row, max_rows);
+                    }
+                })
             } else {
-                self.non_query(&stmt).await?;
-                out.push_affected(0);
+                self.non_query(stmt).await.map(|_| out.push_affected(0))
+            };
+            match r {
+                Ok(()) => {}
+                // Positions count in the text sent, which has no comments:
+                // placed only when the statement had none.
+                Err(Error::Query(m)) if stmt == unit.text => return Err(script::shift(script::error(&m, stmt), &unit)),
+                Err(Error::Query(m)) => return Err(script::shift(dbine_driver::ScriptError::new(m).into(), &unit)),
+                Err(e) => return Err(e),
             }
         }
         Ok(())

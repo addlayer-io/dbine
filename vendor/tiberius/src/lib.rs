@@ -233,7 +233,7 @@ mod sql_browser;
 mod bulk_options;
 
 pub use bulk_options::{ColumnOrderHint, SortOrder, SqlBulkCopyOption, SqlBulkCopyOptions};
-pub use client::{AuthMethod, Client, Config, ConfigBuilder};
+pub use client::{AuthMethod, CancelHandle, Client, Config, ConfigBuilder};
 pub use command::{Command, SqlTableData, SqlTableDataRow, TableValue, TableValueRow};
 pub(crate) use error::Error;
 pub use from_sql::{FromSql, FromSqlOwned};
@@ -249,8 +249,12 @@ pub use tds::{
     },
     collation::Collation,
     numeric,
-    // PATCH(dbine): RawItem / RawMetadata / RawRowStream (raw row passthrough).
-    stream::{CommandReturnValue, CommandStream, QueryStream, RawItem, RawMetadata, RawRowStream},
+    // PATCH(dbine): RawItem / RawMetadata / RawRowStream (raw row passthrough);
+    // MessageStream & co. (a batch's messages, counts and errors in order).
+    stream::{
+        CommandReturnValue, CommandStream, DoneInfo, DoneKind, MessageItem, MessageStream, QueryStream,
+        RawItem, RawMetadata, RawRowStream, ServerMessage,
+    },
     time, xml, EncryptionLevel,
 };
 pub use to_sql::{IntoSql, ToSql};

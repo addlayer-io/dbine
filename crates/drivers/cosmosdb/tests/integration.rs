@@ -127,9 +127,10 @@ async fn end_to_end() {
 
     // Errors: bad syntax, missing container, not a SELECT.
     let e = run(&mut s, "-- container: items\nSELECT * FORM c", 10).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
+    assert_eq!(e.to_script_error().line, Some(2), "the failing statement's line");
     let e = run(&mut s, "-- container: nope\nSELECT * FROM c", 10).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     let e = run(&mut s, "DELETE FROM c", 10).await.unwrap_err();
     assert!(e.to_string().contains("SELECT"), "{e}");
 

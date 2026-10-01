@@ -12,7 +12,7 @@
 
 use crate::DatabricksSession;
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
 use serde_json::json;
 
 pub fn spec() -> SecuritySpec {
@@ -238,6 +238,67 @@ pub fn script(a: &SecurityAction) -> Result<String> {
     })
 }
 
+// -- schemas -----------------------------------------------------------------
+
+/// "Nuevo esquema…" in the session's catalog: Unity Catalog schemas have an
+/// owner (`ALTER SCHEMA … OWNER TO`) and drop with `CASCADE` / `RESTRICT`.
+pub fn schema_spec() -> SchemaSpec {
+    SchemaSpec {
+        owner: true,
+        owner_kinds: dbine_driver::SchemaOwnerKinds::Both,
+        cascade: true,
+        privileges: vec![
+            "USE SCHEMA", "SELECT", "MODIFY", "EXECUTE", "READ VOLUME", "WRITE VOLUME", "CREATE TABLE", "CREATE FUNCTION",
+            "CREATE VOLUME", "CREATE MATERIALIZED VIEW", "CREATE MODEL", "APPLY TAG", "MANAGE", "ALL PRIVILEGES",
+        ],
+        grant_option: true,
+    }
+}
+
+/// The name as typed, quoted: the grants that follow name it the same way.
+fn schema_name(name: &str) -> Result<String> {
+    match name.trim() {
+        "" => Err(Error::Query("escribí el nombre del esquema".into())),
+        n => Ok(q(n)),
+    }
+}
+
+/// Owned by the creator; `schema_owner` hands it over afterwards.
+pub fn create_schema(name: &str) -> Result<String> {
+    Ok(format!("CREATE SCHEMA {};", schema_name(name)?))
+}
+
+/// A grant on the new schema. Unity Catalog has no WITH GRANT OPTION: the
+/// right to grant on a schema is MANAGE on it, so "con opción de otorgar"
+/// adds MANAGE (which ALL PRIVILEGES doesn't include).
+pub fn schema_grant(name: &str, p: &[String], to: &str, grantable: bool) -> Result<String> {
+    let mut p = p.to_vec();
+    if grantable && !p.iter().any(|x| x.trim().eq_ignore_ascii_case("MANAGE")) {
+        p.push("MANAGE".into());
+    }
+    let object = Some(ObjectRef { kind: "schema".into(), schema: None, name: name.to_string() });
+    let grant = script(&SecurityAction::Grant { privileges: p, object, to: to.to_string(), grantable: false })?;
+    Ok(if grantable {
+        format!("-- Unity Catalog no tiene WITH GRANT OPTION: poder otorgar permisos sobre el esquema es MANAGE.\n{grant}")
+    } else {
+        grant
+    })
+}
+
+/// Hands the schema to `owner` (a user, group or service principal). Meant
+/// to run after the grants: once it's given away, the creator can't grant on
+/// it without MANAGE on the schema or owning the catalog.
+pub fn schema_owner(name: &str, owner: &str) -> Result<String> {
+    match owner.trim() {
+        "" => Err(Error::Query("elegí el dueño del esquema".into())),
+        o => Ok(format!("ALTER SCHEMA {} OWNER TO {};", schema_name(name)?, q(o))),
+    }
+}
+
+pub fn drop_schema(name: &str, cascade: bool) -> Result<String> {
+    Ok(format!("DROP SCHEMA {} {};", schema_name(name)?, if cascade { "CASCADE" } else { "RESTRICT" }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,5 +359,30 @@ mod tests {
         assert_eq!((g.object, g.object_kind), (None, None));
         assert!(grants_query(2, true).contains("grantee IN (:p0, :p1) AND (inherited_from IS NULL"));
         assert!(!grants_query(1, false).contains("inherited_from"));
+    }
+
+    #[test]
+    fn schema_scripts() {
+        assert_eq!(create_schema(" ventas ").unwrap(), "CREATE SCHEMA `ventas`;");
+        assert_eq!(create_schema("ven`tas").unwrap(), "CREATE SCHEMA `ven``tas`;");
+        assert_eq!(schema_owner("ven`tas", " grupo ").unwrap(), "ALTER SCHEMA `ven``tas` OWNER TO `grupo`;");
+        assert!(schema_owner("ventas", "").is_err());
+        assert!(create_schema("").is_err());
+        // "Con opción de otorgar": MANAGE, once.
+        let g = schema_grant("ventas", &["SELECT".into(), "manage".into()], "ana", true).unwrap();
+        assert!(g.starts_with("-- ") && g.ends_with("\nGRANT SELECT, MANAGE ON SCHEMA `ventas` TO `ana`;"), "{g}");
+        assert!(schema_grant("ventas", &["ALL PRIVILEGES".into()], "ana", true).unwrap().ends_with("GRANT ALL PRIVILEGES, MANAGE ON SCHEMA `ventas` TO `ana`;"));
+        assert_eq!(drop_schema("ventas", true).unwrap(), "DROP SCHEMA `ventas` CASCADE;");
+        assert_eq!(drop_schema("ventas", false).unwrap(), "DROP SCHEMA `ventas` RESTRICT;");
+        let spec = schema_spec();
+        assert!(spec.owner && spec.cascade);
+        let g = script(&SecurityAction::Grant {
+            privileges: spec.privileges.iter().map(|p| p.to_string()).collect(),
+            object: obj("schema", None, "ventas"),
+            to: "analistas".into(),
+            grantable: false,
+        })
+        .unwrap();
+        assert!(g.starts_with("GRANT USE SCHEMA, SELECT, MODIFY") && g.ends_with(" ON SCHEMA `ventas` TO `analistas`;"), "{g}");
     }
 }

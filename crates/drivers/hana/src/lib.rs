@@ -16,11 +16,11 @@ mod security;
 mod structure;
 mod transfer;
 
-use dbine_driver::sql::{select_top, Limit, Quote};
+use dbine_driver::sql::{leading_keyword, select_top, Limit, Quote, ScriptDefaults, ScriptDialect};
 use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, MonitorSnapshot, ObjectKindInfo,
-    ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    Message, MessageLevel, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
 };
 use hdbconnect_async::{
     ConnectParams, ConnectParamsBuilder, Connection, HdbError, HdbResponse, HdbReturnValue, HdbValue, ResultSet,
@@ -104,6 +104,33 @@ fn err(e: HdbError) -> Error {
     Error::Query(message(&e))
 }
 
+/// A statement of `script` (starting at byte `start`) failed: HANA's code
+/// and SQLSTATE, and where (`position`, the 1-based character in the
+/// statement). A fatal error ends the script.
+fn stmt_err(e: HdbError, script: &str, start: usize) -> Error {
+    let Some(s) = e.server_error() else { return err(e) };
+    let state = String::from_utf8_lossy(s.sqlstate()).trim().to_string();
+    let fatal = matches!(s.severity(), hdbconnect_async::Severity::Fatal);
+    server_error(s.code(), s.text(), &state, s.position(), fatal, script, start).into()
+}
+
+fn server_error(code: i32, text: &str, state: &str, position: i32, fatal: bool, script: &str, start: usize) -> ScriptError {
+    let mut se = ScriptError::new(format!("[{code}] {text}")).with_code(code.to_string());
+    if !state.is_empty() && state != "HY000" {
+        se = se.with_sqlstate(state);
+    }
+    let start = start.min(script.len());
+    let offset = match usize::try_from(position) {
+        Ok(p) if p >= 1 => script[start..].char_indices().nth(p - 1).map_or(start, |(b, _)| start + b),
+        _ => start,
+    };
+    se = se.at_offset(offset).at_line(script[..offset].matches('\n').count() as u32 + 1);
+    if fatal {
+        se = se.fatal();
+    }
+    se
+}
+
 fn connect_err(e: HdbError) -> Error {
     // 10: authentication failed; 414: password must be changed.
     let auth = matches!(e, HdbError::Authentication { .. })
@@ -152,6 +179,26 @@ impl Driver for HanaDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// hdbsql's: `;` outside quotes and comments; procedure, function and
+    /// trigger bodies whole.
+    fn script_dialect(&self) -> ScriptDialect {
+        ScriptDialect { backtick_idents: false, ..ScriptDialect::generic() }
+    }
+
+    // `script_mode` stays `Whole`: the shared lexer doesn't yet keep an
+    // anonymous `DO BEGIN … END` block whole, which this driver's splitter
+    // (`script`) does. The driver runs the script statement by statement
+    // itself and stops at the first error.
+
+    /// hdbsql goes on after an error unless told to stop.
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+    }
+
+    fn supports_manual_transactions(&self) -> bool {
         true
     }
 
@@ -233,7 +280,7 @@ impl Driver for HanaDriver {
             conn.exec(format!("SET SCHEMA {}", quote(schema))).await.map_err(err)?;
         }
         let schema = single_text(&conn, "SELECT CURRENT_SCHEMA FROM DUMMY").await?.unwrap_or_default();
-        Ok(Box::new(HanaSession { id: conn.id().await, conn, params, schema, profiler: None }))
+        Ok(Box::new(HanaSession { id: conn.id().await, conn, params, schema, profiler: None, dirty: false }))
     }
 }
 
@@ -248,6 +295,9 @@ struct HanaSession {
     schema: String,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// Without autocommit: something changed since the last commit or
+    /// rollback.
+    dirty: bool,
 }
 
 fn quote(name: &str) -> String {
@@ -297,6 +347,18 @@ fn int(v: &HdbValue) -> Option<i64> {
 }
 
 impl HanaSession {
+    /// The server's warnings of the last statement, with their codes.
+    async fn warnings(&self, out: &mut QueryOutcome) {
+        for w in self.conn.pop_warnings().await.unwrap_or_default() {
+            out.message(Message {
+                level: MessageLevel::Warning,
+                text: format!("[{}] {}", w.code(), w.text()),
+                code: Some(w.code().to_string()),
+                ..Default::default()
+            });
+        }
+    }
+
     /// Rows of a catalog query with string parameters, as values.
     async fn rows(&self, sql: &str, params: &[&str]) -> Result<Vec<Vec<HdbValue<'static>>>> {
         let response = self.conn.prepare_and_execute(sql, &params.to_vec()).await.map_err(err)?;
@@ -498,13 +560,43 @@ impl Session for HanaSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        for stmt in script::split(text) {
-            let response = self.conn.statement(&stmt).await.map_err(err)?;
+        for (stmt, start) in script::pieces(text) {
+            let response = self.conn.statement(&stmt).await;
+            self.warnings(out).await;
+            let response = response.map_err(|e| stmt_err(e, text, start))?;
+            let before = out.results.len();
             push_response(response, max_rows, out).await?;
-            if let Some(warnings) = self.conn.pop_warnings().await {
-                out.messages.extend(warnings.iter().map(|w| format!("[{}] {}", w.code(), w.text())));
+            let reads = out.results[before..].iter().all(|r| !r.columns.is_empty());
+            match leading_keyword(&stmt, &ScriptDialect::generic()).as_deref() {
+                Some("commit" | "rollback") => self.dirty = false,
+                _ if !reads => self.dirty = true,
+                _ => {}
             }
         }
+        Ok(())
+    }
+
+    /// `Open` when, without autocommit, something changed since the last
+    /// commit or rollback (HANA keeps a transaction open for reads too).
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        let open = self.dirty && !self.conn.is_auto_commit().await;
+        Ok(Some(if open { TxState::Open } else { TxState::Idle }))
+    }
+
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        self.conn.set_auto_commit(on).await;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.conn.commit().await.map_err(err)?;
+        self.dirty = false;
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.conn.rollback().await.map_err(err)?;
+        self.dirty = false;
         Ok(())
     }
 
@@ -857,6 +949,20 @@ mod tests {
         assert_eq!(p.addr(), "hana.local:39041");
         cfg.username = None;
         assert!(matches!(params(&cfg), Err(Error::AuthFailed(_))));
+    }
+
+    #[test]
+    fn statement_errors_are_placed_in_the_script() {
+        let e = stmt_err(HdbError::Evaluation("x"), "select 1", 0);
+        assert!(matches!(e, Error::Query(_)));
+        let script = "select 1 from dummy;\nselect ñ from\n dummy x y";
+        let start = script.find("select ñ").unwrap();
+        let e = server_error(257, "sql syntax error", "42000", 24, false, script, start);
+        assert_eq!((e.code.as_deref(), e.sqlstate.as_deref()), (Some("257"), Some("42000")));
+        assert_eq!(e.offset, Some(script.rfind('y').unwrap()));
+        assert_eq!(e.line, Some(3));
+        let e = server_error(129, "transaction rolled back", "HY000", 0, true, script, start);
+        assert_eq!((e.sqlstate, e.offset, e.line, e.fatal), (None, Some(start), Some(2), true));
     }
 
     #[test]

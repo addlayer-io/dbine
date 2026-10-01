@@ -209,17 +209,50 @@ fn role_name(d: Dialect, r: &str) -> String {
 }
 
 /// A principal's name as `(is a role for sure, name in the engine)`.
-fn grantee(name: &str) -> (bool, &str) {
+pub(crate) fn grantee(name: &str) -> (bool, &str) {
     match name.strip_prefix(ROLE_PREFIX) {
         Some(r) => (true, r),
         None => (false, name),
     }
 }
 
+/// SQL reserved words (sorted, upper case): a name spelled like one is
+/// always quoted (a schema or user called SELECT or USER). PUBLIC stays
+/// out: it's the grantee everyone is.
+const RESERVED: &[&str] = &[
+    "ABS", "ALL", "ALLOCATE", "ALTER", "AND", "ANY", "ARE", "ARRAY", "AS", "ASENSITIVE", "ASYMMETRIC", "AT", "ATOMIC",
+    "AUTHORIZATION", "AVG", "BEGIN", "BETWEEN", "BIGINT", "BINARY", "BLOB", "BOOLEAN", "BOTH", "BY", "CALL", "CALLED",
+    "CASCADED", "CASE", "CAST", "CHAR", "CHARACTER", "CHECK", "CLOB", "CLOSE", "COLLATE", "COLUMN", "COMMIT",
+    "CONDITION", "CONNECT", "CONSTRAINT", "CONTINUE", "CONVERT", "CORRESPONDING", "COUNT", "CREATE", "CROSS", "CUBE",
+    "CURRENT", "CURRENT_CATALOG", "CURRENT_DATE", "CURRENT_PATH", "CURRENT_ROLE", "CURRENT_SCHEMA", "CURRENT_TIME",
+    "CURRENT_TIMESTAMP", "CURRENT_USER", "CURSOR", "CYCLE", "DATABASE", "DATE", "DAY", "DEALLOCATE", "DEC", "DECIMAL",
+    "DECLARE", "DEFAULT", "DELETE", "DEREF", "DESCRIBE", "DETERMINISTIC", "DISCONNECT", "DISTINCT", "DOUBLE", "DROP",
+    "DYNAMIC", "EACH", "ELEMENT", "ELSE", "END", "ESCAPE", "EVERY", "EXCEPT", "EXEC", "EXECUTE", "EXISTS", "EXTERNAL",
+    "EXTRACT", "FALSE", "FETCH", "FILTER", "FLOAT", "FOR", "FOREIGN", "FREE", "FROM", "FULL", "FUNCTION", "GET",
+    "GLOBAL", "GRANT", "GROUP", "GROUPING", "HAVING", "HOLD", "HOUR", "IDENTITY", "IN", "INDICATOR", "INNER", "INOUT",
+    "INSENSITIVE", "INSERT", "INT", "INTEGER", "INTERSECT", "INTERVAL", "INTO", "IS", "JOIN", "LANGUAGE", "LARGE",
+    "LATERAL", "LEADING", "LEFT", "LIKE", "LIMIT", "LOCAL", "LOCALTIME", "LOCALTIMESTAMP", "MATCH", "MAX", "MERGE",
+    "METHOD", "MIN", "MINUTE", "MODIFIES", "MODULE", "MONTH", "MULTISET", "NATIONAL", "NATURAL", "NCHAR", "NCLOB",
+    "NEW", "NO", "NONE", "NOT", "NULL", "NUMERIC", "OF", "OFFSET", "OLD", "ON", "ONLY", "OPEN", "OR", "ORDER", "OUT",
+    "OUTER", "OVER", "OVERLAPS", "PARAMETER", "PARTITION", "PRECISION", "PREPARE", "PRIMARY", "PROCEDURE", "RANGE",
+    "READS", "REAL", "RECURSIVE", "REF", "REFERENCES", "REFERENCING", "RELEASE", "RESULT", "RETURN", "RETURNS",
+    "REVOKE", "RIGHT", "ROLE", "ROLLBACK", "ROLLUP", "ROW", "ROWS", "SAVEPOINT", "SCHEMA", "SCOPE", "SCROLL", "SEARCH",
+    "SECOND", "SELECT", "SENSITIVE", "SESSION_USER", "SET", "SIMILAR", "SMALLINT", "SOME", "SPECIFIC", "SQL",
+    "SQLEXCEPTION", "SQLSTATE", "SQLWARNING", "START", "STATIC", "SUBMULTISET", "SUM", "SYMMETRIC", "SYSTEM",
+    "SYSTEM_USER", "TABLE", "TABLESAMPLE", "THEN", "TIME", "TIMESTAMP", "TIMEZONE_HOUR", "TIMEZONE_MINUTE", "TO",
+    "TRAILING", "TRANSLATION", "TREAT", "TRIGGER", "TRUE", "UNION", "UNIQUE", "UNKNOWN", "UNNEST", "UPDATE", "USER",
+    "USING", "VALUE", "VALUES", "VARCHAR", "VARYING", "VIEW", "WHEN", "WHENEVER", "WHERE", "WINDOW", "WITH", "WITHIN",
+    "WITHOUT", "YEAR",
+];
+
+fn reserved(name: &str) -> bool {
+    RESERVED.binary_search(&name.to_ascii_uppercase().as_str()).is_ok()
+}
+
 /// An identifier: bare when it's a plain one that reads the same after
 /// the engine folds it (Db2 and Exasol fold to upper case, Informix to
-/// lower case), quoted otherwise.
-fn ident(d: Dialect, name: &str) -> String {
+/// lower case) and isn't a reserved word, quoted otherwise.
+pub(crate) fn ident(d: Dialect, name: &str) -> String {
     let folds_up = matches!(
         d,
         Dialect::Db2 | Dialect::Exasol | Dialect::Db2i | Dialect::Db2z | Dialect::Netezza | Dialect::Altibase | Dialect::Dameng | Dialect::Mimer
@@ -229,7 +262,8 @@ fn ident(d: Dialect, name: &str) -> String {
     let plain = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         && !(folds_up && name.chars().any(|c| c.is_ascii_lowercase()))
-        && !(folds_down && name.chars().any(|c| c.is_ascii_uppercase()));
+        && !(folds_down && name.chars().any(|c| c.is_ascii_uppercase()))
+        && !reserved(name);
     if plain {
         return name.to_string();
     }
@@ -810,6 +844,21 @@ fn privileges(p: &[String]) -> Result<String> {
     Ok(out.join(", "))
 }
 
+/// `GRANT`/`REVOKE` statements for these privileges: `ALL` goes alone
+/// (`GRANT ALL, SELECT …` is a syntax error), and Impala takes a single
+/// privilege per statement, so it gets one statement each.
+fn per_privilege(d: Dialect, p: &[String], stmt: impl Fn(String) -> String) -> Result<String> {
+    let all = p.iter().any(|x| matches!(x.trim().to_uppercase().as_str(), "ALL" | "ALL PRIVILEGES"));
+    if all && p.len() > 1 {
+        return Err(Error::Query("ALL ya incluye todos los permisos: elegilo solo, sin otros".into()));
+    }
+    if matches!(d, Dialect::Impala) {
+        let each: Result<Vec<String>> = p.iter().map(|x| privileges(std::slice::from_ref(x)).map(&stmt)).collect();
+        return Ok(each?.join("\n"));
+    }
+    Ok(stmt(privileges(p)?))
+}
+
 /// `schema.name`, each part as an identifier.
 fn qualified(d: Dialect, o: &ObjectRef) -> String {
     match o.schema().filter(|s| !s.is_empty()) {
@@ -928,9 +977,13 @@ pub fn script(d: Dialect, a: &SecurityAction) -> Result<String> {
                 (Dialect::Db2, true, None) => return Err(Error::Unsupported("Db2 no otorga permisos de la base con opción de otorgarlos a otros".into())),
                 _ => " WITH GRANT OPTION",
             };
-            format!("GRANT {}{} TO {}{option};", privileges(p)?, on(d, object)?, to_whom(d, to))
+            let (on, to) = (on(d, object)?, to_whom(d, to));
+            per_privilege(d, p, |x| format!("GRANT {x}{on} TO {to}{option};"))?
         }
-        SecurityAction::Revoke { privileges: p, object, from } => format!("REVOKE {}{} FROM {};", privileges(p)?, on(d, object)?, to_whom(d, from)),
+        SecurityAction::Revoke { privileges: p, object, from } => {
+            let (on, from) = (on(d, object)?, to_whom(d, from));
+            per_privilege(d, p, |x| format!("REVOKE {x}{on} FROM {from};"))?
+        }
         SecurityAction::AddMember { role, member } => {
             let r = ident(d, grantee(role).1);
             match d {
@@ -1002,6 +1055,16 @@ mod tests {
                 assert!(matches!(script(d, &a), Err(Error::Unsupported(_))));
             }
         }
+    }
+
+    #[test]
+    fn reserved_words_quoted() {
+        assert!(RESERVED.windows(2).all(|w| w[0] < w[1]), "RESERVED must stay sorted");
+        assert_eq!(ident(Dialect::Db2, "USER"), "\"USER\"");
+        assert_eq!(ident(Dialect::Vertica, "select"), "\"select\"");
+        assert_eq!(ident(Dialect::Hive, "table"), "`table`");
+        assert_eq!(ident(Dialect::Db2, "PUBLIC"), "PUBLIC");
+        assert_eq!(ident(Dialect::Db2, "USERS"), "USERS");
     }
 
     #[test]
@@ -1275,9 +1338,9 @@ mod more_engines {
         assert_eq!(s(Dialect::MaxDb, SecurityAction::SetLogin { name: "ANA".into(), enabled: false }), "ALTER USER ANA DISABLE CONNECT;");
         assert_eq!(s(Dialect::MaxDb, SecurityAction::SetPassword { name: "ANA".into(), password: "x".into() }), "ALTER PASSWORD ANA \"x\";");
         assert_eq!(s(Dialect::MaxDb, grant("CREATEIN", obj("schema", None, "S"), "ANA", false)), "GRANT CREATEIN ON S TO ANA;");
-        assert_eq!(s(Dialect::NuoDb, SecurityAction::CreateRole { name: "role:USER.LECT".into() }), "CREATE ROLE USER.LECT;");
-        assert_eq!(s(Dialect::NuoDb, member("role:USER.LECT", "ANA")), "GRANT USER.LECT TO ANA;");
-        assert_eq!(s(Dialect::NuoDb, grant("SELECT", obj(kinds::TABLE, Some("S"), "T"), "role:USER.LECT", false)), "GRANT SELECT ON TABLE S.T TO ROLE USER.LECT;");
+        assert_eq!(s(Dialect::NuoDb, SecurityAction::CreateRole { name: "role:USER.LECT".into() }), "CREATE ROLE \"USER\".LECT;");
+        assert_eq!(s(Dialect::NuoDb, member("role:USER.LECT", "ANA")), "GRANT \"USER\".LECT TO ANA;");
+        assert_eq!(s(Dialect::NuoDb, grant("SELECT", obj(kinds::TABLE, Some("S"), "T"), "role:USER.LECT", false)), "GRANT SELECT ON TABLE S.T TO ROLE \"USER\".LECT;");
         assert_eq!(s(Dialect::HeavyDb, user_pw("ana", "x")), "CREATE USER ana (password = 'x');");
         assert_eq!(s(Dialect::HeavyDb, SecurityAction::SetLogin { name: "ana".into(), enabled: false }), "ALTER USER ana (can_login = 'false');");
         assert!(refused(Dialect::HeavyDb, grant("SELECT", obj(kinds::TABLE, None, "t"), "ana", true)));

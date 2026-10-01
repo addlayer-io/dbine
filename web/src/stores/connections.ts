@@ -3,7 +3,7 @@ import { ElMessageBox } from 'element-plus';
 import { listen } from '@tauri-apps/api/event';
 import { api, errorKind, errorMessage } from '../api/client';
 import { askTrustSshHost } from '../composables/sshTrust';
-import type { ColumnInfo, ConnectionFolder, DbObject, DriverInfo, KeyEntry, Permissions, SavedConnection, SavedQuery } from '../api/types';
+import type { ColumnInfo, ConnectionFolder, DbObject, DriverInfo, KeyEntry, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { rt } from '../composables/i18nLabels';
@@ -90,6 +90,9 @@ export const useConnectionsStore = defineStore('connections', {
     loaded: false,
     live: {} as Record<string, LiveConnection>,
     objects: {} as Record<string, Loadable<DbObject[]>>,
+    /** Every schema of a database (empty ones too), by `dbKey`; null or
+     *  absent: not listed by the driver, derived from `objects`. */
+    schemas: {} as Record<string, SchemaInfo[] | null>,
     columns: {} as Record<string, Loadable<ColumnInfo[]>>,
     queries: {} as Record<string, Loadable<SavedQuery[]>>,
     /** Saved migrations per database (the "Migraciones" node). */
@@ -206,7 +209,7 @@ export const useConnectionsStore = defineStore('connections', {
     forget(id: string) {
       delete this.live[id];
       const prefix = `${id}\u0000`;
-      for (const map of [this.objects, this.columns, this.queries, this.migrations, this.keys, this.permissions]) {
+      for (const map of [this.objects, this.schemas, this.columns, this.queries, this.migrations, this.keys, this.permissions]) {
         for (const k of Object.keys(map)) if (k.startsWith(prefix)) delete map[k];
       }
     },
@@ -342,8 +345,14 @@ export const useConnectionsStore = defineStore('connections', {
         const had = this.objects[k]?.items ?? [];
         this.objects[k] = { status: had.length ? 'stale' : 'loading', items: had, error: null };
         if (!had.length) {
-          const cached = await api.getCached<DbObject[]>(connectionId, database, 'objects').catch(() => null);
-          if (cached?.length && this.objects[k]?.status === 'loading') this.objects[k] = { status: 'stale', items: cached, error: null };
+          const [cached, cachedSchemas] = await Promise.all([
+            api.getCached<DbObject[]>(connectionId, database, 'objects').catch(() => null),
+            api.getCached<SchemaInfo[]>(connectionId, database, 'schemas').catch(() => null),
+          ]);
+          if (this.objects[k]?.status === 'loading' && (cached?.length || cachedSchemas?.length)) {
+            if (!(k in this.schemas)) this.schemas[k] = cachedSchemas ?? null;
+            this.objects[k] = { status: 'stale', items: cached ?? [], error: null };
+          }
         }
         if (!(await this.ensureConnected(connectionId))) {
           const now = this.objects[k];
@@ -351,7 +360,9 @@ export const useConnectionsStore = defineStore('connections', {
           return;
         }
         try {
-          this.objects[k] = { status: 'ready', items: await api.listObjects(connectionId, database), error: null };
+          const read = await api.listDatabaseObjects(connectionId, database);
+          this.schemas[k] = read.schemas;
+          this.objects[k] = { status: 'ready', items: read.objects, error: null };
         } catch (e) {
           this.objects[k] = { status: 'error', items: [], error: errorMessage(e) };
         }

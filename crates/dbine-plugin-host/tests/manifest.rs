@@ -23,3 +23,13 @@ fn manifest_round_trips_every_driver() {
     let _ = dbine_plugin::parse_manifest(&text).unwrap();
     assert_eq!(dbine_driver::serde_static::interned(), before);
 }
+
+#[test]
+fn a_manifest_without_schema_spec_reads_as_none() {
+    // A driver published before "Nuevo esquema…": its manifest lacks the field.
+    let (package, drivers) = dbine_drivers::packages().into_iter().next().unwrap();
+    let mut v = serde_json::to_value(DriverMeta::of(package, drivers[0].as_ref())).unwrap();
+    v.as_object_mut().unwrap().remove("schema_spec");
+    let meta: DriverMeta = serde_json::from_value(v).unwrap();
+    assert!(meta.schema_spec.is_none());
+}

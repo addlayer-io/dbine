@@ -65,7 +65,7 @@ async fn full_round_trip() {
     // An error in the middle keeps what ran before.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)));
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Cancel a long query from another thread.
@@ -84,6 +84,31 @@ async fn full_round_trip() {
         .await
         .unwrap_err();
     assert!(matches!(e, Error::Cancelled), "{e:?}");
+    // No empty grid next to the cancel.
+    assert!(out.results.is_empty(), "{:?}", out.results);
+
+    // Manual mode: VACUUM runs (no transaction opened for it); going back
+    // to Auto commits what's open, so a later BEGIN works.
+    use dbine_driver::TxState;
+    s.set_autocommit(false).await.unwrap();
+    let mut out = QueryOutcome::default();
+    s.execute("VACUUM", 10, &mut out).await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
+    s.execute("INSERT INTO t (name) VALUES ('manual')", 10, &mut out).await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Open));
+    s.set_autocommit(true).await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
+    s.execute("BEGIN; DELETE FROM t WHERE name = 'manual'; COMMIT", 10, &mut out).await.unwrap();
+    // A write that fails in Manual mode leaves no empty transaction open.
+    s.set_autocommit(false).await.unwrap();
+    assert!(s.execute("INSERT INTO nope VALUES (1)", 10, &mut out).await.is_err());
+    let mut one = QueryOutcome::default();
+    s.execute("SELECT min(id) FROM t", 10, &mut one).await.unwrap();
+    let id = one.results[0].rows[0][0].clone();
+    let e = s.execute(&format!("INSERT INTO t (id, name) VALUES ({id}, 'dup')"), 10, &mut out).await.unwrap_err();
+    assert!(e.to_string().contains("UNIQUE"), "{e}");
+    assert_eq!(s.transaction_state().await.unwrap(), Some(TxState::Idle));
+    s.set_autocommit(true).await.unwrap();
     drop(s);
 
     // Read-only: the file is opened read-only, so writes fail at the engine.

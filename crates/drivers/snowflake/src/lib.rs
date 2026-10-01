@@ -2,11 +2,15 @@
 //! programmatic access token (PAT) or key-pair JWT. Every request is its own
 //! server session, so a script goes in one request (MULTI_STATEMENT_COUNT=0)
 //! to keep `USE`, variables and temp tables between its statements; the
-//! session's database, schema, warehouse and role ride along with each one.
+//! session's database, schema, warehouse and role ride along with each one,
+//! and what a run changes of them (and its `ALTER SESSION` / `SET`) carries
+//! to the next run (see `script`).
 
 use base64::Engine;
 mod backup;
 mod blocking;
+mod blocks;
+mod script;
 mod ddl;
 mod monitor;
 mod permissions;
@@ -20,7 +24,7 @@ use dbine_driver::sql::{qualified_name, select_top, Limit, Quote};
 use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, MonitorSnapshot,
-    ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result, RowChange, Session, TableSchema,
+    ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result, RowChange, SchemaInfo, Session, TableSchema,
 };
 use ddl::column_type;
 use serde::Serialize;
@@ -94,6 +98,8 @@ struct Api {
     http: reqwest::Client,
     base: String,
     auth: Auth,
+    /// The body of the last refused request (code, SQLSTATE, position).
+    last_error: Arc<Mutex<Option<Json>>>,
 }
 
 /// `myorg-acct` / `xy12345.us-east-1` / a URL → the API base URL.
@@ -212,7 +218,13 @@ impl Api {
         match status {
             200 | 202 => Ok((status, body)),
             401 | 403 if body.get("sqlState").is_none() => Err(Error::AuthFailed(message(&body, status))),
-            _ => Err(Error::Query(message(&body, status))),
+            _ => {
+                let m = message(&body, status);
+                if let Ok(mut g) = self.last_error.lock() {
+                    *g = Some(body);
+                }
+                Err(Error::Query(m))
+            }
         }
     }
 
@@ -245,6 +257,8 @@ struct Context {
 pub struct SnowflakeSession {
     api: Api,
     ctx: Context,
+    /// `ALTER SESSION` and variables replayed in each editor request.
+    carry: script::Carry,
     handle: Arc<Mutex<Option<String>>>,
     /// The monitor's warehouse-bound parts, refreshed now and then.
     mon: monitor::Cache,
@@ -256,6 +270,23 @@ pub struct SnowflakeSession {
 impl Driver for SnowflakeDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// snowsql's reading: backslash escapes, `$$` bodies; anonymous blocks
+    /// kept whole (see `script`).
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        script::dialect()
+    }
+
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        script::units(text)
+    }
+
+    /// The whole script goes in one request: the SQL API gives each
+    /// request its own server session, so a statement per request would
+    /// lose temp tables and transactions between them.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::Whole
     }
 
     fn supports_explain(&self) -> bool {
@@ -323,6 +354,27 @@ impl Driver for SnowflakeDriver {
         security::script(action)
     }
 
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(security::schema_spec())
+    }
+
+    /// Never with an owner: it's handed over after the grants
+    /// (`schema_owner_script`).
+    fn create_schema_script(&self, _database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+        security::create_schema(name)
+    }
+
+    /// `GRANT OWNERSHIP … COPY CURRENT GRANTS`, after the grants: once the
+    /// schema is another role's, the creating role can't grant on it.
+    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+        security::schema_owner(name, owner).map(Some)
+    }
+
+    /// Always with its contents (see `security::schema_spec`).
+    fn drop_schema_script(&self, _database: Option<&str>, name: &str, _cascade: bool) -> Result<String> {
+        security::drop_schema(name)
+    }
+
     fn backup(&self) -> Option<dbine_driver::BackupSpec> {
         Some(backup::spec())
     }
@@ -343,7 +395,7 @@ impl Driver for SnowflakeDriver {
             .user_agent("DBine")
             .build()
             .map_err(|e| Error::Connect(e.to_string()))?;
-        let api = Api { http, base: base_url(account), auth: auth(cfg)? };
+        let api = Api { http, base: base_url(account), auth: auth(cfg)?, last_error: Default::default() };
         let opt = |k: &str| cfg.option(k).map(|v| v.trim().to_string());
         let ctx = Context {
             database: database.or(Some(cfg.database.as_str())).map(str::trim).filter(|d| !d.is_empty()).map(Into::into),
@@ -351,7 +403,14 @@ impl Driver for SnowflakeDriver {
             warehouse: opt("warehouse"),
             role: opt("role"),
         };
-        let s = SnowflakeSession { api, ctx, handle: Arc::new(Mutex::new(None)), mon: monitor::Cache::default(), profiler: None };
+        let s = SnowflakeSession {
+            api,
+            ctx,
+            carry: Default::default(),
+            handle: Arc::new(Mutex::new(None)),
+            mon: monitor::Cache::default(),
+            profiler: None,
+        };
         tokio::time::timeout(Duration::from_secs(30), s.statement("SELECT 1", None, 1))
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
@@ -370,6 +429,8 @@ struct ResultSet {
     rows: Vec<Json>,
     total: u64,
     more: bool,
+    /// Rows a DML statement inserted, updated and deleted (`stats`).
+    affected: Option<u64>,
 }
 
 impl SnowflakeSession {
@@ -426,9 +487,16 @@ impl SnowflakeSession {
             first = self.wait_handle(&h).await?;
         }
         let meta = first.get("resultSetMetaData").cloned().unwrap_or(Json::Null);
+        let affected = first.get("stats").map(|st| {
+            ["numRowsInserted", "numRowsUpdated", "numRowsDeleted"]
+                .iter()
+                .filter_map(|k| st.get(*k).and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok())))
+                .sum()
+        });
         let mut rs = ResultSet {
             row_type: meta.get("rowType").and_then(Json::as_array).cloned().unwrap_or_default(),
             total: meta.get("numRows").and_then(Json::as_u64).unwrap_or(0),
+            affected,
             ..Default::default()
         };
         let partitions = meta.get("partitionInfo").and_then(Json::as_array).map_or(1, Vec::len).max(1);
@@ -505,22 +573,45 @@ impl SnowflakeSession {
             .collect())
     }
 
-    /// Runs a script in one request (as `execute`), its results into
-    /// `out`; gives each statement's query id (statement handle).
+    /// Runs a script in one request, its results into `out`; gives each
+    /// statement's query id (statement handle). Nothing is carried in or
+    /// out: the catalog and security screens' own scripts.
     async fn run_script(&self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<Vec<String>> {
-        let n = split_script(text).len();
-        if n == 0 {
-            return Ok(Vec::new());
+        let stmts: Vec<String> = script::units(text).into_iter().map(|u| u.text).collect();
+        self.run_units(&stmts, &[], &[], max_rows, out).await.map(|(ids, _)| ids)
+    }
+
+    /// `pre`, `stmts` and `trail` in one request (one statement when it's
+    /// all there is). Only `stmts`' results go to `out`; gives their query
+    /// ids and the result sets of `trail`.
+    async fn run_units(
+        &self,
+        stmts: &[String],
+        pre: &[String],
+        trail: &[&str],
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<(Vec<String>, Vec<ResultSet>)> {
+        if stmts.is_empty() {
+            return Ok(Default::default());
         }
-        let body = self.submit(text, None, n > 1).await?;
+        let all: Vec<&str> = pre.iter().map(String::as_str).chain(stmts.iter().map(String::as_str)).chain(trail.iter().copied()).collect();
+        let multi = all.len() > 1;
+        // A statement may end in a `--` comment: the `;` goes on a line of
+        // its own, or it would be read as part of the comment.
+        let body = self.submit(&all.join("\n;\n"), None, multi).await?;
         let children: Vec<Json> = body
             .get("statementHandles")
             .and_then(Json::as_array)
             .map(|hs| hs.iter().map(|h| json!({ "statementHandle": h })).collect())
             .unwrap_or_default();
-        let parts = if n > 1 && !children.is_empty() { children } else { vec![body] };
+        let mut parts = if multi && !children.is_empty() { children } else { vec![body] };
+        // The server counted the statements as we did: leave out the
+        // preamble's and the trailer's.
+        let (skip, keep_tail) = if parts.len() == all.len() { (pre.len(), trail.len()) } else { (0, 0) };
+        let tail = parts.split_off(parts.len() - keep_tail);
         let mut ids = Vec::new();
-        for part in parts {
+        for part in parts.into_iter().skip(skip) {
             ids.push(part.get("statementHandle").and_then(Json::as_str).unwrap_or_default().to_string());
             let rs = self.collect(part, max_rows).await?;
             out.begin_result(
@@ -542,9 +633,85 @@ impl SnowflakeSession {
             if let Some(last) = out.results.last_mut() {
                 last.total_rows = last.total_rows.max(rs.total);
                 last.truncated |= rs.more || rs.total > last.rows.len() as u64;
+                last.rows_affected = rs.affected;
             }
         }
-        Ok(ids)
+        let mut sets = Vec::new();
+        for part in tail {
+            sets.push(self.collect(part, 10_000).await?);
+        }
+        Ok((ids, sets))
+    }
+
+    /// An editor run: the carried `ALTER SESSION` and variables first, the
+    /// script, then the session's context (and variables, when the script
+    /// sets any), which the next run starts from. A script that can't
+    /// change the context (the Users and permissions and Backups scripts
+    /// among them) goes without the context query.
+    async fn run_editor(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<Vec<String>> {
+        let units = script::units(text);
+        let stmts: Vec<String> = units.iter().map(|u| u.text.clone()).collect();
+        let sets_vars = units.iter().any(|u| matches!(script::head(&u.text).0.as_str(), "SET" | "UNSET"));
+        let mut trail = Vec::new();
+        if script::changes_context(&units) {
+            trail.push(script::CONTEXT_QUERY);
+        }
+        if sets_vars {
+            trail.push(script::VARIABLES_QUERY);
+        }
+        if let Ok(mut g) = self.api.last_error.lock() {
+            *g = None;
+        }
+        let pre = self.carry.preamble();
+        match self.run_units(&stmts, &pre, &trail, max_rows, out).await {
+            Ok((ids, sets)) => {
+                self.carry.absorb_alters(&units);
+                let mut sets = sets.iter();
+                if trail.first() == Some(&script::CONTEXT_QUERY) {
+                    if let Some(c) = sets.next() {
+                        self.absorb_context(c, out);
+                    }
+                }
+                if let Some(v) = sets.next() {
+                    let names: Vec<String> =
+                        v.row_type.iter().map(|c| c.get("name").and_then(Json::as_str).unwrap_or("").to_ascii_lowercase()).collect();
+                    self.carry.set_vars(&names, &v.rows);
+                }
+                Ok(ids)
+            }
+            Err(Error::Query(m)) => {
+                let body = self.api.last_error.lock().ok().and_then(|mut g| g.take());
+                match body.as_ref().and_then(|b| script::error(b, &units)) {
+                    Some(e) => Err(e.into()),
+                    None => Err(Error::Query(m)),
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The context query's row becomes the session's; a change of database
+    /// or schema is told.
+    fn absorb_context(&mut self, rs: &ResultSet, out: &mut QueryOutcome) {
+        let Some(row) = rs.rows.first().and_then(Json::as_array) else { return };
+        let get = |i: usize| row.get(i).and_then(Json::as_str).map(str::to_string);
+        let before = (self.ctx.database.clone(), self.ctx.schema.clone());
+        self.ctx.database = get(0);
+        self.ctx.schema = get(1);
+        if let Some(w) = get(2) {
+            self.ctx.warehouse = Some(w);
+        }
+        if let Some(r) = get(3) {
+            self.ctx.role = Some(r);
+        }
+        if before.0 != self.ctx.database {
+            // The tab's database follows it, as with SQL Server's `USE`.
+            out.database = self.ctx.database.clone();
+        }
+        if before != (self.ctx.database.clone(), self.ctx.schema.clone()) {
+            let shown = [self.ctx.database.as_deref(), self.ctx.schema.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(".");
+            out.info(format!("Contexto: {}", if shown.is_empty() { "(ninguno)" } else { &shown }));
+        }
     }
 
     fn database(&self) -> Result<String> {
@@ -672,6 +839,21 @@ impl Session for SnowflakeSession {
             }
         }
         Ok(out)
+    }
+
+    /// `INFORMATION_SCHEMA.SCHEMATA` of the session's database (the
+    /// schemas the current role can see); INFORMATION_SCHEMA is the system one.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
+        let Ok(db) = self.database() else { return Ok(None) };
+        let rows = self
+            .text_rows(&format!("SELECT schema_name FROM {}.INFORMATION_SCHEMA.SCHEMATA ORDER BY 1", qualified_name(Quote::Double, None, &db)), &[])
+            .await?;
+        Ok(Some(
+            rows.into_iter()
+                .filter_map(|r| r.into_iter().next().flatten())
+                .map(|name| SchemaInfo { system: name == "INFORMATION_SCHEMA", name })
+                .collect(),
+        ))
     }
 
     async fn columns(&mut self, o: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -819,7 +1001,7 @@ impl Session for SnowflakeSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        self.run_script(text, max_rows, out).await.map(|_| ())
+        self.run_editor(text, max_rows, out).await.map(|_| ())
     }
 
     async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
@@ -859,7 +1041,7 @@ impl Session for SnowflakeSession {
             }
             return Ok(());
         }
-        let handles = self.run_script(text, max_rows, out).await?;
+        let handles = self.run_editor(text, max_rows, out).await?;
         for (stmt, id) in stmts.iter().zip(handles) {
             if plan::classify(stmt) == StmtKind::Other || id.is_empty() {
                 continue;
@@ -1020,63 +1202,9 @@ fn epoch(s: &str) -> Option<(i64, u32)> {
     Some((secs, nanos))
 }
 
-/// A script's statements, split on `;` outside '…' (with Snowflake's
-/// backslash escapes), "…", `$$…$$` blocks (Snowflake Scripting, UDF
-/// bodies) and comments. Empty statements are dropped.
+/// The statements of a script as Snowflake splits it (see `script::units`).
 fn split_script(sql: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut chars = sql.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\'' | '"' => {
-                cur.push(c);
-                while let Some(n) = chars.next() {
-                    cur.push(n);
-                    if n == '\\' && c == '\'' {
-                        cur.extend(chars.next());
-                    } else if n == c {
-                        break;
-                    }
-                }
-            }
-            '$' if chars.peek() == Some(&'$') => {
-                cur.push_str("$$");
-                chars.next();
-                while let Some(n) = chars.next() {
-                    cur.push(n);
-                    if n == '$' && chars.peek() == Some(&'$') {
-                        cur.push('$');
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-            '-' if chars.peek() == Some(&'-') => {
-                for n in chars.by_ref() {
-                    if n == '\n' {
-                        cur.push('\n');
-                        break;
-                    }
-                }
-            }
-            '/' if chars.peek() == Some(&'*') => {
-                chars.next();
-                let mut prev = ' ';
-                for n in chars.by_ref() {
-                    if prev == '*' && n == '/' {
-                        break;
-                    }
-                    prev = n;
-                }
-                cur.push(' ');
-            }
-            ';' => out.push(std::mem::take(&mut cur)),
-            _ => cur.push(c),
-        }
-    }
-    out.push(cur);
-    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    script::units(sql).into_iter().map(|u| u.text).collect()
 }
 
 /// `"<epoch> <offset minutes + 1440>"` → local time with its offset.
@@ -1092,6 +1220,33 @@ fn timestamp_tz(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(Some("DB"), "VENTAS", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
+
+    /// "Nuevo esquema…" with an owner: created by the current role, the
+    /// grants, then the ownership handed to the role (keeping the grants).
+    #[test]
+    fn schema_owner_goes_after_the_grants() {
+        let d = &drivers()[0];
+        assert_eq!(d.schema_spec().unwrap().owner_kinds, dbine_driver::SchemaOwnerKinds::Roles);
+        assert_eq!(d.create_schema_script(Some("DB"), "ventas", Some("DUENO")).unwrap(), "CREATE SCHEMA \"ventas\";");
+        let o = d.schema_owner_script(Some("DB"), "ventas", "DUENO").unwrap().unwrap();
+        assert!(o.ends_with("GRANT OWNERSHIP ON SCHEMA \"ventas\" TO ROLE \"DUENO\" COPY CURRENT GRANTS;"), "{o}");
+        assert!(d.schema_owner_script(None, "ventas", " ").is_err());
+        let g = d.schema_grant_script(Some("DB"), "ventas", &["USAGE".into()], "LECT", false).unwrap();
+        assert!(g.ends_with("GRANT USAGE ON SCHEMA \"ventas\" TO ROLE \"LECT\";"), "{g}");
+    }
 
     fn col(t: &str, scale: i64) -> Json {
         json!({ "name": "c", "type": t, "scale": scale })

@@ -35,6 +35,96 @@ fn table_name(schema: Option<&str>, name: &str) -> String {
     qualified_name(Quote::Double, schema.filter(|s| !s.is_empty()), name)
 }
 
+// -- schemas ("Nuevo esquema…" / "Borrar esquema…") ---------------------------
+
+/// Phoenix's permissions on a schema (HBase ACLs): Read, Write, eXecute,
+/// Create, Admin. Granting needs `phoenix.acls.enabled` and HBase
+/// authorization on the server.
+pub const SCHEMA_PERMISSIONS: [&str; 5] = ["R", "W", "X", "C", "A"];
+
+/// A schema is an HBase namespace: only letters, digits and `_` (HBase
+/// refuses the rest after its RPC retries, slowly, and Phoenix's parser has
+/// no escape for a `"` inside a quoted name).
+fn schema_name(name: &str) -> Result<String> {
+    let n = name.trim();
+    if n.is_empty() || !n.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err(Error::Query(format!("«{n}» no sirve como esquema de Phoenix: usá solo letras, números y _")));
+    }
+    Ok(q(n))
+}
+
+/// `CREATE SCHEMA` (needs `phoenix.schema.isNamespaceMappingEnabled`).
+/// Schemas have no owner.
+pub fn create_schema(name: &str, owner: Option<&str>) -> Result<String> {
+    if owner.is_some() {
+        return Err(Error::Unsupported("en Phoenix un esquema no tiene dueño: otorgá permisos sobre él".into()));
+    }
+    Ok(format!("CREATE SCHEMA {}", schema_name(name)?))
+}
+
+/// `DROP SCHEMA` only drops an empty schema: Phoenix has no CASCADE.
+pub fn drop_schema(name: &str, cascade: bool) -> Result<String> {
+    if cascade {
+        return Err(Error::Unsupported("Phoenix solo borra un esquema vacío: borrá antes sus tablas, vistas y secuencias".into()));
+    }
+    Ok(format!("DROP SCHEMA {}", schema_name(name)?))
+}
+
+/// `'RW'` from `["R", "W"]`, only Phoenix's letters.
+fn permission_string(privileges: &[String]) -> Result<String> {
+    let mut out = String::new();
+    for p in privileges {
+        let p = p.trim().to_ascii_uppercase();
+        if !SCHEMA_PERMISSIONS.contains(&p.as_str()) {
+            return Err(Error::Query(format!("«{p}» no es un permiso de Phoenix (R, W, X, C o A)")));
+        }
+        if !out.contains(&p) {
+            out.push_str(&p);
+        }
+    }
+    if out.is_empty() {
+        return Err(Error::Query("elegí al menos un permiso".into()));
+    }
+    Ok(lit(&out))
+}
+
+/// A user, or an HBase group written `@grupo`.
+fn grantee(name: &str) -> String {
+    match name.trim().strip_prefix('@') {
+        Some(g) => format!("GROUP {}", lit(g)),
+        None => lit(name.trim()),
+    }
+}
+
+/// `GRANT` / `REVOKE` on a schema: the only security script DBine writes
+/// for Phoenix (it has no users of its own to list). `REVOKE` takes away
+/// every permission the user has there.
+pub fn schema_security(action: &dbine_driver::SecurityAction) -> Result<String> {
+    use dbine_driver::SecurityAction::{Grant, Revoke};
+    // Phoenix upper-cases the schema of a GRANT/REVOKE even when quoted: a
+    // mixed-case schema would fail on the server with SchemaNotFound.
+    let schema_of = |o: &Option<dbine_driver::ObjectRef>| match o {
+        Some(o) if o.kind == "schema" && o.name.trim() != o.name.trim().to_uppercase() => Err(Error::Query(format!(
+            "Phoenix pasa a mayúsculas el esquema al otorgar permisos y no encontraría «{}»: usá un nombre en mayúsculas",
+            o.name.trim()
+        ))),
+        Some(o) if o.kind == "schema" => schema_name(&o.name),
+        _ => Err(Error::Unsupported("DBine solo otorga permisos de Phoenix sobre un esquema".into())),
+    };
+    match action {
+        Grant { privileges, object, to, grantable } => {
+            // Being able to grant to others is HBase's A (admin) permission.
+            let mut privileges = privileges.clone();
+            if *grantable {
+                privileges.push("A".into());
+            }
+            Ok(format!("GRANT {} ON SCHEMA {} TO {}", permission_string(&privileges)?, schema_of(object)?, grantee(to)))
+        }
+        Revoke { object, from, .. } => Ok(format!("REVOKE ON SCHEMA {} FROM {}", schema_of(object)?, grantee(from))),
+        _ => Err(Error::Unsupported("Phoenix no administra usuarios: eso lo hace HBase (Kerberos)".into())),
+    }
+}
+
 pub fn designer() -> DesignerSpec {
     DesignerSpec {
         schemas: true,
@@ -581,5 +671,39 @@ mod tests {
         assert!(d.schemas && d.primary_key && !d.auto_increment && !d.foreign_keys && !d.comments && d.indexes);
         let kinds: Vec<&str> = templates().iter().map(|t| t.kind).collect();
         assert_eq!(kinds, [kinds::VIEW, kinds::INDEX, kinds::SEQUENCE, kinds::FUNCTION]);
+    }
+
+    #[test]
+    fn schema_scripts() {
+        use dbine_driver::{ObjectRef, SecurityAction};
+        assert_eq!(create_schema(" Ventas_1 ", None).unwrap(), r#"CREATE SCHEMA "Ventas_1""#);
+        assert_eq!(create_schema("Año", None).unwrap(), r#"CREATE SCHEMA "Año""#);
+        for bad in ["Ventas\"x", "Mi Esquema", "a.b", "a-b", ""] {
+            assert!(matches!(create_schema(bad, None), Err(Error::Query(_))), "{bad}");
+        }
+        assert!(drop_schema("q\"x", false).is_err());
+        assert!(matches!(create_schema("V", Some("ana")), Err(Error::Unsupported(_))));
+        assert_eq!(drop_schema("V", false).unwrap(), r#"DROP SCHEMA "V""#);
+        assert!(matches!(drop_schema("V", true), Err(Error::Unsupported(_))));
+        let on = Some(ObjectRef { kind: "schema".into(), schema: None, name: "V".into() });
+        let grant = |p: &[&str], to: &str, g: bool| {
+            schema_security(&SecurityAction::Grant { privileges: p.iter().map(|x| x.to_string()).collect(), object: on.clone(), to: to.into(), grantable: g })
+        };
+        assert_eq!(grant(&["r", "W", "R"], "ana'b", false).unwrap(), r#"GRANT 'RW' ON SCHEMA "V" TO 'ana''b'"#);
+        assert_eq!(grant(&["C"], "@devs", false).unwrap(), r#"GRANT 'C' ON SCHEMA "V" TO GROUP 'devs'"#);
+        assert!(grant(&["RW' TO 'x"], "ana", false).is_err());
+        assert!(grant(&[], "ana", false).is_err());
+        assert_eq!(grant(&["R"], "ana", true).unwrap(), r#"GRANT 'RA' ON SCHEMA "V" TO 'ana'"#);
+        assert_eq!(grant(&["A", "R"], "ana", true).unwrap(), r#"GRANT 'AR' ON SCHEMA "V" TO 'ana'"#);
+        let lower = Some(ObjectRef { kind: "schema".into(), schema: None, name: "lower".into() });
+        assert!(schema_security(&SecurityAction::Grant { privileges: vec!["R".into()], object: lower.clone(), to: "a".into(), grantable: false }).is_err());
+        assert!(schema_security(&SecurityAction::Revoke { privileges: vec![], object: lower, from: "a".into() }).is_err());
+        assert_eq!(
+            schema_security(&SecurityAction::Revoke { privileges: vec!["R".into()], object: on.clone(), from: "ana".into() }).unwrap(),
+            r#"REVOKE ON SCHEMA "V" FROM 'ana'"#
+        );
+        let table = Some(ObjectRef { kind: kinds::TABLE.into(), schema: Some("V".into()), name: "T".into() });
+        assert!(schema_security(&SecurityAction::Grant { privileges: vec!["R".into()], object: table, to: "a".into(), grantable: false }).is_err());
+        assert!(schema_security(&SecurityAction::CreateRole { name: "r".into() }).is_err());
     }
 }

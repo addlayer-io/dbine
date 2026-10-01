@@ -13,6 +13,8 @@ mod tls_stream;
 pub use auth::*;
 pub use config::*;
 pub(crate) use connection::*;
+// PATCH(dbine)
+pub use connection::CancelHandle;
 
 use crate::bulk_options::{ColumnOrderHint, SortOrder, SqlBulkCopyOption, SqlBulkCopyOptions};
 use crate::tds::codec::RpcValue;
@@ -292,6 +294,32 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
         result.forward_to_metadata().await?;
 
         Ok(result)
+    }
+
+    /// PATCH(dbine): run a batch (like [`simple_query`]) and stream its
+    /// whole response in order: result sets and rows, INFO messages, every
+    /// ERROR token (the stream goes on after them), each statement's DONE
+    /// with its row count, and database / transaction changes (see
+    /// [`crate::MessageStream`]). Read it to the end (or drop it) before the
+    /// connection is used again.
+    ///
+    /// [`simple_query`]: #method.simple_query
+    pub async fn simple_query_messages<'a, 'b>(
+        &'a mut self,
+        query: impl Into<Cow<'b, str>>,
+    ) -> crate::Result<crate::MessageStream<'a>>
+    where
+        'a: 'b,
+    {
+        self.connection.flush_stream().await?;
+
+        let req = BatchRequest::new(query, self.connection.context().transaction_descriptor());
+
+        let id = self.connection.context_mut().next_packet_id();
+        self.connection.send(PacketHeader::batch(id), req).await?;
+
+        let ts = TokenStream::new_messages(&mut self.connection);
+        Ok(crate::MessageStream::new(ts.try_unfold()))
     }
 
     /// PATCH(dbine): run a batch (like [`simple_query`]) and stream its rows
@@ -848,6 +876,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
     pub async fn cancel_query(&mut self) -> crate::Result<()> {
         self.connection.cancel_request().await?;
         Ok(())
+    }
+
+    /// PATCH(dbine): a handle that cancels the request running on this
+    /// client from another task, while the client is busy reading its
+    /// results (see [`CancelHandle`]). It stays tied to this connection.
+    pub fn cancel_handle(&self) -> CancelHandle {
+        self.connection.cancel_handle()
     }
 
     /// Closes this database connection explicitly.

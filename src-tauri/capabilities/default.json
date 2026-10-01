@@ -12,6 +12,7 @@
     "dialog:allow-message",
     "dialog:allow-ask",
     "core:window:allow-show",
-    "core:window:allow-destroy"
+    "core:window:allow-destroy",
+    "core:window:allow-set-title"
   ]
 }

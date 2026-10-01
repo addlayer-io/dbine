@@ -53,6 +53,9 @@ pub struct Permissions {
     /// Create users and roles, change passwords, grant and revoke.
     #[serde(default)]
     pub manage_security: Access,
+    /// Create a schema in the database the check was made for.
+    #[serde(default)]
+    pub create_schema: Access,
 }
 
 impl Permissions {
@@ -67,6 +70,7 @@ impl Permissions {
             create_database: Access::Allowed,
             drop_database: Access::Allowed,
             manage_security: Access::Allowed,
+            create_schema: Access::Allowed,
         }
     }
 }
@@ -85,5 +89,21 @@ mod tests {
         let back: Permissions = serde_json::from_value(serde_json::json!({ "backup": { "state": "allowed" } })).unwrap();
         assert_eq!(back.backup, Access::Allowed);
         assert_eq!(back.restore, Access::Unknown);
+    }
+
+    #[test]
+    fn create_schema_is_optional_and_in_all() {
+        // What an older driver host sends: no `create_schema`.
+        let old = serde_json::json!({
+            "backup": { "state": "allowed" }, "restore": { "state": "unknown" }, "profiler": { "state": "unknown" },
+            "kill_session": { "state": "unknown" }, "create_database": { "state": "unknown" },
+            "drop_database": { "state": "unknown" }, "manage_security": { "state": "allowed" },
+        });
+        let p: Permissions = serde_json::from_value(old).unwrap();
+        assert_eq!(p.create_schema, Access::Unknown);
+        assert_eq!(p.manage_security, Access::Allowed);
+        assert_eq!(Permissions::all().create_schema, Access::Allowed);
+        let v = serde_json::to_value(Permissions::default()).unwrap();
+        assert_eq!(v["create_schema"], serde_json::json!({ "state": "unknown" }));
     }
 }

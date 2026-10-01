@@ -28,6 +28,12 @@
 //! - H2: the ADMIN right, which every one of its offered actions needs.
 //! - Denodo: nothing (it manages its users in its own server).
 //!
+//! Creating a schema needs CREATE on the database
+//! (`has_database_privilege`, which counts the owner); the query that reads
+//! it is tried first and, if the server refuses it, the one without it.
+//! RisingWave doesn't say and H2 grants it with ALTER ANY SCHEMA, which
+//! isn't read: unknown unless administrator.
+//!
 //! A check the server refuses leaves everything unknown; only a broken
 //! connection is an error.
 
@@ -77,6 +83,24 @@ const COCKROACH_OLD_SQL: &str = "SELECT pg_has_role('admin', 'MEMBER')::text AS 
        (SELECT pg_has_role(d.datdba, 'USAGE') FROM pg_database d WHERE d.datname = {db})::text AS owner
   FROM pg_roles r WHERE r.rolname = current_user";
 
+/// Redshift, with CREATE on the database (`{db}`).
+const REDSHIFT_SQL: &str = "SELECT usesuper::text AS super, usecreatedb::text AS createdb,
+       has_database_privilege({db}, 'CREATE')::text AS db_create
+  FROM pg_user WHERE usename = current_user";
+
+/// Materialize, with CREATE on the database (`{db}`).
+const MATERIALIZE_CREATE_SQL: &str = "SELECT mz_is_superuser()::text AS super, has_system_privilege('CREATEDB')::text AS createdb,
+       has_system_privilege('CREATEROLE')::text AS createrole, has_database_privilege({db}, 'CREATE')::text AS db_create";
+
+/// `sql` (one of the `pg_roles` checks) also reading CREATE on the database.
+fn with_db_create(sql: &str) -> String {
+    sql.replacen(
+        "\n  FROM pg_roles r",
+        ",\n       has_database_privilege({db}, 'CREATE')::text AS db_create\n  FROM pg_roles r",
+        1,
+    )
+}
+
 /// Redshift and RisingWave.
 const USER_SQL: &str = "SELECT usesuper::text AS super, usecreatedb::text AS createdb FROM pg_user WHERE usename = current_user";
 
@@ -113,6 +137,8 @@ pub(crate) struct Flags {
     pub owner: Option<bool>,
     /// CrateDB's AL on the cluster.
     pub al: Option<bool>,
+    /// CREATE on the database (new schemas).
+    pub db_create: Option<bool>,
 }
 
 fn boolean(v: &str) -> Option<bool> {
@@ -140,6 +166,7 @@ impl Flags {
             db_drop: get("db_drop"),
             owner: get("owner"),
             al: get("al"),
+            db_create: get("db_create"),
         }
     }
 }
@@ -182,6 +209,7 @@ fn offered(v: Variant, p: Permissions) -> Permissions {
         create_database: keep(caps.create_database, p.create_database),
         drop_database: keep(caps.drop_database, p.drop_database),
         manage_security: keep(crate::security::spec(v).is_some(), p.manage_security),
+        create_schema: keep(crate::schemas::spec(v).is_some(), p.create_schema),
     }
 }
 
@@ -211,14 +239,17 @@ fn rules(v: Variant, f: &Flags) -> Permissions {
             create_database: known(access(any(&[f.createdb, f.sys_createdb]), "opción CREATEDB (o rol admin)")),
             drop_database: known(access(any(&[f.owner, f.db_drop]), "ser el dueño de la base o tener DROP sobre ella (o rol admin)")),
             manage_security: known(access(any(&[f.createrole, f.sys_createrole]), "opción CREATEROLE (o rol admin)")),
+            create_schema: known(access(f.db_create, "privilegio CREATE sobre la base (o rol admin)")),
         },
         Variant::Redshift | Variant::RisingWave => Permissions {
             create_database: known(access(f.createdb, "CREATEDB (o superusuario)")),
+            create_schema: known(access(f.db_create, "privilegio CREATE sobre la base (o superusuario)")),
             ..Default::default()
         },
         Variant::Materialize => Permissions {
             create_database: known(access(f.createdb, "privilegio de sistema CREATEDB (o superusuario)")),
             manage_security: known(access(f.createrole, "privilegio de sistema CREATEROLE (o superusuario)")),
+            create_schema: known(access(f.db_create, "privilegio CREATE sobre la base (o superusuario)")),
             ..Default::default()
         },
         Variant::CrateDb => {
@@ -257,6 +288,7 @@ fn rules(v: Variant, f: &Flags) -> Permissions {
                 create_database: known(access(f.createdb, &format!("CREATEDB (o {admin})"))),
                 drop_database: known(access(f.owner, &format!("ser el dueño de la base (o {admin})"))),
                 manage_security: known(access(f.createrole, &format!("CREATEROLE (o {admin})"))),
+                create_schema: known(access(f.db_create, &format!("privilegio CREATE sobre la base (o {admin})"))),
                 ..Default::default()
             }
         }
@@ -296,13 +328,19 @@ pub(crate) async fn check(s: &PgSession, database: Option<&str>) -> Result<Permi
     let fill = |sql: &str| sql.replace("{db}", &lit(v, db)).replace("{ident}", &quote_ident(Quote::Double, db));
     let queries: Vec<String> = match v {
         Variant::Denodo => return Ok(Permissions::default()),
-        Variant::Cockroach => vec![fill(COCKROACH_SQL), fill(COCKROACH_OLD_SQL)],
-        Variant::OpenGauss => vec![fill(OPENGAUSS_SQL)],
-        Variant::Redshift | Variant::RisingWave => vec![USER_SQL.into()],
-        Variant::Materialize => vec![MATERIALIZE_SQL.into()],
+        Variant::Cockroach => vec![
+            fill(&with_db_create(COCKROACH_SQL)),
+            fill(COCKROACH_SQL),
+            fill(&with_db_create(COCKROACH_OLD_SQL)),
+            fill(COCKROACH_OLD_SQL),
+        ],
+        Variant::OpenGauss => vec![fill(&with_db_create(OPENGAUSS_SQL)), fill(OPENGAUSS_SQL)],
+        Variant::Redshift => vec![fill(REDSHIFT_SQL), USER_SQL.into()],
+        Variant::RisingWave => vec![USER_SQL.into()],
+        Variant::Materialize => vec![fill(MATERIALIZE_CREATE_SQL), MATERIALIZE_SQL.into()],
         Variant::CrateDb => vec![CRATE_SQL.into()],
         Variant::H2 => vec![H2_SQL.into(), H2_OLD_SQL.into()],
-        _ => vec![fill(PG_SQL)],
+        _ => vec![fill(&with_db_create(PG_SQL)), fill(PG_SQL)],
     };
     Ok(flags(s, &queries).await?.map(|f| decide(v, &f, target.is_some())).unwrap_or_default())
 }
@@ -347,6 +385,7 @@ mod tests {
             create_database: Access::Allowed,
             drop_database: Access::Allowed,
             manage_security: Access::Allowed,
+            create_schema: Access::Allowed,
             ..Default::default()
         };
         assert_eq!(p, expected);
@@ -364,6 +403,33 @@ mod tests {
         assert!(denied(&p.drop_database, "dueño de la base"));
         assert!(denied(&p.manage_security, "CREATEROLE"));
         assert_eq!((p.backup, p.restore), (Access::Unknown, Access::Unknown));
+        // CREATE on the database wasn't read (older query): unknown.
+        assert_eq!(p.create_schema, Access::Unknown);
+        let f = Flags { db_create: Some(false), ..pg(false, false, false, false, false, false) };
+        assert!(denied(&decide(Variant::Postgres, &f, true).create_schema, "CREATE sobre la base"));
+        let f = Flags { db_create: Some(true), ..f };
+        assert_eq!(decide(Variant::Greenplum, &f, true).create_schema, Access::Allowed);
+    }
+
+    #[test]
+    fn the_create_column_goes_into_every_pg_roles_check() {
+        for sql in [PG_SQL, OPENGAUSS_SQL, COCKROACH_SQL, COCKROACH_OLD_SQL] {
+            let with = with_db_create(sql);
+            assert_ne!(with, sql);
+            assert!(with.contains("AS db_create\n  FROM pg_roles r WHERE r.rolname = current_user"), "{with}");
+        }
+    }
+
+    #[test]
+    fn create_schema_only_where_schemas_are_created() {
+        let f = Flags { super_: Some(true), ..Default::default() };
+        for v in [Variant::CrateDb, Variant::Denodo] {
+            assert_eq!(decide(v, &f, true).create_schema, Access::Unknown, "{v:?}");
+        }
+        let f = Flags { super_: Some(false), createdb: Some(false), db_create: Some(false), ..Default::default() };
+        assert!(denied(&decide(Variant::Redshift, &f, true).create_schema, "CREATE"));
+        assert!(denied(&decide(Variant::Materialize, &f, true).create_schema, "CREATE"));
+        assert_eq!(decide(Variant::H2, &f, true).create_schema, Access::Unknown);
     }
 
     #[test]
@@ -410,6 +476,7 @@ mod tests {
             db_drop: Some(false),
             owner: Some(false),
             al: None,
+            db_create: Some(false),
         };
         let p = decide(Variant::Cockroach, &limited, true);
         assert!(denied(&p.backup, "BACKUP"));

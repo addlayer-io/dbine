@@ -21,6 +21,7 @@
     "noQueries": "No queries: right-click › New query",
     "migrations": "Migrations",
     "noMigrations": "No migrations: right-click › New migration…",
+    "noSchemaObjects": "No objects",
     "keys": "Keys",
     "ofTotal": "of {{total}}",
     "others": "Other",

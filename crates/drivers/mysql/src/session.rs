@@ -4,12 +4,13 @@
 
 use crate::cells::{cell, type_name, value_text};
 use crate::plan::{self, Flavor, StmtKind};
-use crate::{err, Variant};
-use dbine_driver::sql::{quote_ident, select_top, Limit, Quote};
+use crate::{err, stmt_err, Variant};
+use dbine_driver::sql::{leading_keyword, quote_ident, select_top, Limit, Quote};
 use dbine_driver::{
     async_trait, kinds, ColumnDef, MonitorSnapshot, ColumnInfo, DbObject, Error, ForeignKeyDef, IndexDef, KeyDef, ObjectRef, Plan,
-    QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    Message, MessageLevel, QueryOutcome, ResultColumn, Result, Session, StatementKind, TableSchema, TxState,
 };
+use mysql_async::consts::StatusFlags;
 use std::collections::{BTreeMap, HashMap};
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Opts, Row};
@@ -197,12 +198,22 @@ impl MySqlSession {
     }
 
     async fn run(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let mut result = self.conn.query_iter(sql).await.map_err(err)?;
+        let mut result = self.conn.query_iter(sql).await.map_err(|e| stmt_err(sql, e))?;
+        // Warning counts of the result sets, in order.
+        let mut warned: Vec<u16> = Vec::new();
         // One pass per result set; `next` returns None at each set's end
         // and moves on to the following one.
         while let Some(cols) = result.columns() {
             if cols.is_empty() {
                 out.push_affected(result.affected_rows());
+                // "Records: 3  Duplicates: 0  Warnings: 0", "Rows matched: …".
+                let info = result.info();
+                if !info.trim().is_empty() {
+                    out.info(info.trim().to_string());
+                }
+                if let Some(id) = result.last_insert_id().filter(|&id| id > 0) {
+                    out.info(format!("Último id generado: {id}"));
+                }
             } else {
                 out.begin_result(
                     cols.iter()
@@ -210,16 +221,79 @@ impl MySqlSession {
                         .collect(),
                 );
             }
-            while let Some(row) = result.next().await.map_err(err)? {
+            while let Some(row) = result.next().await.map_err(|e| stmt_err(sql, e))? {
                 let cols = row.columns();
                 let cells = cols.iter().zip(row.unwrap()).map(|(c, v)| cell(c, v)).collect();
                 out.push_row(cells, max_rows);
             }
-            out.messages.extend(warnings_note(result.warnings()));
+            warned.push(result.warnings());
         }
         // `columns()` reads an error in a later statement as "no more
         // results"; this surfaces it (and clears it from the connection).
-        result.drop_result().await.map_err(err)
+        result.drop_result().await.map_err(|e| stmt_err(sql, e))?;
+        // SHOW WARNINGS lists the last statement's: their text for it, the
+        // count for earlier statements of a multi-statement text.
+        let last = warned.pop().unwrap_or(0);
+        for n in warned {
+            if let Some(note) = warnings_note(n) {
+                out.warning(note);
+            }
+        }
+        if last > 0 {
+            match self.show_warnings().await {
+                Some(list) if !list.is_empty() => {
+                    for m in list {
+                        out.message(m);
+                    }
+                }
+                _ => out.warning(warnings_note(last).unwrap_or_default()),
+            }
+        }
+        Ok(())
+    }
+
+    /// `SHOW WARNINGS` as messages (Note as info); `None` when the engine
+    /// refuses it.
+    async fn show_warnings(&mut self) -> Option<Vec<Message>> {
+        let rows = match self.rows("SHOW WARNINGS").await {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::debug!("{:?}: SHOW WARNINGS: {e}", self.variant);
+                return None;
+            }
+        };
+        Some(
+            rows.iter()
+                .filter_map(|r| {
+                    let text = named(r, &["Message"]).or_else(|| at(r, 2))?;
+                    let level = named(r, &["Level"]).or_else(|| at(r, 0)).unwrap_or_default();
+                    let level = if level.eq_ignore_ascii_case("note") { MessageLevel::Info } else { MessageLevel::Warning };
+                    let code = named(r, &["Code"]).or_else(|| at(r, 1)).filter(|c| !c.is_empty() && c != "0");
+                    Some(Message { level, text, code, ..Default::default() })
+                })
+                .collect(),
+        )
+    }
+
+    /// `sql`'s statements, or `sql` itself when no word `use` is in it
+    /// (no need to split: only USE is looked for).
+    fn statements_of(&self, sql: &str) -> Vec<String> {
+        if sql.to_ascii_lowercase().contains("use") {
+            self.statements(sql)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Statements of `sql` as the mysql CLI sends them (DELIMITER applied,
+    /// client commands left out).
+    fn statements(&self, sql: &str) -> Vec<String> {
+        let d = crate::script_dialect(self.variant);
+        dbine_driver::sql::split_script(sql, &d)
+            .into_iter()
+            .filter(|u| u.kind != StatementKind::ClientCommand)
+            .map(|u| u.text)
+            .collect()
     }
 }
 
@@ -270,30 +344,15 @@ pub(crate) fn column_default(raw: Option<&str>, extra: &str, ty: &str, maria: bo
     }
 }
 
-/// Statements of a script whose string literals use backslash escapes
-/// (Manticore: `'O\'Brien'`), split on `;` outside quotes.
-fn split_backslash_escaped(sql: &str) -> Vec<String> {
-    let (mut out, mut cur, mut quote) = (Vec::new(), String::new(), None);
-    let mut chars = sql.chars();
-    while let Some(c) = chars.next() {
-        match (quote, c) {
-            (Some(_), '\\') => {
-                cur.push(c);
-                cur.extend(chars.next());
-                continue;
-            }
-            (Some(q), _) if c == q => quote = None,
-            (None, '\'' | '"' | '`') => quote = Some(c),
-            (None, ';') => {
-                out.push(std::mem::take(&mut cur));
-                continue;
-            }
-            _ => {}
-        }
-        cur.push(c);
-    }
-    out.push(cur);
-    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+/// Manticore's statements: split by the lexer (backslash escapes, `;`
+/// inside comments), comments taken out.
+fn manticore_statements(sql: &str) -> Vec<String> {
+    let d = crate::script_dialect(Variant::Manticore);
+    dbine_driver::sql::split_script(sql, &d)
+        .into_iter()
+        .map(|u| dbine_driver::sql::strip_comments(&u.text, &d, false).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// How long a StarRocks / Doris schema change waits for the table's running one.
@@ -847,7 +906,7 @@ impl MySqlSession {
         if analyze && !flavor.can_analyze() {
             out.messages.push("Este servidor no da cifras reales en EXPLAIN: se muestran los planes estimados.".into());
         }
-        for stmt in plan::split_keeping_hints(sql) {
+        for stmt in plan::split_keeping_hints(self.variant, sql) {
             let kind = plan::classify(&stmt);
             match (analyze, kind) {
                 (false, StmtKind::Other) => {
@@ -923,6 +982,11 @@ impl MySqlSession {
 /// The first cell of each row, one per line.
 fn first_column(rows: &[Vec<String>]) -> String {
     rows.iter().filter_map(|r| r.first().cloned()).collect::<Vec<_>>().join("\n")
+}
+
+/// A `DELIMITER` line (mysql CLI client command) in the script.
+fn has_delimiter_command(sql: &str) -> bool {
+    sql.lines().any(|l| l.trim_start().get(..10).is_some_and(|w| w.eq_ignore_ascii_case("delimiter ")))
 }
 
 fn warnings_note(n: u16) -> Option<String> {
@@ -1051,10 +1115,13 @@ impl Session for MySqlSession {
 
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancelled.store(false, Ordering::SeqCst);
-        let res = if self.variant == Variant::Manticore {
-            // One statement per request.
+        let res = if self.variant == Variant::Manticore || has_delimiter_command(sql) {
+            // One statement per request: Manticore takes no more, and a
+            // `DELIMITER` is the client's to apply (the server reads it as
+            // an error).
+            let stmts = if self.variant == Variant::Manticore { manticore_statements(sql) } else { self.statements(sql) };
             let mut res = Ok(());
-            for stmt in split_backslash_escaped(sql) {
+            for stmt in stmts {
                 res = self.run(&stmt, max_rows, out).await;
                 if res.is_err() {
                     break;
@@ -1068,7 +1135,7 @@ impl Session for MySqlSession {
             let start = std::time::Instant::now();
             loop {
                 match self.run(sql, max_rows, out).await {
-                    Err(Error::Query(m)) if olap_busy(&m) && start.elapsed() < OLAP_WAIT && !self.cancelled.load(Ordering::SeqCst) => {
+                    Err(e) if e.is_query() && olap_busy(&e.to_string()) && start.elapsed() < OLAP_WAIT && !self.cancelled.load(Ordering::SeqCst) => {
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     }
                     res => break res,
@@ -1080,7 +1147,56 @@ impl Session for MySqlSession {
         if self.cancelled.swap(false, Ordering::SeqCst) {
             return Err(Error::Cancelled);
         }
+        // `USE other`: the tab follows the session's new database.
+        if !self.variant.single_namespace() && self.statements_of(sql).iter().any(|s| leading_keyword(s, &crate::script_dialect(self.variant)).as_deref() == Some("use")) {
+            let before = self.database.clone();
+            if let Ok(rows) = self.rows("SELECT DATABASE()").await {
+                if let Some(db) = rows.first().and_then(|r| at(r, 0)) {
+                    if before.as_deref() != Some(db.as_str()) {
+                        self.database = Some(db.clone());
+                        out.database = Some(db);
+                    }
+                }
+            }
+        }
         res
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        if !self.variant.has_transactions() {
+            return Ok(None);
+        }
+        // The last OK packet's status says it; after an error there's none
+        // (a deadlock rolls the transaction back): ask with a no-op.
+        if self.conn.last_ok_packet().is_none() {
+            self.conn.query_drop("DO 0").await.map_err(err)?;
+        }
+        let open = self.conn.last_ok_packet().is_some_and(|ok| ok.status_flags().contains(StatusFlags::SERVER_STATUS_IN_TRANS));
+        Ok(Some(if open { TxState::Open } else { TxState::Idle }))
+    }
+
+    /// `SET autocommit`: off, the first statement opens a transaction that
+    /// stays open until COMMIT / ROLLBACK. Turning it back on commits the
+    /// open one (the server does).
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if !self.variant.has_transactions() {
+            return if on { Ok(()) } else { Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into())) };
+        }
+        self.conn.query_drop(if on { "SET autocommit = 1" } else { "SET autocommit = 0" }).await.map_err(err)
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        if !self.variant.has_transactions() {
+            return Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()));
+        }
+        self.conn.query_drop("COMMIT").await.map_err(err)
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        if !self.variant.has_transactions() {
+            return Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()));
+        }
+        self.conn.query_drop("ROLLBACK").await.map_err(err)
     }
 
     /// Plans per statement (optimizer hints are kept when splitting).
@@ -1259,9 +1375,18 @@ mod tests {
     }
 
     #[test]
-    fn manticore_scripts_split_outside_escaped_quotes() {
-        let s = split_backslash_escaped("INSERT INTO t VALUES ('a\\';b'); SELECT 1;\n");
+    fn manticore_scripts_split_outside_escaped_quotes_and_comments() {
+        let s = manticore_statements("INSERT INTO t VALUES ('a\\';b'); SELECT 1;\n");
         assert_eq!(s, ["INSERT INTO t VALUES ('a\\';b')", "SELECT 1"]);
+        let s = manticore_statements("/* a; b */ SELECT 1; -- c; d\n# e; f\nSELECT 2 /* ' */;");
+        assert_eq!(s, ["SELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn delimiter_lines_are_found() {
+        assert!(has_delimiter_command("select 1;\n  DELIMITER //\ncreate procedure p() begin end//"));
+        assert!(!has_delimiter_command("select 'delimiter x'"));
+        assert!(!has_delimiter_command("select delimiter from t"));
     }
 
     #[test]

@@ -65,3 +65,100 @@ async fn trino_security() {
     let mut out = QueryOutcome::default();
     s.execute("DROP SCHEMA dbine_sec CASCADE", 10, &mut out).await.unwrap();
 }
+
+/// "Nuevo esquema…" / "Borrar esquema…" in the memory catalog: the schema
+/// is created without owner, the grants and the owner change (`SET
+/// AUTHORIZATION`, after them) parse but memory refuses them as a catalog
+/// without permission management (no connector of the stock image keeps
+/// owners or grants), the new empty schema is listed, RESTRICT refuses a
+/// schema with a table and CASCADE drops it. Trino folds names to
+/// lowercase, quoted or not.
+#[tokio::test]
+#[ignore]
+async fn trino_schemas() {
+    let Some(c) = cfg() else { return };
+    let d = dbine_driver_trino::drivers().remove(0);
+    let spec = d.schema_spec().unwrap();
+    assert!(spec.owner && spec.cascade && !spec.privileges.is_empty());
+    let mut s = d.connect(&c, None).await.unwrap();
+    let run = async |s: &mut Box<dyn dbine_driver::Session>, sql: &str| -> std::result::Result<QueryOutcome, String> {
+        let mut out = QueryOutcome::default();
+        match s.execute(sql, 100, &mut out).await {
+            Err(e) => Err(e.to_string()),
+            Ok(()) => match out.error.clone() {
+                Some(e) => Err(e),
+                None => Ok(out),
+            },
+        }
+    };
+    let _ = run(&mut s, "DROP SCHEMA IF EXISTS \"dbine sch\" CASCADE").await;
+
+    let owner = d.schema_owner_script(Some("memory"), "dbine sch", "ana").unwrap().expect("the owner goes after the grants");
+    let create = d.create_schema_script(Some("memory"), "dbine sch", None).unwrap();
+    run(&mut s, &create).await.unwrap();
+    assert_eq!(create, "CREATE SCHEMA \"dbine sch\";");
+    let show = run(&mut s, "SHOW CREATE SCHEMA \"dbine sch\"").await.unwrap();
+    assert_eq!(show.results[0].rows[0][0].as_str(), Some("CREATE SCHEMA memory.\"dbine sch\""));
+
+    for p in &spec.privileges {
+        let g = d.schema_grant_script(Some("memory"), "dbine sch", &[p.to_string()], "ana", true).unwrap();
+        let err = run(&mut s, &g).await.expect_err("memory has no grants");
+        assert!(err.contains("permission management"), "{g}: {err}");
+    }
+    let err = run(&mut s, &owner).await.expect_err("memory keeps no owners");
+    assert!(err.contains("permission management"), "{owner}: {err}");
+
+    // Listed while empty; information_schema is the system one.
+    let listed = s.list_schemas().await.unwrap().expect("Trino lists schemas");
+    assert!(listed.iter().any(|x| x.name == "dbine sch" && !x.system), "{listed:?}");
+    assert!(listed.iter().any(|x| x.name == "information_schema" && x.system), "{listed:?}");
+
+    run(&mut s, "CREATE TABLE \"dbine sch\".t (a int)").await.unwrap();
+    let err = run(&mut s, &d.drop_schema_script(None, "dbine sch", false).unwrap()).await.expect_err("RESTRICT keeps a non-empty schema");
+    assert!(err.contains("non-empty"), "{err}");
+    run(&mut s, &d.drop_schema_script(None, "dbine sch", true).unwrap()).await.unwrap();
+    let left = run(&mut s, "SELECT count(*) FROM memory.information_schema.schemata WHERE schema_name = 'dbine sch'").await.unwrap();
+    assert_eq!(left.results[0].rows[0][0], serde_json::json!(0));
+
+    // An empty one drops without CASCADE.
+    run(&mut s, &d.create_schema_script(None, "dbine_empty", None).unwrap()).await.unwrap();
+    run(&mut s, &d.drop_schema_script(None, "dbine_empty", false).unwrap()).await.unwrap();
+}
+
+/// Presto's schemas: no owner, no grants, no CASCADE; an empty schema is
+/// created and dropped (`DBINE_TEST_PRESTO_URL=http://localhost:25181`).
+#[tokio::test]
+#[ignore]
+async fn presto_schemas() {
+    let Ok(url) = std::env::var("DBINE_TEST_PRESTO_URL") else { return };
+    let url = reqwest::Url::parse(&url).unwrap();
+    let c = ConnectionConfig {
+        driver: "presto".into(),
+        host: url.host_str().unwrap().into(),
+        port: url.port().unwrap_or(0),
+        username: Some("dbine".into()),
+        database: "memory".into(),
+        ..Default::default()
+    };
+    let d = dbine_driver_trino::drivers().into_iter().find(|d| d.info().id == "presto").unwrap();
+    assert_eq!(d.schema_spec(), Some(dbine_driver::SchemaSpec::default()));
+    assert!(d.schema_owner_script(None, "x", "ana").is_err());
+    assert!(d.drop_schema_script(None, "x", true).is_err());
+    let mut s = d.connect(&c, None).await.unwrap();
+    let mut run = async |sql: String| {
+        let mut out = QueryOutcome::default();
+        s.execute(&sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+        assert!(out.error.is_none(), "{sql}: {:?}", out.error);
+    };
+    run(d.create_schema_script(None, "dbine_ps", None).unwrap()).await;
+    run("SELECT schema_name FROM memory.information_schema.schemata WHERE schema_name = 'dbine_ps'".into()).await;
+    let listed = s.list_schemas().await.unwrap().expect("Presto lists schemas");
+    assert!(listed.iter().any(|x| x.name == "dbine_ps" && !x.system), "{listed:?}");
+    assert!(listed.iter().any(|x| x.name == "information_schema" && x.system), "{listed:?}");
+    let mut run = async |sql: String| {
+        let mut out = QueryOutcome::default();
+        s.execute(&sql, 10, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+        assert!(out.error.is_none(), "{sql}: {:?}", out.error);
+    };
+    run(d.drop_schema_script(None, "dbine_ps", false).unwrap()).await;
+}

@@ -17,16 +17,20 @@ mod odbc;
 mod permissions;
 mod plan;
 mod presets;
+mod schemas;
 mod security;
 mod structure;
 mod sync;
 mod transfer;
 
-use dbine_driver::sql::{qualified_name, select_top, split_statements, Limit, Quote};
+use dbine_driver::sql::{
+    leading_keyword, qualified_name, select_top, split_script, split_statements, strip_comments, Limit, Quote, ScriptDefaults,
+    ScriptDialect, ScriptMode, StatementKind,
+};
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
     DesignerSpec, Driver, DriverInfo, Error, Field, FieldKind, ForeignKeyDef, IndexDef, KeyDef, Language, ObjectKindInfo,
-    MonitorSnapshot, ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    MonitorSnapshot, ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema, TxState,
 };
 use odbc::{kind_of, Conn, ConnectOptions, StmtSlot};
 use presets::{Batch, Def, LimitStyle, Preset, P, PRESETS, V};
@@ -200,6 +204,22 @@ impl Driver for OdbcDriver {
         }
     }
 
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        schemas::spec(self.preset)
+    }
+
+    fn create_schema_script(&self, _database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+        schemas::create(self.preset, name, owner)
+    }
+
+    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+        schemas::owner(self.preset, name, owner)
+    }
+
+    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        schemas::drop(self.preset, name, cascade).ok_or_else(|| Error::Unsupported("este motor no borra esquemas desde DBine".into()))
+    }
+
     fn backup(&self) -> Option<dbine_driver::BackupSpec> {
         backup::spec(self.preset)
     }
@@ -214,6 +234,22 @@ impl Driver for OdbcDriver {
 
     fn supports_explain(&self) -> bool {
         explain::preset_supports_explain(self.preset.id)
+    }
+
+    fn script_dialect(&self) -> ScriptDialect {
+        script_dialect(self.preset)
+    }
+
+    fn script_mode(&self) -> ScriptMode {
+        script_mode(self.preset)
+    }
+
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: continues_on_error(self.preset), confirm_unsafe_dml: true }
+    }
+
+    fn supports_manual_transactions(&self) -> bool {
+        has_transactions(self.preset)
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -325,7 +361,144 @@ impl Driver for OdbcDriver {
             dbms,
             escape,
             file,
+            manual: false,
+            dirty: false,
         }))
+    }
+}
+
+/// How the engine's own tool reads a script.
+fn script_dialect(p: &Preset) -> ScriptDialect {
+    let generic = ScriptDialect::generic();
+    match p.id {
+        // CLP's `--#SET TERMINATOR`; SQL PL bodies (`BEGIN … END`) whole.
+        "db2" | "db2i" | "db2zos" => ScriptDialect::db2(),
+        // isql: batches separated by `go`.
+        "sybase" | "sqlanywhere" => ScriptDialect::tsql(),
+        // disql: PL blocks ended by `/`, as in SQL*Plus.
+        "dameng" => ScriptDialect::oracle(),
+        // beeline / impala-shell / spark-sql: backslash escapes in strings.
+        "hive" | "impala" | "spark" | "kyuubi" | "cloudera" => ScriptDialect { backslash_escapes: true, compound_blocks: false, ..generic },
+        // PLvSQL and Python UDF bodies go between `$$`.
+        "vertica" | "sqream" => ScriptDialect { dollar_quotes: true, ..generic },
+        "access" | "dbase" => ScriptDialect { bracket_idents: true, backtick_idents: false, ..generic },
+        _ => ScriptDialect::for_hint(p.dialect),
+    }
+}
+
+/// Presets whose block syntax the shared lexer doesn't know yet (Informix
+/// SPL's `END PROCEDURE`, Exasol's scripts ended by `/`, Netezza's
+/// `BEGIN_PROC`, NuoDB's `END_PROCEDURE`, ObjectScript and Virtuoso `{ }`
+/// bodies, declarations before `BEGIN` in Ingres, MaxDB and Altibase), and
+/// the generic preset (any engine): the driver gets the whole script and
+/// splits it as the connection's "Envío de scripts" says. Teradata too: its
+/// macros hold `;` between parentheses (`CREATE MACRO m AS (…; …;)`) and
+/// `REPLACE PROCEDURE` heads a body; [`teradata_statements`] keeps both
+/// whole, and "Todo el texto de una vez" still sends the script as is.
+const WHOLE_SCRIPT: &[&str] = &["odbc", "teradata", "informix", "gbase8s", "exasol", "netezza", "nuodb", "virtuoso", "iris", "cache", "maxdb", "ingres", "altibase"];
+
+fn script_mode(p: &Preset) -> ScriptMode {
+    if WHOLE_SCRIPT.contains(&p.id) {
+        ScriptMode::Whole
+    } else if p.batch == Batch::Go {
+        ScriptMode::Batches
+    } else {
+        ScriptMode::PerStatement
+    }
+}
+
+/// The engine's tool goes on after an error: db2 CLP, isql, BTEQ, vsql,
+/// EXAplus, nzsql, mclient, disql. beeline, impala-shell and the rest stop.
+fn continues_on_error(p: &Preset) -> bool {
+    matches!(
+        p.id,
+        "db2" | "db2i" | "db2zos" | "sybase" | "sqlanywhere" | "teradata" | "vertica" | "exasol" | "netezza" | "monetdb" | "dameng" | "altibase"
+    )
+}
+
+/// Engines without transactions (or whose ODBC drivers refuse autocommit
+/// off): no Auto/Manual switch.
+fn has_transactions(p: &Preset) -> bool {
+    !matches!(p.id, "hive" | "impala" | "spark" | "kyuubi" | "cloudera" | "netsuite" | "heavydb" | "machbase" | "dbase" | "ocient" | "sqream")
+}
+
+/// The statements `execute` runs one by one: on presets the app runs
+/// statement by statement, split with the preset's dialect (so a unit the
+/// app sends stays whole); a text that only splits into pieces of a block
+/// (one of them starts with `END`: a `BEGIN … END` cut at its `;`, sent
+/// under a switched terminator) goes whole.
+fn unit_statements(text: &str, d: &ScriptDialect) -> Vec<String> {
+    let pieces: Vec<String> = split_script(text, d)
+        .into_iter()
+        .filter(|s| s.kind != StatementKind::ClientCommand)
+        .map(|s| strip_comments(&s.text, d, true).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if pieces.len() > 1 && pieces.iter().any(|p| leading_keyword(p, d).as_deref() == Some("end")) {
+        return vec![text.trim().to_string()];
+    }
+    pieces
+}
+
+/// BTEQ-like statements of a Teradata script: the shared lexer's, with a
+/// `REPLACE PROCEDURE|FUNCTION|TRIGGER…` read as the `CREATE` it stands for
+/// (so its `BEGIN … END` body stays whole) and the pieces of a statement
+/// whose parentheses are still open joined back (a macro's body).
+fn teradata_statements(text: &str, d: &ScriptDialect) -> Vec<String> {
+    // REPLACE and "CREATE " have the same length: offsets carry over.
+    let mut lex = text.to_string();
+    for u in split_script(text, d) {
+        let head = &text[u.start..];
+        if head.len() > 7 && head[..7].eq_ignore_ascii_case("replace") && head.as_bytes()[7].is_ascii_whitespace() {
+            lex.replace_range(u.start..u.start + 7, "CREATE ");
+        }
+    }
+    let mut out = Vec::new();
+    let mut open: Option<(usize, i64)> = None;
+    for u in split_script(&lex, d) {
+        if u.kind == StatementKind::ClientCommand {
+            continue;
+        }
+        let depth = paren_depth(&strip_comments(&text[u.start..u.end], d, false));
+        let (start, total) = match open.take() {
+            Some((start, before)) => (start, before + depth),
+            None => (u.start, depth),
+        };
+        if total > 0 {
+            open = Some((start, total));
+        } else {
+            out.push(text[start..u.end].trim().to_string());
+        }
+    }
+    if let Some((start, _)) = open {
+        out.push(text[start..].trim().trim_end_matches(';').trim_end().to_string());
+    }
+    out.retain(|s| !s.is_empty());
+    out
+}
+
+/// `(` minus `)` outside '…' and "…" (comments already removed).
+fn paren_depth(s: &str) -> i64 {
+    let mut depth = 0;
+    let mut quote: Option<char> = None;
+    for c in s.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, '(') => depth += 1,
+            (None, ')') => depth -= 1,
+            _ => {}
+        }
+    }
+    depth
+}
+
+/// What `execute` / `explain` run on this preset.
+fn preset_statements(p: &Preset, batch: Batch, text: &str) -> Result<Vec<String>> {
+    match (p.id, batch) {
+        ("teradata", Batch::Statements) => Ok(teradata_statements(text, &script_dialect(p))),
+        _ => split_checked(batch, text),
     }
 }
 
@@ -352,29 +525,37 @@ fn browse(quote: Quote, limit: LimitStyle, schema: Option<&str>, name: &str, n: 
     }
 }
 
-/// Blocks separated by `GO` lines.
-fn split_go(sql: &str) -> Vec<String> {
-    let mut out = vec![String::new()];
-    for line in sql.lines() {
-        if line.trim().eq_ignore_ascii_case("go") {
-            out.push(String::new());
-        } else {
-            let cur = out.last_mut().expect("non-empty");
-            cur.push_str(line);
-            cur.push('\n');
+/// Batches separated by `GO [N]` lines, cut by the shared T-SQL lexer (a
+/// `GO` inside a comment or string doesn't split; `GO 3` runs its batch
+/// three times; `GO -- note` is a separator). An invalid count runs
+/// nothing, as in isql / sqlcmd.
+fn split_go(sql: &str) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for unit in dbine_driver::sql::split_script(sql, &dbine_driver::ScriptDialect::tsql()) {
+        if let Some(e) = unit.error {
+            return Err(dbine_driver::ScriptError::new(e).at_line(unit.line).fatal().into());
+        }
+        for _ in 0..unit.repeat.max(1) {
+            out.push(unit.text.clone());
         }
     }
-    out.retain(|b| !b.trim().is_empty());
-    out
+    Ok(out)
 }
 
-fn split(batch: Batch, text: &str) -> Vec<String> {
-    match batch {
+/// What `execute` / `explain` run: an invalid `GO` count fails the script.
+fn split_checked(batch: Batch, text: &str) -> Result<Vec<String>> {
+    Ok(match batch {
         Batch::Statements => split_statements(text),
-        Batch::Go => split_go(text),
+        Batch::Go => split_go(text)?,
         Batch::Script if text.trim().is_empty() => Vec::new(),
         Batch::Script => vec![text.to_string()],
-    }
+    })
+}
+
+/// [`split_checked`] for generated scripts (always valid).
+#[cfg(test)]
+fn split(batch: Batch, text: &str) -> Vec<String> {
+    split_checked(batch, text).unwrap_or_default()
 }
 
 /// `nvarchar(50)`, `decimal(18,2)`… from SQLColumns.
@@ -425,6 +606,10 @@ pub struct OdbcSession {
     escape: String,
     /// The database file or folder of file-based presets (Access, dBase).
     file: Option<String>,
+    /// Autocommit off (manual transactions).
+    manual: bool,
+    /// In manual mode: something changed since the last commit or rollback.
+    dirty: bool,
 }
 
 type Rows = Vec<Vec<Option<String>>>;
@@ -482,7 +667,9 @@ impl OdbcSession {
 fn run_one(c: &Conn, slot: &StmtSlot, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
     let st = c.stmt(slot)?;
     let rc = st.exec(sql)?;
-    out.messages.extend(st.messages());
+    for d in st.diag_messages() {
+        out.message(d.to_message());
+    }
     if rc == ffi::SQL_NO_DATA {
         // A searched UPDATE/DELETE that matched nothing.
         out.push_affected(0);
@@ -515,7 +702,9 @@ fn run_one(c: &Conn, slot: &StmtSlot, sql: &str, max_rows: usize, out: &mut Quer
             }
         }
         let more = st.more_results();
-        out.messages.extend(st.messages());
+        for d in st.diag_messages() {
+            out.message(d.to_message());
+        }
         if !more? {
             break;
         }
@@ -637,6 +826,32 @@ impl Session for OdbcSession {
         }
         out.sort_by(|a, b| (&a.schema, &a.name).cmp(&(&b.schema, &b.name)));
         Ok(out)
+    }
+
+    /// Presets with "Nuevo esquema…" (see `schemas::list_sql`): their
+    /// catalog, else SQLTables' SQL_ALL_SCHEMAS; `None` when both fail.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
+        let Some(sql) = schemas::list_sql(self.preset) else { return Ok(None) };
+        if let Some(sql) = sql {
+            match self.query(sql.to_string(), Vec::new()).await {
+                Ok(rows) => return Ok(Some(schemas::infos(self.preset, &rows, 0, schemas::flag_col(self.preset)))),
+                Err(e) => tracing::debug!("odbc: schema list failed, trying SQLTables: {e}"),
+            }
+        }
+        let rows = self
+            .run(|c, slot| {
+                let st = c.stmt(slot)?;
+                st.tables(Some(""), Some("%"), Some(""), None)?;
+                st.text_rows()
+            })
+            .await;
+        match rows {
+            Ok(rows) => Ok(Some(schemas::infos(self.preset, &rows, 1, None))),
+            Err(e) => {
+                tracing::debug!("odbc: SQLTables(SQL_ALL_SCHEMAS) failed: {e}");
+                Ok(None)
+            }
+        }
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -768,22 +983,40 @@ impl Session for OdbcSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let stmts = split(self.batch, text);
+        let dialect = script_dialect(self.preset);
+        let stmts = match (script_mode(self.preset), self.batch) {
+            (ScriptMode::PerStatement, Batch::Statements) => unit_statements(text, &dialect),
+            _ => preset_statements(self.preset, self.batch, text)?,
+        };
         if stmts.is_empty() {
             return Ok(());
         }
         let fork = out.fork();
-        let (local, err) = self
+        let (local, err, changed) = self
             .run(move |c, slot| {
                 let mut local = fork;
+                // Whether the last statement that ran changed something
+                // (`None`: it ended the transaction itself).
+                let mut changed = Some(false);
                 for s in &stmts {
+                    let before = local.results.len();
                     if let Err(e) = run_one(c, slot, s, max_rows, &mut local) {
-                        return Ok((local, Some(e)));
+                        return Ok((local, Some(e), changed));
+                    }
+                    match leading_keyword(s, &dialect).as_deref() {
+                        Some("commit" | "rollback") => changed = None,
+                        _ if local.results[before..].iter().any(|r| r.columns.is_empty()) => changed = Some(true),
+                        _ => {}
                     }
                 }
-                Ok((local, None))
+                Ok((local, None, changed))
             })
             .await?;
+        match changed {
+            None => self.dirty = false,
+            Some(true) if self.manual => self.dirty = true,
+            _ => {}
+        }
         out.merge(local);
         match err {
             Some(e) => Err(e),
@@ -791,12 +1024,50 @@ impl Session for OdbcSession {
         }
     }
 
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        if !has_transactions(self.preset) {
+            return Ok(None);
+        }
+        Ok(Some(if self.manual && self.dirty { TxState::Open } else { TxState::Idle }))
+    }
+
+    /// `SQL_ATTR_AUTOCOMMIT`: off, the driver keeps a transaction open
+    /// until Commit / Rollback (`SQLEndTran`).
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if !on && !has_transactions(self.preset) {
+            return Err(Error::Unsupported(format!("{} no tiene transacciones", self.preset.name)));
+        }
+        self.run(move |c, _| c.set_autocommit(on)).await?;
+        self.manual = !on;
+        if on {
+            // Turning autocommit on commits what was pending.
+            self.dirty = false;
+        }
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        if self.manual {
+            self.run(|c, _| c.end_tran(true)).await?;
+        }
+        self.dirty = false;
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        if self.manual {
+            self.run(|c, _| c.end_tran(false)).await?;
+        }
+        self.dirty = false;
+        Ok(())
+    }
+
     async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let dialect = explain::dialect(self.preset.id, &self.dbms);
         if let explain::Dialect::Unsupported(why) = dialect {
             return Err(Error::Unsupported(why.into()));
         }
-        let stmts = split(self.batch, text);
+        let stmts = preset_statements(self.preset, self.batch, text)?;
         if stmts.is_empty() {
             return Ok(());
         }
@@ -1202,6 +1473,19 @@ fn build_schema(preset: &'static Preset, raw: RawSchema) -> Vec<TableSchema> {
 mod tests {
     use super::*;
 
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(None, "VENTAS", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
+
     #[test]
     fn every_preset_describes_itself() {
         let ds = drivers();
@@ -1240,8 +1524,79 @@ mod tests {
     }
 
     #[test]
+    fn teradata_keeps_macros_and_replaced_procedures_whole() {
+        let p = preset("teradata");
+        assert_eq!(script_mode(p), ScriptMode::Whole);
+        let script = "CREATE MACRO m1 AS (\n SELECT 1; SELECT 2; );\n\
+                      REPLACE PROCEDURE p1 ()\nBEGIN\n DECLARE x INTEGER;\n SET x = 1;\n SELECT 'a;)' ;\nEND;\n\
+                      -- ( not counted\nSELECT (1);\nREPLACE VIEW v AS SELECT 1 AS a;";
+        let st = preset_statements(p, Batch::Statements, script).unwrap();
+        assert_eq!(st.len(), 4, "{st:#?}");
+        assert!(st[0].starts_with("CREATE MACRO") && st[0].ends_with(')') && st[0].contains("SELECT 2"));
+        assert!(st[1].starts_with("REPLACE PROCEDURE") && st[1].ends_with("END"));
+        assert!(st[2].ends_with("SELECT (1)"));
+        assert_eq!(st[3], "REPLACE VIEW v AS SELECT 1 AS a");
+        // Other presets and "Todo el texto de una vez" are unchanged.
+        assert_eq!(preset_statements(p, Batch::Script, script).unwrap().len(), 1);
+    }
+
+    fn preset(id: &str) -> &'static Preset {
+        PRESETS.iter().find(|p| p.id == id).unwrap()
+    }
+
+    #[test]
+    fn scripts_follow_each_engine_tool() {
+        assert_eq!(script_mode(preset("db2")), ScriptMode::PerStatement);
+        assert_eq!(script_mode(preset("sybase")), ScriptMode::Batches);
+        assert_eq!(script_mode(preset("informix")), ScriptMode::Whole);
+        assert_eq!(script_mode(preset("odbc")), ScriptMode::Whole);
+        assert!(continues_on_error(preset("db2")) && !continues_on_error(preset("hive")));
+        assert!(has_transactions(preset("teradata")) && !has_transactions(preset("hive")));
+        // Every id named in the lists is a real preset.
+        for id in WHOLE_SCRIPT {
+            preset(id);
+        }
+
+        // DB2: the terminator directive keeps a compound statement whole,
+        // and the unit the app sends isn't cut again by the driver.
+        let d = script_dialect(preset("db2"));
+        let script = "--#SET TERMINATOR @\nBEGIN ATOMIC\n  DECLARE x INT;\n  SET x = 1;\nEND@\n--#SET TERMINATOR ;\nVALUES 1;";
+        let units: Vec<_> = split_script(script, &d).into_iter().filter(|u| u.kind != StatementKind::ClientCommand).collect();
+        assert_eq!(units.len(), 2, "{units:?}");
+        assert_eq!(unit_statements(&units[0].text, &d), vec![units[0].text.clone()]);
+        assert_eq!(unit_statements("values 1; values 2", &d).len(), 2);
+        let proc = "CREATE PROCEDURE p() LANGUAGE SQL BEGIN DECLARE x INT; SET x = 1; END";
+        assert_eq!(unit_statements(&format!("{proc};\nVALUES 1"), &d), vec![proc.to_string(), "VALUES 1".to_string()]);
+
+        // Hive: backslash escapes.
+        let d = script_dialect(preset("hive"));
+        assert_eq!(unit_statements("select 'it\\'s;' from t; select 2", &d).len(), 2);
+        // Vertica: dollar-quoted bodies.
+        let d = script_dialect(preset("vertica"));
+        assert_eq!(unit_statements("CREATE PROCEDURE p() AS $$ BEGIN PERFORM 1; END $$; SELECT 1", &d).len(), 2);
+    }
+
+    #[test]
+    fn diagnostics_become_errors_and_messages() {
+        use odbc::Diag;
+        let d = |state: &str, native: i32, m: &str| Diag { state: state.into(), native, message: m.into() };
+        let e = odbc::query_error(&[d("01000", 0, "printed"), d("42S02", -204, "undefined name")]).to_script_error();
+        assert_eq!((e.sqlstate.as_deref(), e.code.as_deref(), e.fatal), (Some("42S02"), Some("-204"), false));
+        assert!(odbc::query_error(&[d("08S01", 0, "link down")]).ends_script());
+        assert!(matches!(odbc::query_error(&[d("HY008", 0, "cancelled")]), Error::Cancelled));
+        assert_eq!(d("01000", 0, "x").to_message().level, dbine_driver::MessageLevel::Info);
+        let w = d("01003", 8153, "NULL eliminated").to_message();
+        assert_eq!((w.level, w.code.as_deref()), (dbine_driver::MessageLevel::Warning, Some("8153")));
+    }
+
+    #[test]
     fn go_and_versions() {
-        assert_eq!(split_go("select 1\nGO\n go \nselect 2"), vec!["select 1\n", "select 2\n"]);
+        assert_eq!(split_go("select 1\nGO\n go \nselect 2").unwrap(), vec!["select 1", "select 2"]);
+        // The shared lexer: GO N, GO with a comment, GO inside comments and strings.
+        assert_eq!(split_go("select 1\nGO 3\nselect 2\ngo -- end").unwrap(), vec!["select 1", "select 1", "select 1", "select 2"]);
+        assert_eq!(split_go("/*\nGO\n*/ select 1\nGO").unwrap().len(), 1);
+        assert_eq!(split_go("select 'a\nGO\nb'").unwrap().len(), 1);
+        assert!(split_go("select 1\nGO 0").is_err());
         assert_eq!(strip_version("p;1"), "p");
         assert_eq!(strip_version("a;b"), "a;b");
     }

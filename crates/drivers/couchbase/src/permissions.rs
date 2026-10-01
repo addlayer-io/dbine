@@ -6,6 +6,8 @@
 //!   lowering the threshold is optional).
 //! - create a bucket: `cluster.buckets!create`; drop it:
 //!   `cluster.bucket[<bucket>]!delete`.
+//! - create a scope ("Nuevo esquema…") in the bucket:
+//!   `cluster.bucket[<bucket>].collections!write`.
 //! - security: `cluster.admin.security!write` or
 //!   `cluster.admin.security.local!write` (local users and their roles).
 //!
@@ -28,10 +30,15 @@ fn drop_permission(bucket: &str) -> String {
     format!("cluster.bucket[{bucket}]!delete")
 }
 
+fn scope_permission(bucket: &str) -> String {
+    format!("cluster.bucket[{bucket}].collections!write")
+}
+
 /// The permissions asked for, comma-separated.
 pub(crate) fn request(database: Option<&str>) -> String {
     let mut v = vec![META.to_string(), CREATE.into(), SECURITY.into(), SECURITY_LOCAL.into()];
     v.extend(database.map(drop_permission));
+    v.extend(database.map(scope_permission));
     v.join(",")
 }
 
@@ -51,6 +58,13 @@ pub(crate) fn decide(answer: Option<&Value>, database: Option<&str>) -> Permissi
             Some(b) => {
                 let k = drop_permission(b);
                 access(one(&k), &format!("{k} (cluster_admin)"))
+            }
+            None => Access::Unknown,
+        },
+        create_schema: match database {
+            Some(b) => {
+                let k = scope_permission(b);
+                access(one(&k), &format!("{k} (bucket_admin)"))
             }
             None => Access::Unknown,
         },
@@ -83,13 +97,13 @@ mod tests {
     }
 
     fn answer(v: bool) -> Value {
-        json!({ META: v, CREATE: v, SECURITY: v, SECURITY_LOCAL: v, "cluster.bucket[ventas]!delete": v })
+        json!({ META: v, CREATE: v, SECURITY: v, SECURITY_LOCAL: v, "cluster.bucket[ventas]!delete": v, "cluster.bucket[ventas].collections!write": v })
     }
 
     #[test]
     fn asks_for_the_bucket_it_would_drop() {
         assert_eq!(request(None), "cluster.n1ql.meta!read,cluster.buckets!create,cluster.admin.security!write,cluster.admin.security.local!write");
-        assert!(request(Some("ventas")).ends_with(",cluster.bucket[ventas]!delete"));
+        assert!(request(Some("ventas")).ends_with(",cluster.bucket[ventas]!delete,cluster.bucket[ventas].collections!write"));
     }
 
     #[test]
@@ -97,7 +111,9 @@ mod tests {
         let p = decide(Some(&answer(true)), Some("ventas"));
         assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
         assert_eq!((&p.backup, &p.kill_session), (&Access::Unknown, &Access::Unknown));
+        assert_eq!(p.create_schema, Access::Allowed);
         assert_eq!(decide(Some(&answer(true)), None).drop_database, Access::Unknown);
+        assert_eq!(decide(Some(&answer(true)), None).create_schema, Access::Unknown);
     }
 
     #[test]
@@ -106,6 +122,7 @@ mod tests {
         assert!(denied(&p.profiler, "cluster.n1ql.meta!read"));
         assert!(denied(&p.create_database, "cluster.buckets!create"));
         assert!(denied(&p.drop_database, "cluster.bucket[ventas]!delete"));
+        assert!(denied(&p.create_schema, "cluster.bucket[ventas].collections!write"));
         assert!(denied(&p.manage_security, "security.local!write"));
         // Only local users: still allowed.
         let a = json!({ SECURITY: false, SECURITY_LOCAL: true });

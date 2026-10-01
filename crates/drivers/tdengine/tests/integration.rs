@@ -93,7 +93,7 @@ async fn tdengine() {
     let mut s = d.connect(&c, Some("dbine_it")).await.unwrap();
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1; SELECT * FROM nope; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Plans.

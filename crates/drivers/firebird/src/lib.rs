@@ -14,11 +14,11 @@ mod script;
 mod security;
 mod transfer;
 
-use dbine_driver::sql::{quote_ident, Quote};
+use dbine_driver::sql::{quote_ident, Quote, ScriptDefaults, ScriptDialect};
 use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef,
-    Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    Plan, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
 };
 use rsfbclient_core::{
     Charset, Column, Dialect, FbError, FirebirdClientDbOps, FirebirdClientSqlOps, FreeStmtOp, SqlType, StmtType,
@@ -26,6 +26,7 @@ use rsfbclient_core::{
 };
 use rsfbclient_rust::{RustFbClient, RustFbClientAttachmentConfig};
 use serde_json::Value;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -111,7 +112,76 @@ fn message(e: &FbError) -> String {
 }
 
 fn err(e: FbError) -> Error {
-    Error::Query(message(&e))
+    let m = message(&e);
+    if is_cancel(&m) {
+        return Error::Cancelled;
+    }
+    Error::Query(m)
+}
+
+/// The server's answer to a statement stopped by the interrupter
+/// (isc_cancelled).
+fn is_cancel(m: &str) -> bool {
+    m.contains("operation was cancelled")
+}
+
+/// SQLCODE and SQLSTATE of errors whose status vector carries no
+/// `isc_sqlerr` (the pure-Rust client only reads the SQLCODE from there and
+/// drops the SQLSTATE), from their message as isql reports them.
+fn known_error(m: &str) -> Option<(i32, &'static str)> {
+    const KNOWN: &[(&str, i32, &str)] = &[
+        ("violation of PRIMARY or UNIQUE KEY constraint", -803, "23000"),
+        ("attempt to store duplicate value", -803, "23000"),
+        ("violation of FOREIGN KEY constraint", -530, "23000"),
+        ("violates CHECK constraint", -297, "23000"),
+        ("validation error for column", -625, "42000"),
+        ("lock conflict on no wait transaction", -913, "40001"),
+        ("deadlock", -913, "40001"),
+        ("update conflicts with concurrent update", -913, "40001"),
+        ("arithmetic exception, numeric overflow, or string truncation", -802, "22000"),
+        ("conversion error from string", -413, "22018"),
+        ("unsuccessful metadata update", -607, "42000"),
+    ];
+    KNOWN.iter().find(|(text, ..)| m.contains(text)).map(|(_, code, state)| (*code, *state))
+}
+
+/// A statement of `script` (starting at byte `start`) failed: the SQLCODE
+/// as the code, and where when Firebird says so ("line 2, column 8", in
+/// the statement).
+fn stmt_err(e: FbError, script: &str, start: usize) -> Error {
+    let FbError::Sql { msg, code } = e else { return err(e) };
+    if is_cancel(&msg) {
+        return Error::Cancelled;
+    }
+    let mut se = ScriptError::new(msg.clone());
+    let known = known_error(&msg);
+    if code != -1 && code != 0 {
+        se = se.with_code(code.to_string());
+    } else if let Some((code, _)) = known {
+        se = se.with_code(code.to_string());
+    }
+    if let Some((_, state)) = known {
+        se = se.with_sqlstate(state);
+    }
+    let pos = msg.split("line ").nth(1).and_then(|r| {
+        let (l, rest) = r.split_once(", column ")?;
+        let c: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        Some((l.trim().parse::<usize>().ok()?, c.parse::<usize>().ok()?))
+    });
+    let stmt = &script[start.min(script.len())..];
+    if let Some((line, col)) = pos.filter(|(l, c)| *l >= 1 && *c >= 1) {
+        // The column counts characters.
+        let line_start: usize = stmt.split_inclusive('\n').take(line - 1).map(str::len).sum();
+        if line_start <= stmt.len() {
+            let rest = &stmt[line_start..];
+            let col_bytes = rest.char_indices().nth(col - 1).map_or(rest.len(), |(b, _)| b);
+            let offset = start + line_start + col_bytes;
+            se = se.at_offset(offset).at_line(script[..offset].matches('\n').count() as u32 + 1);
+        }
+    } else {
+        se = se.at_line(script[..start.min(script.len())].matches('\n').count() as u32 + 1);
+    }
+    se.into()
 }
 
 fn connect_err(e: FbError) -> Error {
@@ -321,6 +391,26 @@ impl Driver for FirebirdDriver {
         true
     }
 
+    /// isql's: `SET TERM` switches the terminator.
+    fn script_dialect(&self) -> ScriptDialect {
+        ScriptDialect::firebird()
+    }
+
+    // `script_mode` stays `Whole`: the shared lexer doesn't yet keep a PSQL
+    // unit written without SET TERM whole when it declares variables before
+    // its BEGIN (or is a RECREATE, an EXECUTE BLOCK, a package), which this
+    // driver's splitter (`script`) does. The driver runs the script
+    // statement by statement itself and stops at the first error.
+
+    /// isql goes on after an error unless `SET BAIL ON`.
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+    }
+
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     fn supports_profiler(&self) -> bool {
         true
     }
@@ -405,6 +495,7 @@ impl Driver for FirebirdDriver {
             target,
             attachment_id,
             autocommit: cfg.option("autocommit").is_none_or(|v| v == "true"),
+            dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             database,
             profiler: None,
         }))
@@ -420,12 +511,26 @@ struct FirebirdSession {
     /// CURRENT_CONNECTION, to find the running statement in MON$STATEMENTS.
     attachment_id: i64,
     autocommit: bool,
+    /// Without autocommit: statements that change something ran since the
+    /// last commit or rollback (Firebird always has a transaction open; this
+    /// is whether it holds work).
+    dirty: Arc<std::sync::atomic::AtomicBool>,
     database: String,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
 }
 
 impl FirebirdSession {
+    /// Commit or roll back the session's transaction (a new one starts).
+    async fn end(&mut self, op: TrOp) -> Result<()> {
+        let conn = self.conn.clone();
+        tokio::task::spawn_blocking(move || conn.lock().map_err(|_| poisoned())?.end_transaction(op).map_err(err))
+            .await
+            .map_err(join_err)??;
+        self.dirty.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
     /// Run `f` with the connection on a blocking thread. With autocommit,
     /// the transaction ends afterwards, so the next call sees fresh data.
     async fn run<T, F>(&self, f: F) -> Result<T>
@@ -622,16 +727,31 @@ impl Session for FirebirdSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let statements = script::split(text);
+        let script = text.to_string();
         let autocommit = self.autocommit;
+        let dirty = self.dirty.clone();
         let conn = self.conn.clone();
         let fork = out.fork();
         let (local, result) = tokio::task::spawn_blocking(move || {
             let mut local = fork;
             let result = match conn.lock() {
-                Ok(mut c) => {
-                    statements.iter().try_for_each(|s| run_statement(&mut c, s, max_rows, autocommit, &mut local))
-                }
+                Ok(mut c) => script::pieces(&script).iter().try_for_each(|p| {
+                    if p.skipped {
+                        local.info(format!("Comando de isql omitido (no es SQL del servidor): {}", first_line(&p.text)));
+                        return Ok(());
+                    }
+                    let r = run_statement(&mut c, &p.text, max_rows, autocommit, &mut local);
+                    match &r {
+                        Ok(Some(StmtType::Commit | StmtType::Rollback)) => dirty.store(false, Ordering::SeqCst),
+                        Ok(Some(StmtType::Select)) | Ok(None) => {}
+                        Ok(Some(_)) if !autocommit => dirty.store(true, Ordering::SeqCst),
+                        _ => {}
+                    }
+                    r.map(|_| ()).map_err(|e| match e {
+                        StmtFailure::Fb(e) => stmt_err(e, &script, p.start),
+                        StmtFailure::Other(e) => e,
+                    })
+                }),
                 Err(_) => Err(poisoned()),
             };
             (local, result)
@@ -640,6 +760,28 @@ impl Session for FirebirdSession {
         .map_err(join_err)?;
         out.merge(local);
         result
+    }
+
+    /// Firebird always works inside a transaction: `Open` when, without
+    /// autocommit, something changed since the last commit or rollback.
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        let open = !self.autocommit && self.dirty.load(Ordering::SeqCst);
+        Ok(Some(if open { TxState::Open } else { TxState::Idle }))
+    }
+
+    /// On: each statement commits (as the connection's autocommit option).
+    /// Off: the session's transaction keeps its work until Commit / Rollback.
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        self.autocommit = on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.end(TrOp::Commit).await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.end(TrOp::Rollback).await
     }
 
     async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -846,32 +988,66 @@ fn explained_plan(c: &mut Conn, sql: &str) -> Result<Option<String>> {
 const MON_PLANS: &str = "SELECT MON$SQL_TEXT, MON$EXPLAINED_PLAN FROM MON$STATEMENTS \
                          WHERE MON$ATTACHMENT_ID = CURRENT_CONNECTION ORDER BY MON$STATEMENT_ID DESC";
 
-fn run_statement(c: &mut Conn, sql: &str, max_rows: usize, autocommit: bool, out: &mut QueryOutcome) -> Result<()> {
-    let (mut ty, mut stmt) = c.prepare(sql).map_err(err)?;
+/// Why a statement failed: the server's error (placed by the caller in
+/// the script) or anything else.
+enum StmtFailure {
+    Fb(FbError),
+    Other(Error),
+}
+
+impl From<FbError> for StmtFailure {
+    fn from(e: FbError) -> Self {
+        Self::Fb(e)
+    }
+}
+
+impl From<Error> for StmtFailure {
+    fn from(e: Error) -> Self {
+        Self::Other(e)
+    }
+}
+
+impl From<StmtFailure> for Error {
+    fn from(e: StmtFailure) -> Self {
+        match e {
+            StmtFailure::Fb(e) => err(e),
+            StmtFailure::Other(e) => e,
+        }
+    }
+}
+
+fn first_line(s: &str) -> &str {
+    s.lines().next().unwrap_or("").trim()
+}
+
+/// Run one statement; its type when it ran (a selectable `EXECUTE
+/// PROCEDURE` reads as `Select`).
+fn run_statement(c: &mut Conn, sql: &str, max_rows: usize, autocommit: bool, out: &mut QueryOutcome) -> std::result::Result<Option<StmtType>, StmtFailure> {
+    let (mut ty, mut stmt) = c.prepare(sql)?;
     // The pure-Rust client can't read the single output row of EXECUTE
     // PROCEDURE (op_execute2): run it inside an EXECUTE BLOCK that returns
     // the procedure's outputs as a result set.
     if ty == StmtType::ExecProcedure {
         if let Some(block) = procedure_block(c, sql)? {
             c.free(&mut stmt);
-            (ty, stmt) = c.prepare(&block).map_err(err)?;
+            (ty, stmt) = c.prepare(&block)?;
         }
     }
     let result = run_prepared(c, ty, &mut stmt, max_rows, out);
     c.free(&mut stmt);
     let manual = matches!(ty, StmtType::Commit | StmtType::Rollback);
     if result.is_ok() && autocommit && !manual {
-        c.end_transaction(TrOp::Commit).map_err(err)?;
+        c.end_transaction(TrOp::Commit)?;
     }
-    result
+    result.map(|()| Some(ty))
 }
 
-fn run_prepared(c: &mut Conn, ty: StmtType, stmt: &mut StmtHandle, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+fn run_prepared(c: &mut Conn, ty: StmtType, stmt: &mut StmtHandle, max_rows: usize, out: &mut QueryOutcome) -> std::result::Result<(), StmtFailure> {
     match ty {
         StmtType::Select | StmtType::SelectForUpd => {
-            c.client.execute(&mut c.db, &mut c.tr, stmt, vec![]).map_err(err)?;
+            c.client.execute(&mut c.db, &mut c.tr, stmt, vec![])?;
             let mut started = false;
-            while let Some(row) = c.client.fetch(&mut c.db, &mut c.tr, stmt).map_err(err)? {
+            while let Some(row) = c.client.fetch(&mut c.db, &mut c.tr, stmt)? {
                 if !started {
                     out.begin_result(columns_of(&row));
                     started = true;
@@ -887,39 +1063,39 @@ fn run_prepared(c: &mut Conn, ty: StmtType, stmt: &mut StmtHandle, max_rows: usi
         // one row: the client can't read that output row (see
         // `procedure_block`), so it runs without it.
         StmtType::ExecProcedure => {
-            let n = c.client.execute(&mut c.db, &mut c.tr, stmt, vec![]).map_err(err)?;
+            let n = c.client.execute(&mut c.db, &mut c.tr, stmt, vec![])?;
             if n > 0 {
                 out.push_affected(n as u64);
-                out.messages.push(
+                out.info(
                     "Los valores de RETURNING no se muestran: el cliente de Firebird de DBine no los lee. \
-                     Consultá las filas con un SELECT."
-                        .into(),
+                     Consultá las filas con un SELECT.",
                 );
             } else {
                 out.results.push(Default::default());
             }
         }
         StmtType::Insert | StmtType::Update | StmtType::Delete => {
-            let n = c.client.execute(&mut c.db, &mut c.tr, stmt, vec![]).map_err(err)?;
+            let n = c.client.execute(&mut c.db, &mut c.tr, stmt, vec![])?;
             out.push_affected(n as u64);
         }
         // COMMIT / ROLLBACK end our transaction handle: do it ourselves.
         StmtType::Commit => {
-            c.end_transaction(TrOp::Commit).map_err(err)?;
+            c.end_transaction(TrOp::Commit)?;
             out.results.push(Default::default());
         }
         StmtType::Rollback => {
-            c.end_transaction(TrOp::Rollback).map_err(err)?;
+            c.end_transaction(TrOp::Rollback)?;
             out.results.push(Default::default());
         }
         StmtType::StartTrans => {
             return Err(Error::Unsupported(
                 "SET TRANSACTION no está soportado: DBine abre la transacción de la sesión (usá COMMIT o ROLLBACK)."
                     .into(),
-            ));
+            )
+            .into());
         }
         _ => {
-            c.client.execute(&mut c.db, &mut c.tr, stmt, vec![]).map_err(err)?;
+            c.client.execute(&mut c.db, &mut c.tr, stmt, vec![])?;
             out.results.push(Default::default());
         }
     }
@@ -1221,6 +1397,18 @@ fn definition(c: &mut Conn, kind: &str, name: &str) -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn errors_without_sqlerr_get_isqls_codes() {
+        let pk = FbError::Sql { code: -1, msg: "violation of PRIMARY or UNIQUE KEY constraint \"PK_T\" on table \"T\"".into() };
+        let Error::Statement(se) = super::stmt_err(pk, "insert into t values (1)", 0) else { panic!("statement error") };
+        assert_eq!((se.code.as_deref(), se.sqlstate.as_deref()), (Some("-803"), Some("23000")));
+        let dyn_sql = FbError::Sql { code: -206, msg: "Dynamic SQL Error\nSQL error code = -206\nColumn unknown\nX".into() };
+        let Error::Statement(se) = super::stmt_err(dyn_sql, "select x from t", 0) else { panic!("statement error") };
+        assert_eq!((se.code.as_deref(), se.sqlstate), (Some("-206"), None));
+        let cancel = FbError::Sql { code: -1, msg: "operation was cancelled".into() };
+        assert!(matches!(super::stmt_err(cancel, "select 1", 0), Error::Cancelled));
+    }
+
     use super::*;
 
     #[test]

@@ -146,7 +146,10 @@ async fn couchbase() {
     // Errors stop the script.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1; SELECT * FROM nope_nada; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
+    // With its code and place in the script (the keyspace is at byte 24).
+    let se = e.to_script_error();
+    assert_eq!((se.code.as_deref(), se.line, se.offset), (Some("12003"), Some(1), Some(24)), "{se:?}");
     assert_eq!(out.results.len(), 1);
 
     // Plans.
@@ -207,7 +210,7 @@ async fn couchbase() {
     roc.read_only = true;
     let mut ro = d.connect(&roc, Some("dbine_it")).await.unwrap();
     let e = ro.execute("UPDATE dbine_it.ventas.pedidos SET x = 1", 10, &mut QueryOutcome::default()).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     let mut ro = ReadOnlySession::new(ro);
     assert!(ro.execute("DELETE FROM dbine_it.ventas.pedidos", 10, &mut QueryOutcome::default()).await.is_err());
 

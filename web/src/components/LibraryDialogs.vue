@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
@@ -11,6 +11,7 @@ import { dbKey, useConnectionsStore } from '../stores/connections';
 import { fillPlaceholders, placeholders, useLibraryStore } from '../stores/library';
 import { useTabsStore } from '../stores/tabs';
 import CodeEditor from './CodeEditor.vue';
+import { inCodeEditor, isSaveShortcut } from '../composables/shortcuts';
 
 // The Library's dialogs: edit / create a script, and open one (where, and
 // its {{parameters}}).
@@ -62,6 +63,19 @@ async function saveScript() {
     saving.value = false;
   }
 }
+
+// ⌘S (Ctrl+S on Windows / Linux) is "Guardar en biblioteca" while the editor
+// is open. Inside the code editor CodeMirror takes the key (`@save`).
+function onSaveKey(ev: KeyboardEvent) {
+  if (!isSaveShortcut(ev) || inCodeEditor(ev)) return;
+  ev.preventDefault();
+  if (!saving.value) saveScript();
+}
+watch(editOpen, (open) => {
+  if (open) window.addEventListener('keydown', onSaveKey);
+  else window.removeEventListener('keydown', onSaveKey);
+}, { immediate: true });
+onBeforeUnmount(() => window.removeEventListener('keydown', onSaveKey));
 
 // -- move ------------------------------------------------------------------------------------
 const moveOpen = computed({ get: () => !!lib.moving, set: (v) => { if (!v) lib.moving = null; } });
@@ -165,7 +179,7 @@ async function finish() {
       </el-select>
       <el-input v-model="e.description" :placeholder="$t('library:dialogs.descriptionPlaceholder')" />
       <div class="ld-editor">
-        <CodeEditor v-model="e.text" :language="editLanguage" :dialect="editDialect" :placeholder="$t('library:dialogs.textPlaceholder', { example: param('name'), example2: param('table') })" />
+        <CodeEditor v-model="e.text" :language="editLanguage" :dialect="editDialect" @save="!saving && saveScript()" :placeholder="$t('library:dialogs.textPlaceholder', { example: param('name'), example2: param('table') })" />
       </div>
       <p class="ld-hint">
         <i18next :translation="$t('library:dialogs.paramsHint')">

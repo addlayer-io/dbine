@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { api, errorMessage } from '../api/client';
 import { locale, t } from '../i18n';
 import { tb } from '../i18n/backend';
-import type { QueryOutcome, SavedQuery } from '../api/types';
+import type { QueryMessage, QueryOutcome, QueryProgress, SavedQuery, TxState, UnsafeDml } from '../api/types';
 import CodeEditor from '../components/CodeEditor.vue';
 import ResultsPane from '../components/ResultsPane.vue';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
 import { useSettingsStore } from '../stores/settings';
-import { useTabsStore, type QueryTab } from '../stores/tabs';
+import { closeGuards, useTabsStore, type QueryTab } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { registerEditor } from '../stores/ai';
 import { useLibraryStore } from '../stores/library';
@@ -120,8 +121,20 @@ async function rename(name: string) {
 }
 
 async function changeDatabase(db: string) {
-  if (!query.value) return;
+  if (!query.value || db === props.tab.database) return;
+  // Another database is another session: the open transaction would go.
+  if (!(await settleTransaction('database'))) return;
   query.value = await conns.saveQuery({ ...query.value, database: db, sql: text.value });
+  tabs.retarget(props.tab.id, props.tab.connectionId, db);
+  conns.loadObjects(props.tab.connectionId, db);
+  txState.value = null;
+}
+
+/** A statement switched the database (`USE`): the tab follows it on the same
+ *  session, so nothing to settle (the transaction and #temp tables stay). */
+async function followDatabase(db: string | null | undefined) {
+  if (!db || db === props.tab.database) return;
+  if (query.value) query.value = await conns.saveQuery({ ...query.value, database: db, sql: text.value });
   tabs.retarget(props.tab.id, props.tab.connectionId, db);
   conns.loadObjects(props.tab.connectionId, db);
 }
@@ -206,30 +219,273 @@ async function formatQuery() {
 
 type PlanMode = 'none' | 'estimated' | 'actual';
 
-async function run(sqlText?: string, plan: PlanMode = 'none') {
-  const script = (sqlText ?? editor.value?.runnableText() ?? text.value).trim();
-  if (!script || running.value) return;
+// -- run options: "Seguir si hay un error" and transactions (per tab) ----------------------
+/** The driver runs editor scripts statement by statement (or batch by batch). */
+const perStatement = computed(() => (driver.value?.script_mode ?? 'whole') !== 'whole');
+const continueOnError = computed({
+  get: () => props.tab.continueOnError ?? driver.value?.script_defaults?.continue_on_error ?? false,
+  set: (v: boolean) => tabs.setQueryOptions(props.tab.id, { continueOnError: v }),
+});
+const offersManualTx = computed(() => !!driver.value?.supports_manual_transactions);
+const manualTx = computed(() => offersManualTx.value && !!props.tab.manualTx);
+/** The tab's transaction, as the last run (or Confirmar / Deshacer) left it. */
+const txState = ref<TxState | null>(null);
+const txOpen = computed(() => txState.value === 'open' || txState.value === 'failed');
+const txBusy = ref(false);
+
+async function setManualTx(on: boolean) {
+  if (on === manualTx.value) return;
+  // Back to automatic: the driver may commit what's pending; the user decides first.
+  if (!on && !(await settleTransaction('mode'))) return;
+  const before = props.tab.manualTx;
+  tabs.setQueryOptions(props.tab.id, { manualTx: on });
+  // Not connected yet: the next run switches the session.
+  if (conns.live[props.tab.connectionId]?.status !== 'connected') return;
+  try {
+    txState.value = await api.setTabAutocommit(props.tab.id, props.tab.connectionId, props.tab.database, !on);
+  } catch (e) {
+    tabs.setQueryOptions(props.tab.id, { manualTx: before });
+    ElMessage.error(errorMessage(e));
+  }
+}
+
+/** Confirmar / Deshacer. True when it went through. */
+async function endTransaction(commit: boolean): Promise<boolean> {
+  txBusy.value = true;
+  try {
+    txState.value = await (commit ? api.commitTab(props.tab.id) : api.rollbackTab(props.tab.id));
+    ElMessage.success({ message: commit ? t('query:tx.committed') : t('query:tx.rolledBack'), duration: 1500 });
+    return true;
+  } catch (e) {
+    txError.value = errorMessage(e);
+    if (!txAsk.value) ElMessage.error(txError.value);
+    return false;
+  } finally {
+    txBusy.value = false;
+  }
+}
+
+// The dialog when an open transaction would be lost (closing the tab,
+// another database, back to automatic): Confirmar / Deshacer / Cancelar.
+type TxReason = 'close' | 'database' | 'mode';
+const txAsk = ref<{ reason: TxReason; resolve: (ok: boolean) => void } | null>(null);
+const txError = ref<string | null>(null);
+/** Resolves true when there's no open transaction left (or there was none). */
+async function settleTransaction(reason: TxReason): Promise<boolean> {
+  if (!txOpen.value && !manualTx.value) return true;
+  try { txState.value = await api.tabTransactionState(props.tab.id); } catch { /* keep the last known state */ }
+  if (!txOpen.value) return true;
+  if (reason === 'close') tabs.activate(props.tab.id);
+  txError.value = null;
+  return new Promise<boolean>((resolve) => { txAsk.value = { reason, resolve }; });
+}
+async function answerTx(choice: 'commit' | 'rollback' | 'cancel') {
+  const ask = txAsk.value;
+  if (!ask) return;
+  if (choice !== 'cancel' && !(await endTransaction(choice === 'commit'))) return;
+  txAsk.value = null;
+  ask.resolve(choice !== 'cancel');
+}
+// Closing the tab asks while a transaction is open.
+const guardClose = () => settleTransaction('close');
+watch(txOpen, (open) => {
+  if (open) closeGuards.set(props.tab.id, guardClose);
+  else closeGuards.delete(props.tab.id);
+}, { immediate: true });
+onBeforeUnmount(() => {
+  closeGuards.delete(props.tab.id);
+  txAsk.value?.resolve(false);
+});
+
+// -- UPDATE / DELETE without WHERE: "Ejecutar igual" / "Cancelar" ---------------------------
+const unsafeAsk = ref<{ items: { keyword: string; line: number; text: string }[]; resolve: (ok: boolean) => void } | null>(null);
+function confirmUnsafe(script: string, found: UnsafeDml[]): Promise<boolean> {
+  const items = found.map((u) => ({ keyword: u.keyword, line: u.line + (lineOffset.value ?? 0), text: script.slice(u.start, u.end).trim() }));
+  return new Promise<boolean>((resolve) => { unsafeAsk.value = { items, resolve }; });
+}
+function answerUnsafe(ok: boolean) {
+  unsafeAsk.value?.resolve(ok);
+  unsafeAsk.value = null;
+}
+
+// -- live progress (query-progress / query-message of this tab's session) --------------------
+/** Where the run's sent text starts in the editor, and its first line minus one. */
+const runBase = ref(0);
+const lineOffset = ref<number | null>(null);
+/** Messages streamed since the last statement ended (its progress event repeats them). */
+let liveFrom = 0;
+function onProgress(p: QueryProgress) {
+  const o = outcome.value;
+  if (!running.value || p.session_id !== props.tab.id || !o) return;
+  const log = (o.log ??= []);
+  const streamed = log.splice(liveFrom);
+  const incoming = [...p.log];
+  // What was streamed and isn't in the statement's own log stays (a GO N's
+  // "Inicio del ciclo de ejecución").
+  const kept = streamed.filter((m) => {
+    const k = incoming.findIndex((x) => x.level === m.level && x.text === m.text);
+    if (k < 0) return true;
+    incoming.splice(k, 1);
+    return false;
+  });
+  log.push(...kept, ...p.log);
+  liveFrom = log.length;
+  o.results.push(...p.results);
+  (o.errors ??= []).push(...p.errors);
+  if (!o.error && p.errors.length) o.error = p.errors[0].message;
+}
+function onMessage(p: QueryMessage) {
+  const o = outcome.value;
+  if (!running.value || p.session_id !== props.tab.id || !o) return;
+  (o.log ??= []).push(p.message);
+}
+const unlisteners: UnlistenFn[] = [];
+let unmounted = false;
+onMounted(async () => {
+  try {
+    const subs = await Promise.all([
+      listen<QueryProgress>('query-progress', (e) => onProgress(e.payload)),
+      listen<QueryMessage>('query-message', (e) => onMessage(e.payload)),
+    ]);
+    if (unmounted) subs.forEach((u) => u());
+    else unlisteners.push(...subs);
+  } catch { /* outside Tauri */ }
+});
+onBeforeUnmount(() => {
+  unmounted = true;
+  unlisteners.forEach((u) => u());
+});
+
+// -- elapsed time while running ----------------------------------------------------------------
+const startedAt = ref(0);
+const now = ref(0);
+let clock: ReturnType<typeof setInterval> | null = null;
+function startClock() {
+  startedAt.value = now.value = Date.now();
+  if (clock) clearInterval(clock);
+  clock = setInterval(() => { now.value = Date.now(); }, 200);
+}
+function stopClock() {
+  if (clock) clearInterval(clock);
+  clock = null;
+}
+onBeforeUnmount(stopClock);
+
+/** Run `sqlText` (default: the selection, or everything). `from`: where it
+ *  starts in the editor, so the lines of messages and errors map to it. */
+async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
+  if (running.value) return;
+  const picked = sqlText !== undefined ? { text: sqlText, from: from ?? 0 } : editor.value?.runnable() ?? { text: text.value, from: 0 };
+  const script = picked.text.trim();
+  if (!script) return;
+  const base = picked.from + (picked.text.length - picked.text.trimStart().length);
   if (!(await conns.ensureConnected(props.tab.connectionId))) return;
   if (saveState.value === 'dirty') save();
+  runBase.value = base;
+  lineOffset.value = (editor.value?.lineAt(base) ?? 1) - 1;
+  await execute(script, plan, false);
+}
+
+async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean) {
   running.value = true;
+  startClock();
+  const before = { outcome: outcome.value, script: lastScript.value };
+  // What a cancel that closes the session would roll back: the transaction
+  // open before the run.
+  const txWasOpen = txOpen.value;
   lastScript.value = script;
+  // Statements fill it as they end (query-progress); the answer replaces it.
+  outcome.value = { results: [], messages: [], error: null, elapsed_ms: 0, plans: [], log: [], errors: [] };
+  liveFrom = 0;
   const where = `${conn.value?.name ?? ''} · ${props.tab.database || t('query:defaultDatabase')}`;
+  let unsafe: UnsafeDml[] | null = null;
   try {
     const o = await api.executeQuery({
       sessionId: props.tab.id, connectionId: props.tab.connectionId, database: props.tab.database,
       sql: script, maxRows: maxRows.value, queryId: props.tab.queryId, plan, record: true,
+      mode: 'auto',
+      continueOnError: perStatement.value ? continueOnError.value : null,
+      confirmedUnsafe,
+      autocommit: offersManualTx.value ? !manualTx.value : null,
     }).finally(() => { ui.historySeq++; });
-    outcome.value = o;
-    const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
-    if (o.error) output.add('error', `${firstLine}\n${tb(o.error)}`, { where, elapsedMs: o.elapsed_ms });
-    else output.add('info', firstLine, { where, elapsedMs: o.elapsed_ms });
+    if (o.needs_confirmation?.length) {
+      // Nothing ran: the previous results stay while the user decides.
+      outcome.value = before.outcome;
+      lastScript.value = before.script;
+      unsafe = o.needs_confirmation;
+    } else {
+      outcome.value = o;
+      // A cancel that closed the session took the open transaction with it:
+      // the one open before the run, or the work of statements that ended.
+      if (o.session_closed && manualTx.value && (txWasOpen || o.results.length > 0)) {
+        ElMessage.warning({ message: t('query:tx.lostOnCancel'), duration: 5000 });
+      }
+      txState.value = o.transaction ?? null;
+      await followDatabase(o.database);
+      const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
+      if (o.error) output.add('error', `${firstLine}\n${tb(o.error)}`, { where, elapsedMs: o.elapsed_ms });
+      else output.add('info', firstLine, { where, elapsedMs: o.elapsed_ms });
+    }
   } catch (e) {
-    outcome.value = { results: [], messages: [], error: errorMessage(e), elapsed_ms: 0, plans: [] };
+    outcome.value = { results: [], messages: [], error: errorMessage(e), elapsed_ms: Date.now() - startedAt.value, plans: [] };
     output.add('error', errorMessage(e), { where });
   } finally {
     running.value = false;
+    stopClock();
   }
+  if (unsafe && (await confirmUnsafe(script, unsafe))) await execute(script, plan, true);
 }
+
+/** ⌘⇧↵: the statement the cursor is in (or the last one before it). */
+async function runStatement(doc: string, cursor: number) {
+  if (running.value) return;
+  let units;
+  try {
+    units = await api.splitScript({ connectionId: props.tab.connectionId, sql: doc, statements: true });
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+    return;
+  }
+  // Client commands (DELIMITER, SET TERM) are the editor's, not the server's:
+  // the nearest statement around them runs instead.
+  units = units.filter((u) => u.kind !== 'client_command');
+  const unit = units.find((u) => cursor >= u.start && cursor <= u.end)
+    ?? [...units].reverse().find((u) => u.start <= cursor)
+    ?? units[0];
+  if (!unit) {
+    ElMessage.info({ message: t('query:status.noStatement'), duration: 2000 });
+    return;
+  }
+  await run(doc.slice(unit.start, unit.end), 'none', unit.start);
+}
+
+/** A message's line was clicked: the cursor goes there in the editor. */
+function goTo(at: { offset: number | null; line: number | null }) {
+  editor.value?.goTo({
+    pos: at.offset != null ? runBase.value + at.offset : null,
+    line: at.line != null ? at.line + (lineOffset.value ?? 0) : null,
+  });
+}
+
+// -- the tab's status bar ------------------------------------------------------------------------
+const serverVersion = computed(() => conns.live[props.tab.connectionId]?.serverVersion ?? '');
+const serverLabel = computed(() => conn.value?.config.host || conn.value?.name || '');
+const userName = computed(() => conn.value?.config.username ?? '');
+const statusLabel = computed(() => {
+  if (running.value) return t('results:running');
+  const o = outcome.value;
+  if (!o) return t('query:status.ready');
+  return o.error || o.errors?.length ? t('results:status.doneWithErrors') : t('results:status.done');
+});
+const statusKind = computed(() => (running.value ? 'running' : outcome.value?.error || outcome.value?.errors?.length ? 'error' : outcome.value ? 'ok' : ''));
+/** hh:mm:ss, live while it runs. */
+const clockText = computed(() => {
+  const ms = running.value ? now.value - startedAt.value : outcome.value?.elapsed_ms ?? 0;
+  const sec = Math.floor(ms / 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(Math.floor(sec / 3600))}:${pad(Math.floor(sec / 60) % 60)}:${pad(sec % 60)}`;
+});
+const totalRows = computed(() => (outcome.value?.results ?? []).reduce((n, r) => n + (r.columns.length ? r.total_rows : 0), 0));
 
 function cancel() {
   api.cancelQuery(props.tab.id).catch(() => {});
@@ -264,6 +520,9 @@ function drag(e: PointerEvent) {
         <el-button type="primary" :title="$t('query:runTitle')" @click="run()">
           <el-icon><ei-video-play /></el-icon>&nbsp;{{ $t('common:run') }}
         </el-button>
+        <el-tooltip :content="$t('query:runStatementTip')" placement="bottom" :show-after="300">
+          <el-button :aria-label="$t('query:runStatement')" @click="editor && runStatement(text, editor.cursor())"><el-icon><ei-caret-right /></el-icon></el-button>
+        </el-tooltip>
         <el-button-group v-if="driver?.supports_explain">
           <el-tooltip :content="$t('query:estimatedPlanTip')" placement="bottom" :show-after="300">
             <el-button :aria-label="$t('query:estimatedPlan')" @click="run(undefined, 'estimated')"><el-icon><ei-share /></el-icon></el-button>
@@ -295,6 +554,28 @@ function drag(e: PointerEvent) {
       >
         <el-option v-for="d in databases" :key="d" :label="d" :value="d" />
       </el-select>
+      <el-tooltip v-if="perStatement" :content="$t('query:continueOnErrorTip')" placement="bottom" :show-after="400">
+        <el-checkbox v-model="continueOnError" size="small" class="qv-check">{{ $t('query:continueOnError') }}</el-checkbox>
+      </el-tooltip>
+      <template v-if="offersManualTx">
+        <el-radio-group
+          size="small"
+          :model-value="manualTx ? 'manual' : 'auto'"
+          :aria-label="$t('query:tx.label')"
+          :disabled="running || txBusy"
+          @update:model-value="(v: string | number | boolean | undefined) => setManualTx(v === 'manual')"
+        >
+          <el-radio-button value="auto" :title="$t('query:tx.autoTip')">{{ $t('query:tx.auto') }}</el-radio-button>
+          <el-radio-button value="manual" :title="$t('query:tx.manualTip')">{{ $t('query:tx.manual') }}</el-radio-button>
+        </el-radio-group>
+      </template>
+      <span v-if="txOpen" class="qv-tx" :class="txState" role="status">
+        <el-icon><ei-warning-filled /></el-icon>{{ txState === 'failed' ? $t('query:tx.failed') : $t('query:tx.open') }}
+      </span>
+      <template v-if="txOpen || manualTx">
+        <el-button size="small" :disabled="running || txBusy" @click="endTransaction(true)">{{ $t('query:tx.commit') }}</el-button>
+        <el-button size="small" :disabled="running || txBusy" @click="endTransaction(false)">{{ $t('query:tx.rollback') }}</el-button>
+      </template>
       <el-tooltip :content="$t('query:saveToLibraryTip')" placement="bottom" :show-after="300">
         <el-button link :aria-label="$t('query:saveToLibrary')" @click="saveToLibrary"><el-icon :size="15"><ei-star /></el-icon></el-button>
       </el-tooltip>
@@ -319,8 +600,9 @@ function drag(e: PointerEvent) {
           :dialect="driver?.dialect"
           :schema="schema"
           :placeholder="$t('query:editorPlaceholder')"
-          @run="run"
-          @plan="(t: string, actual: boolean) => run(t, actual ? 'actual' : 'estimated')"
+          @run="(t: string, from: number) => run(t, 'none', from)"
+          @run-statement="runStatement"
+          @plan="(t: string, actual: boolean, from: number) => run(t, actual ? 'actual' : 'estimated', from)"
           @save="save"
           @format="formatQuery"
         />
@@ -334,10 +616,63 @@ function drag(e: PointerEvent) {
           :title="query?.name ?? $t('query:resultName')"
           :dialect="driver?.dialect ?? ''"
           :edit-source="lastScript ? { connectionId: tab.connectionId, database: tab.database, language: driver?.language ?? 'sql', script: lastScript } : null"
+          :line-offset="lineOffset ?? 0"
+          hide-status
           @script="appendScript"
+          @goto="goTo"
         />
       </div>
     </div>
+    <div class="qv-status">
+      <span class="qv-st" :class="statusKind">
+        <el-icon v-if="statusKind === 'running'" class="is-loading"><ei-loading /></el-icon>
+        <el-icon v-else-if="statusKind === 'error'"><ei-circle-close-filled /></el-icon>
+        <el-icon v-else-if="statusKind === 'ok'"><ei-circle-check-filled /></el-icon>
+        {{ statusLabel }}
+      </span>
+      <span v-if="serverLabel" class="qv-st qv-st-trim" :title="serverVersion ? `${$t('query:status.server')}: ${serverVersion}` : $t('query:status.server')">{{ serverLabel }}</span>
+      <span v-if="userName" class="qv-st" :title="$t('query:status.user')">{{ userName }}</span>
+      <span v-if="tab.database" class="qv-st qv-st-trim" :title="$t('query:database')">{{ tab.database }}</span>
+      <div class="nm-spacer" />
+      <span class="qv-st" :title="$t('query:status.elapsed')">{{ clockText }}</span>
+      <span class="qv-st" :title="$t('query:status.rowsTip')">{{ $t('results:messages.rows', { count: totalRows, rows: totalRows.toLocaleString(locale()) }) }}</span>
+    </div>
+
+    <el-dialog
+      :model-value="!!txAsk"
+      :title="$t('query:tx.dialogTitle')"
+      width="460px"
+      append-to-body
+      :close-on-click-modal="false"
+      @update:model-value="(v: boolean) => { if (!v) answerTx('cancel'); }"
+    >
+      <p class="qv-dialog-text">{{ txAsk ? $t(`query:tx.ask.${txAsk.reason}`) : '' }}</p>
+      <div v-if="txError" class="qv-dialog-error" role="alert">{{ txError }}</div>
+      <template #footer>
+        <el-button :disabled="txBusy" @click="answerTx('cancel')">{{ $t('common:cancel') }}</el-button>
+        <el-button :loading="txBusy" @click="answerTx('rollback')">{{ $t('query:tx.rollback') }}</el-button>
+        <el-button type="primary" :loading="txBusy" @click="answerTx('commit')">{{ $t('query:tx.commit') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      :model-value="!!unsafeAsk"
+      :title="$t('query:unsafe.title')"
+      width="620px"
+      append-to-body
+      :close-on-click-modal="false"
+      @update:model-value="(v: boolean) => { if (!v) answerUnsafe(false); }"
+    >
+      <p class="qv-dialog-text">{{ $t('query:unsafe.intro', { count: unsafeAsk?.items.length ?? 0 }) }}</p>
+      <div v-for="(u, i) in unsafeAsk?.items ?? []" :key="i" class="qv-unsafe">
+        <div class="qv-unsafe-line">{{ $t('results:messages.line', { line: u.line }) }}</div>
+        <pre class="qv-unsafe-code nm-selectable">{{ u.text }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="answerUnsafe(false)">{{ $t('common:cancel') }}</el-button>
+        <el-button type="danger" @click="answerUnsafe(true)">{{ $t('query:unsafe.run') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -349,4 +684,25 @@ function drag(e: PointerEvent) {
 .qv-sash { height: 5px; flex-shrink: 0; cursor: row-resize; border-top: 1px solid var(--nm-border-soft); }
 .qv-sash:hover { background: var(--ide-focus); }
 .qv-results { flex: 1; min-height: 0; }
+.qv-check { margin: 0 4px; }
+.qv-tx {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 10px; font-size: 11.5px;
+  color: var(--nm-warning); border: 1px solid color-mix(in srgb, var(--nm-warning) 50%, transparent);
+  background: color-mix(in srgb, var(--nm-warning) 10%, transparent);
+}
+.qv-tx.failed { color: var(--nm-danger); border-color: color-mix(in srgb, var(--nm-danger) 50%, transparent); background: color-mix(in srgb, var(--nm-danger) 10%, transparent); }
+.qv-status {
+  display: flex; align-items: center; height: 22px; flex-shrink: 0; padding: 0 4px; overflow: hidden; white-space: nowrap;
+  border-top: 1px solid var(--nm-border-soft); font-size: 11.5px; color: var(--nm-text-dim); font-variant-numeric: tabular-nums;
+}
+.qv-st { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-right: 1px solid var(--nm-border-soft); }
+.qv-st:last-child { border-right: none; }
+.qv-st-trim { max-width: 240px; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
+.qv-st.ok .el-icon { color: var(--nm-success); }
+.qv-st.error { color: var(--nm-danger); }
+.qv-dialog-text { margin: 0 0 10px; color: var(--nm-text); }
+.qv-dialog-error { margin-top: 8px; padding: 6px 10px; border-radius: 3px; color: var(--nm-text); white-space: pre-wrap; border: 1px solid color-mix(in srgb, var(--nm-danger) 50%, transparent); background: color-mix(in srgb, var(--nm-danger) 10%, transparent); }
+.qv-unsafe { margin-bottom: 8px; }
+.qv-unsafe-line { font-size: 11.5px; color: var(--nm-text-dim); margin-bottom: 2px; }
+.qv-unsafe-code { margin: 0; padding: 8px 10px; max-height: 30vh; overflow: auto; border: 1px solid var(--nm-border); border-radius: 4px; background: var(--ide-editor, var(--nm-bg-elev)); font-family: var(--nm-mono); font-size: 12.5px; color: var(--nm-text-strong); white-space: pre-wrap; }
 </style>

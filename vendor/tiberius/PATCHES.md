@@ -72,6 +72,70 @@ files kept). Every changed site is marked `PATCH(dbine)` in the source.
    * `src/tds/codec/bulk_load.rs` — `BulkLoadRequest::send_raw_rows(bytes)`.
    * `src/lib.rs` — exports `RawItem`, `RawMetadata`, `RawRowStream`.
 
+7. **Cancel from another task (TDS attention)** — `Client::cancel_handle()`
+   returns a cloneable `CancelHandle` whose `cancel()` stops the request in
+   flight while the client is busy reading its results, as SSMS does: an
+   Attention packet on the same connection, so the session survives (open
+   transaction, `#temp` tables, `SET` options). Upstream `cancel_query`
+   needs `&mut Client`, which the reading task holds.
+   * `src/client/connection.rs` — `CancelHandle` (a flag plus an
+     `AtomicWaker` shared with the connection). `Connection::poll_next`, the
+     single point every read goes through, sends the Attention packet
+     (`poll_attention`) when a cancel was asked and a response is being read
+     (`flushed` false), then keeps reading. The acknowledgement is spotted at
+     packet level (`track_attention_ack`: the message ends with a DONE /
+     DONEPROC / DONEINPROC carrying `DONE_ATTN`, 0x20). `send` forgets a
+     cancel asked while nothing ran, and `flush_stream`
+     (`drain_attention_ack`) reads an acknowledgement still due before the
+     next request.
+   * `src/tds/stream/token.rs` — SQL Server ends the stopped request with its
+     own message (a DONE with the error bit) and acknowledges in the next
+     one: with an Attention out, the token stream reads on into it instead of
+     ending.
+   * `src/tds/stream/query.rs`, `src/tds/stream/command.rs`, `src/result.rs`
+     — the acknowledging DONE ends the stream with the new
+     `Error::Cancelled` (`src/error.rs`); `forward_to_metadata` / `columns`
+     leave it for `poll_next`. If the request had already finished, its
+     results come complete and the stream still ends with `Cancelled`.
+   * `src/client.rs`, `src/lib.rs` — `Client::cancel_handle`, export of
+     `CancelHandle`.
+   * Tests: `attention_tests` in `connection.rs` (acknowledgement split over
+     packets); live ones in DBine's `crates/drivers/sqlserver/src/cancel_live.rs`
+     (SQL Server 2022: the session, `#temp` table, `SET` and transaction
+     survive; a late Attention's lone acknowledgement isn't taken as the next
+     answer; cancel after a reconnect reaches the new connection only).
+     Babelfish 5.4 reads the Attention only once the batch is over, so the
+     driver doesn't rely on it there.
+
+8. **A batch's whole answer in order (messages, counts, every error)** —
+   `Client::simple_query_messages(sql)` returns a `MessageStream` whose
+   `MessageItem`s are, in server order: result-set metadata and rows, INFO
+   tokens (`PRINT`, `RAISERROR` up to severity 10, `SET STATISTICS IO/TIME`,
+   warnings), every ERROR token, each DONE / DONEPROC / DONEINPROC with its
+   row count (`None` under `SET NOCOUNT ON`), and the ENVCHANGEs for the
+   database (`USE`) and transactions. Upstream `QueryStream` yields only
+   metadata and rows, drops INFO, DONE and ENVCHANGE, and ends at the first
+   ERROR; DBine's SQL Server driver needs them all to print what SSMS prints.
+   * `src/tds/stream/message.rs` (new) — `MessageStream`, `MessageItem`,
+     `ServerMessage` (number, state, class, message, server, procedure,
+     line), `DoneInfo` / `DoneKind`. The attention acknowledgement (patch 7)
+     ends it with `Error::Cancelled`.
+   * `src/tds/stream/token.rs` — `TokenStream::new_messages`: with
+     `errors_as_items`, an ERROR token is only an item, so the stream doesn't
+     end with the first one as its error.
+   * `src/tds/codec/token/token_done.rs` — crate-private accessors `count()`
+     (the row count when `DONE_COUNT` is set), `is_more()`, `is_error()`,
+     `cur_cmd()`, and `from_parts()` for tests.
+   * `src/tds/stream.rs`, `src/lib.rs` — module and exports (`DoneInfo`,
+     `DoneKind`, `MessageItem`, `MessageStream`, `ServerMessage`).
+   * `src/client.rs` — `Client::simple_query_messages`.
+   * Tests: `messages_counts_and_errors_come_in_order` and
+     `the_attention_ack_ends_it_cancelled` in `message.rs` (run from a copy
+     of this folder with an empty `[workspace]` table, `--no-default-features
+     --features tds73,chrono,rust_decimal,rustls,sql-browser-tokio`: tiberius
+     isn't a workspace member). Live ones in DBine's
+     `crates/drivers/sqlserver/src/script_live.rs`.
+
 ## Not needed on 0.13 (already upstream)
 
 * **Requested packet size** — `Config::packet_size(n)` exists upstream and is

@@ -152,7 +152,7 @@ async fn influxdb1_influxql() {
     // A failing statement keeps the ones before.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT * FROM cpu LIMIT 1; SELECT FROM", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
 
     // Read-only: refused before the server, and SELECT … INTO too.
     let mut ro_cfg = cfg.clone();

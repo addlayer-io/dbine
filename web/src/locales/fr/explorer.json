@@ -21,6 +21,7 @@
     "noQueries": "Aucune requête : clic droit › Nouvelle requête",
     "migrations": "Migrations",
     "noMigrations": "Aucune migration : clic droit › Nouvelle migration…",
+    "noSchemaObjects": "Aucun objet",
     "keys": "Clés",
     "ofTotal": "sur {{total}}",
     "others": "Autres",

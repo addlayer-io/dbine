@@ -15,8 +15,8 @@ import type { Language } from '../api/types';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
 // (`language` + `dialect`), `schema` feeds table/column completion.
-// ⌘↵ runs the selection (or everything), ⌘L shows its estimated plan,
-// ⌘⇧↵ runs it with the actual plan, ⌘S saves.
+// ⌘↵ runs the selection (or everything), ⌘⇧↵ the statement at the cursor,
+// ⌘L shows the estimated plan, ⌘⇧L runs with the actual plan, ⌘S saves.
 
 const props = withDefaults(defineProps<{
   modelValue: string;
@@ -30,9 +30,12 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
-  run: [text: string];
-  /** ⌘L: estimated plan. ⌘⇧↵: run with the actual plan. */
-  plan: [text: string, actual: boolean];
+  /** ⌘↵: the selection (or everything); `from`: where it starts in the text. */
+  run: [text: string, from: number];
+  /** ⌘⇧↵: the statement at the cursor (`cursor`, an index into `doc`). */
+  runStatement: [doc: string, cursor: number];
+  /** ⌘L: estimated plan. ⌘⇧L: run with the actual plan. */
+  plan: [text: string, actual: boolean, from: number];
   save: [];
   /** ⇧⌥F: format the code. */
   format: [];
@@ -91,8 +94,13 @@ const openTableList = EditorView.updateListener.of((u) => {
 
 /** The selection, or the whole text when nothing is selected. */
 function runnableText(v: EditorView): string {
+  return runnable(v).text;
+}
+
+/** The selection (or the whole text) and where it starts in the document. */
+function runnable(v: EditorView): { text: string; from: number } {
   const sel = v.state.selection.main;
-  return sel.empty ? v.state.doc.toString() : v.state.sliceDoc(sel.from, sel.to);
+  return sel.empty ? { text: v.state.doc.toString(), from: 0 } : { text: v.state.sliceDoc(sel.from, sel.to), from: sel.from };
 }
 
 onMounted(() => {
@@ -103,9 +111,10 @@ onMounted(() => {
       extensions: [
         keymap.of([
           { key: 'Shift-Alt-f', preventDefault: true, run: () => { emit('format'); return true; } },
-          { key: 'Mod-Enter', preventDefault: true, run: (v) => { emit('run', runnableText(v)); return true; } },
-          { key: 'Shift-Mod-Enter', preventDefault: true, run: (v) => { emit('plan', runnableText(v), true); return true; } },
-          { key: 'Mod-l', preventDefault: true, run: (v) => { emit('plan', runnableText(v), false); return true; } },
+          { key: 'Mod-Enter', preventDefault: true, run: (v) => { const r = runnable(v); emit('run', r.text, r.from); return true; } },
+          { key: 'Shift-Mod-Enter', preventDefault: true, run: (v) => { emit('runStatement', v.state.doc.toString(), v.state.selection.main.head); return true; } },
+          { key: 'Mod-l', preventDefault: true, run: (v) => { const r = runnable(v); emit('plan', r.text, false, r.from); return true; } },
+          { key: 'Shift-Mod-l', preventDefault: true, run: (v) => { const r = runnable(v); emit('plan', r.text, true, r.from); return true; } },
           { key: 'Mod-s', preventDefault: true, run: () => { emit('save'); return true; } },
           indentWithTab,
         ]),
@@ -176,6 +185,21 @@ async function format(fmt: (text: string) => Promise<string>) {
 defineExpose({
   focus: () => view?.focus(),
   runnableText: () => (view ? runnableText(view) : props.modelValue),
+  runnable: () => (view ? runnable(view) : { text: props.modelValue, from: 0 }),
+  /** The cursor, as an index into the text. */
+  cursor: () => view?.state.selection.main.head ?? 0,
+  /** 1-based line of a position of the text. */
+  lineAt: (pos: number) => (view ? view.state.doc.lineAt(Math.min(Math.max(0, pos), view.state.doc.length)).number : 1),
+  /** Put the cursor at `pos` (or at the start of 1-based `line`) and show it. */
+  goTo: (o: { pos?: number | null; line?: number | null }) => {
+    if (!view) return;
+    const doc = view.state.doc;
+    const at = o.pos != null ? Math.min(Math.max(0, o.pos), doc.length)
+      : o.line != null ? doc.line(Math.min(Math.max(1, o.line), doc.lines)).from : null;
+    if (at === null) return;
+    view.dispatch({ selection: { anchor: at }, scrollIntoView: true });
+    view.focus();
+  },
   selectionText: () => {
     if (!view) return '';
     const r = view.state.selection.main;

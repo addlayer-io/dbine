@@ -36,6 +36,27 @@ pub struct Client {
     pub notices: Vec<String>,
     /// Statements that set up every new stream (PRAGMAs of the session).
     pub init: Vec<String>,
+    /// The server speaks Hrana 3 (`/v3/pipeline`): it says whether the
+    /// stream is in a transaction (`get_autocommit`) and can run a step only
+    /// outside one (`is_autocommit`). Streams are the same as v2's.
+    pub v3: bool,
+    /// The stream's autocommit after the last script (`None`: unknown, or
+    /// the server is older than Hrana 3).
+    pub autocommit: Option<bool>,
+}
+
+/// A statement the server rejected: its message and Hrana's error code
+/// (`SQLITE_CONSTRAINT`, `SQL_PARSE_ERROR`…).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepError {
+    pub message: String,
+    pub code: Option<String>,
+}
+
+impl StepError {
+    fn from_value(e: &Value) -> Self {
+        Self { message: error_message(e), code: e.get("code").and_then(Value::as_str).filter(|c| !c.is_empty()).map(str::to_string) }
+    }
 }
 
 /// `libsql://db-org.turso.io` → `https://db-org.turso.io`; `ws(s)://` →
@@ -141,7 +162,24 @@ impl Client {
             .connect_timeout(Duration::from_secs(15))
             .build()
             .map_err(|e| Error::Connect(e.to_string()))?;
-        Ok(Self { http, base: http_url(url)?, token, baton: None, notices: Vec::new(), init: Vec::new() })
+        Ok(Self { http, base: http_url(url)?, token, baton: None, notices: Vec::new(), init: Vec::new(), v3: false, autocommit: None })
+    }
+
+    /// Whether the server speaks Hrana 3 (Turso and current sqld do): asks
+    /// for the autocommit of a throwaway stream, closed right away.
+    pub async fn detect_v3(&mut self) {
+        let body = json!({ "baton": null, "requests": [{ "type": "get_autocommit" }, { "type": "close" }] });
+        let mut req = self.http.post(format!("{}/v3/pipeline", self.base)).json(&body).timeout(Duration::from_secs(15));
+        if let Some(t) = &self.token {
+            req = req.bearer_auth(t);
+        }
+        let Ok(resp) = req.send().await else { return };
+        if !resp.status().is_success() {
+            return;
+        }
+        let Ok(v) = resp.json::<Value>().await else { return };
+        let first = v.get("results").and_then(Value::as_array).and_then(|r| r.first()).cloned().unwrap_or(Value::Null);
+        self.v3 = first.get("type").and_then(Value::as_str) == Some("ok");
     }
 
     pub fn base(&self) -> &str {
@@ -202,7 +240,8 @@ impl Client {
 
     async fn send(&mut self, requests: &[Value]) -> std::result::Result<Vec<Value>, Failure> {
         let body = json!({ "baton": self.baton, "requests": requests });
-        let mut req = self.http.post(format!("{}/v2/pipeline", self.base)).json(&body);
+        let version = if self.v3 { 3 } else { 2 };
+        let mut req = self.http.post(format!("{}/v{version}/pipeline", self.base)).json(&body);
         if let Some(t) = &self.token {
             req = req.bearer_auth(t);
         }
@@ -241,6 +280,11 @@ impl Client {
 
     /// Run a pipeline; each request's `Ok(response)` or `Err(message)`.
     pub async fn pipeline(&mut self, requests: Vec<Value>) -> Result<Vec<std::result::Result<Value, String>>> {
+        Ok(self.pipeline_raw(requests).await?.into_iter().map(|r| r.map_err(|e| e.message)).collect())
+    }
+
+    /// Run a pipeline; each request's `Ok(response)` or its error.
+    async fn pipeline_raw(&mut self, requests: Vec<Value>) -> Result<Vec<std::result::Result<Value, StepError>>> {
         let (first, mut skip) = self.with_init(&requests);
         let results = match self.send(&first).await {
             Ok(r) => r,
@@ -266,7 +310,7 @@ impl Client {
             .skip(skip)
             .map(|r| match r.get("type").and_then(Value::as_str) {
                 Some("ok") => Ok(r.get("response").cloned().unwrap_or(Value::Null)),
-                _ => Err(r.get("error").map(error_message).unwrap_or_else(|| "error del servidor".into())),
+                _ => Err(r.get("error").map(StepError::from_value).unwrap_or_else(|| StepError { message: "error del servidor".into(), code: None })),
             })
             .collect())
     }
@@ -295,29 +339,42 @@ impl Client {
 
     /// A script in one round trip, as a Hrana batch where each step runs
     /// only if the previous one succeeded: the results of the steps that
-    /// ran, and the first error (step, message).
-    pub async fn script(&mut self, sqls: &[String]) -> Result<(Vec<StmtResult>, Option<(usize, String)>)> {
-        let steps: Vec<Value> = sqls
-            .iter()
-            .enumerate()
-            .map(|(i, s)| match i {
-                0 => json!({ "stmt": stmt(s) }),
-                _ => json!({ "stmt": stmt(s), "condition": { "type": "ok", "step": i - 1 } }),
-            })
-            .collect();
-        let mut r = self.pipeline(vec![json!({ "type": "batch", "batch": { "steps": steps } })]).await?;
+    /// ran, and the first error (statement, error). `begin[i]`: open a
+    /// transaction before statement `i` when none is open (manual
+    /// transactions; needs Hrana 3). On Hrana 3 servers the stream's
+    /// autocommit after the script is kept in [`Client::autocommit`].
+    pub async fn script(&mut self, sqls: &[String], begin: &[bool]) -> Result<(Vec<StmtResult>, Option<(usize, StepError)>)> {
+        let steps = script_steps(sqls, begin);
+        let mut requests = vec![json!({ "type": "batch", "batch": { "steps": steps.0 } })];
+        if self.v3 {
+            requests.push(json!({ "type": "get_autocommit" }));
+        }
+        let mut r = self.pipeline_raw(requests).await?;
+        if self.v3 {
+            self.autocommit = match r.pop() {
+                Some(Ok(resp)) => resp.get("is_autocommit").and_then(Value::as_bool),
+                _ => None,
+            };
+        }
         let resp = match r.pop() {
             Some(Ok(resp)) => resp,
-            Some(Err(m)) => return Err(Error::Query(m)),
+            // The whole batch was refused (sqld parses every step first):
+            // nothing ran.
+            Some(Err(e)) => return Ok((Vec::new(), Some((0, e)))),
             None => return Err(Error::Query("el servidor no respondió el lote".into())),
         };
         let result = resp.get("result").cloned().unwrap_or(Value::Null);
         let results = result.get("step_results").and_then(Value::as_array).cloned().unwrap_or_default();
         let errors = result.get("step_errors").and_then(Value::as_array).cloned().unwrap_or_default();
         let mut out = Vec::new();
-        for (i, r) in results.iter().enumerate() {
-            if let Some(e) = errors.get(i).filter(|e| !e.is_null()) {
-                return Ok((out, Some((i, error_message(e)))));
+        for (step, r) in results.iter().enumerate() {
+            // The statement this step is (or opens a transaction for).
+            let Some(&(i, user)) = steps.1.get(step) else { break };
+            if let Some(e) = errors.get(step).filter(|e| !e.is_null()) {
+                return Ok((out, Some((i, StepError::from_value(e)))));
+            }
+            if !user {
+                continue;
             }
             if r.is_null() {
                 break;
@@ -325,6 +382,30 @@ impl Client {
             out.push(stmt_result(r));
         }
         Ok((out, None))
+    }
+
+    /// `COMMIT` or `ROLLBACK`, only when a transaction is open (Hrana 3).
+    pub async fn end_transaction(&mut self, sql: &str) -> Result<()> {
+        if !self.v3 {
+            return Err(Error::Unsupported("este servidor libSQL no informa transacciones (necesita Hrana 3)".into()));
+        }
+        let steps = [json!({ "stmt": { "sql": sql }, "condition": { "type": "not", "cond": { "type": "is_autocommit" } } })];
+        let mut r = self.pipeline(vec![json!({ "type": "batch", "batch": { "steps": steps } }), json!({ "type": "get_autocommit" })]).await?;
+        self.autocommit = match r.pop() {
+            Some(Ok(resp)) => resp.get("is_autocommit").and_then(Value::as_bool),
+            _ => None,
+        };
+        match r.pop() {
+            Some(Ok(resp)) => {
+                let errors = resp.pointer("/result/step_errors").and_then(Value::as_array).cloned().unwrap_or_default();
+                match errors.first().filter(|e| !e.is_null()) {
+                    Some(e) => Err(Error::Query(error_message(e))),
+                    None => Ok(()),
+                }
+            }
+            Some(Err(m)) => Err(Error::Query(m)),
+            None => Err(Error::Query("el servidor no respondió".into())),
+        }
     }
 
     /// Server version from `GET /version` (sqld), if it answers.
@@ -339,6 +420,35 @@ impl Client {
         let v = v.trim();
         (!v.is_empty() && v.len() < 200 && !v.starts_with('<')).then(|| v.to_string())
     }
+}
+
+/// The batch steps of a script: each statement runs only if the one before
+/// succeeded; with `begin[i]`, a `BEGIN` that runs only outside a
+/// transaction goes before statement `i`. Also, per step, the statement it
+/// belongs to and whether it's the statement itself.
+fn script_steps(sqls: &[String], begin: &[bool]) -> (Vec<Value>, Vec<(usize, bool)>) {
+    let mut steps = Vec::new();
+    let mut owner = Vec::new();
+    let mut prev: Option<usize> = None;
+    for (i, s) in sqls.iter().enumerate() {
+        let after = prev.map(|p| json!({ "type": "ok", "step": p }));
+        if begin.get(i).copied().unwrap_or(false) {
+            let outside = json!({ "type": "is_autocommit" });
+            let cond = match &after {
+                Some(a) => json!({ "type": "and", "conds": [a, outside] }),
+                None => outside,
+            };
+            steps.push(json!({ "stmt": { "sql": "BEGIN" }, "condition": cond }));
+            owner.push((i, false));
+        }
+        steps.push(match after {
+            Some(a) => json!({ "stmt": stmt(s), "condition": a }),
+            None => json!({ "stmt": stmt(s) }),
+        });
+        owner.push((i, true));
+        prev = Some(steps.len() - 1);
+    }
+    (steps, owner)
 }
 
 impl Drop for Client {
@@ -394,5 +504,19 @@ mod tests {
         assert_eq!(r.cols, vec![("a".into(), "INTEGER".into()), ("b".into(), String::new())]);
         assert_eq!(r.rows, vec![vec![json!(1), Value::Null]]);
         assert_eq!(error_message(&json!({"message": "SQLite error: no such table: x"})), "no such table: x");
+        let e = StepError::from_value(&json!({"message": "SQLite error: UNIQUE constraint failed: t.id", "code": "SQLITE_CONSTRAINT"}));
+        assert_eq!(e, StepError { message: "UNIQUE constraint failed: t.id".into(), code: Some("SQLITE_CONSTRAINT".into()) });
+    }
+
+    #[test]
+    fn steps_open_a_transaction_only_where_asked() {
+        let (steps, owner) = script_steps(&["select 1".into(), "insert into t values (1)".into()], &[false, true]);
+        assert_eq!(owner, vec![(0, true), (1, false), (1, true)]);
+        assert_eq!(steps[1]["stmt"]["sql"], "BEGIN");
+        assert_eq!(steps[1]["condition"]["conds"][1]["type"], "is_autocommit");
+        assert_eq!(steps[2]["condition"], json!({"type": "ok", "step": 0}));
+        let (steps, _) = script_steps(&["insert into t values (1)".into()], &[true]);
+        assert_eq!(steps[0]["condition"], json!({"type": "is_autocommit"}));
+        assert!(steps[1].get("condition").is_none());
     }
 }

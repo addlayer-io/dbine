@@ -16,15 +16,18 @@ mod permissions;
 mod plan;
 mod profiler;
 mod security;
+mod steps;
 mod transfer;
 
 use ddl::{path, q, split_schema};
-use dbine_driver::sql::split_statements;
+use dbine_driver::sql::{split_script, split_statements, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind};
 use dbine_driver::{
     async_trait, json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
-    DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, Metric, MetricUnit, MonitorSnapshot,
-    MonitorTable, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, Message, MessageLevel, Metric, MetricUnit,
+    MonitorSnapshot, MonitorTable, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session,
+    TableSchema, TxState,
 };
+use steps::Step;
 use serde_json::{json, Value};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -34,6 +37,16 @@ use tokio::sync::Notify;
 
 /// Documents sampled to infer a collection's fields.
 const SAMPLE: usize = 100;
+
+/// How long a transaction opened from the editor may stay open (the
+/// server's default, 15 s, is too short for someone typing).
+const TX_TIMEOUT: &str = "1h";
+
+/// cbq's reading of a script: SQL++ strings take backslash escapes, and
+/// there are no `BEGIN … END` bodies (`BEGIN WORK` is a statement).
+fn dialect() -> ScriptDialect {
+    ScriptDialect { backslash_escapes: true, compound_blocks: false, ..ScriptDialect::generic() }
+}
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![Arc::new(CouchbaseDriver { info: info() })]
@@ -93,6 +106,27 @@ impl Driver for CouchbaseDriver {
         true
     }
 
+    fn script_dialect(&self) -> ScriptDialect {
+        dialect()
+    }
+
+    /// One statement per Query service request; the session's state (the
+    /// open transaction's txid) lives in the session.
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// cbq goes on after a failed statement (unless `-exit-on-error`).
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+    }
+
+    /// SQL++ transactions (`BEGIN WORK` … `COMMIT`): the txid the server
+    /// hands out goes with every statement until the end.
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     /// Multi-row SQL++ `INSERT`s, several at once (see `transfer.rs`).
     fn supports_bulk_load(&self) -> bool {
         true
@@ -142,6 +176,27 @@ impl Driver for CouchbaseDriver {
         security::script(action)
     }
 
+    /// Scopes are the schemas (`bucket.scope`). They have no owner; roles
+    /// that take a scope (Enterprise Edition) can be granted on a new one.
+    /// `DROP SCOPE` always takes its collections with it.
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(dbine_driver::SchemaSpec { owner: false, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: true, privileges: security::scope_roles(), grant_option: false })
+    }
+
+    /// `name` is `bucket.scope`, or a bare scope of the menu's bucket.
+    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+        ddl::create_scope(&ddl::full_scope(database, name), owner)
+    }
+
+    fn schema_grant_script(&self, database: Option<&str>, name: &str, privileges: &[String], to: &str, grantable: bool) -> Result<String> {
+        let object = ObjectRef { kind: "schema".into(), schema: None, name: ddl::full_scope(database, name) };
+        security::script(&dbine_driver::SecurityAction::Grant { privileges: privileges.to_vec(), object: Some(object), to: to.to_string(), grantable })
+    }
+
+    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        ddl::drop_scope(&ddl::full_scope(database, name), cascade)
+    }
+
     fn filtered_browse(&self, browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
         ddl::filtered_browse(browse, filters)
     }
@@ -169,6 +224,8 @@ impl Driver for CouchbaseDriver {
             cancel: Arc::new(Cancel::default()),
             rt: tokio::runtime::Handle::current(),
             profiler: None,
+            txid: None,
+            manual: false,
         };
         let check = async {
             s.query("SELECT RAW 1", None).await?;
@@ -208,8 +265,11 @@ fn encode(s: &str) -> String {
 }
 
 /// Query service error codes: 10000 authentication, 12008/13014 (and
-/// 2120 on authorization) credentials; 1010 / 1260 request stopped.
-fn query_error(errors: &[Value]) -> Error {
+/// 2120 on authorization) credentials; 1010 / 1260 request stopped. Others
+/// keep their code and, when the server gives one, their place in
+/// `statement` (`line` / `column`); further errors of the same request
+/// follow the first one's message.
+fn query_error(errors: &[Value], statement: Option<&str>) -> Error {
     let first = errors.first().cloned().unwrap_or(Value::Null);
     let code = first.get("code").and_then(Value::as_i64).unwrap_or(0);
     let msg = first.get("msg").and_then(Value::as_str).unwrap_or("error de Couchbase").to_string();
@@ -217,7 +277,74 @@ fn query_error(errors: &[Value]) -> Error {
         10000 | 13014 => Error::AuthFailed(msg),
         2120 if msg.contains("authenticate") => Error::AuthFailed(msg),
         1010 | 1260 | 5010 if msg.to_ascii_lowercase().contains("stop") || msg.contains("cancel") => Error::Cancelled,
-        _ => Error::Query(msg),
+        _ => {
+            let mut text = msg;
+            // Transaction errors carry the data service's reason inside.
+            let mut cause = first.get("cause");
+            while let Some(c) = cause {
+                if let Some(d) = c.get("error_description").and_then(Value::as_str) {
+                    text.push_str(&format!(" ({d})"));
+                    break;
+                }
+                cause = c.get("cause");
+            }
+            for e in &errors[1..] {
+                text.push('\n');
+                text.push_str(e.get("msg").and_then(Value::as_str).unwrap_or_default());
+            }
+            let mut se = ScriptError::new(text);
+            if code != 0 {
+                se = se.with_code(code.to_string());
+            }
+            let at = |k: &str| first.get(k).and_then(Value::as_u64).map(|n| n as u32);
+            if let (Some(line), Some(stmt)) = (at("line"), statement) {
+                se = se.at_line(line).at_offset(steps::offset_of(stmt, line, at("column").unwrap_or(1)));
+            }
+            Error::Statement(Box::new(se))
+        }
+    }
+}
+
+/// The transaction no longer exists on the server (it expired, or ended).
+fn tx_gone(e: &Error) -> bool {
+    match e {
+        Error::Statement(se) => {
+            se.code.as_deref() == Some("17004") || se.message.contains("is not present") || se.message.to_ascii_lowercase().contains("expired")
+        }
+        _ => false,
+    }
+}
+
+/// What a statement does to the transaction.
+#[derive(Debug, PartialEq, Eq)]
+enum TxEffect {
+    /// `BEGIN WORK`, `START TRANSACTION`.
+    Begin,
+    /// `COMMIT [WORK|TRANSACTION]`.
+    Commit,
+    /// `ROLLBACK [WORK|TRANSACTION]` (not `ROLLBACK TO SAVEPOINT`).
+    Rollback,
+    /// A statement a manual transaction takes (reads and DML; the server
+    /// refuses DDL inside a transaction).
+    Data,
+    Other,
+}
+
+/// The txid of a `BEGIN WORK` reply.
+fn txid_of(v: &Value) -> Option<String> {
+    v.pointer("/results/0/txid").and_then(Value::as_str).map(str::to_string)
+}
+
+fn tx_effect(stmt: &str) -> TxEffect {
+    let words: Vec<String> = stmt.split_whitespace().take(3).map(|w| w.trim_end_matches(';').to_ascii_uppercase()).collect();
+    let w = |i: usize| words.get(i).map(String::as_str).unwrap_or("");
+    match w(0) {
+        "BEGIN" if matches!(w(1), "" | "WORK" | "TRANSACTION" | "TRAN") => TxEffect::Begin,
+        "START" if matches!(w(1), "WORK" | "TRANSACTION" | "TRAN") => TxEffect::Begin,
+        "COMMIT" => TxEffect::Commit,
+        "ROLLBACK" if !(w(1) == "TO" || w(2) == "TO") => TxEffect::Rollback,
+        "SELECT" | "WITH" | "INSERT" | "UPSERT" | "UPDATE" | "DELETE" | "MERGE" | "EXECUTE" | "INFER" => TxEffect::Data,
+        _ => TxEffect::Other,
     }
 }
 
@@ -241,7 +368,7 @@ impl Conn {
             }
         })?;
         if let Some(errs) = v.get("errors").and_then(Value::as_array).filter(|e| !e.is_empty()) {
-            return Err(query_error(errs));
+            return Err(query_error(errs, body.get("statement").and_then(Value::as_str)));
         }
         if v.get("status").and_then(Value::as_str) == Some("stopped") {
             return Err(Error::Cancelled);
@@ -296,6 +423,11 @@ pub struct CbSession {
     rt: tokio::runtime::Handle,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// The open transaction (`BEGIN WORK`): sent with every editor
+    /// statement until `COMMIT` / `ROLLBACK`.
+    txid: Option<String>,
+    /// Manual transactions: the first read or DML opens one.
+    manual: bool,
 }
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -432,6 +564,9 @@ impl CbSession {
         let id = context_id();
         *self.cancel.current.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
         let mut body = self.body(stmt, Some(&id));
+        if let Some(t) = &self.txid {
+            body["txid"] = Value::String(t.clone());
+        }
         if let Some(Value::Object(e)) = extra {
             for (k, v) in e {
                 body[k] = v;
@@ -443,7 +578,10 @@ impl CbSession {
         let results = v.get("results").and_then(Value::as_array).cloned().unwrap_or_default();
         let signature = v.get("signature").filter(|s| !s.is_null());
         let mutations = v.pointer("/metrics/mutationCount").and_then(Value::as_u64);
-        if results.is_empty() && (signature.is_none() || mutations.is_some()) {
+        if results.is_empty() && matches!(tx_effect(stmt), TxEffect::Commit | TxEffect::Rollback) {
+            // Its own message says what happened: no grid, no count.
+            out.results.push(dbine_driver::StatementResult::default());
+        } else if results.is_empty() && (signature.is_none() || mutations.is_some()) {
             out.push_affected(mutations.unwrap_or(0));
         } else {
             let (cols, rows) = tabulate(&results, signature);
@@ -452,13 +590,73 @@ impl CbSession {
                 out.push_row(r, max_rows);
             }
             if let Some(m) = mutations {
-                out.messages.push(format!("{m} documentos modificados"));
+                out.info(format!("{m} documentos modificados"));
             }
         }
         for w in v.get("warnings").and_then(Value::as_array).into_iter().flatten() {
-            out.messages.push(w.get("msg").map(text).unwrap_or_else(|| w.to_string()));
+            out.message(Message {
+                level: MessageLevel::Warning,
+                text: w.get("msg").map(text).unwrap_or_else(|| w.to_string()),
+                code: w.get("code").filter(|c| !c.is_null()).map(text),
+                ..Default::default()
+            });
         }
         Ok(v)
+    }
+
+    /// An editor statement: in the open transaction, opening one first in
+    /// manual mode, and keeping the txid `BEGIN WORK` returns.
+    async fn run_stmt(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let effect = tx_effect(stmt);
+        if self.manual && self.txid.is_none() && effect == TxEffect::Data {
+            self.begin(out).await?;
+        }
+        if effect == TxEffect::Begin && self.txid.is_none() {
+            let v = self.run(stmt, Some(json!({"txtimeout": TX_TIMEOUT})), max_rows, out).await?;
+            self.txid = txid_of(&v);
+            out.info("Transacción iniciada.");
+            return Ok(());
+        }
+        match self.run(stmt, None, max_rows, out).await {
+            Ok(_) => {
+                match effect {
+                    TxEffect::Commit if self.txid.take().is_some() => out.info("Transacción confirmada."),
+                    TxEffect::Rollback if self.txid.take().is_some() => out.info("Transacción deshecha."),
+                    _ => {}
+                }
+                Ok(())
+            }
+            Err(e) => {
+                // A failed COMMIT ends the transaction too (the server
+                // rolls it back).
+                if self.txid.is_some() && (tx_gone(&e) || matches!(effect, TxEffect::Commit | TxEffect::Rollback)) {
+                    self.txid = None;
+                    out.warning("La transacción ya no está abierta en el servidor: sus cambios no se guardaron.");
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// `BEGIN WORK` for manual mode.
+    async fn begin(&mut self, out: &mut QueryOutcome) -> Result<()> {
+        let mut b = self.body("BEGIN WORK", None);
+        b["txtimeout"] = Value::String(TX_TIMEOUT.into());
+        let v = self.cancel.run(self.conn.post_query(&b)).await?;
+        self.txid = txid_of(&v);
+        out.info("Transacción iniciada.");
+        Ok(())
+    }
+
+    /// `COMMIT` / `ROLLBACK` of the open transaction, if any.
+    async fn end_tx(&mut self, stmt: &str) -> Result<()> {
+        let Some(t) = self.txid.take() else { return Ok(()) };
+        let mut b = self.body(stmt, None);
+        b["txid"] = Value::String(t);
+        match self.cancel.run(self.conn.post_query(&b)).await {
+            Err(e) if tx_gone(&e) => Err(Error::Query("La transacción ya no estaba abierta en el servidor (se venció): sus cambios no se guardaron.".into())),
+            r => r.map(|_| ()),
+        }
     }
 
     /// A new collection takes a moment to reach the query service; the
@@ -568,6 +766,30 @@ impl Session for CbSession {
             }
         }
         Ok(out)
+    }
+
+    /// The bucket's scopes (`bucket.scope`, as the objects name them), so an
+    /// empty scope (just made with "Nuevo esquema…") shows and can be
+    /// dropped. `_system` (Couchbase's own, 7.6+) is marked system: its
+    /// collections aren't listed, so the tree never shows it.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
+        let Ok(b) = self.bucket() else { return Ok(None) };
+        let names: Vec<String> = match self.conn.mgmt_get(&format!("/pools/default/buckets/{}/scopes", encode(&b))).await {
+            Ok(v) => v.get("scopes").and_then(Value::as_array).into_iter().flatten().map(|s| s.get("name").map(text).unwrap_or_default()).collect(),
+            Err(_) => self
+                .results(&format!("SELECT RAW s.name FROM system:scopes AS s WHERE s.`bucket` = {} ORDER BY s.name", serde_json::to_string(&b).unwrap_or_default()))
+                .await?
+                .iter()
+                .map(text)
+                .collect(),
+        };
+        Ok(Some(
+            names
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .map(|s| dbine_driver::SchemaInfo { system: s.starts_with("_system"), name: format!("{b}.{s}") })
+                .collect(),
+        ))
     }
 
     /// Fields of a sample of documents: `_id` (the key) first, then the
@@ -712,13 +934,36 @@ impl Session for CbSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
-        for stmt in split_statements(text) {
-            self.run(&stmt, None, max_rows, out).await?;
-            if let Some(ks) = created_collection(&stmt) {
+        let own = out.current_statement.is_none();
+        let units = split_script(text, &dialect());
+        for (i, u) in units.iter().filter(|u| u.kind != StatementKind::ClientCommand).enumerate() {
+            let step = Step::start(out, own, i, u.start, u.line);
+            let r = self.run_stmt(&u.text, max_rows, out).await;
+            step.end(out, r)?;
+            if let Some(ks) = created_collection(&u.text) {
                 self.wait_for(&ks).await;
             }
         }
         Ok(())
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        Ok(Some(if self.txid.is_some() { TxState::Open } else { TxState::Idle }))
+    }
+
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        self.manual = !on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.end_tx("COMMIT").await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.end_tx("ROLLBACK").await
     }
 
     /// Estimated: `EXPLAIN` of each DML statement (it doesn't run them).
@@ -734,7 +979,7 @@ impl Session for CbSession {
                     let p = self.explain_plan(&stmt).await?;
                     out.plans.push(p);
                 } else {
-                    out.messages.push(format!("Sin plan (no se ejecutó): {}", stmt.chars().take(80).collect::<String>()));
+                    out.info(format!("Sin plan (no se ejecutó): {}", stmt.chars().take(80).collect::<String>()));
                 }
                 continue;
             }
@@ -749,7 +994,7 @@ impl Session for CbSession {
                     }
                 }
                 out.plans.push(p);
-                out.messages.push("El servidor no devolvió el perfil de ejecución (es una función de Couchbase Enterprise): se muestra el plan estimado.".into());
+                out.info("El servidor no devolvió el perfil de ejecución (es una función de Couchbase Enterprise): se muestra el plan estimado.");
             }
         }
         Ok(())
@@ -1016,6 +1261,19 @@ fn text_of(v: &Value) -> String {
 mod tests {
     use super::*;
 
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(Some("b"), "s", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
+
     #[test]
     fn documents_become_rows() {
         let r = vec![json!({"_id": "k1", "a": 1, "n": {"z": true}}), json!({"_id": "k2", "b": [1, 2], "a": 9007199254740993i64})];
@@ -1033,8 +1291,21 @@ mod tests {
 
     #[test]
     fn errors_and_statements() {
-        assert!(matches!(query_error(&[json!({"code": 10000, "msg": "Authentication Failed"})]), Error::AuthFailed(_)));
-        assert!(matches!(query_error(&[json!({"code": 3000, "msg": "syntax error"})]), Error::Query(_)));
+        assert!(matches!(query_error(&[json!({"code": 10000, "msg": "Authentication Failed"})], None), Error::AuthFailed(_)));
+        let e = query_error(&[json!({"code": 3000, "msg": "syntax error", "line": 2, "column": 3})], Some("SELECT\n  SELEC 1")).to_script_error();
+        assert_eq!((e.code.as_deref(), e.line, e.offset), (Some("3000"), Some(2), Some(9)));
+        assert!(query_error(&[json!({"code": 12003, "msg": "x"}), json!({"msg": "y"})], None).to_string() == "x\ny");
+        let e = json!({"code": 17007, "msg": "Commit Transaction statement error", "cause": {"cause": {"error_description": "Durability requirements are impossible to achieve"}}});
+        assert_eq!(query_error(&[e], None).to_string(), "Commit Transaction statement error (Durability requirements are impossible to achieve)");
+        assert!(tx_gone(&query_error(&[json!({"code": 17004, "msg": "transaction (x) is not present"})], None)));
+        assert_eq!(tx_effect("begin work"), TxEffect::Begin);
+        assert_eq!(tx_effect("START TRANSACTION ISOLATION LEVEL READ COMMITTED"), TxEffect::Begin);
+        assert_eq!(tx_effect("COMMIT WORK"), TxEffect::Commit);
+        assert_eq!(tx_effect("ROLLBACK TRANSACTION TO SAVEPOINT s1"), TxEffect::Other);
+        assert_eq!(tx_effect("rollback"), TxEffect::Rollback);
+        assert_eq!(tx_effect("UPSERT INTO b VALUES ('k', {})"), TxEffect::Data);
+        assert_eq!(tx_effect("CREATE INDEX i ON b(a)"), TxEffect::Other);
+        assert_eq!(txid_of(&json!({"results": [{"txid": "t1"}]})).as_deref(), Some("t1"));
         assert!(explainable("select 1") && explainable("UPSERT INTO x VALUES ('k', {})") && !explainable("CREATE INDEX i ON c(a)"));
         assert_ne!(context_id(), context_id());
         assert_eq!(created_collection("CREATE COLLECTION `b`.`s`.`c` IF NOT EXISTS").as_deref(), Some("`b`.`s`.`c`"));
@@ -1054,6 +1325,8 @@ mod tests {
             cancel: Arc::new(Cancel::default()),
             rt: rt.handle().clone(),
             profiler: None,
+            txid: None,
+            manual: false,
         };
         let o = ObjectRef { kind: kinds::COLLECTION.into(), schema: Some("b.inv".into()), name: "hotel".into() };
         assert_eq!(s.browse_query(&o, 5), "SELECT META(d).id AS _id, d.*\nFROM `b`.`inv`.`hotel` AS d\nLIMIT 5");

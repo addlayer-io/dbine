@@ -5,8 +5,8 @@
 //!
 //! - backup (`EXPORT DATABASE`) only reads the database: allowed even
 //!   read-only (the destination folder is chosen later).
-//! - restore (`IMPORT DATABASE`) writes into the target catalog: denied
-//!   when it's read-only.
+//! - restore (`IMPORT DATABASE`) and `CREATE SCHEMA` write into the target
+//!   catalog: denied when it's read-only.
 //! - create (`ATTACH` of a new file): denied when the instance was opened
 //!   read-only (DuckDB then opens every attached file read-only, and a new
 //!   one "does not exist").
@@ -21,12 +21,13 @@ use duckdb::Connection;
 const MISSING: &str = "permiso de escritura sobre el archivo (la base está abierta en solo lectura)";
 
 /// `instance_read_only`: `access_mode` is `read_only`. `target_read_only`:
-/// the catalog a restore writes to (`None`: couldn't tell).
+/// the catalog a restore or a new schema writes to (`None`: couldn't tell).
 pub(crate) fn decide(instance_read_only: Option<bool>, target_read_only: Option<bool>) -> Permissions {
     let writable = |ro: Option<bool>| ro.map_or(Access::Unknown, |ro| Access::check(!ro, MISSING));
     Permissions {
         backup: Access::Allowed,
         restore: writable(target_read_only),
+        create_schema: writable(target_read_only),
         create_database: writable(instance_read_only),
         drop_database: Access::Allowed,
         ..Default::default()
@@ -57,9 +58,10 @@ mod tests {
         assert_eq!((&p.backup, &p.restore, &p.create_database, &p.drop_database), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
         let p = decide(Some(true), Some(true));
         assert_eq!((&p.backup, &p.drop_database), (&Access::Allowed, &Access::Allowed));
-        assert!(p.restore.is_denied() && p.create_database.is_denied());
+        assert!(p.restore.is_denied() && p.create_database.is_denied() && p.create_schema.is_denied());
+        assert_eq!(decide(Some(false), Some(false)).create_schema, Access::Allowed);
         let p = decide(None, None);
-        assert_eq!((&p.restore, &p.create_database), (&Access::Unknown, &Access::Unknown));
+        assert_eq!((&p.restore, &p.create_database, &p.create_schema), (&Access::Unknown, &Access::Unknown, &Access::Unknown));
         assert_eq!((&p.profiler, &p.manage_security), (&Access::Unknown, &Access::Unknown));
     }
 
@@ -77,13 +79,16 @@ mod tests {
             c.execute_batch("CREATE TABLE t (x INT); INSERT INTO t VALUES (1);").unwrap();
             let p = check(&c, None);
             assert_eq!((&p.restore, &p.create_database, &p.drop_database), (&Access::Allowed, &Access::Allowed, &Access::Allowed));
+            assert_eq!(p.create_schema, Access::Allowed);
+            c.execute_batch("CREATE SCHEMA yes; DROP SCHEMA yes").unwrap();
             c.execute_batch(&format!("ATTACH {} AS other", lit(&dir.join("other.duckdb")))).unwrap();
             assert_eq!(check(&c, Some("other")).restore, Access::Allowed);
         }
         let config = Config::default().access_mode(AccessMode::ReadOnly).unwrap();
         let c = Connection::open_with_flags(&file, config).unwrap();
         let p = check(&c, None);
-        assert!(p.restore.is_denied() && p.create_database.is_denied());
+        assert!(p.restore.is_denied() && p.create_database.is_denied() && p.create_schema.is_denied());
+        assert!(c.execute_batch("CREATE SCHEMA nope").is_err());
         assert_eq!((&p.backup, &p.drop_database), (&Access::Allowed, &Access::Allowed));
         // Backup (EXPORT) and DETACH still work; restore (IMPORT) and ATTACH of a new file don't.
         let export = dir.join("export");

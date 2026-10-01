@@ -148,7 +148,7 @@ En el editor hay tres acciones:
 | Acción | Atajo | Qué hace |
 |---|---|---|
 | **Plan estimado** | ⌘L | Muestra el plan sin ejecutar nada, tampoco las escrituras. |
-| **Ejecutar + plan** | ⌘⇧↵ | Ejecuta el script y muestra los resultados más el plan con cifras reales. |
+| **Ejecutar + plan** | ⌘⇧L | Ejecuta el script y muestra los resultados más el plan con cifras reales. |
 
 Reglas comunes a todos los motores:
 
@@ -437,6 +437,45 @@ Forma del código por motor:
 - Algunos motores solo actualizan ciertos tipos de tabla: Hive las ACID, Impala
   las de Kudu, y StarRocks y Doris las de clave primaria. Ahí el código se
   genera igual y el error lo da el motor al ejecutarlo.
+
+### Eliminar filas
+
+Con clic derecho sobre una fila (o sobre varias seleccionadas), o con
+Supr/Retroceso sobre las filas seleccionadas, se marcan para eliminar: se ven
+tachadas y el mismo ítem pasa a «Restaurar fila». Las ediciones de una fila
+marcada no cuentan. «Guardar» muestra un solo script con los borrados y las
+actualizaciones, en el lenguaje del motor (`Driver::delete_script`, el mismo
+que usa la comparación de datos), y nada se ejecuta sin ese clic.
+
+- **Qué fila se borra:** por la clave primaria; sin clave, por todas las
+  columnas, con el mismo aviso que al editar. Las columnas binarias o largas
+  (BLOB, bytea, CLOB, XML, geometrías…) quedan fuera de ese WHERE porque su
+  valor no se puede comparar; si la clave primaria tiene uno de esos valores,
+  la fila no se puede borrar desde la grilla. Un NULL en la clave va como
+  `IS NULL`.
+- **Orden:** primero los borrados y después las actualizaciones. Las filas no
+  se superponen (una fila marcada pierde sus ediciones), y borrar primero
+  evita que un UPDATE deje una fila igual a otra que se iba a borrar (sin
+  clave, el DELETE se llevaría las dos) o choque con un valor único que está
+  por desaparecer.
+- Se aplican las mismas reglas que para editar: conexiones de solo lectura y
+  resultados no editables.
+
+Motores que no borran filas (el ítem aparece deshabilitado con el motivo):
+
+| Motor | Motivo |
+|---|---|
+| Apache Drill | No tiene DELETE: las tablas solo se recrean con CTAS |
+| ksqlDB | No tiene DELETE: una fila de una tabla se borra con un tombstone escrito directamente en el topic de Kafka, y los streams solo admiten agregar eventos |
+| InfluxDB 2 (Flux) | Flux no borra puntos: se borran con la API `/api/v2/delete`, por rango de tiempo y predicado sobre los tags |
+| InfluxDB 3 (SQL) | Su SQL es de solo lectura y no borra puntos sueltos |
+| NetSuite (ODBC) | SuiteAnalytics Connect es de solo lectura |
+
+**Casos que el motor rechaza por fila** (el motivo aparece en la barra de
+cambios): Manticore con una clave NULL; TDengine necesita la marca de tiempo
+como única clave (y `tbname` en una supertabla); Solr, Elasticsearch,
+CouchDB, Cassandra, Cosmos DB y DynamoDB necesitan la clave o el id completo
+del documento.
 
 ## Asistente de IA
 
@@ -1448,6 +1487,160 @@ El resto se implementó según la documentación del fabricante, con pruebas uni
 | ODBC: Informix, GBase 8s, Db2 (LUW, i, z/OS), Hive, Impala | Crear usuarios y contraseñas | Los usuarios son del sistema operativo, LDAP, Kerberos o RACF. |
 | ODBC: Spark, Kyuubi, Access, dBase, Ignite 3, NetSuite, ODBC genérico | Todo | Spark y Kyuubi autorizan desde el catálogo o Ranger; Access y dBase no tienen usuarios; Ignite 3 se configura en el clúster; NetSuite es de solo lectura; con ODBC genérico no se sabe qué motor hay detrás. |
 
+## Nuevo esquema y borrar esquema
+
+Crear y borrar esquemas desde el explorador ([`esquemas.md`](esquemas.md)).
+Clic derecho sobre una base → «Nuevo esquema…» (con dueño y permisos al
+crearlo, en un solo script que se ve antes de ejecutarlo) y sobre un esquema →
+«Borrar esquema…». Solo en los motores cuyo explorador muestra esquemas.
+
+La tienen:
+
+- **Familia SQL Server:** SQL Server, Azure SQL, Microsoft Fabric Data Warehouse y Babelfish.
+- **Familia PostgreSQL:** PostgreSQL, TimescaleDB, YugabyteDB, openGauss, Cloudberry, Greengage, Greenplum, KingbaseES, EDB, Fujitsu, Yellowbrick, AlloyDB, Cloud SQL, Aurora PostgreSQL, Aurora DSQL, CockroachDB, Materialize, Redshift, RisingWave y H2.
+- **Analíticas y en la nube:** Snowflake, Databricks, Trino, Presto, Starburst, Dremio (carpetas) y Cloud Spanner.
+- **Otros:** DuckDB, Arrow Flight SQL, Couchbase (scopes) y Apache Phoenix.
+- **Por ODBC:** Db2 LUW, Db2 for i, Hive/Cloudera, Impala, Spark, Kyuubi, Vertica, Exasol, Netezza, Dameng, MonetDB, Mimer, MaxDB, NuoDB, Ignite 3, SQream y Ocient.
+
+**Esquemas vacíos en el explorador.** Un esquema recién creado, sin objetos,
+aparece en el árbol en todos los motores con «Nuevo esquema», porque listan
+sus esquemas:
+
+- **Familia SQL Server:** `sys.schemas`. En Babelfish solo trae `dbo`,
+  `guest` y los esquemas de usuario.
+- **Familia PostgreSQL:** `pg_namespace`; H2 y CrateDB, `information_schema.schemata`.
+  En openGauss, el esquema personal de cada usuario se lista como esquema de
+  usuario. Materialize lista solo la base actual y los `mz_*`.
+- **Analíticas y en la nube:** Snowflake, Databricks
+  (`<catálogo>.information_schema.schemata`), Trino, Presto, Starburst,
+  Dremio (carpetas), Cloud Spanner y Aurora DSQL.
+- **Otros:** DuckDB (sin el catálogo `system`), Flight SQL (`GetDbSchemas`;
+  si el servidor no lo responde, los esquemas vuelven a salir de las tablas),
+  Couchbase (scopes) y Phoenix.
+- **Por ODBC:** Db2 LUW y Db2 for i, Vertica, Exasol, Dameng, MonetDB,
+  Mimer, MaxDB, NuoDB, SQream y Hive/Cloudera/Impala/Spark/Kyuubi, con la
+  consulta del catálogo de cada uno; Netezza, Ocient e Ignite 3, con
+  `SQLTables` del driver ODBC.
+
+Los esquemas del sistema se marcan y el árbol los oculta mientras no tengan
+objetos: `sys`, `INFORMATION_SCHEMA`, `guest` y los de un rol fijo `db_*` en
+SQL Server (por eso un esquema de usuario cuyo dueño es un rol `db_*` también
+cuenta como del sistema), además de `queryinsights` en Fabric; `pg_catalog`,
+`information_schema` y los propios de cada motor en la familia PostgreSQL
+(`_timescaledb_*`, `timescaledb_information` y `timescaledb_experimental` en
+TimescaleDB; `crdb_internal` y `pg_extension` en CockroachDB; `mz_*` en
+Materialize; `rw_catalog` en RisingWave); `information_schema`, `pg_catalog`
+y `sys` en Flight SQL; `_system` en Couchbase. En los presets ODBC, Db2,
+Vertica y MonetDB usan la marca del propio catálogo, y Netezza, Ocient e
+Ignite 3, la lista del preset.
+
+En SAP HANA y Oracle los esquemas son las bases del explorador y se listan
+aunque estén vacíos (`SYS.SCHEMAS` en HANA; `ALL_USERS` en Oracle, salvo en
+11g, donde solo aparecen los usuarios con objetos). Denodo no tiene esquemas.
+En los motores sin «Nuevo esquema» que muestran esquemas, un esquema aparece
+cuando tiene su primer objeto, porque sale de la lista de objetos.
+
+**Permiso para crear.** «Nuevo esquema…» se deshabilita cuando el servidor
+dice que el usuario no puede crear esquemas: SQL Server y Azure SQL
+(`HAS_PERMS_BY_NAME(…, 'CREATE SCHEMA')`), la familia PostgreSQL (`CREATE`
+sobre la base), Cloud Spanner (`databases.updateDdl`), Aurora DSQL,
+Db2 LUW (`DBADM`) y SAP HANA. Queda habilitado sin chequeo en Fabric,
+Babelfish, RisingWave, H2 (salvo administradores: `ALTER ANY SCHEMA` no se
+lee), Snowflake (salvo con los roles de sistema), Databricks, Trino y Dremio.
+
+### Motores sin «Nuevo esquema»
+
+| Motor | Motivo |
+|---|---|
+| Oracle | Un esquema es un usuario con contraseña: se crea y se borra desde «Usuarios y permisos». |
+| Familia MySQL (MySQL, Aurora MySQL, Cloud SQL for MySQL, MariaDB, TiDB, OceanBase, SingleStore, StarRocks, Apache Doris, VeloDB, Databend) | El esquema es la base: se crea con «Nueva base». |
+| SAP HANA | Los esquemas de HANA son las bases del explorador: se crean y borran con «Nueva base» y «Borrar base». Pendiente: elegir el dueño (`OWNED BY`) y los permisos desde «Nueva base». |
+| Firebird | No tiene esquemas antes de la versión 6.0. Pendiente: mostrarlos y crearlos en Firebird 6.0. |
+| ODBC genérico | No se sabe qué motor hay detrás. |
+| ODBC: Sybase ASE, SQL Anywhere, Informix, GBase 8s, Altibase, Ingres, OpenEdge, Machbase | El esquema es el usuario dueño de los objetos: se crea con el usuario, desde «Usuarios y permisos». |
+| ODBC: Teradata | Un esquema es una base con espacio propio (`CREATE DATABASE … PERM`), no un objeto simple. |
+| ODBC: Db2 for z/OS, IRIS/Caché, Virtuoso, Ignite 2 | El esquema es un calificador implícito: aparece al crear el primer objeto que lo nombra. |
+| ODBC: CUBRID, Zen, Access, dBase, HeavyDB | No tienen esquemas. |
+| ODBC: NetSuite (SuiteAnalytics Connect) | Es de solo lectura. |
+| Amazon Athena | El explorador no tiene nivel de esquema: las bases de Glue son las bases del explorador (Athena llama esquema a la base). |
+| Google BigQuery | El explorador no tiene nivel de esquema: los datasets (lo que BigQuery llama esquema) son las bases del explorador. |
+| SQLite, libSQL | No tienen esquemas: las bases adjuntas (`ATTACH`) son archivos aparte, no esquemas que se crean con SQL. |
+| ClickHouse | Solo tiene bases, sin esquemas: se crean con «Nueva base». |
+| DuckDB: consulta de archivos | No hay una base donde guardar un esquema: los archivos se leen en una base en memoria. |
+| Calcite Avatica (Phoenix genérico) | El DDL es el del motor que hay detrás del servidor Avatica, y no se sabe cuál es. |
+| CrateDB | No tiene `CREATE SCHEMA` ni `DROP SCHEMA`: un esquema existe mientras tenga alguna tabla. |
+| Denodo | No tiene esquemas: una base virtual contiene sus vistas directamente. |
+| Los demás motores de documentos, clave-valor, búsqueda y series de tiempo; Cassandra, ScyllaDB (keyspaces), Apache Drill (workspaces) | Su explorador no tiene nivel de esquema. |
+
+### Diferencias por motor
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| SQL Server, Azure SQL, Microsoft Fabric, Babelfish | Borrar con su contenido | `DROP SCHEMA` de T-SQL no tiene `CASCADE` y se niega mientras el esquema tenga objetos: hay que borrarlos o moverlos antes. |
+| SQL Server, Azure SQL | El permiso `UNMASK` sobre un esquema | Solo lo aceptan SQL Server 2022 y posteriores; no se ofrece. |
+| SQL Server, Azure SQL | Cambiar el dueño después de otorgar | El dueño va en `CREATE SCHEMA … AUTHORIZATION`: `ALTER AUTHORIZATION ON SCHEMA` borra todos los permisos ya otorgados sobre el esquema (comprobado en vivo). Quien crea sin ser `db_owner` necesita `CREATE SCHEMA`, `IMPERSONATE` sobre el usuario dueño (o `ALTER` sobre el rol dueño) y ser miembro de `db_securityadmin` para otorgar sobre el esquema que cede. |
+| Microsoft Fabric | Elegir el dueño | `AUTHORIZATION` no se pudo verificar sin un warehouse; el esquema queda a nombre de quien lo crea. |
+| Babelfish | «Con opción de otorgar», nombres con `]` y permisos fuera de SELECT, INSERT, UPDATE, DELETE, REFERENCES y EXECUTE | Babelfish rechaza `GRANT … ON SCHEMA … WITH GRANT OPTION` y no lee `]]` dentro de corchetes. Tampoco tiene `ALTER AUTHORIZATION` sobre esquemas y rechaza `GRANT CREATE SCHEMA`: quien crea necesita `db_ddladmin` y `db_securityadmin`. |
+| Materialize | «Con opción de otorgar» | Materialize no la tiene. Tampoco acepta `AUTHORIZATION`: el dueño se asigna después con `ALTER SCHEMA … OWNER TO`. |
+| H2 | «Con opción de otorgar» | H2 no la tiene. Los permisos sobre un esquema son SELECT, INSERT, UPDATE y DELETE. Solo un administrador crea esquemas. |
+| RisingWave, Redshift, H2 | Un rol o grupo como dueño | El dueño tiene que ser un usuario y la lista de dueños muestra solo usuarios (RisingWave no tiene roles; Redshift rechaza un grupo con un mensaje; en H2 2.1, un rol como dueño deja la base sin poder abrirse). |
+| ODBC: Db2 LUW | Borrar con su contenido | `DROP SCHEMA` de Db2 solo acepta `RESTRICT` (esquema vacío). |
+| ODBC: SQream, Ocient | Borrar con su contenido | `DROP SCHEMA` solo borra un esquema vacío. |
+| ODBC: Db2 for i, Mimer, MaxDB, NuoDB, Ignite 3, SQream, Ocient, Spark, Kyuubi | Elegir el dueño | El esquema queda a nombre de quien lo crea (Spark y Kyuubi no tienen dueño). |
+| ODBC: Db2 LUW | Permisos al crear, sin `ACCESSCTRL` | El dueño va en `CREATE SCHEMA … AUTHORIZATION` y los `GRANT … ON SCHEMA` siguientes necesitan `ACCESSCTRL` o `SECADM`: un `DBADM` sin `ACCESSCTRL` crea el esquema pero falla al otorgar. Pendiente: ceder el dueño al final (`TRANSFER OWNERSHIP`). Sin probar: no hay contenedor de Db2. |
+| ODBC: Db2 LUW, Vertica, Netezza, Dameng | Un rol como dueño | Solo un usuario puede ser dueño de un esquema (`AUTHORIZATION` nombra un usuario): la lista de dueños muestra solo usuarios. |
+| ODBC: Hive, Cloudera, Netezza, Dameng, MonetDB, Mimer, NuoDB, Ignite 3, Ocient, Spark, Kyuubi, Db2 for i | Permisos al crear | Pendiente: el script de permisos todavía no escribe `GRANT` sobre un esquema en estos motores (MonetDB no tiene permisos por esquema: se da el dueño). |
+| ODBC: MaxDB, SQream, Exasol | «Con opción de otorgar» | Sus permisos sobre un esquema no la tienen (Exasol no otorga permisos sobre objetos con opción de otorgarlos). El formulario muestra la opción igual y el script la rechaza en la vista previa; pasa lo mismo en H2, Materialize, Babelfish y Cloud Spanner. Pendiente: que `SchemaSpec` diga si el motor la tiene, para ocultarla. |
+| ODBC: Vertica, Impala | `ALL` junto con otros permisos | `ALL` ya los incluye; se elige solo. Impala escribe un `GRANT` por permiso. |
+| ODBC: Hive, Cloudera, Impala | Nombres con espacios o símbolos | Los nombres de base solo admiten letras, números y `_`. |
+| Presto | Elegir el dueño, permisos al crear y borrar con su contenido | Presto no acepta `AUTHORIZATION` ni `ON SCHEMA`, y `DROP SCHEMA … CASCADE` «is not yet supported»: solo borra un esquema vacío. |
+| Trino, Starburst | Nada, pero depende del catálogo | Dueño, permisos y `CASCADE` los acepta o rechaza el conector. El dueño se cambia al final del script (`ALTER SCHEMA … SET AUTHORIZATION`); el catálogo `memory` rechaza ese cambio, los roles y los permisos («does not support permission management»). |
+| Snowflake | Borrar solo si está vacío | `DROP SCHEMA` de Snowflake siempre borra el contenido (`RESTRICT` solo frena por claves foráneas de otros esquemas); se avisa en el script. |
+| Snowflake | Un usuario como dueño | El dueño es siempre un rol (`GRANT OWNERSHIP … TO ROLE … COPY CURRENT GRANTS`, al final del script para conservar los permisos recién otorgados): la lista de dueños muestra solo roles. |
+| Databricks | `WITH GRANT OPTION` | Unity Catalog no lo tiene: «con opción de otorgar» otorga además `MANAGE` sobre el esquema. |
+| Dremio | Elegir el dueño y borrar con su contenido | Un esquema es una carpeta: no tiene cláusula de dueño (es el permiso `OWNERSHIP`) ni `CASCADE`. Solo se crean carpetas en orígenes de catálogo (Nessie, Iceberg REST, Arctic), no en espacios. |
+| Dremio | Borrar una carpeta con punto en el nombre, dentro de un origen | El espacio u origen sale de la base donde se abrió el menú, entero aunque tenga puntos (`@ana.b`). Las carpetas siguientes las da INFORMATION_SCHEMA con puntos sin comillas (`origen.a.b`), igual para la carpeta `a.b` que para `a` › `b`, así que se toman como carpetas anidadas. Los espacios no admiten puntos en sus carpetas; en un origen, la carpeta `a.b` se borra escribiendo el script con comillas (`origen."a.b"`). |
+| Dremio | «Con opción de otorgar» | Dremio no tiene `WITH GRANT OPTION`: se otorga además `MANAGE GRANTS` sobre la carpeta. Los permisos sobre carpetas son de Dremio Enterprise y Cloud; en la edición OSS fallan al ejecutarse. |
+| Google Cloud Spanner | Elegir el dueño y borrar con su contenido | Los esquemas con nombre no tienen dueño y `DROP SCHEMA` solo borra uno vacío. |
+| Google Cloud Spanner | Permisos al crear, en el emulador | Se ofrece `USAGE` (`GRANT USAGE ON SCHEMA … TO ROLE`, del control de acceso detallado); el emulador lo rechaza al ejecutarse. La prueba en vivo verifica ese rechazo; contra Spanner real se corre con `DBINE_TEST_SPANNER_SCHEMA_GRANTS=1` (sin probar: no hay instancia). Sin «con opción de otorgar»: Spanner no la tiene. |
+| DuckDB | Elegir el dueño y permisos al crear | DuckDB no tiene usuarios ni permisos. |
+| Arrow Flight SQL | Elegir el dueño y permisos al crear | Por Flight SQL no se pueden listar los usuarios del motor. |
+| Arrow Flight SQL | Catálogo donde se abrió el menú, fuera de DuckDB | El script escribe el esquema con su catálogo (`"catálogo"."esquema"`). Solo está comprobado que lo acepta un servidor DuckDB (GizmoSQL); con otros motores (Doris, DataFusion, Dremio) no se probó. Con DuckDB detrás, la sesión además fija el catálogo con `USE` al conectar, así que si el catálogo ya no existe la conexión falla («no se pudo abrir el catálogo»). |
+| Couchbase | Elegir el dueño y borrar solo si está vacío | Un esquema es un scope (`bucket.scope`; el nombre viene completado con el bucket donde se abrió el menú). No tiene dueño y `DROP SCOPE` siempre borra sus colecciones: hay que marcar «con su contenido». |
+| Couchbase | Permisos al crear, en Community Edition | Los roles sobre un scope (`` GRANT … ON default:`bucket`.`scope` ``) son de Enterprise Edition: Community los rechaza al ejecutarse («Role … is not valid»). Sin probar en Enterprise (no hay contenedor): la sintaxis está cubierta por pruebas unitarias. |
+| Apache Phoenix | Elegir el dueño y borrar con su contenido | Sin dueño y sin `CASCADE`: `DROP SCHEMA` solo borra un esquema vacío. Necesita `phoenix.schema.isNamespaceMappingEnabled`. |
+| Apache Phoenix | Nombres con espacios, símbolos o letras fuera de ASCII | Un esquema es un namespace de HBase: solo letras ASCII, números y `_` (Phoenix tampoco admite `"` en un nombre). Pendiente: DBine todavía acepta letras con acento o `ñ`, que HBase rechaza al ejecutar. |
+| Apache Phoenix | Permisos en esquemas con minúsculas | Los permisos son ACL de HBase (R, W, X, C, A; necesitan `phoenix.acls.enabled`) y `GRANT … ON SCHEMA` pasa el nombre a mayúsculas: solo se otorgan en esquemas con el nombre en mayúsculas. «Con opción de otorgar» agrega el permiso A (admin), que es el que deja otorgar en HBase. |
+| Aurora DSQL | Borrar con su contenido | DSQL ejecuta una sentencia DDL por transacción y no borra objetos en cascada; se borra el esquema vacío. Sin probar en DSQL real (no hay emulador). |
+
+Probados contra servidores reales (crear con dueño y permisos, comprobarlos en
+el catálogo, rechazar el borrado de un esquema con objetos y borrar):
+
+- SQL Server 2022 (con un creador que no es `db_owner` ni `sysadmin`) y
+  Babelfish 5.4 (con un creador que solo está en `db_ddladmin` y
+  `db_securityadmin`): dueño usuario y rol, permisos y esquemas vacíos en la
+  lista, con los del sistema marcados.
+- PostgreSQL 16, TimescaleDB, YugabyteDB, CockroachDB, openGauss, Greengage,
+  Materialize, RisingWave y H2, con un creador que no es superusuario (en H2,
+  un administrador), y el esquema vacío en la lista.
+- Trino, Presto, Cloud Spanner (emulador) y Aurora DSQL (contra un PostgreSQL
+  de prueba, con un creador que no es superusuario).
+- Dremio OSS: el rechazo en `$scratch`, la sintaxis y una carpeta vacía de un
+  espacio, listada y borrada; no hay un origen de catálogo en el contenedor.
+- Oracle y SAP HANA (bases del explorador): Oracle lista los esquemas vacíos;
+  HANA, solo con pruebas unitarias.
+- DuckDB, Arrow Flight SQL (GizmoSQL) y Couchbase Community.
+
+Sin probar contra un servidor, con pruebas unitarias según la documentación
+del fabricante:
+
+- Azure SQL, Fabric y Redshift.
+- Snowflake, Databricks, Couchbase Enterprise y Spanner real.
+- Arrow Flight SQL con motores que no son DuckDB.
+- Apache Phoenix: la prueba en vivo existe, pero falta confirmarla contra el
+  contenedor de prueba.
+- Los presets ODBC: no hay contenedores ni drivers ODBC de esos motores.
+
 ## Backups
 
 La pestaña **Backups** ([`backups.md`](backups.md)).
@@ -1607,8 +1800,9 @@ o la opción del menú aparece deshabilitado, con un tooltip que nombra lo que
 falta. Se consulta una vez por conexión y base, y otra vez al reconectar.
 
 Las acciones que se chequean son: hacer un backup nativo, restaurarlo, el
-profiler, terminar sesiones desde el Monitor, crear y borrar bases, y
-administrar usuarios y permisos.
+profiler, terminar sesiones desde el Monitor, crear y borrar bases,
+administrar usuarios y permisos, y crear esquemas (qué motores lo chequean está
+en [Nuevo esquema y borrar esquema](#nuevo-esquema-y-borrar-esquema)).
 
 La regla es no deshabilitar nunca una acción que el usuario sí podría hacer.
 Cuando el motor no permite saberlo con certeza (permisos que llegan por roles

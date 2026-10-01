@@ -320,23 +320,23 @@ fn estimated(d: Dialect, c: &Conn, slot: &StmtSlot, s: &str) -> Result<Plan> {
             let sql = template.replace("{q}", &stmt.replace('\'', "''")).replace("{raw}", stmt);
             match collect(c, slot, &sql) {
                 Ok(t) => plan_from_text(stmt, &t.lines().join("\n"), false),
-                Err(Error::Query(m)) => {
-                    return Err(Error::Unsupported(format!("El servidor no aceptó el pedido de plan: {m}")));
+                Err(e) if e.is_query() => {
+                    return Err(Error::Unsupported(format!("El servidor no aceptó el pedido de plan: {e}")));
                 }
                 Err(e) => return Err(e),
             }
         }
         Dialect::Prefixed(prefix) => match explain(prefix) {
             Ok(t) => plan_from_text(stmt, &t, false),
-            Err(Error::Query(m)) => {
-                return Err(Error::Unsupported(format!("El servidor no aceptó {prefix}, así que no hay plan por ODBC: {m}")));
+            Err(e) if e.is_query() => {
+                return Err(Error::Unsupported(format!("El servidor no aceptó {prefix}, así que no hay plan por ODBC: {e}")));
             }
             Err(e) => return Err(e),
         },
         _ => match explain("EXPLAIN") {
             Ok(t) => plan_from_text(stmt, &t, false),
-            Err(Error::Query(m)) => {
-                return Err(Error::Unsupported(format!("El servidor no aceptó EXPLAIN, así que no hay plan por ODBC: {m}")));
+            Err(e) if e.is_query() => {
+                return Err(Error::Unsupported(format!("El servidor no aceptó EXPLAIN, así que no hay plan por ODBC: {e}")));
             }
             Err(e) => return Err(e),
         },

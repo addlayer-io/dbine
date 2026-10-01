@@ -248,3 +248,35 @@ async fn profiler() {
     }
     assert!(got.iter().all(|s| !s.text.contains("M_EXPENSIVE_STATEMENTS") && !s.text.contains("M_ACTIVE_STATEMENTS")));
 }
+
+/// The editor's script contract: errors with code, SQLSTATE and position in
+/// the script, manual transactions.
+#[tokio::test]
+#[ignore]
+async fn script_errors_and_transactions() {
+    let driver = dbine_driver_hana::drivers().remove(0);
+    let mut s = driver.connect(&config(), None).await.expect("connect");
+    let _ = s.execute("DROP TABLE DBINE_TX", 10, &mut QueryOutcome::default()).await;
+    s.execute("CREATE COLUMN TABLE DBINE_TX (ID INTEGER PRIMARY KEY)", 10, &mut QueryOutcome::default()).await.unwrap();
+    let script = "SELECT 1 FROM DUMMY;\nSELECT 2 FROM\n  NOPE_NOPE;";
+    let mut out = QueryOutcome::default();
+    let e = s.execute(script, 10, &mut out).await.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert_eq!(e.code.as_deref(), Some("259"), "{e:?}");
+    assert_eq!(e.line, Some(3));
+    assert_eq!(e.offset, Some(script.find("NOPE_NOPE").unwrap()));
+    assert_eq!(out.results.len(), 1);
+
+    s.set_autocommit(false).await.unwrap();
+    s.execute("INSERT INTO DBINE_TX VALUES (1)", 10, &mut QueryOutcome::default()).await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    s.rollback().await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    s.execute("INSERT INTO DBINE_TX VALUES (2)", 10, &mut QueryOutcome::default()).await.unwrap();
+    s.commit().await.unwrap();
+    s.set_autocommit(true).await.unwrap();
+    let mut out = QueryOutcome::default();
+    s.execute("SELECT COUNT(*) FROM DBINE_TX", 10, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows[0][0], json!(1));
+    s.execute("DROP TABLE DBINE_TX", 10, &mut QueryOutcome::default()).await.unwrap();
+}

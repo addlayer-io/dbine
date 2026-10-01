@@ -98,7 +98,10 @@
     "tableUnknown": "a tabela da consulta não foi reconhecida",
     "combinesTables": "o resultado combina tabelas: só é possível editar consultas sobre uma tabela",
     "missingKey": "o resultado não inclui a chave primária ({{columns}}): adicione-a ao SELECT para poder editar",
-    "noPrimaryKey": "A tabela não tem chave primária: o WHERE usa todas as colunas (pode afetar mais de uma linha se houver duplicados)."
+    "noPrimaryKey": "A tabela não tem chave primária: o WHERE usa todas as colunas (pode afetar mais de uma linha se houver duplicados).",
+    "keyNotComparable": "a chave da linha inclui «{{column}}», com um valor binário ou longo que não pode ser comparado no WHERE",
+    "noComparableColumns": "nenhuma coluna da linha pode ser comparada no WHERE: são todas binárias ou longas",
+    "skippedColumns": "As colunas binárias ou longas ({{columns}}) ficam fora do WHERE."
   },
   "connections": {
     "downloading": "Baixando {{component}}, só desta vez… {{pct}} % ({{done}} de {{total}} MB)",

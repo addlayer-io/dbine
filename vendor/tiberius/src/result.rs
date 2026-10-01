@@ -58,6 +58,12 @@ impl<'a> ExecuteResult {
 
         while let Some(token) = token_stream.try_next().await? {
             match token {
+                // PATCH(dbine): the acknowledgement of a `CancelHandle` attention.
+                ReceivedToken::Done(done) | ReceivedToken::DoneProc(done) | ReceivedToken::DoneInProc(done)
+                    if done.is_attention() =>
+                {
+                    return Err(crate::Error::Cancelled)
+                }
                 ReceivedToken::DoneProc(done) if done.is_final() => (),
                 ReceivedToken::DoneProc(done) => rows_affected.push(done.rows()),
                 ReceivedToken::DoneInProc(done) => rows_affected.push(done.rows()),

@@ -8,7 +8,7 @@ use dbine_driver::serde_static::intern;
 use dbine_driver::{
     async_trait, Capabilities, ColumnFilter, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver,
     DriverInfo, Error, KeyPage, KeyScan, KeySearch, MonitorSnapshot, ObjectRef, ProfiledStatement, ProfilerOptions, ProfilerStarted,
-    QueryOutcome, Result, RowChange, RowSinkRef, Session, SyncScript, TableChange, TableSchema,
+    MessageSinkRef, ProgressSinkRef, QueryOutcome, Result, RowChange, RowSinkRef, Session, SyncScript, TableChange, TableSchema,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -46,9 +46,17 @@ struct SinkTarget {
     error: Arc<Mutex<Option<String>>>,
 }
 
+/// Where a `live` run's messages and ended statements go.
+#[derive(Clone, Default)]
+struct Live {
+    messages: Option<MessageSinkRef>,
+    progress: Option<ProgressSinkRef>,
+}
+
 struct Pending {
     waiter: Waiter,
     sink: Option<SinkTarget>,
+    live: Option<Live>,
     /// A transfer call's events, for the task that made the call.
     events: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
 }
@@ -195,6 +203,16 @@ impl Host {
             FromHost::SinkBegin { id, index, columns } => self.sink_event(id, |t| t.sink.0.lock().expect("sink").begin(t.base + index as usize, &columns)),
             FromHost::SinkRow { id, index, row } => self.sink_event(id, |t| t.sink.0.lock().expect("sink").row(t.base + index as usize, &row)),
             FromHost::Progress(p) => dbine_driver::runtime::report_progress(&p),
+            FromHost::Message { id, message } => {
+                if let Some(s) = self.live(id).and_then(|l| l.messages) {
+                    (s.0)(&message);
+                }
+            }
+            FromHost::StatementEnded { id, end } => {
+                if let Some(s) = self.live(id).and_then(|l| l.progress) {
+                    (s.0)(&end);
+                }
+            }
             FromHost::BatchBegin { id, columns } => self.event(id, Event::Begin(columns)),
             FromHost::Batch { id, batch } => self.event(id, Event::Batch(batch)),
             FromHost::BatchAck { id } => self.event(id, Event::Ack),
@@ -213,7 +231,7 @@ impl Host {
     fn start(&self, call: Call, events: tokio::sync::mpsc::UnboundedSender<Event>) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<Reply>>)> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.pending.lock().unwrap().insert(id, Pending { waiter: Waiter::Async(tx), sink: None, events: Some(events) });
+        self.pending.lock().unwrap().insert(id, Pending { waiter: Waiter::Async(tx), sink: None, live: None, events: Some(events) });
         if let Err(e) = self.send(&ToHost::Call { id, call }) {
             self.pending.lock().unwrap().remove(&id);
             return Err(e);
@@ -244,15 +262,23 @@ impl Host {
         })
     }
 
-    fn register(&self, waiter: Waiter, sink: Option<SinkTarget>) -> u64 {
+    fn live(&self, id: u64) -> Option<Live> {
+        self.pending.lock().unwrap().get(&id).and_then(|p| p.live.clone())
+    }
+
+    fn register(&self, waiter: Waiter, sink: Option<SinkTarget>, live: Option<Live>) -> u64 {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.pending.lock().unwrap().insert(id, Pending { waiter, sink, events: None });
+        self.pending.lock().unwrap().insert(id, Pending { waiter, sink, live, events: None });
         id
     }
 
     async fn call_with(&self, call: Call, sink: Option<SinkTarget>) -> Result<Reply> {
+        self.call_live(call, sink, None).await
+    }
+
+    async fn call_live(&self, call: Call, sink: Option<SinkTarget>, live: Option<Live>) -> Result<Reply> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let id = self.register(Waiter::Async(tx), sink);
+        let id = self.register(Waiter::Async(tx), sink, live);
         // Dropped before the reply (the app gave up on it): stop it there too.
         struct Guard<'a> {
             host: &'a Host,
@@ -285,7 +311,7 @@ impl Host {
     /// waits on this thread, never on the async runtime.
     pub fn call_blocking(&self, call: Call) -> Result<Reply> {
         let (tx, rx) = std::sync::mpsc::channel();
-        let id = self.register(Waiter::Blocking(tx), None);
+        let id = self.register(Waiter::Blocking(tx), None, None);
         if let Err(e) = self.send(&ToHost::Call { id, call }) {
             self.pending.lock().unwrap().remove(&id);
             return Err(e);
@@ -493,6 +519,18 @@ impl Driver for RemoteDriver {
     fn supports_schema_sync(&self) -> bool {
         self.meta.supports_schema_sync
     }
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        self.meta.script_dialect.unwrap_or_else(|| dbine_driver::ScriptDialect::for_hint(self.meta.info.dialect))
+    }
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        self.meta.script_mode.unwrap_or_default()
+    }
+    fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
+        self.meta.script_defaults.unwrap_or_else(|| dbine_driver::ScriptDefaults::for_language(self.meta.info.language))
+    }
+    fn supports_manual_transactions(&self) -> bool {
+        self.meta.supports_manual_transactions
+    }
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
         self.meta.security.clone()
     }
@@ -504,6 +542,48 @@ impl Driver for RemoteDriver {
     }
     fn backup_script(&self, action: &dbine_driver::BackupAction) -> Result<String> {
         text(self.blocking(Call::BackupScript { driver: self.id(), action: action.clone() })?)
+    }
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        self.meta.schema_spec.clone()
+    }
+    fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
+        let database = database.map(str::to_string);
+        text(self.blocking(Call::CreateSchemaScript { driver: self.id(), name: name.to_string(), owner: owner.map(str::to_string), database })?)
+    }
+    fn schema_owner_script(&self, database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+        let call = Call::SchemaOwnerScript { driver: self.id(), database: database.map(str::to_string), name: name.to_string(), owner: owner.to_string() };
+        match self.blocking(call) {
+            Ok(Reply::MaybeText(s)) => Ok(s),
+            // A host built before the call: the owner goes in the create, as it did there.
+            Err(Error::Unsupported(_)) => Ok(None),
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
+    fn schema_grant_script(&self, database: Option<&str>, name: &str, privileges: &[String], to: &str, grantable: bool) -> Result<String> {
+        let call = Call::SchemaGrantScript {
+            driver: self.id(),
+            database: database.map(str::to_string),
+            name: name.to_string(),
+            privileges: privileges.to_vec(),
+            to: to.to_string(),
+            grantable,
+        };
+        match self.blocking(call) {
+            Ok(r) => text(r),
+            // A host built before the call (or a driver without schema grants,
+            // which answers the same through `SecurityScript`).
+            Err(Error::Unsupported(_)) => {
+                let object = ObjectRef { kind: "schema".into(), schema: None, name: name.to_string() };
+                let action = dbine_driver::SecurityAction::Grant { privileges: privileges.to_vec(), object: Some(object), to: to.to_string(), grantable };
+                self.security_script(&action)
+            }
+            Err(e) => Err(e),
+        }
+    }
+    fn drop_schema_script(&self, database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        let database = database.map(str::to_string);
+        text(self.blocking(Call::DropSchemaScript { driver: self.id(), name: name.to_string(), cascade, database })?)
     }
     fn script_separator(&self) -> &'static str {
         self.script_separator
@@ -731,15 +811,15 @@ impl RemoteSession {
     async fn run(&self, call: Call, out: &mut QueryOutcome) -> Result<()> {
         let sink = out.sink.clone().map(|sink| SinkTarget { sink, base: out.sink_base + out.results.len(), error: Arc::new(Mutex::new(None)) });
         let error_slot = sink.as_ref().map(|s| s.error.clone());
-        let reply = self.host.call_with(call, sink).await?;
-        let Reply::Run(o, err) = reply else { return Err(unexpected()) };
-        out.results.extend(o.results);
-        out.messages.extend(o.messages);
-        out.plans.extend(o.plans);
+        let live = (out.message_sink.is_some() || out.progress_sink.is_some())
+            .then(|| Live { messages: out.message_sink.clone(), progress: out.progress_sink.clone() });
+        let reply = self.host.call_live(call, sink, live).await?;
+        let Reply::Run(mut o, err) = reply else { return Err(unexpected()) };
         out.elapsed_ms += o.elapsed_ms;
         if out.error.is_none() {
-            out.error = o.error;
+            out.error = o.error.take();
         }
+        out.absorb(o);
         if out.sink_error.is_none() {
             out.sink_error = error_slot.and_then(|e| e.lock().unwrap().clone());
         }
@@ -790,7 +870,14 @@ impl Session for RemoteSession {
         }
     }
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let call = Call::Execute { session: self.id, text: text.to_string(), max_rows: max_rows as u64, sink: out.sink.is_some() };
+        let call = Call::Execute {
+            session: self.id,
+            text: text.to_string(),
+            max_rows: max_rows as u64,
+            sink: out.sink.is_some(),
+            continue_on_error: out.continue_on_error,
+            live: out.message_sink.is_some() || out.progress_sink.is_some(),
+        };
         self.run(call, out).await
     }
     async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -940,6 +1027,38 @@ impl Session for RemoteSession {
             Ok(Reply::Permissions(p)) => Ok(p),
             // A host built before the check: nothing known, everything stays on.
             Err(Error::Unsupported(_)) => Ok(dbine_driver::Permissions::default()),
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
+    async fn transaction_state(&mut self) -> Result<Option<dbine_driver::TxState>> {
+        match self.host.call(Call::TransactionState { session: self.id }).await {
+            Ok(Reply::TxState(t)) => Ok(t),
+            // A host built before the call: not tracked.
+            Err(Error::Unsupported(_)) => Ok(None),
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        match self.host.call(Call::SetAutocommit { session: self.id, on }).await {
+            Ok(_) => Ok(()),
+            // A host built before the call: its sessions only autocommit.
+            Err(Error::Unsupported(_)) if on => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+    async fn commit(&mut self) -> Result<()> {
+        self.host.call(Call::Commit { session: self.id }).await.map(|_| ())
+    }
+    async fn rollback(&mut self) -> Result<()> {
+        self.host.call(Call::Rollback { session: self.id }).await.map(|_| ())
+    }
+    async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
+        match self.host.call(Call::ListSchemas { session: self.id }).await {
+            Ok(Reply::Schemas(v)) => Ok(v),
+            // A host built before the call: the explorer derives the schemas from the objects.
+            Err(Error::Unsupported(_)) => Ok(None),
             Err(e) => Err(e),
             Ok(_) => Err(unexpected()),
         }

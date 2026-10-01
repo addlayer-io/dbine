@@ -18,6 +18,7 @@ const RESET: u8 = 0x0F;
 const RUN: u8 = 0x10;
 const BEGIN: u8 = 0x11;
 const COMMIT: u8 = 0x12;
+const ROLLBACK: u8 = 0x13;
 const PULL: u8 = 0x3F;
 const LOGON: u8 = 0x6A;
 const SUCCESS: u8 = 0x70;
@@ -330,6 +331,12 @@ impl Conn {
     /// Commit the open transaction.
     pub async fn commit(&mut self) -> Result<()> {
         self.send(COMMIT, &[]).await?;
+        self.expect_success().await
+    }
+
+    /// Roll back the open transaction.
+    pub async fn rollback(&mut self) -> Result<()> {
+        self.send(ROLLBACK, &[]).await?;
         self.expect_success().await
     }
 

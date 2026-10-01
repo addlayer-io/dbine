@@ -9,9 +9,11 @@
 //!   own session; ALTER ANY EVENT SESSION only decides between the complete
 //!   and the sampled mode, see `profiler`); kill = ALTER ANY CONNECTION;
 //!   create = CREATE ANY DATABASE; drop = CONTROL on the database;
-//!   security = ALTER ANY LOGIN or ALTER ANY USER.
+//!   security = ALTER ANY LOGIN or ALTER ANY USER; new schema = CREATE
+//!   SCHEMA on the database (db_owner, db_ddladmin).
 //! - Azure SQL Database: no server scope. Kill = KILL DATABASE CONNECTION,
-//!   profiler = VIEW DATABASE STATE, security = ALTER ANY USER. Creating and
+//!   profiler = VIEW DATABASE STATE, security = ALTER ANY USER, new schema =
+//!   CREATE SCHEMA. Creating and
 //!   dropping databases is decided in `master` (dbmanager), which a
 //!   connection to another database can't see: left unknown.
 //! - Fabric and Babelfish: left unknown (no HAS_PERMS_BY_NAME to trust).
@@ -34,13 +36,15 @@ const SERVER_SQL: &str = "SELECT CAST(IS_SRVROLEMEMBER('sysadmin') AS int),
        CAST(HAS_PERMS_BY_NAME(NULL, NULL, 'ALTER ANY CONNECTION') AS int),
        CAST(HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE') AS int),
        CAST(HAS_PERMS_BY_NAME(NULL, NULL, 'ALTER ANY LOGIN') AS int),
-       CAST(HAS_PERMS_BY_NAME(t.n, 'DATABASE', 'ALTER ANY USER') AS int)
+       CAST(HAS_PERMS_BY_NAME(t.n, 'DATABASE', 'ALTER ANY USER') AS int),
+       CAST(HAS_PERMS_BY_NAME(t.n, 'DATABASE', 'CREATE SCHEMA') AS int)
   FROM (SELECT COALESCE(NULLIF(@P1, N''), DB_NAME()) AS n) t";
 
 /// Azure SQL Database: the connection's own database only.
 const AZURE_SQL: &str = "SELECT CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'KILL DATABASE CONNECTION') AS int),
        CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DATABASE STATE') AS int),
-       CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'ALTER ANY USER') AS int)";
+       CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'ALTER ANY USER') AS int),
+       CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE SCHEMA') AS int)";
 
 /// `Some(true/false)` per column; NULL (the server can't tell) is `None`.
 fn flags(r: &Row, n: usize) -> Vec<Option<bool>> {
@@ -82,6 +86,7 @@ pub(crate) fn server(f: &[Option<bool>], drop_target: bool) -> Permissions {
         create_database: access(get(5), "CREATE ANY DATABASE"),
         drop_database: if drop_target { access(get(4), "CONTROL sobre la base") } else { Access::Unknown },
         manage_security: access(any(&[get(8), get(9)]), "ALTER ANY LOGIN o ALTER ANY USER"),
+        create_schema: access(get(10), "CREATE SCHEMA en la base"),
     }
 }
 
@@ -92,6 +97,7 @@ pub(crate) fn azure(f: &[Option<bool>]) -> Permissions {
         kill_session: access(get(0), "KILL DATABASE CONNECTION"),
         profiler: access(get(1), "VIEW DATABASE STATE"),
         manage_security: access(get(2), "ALTER ANY USER"),
+        create_schema: access(get(3), "CREATE SCHEMA en la base"),
         ..Default::default()
     }
 }
@@ -117,9 +123,9 @@ pub(crate) async fn check(s: &mut SqlServerSession, database: Option<&str>) -> R
     let db = database.map(str::trim).unwrap_or("");
     Ok(match s.variant {
         Variant::SqlServer => {
-            first_row(s, SERVER_SQL, &[db]).await?.map(|r| server(&flags(&r, 10), !db.is_empty())).unwrap_or_default()
+            first_row(s, SERVER_SQL, &[db]).await?.map(|r| server(&flags(&r, 11), !db.is_empty())).unwrap_or_default()
         }
-        Variant::AzureSql => first_row(s, AZURE_SQL, &[]).await?.map(|r| azure(&flags(&r, 3))).unwrap_or_default(),
+        Variant::AzureSql => first_row(s, AZURE_SQL, &[]).await?.map(|r| azure(&flags(&r, 4))).unwrap_or_default(),
         _ => Permissions::default(),
     })
 }
@@ -134,14 +140,14 @@ mod tests {
 
     #[test]
     fn sysadmin_may_do_everything() {
-        let f = [Some(true), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false)];
+        let f = [Some(true), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false), Some(false)];
         assert_eq!(server(&f, true), Permissions::all());
         assert_eq!(server(&f, false).drop_database, Access::Unknown);
     }
 
     #[test]
     fn a_plain_login_is_denied_what_it_lacks() {
-        let no = [Some(false); 10];
+        let no = [Some(false); 11];
         let p = server(&no, true);
         assert!(denied(&p.backup, "BACKUP DATABASE"));
         assert!(denied(&p.restore, "sysadmin o dbcreator"));
@@ -150,31 +156,33 @@ mod tests {
         assert!(denied(&p.create_database, "CREATE ANY DATABASE"));
         assert!(denied(&p.drop_database, "CONTROL"));
         assert!(denied(&p.manage_security, "ALTER ANY LOGIN"));
+        assert!(denied(&p.create_schema, "CREATE SCHEMA"));
     }
 
     #[test]
     fn db_owner_backs_up_restores_and_drops_its_database() {
         // Owner of the database, BACKUP / CONTROL / ALTER ANY USER on it.
-        let f = [Some(false), Some(false), Some(true), Some(true), Some(true), Some(false), Some(false), Some(false), Some(false), Some(true)];
+        let f = [Some(false), Some(false), Some(true), Some(true), Some(true), Some(false), Some(false), Some(false), Some(false), Some(true), Some(true)];
         let p = server(&f, true);
-        assert_eq!((p.backup, p.restore, p.drop_database, p.manage_security), (Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed));
+        assert_eq!((p.backup, p.restore, p.drop_database, p.manage_security, p.create_schema), (Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed, Access::Allowed));
         assert!(p.create_database.is_denied());
     }
 
     #[test]
     fn nulls_stay_unknown() {
-        let f = [Some(false), Some(false), None, None, None, None, None, None, None, None];
+        let f = [Some(false), Some(false), None, None, None, None, None, None, None, None, None];
         let p = server(&f, true);
         assert_eq!(p.backup, Access::Unknown);
         assert_eq!(p.restore, Access::Unknown);
-        assert_eq!(p.manage_security, Access::Unknown);
-        let dbcreator = [Some(false), Some(true), None, None, None, None, None, None, None, None];
+        assert_eq!((p.manage_security, p.create_schema), (Access::Unknown, Access::Unknown));
+        let dbcreator = [Some(false), Some(true), None, None, None, None, None, None, None, None, None];
         assert_eq!(server(&dbcreator, true).restore, Access::Allowed);
     }
 
     #[test]
     fn azure_sql_database() {
-        let p = azure(&[Some(false), Some(true), None]);
+        let p = azure(&[Some(false), Some(true), None, Some(false)]);
+        assert!(denied(&p.create_schema, "CREATE SCHEMA"));
         assert!(denied(&p.kill_session, "KILL DATABASE CONNECTION"));
         assert_eq!(p.profiler, Access::Allowed);
         assert_eq!((p.manage_security, p.backup, p.create_database), (Access::Unknown, Access::Unknown, Access::Unknown));

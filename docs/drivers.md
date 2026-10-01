@@ -77,11 +77,43 @@ Todos los resultados son tabulares (`QueryOutcome`):
   - los valores anidados van como string JSON.
 - **Clave-valor** (Redis): columnas según el comando. `GET` devuelve `value`;
   `HGETALL` devuelve `field, value`; un escalar va en una columna `result`.
-- **Mensajes y avisos** del servidor van en `out.messages`.
+- **Mensajes y avisos** del servidor van con `out.info(texto)` y
+  `out.warning(texto)` apenas llegan: quedan en orden en `out.log` y la UI
+  los muestra en vivo. `out.messages.push` sigue funcionando (cuenta como
+  `info`).
 - **Errores y scripts.** Si una sentencia falla, `execute` devuelve `Err`; lo
-  que se ejecutó antes queda en `out`. Si el servidor acepta una sola
-  sentencia por pedido, partí el script con `dbine_driver::sql::split_statements`
-  (SQL) o por líneas o documentos, según el lenguaje.
+  que se ejecutó antes queda en `out`. Si el motor da código, SQLSTATE o
+  posición, devolvé `Error::Statement` (`ScriptError::new(msg).with_code(…)
+  .with_sqlstate(…).at_offset(…)` o `.at_line(…)`, relativos al texto
+  recibido; `.fatal()` si el script no puede seguir).
+- **Cómo se parte un script.** Declará el dialecto en
+  `Driver::script_dialect()` (`ScriptDialect::postgres()`, `mysql()`,
+  `tsql()`, `oracle()`, `firebird()`, `db2()` o `generic()` con cambios):
+  comillas, comentarios, bloques, `GO [N]`, `/`, `DELIMITER`, `SET TERM`.
+  Si no lo declarás, se usa el preset del `dialect` de `DriverInfo`
+  (`ScriptDialect::for_hint`: `postgres`, `mysql`, `mssql`/`sybase`,
+  `oracle`, `db2`; el resto, `generic()`). Con eso, `Driver::script_mode()` en `PerStatement` (o `Batches` para T-SQL)
+  hace que la app ejecute sentencia por sentencia, informe cada una y siga
+  o se detenga ante un error según la pestaña (`script_defaults()` da el
+  comportamiento por defecto de la herramienta del motor). `Whole` (el valor
+  por defecto) le pasa el script entero a `execute`: para motores que lo
+  necesitan en un solo pedido. Si el servidor acepta una sola sentencia por
+  pedido y el driver sigue en `Whole`, partí el script con
+  `dbine_driver::sql::split_statements` (SQL) o por líneas o documentos.
+  Un driver `Whole` que parte el script él mismo tiene que portarse como
+  la app en el editor: en las ejecuciones del editor la app le pone
+  `out.continue_on_error` (`Some(true)`: seguir después de un error, como
+  la consola del motor; `None`: cortar en el primero, que es lo que reciben
+  Usuarios y permisos, Backups y el resto) y `out.progress_sink` (cada
+  sentencia que termina, con sus resultados, mensajes y errores, en vivo).
+  El patrón de `steps.rs` de los drivers no SQL (mongodb, neo4j,
+  cassandra, redis…) lo resuelve: `Step::start` antes de cada sentencia y
+  `step.end(out, r)?` después. Cuando una sentencia cambia la base de la
+  sesión (`use db`, `:use`, `USE keyspace`), poné `out.database`: la
+  pestaña la sigue.
+- **Transacciones manuales.** `Session::transaction_state()`,
+  `set_autocommit(bool)`, `commit()`, `rollback()` y
+  `Driver::supports_manual_transactions()`.
 
 ### Solo lectura
 

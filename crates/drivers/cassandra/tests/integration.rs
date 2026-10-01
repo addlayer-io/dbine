@@ -149,7 +149,7 @@ async fn round_trip(driver: &str, url: &str) {
     // Errors keep what ran before.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT n FROM events LIMIT 1; SELECT nope FROM events", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // USE switches the session's keyspace.
@@ -385,7 +385,7 @@ async fn designer(driver: &str, url: &str) {
         let res = s.execute(&text, 10, &mut out).await;
         println!("{}: {res:?}", t.label);
         if driver == "cassandra" && (t.kind == kinds::FUNCTION || t.kind == kinds::MATERIALIZED_VIEW) {
-            assert!(matches!(res, Err(Error::Query(ref m)) if m.contains("cassandra.yaml")), "{res:?}");
+            assert!(matches!(res, Err(ref e) if e.is_query() && e.to_string().contains("cassandra.yaml")), "{res:?}");
             continue;
         }
         res.unwrap_or_else(|e| panic!("{}: {e}\n{text}", t.label));
@@ -528,7 +528,8 @@ async fn profile(driver: &str, url: &str) {
     }
     assert!(got.iter().all(|s| !s.text.contains("dbine profiler")), "{driver}: its own statements are left out");
     if let Some(before) = before {
-        assert_eq!(format!("{before:?}"), format!("{:?}", run(&mut w, config, 10).await.results), "settings restored");
+        let rows = |r: &[dbine_driver::StatementResult]| r.iter().map(|r| r.rows.clone()).collect::<Vec<_>>();
+        assert_eq!(rows(&before), rows(&run(&mut w, config, 10).await.results), "settings restored");
     }
     run(&mut w, "DROP KEYSPACE dbine_prof", 10).await;
 }

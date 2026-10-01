@@ -2,8 +2,8 @@ use crate::error::{CommandError, CommandResult};
 use crate::state::{driver_info, meta_key, AppState, SessionEntry};
 use dbine_driver::sql::{create_table_from_columns, Quote};
 use dbine_core::cache::kinds as cache_kinds;
-use dbine_driver::{ColumnInfo, DbObject, ObjectRef};
-use serde::Deserialize;
+use dbine_driver::{ColumnInfo, DbObject, ObjectRef, SchemaInfo};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
 
@@ -27,12 +27,49 @@ pub async fn list_objects(state: State<'_, AppState>, args: DatabaseArgs) -> Com
     Ok(objects)
 }
 
+/// The explorer cache's entry for a database's schema list (next to
+/// `objects`; absent in caches written before it: the UI then derives the
+/// schemas from the objects until the server answers).
+pub const CACHE_SCHEMAS: &str = "schemas";
+
+/// A database's objects and, when the driver lists them, all its schemas
+/// (empty ones included).
+#[derive(Serialize)]
+pub struct DatabaseObjects {
+    pub objects: Vec<DbObject>,
+    /// `None`: the driver doesn't list schemas.
+    pub schemas: Option<Vec<SchemaInfo>>,
+}
+
+/// What the explorer tree loads for a database: `list_objects` plus the
+/// schema list, read on the same session and cached together.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn list_database_objects(state: State<'_, AppState>, args: DatabaseArgs) -> CommandResult<DatabaseObjects> {
+    let read = state
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, |s| {
+            Box::pin(async move {
+                let objects = s.list_objects().await?;
+                // The objects are what matters: a schema list that fails
+                // leaves the schemas derived from them.
+                let schemas = s.list_schemas().await.unwrap_or_else(|e| {
+                    tracing::warn!("list_schemas failed: {e}");
+                    None
+                });
+                Ok(DatabaseObjects { objects, schemas })
+            })
+        })
+        .await?;
+    state.cache_put(&args.connection_id, &args.database, cache_kinds::OBJECTS, "", &read.objects);
+    state.cache_put(&args.connection_id, &args.database, CACHE_SCHEMAS, "", &read.schemas);
+    Ok(read)
+}
+
 #[derive(Deserialize)]
 pub struct CachedArgs {
     pub connection_id: String,
     #[serde(default)]
     pub database: String,
-    /// `databases`, `objects` or `columns`.
+    /// `databases`, `objects`, `schemas` or `columns`.
     pub kind: String,
     /// For `columns`, the object (`cache_item`).
     #[serde(default)]

@@ -5,6 +5,8 @@
 //! warehouse. So only the profiler is checked, through SCIM `Me` (no SQL):
 //! a workspace admin (member of `admins`) sees everyone's queries. Without
 //! that the profiler still shows the login's own, so it's never denied.
+//! Creating a schema (`CREATE SCHEMA` on the catalog, or owning it) stays
+//! unknown for the same reason.
 
 use crate::DatabricksSession;
 use dbine_driver::{Access, Permissions};

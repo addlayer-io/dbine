@@ -15,6 +15,8 @@
 //! - USERADMIN (and SECURITYADMIN above it): users, roles and grants.
 //! - Dropping the explorer's database needs OWNERSHIP of it: allowed or
 //!   denied by whether its owner role is in the session.
+//! - Creating a schema in it: allowed for its owner; anyone else may hold
+//!   CREATE SCHEMA on it through some role, so it stays unknown.
 //!
 //! A check the server refuses leaves everything unknown; only a broken
 //! connection is an error.
@@ -47,6 +49,7 @@ pub(crate) fn map(r: Roles) -> Permissions {
         create_database: allowed_if(r.accountadmin || r.sysadmin),
         drop_database: r.owner.map_or(Access::Unknown, |own| Access::check(own, "OWNERSHIP sobre la base")),
         manage_security: allowed_if(r.accountadmin || r.useradmin),
+        create_schema: allowed_if(r.owner == Some(true)),
     }
 }
 
@@ -108,7 +111,7 @@ mod tests {
     fn other_roles_are_never_denied_account_privileges() {
         let p = map(Roles { owner: Some(false), ..Default::default() });
         assert_eq!(p.drop_database, Access::Denied { missing: "OWNERSHIP sobre la base".into() });
-        for a in [p.backup, p.restore, p.profiler, p.kill_session, p.create_database, p.manage_security] {
+        for a in [p.backup, p.restore, p.profiler, p.kill_session, p.create_database, p.manage_security, p.create_schema] {
             assert_eq!(a, Access::Unknown);
         }
     }

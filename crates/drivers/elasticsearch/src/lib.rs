@@ -20,6 +20,7 @@ mod permissions;
 pub mod plan;
 mod profiler;
 mod security;
+mod steps;
 mod sync;
 mod transfer;
 
@@ -28,9 +29,10 @@ use console::{Command, Request};
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
     Driver, DriverInfo, Error, Family, Field, FieldKind, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef,
-    QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema,
 };
 use json::J;
+use steps::Step;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -165,6 +167,15 @@ pub fn cloud_id_url(cloud_id: &str) -> Option<String> {
 
 /// An Elasticsearch / OpenSearch error body as one line:
 /// `type: reason (caused by: …)`.
+/// The error type of an error response (`index_not_found_exception`…),
+/// or its HTTP status when the body has none: the error's code.
+fn es_error_code(status: u16, body: &str) -> String {
+    J::parse(body)
+        .ok()
+        .and_then(|j| j.at(&["error", "type"]).and_then(J::as_str).map(str::to_string))
+        .unwrap_or_else(|| format!("HTTP {status}"))
+}
+
 pub fn es_error_message(status: u16, body: &str) -> String {
     let fallback = || format!("HTTP {status}: {}", http::clip(body.trim(), 500));
     let Ok(j) = J::parse(body) else { return fallback() };
@@ -232,6 +243,12 @@ fn new_opaque_id() -> String {
 impl Driver for Es {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// As Kibana's console: a failed request doesn't stop the script (the tab's
+    /// toggle overrides it).
+    fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
+        dbine_driver::ScriptDefaults { continue_on_error: true, ..dbine_driver::ScriptDefaults::for_language(self.info().language) }
     }
 
     fn supports_explain(&self) -> bool {
@@ -434,7 +451,8 @@ impl EsSession {
             return Ok(());
         }
         if status >= 400 {
-            return Err(Error::Query(security::explain_error(req, es_error_message(status, &text))));
+            let msg = security::explain_error(req, es_error_message(status, &text));
+            return Err(Error::Statement(Box::new(ScriptError::new(msg).with_code(es_error_code(status, &text)))));
         }
         let Ok(resp) = J::parse(&text) else {
             flatten::push_text(out, &text, max_rows);
@@ -448,7 +466,7 @@ impl EsSession {
         if let Some(responses) = resp.get("responses").and_then(J::as_arr) {
             for (i, r) in responses.iter().enumerate() {
                 match r.get("error") {
-                    Some(_) => out.messages.push(format!("Búsqueda {}: {}", i + 1, es_error_message(400, &r.compact()))),
+                    Some(_) => out.warning(format!("Búsqueda {}: {}", i + 1, es_error_message(400, &r.compact()))),
                     None => flatten::push_search(out, r, max_rows),
                 }
             }
@@ -505,7 +523,7 @@ impl EsSession {
             self.run_sql(stmt, max_rows, out).await?;
         }
         if !select {
-            out.messages.push(format!("`{}`: solo las consultas SELECT tienen plan de ejecución.", plan::clip(stmt, 80)));
+            out.info(format!("`{}`: solo las consultas SELECT tienen plan de ejecución.", plan::clip(stmt, 80)));
             return Ok(());
         }
         let sql_body = serde_json::json!({ "query": stmt });
@@ -719,16 +737,24 @@ impl Session for EsSession {
         format!("GET /{}/_search\n{{\n  \"size\": {limit},\n  \"query\": {{ \"match_all\": {{}} }}\n}}", o.name)
     }
 
+    /// Requests and SQL statements one after another, as the Dev Tools
+    /// console sends a selection: a failing one stops the script unless the
+    /// editor run continues on errors, as the console does (see
+    /// `Step::end`). A line that's neither runs nothing.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let cmds = console::parse(text).map_err(Error::Query)?;
+        let cmds =
+            console::parse_located(text).map_err(|e| Error::from(ScriptError::new(e.message).at_offset(e.offset).at_line(e.line)))?;
         if cmds.is_empty() {
             return Err(Error::Query("No hay ninguna petición para ejecutar.".into()));
         }
-        for c in &cmds {
-            match c {
-                Command::Http(r) => self.run_request(r, max_rows, out).await?,
-                Command::Sql(s) => self.run_sql(s, max_rows, out).await?,
-            }
+        let own = out.current_statement.is_none();
+        for (i, c) in cmds.iter().enumerate() {
+            let step = Step::start(out, own, i, c.offset, c.line);
+            let r = match &c.command {
+                Command::Http(r) => self.run_request(r, max_rows, out).await,
+                Command::Sql(s) => self.run_sql(s, max_rows, out).await,
+            };
+            step.end(out, r)?;
         }
         Ok(())
     }
@@ -753,7 +779,7 @@ impl Session for EsSession {
             let segs = r.segments();
             let is_search = matches!(r.method.as_str(), "GET" | "POST") && segs.last() == Some(&"_search");
             if !is_search {
-                out.messages.push(format!("`{label}`: solo las búsquedas (_search) y las consultas SQL tienen plan de ejecución."));
+                out.info(format!("`{label}`: solo las búsquedas (_search) y las consultas SQL tienen plan de ejecución."));
                 if analyze {
                     self.run_request(r, max_rows, out).await?;
                 }
@@ -907,6 +933,12 @@ async fn cancel_tasks(client: &reqwest::Client, base: &str, opaque_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn error_codes() {
+        assert_eq!(es_error_code(404, r#"{"error":{"type":"index_not_found_exception","reason":"x"},"status":404}"#), "index_not_found_exception");
+        assert_eq!(es_error_code(502, "Bad gateway"), "HTTP 502");
+    }
 
     fn req(method: &str, path: &str) -> Request {
         Request { method: method.into(), path: path.into(), body: None }

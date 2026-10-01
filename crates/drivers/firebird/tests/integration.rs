@@ -232,7 +232,7 @@ async fn interrupter_cancels_a_running_statement() {
         )
         .await
         .unwrap_err();
-    assert!(e.to_string().to_lowercase().contains("cancel"), "{e}");
+    assert!(matches!(e, dbine_driver::Error::Cancelled), "{e}");
     assert!(started.elapsed().as_secs() < 20);
     let out = run(&mut s, "SELECT 1 FROM rdb$database").await;
     assert_eq!(out.results[0].rows[0][0], json!(1));
@@ -578,4 +578,61 @@ INSERT INTO dbine_sync_hijo VALUES (1, 1, 'uno', 5, NULL);
     for st in &script.statements {
         run(&mut s, st).await;
     }
+}
+
+/// The editor's script contract: errors with SQLCODE and position in the
+/// script, skipped isql commands said, manual transactions.
+#[tokio::test]
+#[ignore]
+async fn script_errors_messages_and_transactions() {
+    let driver = dbine_driver_firebird::drivers().remove(0);
+    assert_eq!(driver.script_dialect(), dbine_driver::sql::ScriptDialect::firebird());
+    assert!(driver.supports_manual_transactions());
+    let mut s = session().await;
+    let _ = s.execute("DROP TABLE dbine_tx", 10, &mut QueryOutcome::default()).await;
+    run(&mut s, "CREATE TABLE dbine_tx (id INTEGER NOT NULL PRIMARY KEY)").await;
+
+    let script = "SELECT 1 FROM rdb$database;\nSHOW TABLES;\nSELECT 2 FROM\n  rdb$database WHERE nope = 1;";
+    let mut out = QueryOutcome::default();
+    let e = s.execute(script, 10, &mut out).await.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert_eq!(e.code.as_deref(), Some("-206"), "{e:?}");
+    assert_eq!(e.offset, Some(script.find("nope").unwrap()), "{e:?}");
+    assert_eq!(e.line, Some(4));
+    assert_eq!(out.results.len(), 1);
+    assert!(out.log.iter().any(|m| m.text.contains("SHOW TABLES")), "{:?}", out.log);
+
+    let mut out = QueryOutcome::default();
+    let e = s.execute("SELEC 1", 10, &mut out).await.unwrap_err().to_script_error();
+    assert_eq!((e.code.as_deref(), e.line, e.offset), (Some("-104"), Some(1), Some(0)), "{e:?}");
+
+    // Errors whose status vector has no SQLCODE get isql's code and SQLSTATE.
+    run(&mut s, "INSERT INTO dbine_tx VALUES (7)").await;
+    let e = s.execute("INSERT INTO dbine_tx VALUES (7)", 10, &mut out).await.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert_eq!((e.code.as_deref(), e.sqlstate.as_deref()), (Some("-803"), Some("23000")), "{e:?}");
+    let e = s.execute("DROP TRIGGER dbine_no_such_trigger", 10, &mut out).await.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert!(e.code.is_some(), "{e:?}");
+    run(&mut s, "DELETE FROM dbine_tx").await;
+
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    s.set_autocommit(false).await.unwrap();
+    run(&mut s, "SELECT 1 FROM rdb$database").await;
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    run(&mut s, "INSERT INTO dbine_tx VALUES (1)").await;
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    s.rollback().await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    run(&mut s, "INSERT INTO dbine_tx VALUES (2)").await;
+    // Another session doesn't see it until the commit.
+    let mut other = session().await;
+    let out = run(&mut other, "SELECT COUNT(*) FROM dbine_tx").await;
+    assert_eq!(out.results[0].rows[0][0], json!(0));
+    s.commit().await.unwrap();
+    s.set_autocommit(true).await.unwrap();
+    let out = run(&mut other, "SELECT LIST(id) FROM dbine_tx").await;
+    eprintln!("{:?}", out.results[0].rows);
+    drop(other);
+    run(&mut s, "DROP TABLE dbine_tx").await;
 }

@@ -83,6 +83,60 @@ where
     ///
     /// [`ensure_not_poisoned`]: Self::ensure_not_poisoned
     command_desync: Arc<AtomicBool>,
+    /// PATCH(dbine): attention requests from [`CancelHandle`]s.
+    attention: Arc<AttentionShared>,
+    /// PATCH(dbine): this connection's side of an attention in progress.
+    attn: AttentionLocal,
+}
+
+/// PATCH(dbine): what a [`CancelHandle`] shares with its connection.
+#[derive(Debug, Default)]
+pub(crate) struct AttentionShared {
+    /// A cancel was asked for the request in flight.
+    requested: AtomicBool,
+    /// The task reading the response, woken so it sends the attention.
+    waker: futures_util::task::AtomicWaker,
+}
+
+/// PATCH(dbine): an attention sent and not yet acknowledged.
+#[derive(Debug, Default)]
+struct AttentionLocal {
+    /// The Attention packet is on its way (or on the wire).
+    sent: bool,
+    /// Its flush hasn't completed yet.
+    flushing: bool,
+    /// The last bytes of the message being read, to spot the acknowledging
+    /// DONE at its end.
+    tail: BytesMut,
+}
+
+/// Length of a DONE / DONEPROC / DONEINPROC token (TDS 7.2+): type, status,
+/// current command and an 8-byte row count.
+const DONE_TOKEN_BYTES: usize = 13;
+
+/// PATCH(dbine): cancels the request running on a [`Client`] from any task,
+/// while the client itself is busy reading its results, the way SSMS does:
+/// a TDS Attention signal on the same connection (MS-TDS 2.2.1.7). The
+/// session survives, with its transaction, `#temp` tables and `SET` options.
+///
+/// The task reading the response sends the Attention packet on its next poll
+/// (it is woken for it), keeps reading, and the result stream ends with
+/// [`Error::Cancelled`](crate::error::Error::Cancelled) at the server's
+/// acknowledgement. If the request had already finished, nothing is
+/// cancelled; if the Attention went out just as it finished, the
+/// acknowledgement that follows is drained before the next request. A cancel
+/// asked while no request is in flight is forgotten when the next one starts.
+///
+/// [`Client`]: crate::Client
+#[derive(Debug, Clone)]
+pub struct CancelHandle(Arc<AttentionShared>);
+
+impl CancelHandle {
+    /// Ask the server to stop the request in flight.
+    pub fn cancel(&self) {
+        self.0.requested.store(true, Ordering::SeqCst);
+        self.0.waker.wake();
+    }
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> Debug for Connection<S> {
@@ -175,6 +229,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
             buf: BytesMut::new(),
             poisoned: false,
             command_desync: Arc::new(AtomicBool::new(false)),
+            attention: Default::default(),
+            attn: Default::default(),
         };
 
         let fed_auth_required = matches!(config.auth, AuthMethod::AADToken(_));
@@ -276,6 +332,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
         E: Sized + Encode<BytesMut>,
     {
         self.ensure_not_poisoned()?;
+        // PATCH(dbine): a cancel asked while nothing ran is not for this request.
+        self.attention.requested.store(false, Ordering::SeqCst);
         self.flushed = false;
         let packet_size = (self.context.packet_size() as usize) - HEADER_BYTES;
 
@@ -481,7 +539,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
         self.buf.truncate(0);
 
         if self.flushed {
-            return Ok(());
+            return self.drain_attention_ack().await;
         }
 
         loop {
@@ -507,7 +565,97 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
             }
         }
 
+        self.drain_attention_ack().await
+    }
+
+    /// PATCH(dbine): an Attention is out and not yet acknowledged.
+    pub(crate) fn attention_pending(&self) -> bool {
+        self.attn.sent
+    }
+
+    /// PATCH(dbine): the message just read ended; read the next one, the
+    /// attention's acknowledgement.
+    pub(crate) fn read_attention_ack(&mut self) {
+        self.flushed = false;
+    }
+
+    /// PATCH(dbine): a [`CancelHandle`] for this connection.
+    pub(crate) fn cancel_handle(&self) -> CancelHandle {
+        CancelHandle(self.attention.clone())
+    }
+
+    /// PATCH(dbine): an Attention whose request ended before the server saw
+    /// it is acknowledged in a message of its own; read it before the next
+    /// request so that message isn't taken as the new request's answer.
+    async fn drain_attention_ack(&mut self) -> crate::Result<()> {
+        while self.attn.sent {
+            self.flushed = false;
+            loop {
+                match self.try_next().await {
+                    Ok(Some(packet)) if packet.is_last() => break,
+                    Ok(Some(_)) => (),
+                    Ok(None) => {
+                        self.poisoned = true;
+                        return Err(crate::Error::Io {
+                            kind: io::ErrorKind::UnexpectedEof,
+                            message: "the connection closed before the cancel was acknowledged".into(),
+                        });
+                    }
+                    Err(e) => {
+                        self.poisoned = true;
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        self.buf.truncate(0);
         Ok(())
+    }
+
+    /// PATCH(dbine): send the Attention a [`CancelHandle`] asked for, while a
+    /// response is being read (`flushed` false), and drive its flush.
+    fn poll_attention(&mut self, cx: &mut task::Context<'_>) -> Poll<crate::Result<()>> {
+        self.attention.waker.register(cx.waker());
+        if !self.attn.sent && !self.flushed && self.attention.requested.load(Ordering::SeqCst) {
+            ready!(self.transport.poll_ready_unpin(cx))?;
+            let id = self.context.next_packet_id();
+            self.transport
+                .start_send_unpin(Packet::new(PacketHeader::attention(id), BytesMut::new()))?;
+            self.attn.sent = true;
+            self.attn.flushing = true;
+            self.attn.tail.clear();
+            event!(Level::DEBUG, "Attention signal sent");
+        }
+        if self.attn.flushing {
+            if let Poll::Ready(r) = self.transport.poll_flush_unpin(cx) {
+                r?;
+                self.attn.flushing = false;
+            }
+        }
+        Poll::Ready(Ok(()))
+    }
+
+    /// PATCH(dbine): with an Attention out, spot its acknowledgement: the
+    /// DONE token with the `DONE_ATTN` bit that ends a message.
+    fn track_attention_ack(&mut self, packet: &Packet) {
+        if !self.attn.sent {
+            return;
+        }
+        let tail = &mut self.attn.tail;
+        tail.extend_from_slice(&packet.payload);
+        if tail.len() > DONE_TOKEN_BYTES {
+            let _ = tail.split_to(tail.len() - DONE_TOKEN_BYTES);
+        }
+        if !packet.is_last() {
+            return;
+        }
+        let acked = is_attention_ack(tail);
+        tail.clear();
+        if acked {
+            self.attn.sent = false;
+            self.attention.requested.store(false, Ordering::SeqCst);
+            event!(Level::DEBUG, "Attention acknowledged");
+        }
     }
 
     /// True if the underlying stream has no more data and is consumed
@@ -897,6 +1045,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
                     buf: BytesMut::new(),
                     poisoned: false,
                     command_desync,
+                    attention: Default::default(),
+                    attn: Default::default(),
                 })
             }
         }
@@ -943,8 +1093,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
             buf: BytesMut::new(),
             poisoned,
             command_desync: Arc::new(AtomicBool::new(false)),
+            attention: Default::default(),
+            attn: Default::default(),
         }
     }
+}
+
+/// PATCH(dbine): the last token of a message is a DONE (any of the three)
+/// with the `DONE_ATTN` status bit (0x20).
+fn is_attention_ack(tail: &[u8]) -> bool {
+    tail.len() == DONE_TOKEN_BYTES
+        && matches!(tail[0], 0xFD | 0xFE | 0xFF)
+        && u16::from_le_bytes([tail[1], tail[2]]) & 0x20 != 0
 }
 
 /// Returns an error when the user requested encryption but no TLS backend was
@@ -1208,9 +1368,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Stream for Connection<S> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
+        // PATCH(dbine): a cancel from a `CancelHandle` goes out from here.
+        if let Err(e) = ready!(this.poll_attention(cx)) {
+            return Poll::Ready(Some(Err(e)));
+        }
+
         match ready!(this.transport.try_poll_next_unpin(cx)) {
             Some(Ok(packet)) => {
                 this.flushed = packet.is_last();
+                this.track_attention_ack(&packet);
                 Poll::Ready(Some(Ok(packet)))
             }
             Some(Err(e)) => Poll::Ready(Some(Err(e))),
@@ -1742,5 +1908,58 @@ mod timeout_tests {
             outcome.is_err(),
             "command_timeout must not cut off the connect handshake; connect returned {outcome:?}"
         );
+    }
+}
+
+// PATCH(dbine): spotting the acknowledgement of a `CancelHandle` attention.
+#[cfg(test)]
+mod attention_tests {
+    use super::*;
+
+    fn done(status: u16) -> Vec<u8> {
+        let mut t = vec![0xFD];
+        t.extend_from_slice(&status.to_le_bytes());
+        t.extend_from_slice(&[0xC1, 0x00]);
+        t.extend_from_slice(&0u64.to_le_bytes());
+        t
+    }
+
+    fn packet(payload: &[u8], last: bool) -> Packet {
+        let mut header = PacketHeader::batch(1);
+        header.set_status(if last { PacketStatus::EndOfMessage } else { PacketStatus::NormalMessage });
+        Packet::new(header, BytesMut::from(payload))
+    }
+
+    #[test]
+    fn ack_is_a_done_with_the_attention_bit() {
+        assert!(is_attention_ack(&done(0x20)));
+        assert!(is_attention_ack(&done(0x20 | 0x10)));
+        assert!(!is_attention_ack(&done(0x00)));
+        assert!(!is_attention_ack(&done(0x10)));
+        assert!(!is_attention_ack(&done(0x20)[1..]));
+    }
+
+    #[test]
+    fn ack_split_across_packets_is_seen_only_at_end_of_message() {
+        let mut conn = Connection::test_over(futures_util::io::Cursor::new(Vec::new()), false);
+        // Nothing is tracked without an attention out.
+        conn.track_attention_ack(&packet(&done(0x20), true));
+        assert!(!conn.attn.sent);
+
+        conn.attn.sent = true;
+        conn.attention.requested.store(true, Ordering::SeqCst);
+        // A response that ends without the acknowledgement keeps waiting.
+        conn.track_attention_ack(&packet(&[1, 2, 3], false));
+        conn.track_attention_ack(&packet(&done(0x01), true));
+        assert!(conn.attn.sent);
+        // The acknowledgement split over two packets of the next message.
+        let ack = done(0x20);
+        let mut first = vec![9u8; 40];
+        first.extend_from_slice(&ack[..5]);
+        conn.track_attention_ack(&packet(&first, false));
+        assert!(conn.attn.sent);
+        conn.track_attention_ack(&packet(&ack[5..], true));
+        assert!(!conn.attn.sent);
+        assert!(!conn.attention.requested.load(Ordering::SeqCst));
     }
 }

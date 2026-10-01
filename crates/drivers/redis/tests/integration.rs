@@ -109,11 +109,13 @@ async fn round_trip(driver: &str, url: &str) {
     // A failing command stops the script; what ran before stays.
     let mut out = QueryOutcome::default();
     let e = s.execute("GET str\nHGETALL str\nGET str", 100, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(ref m) if m.contains("WRONGTYPE")), "{e:?}");
+    assert!(e.is_query() && e.to_string().contains("WRONGTYPE"), "{e:?}");
+    let se = e.to_script_error();
+    assert_eq!((se.code.as_deref(), se.line, se.offset), (Some("WRONGTYPE"), Some(2), Some(8)), "{se:?}");
     assert_eq!(out.results.len(), 1);
     let mut out = QueryOutcome::default();
-    assert!(matches!(s.execute("GET \"open", 100, &mut out).await, Err(Error::Query(_))));
-    assert!(matches!(s.execute("SUBSCRIBE ch", 100, &mut out).await, Err(Error::Unsupported(_))));
+    assert!(matches!(s.execute("GET \"open", 100, &mut out).await, Err(e) if e.is_query()));
+    assert!(matches!(s.execute("SUBSCRIBE ch", 100, &mut out).await, Err(e) if e.to_string().contains("no admite SUBSCRIBE")));
 
     // Read-only: reads pass, writes are refused before reaching the server.
     let mut ro = open(driver, url, "5", true).await;

@@ -57,7 +57,12 @@
     "addToQuery": "Adicionar à consulta",
     "discard": "Descartar",
     "cells_many": "{{count}} células alteradas",
-    "rows_many": "{{count}} linhas"
+    "rows_many": "{{count}} linhas",
+    "summaryDeletes": "{{deletes}}, ainda não salvo.",
+    "summaryBoth": "{{cells}} em {{rows}}, {{deletes}}, ainda não salvo.",
+    "deletes_one": "{{count}} linha para excluir",
+    "deletes_many": "{{count}} linhas para excluir",
+    "deletes_other": "{{count}} linhas para excluir"
   },
   "exportDialog": {
     "title": "Exportar resultado",
@@ -165,7 +170,14 @@
         "label": "Copiar como Mongo INSERTs",
         "name": "Mongo INSERTs"
       }
-    }
+    },
+    "deleteRow": "Excluir linha",
+    "deleteRows": "Excluir {{count}} linhas",
+    "restoreRow": "Restaurar linha",
+    "restoreRows": "Restaurar {{count}} linhas",
+    "cantDelete": "Não é possível excluir: {{reason}}",
+    "rowDeleted": "A linha está marcada para exclusão: restaure-a para editá-la",
+    "markedDelete": "Marcada para exclusão"
   },
   "chart": {
     "kind": {

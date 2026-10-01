@@ -90,7 +90,7 @@ async fn phoenix() {
     // Error mid-script.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1 FROM DBINE.T LIMIT 1; SELECT * FROM NOPE; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1);
 
     // Read-only: the connection is read-only on the server too.
@@ -385,4 +385,99 @@ async fn schema_sync() {
     assert!(again.statements.is_empty(), "{:?}\n{now:#?}", again.statements);
     run(&mut s, "UPSERT INTO DBINE_SYNC.T (ID) VALUES (2)").await;
     run(&mut s, "DROP TABLE DBINE_SYNC.T; DROP TABLE DBINE_SYNC.NUEVA").await;
+}
+
+/// "Nuevo esquema…" / "Borrar esquema…": the schema shows in
+/// `SYSTEM.CATALOG`, a schema with a table can't be dropped (no CASCADE),
+/// and a grant is refused unless the server has HBase ACLs on.
+#[tokio::test]
+#[ignore]
+async fn create_and_drop_schema() {
+    let Some(c) = cfg(false) else { return };
+    let d = dbine_driver_phoenix::drivers().remove(0);
+    let spec = d.schema_spec().unwrap();
+    assert!(!spec.owner && !spec.cascade && spec.privileges.contains(&"R"));
+    assert!(dbine_driver_phoenix::drivers().remove(1).schema_spec().is_none());
+    let mut s = d.connect(&c, None).await.unwrap();
+    let mut out = QueryOutcome::default();
+    let _ = s.execute("DROP TABLE IF EXISTS \"DBINE_SC\".T", 10, &mut out).await;
+    let _ = s.execute(&d.drop_schema_script(None, "DBINE_SC", false).unwrap(), 10, &mut out).await;
+
+    let mut out = QueryOutcome::default();
+    s.execute(&d.create_schema_script(None, "DBINE_SC", None).unwrap(), 10, &mut out).await.unwrap();
+    let mut out = QueryOutcome::default();
+    s.execute("SELECT TABLE_SCHEM FROM SYSTEM.CATALOG WHERE TABLE_SCHEM = 'DBINE_SC' AND TENANT_ID IS NULL", 10, &mut out).await.unwrap();
+    assert!(!out.results[0].rows.is_empty(), "the schema isn't in SYSTEM.CATALOG");
+    // Empty, it's listed (the tree shows it and can drop it).
+    let listed = s.list_schemas().await.unwrap().expect("Phoenix lists schemas");
+    assert!(listed.iter().any(|x| x.name == "DBINE_SC" && !x.system), "{listed:?}");
+    assert!(listed.iter().any(|x| x.name == "SYSTEM" && x.system), "{listed:?}");
+    // Names HBase would refuse (slowly) are refused before running.
+    assert!(d.create_schema_script(None, "Mi Esquema", None).is_err() && d.create_schema_script(None, "q\"x", None).is_err());
+
+    // What "Nuevo esquema…" writes for a grant (the default: `security_script` on the schema).
+    let grant = d.schema_grant_script(Some("ignored"), "DBINE_SC", &["R".into(), "W".into()], "dbine_ana", false).unwrap();
+    assert_eq!(grant, "GRANT 'RW' ON SCHEMA \"DBINE_SC\" TO 'dbine_ana'");
+    assert!(d.schema_owner_script(None, "DBINE_SC", "ana").unwrap().is_none());
+    let mut out = QueryOutcome::default();
+    match s.execute(&grant, 10, &mut out).await {
+        Ok(()) => eprintln!("the server has ACLs: {grant} ran"),
+        Err(e) => eprintln!("no HBase ACLs on this server, {grant}: {e}"),
+    }
+
+    let mut out = QueryOutcome::default();
+    s.execute("CREATE TABLE \"DBINE_SC\".T (ID BIGINT NOT NULL PRIMARY KEY)", 10, &mut out).await.unwrap();
+    let mut out = QueryOutcome::default();
+    assert!(s.execute(&d.drop_schema_script(None, "DBINE_SC", false).unwrap(), 10, &mut out).await.is_err(), "dropped a schema with a table");
+    let mut out = QueryOutcome::default();
+    s.execute("DROP TABLE \"DBINE_SC\".T", 10, &mut out).await.unwrap();
+    let mut out = QueryOutcome::default();
+    s.execute(&d.drop_schema_script(None, "DBINE_SC", false).unwrap(), 10, &mut out).await.unwrap();
+    let mut out = QueryOutcome::default();
+    s.execute("SELECT TABLE_SCHEM FROM SYSTEM.CATALOG WHERE TABLE_SCHEM = 'DBINE_SC' AND TENANT_ID IS NULL", 10, &mut out).await.unwrap();
+    assert!(out.results[0].rows.is_empty(), "the schema is still there");
+    assert!(!s.list_schemas().await.unwrap().unwrap().iter().any(|x| x.name == "DBINE_SC"));
+}
+
+/// The editor's script contract: Phoenix's code and SQLSTATE with the
+/// position in the script, manual transactions (UPSERTs kept on the server
+/// connection until COMMIT).
+#[tokio::test]
+#[ignore]
+async fn script_errors_and_transactions() {
+    let Some(c) = cfg(false) else { return };
+    let d = dbine_driver_phoenix::drivers().remove(0);
+    assert_eq!(d.script_mode(), dbine_driver::sql::ScriptMode::PerStatement);
+    let mut s = d.connect(&c, None).await.unwrap();
+    let mut other = d.connect(&c, None).await.unwrap();
+    let script = "SELECT 1 FROM SYSTEM.CATALOG LIMIT 1;\nSELECT 2 FROM\n  SYSTEM.CATALOG WHERE\n  nope = 1;";
+    let mut out = QueryOutcome::default();
+    let e = s.execute(script, 10, &mut out).await.unwrap_err().to_script_error();
+    assert_eq!((e.code.as_deref(), e.sqlstate.as_deref()), (Some("504"), Some("42703")), "{e:?}");
+    assert_eq!(out.results.len(), 1);
+    let e = s.execute("SELECT 1;\nSELECT 2 FROM SYSTEM.CATALOG\n  WHER x", 10, &mut QueryOutcome::default()).await.unwrap_err().to_script_error();
+    eprintln!("{e:?}");
+    assert_eq!(e.code.as_deref(), Some("603"), "{e:?}");
+    assert_eq!(e.line, Some(3));
+    assert_eq!(e.offset, Some("SELECT 1;\nSELECT 2 FROM SYSTEM.CATALOG\n  WHER ".len()));
+
+    let run = |sql: &'static str| sql;
+    let mut go = QueryOutcome::default();
+    let _ = s.execute("DROP TABLE IF EXISTS DBINE.TX", 10, &mut go).await;
+    s.execute(run("CREATE TABLE DBINE.TX (ID INTEGER PRIMARY KEY)"), 10, &mut go).await.unwrap();
+    s.set_autocommit(false).await.unwrap();
+    s.execute("UPSERT INTO DBINE.TX VALUES (1)", 10, &mut go).await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    s.rollback().await.unwrap();
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
+    s.execute("UPSERT INTO DBINE.TX VALUES (2)", 10, &mut go).await.unwrap();
+    let mut out = QueryOutcome::default();
+    other.execute("SELECT COUNT(*) FROM DBINE.TX", 10, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(0), "not visible before the commit");
+    s.commit().await.unwrap();
+    s.set_autocommit(true).await.unwrap();
+    let mut out = QueryOutcome::default();
+    other.execute("SELECT ID FROM DBINE.TX", 10, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows, vec![vec![serde_json::json!(2)]]);
+    s.execute("DROP TABLE DBINE.TX", 10, &mut go).await.unwrap();
 }

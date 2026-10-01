@@ -7,11 +7,11 @@
 mod hrana;
 mod transfer;
 
-use dbine_driver::sql::{quote_ident, select_top, Limit, Quote};
+use dbine_driver::sql::{leading_keyword, quote_ident, select_top, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode};
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
     Driver, DriverInfo, Error, Family, Field, FieldKind, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef,
-    QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
 };
 use dbine_driver_sqlite::schema::Rows;
 use dbine_driver_sqlite::{monitor as sqlite_monitor, plan, schema};
@@ -66,6 +66,28 @@ impl Driver for LibsqlDriver {
         true
     }
 
+    /// SQLite's (see the SQLite driver): `[name]` too, trigger bodies whole.
+    fn script_dialect(&self) -> ScriptDialect {
+        ScriptDialect { bracket_idents: true, ..ScriptDialect::generic() }
+    }
+
+    /// One statement per request on the session's Hrana stream, which keeps
+    /// its state (temp tables, PRAGMAs, an open transaction).
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// As sqlite3 (and `turso db shell`): go on after an error.
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+    }
+
+    /// On Hrana 3 servers (Turso, current sqld); older ones say so when
+    /// Manual is chosen.
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     /// Databases are created and dropped through Turso's platform API (or
     /// sqld's admin API), not with SQL.
     fn capabilities(&self) -> Capabilities {
@@ -113,13 +135,41 @@ impl Driver for LibsqlDriver {
             Error::Query(m) => Error::Connect(m),
             other => other,
         })?;
-        Ok(Box::new(LibsqlSession { client, read_only: cfg.read_only }))
+        client.detect_v3().await;
+        Ok(Box::new(LibsqlSession { client, read_only: cfg.read_only, manual: false }))
     }
 }
 
 struct LibsqlSession {
     client: Client,
     read_only: bool,
+    /// Manual transactions: a statement that writes opens one when none is open.
+    manual: bool,
+}
+
+/// Whether, in manual mode, `stmt` opens a transaction: anything but reads,
+/// transaction control and what SQLite refuses inside one (VACUUM).
+fn opens_transaction(stmt: &str) -> bool {
+    const NO: &[&str] = &[
+        "select", "with", "values", "explain", "pragma", "begin", "commit", "end", "rollback", "savepoint", "release", "vacuum", "attach",
+        "detach",
+    ];
+    leading_keyword(stmt, &ScriptDialect::generic()).is_some_and(|k| !NO.contains(&k.as_str()))
+}
+
+/// A failed statement: Hrana's code, and the line when sqld's parser says
+/// where ("syntax error around L2:7").
+fn step_error(e: hrana::StepError, single: bool) -> Error {
+    let mut se = ScriptError::new(e.message.clone());
+    if let Some(c) = e.code {
+        se = se.with_code(c);
+    }
+    if single {
+        if let Some(line) = e.message.split("around L").nth(1).and_then(|r| r.split(':').next()).and_then(|l| l.parse::<u32>().ok()) {
+            se = se.at_line(line.max(1));
+        }
+    }
+    se.into()
 }
 
 /// Statements of a script, split where SQLite would (`sqlite3_complete`:
@@ -189,7 +239,9 @@ fn push_result(r: StmtResult, max_rows: usize, out: &mut QueryOutcome) {
 
 impl LibsqlSession {
     fn notices(&mut self, out: &mut QueryOutcome) {
-        out.messages.append(&mut self.client.notices);
+        for n in std::mem::take(&mut self.client.notices) {
+            out.warning(n);
+        }
     }
 
     /// Run `f` (a sync function that asks for query results) against the
@@ -319,16 +371,42 @@ impl Session for LibsqlSession {
         if stmts.is_empty() {
             return Ok(());
         }
-        let res = self.client.script(&stmts).await;
+        let begin: Vec<bool> = stmts.iter().map(|s| self.manual && opens_transaction(s)).collect();
+        let res = self.client.script(&stmts, &begin).await;
         self.notices(out);
         let (results, error) = res?;
         for r in results {
             push_result(r, max_rows, out);
         }
         match error {
-            Some((_, m)) => Err(Error::Query(m)),
+            Some((_, e)) => Err(step_error(e, stmts.len() == 1)),
             None => Ok(()),
         }
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        Ok(self.client.autocommit.map(|on| if on { TxState::Idle } else { TxState::Open }))
+    }
+
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if !on && !self.client.v3 {
+            return Err(Error::Unsupported("este servidor libSQL no informa transacciones (necesita Hrana 3): usá BEGIN y COMMIT".into()));
+        }
+        // On: a transaction still open is committed (the UI asks Commit /
+        // Rollback first), so later statements don't join it.
+        if on && self.client.v3 && self.client.autocommit == Some(false) {
+            self.client.end_transaction("COMMIT").await?;
+        }
+        self.manual = !on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.client.end_transaction("COMMIT").await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.client.end_transaction("ROLLBACK").await
     }
 
     /// `EXPLAIN QUERY PLAN` per statement, as in SQLite: no costs nor row
@@ -419,6 +497,19 @@ mod tests {
         assert!(s[1].starts_with("-- a comment") && s[1].ends_with("END"), "{:?}", s[1]);
         assert_eq!(s[2], "SELECT * FROM t");
         assert!(split_script("  ;; -- nada\n").is_empty());
+    }
+
+    #[test]
+    fn writes_open_transactions_and_reads_dont() {
+        assert!(opens_transaction("insert into t values (1)") && opens_transaction("/* x */ create table t (a)"));
+        assert!(!opens_transaction("select 1") && !opens_transaction("BEGIN") && !opens_transaction("commit") && !opens_transaction("vacuum"));
+    }
+
+    #[test]
+    fn errors_carry_code_and_line() {
+        let e = step_error(hrana::StepError { message: "syntax error around L2:7: `selec`".into(), code: Some("SQL_PARSE_ERROR".into()) }, true);
+        let e = e.to_script_error();
+        assert_eq!((e.code.as_deref(), e.line), (Some("SQL_PARSE_ERROR"), Some(2)));
     }
 
     #[test]

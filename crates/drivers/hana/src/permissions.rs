@@ -9,7 +9,9 @@
 //!   other connections' statements. INIFILE ADMIN only decides between the
 //!   complete and the sampled mode (see `profiler`).
 //! - kill (`ALTER SYSTEM DISCONNECT SESSION`): SESSION ADMIN.
-//! - create / drop (schemas): CREATE SCHEMA; the schema's owner or DROP on it.
+//! - create / drop (schemas): CREATE SCHEMA; the schema's owner or DROP on
+//!   it. `create_schema` is the same check, though the explorer has no
+//!   "Nuevo esquema…" here: HANA's schemas are DBine's databases.
 //! - security: USER ADMIN or ROLE ADMIN.
 //!
 //! Untested against a server: there's no HANA to run against (see
@@ -59,6 +61,7 @@ pub(crate) fn map(g: &Grants, database: Option<&str>) -> Permissions {
             None => Access::Unknown,
         },
         manage_security: Access::check(any(&["USER ADMIN", "ROLE ADMIN"]), "USER ADMIN o ROLE ADMIN"),
+        create_schema: Access::check(any(&["CREATE SCHEMA"]), "CREATE SCHEMA"),
     }
 }
 
@@ -112,6 +115,7 @@ mod tests {
         assert_eq!(p.profiler, Access::Denied { missing: "CATALOG READ (rol MONITORING)".into() });
         assert_eq!(p.kill_session, Access::Denied { missing: "SESSION ADMIN".into() });
         assert_eq!(p.create_database, Access::Denied { missing: "CREATE SCHEMA".into() });
+        assert_eq!(p.create_schema, Access::Denied { missing: "CREATE SCHEMA".into() });
         assert!(p.drop_database.is_denied());
         assert!(p.manage_security.is_denied());
     }

@@ -21,8 +21,9 @@ mod transfer;
 use dbine_driver::sql::{select_top, Limit, Quote};
 use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
-    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo,
-    ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, Message,
+    MessageLevel, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptDefaults, ScriptDialect,
+    ScriptError, ScriptMode, Session, StatementEnd, TableSchema, TxState,
 };
 use oracledb::{Connection, Cursor, OracleNumber, OracleTimestamp, Row};
 use serde_json::Value;
@@ -188,6 +189,18 @@ fn autonomous_connect_string(cfg: &ConnectionConfig) -> Result<String> {
     Ok(format!("{}_{}", name.to_ascii_lowercase(), cfg.option("adb_service").unwrap_or("low")))
 }
 
+/// Whether the app's lexer reads SQL*Plus command lines as units of their
+/// own (the `sqlplus_commands` rule of the oracle dialect). Statement by
+/// statement needs it: without it, `SET SERVEROUTPUT ON` or `PROMPT` before
+/// a PL/SQL block would hide the block, which would be cut at its first `;`.
+fn lexer_reads_sqlplus_lines() -> bool {
+    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OK.get_or_init(|| {
+        let units = dbine_driver::sql::split_script("SET SERVEROUTPUT ON\nBEGIN NULL; END;\n/\n", &ScriptDialect::oracle());
+        units.len() == 2 && units[1].text == "BEGIN NULL; END;"
+    })
+}
+
 // ---------------------------------------------------------------- errors
 
 fn err(e: oracledb::Error) -> Error {
@@ -312,6 +325,34 @@ impl Driver for OracleDriver {
         &self.info
     }
 
+    fn script_dialect(&self) -> ScriptDialect {
+        ScriptDialect::oracle()
+    }
+
+    /// Statement by statement, as SQL*Plus runs a script, once the app's
+    /// lexer reads SQL*Plus command lines (see [`lexer_reads_sqlplus_lines`]);
+    /// until then the whole script comes in one `execute`.
+    fn script_mode(&self) -> ScriptMode {
+        if lexer_reads_sqlplus_lines() {
+            ScriptMode::PerStatement
+        } else {
+            ScriptMode::Whole
+        }
+    }
+
+    /// SQL*Plus and SQL Developer go on after a failed statement.
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+    }
+
+    /// The editor starts in Auto, as the connection's «autocommit» option
+    /// does by default (SQL*Plus itself starts with AUTOCOMMIT OFF: Manual
+    /// is the tab's toggle). In Auto every DML statement and PL/SQL block
+    /// is committed after it runs.
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     fn supports_explain(&self) -> bool {
         true
     }
@@ -415,16 +456,22 @@ impl Driver for OracleDriver {
         let c2 = config.clone();
         // The thin client has no TCP connect timeout of its own: give up on
         // the blocking thread after a while (it ends when the OS gives up).
-        let task = tokio::task::spawn_blocking(move || open(c2, schema.as_deref()));
+        let task = tokio::task::spawn_blocking(move || open(c2, schema.as_deref(), true));
         let (conn, ids, schema) = tokio::time::timeout(CONNECT_TIMEOUT, task)
             .await
             .map_err(|_| Error::Connect(format!("El servidor no respondió en {} s.", CONNECT_TIMEOUT.as_secs())))?
             .map_err(join_err)??;
         Ok(Box::new(OracleSession {
-            shared: Arc::new(Shared { conn: Mutex::new(conn), ids: Mutex::new(ids), killed: AtomicBool::new(false) }),
+            shared: Arc::new(Shared {
+                conn: Mutex::new(conn),
+                ids: Mutex::new(ids),
+                killed: AtomicBool::new(false),
+                serveroutput: AtomicBool::new(true),
+            }),
             config,
             schema,
             autocommit,
+            last_compiled: None,
             metadata_ready: false,
             last_os: None,
             profiler: None,
@@ -433,8 +480,9 @@ impl Driver for OracleDriver {
 }
 
 /// A logged-in connection on `schema` (the user's own when `None`): the
-/// connection, its (SID, SERIAL#) and the current schema.
-fn open(config: oracledb::Config, schema: Option<&str>) -> Result<(Connection, (usize, usize), String)> {
+/// connection, its (SID, SERIAL#) and the current schema. `serveroutput`:
+/// DBMS_OUTPUT enabled (SET SERVEROUTPUT ON).
+fn open(config: oracledb::Config, schema: Option<&str>, serveroutput: bool) -> Result<(Connection, (usize, usize), String)> {
     let conn = oracledb::connect(config).map_err(connect_err)?;
     let ids = (conn.session_id().map_err(err)?, conn.serial_num().map_err(err)?);
     if let Some(s) = schema {
@@ -444,9 +492,11 @@ fn open(config: oracledb::Config, schema: Option<&str>) -> Result<(Connection, (
         .query_row("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual", &[])
         .and_then(|r| r.get(0))
         .map_err(err)?;
-    // Server output goes to `out.messages`; unlimited buffer.
-    if let Err(e) = conn.execute("BEGIN DBMS_OUTPUT.ENABLE(NULL); END;", &[]) {
-        tracing::debug!("oracle: DBMS_OUTPUT.ENABLE failed: {e}");
+    // Server output becomes messages; unlimited buffer.
+    if serveroutput {
+        if let Err(e) = conn.execute(SERVEROUTPUT_ON, &[]) {
+            tracing::debug!("oracle: DBMS_OUTPUT.ENABLE failed: {e}");
+        }
     }
     Ok((conn, ids, schema))
 }
@@ -461,6 +511,9 @@ struct Shared {
     /// The interrupter killed the server session: reconnect before the next
     /// call.
     killed: AtomicBool,
+    /// SET SERVEROUTPUT: DBMS_OUTPUT lines are fetched after each statement
+    /// (on by default, as the editor wants them); kept across a reconnect.
+    serveroutput: AtomicBool,
 }
 
 struct OracleSession {
@@ -470,6 +523,9 @@ struct OracleSession {
     /// The session's current schema (the "database" the UI picked).
     schema: String,
     autocommit: bool,
+    /// The last PL/SQL unit or view created or altered: what a bare SHOW
+    /// ERRORS lists.
+    last_compiled: Option<script::Object>,
     /// DBMS_METADATA transform parameters already set in this session.
     metadata_ready: bool,
     /// V$OSSTAT (BUSY_TIME, IDLE_TIME) of the previous monitor snapshot.
@@ -493,7 +549,7 @@ impl OracleSession {
             let mut conn = shared.conn.lock().map_err(|_| poisoned())?;
             let mut reconnected = false;
             if shared.killed.swap(false, Ordering::SeqCst) {
-                let (c, ids, _) = open(config, Some(&schema))?;
+                let (c, ids, _) = open(config, Some(&schema), shared.serveroutput.load(Ordering::SeqCst))?;
                 *conn = c;
                 *shared.ids.lock().map_err(|_| poisoned())? = ids;
                 reconnected = true;
@@ -587,8 +643,13 @@ fn metadata_type(kind: &str) -> Option<&'static str> {
     })
 }
 
+/// The explorer's level below the connection: Oracle's schemas are its
+/// users, so they're listed here (and `Session::list_schemas` stays
+/// `None`). Every user that isn't Oracle-maintained, with objects or
+/// still empty (one just made in "Usuarios y permisos" shows at once);
+/// the Oracle-maintained ones (SYS, SYSTEM, XDB…) are left out.
 const LIST_SCHEMAS: &str = "SELECT u.username FROM all_users u
-  WHERE (u.oracle_maintained = 'N' AND EXISTS (SELECT 1 FROM all_objects o WHERE o.owner = u.username))
+  WHERE u.oracle_maintained = 'N'
      OR u.username = SYS_CONTEXT('USERENV', 'SESSION_USER')
      OR u.username = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
   ORDER BY u.username";
@@ -813,17 +874,25 @@ impl Session for OracleSession {
         select_top(Quote::Double, Limit::FetchFirst, Some(obj.schema().unwrap_or(&self.schema)), &obj.name, limit)
     }
 
+    /// SQL*Plus-like: statements end at `;` or a `/` line, PL/SQL units at a
+    /// `/` line; PROMPT, SET SERVEROUTPUT and SHOW ERRORS run here; the
+    /// DBMS_OUTPUT lines of each statement follow it as messages.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let statements = script::split(text);
+        let text = text.to_string();
         let autocommit = self.autocommit;
+        let last_compiled = self.last_compiled.clone();
+        let shared = self.shared.clone();
         let fork = out.fork();
-        let (local, result) = self
+        let (local, result, last_compiled) = self
             .run(move |c| {
                 let mut local = fork;
-                let result = run_script(c, &statements, max_rows, autocommit, &mut local);
-                Ok((local, result))
+                let mut cx = Ctx { text: &text, autocommit, serveroutput: &shared.serveroutput, killed: &shared.killed, last_compiled };
+                let result = run_script(c, &statements, max_rows, &mut cx, &mut local);
+                Ok((local, result, cx.last_compiled))
             })
             .await?;
+        self.last_compiled = last_compiled;
         out.merge(local);
         // The statement died because the interrupter killed the session.
         if result.is_err() && self.shared.killed.load(Ordering::SeqCst) {
@@ -846,7 +915,7 @@ impl Session for OracleSession {
     /// twice, so DML gets actual figures too. Without access to those
     /// views (SELECT_CATALOG_ROLE) it falls back to estimated plans.
     async fn explain(&mut self, text: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let statements = script::split(text);
+        let statements: Vec<_> = script::split(text).into_iter().filter(|s| s.command.is_none()).collect();
         let autocommit = self.autocommit;
         let fork = out.fork();
         let (local, result) = self
@@ -861,6 +930,35 @@ impl Session for OracleSession {
             return Err(Error::Cancelled);
         }
         result
+    }
+
+    /// `DBMS_TRANSACTION.LOCAL_TRANSACTION_ID`: set while a transaction is
+    /// open (Oracle has no failed-transaction state: a failed statement
+    /// only rolls itself back).
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        self.run(|c| {
+            let id: Option<String> = c.query_row(TRANSACTION_ID, &[]).and_then(|r| r.get(0)).map_err(err)?;
+            Ok(Some(if id.is_some() { TxState::Open } else { TxState::Idle }))
+        })
+        .await
+    }
+
+    /// Back to Auto commits what's pending, as JDBC's setAutoCommit(true)
+    /// does (the editor asks Confirmar / Deshacer before switching).
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if on && !self.autocommit {
+            self.run(|c| c.commit().map_err(err)).await?;
+        }
+        self.autocommit = on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.run(|c| c.commit().map_err(err)).await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.run(|c| c.rollback().map_err(err)).await
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
@@ -1066,33 +1164,318 @@ fn definition_fallback(c: &Connection, kind: &str, owner: &str, name: &str) -> R
 
 // ------------------------------------------------------------- execution
 
-fn run_script(
+/// What `execute` keeps between statements.
+struct Ctx<'a> {
+    /// The text `execute` got: error positions and lines are relative to it.
+    text: &'a str,
+    autocommit: bool,
+    serveroutput: &'a AtomicBool,
+    /// The interrupter killed the session: the script stops there.
+    killed: &'a AtomicBool,
+    last_compiled: Option<script::Object>,
+}
+
+const SERVEROUTPUT_ON: &str = "BEGIN DBMS_OUTPUT.ENABLE(NULL); END;";
+const SERVEROUTPUT_OFF: &str = "BEGIN DBMS_OUTPUT.DISABLE; END;";
+const TRANSACTION_ID: &str = "SELECT DBMS_TRANSACTION.LOCAL_TRANSACTION_ID FROM dual";
+
+/// The units of `statements` in order. When the app hands over the whole
+/// script (`Whole`: no running statement), this driver numbers them, stamps
+/// their results, reports each one live to `out.progress_sink` and, with
+/// `out.continue_on_error == Some(true)`, records a failure and goes on, as
+/// SQL*Plus does; a fatal error or a cancel still ends the script. Every
+/// other caller stops at the first failure, as before.
+fn run_script(c: &Connection, statements: &[script::Statement], max_rows: usize, cx: &mut Ctx, out: &mut QueryOutcome) -> Result<()> {
+    let own = out.current_statement.is_none();
+    for (index, s) in statements.iter().enumerate() {
+        let offset = s.start.min(cx.text.len());
+        let line = line_of(cx.text, offset);
+        if own {
+            out.current_statement = Some(index);
+        }
+        out.adopt_plain_messages();
+        let (r0, l0, e0) = (out.results.len(), out.log.len(), out.errors.len());
+        let started = std::time::Instant::now();
+        let r = run_unit(c, s, max_rows, cx, out);
+        // Its DBMS_OUTPUT lines, failed or not (what a block printed before
+        // raising), after every statement as SQL*Plus does: DDL and DML
+        // print too through their triggers.
+        if s.command.is_none() && cx.serveroutput.load(Ordering::SeqCst) && !cx.killed.load(Ordering::SeqCst) {
+            drain_output(c, out);
+        }
+        if !own {
+            r?;
+            continue;
+        }
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        for res in &mut out.results[r0..] {
+            res.statement = Some(index);
+            res.offset = Some(offset);
+            res.line = Some(line);
+            res.elapsed_ms.get_or_insert(elapsed_ms);
+        }
+        // Killed by the interrupter: whatever the statement says, it's a cancel.
+        if r.is_err() && cx.killed.load(Ordering::SeqCst) {
+            return Err(Error::Cancelled);
+        }
+        let failed = r.err().map(|e| match e {
+            Error::Statement(_) | Error::Cancelled | Error::Connect(_) | Error::AuthFailed(_) | Error::Io(_) => e,
+            // No place given (SHOW ERRORS reading ALL_ERRORS…): the unit's.
+            other => ScriptError::new(other.to_string()).at_offset(offset).at_line(line).into(),
+        });
+        let editor = out.continue_on_error.is_some() || out.progress_sink.is_some();
+        if let Some(e) = &failed {
+            if matches!(e, Error::Cancelled) {
+                return Err(Error::Cancelled);
+            }
+            if editor {
+                out.push_error(e.to_script_error());
+            }
+        }
+        out.adopt_plain_messages();
+        if let Some(sink) = out.progress_sink.clone() {
+            (sink.0)(&StatementEnd {
+                statement: index,
+                offset,
+                line,
+                elapsed_ms,
+                results: out.results[r0..].to_vec(),
+                log: out.log[l0..].to_vec(),
+                errors: out.errors[e0..].to_vec(),
+            });
+        }
+        match failed {
+            Some(e) if out.continue_on_error != Some(true) || e.ends_script() => return Err(e),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// One statement or SQL*Plus command of the script.
+fn run_unit(c: &Connection, s: &script::Statement, max_rows: usize, cx: &mut Ctx, out: &mut QueryOutcome) -> Result<()> {
+    use script::Command;
+    match &s.command {
+        Some(Command::Prompt(text)) => out.info(text.clone()),
+        Some(Command::ServerOutput(on)) => {
+            c.execute(if *on { SERVEROUTPUT_ON } else { SERVEROUTPUT_OFF }, &[]).map_err(|e| statement_error(&e, cx.text, s))?;
+            cx.serveroutput.store(*on, Ordering::SeqCst);
+        }
+        Some(Command::ShowErrors(target)) => show_errors(c, target.as_ref().or(cx.last_compiled.as_ref()), out)?,
+        Some(Command::Ignored) => {}
+        Some(Command::Unsupported) if script::first_word(&s.text) == "WHENEVER" => {
+            out.warning(format!("SQL*Plus: «{}» no se aplica; para eso está «Seguir si hay un error».", s.text));
+        }
+        Some(Command::Unsupported) => out.warning(format!("SQL*Plus: DBine no ejecuta «{}»; se omite.", s.text)),
+        None => {
+            let before = out.results.len();
+            run_statement(c, &s.text, max_rows, cx.autocommit, out).map_err(|e| statement_error(&e, cx.text, s))?;
+            let tag = script::tag(&s.text);
+            for r in &mut out.results[before..] {
+                r.tag.get_or_insert_with(|| tag.clone());
+            }
+            if let Some(obj) = script::compiled_object(&s.text) {
+                report_compile(c, &obj, cx.text, s, out);
+                cx.last_compiled = Some(obj);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A failed statement with Oracle's code and, when it says, the place:
+/// PL/SQL's `line L, column C` (ORA-06550) or `at line L` (ORA-06512 in an
+/// anonymous block), else the parse offset. Offsets and lines are relative
+/// to `text`, what `execute` got.
+fn statement_error(e: &oracledb::Error, text: &str, s: &script::Statement) -> Error {
+    match e.kind() {
+        oracledb::ErrorKind::DbError(d) => db_statement_error(d.code(), d.offset(), d.message(), text, s),
+        kind => {
+            let mut se = ScriptError::new(e.to_string());
+            if matches!(kind, oracledb::ErrorKind::DeadConnection | oracledb::ErrorKind::NotConnected | oracledb::ErrorKind::UnableToRecover) {
+                se = se.fatal();
+            }
+            let at = s.start.min(text.len());
+            se.at_offset(at).at_line(line_of(text, at)).into()
+        }
+    }
+}
+
+/// [`statement_error`] for a server error: its code, parse offset and text.
+fn db_statement_error(code: usize, offset: usize, message: &str, text: &str, s: &script::Statement) -> Error {
+    let message = message.trim_end();
+    let mut se = ScriptError::new(message).with_code(format!("ORA-{code:05}"));
+    // The session is gone (killed, connection lost, instance down).
+    if matches!(code, 28 | 1012 | 1089 | 1092 | 3113 | 3114 | 3135) {
+        se = se.fatal();
+    }
+    let place = if s.verbatim { error_place(&s.text, message, offset) } else { None };
+    let at = (s.start + place.unwrap_or(0)).min(text.len());
+    se.at_offset(at).at_line(line_of(text, at)).into()
+}
+
+/// 1-based line of byte `at` in `text`.
+fn line_of(text: &str, at: usize) -> u32 {
+    text.as_bytes()[..at.min(text.len())].iter().filter(|&&b| b == b'\n').count() as u32 + 1
+}
+
+/// Byte offset in `stmt` of where the server says it failed (see
+/// [`statement_error`]). `offset`: the server's parse offset, in bytes of
+/// the UTF-8 text (0 when it gives none).
+fn error_place(stmt: &str, message: &str, offset: usize) -> Option<usize> {
+    if let Some((line, col)) = plsql_line_col(message) {
+        return line_col_offset(stmt, line, col);
+    }
+    if let Some(line) = anonymous_block_line(message) {
+        if matches!(script::first_word(stmt).as_str(), "BEGIN" | "DECLARE") {
+            return line_col_offset(stmt, line, 1);
+        }
+    }
+    (offset > 0).then(|| (0..=offset.min(stmt.len())).rev().find(|&i| stmt.is_char_boundary(i)).unwrap_or(0))
+}
+
+/// `ORA-06550: line 3, column 7:` → (3, 7).
+fn plsql_line_col(message: &str) -> Option<(usize, usize)> {
+    let rest = &message[message.find("ORA-06550: line ")? + "ORA-06550: line ".len()..];
+    let (line, rest) = rest.split_once(", column ")?;
+    let col: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    Some((line.parse().ok()?, col.parse().ok()?))
+}
+
+/// `ORA-06512: at line 4` (no object name: the anonymous block itself) → 4.
+fn anonymous_block_line(message: &str) -> Option<usize> {
+    let rest = &message[message.find("ORA-06512: at line ")? + "ORA-06512: at line ".len()..];
+    rest.chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+}
+
+/// Byte offset of 1-based `line`, `col` (characters) in `text`.
+fn line_col_offset(text: &str, line: usize, col: usize) -> Option<usize> {
+    let start = if line <= 1 { 0 } else { text.match_indices('\n').nth(line - 2)?.0 + 1 };
+    let row = &text[start..];
+    let row = &row[..row.find('\n').unwrap_or(row.len())];
+    Some(start + row.char_indices().nth(col.saturating_sub(1)).map_or(row.len(), |(i, _)| i))
+}
+
+/// The compile errors and warnings of `obj`, by ALL_ERRORS: (line,
+/// position, text, is a warning).
+const OBJECT_ERRORS: &str = "SELECT line, position, text, attribute FROM all_errors
+  WHERE owner = NVL(:1, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')) AND name = :2 AND type = :3
+  ORDER BY sequence";
+
+struct CompileError {
+    line: usize,
+    position: usize,
+    text: String,
+    warning: bool,
+}
+
+fn object_errors(c: &Connection, obj: &script::Object) -> std::result::Result<Vec<CompileError>, oracledb::Error> {
+    // '' binds as NULL: the current schema.
+    let owner = obj.owner.clone().unwrap_or_default();
+    let mut errors = Vec::new();
+    for row in c.query(OBJECT_ERRORS, &[&owner, &obj.name, &obj.kind])? {
+        let row = row?;
+        errors.push(CompileError {
+            line: row.get::<i64>(0)?.max(0) as usize,
+            position: row.get::<i64>(1)?.max(0) as usize,
+            text: row.get::<Option<String>>(2)?.unwrap_or_default().trim_end().to_string(),
+            warning: row.get::<Option<String>>(3)?.as_deref() == Some("WARNING"),
+        });
+    }
+    Ok(errors)
+}
+
+fn object_label(obj: &script::Object) -> String {
+    match &obj.owner {
+        Some(o) => format!("{} {o}.{}", obj.kind, obj.name),
+        None => format!("{} {}", obj.kind, obj.name),
+    }
+}
+
+/// `PLS-00201: …` → `PLS-00201`.
+fn message_code(text: &str) -> Option<String> {
+    let (code, _) = text.split_once(':')?;
+    let ok = code.len() == 9 && code.as_bytes()[3] == b'-' && code[..3].bytes().all(|b| b.is_ascii_uppercase()) && code[4..].bytes().all(|b| b.is_ascii_digit());
+    ok.then(|| code.to_string())
+}
+
+/// After a CREATE / ALTER of PL/SQL or a view: its compile errors, as
+/// SQL Developer shows them. The object exists (invalid), so the statement
+/// itself didn't fail: a warning says so, and each error is recorded at its
+/// line of the script, with PL/SQL's code. Warnings (PLW-) are messages.
+fn report_compile(c: &Connection, obj: &script::Object, text: &str, s: &script::Statement, out: &mut QueryOutcome) {
+    let errors = match object_errors(c, obj) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::debug!("oracle: ALL_ERRORS unreadable: {e}");
+            return;
+        }
+    };
+    if errors.iter().any(|e| !e.warning) {
+        out.message(Message {
+            level: MessageLevel::Warning,
+            text: format!("{} se creó con errores de compilación.", object_label(obj)),
+            code: Some("ORA-24344".into()),
+            line: Some(line_of(text, s.start)),
+            ..Default::default()
+        });
+    }
+    for e in errors {
+        // Error lines count from the object's kind keyword (its source's
+        // first line); a trigger's from its PL/SQL block.
+        let at = obj
+            .source_line
+            .filter(|_| s.verbatim && e.line > 0)
+            .and_then(|l| line_col_offset(&s.text, l as usize + e.line - 1, e.position.max(1)))
+            .map_or(s.start, |o| s.start + o);
+        let code = message_code(&e.text);
+        if e.warning {
+            out.message(Message { level: MessageLevel::Warning, text: e.text, code, line: Some(line_of(text, at)), ..Default::default() });
+        } else {
+            let mut se = ScriptError::new(e.text).at_offset(at).at_line(line_of(text, at));
+            se.code = code;
+            out.push_error(se);
+        }
+    }
+}
+
+/// SHOW ERRORS: `obj`'s compile errors as messages, SQL*Plus style.
+fn show_errors(c: &Connection, obj: Option<&script::Object>, out: &mut QueryOutcome) -> Result<()> {
+    let Some(obj) = obj else {
+        out.info("No se compiló ningún objeto en esta sesión.");
+        return Ok(());
+    };
+    let errors = object_errors(c, obj).map_err(err)?;
+    if errors.is_empty() {
+        out.info(format!("{}: sin errores.", object_label(obj)));
+        return Ok(());
+    }
+    out.info(format!("Errores de {}:", object_label(obj)));
+    for e in errors {
+        out.message(Message {
+            level: MessageLevel::Warning,
+            text: format!("Línea {}, columna {}: {}", e.line, e.position, e.text),
+            code: message_code(&e.text),
+            ..Default::default()
+        });
+    }
+    Ok(())
+}
+
+fn run_statement(
     c: &Connection,
-    statements: &[script::Statement],
+    sql: &str,
     max_rows: usize,
     autocommit: bool,
     out: &mut QueryOutcome,
-) -> Result<()> {
-    let result = statements.iter().try_for_each(|s| {
-        let r = run_statement(c, &s.text, max_rows, autocommit, out);
-        if s.plsql {
-            drain_output(c, out);
-        }
-        r
-    });
-    // Lines left by triggers or functions called from SQL.
-    drain_output(c, out);
-    result
-}
-
-fn run_statement(c: &Connection, sql: &str, max_rows: usize, autocommit: bool, out: &mut QueryOutcome) -> Result<()> {
+) -> std::result::Result<(), oracledb::Error> {
     match run_statement_with(c, sql, max_rows, autocommit, out, true) {
         // The thin client keeps a statement whose parse failed in its cache,
         // with a cursor the server never opened: running it again reports
         // ORA-01003 instead of the real error. Taking it out of the cache
         // (building it uncached, not running it) evicts that entry; the
         // retry then parses it afresh.
-        Err(Error::Query(m)) if m.contains("ORA-01003") => {
+        Err(e) if db_code(&e) == Some(1003) => {
             drop(c.statement(sql).map(|b| b.exclude_from_cache()).and_then(|b| b.build()));
             run_statement_with(c, sql, max_rows, autocommit, out, false)
         }
@@ -1100,22 +1483,25 @@ fn run_statement(c: &Connection, sql: &str, max_rows: usize, autocommit: bool, o
     }
 }
 
-fn run_statement_with(c: &Connection, sql: &str, max_rows: usize, autocommit: bool, out: &mut QueryOutcome, cached: bool) -> Result<()> {
+fn run_statement_with(
+    c: &Connection,
+    sql: &str,
+    max_rows: usize,
+    autocommit: bool,
+    out: &mut QueryOutcome,
+    cached: bool,
+) -> std::result::Result<(), oracledb::Error> {
     // The client looks for binds in DDL too, so a trigger's `:new.x` would
     // ask for bind values: hand such DDL to EXECUTE IMMEDIATE as a string.
     let is_ddl = matches!(script::first_word(sql).as_str(), "CREATE" | "ALTER");
     if is_ddl && script::has_bind_like(sql) {
-        c.execute(&execute_immediate(sql), &[]).map_err(err)?;
+        c.execute(&execute_immediate(sql), &[])?;
         out.results.push(Default::default());
-        return compile_warning(c, out);
+        return Ok(());
     }
-    let mut stmt = c
-        .statement(sql)
-        .map(|b| if cached { b } else { b.exclude_from_cache() })
-        .and_then(|b| b.build())
-        .map_err(err)?;
+    let mut stmt = c.statement(sql).map(|b| if cached { b } else { b.exclude_from_cache() }).and_then(|b| b.build())?;
     if stmt.is_query() {
-        let cursor = stmt.query(&[]).map_err(err)?;
+        let cursor = stmt.query(&[])?;
         let types: Vec<&'static oracledb::DbType> = cursor.columns().iter().map(|m| m.db_type()).collect();
         // WITH LOCAL TIME ZONE values come in the database's time zone.
         let dbtz = if types.iter().any(|t| t.name() == "DB_TYPE_TIMESTAMP_LTZ") { db_time_zone(c) } else { None };
@@ -1127,23 +1513,22 @@ fn run_statement_with(c: &Connection, sql: &str, max_rows: usize, autocommit: bo
                 .collect(),
         );
         for row in cursor {
-            let row = row.map_err(err)?;
+            let row = row?;
             out.push_row(types.iter().enumerate().map(|(i, t)| cell_in(&row, i, t, dbtz)).collect(), max_rows);
         }
         return Ok(());
     }
-    let dml = stmt.is_dml();
-    let res = stmt.execute(&[]).map_err(err)?;
+    let (dml, plsql) = (stmt.is_dml(), stmt.is_plsql());
+    let res = stmt.execute(&[])?;
     if dml {
         out.push_affected(res.rows_affected());
-        if autocommit {
-            c.commit().map_err(err)?;
-        }
     } else {
         out.results.push(Default::default());
-        if stmt.is_ddl() {
-            compile_warning(c, out)?;
-        }
+    }
+    // Auto: what a DML statement or a block (and CALL) changed is committed
+    // at once.
+    if autocommit && (dml || plsql) {
+        c.commit()?;
     }
     Ok(())
 }
@@ -1179,7 +1564,7 @@ fn explain_script(
             return Ok(());
         }
         if explainable && stats {
-            run_statement(c, &s.text, max_rows, autocommit, out)?;
+            run_statement(c, &s.text, max_rows, autocommit, out).map_err(err)?;
             match cursor_plan(c, &s.text) {
                 Ok(Some(p)) => {
                     if !p.actual {
@@ -1199,9 +1584,9 @@ fn explain_script(
             }
         } else if explainable {
             out.plans.push(estimated_plan(c, &s.text, autocommit)?);
-            run_statement(c, &s.text, max_rows, autocommit, out)?;
+            run_statement(c, &s.text, max_rows, autocommit, out).map_err(err)?;
         } else {
-            let r = run_statement(c, &s.text, max_rows, autocommit, out);
+            let r = run_statement(c, &s.text, max_rows, autocommit, out).map_err(err);
             if s.plsql {
                 drain_output(c, out);
             }
@@ -1326,14 +1711,6 @@ fn cursor_plan(c: &Connection, stmt: &str) -> Result<Option<dbine_driver::Plan>>
     Ok(Some(p))
 }
 
-/// `CREATE PROCEDURE …` with compile errors succeeds with a warning: show it.
-fn compile_warning(c: &Connection, out: &mut QueryOutcome) -> Result<()> {
-    if let Some(w) = c.last_warning().map_err(err)? {
-        out.messages.push(w);
-    }
-    Ok(())
-}
-
 /// A PL/SQL block that runs `sql` with EXECUTE IMMEDIATE, the text built
 /// from quoted chunks (a CLOB, so there's no 32 KB limit).
 fn execute_immediate(sql: &str) -> String {
@@ -1343,7 +1720,9 @@ fn execute_immediate(sql: &str) -> String {
         let text: String = chunk.iter().collect();
         block.push_str(&format!("  s := s || '{}';\n", text.replace('\'', "''")));
     }
-    block.push_str("  EXECUTE IMMEDIATE s;\nEND;");
+    // Created with compilation errors (ORA-24344) is raised here: the
+    // object exists, as with the statement run directly.
+    block.push_str("  EXECUTE IMMEDIATE s;\nEXCEPTION WHEN OTHERS THEN\n  IF SQLCODE != -24344 THEN RAISE; END IF;\nEND;");
     block
 }
 
@@ -1362,7 +1741,9 @@ fn drain_output(c: &Connection, out: &mut QueryOutcome) {
         match lines {
             Ok(lines) => {
                 let n = lines.len();
-                out.messages.extend(lines);
+                for line in lines {
+                    out.info(line);
+                }
                 if n < 10000 {
                     return;
                 }
@@ -1666,6 +2047,67 @@ mod tests {
             drivers()[0].delete_script(&t, &keys).unwrap(),
             "DELETE FROM \"APP\".\"CLIENTES\" WHERE \"NOMBRE\" = 'O''Brien' AND \"REGION\" IS NULL;"
         );
+    }
+
+    #[test]
+    fn script_contract() {
+        for d in drivers() {
+            assert_eq!(d.script_dialect(), ScriptDialect::oracle());
+            assert_eq!(d.script_defaults(), ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true });
+            assert!(d.supports_manual_transactions());
+            // Statement by statement only once the app's lexer reads
+            // SQL*Plus lines.
+            let expected = if lexer_reads_sqlplus_lines() { ScriptMode::PerStatement } else { ScriptMode::Whole };
+            assert_eq!(d.script_mode(), expected);
+        }
+    }
+
+    #[test]
+    fn error_places() {
+        // PL/SQL compile error inside an anonymous block: line 2, column 3.
+        let block = "begin\n  x := 1;\nend;";
+        let msg = "ORA-06550: line 2, column 3:\nPLS-00201: identifier 'X' must be declared\nORA-06550: line 2, column 3:\nPL/SQL: Statement ignored";
+        assert_eq!(error_place(block, msg, 0), Some(8));
+        // Runtime error raised in the block itself.
+        let block = "declare\n  n number;\nbegin\n  n := 1 / 0;\nend;";
+        assert_eq!(error_place(block, "ORA-01476: divisor is equal to zero\nORA-06512: at line 4", 0), Some(block.find("  n := 1").unwrap()));
+        // …but not in a called object.
+        assert_eq!(error_place("begin p; end;", "ORA-01476: x\nORA-06512: at \"HR.P\", line 4\nORA-06512: at line 1", 0), Some(0));
+        // Parse offsets count bytes.
+        assert_eq!(error_place("select 'é', nope from dual", "ORA-00904: \"NOPE\": invalid identifier", 13), Some(13));
+        assert_eq!(error_place("select 'é'", "ORA-01756", 9), Some(8));
+        assert_eq!(error_place("select 1 from dual", "ORA-00001: x", 0), None);
+        assert_eq!(line_col_offset("a\nbc\nd", 2, 2), Some(3));
+        assert_eq!(line_col_offset("a\nbc", 9, 1), None);
+        assert_eq!(line_of("a\nb\nc", 4), 3);
+        assert_eq!(message_code("PLS-00201: identifier"), Some("PLS-00201".into()));
+        assert_eq!(message_code("PL/SQL: Statement ignored"), None);
+    }
+
+    #[test]
+    fn statement_errors_point_into_the_text() {
+        let text = "select 1 from dual;\nselect nope from dual";
+        let st = script::split(text);
+        let Error::Statement(se) = db_statement_error(904, 7, "ORA-00904: \"NOPE\": invalid identifier\n", text, &st[1]) else {
+            panic!()
+        };
+        assert_eq!(se.code.as_deref(), Some("ORA-00904"));
+        assert_eq!(se.message, "ORA-00904: \"NOPE\": invalid identifier");
+        assert_eq!(se.offset, Some(text.find("nope").unwrap()));
+        assert_eq!(se.line, Some(2));
+        assert!(!se.fatal);
+        let Error::Statement(se) = db_statement_error(3113, 0, "ORA-03113: end-of-file on communication channel", text, &st[0]) else {
+            panic!()
+        };
+        assert!(se.fatal);
+        assert_eq!((se.offset, se.line), (Some(0), Some(1)));
+        // An EXEC (rewritten) points at its line.
+        let text = "select 1 from dual;\nexec p(1)";
+        let st = script::split(text);
+        let Error::Statement(se) = db_statement_error(6550, 0, "ORA-06550: line 1, column 7:\nPLS-00201", text, &st[1]) else {
+            panic!()
+        };
+        assert_eq!((se.offset, se.line), (Some(20), Some(2)));
     }
 
     #[test]

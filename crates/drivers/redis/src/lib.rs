@@ -12,15 +12,17 @@ mod permissions;
 mod profiler;
 mod security;
 mod shape;
+mod steps;
 mod transfer;
 
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
     Driver, DriverInfo, Error, Family, Field, FieldKind, KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax, Language,
-    ObjectKindInfo, ObjectRef, MonitorSnapshot, QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    ObjectKindInfo, ObjectRef, MonitorSnapshot, QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema,
 };
 use dbine_driver::keys::{glob_escape, has_wildcards};
 use redis::aio::MultiplexedConnection;
+use steps::Step;
 use redis::{AsyncConnectionConfig, ConnectionAddr, ErrorKind, IntoConnectionInfo, RedisConnectionInfo, RedisError, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -88,6 +90,12 @@ fn db_index(name: &str) -> Result<i64> {
 impl Driver for RedisDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// As redis-cli with a piped script: a failed command doesn't stop the script (the tab's
+    /// toggle overrides it).
+    fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
+        dbine_driver::ScriptDefaults { continue_on_error: true, ..dbine_driver::ScriptDefaults::for_language(self.info().language) }
     }
 
     /// Redis' databases are a fixed, numbered set (`databases` in the
@@ -194,7 +202,7 @@ impl Driver for RedisDriver {
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
             .map_err(connect_err)?;
-        Ok(Box::new(RedisSession { conn, client, db, read_only: cfg.read_only, types: HashMap::new(), profiler: None, scan_type: true }))
+        Ok(Box::new(RedisSession { conn, client, db, read_only: cfg.read_only, types: HashMap::new(), profiler: None, scan_type: true, multi: false }))
     }
 }
 
@@ -217,6 +225,21 @@ fn no_acl(e: Error) -> Error {
         Error::Query(m) if m.contains("unknown command") || m.contains("ERR unknown") => Error::Unsupported(format!(
             "Este servidor no tiene ACL (Redis 6 o superior) o no permite el comando ACL: no hay usuarios que administrar ({m})."
         )),
+        other => other,
+    }
+}
+
+/// A command the server refused, with its error code (`ERR`, `WRONGTYPE`…).
+fn command_err(e: RedisError) -> Error {
+    let code = e.code().map(str::to_string);
+    match err(e) {
+        Error::Query(m) => {
+            let mut se = ScriptError::new(m);
+            if let Some(c) = code {
+                se = se.with_code(c);
+            }
+            Error::Statement(Box::new(se))
+        }
         other => other,
     }
 }
@@ -245,15 +268,82 @@ pub struct RedisSession {
     /// The server takes `SCAN … TYPE` (Redis 6+); when it refuses, the key
     /// search filters by type itself.
     scan_type: bool,
+    /// A `MULTI` is open: commands are queued until `EXEC` / `DISCARD`.
+    multi: bool,
 }
 
 impl RedisSession {
     async fn run(&mut self, args: &[&[u8]]) -> Result<Value> {
+        self.send(args).await.map_err(err)
+    }
+
+    async fn send(&mut self, args: &[&[u8]]) -> std::result::Result<Value, RedisError> {
         let mut c = redis::cmd(&String::from_utf8_lossy(args[0]));
         for a in &args[1..] {
             c.arg(*a);
         }
-        c.query_async(&mut self.conn).await.map_err(err)
+        c.query_async(&mut self.conn).await
+    }
+
+    /// The server's reply as it came: only an error reply as a whole is an
+    /// `Err` (`query_async` also fails on an error nested in an array, as
+    /// one command of an `EXEC`).
+    async fn send_raw(&mut self, args: &[&[u8]]) -> std::result::Result<Value, RedisError> {
+        use redis::aio::ConnectionLike;
+        let mut c = redis::cmd(&String::from_utf8_lossy(args[0]));
+        for a in &args[1..] {
+            c.arg(*a);
+        }
+        match self.conn.req_packed_command(&c).await? {
+            Value::ServerError(e) => Err(e.into()),
+            v => Ok(v),
+        }
+    }
+
+    /// One editor command into `out`.
+    async fn command(&mut self, cmd: &[Vec<u8>], max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let name = String::from_utf8_lossy(&cmd[0]).to_ascii_uppercase();
+        if command::is_streaming(&name) {
+            return Err(Error::Unsupported(format!("El editor no admite {name}: deja la conexión ocupada.")));
+        }
+        let args: Vec<&[u8]> = cmd.iter().map(Vec::as_slice).collect();
+        let reply = self.send_raw(&args).await.map_err(command_err);
+        // A refused command inside MULTI makes EXEC fail (EXECABORT): the
+        // transaction is over either way.
+        match (name.as_str(), &reply) {
+            ("MULTI", Ok(_)) => self.multi = true,
+            ("EXEC" | "DISCARD", _) => self.multi = false,
+            _ => {}
+        }
+        let reply = reply?;
+        if name == "EXEC" {
+            // As redis-cli: a command that failed inside the transaction is
+            // an error line of the reply; the others were applied.
+            if let Value::Array(items) = &reply {
+                let failed = items.iter().filter(|v| matches!(v, Value::ServerError(_))).count();
+                if failed > 0 {
+                    out.warning(format!(
+                        "EXEC: {failed} de {} comandos de la transacción fallaron; los demás se aplicaron.",
+                        items.len()
+                    ));
+                }
+            }
+        }
+        if name == "SELECT" {
+            if let Some(db) = cmd.get(1).and_then(|d| std::str::from_utf8(d).ok()?.parse().ok()) {
+                self.db = db;
+                self.types.clear();
+            }
+        }
+        let table = shape::shape(cmd, reply);
+        out.begin_result(table.columns.iter().map(|c| ResultColumn { name: c.clone(), type_name: String::new() }).collect());
+        if let Some(m) = table.message {
+            out.info(m);
+        }
+        for row in table.rows {
+            out.push_row(row, max_rows);
+        }
+        Ok(())
     }
 
     async fn key_type(&mut self, key: &str) -> Result<String> {
@@ -581,37 +671,28 @@ impl Session for RedisSession {
         transfer::load(self, spec, source, progress).await
     }
 
+    /// One command per line, as redis-cli reads a script. A line that
+    /// doesn't parse runs nothing; a refused command stops the script
+    /// unless the editor run continues on errors, as redis-cli does (see
+    /// `Step::end`).
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let script = command::parse_script(text).map_err(Error::Query)?;
+        let script = command::parse_placed(text).map_err(|(m, line, at)| Error::from(ScriptError::new(m).at_line(line).at_offset(at)))?;
         if self.read_only {
-            if let Some(w) = script.iter().find(|c| !command::is_read(c)) {
+            if let Some(w) = script.iter().find(|c| !command::is_read(&c.args)) {
                 return Err(Error::Query(format!(
                     "Conexión de solo lectura: se bloqueó el comando {}. Solo se permiten lecturas (GET, HGETALL, SCAN, INFO…).",
-                    String::from_utf8_lossy(&w[0]).to_uppercase()
+                    String::from_utf8_lossy(&w.args[0]).to_uppercase()
                 )));
             }
         }
-        for cmd in script {
-            let name = String::from_utf8_lossy(&cmd[0]).to_ascii_uppercase();
-            if command::is_streaming(&name) {
-                return Err(Error::Unsupported(format!("El editor no admite {name}: deja la conexión ocupada.")));
-            }
-            let args: Vec<&[u8]> = cmd.iter().map(Vec::as_slice).collect();
-            let reply = self.run(&args).await?;
-            if name == "SELECT" {
-                if let Some(db) = cmd.get(1).and_then(|d| std::str::from_utf8(d).ok()?.parse().ok()) {
-                    self.db = db;
-                    self.types.clear();
-                }
-            }
-            let table = shape::shape(&cmd, reply);
-            out.begin_result(table.columns.iter().map(|c| ResultColumn { name: c.clone(), type_name: String::new() }).collect());
-            if let Some(m) = table.message {
-                out.messages.push(m);
-            }
-            for row in table.rows {
-                out.push_row(row, max_rows);
-            }
+        let own = out.current_statement.is_none();
+        for (i, c) in script.iter().enumerate() {
+            let step = Step::start(out, own, i, c.start, c.line);
+            let r = self.command(&c.args, max_rows, out).await;
+            step.end(out, r)?;
+        }
+        if self.multi {
+            out.warning("MULTI sigue abierto: los comandos siguientes se encolan hasta EXEC o DISCARD.");
         }
         Ok(())
     }

@@ -214,6 +214,8 @@ pub fn cell(v: &Value) -> J {
         Value::VerbatimString { text, .. } => text.as_str().into(),
         Value::Okay => "OK".into(),
         Value::Attribute { data, .. } => cell(data),
+        // A command that failed inside an EXEC, as redis-cli shows it.
+        Value::ServerError(e) => format!("(error) {} {}", e.code(), e.details().unwrap_or_default()).trim_end().into(),
         other => match to_json(other) {
             J::String(s) => J::String(s),
             j => j.to_string().into(),

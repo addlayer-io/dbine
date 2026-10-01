@@ -2,11 +2,17 @@
  "\n(No se pudo leer la estructura de la base: {0}.)\n": [
   "src-tauri/src/commands/ai.rs"
  ],
+ "\n-- Dremio no tiene WITH GRANT OPTION: poder otorgar es MANAGE GRANTS sobre la carpeta.\nGRANT MANAGE GRANTS ON {0} TO {1};": [
+  "crates/drivers/dremio/src/security.rs"
+ ],
  "\n// Índices y restricciones\n": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
  "\n<seleccion>\n{0}\n</seleccion>\n(Si el usuario dice «esto», se refiere a la selección.)\n": [
   "src-tauri/src/commands/ai.rs"
+ ],
+ "\nLa transacción tiene un error: deshacela (ROLLBACK) para seguir.": [
+  "crates/drivers/postgres/src/script.rs"
  ],
  "\nMotor: {0} · lenguaje de consultas: {1}.\n": [
   "src-tauri/src/commands/ai.rs"
@@ -279,6 +285,7 @@
  ],
  "(la predeterminada)": [
   "crates/dbine-driver/src/info.rs",
+  "crates/drivers/neo4j/src/lib.rs",
   "crates/drivers/odbc/src/lib.rs"
  ],
  "(no connections are available to MCP: the user can enable them in DBine, Settings › MCP)": [
@@ -315,6 +322,9 @@
  "(todo el snapshot)": [
   "crates/drivers/postgres/src/backup.rs"
  ],
+ ", Procedimiento {0}, Línea {1}": [
+  "crates/drivers/sqlserver/src/script.rs"
+ ],
  "-- Backup {0} de {1}\n": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -348,6 +358,9 @@
  "-- Unity Catalog no tiene WITH GRANT OPTION: para que pueda otorgar permisos sobre el objeto, otorgale MANAGE.\n{0}": [
   "crates/drivers/databricks/src/security.rs"
  ],
+ "-- Unity Catalog no tiene WITH GRANT OPTION: poder otorgar permisos sobre el esquema es MANAGE.\n{0}": [
+  "crates/drivers/databricks/src/security.rs"
+ ],
  "-- ksqlDB reemplaza el valor completo de la clave: las columnas que no figuran quedan en NULL.": [
   "crates/drivers/ksqldb/src/ddl.rs"
  ],
@@ -368,15 +381,6 @@
  ],
  ". Las filas anteriores quedaron cargadas; de las {0} que venían después en el mismo envío, ksqlDB confirmó {1}, y puede haber cargado otras sin confirmarlas (Kafka no deshace)": [
   "crates/drivers/ksqldb/src/transfer.rs"
- ],
- ".{0}() necesita un argumento": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- ".{0}() necesita un número": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- ".{0}() solo se puede encadenar a find()": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "// Crea la función de actualización (si _design/{0} ya existe, borrá estas líneas)\nPUT _design/{1}\n{2}": [
   "crates/drivers/couchdb/src/ddl.rs"
@@ -423,6 +427,9 @@
  "2: lo que cambió desde el nivel 1": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ ":param {0} necesita un mapa.": [
+  "crates/drivers/neo4j/src/lib.rs"
+ ],
  "; faltan en el clon: {0}": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
@@ -443,6 +450,9 @@
  ],
  "ALL (dueño)": [
   "crates/drivers/odbc/src/security/sqlstd.rs"
+ ],
+ "ALL ya incluye todos los permisos: elegilo solo, sin otros": [
+  "crates/drivers/odbc/src/security.rs"
  ],
  "ALLOW FILTERING: recorre todas las particiones": [
   "crates/drivers/cassandra/src/plan.rs"
@@ -497,6 +507,9 @@
  ],
  "Abierta hace (s)": [
   "crates/drivers/firebird/src/monitor.rs"
+ ],
+ "Aborted": [
+  "crates/drivers/postgres/src/session.rs"
  ],
  "Abortos": [
   "crates/drivers/spanner/src/monitor.rs"
@@ -1174,9 +1187,6 @@
  "Azure Data Studio guarda las contraseñas en su propio almacén: se piden al conectar la primera vez.": [
   "crates/dbine-core/src/conn_import/ads.rs"
  ],
- "Azure SQL Database hace sus propios backups: se restauran a un momento dado desde el portal o la API de Azure": [
-  "crates/drivers/sqlserver/src/lib.rs"
- ],
  "Azure SQL Database informa CPU, memoria y E/S como porcentaje del límite del nivel de servicio, promediado cada 15 s.": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
@@ -1297,6 +1307,9 @@
  "Babelfish (PostgreSQL) no expone el uso de CPU ni la memoria del servidor por SQL: se ven en el sistema operativo o en CloudWatch (Aurora).": [
   "crates/drivers/sqlserver/src/babelfish.rs"
  ],
+ "Babelfish no acepta «]» en los nombres de esquemas ni de usuarios": [
+  "crates/drivers/sqlserver/src/security.rs"
+ ],
  "Babelfish no acepta «]» en los nombres de usuarios, roles ni objetos": [
   "crates/drivers/sqlserver/src/security.rs"
  ],
@@ -1378,6 +1391,7 @@
   "crates/drivers/odbc/src/presets.rs"
  ],
  "Base de datos actual: {0}": [
+  "crates/drivers/mongodb/src/lib.rs",
   "crates/drivers/neo4j/src/lib.rs"
  ],
  "Base de datos actual: {0}.\n": [
@@ -1388,6 +1402,13 @@
  ],
  "Base de datos tenant": [
   "crates/drivers/hana/src/lib.rs"
+ ],
+ "Base de datos: {0}": [
+  "crates/drivers/influxdb/src/v1.rs",
+  "crates/drivers/tdengine/src/lib.rs"
+ ],
+ "Base de datos: {0} (política de retención {1})": [
+  "crates/drivers/influxdb/src/v1.rs"
  ],
  "Base de inicio": [
   "crates/drivers/neo4j/src/security.rs"
@@ -2222,9 +2243,6 @@
  "Canales": [
   "crates/drivers/redis/src/security.rs"
  ],
- "Cancelado": [
-  "crates/drivers/odbc/src/lib.rs"
- ],
  "Cancelled": [
   "crates/drivers/flightsql/src/lib.rs"
  ],
@@ -2386,6 +2404,15 @@
  ],
  "Certificado de la CA de AWS": [
   "crates/drivers/mongodb/src/lib.rs"
+ ],
+ "Changed database context": [
+  "crates/drivers/sqlserver/src/script_live.rs"
+ ],
+ "Changed database context to": [
+  "crates/drivers/sqlserver/src/script.rs"
+ ],
+ "Changed language setting to": [
+  "crates/drivers/sqlserver/src/script.rs"
  ],
  "Checkpoint automático del WAL (páginas)": [
   "crates/drivers/sqlite/src/monitor.rs"
@@ -2693,6 +2720,9 @@
  "CockroachDB solo muestra las consultas en curso. Este usuario no es admin ni tiene el privilegio de sistema VIEWACTIVITY: salvo que tenga la opción de rol VIEWACTIVITY, solo se ven sus propias consultas (GRANT SYSTEM VIEWACTIVITY TO <usuario>).": [
   "crates/drivers/postgres/src/profiler.rs"
  ],
+ "Code": [
+  "crates/drivers/mysql/src/session.rs"
+ ],
  "Codex": [
   "crates/dbine-ai/src/cli.rs",
   "crates/dbine-ai/src/lib.rs",
@@ -2831,6 +2861,9 @@
   "crates/drivers/odbc/src/backup.rs",
   "crates/drivers/redis/src/backup.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "Comando de isql omitido (no es SQL del servidor): {0}": [
+  "crates/drivers/firebird/src/lib.rs"
  ],
  "Comando desconocido: {0}. Se admiten get, put, del, lease, member list, endpoint status, alarm list, compaction, user, role, auth y snapshot save.": [
   "crates/drivers/etcd/src/lib.rs"
@@ -3650,6 +3683,9 @@
   "crates/dbine-schema/src/dialect/couchbase.rs",
   "crates/drivers/couchbase/src/lib.rs"
  ],
+ "Couchbase borra el scope con todas sus colecciones: marcá «con su contenido» para confirmarlo": [
+  "crates/drivers/couchbase/src/ddl.rs"
+ ],
  "Couchbase cortó la respuesta antes de terminar los resultados": [
   "crates/drivers/couchbase/src/transfer.rs"
  ],
@@ -3674,6 +3710,9 @@
  ],
  "CrateDB no bloquea filas ni tiene transacciones: no hay bloqueos ni esperas que mostrar.": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "CrateDB no crea ni borra esquemas: un esquema existe mientras tenga alguna tabla": [
+  "crates/drivers/postgres/src/schemas.rs"
  ],
  "CrateDB no deshabilita usuarios: se les puede cambiar la contraseña o borrarlos": [
   "crates/drivers/postgres/src/security.rs"
@@ -3708,7 +3747,6 @@
   "crates/drivers/sqlserver/src/security.rs"
  ],
  "Creado por": [
-  "crates/drivers/databricks/src/backup.rs",
   "crates/drivers/hana/src/security.rs",
   "crates/drivers/odbc/src/security/groups.rs"
  ],
@@ -3832,6 +3870,9 @@
  "DBine no tiene un driver para «{0}»": [
   "crates/dbine-core/src/conn_import/dbgate.rs",
   "crates/dbine-core/src/conn_import/mod.rs"
+ ],
+ "DBine solo otorga permisos de Phoenix sobre un esquema": [
+  "crates/drivers/phoenix/src/ddl.rs"
  ],
  "DBine solo permite lecturas por MCP: la consulta tiene una sentencia {0}": [
   "src-tauri/src/mcp/tools.rs"
@@ -3962,8 +4003,7 @@
  ],
  "Date": [
   "crates/drivers/clickhouse/src/schema.rs",
-  "crates/drivers/clickhouse/src/transfer.rs",
-  "crates/drivers/mongodb/src/shell.rs"
+  "crates/drivers/clickhouse/src/transfer.rs"
  ],
  "Date32 cubre de 1900 a 2299.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
@@ -4585,9 +4625,6 @@
  "Doris no tiene un tipo binario para tablas: los bytes se guardan como STRING.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
- "Double": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "Dragonfly": [
   "crates/drivers/redis/src/lib.rs",
   "crates/drivers/redis/src/monitor.rs"
@@ -4697,6 +4734,9 @@
  ],
  "DuckDB no publica su librería para esta plataforma": [
   "crates/drivers/duckdb/src/loader.rs"
+ ],
+ "DuckDB no tiene usuarios: sus esquemas no tienen dueño": [
+  "crates/drivers/duckdb/src/lib.rs"
  ],
  "DuckDB no tiene versión de fila automática.": [
   "crates/dbine-schema/src/dialect/duckdb.rs"
@@ -4977,6 +5017,9 @@
  ],
  "El clúster solo muestra las búsquedas en curso: las que duran menos de una décima de segundo pueden no verse. El registro de búsquedas lentas va a archivos del servidor y no se puede leer por la API.": [
   "crates/drivers/elasticsearch/src/profiler.rs"
+ ],
+ "El comando :{0} no está disponible en DBine (sí :use, :begin, :commit, :rollback, :param y :params).": [
+  "crates/drivers/neo4j/src/lib.rs"
  ],
  "El comando profile no está disponible ({0}): se muestran las operaciones en curso.": [
   "crates/drivers/mongodb/src/profiler.rs"
@@ -5303,6 +5346,9 @@
  "El score de '{0}' no es un número: {1}": [
   "crates/drivers/redis/src/ddl.rs"
  ],
+ "El script ejecutó más de {0} sentencias: se muestra el resultado de la última.": [
+  "crates/drivers/bigquery/src/lib.rs"
+ ],
  "El service principal tiene que estar agregado al workspace.": [
   "crates/drivers/databricks/src/lib.rs"
  ],
@@ -5314,6 +5360,12 @@
  ],
  "El servidor Flight SQL es de solo lectura: no se pueden cargar datos.": [
   "crates/drivers/flightsql/src/transfer.rs"
+ ],
+ "El servidor cerró la conexión por un error de nivel 20 o más. Se abrió una nueva: se perdió el estado de la sesión (transacción abierta, tablas #temp y SET).": [
+  "crates/drivers/sqlserver/src/script.rs"
+ ],
+ "El servidor cerró la conexión y no se pudo abrir otra: {0}": [
+  "crates/drivers/sqlserver/src/script.rs"
  ],
  "El servidor la rechazará: falta la clave de partición completa (usá la clave, un índice o ALLOW FILTERING)": [
   "crates/drivers/cassandra/src/plan.rs"
@@ -5875,6 +5927,7 @@
   "crates/drivers/clickhouse/src/backup.rs",
   "crates/drivers/databricks/src/monitor.rs",
   "crates/drivers/mysql/src/backup.rs",
+  "crates/drivers/neo4j/src/lib.rs",
   "crates/drivers/postgres/src/backup.rs",
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/solr/src/backup.rs",
@@ -5891,6 +5944,9 @@
   "crates/drivers/influxdb/src/plan.rs",
   "crates/drivers/ksqldb/src/monitor.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "Errores de {0}:": [
+  "crates/drivers/oracle/src/lib.rs"
  ],
  "Errores del servidor": [
   "crates/drivers/influxdb/src/monitor.rs"
@@ -6150,9 +6206,6 @@
  "Esquema de destino": [
   "crates/drivers/databricks/src/backup.rs"
  ],
- "Esquema de origen": [
-  "crates/drivers/databricks/src/backup.rs"
- ],
  "Esquema del backup": [
   "crates/drivers/databricks/src/backup.rs"
  ],
@@ -6368,6 +6421,7 @@
  ],
  "Exception": [
   "crates/drivers/clickhouse/src/lib.rs",
+  "crates/drivers/drill/src/lib.rs",
   "crates/drivers/orientdb/src/lib.rs"
  ],
  "Exclusion join": [
@@ -6487,9 +6541,6 @@
  ],
  "Falta el esquema.": [
   "crates/drivers/oracle/src/backup.rs"
- ],
- "Falta el nombre de la base": [
-  "crates/drivers/odbc/src/lib.rs"
  ],
  "Falta el nombre de la clase.": [
   "crates/drivers/orientdb/src/ddl.rs"
@@ -6925,6 +6976,9 @@
  "GET de documentos": [
   "crates/drivers/elasticsearch/src/monitor.rs"
  ],
+ "GO: número de repeticiones inválido": [
+  "crates/dbine-driver/src/sql/script.rs"
+ ],
  "Genera un validador $jsonSchema con los tipos, «no nulo» y «obligatorio» de los campos.": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
@@ -7188,6 +7242,9 @@
  ],
  "Hay tablas en tablespaces propios: en el destino quedan en el tablespace por defecto.": [
   "crates/drivers/postgres/src/clone.rs"
+ ],
+ "Hay una transacción abierta: confirmala (:commit) o deshacela (:rollback) antes de cambiar de base.": [
+  "crates/drivers/neo4j/src/lib.rs"
  ],
  "Heap (bytes)": [
   "crates/drivers/hana/src/monitor.rs"
@@ -7565,7 +7622,6 @@
   "crates/drivers/dsql/src/transfer.rs",
   "crates/drivers/etcd/src/transfer.rs",
   "crates/drivers/iotdb/src/transfer.rs",
-  "crates/drivers/mongodb/src/shell.rs",
   "crates/drivers/postgres/src/transfer.rs",
   "crates/drivers/snowflake/src/transfer.rs",
   "crates/drivers/solr/src/transfer.rs",
@@ -7704,6 +7760,11 @@
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/spanner/src/monitor.rs"
+ ],
+ "Inicio del ciclo de ejecución": [
+  "crates/drivers/sqlserver/src/script.rs",
+  "crates/drivers/sqlserver/src/script_live.rs",
+  "src-tauri/src/commands/query.rs"
  ],
  "Inicios de sesión": [
   "crates/drivers/oracle/src/monitor.rs"
@@ -8236,9 +8297,6 @@
  "La columna «{0}» trae un JSON inválido: {1}": [
   "crates/drivers/etcd/src/transfer.rs"
  ],
- "La conexión con el servidor había quedado inutilizable y se abrió una nueva. Se perdió el estado de la sesión anterior (transacción abierta, tablas #temp, USE y SET): volvé a ejecutar.": [
-  "crates/drivers/sqlserver/src/lib.rs"
- ],
  "La conexión es de solo lectura: DBine bloquea todo lo que no sea lectura.\n": [
   "src-tauri/src/commands/ai.rs"
  ],
@@ -8369,6 +8427,9 @@
  "La ruta del endpoint HiveServer2 por HTTP; en Cloudera Data Warehouse suele ser «cliservice».": [
   "crates/drivers/odbc/src/presets.rs"
  ],
+ "La sesión de BigQuery terminó (venció por inactividad) y se abrió una nueva: sus tablas temporales y variables ya no están.": [
+  "crates/drivers/bigquery/src/lib.rs"
+ ],
  "La sesión en el servidor venció por inactividad y se abrió otra: se perdieron las transacciones abiertas y las tablas temporales.": [
   "crates/drivers/libsql/src/hrana.rs",
   "crates/drivers/libsql/src/transfer.rs"
@@ -8435,6 +8496,24 @@
  ],
  "La tasa de aciertos del page cache, las consultas por segundo y el tamaño en disco solo se publican como métricas de Neo4j Enterprise (Prometheus/CSV), no por Cypher.": [
   "crates/drivers/neo4j/src/monitor.rs"
+ ],
+ "La transacción abierta se perdió al reiniciar la conexión: sus cambios no se guardaron.": [
+  "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "La transacción se deshizo por el error: sus cambios no se guardaron.": [
+  "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "La transacción tenía un error y se deshizo (ROLLBACK): no se confirmó ningún cambio.": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
+ "La transacción tenía un error: COMMIT la deshizo (ROLLBACK) y no se confirmó ningún cambio.": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
+ "La transacción ya no estaba abierta en el servidor (se venció): sus cambios no se guardaron.": [
+  "crates/drivers/couchbase/src/lib.rs"
+ ],
+ "La transacción ya no está abierta en el servidor: sus cambios no se guardaron.": [
+  "crates/drivers/couchbase/src/lib.rs"
  ],
  "La transacción ya no está abierta.": [
   "crates/drivers/mongodb/src/blocking.rs"
@@ -8654,6 +8733,9 @@
  "Letras, números, «_», «-» y «.», de 3 a 255. Vacío: la tabla y la fecha.": [
   "crates/drivers/dynamodb/src/backup.rs"
  ],
+ "Level": [
+  "crates/drivers/mysql/src/session.rs"
+ ],
  "Leído de disco (MB)": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
@@ -8731,9 +8813,6 @@
   "crates/drivers/odbc/src/security/sybase.rs",
   "crates/drivers/snowflake/src/security.rs",
   "crates/drivers/sqlserver/src/security.rs"
- ],
- "Long": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "Lookup": [
   "crates/drivers/sqlserver/src/plan.rs"
@@ -8864,6 +8943,9 @@
  "Los ítems no tienen esquema fijo: el atributo {0}.{1} no se cambia.": [
   "crates/drivers/dynamodb/src/sync.rs"
  ],
+ "Lote ejecutado 3 veces.": [
+  "crates/drivers/sqlserver/src/script_live.rs"
+ ],
  "Lotes (batch requests)": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
@@ -8915,6 +8997,9 @@
  "Límite de velocidad (MB/s por nodo TiKV)": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "Línea {0}, columna {1}: {2}": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
  "Línea {0}: falta la ruta después de {1}.": [
   "crates/drivers/elasticsearch/src/console.rs"
  ],
@@ -8932,6 +9017,9 @@
  ],
  "MONITOR tiene un costo en servidores con mucho tráfico y no informa la duración ni el resultado de cada comando.": [
   "crates/drivers/redis/src/profiler.rs"
+ ],
+ "MULTI sigue abierto: los comandos siguientes se encolan hasta EXEC o DISCARD.": [
+  "crates/drivers/redis/src/lib.rs"
  ],
  "M_CS_TABLES solo cuenta las tablas columnares cargadas en memoria.": [
   "crates/drivers/hana/src/monitor.rs"
@@ -9093,6 +9181,9 @@
  ],
  "MaxDB admite hasta 38 dígitos: no entran los valores de 39.": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
+ ],
+ "MaxDB no otorga permisos sobre un esquema con opción de otorgarlos a otros": [
+  "crates/drivers/odbc/src/security/sqlstd.rs"
  ],
  "MaxDB no tiene BIGINT: FIXED({0}, 0).": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
@@ -9393,7 +9484,8 @@
   "crates/drivers/clickhouse/src/monitor.rs"
  ],
  "Message": [
-  "crates/drivers/mysql/src/backup.rs"
+  "crates/drivers/mysql/src/backup.rs",
+  "crates/drivers/mysql/src/session.rs"
  ],
  "Microsoft Entra ID rechazó el inicio de sesión: {0}": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -9864,6 +9956,12 @@
  "Neptune no tiene restricciones: la clave primaria no se controla.": [
   "crates/dbine-schema/src/dialect/graph.rs"
  ],
+ "Neptune no tiene transacciones explícitas ni parámetros de sesión.": [
+  "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "Neptune no tiene transacciones explícitas.": [
+  "crates/drivers/neo4j/src/lib.rs"
+ ],
  "Neptune no tiene índices ni restricciones definidos por el usuario": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
@@ -9955,6 +10053,15 @@
  ],
  "Nivel de compatibilidad": [
   "crates/drivers/sqlserver/src/plan.rs"
+ ],
+ "Nivel de consistencia actual: {0}.": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "Nivel de consistencia desconocido: {0}.": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "Nivel de consistencia: {0}.": [
+  "crates/drivers/cassandra/src/lib.rs"
  ],
  "Nivel de facturación": [
   "crates/drivers/bigquery/src/plan.rs"
@@ -10049,6 +10156,9 @@
   "crates/drivers/elasticsearch/src/lib.rs",
   "crates/drivers/solr/src/lib.rs"
  ],
+ "No hay ninguna transacción abierta.": [
+  "crates/drivers/neo4j/src/lib.rs"
+ ],
  "No hay ningún documento con {0} en {1}.": [
   "crates/drivers/cosmosdb/src/lib.rs"
  ],
@@ -10074,6 +10184,9 @@
   "crates/drivers/influxdb/src/v1.rs",
   "crates/drivers/influxdb/src/v3.rs"
  ],
+ "No hay una transacción abierta.": [
+  "crates/drivers/spanner/src/lib.rs"
+ ],
  "No hay versión de fila automática.": [
   "crates/dbine-schema/src/dialect/spark.rs"
  ],
@@ -10098,6 +10211,9 @@
  ],
  "No se clonan las funciones de agregado: {0}.": [
   "crates/drivers/postgres/src/clone.rs"
+ ],
+ "No se compiló ningún objeto en esta sesión.": [
+  "crates/drivers/oracle/src/lib.rs"
  ],
  "No se crea la clave foránea {0} de {1}: apunta a una tabla que no se clona.": [
   "crates/drivers/postgres/src/clone.rs"
@@ -10409,9 +10525,6 @@
  "No se pudo leer el plan del trabajo {0}: {1}": [
   "crates/drivers/bigquery/src/lib.rs"
  ],
- "No se pudo leer el plan: {0}": [
-  "crates/drivers/sqlserver/src/lib.rs"
- ],
  "No se pudo leer el resumen de sentencias ({0}).": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -10575,9 +10688,6 @@
  "No se puede borrar «{0}»: es la base de datos de esta sesión.": [
   "crates/drivers/athena/src/lib.rs"
  ],
- "No se puede borrar «{0}»: es la base de esta conexión. Conectate a otra (por ejemplo master).": [
-  "crates/drivers/sqlserver/src/lib.rs"
- ],
  "No se puede borrar «{0}»: es la base de esta conexión. Conectate a otra (por ejemplo postgres).": [
   "crates/drivers/postgres/src/structure.rs"
  ],
@@ -10727,6 +10837,9 @@
  ],
  "Nombre con el que registraste el driver ODBC de Machbase en odbcinst.ini (biblioteca libmachbasecli_dll.so; en Windows, su DLL). Viene con el paquete de Machbase (carpeta lib).": [
   "crates/drivers/odbc/src/presets.rs"
+ ],
+ "Nombre de base inválido: {0}": [
+  "crates/drivers/mongodb/src/lib.rs"
  ],
  "Nombre de colección válido para Solr: «{0}».": [
   "crates/dbine-schema/src/dialect/solr.rs"
@@ -11250,17 +11363,14 @@
   "crates/dbine-transfer/src/clone_table/analytics.rs",
   "crates/drivers/mysql/src/session.rs"
  ],
+ "Null value is eliminated": [
+  "crates/drivers/sqlserver/src/script_live.rs"
+ ],
  "Nullable": [
   "crates/drivers/clickhouse/src/schema.rs"
  ],
  "Number": [
   "crates/drivers/odbc/src/blocking.rs"
- ],
- "NumberInt inválido: {0}": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "NumberLong inválido: {0}": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "Nunca se ejecutó": [
   "crates/drivers/dsql/src/plan.rs",
@@ -11342,9 +11452,6 @@
  ],
  "Object": [
   "crates/drivers/sqlserver/src/plan.rs"
- ],
- "ObjectId inválido: \"{0}\"": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "Objetivo de servicio": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -11667,8 +11774,14 @@
  "Output": [
   "crates/drivers/trino/src/plan.rs"
  ],
+ "PAGING: «{0}» no es ON, OFF ni un tamaño de página.": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
  "PLUS ARCHIVELOG: el backup se puede restaurar sin el archivo de logs.": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "PRINT 'no';\nGO 0\n": [
+  "crates/drivers/sqlserver/src/script_live.rs"
  ],
  "PRINT de un topic no filtra por columnas: se filtra un stream": [
   "crates/drivers/ksqldb/src/ddl.rs"
@@ -11687,6 +11800,15 @@
  ],
  "Page life expectancy": [
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "Paginación activada, de a {0} filas.": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "Paginación activada.": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "Paginación desactivada.": [
+  "crates/drivers/cassandra/src/lib.rs"
  ],
  "Paquetes": [
   "crates/drivers/firebird/src/lib.rs",
@@ -11942,6 +12064,9 @@
  "Phoenix modifica filas con UPSERT y necesita la clave primaria de la fila": [
   "crates/drivers/phoenix/src/ddl.rs"
  ],
+ "Phoenix no administra usuarios: eso lo hace HBase (Kerberos)": [
+  "crates/drivers/phoenix/src/ddl.rs"
+ ],
  "Phoenix no da cifras reales por paso: se muestra el plan estimado junto al resultado.": [
   "crates/drivers/phoenix/src/lib.rs"
  ],
@@ -11969,11 +12094,17 @@
  "Phoenix no tiene índices únicos: queda como índice común y no garantiza unicidad.": [
   "crates/dbine-schema/src/dialect/phoenix.rs"
  ],
+ "Phoenix pasa a mayúsculas el esquema al otorgar permisos y no encontraría «{0}»: usá un nombre en mayúsculas": [
+  "crates/drivers/phoenix/src/ddl.rs"
+ ],
  "Phoenix solo acepta NOT NULL en la clave primaria (o con IMMUTABLE_ROWS): {0}.{1} se agrega aceptando NULL.": [
   "crates/drivers/phoenix/src/sync.rs"
  ],
  "Phoenix solo admite NOT NULL en la clave primaria (o con IMMUTABLE_ROWS): la columna acepta nulos.": [
   "crates/dbine-schema/src/dialect/phoenix.rs"
+ ],
+ "Phoenix solo borra un esquema vacío: borrá antes sus tablas, vistas y secuencias": [
+  "crates/drivers/phoenix/src/ddl.rs"
  ],
  "Pico de memoria": [
   "crates/drivers/neo4j/src/monitor.rs",
@@ -12098,6 +12229,12 @@
  "Presto": [
   "crates/drivers/trino/src/lib.rs",
   "crates/drivers/trino/src/sync.rs"
+ ],
+ "Presto no asigna dueño a un esquema": [
+  "crates/drivers/trino/src/lib.rs"
+ ],
+ "Presto solo borra esquemas vacíos (no tiene CASCADE)": [
+  "crates/drivers/trino/src/lib.rs"
  ],
  "Primaria (sin replicación)": [
   "crates/drivers/firebird/src/monitor.rs"
@@ -13135,6 +13272,9 @@
  "SQL Server no borra archivos de backup por SQL: borralo en el servidor (el historial de msdb se limpia con msdb.dbo.sp_delete_backuphistory).": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
+ "SQL Server no borra un esquema con su contenido: primero hay que borrar o mover sus objetos": [
+  "crates/drivers/sqlserver/src/security.rs"
+ ],
  "SQL Server no guarda la zona horaria de una hora.": [
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
@@ -13153,13 +13293,16 @@
  "SQL Server no tiene intervalos: queda como texto.": [
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
+ "SQL*Plus: DBine no ejecuta «{0}»; se omite.": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
+ "SQL*Plus: «{0}» no se aplica; para eso está «Seguir si hay un error».": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
  "SQL++ (N1QL). Las colecciones se nombran `bucket`.`scope`.`coleccion`; sin prefijo se buscan en el scope _default del bucket de la sesión. META(d).id es la clave del documento.": [
   "crates/drivers/couchbase/src/lib.rs"
  ],
  "SQL++ no bloquea usuarios: cambiale la contraseña o borralo": [
-  "crates/drivers/couchbase/src/security.rs"
- ],
- "SQL++ no otorga roles sobre un scope: otorgalo sobre el bucket o sobre una colección": [
   "crates/drivers/couchbase/src/security.rs"
  ],
  "SQL++ reemplaza la lista entera de grupos de un usuario (ALTER USER … GROUPS …): escribila completa en el editor": [
@@ -13241,6 +13384,9 @@
   "crates/drivers/drill/src/plan.rs",
   "crates/drivers/dynamodb/src/plan.rs",
   "crates/drivers/snowflake/src/plan.rs"
+ ],
+ "Scan count": [
+  "crates/drivers/sqlserver/src/script_live.rs"
  ],
  "Schema": [
   "crates/drivers/dsql/src/plan.rs",
@@ -13336,6 +13482,9 @@
  ],
  "Se borran y se vuelven a crear las vistas que usan las tablas modificadas: {0}.": [
   "src-tauri/src/commands/compare.rs"
+ ],
+ "Se borraron los parámetros.": [
+  "crates/drivers/neo4j/src/lib.rs"
  ],
  "Se borró el backup {0}.": [
   "crates/drivers/spanner/src/backup.rs"
@@ -14264,6 +14413,9 @@
  "Spanner no devolvió el plan de la consulta.": [
   "crates/drivers/spanner/src/lib.rs"
  ],
+ "Spanner no ejecuta DDL dentro de una transacción: confirmala (COMMIT) o deshacela (ROLLBACK) antes.": [
+  "crates/drivers/spanner/src/lib.rs"
+ ],
  "Spanner no expone memoria ni conexiones: la capacidad se mide en nodos o unidades de procesamiento.": [
   "crates/drivers/spanner/src/monitor.rs"
  ],
@@ -14564,6 +14716,9 @@
  "TIMESTAMP guarda milisegundos salvo que la base se cree con PRECISION 'us' o 'ns'.": [
   "crates/dbine-schema/src/dialect/tdengine.rs"
  ],
+ "TRACING no está en DBine: «Ejecutar + plan» muestra el trace de la consulta.": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
  "TSO del backup anterior": [
   "crates/drivers/mysql/src/backup.rs"
  ],
@@ -14626,7 +14781,6 @@
   "crates/drivers/cassandra/src/backup.rs",
   "crates/drivers/cassandra/src/monitor.rs",
   "crates/drivers/clickhouse/src/monitor.rs",
-  "crates/drivers/databricks/src/backup.rs",
   "crates/drivers/dynamodb/src/monitor.rs",
   "crates/drivers/influxdb/src/v3.rs",
   "crates/drivers/ksqldb/src/monitor.rs",
@@ -14782,6 +14936,9 @@
   "crates/drivers/firebird/src/monitor.rs",
   "crates/drivers/sqlite/src/monitor.rs"
  ],
+ "Tamaño de página: {0}.": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
  "Tamaño del WAL": [
   "crates/drivers/duckdb/src/monitor.rs",
   "crates/drivers/sqlite/src/lib.rs"
@@ -14906,6 +15063,9 @@
  ],
  "Texto sin límite como VARCHAR(2000000): Exasol guarda hasta 2.000.000 caracteres.": [
   "crates/dbine-schema/src/dialect/exasol.rs"
+ ],
+ "The statement has been terminated.": [
+  "crates/drivers/sqlserver/src/script_live.rs"
  ],
  "The type of query is ": [
   "crates/drivers/odbc/src/plan.rs"
@@ -15062,7 +15222,6 @@
   "crates/drivers/iotdb/src/transfer.rs"
  ],
  "Timestamp": [
-  "crates/drivers/mongodb/src/shell.rs",
   "crates/drivers/mysql/src/backup.rs"
  ],
  "Timestamp de la transacción": [
@@ -15271,6 +15430,21 @@
  "Transacción bloqueada": [
   "crates/drivers/hana/src/monitor.rs"
  ],
+ "Transacción confirmada.": [
+  "crates/drivers/couchbase/src/lib.rs",
+  "crates/drivers/neo4j/src/lib.rs",
+  "crates/drivers/spanner/src/lib.rs"
+ ],
+ "Transacción deshecha.": [
+  "crates/drivers/couchbase/src/lib.rs",
+  "crates/drivers/neo4j/src/lib.rs",
+  "crates/drivers/spanner/src/lib.rs"
+ ],
+ "Transacción iniciada.": [
+  "crates/drivers/couchbase/src/lib.rs",
+  "crates/drivers/neo4j/src/lib.rs",
+  "crates/drivers/spanner/src/lib.rs"
+ ],
  "Transcurrido en el nodo (µs)": [
   "crates/drivers/cassandra/src/plan.rs"
  ],
@@ -15411,9 +15585,6 @@
  ],
  "UUID como {0}(36).": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
- ],
- "UUID inválido: {0}": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "Ubicación": [
   "crates/drivers/bigquery/src/lib.rs",
@@ -15726,6 +15897,9 @@
  ],
  "Usá \"{0}\" o \"{1}\", no los dos.": [
   "crates/drivers/cosmosdb/src/lib.rs"
+ ],
+ "Usá :param nombre => valor (o :param {0}).": [
+  "crates/drivers/neo4j/src/lib.rs"
  ],
  "Usó disco (no alcanzó la memoria)": [
   "crates/drivers/mongodb/src/plan.rs"
@@ -16153,6 +16327,12 @@
  "Ya hay un ítem con la clave {0} (en la tabla o antes en los mismos datos): la carga nunca reemplaza ítems.": [
   "crates/drivers/dynamodb/src/transfer.rs"
  ],
+ "Ya hay una transacción abierta.": [
+  "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "Ya hay una transacción abierta: confirmala (COMMIT) o deshacela (ROLLBACK) antes.": [
+  "crates/drivers/spanner/src/lib.rs"
+ ],
  "Yellowbrick": [
   "crates/drivers/postgres/src/lib.rs"
  ],
@@ -16220,6 +16400,9 @@
  "`dims` de un dense_vector (si se omite, la toma del primer documento).": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
+ "`show {0}` no está disponible (sí show dbs, collections, users y roles).": [
+  "crates/drivers/mongodb/src/lib.rs"
+ ],
  "`{0}` escribe: se muestra el plan estimado y se ejecutó una sola vez.": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
@@ -16278,9 +16461,6 @@
  ],
  "administrador del cluster": [
   "crates/drivers/couchbase/src/security.rs"
- ],
- "aggregate espera un array de etapas, no {0}": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "agregar el período PERIOD FOR SYSTEM_TIME": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -16517,15 +16697,8 @@
  "coma flotante de {0} bytes": [
   "crates/dbine-schema/src/logical.rs"
  ],
- "comando vacío": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "comandos de Redis, uno por línea": [
   "src-tauri/src/commands/ai.rs"
- ],
- "comillas sin cerrar": [
-  "crates/drivers/etcd/src/command.rs",
-  "crates/drivers/redis/src/command.rs"
  ],
  "compaction necesita una revisión": [
   "crates/drivers/etcd/src/lib.rs"
@@ -16582,7 +16755,8 @@
  ],
  "conexión inexistente": [
   "src-tauri/src/commands/compare.rs",
-  "src-tauri/src/commands/schema.rs"
+  "src-tauri/src/commands/schema.rs",
+  "src-tauri/src/commands/schemas.rs"
  ],
  "configuración aplicada después de los documentos: {0}": [
   "crates/dbine-transfer/src/clone_table/documents.rs"
@@ -16660,12 +16834,6 @@
   "crates/drivers/couchdb/src/lib.rs",
   "crates/drivers/mongodb/src/lib.rs",
   "crates/drivers/neo4j/src/lib.rs"
- ],
- "createIndexes espera un array de claves": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "createView espera un array de etapas, no {0}": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "credenciales de AWS: {0}": [
   "crates/drivers/neo4j/src/neptune.rs"
@@ -16748,6 +16916,9 @@
  ],
  "del índice": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
+ ],
+ "demasiados permisos: como mucho {0}": [
+  "src-tauri/src/commands/schemas.rs"
  ],
  "derechos de administrador (ADMIN)": [
   "crates/drivers/postgres/src/permissions.rs"
@@ -16842,9 +17013,6 @@
  "disco en uso": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
- "distinct necesita el nombre del campo": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "distinto de": [
   "crates/drivers/cassandra/src/ddl.rs"
  ],
@@ -16857,17 +17025,11 @@
  "documento de diseño sin _id «_design/…»: {0}": [
   "crates/drivers/couchdb/src/ddl.rs"
  ],
- "documento inválido: {0}": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "documentos": [
   "crates/dbine-driver/src/profiler.rs"
  ],
  "double de 64 bits": [
   "crates/drivers/solr/src/transfer.rs"
- ],
- "dropIndex necesita el nombre o las claves del índice": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "dsql: {0} has no primary key; read in one statement": [
   "crates/drivers/dsql/src/transfer.rs"
@@ -17175,6 +17337,10 @@
  "el esquema de partición {0}({1})": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "el esquema necesita un nombre": [
+  "crates/drivers/postgres/src/schemas.rs",
+  "src-tauri/src/commands/schemas.rs"
+ ],
  "el filegroup por omisión": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -17385,6 +17551,12 @@
  "el particionado": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
+ "el permiso para «{0}» no tiene privilegios": [
+  "src-tauri/src/commands/schemas.rs"
+ ],
+ "el permiso {0} no dice a quién se otorga": [
+  "src-tauri/src/commands/schemas.rs"
+ ],
  "el pipeline de la vista tiene que ser un array de etapas": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
@@ -17429,7 +17601,6 @@
   "crates/drivers/redis/src/lib.rs",
   "crates/drivers/snowflake/src/lib.rs",
   "crates/drivers/spanner/src/lib.rs",
-  "crates/drivers/sqlserver/src/lib.rs",
   "crates/drivers/tdengine/src/lib.rs",
   "crates/drivers/trino/src/lib.rs",
   "src-tauri/src/commands/profiler.rs"
@@ -17454,6 +17625,9 @@
  ],
  "el rollup o vista materializada «{0}»": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
+ ],
+ "el scope _default de un bucket no se puede borrar": [
+  "crates/drivers/couchbase/src/ddl.rs"
  ],
  "el script necesita un nombre": [
   "src-tauri/src/commands/library.rs"
@@ -17506,6 +17680,9 @@
  "el servidor no preparó el INSERT": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
+ "el servidor no respondió": [
+  "crates/drivers/libsql/src/hrana.rs"
+ ],
  "el servidor no respondió al saludo Bolt (¿es el puerto Bolt, con TLS si hace falta?): {0}": [
   "crates/drivers/neo4j/src/bolt.rs"
  ],
@@ -17539,12 +17716,6 @@
  ],
  "el servidor rechazó la sesión": [
   "crates/drivers/libsql/src/hrana.rs"
- ],
- "el servidor {0} no respondió ({1} intentos de {2} s). Revisá que esté encendido y que la red, el firewall o la VPN permitan llegar a ese puerto": [
-  "crates/drivers/sqlserver/src/lib.rs"
- ],
- "el servidor {0} rechazó la conexión: no hay un SQL Server escuchando en ese puerto (revisá el puerto y que el servicio esté iniciado)": [
-  "crates/drivers/sqlserver/src/lib.rs"
  ],
  "el sistema operativo (V$OSSTAT)": [
   "crates/drivers/oracle/src/monitor.rs"
@@ -17650,9 +17821,6 @@
  "el índice espacial «{0}» del original está en {1}, distinto del de la tabla, y el clon no puede reproducirlo; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
- "el índice necesita al menos un campo": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "el índice {0}": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
@@ -17702,6 +17870,7 @@
   "crates/drivers/odbc/src/security.rs",
   "crates/drivers/oracle/src/security.rs",
   "crates/drivers/orientdb/src/security.rs",
+  "crates/drivers/phoenix/src/ddl.rs",
   "crates/drivers/postgres/src/security.rs",
   "crates/drivers/snowflake/src/security.rs",
   "crates/drivers/spanner/src/security.rs",
@@ -17715,6 +17884,14 @@
  ],
  "elegí dónde guardar el backup": [
   "src-tauri/src/sync.rs"
+ ],
+ "elegí el dueño del esquema": [
+  "crates/drivers/databricks/src/security.rs",
+  "crates/drivers/dsql/src/security.rs",
+  "crates/drivers/trino/src/security.rs"
+ ],
+ "elegí el rol dueño del esquema": [
+  "crates/drivers/snowflake/src/security.rs"
  ],
  "elegí el índice": [
   "crates/drivers/elasticsearch/src/security.rs"
@@ -17795,11 +17972,17 @@
  "en Couchbase un rol no se otorga con permiso para otorgarlo a otros": [
   "crates/drivers/couchbase/src/security.rs"
  ],
+ "en Couchbase un scope no tiene dueño: otorgá roles sobre él": [
+  "crates/drivers/couchbase/src/ddl.rs"
+ ],
  "en Databricks los usuarios, las entidades de servicio y los grupos se administran en la consola de la cuenta o del workspace (o por SCIM), no con SQL": [
   "crates/drivers/databricks/src/security.rs"
  ],
  "en Databricks no se otorgan permisos sobre «{0}»": [
   "crates/drivers/databricks/src/security.rs"
+ ],
+ "en Dremio un esquema es una carpeta: escribí su ruta completa, origen.carpeta (como se ve en el explorador), no «{0}»": [
+  "crates/drivers/dremio/src/security.rs"
  ],
  "en DynamoDB se cargan ítems en una tabla, no en un índice": [
   "crates/drivers/dynamodb/src/transfer.rs"
@@ -17839,6 +18022,12 @@
  ],
  "en Phoenix no se puede cambiar la clave primaria con UPSERT: crearía otra fila": [
   "crates/drivers/phoenix/src/ddl.rs"
+ ],
+ "en Phoenix un esquema no tiene dueño: otorgá permisos sobre él": [
+  "crates/drivers/phoenix/src/ddl.rs"
+ ],
+ "en Redshift el dueño de un esquema tiene que ser un usuario, no un grupo": [
+  "crates/drivers/postgres/src/schemas.rs"
  ],
  "en Redshift el ingreso se habilita asignando una contraseña nueva": [
   "crates/drivers/postgres/src/security.rs"
@@ -17892,6 +18081,18 @@
  ],
  "en ejecución": [
   "crates/drivers/postgres/src/blocking.rs"
+ ],
+ "en este motor el dueño de un esquema tiene que ser un usuario, no un rol": [
+  "crates/drivers/odbc/src/schemas.rs"
+ ],
+ "en este motor el esquema se crea sin dueño explícito": [
+  "crates/drivers/sqlserver/src/security.rs"
+ ],
+ "en este motor el nombre del esquema solo puede tener letras, números y guiones bajos": [
+  "crates/drivers/odbc/src/schemas.rs"
+ ],
+ "en este motor los esquemas no tienen dueño": [
+  "src-tauri/src/commands/schemas.rs"
  ],
  "en pausa": [
   "crates/drivers/postgres/src/backup.rs"
@@ -17997,13 +18198,21 @@
  "esa solicitud ya no está pendiente: se respondió o venció": [
   "src-tauri/src/mcp/approvals.rs"
  ],
- "escape \\u inválido": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "escribí el nombre": [
   "crates/drivers/hana/src/security.rs",
   "crates/drivers/snowflake/src/security.rs",
   "crates/drivers/trino/src/security.rs"
+ ],
+ "escribí el nombre del esquema": [
+  "crates/drivers/databricks/src/security.rs",
+  "crates/drivers/dremio/src/security.rs",
+  "crates/drivers/dsql/src/security.rs",
+  "crates/drivers/snowflake/src/security.rs",
+  "crates/drivers/spanner/src/security.rs",
+  "crates/drivers/trino/src/security.rs"
+ ],
+ "escribí el scope con su bucket, «bucket.scope» (por ejemplo «mibucket.{0}»)": [
+  "crates/drivers/couchbase/src/ddl.rs"
  ],
  "escribí la contraseña del usuario": [
   "crates/drivers/cassandra/src/security.rs",
@@ -18143,8 +18352,15 @@
   "crates/dbine-driver/src/lib.rs",
   "crates/drivers/mysql/src/session.rs"
  ],
+ "este motor no borra esquemas desde DBine": [
+  "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/odbc/src/lib.rs"
+ ],
  "este motor no borra snapshots por SQL: se borra su carpeta en el repositorio": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "este motor no borra un esquema con su contenido": [
+  "src-tauri/src/commands/schemas.rs"
  ],
  "este motor no busca claves en el servidor": [
   "crates/dbine-driver/src/lib.rs"
@@ -18156,12 +18372,18 @@
   "crates/drivers/sqlserver/src/clone.rs"
  ],
  "este motor no copia tablas directamente entre bases": [
-  "crates/dbine-driver/src/lib.rs",
-  "crates/drivers/sqlserver/src/lib.rs"
+  "crates/dbine-driver/src/lib.rs"
  ],
  "este motor no crea bases desde DBine": [
   "crates/dbine-driver/src/lib.rs",
   "crates/drivers/mysql/src/session.rs"
+ ],
+ "este motor no crea esquemas desde DBine": [
+  "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/odbc/src/schemas.rs"
+ ],
+ "este motor no crea ni borra esquemas desde DBine": [
+  "src-tauri/src/commands/schemas.rs"
  ],
  "este motor no crea usuarios por SQL": [
   "crates/drivers/odbc/src/security/misc.rs"
@@ -18187,14 +18409,11 @@
  "este motor no informa bloqueos entre sesiones": [
   "crates/dbine-driver/src/lib.rs",
   "crates/drivers/mysql/src/session.rs",
-  "crates/drivers/odbc/src/blocking.rs",
-  "crates/drivers/odbc/src/lib.rs",
-  "crates/drivers/sqlserver/src/lib.rs"
+  "crates/drivers/odbc/src/blocking.rs"
  ],
  "este motor no lista sus backups": [
   "crates/dbine-driver/src/lib.rs",
-  "crates/drivers/mysql/src/backup.rs",
-  "crates/drivers/sqlserver/src/lib.rs"
+  "crates/drivers/mysql/src/backup.rs"
  ],
  "este motor no lista sus backups por SQL": [
   "crates/drivers/odbc/src/backup.rs"
@@ -18208,6 +18427,9 @@
  "este motor no otorga permisos con opción de otorgarlos a otros": [
   "crates/drivers/odbc/src/security/sqlstd.rs"
  ],
+ "este motor no otorga permisos sobre un esquema": [
+  "src-tauri/src/commands/schemas.rs"
+ ],
  "este motor no permite eliminar este tipo de objeto desde DBine": [
   "src-tauri/src/commands/schema.rs"
  ],
@@ -18215,9 +18437,11 @@
   "crates/dbine-driver/src/lib.rs",
   "crates/drivers/mysql/src/session.rs",
   "crates/drivers/neo4j/src/lib.rs",
-  "crates/drivers/odbc/src/blocking.rs",
-  "crates/drivers/odbc/src/lib.rs",
-  "crates/drivers/sqlserver/src/lib.rs"
+  "crates/drivers/odbc/src/blocking.rs"
+ ],
+ "este motor no permite transacciones manuales desde DBine": [
+  "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/mysql/src/session.rs"
  ],
  "este motor no permite ver las consultas de otros clientes": [
   "crates/dbine-driver/src/lib.rs"
@@ -18226,13 +18450,11 @@
   "crates/drivers/odbc/src/backup.rs"
  ],
  "este motor no sincroniza por filas": [
-  "crates/dbine-driver/src/lib.rs",
-  "crates/drivers/sqlserver/src/lib.rs"
+  "crates/dbine-driver/src/lib.rs"
  ],
  "este motor no tiene backups propios": [
   "crates/dbine-driver/src/lib.rs",
-  "crates/drivers/mysql/src/backup.rs",
-  "crates/drivers/sqlserver/src/lib.rs"
+  "crates/drivers/mysql/src/backup.rs"
  ],
  "este motor no tiene backups propios que DBine pueda pedir por SQL": [
   "crates/drivers/odbc/src/backup.rs"
@@ -18241,8 +18463,7 @@
   "crates/drivers/odbc/src/backup.rs"
  ],
  "este motor no tiene carga masiva": [
-  "crates/dbine-driver/src/lib.rs",
-  "crates/drivers/sqlserver/src/lib.rs"
+  "crates/dbine-driver/src/lib.rs"
  ],
  "este motor solo admite usuario y contraseña": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -18255,6 +18476,15 @@
  ],
  "este proceso no sirve el driver «{0}»": [
   "crates/dbine-plugin/src/host.rs"
+ ],
+ "este servidor Flight SQL no admite transacciones: {0}": [
+  "crates/drivers/flightsql/src/lib.rs"
+ ],
+ "este servidor libSQL no informa transacciones (necesita Hrana 3)": [
+  "crates/drivers/libsql/src/hrana.rs"
+ ],
+ "este servidor libSQL no informa transacciones (necesita Hrana 3): usá BEGIN y COMMIT": [
+  "crates/drivers/libsql/src/lib.rs"
  ],
  "este tipo de objeto no tiene filas que copiar": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -18303,9 +18533,6 @@
  ],
  "events_statements_history_long está desactivado y la conexión es de solo lectura": [
   "crates/drivers/mysql/src/profiler.rs"
- ],
- "expresión regular sin cerrar": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "factor de escala": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -18377,8 +18604,15 @@
  "falta el código a ejecutar («code» está vacío)": [
   "src-tauri/src/mcp/write.rs"
  ],
+ "falta el dueño del esquema": [
+  "crates/drivers/odbc/src/schemas.rs",
+  "crates/drivers/postgres/src/schemas.rs"
+ ],
  "falta el endpoint del clúster": [
   "crates/drivers/dsql/src/lib.rs"
+ ],
+ "falta el esquema a borrar": [
+  "src-tauri/src/commands/schemas.rs"
  ],
  "falta el esquema a respaldar": [
   "crates/drivers/databricks/src/backup.rs"
@@ -18516,9 +18750,6 @@
  "falta la ruta del archivo SQLite": [
   "crates/drivers/sqlite/src/lib.rs"
  ],
- "falta un espacio después de las comillas": [
-  "crates/drivers/redis/src/command.rs"
- ],
  "falta un valor": [
   "crates/drivers/elasticsearch/src/transfer.rs"
  ],
@@ -18536,12 +18767,6 @@
  ],
  "fecha fuera de rango": [
   "crates/drivers/sqlserver/src/transfer.rs"
- ],
- "fecha inválida: \"{0}\"": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "fecha inválida: {0}": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "fecha y hora con zona": [
   "crates/dbine-schema/src/logical.rs"
@@ -18603,9 +18828,6 @@
  ],
  "función": [
   "crates/drivers/sqlserver/src/clone.rs"
- ],
- "getCollection necesita el nombre de la colección": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "git {0} no terminó en {1} s": [
   "src-tauri/src/commands/library_git.rs"
@@ -18694,9 +18916,6 @@
  ],
  "huella SSH inválida": [
   "src-tauri/src/commands/connections.rs"
- ],
- "id de lease inválido: {0} (va en hexadecimal, como lo muestra lease list)": [
-  "crates/drivers/etcd/src/command.rs"
  ],
  "id de migración inválido": [
   "src-tauri/src/commands/migration.rs"
@@ -18858,6 +19077,9 @@
  ],
  "la base de origen está en memoria": [
   "crates/drivers/sqlite/src/transfer.rs"
+ ],
+ "la base de una carpeta de archivos vive en memoria: sus esquemas no se guardan": [
+  "crates/drivers/duckdb/src/lib.rs"
  ],
  "la base es un archivo: se respalda copiándolo": [
   "crates/drivers/odbc/src/backup.rs"
@@ -19175,9 +19397,6 @@
  "la copia de las filas no terminó": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
- "la copia directa necesita dos sesiones de SQL Server": [
-  "crates/drivers/sqlserver/src/lib.rs"
- ],
  "la copia directa necesita dos sesiones del mismo driver": [
   "crates/dbine-plugin/src/remote.rs"
  ],
@@ -19396,6 +19615,9 @@
  ],
  "la ruta del archivo": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "la ruta «{0}» tiene comillas sin cerrar o texto después de una parte entre comillas": [
+  "crates/drivers/dremio/src/security.rs"
  ],
  "la secuencia del clon se llamaría {0} y ese nombre ya existe en el esquema; elegí otro nombre": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -19677,6 +19899,9 @@
  "llavero del sistema: {0}": [
   "src-tauri/src/error.rs"
  ],
+ "lock conflict on no wait transaction": [
+  "crates/drivers/firebird/src/lib.rs"
+ ],
  "log en uso": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -19807,11 +20032,6 @@
  "límite de memoria": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
- "línea {0}: {1}": [
-  "crates/drivers/etcd/src/command.rs",
-  "crates/drivers/mongodb/src/shell.rs",
-  "crates/drivers/redis/src/command.rs"
- ],
  "mapa sin clave y valor: {0}": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
@@ -19845,9 +20065,6 @@
  "modelo del catálogo": [
   "crates/dbine-ai/examples/ask.rs"
  ],
- "modificador no soportado: .{0}()": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "mongos (router de sharding)": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
@@ -19865,12 +20082,6 @@
  ],
  "método": [
   "crates/drivers/influxdb/src/monitor.rs"
- ],
- "método de base no soportado: db.{0}()": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "método no soportado: db.{0}.{1}()": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "métrica": [
   "crates/drivers/neo4j/src/monitor.rs"
@@ -20024,9 +20235,6 @@
  "no hay propiedades para identificar el elemento": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
- "no hay ruta hasta el servidor {0}: revisá la red o la VPN": [
-  "crates/drivers/sqlserver/src/lib.rs"
- ],
  "no hay un catálogo seleccionado": [
   "crates/drivers/databricks/src/lib.rs"
  ],
@@ -20081,9 +20289,6 @@
  ],
  "no se encontraron credenciales de AWS": [
   "crates/drivers/neo4j/src/neptune.rs"
- ],
- "no se encontró el servidor {0}: revisá el nombre del host": [
-  "crates/drivers/sqlserver/src/lib.rs"
  ],
  "no se encontró git en esta máquina: instalalo (git-scm.com) y volvé a intentar": [
   "src-tauri/src/commands/library_git.rs"
@@ -20161,6 +20366,9 @@
  ],
  "no se pudieron listar": [
   "crates/drivers/odbc/src/odbc.rs"
+ ],
+ "no se pudo abrir el catálogo «{0}»: {1}": [
+  "crates/drivers/flightsql/src/lib.rs"
  ],
  "no se pudo abrir el navegador: {0}": [
   "src-tauri/src/commands/settings.rs",
@@ -20746,6 +20954,9 @@
  "no write request came": [
   "src-tauri/src/mcp/tests.rs"
  ],
+ "no {0} in {1}": [
+  "crates/drivers/sqlserver/src/script_live.rs"
+ ],
  "nombre acortado para entrar en el límite de {0} del motor: {1} → {2}": [
   "crates/dbine-transfer/src/clone_table/mysql.rs",
   "crates/dbine-transfer/src/clone_table/oracle.rs"
@@ -20784,9 +20995,6 @@
  "número inválido": [
   "crates/drivers/elasticsearch/src/transfer.rs"
  ],
- "número inválido `{0}`": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "objetivo de estadísticas": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
@@ -20795,9 +21003,6 @@
  ],
  "ocultar (HIDDEN) la columna del período": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
- ],
- "odbc: no definition for {0}: {1}": [
-  "crates/drivers/odbc/src/lib.rs"
  ],
  "ontape (a una carpeta)": [
   "crates/drivers/odbc/src/backup.rs"
@@ -20941,6 +21146,9 @@
  "políticas: {0} / {1}": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
+ "por Flight SQL DBine no conoce los usuarios del motor: creá el esquema sin dueño": [
+  "crates/drivers/flightsql/src/lib.rs"
+ ],
  "por intervalo (INTERVAL {0})": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
@@ -20957,6 +21165,15 @@
   "crates/drivers/spanner/src/security.rs"
  ],
  "privilegio BACKUP sobre la base (o rol admin)": [
+  "crates/drivers/postgres/src/permissions.rs"
+ ],
+ "privilegio CREATE sobre la base (o rol admin)": [
+  "crates/drivers/postgres/src/permissions.rs"
+ ],
+ "privilegio CREATE sobre la base (o superusuario)": [
+  "crates/drivers/postgres/src/permissions.rs"
+ ],
+ "privilegio CREATE sobre la base (o {0})": [
   "crates/drivers/postgres/src/permissions.rs"
  ],
  "privilegio de sistema CREATEDB (o superusuario)": [
@@ -21188,57 +21405,20 @@
  "se enviaron {0} filas pero la tabla tiene {1} filas nuevas: {2} filas tienen una clave que ya estaba en la tabla o se repite en el origen, y Phoenix no pisa filas existentes en una carga (esas filas no se cargaron)": [
   "crates/drivers/phoenix/src/transfer.rs"
  ],
- "se esperaba '{0}' y se encontró '{1}'": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "se esperaba '{0}' y terminó el texto": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "se esperaba `db.` o un documento {…}, no '{0}'": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "se esperaba `db.` o un documento {…}, no `{0}`": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "se esperaba un constructor después de `new`": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "se esperaba un documento {…} y llegó {0}": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "se esperaba un mapa: {0}": [
   "crates/drivers/cassandra/src/transfer.rs"
- ],
- "se esperaba un método de colección": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "se esperaba un método después de '.'": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "se esperaba un nombre después de '.'": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "se esperaba un nombre entre comillas": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "se esperaba un par [clave, valor]: {0}": [
   "crates/drivers/cassandra/src/transfer.rs"
  ],
- "se esperaba un valor y terminó el texto": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "se esperaba una clave": [
-  "crates/drivers/elasticsearch/src/transfer.rs",
-  "crates/drivers/mongodb/src/shell.rs"
+  "crates/drivers/elasticsearch/src/transfer.rs"
  ],
  "se esperaba una consulta Mango {\"selector\": …}, no {0}": [
   "crates/drivers/couchdb/src/lib.rs"
  ],
  "se esperaba una lista: {0}": [
   "crates/drivers/cassandra/src/transfer.rs"
- ],
- "se esperaba una llamada, p. ej. db.coleccion.find({0})": [
-  "crates/drivers/mongodb/src/shell.rs"
  ],
  "se esperaba «,» o «]»": [
   "crates/drivers/elasticsearch/src/transfer.rs"
@@ -21469,8 +21649,7 @@
   "crates/dbine-transfer/src/clone_table/mysql.rs"
  ],
  "sobra texto después del valor": [
-  "crates/drivers/elasticsearch/src/transfer.rs",
-  "crates/drivers/mongodb/src/shell.rs"
+  "crates/drivers/elasticsearch/src/transfer.rs"
  ],
  "sobre etiquetas y tipos de relación Memgraph otorga {0}; «{1}» es global": [
   "crates/drivers/neo4j/src/security.rs"
@@ -21575,8 +21754,7 @@
   "crates/drivers/postgres/src/transfer.rs"
  ],
  "texto sin cerrar": [
-  "crates/drivers/elasticsearch/src/transfer.rs",
-  "crates/drivers/mongodb/src/shell.rs"
+  "crates/drivers/elasticsearch/src/transfer.rs"
  ],
  "texto sin límite": [
   "crates/dbine-schema/src/logical.rs"
@@ -21977,9 +22155,6 @@
  "valor inesperado del servidor (tipo {0})": [
   "crates/drivers/libsql/src/transfer.rs"
  ],
- "valor inválido: {0}": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "varbinary no limita el largo.": [
   "crates/dbine-schema/src/dialect/trino.rs"
  ],
@@ -22077,6 +22252,9 @@
  ],
  "{0} (además no se pudo hacer visible lo ya confirmado: {1})": [
   "crates/drivers/solr/src/transfer.rs"
+ ],
+ "{0} (la transacción abierta se perdió: la sesión venció)": [
+  "crates/drivers/spanner/src/lib.rs"
  ],
  "{0} (repartido: restauralo desde el servidor)": [
   "crates/drivers/sqlserver/src/backup.rs"
@@ -22230,6 +22408,9 @@
  "{0} es demasiado chico para un REAL sin perder precisión": [
   "crates/drivers/hana/src/transfer.rs"
  ],
+ "{0} es un comando de cqlsh que DBine no tiene (sí CONSISTENCY, SERIAL CONSISTENCY y PAGING).": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
  "{0} es un keyspace del sistema: no se borra.": [
   "crates/drivers/cassandra/src/lib.rs"
  ],
@@ -22284,18 +22465,6 @@
  "{0} modelo(s) · local, nada sale de esta máquina": [
   "crates/dbine-ai/src/detect.rs"
  ],
- "{0} necesita el documento de cambios": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "{0} necesita el nombre como texto": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "{0} necesita las claves del índice": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
- "{0} necesita un documento": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "{0} necesita una clave": [
   "crates/drivers/etcd/src/lib.rs",
   "crates/drivers/etcd/src/security.rs"
@@ -22306,6 +22475,9 @@
  "{0} no admite la columna «{1}» en una clave: la tabla queda DUPLICATE KEY y no garantiza unicidad.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
+ "{0} no admite transacciones manuales desde DBine": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
  "{0} no aplica cambios de esquema desde DBine": [
   "src-tauri/src/commands/compare.rs"
  ],
@@ -22315,9 +22487,6 @@
  "{0} no clona bases": [
   "crates/drivers/postgres/src/clone.rs",
   "src-tauri/src/commands/migration.rs"
- ],
- "{0} no crea ni borra bases desde DBine": [
-  "crates/drivers/odbc/src/lib.rs"
  ],
  "{0} no da cifras reales en EXPLAIN: se muestran los planes estimados.": [
   "crates/drivers/postgres/src/session.rs"
@@ -22554,6 +22723,9 @@
   "crates/dbine-schema/src/dialect/odbc_engines.rs",
   "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
+ "{0} no tiene esquemas": [
+  "crates/drivers/postgres/src/schemas.rs"
+ ],
  "{0} no tiene intervalos: queda como texto.": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs",
   "crates/dbine-schema/src/dialect/starrocks.rs"
@@ -22619,6 +22791,9 @@
  ],
  "{0} se configura con credenciales de la nube: creala a mano en DBine": [
   "crates/dbine-core/src/conn_import/mod.rs"
+ ],
+ "{0} se creó con errores de compilación.": [
+  "crates/drivers/oracle/src/lib.rs"
  ],
  "{0} se reconstruye (copia de los datos, tabla nueva y vuelta de los datos): DuckDB no cambia claves ni restricciones con ALTER. Falla si otras tablas la referencian.": [
   "crates/drivers/duckdb/src/schema.rs"
@@ -23085,6 +23260,9 @@
  "{0}: sin copia directa ({1}); se copia por lotes": [
   "crates/dbine-transfer/src/copy.rs"
  ],
+ "{0}: sin errores.": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
  "{0}: su tabla de historia {1}.{2} no se clona; se crea vacía al activar el versionado": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
@@ -23166,6 +23344,9 @@
  ],
  "«{0}» es de solo lectura: no se pueden aplicar cambios": [
   "src-tauri/src/commands/compare.rs"
+ ],
+ "«{0}» es de solo lectura: no se pueden cambiar esquemas": [
+  "src-tauri/src/commands/schemas.rs"
  ],
  "«{0}» es de solo lectura: no se pueden eliminar objetos": [
   "src-tauri/src/commands/schema.rs"
@@ -23428,6 +23609,9 @@
  "«{0}» no es un permiso de OrientDB (NONE, CREATE, READ, UPDATE, DELETE, EXECUTE, ALL)": [
   "crates/drivers/orientdb/src/security.rs"
  ],
+ "«{0}» no es un permiso de Phoenix (R, W, X, C o A)": [
+  "crates/drivers/phoenix/src/ddl.rs"
+ ],
  "«{0}» no es un permiso de SAP HANA": [
   "crates/drivers/hana/src/security.rs"
  ],
@@ -23451,6 +23635,9 @@
  ],
  "«{0}» no es un permiso válido": [
   "crates/drivers/odbc/src/security.rs"
+ ],
+ "«{0}» no es un privilegio de esquema en este motor": [
+  "src-tauri/src/commands/schemas.rs"
  ],
  "«{0}» no es un punto de restauración (archivo#id)": [
   "crates/drivers/odbc/src/backup.rs"
@@ -23535,6 +23722,9 @@
  ],
  "«{0}» no se puede usar en un recurso de OrientDB": [
   "crates/drivers/orientdb/src/security.rs"
+ ],
+ "«{0}» no sirve como esquema de Phoenix: usá solo letras, números y _": [
+  "crates/drivers/phoenix/src/ddl.rs"
  ],
  "«{0}» no tiene la hora en un formato que HANA lea de una sola forma (HH:MM[:SS[.f]], con zona Z o ±HH:MM opcional); con AM/PM o un nombre de zona podría guardarse otra hora": [
   "crates/drivers/hana/src/transfer.rs"
@@ -23748,6 +23938,9 @@
  ],
  "Último estado": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Último id generado: {0}": [
+  "crates/drivers/mysql/src/session.rs"
  ],
  "Último ingreso": [
   "crates/drivers/hana/src/security.rs",

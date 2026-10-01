@@ -140,10 +140,10 @@ async fn round_trip(id: &str, url: &str) {
     assert!(p.indexes.len() >= 2, "{p:?}");
     let script = d.table_ddl(p, DdlParts { create: true, indexes: true, drop: true, if_exists: true, ..Default::default() }).unwrap();
     println!("{id} label script:\n{script}");
-    // A constraint violation is the server's error, as a Query error.
+    // A constraint violation is the server's error, as a statement error with its code.
     let mut out = QueryOutcome::default();
     let e = s.execute("CREATE (:DbineP {name: 'Ann'})", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     // The session still works after a failure.
     run(&mut s, "RETURN 1").await;
     // Drop what the designer made.

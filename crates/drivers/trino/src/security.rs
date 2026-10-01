@@ -20,7 +20,7 @@
 
 use crate::{lit, TrinoSession};
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction, SecuritySpec};
 use std::collections::{HashSet, VecDeque};
 
 pub fn spec() -> SecuritySpec {
@@ -278,6 +278,53 @@ pub fn script(a: &SecurityAction) -> Result<String> {
     })
 }
 
+// -- schemas -----------------------------------------------------------------
+
+/// "Nuevo esquema…" in the session's catalog. Trino and Starburst take an
+/// owner (`SET AUTHORIZATION USER | ROLE`, after the grants), `CASCADE` and grants on the schema
+/// (whether the catalog accepts each depends on its connector and access
+/// control); Presto has none of the three (its parser refuses
+/// `AUTHORIZATION` and `ON SCHEMA`, and it answers that `CASCADE` "is not
+/// yet supported").
+pub fn schema_spec(presto: bool) -> SchemaSpec {
+    if presto {
+        return SchemaSpec::default();
+    }
+    SchemaSpec { owner: true, owner_kinds: dbine_driver::SchemaOwnerKinds::Both, cascade: true, privileges: vec!["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "ALL PRIVILEGES"], grant_option: true }
+}
+
+/// The name as typed, quoted: the grants that follow name it the same way.
+fn schema_name(name: &str) -> Result<String> {
+    match name.trim() {
+        "" => Err(Error::Query("escribí el nombre del esquema".into())),
+        n => Ok(q(n)),
+    }
+}
+
+/// Owned by the creator; `schema_owner` hands it over afterwards.
+pub fn create_schema(name: &str) -> Result<String> {
+    Ok(format!("CREATE SCHEMA {};", schema_name(name)?))
+}
+
+/// `owner`: a user, or a catalog role as `r IN catalog`. Runs after the
+/// grants (the connector decides whether it keeps owners at all).
+pub fn schema_owner(name: &str, owner: &str) -> Result<String> {
+    match owner.trim() {
+        "" => Err(Error::Query("elegí el dueño del esquema".into())),
+        o => Ok(format!("ALTER SCHEMA {} SET AUTHORIZATION {};", schema_name(name)?, grantee(o))),
+    }
+}
+
+/// Presto only drops an empty schema, with no clause.
+pub fn drop_schema(name: &str, cascade: bool, presto: bool) -> Result<String> {
+    let n = schema_name(name)?;
+    Ok(match (presto, cascade) {
+        (true, _) => format!("DROP SCHEMA {n};"),
+        (false, true) => format!("DROP SCHEMA {n} CASCADE;"),
+        (false, false) => format!("DROP SCHEMA {n} RESTRICT;"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,5 +378,23 @@ mod tests {
         assert_eq!(split_role("ana"), ("ana", None));
         assert_eq!(split_role(" IN hive"), (" IN hive".trim(), None));
         assert_eq!(role_name("r", "c"), "r IN c");
+    }
+
+    #[test]
+    fn schema_scripts() {
+        assert_eq!(create_schema(" ventas ").unwrap(), "CREATE SCHEMA \"ventas\";");
+        assert_eq!(schema_owner("ven\"tas", "ana").unwrap(), "ALTER SCHEMA \"ven\"\"tas\" SET AUTHORIZATION USER \"ana\";");
+        assert_eq!(schema_owner("ventas", "analistas IN hive").unwrap(), "ALTER SCHEMA \"ventas\" SET AUTHORIZATION ROLE \"analistas\";");
+        assert!(create_schema(" ").is_err());
+        assert_eq!(drop_schema("ventas", true, false).unwrap(), "DROP SCHEMA \"ventas\" CASCADE;");
+        assert_eq!(drop_schema("ventas", false, false).unwrap(), "DROP SCHEMA \"ventas\" RESTRICT;");
+        assert_eq!(drop_schema("ventas", false, true).unwrap(), "DROP SCHEMA \"ventas\";");
+        assert_eq!(schema_spec(true), SchemaSpec::default());
+        let spec = schema_spec(false);
+        assert!(spec.owner && spec.cascade);
+        for p in &spec.privileges {
+            let g = script(&SecurityAction::Grant { privileges: vec![p.to_string()], object: obj("schema", None, "ventas"), to: "ana".into(), grantable: true }).unwrap();
+            assert_eq!(g, format!("GRANT {p} ON SCHEMA \"ventas\" TO USER \"ana\" WITH GRANT OPTION;"));
+        }
     }
 }

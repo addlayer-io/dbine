@@ -4,18 +4,20 @@
 //! catalog query is optional: when a variant doesn't have it, the explorer
 //! shows what did work instead of failing.
 
-use crate::catalog::{cell, first_cell, info_type, lit, rows, user_schema};
+use crate::catalog::{cell, first_cell, info_type, lit, rows, system_schema, user_schema};
 use crate::{err, Variant};
 use crate::plan::{self, StmtKind};
 use dbine_driver::sql::{qualified_name, select_top, split_statements, Limit, Quote};
+use crate::script;
 use dbine_driver::{
     async_trait, kinds, ColumnDef, ColumnInfo, DbObject, Error, KeyDef, ObjectRef, Plan, QueryOutcome, ResultColumn,
-    Result, Session, TableSchema,
+    Result, Session, StatementResult, TableSchema, TxState,
 };
 use futures::{pin_mut, StreamExt};
 use postgres_native_tls::MakeTlsConnector;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio_postgres::error::{DbError, SqlState};
 use tokio_postgres::{Client, SimpleQueryMessage, SimpleQueryRow};
 
 pub struct PgSession {
@@ -25,9 +27,19 @@ pub struct PgSession {
     /// Server version as `server_version_num` (e.g. 160002); 0 if unknown.
     pub(crate) version: i32,
     pub(crate) database: String,
-    notices: mpsc::UnboundedReceiver<String>,
+    /// Notices from the connection task, in the order the server sent them.
+    notices: mpsc::UnboundedReceiver<DbError>,
     /// The running profiler, if any.
     profiler: Option<crate::profiler::State>,
+    /// `false`: manual transactions, each statement joins the transaction
+    /// the first one opened (see [`Session::set_autocommit`]).
+    autocommit: bool,
+    /// The transaction as the statements run here left it (see
+    /// [`script::next_state`]); asked to the server when it may be off.
+    tx: TxState,
+    /// A text of several statements controlled the transaction: the
+    /// tracked state can't be trusted until the server is asked.
+    tx_unsure: bool,
 }
 
 /// `$1`/`$2` (schema, name) resolved to a regclass; an empty schema means
@@ -47,9 +59,9 @@ impl PgSession {
         variant: Variant,
         version: i32,
         database: String,
-        notices: mpsc::UnboundedReceiver<String>,
+        notices: mpsc::UnboundedReceiver<DbError>,
     ) -> Self {
-        Self { client, tls, variant, version, database, notices, profiler: None }
+        Self { client, tls, variant, version, database, notices, profiler: None, autocommit: true, tx: TxState::Idle, tx_unsure: false }
     }
 
     /// `pg_proc` filter for plain functions and procedures (no aggregates
@@ -508,7 +520,7 @@ impl PgSession {
                 v.info().name
             ));
         }
-        for stmt in split_statements(sql) {
+        for stmt in dbine_driver::sql::split_script(sql, &script::DIALECT).into_iter().map(|u| u.text) {
             let mut kind = plan::classify(&stmt);
             if kind == StmtKind::Write && !v.explains_writes() {
                 if !analyze {
@@ -526,19 +538,84 @@ impl PgSession {
                     out.plans.push(p);
                 }
                 (true, StmtKind::Read) if can_analyze => {
-                    run_script(&self.client, &stmt, max_rows, out).await?;
+                    self.run_statement(&stmt, max_rows, out).await?;
                     let p = self.plan_of(&stmt, true).await?;
                     out.plans.push(p);
                 }
-                (true, StmtKind::Other) => run_script(&self.client, &stmt, max_rows, out).await?,
+                (true, StmtKind::Other) => self.run_statement(&stmt, max_rows, out).await?,
                 (true, _) => {
                     let p = self.plan_of(&stmt, false).await?;
                     out.plans.push(p);
-                    run_script(&self.client, &stmt, max_rows, out).await?;
+                    self.run_statement(&stmt, max_rows, out).await?;
                 }
             }
         }
         Ok(())
+    }
+
+    /// One statement, its result tagged. In manual mode, with no
+    /// transaction open, a `BEGIN` goes first (unless the statement can't
+    /// run in a transaction block, see [`script::no_begin`]).
+    ///
+    /// The simple protocol sends cells as text and the client drops each
+    /// column's type, so a query is also described (Parse/Describe, nothing
+    /// runs) with [`script::DESCRIBE`] in front. It goes out in the same
+    /// pipeline, before the statement: no extra round trip, the statement
+    /// stays the session's last activity, and a describe that fails ends
+    /// with its own Sync. Only outside a transaction block, where a failure
+    /// can't abort the user's transaction.
+    async fn run_statement(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let v = self.variant;
+        let head = script::head(sql);
+        let begin = !self.autocommit && self.tx == TxState::Idle && !script::no_begin(v, &head);
+        let types = self.tx == TxState::Idle
+            && v.has_pg_catalog()
+            && matches!(script::verb(sql, &head).as_str(), "select" | "values" | "table");
+        let first = out.results.len();
+        let client = &self.client;
+        let notices = &mut self.notices;
+        let describe = async {
+            if !types {
+                return None;
+            }
+            match client.prepare(&format!("{}{sql}", script::DESCRIBE)).await {
+                Ok(stmt) => Some(stmt),
+                Err(e) => {
+                    tracing::debug!("{v:?}: column types unavailable: {e}");
+                    None
+                }
+            }
+        };
+        let run = async {
+            if begin {
+                if let Err(e) = client.batch_execute("BEGIN").await {
+                    return (false, Err(script::statement_error(e, "")));
+                }
+            }
+            (begin, run_script(client, notices, sql, Some(&head), max_rows, out).await)
+        };
+        // Polled in this order: the describe is sent first.
+        let (stmt, (began, res)) = futures::join!(describe, run);
+        if began {
+            self.tx = TxState::Open;
+        }
+        self.tx = script::next_state(v, self.tx, &head, res.is_ok());
+        self.drain_notices(out);
+        if let (Ok(()), Some(stmt), [r]) = (&res, stmt, &mut out.results[first..]) {
+            if stmt.columns().len() == r.columns.len() {
+                for (c, t) in r.columns.iter_mut().zip(stmt.columns()) {
+                    c.type_name = t.type_().name().to_string();
+                }
+            }
+        }
+        res
+    }
+
+    /// Notices still queued once the statement ended.
+    fn drain_notices(&mut self, out: &mut QueryOutcome) {
+        while let Ok(n) = self.notices.try_recv() {
+            script::notice(out, &n);
+        }
     }
 
     /// One statement's plan; `actual` runs it under EXPLAIN ANALYZE.
@@ -662,6 +739,31 @@ impl Session for PgSession {
         Ok(out)
     }
 
+    /// Every schema of the session's database, the empty ones too:
+    /// `pg_namespace` (Materialize scopes it to the database and its
+    /// ambient `mz_*` schemas), `information_schema.schemata` where there
+    /// is no `pg_catalog` worth asking (H2, CrateDB) or it fails. Denodo has
+    /// no schemas.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
+        let v = self.variant;
+        if v == Variant::Denodo {
+            return Ok(None);
+        }
+        let mut queries = Vec::new();
+        if !matches!(v, Variant::H2 | Variant::CrateDb) {
+            queries.push("SELECT nspname FROM pg_namespace ORDER BY 1".to_string());
+        }
+        queries.push("SELECT schema_name FROM information_schema.schemata ORDER BY 1".to_string());
+        let rows = self.first_working(&queries).await?;
+        let mut out: Vec<dbine_driver::SchemaInfo> = rows
+            .iter()
+            .filter_map(|r| r.get(0).map(str::to_string))
+            .map(|name| dbine_driver::SchemaInfo { system: system_schema(v, &name), name })
+            .collect();
+        out.dedup_by(|a, b| a.name == b.name);
+        Ok(Some(out))
+    }
+
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         match self.variant {
             Variant::Redshift => self.info_schema_columns("svv_columns", obj).await,
@@ -710,10 +812,46 @@ impl Session for PgSession {
         select_top(Quote::Double, Limit::Limit, obj.schema(), &obj.name, limit)
     }
 
+    /// The editor hands it one statement at a time (`PerStatement`): it gets
+    /// its tag, its column types and a positioned error, and in manual mode
+    /// a `BEGIN` first when no transaction is open. Other callers may send
+    /// several statements, which the server runs as one implicit
+    /// transaction (Materialize's go one by one, see [`one_by_one`]).
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let res = run_script(&self.client, sql, max_rows, out).await;
-        while let Ok(m) = self.notices.try_recv() {
-            out.messages.push(m);
+        // Notices of earlier requests (catalog reads, the state probe).
+        while self.notices.try_recv().is_ok() {}
+        let units = dbine_driver::sql::split_script(sql, &script::DIALECT);
+        if units.len() != 1 {
+            let res = match one_by_one(self.variant, sql) {
+                Some(stmts) => {
+                    let mut res = Ok(());
+                    for stmt in stmts {
+                        res = run_script(&self.client, &mut self.notices, &stmt, None, max_rows, out).await;
+                        if res.is_err() {
+                            break;
+                        }
+                    }
+                    res
+                }
+                None => run_script(&self.client, &mut self.notices, sql, None, max_rows, out).await,
+            };
+            self.drain_notices(out);
+            if units.iter().any(|u| script::controls_transaction(&script::head(&u.text))) {
+                self.tx_unsure = true;
+            } else if res.is_err() {
+                self.tx = script::next_state(self.variant, self.tx, &[], false);
+            }
+            return res;
+        }
+        let head = script::head(&units[0].text);
+        let rolls_back = self.tx == TxState::Failed && script::is_commit(&head);
+        let first = out.results.len();
+        let res = self.run_statement(sql, max_rows, out).await;
+        if res.is_ok() && rolls_back {
+            if let Some(r) = out.results[first..].last_mut() {
+                r.tag = Some("ROLLBACK".into());
+            }
+            out.warning("La transacción tenía un error: COMMIT la deshizo (ROLLBACK) y no se confirmó ningún cambio.");
         }
         res
     }
@@ -737,11 +875,83 @@ impl Session for PgSession {
         if self.variant == Variant::Denodo {
             return Err(Error::Unsupported("Denodo no ofrece planes de ejecución (EXPLAIN) por esta conexión".into()));
         }
+        while self.notices.try_recv().is_ok() {}
         let res = self.explain_script(sql, analyze, max_rows, out).await;
-        while let Ok(m) = self.notices.try_recv() {
-            out.messages.push(m);
-        }
+        self.drain_notices(out);
         res
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        if !self.variant.manual_transactions() {
+            return Ok(None);
+        }
+        if self.variant.probes_transaction() && (self.tx != TxState::Idle || self.tx_unsure) {
+            // CockroachDB says it; elsewhere a transaction block's now() is
+            // its start, not this statement's.
+            let cockroach = self.variant == Variant::Cockroach;
+            let probe = if cockroach { "SHOW TRANSACTION STATUS" } else { "SELECT now() <> statement_timestamp()" };
+            match self.client.simple_query(probe).await {
+                Ok(msgs) => {
+                    let cell = crate::catalog::first_cell(&msgs).unwrap_or_default();
+                    self.tx = match cell.as_str() {
+                        "Aborted" => TxState::Failed,
+                        "t" | "true" => TxState::Open,
+                        "NoTxn" | "f" | "false" => TxState::Idle,
+                        _ if cockroach => TxState::Open,
+                        _ => TxState::Idle,
+                    };
+                }
+                Err(e) if e.code() == Some(&SqlState::IN_FAILED_SQL_TRANSACTION) => self.tx = TxState::Failed,
+                Err(e) => tracing::debug!("{:?}: transaction state unknown: {e}", self.variant),
+            }
+            self.tx_unsure = false;
+        }
+        Ok(Some(self.tx))
+    }
+
+    /// Off: the next statement opens a transaction (psql's `AUTOCOMMIT
+    /// off`). On: an open transaction is committed first, as JDBC does.
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if !on && !self.variant.manual_transactions() {
+            return Err(Error::Unsupported(format!(
+                "{} no admite transacciones manuales desde DBine",
+                self.variant.info().name
+            )));
+        }
+        if on && !self.autocommit {
+            self.commit().await?;
+        }
+        self.autocommit = on;
+        Ok(())
+    }
+
+    /// COMMIT; an aborted transaction can only roll back, and that's an
+    /// error: nothing was committed.
+    async fn commit(&mut self) -> Result<()> {
+        let state = self.transaction_state().await?.unwrap_or(self.tx);
+        if state == TxState::Idle {
+            return Ok(());
+        }
+        let res = self.client.batch_execute("COMMIT").await;
+        self.tx = TxState::Idle;
+        while self.notices.try_recv().is_ok() {}
+        res.map_err(crate::err)?;
+        if state == TxState::Failed {
+            return Err(Error::State(
+                "La transacción tenía un error y se deshizo (ROLLBACK): no se confirmó ningún cambio.".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        if self.transaction_state().await?.unwrap_or(self.tx) == TxState::Idle {
+            return Ok(());
+        }
+        let res = self.client.batch_execute("ROLLBACK").await;
+        self.tx = TxState::Idle;
+        while self.notices.try_recv().is_ok() {}
+        res.map_err(crate::err)
     }
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
@@ -908,13 +1118,51 @@ fn joined(rows: Vec<tokio_postgres::Row>) -> Result<Option<String>> {
     Ok((!parts.is_empty()).then(|| parts.join("\n\n")))
 }
 
-async fn run_script(client: &Client, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-    let stream = client.simple_query_raw(sql).await.map_err(err)?;
+/// Materialize runs a multi-statement query as one implicit transaction,
+/// where DDL isn't allowed ("cannot be run inside a transaction block"):
+/// its scripts go one statement at a time. `None`: send the script as is
+/// (other engines, a single statement, or dollar quotes the splitter
+/// doesn't know).
+fn one_by_one(v: Variant, sql: &str) -> Option<Vec<String>> {
+    if v != Variant::Materialize || sql.contains('$') {
+        return None;
+    }
+    let stmts = split_statements(sql);
+    (stmts.len() > 1).then_some(stmts)
+}
+
+/// Run `sql` as one simple query. Notices go to `out` as they arrive, in
+/// order with the results. `head`: the words of a single statement, to tag
+/// its result like psql ("INSERT 0 3", "CREATE TABLE"); without it (a
+/// text of several statements) each completion counts affected rows.
+async fn run_script(
+    client: &Client,
+    notices: &mut mpsc::UnboundedReceiver<DbError>,
+    sql: &str,
+    head: Option<&[String]>,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
+    let verb = head.map(|h| script::verb(sql, h));
+    let stream = client.simple_query_raw(sql).await.map_err(|e| script::statement_error(e, sql))?;
     pin_mut!(stream);
     // Whether the statement in progress returned a row description.
     let mut has_rows = false;
-    while let Some(msg) = stream.next().await {
-        match msg.map_err(err)? {
+    loop {
+        // A long statement's notices (RAISE in a loop) show while it runs.
+        let msg = tokio::select! {
+            biased;
+            Some(n) = notices.recv() => {
+                script::notice(out, &n);
+                continue;
+            }
+            msg = stream.next() => msg,
+        };
+        let Some(msg) = msg else { break };
+        while let Ok(n) = notices.try_recv() {
+            script::notice(out, &n);
+        }
+        match msg.map_err(|e| script::statement_error(e, sql))? {
             SimpleQueryMessage::RowDescription(cols) => {
                 has_rows = true;
                 out.begin_result(
@@ -926,8 +1174,19 @@ async fn run_script(client: &Client, sql: &str, max_rows: usize, out: &mut Query
                 out.push_row(cells, max_rows);
             }
             SimpleQueryMessage::CommandComplete(n) => {
-                if !has_rows {
-                    out.push_affected(n);
+                match (head, verb.as_deref()) {
+                    (Some(h), Some(v)) => {
+                        let tag = script::tag(h, v, n);
+                        if has_rows {
+                            if let Some(r) = out.results.last_mut() {
+                                r.tag = tag;
+                            }
+                        } else {
+                            out.results.push(StatementResult { rows_affected: script::affected(v, n), tag, ..Default::default() });
+                        }
+                    }
+                    _ if !has_rows => out.push_affected(n),
+                    _ => {}
                 }
                 has_rows = false;
             }
@@ -935,4 +1194,18 @@ async fn run_script(client: &Client, sql: &str, max_rows: usize, out: &mut Query
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_materialize_scripts_go_one_by_one() {
+        let script = "CREATE SCHEMA s;\nGRANT USAGE ON SCHEMA s TO a;";
+        assert_eq!(one_by_one(Variant::Materialize, script).unwrap().len(), 2);
+        assert!(one_by_one(Variant::Postgres, script).is_none());
+        assert!(one_by_one(Variant::Materialize, "SELECT 1;").is_none());
+        assert!(one_by_one(Variant::Materialize, "SELECT $$a;b$$; SELECT 2").is_none());
+    }
 }

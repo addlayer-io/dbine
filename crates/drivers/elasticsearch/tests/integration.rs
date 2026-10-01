@@ -145,10 +145,13 @@ async fn exercise(id: &str, url: &str) {
     // Errors: the earlier results stay, the message is the server's.
     let mut out = QueryOutcome::default();
     let e = s.execute("GET /dbine_books/_count\n\nGET /no_such_index/_search", 10, &mut out).await.unwrap_err();
-    assert!(matches!(&e, Error::Query(m) if m.contains("index_not_found")), "{e:?}");
+    assert!(e.is_query() && e.to_string().contains("index_not_found"), "{e:?}");
+    // With its code and place: the second request, on line 3.
+    let se = e.to_script_error();
+    assert_eq!((se.code.as_deref(), se.line, se.offset), (Some("index_not_found_exception"), Some(3), Some(25)), "{se:?}");
     assert_eq!(out.results.len(), 1);
     let e = run(&mut s, "SELECT nope FROM dbine_books", 10).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
 
     // Interrupter: nothing running, must not panic.
     (s.interrupter().unwrap())();
@@ -160,7 +163,7 @@ async fn exercise(id: &str, url: &str) {
     run(&mut ro, "SELECT title FROM dbine_books", 10).await.unwrap();
     for w in ["DELETE /dbine_books", "POST /dbine_books/_doc\n{\"a\":1}", "PUT /x", "POST /dbine_books/_delete_by_query\n{}"] {
         let e = run(&mut ro, w, 10).await.unwrap_err();
-        assert!(matches!(&e, Error::Query(m) if m.contains("solo lectura")), "{w}: {e:?}");
+        assert!(e.is_query() && e.to_string().contains("solo lectura"), "{w}: {e:?}");
     }
 
     run(&mut s, "DELETE /dbine_books", 10).await.unwrap();
@@ -275,7 +278,7 @@ async fn designer_on(id: &str, url: &str) {
     // Strict mapping: a bad row makes the script fail.
     let bad = d.insert_script(&target, &["nope".to_string()], &[vec![json!(1)]]).unwrap();
     let e = run(&mut s, &bad, 10).await.unwrap_err();
-    assert!(matches!(&e, Error::Query(m) if m.starts_with("_bulk: fallaron 1 de 1")), "{e:?}");
+    assert!(e.is_query() && e.to_string().starts_with("_bulk: fallaron 1 de 1"), "{e:?}");
 
     // Create templates, each run as is.
     for t in d.create_templates() {

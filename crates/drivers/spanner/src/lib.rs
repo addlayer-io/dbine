@@ -9,6 +9,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod profiler;
+mod script;
 mod security;
 mod backup;
 mod structure;
@@ -20,7 +21,7 @@ use dbine_driver::sql::{qualified_name, quote_ident, select_top, split_statement
 use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, ForeignKeyDef, IndexDef,
-    Language, ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    Language, ObjectKindInfo, ObjectRef, QueryOutcome, ResultColumn, Result, SchemaInfo, Session, TableSchema,
 };
 use serde_json::{json, Map, Value as Json};
 use std::time::Duration;
@@ -101,12 +102,35 @@ pub struct SpannerSession {
     read_only: bool,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// Manual mode: the first DML opens a read-write transaction that
+    /// stays open until COMMIT / ROLLBACK.
+    manual: bool,
+    /// The open read-write transaction (manual mode or `BEGIN`).
+    tx: Option<String>,
+    /// Spanner aborted it: only a rollback ends it.
+    tx_failed: bool,
 }
 
 #[async_trait]
 impl Driver for SpannerDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        script::dialect()
+    }
+
+    /// One request per statement, as spanner-cli runs a file; the session
+    /// (and an open read-write transaction) lasts between them.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::PerStatement
+    }
+
+    /// Read-write transactions across statements (`BEGIN` … `COMMIT`, or
+    /// the editor's manual mode), as spanner-cli's `BEGIN RW`.
+    fn supports_manual_transactions(&self) -> bool {
+        true
     }
 
     fn supports_explain(&self) -> bool {
@@ -171,6 +195,19 @@ impl Driver for SpannerDriver {
         security::script(action)
     }
 
+    /// Named schemas (see `security::schema_spec`).
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(security::schema_spec())
+    }
+
+    fn create_schema_script(&self, _database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+        security::create_schema(name)
+    }
+
+    fn drop_schema_script(&self, _database: Option<&str>, name: &str, _cascade: bool) -> Result<String> {
+        security::drop_schema(name)
+    }
+
     /// Backups through the Database Admin API, with DBine's own
     /// `CREATE BACKUP` / `RESTORE DATABASE` / `DROP BACKUP` statements.
     fn backup(&self) -> Option<dbine_driver::BackupSpec> {
@@ -226,7 +263,18 @@ impl Driver for SpannerDriver {
                 Error::Query(m) => Error::Connect(m),
                 other => other,
             })?;
-        Ok(Box::new(SpannerSession { api, instance, database, session, seqno: 0, read_only: cfg.read_only, profiler: None }))
+        Ok(Box::new(SpannerSession {
+            api,
+            instance,
+            database,
+            session,
+            seqno: 0,
+            read_only: cfg.read_only,
+            profiler: None,
+            manual: false,
+            tx: None,
+            tx_failed: false,
+        }))
     }
 }
 
@@ -275,6 +323,12 @@ impl SpannerSession {
             self.seqno += 1;
             body["seqno"] = json!(self.seqno.to_string());
             match self.api.post(&format!("{}:executeSql", self.session), &body).await {
+                // An open transaction dies with its session: no retry.
+                Err(Error::Query(m)) if m.contains("Session not found") && self.tx.is_some() => {
+                    self.tx = None;
+                    self.tx_failed = false;
+                    return Err(Error::Query(format!("{m} (la transacción abierta se perdió: la sesión venció)")));
+                }
                 Err(Error::Query(m)) if attempt == 0 && m.contains("Session not found") => {
                     self.session = create_session(&self.api, &self.database).await?;
                 }
@@ -337,6 +391,120 @@ impl SpannerSession {
         let end = if mode == Some("PLAN") { "rollback" } else { "commit" };
         self.api.post(&format!("{}:{end}", self.session), &json!({ "transactionId": tx })).await?;
         Ok(r)
+    }
+
+    /// One editor statement: `raw` is sent (the server's positions count
+    /// in it), `stmt` (without comments) tells what it is. In a read-write
+    /// transaction reads and DML run inside it; DDL can't.
+    async fn run_statement(&mut self, raw: &str, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        if let Some(cmd) = script::tx_command(stmt) {
+            match cmd {
+                script::TxCommand::Begin if self.tx.is_some() => {
+                    return Err(Error::Query("Ya hay una transacción abierta: confirmala (COMMIT) o deshacela (ROLLBACK) antes.".into()));
+                }
+                script::TxCommand::Begin => {
+                    if self.read_only {
+                        return Err(Error::Query("Conexión de solo lectura: solo se permiten consultas.".into()));
+                    }
+                    let r = self.api.post(&format!("{}:beginTransaction", self.session), &json!({ "options": { "readWrite": {} } })).await?;
+                    self.tx = r.get("id").and_then(Json::as_str).map(str::to_string);
+                    self.tx_failed = false;
+                    out.info("Transacción iniciada.");
+                }
+                script::TxCommand::Commit => {
+                    let had = self.tx.is_some();
+                    self.commit().await?;
+                    out.info(if had { "Transacción confirmada." } else { "No hay una transacción abierta." });
+                }
+                script::TxCommand::Rollback => {
+                    let had = self.tx.is_some();
+                    self.rollback().await?;
+                    out.info(if had { "Transacción deshecha." } else { "No hay una transacción abierta." });
+                }
+            }
+            out.push_affected(0);
+            if let Some(r) = out.results.last_mut() {
+                r.tag = stmt.split_whitespace().next().map(str::to_ascii_uppercase);
+            }
+            return Ok(());
+        }
+        let kind = classify(stmt);
+        if self.read_only && kind != Kind::Read {
+            return Err(Error::Query("Conexión de solo lectura: solo se permiten consultas.".into()));
+        }
+        let tag: String = stmt.split_whitespace().take(if kind == Kind::Ddl { 2 } else { 1 }).collect::<Vec<_>>().join(" ").to_ascii_uppercase();
+        match kind {
+            Kind::Ddl if self.tx.is_some() => {
+                return Err(Error::Query(
+                    "Spanner no ejecuta DDL dentro de una transacción: confirmala (COMMIT) o deshacela (ROLLBACK) antes.".into(),
+                ))
+            }
+            Kind::Ddl => match backup::parse(stmt)? {
+                Some(cmd) => backup::run(self, cmd, out).await?,
+                None => {
+                    self.ddl(raw).await?;
+                    out.push_affected(0);
+                }
+            },
+            Kind::Dml if self.tx.is_some() || self.manual => {
+                let selector = match &self.tx {
+                    Some(id) => json!({ "id": id }),
+                    None => json!({ "begin": { "readWrite": {} } }),
+                };
+                let r = match self.execute_sql(json!({ "sql": raw, "transaction": selector })).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        if self.tx.is_some() && e.to_string().contains("ABORTED") {
+                            self.tx_failed = true;
+                        }
+                        return Err(e);
+                    }
+                };
+                if self.tx.is_none() {
+                    self.tx = r.pointer("/metadata/transaction/id").and_then(Json::as_str).map(str::to_string);
+                }
+                let n = r.pointer("/stats/rowCountExact").and_then(|v| v.as_str().and_then(|s| s.parse().ok()).or(v.as_u64()));
+                out.push_affected(n.unwrap_or(0));
+            }
+            Kind::Dml => {
+                let n = self.dml(raw).await?;
+                out.push_affected(n);
+            }
+            Kind::Read if self.tx.is_some() => {
+                let id = self.tx.clone().unwrap_or_default();
+                let r = self.execute_sql(json!({ "sql": raw, "transaction": { "id": id } })).await?;
+                push_rows(&r, max_rows, out);
+            }
+            Kind::Read => {
+                let r = self.read(raw, None).await?;
+                push_rows(&r, max_rows, out);
+            }
+        }
+        if kind != Kind::Read {
+            if let Some(r) = out.results.last_mut() {
+                r.tag.get_or_insert(tag);
+            }
+        }
+        Ok(())
+    }
+
+    /// COMMIT or ROLLBACK of the open transaction (nothing when none).
+    async fn end_transaction(&mut self, how: &str) -> Result<()> {
+        let Some(id) = self.tx.take() else { return Ok(()) };
+        let failed = std::mem::take(&mut self.tx_failed);
+        let r = self.api.post(&format!("{}:{how}", self.session), &json!({ "transactionId": id })).await;
+        match (r, how) {
+            (Ok(_), _) => Ok(()),
+            // A failed commit leaves it aborted: only a rollback ends it.
+            (Err(e), "commit") => {
+                self.tx = Some(id);
+                self.tx_failed = true;
+                Err(e)
+            }
+            // Rolling back what Spanner already aborted.
+            (Err(_), _) if failed => Ok(()),
+            (Err(e), _) => Err(e),
+        }
     }
 
     async fn ddl(&mut self, sql: &str) -> Result<()> {
@@ -614,6 +782,19 @@ impl Session for SpannerSession {
         Ok(out)
     }
 
+    /// `INFORMATION_SCHEMA.SCHEMATA`, without the default schema (named
+    /// ""; its objects carry no schema); INFORMATION_SCHEMA and SPANNER_SYS
+    /// are the system ones.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
+        let rows = self.text_rows("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME", &[]).await?;
+        Ok(Some(
+            rows.into_iter()
+                .filter_map(|r| schema_of(r.into_iter().next().flatten()))
+                .map(|name| SchemaInfo { system: name == "INFORMATION_SCHEMA" || name == "SPANNER_SYS", name })
+                .collect(),
+        ))
+    }
+
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let schema = obj.schema().unwrap_or("");
         let pk = self
@@ -680,30 +861,44 @@ impl Session for SpannerSession {
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        for stmt in split_statements(text) {
-            let kind = classify(&stmt);
-            if self.read_only && kind != Kind::Read {
-                return Err(Error::Query("Conexión de solo lectura: solo se permiten consultas.".into()));
+        let d = script::dialect();
+        for unit in dbine_driver::sql::split_script(text, &d) {
+            let stmt = dbine_driver::sql::strip_comments(&unit.text, &d, false).trim().to_string();
+            if stmt.is_empty() {
+                continue;
             }
-            match kind {
-                Kind::Ddl => match backup::parse(&stmt)? {
-                    Some(cmd) => backup::run(self, cmd, out).await?,
-                    None => {
-                        self.ddl(&stmt).await?;
-                        out.push_affected(0);
-                    }
-                },
-                Kind::Dml => {
-                    let n = self.dml(&stmt).await?;
-                    out.push_affected(n);
-                }
-                Kind::Read => {
-                    let r = self.read(&stmt, None).await?;
-                    push_rows(&r, max_rows, out);
-                }
+            match self.run_statement(&unit.text, &stmt, max_rows, out).await {
+                Ok(()) => {}
+                Err(Error::Query(m)) => return Err(script::shift(script::error(&m, &unit.text), &unit)),
+                Err(e) => return Err(e),
             }
         }
         Ok(())
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<dbine_driver::TxState>> {
+        Ok(Some(match (&self.tx, self.tx_failed) {
+            (Some(_), true) => dbine_driver::TxState::Failed,
+            (Some(_), false) => dbine_driver::TxState::Open,
+            (None, _) => dbine_driver::TxState::Idle,
+        }))
+    }
+
+    /// Back to autocommit commits what's open (as JDBC does).
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if on && self.tx.is_some() {
+            self.commit().await?;
+        }
+        self.manual = !on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.end_transaction("commit").await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.end_transaction("rollback").await
     }
 
     /// `queryMode: PLAN` (nothing runs; DML is planned in a transaction
@@ -1114,6 +1309,19 @@ fn typed(v: &Json, t: &Json) -> Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
     use dbine_driver::KeyDef;
 
     #[test]

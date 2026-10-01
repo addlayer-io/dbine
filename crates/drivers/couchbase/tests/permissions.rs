@@ -55,6 +55,7 @@ async fn admin_limited_users_and_read_only() {
     let p = admin.permissions(Some(BUCKET)).await.unwrap();
     eprintln!("admin: {p:?}");
     assert_eq!((&p.profiler, &p.create_database, &p.drop_database, &p.manage_security), (&Access::Allowed, &Access::Allowed, &Access::Allowed, &Access::Allowed));
+    assert_eq!(p.create_schema, Access::Allowed);
 
     user(&c, "perm_ro", Some("ro_admin")).await;
     user(&c, "perm_bfa", Some(&format!("bucket_full_access[{BUCKET}]"))).await;
@@ -73,8 +74,12 @@ async fn admin_limited_users_and_read_only() {
     eprintln!("bucket_full_access: {p:?}");
     assert!(denied(&p.profiler, "cluster.n1ql.meta!read"));
     assert!(denied(&p.drop_database, "!delete"));
+    assert!(denied(&p.create_schema, "collections!write"));
     // What it says, the server does.
     assert!(s.drop_database(BUCKET).await.is_err());
+    let mut out = dbine_driver::QueryOutcome::default();
+    let create = d.create_schema_script(None, &format!("{BUCKET}.perm_scope"), None).unwrap();
+    assert!(s.execute(&create, 10, &mut out).await.is_err(), "bucket_full_access created a scope");
     let opts = dbine_driver::ProfilerOptions { database: BUCKET.into(), change_server: false };
     if s.profiler_start(&opts).await.is_ok() {
         assert!(s.profiler_poll().await.is_err(), "the profiler read system:completed_requests");

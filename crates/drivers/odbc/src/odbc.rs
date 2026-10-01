@@ -33,7 +33,24 @@ fn ok(rc: SqlReturn) -> bool {
 #[derive(Debug, Clone)]
 pub struct Diag {
     pub state: String,
+    /// The engine's own code (SQLCODE, error number); 0 when it gives none.
+    pub native: i32,
     pub message: String,
+}
+
+impl Diag {
+    /// A server message (not an error) as the script log shows it:
+    /// SQLSTATE class 01 is a warning, except `01000` ("general warning"),
+    /// which is how PRINT-like output arrives.
+    pub fn to_message(&self) -> dbine_driver::Message {
+        let level = if self.state.starts_with("01") && self.state != "01000" {
+            dbine_driver::MessageLevel::Warning
+        } else {
+            dbine_driver::MessageLevel::Info
+        };
+        let code = if self.native != 0 { self.native.to_string() } else { self.state.clone() };
+        dbine_driver::Message { level, text: self.message.clone(), code: Some(code).filter(|c| !c.is_empty()), ..Default::default() }
+    }
 }
 
 /// Every diagnostic record on a handle.
@@ -52,7 +69,7 @@ pub fn diags(api: &Api, htype: i16, h: Handle) -> Vec<Diag> {
             break;
         }
         let len = (len.max(0) as usize).min(msg.len() - 1);
-        out.push(Diag { state: from_wide(&state[..5]), message: clean_message(&from_wide(&msg[..len])) });
+        out.push(Diag { state: from_wide(&state[..5]), native, message: clean_message(&from_wide(&msg[..len])) });
     }
     out
 }
@@ -105,13 +122,24 @@ fn installed_drivers_text() -> String {
     }
 }
 
-/// Error from a statement.
+/// Error from a statement: the first record's SQLSTATE and native code
+/// (SQLCODE, error number). A connection failure (class 08) ends the script.
 pub fn query_error(d: &[Diag]) -> Error {
     if d.iter().any(|d| d.state == "HY008") {
-        Error::Cancelled
-    } else {
-        Error::Query(join(d))
+        return Error::Cancelled;
     }
+    let Some(first) = d.iter().find(|d| !d.state.starts_with("01")).or(d.first()) else { return Error::Query(join(d)) };
+    let mut e = dbine_driver::ScriptError::new(join(d));
+    if !first.state.is_empty() && first.state != "00000" {
+        e = e.with_sqlstate(first.state.clone());
+    }
+    if first.native != 0 {
+        e = e.with_code(first.native.to_string());
+    }
+    if first.state.starts_with("08") {
+        e = e.fatal();
+    }
+    e.into()
 }
 
 pub struct Env {
@@ -238,6 +266,33 @@ impl Conn {
                 }
             }
             Ok(conn)
+        }
+    }
+
+    /// Autocommit on or off (`SQL_ATTR_AUTOCOMMIT`). Off: the driver opens
+    /// a transaction with the next statement, ended by [`Self::end_tran`].
+    pub fn set_autocommit(&self, on: bool) -> Result<()> {
+        const SQL_ATTR_AUTOCOMMIT: i32 = 102;
+        const SQL_IS_UINTEGER: i32 = -1;
+        // SAFETY: an integer attribute passed as the pointer value.
+        let rc = unsafe {
+            (self.api.SQLSetConnectAttrW)(self.dbc.0, SQL_ATTR_AUTOCOMMIT, ptr::without_provenance_mut(usize::from(on)), SQL_IS_UINTEGER)
+        };
+        if ok(rc) {
+            Ok(())
+        } else {
+            Err(query_error(&diags(self.api, SQL_HANDLE_DBC, self.dbc.0)))
+        }
+    }
+
+    /// `SQLEndTran`: commit (`true`) or roll back the connection's transaction.
+    pub fn end_tran(&self, commit: bool) -> Result<()> {
+        // SAFETY: valid connection handle.
+        let rc = unsafe { (self.api.SQLEndTran)(SQL_HANDLE_DBC, self.dbc.0, if commit { 0 } else { 1 }) };
+        if ok(rc) {
+            Ok(())
+        } else {
+            Err(query_error(&diags(self.api, SQL_HANDLE_DBC, self.dbc.0)))
         }
     }
 
@@ -432,11 +487,12 @@ impl Stmt<'_> {
 
     /// Informational messages (PRINT, warnings) left on the statement.
     pub fn messages(&self) -> Vec<String> {
-        diags(self.api, SQL_HANDLE_STMT, self.h.0)
-            .into_iter()
-            .filter(|d| d.state != "01004" && !d.message.is_empty())
-            .map(|d| d.message)
-            .collect()
+        self.diag_messages().into_iter().map(|d| d.message).collect()
+    }
+
+    /// [`Self::messages`] with their SQLSTATE and native code.
+    pub fn diag_messages(&self) -> Vec<Diag> {
+        diags(self.api, SQL_HANDLE_STMT, self.h.0).into_iter().filter(|d| d.state != "01004" && !d.message.is_empty()).collect()
     }
 
     /// `SQLExecDirect`. Returns false when the statement affected no rows

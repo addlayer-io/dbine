@@ -273,7 +273,8 @@ fn sample_sql(s: &PgSession) -> String {
                     NULL AS db, user_name AS usr, \
                     NULLIF(application_name, '') AS app, client_address AS client \
              FROM crdb_internal.cluster_queries \
-             WHERE session_id <> (SELECT session_id FROM [SHOW session_id])",
+             WHERE session_id <> (SELECT session_id FROM [SHOW session_id]) \
+               AND query NOT LIKE '/* dbine:describe */%'",
             utc("start")
         ),
         Variant::H2 => "SELECT CAST(SESSION_ID AS VARCHAR) AS session, \
@@ -291,7 +292,8 @@ fn sample_sql(s: &PgSession) -> String {
                     datname AS db, usename AS usr, \
                     NULLIF(application_name, '') AS app, COALESCE(host(client_addr), 'local') AS client \
              FROM pg_stat_activity \
-             WHERE pid <> pg_backend_pid() AND query_start IS NOT NULL AND datname = current_database()",
+             WHERE pid <> pg_backend_pid() AND query_start IS NOT NULL AND datname = current_database() \
+               AND query NOT LIKE '/* dbine:describe */%'",
             utc("query_start")
         ),
     }

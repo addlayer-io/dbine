@@ -56,7 +56,7 @@ async fn check(d: &Arc<dyn Driver>, cfg: &ConnectionConfig, db: Option<&str>) ->
 async fn mysql() {
     let Some((d, root, limited)) = setup("mysql", "DBINE_TEST_MYSQL_URL") else { return };
     let p = check(&d, &root, Some("dbine_perm")).await;
-    assert_eq!(p, Permissions { restore: Access::Unknown, ..Permissions::all() }, "root");
+    assert_eq!(p, Permissions { restore: Access::Unknown, create_schema: Access::Unknown, ..Permissions::all() }, "root");
     assert_eq!(check(&d, &root, None).await.drop_database, Access::Unknown);
 
     let mut admin = d.connect(&root, None).await.unwrap();
@@ -87,7 +87,7 @@ async fn mysql() {
 async fn mariadb() {
     let Some((d, root, limited)) = setup("mariadb", "DBINE_TEST_MARIADB_URL") else { return };
     let p = check(&d, &root, Some("dbine_perm")).await;
-    assert_eq!(p, Permissions { backup: Access::Unknown, restore: Access::Unknown, ..Permissions::all() }, "root");
+    assert_eq!(p, Permissions { backup: Access::Unknown, restore: Access::Unknown, create_schema: Access::Unknown, ..Permissions::all() }, "root");
 
     let mut admin = d.connect(&root, None).await.unwrap();
     let cleanup = "DROP USER IF EXISTS 'dbine_perm'@'%'; DROP ROLE IF EXISTS dbine_perm_r";
@@ -117,7 +117,7 @@ async fn mariadb() {
 async fn tidb() {
     let Some((d, root, limited)) = setup("tidb", "DBINE_TEST_TIDB_URL") else { return };
     let p = check(&d, &root, Some("dbine_perm")).await;
-    assert_eq!(p, Permissions::all(), "root");
+    assert_eq!(p, Permissions { create_schema: Access::Unknown, ..Permissions::all() }, "root");
 
     let mut admin = d.connect(&root, None).await.unwrap();
     let cleanup = "DROP USER IF EXISTS 'dbine_perm'@'%'; DROP ROLE IF EXISTS 'dbine_perm_r'";

@@ -99,6 +99,8 @@ pub struct InfluxQlSession {
     username: String,
     password: String,
     db: Option<String>,
+    /// Retention policy set with `USE db.rp`.
+    rp: Option<String>,
     read_only: bool,
     /// The running profiler, if any.
     profiler: Option<profiler::V1State>,
@@ -112,6 +114,7 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
         username: cfg.username_or_empty().to_string(),
         password: cfg.password_or_empty().to_string(),
         db: db.map(str::to_string),
+        rp: None,
         read_only: cfg.read_only,
         profiler: None,
     };
@@ -155,6 +158,59 @@ pub fn delete_script(measurement: &str, keys: &[Vec<(String, J)>]) -> Result<Str
     Ok(out.join("\n"))
 }
 
+/// `USE db` / `USE db.rp` / `USE "d b"."r p"` (the influx CLI's).
+fn use_target(stmt: &str) -> Option<(String, Option<String>)> {
+    let s = stmt.trim();
+    let rest = s.get(..4).filter(|h| h.eq_ignore_ascii_case("use ")).map(|_| s[4..].trim())?;
+    let mut parts = Vec::new();
+    let mut cur = String::new();
+    let mut chars = rest.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                while let Some(n) = chars.next() {
+                    match n {
+                        '\\' => cur.extend(chars.next()),
+                        '"' => break,
+                        n => cur.push(n),
+                    }
+                }
+            }
+            '.' => parts.push(std::mem::take(&mut cur)),
+            c if c.is_whitespace() => return None,
+            c => cur.push(c),
+        }
+    }
+    parts.push(cur);
+    match parts.as_slice() {
+        [db] if !db.is_empty() => Some((db.clone(), None)),
+        [db, rp] if !db.is_empty() && !rp.is_empty() => Some((db.clone(), Some(rp.clone()))),
+        _ => None,
+    }
+}
+
+/// A refused request: `error parsing query: … at line L, char C` placed in
+/// `text` (the request started at `base`).
+fn parse_error(msg: &str, text: &str, base: usize) -> Error {
+    let num = |key: &str| -> Option<usize> {
+        let at = msg.rfind(key)?;
+        msg[at + key.len()..].chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+    };
+    let (Some(line), Some(ch)) = (num("at line "), num(", char ")) else { return Error::Query(msg.to_string()) };
+    let q = &text[base..];
+    let mut start = 0;
+    for _ in 1..line.max(1) {
+        match q[start..].find('\n') {
+            Some(i) => start += i + 1,
+            None => return Error::Query(msg.to_string()),
+        }
+    }
+    let end = q[start..].find('\n').map_or(q.len(), |e| start + e);
+    let off = base + start + q[start..end].char_indices().nth(ch.saturating_sub(1)).map_or(end - start, |(i, _)| i);
+    let line = text[..off].matches('\n').count() as u32 + 1;
+    dbine_driver::ScriptError::new(msg).at_offset(off).at_line(line).into()
+}
+
 /// Statement kinds that only read; `SELECT … INTO` writes and is refused too.
 pub fn first_write(script: &str) -> Option<String> {
     for stmt in dbine_driver::sql::split_statements(script) {
@@ -164,7 +220,7 @@ pub fn first_write(script: &str) -> Option<String> {
             .map(str::to_ascii_lowercase)
             .collect();
         let first = words.first().cloned().unwrap_or_default();
-        if !matches!(first.as_str(), "select" | "show" | "explain") {
+        if !matches!(first.as_str(), "select" | "show" | "explain" | "use") {
             return Some(first.to_uppercase());
         }
         if first == "select" && words.iter().any(|w| w == "into") {
@@ -175,12 +231,55 @@ pub fn first_write(script: &str) -> Option<String> {
 }
 
 impl InfluxQlSession {
+    /// Consecutive statements of `text` in one request; a failure placed
+    /// in `text` (the parser's `at line L, char C`, or the statement the
+    /// server stopped at).
+    async fn run_chunk(&self, text: &str, units: &[&dbine_driver::ScriptStatement], max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let (Some(first), Some(last)) = (units.first(), units.last()) else { return Ok(()) };
+        let q = &text[first.start..last.end];
+        let v = match self.raw(q, first_write(q).is_some()).await {
+            Ok(v) => v,
+            Err(Error::Query(m)) => return Err(parse_error(&m, text, first.start)),
+            Err(e) => return Err(e),
+        };
+        for (i, r) in v.get("results").and_then(|r| r.as_array()).into_iter().flatten().enumerate() {
+            for m in r.get("messages").and_then(|m| m.as_array()).into_iter().flatten() {
+                if let Some(t) = m.get("text").and_then(|t| t.as_str()) {
+                    match m.get("level").and_then(|l| l.as_str()) {
+                        Some("warning") => out.warning(t),
+                        _ => out.info(t),
+                    }
+                }
+            }
+            if let Some(e) = r.get("error").and_then(|e| e.as_str()) {
+                let n = r.get("statement_id").and_then(|n| n.as_u64()).map_or(i, |n| n as usize);
+                let u = units.get(n).unwrap_or(first);
+                let line = text[..u.start].matches('\n').count() as u32 + 1;
+                return Err(dbine_driver::ScriptError::new(e).at_offset(u.start).at_line(line).into());
+            }
+            let tables = statement_tables(r);
+            if tables.is_empty() {
+                out.push_affected(0);
+            }
+            for (header, rows) in tables {
+                out.begin_result(header.into_iter().map(|name| ResultColumn { name, type_name: String::new() }).collect());
+                for row in rows {
+                    out.push_row(row, max_rows);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// One request with the whole script; InfluxDB runs its statements in
     /// order and answers one result per statement.
     async fn raw(&self, q: &str, write: bool) -> Result<J> {
         let mut params = vec![("q", q)];
         if let Some(db) = &self.db {
             params.push(("db", db.as_str()));
+        }
+        if let Some(rp) = &self.rp {
+            params.push(("rp", rp.as_str()));
         }
         let req = if write {
             self.http.post(format!("{}/query", self.base)).form(&params)
@@ -424,6 +523,10 @@ impl Session for InfluxQlSession {
         format!("SELECT * FROM {} ORDER BY time DESC LIMIT {limit}", ident(&obj.name))
     }
 
+    /// The script goes to `/query` as the influx CLI's statements would:
+    /// the server runs them in order and stops at the first failure. `USE
+    /// db[.rp]` is the CLI's: it sets the database (and retention policy)
+    /// of the statements after it, and of later runs.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let write = first_write(text);
         if self.read_only {
@@ -433,32 +536,27 @@ impl Session for InfluxQlSession {
                 )));
             }
         }
-        if text.trim().is_empty() {
-            return Ok(());
-        }
-        let v = self.raw(text, write.is_some()).await?;
-        for r in v.get("results").and_then(|r| r.as_array()).into_iter().flatten() {
-            for m in r.get("messages").and_then(|m| m.as_array()).into_iter().flatten() {
-                if let Some(t) = m.get("text").and_then(|t| t.as_str()) {
-                    out.messages.push(t.to_string());
-                }
-            }
-            if let Some(e) = r.get("error").and_then(|e| e.as_str()) {
-                return Err(Error::Query(e.to_string()));
-            }
-            let tables = statement_tables(r);
-            if tables.is_empty() {
+        let units = dbine_driver::sql::split_script(text, &dbine_driver::ScriptDialect::generic());
+        let mut chunk: Vec<&dbine_driver::ScriptStatement> = Vec::new();
+        for u in &units {
+            if let Some((db, rp)) = use_target(&u.text) {
+                self.run_chunk(text, &chunk, max_rows, out).await?;
+                chunk.clear();
+                out.info(match &rp {
+                    Some(rp) => format!("Base de datos: {db} (política de retención {rp})"),
+                    None => format!("Base de datos: {db}"),
+                });
+                self.db = Some(db);
+                self.rp = rp;
                 out.push_affected(0);
-            }
-            for (header, rows) in tables {
-                out.begin_result(header.into_iter().map(|name| ResultColumn { name, type_name: String::new() }).collect());
-                for row in rows {
-                    out.push_row(row, max_rows);
+                if let Some(r) = out.results.last_mut() {
+                    r.tag = Some("USE".into());
                 }
+            } else {
+                chunk.push(u);
             }
         }
-        // `USE db` isn't InfluxQL; nothing else changes the session's database.
-        Ok(())
+        self.run_chunk(text, &chunk, max_rows, out).await
     }
 
     /// `SHOW STATS`, `SHOW DIAGNOSTICS` and `SHOW QUERIES`, one request each
@@ -683,6 +781,21 @@ mod tests {
         assert_eq!(first_write("SELECT * FROM cpu; SHOW MEASUREMENTS"), None);
         assert_eq!(first_write("select * into b from a").as_deref(), Some("SELECT … INTO"));
         assert_eq!(first_write("SHOW DATABASES; DROP DATABASE x").as_deref(), Some("DROP"));
+        assert_eq!(first_write("USE telegraf; SELECT * FROM cpu"), None);
+    }
+
+    #[test]
+    fn use_and_errors() {
+        assert_eq!(use_target("USE telegraf"), Some(("telegraf".into(), None)));
+        assert_eq!(use_target("use \"my db\".\"a.rp\""), Some(("my db".into(), Some("a.rp".into()))));
+        assert_eq!(use_target("USEFUL"), None);
+        assert_eq!(use_target("USE"), None);
+        let t = "USE a;\nSHOW DATABASES;\nSELECT * FROM;";
+        let base = t.find("SHOW").unwrap();
+        // The request was "SHOW DATABASES;\nSELECT * FROM": line 2, char 14.
+        let Error::Statement(e) = parse_error("error parsing query: found EOF, expected identifier at line 2, char 14", t, base) else { panic!() };
+        assert_eq!((e.line, e.offset), (Some(3), Some(t.len() - 1)));
+        assert!(matches!(parse_error("database not found: x", t, 0), Error::Query(_)));
         assert_eq!(ident("a\"b"), r#""a\"b""#);
     }
 

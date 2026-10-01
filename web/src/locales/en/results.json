@@ -57,7 +57,12 @@
     "addToQuery": "Add to the query",
     "discard": "Discard",
     "cells_many": "{{count}} cells changed",
-    "rows_many": "{{count}} rows"
+    "rows_many": "{{count}} rows",
+    "summaryDeletes": "{{deletes}}, not saved.",
+    "summaryBoth": "{{cells}} in {{rows}}, {{deletes}}, not saved.",
+    "deletes_one": "{{count}} row to delete",
+    "deletes_many": "{{count}} rows to delete",
+    "deletes_other": "{{count}} rows to delete"
   },
   "exportDialog": {
     "title": "Export result",
@@ -165,7 +170,14 @@
         "label": "Copy as Mongo INSERTs",
         "name": "Mongo INSERTs"
       }
-    }
+    },
+    "deleteRow": "Delete row",
+    "deleteRows": "Delete {{count}} rows",
+    "restoreRow": "Restore row",
+    "restoreRows": "Restore {{count}} rows",
+    "cantDelete": "Can't delete: {{reason}}",
+    "rowDeleted": "The row is marked for deletion: restore it to edit it",
+    "markedDelete": "Marked for deletion"
   },
   "chart": {
     "kind": {

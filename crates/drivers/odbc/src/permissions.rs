@@ -5,7 +5,8 @@
 //!   through groups, roles and PUBLIC, from
 //!   `SYSPROC.AUTH_LIST_AUTHORITIES_FOR_AUTHID`. `BACKUP DATABASE` and
 //!   `FORCE APPLICATION` (both through ADMIN_CMD) need SYSADM, SYSCTRL or
-//!   SYSMAINT; roles and database-wide grants need SECADM or ACCESSCTRL.
+//!   SYSMAINT; roles and database-wide grants need SECADM or ACCESSCTRL;
+//!   `CREATE SCHEMA` with any name and owner, DBADM.
 //! - **SAP ASE**: the active system roles (`show_role()`) and whether the
 //!   login owns the database (`master..sysdatabases.suid`). `DUMP` / `LOAD
 //!   DATABASE` need sa_role, oper_role or being its owner; `KILL` sa_role;
@@ -38,6 +39,9 @@ pub(crate) fn db2(held: &[String]) -> Permissions {
         backup: admin.clone(),
         kill_session: admin,
         manage_security: Access::check(has("SECADM") || has("ACCESSCTRL"), "SECADM o ACCESSCTRL"),
+        // Without DBADM a user may still create the schema named after
+        // itself: not a denial.
+        create_schema: if has("DBADM") { Access::Allowed } else { Access::Unknown },
         ..Default::default()
     }
 }
@@ -129,6 +133,8 @@ mod tests {
 
         let p = db2(&["DBADM".to_string()]);
         assert_eq!(p.backup, Access::Denied { missing: DB2_ADMIN.into() });
+        assert_eq!(p.create_schema, Access::Allowed);
+        assert_eq!(db2(&[]).create_schema, Access::Unknown);
         assert_eq!(p.manage_security, Access::Denied { missing: "SECADM o ACCESSCTRL".into() });
     }
 

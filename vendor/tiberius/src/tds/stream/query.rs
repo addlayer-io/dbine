@@ -126,6 +126,8 @@ impl<'a> QueryStream<'a> {
 
             match item {
                 Some(ReceivedToken::NewResultset(_)) => break,
+                // PATCH(dbine): left for `poll_next`, which reports the cancel.
+                Some(token) if is_attention_ack(token) => break,
                 Some(_) => {
                     self.token_stream.try_next().await?;
                 }
@@ -202,6 +204,10 @@ impl<'a> QueryStream<'a> {
                         break;
                     }
                     Row(_) => {
+                        break;
+                    }
+                    // PATCH(dbine): left for `poll_next`, which reports the cancel.
+                    token if is_attention_ack(token) => {
                         break;
                     }
                     _ => {
@@ -373,6 +379,11 @@ impl QueryItem {
     }
 }
 
+/// PATCH(dbine): the server's acknowledgement of a `CancelHandle` attention.
+fn is_attention_ack(token: &ReceivedToken) -> bool {
+    matches!(token, ReceivedToken::Done(d) | ReceivedToken::DoneProc(d) | ReceivedToken::DoneInProc(d) if d.is_attention())
+}
+
 impl<'a> Stream for QueryStream<'a> {
     type Item = crate::Result<QueryItem>;
 
@@ -422,6 +433,12 @@ impl<'a> Stream for QueryStream<'a> {
                     };
 
                     Poll::Ready(Some(Ok(QueryItem::Row(row))))
+                }
+                // PATCH(dbine): the acknowledgement of a `CancelHandle` attention.
+                ReceivedToken::Done(done) | ReceivedToken::DoneProc(done) | ReceivedToken::DoneInProc(done)
+                    if done.is_attention() =>
+                {
+                    Poll::Ready(Some(Err(crate::Error::Cancelled)))
                 }
                 _ => continue,
             };

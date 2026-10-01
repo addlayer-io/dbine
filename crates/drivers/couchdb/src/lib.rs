@@ -47,6 +47,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod security;
+mod steps;
 mod transfer;
 
 use dbine_driver::{
@@ -313,36 +314,50 @@ fn json_values(text: &str) -> std::result::Result<Vec<Value>, String> {
 
 /// Split a script into statements.
 pub fn parse_script(text: &str) -> std::result::Result<Vec<Stmt>, String> {
+    parse_located(text).map(|v| v.into_iter().map(|(s, _)| s).collect()).map_err(|(e, _)| e)
+}
+
+/// [`parse_script`], with where each statement's block starts (its HTTP
+/// line, or the first line of loose JSON). An error carries its block's.
+pub fn parse_located(text: &str) -> std::result::Result<Vec<(Stmt, usize)>, (String, usize)> {
     // Blocks: an HTTP line plus the lines until the next HTTP line, or the
     // loose JSON before the first one.
-    let mut blocks: Vec<(Option<(String, String)>, String)> = vec![(None, String::new())];
-    for line in text.lines() {
+    let mut blocks: Vec<(Option<(String, String)>, String, Option<usize>)> = vec![(None, String::new(), None)];
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        let start = at + (line.len() - line.trim_start().len());
+        at += line.len();
+        let line = line.strip_suffix('\n').unwrap_or(line);
         let t = line.trim_start();
         if t.starts_with("//") || t.starts_with('#') {
             continue;
         }
         if let Some((m, p, tail)) = http_line(line) {
-            blocks.push((Some((m, p)), format!("{tail}\n")));
+            blocks.push((Some((m, p)), format!("{tail}\n"), Some(start)));
         } else {
-            let b = &mut blocks.last_mut().expect("a block").1;
-            b.push_str(line);
-            b.push('\n');
+            let b = blocks.last_mut().expect("a block");
+            if b.2.is_none() && !t.trim().is_empty() {
+                b.2 = Some(start);
+            }
+            b.1.push_str(line);
+            b.1.push('\n');
         }
     }
     let mut out = Vec::new();
-    for (head, body) in blocks {
-        let mut values = json_values(&body)?.into_iter();
+    for (head, body, start) in blocks {
+        let start = start.unwrap_or(0);
+        let mut values = json_values(&body).map_err(|e| (e, start))?.into_iter();
         if let Some((method, path)) = head {
             // POST/PUT take the JSON after them as their body; loose JSON
             // after a GET is the next statement.
             let body = if matches!(method.as_str(), "POST" | "PUT") { values.next() } else { None };
-            out.push(Stmt::Http { method, path, body });
+            out.push((Stmt::Http { method, path, body }, start));
         }
         for v in values {
             if !v.is_object() {
-                return Err(format!("se esperaba una consulta Mango {{\"selector\": …}}, no {v}"));
+                return Err((format!("se esperaba una consulta Mango {{\"selector\": …}}, no {v}"), start));
             }
-            out.push(Stmt::Mango(v));
+            out.push((Stmt::Mango(v), start));
         }
     }
     Ok(out)
@@ -618,15 +633,23 @@ impl Session for CouchSession {
         self.transfer_load(spec, columns, source, progress).await
     }
 
+    /// Statements one by one; a script that doesn't parse runs nothing,
+    /// and the first failing statement stops it (the app gets it whole).
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let stmts = parse_script(text).map_err(Error::Query)?;
+        let stmts = parse_located(text).map_err(|(m, at)| {
+            Error::from(dbine_driver::ScriptError::new(m).at_offset(at).at_line(steps::line_at(text, at)))
+        })?;
         if stmts.is_empty() {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
         }
-        for stmt in stmts {
-            self.check_read_only(&stmt)?;
-            let reply = self.send(&stmt, max_rows, false).await?;
-            push_reply(out, &reply, max_rows);
+        let own = out.current_statement.is_none();
+        for (i, (stmt, at)) in stmts.into_iter().enumerate() {
+            let step = steps::Step::start(out, own, i, at, steps::line_at(text, at));
+            let r = match self.check_read_only(&stmt) {
+                Ok(()) => self.send(&stmt, max_rows, false).await.map(|reply| push_reply(out, &reply, max_rows)),
+                Err(e) => Err(e),
+            };
+            step.end(out, r)?;
         }
         Ok(())
     }
@@ -643,7 +666,7 @@ impl Session for CouchSession {
         for stmt in stmts {
             let label = stmt_label(&stmt);
             let Some(explain_path) = self.explain_path(&stmt)? else {
-                out.messages.push(format!("`{label}`: solo las consultas Mango (_find) tienen plan de ejecución."));
+                out.info(format!("`{label}`: solo las consultas Mango (_find) tienen plan de ejecución."));
                 if analyze {
                     self.check_read_only(&stmt)?;
                     let reply = self.send(&stmt, max_rows, false).await?;
@@ -763,13 +786,13 @@ fn stmt_label(stmt: &Stmt) -> String {
 
 fn push_reply(out: &mut QueryOutcome, reply: &Value, max_rows: usize) {
     if let Some(w) = reply.get("warning").and_then(Value::as_str) {
-        out.messages.push(w.to_string());
+        out.info(w.to_string());
     }
     // `_bulk_docs` answers 201 even when some documents failed.
     if let Value::Array(items) = reply {
         let failed: Vec<&Value> = items.iter().filter(|i| i.get("error").is_some()).collect();
         if let Some(first) = failed.first() {
-            out.messages.push(format!(
+            out.info(format!(
                 "{} de {} documentos fallaron; el primero ({}): {} {}",
                 failed.len(),
                 items.len(),
@@ -792,6 +815,16 @@ fn push_reply(out: &mut QueryOutcome, reply: &Value, max_rows: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn statements_keep_their_block() {
+        let t = "{\"selector\": {}}\n// c\nGET /db/_all_docs\n  POST _find {\"selector\": {\"a\": 1}}\n{\"selector\": {}}";
+        let v = parse_located(t).unwrap();
+        let at: Vec<usize> = v.iter().map(|(_, a)| *a).collect();
+        assert_eq!(at, [0, 22, 42, 42]);
+        let e = parse_located("GET /db\nPOST _find {nope").unwrap_err();
+        assert_eq!(e.1, 8);
+    }
 
     #[test]
     fn script_mixes_mango_and_http_lines() {

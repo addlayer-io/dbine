@@ -10,6 +10,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod profiler;
+mod script;
 mod security;
 mod sync;
 mod transfer;
@@ -19,7 +20,7 @@ use dbine_driver::sql::{quote_ident, select_top, split_statements, Limit, Quote}
 use dbine_driver::{
     json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef, QueryOutcome,
-    ResultColumn, Result, RowChange, Session, TableSchema,
+    ResultColumn, Result, RowChange, SchemaInfo, Session, TableSchema,
 };
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -99,6 +100,21 @@ impl Driver for TrinoDriver {
         true
     }
 
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        script_dialect()
+    }
+
+    /// One statement per request; the session (catalog, schema, SET
+    /// SESSION, prepared statements, transaction) rides in headers.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::PerStatement
+    }
+
+    /// START TRANSACTION / COMMIT / ROLLBACK through the transaction header.
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     /// Databases are catalogs, which the server configures (`CREATE
     /// CATALOG` needs a connector and its properties): no create / drop.
     fn capabilities(&self) -> Capabilities {
@@ -155,6 +171,35 @@ impl Driver for TrinoDriver {
         security::script(action)
     }
 
+    /// Schemas of the session's catalog; the connector decides whether it
+    /// takes them (and the owner, `CASCADE`, grants).
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(security::schema_spec(self.flavor == Flavor::Presto))
+    }
+
+    /// Never with an owner: it's handed over after the grants
+    /// (`schema_owner_script`).
+    fn create_schema_script(&self, _database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+        security::create_schema(name)
+    }
+
+    /// `ALTER SCHEMA … SET AUTHORIZATION`, after the grants: with
+    /// `AUTHORIZATION` in the create, the creator would no longer own the
+    /// schema it grants on.
+    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+        if self.flavor == Flavor::Presto {
+            return Err(Error::Query("Presto no asigna dueño a un esquema".into()));
+        }
+        security::schema_owner(name, owner).map(Some)
+    }
+
+    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        if cascade && self.flavor == Flavor::Presto {
+            return Err(Error::Unsupported("Presto solo borra esquemas vacíos (no tiene CASCADE)".into()));
+        }
+        security::drop_schema(name, cascade, self.flavor == Flavor::Presto)
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
         let scheme = if cfg.encrypt { "https" } else { "http" };
         let host = if cfg.host.trim().is_empty() { "localhost" } else { cfg.host.trim() };
@@ -183,6 +228,8 @@ impl Driver for TrinoDriver {
             rt: tokio::runtime::Handle::current(),
             jmx: None,
             profiler: None,
+            manual: false,
+            last_error: None,
         };
         // Checks the address, the credentials and the catalog.
         let check = async {
@@ -239,6 +286,11 @@ pub struct TrinoSession {
     jmx: Option<monitor::JmxTables>,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// Manual mode: the next statement opens a transaction (`START
+    /// TRANSACTION`) that stays open until COMMIT / ROLLBACK.
+    manual: bool,
+    /// Details of the last failed statement (`run` returns its text only).
+    last_error: Option<QueryError>,
 }
 
 #[derive(Deserialize, Default)]
@@ -261,17 +313,49 @@ struct Column {
     ty: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 struct QueryError {
     message: String,
     #[serde(default)]
     error_name: String,
+    #[serde(default)]
+    error_location: Option<ErrorLocation>,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug)]
+#[serde(rename_all = "camelCase")]
+struct ErrorLocation {
+    line_number: u32,
+    column_number: u32,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Warning {
     message: String,
+    #[serde(default)]
+    warning_code: Option<WarningCode>,
+}
+
+#[derive(Deserialize)]
+struct WarningCode {
+    #[serde(default)]
+    name: String,
+}
+
+/// A failed statement with the server's details: its error name as the
+/// code and its position in `sql` (the text sent).
+fn statement_error(e: &QueryError, sql: &str) -> dbine_driver::ScriptError {
+    let (line, col) = match e.error_location {
+        Some(l) => (Some(l.line_number), Some(l.column_number)),
+        None => script::line_col(&e.message).map_or((None, None), |(l, c)| (Some(l), Some(c))),
+    };
+    let mut se = dbine_driver::ScriptError::new(e.message.clone());
+    if !e.error_name.is_empty() {
+        se = se.with_code(e.error_name.clone());
+    }
+    script::placed(se, sql, line, col)
 }
 
 fn http_error(e: reqwest::Error) -> Error {
@@ -399,6 +483,8 @@ impl TrinoSession {
     /// Run one statement to the end, appending its result to `out`.
     async fn run(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.in_flight.cancelled.store(false, Ordering::SeqCst);
+        self.last_error = None;
+        let catalog = self.state.catalog.clone();
         let rb = self
             .conn
             .http
@@ -427,6 +513,7 @@ impl TrinoSession {
                 Err(e) => break Err(Error::Query(e.to_string())),
             };
             if let Some(e) = page.error {
+                self.last_error = Some(e.clone());
                 break Err(query_error(e));
             }
             if !started {
@@ -443,7 +530,10 @@ impl TrinoSession {
                     out.push_row(row.into_iter().enumerate().map(|(i, v)| cell(v, types.get(i).map_or("", String::as_str))).collect(), max_rows);
                 }
             }
-            out.messages.extend(page.warnings.into_iter().map(|w| w.message));
+            for w in page.warnings {
+                let code = w.warning_code.map(|c| c.name).filter(|n| !n.is_empty());
+                out.message(dbine_driver::Message { level: dbine_driver::MessageLevel::Warning, text: w.message, code, ..Default::default() });
+            }
             let Some(next) = page.next_uri else {
                 if !started {
                     if page.update_type.is_some() {
@@ -451,6 +541,13 @@ impl TrinoSession {
                     } else {
                         out.begin_result(Vec::new());
                     }
+                }
+                if let (Some(tag), Some(last)) = (&page.update_type, out.results.last_mut()) {
+                    last.tag = Some(tag.clone());
+                }
+                if self.state.catalog != catalog {
+                    // USE moved the session to another catalog: the tab follows.
+                    out.database = self.state.catalog.clone();
                 }
                 break Ok(());
             };
@@ -501,6 +598,42 @@ impl TrinoSession {
     fn catalog(&self) -> Result<String> {
         self.state.catalog.clone().ok_or_else(|| Error::Query("Elegí un catálogo para ver sus objetos.".into()))
     }
+
+    /// An editor statement: in manual mode, opens the transaction first;
+    /// a failure comes back with the server's error name and position.
+    async fn run_statement(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let (w1, w2) = script::head(stmt);
+        let tx_control = matches!(w1.as_str(), "COMMIT" | "ROLLBACK") || (w1 == "START" && w2 == "TRANSACTION");
+        if self.manual && self.state.transaction.is_none() && !tx_control {
+            self.run("START TRANSACTION", 1, &mut QueryOutcome::default()).await?;
+        }
+        match self.run(stmt, max_rows, out).await {
+            Err(Error::Query(m)) => match self.last_error.take() {
+                Some(e) => Err(statement_error(&e, stmt).into()),
+                None => Err(Error::Query(m)),
+            },
+            other => other,
+        }
+    }
+
+    /// COMMIT or ROLLBACK of the open transaction, if any.
+    async fn end_transaction(&mut self, sql: &str) -> Result<()> {
+        if self.state.transaction.is_none() {
+            return Ok(());
+        }
+        let r = self.run(sql, 1, &mut QueryOutcome::default()).await;
+        if r.is_err() && sql == "ROLLBACK" {
+            // The server forgot it (it failed or expired): nothing to undo.
+            self.state.transaction = None;
+        }
+        r
+    }
+}
+
+/// The trino CLI's reading of a script: `;` outside '…', "…" and
+/// comments; no backtick identifiers.
+fn script_dialect() -> dbine_driver::ScriptDialect {
+    dbine_driver::ScriptDialect { backtick_idents: false, ..dbine_driver::ScriptDialect::generic() }
 }
 
 fn text(v: &Value) -> String {
@@ -583,6 +716,19 @@ impl Session for TrinoSession {
                 DbObject { kind: kind.into(), schema: Some(r[0].clone()), name: r[1].clone(), parent: None }
             })
             .collect())
+    }
+
+    /// The catalog's `information_schema.schemata`; information_schema is
+    /// the system one.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
+        let Ok(cat) = self.catalog() else { return Ok(None) };
+        let rows = self.strings(&format!("SELECT schema_name FROM {}.information_schema.schemata ORDER BY 1", quote_ident(Quote::Double, &cat))).await?;
+        Ok(Some(
+            rows.into_iter()
+                .filter_map(|r| r.into_iter().next())
+                .map(|name| SchemaInfo { system: name == "information_schema", name })
+                .collect(),
+        ))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -684,11 +830,35 @@ impl Session for TrinoSession {
         select_top(Quote::Double, Limit::Limit, obj.schema(), &obj.name, limit)
     }
 
+    /// One statement per request (the app sends them one by one). A
+    /// script handed whole runs statement by statement, stopping at the
+    /// first error, as `trino -f` does.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        for stmt in split_statements(text) {
-            self.run(&stmt, max_rows, out).await?;
+        let dialect = script_dialect();
+        for unit in script::units(text, &dialect) {
+            self.run_statement(&unit.text, max_rows, out).await.map_err(|e| script::shift(e, &unit))?;
         }
         Ok(())
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<dbine_driver::TxState>> {
+        Ok(Some(if self.state.transaction.is_some() { dbine_driver::TxState::Open } else { dbine_driver::TxState::Idle }))
+    }
+
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        self.manual = !on;
+        if on && self.state.transaction.is_some() {
+            self.end_transaction("COMMIT").await?;
+        }
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        self.end_transaction("COMMIT").await
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        self.end_transaction("ROLLBACK").await
     }
 
     /// Plans per statement. Estimated: the distributed `EXPLAIN (FORMAT
@@ -798,7 +968,40 @@ fn info_name(f: Flavor) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(Some("memory"), "ventas", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
     use serde_json::json;
+
+    /// "Nuevo esquema…" with an owner: created by the user, the grants,
+    /// then `SET AUTHORIZATION`; Presto has no owner.
+    #[test]
+    fn schema_owner_goes_after_the_grants() {
+        let ds = drivers();
+        let trino = ds.iter().find(|d| d.info().id == "trino").unwrap();
+        assert_eq!(trino.create_schema_script(Some("hive"), "ventas", Some("ana")).unwrap(), "CREATE SCHEMA \"ventas\";");
+        assert_eq!(
+            trino.schema_owner_script(Some("hive"), "ventas", "ana").unwrap().as_deref(),
+            Some("ALTER SCHEMA \"ventas\" SET AUTHORIZATION USER \"ana\";")
+        );
+        assert_eq!(
+            trino.schema_owner_script(None, "ventas", "lect IN hive").unwrap().as_deref(),
+            Some("ALTER SCHEMA \"ventas\" SET AUTHORIZATION ROLE \"lect\";")
+        );
+        assert!(trino.schema_owner_script(None, "ventas", " ").is_err());
+        let presto = ds.iter().find(|d| d.info().id == "presto").unwrap();
+        assert!(matches!(presto.schema_owner_script(None, "ventas", "ana"), Err(Error::Query(_))));
+    }
 
     #[test]
     fn cells_follow_their_types() {
@@ -835,10 +1038,14 @@ mod tests {
 
     #[test]
     fn errors_are_classified() {
-        let e = query_error(QueryError { message: "Query was canceled".into(), error_name: "USER_CANCELED".into() });
+        let e = query_error(QueryError { message: "Query was canceled".into(), error_name: "USER_CANCELED".into(), ..Default::default() });
         assert!(matches!(e, Error::Cancelled));
-        let e = query_error(QueryError { message: "line 1:15: Table 'x' does not exist".into(), error_name: "TABLE_NOT_FOUND".into() });
-        assert!(matches!(e, Error::Query(_)));
+        let qe = QueryError { message: "line 1:15: Table 'x' does not exist".into(), error_name: "TABLE_NOT_FOUND".into(), ..Default::default() };
+        assert!(matches!(query_error(qe.clone()), Error::Query(_)));
+        let se = statement_error(&qe, "select *\nfrom x");
+        assert_eq!((se.code.as_deref(), se.line, se.offset), (Some("TABLE_NOT_FOUND"), Some(1), Some(14)));
+        let qe = QueryError { error_location: Some(ErrorLocation { line_number: 2, column_number: 6 }), ..qe };
+        assert_eq!(statement_error(&qe, "select *\nfrom x").offset, Some(14));
         assert_eq!(lit("o'k"), "'o''k'");
     }
 }

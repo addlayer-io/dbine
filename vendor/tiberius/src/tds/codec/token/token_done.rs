@@ -80,6 +80,34 @@ impl TokenDone {
             0
         }
     }
+
+    /// PATCH(dbine): the statement's row count, when the server sent one
+    /// (`DONE_COUNT`; `SET NOCOUNT ON` clears it).
+    pub(crate) fn count(&self) -> Option<u64> {
+        self.status.contains(DoneStatus::Count).then_some(self.done_rows)
+    }
+
+    /// PATCH(dbine): more results follow in this response (`DONE_MORE`).
+    pub(crate) fn is_more(&self) -> bool {
+        self.status.contains(DoneStatus::More)
+    }
+
+    /// PATCH(dbine): the statement failed (`DONE_ERROR` / `DONE_SRVERROR`).
+    pub(crate) fn is_error(&self) -> bool {
+        self.status.intersects(DoneStatus::Error | DoneStatus::SrvError)
+    }
+
+    /// PATCH(dbine): the token of the statement that ended (`CurCmd`:
+    /// 0xC1 SELECT, 0xC3 INSERT, 0xC4 DELETE, 0xC5 UPDATE…).
+    pub(crate) fn cur_cmd(&self) -> u16 {
+        self.cur_cmd
+    }
+
+    /// PATCH(dbine): a token as the server would send it (tests).
+    #[cfg(test)]
+    pub(crate) fn from_parts(status: u16, cur_cmd: u16, done_rows: u64) -> Self {
+        Self { status: BitFlags::from_bits_truncate(status), cur_cmd, done_rows }
+    }
 }
 
 impl Encode<BytesMut> for TokenDone {

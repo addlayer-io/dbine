@@ -1028,7 +1028,7 @@ mod tests {
         assert!(backup("sybase", Some("ventas"), &[("path", "/d"), ("compression", "1; x")]).is_err());
         assert!(backup("sybase", None, &[("path", "/d")]).is_err());
         assert_eq!(restore("sybase", "/d/v.dmp", Some("ventas2"), &[]).unwrap(), "LOAD DATABASE [ventas2] FROM '/d/v.dmp'\ngo\nONLINE DATABASE [ventas2]");
-        assert_eq!(crate::split_go(&restore("sybase", "/d/v.dmp", Some("v"), &[]).unwrap()).len(), 2);
+        assert_eq!(crate::split_go(&restore("sybase", "/d/v.dmp", Some("v"), &[]).unwrap()).unwrap().len(), 2);
         assert_eq!(spec(preset("sybase")).unwrap().script_database, "master");
         assert_eq!(
             backup("sqlanywhere", None, &[("path", "/bk"), ("log", "rename"), ("comment", "a'b")]).unwrap(),

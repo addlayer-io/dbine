@@ -6,7 +6,8 @@
 //! user may see ("view query" rules) and refuses outright (HTTP 403) only
 //! when the user may see none: that refusal is the one thing a read can
 //! tell. Roles and grants depend on the connector's access control, which
-//! no read reveals, so `manage_security` stays unknown.
+//! no read reveals, so `manage_security` stays unknown, and so does
+//! `create_schema`.
 
 use crate::TrinoSession;
 use dbine_driver::{Access, Error, Permissions, Result};

@@ -117,7 +117,7 @@ async fn exercise(id: &str, env: &str) {
     // Several statements; one fails in the middle.
     let mut out = QueryOutcome::default();
     let e = s.execute("SELECT 1 AS a; SELECT * FROM nope; SELECT 2", 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     assert_eq!(out.results.len(), 1, "{out:?}");
     // The connection survives the failed script.
     run(&mut s, "SELECT 1").await.unwrap();
@@ -150,7 +150,7 @@ async fn exercise(id: &str, env: &str) {
     match run(&mut ro, "INSERT INTO items (name) VALUES ('z')").await {
         Err(e) => {
             eprintln!("{id}: read-only refusal: {e}");
-            assert!(matches!(e, Error::Query(_)));
+            assert!(e.is_query(), "{e:?}");
         }
         // Only real MySQL servers must refuse; emulations rely on the
         // ReadOnlySession wrapper.
@@ -226,7 +226,7 @@ async fn exercise_light(id: &str, env: &str, setup: &[&str], table: &str) {
     s.execute(&s.browse_query(&t, 10), 1, &mut out).await.unwrap();
     assert!(out.results[0].truncated);
     let e = run(&mut s, "SELECT * FROM nope_missing").await.unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
     run(&mut s, &q).await.unwrap();
 }
 

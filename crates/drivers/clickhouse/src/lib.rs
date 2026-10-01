@@ -17,11 +17,13 @@ mod security;
 mod sync;
 mod transfer;
 
-use dbine_driver::sql::{quote_ident, select_top, split_statements, Limit, Quote};
+use dbine_driver::sql::{
+    quote_ident, select_top, split_script, strip_comments, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
+};
 use dbine_driver::{
     json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
     DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef, QueryOutcome,
-    ResultColumn, Result, RowChange, Session, TableSchema,
+    ResultColumn, Result, RowChange, ScriptError, Session, TableSchema,
 };
 use async_trait::async_trait;
 use serde_json::Value;
@@ -125,6 +127,24 @@ impl Driver for ClickHouseDriver {
 
     fn supports_explain(&self) -> bool {
         true
+    }
+
+    fn script_dialect(&self) -> ScriptDialect {
+        dialect()
+    }
+
+    /// One statement per request in the tab's `session_id`, which keeps
+    /// `SET`s and temporary tables. Every request names its database, which
+    /// overrides the session's: `USE` is followed by the session itself
+    /// (see `execute`).
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// clickhouse-client --multiquery stops at the first error (unless
+    /// `--ignore-error`).
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: false, confirm_unsafe_dml: true }
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -407,6 +427,70 @@ impl ClickHouseSession {
     fn done(&self) {
         *self.in_flight.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
+}
+
+/// clickhouse-client's lexer: backslash escapes in strings, heredocs
+/// (`$tag$ … $tag$`), `` `name` ``; no procedural bodies.
+fn dialect() -> ScriptDialect {
+    ScriptDialect { backslash_escapes: true, dollar_quotes: true, compound_blocks: false, ..ScriptDialect::generic() }
+}
+
+/// The database of a `USE db` statement (`` `db` `` and `"db"` unquoted).
+fn use_target(stmt: &str) -> Option<String> {
+    let d = dialect();
+    let s = strip_comments(stmt, &d, false);
+    let s = s.trim().trim_end_matches(';').trim();
+    let (kw, rest) = s.split_at(s.find(char::is_whitespace)?);
+    if !kw.eq_ignore_ascii_case("use") {
+        return None;
+    }
+    let name = rest.trim();
+    let unquoted = match name.chars().next()? {
+        q @ ('`' | '"') if name.len() >= 2 && name.ends_with(q) => {
+            let inner = &name[1..name.len() - 1];
+            let mut out = String::new();
+            let mut chars = inner.chars().peekable();
+            while let Some(c) = chars.next() {
+                match c {
+                    '\\' => out.extend(chars.next()),
+                    c if c == q && chars.peek() == Some(&q) => {
+                        chars.next();
+                        out.push(q);
+                    }
+                    c => out.push(c),
+                }
+            }
+            out
+        }
+        _ if name.chars().all(|c| c.is_alphanumeric() || c == '_') => name.to_string(),
+        _ => return None,
+    };
+    (!unquoted.is_empty()).then_some(unquoted)
+}
+
+/// The statements of a script, with their byte offsets.
+fn statements(sql: &str) -> Vec<(String, usize)> {
+    split_script(sql, &dialect()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand).map(|s| (s.text, s.start)).collect()
+}
+
+/// A statement of `script` (at byte `start`) failed: ClickHouse's error
+/// code, and where (`failed at position N`, 1-based, in the statement).
+fn stmt_err(e: Error, script: &str, start: usize) -> Error {
+    let Error::Query(msg) = e else { return e };
+    let Some(code) = exception_code(&msg) else { return Error::Query(msg) };
+    let mut se = ScriptError::new(msg.clone()).with_code(code.to_string());
+    let position = msg.split("failed at position ").nth(1).and_then(|r| r.split(|c: char| !c.is_ascii_digit()).next()?.parse::<usize>().ok());
+    let start = start.min(script.len());
+    if let Some(p) = position.filter(|p| *p >= 1) {
+        let mut at = (start + p - 1).min(script.len());
+        while !script.is_char_boundary(at) {
+            at -= 1;
+        }
+        se = se.at_offset(at).at_line(script[..at].matches('\n').count() as u32 + 1);
+    } else {
+        se = se.at_line(script[..start].matches('\n').count() as u32 + 1);
+    }
+    se.into()
 }
 
 /// `Code: 516. DB::Exception: …` → the right error kind.
@@ -849,22 +933,33 @@ impl Session for ClickHouseSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let res = async {
-            for stmt in split_statements(text) {
-                match self.send(&stmt, &[], true).await? {
-                    Body::Written(n) => out.push_affected(n),
-                    Body::Text(resp) => read_text(resp, out, max_rows).await?,
-                    Body::Rows(resp) => {
-                        let stop = self.flavor == Flavor::Timeplus;
-                        if read_rows(resp, out, max_rows, stop).await? {
-                            // A streaming query: stop it on the server.
-                            if let Some(f) = self.interrupter() {
-                                f();
+            for (stmt, start) in statements(text) {
+                let one = async {
+                    match self.send(&stmt, &[], true).await? {
+                        Body::Written(n) => out.push_affected(n),
+                        Body::Text(resp) => read_text(resp, out, max_rows).await?,
+                        Body::Rows(resp) => {
+                            let stop = self.flavor == Flavor::Timeplus;
+                            if read_rows(resp, out, max_rows, stop).await? {
+                                // A streaming query: stop it on the server.
+                                if let Some(f) = self.interrupter() {
+                                    f();
+                                }
+                                out.info(format!("Se detuvo la consulta al llegar a {max_rows} filas."));
                             }
-                            out.messages.push(format!("Se detuvo la consulta al llegar a {max_rows} filas."));
                         }
                     }
-                }
+                    Ok::<(), Error>(())
+                };
+                one.await.map_err(|e| stmt_err(e, text, start))?;
                 self.done();
+                // Requests carry `database=`, which would undo the USE on
+                // the next one: the session follows it instead, and so
+                // does the tab.
+                if let Some(db) = use_target(&stmt) {
+                    self.database = db.clone();
+                    out.database = Some(db);
+                }
             }
             Ok(())
         }
@@ -882,7 +977,8 @@ impl Session for ClickHouseSession {
             out.messages.push("ClickHouse no da cifras reales por operador: se muestran los planes estimados.".into());
         }
         let res = async {
-            for stmt in split_statements(sql) {
+            let d = dialect();
+            for stmt in statements(sql).into_iter().map(|(s, _)| strip_comments(&s, &d, false).trim().to_string()).filter(|s| !s.is_empty()) {
                 if plan::explainable(&stmt) {
                     let q = format!("EXPLAIN json = 1, indexes = 1, description = 1 {stmt}");
                     let raw = match self.send(&q, &[], true).await? {
@@ -1028,6 +1124,16 @@ impl Session for ClickHouseSession {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn use_statements_name_their_database() {
+        assert_eq!(use_target("USE wv_db2").as_deref(), Some("wv_db2"));
+        assert_eq!(use_target("-- go\nuse `my db`;").as_deref(), Some("my db"));
+        assert_eq!(use_target("USE \"a\"\"b\"").as_deref(), Some("a\"b"));
+        assert_eq!(use_target("USE `a\\`b`").as_deref(), Some("a`b"));
+        assert_eq!(use_target("SELECT 1"), None);
+        assert_eq!(use_target("user_function()"), None);
+    }
+
     use super::*;
     use serde_json::json;
 
@@ -1089,6 +1195,25 @@ mod tests {
     fn base_type_unwraps_wrappers() {
         assert_eq!(base_type("Nullable(LowCardinality(String))"), "string");
         assert_eq!(base_type("Array(Nullable(Int8))"), "array(nullable(int8))");
+    }
+
+    #[test]
+    fn scripts_split_like_clickhouse_client() {
+        let s = statements("SELECT 'it\\'s; ok';\nSELECT $h$a;b$h$; SELECT `a;b` FROM t;\n-- only a comment;\n");
+        assert_eq!(s.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["SELECT 'it\\'s; ok'", "SELECT $h$a;b$h$", "SELECT `a;b` FROM t"]);
+        // No procedural bodies: `begin` is just a word.
+        assert_eq!(statements("create table event (id Int8, begin Int8) engine = Memory; insert into event values (1, 2)").len(), 2);
+    }
+
+    #[test]
+    fn errors_carry_code_and_position() {
+        let script = "SELECT 1;\nSELEC 2";
+        let msg = "Code: 62. DB::Exception: Syntax error: failed at position 1 ('SELEC') (line 1, col 1): SELEC 2. Expected one of: … (SYNTAX_ERROR) (version 24.8.4.13 (official build))";
+        let e = stmt_err(Error::Query(msg.into()), script, 10).to_script_error();
+        assert_eq!((e.code.as_deref(), e.offset, e.line), (Some("62"), Some(10), Some(2)));
+        let e = stmt_err(Error::Query("Code: 60. DB::Exception: Unknown table expression identifier 'nope'. (UNKNOWN_TABLE)".into()), script, 10);
+        assert_eq!(e.to_script_error().line, Some(2));
+        assert!(matches!(stmt_err(Error::Cancelled, script, 0), Error::Cancelled));
     }
 
     #[test]

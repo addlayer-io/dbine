@@ -19,11 +19,14 @@ mod transfer;
 
 use aws_sdk_dsql::auth_token::{AuthTokenGenerator, Config as TokenConfig};
 use aws_sdk_dsql::config::Region;
-use dbine_driver::sql::{qualified_name, select_top, split_statements, Limit, Quote};
+use dbine_driver::sql::{
+    leading_keyword, qualified_name, select_top, split_script, split_statements, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode,
+    StatementKind,
+};
 use dbine_driver::{
     async_trait, ddl, json_bytes, json_f64, json_i64, kinds, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo,
-    ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    Message, MessageLevel, ObjectRef, QueryOutcome, ResultColumn, Result, SchemaInfo, ScriptError, Session, TableSchema, TxState,
 };
 use futures::StreamExt;
 use postgres_native_tls::MakeTlsConnector;
@@ -147,6 +150,24 @@ impl Driver for DsqlDriver {
         &self.info
     }
 
+    fn script_dialect(&self) -> ScriptDialect {
+        ScriptDialect::postgres()
+    }
+
+    /// One simple query per statement on the tab's connection.
+    fn script_mode(&self) -> ScriptMode {
+        ScriptMode::PerStatement
+    }
+
+    /// psql goes on after an error (ON_ERROR_STOP off).
+    fn script_defaults(&self) -> ScriptDefaults {
+        ScriptDefaults { continue_on_error: true, confirm_unsafe_dml: true }
+    }
+
+    fn supports_manual_transactions(&self) -> bool {
+        true
+    }
+
     fn supports_explain(&self) -> bool {
         true
     }
@@ -220,6 +241,28 @@ impl Driver for DsqlDriver {
 
     fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
         security::script(action)
+    }
+
+    /// Schemas of the only database (see `security::schema_spec`).
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(security::schema_spec())
+    }
+
+    /// Never with an owner: it's handed over after the grants
+    /// (`schema_owner_script`).
+    fn create_schema_script(&self, _database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+        security::create_schema(name)
+    }
+
+    /// `ALTER SCHEMA … OWNER TO`, after the grants: DSQL's admin isn't a
+    /// superuser, so once the schema is another role's the creator can't
+    /// grant on it.
+    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+        security::schema_owner(name, owner).map(Some)
+    }
+
+    fn drop_schema_script(&self, _database: Option<&str>, name: &str, _cascade: bool) -> Result<String> {
+        security::drop_schema(name)
     }
 
     async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
@@ -308,7 +351,12 @@ async fn open_session(cfg: &ConnectionConfig, t: &Target, password: &str, ssl: S
         loop {
             match futures::future::poll_fn(|cx| connection.poll_message(cx)).await {
                 Some(Ok(AsyncMessage::Notice(n))) => {
-                    let _ = tx.send(format!("{}: {}", n.severity(), n.message()));
+                    let level = match n.severity() {
+                        "WARNING" => MessageLevel::Warning,
+                        _ => MessageLevel::Info,
+                    };
+                    let text = format!("{}: {}", n.severity(), n.message());
+                    let _ = tx.send(Message { level, text, code: Some(n.code().code().to_string()), ..Default::default() });
                 }
                 Some(Ok(_)) => {}
                 Some(Err(e)) => {
@@ -327,7 +375,7 @@ async fn open_session(cfg: &ConnectionConfig, t: &Target, password: &str, ssl: S
         }
     }
     let reopen = Reopen { cfg: cfg.clone(), target: t.clone(), password: password.to_string(), ssl };
-    Ok(DsqlSession { client, tls, notices, reopen })
+    Ok(DsqlSession { client, tls, notices, reopen, manual: false, tx: TxState::Idle })
 }
 
 fn connect_error(e: tokio_postgres::Error) -> Error {
@@ -353,6 +401,37 @@ fn err(e: tokio_postgres::Error) -> Error {
     }
 }
 
+/// A statement failed: its SQLSTATE (as the code too) and where
+/// (`position`, the 1-based character in the statement).
+fn stmt_err(e: tokio_postgres::Error, stmt: &str) -> Error {
+    let Some(db) = e.as_db_error() else { return err(e) };
+    if db.code() == &SqlState::QUERY_CANCELED {
+        return Error::Cancelled;
+    }
+    let state = db.code().code().to_string();
+    let mut se = ScriptError::new(db_message(&e)).with_code(state.clone()).with_sqlstate(state);
+    if let Some(tokio_postgres::error::ErrorPosition::Original(p)) = db.position() {
+        let p = *p as usize;
+        if p >= 1 {
+            se = se.at_offset(stmt.char_indices().nth(p - 1).map_or(stmt.len(), |(b, _)| b));
+        }
+    }
+    if matches!(db.severity(), "FATAL" | "PANIC") {
+        se = se.fatal();
+    }
+    se.into()
+}
+
+/// Words that open a transaction in manual mode: anything but reads,
+/// transaction control and session settings.
+fn opens_transaction(stmt: &str) -> bool {
+    const NO: &[&str] = &[
+        "select", "with", "values", "table", "show", "explain", "begin", "start", "commit", "end", "rollback", "abort", "set", "reset", "discard",
+        "savepoint", "release", "prepare",
+    ];
+    leading_keyword(stmt, &ScriptDialect::postgres()).is_some_and(|k| !NO.contains(&k.as_str()))
+}
+
 fn db_message(e: &tokio_postgres::Error) -> String {
     let Some(db) = e.as_db_error() else {
         return e.to_string();
@@ -370,8 +449,13 @@ fn db_message(e: &tokio_postgres::Error) -> String {
 pub struct DsqlSession {
     client: Client,
     tls: MakeTlsConnector,
-    notices: mpsc::UnboundedReceiver<String>,
+    notices: mpsc::UnboundedReceiver<Message>,
     reopen: Reopen,
+    /// Autocommit off: a statement that writes opens a transaction.
+    manual: bool,
+    /// The transaction as the statements left it (tokio-postgres doesn't
+    /// say): BEGIN opens it, COMMIT/ROLLBACK end it, an error fails it.
+    tx: TxState,
 }
 
 impl DsqlSession {
@@ -391,11 +475,15 @@ impl DsqlSession {
             Ok(s) => s.columns().iter().map(|c| c.type_().clone()).collect(),
             Err(_) => Vec::new(),
         };
-        let stream = self.client.simple_query_raw(stmt).await.map_err(err)?;
+        let stream = self.client.simple_query_raw(stmt).await.map_err(|e| stmt_err(e, stmt))?;
         futures::pin_mut!(stream);
         let mut in_result = false;
         while let Some(msg) = stream.next().await {
-            match msg.map_err(err)? {
+            // Notices show while the statement runs.
+            while let Ok(n) = self.notices.try_recv() {
+                out.message(n);
+            }
+            match msg.map_err(|e| stmt_err(e, stmt))? {
                 SimpleQueryMessage::RowDescription(cols) => {
                     out.begin_result(
                         cols.iter()
@@ -476,8 +564,24 @@ impl DsqlSession {
 
     fn drain_notices(&mut self, out: &mut QueryOutcome) {
         while let Ok(n) = self.notices.try_recv() {
-            out.messages.push(n);
+            out.message(n);
         }
+    }
+
+    /// Run one statement, following the transaction (see [`Self::tx`]).
+    async fn run_tracked(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        if self.manual && self.tx == TxState::Idle && opens_transaction(stmt) {
+            self.client.batch_execute("BEGIN").await.map_err(err)?;
+            self.tx = TxState::Open;
+        }
+        let r = self.run(stmt, max_rows, out).await;
+        match (&r, leading_keyword(stmt, &ScriptDialect::postgres()).as_deref()) {
+            (_, Some("commit" | "end" | "rollback" | "abort")) => self.tx = TxState::Idle,
+            (Ok(()), Some("begin" | "start")) => self.tx = TxState::Open,
+            (Err(_), _) if self.tx != TxState::Idle => self.tx = TxState::Failed,
+            _ => {}
+        }
+        r
     }
 }
 
@@ -549,6 +653,26 @@ impl Session for DsqlSession {
         }
         out.extend(structure::list_domains(&self.client).await);
         Ok(out)
+    }
+
+    /// Every schema in `pg_namespace` but the temporary and TOAST ones;
+    /// pg_catalog, information_schema and sys are the system ones.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
+        let rows = self
+            .client
+            .query(
+                "SELECT nspname::text FROM pg_catalog.pg_namespace
+                 WHERE nspname NOT LIKE 'pg\\_toast%' AND nspname NOT LIKE 'pg\\_temp\\_%' ORDER BY 1",
+                &[],
+            )
+            .await
+            .map_err(err)?;
+        Ok(Some(
+            rows.into_iter()
+                .map(|r| r.get::<_, String>(0))
+                .map(|name| SchemaInfo { system: matches!(name.as_str(), "pg_catalog" | "information_schema" | "sys") || name.starts_with("pg_"), name })
+                .collect(),
+        ))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
@@ -688,14 +812,63 @@ impl Session for DsqlSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let mut result = Ok(());
-        for stmt in split_statements(text) {
-            result = self.run(&stmt, max_rows, out).await;
+        for unit in split_script(text, &ScriptDialect::postgres()).into_iter().filter(|u| u.kind != StatementKind::ClientCommand) {
+            let before = out.results.len();
+            result = self.run_tracked(&unit.text, max_rows, out).await.map_err(|e| match e {
+                Error::Statement(mut se) => {
+                    se.offset = se.offset.map(|o| unit.start + o);
+                    Error::Statement(se)
+                }
+                e => e,
+            });
             if result.is_err() {
+                // A query cancelled or failed mid-way leaves no empty grid.
+                if out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+                    out.results.truncate(before);
+                }
                 break;
             }
         }
         self.drain_notices(out);
+        if let Err(Error::Statement(se)) = &mut result {
+            // A line always (the statement's when DSQL gives no position).
+            let at = se.offset.unwrap_or(0).min(text.len());
+            se.line = Some(text[..at].matches('\n').count() as u32 + 1);
+        }
         result
+    }
+
+    async fn transaction_state(&mut self) -> Result<Option<TxState>> {
+        Ok(Some(self.tx))
+    }
+
+    /// Off: the next statement that writes opens a transaction (`BEGIN`),
+    /// which stays open until Commit / Rollback. On: one still open is
+    /// committed (the UI asks Commit / Rollback first), so later statements
+    /// don't join it.
+    async fn set_autocommit(&mut self, on: bool) -> Result<()> {
+        if on {
+            self.commit().await?;
+        }
+        self.manual = !on;
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<()> {
+        if self.tx != TxState::Idle {
+            // A failed transaction commits as a rollback.
+            self.client.batch_execute("COMMIT").await.map_err(err)?;
+            self.tx = TxState::Idle;
+        }
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> Result<()> {
+        if self.tx != TxState::Idle {
+            self.client.batch_execute("ROLLBACK").await.map_err(err)?;
+            self.tx = TxState::Idle;
+        }
+        Ok(())
     }
 
     /// PostgreSQL's EXPLAIN: `(FORMAT JSON)` estimated; reads measured with
@@ -819,6 +992,25 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn writes_open_transactions() {
+        assert!(opens_transaction("insert into t values (1)") && opens_transaction("-- x\ncreate table t (a int)"));
+        assert!(!opens_transaction("select 1") && !opens_transaction("BEGIN") && !opens_transaction("set x = 1"));
+    }
+
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(None, "ventas", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
     use dbine_driver::{IndexDef, KeyDef};
 
     fn cfg(host: &str, user: Option<&str>, region: Option<&str>) -> ConnectionConfig {

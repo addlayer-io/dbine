@@ -15,6 +15,10 @@
 //!   which a grant listing may not show: allowed with `OWNERSHIP` on it,
 //!   unknown otherwise.
 //!
+//! Creating a folder (`create_schema`) stays unknown: whether it works
+//! depends on the source (spaces don't take `CREATE FOLDER`) more than on
+//! a privilege.
+//!
 //! Every check is a `SELECT`.
 
 use crate::{text, DremioSession};

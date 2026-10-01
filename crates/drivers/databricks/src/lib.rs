@@ -10,11 +10,13 @@
 //! credentials against `login.microsoftonline.com`).
 
 mod backup;
+mod blocks;
 mod ddl;
 mod monitor;
 mod permissions;
 mod plan;
 mod profiler;
+mod script;
 mod security;
 mod sync;
 mod transfer;
@@ -24,7 +26,7 @@ use dbine_driver::sql::{quote_ident, select_top, split_statements, Limit, Quote}
 use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo,
-    ObjectRef, QueryOutcome, ResultColumn, Result, RowChange, Session, TableSchema,
+    ObjectRef, QueryOutcome, ResultColumn, Result, RowChange, SchemaInfo, Session, TableSchema,
 };
 use serde_json::{json, Value as Json};
 use std::sync::{Arc, Mutex};
@@ -257,6 +259,21 @@ impl Driver for DatabricksDriver {
         &self.info
     }
 
+    fn script_dialect(&self) -> dbine_driver::ScriptDialect {
+        script::dialect()
+    }
+
+    /// SQL scripting's compound `BEGIN … END` blocks go whole.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        script::units(text)
+    }
+
+    /// One statement per request, as the API takes them; `USE` carries
+    /// over in the session's catalog and schema.
+    fn script_mode(&self) -> dbine_driver::ScriptMode {
+        dbine_driver::ScriptMode::PerStatement
+    }
+
     fn supports_explain(&self) -> bool {
         true
     }
@@ -313,6 +330,33 @@ impl Driver for DatabricksDriver {
 
     fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
         security::script(action)
+    }
+
+    /// Schemas of the session's catalog (Unity Catalog).
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(security::schema_spec())
+    }
+
+    /// Never with an owner: it's handed over after the grants
+    /// (`schema_owner_script`).
+    fn create_schema_script(&self, _database: Option<&str>, name: &str, _owner: Option<&str>) -> Result<String> {
+        security::create_schema(name)
+    }
+
+    /// `ALTER SCHEMA … OWNER TO`, after the grants: once the schema is
+    /// someone else's, the creator can't grant on it without MANAGE.
+    fn schema_owner_script(&self, _database: Option<&str>, name: &str, owner: &str) -> Result<Option<String>> {
+        security::schema_owner(name, owner).map(Some)
+    }
+
+    /// "Con opción de otorgar" is MANAGE on the schema (Unity Catalog has
+    /// no WITH GRANT OPTION).
+    fn schema_grant_script(&self, _database: Option<&str>, name: &str, privileges: &[String], to: &str, grantable: bool) -> Result<String> {
+        security::schema_grant(name, privileges, to, grantable)
+    }
+
+    fn drop_schema_script(&self, _database: Option<&str>, name: &str, cascade: bool) -> Result<String> {
+        security::drop_schema(name, cascade)
     }
 
     fn backup(&self) -> Option<dbine_driver::BackupSpec> {
@@ -624,6 +668,19 @@ impl Session for DatabricksSession {
         Ok(out)
     }
 
+    /// The catalog's `information_schema.schemata` (what the user can
+    /// see); information_schema is the system one.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
+        let Ok(cat) = self.catalog().map(|c| quote_ident(Quote::Backtick, c)) else { return Ok(None) };
+        let rows = self.text_rows(&format!("SELECT schema_name FROM {cat}.information_schema.schemata ORDER BY 1"), &[]).await?;
+        Ok(Some(
+            rows.into_iter()
+                .filter_map(|r| r.into_iter().next().flatten())
+                .map(|name| SchemaInfo { system: name.eq_ignore_ascii_case("information_schema"), name })
+                .collect(),
+        ))
+    }
+
     async fn columns(&mut self, o: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let cat = quote_ident(Quote::Backtick, self.catalog()?);
         let schema = o.schema().or(self.schema.as_deref()).unwrap_or("default").to_string();
@@ -789,10 +846,39 @@ impl Session for DatabricksSession {
         }
     }
 
+    /// Each statement as its own request. The API keeps no session, so a
+    /// `USE` / `SET CATALOG` that ran becomes the catalog and schema sent
+    /// with the next ones.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        for stmt in backup::statements(text) {
-            let st = self.run(&stmt, max_rows, None).await?;
+        for unit in script::units(text) {
+            let st = match self.run(&unit.text, max_rows, None).await {
+                Ok(st) => st,
+                Err(Error::Query(m)) => return Err(script::shift(script::error(&m, &unit.text).into(), &unit)),
+                Err(e) => return Err(e),
+            };
             Self::push_statement(&st, max_rows, out);
+            if let Some(n) = st.columns.iter().position(|(c, _)| c == "num_affected_rows") {
+                let n = st.rows.first().and_then(|r| r.get(n)).and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok()));
+                if let Some(last) = out.results.last_mut() {
+                    last.rows_affected = n;
+                }
+            }
+            if let Some(u) = script::use_target(&unit.text) {
+                match u {
+                    script::Use::Catalog(c) => {
+                        // A new catalog starts at its default schema.
+                        self.catalog = Some(c);
+                        self.schema = None;
+                    }
+                    script::Use::Schema(s) => self.schema = Some(s),
+                    script::Use::Both(c, s) => {
+                        self.catalog = Some(c);
+                        self.schema = Some(s);
+                    }
+                }
+                let shown = [self.catalog.as_deref(), self.schema.as_deref()].into_iter().flatten().collect::<Vec<_>>().join(".");
+                out.info(format!("Contexto: {shown}"));
+            }
         }
         Ok(())
     }
@@ -885,6 +971,33 @@ fn cell(ty: &str, v: &Json) -> Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// "Con opción de otorgar" is offered on the new schema's grants
+    /// exactly where the engine writes them (`SchemaSpec::grant_option`).
+    #[test]
+    fn schema_grant_option_matches_the_script() {
+        for d in crate::drivers() {
+            let Some(spec) = d.schema_spec() else { continue };
+            let Some(p) = spec.privileges.first() else { continue };
+            let grant = |grantable| d.schema_grant_script(Some("main"), "ventas", &[p.to_string()], "ana", grantable);
+            assert!(grant(false).is_ok(), "{}", d.info().id);
+            assert_eq!(grant(true).is_ok(), spec.grant_option, "{}: {:?}", d.info().id, grant(true));
+        }
+    }
+
+    /// "Nuevo esquema…" with an owner: created by the user, the grants
+    /// ("con opción de otorgar" as MANAGE), then the owner change.
+    #[test]
+    fn schema_owner_goes_after_the_grants() {
+        let d = &drivers()[0];
+        assert_eq!(d.create_schema_script(Some("main"), "ventas", Some("ana@x.com")).unwrap(), "CREATE SCHEMA `ventas`;");
+        assert_eq!(d.schema_owner_script(Some("main"), "ventas", "ana@x.com").unwrap().as_deref(), Some("ALTER SCHEMA `ventas` OWNER TO `ana@x.com`;"));
+        assert!(d.schema_owner_script(None, "ventas", "").is_err());
+        let g = d.schema_grant_script(Some("main"), "ventas", &["USE SCHEMA".into()], "grupo", true).unwrap();
+        assert!(g.ends_with("\nGRANT USE SCHEMA, MANAGE ON SCHEMA `ventas` TO `grupo`;"), "{g}");
+        let g = d.schema_grant_script(None, "ventas", &["SELECT".into()], "grupo", false).unwrap();
+        assert_eq!(g, "GRANT SELECT ON SCHEMA `ventas` TO `grupo`;");
+    }
 
     #[test]
     fn hosts_and_warehouses() {
