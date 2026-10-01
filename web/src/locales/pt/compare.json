@@ -27,6 +27,7 @@
   },
   "objectsSameEngine": "Views e procedimentos só podem ser passados entre bancos do mesmo motor",
   "arrow": {
+    "revert": "Desfazer só esta alteração",
     "table": {
       "copyLeft": "Copiar a tabela para a esquerda",
       "copyRight": "Copiar a tabela para a direita",

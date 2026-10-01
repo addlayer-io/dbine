@@ -27,6 +27,7 @@
   },
   "objectsSameEngine": "Les vues et procédures ne se transfèrent qu'entre bases du même moteur",
   "arrow": {
+    "revert": "Annuler uniquement ce changement",
     "table": {
       "copyLeft": "Copier la table à gauche",
       "copyRight": "Copier la table à droite",

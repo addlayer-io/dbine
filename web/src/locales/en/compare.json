@@ -27,6 +27,7 @@
   },
   "objectsSameEngine": "Views and procedures can only be carried between databases of the same engine",
   "arrow": {
+    "revert": "Undo only this change",
     "table": {
       "copyLeft": "Copy the table to the left",
       "copyRight": "Copy the table to the right",
