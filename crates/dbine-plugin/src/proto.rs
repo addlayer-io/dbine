@@ -594,6 +594,7 @@ mod tests {
         let report = Some(dbine_driver::IndexUsageReport {
             since: Some("2026-01-02 03:04:05".into()),
             stats_available: true,
+            seek_scan_split: true,
             note: None,
             indexes: vec![dbine_driver::IndexUsage {
                 name: "ix".into(),
