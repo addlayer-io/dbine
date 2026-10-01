@@ -169,6 +169,10 @@ pub enum Call {
     SetAutocommit { session: u64, on: bool },
     Commit { session: u64 },
     Rollback { session: u64 },
+    /// The driver's own `split_script` (SQL*Plus lines, `EXEC`…), which the
+    /// app's lexer can't reproduce from the dialect. A host published before
+    /// it answers `Unsupported`, and the app splits with the dialect.
+    SplitScript { driver: String, text: String },
 }
 
 /// Host → app.
@@ -223,6 +227,7 @@ pub enum Reply {
     Permissions(dbine_driver::Permissions),
     Schemas(Option<Vec<dbine_driver::SchemaInfo>>),
     TxState(Option<dbine_driver::TxState>),
+    Units(Vec<dbine_driver::ScriptStatement>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -557,6 +562,7 @@ mod tests {
                 Call::SchemaGrantScript { driver: "postgres".into(), database: None, name: "v".into(), privileges: vec![], to: "ana".into(), grantable: false },
                 "SchemaGrantScript",
             ),
+            (10, Call::SplitScript { driver: "oracle".into(), text: "PROMPT a\n".into() }, "SplitScript"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

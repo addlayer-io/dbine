@@ -592,6 +592,7 @@ impl State {
                 self.slot(session)?.session.lock().await.rollback().await?;
                 Reply::Unit
             }
+            Call::SplitScript { driver, text } => Reply::Units(self.driver(&driver)?.split_script(&text)),
         })
     }
 }

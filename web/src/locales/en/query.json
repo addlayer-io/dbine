@@ -4,6 +4,10 @@
   "formatFailed": "Couldn't format: {{error}}",
   "defaultDatabase": "(default)",
   "runTitle": "Run (⌘↵)",
+  "runStatement": "Run the statement at the cursor",
+  "runStatementTip": "Run the statement where the cursor is (⌘⇧↵)",
+  "continueOnError": "Continue on error",
+  "continueOnErrorTip": "If a statement fails, run the following ones anyway. It starts the way the engine's own tool does.",
   "estimatedPlanTip": "Estimated execution plan, without running (⌘L)",
   "estimatedPlan": "Estimated plan",
   "actualPlanTip": "Run and include the actual plan (⌘⇧↵)",
@@ -18,6 +22,41 @@
   "maxRows": "Max rows",
   "editorPlaceholder": "Type the query… (⌘↵ runs it)",
   "resultName": "result",
+  "tx": {
+    "label": "Transactions",
+    "auto": "Auto",
+    "manual": "Manual",
+    "autoTip": "Automatic transactions: each statement commits on its own",
+    "manualTip": "Manual transactions: changes stay pending until Commit or Roll back",
+    "open": "Open transaction",
+    "failed": "Transaction with error",
+    "commit": "Commit",
+    "rollback": "Roll back",
+    "committed": "Transaction committed",
+    "rolledBack": "Transaction rolled back",
+    "lostOnCancel": "Cancelling closed the session: the open transaction was rolled back.",
+    "dialogTitle": "Open transaction",
+    "ask": {
+      "close": "This tab has an open transaction. Commit or roll back the changes before closing it?",
+      "database": "This tab has an open transaction. Commit or roll back the changes before switching databases?",
+      "mode": "This tab has an open transaction. Commit or roll back the changes before switching to automatic transactions?"
+    }
+  },
+  "unsafe": {
+    "title": "UPDATE or DELETE without WHERE",
+    "intro_one": "This statement has no WHERE: it modifies every row of the table.",
+    "intro_many": "These statements have no WHERE: they modify every row of their tables.",
+    "intro_other": "These statements have no WHERE: they modify every row of their tables.",
+    "run": "Run anyway"
+  },
+  "status": {
+    "ready": "Ready",
+    "noStatement": "There is no statement at the cursor.",
+    "server": "Server",
+    "user": "User",
+    "elapsed": "Execution time",
+    "rowsTip": "Rows returned"
+  },
   "object": {
     "data": "Data",
     "columns": "Columns",

@@ -525,6 +525,15 @@ impl Driver for RemoteDriver {
     fn script_mode(&self) -> dbine_driver::ScriptMode {
         self.meta.script_mode.unwrap_or_default()
     }
+    /// The host's own cut (a driver may override `split_script`); a host
+    /// that can't answer (published before the call, or failing) leaves it
+    /// to the dialect, as before.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        match self.blocking(Call::SplitScript { driver: self.id(), text: text.to_string() }) {
+            Ok(Reply::Units(units)) => units,
+            _ => dbine_driver::sql::split_script(text, &self.script_dialect()),
+        }
+    }
     fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
         self.meta.script_defaults.unwrap_or_else(|| dbine_driver::ScriptDefaults::for_language(self.meta.info.language))
     }

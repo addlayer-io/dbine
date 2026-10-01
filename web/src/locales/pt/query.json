@@ -4,6 +4,10 @@
   "formatFailed": "Não foi possível formatar: {{error}}",
   "defaultDatabase": "(padrão)",
   "runTitle": "Executar (⌘↵)",
+  "runStatement": "Executar a instrução do cursor",
+  "runStatementTip": "Executar a instrução onde está o cursor (⌘⇧↵)",
+  "continueOnError": "Continuar em caso de erro",
+  "continueOnErrorTip": "Se uma instrução falhar, executar as seguintes mesmo assim. Começa como faz a ferramenta do motor.",
   "estimatedPlanTip": "Plano de execução estimado, sem executar (⌘L)",
   "estimatedPlan": "Plano estimado",
   "actualPlanTip": "Executar e incluir o plano real (⌘⇧↵)",
@@ -18,6 +22,41 @@
   "maxRows": "Máx. linhas",
   "editorPlaceholder": "Digite a consulta… (⌘↵ executa)",
   "resultName": "resultado",
+  "tx": {
+    "label": "Transações",
+    "auto": "Auto",
+    "manual": "Manual",
+    "autoTip": "Transações automáticas: cada instrução é confirmada sozinha",
+    "manualTip": "Transações manuais: as alterações ficam pendentes até Confirmar ou Desfazer",
+    "open": "Transação aberta",
+    "failed": "Transação com erro",
+    "commit": "Confirmar",
+    "rollback": "Desfazer",
+    "committed": "Transação confirmada",
+    "rolledBack": "Transação desfeita",
+    "lostOnCancel": "O cancelamento fechou a sessão: a transação aberta foi desfeita.",
+    "dialogTitle": "Transação aberta",
+    "ask": {
+      "close": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de fechá-la?",
+      "database": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de trocar de banco de dados?",
+      "mode": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de passar para transações automáticas?"
+    }
+  },
+  "unsafe": {
+    "title": "UPDATE ou DELETE sem WHERE",
+    "intro_one": "Esta instrução não tem WHERE: modifica todas as linhas da tabela.",
+    "intro_many": "Estas instruções não têm WHERE: modificam todas as linhas de suas tabelas.",
+    "intro_other": "Estas instruções não têm WHERE: modificam todas as linhas de suas tabelas.",
+    "run": "Executar mesmo assim"
+  },
+  "status": {
+    "ready": "Pronto",
+    "noStatement": "Não há nenhuma instrução no cursor.",
+    "server": "Servidor",
+    "user": "Usuário",
+    "elapsed": "Tempo de execução",
+    "rowsTip": "Linhas retornadas"
+  },
   "object": {
     "data": "Dados",
     "columns": "Colunas",

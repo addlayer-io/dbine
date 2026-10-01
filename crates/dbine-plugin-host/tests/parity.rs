@@ -200,3 +200,14 @@ async fn postgres_through_the_host_answers_the_same() {
     let mut clean = QueryOutcome::default();
     setup.execute("DROP TABLE plugin_parity", 10, &mut clean).await.unwrap();
 }
+
+#[test]
+fn a_driver_s_own_split_comes_through_the_host() {
+    // Oracle cuts SQL*Plus lines itself, which the dialect alone can't.
+    let (local, remote) = remote("oracle", "oracle");
+    let sql = "SET SERVEROUTPUT ON\nBEGIN NULL; END;\n/\nPROMPT a;\nEXEC p(1);\nSELECT 1 FROM dual;\n";
+    let units = remote.split_script(sql);
+    assert_eq!(units, local.split_script(sql));
+    assert_eq!(units.len(), 5, "{units:?}");
+    assert_ne!(units, dbine_driver::sql::split_script(sql, &remote.script_dialect()));
+}

@@ -326,8 +326,10 @@ pub trait Driver: Send + Sync {
 
     /// The script cut into the units the app runs one by one, with their
     /// positions. Express the engine's rules through
-    /// [`Driver::script_dialect`] rather than overriding this: a plugin
-    /// driver's override isn't seen by the app (it splits with the dialect).
+    /// [`Driver::script_dialect`] rather than overriding this when it can:
+    /// a plugin driver's override reaches the app through a call to its
+    /// host (`SplitScript`), and a host published before that call leaves
+    /// the app splitting with the dialect.
     fn split_script(&self, text: &str) -> Vec<sql::ScriptStatement> {
         sql::split_script(text, &self.script_dialect())
     }
