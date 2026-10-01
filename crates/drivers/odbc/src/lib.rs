@@ -12,6 +12,7 @@ mod connstr;
 mod design;
 mod explain;
 mod ffi;
+mod index_usage;
 mod monitor;
 mod odbc;
 mod permissions;
@@ -272,6 +273,12 @@ impl Driver for OdbcDriver {
 
     fn supports_schema_sync(&self) -> bool {
         design::eng(self.preset) != design::Eng::NetSuite
+    }
+
+    /// The indexes and keys of the ODBC catalog, with the engine's counters
+    /// where it keeps them per index (see [`index_usage`]).
+    fn supports_index_usage(&self) -> bool {
+        index_usage::supported(self.preset)
     }
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
@@ -1182,6 +1189,39 @@ impl Session for OdbcSession {
         Ok(tables)
     }
 
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let preset = self.preset;
+        if !index_usage::supported(preset) {
+            return Ok(None);
+        }
+        let esc = self.escape.clone();
+        let (schema, name) = (table.schema().map(str::to_string), table.name.clone());
+        let raw = self.run(move |c, slot| catalog_table(c, slot, preset, &esc, schema, name)).await?;
+        let mut tables = build_schema(preset, raw);
+        let e = design::eng(preset);
+        if let Some(sql) = structure::include_sql(e) {
+            match self.query(sql.to_string(), Vec::new()).await {
+                Ok(rows) => structure::attach_includes(&mut tables, &rows),
+                Err(e) => tracing::debug!("odbc: INCLUDE columns not read: {e}"),
+            }
+        }
+        let usage = match index_usage::counters_sql(e) {
+            Some(sql) => match self.query(sql.to_string(), index_usage::counters_params(e, table.schema(), &table.name)).await {
+                Ok(rows) => Some(index_usage::parse_counters(&rows)),
+                Err(err) => {
+                    tracing::debug!("odbc: index counters not read: {err}");
+                    None
+                }
+            },
+            None => None,
+        };
+        let since = match (usage.is_some(), index_usage::since_sql(e)) {
+            (true, Some(sql)) => self.query(sql.to_string(), Vec::new()).await.ok().and_then(|r| r.into_iter().next()).and_then(|r| col(&r, 0)),
+            _ => None,
+        };
+        Ok(Some(index_usage::assemble(preset, tables.first(), usage.as_deref(), since)))
+    }
+
     async fn create_database(&mut self, name: &str) -> Result<()> {
         self.database_ddl("CREATE", name).await
     }
@@ -1372,31 +1412,48 @@ fn catalog_schema(c: &Conn, slot: &StmtSlot, preset: &'static Preset, esc: &str)
             return Err(Error::Query("Cancelado".into()));
         }
     }
-    let fks = design::reports_foreign_keys(preset);
-    let ixs = design::has_indexes(preset);
     let mut per_table = Vec::with_capacity(tables.len());
     for t in &tables {
-        let (schema, name) = (col(t, 1), col(t, 2).unwrap_or_default());
-        let catalog = |what: &str, f: &dyn Fn(&odbc::Stmt) -> Result<()>| -> Rows {
-            c.stmt(slot)
-                .and_then(|st| {
-                    f(&st)?;
-                    st.text_rows()
-                })
-                .unwrap_or_else(|e| {
-                    tracing::debug!("odbc: {what} failed for {name}: {e}");
-                    Vec::new()
-                })
-        };
-        let pk = catalog("SQLPrimaryKeys", &|st| st.primary_keys(schema.as_deref(), &name));
-        let fk = if fks { catalog("SQLForeignKeys", &|st| st.foreign_keys(schema.as_deref(), &name)) } else { Vec::new() };
-        let ix = if ixs { catalog("SQLStatistics", &|st| st.statistics(schema.as_deref(), &name)) } else { Vec::new() };
-        per_table.push((pk, fk, ix));
+        per_table.push(table_keys(c, slot, preset, col(t, 1).as_deref(), &col(t, 2).unwrap_or_default()));
         if slot.is_cancelled() {
             return Err(Error::Query("Cancelado".into()));
         }
     }
     Ok(RawSchema { tables, columns, per_table })
+}
+
+/// A table's SQLPrimaryKeys, SQLForeignKeys and SQLStatistics rows (empty
+/// where the preset has none or the driver refuses the call).
+fn table_keys(c: &Conn, slot: &StmtSlot, preset: &'static Preset, schema: Option<&str>, name: &str) -> (Rows, Rows, Rows) {
+    let catalog = |what: &str, f: &dyn Fn(&odbc::Stmt) -> Result<()>| -> Rows {
+        c.stmt(slot)
+            .and_then(|st| {
+                f(&st)?;
+                st.text_rows()
+            })
+            .unwrap_or_else(|e| {
+                tracing::debug!("odbc: {what} failed for {name}: {e}");
+                Vec::new()
+            })
+    };
+    let pk = catalog("SQLPrimaryKeys", &|st| st.primary_keys(schema, name));
+    let fk = if design::reports_foreign_keys(preset) { catalog("SQLForeignKeys", &|st| st.foreign_keys(schema, name)) } else { Vec::new() };
+    let ix = if design::has_indexes(preset) { catalog("SQLStatistics", &|st| st.statistics(schema, name)) } else { Vec::new() };
+    (pk, fk, ix)
+}
+
+/// [`catalog_schema`] for one table: its columns and keys.
+fn catalog_table(c: &Conn, slot: &StmtSlot, preset: &'static Preset, esc: &str, schema: Option<String>, name: String) -> Result<RawSchema> {
+    let columns = {
+        let st = c.stmt(slot)?;
+        let sp = schema.as_deref().map(|s| connstr::escape_pattern(s, esc));
+        st.columns(sp.as_deref(), &connstr::escape_pattern(&name, esc))?;
+        st.text_rows()?
+    };
+    let keys = table_keys(c, slot, preset, schema.as_deref(), &name);
+    // An SQLTables row: catalog, schema, name, type, remarks.
+    let tables = vec![vec![None, schema, Some(name), Some("TABLE".to_string()), None]];
+    Ok(RawSchema { tables, columns, per_table: vec![keys] })
 }
 
 /// SQLForeignKeys UPDATE_RULE / DELETE_RULE.

@@ -5,6 +5,7 @@
 //! The client is synchronous: every call runs on a blocking thread. A
 //! Firebird connection is one database file, so there's a single namespace.
 
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -448,6 +449,11 @@ impl Driver for FirebirdDriver {
         true
     }
 
+    /// The indexes and keys, without counters (see [`index_usage`]).
+    fn supports_index_usage(&self) -> bool {
+        true
+    }
+
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         schema::sync_script(changes)
     }
@@ -864,6 +870,11 @@ impl Session for FirebirdSession {
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         self.run(schema::database_schema).await
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let tables = self.run(schema::database_schema).await?;
+        Ok(Some(index_usage::report(tables.iter().find(|t| t.name == table.name))))
     }
 
     async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {

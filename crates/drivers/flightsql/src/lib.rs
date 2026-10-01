@@ -15,6 +15,7 @@
 //! InfluxDB 3 system tables for the monitor, plus the server's `SqlInfo`.
 
 mod cells;
+mod index_usage;
 mod plan;
 mod transfer;
 
@@ -109,6 +110,12 @@ impl Driver for FlightSqlDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// The key and foreign keys (Flight SQL commands), plus DuckDB's
+    /// indexes behind GizmoSQL; no usage counters (see [`index_usage`]).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -824,6 +831,10 @@ impl Session for FlightSession {
             .iter()
             .map(|f| ColumnInfo { name: f.name().clone(), data_type: f.data_type().to_string(), nullable: f.is_nullable(), primary_key: false, auto_increment: false, default_value: None })
             .collect())
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        self.index_report(table).await.map(Some)
     }
 
     /// View source where the engine exposes it (DuckDB's `duckdb_views()`,

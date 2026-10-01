@@ -11,6 +11,7 @@
 
 mod avatica;
 mod ddl;
+mod index_usage;
 mod monitor;
 mod plan;
 mod proto;
@@ -142,6 +143,12 @@ impl Driver for PhoenixDriver {
     }
 
     fn supports_schema_sync(&self) -> bool {
+        !self.generic
+    }
+
+    /// The row key and the secondary indexes, without counters (see
+    /// [`index_usage`]); Avatica's protocol has no index metadata.
+    fn supports_index_usage(&self) -> bool {
         !self.generic
     }
 
@@ -996,6 +1003,17 @@ impl Session for PhoenixSession {
             return self.avatica_schema().await;
         }
         Ok(ddl::from_catalog(self.rows(ddl::CATALOG_QUERY).await?))
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        if self.generic {
+            return Ok(None);
+        }
+        let rows = self.rows(ddl::CATALOG_QUERY).await?;
+        let covered = index_usage::covered(&rows);
+        let tables = ddl::from_catalog(rows);
+        let found = tables.iter().find(|t| t.name == table.name && t.schema.as_deref() == table.schema());
+        Ok(Some(index_usage::report(found, &covered)))
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {

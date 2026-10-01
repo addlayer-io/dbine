@@ -80,10 +80,41 @@ fn default_literal(data_type: &str, v: &str) -> String {
 }
 
 pub async fn database_schema(s: &HanaSession) -> Result<Vec<TableSchema>> {
+    read_tables(s, None).await
+}
+
+/// `sql` (a catalog query on `SCHEMA_NAME = ?`) narrowed to one table,
+/// whose name is then the second parameter.
+pub(crate) fn one_table(sql: &str) -> String {
+    sql.replacen("WHERE i.SCHEMA_NAME = ?", "WHERE i.SCHEMA_NAME = ? AND i.TABLE_NAME = ?", 1).replacen(
+        "WHERE SCHEMA_NAME = ?",
+        "WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?",
+        1,
+    )
+}
+
+/// The catalog read per query and its parameters: the whole schema, or
+/// only `table`.
+pub(crate) fn scoped<'a>(sql: &str, schema: &'a str, table: Option<&'a str>) -> (String, Vec<&'a str>) {
+    match table {
+        Some(t) => (one_table(sql), vec![schema, t]),
+        None => (sql.to_string(), vec![schema]),
+    }
+}
+
+/// [`scoped`]'s rows.
+async fn scoped_rows(s: &HanaSession, sql: &str, only: Option<&str>) -> Result<Vec<Vec<hdbconnect_async::HdbValue<'static>>>> {
+    let (q, p) = scoped(sql, &s.schema, only);
+    s.rows(&q, &p).await
+}
+
+/// The schema's tables with columns, keys, indexes, foreign keys, CHECKs
+/// and full-text indexes; `only`: just that table.
+pub(crate) async fn read_tables(s: &HanaSession, only: Option<&str>) -> Result<Vec<TableSchema>> {
     let schema = s.schema.as_str();
     let mut tables: Vec<TableSchema> = Vec::new();
     let mut pos: HashMap<String, usize> = HashMap::new();
-    for r in s.rows(TABLES, &[schema]).await? {
+    for r in scoped_rows(s, TABLES, only).await? {
         let name = r.first().and_then(text).unwrap_or_default();
         let mut t = TableSchema {
             kind: kinds::TABLE.into(),
@@ -98,7 +129,7 @@ pub async fn database_schema(s: &HanaSession) -> Result<Vec<TableSchema>> {
         tables.push(t);
     }
 
-    for r in s.rows(COLUMNS, &[schema]).await? {
+    for r in scoped_rows(s, COLUMNS, only).await? {
         let t = |i: usize| r.get(i).and_then(text);
         let Some(&ti) = t(0).and_then(|n| pos.get(&n)) else { continue };
         let data_type = format_type(&t(2).unwrap_or_default(), r.get(3).and_then(int), r.get(4).and_then(int));
@@ -113,14 +144,14 @@ pub async fn database_schema(s: &HanaSession) -> Result<Vec<TableSchema>> {
         });
     }
 
-    for r in s.rows(PRIMARY_KEYS, &[schema]).await? {
+    for r in scoped_rows(s, PRIMARY_KEYS, only).await? {
         let t = |i: usize| r.get(i).and_then(text);
         let Some(&ti) = t(0).and_then(|n| pos.get(&n)) else { continue };
         let name = t(1).and_then(user_name);
         tables[ti].primary_key.get_or_insert_with(|| KeyDef { name, columns: vec![] }).columns.extend(t(2));
     }
 
-    for r in s.rows(INDEXES, &[schema]).await? {
+    for r in scoped_rows(s, INDEXES, only).await? {
         let t = |i: usize| r.get(i).and_then(text);
         let Some(&ti) = t(0).and_then(|n| pos.get(&n)) else { continue };
         let name = t(1).unwrap_or_default();
@@ -148,7 +179,7 @@ pub async fn database_schema(s: &HanaSession) -> Result<Vec<TableSchema>> {
         }
     }
 
-    for r in s.rows(FOREIGN_KEYS, &[schema]).await? {
+    for r in scoped_rows(s, FOREIGN_KEYS, only).await? {
         let t = |i: usize| r.get(i).and_then(text);
         let Some(&ti) = t(0).and_then(|n| pos.get(&n)) else { continue };
         let name = t(1);
@@ -174,7 +205,7 @@ pub async fn database_schema(s: &HanaSession) -> Result<Vec<TableSchema>> {
             fk.name = fk.name.take().and_then(user_name);
         }
     }
-    crate::structure::complete(s, &mut tables).await;
+    crate::structure::complete(s, &mut tables, only).await;
     Ok(tables)
 }
 

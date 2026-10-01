@@ -6,6 +6,7 @@
 
 mod backup;
 mod blocking;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -229,6 +230,11 @@ impl Driver for HanaDriver {
     }
 
     fn supports_schema_sync(&self) -> bool {
+        true
+    }
+
+    /// The indexes, keys and row-store sizes, without counters (see [`index_usage`]).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -704,6 +710,10 @@ impl Session for HanaSession {
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         schema::database_schema(self).await
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        index_usage::report(self, table).await.map(Some)
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
