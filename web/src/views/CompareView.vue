@@ -13,6 +13,7 @@ import CodeEditor from '../components/CodeEditor.vue';
 import { newQuery } from '../composables/actions';
 import { lineDiff } from '../composables/lineDiff';
 import { useConnectionsStore } from '../stores/connections';
+import { readJson, writeJson } from '../stores/storage';
 import { useTabsStore, type CompareTab } from '../stores/tabs';
 
 // "Comparar esquemas": two databases side by side, WinMerge style. Each
@@ -115,6 +116,21 @@ const itemKey = (t: TableDiff, section: string, d: ItemDiff | null) => `${tid(t)
 const result = ref<CompareResult | null>(null);
 /** The models the result's indexes point into (the work copies, filtered by schema). */
 const views = reactive<Record<SideId, DbModel | null>>({ left: null, right: null });
+
+// The objects list resizes like the explorer sidebar (its width is remembered).
+const listWidth = ref(readJson('dbine.compareListWidth', 320));
+function dragList(e: PointerEvent) {
+  const start = e.clientX;
+  const from = listWidth.value;
+  const move = (ev: PointerEvent) => { listWidth.value = Math.min(720, Math.max(200, from + ev.clientX - start)); };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    writeJson('dbine.compareListWidth', listWidth.value);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
 const comparing = ref(false);
 /** Bumped by each comparison and by "Detener": a late result of an older one is ignored. */
 let generation = 0;
@@ -735,7 +751,8 @@ async function runSync() {
     </div>
 
     <div v-else class="cv-body">
-      <div class="cv-list">
+      <div class="cv-list" :style="{ width: listWidth + 'px' }">
+        <div class="cv-sash" @pointerdown.prevent="dragList" />
         <div class="cv-summary">
           <span class="cv-chip changed">≠ {{ counts.changed }}</span>
           <span class="cv-chip only_left">◧ {{ counts.only_left }}</span>
@@ -939,7 +956,10 @@ async function runSync() {
 .cv-empty.small { flex-direction: row; }
 .cv-empty p { margin: 0; max-width: 520px; }
 .cv-body { flex: 1; min-height: 0; display: flex; }
-.cv-list { width: 320px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--nm-border); background: var(--ide-sidebar); }
+.cv-list { position: relative; width: 320px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--nm-border); background: var(--ide-sidebar); }
+/* Same handle as the explorer's (App.vue .ide-sash-x). */
+.cv-sash { position: absolute; top: 0; right: -2px; width: 4px; height: 100%; cursor: col-resize; z-index: 10; }
+.cv-sash:hover { background: var(--ide-focus); }
 .cv-summary { display: flex; gap: 6px; padding: 8px 10px 4px; }
 .cv-chip { font-size: 11.5px; padding: 1px 7px; border-radius: 10px; background: var(--ide-hover); }
 .cv-filters { padding: 4px 10px; }
