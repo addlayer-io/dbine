@@ -537,6 +537,7 @@ mod tests {
         assert!(get_server_name(&c).is_err());
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn build_trust_store_augments_system_roots_with_custom_ca() {
         // Independently measure this machine's native root count using the same
@@ -554,6 +555,7 @@ mod tests {
         );
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn build_trust_store_accepts_multi_cert_ca_file() {
         // The pre-0.13 single-certificate restriction is relaxed: every cert in
@@ -574,6 +576,7 @@ mod tests {
         );
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn build_trust_store_accumulates_multiple_extra_cas() {
         // Accumulate semantics at the store level: two extra CAs => both added.
@@ -670,6 +673,7 @@ mod tests {
     }
 
     #[cfg(feature = "rustls-webpki-roots")]
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn build_trust_store_webpki_roots_plus_extra_ca() {
         // Extras still layer on top of the webpki source.
@@ -683,6 +687,7 @@ mod tests {
         assert_eq!(store.len(), base + 1);
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn load_client_auth_reads_pem_cert_and_key() {
         let cert = ClientCertificate {
@@ -716,12 +721,14 @@ mod tests {
         );
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn read_private_key_reads_pem() {
         let key = read_private_key(Path::new("docker/certs/server.key")).unwrap();
         assert!(!key.secret_der().is_empty());
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn read_private_key_reads_der() {
         // No .der fixture is checked in, so derive one from the PEM key and write
@@ -741,6 +748,7 @@ mod tests {
         assert!(!key.unwrap().secret_der().is_empty());
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn read_private_key_unsupported_extension_errors() {
         // README.md exists under docker/certs but isn't a supported key type.
@@ -896,6 +904,7 @@ mod tests {
         );
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn no_cert_verifier_accepts_any_certificate_when_opted_in() {
         // `trust_cert` (TrustAll) installs `NoCertVerifier`, which must accept a
@@ -916,6 +925,7 @@ mod tests {
         );
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn default_verifier_rejects_untrusted_certificate() {
         // Security-preserving invariant: with no explicit opt-in, a *well-formed*

@@ -61,12 +61,18 @@ async fn scalar(s: &mut SqlServerSession, sql: &str) -> serde_json::Value {
 }
 
 /// What the editor does on this driver: one `execute` per GO batch, going
-/// on after errors unless one is fatal.
+/// on after errors unless one is fatal. `GO N` repeats a batch with errors
+/// too, as sqlcmd and SSMS do, counting every iteration that ran.
 async fn run_editor(d: &SqlServerDriver, s: &mut SqlServerSession, sql: &str) -> QueryOutcome {
     let mut out = QueryOutcome::default();
     for (i, u) in d.split_script(sql).iter().enumerate() {
         out.current_statement = Some(i);
-        for _ in 0..u.repeat.max(1) {
+        let repeat = u.repeat.max(1);
+        if repeat > 1 {
+            out.info("Inicio del ciclo de ejecución");
+        }
+        let mut done = 0u32;
+        for _ in 0..repeat {
             let l0 = out.log.len();
             let e0 = out.errors.len();
             let r = s.execute(&u.text, 1000, &mut out).await;
@@ -81,12 +87,15 @@ async fn run_editor(d: &SqlServerDriver, s: &mut SqlServerSession, sql: &str) ->
                     *l = u.line + *l - 1;
                 }
             }
+            done += 1;
             if let Err(e) = r {
                 if e.ends_script() {
                     return out;
                 }
-                break;
             }
+        }
+        if repeat > 1 {
+            out.info(format!("Lote ejecutado {done} veces."));
         }
     }
     out
@@ -178,6 +187,21 @@ async fn sqlserver_go_n_and_go_in_comments_and_strings() {
     assert!(t.contains(&"Inicio del ciclo de ejecución".to_string()) && t.contains(&"Lote ejecutado 3 veces.".to_string()), "{t:#?}");
     let last = out.results.iter().rfind(|r| !r.columns.is_empty()).unwrap();
     assert_eq!(last.rows[0], vec![serde_json::json!("a\nGO\nb"), serde_json::json!(3)]);
+    // An iteration with errors doesn't end the repeats (sqlcmd and SSMS):
+    // three times each, then the next batch.
+    let sql = "PRINT 'it'; RAISERROR('e16', 16, 1);\nGO 3\nPRINT 'next';\n";
+    let out = run_editor(&driver(Variant::SqlServer), &mut s, sql).await;
+    let t = texts(&out);
+    eprintln!("{t:#?}");
+    assert_eq!(t.iter().filter(|x| *x == "it").count(), 3, "{t:#?}");
+    assert_eq!(out.errors.iter().filter(|e| e.code.as_deref() == Some("50000")).count(), 3, "{:#?}", out.errors);
+    assert!(t.contains(&"Lote ejecutado 3 veces.".to_string()) && t.contains(&"next".to_string()), "{t:#?}");
+    // The whole script: the repeats finish, then the batch with errors ends it.
+    let (out, r) = run(&mut s, sql).await;
+    assert!(r.is_err());
+    let t = texts(&out);
+    assert_eq!(t.iter().filter(|x| *x == "it").count(), 3, "{t:#?}");
+    assert!(t.contains(&"Lote ejecutado 3 veces.".to_string()) && !t.contains(&"next".to_string()), "{t:#?}");
     // An invalid count: nothing runs.
     let (out, r) = run(&mut s, "PRINT 'no';\nGO 0\n").await;
     assert!(r.is_err());

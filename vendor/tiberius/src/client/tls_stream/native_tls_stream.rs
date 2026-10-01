@@ -141,6 +141,7 @@ mod tests {
     // certificate, and each must convert into a native-tls `Certificate`. This
     // exercises the same shared loader + per-cert `Certificate::from_der`
     // conversion the connect path uses, without needing a live server.
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn multi_cert_ca_file_loads_all_certs() {
         let ders = certs::trust_anchors(&ExtraCa::File(PathBuf::from(
@@ -153,6 +154,7 @@ mod tests {
         }
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn multi_cert_ca_bundle_loads_all_certs() {
         let bytes = std::fs::read("docker/certs/server-full.crt").unwrap();
@@ -191,6 +193,7 @@ mod tests {
         );
     }
 
+    #[ignore = "PATCH(dbine): the docker/certs test fixtures are not vendored"]
     #[test]
     fn multi_cert_extra_cas_load_all_via_helper() {
         // The helper loads every cert from a multi-cert file through the

@@ -93,8 +93,8 @@ fn flush_merged(out: &mut QueryOutcome, merged: &mut Option<String>, max_rows: u
 }
 
 impl SqlServerSession {
-    /// Run the script's batches. A batch with errors ends it (what the app
-    /// expects of a whole script; the editor sends one batch per call, see
+    /// Run the script's batches. A batch with errors ends it, once its `GO N`
+    /// repeats are done (what the app expects of a whole script; the editor sends one batch per call, see
     /// `ScriptMode::Batches`). With `plans`, showplan result sets (SHOWPLAN_XML
     /// / STATISTICS XML) are taken out of the results and collected there.
     pub(crate) async fn run_batches(
@@ -116,22 +116,35 @@ impl SqlServerSession {
             if repeat > 1 {
                 out.info("Inicio del ciclo de ejecución");
             }
+            // As sqlcmd and SSMS: an iteration with errors doesn't end the
+            // repeats; only a fatal error or a cancel does. Every iteration
+            // that ran counts.
             let mut done = 0u32;
+            let mut failed = None;
             for _ in 0..repeat {
                 // A cancel between batches: the attention found nothing running.
                 if self.cancelled.load(Ordering::SeqCst) {
                     return Err(Error::Cancelled);
                 }
-                if let Err(e) = self.run_batch(&u.text, u.line, max_rows, out, plans.as_deref_mut()).await {
-                    if repeat > 1 && !matches!(e, Error::Cancelled) {
-                        out.info(format!("Lote ejecutado {done} veces."));
-                    }
-                    return Err(e);
+                let r = self.run_batch(&u.text, u.line, max_rows, out, plans.as_deref_mut()).await;
+                if matches!(r, Err(Error::Cancelled)) || self.cancelled.load(Ordering::SeqCst) {
+                    return Err(Error::Cancelled);
                 }
                 done += 1;
+                if let Err(e) = r {
+                    // A fatal one is what the call returns.
+                    if e.ends_script() {
+                        failed = Some(e);
+                        break;
+                    }
+                    failed.get_or_insert(e);
+                }
             }
             if repeat > 1 {
                 out.info(format!("Lote ejecutado {done} veces."));
+            }
+            if let Some(e) = failed {
+                return Err(e);
             }
         }
         Ok(())
