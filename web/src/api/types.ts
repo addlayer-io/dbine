@@ -123,6 +123,8 @@ export interface IndexUsageReport {
   note: string | null;
   indexes: IndexUsage[];
   foreign_keys: import('./schema-types').ForeignKeyDef[];
+  /** false: one "used N times" counter (no seeks/scans split): no seek health. */
+  seek_scan_split?: boolean;
 }
 
 /** `Driver::script_mode`: statement by statement, batch by batch (T-SQL `GO`), or one call. */

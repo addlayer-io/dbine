@@ -15,7 +15,7 @@
 use crate::schema::ForeignKeyDef;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IndexUsageReport {
     /// When the counters started (`yyyy-mm-dd hh:mm:ss`, server time);
     /// `None` when the engine doesn't say.
@@ -33,6 +33,21 @@ pub struct IndexUsageReport {
     /// The table's foreign keys (the explorer's link icons).
     #[serde(default)]
     pub foreign_keys: Vec<ForeignKeyDef>,
+    /// The engine tells targeted lookups (`seeks`) from full scans
+    /// (`scans`). `false` (one "index used N times" counter, kept in
+    /// `seeks`): no seek ratio or health, so the UI shows a neutral share.
+    #[serde(default = "yes")]
+    pub seek_scan_split: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for IndexUsageReport {
+    fn default() -> Self {
+        IndexUsageReport { since: None, stats_available: false, note: None, indexes: Vec::new(), foreign_keys: Vec::new(), seek_scan_split: true }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -122,7 +137,7 @@ impl IndexUsageReport {
             i.unused = stats && i.reads == 0 && i.updates > 0;
             i.writes_per_read = (stats && i.reads > 0).then(|| i.updates as f64 / i.reads as f64);
             let probes = i.seeks + i.scans;
-            i.seek_ratio = (stats && probes > 0).then(|| i.seeks as f64 / probes as f64);
+            i.seek_ratio = (stats && self.seek_scan_split && probes > 0).then(|| i.seeks as f64 / probes as f64);
             i.seek_health = i.seek_ratio.map(|r| SeekHealth::of(r, &i.kind));
         }
     }
