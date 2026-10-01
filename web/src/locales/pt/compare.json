@@ -87,7 +87,8 @@
     "changes_other": "{{count}} alterações (esquerda: {{left}}, direita: {{right}}): ver os scripts e executá-los",
     "confirmOrder": "Primeiro a esquerda e depois a direita; se algo falhar, para aí.",
     "failedSide": "{{side}}: {{message}}",
-    "doneTab": "Já executado"
+    "doneTab": "Já executado",
+    "emptyScript": "Este lado tem alterações pendentes, mas o script ficou vazio: não há nenhuma instrução que as aplique. Nada será executado aqui. Revise as alterações ou descarte-as."
   },
   "left": "Esquerda",
   "right": "Direita",

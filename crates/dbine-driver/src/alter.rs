@@ -142,6 +142,33 @@ fn fk_same(a: &ForeignKeyDef, b: &ForeignKeyDef) -> bool {
         && act(&a.on_update) == act(&b.on_update)
 }
 
+/// Each old foreign key's counterpart in `new` (its position), one to one:
+/// a table can have two keys that link the same columns the same way, and
+/// dropping one of them must not look like keeping it. The same name wins;
+/// otherwise any equal one still free (names are usually generated).
+fn fk_pairs(old: &[ForeignKeyDef], new: &[ForeignKeyDef]) -> (Vec<Option<usize>>, Vec<bool>) {
+    let mut used = vec![false; new.len()];
+    let mut pairs: Vec<Option<usize>> = vec![None; old.len()];
+    let named = |f: &ForeignKeyDef| f.name.clone().filter(|n| !n.is_empty());
+    for (i, o) in old.iter().enumerate() {
+        let Some(on) = named(o) else { continue };
+        if let Some(j) = (0..new.len()).find(|&j| !used[j] && named(&new[j]).is_some_and(|nn| eq_name(&nn, &on)) && fk_same(o, &new[j])) {
+            used[j] = true;
+            pairs[i] = Some(j);
+        }
+    }
+    for (i, o) in old.iter().enumerate() {
+        if pairs[i].is_some() {
+            continue;
+        }
+        if let Some(j) = (0..new.len()).find(|&j| !used[j] && fk_same(o, &new[j])) {
+            used[j] = true;
+            pairs[i] = Some(j);
+        }
+    }
+    (pairs, used)
+}
+
 fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
     let cols = |x: &[String]| x.iter().map(|c| c.to_lowercase()).collect::<Vec<_>>();
     let w = |x: &Option<String>| x.as_deref().unwrap_or("").split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
@@ -293,7 +320,8 @@ fn alter_table(st: &AlterStyle, old: &TableSchema, new: &TableSchema, p: &mut Pl
     let retyped: Vec<String> = changed.iter().filter(|(_, _, c)| c.ty || c.null).map(|(_, n, _)| n.name.to_lowercase()).collect();
     // A key whose columns change type is dropped and made again.
     let pk_changed = pk_cols(old) != pk_cols(new) || pk_cols(new).iter().any(|c| retyped.contains(c));
-    let fks_changed = old.foreign_keys.len() != new.foreign_keys.len() || !old.foreign_keys.iter().all(|o| new.foreign_keys.iter().any(|n| fk_same(o, n)));
+    let (fk_pair, fk_kept) = fk_pairs(&old.foreign_keys, &new.foreign_keys);
+    let fks_changed = fk_pair.iter().any(Option::is_none) || fk_kept.iter().any(|k| !k);
 
     let rebuild = st.column == ColumnAlter::Recreate && (!dropped.is_empty() || !changed.is_empty() || pk_changed || (st.fk_inline && fks_changed) || added.iter().any(|c| !c.nullable && norm_default(&c.default_value).is_none()));
     if rebuild || (st.fk_inline && fks_changed) {
@@ -306,8 +334,7 @@ fn alter_table(st: &AlterStyle, old: &TableSchema, new: &TableSchema, p: &mut Pl
 
     // Foreign keys: the ones that go or change, and the ones on columns that change type.
     let touches = |fk: &ForeignKeyDef| fk.columns.iter().any(|c| retyped.contains(&c.to_lowercase()) || dropped.iter().any(|d| eq_name(&d.name, c)));
-    for o in &old.foreign_keys {
-        let kept = new.foreign_keys.iter().find(|n| fk_same(o, n));
+    for (o, kept) in old.foreign_keys.iter().zip(&fk_pair) {
         if kept.is_none() || touches(o) {
             match o.name.as_deref().filter(|n| !n.is_empty()) {
                 Some(n) => p.drop_fks.push(format!("ALTER TABLE {name} {} {};", st.drop_fk, q(n))),
@@ -315,9 +342,8 @@ fn alter_table(st: &AlterStyle, old: &TableSchema, new: &TableSchema, p: &mut Pl
             }
         }
     }
-    for n in &new.foreign_keys {
-        let kept = old.foreign_keys.iter().find(|o| fk_same(o, n));
-        if kept.is_none() || touches(n) {
+    for (n, kept) in new.foreign_keys.iter().zip(&fk_kept) {
+        if !kept || touches(n) {
             let one = TableSchema { foreign_keys: vec![n.clone()], ..new.clone() };
             p.add_fks.push((st.table_ddl)(&one, FKS)?);
         }
@@ -668,5 +694,34 @@ mod tests {
         assert!(s.statements[0].starts_with("DROP TABLE \"dbo\".\"vieja\""));
         assert!(s.statements[1].starts_with("CREATE TABLE \"dbo\".\"nueva\""));
         assert!(s.statements[2].starts_with("ALTER TABLE \"dbo\".\"nueva\" ADD CONSTRAINT \"fk\" FOREIGN KEY"));
+    }
+
+    #[test]
+    fn duplicate_foreign_keys_drop_one_to_one() {
+        let fk = |name: &str, col: &str| ForeignKeyDef { name: Some(name.into()), columns: vec![col.into()], ref_schema: Some("dbo".into()), ref_table: "AbpUsers".into(), ref_columns: vec!["Id".into()], on_delete: None, on_update: None };
+        let mut old = table(vec![col("id", "int", false), col("CreatedById", "bigint", true), col("EvaluatedById", "bigint", true)]);
+        old.foreign_keys = vec![fk("FK_C", "CreatedById"), fk("FK_C_2", "CreatedById"), fk("FK_E", "EvaluatedById"), fk("FK_E_2", "EvaluatedById")];
+        // The duplicates go; their twins (same columns, same reference) stay.
+        let mut new = old.clone();
+        new.foreign_keys = vec![old.foreign_keys[0].clone(), old.foreign_keys[2].clone()];
+        let s = run(ColumnAlter::SqlServer, old.clone(), new);
+        assert_eq!(s.statements, vec!["ALTER TABLE [dbo].[clientes] DROP CONSTRAINT [FK_C_2];", "ALTER TABLE [dbo].[clientes] DROP CONSTRAINT [FK_E_2];"]);
+        // Keeping the suffixed one drops the other, by name.
+        let mut new = old.clone();
+        new.foreign_keys = vec![old.foreign_keys[1].clone(), old.foreign_keys[2].clone(), old.foreign_keys[3].clone()];
+        let s = run(ColumnAlter::SqlServer, old.clone(), new);
+        assert_eq!(s.statements, vec!["ALTER TABLE [dbo].[clientes] DROP CONSTRAINT [FK_C];"]);
+        // Adding a second key equal to an existing one adds it.
+        let mut new = old.clone();
+        new.foreign_keys.push(fk("FK_C_3", "CreatedById"));
+        let s = run(ColumnAlter::SqlServer, old.clone(), new);
+        assert_eq!(s.statements.len(), 1);
+        assert!(s.statements[0].contains("FK_C_3"), "{:?}", s.statements);
+        // Same keys under other generated names: nothing to do.
+        let mut new = old.clone();
+        for f in &mut new.foreign_keys {
+            f.name = Some(format!("{}_x", f.name.as_deref().unwrap()));
+        }
+        assert!(run(ColumnAlter::SqlServer, old, new).statements.is_empty());
     }
 }

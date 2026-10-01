@@ -87,7 +87,8 @@
     "changes_other": "{{count}} cambios (izquierda: {{left}}, derecha: {{right}}): ver los scripts y ejecutarlos",
     "confirmOrder": "Primero la izquierda y después la derecha; si algo falla, se detiene ahí.",
     "failedSide": "{{side}}: {{message}}",
-    "doneTab": "Ya ejecutado"
+    "doneTab": "Ya ejecutado",
+    "emptyScript": "Este lado tiene cambios pendientes, pero el script quedó vacío: no hay ninguna sentencia que los aplique. No se va a ejecutar nada acá. Revisá los cambios o descartalos."
   },
   "left": "Izquierda",
   "right": "Derecha",

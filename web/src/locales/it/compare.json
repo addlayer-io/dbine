@@ -87,7 +87,8 @@
     "changes_other": "{{count}} modifiche (sinistra: {{left}}, destra: {{right}}): vedi gli script ed eseguili",
     "confirmOrder": "Prima la sinistra e poi la destra; se qualcosa fallisce, si ferma lì.",
     "failedSide": "{{side}}: {{message}}",
-    "doneTab": "Già eseguito"
+    "doneTab": "Già eseguito",
+    "emptyScript": "Questo lato ha modifiche in sospeso, ma lo script è vuoto: non c'è nessuna istruzione che le applichi. Qui non verrà eseguito nulla. Rivedi le modifiche o scartale."
   },
   "left": "Sinistra",
   "right": "Destra",
