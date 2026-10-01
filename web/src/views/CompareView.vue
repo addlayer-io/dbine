@@ -12,7 +12,7 @@ import type { CheckDef, ColumnDef, ForeignKeyDef, IndexDef, KeyDef, TableSchema 
 import CodeEditor from '../components/CodeEditor.vue';
 import { newQuery } from '../composables/actions';
 import { lineDiff } from '../composables/lineDiff';
-import { indexUsageEntry, loadIndexUsage, sharePct, usageBadge } from '../composables/indexUsage';
+import { badgeClass, indexUsageEntry, loadIndexUsage, seekTip, sharePct, usageBadge } from '../composables/indexUsage';
 import type { IndexUsage } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { readJson, writeJson } from '../stores/storage';
@@ -888,7 +888,7 @@ function ixBadgeTip(s: SideId, name: string | null, pk = false) {
   const u = ixUsage(s, name, pk);
   if (!u) return '';
   if (u.unused) return t('compare:indexUsage.unused', { updates: u.updates.toLocaleString() });
-  return t('compare:indexUsage.share', { pct: sharePct(u.read_share ?? 0), reads: u.reads.toLocaleString() });
+  return [t('compare:indexUsage.share', { pct: sharePct(u.read_share ?? 0), reads: u.reads.toLocaleString() }), seekTip(u)].filter(Boolean).join('\n');
 }
 
 // -- sync --------------------------------------------------------------------------------------
@@ -1155,7 +1155,7 @@ async function runSync() {
                       <b>{{ titleOf(sec.id, itemOf('left', sec.id, d)!) }}</b>
                       <span v-for="p in partsOf(sec.id, itemOf('left', sec.id, d)!)" :key="p.f" :class="{ hl: d.fields.includes(p.f) }">{{ p.t }}</span>
                       <span
-                        v-if="sec.id === 'indexes' && ixBadge('left', d.name)" class="cv-ixbadge" :class="{ unused: ixBadge('left', d.name)!.unused }"
+                        v-if="sec.id === 'indexes' && ixBadge('left', d.name)" class="cv-ixbadge" :class="badgeClass(ixBadge('left', d.name)!)"
                         :title="ixBadgeTip('left', d.name)"
                       >{{ ixBadge('left', d.name)!.text }}</span>
                     </template>
@@ -1172,7 +1172,7 @@ async function runSync() {
                       <b>{{ titleOf(sec.id, itemOf('right', sec.id, d)!) }}</b>
                       <span v-for="p in partsOf(sec.id, itemOf('right', sec.id, d)!)" :key="p.f" :class="{ hl: d.fields.includes(p.f) }">{{ p.t }}</span>
                       <span
-                        v-if="sec.id === 'indexes' && ixBadge('right', d.name)" class="cv-ixbadge" :class="{ unused: ixBadge('right', d.name)!.unused }"
+                        v-if="sec.id === 'indexes' && ixBadge('right', d.name)" class="cv-ixbadge" :class="badgeClass(ixBadge('right', d.name)!)"
                         :title="ixBadgeTip('right', d.name)"
                       >{{ ixBadge('right', d.name)!.text }}</span>
                     </template>
@@ -1206,7 +1206,7 @@ async function runSync() {
               <div v-if="pkText(tableOf('left')) || pkText(tableOf('right')) || keyMark(selTable, 'primary_key')" class="cv-row" :class="selTable.primary_key">
                 <div class="cv-cell" :class="{ none: !pkText(tableOf('left')) }">
                   <span :class="{ hl: selTable.primary_key !== 'equal' }">{{ pkText(tableOf('left')) }}</span>
-                  <span v-if="pkText(tableOf('left')) && ixBadge('left', null, true)" class="cv-ixbadge" :class="{ unused: ixBadge('left', null, true)!.unused }" :title="ixBadgeTip('left', null, true)">{{ ixBadge('left', null, true)!.text }}</span>
+                  <span v-if="pkText(tableOf('left')) && ixBadge('left', null, true)" class="cv-ixbadge" :class="badgeClass(ixBadge('left', null, true)!)" :title="ixBadgeTip('left', null, true)">{{ ixBadge('left', null, true)!.text }}</span>
                 </div>
                 <div class="cv-mid">
                   <template v-if="selTable.primary_key !== 'equal' || keyMark(selTable, 'primary_key')">
@@ -1217,7 +1217,7 @@ async function runSync() {
                 </div>
                 <div class="cv-cell" :class="{ none: !pkText(tableOf('right')) }">
                   <span :class="{ hl: selTable.primary_key !== 'equal' }">{{ pkText(tableOf('right')) }}</span>
-                  <span v-if="pkText(tableOf('right')) && ixBadge('right', null, true)" class="cv-ixbadge" :class="{ unused: ixBadge('right', null, true)!.unused }" :title="ixBadgeTip('right', null, true)">{{ ixBadge('right', null, true)!.text }}</span>
+                  <span v-if="pkText(tableOf('right')) && ixBadge('right', null, true)" class="cv-ixbadge" :class="badgeClass(ixBadge('right', null, true)!)" :title="ixBadgeTip('right', null, true)">{{ ixBadge('right', null, true)!.text }}</span>
                 </div>
               </div>
             </template>
@@ -1387,6 +1387,9 @@ async function runSync() {
 .cv-cell .hl { color: var(--nm-warning); font-weight: 600; }
 .cv-cell .cv-ixbadge { font-family: var(--nm-font); font-size: 10.5px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--nm-accent) 18%, transparent); color: var(--nm-text); }
 .cv-cell .cv-ixbadge.unused { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
+.cv-cell .cv-ixbadge.h-good { background: color-mix(in srgb, var(--nm-success) 20%, transparent); color: var(--nm-success); }
+.cv-cell .cv-ixbadge.h-warn { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); color: var(--nm-warning); }
+.cv-cell .cv-ixbadge.h-bad { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
 .cv-code { flex: 1; overflow: auto; font-family: var(--nm-mono); font-size: 12px; }
 .cv-cline { display: grid; grid-template-columns: 1fr 1fr; }
 .cv-cl { margin: 0; padding: 0 12px; white-space: pre-wrap; word-break: break-all; min-height: 18px; line-height: 18px; border-right: 1px solid var(--nm-border-soft); }

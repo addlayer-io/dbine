@@ -128,7 +128,32 @@
       "readShare": "% leituras",
       "writesPerRead": "Escritas/leituras",
       "lastRead": "Última leitura",
-      "lastWrite": "Última escrita"
+      "lastWrite": "Última escrita",
+      "seekShare": "% seeks"
+    },
+    "health": {
+      "good": "Usado com seeks ({{seeks}} seeks, {{scans}} scans).",
+      "warn": "Muitos scans para a quantidade de seeks ({{scans}} scans, {{seeks}} seeks): vale revisar as colunas do índice ou as consultas que o usam.",
+      "bad": "Mais scans que seeks ({{scans}} scans, {{seeks}} seeks): revise as colunas do índice ou as consultas que o usam.",
+      "columnstore": "Índice columnstore: foi feito para ser lido com scans ({{scans}} scans, {{seeks}} seeks).",
+      "smallTables": "Em tabelas pequenas o SQL Server prefere o scan porque é mais barato: lá o vermelho nem sempre é um problema."
+    },
+    "drop": {
+      "menu": "Excluir índice…",
+      "title": "Excluir índice {{name}}",
+      "intro": "O índice «{{name}}» será excluído de {{table}}.",
+      "usageUnused": "Sem uso: 0 leituras, {{writes}} gravações.",
+      "usageShare": "{{share}} das leituras da tabela: {{seeks}} seeks, {{scans}} scans, {{lookups}} lookups.",
+      "usageNone": "Sem leituras nem gravações desde que as estatísticas começaram.",
+      "script": "Script",
+      "empty": "O motor não gerou instruções para esta alteração.",
+      "openInQuery": "Abrir como consulta",
+      "scriptName": "Excluir {{name}}",
+      "run": "Excluir",
+      "done": "Índice excluído",
+      "pkHint": "A chave primária é alterada pelo designer de tabelas",
+      "tableNotFound": "A tabela {{table}} não foi encontrada no banco de dados.",
+      "indexNotFound": "A estrutura da tabela não inclui o índice «{{name}}»: não é possível gerar o script."
     }
   }
 }

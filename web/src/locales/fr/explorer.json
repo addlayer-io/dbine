@@ -128,7 +128,32 @@
       "readShare": "% lectures",
       "writesPerRead": "Écritures/lectures",
       "lastRead": "Dernière lecture",
-      "lastWrite": "Dernière écriture"
+      "lastWrite": "Dernière écriture",
+      "seekShare": "% seeks"
+    },
+    "health": {
+      "good": "Utilisé avec des seeks ({{seeks}} seeks, {{scans}} scans).",
+      "warn": "Pas mal de scans par rapport au nombre de seeks ({{scans}} scans, {{seeks}} seeks) : il vaut mieux revoir les colonnes de l'index ou les requêtes qui l'utilisent.",
+      "bad": "Plus de scans que de seeks ({{scans}} scans, {{seeks}} seeks) : revoyez les colonnes de l'index ou les requêtes qui l'utilisent.",
+      "columnstore": "Index columnstore : il est conçu pour être lu avec des scans ({{scans}} scans, {{seeks}} seeks).",
+      "smallTables": "Sur les petites tables, SQL Server préfère le scan car il coûte moins cher : le rouge n'y est pas toujours un problème."
+    },
+    "drop": {
+      "menu": "Supprimer l'index…",
+      "title": "Supprimer l'index {{name}}",
+      "intro": "L'index «{{name}}» va être supprimé de {{table}}.",
+      "usageUnused": "Inutilisé : 0 lecture, {{writes}} écritures.",
+      "usageShare": "{{share}} des lectures de la table : {{seeks}} seeks, {{scans}} scans, {{lookups}} lookups.",
+      "usageNone": "Aucune lecture ni écriture depuis le début des statistiques.",
+      "script": "Script",
+      "empty": "Le moteur n'a généré aucune instruction pour ce changement.",
+      "openInQuery": "Ouvrir comme requête",
+      "scriptName": "Supprimer {{name}}",
+      "run": "Supprimer",
+      "done": "Index supprimé",
+      "pkHint": "La clé primaire se modifie depuis le concepteur de tables",
+      "tableNotFound": "La table {{table}} est introuvable dans la base.",
+      "indexNotFound": "La structure de la table n'inclut pas l'index «{{name}}» : impossible de générer le script."
     }
   }
 }

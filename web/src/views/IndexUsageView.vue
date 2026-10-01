@@ -5,7 +5,10 @@ import { useTranslation } from 'i18next-vue';
 import type { IndexUsage } from '../api/types';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
-import { indexTag, indexUsageEntry, loadIndexUsage, sharePct, usageBadge } from '../composables/indexUsage';
+import { badgeClass, indexTag, indexUsageEntry, loadIndexUsage, seekTip, sharePct, usageBadge } from '../composables/indexUsage';
+import { dropIndexItem, type DropIndexTarget } from '../composables/dropIndex';
+import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
+import DropIndexDialog from '../components/DropIndexDialog.vue';
 import { useConnectionsStore } from '../stores/connections';
 import type { IndexesTab } from '../stores/tabs';
 
@@ -50,6 +53,7 @@ const cols = computed<Col[]>(() => [
   { id: 'scans', label: 'Scans', num: true, value: (i) => i.scans, text: counter((i) => i.scans) },
   { id: 'lookups', label: 'Lookups', num: true, value: (i) => i.lookups, text: counter((i) => i.lookups) },
   { id: 'updates', label: 'Updates', num: true, value: (i) => i.updates, text: counter((i) => i.updates) },
+  { id: 'seeks%', label: t('explorer:indexes.col.seekShare'), num: true, value: (i) => i.seek_ratio ?? null, text: (i) => (i.seek_ratio == null ? '' : sharePct(i.seek_ratio)) },
   { id: 'share', label: t('explorer:indexes.col.readShare'), num: true, value: (i) => i.read_share, text: (i) => (i.read_share == null ? '' : sharePct(i.read_share)) },
   {
     id: 'wpr', label: t('explorer:indexes.col.writesPerRead'), num: true, value: (i) => i.writes_per_read,
@@ -88,6 +92,19 @@ watch(() => [props.tab.focus, rows.value.length] as const, async ([focus]) => {
   body.value?.querySelector<HTMLElement>('tr.focus')?.scrollIntoView({ block: 'nearest' });
 }, { immediate: true });
 
+// -- right click on a row: "Eliminar índice…" ------------------------------------------------
+const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
+const dropping = ref<DropIndexTarget | null>(null);
+function rowMenu(e: MouseEvent, i: IndexUsage) {
+  const items: MenuItem[] = [{
+    label: t('explorer:menu.copyName'),
+    action: () => navigator.clipboard.writeText(i.name).then(() => ElMessage.success({ message: t('explorer:indexes.copied'), duration: 1200 })).catch(() => {}),
+  }];
+  const drop = dropIndexItem({ connectionId: props.tab.connectionId, database: props.tab.database, table: props.tab.object, index: i.name }, (x) => { dropping.value = x; });
+  if (drop) items.push(drop);
+  menu.value = { x: e.clientX, y: e.clientY, items };
+}
+
 async function copyGrid() {
   const lines = [cols.value.map((c) => c.label), ...rows.value.map((i) => cols.value.map((c) => c.text(i)))];
   try {
@@ -117,6 +134,7 @@ async function copyGrid() {
     <template v-else-if="report">
       <p v-if="report.stats_available" class="iu-note">
         {{ report.since ? $t('explorer:indexes.since', { since: report.since }) : $t('explorer:indexes.sinceRestart') }}
+        <br>{{ $t('explorer:indexes.health.smallTables') }}
       </p>
       <p v-if="report.note" class="iu-note warn">{{ tb(report.note) }}</p>
       <div ref="body" class="iu-grid">
@@ -129,19 +147,24 @@ async function copyGrid() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="i in rows" :key="i.name" :class="{ focus: i.name === tab.focus }">
+            <tr v-for="i in rows" :key="i.name" :class="{ focus: i.name === tab.focus }" @contextmenu.prevent="rowMenu($event, i)">
               <td class="iu-name nm-selectable">
                 {{ i.name }}
-                <span v-if="usageBadge(i)" class="iu-badge" :class="{ unused: usageBadge(i)!.unused }">{{ usageBadge(i)!.text }}</span>
+                <span v-if="usageBadge(i)" class="iu-badge" :class="badgeClass(usageBadge(i)!)" :title="usageBadge(i)!.healthTip ?? undefined">{{ usageBadge(i)!.text }}</span>
               </td>
               <td :title="i.kind"><span class="iu-tag">{{ indexTag(i) }}</span></td>
-              <td v-for="c in cols.slice(2)" :key="c.id" :class="{ n: c.num }" class="nm-selectable">{{ c.text(i) }}</td>
+              <td
+                v-for="c in cols.slice(2)" :key="c.id" :class="[{ n: c.num }, c.id === 'seeks%' && i.seek_health ? `h-${i.seek_health}` : '']" class="nm-selectable"
+                :title="c.id === 'seeks%' ? seekTip(i) ?? undefined : undefined"
+              >{{ c.text(i) }}</td>
             </tr>
             <tr v-if="!rows.length"><td :colspan="cols.length" class="iu-dim">{{ $t('explorer:indexes.none') }}</td></tr>
           </tbody>
         </table>
       </div>
     </template>
+    <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
+    <DropIndexDialog v-if="dropping" :target="dropping" @close="dropping = null" />
   </div>
 </template>
 
@@ -167,4 +190,10 @@ async function copyGrid() {
 .iu-tag { font-size: 10.5px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--nm-border); color: var(--nm-text-dim); }
 .iu-badge { margin-left: 6px; font-size: 10.5px; padding: 0 5px; border-radius: 8px; background: color-mix(in srgb, var(--nm-accent) 18%, transparent); color: var(--nm-text); font-weight: 400; }
 .iu-badge.unused { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
+.iu-badge.h-good { background: color-mix(in srgb, var(--nm-success) 20%, transparent); color: var(--nm-success); }
+.iu-badge.h-warn { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); color: var(--nm-warning); }
+.iu-badge.h-bad { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
+.iu-table td.h-good { color: var(--nm-success); }
+.iu-table td.h-warn { color: var(--nm-warning); }
+.iu-table td.h-bad { color: var(--nm-danger); font-weight: 600; }
 </style>

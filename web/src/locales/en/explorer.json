@@ -128,7 +128,32 @@
       "readShare": "% reads",
       "writesPerRead": "Writes/reads",
       "lastRead": "Last read",
-      "lastWrite": "Last write"
+      "lastWrite": "Last write",
+      "seekShare": "% seeks"
+    },
+    "health": {
+      "good": "Used with seeks ({{seeks}} seeks, {{scans}} scans).",
+      "warn": "Quite a few scans for the number of seeks ({{scans}} scans, {{seeks}} seeks): consider reviewing the index columns or the queries that use it.",
+      "bad": "More scans than seeks ({{scans}} scans, {{seeks}} seeks): review the index columns or the queries that use it.",
+      "columnstore": "Columnstore index: it is built to be read with scans ({{scans}} scans, {{seeks}} seeks).",
+      "smallTables": "On small tables SQL Server prefers the scan because it is cheaper: red is not always a problem there."
+    },
+    "drop": {
+      "menu": "Drop index…",
+      "title": "Drop index {{name}}",
+      "intro": "The index «{{name}}» will be dropped from {{table}}.",
+      "usageUnused": "Unused: 0 reads, {{writes}} writes.",
+      "usageShare": "{{share}} of the table's reads: {{seeks}} seeks, {{scans}} scans, {{lookups}} lookups.",
+      "usageNone": "No reads or writes since statistics started.",
+      "script": "Script",
+      "empty": "The engine generated no statements for this change.",
+      "openInQuery": "Open as query",
+      "scriptName": "Drop {{name}}",
+      "run": "Drop",
+      "done": "Index dropped",
+      "pkHint": "The primary key is changed from the table designer",
+      "tableNotFound": "Table {{table}} was not found in the database.",
+      "indexNotFound": "The table structure does not include the index «{{name}}»: the script cannot be generated."
     }
   }
 }

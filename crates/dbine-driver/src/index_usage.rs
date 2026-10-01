@@ -7,7 +7,10 @@
 //! ([`IndexUsageReport::derive`]): reads = seeks + scans + lookups; the read
 //! share = this index's reads over the sum of the table's indexes' reads
 //! (`None` when that sum is 0); unused = no reads but updates (an index that
-//! costs on every write and helps no query).
+//! costs on every write and helps no query); the seek ratio = seeks over
+//! seeks + scans, and its health: good from 0.8, warn from 0.5, bad below
+//! (more scans than seeks: the index's columns or the queries need a look).
+//! Columnstore indexes are made to be scanned: never bad.
 
 use crate::schema::ForeignKeyDef;
 use serde::{Deserialize, Serialize};
@@ -74,6 +77,35 @@ pub struct IndexUsage {
     /// Derived: updates / reads (`None` without reads).
     #[serde(default)]
     pub writes_per_read: Option<f64>,
+    /// Derived: seeks / (seeks + scans), 0–1 (`None` when both are 0).
+    #[serde(default)]
+    pub seek_ratio: Option<f64>,
+    /// Derived: how healthy that ratio is (`None` without seeks or scans).
+    #[serde(default)]
+    pub seek_health: Option<SeekHealth>,
+}
+
+/// How an index is read: mostly by seeks (good) or by scans (bad).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SeekHealth {
+    Good,
+    Warn,
+    Bad,
+}
+
+impl SeekHealth {
+    /// Good from 0.8, warn from 0.5, bad below; columnstore indexes are
+    /// built for scans, so they're always good.
+    pub fn of(seek_ratio: f64, kind: &str) -> Self {
+        if kind.to_ascii_uppercase().contains("COLUMNSTORE") || seek_ratio >= 0.8 {
+            SeekHealth::Good
+        } else if seek_ratio >= 0.5 {
+            SeekHealth::Warn
+        } else {
+            SeekHealth::Bad
+        }
+    }
 }
 
 impl IndexUsageReport {
@@ -89,6 +121,9 @@ impl IndexUsageReport {
             i.read_share = (stats && total > 0).then(|| i.reads as f64 / total as f64);
             i.unused = stats && i.reads == 0 && i.updates > 0;
             i.writes_per_read = (stats && i.reads > 0).then(|| i.updates as f64 / i.reads as f64);
+            let probes = i.seeks + i.scans;
+            i.seek_ratio = (stats && probes > 0).then(|| i.seeks as f64 / probes as f64);
+            i.seek_health = i.seek_ratio.map(|r| SeekHealth::of(r, &i.kind));
         }
     }
 
@@ -139,6 +174,40 @@ mod tests {
     fn without_stats_nothing_is_derived() {
         let r = IndexUsageReport { stats_available: false, indexes: vec![ix("a", 5, 0, 0, 3), ix("b", 0, 0, 0, 9)], ..Default::default() }.derived();
         assert!(r.indexes.iter().all(|i| i.reads == 0 && i.read_share.is_none() && !i.unused && i.writes_per_read.is_none()));
+    }
+
+    #[test]
+    fn seek_health_thresholds() {
+        let r = IndexUsageReport {
+            stats_available: true,
+            indexes: vec![ix("all", 10, 0, 0, 0), ix("80", 8, 2, 0, 0), ix("79", 79, 21, 0, 0), ix("50", 5, 5, 0, 0), ix("49", 49, 51, 0, 0), ix("scans", 0, 7, 0, 0), ix("none", 0, 0, 3, 1)],
+            ..Default::default()
+        }
+        .derived();
+        let get = |n: &str| r.indexes.iter().find(|i| i.name == n).unwrap();
+        assert_eq!(get("all").seek_health, Some(SeekHealth::Good));
+        assert_eq!(get("80").seek_ratio, Some(0.8));
+        assert_eq!(get("80").seek_health, Some(SeekHealth::Good));
+        assert_eq!(get("79").seek_health, Some(SeekHealth::Warn));
+        assert_eq!(get("50").seek_health, Some(SeekHealth::Warn));
+        assert_eq!(get("49").seek_health, Some(SeekHealth::Bad));
+        assert_eq!(get("scans").seek_ratio, Some(0.0));
+        assert_eq!(get("scans").seek_health, Some(SeekHealth::Bad));
+        // Only lookups: no seeks or scans to compare.
+        assert_eq!((get("none").seek_ratio, get("none").seek_health), (None, None));
+    }
+
+    #[test]
+    fn columnstore_is_never_bad() {
+        let cs = |kind: &str| IndexUsage { name: "cs".into(), kind: kind.into(), seeks: 1, scans: 99, ..Default::default() };
+        let r = IndexUsageReport { stats_available: true, indexes: vec![cs("CLUSTERED COLUMNSTORE"), cs("nonclustered columnstore")], ..Default::default() }.derived();
+        assert!(r.indexes.iter().all(|i| i.seek_health == Some(SeekHealth::Good)));
+        assert_eq!(SeekHealth::of(0.6, "NONCLUSTERED COLUMNSTORE"), SeekHealth::Good);
+        assert_eq!(SeekHealth::of(0.6, "NONCLUSTERED"), SeekHealth::Warn);
+        // Without counters there's no health.
+        let r = IndexUsageReport { stats_available: false, indexes: vec![ix("a", 0, 9, 0, 0)], ..Default::default() }.derived();
+        assert_eq!(r.indexes[0].seek_health, None);
+        assert_eq!(serde_json::to_value(SeekHealth::Bad).unwrap(), "bad");
     }
 
     #[test]

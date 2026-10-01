@@ -108,6 +108,10 @@ export interface IndexUsage {
   unused: boolean;
   /** updates / reads; null without reads. */
   writes_per_read: number | null;
+  /** seeks / (seeks + scans), 0–1; null when both are 0. */
+  seek_ratio?: number | null;
+  /** good ≥ 0.8, warn ≥ 0.5, bad below (columnstore: never bad); null without seeks or scans. */
+  seek_health?: 'good' | 'warn' | 'bad' | null;
 }
 
 /** A table's indexes, their usage and its foreign keys. */

@@ -66,11 +66,34 @@ export function indexTag(i: IndexUsage): string {
   return kind;
 }
 
+export type SeekHealth = 'good' | 'warn' | 'bad';
+export interface UsageBadge {
+  text: string;
+  unused: boolean;
+  /** Its color: seeks against scans (`seek_health`, derived by the backend). */
+  health: SeekHealth | null;
+  /** Why that color (null without seeks or scans). */
+  healthTip: string | null;
+}
+
 /** The usage badge: the read share, "sin uso", or nothing without counters. */
-export function usageBadge(i: IndexUsage): { text: string; unused: boolean } | null {
-  if (i.unused) return { text: t('explorer:indexes.unused'), unused: true };
+export function usageBadge(i: IndexUsage): UsageBadge | null {
+  if (i.unused) return { text: t('explorer:indexes.unused'), unused: true, health: null, healthTip: null };
   if (i.read_share == null) return null;
-  return { text: sharePct(i.read_share), unused: false };
+  return { text: sharePct(i.read_share), unused: false, health: i.seek_health ?? null, healthTip: seekTip(i) };
+}
+
+/** The badge's classes: `unused`, or its seek health (`h-good`, `h-warn`, `h-bad`). */
+export function badgeClass(b: UsageBadge): string[] {
+  return b.unused ? ['unused'] : b.health ? [`h-${b.health}`] : [];
+}
+
+/** Why an index's seek health is what it is. */
+export function seekTip(i: IndexUsage): string | null {
+  if (!i.seek_health) return null;
+  const n = { seeks: i.seeks.toLocaleString(), scans: i.scans.toLocaleString() };
+  if (i.seek_health === 'good' && i.kind.toUpperCase().includes('COLUMNSTORE') && (i.seek_ratio ?? 1) < 0.8) return t('explorer:indexes.health.columnstore', n);
+  return t(`explorer:indexes.health.${i.seek_health}`, n);
 }
 
 /** 0–1 as a percentage: "<1%" for a share above zero that rounds to it. */
