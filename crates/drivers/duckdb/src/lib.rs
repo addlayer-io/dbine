@@ -298,6 +298,15 @@ fn dialect() -> ScriptDialect {
     ScriptDialect::postgres()
 }
 
+/// Whether a statement of `text` is a `USE` (the only one that switches
+/// the session's catalog).
+fn switches_catalog(text: &str) -> bool {
+    let d = dialect();
+    dbine_driver::sql::split_script(text, &d)
+        .iter()
+        .any(|s| dbine_driver::sql::leading_keyword(&s.text, &d).as_deref() == Some("use"))
+}
+
 async fn blocking<T, F>(f: F) -> Result<T>
 where
     T: Send + 'static,
@@ -501,14 +510,27 @@ impl Session for DuckDbSession {
         let text = text.to_string();
         let fork = out.fork();
         let mut tx = self.tx;
-        let (local, res, tx) = self
+        let catalog = self.catalog.clone();
+        let (mut local, res, tx) = self
             .with(move |c| {
                 let mut local = fork;
                 let res = run_script_tx(c, &text, max_rows, &mut tx, &mut local);
+                // `USE other` switches the catalog: the tab follows it.
+                if switches_catalog(&text) {
+                    if let Ok(now) = c.query_row("SELECT current_database()", [], |r| r.get::<_, String>(0)) {
+                        if now != catalog {
+                            local.database = Some(now);
+                        }
+                    }
+                }
                 Ok((local, res, tx))
             })
             .await?;
         self.tx = tx;
+        if let Some(db) = local.database.take() {
+            self.catalog = db.clone();
+            local.database = Some(db);
+        }
         out.merge(local);
         res
     }

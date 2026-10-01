@@ -430,9 +430,17 @@ impl ClickHouseSession {
 }
 
 /// clickhouse-client's lexer: backslash escapes in strings, heredocs
-/// (`$tag$ … $tag$`), `` `name` ``; no procedural bodies.
+/// (`$tag$ … $tag$`), `` `name` ``, nested `/* /* */ */` and `#` line
+/// comments; no procedural bodies.
 fn dialect() -> ScriptDialect {
-    ScriptDialect { backslash_escapes: true, dollar_quotes: true, compound_blocks: false, ..ScriptDialect::generic() }
+    ScriptDialect {
+        backslash_escapes: true,
+        dollar_quotes: true,
+        nested_comments: true,
+        hash_comments: true,
+        compound_blocks: false,
+        ..ScriptDialect::generic()
+    }
 }
 
 /// The database of a `USE db` statement (`` `db` `` and `"db"` unquoted).
@@ -1132,6 +1140,17 @@ mod tests {
         assert_eq!(use_target("USE `a\\`b`").as_deref(), Some("a`b"));
         assert_eq!(use_target("SELECT 1"), None);
         assert_eq!(use_target("user_function()"), None);
+        assert_eq!(use_target("/* a /* b */ c */ USE x # note").as_deref(), Some("x"));
+    }
+
+    /// clickhouse-client nests block comments and takes `#` as a line
+    /// comment: a `;` inside either doesn't split.
+    #[test]
+    fn nested_and_hash_comments_hold_semicolons() {
+        let d = dialect();
+        let units = split_script("/* outer /* nested ; */ c ; */ SELECT 1;\nSELECT 1 # trailing ; comment\n;SELECT 2", &d);
+        let texts: Vec<String> = units.iter().map(|u| strip_comments(&u.text, &d, false).trim().to_string()).collect();
+        assert_eq!(texts, ["SELECT 1", "SELECT 1", "SELECT 2"]);
     }
 
     use super::*;

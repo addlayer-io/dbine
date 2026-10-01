@@ -104,6 +104,17 @@ async fn in_memory_and_attached_catalogs() {
     s.execute("ATTACH ':memory:' AS other; CREATE TABLE other.main.x (a INT);", 10, &mut out).await.unwrap();
     let dbs = s.list_databases().await.unwrap();
     assert!(dbs.contains(&"other".to_string()) && dbs.contains(&"memory".to_string()), "{dbs:?}");
+    // USE switches the catalog: the tab follows it; a USE of a schema doesn't.
+    let mut out = QueryOutcome::default();
+    s.execute("USE other", 10, &mut out).await.unwrap();
+    assert_eq!(out.database.as_deref(), Some("other"));
+    let mut out = QueryOutcome::default();
+    s.execute("USE other.main; SELECT current_database()", 10, &mut out).await.unwrap();
+    assert_eq!((out.database.as_deref(), &out.results.last().unwrap().rows[0][0]), (None, &serde_json::json!("other")));
+    assert!(s.list_objects().await.unwrap().iter().any(|x| x.name == "x"));
+    let mut out = QueryOutcome::default();
+    s.execute("USE memory", 10, &mut out).await.unwrap();
+    assert_eq!(out.database.as_deref(), Some("memory"));
     let mut o = driver.connect(&cfg(":memory:", false), Some("other")).await.unwrap();
     let objs = o.list_objects().await.unwrap();
     assert!(objs.iter().any(|x| x.name == "x"), "{objs:?}");

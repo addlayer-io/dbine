@@ -555,6 +555,16 @@ async fn clickhouse_script_contract() {
     let e = s.execute("SELECT 1;\nSELECT * FROM nope_nope", 10, &mut out).await.unwrap_err().to_script_error();
     assert_eq!((e.code.as_deref(), e.line), (Some("60"), Some(2)), "{e:?}");
 
+    // Nested block comments and `#` line comments hold their `;`.
+    let units = d.split_script("/* outer /* nested ; */ c ; */ SELECT 4;\nSELECT 5 # trailing ; comment\n;");
+    assert_eq!(units.len(), 2, "{units:?}");
+    let mut out = QueryOutcome::default();
+    for u in &units {
+        s.execute(&u.text, 10, &mut out).await.unwrap_or_else(|e| panic!("{}: {e}", u.text));
+    }
+    let got: Vec<String> = out.results.iter().map(|r| r.rows[0][0].to_string().trim_matches('"').to_string()).collect();
+    assert_eq!(got, ["4", "5"]);
+
     // USE moves the session (and the tab) as in clickhouse-client.
     let mut go = QueryOutcome::default();
     s.execute("CREATE DATABASE IF NOT EXISTS dbine_use_db2", 10, &mut go).await.unwrap();

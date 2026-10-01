@@ -156,6 +156,12 @@ async fn schema_of(s: &mut Box<dyn Session>, schema: &str) -> Vec<TableSchema> {
     s.database_schema().await.unwrap().into_iter().filter(|t| t.schema.as_deref() == Some(schema)).collect()
 }
 
+/// Slow on the all-in-one image (about a minute: the salted table's regions
+/// open one by one). Stopping the container while it runs can leave the
+/// HBase table `DBINE_DDL:CLIENTES` stuck in ENABLING, and every later run
+/// then fails with ERROR 1102 (XCL02) "Cannot get all table regions". To
+/// recover, in `hbase shell`: `put 'hbase:meta', 'DBINE_DDL:CLIENTES',
+/// 'table:state', "\x08\x01"` (DISABLED) and `drop 'DBINE_DDL:CLIENTES'`.
 #[tokio::test]
 #[ignore]
 async fn schema_and_ddl() {

@@ -19,6 +19,7 @@ mod plan;
 mod presets;
 mod schemas;
 mod security;
+mod steps;
 mod structure;
 mod sync;
 mod transfer;
@@ -445,6 +446,11 @@ fn unit_statements(text: &str, d: &ScriptDialect) -> Vec<String> {
 /// (so its `BEGIN … END` body stays whole) and the pieces of a statement
 /// whose parentheses are still open joined back (a macro's body).
 fn teradata_statements(text: &str, d: &ScriptDialect) -> Vec<String> {
+    teradata_units(text, d).into_iter().map(|(s, _)| s).collect()
+}
+
+/// [`teradata_statements`], each with its byte offset in `text`.
+fn teradata_units(text: &str, d: &ScriptDialect) -> Vec<(String, usize)> {
     // REPLACE and "CREATE " have the same length: offsets carry over.
     let mut lex = text.to_string();
     for u in split_script(text, d) {
@@ -467,13 +473,13 @@ fn teradata_statements(text: &str, d: &ScriptDialect) -> Vec<String> {
         if total > 0 {
             open = Some((start, total));
         } else {
-            out.push(text[start..u.end].trim().to_string());
+            out.push((text[start..u.end].trim().to_string(), start));
         }
     }
     if let Some((start, _)) = open {
-        out.push(text[start..].trim().trim_end_matches(';').trim_end().to_string());
+        out.push((text[start..].trim().trim_end_matches(';').trim_end().to_string(), start));
     }
-    out.retain(|s| !s.is_empty());
+    out.retain(|(s, _)| !s.is_empty());
     out
 }
 
@@ -500,6 +506,45 @@ fn preset_statements(p: &Preset, batch: Batch, text: &str) -> Result<Vec<String>
         ("teradata", Batch::Statements) => Ok(teradata_statements(text, &script_dialect(p))),
         _ => split_checked(batch, text),
     }
+}
+
+/// [`preset_statements`], each with its byte offset in `text` (where its
+/// first token is), so a failure in a later statement of a script the
+/// driver splits gets its own line.
+fn placed_statements(p: &Preset, batch: Batch, text: &str) -> Result<Vec<(String, usize)>> {
+    match (p.id, batch) {
+        ("teradata", Batch::Statements) => Ok(teradata_units(text, &script_dialect(p))),
+        // As `split_statements`, keeping where each one starts.
+        (_, Batch::Statements) => {
+            let d = ScriptDialect::generic();
+            Ok(split_script(text, &d)
+                .into_iter()
+                .filter(|s| s.kind != StatementKind::ClientCommand)
+                .map(|s| (strip_comments(&s.text, &d, false).trim().to_string(), s.start))
+                .filter(|(s, _)| !s.is_empty())
+                .collect())
+        }
+        _ => Ok(locate(text, split_checked(batch, text)?)),
+    }
+}
+
+/// Offsets of `pieces` (cut from `text` in order) in `text`; a piece not
+/// found as written (comments taken out) gets the previous one's end.
+fn locate(text: &str, pieces: Vec<String>) -> Vec<(String, usize)> {
+    let mut from = 0;
+    pieces
+        .into_iter()
+        .map(|s| {
+            match text.get(from..).and_then(|rest| rest.find(s.as_str())) {
+                Some(i) => {
+                    let at = from + i;
+                    from = at + s.len();
+                    (s, at)
+                }
+                None => (s, from),
+            }
+        })
+        .collect()
 }
 
 /// Row-limit syntax for the generic preset, from the DBMS name.
@@ -985,12 +1030,20 @@ impl Session for OdbcSession {
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let dialect = script_dialect(self.preset);
         let stmts = match (script_mode(self.preset), self.batch) {
-            (ScriptMode::PerStatement, Batch::Statements) => unit_statements(text, &dialect),
-            _ => preset_statements(self.preset, self.batch, text)?,
+            (ScriptMode::PerStatement, Batch::Statements) => locate(text, unit_statements(text, &dialect)),
+            _ => placed_statements(self.preset, self.batch, text)?,
         };
         if stmts.is_empty() {
             return Ok(());
         }
+        let stmts: Vec<(String, usize, u32)> = stmts.into_iter().map(|(s, at)| (s, at, steps::line_at(text, at))).collect();
+        // `Whole` presets split the script here: as the app would, editor
+        // runs go on after errors (`out.continue_on_error`) and report each
+        // statement live (`out.progress_sink`).
+        let own = out.current_statement.is_none();
+        // `USE db` / `DATABASE db` switch the database the explorer lists.
+        let tracks_database = !self.preset.databases_label.is_empty();
+        let database = self.database.clone();
         let fork = out.fork();
         let (local, err, changed) = self
             .run(move |c, slot| {
@@ -998,15 +1051,27 @@ impl Session for OdbcSession {
                 // Whether the last statement that ran changed something
                 // (`None`: it ended the transaction itself).
                 let mut changed = Some(false);
-                for s in &stmts {
+                let mut database = database;
+                for (i, (s, at, line)) in stmts.iter().enumerate() {
+                    let step = steps::Step::start(&mut local, own, i, *at, *line);
                     let before = local.results.len();
-                    if let Err(e) = run_one(c, slot, s, max_rows, &mut local) {
-                        return Ok((local, Some(e), changed));
+                    let r = run_one(c, slot, s, max_rows, &mut local);
+                    if r.is_ok() {
+                        match leading_keyword(s, &dialect).as_deref() {
+                            Some("commit" | "rollback") => changed = None,
+                            Some("use" | "database") if tracks_database => {
+                                let now = c.info_string(ffi::SQL_DATABASE_NAME).trim().to_string();
+                                if !now.is_empty() && now != database {
+                                    database = now.clone();
+                                    local.database = Some(now);
+                                }
+                            }
+                            _ if local.results[before..].iter().any(|r| r.columns.is_empty()) => changed = Some(true),
+                            _ => {}
+                        }
                     }
-                    match leading_keyword(s, &dialect).as_deref() {
-                        Some("commit" | "rollback") => changed = None,
-                        _ if local.results[before..].iter().any(|r| r.columns.is_empty()) => changed = Some(true),
-                        _ => {}
+                    if let Err(e) = step.end(&mut local, r) {
+                        return Ok((local, Some(e), changed));
                     }
                 }
                 Ok((local, None, changed))
@@ -1016,6 +1081,9 @@ impl Session for OdbcSession {
             None => self.dirty = false,
             Some(true) if self.manual => self.dirty = true,
             _ => {}
+        }
+        if let Some(db) = &local.database {
+            self.database = db.clone();
         }
         out.merge(local);
         match err {
@@ -1599,5 +1667,27 @@ mod tests {
         assert!(split_go("select 1\nGO 0").is_err());
         assert_eq!(strip_version("p;1"), "p");
         assert_eq!(strip_version("a;b"), "a;b");
+    }
+
+    /// A `Whole` preset's statements know where they start, so a failure
+    /// in a later one gets its own line.
+    #[test]
+    fn whole_script_statements_are_placed() {
+        let script = "-- head\nselect 1;\n\n/* c */ select 2;\nselect 3";
+        let got = placed_statements(preset("informix"), Batch::Statements, script).unwrap();
+        let lines: Vec<u32> = got.iter().map(|(_, at)| steps::line_at(script, *at)).collect();
+        assert_eq!(got.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>(), ["select 1", "select 2", "select 3"]);
+        assert_eq!(lines, [2, 4, 5]);
+        let td = "CREATE MACRO m AS (SELECT 1; SELECT 2;);\nSELECT 3;";
+        let got = placed_statements(preset("teradata"), Batch::Statements, td).unwrap();
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!(&td[got[1].1..], "SELECT 3;");
+        assert_eq!(placed_statements(preset("odbc"), Batch::Script, " x ").unwrap(), vec![(" x ".to_string(), 0)]);
+        assert_eq!(locate("a; b; a", vec!["a".into(), "b".into(), "a".into(), "zz".into()]), vec![
+            ("a".to_string(), 0),
+            ("b".to_string(), 3),
+            ("a".to_string(), 6),
+            ("zz".to_string(), 7)
+        ]);
     }
 }

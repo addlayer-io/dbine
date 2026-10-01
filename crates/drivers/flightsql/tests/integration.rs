@@ -218,6 +218,17 @@ async fn schema_in_the_open_catalog() {
     run(&mut def, &d.drop_schema_script(Some("dbine_other"), "Mi \"Esq", false).unwrap()).await;
     assert_eq!(run(&mut def, where_).await.results[0].rows, vec![vec![json!("memory")]]);
 
+    // USE switches the catalog: the tab and the explorer follow it.
+    let mut out = QueryOutcome::default();
+    s.execute("USE memory", 10, &mut out).await.unwrap();
+    assert_eq!(out.database.as_deref(), Some("memory"));
+    let mut out = QueryOutcome::default();
+    s.execute("SELECT current_database()", 10, &mut out).await.unwrap();
+    assert_eq!((out.database.as_deref(), &out.results[0].rows[0][0]), (None, &json!("memory")));
+    let mut out = QueryOutcome::default();
+    s.execute("USE dbine_other", 10, &mut out).await.unwrap();
+    assert_eq!(out.database.as_deref(), Some("dbine_other"));
+
     // A catalog that doesn't exist fails to open instead of falling back.
     assert!(d.connect(&c, Some("dbine_nope")).await.is_err());
     run(&mut def, "DROP SCHEMA memory.\"Mi \"\"Esq\" CASCADE; DETACH dbine_other").await;

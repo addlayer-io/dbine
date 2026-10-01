@@ -614,6 +614,30 @@ async fn script_errors_messages_and_transactions() {
     let e = s.execute("DROP TRIGGER dbine_no_such_trigger", 10, &mut out).await.unwrap_err().to_script_error();
     eprintln!("{e:?}");
     assert!(e.code.is_some(), "{e:?}");
+
+    // Editor run (isql's default): goes on after each error, every
+    // statement reported live with its place in the script.
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen2 = seen.clone();
+    let mut out = QueryOutcome {
+        continue_on_error: Some(true),
+        progress_sink: Some(dbine_driver::ProgressSinkRef(std::sync::Arc::new(move |e: &dbine_driver::StatementEnd| {
+            seen2.lock().unwrap().push((e.statement, e.line, e.errors.len(), e.results.len()))
+        }))),
+        ..Default::default()
+    };
+    let script = "INSERT INTO dbine_tx VALUES (7);\nSELECT 2 FROM nosuch;\nSELECT 3 FROM rdb$database";
+    s.execute(script, 10, &mut out).await.unwrap();
+    assert_eq!(*seen.lock().unwrap(), vec![(0, 1, 1, 0), (1, 2, 1, 0), (2, 3, 0, 1)]);
+    let codes: Vec<_> = out.errors.iter().map(|e| (e.code.clone(), e.line, e.statement)).collect();
+    assert_eq!(codes, vec![(Some("-803".to_string()), Some(1), Some(0)), (Some("-204".to_string()), Some(2), Some(1))], "{:?}", out.errors);
+    assert_eq!(out.errors[1].offset.map(|o| &script[o..o + 6]), Some("nosuch"), "{:?}", out.errors);
+    assert_eq!((out.results.len(), out.results[0].statement, out.results[0].line), (1, Some(2), Some(3)));
+    assert_eq!(out.results[0].rows[0][0], json!(3));
+    // Any other caller stops at the first error.
+    let mut out = QueryOutcome::default();
+    assert!(s.execute(script, 10, &mut out).await.is_err());
+    assert!(out.results.is_empty() && out.errors.is_empty());
     run(&mut s, "DELETE FROM dbine_tx").await;
 
     assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Idle));
