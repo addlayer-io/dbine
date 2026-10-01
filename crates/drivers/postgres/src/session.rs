@@ -1193,6 +1193,13 @@ impl Session for PgSession {
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         crate::permissions::check(self, database).await
     }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        if !crate::index_usage::supported(self.variant) {
+            return Ok(None);
+        }
+        self.index_usage_report(table).await.map(Some)
+    }
 }
 
 /// Every first column of `rows`, one after the other; `None` when empty.
