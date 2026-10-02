@@ -58,7 +58,35 @@ async fn sqlserver() {
     )
     .await
     .unwrap();
-    assert!(admin.list_databases().await.unwrap().contains(&"dbine_t".to_string()));
+    let dbs = admin.list_databases().await.unwrap();
+    assert!(dbs.contains(&"dbine_t".to_string()));
+    // User databases first, then the system ones (ids 1-4).
+    let first_system = dbs.iter().position(|n| ["master", "tempdb", "model", "msdb"].contains(&n.as_str())).unwrap();
+    assert!(dbs[first_system..].iter().all(|n| ["master", "tempdb", "model", "msdb"].contains(&n.as_str())), "{dbs:?}");
+    // On SQL Server a login only sees the databases it may open.
+    run(
+        &mut admin,
+        "IF SUSER_ID('dbine_noaccess') IS NOT NULL DROP LOGIN dbine_noaccess;
+         CREATE LOGIN dbine_noaccess WITH PASSWORD = 'Pw_noaccess_123!', CHECK_POLICY = OFF",
+    )
+    .await
+    .unwrap();
+    let mut plain_cfg = cfg.clone();
+    plain_cfg.username = Some("dbine_noaccess".into());
+    plain_cfg.password = Some("Pw_noaccess_123!".into());
+    let mut plain = d.connect(&plain_cfg, None).await.unwrap();
+    let seen = plain.list_databases().await.unwrap();
+    assert!(seen.contains(&"master".to_string()) && !seen.contains(&"dbine_t".to_string()), "{seen:?}");
+    drop(plain);
+    run(
+        &mut admin,
+        "DECLARE @k nvarchar(max) = N'';
+         SELECT @k += N'KILL ' + CAST(session_id AS nvarchar(10)) + N';' FROM sys.dm_exec_sessions WHERE login_name = N'dbine_noaccess';
+         EXEC (@k);
+         DROP LOGIN dbine_noaccess",
+    )
+    .await
+    .unwrap();
 
     let mut s = d.connect(&cfg, Some("dbine_t")).await.unwrap();
     // GO batches: CREATE VIEW / PROCEDURE must start a batch.
