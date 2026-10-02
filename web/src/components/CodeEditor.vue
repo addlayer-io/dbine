@@ -3,11 +3,12 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { EditorState, Compartment, type Extension } from '@codemirror/state';
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
-import { startCompletion, type CompletionContext } from '@codemirror/autocomplete';
+import { startCompletion, type Completion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { indentWithTab } from '@codemirror/commands';
+import { syntaxTree } from '@codemirror/language';
 import {
   PostgreSQL, MySQL, MariaSQL, MSSQL, SQLite, StandardSQL, PLSQL, Cassandra, type SQLDialect,
-  keywordCompletionSource, schemaCompletionSource,
+  keywordCompletionSource,
 } from '@codemirror/lang-sql';
 import { json } from '@codemirror/lang-json';
 import { oneDark } from '@codemirror/theme-one-dark';
@@ -23,7 +24,8 @@ const props = withDefaults(defineProps<{
   language?: Language;
   dialect?: string;
   readOnly?: boolean;
-  /** table → columns, for completion. */
+  /** table → columns, for completion; `schema.table` keys put the table
+   *  under its schema. */
   schema?: Record<string, string[]>;
   placeholder?: string;
 }>(), { language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '' });
@@ -39,6 +41,9 @@ const emit = defineEmits<{
   save: [];
   /** ⇧⌥F: format the code. */
   format: [];
+  /** Completion reached a table whose columns aren't loaded: `[schema, table]`
+   *  or `[table]`. The list reopens when `schema` brings them. */
+  needColumns: [path: string[]];
 }>();
 
 const host = ref<HTMLDivElement | null>(null);
@@ -61,14 +66,138 @@ function tableSlot(ctx: CompletionContext): boolean {
   return TABLE_SLOT.test(ctx.state.sliceDoc(line.from, word ? word.from : ctx.pos));
 }
 
-/** What `sql()` builds, except that keywords stay out of the list where a
- *  table name goes, so the tables aren't buried under them. */
+/** A name completion offers: a schema, a table or a column. */
+interface NameNode {
+  label: string;
+  type: 'namespace' | 'class' | 'property';
+  /** From the top: `[schema, table]`, `[table]`… */
+  path: string[];
+  children: NameNode[];
+}
+
+/** The schemas, tables and columns of `schema`. A name can be a schema and a
+ *  table at once (`Person` and `Person.Person`): both stay, each with its own
+ *  icon. */
+function nameTree(schema: Record<string, string[]>): NameNode {
+  const top: NameNode = { label: '', type: 'namespace', path: [], children: [] };
+  const child = (parent: NameNode, label: string, type: NameNode['type']) => {
+    let n = parent.children.find((c) => c.label === label && c.type === type);
+    if (!n) parent.children.push((n = { label, type, path: [...parent.path, label], children: [] }));
+    return n;
+  };
+  for (const [key, cols] of Object.entries(schema)) {
+    const dot = key.indexOf('.');
+    const table = dot < 0
+      ? child(top, key, 'class')
+      : child(child(top, key.slice(0, dot), 'namespace'), key.slice(dot + 1), 'class');
+    for (const c of cols) child(table, c, 'property');
+  }
+  return top;
+}
+
+/** The children of `node` called `name`: the exact spelling, or else any
+ *  case, since most engines don't tell `people` from `People`. */
+function childrenNamed(node: NameNode, name: string): NameNode[] {
+  const exact = node.children.filter((c) => c.label === name);
+  if (exact.length) return exact;
+  const lower = name.toLowerCase();
+  return node.children.filter((c) => c.label.toLowerCase() === lower);
+}
+
+/** An identifier, bare or quoted ([x], "x", `x`). */
+const ID = String.raw`(?:[\w$#]+|\[[^\]\n]+\]|"[^"\n]+"|\x60[^\x60\n]+\x60)`;
+const PARENT_BEFORE = new RegExp(String.raw`(${ID})\s*\.\s*$`);
+/** `FROM sales.orders o`, `JOIN people AS p`, `, items i`. */
+const ALIAS = new RegExp(String.raw`(?:\b(?:from|join|update|into)|,)\s*(${ID}(?:\s*\.\s*${ID})*)\s+(?:as\s+)?(${ID})`, 'gi');
+/** Words that follow a table name without being its alias. */
+const NOT_ALIAS = new Set(
+  'where on join inner left right full cross outer natural group order having union except intersect limit offset set values select from using with as'.split(' '),
+);
+
+function unquote(id: string): string {
+  return /^[[\"`]/.test(id) ? id.slice(1, -1) : id;
+}
+
+/** The `a.b.` before `pos`, as `['a', 'b']`. */
+function parentsBefore(text: string): string[] {
+  const parents: string[] = [];
+  for (let rest = text; ;) {
+    const m = PARENT_BEFORE.exec(rest);
+    if (!m) return parents;
+    parents.unshift(unquote(m[1]));
+    rest = rest.slice(0, m.index);
+  }
+}
+
+/** alias (lower case) → the path it stands for. */
+function aliasesIn(doc: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const m of doc.matchAll(ALIAS)) {
+    const alias = unquote(m[2]);
+    if (NOT_ALIAS.has(alias.toLowerCase())) continue;
+    out.set(alias.toLowerCase(), m[1].split(/\s*\.\s*/).map(unquote));
+  }
+  return out;
+}
+
+/** Schemas, tables and columns, with what comes after a dot resolved by
+ *  name (`sales.`, `orders.`, an alias). A table whose columns aren't loaded
+ *  yet asks for them, and the list reopens when they arrive. */
+function nameSource(dialect: SQLDialect) {
+  const tree = nameTree(props.schema);
+  const asked = new Set<string>();
+  // SQL Server takes "x" too, but [x] is what everyone writes there.
+  const quotes = dialect.spec.identifierQuotes ?? '"';
+  const open = quotes.includes('[') ? '[' : quotes[0];
+  const close = open === '[' ? ']' : open;
+  const option = (label: string, type: string): Completion =>
+    /^[a-z_][\w$#]*$/i.test(label) ? { label, type } : { label, type, apply: open + label + close };
+
+  return (ctx: CompletionContext): CompletionResult | null => {
+    if (/String|Comment|QuotedIdentifier/.test(syntaxTree(ctx.state).resolveInner(ctx.pos, -1).name)) return null;
+    const word = ctx.matchBefore(/[\w$#]*/) ?? { from: ctx.pos, text: '' };
+    let parents = parentsBefore(ctx.state.sliceDoc(Math.max(0, word.from - 300), word.from));
+    if (!parents.length && !word.text && !ctx.explicit) return null;
+    const aliases = aliasesIn(ctx.state.doc.toString());
+    if (parents.length === 1) parents = aliases.get(parents[0].toLowerCase()) ?? parents;
+
+    let level = [tree];
+    for (const name of parents) {
+      level = level.flatMap((n) => childrenNamed(n, name));
+      if (!level.length) return null;
+    }
+    if (parents.length && level.every((n) => !n.children.length)) {
+      const table = level.find((n) => n.type === 'class');
+      if (table && !asked.has(table.path.join('.'))) {
+        asked.add(table.path.join('.'));
+        reopenAt = ctx.pos;
+        emit('needColumns', table.path);
+      }
+      return null;
+    }
+
+    const options = level.flatMap((n) => n.children).map((c) => option(c.label, c.type));
+    if (!parents.length) for (const [alias] of aliases) options.push({ label: alias, type: 'variable' });
+    return { from: word.from, options, validFor: /^[\w$#]*$/ };
+  };
+}
+
+/** Where the cursor was when a table's columns were asked for. */
+let reopenAt: number | null = null;
+
+/** The SQL language with DBine's name completion, and keywords kept out of
+ *  the list where a table name goes (or after a dot), so the names aren't
+ *  buried under them. */
 function sqlLanguage(dialect: SQLDialect): Extension {
   const keywords = keywordCompletionSource(dialect, true);
+  const afterDot = (ctx: CompletionContext) => {
+    const word = ctx.matchBefore(/[\w$#]*/);
+    return /\.\s*$/.test(ctx.state.sliceDoc(Math.max(0, (word?.from ?? ctx.pos) - 2), word?.from ?? ctx.pos));
+  };
   return [
     dialect.language,
-    dialect.language.data.of({ autocomplete: schemaCompletionSource({ dialect, schema: props.schema }) }),
-    dialect.language.data.of({ autocomplete: (ctx: CompletionContext) => (tableSlot(ctx) ? null : keywords(ctx)) }),
+    dialect.language.data.of({ autocomplete: nameSource(dialect) }),
+    dialect.language.data.of({ autocomplete: (ctx: CompletionContext) => (tableSlot(ctx) || afterDot(ctx) ? null : keywords(ctx)) }),
   ];
 }
 
@@ -141,7 +270,12 @@ watch(() => props.modelValue, (v) => {
   }
 });
 watch(() => [props.language, props.dialect, props.schema], () => {
-  view?.dispatch({ effects: lang.reconfigure(languageExt()) });
+  if (!view) return;
+  view.dispatch({ effects: lang.reconfigure(languageExt()) });
+  // The columns asked for after a dot arrived: show them if the cursor stayed.
+  const at = reopenAt;
+  reopenAt = null;
+  if (at !== null && view.state.selection.main.empty && view.state.selection.main.head === at) startCompletion(view);
 });
 watch(() => props.readOnly, (r) => view?.dispatch({ effects: ro.reconfigure(EditorState.readOnly.of(r)) }));
 // The placeholder follows a language switch.

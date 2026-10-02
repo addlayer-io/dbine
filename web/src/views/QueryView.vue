@@ -182,6 +182,16 @@ function loadReferencedColumns() {
   }
 }
 
+/** The editor reached `table.` or `schema.table.` before the columns were
+ *  loaded: load them now, without waiting for the text to settle. */
+function loadColumnsFor(path: string[]) {
+  const { connectionId, database } = props.tab;
+  const [schemaName, name] = path.length > 1 ? path : [null, path[0]];
+  const obj = (conns.objects[dbKey(connectionId, database)]?.items ?? [])
+    .find((o) => o.name === name && (schemaName === null || o.schema === schemaName));
+  if (obj && !conns.columns[objKey(connectionId, database, obj.schema, obj.name)]) conns.loadColumns(connectionId, database, obj);
+}
+
 /** ⭐ Save the selection (or the whole query) as a Library script. */
 function saveToLibrary() {
   const sel = editor.value?.selectionText() ?? '';
@@ -605,6 +615,7 @@ function drag(e: PointerEvent) {
           @plan="(t: string, actual: boolean, from: number) => run(t, actual ? 'actual' : 'estimated', from)"
           @save="save"
           @format="formatQuery"
+          @need-columns="loadColumnsFor"
         />
       </div>
       <div class="qv-sash" @pointerdown="drag" />
