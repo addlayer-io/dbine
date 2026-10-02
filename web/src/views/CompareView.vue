@@ -13,7 +13,7 @@ import CodeEditor from '../components/CodeEditor.vue';
 import { newQuery } from '../composables/actions';
 import { lineDiff } from '../composables/lineDiff';
 import { badgeClass, indexUsageEntry, loadIndexUsage, seekTip, sharePct, usageBadge } from '../composables/indexUsage';
-import type { IndexUsage } from '../api/types';
+import type { Dependent, DependencyReport, DependencyTarget, IndexUsage } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { readJson, writeJson } from '../stores/storage';
 import { useTabsStore, type CompareTab } from '../stores/tabs';
@@ -149,6 +149,7 @@ async function load(s: SideId, gen: number) {
     if (gen !== generation) throw new Stopped();
     side.orig = { driver: r.driver, tables: r.tables, objects: r.objects };
     side.work = clone(side.orig);
+    forgetDependents(side.connectionId, side.database);
     side.warnings = r.warnings;
   } catch (e) {
     if (gen === generation && !(e instanceof Stopped)) side.error = errorMessage(e);
@@ -545,11 +546,18 @@ function replaceTable(s: SideId, old: TableSchema | null, next: TableSchema | nu
  * table, so it drops the item marks aimed at that side. An item arrow used
  * after it (on what still differs, e.g. between engines) is like any other:
  * undoing it restores that item from the side's original table.
+ *
+ * "Eliminar" (the trash) is a mark too, in the same keys: it drops the
+ * element on one side or both (`drop`), so an element has either an arrow or
+ * a drop. Picking the lit option again puts it back on every side it was
+ * dropped from; another option or an arrow puts it back first.
  */
 interface Mark {
   type: 'table' | 'object' | 'item';
-  /** The side it was carried from. */
+  /** The side it was carried from (for a drop, a side it was not dropped from, or 'left'). */
   from: SideId;
+  /** "Eliminar": dropped on that side or on both, instead of carried (`from` is then ignored). */
+  drop?: DropTo;
   /** The table's (or object's) pairing key. */
   ck: string;
   label: string;
@@ -559,7 +567,23 @@ interface Mark {
   probe?: Item[];
   /** What the item arrow replaced (used when the target had no original table). */
   before?: Before;
+  /** The same, per side, for a drop (it may hit both sides). */
+  beforeBy?: Partial<Record<SideId, Before>>;
+  /**
+   * What went with a drop, put back by undoing it (`ck`: the holder's `tkey`,
+   * any schema; `at`: where it was): for a table, the foreign keys of other
+   * tables that referenced it; for a column, its table's indexes, foreign
+   * keys and CHECKs that use it.
+   */
+  cascade?: { side: SideId; ck: string; section: Section; item: Item; at: number }[];
 }
+type DropTo = SideId | 'both';
+/** The sides a mark changed: where it was carried to, or where it was dropped. */
+const targets = (m: Mark): SideId[] => (m.drop === 'both' ? ['left', 'right'] : m.drop ? [m.drop] : [other(m.from)]);
+/** An arrow that's lit (a drop lights the trash instead). */
+const lit = (m: Mark | null | undefined, from: SideId) => !!m && !m.drop && m.from === from;
+/** A drop shows the element struck through on that side. */
+const struck = (m: Mark | null | undefined, s: SideId) => !!m?.drop && targets(m).includes(s);
 const applied = reactive(new Map<string, Mark>());
 let markSeq = 0;
 
@@ -604,9 +628,8 @@ function ghostItems(t: TableDiff, section: Section): [string, Mark][] {
   return [...applied].filter(([k, m]) => m.type === 'item' && m.ck === ck && m.section === section && !seen.has(k));
 }
 
-/** Whether the target side still differs from `orig` in that element. */
-function stillApplied(m: Mark): boolean {
-  const to = other(m.from);
+/** Whether side `to` still differs from `orig` in that element. */
+function appliedOn(m: Mark, to: SideId): boolean {
   const side = sides[to];
   if (!side.work) return false;
   if (m.type === 'object') return sj(findObject(side.work, to, m.okind!, m.ck)) !== sj(findObject(side.orig, to, m.okind!, m.ck));
@@ -614,27 +637,41 @@ function stillApplied(m: Mark): boolean {
   const base = findTable(side.orig, to, m.ck);
   if (m.type === 'table') return sj(cur) !== sj(base);
   if (!cur) return false;
-  return sj(pieceOf(cur, m.section!, m.probe ?? [])) !== sj(base ? pieceOf(base, m.section!, m.probe ?? []) : beforePiece(m.section!, m.before));
+  return sj(pieceOf(cur, m.section!, m.probe ?? [])) !== sj(base ? pieceOf(base, m.section!, m.probe ?? []) : beforePiece(m.section!, m.beforeBy?.[to] ?? m.before));
 }
+/** Whether a side the mark changed still differs from `orig` in that element. */
+const stillApplied = (m: Mark) => targets(m).some((s) => appliedOn(m, s));
 /** Forget the marks whose element is back as it was (a revert, undo, discard or sync). */
 function prune() {
+  narrowDrops();
   for (const [k, m] of applied) if (!stillApplied(m)) applied.delete(k);
 }
 
-/** Put the element back on the side it was carried to, as `orig` has it. */
+/** Put the element back on the side(s) it was carried to or dropped from, as `orig` has it. */
 function revert(m: Mark) {
-  const to = other(m.from);
-  const side = sides[to];
-  if (!side.work) return;
-  if (m.type === 'object') {
-    const o = findObject(side.orig, to, m.okind!, m.ck);
-    replaceIn(side.work.objects, findObject(side.work, to, m.okind!, m.ck), o ? clone(o) : null, o ? side.orig!.objects.indexOf(o) : undefined);
-    return;
+  for (const to of targets(m)) {
+    const side = sides[to];
+    if (!side.work) continue;
+    if (m.type === 'object') {
+      const o = findObject(side.orig, to, m.okind!, m.ck);
+      replaceIn(side.work.objects, findObject(side.work, to, m.okind!, m.ck), o ? clone(o) : null, o ? side.orig!.objects.indexOf(o) : undefined);
+      continue;
+    }
+    const cur = findTable(side.work, to, m.ck);
+    const base = findTable(side.orig, to, m.ck);
+    if (m.type === 'table') replaceTable(to, cur, base ? clone(base) : null, base ? side.orig!.tables.indexOf(base) : undefined);
+    else if (cur) replaceTable(to, cur, restoreItem(cur, base, m.beforeBy?.[to] ?? m.before, m.section!, m.probe ?? []));
   }
-  const cur = findTable(side.work, to, m.ck);
-  const base = findTable(side.orig, to, m.ck);
-  if (m.type === 'table') replaceTable(to, cur, base ? clone(base) : null, base ? side.orig!.tables.indexOf(base) : undefined);
-  else if (cur) replaceTable(to, cur, restoreItem(cur, base, m.before, m.section!, m.probe ?? []));
+  // What went with the drop (other tables' foreign keys, a column's indexes…), where it was.
+  for (const c of [...(m.cascade ?? [])].sort((a, b) => a.at - b.at)) {
+    const cur = sides[c.side].work?.tables.find((x) => tkey(x) === c.ck);
+    if (!cur || findItem(c.section, cur[c.section] as Item[] | undefined, [c.item]) >= 0) continue;
+    const next = clone(cur);
+    if (c.section === 'checks' && !next.checks) next.checks = [];
+    const list = next[c.section] as Item[];
+    list.splice(Math.min(c.at, list.length), 0, clone(c.item));
+    replaceTable(c.side, cur, next);
+  }
 }
 
 /** Make the other side's table like this one (`from`), whole. */
@@ -650,8 +687,15 @@ async function pushTable(ck: string, from: SideId) {
     if (dst) { conv.name = dst.name; conv.schema = dst.schema; }
     replaceTable(to, dst, conv);
   }
-  // The whole table replaced what single items had carried to that side.
-  for (const [k, m] of applied) if (m.type === 'item' && m.ck === ck && m.from === from) applied.delete(k);
+  // The whole table replaced what single items had carried to (or dropped from) that side.
+  for (const [k, m] of applied) {
+    if (m.type !== 'item' || m.ck !== ck || !targets(m).includes(to)) continue;
+    if (m.drop === 'both') {
+      narrow(m, to);
+    } else {
+      applied.delete(k);
+    }
+  }
 }
 
 /** Carry one column, index, foreign key or CHECK (or the primary key, or the comment and options) to the other side. */
@@ -678,15 +722,126 @@ function pushObject(m: Mark) {
   replaceIn(sides[to].work!.objects, dst, copy);
 }
 
+/** A drop on both sides that no longer holds on `gone` (its table was replaced or dropped there): a drop on the other side only. */
+function narrow(m: Mark, gone: SideId) {
+  m.drop = other(gone);
+  m.from = gone;
+  m.cascade = m.cascade?.filter((c) => c.side !== gone);
+  if (m.beforeBy) delete m.beforeBy[gone];
+}
+/** Whether `fk` (of `owner`) points at `target`. */
+const refersTo = (fk: ForeignKeyDef, owner: { schema: string | null }, target: { schema: string | null; name: string }) =>
+  lc(fk.ref_table) === lc(target.name) && lc(fk.ref_schema ?? owner.schema) === lc(target.schema);
+/** The other tables of side `s` with foreign keys to `target`, and those keys. */
+function referencing(s: SideId, target: TableSchema): { table: TableSchema; fks: ForeignKeyDef[] }[] {
+  const out: { table: TableSchema; fks: ForeignKeyDef[] }[] = [];
+  for (const x of sides[s].work?.tables ?? []) {
+    if (tkey(x) === tkey(target)) continue;
+    const fks = x.foreign_keys.filter((fk) => refersTo(fk, x, target));
+    if (fks.length) out.push({ table: x, fks });
+  }
+  return out;
+}
 /**
- * An arrow: carries the element `m.from` → the other side, or, when it was
- * already carried, puts it back first (and stops there if it was this same
- * arrow). One undo step either way.
+ * `dst` without that item (no primary key; for the props, no comment, the
+ * options stay), and what it had there: `carryItem` from a table that lacks it.
  */
-async function arrow(key: string, m: Mark) {
+function removeItem(dst: TableSchema, section: ItemSection, probe: Item[]) {
+  return carryItem(dst, { ...dst, primary_key: null, comment: null, columns: [], indexes: [], foreign_keys: [], checks: [] }, section, probe);
+}
+/** "Eliminar": take the element out of each target side's work copy (sync turns that into DROP / ALTER). */
+function applyDrop(m: Mark) {
+  m.beforeBy = {};
+  m.cascade = [];
+  for (const s of targets(m)) {
+    const w = sides[s].work;
+    if (!w) continue;
+    if (m.type === 'object') {
+      replaceIn(w.objects, findObject(w, s, m.okind!, m.ck), null);
+      continue;
+    }
+    const cur = findTable(w, s, m.ck);
+    if (!cur) continue;
+    if (m.type === 'table') {
+      // DROP TABLE fails while other tables reference it: their keys go first (sync drops foreign keys before tables).
+      stripReferences(m, s, cur);
+      replaceTable(s, cur, null);
+      continue;
+    }
+    const { next, before } = removeItem(cur, m.section!, m.probe ?? []);
+    m.beforeBy[s] = before;
+    // A column takes along what uses it: the script drops those first (no
+    // engine drops a column a multi-column CHECK or foreign key still uses).
+    const col = m.section === 'columns' ? (pieceOf(cur, 'columns', m.probe ?? []) as ColumnDef | null) : null;
+    if (col && cascadesColumns(s)) {
+      for (const [section, items] of usersOf(next, col.name)) {
+        const list = next[section] as Item[];
+        for (const x of items) m.cascade.push({ side: s, ck: tkey(cur), section, item: clone(x), at: (cur[section] as Item[]).findIndex((y) => sj(y) === sj(x)) });
+        (next as unknown as Record<Section, Item[]>)[section] = list.filter((x) => !items.includes(x));
+      }
+    }
+    replaceTable(s, cur, next);
+  }
+}
+/** Whether `text` names `name` as a whole identifier (quoted or not, any case). */
+function mentionsName(text: string | null | undefined, name: string): boolean {
+  if (!text || !name) return false;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^\\p{L}\\p{N}_$#@])${esc}($|[^\\p{L}\\p{N}_$#@])`, 'iu').test(text);
+}
+/** Engines with a fixed schema: there a column's indexes and constraints go with it (elsewhere a field isn't dropped at all). */
+const cascadesColumns = (s: SideId) => ['sql', 'cql'].includes(driverOf(sides[s].connectionId)?.language ?? 'sql');
+/** `t`'s indexes, foreign keys and CHECKs that use column `col`. */
+function usersOf(t: TableSchema, col: string): [Section, Item[]][] {
+  const ix = t.indexes.filter((x) => x.columns.some((c) => lc(c) === lc(col) || mentionsName(c, col)) || x.include?.some((c) => lc(c) === lc(col)) || mentionsName(x.filter, col));
+  const fks = t.foreign_keys.filter((fk) => fk.columns.some((c) => lc(c) === lc(col)));
+  const checks = (t.checks ?? []).filter((c) => mentionsName(c.expression, col));
+  return ([['indexes', ix], ['foreign_keys', fks], ['checks', checks]] as [Section, Item[]][]).filter(([, xs]) => xs.length);
+}
+/** Take out the foreign keys of `s`'s other tables that point at `target` (a dropped table), recording them in `m`. */
+function stripReferences(m: Mark, s: SideId, target: TableSchema) {
+  m.cascade ??= [];
+  for (const r of referencing(s, target)) {
+    const next = clone(r.table);
+    const ck = tkey(r.table);
+    for (const fk of r.fks) m.cascade.push({ side: s, ck, section: 'foreign_keys', item: clone(fk), at: r.table.foreign_keys.indexOf(fk) });
+    next.foreign_keys = next.foreign_keys.filter((_fk, i) => !r.fks.includes(r.table.foreign_keys[i]));
+    replaceTable(s, r.table, next);
+  }
+}
+/**
+ * A table still dropped keeps no foreign key pointing at it: undoing another
+ * drop or an arrow can bring back a table that has one (sync would then fail
+ * on DROP TABLE). Strip it again, so undoing the table drop puts it back.
+ */
+function recascade() {
+  for (const m of applied.values()) {
+    if (m.type !== 'table' || !m.drop) continue;
+    for (const s of targets(m)) {
+      const gone = findTable(sides[s].orig, s, m.ck);
+      if (gone && sides[s].work && !findTable(sides[s].work, s, m.ck)) stripReferences(m, s, gone);
+    }
+  }
+}
+
+/** A drop on both sides whose element one side lost another way (its whole table dropped or replaced there): the other side's only. */
+function narrowDrops() {
+  for (const m of applied.values()) {
+    if (m.drop !== 'both') continue;
+    const held = SIDES.filter((s) => appliedOn(m, s));
+    if (held.length === 1) narrow(m, other(held[0]));
+  }
+}
+
+/**
+ * An arrow or a drop: carries the element `m.from` → the other side (or
+ * drops it where `m.drop` says), or, when it already was, puts it back first
+ * (and stops there if it was this same action). One undo step either way.
+ */
+async function act(key: string, m: Mark) {
   const cur = applied.get(key);
-  const pushing = cur?.from !== m.from;
-  if (pushing && m.type === 'object' && sides.left.work?.driver !== sides.right.work?.driver) {
+  const same = !!cur && (cur.drop ?? null) === (m.drop ?? null) && (!!m.drop || cur.from === m.from);
+  if (!same && !m.drop && m.type === 'object' && sides.left.work?.driver !== sides.right.work?.driver) {
     ElMessage.warning(t('compare:objectsSameEngine'));
     return;
   }
@@ -699,12 +854,14 @@ async function arrow(key: string, m: Mark) {
       revert(cur);
       applied.delete(key);
     }
-    if (pushing) {
-      if (m.type === 'table') await pushTable(m.ck, m.from);
+    if (!same) {
+      if (m.drop) applyDrop(m);
+      else if (m.type === 'table') await pushTable(m.ck, m.from);
       else if (m.type === 'object') pushObject(m);
       else await pushItem(m);
       applied.set(key, m);
     }
+    recascade();
     prune();
     await recompare();
     if (keepSel) {
@@ -719,39 +876,45 @@ async function arrow(key: string, m: Mark) {
 /** A list row's key in `applied`. */
 const rowMarkKey = (it: { table?: TableDiff; object?: ObjectDiff; ghost?: string }) =>
   it.ghost ?? (it.table ? `t:${tableCk(it.table)}` : it.object ? `o:${it.object.kind}:${objectCk(it.object)}` : '');
-function arrowTable(td: TableDiff, from: SideId) {
+/** What a drop leaves the mark's `from` as: a side it wasn't dropped from. */
+const keptSide = (to: DropTo): SideId => (to === 'both' ? 'left' : other(to));
+/** The mark of an arrow (`from`) or a drop (`to`). */
+const how = (dir: { from?: SideId; to?: DropTo }) => (dir.to ? { from: keptSide(dir.to), drop: dir.to } : { from: dir.from! });
+function arrowTable(td: TableDiff, from: SideId, to?: DropTo) {
   touched.add(tid(td));
   const ck = tableCk(td);
-  return arrow(`t:${ck}`, { type: 'table', from, ck, label: td.key });
+  return act(`t:${ck}`, { type: 'table', ...how({ from, to }), ck, label: td.key });
 }
-function arrowObject(o: ObjectDiff, from: SideId) {
+function arrowObject(o: ObjectDiff, from: SideId, to?: DropTo) {
   touched.add(oid(o));
   const ck = objectCk(o);
-  return arrow(`o:${o.kind}:${ck}`, { type: 'object', from, ck, okind: o.kind, label: o.key });
+  return act(`o:${o.kind}:${ck}`, { type: 'object', ...how({ from, to }), ck, okind: o.kind, label: o.key });
 }
-function arrowItem(td: TableDiff, section: Section, d: ItemDiff, from: SideId) {
+function arrowItem(td: TableDiff, section: Section, d: ItemDiff, from: SideId, to?: DropTo) {
   touched.add(tid(td));
   touched.add(itemKey(td, section, d));
   const ck = tableCk(td);
-  const probe = (['left', 'right'] as SideId[]).map((s) => itemAt(s, td, section, d)).filter((x): x is Item => !!x).map(clone);
-  return arrow(itemMarkKey(td, section, d) ?? `t:${ck}|${section}|${++markSeq}`, { type: 'item', from, ck, section, probe, label: d.name });
+  const probe = itemProbe(td, section, d);
+  return act(itemMarkKey(td, section, d) ?? `t:${ck}|${section}|${++markSeq}`, { type: 'item', ...how({ from, to }), ck, section, probe, label: d.name });
 }
-function arrowKey(td: TableDiff, section: 'primary_key' | 'props', from: SideId) {
+function arrowKey(td: TableDiff, section: 'primary_key' | 'props', from: SideId, to?: DropTo) {
   touched.add(tid(td));
   touched.add(itemKey(td, section, null));
   const ck = tableCk(td);
-  return arrow(`t:${ck}|${section}`, { type: 'item', from, ck, section, label: section });
+  return act(`t:${ck}|${section}`, { type: 'item', ...how({ from, to }), ck, section, label: section });
 }
-/** The arrows of an element an arrow removed from both sides. */
-function arrowGhost(key: string, from: SideId) {
+/** The arrows (or the trash) of an element a change removed from both sides. */
+function arrowGhost(key: string, from: SideId, to?: DropTo) {
   const m = applied.get(key);
-  if (m) return arrow(key, { ...m, from, probe: [] });
+  // What the old action kept to undo itself doesn't carry over to the new one.
+  if (m) return act(key, { ...m, ...how({ from, to }), drop: to, probe: [], beforeBy: undefined, cascade: undefined });
 }
-function arrowRow(it: { table?: TableDiff; object?: ObjectDiff; ghost?: string }, from: SideId) {
-  if (it.ghost) return arrowGhost(it.ghost, from);
-  return it.table ? arrowTable(it.table, from) : arrowObject(it.object!, from);
+function arrowRow(it: { table?: TableDiff; object?: ObjectDiff; ghost?: string }, from: SideId, to?: DropTo) {
+  if (it.ghost) return arrowGhost(it.ghost, from, to);
+  return it.table ? arrowTable(it.table, from, to) : arrowObject(it.object!, from, to);
 }
-
+const itemProbe = (td: TableDiff, section: Section, d: ItemDiff) =>
+  (['left', 'right'] as SideId[]).map((s) => itemAt(s, td, section, d)).filter((x): x is Item => !!x).map(clone);
 /** Whether each side had the element at first: what the arrows would do once it's put back. */
 function origStatus(m: Mark): Status {
   const had = (s: SideId) => {
@@ -767,11 +930,11 @@ function origStatus(m: Mark): Status {
 }
 /** An arrow's tooltip; the lit one undoes that element. */
 function tip(m: Mark | null, status: Status, from: SideId, what: 'table' | 'object' | 'item') {
-  if (m?.from === from) return t('compare:arrow.revert');
+  if (lit(m, from)) return t('compare:arrow.revert');
   return arrowTip(m ? origStatus(m) : status, from, what);
 }
 function keyTip(td: TableDiff, section: 'primary_key' | 'props', from: SideId) {
-  if (keyMark(td, section)?.from === from) return t('compare:arrow.revert');
+  if (lit(keyMark(td, section), from)) return t('compare:arrow.revert');
   return t(`compare:arrow.${section === 'primary_key' ? 'pk' : 'props'}.${from === 'right' ? 'copyLeft' : 'copyRight'}`);
 }
 
@@ -783,6 +946,230 @@ function arrowTip(status: Status, from: SideId, what: 'table' | 'object' | 'item
   const action = srcMissing ? 'delete' : dstMissing ? 'create' : 'copy';
   return t(`compare:arrow.${what}.${action}${to}`);
 }
+
+// -- "Eliminar" -------------------------------------------------------------------------------
+// The trash next to the arrows: drop the element on the left, on the right or
+// on both. One small menu, shared by every row (rows only hold a button), and
+// built when it opens.
+interface DropOption { to: DropTo; label: string; on: boolean; reason: string | null }
+interface DropMenu { title: string; options: DropOption[]; info: { text: string; tip?: string; warn?: boolean }[]; run: (to: DropTo) => unknown }
+const DROP_TOS: DropTo[] = ['left', 'right', 'both'];
+const sideLabel = (s: SideId) => (s === 'left' ? t('compare:left') : t('compare:right'));
+/** Whether side `s` has the element in that model. */
+function has(model: DbModel | null | undefined, s: SideId, m: Pick<Mark, 'type' | 'ck' | 'okind' | 'section' | 'probe'>): boolean {
+  if (m.type === 'object') return !!findObject(model, s, m.okind!, m.ck);
+  const b = findTable(model, s, m.ck);
+  if (!b || m.type === 'table') return !!b;
+  if (m.section === 'primary_key') return !!b.primary_key?.columns.length;
+  if (m.section === 'props') return !!b.comment;
+  return findItem(m.section as Section, b[m.section as Section] as Item[] | undefined, m.probe ?? []) >= 0;
+}
+/**
+ * Whether side `s` has the element on its server (only that can be dropped)
+ * and still in its work copy (another change, like dropping its table or the
+ * column an index uses, may have taken it already).
+ */
+const origHas = (s: SideId, m: Pick<Mark, 'type' | 'ck' | 'okind' | 'section' | 'probe'>) => has(sides[s].orig, s, m) && has(sides[s].work, s, m);
+/** Left / right / both, each with why it can't be picked; the lit one undoes the drop. */
+function dropOptions(m: Mark | null, what: Pick<Mark, 'type' | 'ck' | 'okind' | 'section' | 'probe'>, extra: (s: SideId) => string | null = () => null, labels = 'drop'): DropOption[] {
+  const why = (s: SideId) => {
+    if (struck(m, s)) return syncBlocked(s);
+    if (!origHas(s, what)) return t('compare:drop.missing');
+    return syncBlocked(s) ?? extra(s);
+  };
+  return DROP_TOS.map((to) => {
+    const on = m?.drop === to;
+    return { to, on, label: t(`compare:${labels}.${to}`), reason: on ? null : to === 'both' ? why('left') ?? why('right') : why(to) };
+  });
+}
+/** Other tables' foreign keys to that table, per side: they go with it. */
+function cascadeInfo(ck: string): DropMenu['info'] {
+  const info: DropMenu['info'] = [];
+  const m = applied.get(`t:${ck}`);
+  for (const s of SIDES) {
+    const cur = findTable(sides[s].work, s, ck);
+    // Already dropped there: what the drop took along.
+    const taken = !cur && struck(m, s) ? (m!.cascade ?? []).filter((c) => c.side === s) : [];
+    const refs = cur
+      ? referencing(s, cur).map((r) => ({ table: r.table.name, fks: r.fks }))
+      : [...new Set(taken.map((c) => c.ck))].map((k) => ({ table: k.slice(k.indexOf('.') + 1), fks: taken.filter((c) => c.ck === k).map((c) => c.item as ForeignKeyDef) }));
+    const count = refs.reduce((n, r) => n + r.fks.length, 0);
+    if (count) {
+      info.push({
+        text: t('compare:drop.cascade', { side: sideLabel(s), count, tables: refs.map((r) => r.table).join(', ') }),
+        tip: refs.flatMap((r) => r.fks.map((fk) => `${r.table}.${fk.name ?? fk.columns.join(',')}`)).join('\n'),
+      });
+    }
+  }
+  return info;
+}
+/**
+ * The table as side `s` has it on its server (what a drop is about, even once
+ * the drop took it out of the work copy), or as the work copy has it.
+ */
+const baseTable = (s: SideId, ck: string) => findTable(sides[s].orig, s, ck) ?? findTable(sides[s].work, s, ck);
+/**
+ * A unique index, the primary key or a column (`column`) that foreign keys
+ * point at (other tables' or its own table's): the engine may refuse to drop it.
+ */
+function referencedInfo(ck: string, cols: (s: SideId) => string[] | null, column = false): DropMenu['info'] {
+  const info: DropMenu['info'] = [];
+  for (const s of SIDES) {
+    const cur = findTable(sides[s].work, s, ck);
+    const base = baseTable(s, ck);
+    const c = cols(s);
+    if (!cur || !base || !c?.length) continue;
+    const own = cur.foreign_keys.filter((fk) => refersTo(fk, cur, cur));
+    for (const r of referencing(s, base).concat(own.length ? [{ table: cur, fks: own }] : [])) {
+      for (const fk of r.fks) {
+        const hit = column ? fk.ref_columns.some((x) => lc(x) === lc(c[0])) : colsKey(fk.ref_columns) === colsKey(c);
+        if (hit) info.push({ warn: true, text: t(column ? 'compare:drop.referencedColumn' : 'compare:drop.referenced', { side: sideLabel(s), fk: fk.name ?? fk.columns.join(', '), table: r.table.name }) });
+      }
+    }
+  }
+  return info;
+}
+/** What goes with a column (its indexes, foreign keys and CHECKs), and the computed columns that use it. */
+function columnInfo(ck: string, col: string): DropMenu['info'] {
+  const info: DropMenu['info'] = [];
+  const label: Record<Section, string> = { columns: '', indexes: t('compare:drop.what.index'), foreign_keys: t('compare:drop.what.fk'), checks: t('compare:drop.what.check') };
+  for (const s of SIDES) {
+    const base = baseTable(s, ck);
+    if (!base || !base.columns.some((c) => lc(c.name) === lc(col))) continue;
+    if (cascadesColumns(s)) {
+      const name = (section: Section, x: Item) =>
+        section === 'foreign_keys' ? (x as ForeignKeyDef).name ?? `(${(x as ForeignKeyDef).columns.join(', ')})` : section === 'checks' ? (x as CheckDef).name ?? (x as CheckDef).expression : (x as IndexDef).name;
+      const items = usersOf(base, col).flatMap(([section, xs]) => xs.map((x) => `${label[section]} ${name(section, x)}`));
+      if (items.length) info.push({ text: t('compare:drop.withColumn', { side: sideLabel(s), count: items.length, items: items.join(', ') }) });
+    }
+    // A computed column's expression is in its type (`AS (…)`, `GENERATED ALWAYS AS (…)`).
+    for (const c of base.columns) {
+      if (lc(c.name) !== lc(col) && /\bAS\s*\(|^\s*AS\s/i.test(c.data_type) && mentionsName(c.data_type, col)) {
+        info.push({ warn: true, text: t('compare:drop.computed', { side: sideLabel(s), column: c.name }) });
+      }
+    }
+  }
+  return info;
+}
+/** MySQL needs an index to back each foreign key: dropping the only one that does fails. */
+function backsFkInfo(ck: string, ix: (s: SideId) => IndexDef | null): DropMenu['info'] {
+  const info: DropMenu['info'] = [];
+  const prefix = (cols: string[], of: string[]) => cols.length <= of.length && cols.every((c, i) => lc(c) === lc(of[i]));
+  for (const s of SIDES) {
+    const cur = findTable(sides[s].work, s, ck);
+    const x = ix(s);
+    if (!cur || !x || driverOf(sides[s].connectionId)?.dialect !== 'mysql') continue;
+    for (const fk of cur.foreign_keys) {
+      if (!prefix(fk.columns, x.columns)) continue;
+      const others = [...cur.indexes.filter((o) => lc(o.name) !== lc(x.name)).map((o) => o.columns), cur.primary_key?.columns ?? []];
+      if (!others.some((o) => prefix(fk.columns, o))) info.push({ warn: true, text: t('compare:drop.backsFk', { side: sideLabel(s), fk: fk.name ?? fk.columns.join(', ') }) });
+    }
+  }
+  return info;
+}
+/** Each side's index usage, to decide (from the badges already loaded). */
+function usageInfo(name: (s: SideId) => string | null, pk: boolean): DropMenu['info'] {
+  return SIDES.flatMap((s) => {
+    const n = name(s);
+    const b = n !== null || pk ? ixBadge(s, n, pk) : null;
+    return b ? [{ text: t('compare:drop.usage', { side: sideLabel(s), usage: b.text }), tip: ixBadgeTip(s, n, pk) }] : [];
+  });
+}
+
+function tableDropMenu(td: TableDiff): DropMenu {
+  const ck = tableCk(td);
+  return { title: td.key, options: dropOptions(tableMark(td), { type: 'table', ck }), info: cascadeInfo(ck), run: (to) => arrowTable(td, 'left', to) };
+}
+function objectDropMenu(o: ObjectDiff): DropMenu {
+  return { title: o.key, options: dropOptions(objectMark(o), { type: 'object', ck: objectCk(o), okind: o.kind }), info: [], run: (to) => arrowObject(o, 'left', to) };
+}
+/** A table or object a change removed from both sides: its trash undoes (or moves) the drop. */
+function ghostDropMenu(key: string, m: Mark): DropMenu {
+  return { title: m.label, options: dropOptions(m, m), info: m.type === 'table' ? cascadeInfo(m.ck) : [], run: (to) => arrowGhost(key, 'left', to) };
+}
+function rowDropMenu(it: { table?: TableDiff; object?: ObjectDiff; ghost?: string; mark: Mark | null }): DropMenu {
+  if (it.ghost && it.mark) return ghostDropMenu(it.ghost, it.mark);
+  return it.table ? tableDropMenu(it.table) : objectDropMenu(it.object!);
+}
+function itemDropMenu(td: TableDiff, section: Section, d: ItemDiff): DropMenu {
+  const ck = tableCk(td);
+  const what = { type: 'item' as const, ck, section, probe: itemProbe(td, section, d) };
+  let extra: (s: SideId) => string | null = () => null;
+  let info: DropMenu['info'] = [];
+  if (section === 'columns') {
+    extra = (s) => {
+      const cur = findTable(sides[s].work, s, ck);
+      if (cur?.primary_key?.columns.some((c) => lc(c) === lc(d.name))) return t('compare:drop.inPk');
+      return cur && cur.columns.length <= 1 ? t('compare:drop.lastColumn') : null;
+    };
+    info = [...columnInfo(ck, d.name), ...referencedInfo(ck, () => [d.name], true)];
+  } else if (section === 'indexes') {
+    // As the side's server has it: a drop already took it out of the work copy.
+    const ix = (s: SideId) => {
+      const b = baseTable(s, ck);
+      const i = b ? findItem('indexes', b.indexes, what.probe) : -1;
+      return i >= 0 ? b!.indexes[i] : null;
+    };
+    info = [
+      ...usageInfo((s) => ix(s)?.name ?? null, false),
+      ...referencedInfo(ck, (s) => (ix(s)?.unique ? ix(s)!.columns : null)),
+      ...backsFkInfo(ck, ix),
+    ];
+  }
+  return { title: d.name, options: dropOptions(itemMark(td, section, d), what, extra), info, run: (to) => arrowItem(td, section, d, 'left', to) };
+}
+function ghostItemDropMenu(key: string, m: Mark): DropMenu {
+  const info = m.section === 'columns' ? [...columnInfo(m.ck, m.label), ...referencedInfo(m.ck, () => [m.label], true)] : [];
+  return { title: m.label, options: dropOptions(m, m), info, run: (to) => arrowGhost(key, 'left', to) };
+}
+function keyDropMenu(td: TableDiff, section: 'primary_key' | 'props'): DropMenu {
+  const ck = tableCk(td);
+  const pk = section === 'primary_key';
+  return {
+    title: pk ? t('compare:primaryKey') : t('compare:drop.clearComment'),
+    options: dropOptions(keyMark(td, section), { type: 'item', ck, section }, (s) => (pk && driverOf(sides[s].connectionId)?.id === 'cockroachdb' ? t('compare:drop.pkRequired', { engine: driverOf(sides[s].connectionId)!.name }) : null), pk ? 'drop' : 'dropComment'),
+    info: pk ? [...usageInfo(() => null, true), ...referencedInfo(ck, (s) => baseTable(s, ck)?.primary_key?.columns ?? null)] : [],
+    run: (to) => arrowKey(td, section, 'left', to),
+  };
+}
+
+const dropMenu = reactive<{ menu: DropMenu | null; style: Record<string, string> }>({ menu: null, style: {} });
+const dropEl = ref<HTMLElement | null>(null);
+function openDrop(e: MouseEvent, build: () => DropMenu) {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const up = r.bottom > window.innerHeight - 240;
+  dropMenu.style = {
+    ...(r.right < 380 ? { left: `${r.left}px` } : { right: `${window.innerWidth - r.right}px` }),
+    ...(up ? { bottom: `${window.innerHeight - r.top + 2}px` } : { top: `${r.bottom + 2}px` }),
+  };
+  dropMenu.menu = build();
+  window.addEventListener('pointerdown', outsideDrop, true);
+  window.addEventListener('keydown', keyDrop, true);
+  window.addEventListener('wheel', closeDrop, true);
+  window.addEventListener('resize', closeDrop);
+}
+function closeDrop() {
+  dropMenu.menu = null;
+  window.removeEventListener('pointerdown', outsideDrop, true);
+  window.removeEventListener('keydown', keyDrop, true);
+  window.removeEventListener('wheel', closeDrop, true);
+  window.removeEventListener('resize', closeDrop);
+}
+function outsideDrop(e: PointerEvent) {
+  if (!dropEl.value?.contains(e.target as Node)) closeDrop();
+}
+function keyDrop(e: KeyboardEvent) {
+  if (e.key === 'Escape') { e.stopPropagation(); closeDrop(); }
+}
+function pickDrop(o: DropOption) {
+  const m = dropMenu.menu;
+  closeDrop();
+  if (m && !o.reason) m.run(o.to);
+}
+onBeforeUnmount(closeDrop);
+/** Equal items "Solo diferencias" hides: they can be dropped once shown. */
+const hiddenEqual = (td: TableDiff, section: Section) =>
+  onlyDiff.value && section !== 'columns' ? (td[section] ?? []).filter((x) => x.status === 'equal' && !touched.has(itemKey(td, section, x)) && !itemMarkKey(td, section, x)).length : 0;
 
 // -- detail --------------------------------------------------------------------------------------
 const selTable = computed(() => selected.value?.table ?? null);
@@ -855,6 +1242,14 @@ function titleOf(section: Section, x: Item) {
 const pkText = (t: TableSchema | null) => (t?.primary_key?.columns.length ? `PRIMARY KEY (${t.primary_key.columns.join(', ')})` : '');
 /** A detail row that became equal by an arrow and isn't applied yet. */
 const rowMark = (k: string) => touched.has(k) && !!selected.value && isPending(selected.value);
+/** The selected table as side `s` has it on its server. */
+const origTable = (s: SideId) => (selTable.value ? findTable(sides[s].orig, s, tableCk(selTable.value)) : null);
+/** What a drop took from side `s`, shown struck through there. */
+function droppedItem(m: Mark | null, s: SideId): Item | null {
+  if (!m || !struck(m, s)) return null;
+  const b = m.beforeBy?.[s] as { item: Item | null } | undefined;
+  return b?.item ?? m.probe?.[0] ?? null;
+}
 const codeDiff = computed(() => (selObject.value ? lineDiff(objectOf('left')?.definition ?? '', objectOf('right')?.definition ?? '') : []));
 
 // -- index usage: each side's numbers, read on that side's own connection -------------------
@@ -907,7 +1302,7 @@ function ixBadgeTip(s: SideId, name: string | null, pk = false) {
 // One "Sincronizar" for both sides: a script per side with pending changes,
 // one tab each; "Ejecutar" runs left then right, each on its own connection,
 // and stops at the first failure.
-interface SyncTab { side: SideId; script: SyncScript | null; error: string | null; done: boolean }
+interface SyncTab { side: SideId; script: SyncScript | null; error: string | null; done: boolean; deps: DepCheck[] }
 const sync = reactive<{ open: boolean; tabs: SyncTab[]; active: SideId; loading: boolean; running: boolean; error: string | null }>({
   open: false, tabs: [], active: 'left', loading: false, running: false, error: null,
 });
@@ -952,6 +1347,165 @@ const emptyScript = (tab: SyncTab | null) => !!tab?.script && !tab.done && !tab.
 /** Something to run, and every side's script generated. */
 const canRun = computed(() => sync.tabs.some((x) => !x.done && x.script?.statements.length) && sync.tabs.every((x) => x.done || (x.script && !x.error)));
 
+// -- what gets destroyed, and what depends on it ------------------------------------------------
+/** What a side's script drops for good: tables (with their data), columns, code objects. */
+function destructive(s: SideId) {
+  const c = pending.value[s];
+  const name = (x: { schema: string | null; name: string }) => (x.schema ? `${x.schema}.${x.name}` : x.name);
+  const tables = c.tables.flatMap((x) => (x.op === 'drop' ? [name(x.table)] : []));
+  const columns = c.tables.flatMap((x) => {
+    if (x.op !== 'alter') return [];
+    const kept = new Set(x.new.columns.map((col) => lc(col.name)));
+    return x.old.columns.filter((col) => !kept.has(lc(col.name))).map((col) => `${name(x.old)}.${col.name}`);
+  });
+  const objects = c.objects.flatMap((x) => (x.op === 'drop' ? [name(x.object)] : []));
+  return { tables, columns, objects, any: tables.length + columns.length + objects.length > 0 };
+}
+function destructiveLines(s: SideId): string[] {
+  const d = destructive(s);
+  const list = (xs: string[]) => (xs.length > 8 ? `${xs.slice(0, 8).join(', ')}…` : xs.join(', '));
+  return [
+    d.tables.length ? t('compare:sync.destructiveTables', { count: d.tables.length, names: list(d.tables) }) : '',
+    d.columns.length ? t('compare:sync.destructiveColumns', { count: d.columns.length, names: list(d.columns) }) : '',
+    d.objects.length ? t('compare:sync.destructiveObjects', { count: d.objects.length, names: list(d.objects) }) : '',
+  ].filter(Boolean);
+}
+
+/**
+ * Before a drop runs, what depends on each dropped table, column, view or
+ * routine (`get_dependents`, asked on the side that drops it). It can take
+ * long and queues the side's explorer reads behind it, so it's read in the
+ * background, one at a time, once per database load (cached); it never
+ * holds the "Ejecutar" button, and a failure only says it couldn't check.
+ */
+interface DepCheck {
+  key: string;
+  label: string;
+  state: 'loading' | 'error' | 'done';
+  error: string | null;
+  /** Confirmed or probable: they break. */
+  breaks: Dependent[];
+  /** Only named inside dynamic SQL: to check by hand. */
+  review: Dependent[];
+  /** Definitions that couldn't be read: the list may be incomplete. */
+  unreadable: string[];
+  note: string | null;
+}
+const depCache = new Map<string, Promise<DependencyReport>>();
+const depKey = (connectionId: string, database: string, x: DependencyTarget) =>
+  [connectionId, database, x.object.kind, x.object.schema ?? '', x.object.name, x.column ?? ''].join('\u0001');
+/** That database was read again: what depends on what may have changed. */
+function forgetDependents(connectionId: string, database: string) {
+  const prefix = `${connectionId}\u0001${database}\u0001`;
+  for (const k of [...depCache.keys()]) if (k.startsWith(prefix)) depCache.delete(k);
+}
+function dependentsOf(s: SideId, target: DependencyTarget): Promise<DependencyReport> {
+  const { connectionId, database } = sides[s];
+  const k = depKey(connectionId, database, target);
+  let p = depCache.get(k);
+  if (!p) {
+    p = api.getDependents(connectionId, database, target);
+    depCache.set(k, p);
+    // A failed check can be tried again next time.
+    p.catch(() => { if (depCache.get(k) === p) depCache.delete(k); });
+  }
+  return p;
+}
+const qual = (x: { schema: string | null; name: string }) => `${lc(x.schema)}.${lc(x.name)}`;
+/** The tables, columns and code objects side `s` drops, as dependency targets. */
+function dropTargets(s: SideId): { label: string; target: DependencyTarget }[] {
+  const c = pending.value[s];
+  const name = (x: { schema: string | null; name: string }) => (x.schema ? `${x.schema}.${x.name}` : x.name);
+  const ref = (x: TableSchema | CodeObject) => ({ kind: x.kind || 'table', schema: x.schema, name: x.name });
+  const out: { label: string; target: DependencyTarget }[] = [];
+  for (const x of c.tables) {
+    if (x.op === 'drop') out.push({ label: name(x.table), target: { object: ref(x.table) } });
+    if (x.op !== 'alter') continue;
+    const kept = new Set(x.new.columns.map((col) => lc(col.name)));
+    for (const col of x.old.columns) if (!kept.has(lc(col.name))) out.push({ label: `${name(x.old)}.${col.name}`, target: { object: ref(x.old), column: col.name } });
+  }
+  // Nothing refers to a trigger: it goes with its table or alone.
+  for (const x of c.objects) if (x.op === 'drop' && x.object.kind !== 'trigger') out.push({ label: name(x.object), target: { object: ref(x.object) } });
+  return out;
+}
+/** Split a report into what breaks and what to review, leaving out what this same script also takes away. */
+function classify(s: SideId, target: DependencyTarget, report: DependencyReport): Pick<DepCheck, 'breaks' | 'review'> {
+  const c = pending.value[s];
+  const droppedTables = new Set(c.tables.flatMap((x) => (x.op === 'drop' ? [qual(x.table)] : [])));
+  const droppedObjects = new Set(c.objects.flatMap((x) => (x.op === 'drop' ? [`${x.object.kind}:${qual(x.object)}`] : [])));
+  const alters = new Map(c.tables.flatMap((x) => (x.op === 'alter' ? [[qual(x.old), x] as const] : [])));
+  const self = qual(target.object);
+  const handled = (d: Dependent) => {
+    const dk = qual(d);
+    if (d.relation === 'code') {
+      if (droppedObjects.has(`${d.kind}:${dk}`)) return true;
+      // The table's own triggers go with it.
+      return !target.column && d.kind === 'trigger' && lc(d.parent) === lc(target.object.name) && droppedTables.has(self);
+    }
+    // A foreign key, index or check: `d` is the table holding it, `d.detail`
+    // names the constraint as `schema_dependents` writes it.
+    if (droppedTables.has(dk)) return true;
+    const a = alters.get(dk);
+    if (!a || a.op !== 'alter') return false;
+    const detail = lc(d.detail);
+    const gone = <T extends Item>(section: Section, list: T[] | undefined) => (list ?? []).filter((x) => findItem(section, a.new[section] as Item[] | undefined, [x]) < 0);
+    if (d.relation === 'foreign_key') {
+      return gone('foreign_keys', a.old.foreign_keys).some((fk) => (fk.name ? detail.startsWith(`${lc(fk.name)} (`) : detail.startsWith(`(${fk.columns.map(lc).join(', ')})`)));
+    }
+    if (d.relation === 'check') return gone('checks', a.old.checks).some((c) => (c.name ? detail.startsWith(`${lc(c.name)}: `) : detail === lc(c.expression)));
+    const pk = a.old.primary_key;
+    if (pk?.columns.length && detail.startsWith(`${lc(pk.name ?? 'PRIMARY KEY')} (`)) {
+      // The primary key on that column: fine once it's dropped or no longer has the column.
+      return sj(pk) !== sj(a.new.primary_key) && !a.new.primary_key?.columns.some((c) => lc(c) === lc(target.column));
+    }
+    return gone('indexes', a.old.indexes).some((x) => detail.startsWith(`${lc(x.name)} (`));
+  };
+  const breaks: Dependent[] = [];
+  const review: Dependent[] = [];
+  for (const d of report.items) {
+    // A whole table: other tables' foreign keys and the code that uses it; its own indexes and checks go with it.
+    if (!target.column && (d.relation === 'index' || d.relation === 'check')) continue;
+    if (!target.column && d.relation === 'foreign_key' && qual(d) === self) continue;
+    if (handled(d)) continue;
+    (d.confidence === 'review' ? review : breaks).push(d);
+  }
+  return { breaks, review };
+}
+let depRun = 0;
+/**
+ * At most this many checks per side: each may take minutes on a slow engine
+ * and holds the side's metadata session meanwhile. The rest say they weren't
+ * checked.
+ */
+const DEP_LIMIT = 20;
+/** Fill a sync tab's checks, one target at a time, while that dialog is the one open. */
+async function checkDependents(tab: SyncTab) {
+  const s = tab.side;
+  if (!driverOf(sides[s].connectionId)?.supports_dependencies) return;
+  const run = depRun;
+  const all = dropTargets(s);
+  const todo = all.slice(0, DEP_LIMIT);
+  tab.deps = all.map(({ label, target }, i) => ({
+    key: depKey('', '', target), label, breaks: [], review: [], unreadable: [], note: null,
+    ...(i < DEP_LIMIT ? { state: 'loading' as const, error: null } : { state: 'error' as const, error: t('compare:deps.tooMany', { limit: DEP_LIMIT }) }),
+  }));
+  for (const [i, { target }] of todo.entries()) {
+    // Closed or regenerated: what's left isn't asked (and doesn't hold the session).
+    if (run !== depRun || !sync.open) {
+      for (const d of tab.deps.slice(i)) if (d.state === 'loading') Object.assign(d, { state: 'error', error: t('compare:deps.stopped') });
+      return;
+    }
+    const check = tab.deps[i];
+    try {
+      const report = await dependentsOf(s, target);
+      Object.assign(check, classify(s, target, report), { state: 'done', unreadable: report.unreadable, note: report.note });
+    } catch (e) {
+      Object.assign(check, { state: 'error', error: errorMessage(e) });
+    }
+  }
+}
+const depText = (d: Dependent) => `${d.kind} ${d.schema ? `${d.schema}.` : ''}${d.name}${d.detail ? ` — ${d.detail}` : d.mentions[0] ? ` — ${d.mentions[0].line}: ${d.mentions[0].text}` : ''}`;
+
 // A run is a task (stores/tasks.ts): "Seguir en segundo plano" closes the
 // dialog and the run goes on; closing the tab doesn't stop it either (its
 // session `sync:<runId>` isn't tied to the tab). Once this view is gone the
@@ -986,11 +1540,13 @@ async function openSync() {
   if (sync.running) { sync.open = true; return; }
   const list = sidesWithChanges.value;
   if (!list.length) return;
-  sync.tabs = list.map((side) => ({ side, script: null, error: null, done: false }));
+  sync.tabs = list.map((side) => ({ side, script: null, error: null, done: false, deps: [] }));
   sync.active = list[0];
   sync.error = null;
   sync.open = true;
   sync.loading = true;
+  depRun++;
+  for (const tab of sync.tabs) checkDependents(tab);
   await Promise.all(sync.tabs.map(async (tab) => {
     const s = tab.side;
     try {
@@ -1021,6 +1577,14 @@ async function runSync() {
   const lines = todo.map((x) => t('compare:sync.confirm', { count: x.script!.statements.length, where: where(x.side), warnings: '' }));
   if (todo.length > 1) lines.push(t('compare:sync.confirmOrder'));
   if (todo.some((x) => x.script!.warnings.length)) lines.push(t('compare:sync.confirmWarnings').trim());
+  if (todo.some((x) => destructive(x.side).any)) lines.push(t('compare:sync.confirmDestructive'));
+  const breaks = todo.reduce((n, x) => n + x.deps.reduce((m, d) => m + d.breaks.length, 0), 0);
+  if (breaks) lines.push(t('compare:sync.confirmDependents', { count: breaks }));
+  if (todo.some((x) => x.deps.some((d) => d.state === 'loading'))) lines.push(t('compare:sync.confirmDepsPending'));
+  const unchecked = todo.reduce((n, x) => n + x.deps.filter((d) => d.state === 'error').length, 0);
+  if (unchecked) lines.push(t('compare:sync.confirmDepsFailed', { count: unchecked }));
+  const incomplete = todo.reduce((n, x) => n + x.deps.filter((d) => d.state === 'done' && d.unreadable.length).length, 0);
+  if (incomplete) lines.push(t('compare:sync.confirmDepsIncomplete', { count: incomplete }));
   try {
     await ElMessageBox.confirm(lines.join(' '), t('compare:sync.button'), {
       confirmButtonText: t('common:run'), cancelButtonText: t('common:cancel'), type: 'warning',
@@ -1241,11 +1805,14 @@ async function runSync() {
               @click="selectedId = it.id"
             >
               <span class="cv-st" :class="it.status" :title="STATUS[it.status].label">{{ STATUS[it.status].icon }}</span>
-              <span class="cv-name" :title="it.key">{{ it.key }}</span>
+              <span class="cv-name" :class="{ drop: !!it.mark?.drop }" :title="it.mark?.drop ? `${it.key} · ${$t(`compare:drop.pending.${it.mark.drop}`)}` : it.key">{{ it.key }}</span>
               <span v-if="isPending(it)" class="cv-dot" :title="$t('compare:pendingChanges')" />
-              <span v-if="it.status !== 'equal' || it.mark" class="cv-arrows" :class="{ keep: !!it.mark }" @click.stop>
-                <button :class="{ on: it.mark?.from === 'right' }" :title="tip(it.mark, it.status, 'right', it.table || it.mark?.type === 'table' ? 'table' : 'object')" @click="arrowRow(it, 'right')">←</button>
-                <button :class="{ on: it.mark?.from === 'left' }" :title="tip(it.mark, it.status, 'left', it.table || it.mark?.type === 'table' ? 'table' : 'object')" @click="arrowRow(it, 'left')">→</button>
+              <span class="cv-arrows" :class="{ keep: !!it.mark }" @click.stop>
+                <template v-if="it.status !== 'equal' || it.mark">
+                  <button :class="{ on: lit(it.mark, 'right') }" :title="tip(it.mark, it.status, 'right', it.table || it.mark?.type === 'table' ? 'table' : 'object')" @click="arrowRow(it, 'right')">←</button>
+                  <button :class="{ on: lit(it.mark, 'left') }" :title="tip(it.mark, it.status, 'left', it.table || it.mark?.type === 'table' ? 'table' : 'object')" @click="arrowRow(it, 'left')">→</button>
+                </template>
+                <button class="cv-trash" :class="{ on: !!it.mark?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => rowDropMenu(it))"><el-icon><ei-delete /></el-icon></button>
               </span>
             </div>
           </template>
@@ -1257,19 +1824,26 @@ async function runSync() {
 
         <template v-else-if="selTable">
           <div class="cv-dhead">
-            <div class="cv-dside">{{ tableOf('left') ? `${sides.left.database} · ${selTable.key}` : '—' }}</div>
-            <div class="cv-mid">
-              <template v-if="selTable.status !== 'equal' || tableMark(selTable)">
-                <button :class="{ on: tableMark(selTable)?.from === 'right' }" :title="tip(tableMark(selTable), selTable.status, 'right', 'table')" @click="arrowTable(selTable, 'right')">←</button>
-                <button :class="{ on: tableMark(selTable)?.from === 'left' }" :title="tip(tableMark(selTable), selTable.status, 'left', 'table')" @click="arrowTable(selTable, 'left')">→</button>
-              </template>
+            <div v-for="s in (['left', 'right'] as SideId[])" :key="s" class="cv-dside" :style="{ order: s === 'left' ? 0 : 2 }">
+              <template v-if="tableOf(s)">{{ sides[s].database }} · {{ selTable.key }}</template>
+              <span v-else-if="struck(tableMark(selTable), s)" class="cv-ghost drop" :title="$t(`compare:drop.pending.${s}`)">{{ sides[s].database }} · {{ selTable.key }}</span>
+              <template v-else>—</template>
             </div>
-            <div class="cv-dside">{{ tableOf('right') ? `${sides.right.database} · ${selTable.key}` : '—' }}</div>
+            <div class="cv-mid" style="order: 1">
+              <template v-if="selTable.status !== 'equal' || tableMark(selTable)">
+                <button :class="{ on: lit(tableMark(selTable), 'right') }" :title="tip(tableMark(selTable), selTable.status, 'right', 'table')" @click="arrowTable(selTable, 'right')">←</button>
+                <button :class="{ on: lit(tableMark(selTable), 'left') }" :title="tip(tableMark(selTable), selTable.status, 'left', 'table')" @click="arrowTable(selTable, 'left')">→</button>
+              </template>
+              <button class="cv-trash" :class="{ on: !!tableMark(selTable)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => tableDropMenu(selTable!))"><el-icon><ei-delete /></el-icon></button>
+            </div>
           </div>
           <div class="cv-grid">
             <template v-if="tableOf('left') && tableOf('right')">
               <template v-for="sec in SECTIONS" :key="sec.id">
-                <div v-if="(selTable[sec.id] ?? []).length || ghostItems(selTable, sec.id).length" class="cv-sec">{{ sec.label }}</div>
+                <div v-if="(selTable[sec.id] ?? []).length || ghostItems(selTable, sec.id).length" class="cv-sec">
+                  {{ sec.label }}
+                  <span v-if="hiddenEqual(selTable, sec.id)" class="cv-hidden" :title="$t('compare:drop.hiddenEqualTip')">{{ $t('compare:drop.hiddenEqual', { count: hiddenEqual(selTable, sec.id) }) }}</span>
+                </div>
                 <div v-for="d in (selTable[sec.id] ?? []).filter((x) => !onlyDiff || x.status !== 'equal' || sec.id === 'columns' || touched.has(itemKey(selTable!, sec.id, x)) || !!itemMarkKey(selTable!, sec.id, x))" :key="sec.id + d.name + d.left + d.right" class="cv-row" :class="d.status">
                   <div class="cv-cell" :class="{ none: d.left === null }">
                     <template v-if="itemOf('left', sec.id, d)">
@@ -1280,13 +1854,18 @@ async function runSync() {
                         :title="ixBadgeTip('left', d.name)"
                       >{{ ixBadge('left', d.name)!.text }}</span>
                     </template>
+                    <template v-else-if="droppedItem(itemMark(selTable, sec.id, d), 'left')">
+                      <b class="cv-ghost drop" :title="$t('compare:drop.pending.left')">{{ titleOf(sec.id, droppedItem(itemMark(selTable, sec.id, d), 'left')!) }}</b>
+                      <span v-for="p in partsOf(sec.id, droppedItem(itemMark(selTable, sec.id, d), 'left')!)" :key="p.f" class="cv-ghost drop">{{ p.t }}</span>
+                    </template>
                   </div>
                   <div class="cv-mid">
                     <template v-if="d.status !== 'equal' || itemMark(selTable, sec.id, d)">
-                      <button :class="{ on: itemMark(selTable, sec.id, d)?.from === 'right' }" :title="tip(itemMark(selTable, sec.id, d), d.status, 'right', 'item')" @click="arrowItem(selTable, sec.id, d, 'right')">←</button>
-                      <button :class="{ on: itemMark(selTable, sec.id, d)?.from === 'left' }" :title="tip(itemMark(selTable, sec.id, d), d.status, 'left', 'item')" @click="arrowItem(selTable, sec.id, d, 'left')">→</button>
+                      <button :class="{ on: lit(itemMark(selTable, sec.id, d), 'right') }" :title="tip(itemMark(selTable, sec.id, d), d.status, 'right', 'item')" @click="arrowItem(selTable, sec.id, d, 'right')">←</button>
+                      <button :class="{ on: lit(itemMark(selTable, sec.id, d), 'left') }" :title="tip(itemMark(selTable, sec.id, d), d.status, 'left', 'item')" @click="arrowItem(selTable, sec.id, d, 'left')">→</button>
                     </template>
                     <span v-else-if="rowMark(itemKey(selTable, sec.id, d))" class="cv-dot" :title="$t('compare:pendingChanges')" />
+                    <button class="cv-trash" :class="{ on: !!itemMark(selTable, sec.id, d)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => itemDropMenu(selTable!, sec.id, d))"><el-icon><ei-delete /></el-icon></button>
                   </div>
                   <div class="cv-cell" :class="{ none: d.right === null }">
                     <template v-if="itemOf('right', sec.id, d)">
@@ -1297,46 +1876,57 @@ async function runSync() {
                         :title="ixBadgeTip('right', d.name)"
                       >{{ ixBadge('right', d.name)!.text }}</span>
                     </template>
+                    <template v-else-if="droppedItem(itemMark(selTable, sec.id, d), 'right')">
+                      <b class="cv-ghost drop" :title="$t('compare:drop.pending.right')">{{ titleOf(sec.id, droppedItem(itemMark(selTable, sec.id, d), 'right')!) }}</b>
+                      <span v-for="p in partsOf(sec.id, droppedItem(itemMark(selTable, sec.id, d), 'right')!)" :key="p.f" class="cv-ghost drop">{{ p.t }}</span>
+                    </template>
                   </div>
                 </div>
-                <!-- Removed from both sides by an arrow: its name where undoing it brings it back. -->
+                <!-- Removed from both sides by an arrow or a drop: its name where undoing it brings it back. -->
                 <div v-for="[gk, gm] in ghostItems(selTable, sec.id)" :key="gk" class="cv-row equal">
-                  <div class="cv-cell none"><b v-if="gm.from === 'right'" class="cv-ghost">{{ gm.label }}</b></div>
+                  <div class="cv-cell none"><b v-if="targets(gm).includes('left')" class="cv-ghost" :class="{ drop: !!gm.drop }">{{ gm.label }}</b></div>
                   <div class="cv-mid">
-                    <button :class="{ on: gm.from === 'right' }" :title="tip(gm, 'equal', 'right', 'item')" @click="arrowGhost(gk, 'right')">←</button>
-                    <button :class="{ on: gm.from === 'left' }" :title="tip(gm, 'equal', 'left', 'item')" @click="arrowGhost(gk, 'left')">→</button>
+                    <button :class="{ on: lit(gm, 'right') }" :title="tip(gm, 'equal', 'right', 'item')" @click="arrowGhost(gk, 'right')">←</button>
+                    <button :class="{ on: lit(gm, 'left') }" :title="tip(gm, 'equal', 'left', 'item')" @click="arrowGhost(gk, 'left')">→</button>
+                    <button class="cv-trash" :class="{ on: !!gm.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => ghostItemDropMenu(gk, gm))"><el-icon><ei-delete /></el-icon></button>
                   </div>
-                  <div class="cv-cell none"><b v-if="gm.from === 'left'" class="cv-ghost">{{ gm.label }}</b></div>
+                  <div class="cv-cell none"><b v-if="targets(gm).includes('right')" class="cv-ghost" :class="{ drop: !!gm.drop }">{{ gm.label }}</b></div>
                 </div>
               </template>
               <template v-if="propParts(tableOf('left')).length || propParts(tableOf('right')).length || keyMark(selTable, 'props')">
                 <div class="cv-sec">{{ $t('compare:tableProps') }}</div>
                 <div class="cv-row" :class="selTable.fields.length ? 'changed' : 'equal'">
-                  <div class="cv-cell"><span v-for="p in propParts(tableOf('left'))" :key="p.f" :class="{ hl: selTable.fields.includes(p.f) }">{{ p.t }}</span></div>
-                  <div class="cv-mid">
-                    <template v-if="selTable.fields.length || keyMark(selTable, 'props')">
-                      <button :class="{ on: keyMark(selTable, 'props')?.from === 'right' }" :title="keyTip(selTable, 'props', 'right')" @click="arrowKey(selTable, 'props', 'right')">←</button>
-                      <button :class="{ on: keyMark(selTable, 'props')?.from === 'left' }" :title="keyTip(selTable, 'props', 'left')" @click="arrowKey(selTable, 'props', 'left')">→</button>
+                  <div v-for="s in (['left', 'right'] as SideId[])" :key="s" class="cv-cell" :style="{ order: s === 'left' ? 0 : 2 }">
+                    <span v-for="p in propParts(tableOf(s))" :key="p.f" :class="{ hl: selTable.fields.includes(p.f) }">{{ p.t }}</span>
+                    <span v-if="struck(keyMark(selTable, 'props'), s) && origTable(s)?.comment" class="cv-ghost drop" :title="$t(`compare:drop.pending.${s}`)">— {{ origTable(s)!.comment }}</span>
+                  </div>
+                  <div class="cv-mid" style="order: 1">
+                    <template v-if="selTable.fields.length || (keyMark(selTable, 'props') && !keyMark(selTable, 'props')!.drop)">
+                      <button :class="{ on: lit(keyMark(selTable, 'props'), 'right') }" :title="keyTip(selTable, 'props', 'right')" @click="arrowKey(selTable, 'props', 'right')">←</button>
+                      <button :class="{ on: lit(keyMark(selTable, 'props'), 'left') }" :title="keyTip(selTable, 'props', 'left')" @click="arrowKey(selTable, 'props', 'left')">→</button>
                     </template>
                     <span v-else-if="rowMark(itemKey(selTable, 'props', null))" class="cv-dot" :title="$t('compare:pendingChanges')" />
+                    <button v-if="origTable('left')?.comment || origTable('right')?.comment" class="cv-trash" :class="{ on: !!keyMark(selTable, 'props')?.drop }" :title="$t('compare:drop.clearComment')" @click="openDrop($event, () => keyDropMenu(selTable!, 'props'))"><el-icon><ei-delete /></el-icon></button>
                   </div>
-                  <div class="cv-cell"><span v-for="p in propParts(tableOf('right'))" :key="p.f" :class="{ hl: selTable.fields.includes(p.f) }">{{ p.t }}</span></div>
                 </div>
               </template>
               <div v-if="pkText(tableOf('left')) || pkText(tableOf('right')) || keyMark(selTable, 'primary_key')" class="cv-sec">{{ $t('compare:primaryKey') }}</div>
               <div v-if="pkText(tableOf('left')) || pkText(tableOf('right')) || keyMark(selTable, 'primary_key')" class="cv-row" :class="selTable.primary_key">
                 <div class="cv-cell" :class="{ none: !pkText(tableOf('left')) }">
+                  <span v-if="!pkText(tableOf('left')) && struck(keyMark(selTable, 'primary_key'), 'left')" class="cv-ghost drop" :title="$t('compare:drop.pending.left')">{{ pkText(origTable('left')) }}</span>
                   <span :class="{ hl: selTable.primary_key !== 'equal' }">{{ pkText(tableOf('left')) }}</span>
                   <span v-if="pkText(tableOf('left')) && ixBadge('left', null, true)" class="cv-ixbadge" :class="badgeClass(ixBadge('left', null, true)!)" :title="ixBadgeTip('left', null, true)">{{ ixBadge('left', null, true)!.text }}</span>
                 </div>
                 <div class="cv-mid">
                   <template v-if="selTable.primary_key !== 'equal' || keyMark(selTable, 'primary_key')">
-                    <button :class="{ on: keyMark(selTable, 'primary_key')?.from === 'right' }" :title="keyTip(selTable, 'primary_key', 'right')" @click="arrowKey(selTable, 'primary_key', 'right')">←</button>
-                    <button :class="{ on: keyMark(selTable, 'primary_key')?.from === 'left' }" :title="keyTip(selTable, 'primary_key', 'left')" @click="arrowKey(selTable, 'primary_key', 'left')">→</button>
+                    <button :class="{ on: lit(keyMark(selTable, 'primary_key'), 'right') }" :title="keyTip(selTable, 'primary_key', 'right')" @click="arrowKey(selTable, 'primary_key', 'right')">←</button>
+                    <button :class="{ on: lit(keyMark(selTable, 'primary_key'), 'left') }" :title="keyTip(selTable, 'primary_key', 'left')" @click="arrowKey(selTable, 'primary_key', 'left')">→</button>
                   </template>
                   <span v-else-if="rowMark(itemKey(selTable, 'primary_key', null))" class="cv-dot" :title="$t('compare:pendingChanges')" />
+                  <button class="cv-trash" :class="{ on: !!keyMark(selTable, 'primary_key')?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => keyDropMenu(selTable!, 'primary_key'))"><el-icon><ei-delete /></el-icon></button>
                 </div>
                 <div class="cv-cell" :class="{ none: !pkText(tableOf('right')) }">
+                  <span v-if="!pkText(tableOf('right')) && struck(keyMark(selTable, 'primary_key'), 'right')" class="cv-ghost drop" :title="$t('compare:drop.pending.right')">{{ pkText(origTable('right')) }}</span>
                   <span :class="{ hl: selTable.primary_key !== 'equal' }">{{ pkText(tableOf('right')) }}</span>
                   <span v-if="pkText(tableOf('right')) && ixBadge('right', null, true)" class="cv-ixbadge" :class="badgeClass(ixBadge('right', null, true)!)" :title="ixBadgeTip('right', null, true)">{{ ixBadge('right', null, true)!.text }}</span>
                 </div>
@@ -1360,14 +1950,18 @@ async function runSync() {
 
         <template v-else-if="selObject">
           <div class="cv-dhead">
-            <div class="cv-dside">{{ objectOf('left') ? `${sides.left.database} · ${selObject.key}` : '—' }}</div>
-            <div class="cv-mid">
-              <template v-if="selObject.status !== 'equal' || objectMark(selObject)">
-                <button :class="{ on: objectMark(selObject)?.from === 'right' }" :title="tip(objectMark(selObject), selObject.status, 'right', 'object')" @click="arrowObject(selObject, 'right')">←</button>
-                <button :class="{ on: objectMark(selObject)?.from === 'left' }" :title="tip(objectMark(selObject), selObject.status, 'left', 'object')" @click="arrowObject(selObject, 'left')">→</button>
-              </template>
+            <div v-for="s in (['left', 'right'] as SideId[])" :key="s" class="cv-dside" :style="{ order: s === 'left' ? 0 : 2 }">
+              <template v-if="objectOf(s)">{{ sides[s].database }} · {{ selObject.key }}</template>
+              <span v-else-if="struck(objectMark(selObject), s)" class="cv-ghost drop" :title="$t(`compare:drop.pending.${s}`)">{{ sides[s].database }} · {{ selObject.key }}</span>
+              <template v-else>—</template>
             </div>
-            <div class="cv-dside">{{ objectOf('right') ? `${sides.right.database} · ${selObject.key}` : '—' }}</div>
+            <div class="cv-mid" style="order: 1">
+              <template v-if="selObject.status !== 'equal' || objectMark(selObject)">
+                <button :class="{ on: lit(objectMark(selObject), 'right') }" :title="tip(objectMark(selObject), selObject.status, 'right', 'object')" @click="arrowObject(selObject, 'right')">←</button>
+                <button :class="{ on: lit(objectMark(selObject), 'left') }" :title="tip(objectMark(selObject), selObject.status, 'left', 'object')" @click="arrowObject(selObject, 'left')">→</button>
+              </template>
+              <button class="cv-trash" :class="{ on: !!objectMark(selObject)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => objectDropMenu(selObject!))"><el-icon><ei-delete /></el-icon></button>
+            </div>
           </div>
           <div class="cv-code">
             <div v-for="(l, i) in codeDiff" :key="i" class="cv-cline" :class="l.kind">
@@ -1377,16 +1971,18 @@ async function runSync() {
           </div>
         </template>
 
-        <!-- A table or object an arrow removed from both sides: only its arrows, to undo it. -->
+        <!-- A table or object an arrow or a drop removed from both sides: only its arrows and trash, to undo it. -->
         <template v-else-if="selected.ghost && selected.mark">
           <div class="cv-dhead">
-            <div class="cv-dside"><span v-if="selected.mark.from === 'right'" class="cv-ghost">{{ selected.key }}</span><template v-else>—</template></div>
+            <div class="cv-dside"><span v-if="targets(selected.mark).includes('left')" class="cv-ghost" :class="{ drop: !!selected.mark.drop }">{{ selected.key }}</span><template v-else>—</template></div>
             <div class="cv-mid">
-              <button :class="{ on: selected.mark.from === 'right' }" :title="tip(selected.mark, 'equal', 'right', selected.mark.type === 'table' ? 'table' : 'object')" @click="arrowGhost(selected.ghost, 'right')">←</button>
-              <button :class="{ on: selected.mark.from === 'left' }" :title="tip(selected.mark, 'equal', 'left', selected.mark.type === 'table' ? 'table' : 'object')" @click="arrowGhost(selected.ghost, 'left')">→</button>
+              <button :class="{ on: lit(selected.mark, 'right') }" :title="tip(selected.mark, 'equal', 'right', selected.mark.type === 'table' ? 'table' : 'object')" @click="arrowGhost(selected.ghost, 'right')">←</button>
+              <button :class="{ on: lit(selected.mark, 'left') }" :title="tip(selected.mark, 'equal', 'left', selected.mark.type === 'table' ? 'table' : 'object')" @click="arrowGhost(selected.ghost, 'left')">→</button>
+              <button class="cv-trash" :class="{ on: !!selected.mark.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => ghostDropMenu(selected!.ghost!, selected!.mark!))"><el-icon><ei-delete /></el-icon></button>
             </div>
-            <div class="cv-dside"><span v-if="selected.mark.from === 'left'" class="cv-ghost">{{ selected.key }}</span><template v-else>—</template></div>
+            <div class="cv-dside"><span v-if="targets(selected.mark).includes('right')" class="cv-ghost" :class="{ drop: !!selected.mark.drop }">{{ selected.key }}</span><template v-else>—</template></div>
           </div>
+          <p v-if="selected.mark.drop" class="cv-ghost-note">{{ $t(`compare:drop.pending.${selected.mark.drop}`) }}</p>
         </template>
       </div>
     </div>
@@ -1414,6 +2010,28 @@ async function runSync() {
         </el-tabs>
         <template v-if="activeTab">
           <el-alert v-if="activeTab.error" type="error" :title="activeTab.error" :closable="false" show-icon style="margin-bottom: 8px" />
+          <el-alert v-if="!activeTab.done && destructiveLines(activeTab.side).length" type="error" :closable="false" show-icon style="margin-bottom: 6px">
+            <template #title><div v-for="l in destructiveLines(activeTab.side)" :key="l">{{ l }}</div></template>
+          </el-alert>
+          <div v-if="!activeTab.done && activeTab.deps.length" class="cv-deps">
+            <div class="cv-deps-h">{{ $t('compare:deps.title') }}</div>
+            <div v-for="d in activeTab.deps" :key="d.key" class="cv-dep">
+              <div class="cv-dep-line">
+                <b>{{ d.label }}</b>
+                <span v-if="d.state === 'loading'" class="cv-dep-muted"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('compare:deps.loading') }}</span>
+                <span v-else-if="d.state === 'error'" class="cv-dep-warn" :title="d.error ?? ''">{{ $t('compare:deps.failed') }}</span>
+                <template v-else>
+                  <span v-if="d.breaks.length" class="cv-dep-bad">{{ $t('compare:deps.breaks', { count: d.breaks.length }) }}</span>
+                  <span v-if="d.review.length" class="cv-dep-warn">{{ $t('compare:deps.review', { count: d.review.length }) }}</span>
+                  <span v-if="d.unreadable.length" class="cv-dep-warn" :title="d.unreadable.join('\n')">{{ $t('compare:deps.incomplete', { count: d.unreadable.length }) }}</span>
+                  <span v-if="!d.breaks.length && !d.review.length" class="cv-dep-muted">{{ d.unreadable.length ? $t('compare:deps.noneFound') : $t('compare:deps.none') }}</span>
+                </template>
+              </div>
+              <div v-for="(x, i) in d.breaks" :key="'b' + i" class="cv-dep-item bad">{{ depText(x) }}</div>
+              <div v-for="(x, i) in d.review" :key="'r' + i" class="cv-dep-item warn">{{ depText(x) }}</div>
+              <div v-if="d.note" class="cv-dep-item">{{ tb(d.note) }}</div>
+            </div>
+          </div>
           <el-alert v-for="w in activeTab.script?.warnings ?? []" :key="w" type="warning" :title="tb(w)" :closable="false" show-icon style="margin-bottom: 6px" />
           <el-alert v-if="emptyScript(activeTab)" type="warning" :title="$t('compare:sync.emptyScript')" :closable="false" show-icon style="margin-bottom: 6px" />
           <div v-if="activeTab.script && !emptyScript(activeTab)" class="cv-stools">
@@ -1434,6 +2052,21 @@ async function runSync() {
         <el-button type="danger" :disabled="!canRun" :loading="sync.running" @click="runSync">{{ $t('common:run') }}</el-button>
       </template>
     </el-dialog>
+
+    <Teleport to="body">
+      <div v-if="dropMenu.menu" ref="dropEl" class="cv-menu" :style="dropMenu.style" role="menu">
+        <div class="cv-menu-title">{{ dropMenu.menu.title }}</div>
+        <button
+          v-for="o in dropMenu.menu.options" :key="o.to" class="cv-menu-item" :class="{ on: o.on }" role="menuitem"
+          :disabled="!!o.reason" :title="o.on ? $t('compare:drop.undo') : o.reason ?? ''" @click="pickDrop(o)"
+        >
+          <el-icon class="cv-menu-check"><ei-check v-if="o.on" /></el-icon>
+          <span class="cv-menu-label">{{ o.label }}</span>
+          <small v-if="o.reason">{{ o.reason }}</small>
+        </button>
+        <div v-for="(l, i) in dropMenu.menu.info" :key="i" class="cv-menu-info" :class="{ warn: l.warn }" :title="l.tip">{{ l.text }}</div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1491,18 +2124,51 @@ async function runSync() {
 .cv-arrows.keep { display: inline-flex; }
 .cv-arrows button.on, .cv-mid button.on { background: var(--el-color-primary); border-color: var(--el-color-primary); color: #fff; }
 .cv-ghost { color: var(--nm-text-muted); text-decoration: line-through; }
+/* "Eliminar": the trash, lit red once used, and what it drops struck through in red. */
+.cv-arrows button.cv-trash, .cv-mid button.cv-trash { display: inline-flex; align-items: center; justify-content: center; color: var(--nm-text-muted); font-size: 12px; }
+.cv-arrows button.cv-trash:hover, .cv-mid button.cv-trash:hover { color: var(--nm-danger); border-color: var(--nm-danger); background: color-mix(in srgb, var(--nm-danger) 14%, transparent); }
+.cv-arrows button.cv-trash.on, .cv-mid button.cv-trash.on { background: var(--nm-danger); border-color: var(--nm-danger); color: #fff; }
+/* In the detail it stays faint until its row is pointed at (the list shows it on hover already). */
+.cv-row .cv-trash:not(.on), .cv-dhead .cv-trash:not(.on) { opacity: 0.45; }
+.cv-row:hover .cv-trash, .cv-dhead:hover .cv-trash { opacity: 1; }
+.cv-ghost.drop, .cv-name.drop { color: var(--nm-danger); text-decoration: line-through; }
+.cv-ghost-note { margin: 0; padding: 10px 12px; font-size: 12.5px; color: var(--nm-text-muted); }
+.cv-hidden { margin-left: 8px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.cv-menu {
+  position: fixed; z-index: 3000; min-width: 220px; max-width: 380px; padding: 4px 0; border: 1px solid var(--nm-border);
+  border-radius: 6px; background: var(--ide-editor); color: var(--nm-text); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); font-size: 12.5px;
+}
+.cv-menu-title { padding: 4px 12px 6px; font-weight: 600; color: var(--nm-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--nm-border-soft); margin-bottom: 4px; }
+.cv-menu-item { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; width: 100%; padding: 4px 12px 4px 6px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cv-menu-item:hover:not(:disabled) { background: var(--ide-hover); color: var(--nm-danger); }
+.cv-menu-item.on { color: var(--nm-danger); font-weight: 600; }
+.cv-menu-item:disabled { cursor: default; color: var(--nm-text-muted); }
+.cv-menu-item small { flex-basis: 100%; padding-left: 22px; font-size: 11px; color: var(--nm-text-muted); }
+.cv-menu-check { width: 16px; flex: none; }
+.cv-menu-info { padding: 4px 12px; font-size: 11.5px; color: var(--nm-text-muted); border-top: 1px solid var(--nm-border-soft); }
+.cv-menu-info.warn { color: var(--nm-warning); }
+.cv-deps { max-height: 170px; overflow: auto; margin-bottom: 8px; padding: 6px 10px; border: 1px solid var(--nm-border); border-radius: 4px; font-size: 12.5px; }
+.cv-deps-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--nm-text-muted); margin-bottom: 4px; }
+.cv-dep + .cv-dep { margin-top: 4px; }
+.cv-dep-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.cv-dep-muted { color: var(--nm-text-muted); display: inline-flex; align-items: center; gap: 4px; }
+.cv-dep-bad { color: var(--nm-danger); font-weight: 600; }
+.cv-dep-warn { color: var(--nm-warning); }
+.cv-dep-item { padding-left: 14px; font-family: var(--nm-mono); font-size: 11.5px; color: var(--nm-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-dep-item.bad { color: var(--nm-text); }
+.cv-dep-item.warn { color: var(--nm-warning); }
 .changed { --st: var(--nm-warning); }
 .only_left { --st: #3794ff; }
 .only_right { --st: #89d185; }
 .equal { --st: var(--nm-text-muted); }
 .cv-st, .cv-chip { color: var(--st); }
 .cv-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.cv-dhead { display: grid; grid-template-columns: 1fr 64px 1fr; align-items: center; border-bottom: 1px solid var(--nm-border); background: var(--ide-sidebar); }
+.cv-dhead { display: grid; grid-template-columns: 1fr 92px 1fr; align-items: center; border-bottom: 1px solid var(--nm-border); background: var(--ide-sidebar); }
 .cv-dside { padding: 8px 12px; font-weight: 600; color: var(--nm-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-mid { display: flex; justify-content: center; gap: 4px; }
 .cv-grid { flex: 1; overflow: auto; font-size: 12.5px; }
 .cv-sec { padding: 10px 12px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--nm-text-muted); }
-.cv-row { display: grid; grid-template-columns: 1fr 64px 1fr; align-items: stretch; border-bottom: 1px solid var(--nm-border-soft); }
+.cv-row { display: grid; grid-template-columns: 1fr 92px 1fr; align-items: stretch; border-bottom: 1px solid var(--nm-border-soft); }
 .cv-row:not(.equal) { background: color-mix(in srgb, var(--st) 7%, transparent); }
 .cv-row:not(.equal) .cv-cell:first-child { box-shadow: inset 3px 0 0 var(--st); }
 .cv-mid { align-items: center; }

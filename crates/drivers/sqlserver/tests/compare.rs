@@ -169,28 +169,67 @@ fn drop_other(kind: &str, schema: Option<&str>, name: &str) -> String {
     }
 }
 
-/// `plan` in src-tauri's compare, in the order proposed for it: object
-/// drops, prerequisites (types, sequences, full-text catalogs and
-/// stoplists), tables, other objects, then dropped prerequisites.
+/// Whether `text` names `name` as a whole word (any case), as src-tauri's
+/// compare reads it.
+fn mentions(text: &str, name: &str) -> bool {
+    let (t, n) = (text.to_lowercase(), name.to_lowercase());
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$');
+    let mut from = 0;
+    while let Some(i) = t[from..].find(&n) {
+        let at = from + i;
+        if !word(t[..at].chars().last()) && !word(t[at + n.len()..].chars().next()) {
+            return true;
+        }
+        from = at + n.len();
+    }
+    false
+}
+
+/// `(name, text)` items in the order src-tauri's `dependency_order` gives:
+/// one whose text names another goes after it, or before it with
+/// `dependents_first` (drops); a cycle is broken at its first item.
+fn dependency_order(items: &[(&str, &str)], dependents_first: bool) -> Vec<usize> {
+    let n = items.len();
+    let edge = |i: usize, j: usize| !items[i].0.eq_ignore_ascii_case(items[j].0) && mentions(items[i].1, items[j].0);
+    let mut left: Vec<usize> = (0..n).collect();
+    let mut out = Vec::with_capacity(n);
+    while !left.is_empty() {
+        // Ready: nothing still left has to go before it.
+        let waits = |a: usize| left.iter().any(|&b| b != a && if dependents_first { edge(b, a) } else { edge(a, b) });
+        let at = left.iter().position(|&a| !waits(a)).unwrap_or(0);
+        out.push(left.remove(at));
+    }
+    out
+}
+
+/// `plan` in src-tauri's compare: object drops (dependents first),
+/// prerequisites (types, sequences, full-text catalogs and stoplists),
+/// tables, other objects (in dependency order), then dropped prerequisites.
 fn plan(d: &dyn Driver, tables: &[TableChange], objects: &[(Op, String, Option<String>, String, String)]) -> Vec<String> {
     let (mut before, mut early, mut after, mut late) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for (op, kind, schema, name, def) in objects {
         let prereq = PREREQS.contains(&kind.as_str());
+        let drop = (name.as_str(), def.as_str(), drop_other(kind, schema.as_deref(), name));
         match op {
-            Op::Drop if prereq => late.push(drop_other(kind, schema.as_deref(), name)),
-            Op::Drop => before.push(drop_other(kind, schema.as_deref(), name)),
-            Op::Replace if !IN_PLACE.contains(&kind.as_str()) => before.push(drop_other(kind, schema.as_deref(), name)),
+            Op::Drop if prereq => late.push(drop),
+            Op::Drop => before.push(drop),
+            Op::Replace if !IN_PLACE.contains(&kind.as_str()) => before.push(drop),
             _ => {}
         }
         if *op != Op::Drop {
-            if prereq { early.push(def.clone()) } else { after.push(def.clone()) }
+            if prereq { early.push(def.clone()) } else { after.push((name.as_str(), def.as_str())) }
         }
     }
+    let drops = |list: Vec<(&str, &str, String)>| {
+        let order = dependency_order(&list.iter().map(|(n, t, _)| (*n, *t)).collect::<Vec<_>>(), true);
+        order.into_iter().map(|i| list[i].2.clone()).collect::<Vec<_>>()
+    };
+    let creates: Vec<String> = dependency_order(&after, false).into_iter().map(|i| after[i].1.to_string()).collect();
     let script = d.sync_script(tables).expect("sync_script");
     for w in &script.warnings {
         eprintln!("aviso: {w}");
     }
-    before.into_iter().chain(early).chain(script.statements).chain(after).chain(late).collect()
+    drops(before).into_iter().chain(early).chain(script.statements).chain(creates).chain(drops(late)).collect()
 }
 
 #[tokio::test]
@@ -643,6 +682,345 @@ CREATE CLUSTERED COLUMNSTORE INDEX CCI_RuleScenario ON Alerts.RuleScenario;"
     drop(src);
     drop(dst);
     for db in [src_db, dst_db] {
+        admin.drop_database(db).await.expect("drop_database");
+    }
+}
+
+/// What both sides start with for the "Eliminar" cases: indexes, a foreign
+/// key, CHECKs, a table two others (and itself) reference, and one of each
+/// code object the compare drops.
+const DROPS: &str = "
+CREATE TYPE dbo.Codigo FROM varchar(10) NULL;
+CREATE SEQUENCE dbo.seq_pedidos AS int START WITH 1;
+GO
+CREATE TABLE dbo.clientes (
+    id int NOT NULL CONSTRAINT PK_clientes PRIMARY KEY,
+    nombre nvarchar(50) NOT NULL,
+    email nvarchar(100) NULL,
+    telefono varchar(20) NULL,
+    edad int NULL,
+    saldo decimal(10,2) NULL CONSTRAINT DF_clientes_saldo DEFAULT (0),
+    notas nvarchar(200) NULL,
+    CONSTRAINT CK_clientes_edad CHECK (edad >= 0),
+    CONSTRAINT CK_clientes_saldo CHECK (saldo >= 0)
+);
+CREATE INDEX IX_clientes_email ON dbo.clientes (email);
+CREATE INDEX IX_clientes_nombre ON dbo.clientes (nombre) INCLUDE (email);
+CREATE INDEX IX_clientes_telefono ON dbo.clientes (telefono);
+CREATE INDEX IX_clientes_edad ON dbo.clientes (edad) INCLUDE (notas) WHERE notas IS NOT NULL;
+CREATE TABLE dbo.pedidos (
+    id int NOT NULL CONSTRAINT PK_pedidos PRIMARY KEY,
+    cliente_id int NOT NULL,
+    total decimal(10,2) NULL,
+    CONSTRAINT FK_pedidos_clientes FOREIGN KEY (cliente_id) REFERENCES dbo.clientes (id)
+);
+CREATE TABLE dbo.categorias (
+    id int NOT NULL CONSTRAINT PK_categorias PRIMARY KEY,
+    codigo dbo.Codigo,
+    padre_id int NULL CONSTRAINT FK_categorias_padre REFERENCES dbo.categorias (id)
+);
+CREATE TABLE dbo.productos (
+    id int NOT NULL CONSTRAINT PK_productos PRIMARY KEY,
+    categoria_id int NULL CONSTRAINT FK_productos_categorias REFERENCES dbo.categorias (id)
+);
+CREATE TABLE dbo.etiquetas (
+    id int NOT NULL CONSTRAINT PK_etiquetas PRIMARY KEY,
+    categoria_id int NULL,
+    CONSTRAINT FK_etiquetas_categorias FOREIGN KEY (categoria_id) REFERENCES dbo.categorias (id) ON DELETE CASCADE
+);
+INSERT INTO dbo.categorias VALUES (1, 'a', NULL), (2, 'b', 1);
+INSERT INTO dbo.productos VALUES (1, 2);
+INSERT INTO dbo.etiquetas VALUES (1, 1);
+GO
+CREATE VIEW dbo.v_clientes AS SELECT id, nombre FROM dbo.clientes;
+GO
+CREATE VIEW dbo.v_clientes_top AS SELECT TOP 10 id FROM dbo.v_clientes ORDER BY id;
+GO
+CREATE VIEW dbo.v_categorias AS SELECT id, codigo FROM dbo.categorias;
+GO
+CREATE FUNCTION dbo.fn_total(@id int) RETURNS decimal(10,2) AS BEGIN RETURN (SELECT SUM(total) FROM dbo.pedidos WHERE cliente_id = @id); END;
+GO
+CREATE PROCEDURE dbo.sp_limpiar AS DELETE FROM dbo.pedidos WHERE total IS NULL;
+GO
+CREATE TRIGGER dbo.tg_pedidos ON dbo.pedidos AFTER INSERT AS BEGIN SET NOCOUNT ON; END;
+GO
+CREATE SYNONYM dbo.syn_clientes FOR dbo.clientes;
+";
+
+/// One side as the compare tab holds it.
+#[derive(Clone)]
+struct Model {
+    tables: BTreeMap<String, TableSchema>,
+    objects: Objects,
+}
+
+type ObjectOps = Vec<(Op, String, Option<String>, String, String)>;
+
+impl Model {
+    async fn read(s: &mut Box<dyn Session>) -> Self {
+        let (tables, objects) = read(s).await;
+        Model { tables, objects }
+    }
+
+    /// `changesOf` in CompareView.vue: what differs from the side as it was
+    /// loaded (`orig`) becomes a drop, an alter or a create.
+    fn changes_from(&self, orig: &Model) -> (Vec<TableChange>, ObjectOps) {
+        let mut tables = Vec::new();
+        for (name, o) in &orig.tables {
+            match self.tables.get(name) {
+                None => tables.push(TableChange::Drop { table: o.clone() }),
+                Some(w) if w != o => tables.push(TableChange::Alter { old: o.clone(), new: w.clone() }),
+                Some(_) => {}
+            }
+        }
+        for (name, w) in &self.tables {
+            if !orig.tables.contains_key(name) {
+                tables.push(TableChange::Create { table: w.clone() });
+            }
+        }
+        let mut objects = Vec::new();
+        for ((k, s, n), def) in &orig.objects {
+            match self.objects.get(&(k.clone(), s.clone(), n.clone())) {
+                None => objects.push((Op::Drop, k.clone(), s.clone(), n.clone(), def.clone())),
+                Some(w) if w != def => objects.push((Op::Replace, k.clone(), s.clone(), n.clone(), w.clone())),
+                Some(_) => {}
+            }
+        }
+        for ((k, s, n), def) in &self.objects {
+            if !orig.objects.contains_key(&(k.clone(), s.clone(), n.clone())) {
+                objects.push((Op::Create, k.clone(), s.clone(), n.clone(), def.clone()));
+            }
+        }
+        (tables, objects)
+    }
+
+    /// "Eliminar" on an item: the table without it (`removeItem`).
+    fn drop_item(&mut self, table: &str, section: &str, name: &str) {
+        let t = self.tables.get_mut(table).unwrap_or_else(|| panic!("table {table}"));
+        let before = (t.columns.len(), t.indexes.len(), t.foreign_keys.len(), t.checks.len());
+        match section {
+            "columns" => t.columns.retain(|c| c.name != name),
+            "indexes" => t.indexes.retain(|i| i.name != name),
+            "foreign_keys" => t.foreign_keys.retain(|f| f.name.as_deref() != Some(name)),
+            "checks" => t.checks.retain(|c| c.name.as_deref() != Some(name)),
+            "primary_key" => {
+                assert_eq!(t.primary_key.as_ref().and_then(|k| k.name.as_deref()), Some(name));
+                t.primary_key = None;
+                return;
+            }
+            _ => unreachable!(),
+        }
+        assert_ne!(before, (t.columns.len(), t.indexes.len(), t.foreign_keys.len(), t.checks.len()), "{section} {name} in {table}");
+    }
+
+    /// "Eliminar" on a table: gone, and the foreign keys of other tables
+    /// that reference it are stripped (`applyDrop`'s cascade).
+    fn drop_table(&mut self, table: &str) {
+        let gone = self.tables.remove(table).unwrap_or_else(|| panic!("table {table}"));
+        for t in self.tables.values_mut() {
+            t.foreign_keys.retain(|f| !(f.ref_table.eq_ignore_ascii_case(&gone.name) && f.ref_schema.as_ref().or(t.schema.as_ref()).map(|s| s.to_lowercase()) == gone.schema.as_ref().map(|s| s.to_lowercase())));
+        }
+    }
+
+    /// The work copy as the server will have it: a dropped column takes the
+    /// indexes, CHECKs and foreign keys that use it along (the script drops
+    /// them first).
+    fn settled(&self, orig: &Model) -> Model {
+        let mut m = self.clone();
+        for (n, t) in m.tables.iter_mut() {
+            let Some(o) = orig.tables.get(n) else { continue };
+            let dropped: Vec<&str> = o.columns.iter().filter(|c| !t.columns.iter().any(|x| x.name == c.name)).map(|c| c.name.as_str()).collect();
+            let uses = |text: &str| dropped.iter().any(|d| mentions(text, d));
+            t.indexes.retain(|i| !(i.columns.iter().chain(&i.include).any(|c| uses(c)) || i.filter.as_deref().is_some_and(uses)));
+            t.checks.retain(|c| !uses(&c.expression));
+            t.foreign_keys.retain(|f| !f.columns.iter().any(|c| uses(c)));
+        }
+        m
+    }
+
+    fn drop_object(&mut self, kind: &str, name: &str) {
+        let key = (kind.to_string(), Some("dbo".to_string()), name.to_string());
+        assert!(self.objects.remove(&key).is_some(), "{kind} {name}");
+    }
+}
+
+/// `dependent_views` in src-tauri's compare: views over a dropped table go,
+/// views over a table that loses a column (or changes its type) are made
+/// again; the ones already being changed stay as they are.
+fn dependent_views(tables: &[TableChange], objects: &ObjectOps, orig: &Model) -> ObjectOps {
+    let touched: Vec<(&str, bool)> = tables
+        .iter()
+        .filter_map(|c| match c {
+            TableChange::Drop { table } => Some((table.name.as_str(), true)),
+            TableChange::Alter { old, new } => {
+                let norm = |t: &str| t.to_lowercase().split_whitespace().collect::<String>();
+                let reshaped = old.columns.iter().any(|o| new.columns.iter().find(|n| n.name.eq_ignore_ascii_case(&o.name)).is_none_or(|n| norm(&n.data_type) != norm(&o.data_type)));
+                reshaped.then_some((new.name.as_str(), false))
+            }
+            TableChange::Create { .. } => None,
+        })
+        .collect();
+    orig.objects
+        .iter()
+        .filter(|((k, s, n), _)| k == "view" && !objects.iter().any(|(_, ok, os, on, _)| ok == k && os == s && on.eq_ignore_ascii_case(n)))
+        .filter_map(|((k, s, n), def)| {
+            let hit: Vec<bool> = touched.iter().filter(|(t, _)| mentions(def, t)).map(|(_, dropped)| *dropped).collect();
+            let op = if hit.is_empty() {
+                return None;
+            } else if hit.iter().any(|d| *d) {
+                Op::Drop
+            } else {
+                Op::Replace
+            };
+            Some((op, k.clone(), s.clone(), n.clone(), def.clone()))
+        })
+        .collect()
+}
+
+/// What "Sincronizar" does on one side: the script for its pending changes
+/// (`schema_sync_script`), run statement by statement; then the side is
+/// read again and must be just like the work copy.
+async fn sync_side(d: &dyn Driver, s: &mut Box<dyn Session>, orig: &Model, work: &Model) -> Vec<String> {
+    let (tables, mut objects) = work.changes_from(orig);
+    let extra = dependent_views(&tables, &objects, orig);
+    objects.extend(extra);
+    let statements = plan(d, &tables, &objects);
+    for (i, sql) in statements.iter().enumerate() {
+        if let Err(e) = run(s, sql).await {
+            panic!("statement {i} failed: {e}\n---\n{sql}\n---\nwhole script:\n{}", statements.join("\nGO\n"));
+        }
+    }
+    let now = Model::read(s).await;
+    let work = &work.settled(orig);
+    assert_eq!(now.tables.keys().collect::<Vec<_>>(), work.tables.keys().collect::<Vec<_>>(), "tables after:\n{}", statements.join("\nGO\n"));
+    for (n, t) in &work.tables {
+        assert_eq!(&now.tables[n], t, "{n} after:\n{}", statements.join("\nGO\n"));
+    }
+    let names = |m: &Model| m.objects.keys().cloned().collect::<Vec<_>>();
+    assert_eq!(names(&now), names(work), "objects after:\n{}", statements.join("\nGO\n"));
+    statements
+}
+
+/// "Eliminar" in the compare tab: what it sends for each kind of element
+/// (an index on one side and on both, a column, a foreign key, a CHECK, a
+/// primary key, a table other tables reference, views, a function, a
+/// procedure, a trigger, a sequence, a synonym and a type), run on the
+/// server; the sides read again lose just that, and in the end compare
+/// equal.
+///
+/// ```sh
+/// DBINE_TEST_SQLSERVER_URL='mssql://sa:Pw_12345!@localhost:25013' \
+///   cargo test -p dbine-driver-sqlserver --test compare drops -- --ignored --nocapture
+/// ```
+#[tokio::test]
+#[ignore]
+async fn drops_like_the_compare_tab() {
+    let Ok(url) = std::env::var("DBINE_TEST_SQLSERVER_URL") else {
+        eprintln!("DBINE_TEST_SQLSERVER_URL not set; skipping");
+        return;
+    };
+    let cfg = parse_url(&url);
+    let d = dbine_driver_sqlserver::drivers().remove(0);
+    let mut admin = d.connect(&cfg, Some("master")).await.expect("connect");
+    let (a_db, b_db) = ("dbine_drop_a", "dbine_drop_b");
+    for db in [a_db, b_db] {
+        let _ = admin.drop_database(db).await;
+        admin.create_database(db).await.expect("create_database");
+    }
+    let mut a = d.connect(&cfg, Some(a_db)).await.unwrap();
+    let mut b = d.connect(&cfg, Some(b_db)).await.unwrap();
+    for s in [&mut a, &mut b] {
+        for batch in DROPS.split("\nGO\n") {
+            run(s, batch).await.unwrap_or_else(|e| panic!("{e}\n{batch}"));
+        }
+    }
+    let start = Model::read(&mut a).await;
+    assert!(start.tables == Model::read(&mut b).await.tables, "both sides start equal");
+    let mut done = Vec::new();
+    let mut step = |name: &str, script: Vec<String>| {
+        eprintln!("-- {name}\n{}\n", script.join("\nGO\n"));
+        done.push(name.to_string());
+    };
+
+    // An index on one side: only that side loses it.
+    let orig_b = Model::read(&mut b).await;
+    let mut work = orig_b.clone();
+    work.drop_item("clientes", "indexes", "IX_clientes_email");
+    step("index, right side", sync_side(d.as_ref(), &mut b, &orig_b, &work).await);
+    let (ta, tb) = (Model::read(&mut a).await.tables, Model::read(&mut b).await.tables);
+    assert!(ta["clientes"].indexes.iter().any(|i| i.name == "IX_clientes_email"));
+    assert_ne!(ta["clientes"], tb["clientes"]);
+    assert!(ta.iter().all(|(n, t)| n == "clientes" || tb[n] == *t));
+
+    // The same index on both sides: one script per side, then they're equal.
+    for (s, other) in [(&mut a, "IX_clientes_email"), (&mut b, "IX_clientes_nombre")] {
+        let orig = Model::read(s).await;
+        let mut work = orig.clone();
+        work.drop_item("clientes", "indexes", "IX_clientes_nombre");
+        if other == "IX_clientes_email" {
+            work.drop_item("clientes", "indexes", other);
+        }
+        step("index, both sides", sync_side(d.as_ref(), s, &orig, &work).await);
+    }
+    assert_eq!(Model::read(&mut a).await.tables, Model::read(&mut b).await.tables, "equal after dropping on both sides");
+
+    // The rest one at a time on the right side.
+    type Edit = Box<dyn Fn(&mut Model)>;
+    let cases: Vec<(&str, Edit)> = vec![
+        ("column", Box::new(|m| m.drop_item("clientes", "columns", "email"))),
+        ("foreign key", Box::new(|m| m.drop_item("pedidos", "foreign_keys", "FK_pedidos_clientes"))),
+        ("check", Box::new(|m| m.drop_item("clientes", "checks", "CK_clientes_edad"))),
+        ("primary key", Box::new(|m| m.drop_item("pedidos", "primary_key", "PK_pedidos"))),
+        ("column with an index", Box::new(|m| m.drop_item("clientes", "columns", "telefono"))),
+        ("column with a check and a default", Box::new(|m| m.drop_item("clientes", "columns", "saldo"))),
+        ("column in an index's INCLUDE and filter", Box::new(|m| m.drop_item("clientes", "columns", "notas"))),
+        (
+            "referenced table, its view and its type",
+            Box::new(|m| {
+                m.drop_table("categorias");
+                m.drop_object("type", "Codigo");
+            }),
+        ),
+        (
+            "views, function, procedure, trigger, sequence, synonym",
+            Box::new(|m| {
+                for (k, n) in [("view", "v_clientes"), ("view", "v_clientes_top"), ("function", "fn_total"), ("procedure", "sp_limpiar"), ("trigger", "tg_pedidos"), ("sequence", "seq_pedidos"), ("synonym", "syn_clientes")] {
+                    m.drop_object(k, n);
+                }
+            }),
+        ),
+    ];
+    for (name, f) in &cases {
+        let orig = Model::read(&mut b).await;
+        let mut work = orig.clone();
+        f(&mut work);
+        // The view over a dropped table goes with it (`dependent_views`).
+        if name.starts_with("referenced") {
+            work.drop_object("view", "v_categorias");
+        }
+        step(name, sync_side(d.as_ref(), &mut b, &orig, &work).await);
+    }
+    let tb = Model::read(&mut b).await;
+    assert_eq!(tb.tables.keys().collect::<Vec<_>>(), ["clientes", "pedidos", "productos", "etiquetas"].iter().collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>());
+    assert!(tb.tables["productos"].foreign_keys.is_empty() && tb.tables["etiquetas"].foreign_keys.is_empty());
+    assert!(tb.objects.is_empty(), "{:?}", tb.objects.keys());
+
+    // All of it at once on the left side: the sides compare equal.
+    let orig_a = Model::read(&mut a).await;
+    let mut work = orig_a.clone();
+    for (_, f) in &cases {
+        f(&mut work);
+    }
+    work.drop_object("view", "v_categorias");
+    step("everything at once, left side", sync_side(d.as_ref(), &mut a, &orig_a, &work).await);
+    let ta = Model::read(&mut a).await;
+    assert_eq!(ta.tables, tb.tables, "equal in the end");
+    assert_eq!(ta.objects, tb.objects);
+    eprintln!("{} drops run: {done:?}", done.len());
+
+    drop(a);
+    drop(b);
+    for db in [a_db, b_db] {
         admin.drop_database(db).await.expect("drop_database");
     }
 }

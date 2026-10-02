@@ -156,6 +156,8 @@ de cada base.
     líneas distintas del código.
   - Con las flechas `→` y `←` se pasan los cambios de un lado al otro, por
     objeto o por columna, con deshacer.
+  - También se puede eliminar un objeto de un lado sin pasarlo desde el otro,
+    y antes de ejecutar se ve qué depende de él.
   - "Sincronizar" genera el script del motor de ese lado (`CREATE`, `ALTER`,
     `DROP`) en el orden correcto, y avisa si algo puede perder datos o fallar.
     Se abre como query o se ejecuta con confirmación.

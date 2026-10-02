@@ -749,10 +749,14 @@ pub fn table_schema(info: &Document, columns: Vec<ColumnDef>, indexes: &[Documen
                 checks.push(CheckDef { name: Some(VALIDATOR.into()), expression: Value::Object(w).to_string() });
                 describe_from_validator(v, &mut columns);
             }
+            // Without a validator only a level or action that isn't the
+            // default counts (dropping a validator sets them back to it).
             Err(_) => {
-                for k in ["validationLevel", "validationAction"] {
-                    if let Ok(v) = o.get_str(k) {
-                        set(k, v.into());
+                for (k, default) in [("validationLevel", "strict"), ("validationAction", "error")] {
+                    if let Ok(v) = o.get_str(k).map(str::trim).map(str::to_string) {
+                        if v != default {
+                            set(k, v);
+                        }
                     }
                 }
             }

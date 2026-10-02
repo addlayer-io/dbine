@@ -966,6 +966,49 @@ Sin sincronización (la comparación funciona igual):
 - **Neptune:** no tiene esquema definido por el usuario.
 - **Denodo y NetSuite:** los motivos están en la tabla de motores relacionales.
 
+### Eliminar en la comparación
+
+"Eliminar" borra un índice, columna, clave foránea, `CHECK`, clave primaria,
+tabla u objeto (vista, procedimiento, función, trigger, secuencia…) de un lado
+sin tener que pasar el cambio desde el otro. Como las flechas, solo modifica la
+copia en memoria; el `DROP` sale en el script de "Sincronizar". Antes de
+ejecutar, el diálogo busca qué depende de cada objeto que se borra, en el lado
+donde se borra y solo en los motores con `supports_dependencies`. La búsqueda
+es asíncrona y no bloquea el botón. Si falla, el diálogo dice "no se pudieron
+revisar las dependencias" y deja ejecutar igual. Los dependientes confirmados y
+los probables cuentan como roturas; los de SQL dinámico se muestran aparte, y
+si algo no se pudo leer, la lista se marca como incompleta.
+
+Qué se probó: la prueba arma los cambios como los arma la pantalla, ejecuta el
+script, vuelve a leer ambos lados y verifica que la diferencia desapareció.
+
+| Motor | Probado contra servidor | Qué no se puede borrar | Motivo |
+|---|---|---|---|
+| PostgreSQL 16 | sí | nada de lo probado | índice, columna, FK, `CHECK`, PK, tabla referenciada, vistas, triggers, funciones sobrecargadas, procedimientos |
+| CockroachDB 26.3 | sí | clave primaria | exige que toda tabla tenga una: rechaza `DROP CONSTRAINT` de la PK sin agregar otra en la misma transacción. El script la conserva y avisa "CockroachDB no deja una tabla sin clave primaria". |
+| SQL Server | sí (2022) | vista o función `WITH SCHEMABINDING` que usa la columna o tabla; columna usada por una columna calculada | SQL Server rechaza el `DROP`. Lo primero lo debería mostrar la revisión de dependencias; lo segundo no lo cubre el generador. Babelfish y Fabric no se probaron. |
+| MySQL 8, MariaDB 11 | sí | índice que una FK necesita; columna de un `CHECK` de varias columnas | MySQL da el error 3959 y MariaDB el 1054; el servidor rechaza el `DROP`. La pantalla quita solo la columna, así que el script falla. Un `CHECK` de una sola columna lo quita el servidor con ella. Columna usada por una FK: sin probar. |
+| Oracle (Free 23) | sí | paquetes; índices de dominio de Oracle Text y Spatial (sin probar) | los paquetes no se cargan en la comparación ni tienen `DROP`. La imagen `slim` no trae Text ni Spatial. Los `CHECK` y FK sin nombre se borran buscando el nombre de sistema (`SYS_C…`) con un bloque PL/SQL. |
+| SQLite | sí | rutinas (no existen) | borrar una columna, `CHECK` o FK reconstruye la tabla (con aviso). Un trigger de una tabla reconstruida se pierde: pendiente explícito, hay que recrearlo en la capa de comparación o avisar. libSQL usa la misma reconstrucción y no se revisó. |
+| MongoDB | sí | campos; claves foráneas, triggers y rutinas no existen; la PK `_id` no se cambia | los documentos no tienen esquema fijo, borrar un campo solo da un aviso. Una vista aparece dos veces en el modelo (como tabla de tipo `view` y como objeto); borrar cualquiera quita las dos. |
+| Elasticsearch | sí (8.15.3); OpenSearch sin probar | campos del mapping; análisis personalizado | requiere reindexar, queda como aviso. No tiene índices internos, PK, FK, `CHECK`, vistas, rutinas ni triggers. Se puede borrar el índice entero y la descripción. |
+| Resto de los motores | no | sin verificar | el `DROP` sale del generador común o del `drop_other` de cada motor. No hay prueba contra servidor. |
+
+Pendientes explícitos:
+
+- **`CHECK` e índices de una columna borrada** en el generador común
+  (`alter.rs`, contrato compartido): solo SQL Server los quita junto con la
+  columna. MySQL y Oracle probablemente fallan igual con un `CHECK`; sin probar.
+- **Vistas dependientes de una tabla que pierde una columna:** se borran y
+  recrean, y si la vista usa esa columna la recreación falla.
+- **Clave primaria de CockroachDB:** cambiarla genera `DROP CONSTRAINT` +
+  `ADD PRIMARY KEY` en dos sentencias, que probablemente falla igual. Su forma
+  es `ALTER PRIMARY KEY USING COLUMNS`; sin probar.
+- **Explorador y scripts generados:** "Eliminar" del explorador y la sección
+  `DROP` de los scripts generados todavía escriben el `DROP` viejo de triggers
+  y funciones sobrecargadas en PostgreSQL.
+- **Elasticsearch:** quitar la descripción reemplaza todo `_meta`.
+
 ### Sincronización: comentarios de tablas y columnas
 
 Un comentario que se agrega, cambia o quita en el origen se lleva al destino,

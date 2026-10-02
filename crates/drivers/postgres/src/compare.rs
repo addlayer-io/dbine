@@ -243,6 +243,39 @@ pub(crate) fn fix_drops(v: Variant, statements: &mut [String], changes: &[TableC
     }
 }
 
+/// CockroachDB leaves no table without a primary key (it drops one only
+/// with a new one added in the same transaction): a key that is just
+/// dropped stays, and the script says so; a key that changes is dropped
+/// and added in one statement.
+pub(crate) fn keep_cockroach_keys(script: &mut dbine_driver::SyncScript, changes: &[TableChange]) {
+    for ch in changes {
+        let TableChange::Alter { old, new } = ch else { continue };
+        let Some(key) = old.primary_key.as_ref().filter(|k| !k.columns.is_empty()).and_then(|k| k.name.as_deref()).filter(|n| !n.is_empty()) else {
+            continue;
+        };
+        let schema = new.schema.as_deref().filter(|s| !s.is_empty());
+        let table = qualified_name(Quote::Double, schema, &new.name);
+        let drop_clause = format!("DROP CONSTRAINT {}", quote_ident(Quote::Double, key));
+        let drop = format!("ALTER TABLE {table} {drop_clause};");
+        if new.primary_key.as_ref().is_some_and(|k| !k.columns.is_empty()) {
+            let add = format!("ALTER TABLE {table} ADD ");
+            let Some(at) = script.statements.iter().position(|s| s.starts_with(&add) && s.contains(" PRIMARY KEY (")) else { continue };
+            if !script.statements.contains(&drop) {
+                continue;
+            }
+            script.statements[at] = format!("ALTER TABLE {table} {drop_clause}, {}", &script.statements[at]["ALTER TABLE ".len() + table.len() + 1..]);
+            script.statements.retain(|s| *s != drop);
+            continue;
+        }
+        let before = script.statements.len();
+        script.statements.retain(|s| *s != drop);
+        if script.statements.len() < before {
+            let shown = schema.map_or_else(|| new.name.clone(), |s| format!("{s}.{}", new.name));
+            script.warnings.push(format!("CockroachDB no deja una tabla sin clave primaria: {shown} conserva la suya."));
+        }
+    }
+}
+
 /// A CHECK's condition from `pg_get_constraintdef` (`CHECK ((a > 0)) NOT
 /// VALID` → `(a > 0)`): validation is not part of the structure, and `NO
 /// INHERIT` has nowhere to go.
@@ -1187,6 +1220,37 @@ mod tests {
         let mut st = vec!["DROP INDEX \"s\".\"uq\";".to_string(), "DROP INDEX \"s\".\"ix\";".to_string()];
         fix_drops(Variant::Cockroach, &mut st, &changes);
         assert_eq!(st, ["DROP INDEX \"s\".\"uq\" CASCADE;", "DROP INDEX \"s\".\"ix\";"]);
+    }
+
+    #[test]
+    fn cockroach_keeps_a_dropped_primary_key() {
+        let key = dbine_driver::KeyDef { name: Some("t_pk".into()), columns: vec!["id".into()] };
+        let old = TableSchema { schema: Some("s".into()), name: "t".into(), primary_key: Some(key), ..Default::default() };
+        let changes = [TableChange::Alter { old: old.clone(), new: TableSchema { primary_key: None, ..old.clone() } }];
+        let mut script = dbine_driver::SyncScript {
+            statements: vec!["ALTER TABLE \"s\".\"t\" DROP CONSTRAINT \"t_pk\";".into(), "DROP INDEX \"s\".\"ix\";".into()],
+            ..Default::default()
+        };
+        keep_cockroach_keys(&mut script, &changes);
+        assert_eq!(script.statements, ["DROP INDEX \"s\".\"ix\";"]);
+        assert_eq!(script.warnings, ["CockroachDB no deja una tabla sin clave primaria: s.t conserva la suya."]);
+        // A key that changes is dropped and added in one statement.
+        let other = dbine_driver::KeyDef { name: Some("t_pk2".into()), columns: vec!["a".into()] };
+        let changes = [TableChange::Alter { old: old.clone(), new: TableSchema { primary_key: Some(other), ..old }}];
+        let mut script = dbine_driver::SyncScript {
+            statements: vec![
+                "ALTER TABLE \"s\".\"t\" DROP CONSTRAINT \"t_pk\";".into(),
+                "ALTER TABLE \"s\".\"t\" ADD COLUMN \"a\" int8 NOT NULL;".into(),
+                "ALTER TABLE \"s\".\"t\" ADD CONSTRAINT \"t_pk2\" PRIMARY KEY (\"a\");".into(),
+            ],
+            ..Default::default()
+        };
+        keep_cockroach_keys(&mut script, &changes);
+        assert_eq!(
+            script.statements,
+            ["ALTER TABLE \"s\".\"t\" ADD COLUMN \"a\" int8 NOT NULL;", "ALTER TABLE \"s\".\"t\" DROP CONSTRAINT \"t_pk\", ADD CONSTRAINT \"t_pk2\" PRIMARY KEY (\"a\");"]
+        );
+        assert!(script.warnings.is_empty());
     }
 
     #[test]

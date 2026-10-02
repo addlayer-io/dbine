@@ -33,6 +33,9 @@ pub fn sync_script(v: Variant, changes: &[dbine_driver::TableChange]) -> dbine_d
     let dd = |t: &TableSchema, p: DdlParts| Ok(table_ddl(v, t, p));
     let mut script = dbine_driver::alter::sync_script(&AlterStyle::from_flavor(&f, column, &cd, &dd), changes)?;
     crate::compare::fix_drops(v, &mut script.statements, changes);
+    if v == Variant::Cockroach {
+        crate::compare::keep_cockroach_keys(&mut script, changes);
+    }
     if v == Variant::CrateDb {
         crate::compare::crate_sync(&mut script, changes);
     }
