@@ -421,7 +421,6 @@ impl ClickHouseSession {
         self.read_only && !self.conn.server_readonly.load(Ordering::Relaxed)
     }
 
-    /// Run a catalog query and collect its rows (at most 100 000).
     /// Three catalog queries: tables (with engine clauses, and the CREATE
     /// statement for CHECK / ASSUME constraints and projections), columns
     /// and data-skipping indexes; `only`: just that table.
@@ -478,6 +477,7 @@ impl ClickHouseSession {
         Ok(schema::assemble(self.flavor, &db, schema::Catalog { tables, columns, indexes }))
     }
 
+    /// Run a catalog query and collect its rows (at most 100 000).
     async fn rows(&self, sql: &str, params: &[(&str, &str)]) -> Result<Vec<Vec<Value>>> {
         let mut out = QueryOutcome::default();
         if let Body::Rows(resp) = self.send(sql, params, false).await? {

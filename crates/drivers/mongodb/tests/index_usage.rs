@@ -1,7 +1,7 @@
 //! Index usage against a real server: a collection with two indexes, five
-//! lookups through one of them, none through the other (created after the
-//! collection's writes started: not "sin uso"). Then "Eliminar
-//! índice…": the schema sync script without the unused index, run.
+//! lookups through one of them, none through the other. MongoDB counts no
+//! writes per index: no writes, nothing "sin uso", a note saying why. Then
+//! "Eliminar índice…": the schema sync script without the unread index, run.
 //!
 //! ```sh
 //! DBINE_TEST_MONGODB_URL=mongodb://root:secret@localhost:25201/?authSource=admin \
@@ -74,13 +74,10 @@ db.pedidos.createIndex({ fecha: -1 }, { name: "ix_fecha", partialFilterExpressio
     assert_eq!(get("ix_fecha").seeks, 0);
     assert_eq!(get("ix_fecha").key_columns, ["fecha DESC"]);
     assert!(get("ix_fecha").filter.is_some());
-    // Created after the collection's write count started (with `_id_`):
-    // the writes made before it existed aren't its own, so no writes and
-    // never "sin uso" (an index loaded at the server's start gets them).
-    assert!(get("_id_").updates > 0, "the collection was written");
-    assert_eq!(get("ix_fecha").updates, 0);
-    assert!(!get("ix_fecha").unused);
-    assert!(r.note.as_deref().is_some_and(|n| n.contains("2 índices se crearon después")), "{:?}", r.note);
+    // No per-index write counter: writes unknown (a dash), never "sin uso".
+    assert!(!r.writes_counted);
+    assert!(r.indexes.iter().all(|i| i.updates == 0 && !i.unused && i.writes_per_read.is_none()));
+    assert!(r.note.as_deref().is_some_and(|n| n.contains("no cuenta escrituras por índice")), "{:?}", r.note);
     assert!(get("ix_cliente").size_kb.is_some());
     assert_eq!(get("ix_cliente").seek_health, None);
     }

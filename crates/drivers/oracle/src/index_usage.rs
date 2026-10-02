@@ -140,14 +140,17 @@ pub(crate) const WRITES_NOTE: &str =
 pub(crate) const COUNTER_NOTE: &str = "Oracle cuenta los accesos a cada índice sin distinguir búsquedas de recorridos completos";
 
 pub(crate) const FLUSH_LAG: &str = "el uso más reciente puede no figurar todavía, así que un índice recién creado o recién usado puede verse sin uso hasta el próximo volcado, y la última lectura es la hora del volcado que la registró, no la del acceso.";
+pub(crate) const SAMPLED_NOTE: &str =
+    "Además, DBA_INDEX_USAGE se llena por muestreo (salvo con _iut_stat_collection_type = ALL): un índice que se usa poco puede verse sin uso.";
 pub(crate) const WINDOWS_NOTE: &str =
     "Las lecturas se conservan entre reinicios; las escrituras (V$SEGSTAT) se cuentan desde el arranque de la instancia.";
 
-/// What the note says about the flush: the counters lag up to 15 minutes.
+/// What the note says about the flush (the counters lag up to 15 minutes)
+/// and the sampling (a rarely used index may never be sampled).
 pub(crate) fn flush_note(last_flush: Option<&str>) -> String {
     match last_flush {
-        Some(t) => format!("{COUNTER_NOTE} y los vuelca cada 15 minutos (último volcado: {t}): {FLUSH_LAG}"),
-        None => format!("{COUNTER_NOTE} y los vuelca cada 15 minutos: {FLUSH_LAG}"),
+        Some(t) => format!("{COUNTER_NOTE} y los vuelca cada 15 minutos (último volcado: {t}): {FLUSH_LAG} {SAMPLED_NOTE}"),
+        None => format!("{COUNTER_NOTE} y los vuelca cada 15 minutos: {FLUSH_LAG} {SAMPLED_NOTE}"),
     }
 }
 
@@ -521,6 +524,7 @@ mod tests {
         assert!(flush_note(Some("2026-10-02 10:15:00")).contains("último volcado: 2026-10-02 10:15:00"));
         assert!(flush_note(None).contains("15 minutos"));
         assert!(flush_note(None).contains("hora del volcado"));
+        assert!(flush_note(None).contains("muestreo") && flush_note(Some("x")).contains("se usa poco"));
     }
 
     #[test]

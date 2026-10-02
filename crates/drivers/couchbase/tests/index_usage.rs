@@ -1,8 +1,9 @@
 //! Index usage against a real Couchbase Server (already initialized, as
 //! `integration.rs` leaves it): a collection with its primary index and
-//! two more, five lookups through one of them and none through the other.
-//! Then "Eliminar índice…": the schema sync script without the unread
-//! index, run.
+//! two more, five lookups through one of them and none through the other
+//! (freshly built: not "sin uso", Couchbase's write counter includes the
+//! build). Then "Eliminar índice…": the schema sync script without the
+//! unread index, run.
 //!
 //! ```sh
 //! DBINE_TEST_COUCHBASE_URL=http://localhost:25893 DBINE_TEST_COUCHBASE_MGMT_PORT=25891 \
@@ -68,7 +69,7 @@ async fn index_usage_live() {
     // The cluster manager samples the index statistics every few seconds.
     let mut r = s.index_usage(&obj).await.unwrap().expect("report").derived();
     for _ in 0..30 {
-        if r.indexes.iter().any(|i| i.name == "ix_cliente" && i.seeks >= 5) && r.indexes.iter().any(|i| i.name == "ix_fecha" && i.updates > 0) {
+        if r.indexes.iter().any(|i| i.name == "ix_cliente" && i.seeks >= 5) && r.indexes.iter().any(|i| i.name == "ix_fecha" && i.size_kb.is_some()) {
             break;
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -84,7 +85,11 @@ async fn index_usage_live() {
     assert!(get("ix_cliente").size_kb.is_some());
     assert_eq!(get("ix_fecha").seeks, 0);
     assert!(get("ix_fecha").filter.is_some());
-    assert!(get("ix_fecha").unused, "written, never read");
+    // Its write counter includes the initial build: writes not counted, so
+    // a freshly built, never-read index is not "sin uso".
+    assert!(!r.writes_counted);
+    assert!(r.indexes.iter().all(|i| i.updates == 0 && !i.unused));
+    assert!(r.note.as_deref().is_some_and(|n| n.contains("construcción inicial")), "{:?}", r.note);
 
     let table = s.database_schema().await.unwrap().into_iter().find(|t| t.name == "pedidos" && t.schema.as_deref() == Some("dbine_ixu.s1")).unwrap();
     let mut without = table.clone();

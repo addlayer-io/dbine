@@ -2064,7 +2064,7 @@ cuerpo `$$ … $$` o un comentario es parte de ese texto.
 Al expandir una tabla, el explorador marca las columnas de clave primaria
 (llave) y las de clave foránea (eslabón, con la tabla y la columna a la que
 apuntan) y agrega la carpeta **Índices**: cada índice con su tipo (PK, UNIQUE,
-CLUSTERED, NC, COLUMNSTORE) y qué parte de las lecturas de la tabla pasan por
+CLUSTERED, NC, COLUMNSTORE…) y qué parte de las lecturas de la tabla pasan por
 él, o **sin uso** en rojo cuando se escribe pero nadie lo lee. Clic en un índice
 o clic derecho en la tabla › **Índices…** abre la pestaña con el detalle
 (columnas clave e INCLUDE, filtro, tamaño, seeks, scans, lookups, updates,
@@ -2077,23 +2077,108 @@ derivados se calculan ahí, en `IndexUsageReport::derive`.
 - **Lecturas** = seeks + scans + lookups.
 - **% lecturas** = las lecturas del índice sobre las de todos los índices de la
   tabla (vacío si la tabla no tuvo lecturas).
-- **Sin uso** = ninguna lectura y alguna escritura.
+- **Salud de seeks** (`seek_scan_split`): solo donde el motor separa búsquedas
+  puntuales de recorridos. Seeks sobre seeks + scans: verde desde 0,8, amarillo
+  desde 0,5, rojo debajo (un columnstore nunca es rojo). Donde el motor tiene un
+  solo contador («usado N veces»), va en seeks, el color es neutro y no se
+  muestra el aviso de las tablas chicas.
+- **Escrituras** (`writes_counted`): donde el motor no las cuenta por índice, la
+  pestaña muestra un guion (desconocidas, no 0), no hay escrituras por lectura
+  y ningún índice sale «sin uso»: uno sin lecturas queda en 0 %.
+- **Sin uso** = ninguna lectura y alguna escritura, solo con contadores y
+  escrituras contadas.
+- **Desde cuándo** (`since`): la pestaña dice «Estadísticas desde …» con la
+  fecha que da el motor, o «desde el último reinicio del servidor» si no la da.
+- Sin contadores (`stats_available` false: el motor no los tiene o el usuario
+  no los puede leer) se listan los índices igual, con un aviso que dice por qué.
 
-| Motor | Índices | Contadores | Desde cuándo | Notas |
-|---|---|---|---|---|
-| SQL Server | `sys.indexes`, `sys.index_columns` | `sys.dm_db_index_usage_stats` (LEFT JOIN: los índices nunca usados quedan en cero) | `sqlserver_start_time` | Sin VIEW SERVER STATE se listan los índices sin contadores, con un aviso. Tamaño de `sys.dm_db_partition_stats`. Los heaps (`index_id` 0) no se listan: son la tabla, no un índice, y sus lecturas no cuentan en el porcentaje. |
-| Azure SQL Database | Igual | Igual (necesita VIEW DATABASE STATE) | Si la base deja leer `sys.dm_os_sys_info`; si no, «desde el último reinicio» | Los contadores también se reinician en un failover. |
-| Babelfish | `sys.indexes`, `sys.index_columns` | No tiene `sys.dm_db_index_usage_stats`: se listan los índices sin contadores, con un aviso | — | — |
-| Fabric Warehouse | — | — | — | No tiene índices. |
+En la tabla, «—» en salud y escrituras quiere decir que el motor no tiene
+contadores de uso. «En vivo» es contra un servidor o emulador real
+(contenedores `dbine-test-*` o archivos locales); el detalle de cada prueba
+está en «Probado contra servidores reales», al final de esta sección.
+
+| Motor | Índices | Contadores | Desde cuándo | Salud de seeks | Escrituras | Permisos | En vivo | Notas |
+|---|---|---|---|---|---|---|---|---|
+| SQL Server | `sys.indexes`, `sys.index_columns` | `sys.dm_db_index_usage_stats` (LEFT JOIN: los índices nunca usados quedan en cero): `user_seeks`, `user_scans`, `user_lookups`, `user_updates` y los últimos accesos | `sqlserver_start_time` | Sí | Sí | VIEW SERVER STATE (VIEW SERVER PERFORMANCE STATE desde 2022); sin eso, sin contadores y el aviso lo dice | Sí (2022) | Tamaño de `sys.dm_db_partition_stats`. Los heaps (`index_id` 0) no se listan: son la tabla, no un índice, y sus lecturas no cuentan en el porcentaje. |
+| Azure SQL Database | Igual | Igual | `sqlserver_start_time` si la base deja leer `sys.dm_os_sys_info`; si no, «desde el último reinicio» | Sí | Sí | VIEW DATABASE STATE | No | Los contadores también se reinician en un failover. |
+| Babelfish | `sys.indexes`, `sys.index_columns` | No tiene `sys.dm_db_index_usage_stats`: sin contadores, con un aviso | — | — | — | — | Sí | — |
+| PostgreSQL (y AlloyDB, Cloud SQL, Aurora PostgreSQL, EDB, Fujitsu, KingbaseES) | `pg_index` (la PK incluida, DESC de `indoption`, INCLUDE, filtro `indpred`); tipo = método de acceso (BTREE, GIN, BRIN…); claves foráneas de `pg_constraint` | `pg_stat_all_indexes.idx_scan` a seeks; `last_idx_scan` (16+) a la última lectura; escrituras = `n_tup_ins + n_tup_upd - n_tup_hot_upd` de la tabla, iguales para todos sus índices (toda inserción y toda actualización no HOT escribe en cada índice; PostgreSQL no las cuenta por índice). Un índice parcial no recibe las escrituras de la tabla (no se sabe cuántas filas cumplen su filtro): queda sin escrituras, nunca «sin uso», y el aviso lo dice | `stats_reset` de `pg_stat_database`; si nunca se reiniciaron, el aviso dice que corren desde que se creó la base | No | Sí (de la tabla) | Ninguno: las estadísticas son legibles por cualquier usuario; si se niegan, sin contadores y el aviso sugiere `pg_read_all_stats` | Sí (16) | Las tablas particionadas suman los contadores y el tamaño de sus particiones (`pg_partition_tree`, 12+). Los `seq_scan` de la tabla no son lecturas de un índice: el aviso dice cuántos hubo. Tamaño de `pg_relation_size`. |
+| TimescaleDB | Igual | Igual; en una hypertable cada índice suma los de sus chunks (el índice del chunk con la misma definición) | Igual | No | Sí (de la tabla) | Igual | Sí | — |
+| YugabyteDB | Igual | `idx_scan` del nodo al que está conectada la sesión, no del clúster | — (los contadores viven en memoria) | No | No | Igual | Sí | Sin tamaño. El aviso dice que los números son del nodo. |
+| CockroachDB | `pg_index` (el método `prefix` de 26.x se muestra como BTREE) | `crdb_internal.index_usage_statistics`: `total_reads` a seeks y `last_read`, de todo el clúster, cruzado con `crdb_internal.table_indexes` | — | No | No | Activa `allow_unsafe_internals` solo para esa lectura; si el servidor la niega, sin contadores con un aviso | Sí | Sin tamaño. |
+| Greenplum, Apache Cloudberry, Greengage | `pg_index` | `gp_stat_all_indexes_summary` (Greenplum 7) o `pg_stat_all_indexes`, que en Cloudberry ya suma los segmentos (cada consulta cuenta un recorrido por segmento que la atiende); escrituras de `gp_stat_all_tables_summary` o `pg_stat_all_tables`, como PostgreSQL | `stats_reset` del coordinador | No | Sí (de la tabla) | Como PostgreSQL | Cloudberry sí; Greenplum 7 y Greengage no | Greenplum 6 solo tiene las estadísticas del coordinador, que no ven las lecturas de los segmentos: sin contadores, con un aviso. |
+| openGauss | `pg_index` | Como PostgreSQL (sin `last_idx_scan` ni particiones de `pg_partition_tree`) | `stats_reset` | No | Sí (de la tabla) | Como PostgreSQL | Sí | — |
+| Materialize, Yellowbrick | `pg_index` | No cuentan el uso: sin contadores, con un aviso | — | — | — | — | Materialize sí; Yellowbrick no | Materialize no tiene claves primarias ni foráneas; Yellowbrick no tiene índices secundarios. |
+| RisingWave, CrateDB, H2 | De la estructura de la tabla (`information_schema`, `pg_indexes`, SHOW CREATE TABLE en CrateDB): la PK y los índices | Sin contadores, con un aviso | — | — | — | — | Sí | CrateDB indexa cada columna por su cuenta: se ven la PK y los índices de texto completo. H2 muestra sus claves foráneas. |
+| Amazon Redshift | No tiene índices (ordena y reparte con SORTKEY y DISTKEY): la carpeta queda vacía, con un aviso | — | — | — | — | — | No | Las claves foráneas (informativas) marcan sus columnas. |
+| Amazon Aurora DSQL | `pg_index` (la PK incluida, DESC, INCLUDE, filtro) | No tiene estadísticas de uso: sin contadores, con un aviso | — | — | — | — | Contra PostgreSQL (`dbine-test-dsqlpg`), no contra DSQL | No tiene claves foráneas. |
+| Oracle (y Autonomous Database) | `ALL_INDEXES`, `ALL_IND_COLUMNS`, `ALL_IND_EXPRESSIONS` (columnas de función y DESC), PK de `ALL_CONSTRAINTS`; sin los índices de LOB; los invisibles llevan `INVISIBLE` en el tipo | `DBA_INDEX_USAGE` (12.2+): `TOTAL_ACCESS_COUNT` a seeks, `LAST_USED` a la última lectura (la hora del volcado que registró el acceso, no la del acceso); escrituras = «db block changes» de los segmentos del índice en `V$SEGSTAT` (bloques, no filas, desde el arranque de la instancia). Las lecturas se conservan entre reinicios y las escrituras empiezan de cero con cada arranque; el aviso lo dice | — (Oracle no dice desde cuándo cuenta); con MONITORING USAGE, el `START_MONITORING` más antiguo | No | Sí (sin acceso a `V$SEGSTAT`, no) | SELECT_CATALOG_ROLE o SELECT ANY DICTIONARY; sin eso (o antes de 12.2), si todos los índices de una tabla propia tienen `MONITORING USAGE`, solo si cada uno se usó (`USER_OBJECT_USAGE`); si no, sin contadores y el aviso nombra el privilegio | Sí (23ai Free) | Oracle cuenta por muestreo y vuelca a `DBA_INDEX_USAGE` cada 15 minutos: el aviso muestra el último volcado y advierte que, hasta el próximo, un índice recién creado o recién usado tiene escrituras y 0 lecturas (se ve sin uso), y que uno que se usa poco puede no entrar en el muestreo. Tamaño de `DBA_SEGMENTS`, o de `USER_SEGMENTS` cuando los índices son del usuario (un índice sin segmento todavía figura con 0 KB); sin `DBA_SEGMENTS`, los de otro esquema quedan sin tamaño (desconocido, no 0 KB). No hay INCLUDE ni índices filtrados. |
+| Google Cloud Spanner | `INFORMATION_SCHEMA.INDEXES` / `INDEX_COLUMNS`: la clave primaria (la tabla se guarda en su orden), los secundarios (UNIQUE, NULL_FILTERED, `STORING` como incluidas, filtro `WHERE`), de búsqueda y vectoriales; sin los que Spanner maneja para las claves foráneas | `SPANNER_SYS.TABLE_OPERATIONS_STATS_HOUR` (una fila por tabla y por índice, 30 días): lecturas (seeks) = suma de `READ_QUERY_COUNT`; escrituras = `WRITE_COUNT + DELETE_COUNT`. La clave primaria toma los de la tabla; un índice sin filas queda en cero | El `INTERVAL_END` más antiguo menos una hora (UTC) | No | Sí | `spanner.databases.select` (con control de acceso detallado, el rol `spanner_sys_reader`); sin eso, en el emulador o mientras la tabla horaria no tiene datos, sin contadores y el aviso nombra el permiso | Emulador (sin `SPANNER_SYS`: solo índices, claves y el aviso) | Tamaño: `USED_BYTES` de la última hora en `SPANNER_SYS.TABLE_SIZES_STATS_1HOUR`. Claves foráneas de `REFERENTIAL_CONSTRAINTS`. **Eliminar índice** genera `DROP INDEX` (o `DROP SEARCH/VECTOR INDEX`). |
+| BigQuery | Índices de búsqueda (uno por tabla) y vectoriales (uno por columna), de `SEARCH_INDEXES` / `VECTOR_INDEXES` (columnas, `STORING`, estado si no está activo) | Lecturas (seeks) = consultas de los últimos 180 días que usaron el índice según `INFORMATION_SCHEMA.JOBS` de la región (`FULLY_USED` o `PARTIALLY_USED`, sin las que dicen no haber usado el índice de esta tabla). El uso se registra por consulta, no por tabla: el número es un máximo y el aviso lo dice | El inicio de la ventana de 180 días | No | No | `bigquery.jobs.listAll`; sin él, `JOBS_BY_USER` (solo las consultas propias) con un aviso; sin ninguno, sin contadores | No (solo pruebas unitarias; el emulador no tiene estas vistas) | Leer `JOBS` es una consulta facturada y corre cada vez que se abre la carpeta **Índices** de una tabla con índices; el aviso lo dice. Con más de un índice vectorial el trabajo no dice cuál usó: sin contadores. Tamaño `total_storage_bytes`; última escritura, el último refresco. La clave primaria (no aplicada) no se lista; las foráneas salen de `tables.get`. |
+| Snowflake | Tablas híbridas: `SHOW INDEXES IN TABLE` (el de la clave primaria, los de claves únicas y foráneas y los secundarios con `INCLUDE`). Las tablas estándar no tienen índices: la carpeta queda vacía, con un aviso | No hay contadores por índice (`ACCESS_HISTORY` es por columna) | — | — | — | — | No (solo pruebas unitarias) | Claves foráneas de `SHOW IMPORTED KEYS IN TABLE`. Los índices de tablas híbridas no entran todavía en la comparación de esquemas, así que **Eliminar índice** no los encuentra: se borran con `DROP INDEX tabla.índice`. |
+| Databricks (y Azure Databricks) | No tiene índices secundarios (estadísticas por archivo, clustering, Z-order): la carpeta queda vacía, con un aviso | — | — | — | — | — | No (solo pruebas unitarias) | Solo las claves foráneas de Unity Catalog (`information_schema`, informativas) para los íconos; sin Unity Catalog no hay. |
+| Dremio | No tiene índices: se listan las **reflexiones** de la tabla (`sys.reflections`): tipo RAW o AGGREGATION (con el estado si no puede acelerar), columnas o dimensiones como clave y medidas como incluidas | Lecturas (seeks) = `accelerated_count`, las consultas que la reflexión aceleró | — (Dremio no dice desde cuándo cuenta) | No | No (los refrescos no se cuentan) | En Dremio Enterprise, VIEW REFLECTION para leer `sys.reflections` | Sí (OSS) | Tamaño `current_footprint_bytes`; última escritura, el último refresco. Las reflexiones entran en la comparación de esquemas como índices de la tabla (en una conversión a otro motor se omiten con un aviso): **Eliminar índice** genera `ALTER TABLE … DROP REFLECTION` y la sincronización las crea o las rehace. Sin claves. |
+| MongoDB (y Amazon DocumentDB) | `listIndexes`: `_id_` (o el índice de una colección clustered) como clave primaria, claves con DESC, tipo (BTREE, TEXT, 2DSPHERE, HASHED, WILDCARD; TTL, SPARSE, HIDDEN), `partialFilterExpression` como filtro | `$indexStats`: `accesses.ops` a seeks; en una colección fragmentada se suman los shards. MongoDB no cuenta escrituras por índice (solo operaciones de la colección, que incluirían las de antes de crear el índice y las de documentos que un índice parcial no cubre): no se muestran y el aviso lo dice | El `accesses.since` más antiguo (el arranque del servidor o la creación del índice) | No | No | La acción indexStats (rol clusterMonitor, o dbAdmin en la base) y collStats; sin ella, sin contadores y el aviso nombra el rol | MongoDB sí; DocumentDB no | Tamaño de `storageStats.indexSizes`. Sin claves foráneas. **Eliminar índice** genera `dropIndex`. |
+| FerretDB | Igual | Responde `$indexStats` con todo en cero: sin contadores, con un aviso | — | — | — | — | Sí | Tamaño de `collStats`. **Eliminar índice** funciona (FerretDB contesta `ok: true` en vez de `1`, y el driver lo acepta). |
+| Neo4j | `SHOW INDEXES` de la etiqueta o el tipo de relación; los que respaldan una restricción van con el nombre de la restricción (KEY = clave primaria, UNIQUENESS = único); sin los LOOKUP, que son de todas las etiquetas | Neo4j 5: `readCount` a seeks y `lastRead` a la última lectura (los vuelca cada pocos segundos y cuenta como lectura la verificación de unicidad de cada alta). Neo4j 4 no tiene `readCount`: sin contadores | El `trackedSince` más antiguo | No | No | SHOW INDEX (Enterprise con RBAC); sin él, solo los índices de las restricciones (`SHOW CONSTRAINTS`), sin contadores, y el aviso nombra el privilegio | Sí (Community y Enterprise) | Sin tamaño ni claves foráneas. **Eliminar índice** genera `DROP INDEX` o `DROP CONSTRAINT`. |
+| Memgraph | `SHOW INDEX INFO` y las restricciones únicas | No cuenta el uso: sin contadores, con un aviso | — | — | — | — | Sí | **Eliminar índice** genera `DROP INDEX ON :Etiqueta(propiedad)`. |
+| Couchbase | `system:indexes` (GSI): `#primary` como clave primaria (sobre `meta().id`), claves, la condición `WHERE` como filtro, particionado en el tipo | Estadísticas del servicio de índices desde el cluster manager (`/pools/default/stats/range`, muestreadas cada pocos segundos): `index_num_requests` a seeks e `index_disk_size` al tamaño; la última lectura, de `last_known_scan_time` cuando el indexador la publicó. Su único contador de escrituras (`index_num_docs_indexed`) incluye los documentos de la construcción inicial: no se muestra y el aviso lo dice | El arranque del nodo de índices que arrancó último (su `uptime`) | No | No | External Stats Reader (o un rol de administración); sin él, sin contadores y con un aviso | Sí | Sin claves foráneas ni índices únicos; los índices de búsqueda (FTS) no se listan. **Eliminar índice** genera `DROP INDEX`. |
+| Apache Cassandra, ScyllaDB | La clave primaria (partición, después clustering, con DESC) y `system_schema.indexes` (secundarios, SAI, SASI, con su destino: la columna, `keys(…)`, `values(…)`, `full(…)`) | No cuentan el uso por índice: sin contadores, con un aviso | — | — | — | — | Sí | Sin claves foráneas. **Eliminar índice** genera `DROP INDEX`. |
+| Amazon Keyspaces | Solo la clave primaria | Igual | — | — | — | — | No | No tiene índices secundarios. |
+| Azure Cosmos DB | La clave (`id` con la clave de partición), las rutas incluidas de la política de indexación (rango, con las excluidas como filtro), las claves únicas, los índices compuestos y los espaciales, de texto completo y vectoriales | No hay contadores por índice (las métricas de índices son por consulta): sin contadores, con un aviso | — | — | — | — | No (solo pruebas unitarias) | Sin tamaño ni claves foráneas. **Eliminar índice** no se puede: la política de indexación no se cambia desde un script (la sincronización lo avisa); se cambia en el portal de Azure o con la CLI. |
+| CouchDB | En `_all_docs`: el índice de `_id` como clave primaria y los índices Mango (`GET _index`, json o text, DESC, `partial_filter_selector` como filtro) | No cuenta el uso por índice: sin contadores, con un aviso | — | — | — | — | Sí | Tamaño de `_design/…/_info` cuando el documento de diseño tiene ese índice solo. **Eliminar índice** genera `DELETE _index/<nombre>`, una extensión del driver que busca el documento de diseño al ejecutarse. |
+| OrientDB | Los índices de la clase, de los metadatos de la base (UNIQUE, NOTUNIQUE, FULLTEXT, hash, Lucene…) | No cuenta el uso por índice: sin contadores, con un aviso | — | — | — | — | Sí | Los registros se ubican por `@rid`, que no es un índice: no hay entrada de clave primaria. Las propiedades LINK con clase enlazada son las claves foráneas. **Eliminar índice** genera `DROP INDEX`. |
+| Amazon DynamoDB | La clave primaria (partición y orden, con el tamaño de la tabla), los GSI y los LSI con su proyección (`INCLUDE` como columnas incluidas, `KEYS_ONLY` en el tipo) y su tamaño | No cuenta lecturas por índice (la capacidad consumida por GSI está en CloudWatch): sin contadores, con un aviso | — | — | — | — | DynamoDB Local | Sin claves foráneas. **Eliminar índice** borra un GSI; un LSI no se borra sin recrear la tabla (la sincronización lo avisa). |
+| SQLite, libSQL / Turso | La misma lectura del catálogo que **Comparar esquemas** (`pragma_index_list`, `pragma_index_xinfo`): la clave primaria (`ROWID` si es un `INTEGER PRIMARY KEY`, `CLUSTERED` en una tabla `WITHOUT ROWID`, si no su índice automático), los índices con DESC, expresiones y filtro parcial, y los de las restricciones UNIQUE con el nombre que usa la sincronización | SQLite no cuenta el uso de los índices: sin contadores, con un aviso | — | — | — | — | Sí (archivo local y servidor de libSQL) | Tamaño de `dbstat` (páginas × tamaño de página) donde la compilación lo tiene. Claves foráneas de `pragma_foreign_key_list`. **Eliminar índice** genera `DROP INDEX` (una UNIQUE de la tabla la rehace). |
+| DuckDB | `duckdb_constraints()` y `duckdb_indexes()`: la clave primaria, las UNIQUE y los `CREATE INDEX`, todos ART | No cuenta el uso de los índices ni informa su tamaño: sin contadores, con un aviso (el plan muestra `INDEX_SCAN` cuando se usa uno) | — | — | — | — | Sí (archivo local) | Claves foráneas de `duckdb_constraints()`. **Eliminar índice** genera `DROP INDEX`. |
+| Firebird | `RDB$INDICES`, `RDB$INDEX_SEGMENTS`, `RDB$RELATION_CONSTRAINTS`: tipo `ASC`/`DESC`, `COMPUTED` para los de expresión e `INACTIVE` para los desactivados; filtro de los parciales (Firebird 5) | No cuenta el uso por índice (`MON$RECORD_STATS.MON$RECORD_IDX_READS` es por tabla): sin contadores, con un aviso | — | — | — | — | Sí (Firebird 5) | Sin tamaño (solo `gstat` lo informa). Claves foráneas con nombre. **Eliminar índice** genera `DROP INDEX`. |
+| SAP HANA | La lectura de **Comparar esquemas** reducida a la tabla (`SYS.INDEXES`, `SYS.INDEX_COLUMNS`, `SYS.FULLTEXT_INDEXES`, `SYS.CONSTRAINTS`); tipo = `INDEX_TYPE` (CPBTREE, BTREE, INVERTED VALUE/HASH/INDIVIDUAL) o FULLTEXT | No hay contadores de uso por índice: sin contadores, con un aviso | — | — | — | — | No (no hay contenedor) | Tamaño de `M_RS_INDEXES` (índices de tablas row store; en column store viven en los diccionarios de las columnas). Claves foráneas de `SYS.REFERENTIAL_CONSTRAINTS`. **Eliminar índice** genera `DROP INDEX` (o `DROP FULLTEXT INDEX`). |
+| ClickHouse | La clave primaria (el índice disperso de MergeTree, tipo SPARSE, no único), los índices de salto (minmax, set, bloom_filter…, con su GRANULARITY) y las proyecciones | No cuenta el uso por índice (cuántos gránulos descarta cada uno sale de `EXPLAIN indexes = 1`, por consulta): sin contadores, con un aviso | — | — | — | — | Sí | Tamaño: `primary_key_bytes_in_memory` de `system.parts`, `data_compressed_bytes` de `system.data_skipping_indices` y `bytes_on_disk` de `system.projection_parts` (partes activas). Sin claves foráneas. **Eliminar índice** genera `ALTER TABLE … DROP INDEX` (o `DROP PROJECTION`). |
+| Timeplus Proton | Igual (las mismas tablas de sistema; en un stream de tipo append la clave de ordenamiento no es clave primaria y no se lista) | Igual; el aviso nombra a Timeplus Proton | — | — | — | — | Sí (`dbine-test-proton`) | Igual. |
+| Apache Phoenix | `SYSTEM.CATALOG`: la clave de fila (ROW KEY) y los índices GLOBAL y LOCAL, con DESC y las columnas cubiertas (`INCLUDE`) | No cuenta el uso por índice: sin contadores, con un aviso | — | — | — | — | Sí | Sin tamaño (vive en HBase) ni claves foráneas. **Eliminar índice** genera `DROP INDEX`, y la sincronización lo vuelve a crear con su DESC. |
+| Flight SQL | Con DuckDB detrás (GizmoSQL): `duckdb_constraints()` y `duckdb_indexes()` por SQL. Con otro motor: la clave primaria y las foráneas de `GetPrimaryKeys` y `GetImportedKeys`, si el servidor los responde | Sin contadores, con un aviso | — | — | — | — | GizmoSQL sí; otros servidores no | Flight SQL no tiene comandos de índices: Dremio y DataFusion (InfluxDB 3) quedan con la clave, si la informan. No tiene sincronización de esquemas, así que **Eliminar índice** no aparece: se borra con `DROP INDEX` en una consulta. |
+| Db2 (LUW, por ODBC) | `SQLStatistics`, `SQLPrimaryKeys` y `SQLForeignKeys` de la tabla, con las columnas INCLUDE de `SYSCAT.INDEXCOLUSE` | `MON_GET_INDEX` (LEFT JOIN desde `SYSCAT.INDEXES`: los no usados quedan en cero): `INDEX_SCANS` a seeks, escrituras = `KEY_UPDATES` + `INCLUDE_COL_UPDATES` (las inserciones no cuentan), última lectura = `SYSCAT.INDEXES.LASTUSED` (fecha) | `DB_CONN_TIME` de `MON_GET_DATABASE` (activación de la base) | No | Sí | EXECUTE sobre `MON_GET_INDEX` (o SQLADM, DBADM, DATAACCESS); sin eso, sin contadores y el aviso nombra el privilegio | No (solo pruebas unitarias) | Sin tamaño. |
+| Db2 for i (ODBC) | Igual | `QSYS2.SYSINDEXSTAT`: `QUERY_USE_COUNT` a seeks y `LAST_QUERY_USE` | — | No | No | Lectura de `QSYS2.SYSINDEXSTAT`; si se niega, sin contadores con un aviso | No (solo pruebas unitarias) | — |
+| Sybase ASE (ODBC) | Igual | `master..monOpenObjectActivity`: `UsedCount` a seeks, filas insertadas + borradas + actualizadas a escrituras, `LastUsedDate` | — (cuenta mientras el descriptor del objeto está abierto) | No | Sí | mon_role y las opciones «enable monitoring» y «per object statistics active»; sin eso, sin contadores y el aviso lo dice | No (solo pruebas unitarias) | — |
+| Db2 for z/OS, Informix, GBase 8s, Teradata, SQL Anywhere, Altibase, CUBRID, Dameng, Mimer, Ingres, IRIS y Caché, OpenEdge, MonetDB, Virtuoso, MaxDB, Zen, NuoDB, Ocient, Ignite, Machbase, Access, dBase y el ODBC genérico | Del catálogo ODBC de la tabla | No exponen contadores por índice por SQL: sin contadores, con un aviso | — | — | — | — | El preset genérico sí (por el driver ODBC de SQL Server); los demás no | Candidatos: Teradata con DBQL de objetos (`DBC.DBQLObjTbl`, si está activado), Informix con `sysmaster:sysptprof` (por partición), Db2 for z/OS con `SYSINDEXSPACESTATS.LASTUSED` (solo la fecha). **Eliminar índice** con el script de la sincronización de cada motor. |
+| Vertica, Exasol, Netezza (ODBC) | Sin índices definidos por el usuario (proyecciones, índices automáticos, zone maps): la clave primaria como restricción (CONSTRAINT) | — | — | — | — | — | No | Las claves foráneas (informativas) marcan sus columnas. |
+| MySQL (y Aurora MySQL, Cloud SQL para MySQL) | `SHOW INDEX` (la PK incluida, prefijos `col(n)`, expresiones, DESC); claves foráneas de `KEY_COLUMN_USAGE` | `performance_schema.table_io_waits_summary_by_index_usage`: `COUNT_FETCH` (filas leídas por el índice) a seeks; las filas leídas sin índice (recorridos de la tabla) a scans de la clave primaria en InnoDB, donde la tabla es su índice agrupado; escrituras = las de la tabla (`COUNT_INSERT + COUNT_UPDATE + COUNT_DELETE`: los inserts no se atribuyen a ningún índice) | Arranque del servidor (`Uptime`); el aviso aclara que vale salvo que las estadísticas se hayan reiniciado o activado después | No | Sí (de la tabla) | SELECT sobre performance_schema; con `performance_schema = OFF`, el instrumento `wait/io/table/sql/handler` apagado o sin el permiso, sin contadores y el aviso dice por qué | Sí (8.4) | «Sin uso» equivale a `sys.schema_unused_indexes`. Tamaño de `mysql.innodb_index_stats` (páginas × `innodb_page_size`, particiones sumadas, según el último ANALYZE) si el usuario lo puede leer. Un TRUNCATE de la tabla de performance_schema reinicia los contadores. |
+| MariaDB | Igual | Con `userstat = 1`: `information_schema.INDEX_STATISTICS` (`ROWS_READ` a seeks) y `TABLE_STATISTICS` (`ROWS_CHANGED` a escrituras; su `ROWS_READ` menos lo leído por índices, a scans de la clave primaria en InnoDB). Si no, performance_schema, como MySQL | Igual | No | Sí (de la tabla) | Las vistas de `userstat` en information_schema; performance_schema como MySQL | Sí (11.8) | performance_schema viene apagado por defecto: sin `userstat` ni performance_schema el aviso dice cómo activarlos (`SET GLOBAL userstat = 1` no requiere reiniciar). `FLUSH INDEX_STATISTICS` reinicia los contadores. |
+| TiDB | `SHOW INDEX` | 8.0+: `CLUSTER_TIDB_INDEX_USAGE` (sumado entre instancias; `TIDB_INDEX_USAGE` si falla): las consultas que leyeron menos del 10 % de las filas de la tabla a seeks, el resto a scans; `LAST_ACCESS_TIME` a la última lectura; escrituras = `mysql.stats_meta.modify_count` (filas modificadas desde el último ANALYZE) | Arranque de la instancia (`Uptime`) | Sí | Sí (sin SELECT sobre `mysql.stats_meta`, no, y el aviso lo dice) | SELECT sobre `mysql.stats_meta` para las escrituras | Sí (7.5 y 8.5) | La clave primaria agrupada es el identificador de fila: TiDB no la cuenta y queda en cero (nunca «sin uso»). Solo cuenta en tablas con estadísticas. Antes de 8.0, sin contadores con un aviso. No guarda `DESC`. Sin tamaño. |
+| OceanBase (modo MySQL) | `SHOW INDEX` | `oceanbase.DBA_INDEX_USAGE` (4.x; cruzado con `DBA_OBJECTS` por el nombre interno `__idx_<id de la tabla>_<índice>`): `TOTAL_ACCESS_COUNT` a seeks, `LAST_USED` a la última lectura; escrituras de `DBA_TAB_MODIFICATIONS` (desde las últimas estadísticas) | — (los contadores persisten entre reinicios) | No | Sí (si `DBA_TAB_MODIFICATIONS` se niega, no) | SELECT sobre la base `oceanbase`; con `_iut_enable` apagado o sin el permiso, aviso | Sí (4.4.2) | Cuenta por muestreo salvo con `_iut_stat_collection_type = 'ALL'` y vuelca a la vista en segundo plano: en 4.4.2 no apareció ningún acceso en 40 minutos, así que el cruce de nombres está verificado contra la definición de la vista, no con datos. `DBA_TAB_MODIFICATIONS` llega con demora y en 4.4 no cuenta los UPDATE. La clave primaria no se cuenta: queda en cero, nunca «sin uso». |
+| SingleStore, StarRocks, Apache Doris, VeloDB, Databend, GreptimeDB | `SHOW INDEX` (Databend: `system.indexes`); GreptimeDB lista su PRIMARY y su TIME INDEX | No cuentan el uso de los índices: sin contadores, con un aviso | — | — | — | — | GreptimeDB sí; los demás no | En StarRocks y Doris la clave de ordenamiento no es un índice: se listan los bitmap, N-gram e invertidos. |
 
 ### Motores sin uso de índices
 
-Pendiente en todos los demás motores (la carpeta **Índices** y la pestaña no
-aparecen). Varios tienen de dónde leerlo y quedan para la próxima tanda:
-PostgreSQL y compatibles (`pg_stat_user_indexes`), MySQL y MariaDB
-(`performance_schema.table_io_waits_summary_by_index_usage`), Oracle
-(`V$OBJECT_USAGE` / `DBA_INDEX_USAGE`), MongoDB (`$indexStats`). Los motores sin
-índices secundarios (Redis, etcd, Trino, BigQuery, Snowflake…) no lo tienen.
+La carpeta **Índices** y la pestaña no aparecen (`supports_index_usage` es
+false) donde no hay índices que mostrar:
+
+- **Fabric Warehouse**: no tiene índices.
+- **Denodo**: no tiene índices.
+- **Amazon Neptune**: no tiene índices definidos por el usuario.
+- **Elasticsearch, OpenSearch**: un índice de Elasticsearch es la tabla; cada
+  campo se indexa por su cuenta (índice invertido, doc values, puntos) y no hay
+  índices secundarios que listar ni borrar. Elasticsearch 7.15+ cuenta accesos
+  por campo (`_field_usage_stats`), candidato para más adelante; OpenSearch no
+  lo tiene.
+- **Redis (Valkey, Dragonfly), etcd, ksqlDB**: no tienen índices secundarios
+  por tabla.
+- **Manticore Search**: la tabla es el índice.
+- **Hive, Impala, Spark, Kyuubi, Cloudera, SQream, HeavyDB, NetSuite (ODBC)**:
+  sin índices ni claves foráneas en su catálogo.
+- **DuckDB, preset de archivos**: consulta archivos, que no tienen índices.
+- **Apache Calcite Avatica (preset genérico)**: su protocolo no tiene
+  metadatos de índices.
+- **Trino, Presto, Starburst y Amazon Athena**: sin índices ni claves en su
+  catálogo; los de cada conector no se exponen.
+- **Apache Drill**: sin índices ni claves en su catálogo.
+- **InfluxDB**: indexa todas las etiquetas por sí solo, sin índices por tabla
+  ni contadores.
+- **Solr**: como Elasticsearch, la colección es el índice; no hay índices
+  secundarios.
+- **Apache IoTDB**: series de tiempo por ruta, sin índices secundarios.
+- **TDengine**: pendiente. TDengine 3 tiene índices sobre las etiquetas de
+  una supertabla (sin contadores de uso), que todavía no se listan.
 
 ### Probado contra servidores reales
 
@@ -2102,3 +2187,118 @@ clave primaria y dos índices; cinco seeks sobre uno dan 5 seeks, el otro queda
 en cero lecturas con escrituras (sin uso), y `since` viene con la hora de
 inicio. `index_usage_babelfish_live` (`dbine-test-babelfish`): lista los
 índices y avisa que no hay contadores.
+
+`crates/drivers/mysql/tests/index_usage.rs` (`dbine-test-mysql` 8.4,
+`dbine-test-mariadb` 11.8, `dbine-test-tidb` 7.5, `dbine-test-tidb8` 8.5,
+`dbine-test-oceanbase` 4.4.2, `dbine-test-greptimedb`): una tabla con clave
+primaria, una clave foránea y dos índices; cinco búsquedas por uno dan 5
+seeks, el otro queda sin lecturas con escrituras (sin uso), un recorrido de la
+tabla suma scans a la clave primaria (MySQL, MariaDB), la foránea apunta a su
+tabla y el índice sin uso se borra con el script de **Comparar esquemas**
+(`ALTER TABLE … DROP INDEX`). MySQL y MariaDB con contadores: el aviso dice
+que valen desde el arranque, salvo reinicio o activación posterior. MySQL con
+un usuario sin SELECT sobre performance_schema: índices y foráneas sin
+contadores, con el aviso del permiso. MariaDB sin `userstat` ni
+performance_schema: el aviso de cómo activarlos; con `userstat`, los
+contadores. TiDB 7.5: sin contadores, con el aviso de la versión; 8.5: seeks
+con color de salud, última lectura y escrituras contadas; un usuario sin
+SELECT sobre `mysql.stats_meta` ve las lecturas sin escrituras (nada «sin
+uso») y el aviso que nombra el permiso. OceanBase: índices, foránea,
+contadores legibles (vacíos, ver la tabla) y el borrado. GreptimeDB: PRIMARY y
+TIME INDEX sin contadores.
+
+Oracle (`crates/drivers/oracle/tests/index_usage.rs`, Oracle 23ai Free,
+`dbine-test-oracle`): `index_usage_live` crea una tabla con clave primaria,
+clave foránea y dos índices (uno con DESC y una función), hace cinco búsquedas
+por uno y espera el volcado de `DBA_INDEX_USAGE`: el índice usado da 5 accesos
+con su último uso, el otro queda en cero con escrituras (sin uso), el aviso
+habla del volcado y del muestreo, y **Eliminar índice…** (el script de
+sincronización sin ese índice, `DROP INDEX`) lo borra.
+`index_usage_without_privileges_live`: un usuario sin SELECT_CATALOG_ROLE ve
+los índices, su tamaño y las claves foráneas sin contadores y con el aviso del
+privilegio; con MONITORING USAGE en todos los índices ve cuál se usó. Un
+lector de otro esquema, con solo SELECT sobre esa tabla, ve los índices y las
+claves foráneas sin tamaño (desconocido, no 0 KB).
+
+`crates/drivers/postgres/tests/index_usage.rs` (`dbine-test-postgres`,
+`-timescale`, `-yugabyte`, `-cockroach`): una tabla con clave primaria, una
+clave foránea y tres índices (uno parcial); seis búsquedas por uno dan 6
+seeks, los otros quedan sin lecturas. En PostgreSQL y TimescaleDB el índice
+común sin lecturas sale «sin uso» con las escrituras de la tabla y el parcial
+queda sin escrituras (nunca «sin uso») con el aviso de los índices parciales;
+en YugabyteDB y CockroachDB, que no cuentan escrituras, quedan en 0 %. En
+CockroachDB 26.x los índices se ven como BTREE. La clave foránea apunta a su
+tabla y el índice parcial se elimina con el script de **Comparar esquemas**
+(`DROP INDEX`). En una hypertable de TimescaleDB el índice suma los recorridos
+de sus chunks. Contra openGauss y Cloudberry se listan índices y claves con
+contadores; contra Materialize, RisingWave, CrateDB y H2, sin contadores. En
+`crates/drivers/dsql/tests/index_usage.rs` (DSQL contra `dbine-test-dsqlpg`) se
+listan los índices sin contadores y se elimina uno con el script de
+sincronización.
+
+`index_usage_live` de Spanner (emulador, `dbine-test-spanner`): una tabla con
+clave primaria, una foránea y dos índices (uno NULL_FILTERED, otro con
+`STORING`); lista la clave primaria y los dos índices sin el de la foránea,
+con columnas, `DESC` y almacenadas, la foránea, y el aviso que nombra el
+permiso (el emulador no tiene `SPANNER_SYS`); borra un índice con el script de
+la sincronización (`DROP INDEX`).
+
+`index_usage_live` de Dremio (OSS, `dbine-test-dremio`): dos reflexiones sobre
+una tabla de `$scratch`; las consultas que acelera una dan sus lecturas
+(100 %), la otra queda en 0 % sin escrituras; la sincronización la borra
+(`DROP REFLECTION`) y la vuelve a crear.
+
+BigQuery, Snowflake y Databricks solo tienen pruebas unitarias (servicios en
+la nube). Queda sin probar contra un servicio real: las columnas de
+`SHOW INDEXES` de las tablas híbridas de Snowflake y la convención de nombre
+`SYS_INDEX_*_PRIMARY`, las rutas de error de `JOBS` y `JOBS_BY_USER` de
+BigQuery (y el filtro por `index_unused_reasons.base_table`, que si falla cae
+al conteo simple), los joins de `information_schema` de Unity Catalog en
+Databricks y la lectura de `SPANNER_SYS.TABLE_OPERATIONS_STATS_HOUR` en un
+Spanner real (el emulador no la tiene).
+
+Bases documentales y de grafos (`crates/drivers/<motor>/tests/index_usage.rs`):
+
+- `mongodb` (`dbine-test-mongodb`): una colección con dos índices; cinco
+  búsquedas por uno dan 5 lecturas, el otro queda en 0 %, sin escrituras
+  (MongoDB no las cuenta por índice) y con el aviso que lo explica, con tamaño
+  y `since`. En FerretDB (`dbine-test-ferretdb`) se listan sin contadores.
+- `neo4j` (`dbine-test-neo4j`): una restricción y dos índices; cinco búsquedas
+  por uno dan 5 lecturas y su última lectura, el otro queda en 0 %. Contra
+  Neo4j Enterprise (`dbine-test-neo4j-ee`), un usuario sin SHOW INDEX ve los
+  índices de las restricciones con el aviso del privilegio. En Memgraph
+  (`dbine-test-memgraph`) se listan sin contadores.
+- `couchbase` (`dbine-test-couchbase`): `#primary` y dos índices; cinco
+  consultas por uno dan 5 lecturas, el otro queda en 0 % con su tamaño, sin
+  escrituras y con el aviso de la construcción inicial (no sale «sin uso»).
+- `cassandra` (`dbine-test-scylladb` y `dbine-test-cassandra`), `couchdb`,
+  `orientdb` (con su LINK como clave foránea) y `dynamodb` (DynamoDB Local):
+  listan la clave y los índices sin contadores.
+
+En todos, **Eliminar índice…** (el script de la sincronización sin ese índice)
+lo borra. Cosmos DB solo tiene pruebas unitarias.
+
+Embebidos y analíticos (`crates/drivers/<motor>/tests/index_usage.rs`): una
+tabla con clave primaria, una clave foránea y dos índices, cinco búsquedas
+por uno.
+
+- `sqlite` y `duckdb` (archivos locales, sin `#[ignore]`), `libsql`
+  (`dbine-test-libsql`), `firebird` (`dbine-test-firebird`, Firebird 5) y
+  `flightsql` (GizmoSQL, `dbine-test-flightsql`): listan la clave, los dos
+  índices y la clave foránea, sin contadores y con el aviso; SQLite y libSQL
+  con el tamaño de `dbstat`.
+- `clickhouse` (`dbine-test-clickhouse`): la clave dispersa y dos índices de
+  salto con su tamaño, sin claves foráneas, y el aviso que nombra a
+  ClickHouse. `timeplus_index_usage_live` (`dbine-test-proton`): un stream con
+  un índice minmax lo lista sin contadores, con el aviso que nombra a Timeplus
+  Proton.
+- `phoenix` (`dbine-test-phoenix`): la clave de fila, dos índices globales
+  (uno con su columna cubierta) y uno local con DESC, que la sincronización
+  borra y vuelve a crear igual.
+
+En todos menos Flight SQL (que no tiene sincronización y lo borra con
+`DROP INDEX`), **Eliminar índice…** lo borra con el script de la
+sincronización. SAP HANA y las variantes de ODBC con contadores (Db2, Db2 for
+i, ASE) solo tienen pruebas unitarias (no hay contenedores);
+`crates/drivers/odbc/tests/index_usage.rs` prueba el preset genérico por un
+driver ODBC real.

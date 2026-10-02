@@ -18,12 +18,21 @@
 //! Timeplus reads the same system tables.
 
 use crate::schema::is_projection;
-use crate::{text, ClickHouseSession};
+use crate::{text, ClickHouseSession, Flavor};
 use dbine_driver::{IndexUsage, IndexUsageReport, ObjectRef, Result, TableSchema};
 use serde_json::Value;
 use std::collections::HashMap;
 
-pub const NOTE: &str = "ClickHouse no registra cuántas veces se usa cada índice: se listan la clave primaria, los índices de salto y las proyecciones con su tamaño, sin contadores. Para ver cuántos gránulos descarta cada índice en una consulta, usá EXPLAIN indexes = 1.";
+/// The note, with the engine's display name.
+pub(crate) fn note(flavor: Flavor) -> String {
+    let engine = match flavor {
+        Flavor::ClickHouse => "ClickHouse",
+        Flavor::Timeplus => "Timeplus Proton",
+    };
+    format!(
+        "{engine} no registra cuántas veces se usa cada índice: se listan la clave primaria, los índices de salto y las proyecciones con su tamaño, sin contadores. Para ver cuántos gránulos descarta cada índice en una consulta, usá EXPLAIN indexes = 1."
+    )
+}
 
 pub(crate) const PK_SIZE_SQL: &str = "SELECT sum(primary_key_bytes_in_memory) FROM system.parts
  WHERE database = {db:String} AND table = {t:String} AND active";
@@ -46,17 +55,17 @@ fn named_sizes(rows: &[Vec<Value>]) -> HashMap<String, u64> {
 
 pub(crate) async fn report(s: &ClickHouseSession, table: &ObjectRef) -> Result<IndexUsageReport> {
     let t = s.catalog(Some(&table.name)).await?.into_iter().next();
-    let Some(t) = t else { return Ok(IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() }) };
+    let Some(t) = t else { return Ok(IndexUsageReport { note: Some(note(s.flavor)), writes_counted: false, ..Default::default() }) };
     let db = s.database.clone();
     let params = [("db", db.as_str()), ("t", table.name.as_str())];
     let pk = s.rows(PK_SIZE_SQL, &params).await.ok().and_then(|r| r.first().and_then(|r| r.first()).and_then(bytes));
     let skip = s.rows(SKIP_SIZE_SQL, &params).await.map(|r| named_sizes(&r)).unwrap_or_default();
     let projections = s.rows(PROJECTION_SIZE_SQL, &params).await.map(|r| named_sizes(&r)).unwrap_or_default();
-    Ok(assemble(&t, pk, &skip, &projections))
+    Ok(assemble(s.flavor, &t, pk, &skip, &projections))
 }
 
 /// The sorting key first, then the skip indexes and the projections.
-pub(crate) fn assemble(t: &TableSchema, pk_bytes: Option<u64>, skip: &HashMap<String, u64>, projections: &HashMap<String, u64>) -> IndexUsageReport {
+pub(crate) fn assemble(flavor: Flavor, t: &TableSchema, pk_bytes: Option<u64>, skip: &HashMap<String, u64>, projections: &HashMap<String, u64>) -> IndexUsageReport {
     let kb = |b: u64| b.div_ceil(1024);
     let mut indexes = Vec::new();
     if let Some(pk) = &t.primary_key {
@@ -80,7 +89,7 @@ pub(crate) fn assemble(t: &TableSchema, pk_bytes: Option<u64>, skip: &HashMap<St
             ..Default::default()
         });
     }
-    IndexUsageReport { note: Some(NOTE.into()), indexes, writes_counted: false, ..Default::default() }.derived()
+    IndexUsageReport { note: Some(note(flavor)), indexes, writes_counted: false, ..Default::default() }.derived()
 }
 
 #[cfg(test)]
@@ -103,7 +112,7 @@ mod tests {
         };
         let skip = named_sizes(&[vec![json!("ix_a"), json!("2048")], vec![json!("ix_b"), json!(10)]]);
         let proj = named_sizes(&[vec![json!("p_by_a"), json!("5000")]]);
-        let r = assemble(&t, Some(4096), &skip, &proj);
+        let r = assemble(Flavor::ClickHouse, &t, Some(4096), &skip, &proj);
         assert!(!r.stats_available && r.note.is_some() && r.foreign_keys.is_empty());
         let got: Vec<(&str, &str, Option<u64>)> = r.indexes.iter().map(|i| (i.name.as_str(), i.kind.as_str(), i.size_kb)).collect();
         assert_eq!(
@@ -113,7 +122,8 @@ mod tests {
         assert!(r.indexes[0].primary_key && !r.indexes[0].unique, "a MergeTree key doesn't enforce uniqueness");
         assert_eq!(r.indexes[0].key_columns, ["id", "ts"]);
         // Nothing from the server: no sizes.
-        let r = assemble(&t, None, &HashMap::new(), &HashMap::new());
+        let r = assemble(Flavor::Timeplus, &t, None, &HashMap::new(), &HashMap::new());
         assert!(r.indexes.iter().all(|i| i.size_kb.is_none()));
+        assert!(r.note.as_deref().unwrap().starts_with("Timeplus Proton no registra"));
     }
 }

@@ -120,15 +120,15 @@
     "refresh": "Actualizar",
     "copy": "Copiar",
     "copied": "Copiado",
-    "since": "Estadísticas desde {{since}} (SQL Server las reinicia al reiniciar el servicio; en Azure SQL también en un failover).",
-    "sinceRestart": "Estadísticas desde el último reinicio del servicio (SQL Server las reinicia al reiniciar el servicio; en Azure SQL también en un failover).",
+    "since": "Estadísticas desde {{since}}.",
+    "sinceRestart": "Estadísticas desde el último reinicio del servidor (el motor no informa la fecha).",
     "unsupported": "Este motor no informa el uso de los índices.",
     "health": {
       "good": "Se usa con seeks ({{seeks}} seeks, {{scans}} scans).",
       "warn": "Bastantes scans para la cantidad de seeks ({{scans}} scans, {{seeks}} seeks): conviene revisar las columnas del índice o las consultas que lo usan.",
       "bad": "Más scans que seeks ({{scans}} scans, {{seeks}} seeks): revisá las columnas del índice o las consultas que lo usan.",
       "columnstore": "Índice columnstore: está hecho para leerse con scans ({{scans}} scans, {{seeks}} seeks).",
-      "smallTables": "En tablas chicas SQL Server prefiere el scan porque es más barato: ahí el rojo no siempre es un problema."
+      "smallTables": "En tablas chicas el motor prefiere el scan porque es más barato: ahí el rojo no siempre es un problema."
     },
     "drop": {
       "menu": "Eliminar índice…",

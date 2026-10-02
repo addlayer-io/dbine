@@ -37,6 +37,7 @@ async fn index_usage_live() {
     run(&mut s, "CREATE TABLE DBINE.IXU_T (ID INTEGER NOT NULL, A INTEGER, B VARCHAR, CONSTRAINT PK_IXU PRIMARY KEY (ID))").await;
     run(&mut s, "CREATE INDEX IXU_A ON DBINE.IXU_T (A) INCLUDE (B)").await;
     run(&mut s, "CREATE INDEX IXU_B ON DBINE.IXU_T (B)").await;
+    run(&mut s, "CREATE LOCAL INDEX IXU_L ON DBINE.IXU_T (B DESC)").await;
     for i in 1..=20 {
         run(&mut s, &format!("UPSERT INTO DBINE.IXU_T VALUES ({i}, {}, 'v{i}')", i * 3)).await;
     }
@@ -48,14 +49,28 @@ async fn index_usage_live() {
     eprintln!("{r:#?}");
     assert!(!r.stats_available && r.note.is_some() && r.foreign_keys.is_empty());
     let got: Vec<(&str, &str)> = r.indexes.iter().map(|i| (i.name.as_str(), i.kind.as_str())).collect();
-    assert_eq!(got, [("PK_IXU", "ROW KEY"), ("IXU_A", "GLOBAL"), ("IXU_B", "GLOBAL")]);
+    assert_eq!(got, [("PK_IXU", "ROW KEY"), ("IXU_A", "GLOBAL"), ("IXU_B", "GLOBAL"), ("IXU_L", "LOCAL")]);
+    assert_eq!(r.indexes[3].key_columns, ["B DESC"], "SORT_ORDER is read");
     assert!(r.indexes[0].primary_key);
     assert_eq!((r.indexes[1].key_columns.clone(), r.indexes[1].included_columns.clone()), (vec!["A".to_string()], vec!["B".to_string()]));
     assert!(r.indexes.iter().all(|i| i.reads == 0 && !i.unused));
 
     let old = s.database_schema().await.unwrap().into_iter().find(|x| x.name == "IXU_T").unwrap();
+    // The DESC index round-trips: dropped, then recreated from its definition.
+    let mut without = old.clone();
+    without.indexes.retain(|i| i.name != "IXU_L");
+    for st in d.sync_script(&[TableChange::Alter { old: old.clone(), new: without.clone() }]).unwrap().statements {
+        run(&mut s, &st).await;
+    }
+    let script = d.sync_script(&[TableChange::Alter { old: without, new: old.clone() }]).unwrap().statements;
+    assert!(script.iter().any(|st| st.contains("(\"B\" DESC)")), "{script:?}");
+    for st in script {
+        run(&mut s, &st).await;
+    }
+    let again = s.database_schema().await.unwrap().into_iter().find(|x| x.name == "IXU_T").unwrap();
+    assert_eq!(again.indexes, old.indexes, "recreated as it was");
     let mut new = old.clone();
-    new.indexes.retain(|i| i.name != "IXU_B");
+    new.indexes.retain(|i| i.name != "IXU_B" && i.name != "IXU_L");
     for st in d.sync_script(&[TableChange::Alter { old, new }]).unwrap().statements {
         run(&mut s, &st).await;
     }

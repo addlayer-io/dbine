@@ -14,6 +14,9 @@
 //!   update that isn't HOT writes to each of the table's indexes, so
 //!   `updates` = `n_tup_ins + n_tup_upd - n_tup_hot_upd` of the table, the
 //!   same for all its indexes (deletes don't touch them until VACUUM).
+//!   A partial index (`WHERE …`) only gets the rows its filter keeps, and
+//!   nothing says how many: it shows no writes (`updates` 0), so it's never
+//!   judged unused, and the note says so.
 //! - The table's sequential scans (`seq_scan`) aren't any index's reads;
 //!   when there are, the note says how many.
 //! - Partitioned tables: the parent's indexes have no counters of their own;
@@ -37,7 +40,10 @@
 //! CockroachDB: `crdb_internal.index_usage_statistics` (`total_reads`,
 //! `last_read`, cluster-wide) by `crdb_internal.table_indexes` (which needs
 //! `allow_unsafe_internals` since v25, set for the read only). No writes
-//! per index (`writes_counted` false), no size, no reset time.
+//! per index (`writes_counted` false), no size, no reset time. If the server
+//! refuses the read, the indexes are listed without counters. Cockroach's
+//! `prefix` access method (26.x) is its ordinary ordered index: `BTREE`
+//! (`inverted` stays `INVERTED`).
 //!
 //! The engines without `pg_index` usage counters list their indexes (and
 //! foreign keys) with `stats_available: false` and a note: Materialize,
@@ -246,8 +252,20 @@ pub(crate) fn timestamp(s: Option<String>) -> Option<String> {
     s.filter(|s| s.len() >= 19).map(|s| s[..19].to_string())
 }
 
+/// The engine's access method as the report names it. CockroachDB 26.x
+/// calls its ordinary ordered index `prefix`: that's a B-tree.
+fn kind(am: Option<&str>) -> String {
+    match am.filter(|a| !a.is_empty()) {
+        Some(a) if a.eq_ignore_ascii_case("prefix") => "BTREE".into(),
+        Some(a) => a.to_ascii_uppercase(),
+        None => "INDEX".into(),
+    }
+}
+
 /// The rows put together, in `columns`' order. `usage` `None`: no counters.
-/// `writes` is the table's (every index pays it).
+/// `writes` is the table's (every index pays it), except a partial index's:
+/// it only gets the rows its filter keeps, unknown, so it shows none and is
+/// never judged unused.
 pub(crate) fn assemble(columns: &[ColumnRow], usage: Option<&HashMap<String, UsageRow>>, sizes: Option<&HashMap<String, u64>>, writes: u64) -> Vec<IndexUsage> {
     let mut out: Vec<IndexUsage> = Vec::new();
     for c in columns {
@@ -255,13 +273,13 @@ pub(crate) fn assemble(columns: &[ColumnRow], usage: Option<&HashMap<String, Usa
             let u = usage.and_then(|m| m.get(&c.index)).cloned().unwrap_or_default();
             out.push(IndexUsage {
                 name: c.index.clone(),
-                kind: c.am.as_deref().filter(|a| !a.is_empty()).unwrap_or("index").to_ascii_uppercase(),
+                kind: kind(c.am.as_deref()),
                 unique: c.unique || c.primary_key,
                 primary_key: c.primary_key,
                 filter: c.filter.clone(),
                 size_kb: sizes.and_then(|m| m.get(&c.index)).map(|b| b.div_ceil(1024)),
                 seeks: u.scans,
-                updates: if usage.is_some() { writes } else { 0 },
+                updates: if usage.is_some() && c.filter.is_none() { writes } else { 0 },
                 last_read: u.last_read,
                 ..Default::default()
             });
@@ -321,7 +339,7 @@ pub(crate) fn no_counters_note(v: Variant) -> &'static str {
 /// Why the counters couldn't be read (the server's message goes to the log).
 pub(crate) fn refused_note(v: Variant) -> &'static str {
     match v {
-        Variant::Cockroach => "No se pudieron leer las estadísticas de uso de CockroachDB (crdb_internal.index_usage_statistics): el usuario necesita el privilegio VIEWACTIVITY o VIEWACTIVITYREDACTED (o ser admin). Se listan los índices sin estadísticas de uso.",
+        Variant::Cockroach => "El servidor no permitió leer las estadísticas de uso de CockroachDB (crdb_internal.index_usage_statistics). Se listan los índices sin estadísticas de uso.",
         Variant::Greenplum | Variant::Cloudberry | Variant::Greengage => "Este servidor solo tiene las estadísticas del coordinador, que no cuentan las lecturas de los segmentos (las suman Greenplum 7 y Cloudberry). Se listan los índices sin estadísticas de uso.",
         _ => "No se pudieron leer las estadísticas de uso (pg_stat_all_indexes): el usuario necesita poder leerlas, por ejemplo con el rol pg_read_all_stats. Se listan los índices sin estadísticas de uso.",
     }
@@ -342,6 +360,9 @@ const YUGABYTE_NOTE: &str = "YugabyteDB cuenta el uso en cada nodo: los números
 
 /// `stats_reset` is empty: the counters were never reset in this database.
 const NEVER_RESET_NOTE: &str = "Las estadísticas de esta base nunca se reiniciaron (pg_stat_reset): los contadores corren desde que se creó, o desde la última caída del servidor.";
+
+/// Partial indexes show no writes: the table's aren't all theirs.
+const PARTIAL_NOTE: &str = "Los índices parciales (con filtro WHERE) no muestran escrituras: PostgreSQL cuenta las de la tabla, no cuántas filas cumplen el filtro de cada índice, así que nunca se marcan «sin uso».";
 
 /// The CockroachDB note: reads only.
 const COCKROACH_NOTE: &str = "CockroachDB cuenta las lecturas de cada índice pero no las escrituras: un índice sin lecturas muestra 0 % en vez de «sin uso».";
@@ -468,6 +489,9 @@ impl PgSession {
                 if let Some(r) = rows.first() {
                     writes = num(r, "writes");
                     writes_counted = true;
+                    if columns.iter().any(|c| c.filter.is_some()) {
+                        notes.push(PARTIAL_NOTE.into());
+                    }
                     notes.extend(seq_scan_note(num(r, "seq")));
                 }
             }
@@ -581,6 +605,7 @@ mod tests {
         assert_eq!(out[1].key_columns, ["a DESC", "(lower(b))"]);
         assert_eq!(out[1].included_columns, ["c"]);
         assert_eq!((out[1].filter.as_deref(), out[1].size_kb), (Some("(a > 0)"), Some(9)));
+        assert_eq!(out[1].updates, 0, "a partial index isn't charged the table's writes");
         assert_eq!((out[2].seeks, out[2].updates, out[2].size_kb), (0, 7, None));
 
         let r = IndexUsageReport { stats_available: true, seek_scan_split: false, indexes: out, ..Default::default() }.derived();
@@ -632,7 +657,12 @@ mod tests {
         assert_eq!(seq_scan_note(0), None);
         assert!(seq_scan_note(1).unwrap().contains("1 vez"));
         assert!(seq_scan_note(3).unwrap().contains("3 veces"));
-        assert!(refused_note(Variant::Cockroach).contains("VIEWACTIVITY"));
+        assert!(refused_note(Variant::Cockroach).contains("crdb_internal.index_usage_statistics"));
+        assert!(!refused_note(Variant::Cockroach).contains("VIEWACTIVITY"));
+        assert_eq!(kind(Some("prefix")), "BTREE");
+        assert_eq!(kind(Some("inverted")), "INVERTED");
+        assert_eq!(kind(Some("gin")), "GIN");
+        assert_eq!(kind(None), "INDEX");
         assert!(refused_note(Variant::Postgres).contains("pg_read_all_stats"));
     }
 }

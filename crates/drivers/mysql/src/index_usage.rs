@@ -55,8 +55,8 @@
 //!   per-index usage counters; the indexes are listed with a note.
 //!
 //! Since when: the server's start (`Uptime`); the counters can also have
-//! been reset since (TRUNCATE of the performance_schema table, FLUSH
-//! INDEX_STATISTICS). Size: InnoDB's `mysql.innodb_index_stats` (`size`
+//! been reset or turned on since (TRUNCATE of the performance_schema table,
+//! FLUSH INDEX_STATISTICS, userstat enabled later), which the note says. Size: InnoDB's `mysql.innodb_index_stats` (`size`
 //! pages × `innodb_page_size`, partitions summed; persistent statistics,
 //! as of the last ANALYZE), where the login can read it.
 
@@ -330,6 +330,8 @@ pub(crate) fn since_sql(uptime: &str) -> Option<String> {
 pub(crate) const NOTE_PERF_ROWS: &str = "performance_schema cuenta filas leídas por cada índice sin separar búsquedas de recorridos: «seeks» son esas filas, «scans» de la clave primaria las leídas recorriendo la tabla (InnoDB) y «updates», las filas escritas en la tabla.";
 pub(crate) const NOTE_USERSTAT_ROWS: &str = "MariaDB (userstat) cuenta filas leídas por cada índice sin separar búsquedas de recorridos: «seeks» son esas filas, «scans» de la clave primaria las leídas recorriendo la tabla (InnoDB) y «updates», las filas escritas en la tabla.";
 pub(crate) const NOTE_TIDB: &str = "TiDB cuenta consultas: «seeks» son las que leyeron menos del 10% de las filas de la tabla por el índice y «scans», el resto. «updates» son las filas modificadas desde el último ANALYZE. La clave primaria agrupada no lleva contadores.";
+pub(crate) const NOTE_SINCE_START: &str = "Los contadores son desde el arranque del servidor, salvo que las estadísticas se hayan reiniciado o activado después.";
+pub(crate) const NOTE_TIDB_WRITES_DENIED: &str = "Sin SELECT sobre mysql.stats_meta no se ven las escrituras de la tabla, así que ningún índice se marca como sin uso.";
 pub(crate) const NOTE_PERF_OFF: &str = "performance_schema está desactivado en el servidor (performance_schema = OFF; se activa en la configuración y requiere reiniciar). Se listan los índices sin estadísticas de uso.";
 pub(crate) const NOTE_PERF_INSTRUMENT: &str = "El instrumento wait/io/table/sql/handler de performance_schema está desactivado: el servidor no cuenta el uso de índices. Se listan los índices sin estadísticas de uso.";
 pub(crate) const NOTE_PERF_DENIED: &str = "Para ver cuánto se usa cada índice el usuario necesita el permiso SELECT sobre performance_schema. Se listan los índices sin estadísticas de uso.";
@@ -554,12 +556,27 @@ pub(crate) async fn report(s: &mut MySqlSession, table: &ObjectRef) -> Result<In
     Ok(IndexUsageReport {
         since,
         stats_available: usage.is_some(),
-        note: note.map(str::to_string),
+        note: full_note(v, note, usage.as_ref()),
         indexes: assemble(&parts, usage.as_ref(), sizes.as_ref()),
         foreign_keys: foreign_keys(&fk_rows),
         seek_scan_split: usage.as_ref().is_some_and(|u| u.seek_scan_split),
         writes_counted: usage.as_ref().is_some_and(|u| !u.writes_unknown),
     })
+}
+
+/// The variant's note plus what bounds the counters: the window they cover
+/// (MySQL / MariaDB: since the start, unless reset or turned on later) and,
+/// on TiDB, the privilege the writes need.
+pub(crate) fn full_note(v: Variant, note: Option<&str>, usage: Option<&Usage>) -> Option<String> {
+    let mut notes: Vec<&str> = note.into_iter().collect();
+    if let Some(u) = usage {
+        match v {
+            Variant::MySql | Variant::MariaDb => notes.push(NOTE_SINCE_START),
+            Variant::TiDb if u.writes_unknown => notes.push(NOTE_TIDB_WRITES_DENIED),
+            _ => {}
+        }
+    }
+    (!notes.is_empty()).then(|| notes.join(" "))
 }
 
 /// Databend's inverted / ngram indexes on the table (`system.indexes`).
@@ -719,5 +736,20 @@ mod tests {
         assert!(NOTE_MARIADB_OFF.contains("userstat") && NOTE_MARIADB_OFF.contains("performance_schema"));
         assert!(no_counters_note(Variant::SingleStore).starts_with("SingleStore"));
         assert!(!supported(Variant::Manticore) && supported(Variant::GreptimeDb));
+    }
+
+    #[test]
+    fn notes_bound_the_counters() {
+        let counted = Usage::default();
+        let mysql = full_note(Variant::MySql, Some(NOTE_PERF_ROWS), Some(&counted)).unwrap();
+        assert!(mysql.starts_with(NOTE_PERF_ROWS) && mysql.contains("desde el arranque del servidor, salvo que las estadísticas se hayan reiniciado o activado después"));
+        assert!(full_note(Variant::MariaDb, Some(NOTE_USERSTAT_ROWS), Some(&counted)).unwrap().ends_with(NOTE_SINCE_START));
+        // No counters: no window to bound.
+        assert_eq!(full_note(Variant::MySql, Some(NOTE_PERF_DENIED), None).as_deref(), Some(NOTE_PERF_DENIED));
+        // TiDB without SELECT on mysql.stats_meta: the note names it.
+        let blind = Usage { writes_unknown: true, ..Default::default() };
+        assert!(full_note(Variant::TiDb, Some(NOTE_TIDB), Some(&blind)).unwrap().contains("SELECT sobre mysql.stats_meta"));
+        assert_eq!(full_note(Variant::TiDb, Some(NOTE_TIDB), Some(&counted)).as_deref(), Some(NOTE_TIDB));
+        assert_eq!(full_note(Variant::OceanBase, Some(NOTE_OCEANBASE), Some(&counted)).as_deref(), Some(NOTE_OCEANBASE));
     }
 }
