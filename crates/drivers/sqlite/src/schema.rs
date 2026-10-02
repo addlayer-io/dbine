@@ -178,7 +178,17 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> dbine_driver::Resul
         .collect();
     let cd = |t: &TableSchema, c: &ColumnDef| ddl::column_def(&FLAVOR, t, c);
     let dd = |t: &TableSchema, p: DdlParts| Ok(table_ddl(t, p));
-    alter::sync_script(&AlterStyle::from_flavor(&FLAVOR, ColumnAlter::Recreate, &cd, &dd), &changes)
+    let mut script = alter::sync_script(&AlterStyle::from_flavor(&FLAVOR, ColumnAlter::Recreate, &cd, &dd), &changes)?;
+    // Dropping a table (alone or in a rebuild) with foreign keys on deletes
+    // its rows first, which fails while another table's rows point to them;
+    // and renaming the rebuilt table checks every view and trigger, which
+    // fails while one still reads the dropped original. SQLite's own recipe
+    // for rebuilds turns both off for the run.
+    if script.statements.iter().any(|s| s.contains("DROP TABLE ")) {
+        script.statements.insert(0, "PRAGMA foreign_keys = OFF;\nPRAGMA legacy_alter_table = ON;".into());
+        script.statements.push("PRAGMA legacy_alter_table = OFF;\nPRAGMA foreign_keys = ON;".into());
+    }
+    Ok(script)
 }
 
 // --- Catalog --------------------------------------------------------------
@@ -716,8 +726,11 @@ mod tests {
         let mut new = old.clone();
         new.checks = vec![CheckDef { name: Some("ck_v".into()), expression: "v > 1".into() }, CheckDef { name: None, expression: "id < 100".into() }];
         let s = sync_script(&[TableChange::Alter { old: old.clone(), new: new.clone() }]).unwrap();
-        assert_eq!(s.statements.len(), 1, "{:?}", s.statements);
-        c.execute_batch(&s.statements[0]).unwrap();
+        assert_eq!(s.statements.len(), 3, "{:?}", s.statements);
+        assert!(s.statements[0].starts_with("PRAGMA foreign_keys = OFF;"));
+        for st in &s.statements {
+            c.execute_batch(st).unwrap();
+        }
         assert_eq!(read_schema(&c).unwrap().remove(0), new);
         // Same CHECKs: nothing to do.
         assert!(sync_script(&[TableChange::Alter { old: new.clone(), new }]).unwrap().statements.is_empty());

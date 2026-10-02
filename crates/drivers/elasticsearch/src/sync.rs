@@ -6,7 +6,7 @@
 //! those only warn. Dynamic settings (replicas, refresh interval) go in
 //! `PUT /<index>/_settings`, aliases in `POST /_aliases`.
 
-use crate::ddl::{analysis_opt, check_index_name, field_mapping, index_ddl, opt, put_field, META_FIELDS};
+use crate::ddl::{analysis_opt, check_index_name, field_mapping, index_ddl, json_obj_opt, opt, put_field, MAPPINGS_EXTRA, META_FIELDS};
 use crate::json::{Obj, J};
 use dbine_driver::{ColumnDef, DdlParts, Result, SyncScript, TableChange, TableSchema};
 use std::collections::BTreeSet;
@@ -106,8 +106,20 @@ fn alter(old: &TableSchema, new: &TableSchema, os: bool, out: &mut Vec<String>, 
         }
     }
     if old.comment.as_deref().unwrap_or("") != new.comment.as_deref().unwrap_or("") {
+        // `_meta` is replaced whole: its other keys go along.
         let d = new.comment.as_deref().unwrap_or("").trim().to_string();
-        body.push(("_meta".into(), J::Obj(vec![("description".into(), J::Str(d))])));
+        let mut meta: Obj = json_obj_opt(&new.options, MAPPINGS_EXTRA)?
+            .unwrap_or_default()
+            .into_iter()
+            .find(|(k, _)| k == "_meta")
+            .and_then(|(_, v)| v.as_obj().cloned())
+            .unwrap_or_default();
+        meta.retain(|(k, _)| k != "description");
+        // An empty description reads as none (an empty `_meta` might not replace the old one).
+        if !d.is_empty() || meta.is_empty() {
+            meta.insert(0, ("description".into(), J::Str(d)));
+        }
+        body.push(("_meta".into(), J::Obj(meta)));
     }
     if !put.is_empty() {
         put.sort_by_key(|c| c.name.matches('.').count());
@@ -215,6 +227,25 @@ mod tests {
         // Removing it only warns.
         let s = sync_script(&[TableChange::Alter { old: new, new: idx() }], false).unwrap();
         assert!(s.statements.is_empty() && s.warnings.len() == 1, "{s:?}");
+    }
+
+    #[test]
+    fn the_description_keeps_the_rest_of_meta() {
+        let mut old = idx();
+        old.comment = Some("Clientes".into());
+        old.options.insert(MAPPINGS_EXTRA.into(), r#"{"_meta":{"owner":"x"}}"#.into());
+        let mut new = old.clone();
+        new.comment = None;
+        let s = sync_script(&[TableChange::Alter { old: old.clone(), new }], false).unwrap();
+        let m: serde_json::Value = serde_json::from_str(s.statements[0].strip_prefix("PUT /clientes/_mapping\n").unwrap()).unwrap();
+        assert_eq!(m, serde_json::json!({"_meta": {"owner": "x"}}));
+        // Without other keys, an empty description takes it off.
+        old.options.remove(MAPPINGS_EXTRA);
+        let mut new = old.clone();
+        new.comment = None;
+        let s = sync_script(&[TableChange::Alter { old, new }], false).unwrap();
+        let m: serde_json::Value = serde_json::from_str(s.statements[0].strip_prefix("PUT /clientes/_mapping\n").unwrap()).unwrap();
+        assert_eq!(m, serde_json::json!({"_meta": {"description": ""}}));
     }
 
     #[test]

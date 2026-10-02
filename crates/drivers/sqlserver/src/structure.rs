@@ -863,6 +863,28 @@ fn key_as_index(old: &mut TableSchema, new: &mut TableSchema) -> Option<bool> {
     Some(rebuilt)
 }
 
+/// Whether `expr` names `column` as a whole word (bracketed or not).
+fn names_column(expr: &str, column: &str) -> bool {
+    let (e, c) = (expr.to_lowercase(), column.to_lowercase());
+    let word = |ch: Option<char>| ch.is_some_and(|ch| ch.is_alphanumeric() || ch == '_' || ch == '@' || ch == '#' || ch == '$');
+    e.match_indices(&c).any(|(at, _)| !word(e[..at].chars().last()) && !word(e[at + c.len()..].chars().next()))
+}
+
+/// SQL Server refuses `DROP COLUMN` while an index (as a key, an included
+/// column or in its filter), a CHECK or a foreign key uses the column. The
+/// compare's "Eliminar" on a column leaves those in the new table; here
+/// they go with it, so the planner drops them first.
+fn without_dropped_columns(old: &TableSchema, new: &mut TableSchema) {
+    let dropped: Vec<&str> = old.columns.iter().filter(|o| !new.columns.iter().any(|n| n.name.eq_ignore_ascii_case(&o.name))).map(|o| o.name.as_str()).collect();
+    if dropped.is_empty() {
+        return;
+    }
+    let gone = |c: &String| dropped.iter().any(|d| d.eq_ignore_ascii_case(c));
+    new.indexes.retain(|ix| !(ix.columns.iter().chain(&ix.include).any(gone) || ix.filter.as_deref().is_some_and(|f| dropped.iter().any(|d| names_column(f, d)))));
+    new.checks.retain(|ck| !dropped.iter().any(|d| names_column(&ck.expression, d)));
+    new.foreign_keys.retain(|fk| !fk.columns.iter().any(gone));
+}
+
 /// Changes as the generic planner should see them:
 ///
 /// - On SQL Server and Azure SQL the primary key goes as an index
@@ -875,6 +897,8 @@ fn key_as_index(old: &mut TableSchema, new: &mut TableSchema) -> Option<bool> {
 ///   secondary XML index on its primary; XML, spatial and full-text indexes
 ///   on the primary key; the full-text index on its key index) goes too,
 ///   and comes back after.
+/// - A dropped column takes along the indexes, CHECKs and foreign keys that
+///   use it ([`without_dropped_columns`]).
 pub(crate) fn prepare_changes(changes: &[TableChange], variant: Variant) -> Vec<TableChange> {
     changes
         .iter()
@@ -884,6 +908,7 @@ pub(crate) fn prepare_changes(changes: &[TableChange], variant: Variant) -> Vec<
                 let mut pk_changed = pk_cols(old) != pk_cols(new);
                 let pk_name = old.primary_key.as_ref().and_then(|k| k.name.clone()).unwrap_or_default();
                 let (mut old, mut new) = (old.clone(), new.clone());
+                without_dropped_columns(&old, &mut new);
                 if rich(variant) {
                     if let Some(rebuilt) = key_as_index(&mut old, &mut new) {
                         pk_changed = rebuilt;
@@ -2077,5 +2102,45 @@ mod tests {
         assert!(s.contains("CONSTRAINT [PK_T] PRIMARY KEY NONCLUSTERED ([Id])"), "{s}");
         let s = crate::schema::table_ddl(&keyed("T", false, vec![]), DdlParts { create: true, ..Default::default() });
         assert!(s.contains("CONSTRAINT [PK_T] PRIMARY KEY ([Id])"), "{s}");
+    }
+
+    #[test]
+    fn a_dropped_column_takes_what_uses_it() {
+        let col = |n: &str| ColumnDef { name: n.into(), data_type: "int".into(), nullable: true, ..Default::default() };
+        let ix = |n: &str, cols: &[&str], include: &[&str], filter: Option<&str>| IndexDef {
+            name: n.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            include: include.iter().map(|c| c.to_string()).collect(),
+            filter: filter.map(Into::into),
+            kind: Some("NONCLUSTERED".into()),
+            ..Default::default()
+        };
+        let mut old = table(vec![
+            ix("IX_key", &["saldo"], &[], None),
+            ix("IX_inc", &["id"], &["Saldo"], None),
+            ix("IX_where", &["id"], &[], Some("([saldo]>(0))")),
+            ix("IX_keep", &["edad"], &[], Some("([saldo_ant] IS NULL)")),
+        ]);
+        old.columns.extend([col("saldo"), col("edad"), col("saldo_ant"), col("cliente_id")]);
+        old.checks = vec![
+            CheckDef { name: Some("CK_saldo".into()), expression: "([saldo]>=(0))".into() },
+            CheckDef { name: Some("CK_edad".into()), expression: "([edad]>=(0) AND [saldo_ant] IS NULL)".into() },
+        ];
+        old.foreign_keys = vec![dbine_driver::ForeignKeyDef { name: Some("FK_saldo".into()), columns: vec!["saldo".into()], ref_table: "t".into(), ref_columns: vec!["id".into()], ..Default::default() }];
+        let mut new = old.clone();
+        new.columns.retain(|c| c.name != "saldo");
+        let s = sync(&[TableChange::Alter { old, new }]);
+        let pos = |x: &str| s.iter().position(|y| y == x).unwrap_or_else(|| panic!("{x} in {s:#?}"));
+        let col = pos("ALTER TABLE [dbo].[docs] DROP COLUMN [saldo];");
+        for x in [
+            "ALTER TABLE [dbo].[docs] DROP CONSTRAINT [FK_saldo];",
+            "DROP INDEX [IX_key] ON [dbo].[docs];",
+            "DROP INDEX [IX_inc] ON [dbo].[docs];",
+            "DROP INDEX [IX_where] ON [dbo].[docs];",
+            "ALTER TABLE [dbo].[docs] DROP CONSTRAINT [CK_saldo];",
+        ] {
+            assert!(pos(x) < col, "{x} before the column: {s:#?}");
+        }
+        assert_eq!(s.len(), 6, "nothing else goes or comes back: {s:#?}");
     }
 }

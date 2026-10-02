@@ -37,6 +37,10 @@ base en el explorador: **Comparar esquemas…**.
      tabla y por columna, índice, clave foránea o clave primaria.
    - Si del lado de origen el objeto no existe, la flecha lo **borra** del
      otro lado. El tooltip de cada flecha dice qué va a hacer.
+   - **Eliminar** borra un objeto de un lado sin pasarlo desde el otro; si
+     existe en ambos lados, se puede eliminar de cada uno. Antes de ejecutar,
+     "Sincronizar" muestra qué depende de lo que se borra. Qué motores y tipos
+     lo permiten: [`soporte-por-motor.md`](soporte-por-motor.md#eliminar-en-la-comparación).
    - Pasar un cambio no toca la base: solo modifica la copia en memoria de ese
      lado. El objeto queda marcado con un punto y el pie cuenta los cambios
      sin aplicar de cada lado.

@@ -552,3 +552,170 @@ async fn comments() {
         assert!(ta["c_remove"].comment.is_none() && ta["c_remove"].columns.iter().all(|c| c.comment.is_none()), "{id}: {:#?}", ta["c_remove"]);
     }
 }
+
+/// What "Eliminar" in the compare sends for one side: its tables changed by
+/// hand (an `Alter` without the item, a `Drop` of the table plus an `Alter`
+/// without each FK that references it) and the objects dropped as
+/// src-tauri's `drop_other` writes them (`DROP <KIND> IF EXISTS `name``).
+/// Object drops go before the tables' statements, as `plan()` puts them.
+async fn drop_on(d: &dyn Driver, s: &mut Box<dyn Session>, tables: Vec<TableChange>, objects: &[(&str, &str)]) -> Result<Vec<String>, String> {
+    let keyword = |k: &str| match k {
+        "view" => "VIEW",
+        "procedure" => "PROCEDURE",
+        "function" => "FUNCTION",
+        "trigger" => "TRIGGER",
+        _ => unreachable!("{k}"),
+    };
+    let mut statements: Vec<String> = objects.iter().map(|(k, n)| format!("DROP {} IF EXISTS `{n}`;", keyword(k))).collect();
+    if !tables.is_empty() {
+        let script = d.sync_script(&tables).map_err(|e| e.to_string())?;
+        for w in &script.warnings {
+            eprintln!("aviso: {w}");
+        }
+        statements.extend(script.statements);
+    }
+    for st in &statements {
+        eprintln!("{st}");
+        run(s, st).await.map_err(|e| format!("{st}: {e}"))?;
+    }
+    Ok(statements)
+}
+
+/// The tables without the views (the compare lists views as objects).
+async fn tables_of(s: &mut Box<dyn Session>) -> BTreeMap<String, TableSchema> {
+    let views: Vec<String> = s.list_objects().await.unwrap().into_iter().filter(|o| o.kind == "view").map(|o| o.name).collect();
+    read(s).await.0.into_iter().filter(|(n, _)| !views.contains(n)).collect()
+}
+
+async fn code_objects(s: &mut Box<dyn Session>) -> Vec<(String, String)> {
+    let mut v: Vec<(String, String)> = s.list_objects().await.unwrap().into_iter().filter(|o| ["view", "procedure", "function", "trigger"].contains(&o.kind.as_str())).map(|o| (o.kind, o.name)).collect();
+    v.sort();
+    v
+}
+
+fn without(t: &TableSchema, f: impl FnOnce(&mut TableSchema)) -> TableChange {
+    let mut new = t.clone();
+    f(&mut new);
+    assert_ne!(&new, t, "nothing removed from {}", t.name);
+    TableChange::Alter { old: t.clone(), new }
+}
+
+/// "Eliminar" in "Comparar esquemas": an index dropped on one side and on
+/// both (they then compare equal), a column, a CHECK, an FK, the primary
+/// key, a table other tables reference (its FKs go first), and views,
+/// routines and a trigger. After each run the side is read again and must
+/// be exactly what the compare asked for.
+#[tokio::test]
+#[ignore]
+async fn drops() {
+    const SETUP: &str = "
+CREATE TABLE padre (id int NOT NULL PRIMARY KEY, codigo int, UNIQUE KEY u_codigo (codigo));
+CREATE TABLE hijo (
+  id int NOT NULL PRIMARY KEY,
+  padre_id int,
+  n int,
+  extra varchar(10),
+  sin_uso int,
+  KEY ix_sin_uso (sin_uso),
+  KEY ix_n (n),
+  CONSTRAINT fk_hijo_padre FOREIGN KEY (padre_id) REFERENCES padre (id),
+  CONSTRAINT ck_n CHECK (n > 0)
+);
+CREATE TABLE otro (id int NOT NULL PRIMARY KEY, padre_id int, CONSTRAINT fk_otro_padre FOREIGN KEY (padre_id) REFERENCES padre (id));
+CREATE TABLE nieto (id int NOT NULL PRIMARY KEY, hijo_id int, CONSTRAINT fk_nieto_hijo FOREIGN KEY (hijo_id) REFERENCES hijo (id));
+CREATE TABLE suelta (id int NOT NULL, v int, PRIMARY KEY (id));
+CREATE VIEW v_hijo AS SELECT id, n FROM hijo;
+CREATE VIEW v_v AS SELECT id FROM v_hijo;
+CREATE FUNCTION f_doble(x int) RETURNS int DETERMINISTIC RETURN x * 2;
+CREATE PROCEDURE p_nada() BEGIN SELECT 1; END;
+CREATE TRIGGER tg_hijo BEFORE INSERT ON hijo FOR EACH ROW SET NEW.n = f_doble(NEW.n)";
+    for (id, env) in [("mysql", "DBINE_TEST_MYSQL_URL"), ("mariadb", "DBINE_TEST_MARIADB_URL")] {
+        let Ok(url) = std::env::var(env) else {
+            eprintln!("{env} not set; skipping");
+            continue;
+        };
+        let cfg = parse_url(id, &url);
+        let d = driver(id);
+        let mut admin = d.connect(&cfg, None).await.expect("connect");
+        eprintln!("{id}: {}", admin.server_version().await.unwrap());
+        let (a_db, b_db) = ("dbine_drop_a", "dbine_drop_b");
+        for db in [a_db, b_db] {
+            run(&mut admin, &format!("DROP DATABASE IF EXISTS {db}")).await.unwrap();
+            admin.create_database(db).await.expect("create_database");
+        }
+        let mut a = d.connect(&cfg, Some(a_db)).await.unwrap();
+        let mut b = d.connect(&cfg, Some(b_db)).await.unwrap();
+        for s in [&mut a, &mut b] {
+            for stmt in SETUP.split(";\n").map(str::trim).filter(|x| !x.is_empty()) {
+                run(s, stmt).await.unwrap_or_else(|e| panic!("{id}: {stmt}: {e}"));
+            }
+        }
+        let d = d.as_ref();
+
+        // The same unused index on both sides: one script per side, and
+        // the two then compare equal.
+        let (ta, tb) = (tables_of(&mut a).await, tables_of(&mut b).await);
+        assert_eq!(ta, tb, "{id}: same setup");
+        for (s, t) in [(&mut a, &ta), (&mut b, &tb)] {
+            drop_on(d, s, vec![without(&t["hijo"], |t| t.indexes.retain(|i| i.name != "ix_sin_uso"))], &[]).await.unwrap();
+        }
+        let (ta, tb) = (tables_of(&mut a).await, tables_of(&mut b).await);
+        assert!(ta["hijo"].indexes.iter().all(|i| i.name != "ix_sin_uso"), "{id}: {:#?}", ta["hijo"]);
+        assert_eq!(ta, tb, "{id}: both sides dropped it");
+
+        // One side at a time: each item the detail pane can drop.
+        type Edit = fn(&mut TableSchema);
+        let steps: [(&str, &str, Edit); 5] = [
+            ("index", "hijo", |t| t.indexes.retain(|i| i.name != "ix_n")),
+            ("column", "hijo", |t| t.columns.retain(|c| c.name != "extra")),
+            ("check", "hijo", |t| t.checks.retain(|c| c.name.as_deref() != Some("ck_n"))),
+            ("foreign key", "nieto", |t| t.foreign_keys.retain(|f| f.name.as_deref() != Some("fk_nieto_hijo"))),
+            ("primary key", "suelta", |t| t.primary_key = None),
+        ];
+        for (what, table, edit) in steps {
+            let ta = tables_of(&mut a).await;
+            let change = without(&ta[table], edit);
+            let TableChange::Alter { new, .. } = &change else { unreachable!() };
+            let new = new.clone();
+            drop_on(d, &mut a, vec![change], &[]).await.unwrap_or_else(|e| panic!("{id}: {what}: {e}"));
+            assert_eq!(tables_of(&mut a).await[table], new, "{id}: {what} after the drop");
+        }
+        // B kept all of it.
+        assert_eq!(tables_of(&mut b).await, tb, "{id}: the other side is untouched");
+
+        // The index MySQL keeps for an FK can't go while the FK is there:
+        // the compare only warns about it.
+        let ta = tables_of(&mut a).await;
+        let backing = ta["hijo"].indexes.iter().find(|i| i.columns == ["padre_id"]).expect("FK index").name.clone();
+        let err = drop_on(d, &mut a, vec![without(&ta["hijo"], |t| t.indexes.retain(|i| i.name != backing))], &[]).await.expect_err("FK index");
+        eprintln!("{id}: the FK's index: {err}");
+
+        // A table two others reference: the UI takes their FKs out too,
+        // and the script drops them before the table (listed first here).
+        let ta = tables_of(&mut a).await;
+        let refs = |t: &mut TableSchema| t.foreign_keys.retain(|f| f.ref_table != "padre");
+        let (hijo, otro) = (without(&ta["hijo"], refs), without(&ta["otro"], refs));
+        let expected: Vec<TableSchema> = [&hijo, &otro].map(|c| match c {
+            TableChange::Alter { new, .. } => new.clone(),
+            _ => unreachable!(),
+        }).into();
+        let script = drop_on(d, &mut a, vec![TableChange::Drop { table: ta["padre"].clone() }, hijo, otro], &[]).await.unwrap_or_else(|e| panic!("{id}: table: {e}"));
+        let at = |p: &str| script.iter().position(|s| s.contains(p)).unwrap_or_else(|| panic!("{p} in {script:#?}"));
+        assert!(at("fk_hijo_padre") < at("DROP TABLE") && at("fk_otro_padre") < at("DROP TABLE"), "{id}: {script:#?}");
+        let now = tables_of(&mut a).await;
+        assert!(!now.contains_key("padre"), "{id}");
+        assert_eq!([now["hijo"].clone(), now["otro"].clone()], expected[..], "{id}");
+
+        // Code objects, in an order that ignores what uses what: MySQL
+        // drops them anyway.
+        drop_on(d, &mut a, Vec::new(), &[("function", "f_doble"), ("view", "v_hijo"), ("view", "v_v"), ("trigger", "tg_hijo"), ("procedure", "p_nada")]).await.unwrap_or_else(|e| panic!("{id}: objects: {e}"));
+        assert_eq!(code_objects(&mut a).await, Vec::<(String, String)>::new(), "{id}");
+        assert_eq!(code_objects(&mut b).await.len(), 5, "{id}: B keeps its objects");
+
+        drop(a);
+        drop(b);
+        for db in [a_db, b_db] {
+            admin.drop_database(db).await.expect("drop_database");
+        }
+    }
+}

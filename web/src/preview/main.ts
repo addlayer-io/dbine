@@ -1,7 +1,7 @@
 // Development only (not part of the app build): renders UI pieces with
 // sample data in a plain browser, to look at them without Tauri or a
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|dependencies
-// |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]
+// |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -186,7 +186,8 @@ if (view === 'settings') {
 }
 if (view === 'connection' || view === 'monitor' || view === 'profiler' || view === 'compare' || view === 'dependencies') {
   const conns = useConnectionsStore();
-  conns.drivers = sampleDrivers;
+  // Compare reads index usage and checks dependents before a drop (both faked in compare-samples).
+  conns.drivers = view === 'compare' ? sampleDrivers.map((d) => ({ ...d, supports_index_usage: true, supports_dependencies: true })) : sampleDrivers;
   conns.list = [{
     id: 'c1', name: 'Producción · ventas', color: '#3794ff', folder_id: null, tags: ['prod'], save_password: true, updated_at: '',
     config: { driver: 'postgres', host: 'db-prod-01', port: 5432, database: 'ventas', username: 'app', password: null,
@@ -200,7 +201,7 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
       if (cmd === 'profiler_start') return sampleProfilerStart(params.get('mode') === 'sampled' ? 'sampled' : 'complete');
       if (cmd === 'profiler_poll') return sampleProfilerPoll();
       if (cmd === 'profiler_stop') return null;
-      if (cmd === 'get_dependents') return sampleDependents;
+      if (cmd === 'get_dependents' && view !== 'compare') return sampleDependents;
       if (cmd === 'test_connection') return { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
       const cmp = compareMock(cmd, a);
       if (cmp !== undefined) return cmp;

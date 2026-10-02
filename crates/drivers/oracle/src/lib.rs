@@ -810,10 +810,11 @@ impl Session for OracleSession {
                     tracing::debug!("oracle: DBMS_METADATA transforms: {e}");
                 }
             }
-            match c
-                .query_row("SELECT DBMS_METADATA.GET_DDL(:1, :2, :3) FROM dual", &[&meta, &name, &owner])
-                .and_then(|r| r.get::<Option<String>>(0))
-            {
+            let get_ddl = || c.query_row("SELECT DBMS_METADATA.GET_DDL(:1, :2, :3) FROM dual", &[&meta, &name, &owner]).and_then(|r| r.get::<Option<String>>(0));
+            // Now and then DBMS_METADATA raises NO_DATA_FOUND for a
+            // materialized view (the query then has no row) and answers the
+            // next time: the fallback's shorter DDL would show as a difference.
+            match get_ddl().or_else(|e| if matches!(e.kind(), oracledb::ErrorKind::NoDataFound) { get_ddl() } else { Err(e) }) {
                 Ok(Some(ddl)) if kind == kinds::TABLE => Ok(Some(with_indexes(c, ddl.trim(), &owner, &name))),
                 Ok(Some(ddl)) => Ok(Some(ddl.trim().to_string())),
                 // No privilege on DBMS_METADATA for someone else's object:

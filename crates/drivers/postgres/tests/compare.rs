@@ -190,14 +190,85 @@ async fn read(s: &mut Box<dyn Session>) -> (BTreeMap<String, TableSchema>, Objec
     (tables, objects)
 }
 
+fn quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
+}
+
 /// What src-tauri's `drop_other` writes.
 fn drop_other(kind: &str, schema: Option<&str>, name: &str) -> String {
-    let q = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
     let full = match schema {
-        Some(s) => format!("{}.{}", q(s), q(name)),
-        None => q(name),
+        Some(s) => format!("{}.{}", quote(s), quote(name)),
+        None => quote(name),
     };
     format!("DROP {} IF EXISTS {full};", kind.replace('_', " ").to_uppercase())
+}
+
+/// What src-tauri's compare `drop_statements` writes on PostgreSQL: a
+/// trigger is dropped `ON` each of its tables, and an object only being
+/// dropped with several overloads goes one signature at a time. `def` is
+/// what `definition` read (`pg_get_triggerdef` / `pg_get_functiondef`,
+/// joined); the parsing is simple: the test's definitions have no defaults
+/// nor tricky names.
+fn drop_statements(kind: &str, schema: Option<&str>, name: &str, def: &str, whole: bool) -> Vec<String> {
+    let plain = drop_other(kind, schema, name);
+    match kind {
+        "trigger" => {
+            let tables: Vec<String> = def
+                .split("CREATE ")
+                .filter_map(|d| d.split_once(" ON ").map(|(_, rest)| rest.split_whitespace().next().unwrap_or("").to_string()))
+                .filter(|t| !t.is_empty())
+                .map(|t| match schema {
+                    Some(s) if !t.contains('.') => format!("{}.{t}", quote(s)),
+                    _ => t,
+                })
+                .collect();
+            if tables.is_empty() {
+                return vec![plain];
+            }
+            tables.into_iter().map(|t| format!("DROP TRIGGER IF EXISTS {} ON {t};", quote(name))).collect()
+        }
+        "function" | "procedure" if whole => {
+            let keyword = kind.to_uppercase();
+            let head = format!("{keyword} ");
+            // `CREATE OR REPLACE …` (PostgreSQL) or `CREATE …` (CockroachDB).
+            let sigs: Vec<String> = def
+                .split("CREATE ")
+                .filter_map(|d| d.strip_prefix("OR REPLACE ").unwrap_or(d).strip_prefix(&head))
+                .filter_map(|d| d.find(')').map(|end| d[..=end].to_string()))
+                .collect();
+            if sigs.len() < 2 {
+                return vec![plain];
+            }
+            sigs.into_iter().map(|sig| format!("DROP {keyword} IF EXISTS {sig};")).collect()
+        }
+        _ => vec![plain],
+    }
+}
+
+/// Drops ordered as src-tauri's compare does: one whose definition names
+/// another goes first (a trigger before its function, a view before the
+/// view it reads). Same-named statements (a trigger on two tables) once.
+fn drops_in_order(items: Vec<(String, String, Vec<String>)>) -> Vec<String> {
+    let mut left = items;
+    let mut out: Vec<String> = Vec::new();
+    while !left.is_empty() {
+        // The first one no other remaining definition names.
+        let i = (0..left.len())
+            .find(|&i| !left.iter().enumerate().any(|(j, (n, d, _))| j != i && *n != left[i].0 && named_in(&left[i].0, d)))
+            .unwrap_or(0);
+        for s in left.remove(i).2 {
+            if !out.contains(&s) {
+                out.push(s);
+            }
+        }
+    }
+    out
+}
+
+/// Whether `text` names `name` as a whole word.
+fn named_in(name: &str, text: &str) -> bool {
+    let word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    text.to_lowercase().split(|c: char| !word(c)).any(|w| w == name.to_lowercase())
 }
 
 /// `plan` in src-tauri's compare: object drops, prerequisites, tables,
@@ -206,9 +277,10 @@ fn plan(d: &dyn Driver, tables: &[TableChange], objects: &[(Op, String, Option<S
     let (mut before, mut early, mut after, mut late) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for (op, kind, schema, name, def) in objects {
         let prereq = PREREQS.contains(&kind.as_str());
+        let drops = || (name.clone(), def.clone(), drop_statements(kind, schema.as_deref(), name, def, *op == Op::Drop));
         match op {
-            Op::Drop if prereq => late.push(drop_other(kind, schema.as_deref(), name)),
-            Op::Drop | Op::Replace => before.push(drop_other(kind, schema.as_deref(), name)),
+            Op::Drop if prereq => late.push(drops()),
+            Op::Drop | Op::Replace => before.push(drops()),
             _ => {}
         }
         if *op != Op::Drop {
@@ -223,7 +295,7 @@ fn plan(d: &dyn Driver, tables: &[TableChange], objects: &[(Op, String, Option<S
     for w in &script.warnings {
         eprintln!("aviso: {w}");
     }
-    before.into_iter().chain(early).chain(script.statements).chain(after).chain(late).collect()
+    drops_in_order(before).into_iter().chain(early).chain(script.statements).chain(after).chain(drops_in_order(late)).collect()
 }
 
 fn ix<'a>(t: &'a TableSchema, n: &str) -> &'a dbine_driver::IndexDef {
@@ -776,4 +848,194 @@ async fn yugabyte() {
         got,
         ops(&[(Op::Replace, "folio"), (Op::Replace, "mood"), (Op::Create, "positivo"), (Op::Create, "punto"), (Op::Create, "rango_fl"), (Op::Drop, "extra")])
     );
+}
+
+/// Both sides start the same; "Eliminar" then drops on one side or both.
+const DROP_SCHEMA: &str = "
+CREATE SCHEMA app;
+CREATE TABLE app.padre (id int PRIMARY KEY, nombre text NOT NULL, CONSTRAINT padre_nombre_ck CHECK (length(nombre) > 0));
+CREATE INDEX padre_nombre_ix ON app.padre (nombre);
+CREATE TABLE app.hijo (id int CONSTRAINT hijo_pk PRIMARY KEY, padre_id int, nota text, extra text,
+    CONSTRAINT hijo_padre_fk FOREIGN KEY (padre_id) REFERENCES app.padre (id),
+    CONSTRAINT hijo_nota_ck CHECK (nota <> ''));
+CREATE INDEX hijo_nota_ix ON app.hijo (nota);
+CREATE INDEX hijo_padre_ix ON app.hijo (padre_id);
+CREATE TABLE app.nieto (id int PRIMARY KEY, hijo_id int, CONSTRAINT nieto_hijo_fk FOREIGN KEY (hijo_id) REFERENCES app.hijo (id));
+CREATE VIEW app.v1 AS SELECT id, nombre FROM app.padre;
+CREATE VIEW app.v2 AS SELECT id FROM app.v1;
+CREATE FUNCTION app.audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+CREATE TRIGGER marca BEFORE INSERT ON app.hijo FOR EACH ROW EXECUTE FUNCTION app.audit();
+CREATE TRIGGER marca BEFORE UPDATE ON app.nieto FOR EACH ROW EXECUTE FUNCTION app.audit();
+CREATE FUNCTION app.f(a integer) RETURNS integer LANGUAGE sql AS $$ SELECT a $$;
+CREATE FUNCTION app.f(a text) RETURNS integer LANGUAGE sql AS $$ SELECT length(a) $$;
+CREATE PROCEDURE app.p() LANGUAGE sql AS $$ SELECT 1 $$;
+";
+
+/// `t` without the item `pred` picks in one of its lists, as CompareView's
+/// `removeItem` leaves the side's work copy.
+fn without(t: &TableSchema, f: impl FnOnce(&mut TableSchema)) -> TableSchema {
+    let mut n = t.clone();
+    f(&mut n);
+    n
+}
+
+/// Runs the script CompareView's sync would make for one side: `tables` as
+/// `changesOf` gives them, `objects` (kind, name) dropped.
+async fn sync_side(d: &dyn Driver, s: &mut Box<dyn Session>, tables: &[TableChange], objects: &[(&str, &str)], read_objects: &Objects) {
+    let mut objs = Vec::new();
+    for ((k, sc, n), def) in read_objects {
+        if objects.contains(&(k.as_str(), n.as_str())) {
+            objs.push((Op::Drop, k.clone(), sc.clone(), n.clone(), def.clone()));
+        }
+    }
+    assert_eq!(objs.len(), objects.len(), "{objects:?} in {:?}", read_objects.keys());
+    let statements = plan(d, tables, &objs);
+    eprintln!("---- drop script\n{}", statements.join("\n"));
+    for st in &statements {
+        run(s, st).await.unwrap_or_else(|e| panic!("{e}\n---\n{st}\n---\nwhole script:\n{}", statements.join("\n")));
+    }
+}
+
+/// "Eliminar" in the compare, against a live server: an index on one side
+/// and then the other (the difference goes), and on both sides at once an
+/// index, a column, a foreign key, a CHECK, the primary key (kept with a
+/// warning where the engine needs one: `pk_drops` false), a table other tables reference (their keys go
+/// first), two views over each other, a same-named trigger on two tables
+/// and its function, overloaded functions and a procedure.
+async fn compare_drops(id: &str, url: &str, pk_drops: bool) {
+    let cfg = parse_url(id, url);
+    let d = driver(id);
+    let mut admin = d.connect(&cfg, None).await.expect("connect");
+    let (a_db, b_db) = ("dbine_drop_a", "dbine_drop_b");
+    for db in [a_db, b_db] {
+        let _ = admin.drop_database(db).await;
+        admin.create_database(db).await.expect("create_database");
+    }
+    let mut a = d.connect(&cfg, Some(a_db)).await.unwrap();
+    let mut b = d.connect(&cfg, Some(b_db)).await.unwrap();
+    run_all(&mut a, DROP_SCHEMA).await;
+    run_all(&mut b, DROP_SCHEMA).await;
+    let (ta, oa) = read(&mut a).await;
+    let (tb, ob) = read(&mut b).await;
+    assert_eq!(ta, tb);
+    assert_eq!(oa.keys().collect::<Vec<_>>(), ob.keys().collect::<Vec<_>>());
+    for k in [("view", "v1"), ("view", "v2"), ("function", "audit"), ("trigger", "marca"), ("function", "f"), ("procedure", "p")] {
+        assert!(oa.keys().any(|(kind, _, n)| (kind.as_str(), n.as_str()) == k), "{k:?} in {:?}", oa.keys());
+    }
+    eprintln!("-- marca\n{}\n-- f\n{}", oa.iter().find(|(k, _)| k.2 == "marca").unwrap().1, oa.iter().find(|(k, _)| k.2 == "f").unwrap().1);
+
+    // An unused index, dropped on the left only: the difference is just that.
+    let no_ix = |t: &TableSchema| without(t, |n| n.indexes.retain(|i| i.name != "padre_nombre_ix"));
+    sync_side(d.as_ref(), &mut a, &[TableChange::Alter { old: ta["padre"].clone(), new: no_ix(&ta["padre"]) }], &[], &oa).await;
+    let (ta1, _) = read(&mut a).await;
+    assert!(ta1["padre"].indexes.iter().all(|i| i.name != "padre_nombre_ix"));
+    assert_eq!(ta1["padre"], no_ix(&tb["padre"]));
+    assert_ne!(ta1, tb);
+    // Then on the right: both read the same again.
+    sync_side(d.as_ref(), &mut b, &[TableChange::Alter { old: tb["padre"].clone(), new: no_ix(&tb["padre"]) }], &[], &ob).await;
+    let (tb1, _) = read(&mut b).await;
+    assert_eq!(ta1, tb1);
+
+    // The rest on both sides at once, as the two tabs of the sync dialog.
+    let objects = [("view", "v1"), ("view", "v2"), ("trigger", "marca"), ("function", "audit"), ("function", "f"), ("procedure", "p")];
+    for (s, t, o) in [(&mut a, &ta1, &oa), (&mut b, &tb1, &ob)] {
+        let hijo = without(&t["hijo"], |n| {
+            n.indexes.retain(|i| i.name != "hijo_nota_ix");
+            n.columns.retain(|c| c.name != "extra");
+            n.checks.retain(|c| c.name.as_deref() != Some("hijo_nota_ck"));
+            // Padre goes: the key that references it too (CompareView's cascade).
+            n.foreign_keys.retain(|f| f.name.as_deref() != Some("hijo_padre_fk"));
+            n.primary_key = None;
+        });
+        let nieto = without(&t["nieto"], |n| n.foreign_keys.retain(|f| f.name.as_deref() != Some("nieto_hijo_fk")));
+        let tables = [
+            TableChange::Alter { old: t["hijo"].clone(), new: hijo },
+            TableChange::Alter { old: t["nieto"].clone(), new: nieto },
+            TableChange::Drop { table: t["padre"].clone() },
+        ];
+        let warnings = d.sync_script(&tables).expect("sync_script").warnings;
+        assert_eq!(warnings.iter().any(|w| w.contains("sin clave primaria: app.hijo")), !pk_drops, "{warnings:?}");
+        sync_side(d.as_ref(), s, &tables, &objects, o).await;
+    }
+    let (ta2, oa2) = read(&mut a).await;
+    let (tb2, ob2) = read(&mut b).await;
+    eprintln!("{ta2:#?}");
+    assert_eq!(ta2.keys().collect::<Vec<_>>(), ["hijo", "nieto"]);
+    let hijo = &ta2["hijo"];
+    assert!(hijo.indexes.iter().all(|i| i.name != "hijo_nota_ix"), "{:?}", hijo.indexes);
+    assert!(hijo.indexes.iter().any(|i| i.name == "hijo_padre_ix"), "{:?}", hijo.indexes);
+    assert_eq!(hijo.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "padre_id", "nota"]);
+    assert!(hijo.checks.is_empty(), "{:?}", hijo.checks);
+    assert!(hijo.foreign_keys.is_empty(), "{:?}", hijo.foreign_keys);
+    assert_eq!(hijo.primary_key.is_none(), pk_drops, "{:?}", hijo.primary_key);
+    assert!(ta2["nieto"].foreign_keys.is_empty());
+    assert!(oa2.is_empty(), "{:?}", oa2.keys());
+    // Recompared: nothing left between the sides.
+    assert_eq!(ta2, tb2);
+    assert_eq!(oa2, ob2);
+
+    drop(a);
+    drop(b);
+    for db in [a_db, b_db] {
+        admin.drop_database(db).await.expect("drop_database");
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn postgres_drops() {
+    let Ok(url) = std::env::var("DBINE_TEST_POSTGRES_URL") else {
+        eprintln!("DBINE_TEST_POSTGRES_URL not set; skipping");
+        return;
+    };
+    compare_drops("postgres", &url, true).await;
+}
+
+/// CockroachDB won't drop a primary key without adding another in the
+/// same transaction: the sync keeps it and says so.
+#[tokio::test]
+#[ignore]
+async fn cockroach_drops() {
+    let Ok(url) = std::env::var("DBINE_TEST_COCKROACH_URL") else {
+        eprintln!("DBINE_TEST_COCKROACH_URL not set; skipping");
+        return;
+    };
+    compare_drops("cockroachdb", &url, false).await;
+}
+
+/// A primary key that changes (an arrow, not a drop) goes in one statement
+/// on CockroachDB: dropped and added in the same transaction.
+#[tokio::test]
+#[ignore]
+async fn cockroach_changes_a_primary_key() {
+    let Ok(url) = std::env::var("DBINE_TEST_COCKROACH_URL") else {
+        eprintln!("DBINE_TEST_COCKROACH_URL not set; skipping");
+        return;
+    };
+    let cfg = parse_url("cockroachdb", &url);
+    let d = driver("cockroachdb");
+    let mut admin = d.connect(&cfg, None).await.expect("connect");
+    let db = "dbine_pk_change";
+    let _ = admin.drop_database(db).await;
+    admin.create_database(db).await.expect("create_database");
+    let mut s = d.connect(&cfg, Some(db)).await.unwrap();
+    run_all(&mut s, "CREATE SCHEMA app;\nCREATE TABLE app.t (id INT8 NOT NULL, a INT8 NOT NULL, CONSTRAINT t_pk PRIMARY KEY (id));\nINSERT INTO app.t VALUES (1, 10), (2, 20)").await;
+    let (t, _) = read(&mut s).await;
+    let old = t["t"].clone();
+    let mut new = old.clone();
+    new.primary_key = Some(dbine_driver::KeyDef { name: Some("t_pk2".into()), columns: vec!["a".into()] });
+    let script = d.sync_script(&[TableChange::Alter { old, new: new.clone() }]).expect("sync_script");
+    eprintln!("{:#?}", script.statements);
+    assert!(script.statements.iter().all(|x| x != "ALTER TABLE \"app\".\"t\" DROP CONSTRAINT \"t_pk\";"), "{:?}", script.statements);
+    for st in &script.statements {
+        run(&mut s, st).await.unwrap_or_else(|e| panic!("{e}\n---\n{st}"));
+    }
+    let (t2, _) = read(&mut s).await;
+    let got = &t2["t"];
+    assert_eq!(got.primary_key.as_ref().map(|k| k.columns.clone()), Some(vec!["a".to_string()]), "{got:#?}");
+    assert_eq!(got.primary_key.as_ref().and_then(|k| k.name.clone()).as_deref(), Some("t_pk2"));
+    // No unique index left behind for the old key.
+    assert!(got.indexes.is_empty(), "{:?}", got.indexes);
+    drop(s);
+    admin.drop_database(db).await.expect("drop_database");
 }

@@ -326,16 +326,83 @@ fn normalize(t: &TableSchema) -> TableSchema {
     t
 }
 
-/// `ALTER TABLE … MODIFY (…)` for columns, `DROP PRIMARY KEY`, and unique
-/// constraints dropped as constraints (`DROP INDEX` refuses them).
+/// A PL/SQL block that drops the first system-named (SYS_C…) constraint of
+/// `t` of type `ty` that `test` (a condition on the cursor row `k`) picks.
+/// The compare reads those without a name, so the DDL can't name them.
+fn drop_system_named(t: &TableSchema, ty: &str, select: &str, test: &str) -> String {
+    let owner = match t.schema.as_deref().filter(|s| !s.is_empty()) {
+        Some(s) => format!("'{}'", s.replace('\'', "''")),
+        None => "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".into(),
+    };
+    let table = dbine_driver::sql::qualified_name(Quote::Double, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
+    format!(
+        "BEGIN\n  FOR k IN (SELECT c.constraint_name{select} FROM all_constraints c\n             WHERE c.owner = {owner} AND c.table_name = '{}'\n               AND c.constraint_type = '{ty}' AND c.generated = 'GENERATED NAME') LOOP\n    IF {test} THEN\n      EXECUTE IMMEDIATE 'ALTER TABLE {} DROP CONSTRAINT \"' || k.constraint_name || '\"';\n      EXIT;\n    END IF;\n  END LOOP;\nEND;\n/",
+        t.name.replace('\'', "''"),
+        table.replace('\'', "''"),
+    )
+}
+
+/// The CHECKs and foreign keys without a name that `new` no longer has:
+/// taken out of `old` (the planner can only warn about them) and dropped by
+/// a block that looks their system name up.
+fn drop_unnamed(old: &mut TableSchema, new: &TableSchema) -> Vec<String> {
+    let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
+    let mut out = Vec::new();
+    let mut kept: Vec<&dbine_driver::CheckDef> = new.checks.iter().filter(|c| c.name.is_none()).collect();
+    old.checks.retain(|o| {
+        if o.name.is_some() {
+            return true;
+        }
+        if let Some(i) = kept.iter().position(|n| n.expression.trim() == o.expression.trim()) {
+            kept.remove(i);
+            return true;
+        }
+        // SEARCH_CONDITION is a LONG: compared in PL/SQL, not in the query.
+        let test = format!("REGEXP_REPLACE(k.search_condition, '^\\s+|\\s+$', '') = {}", lit(o.expression.trim()));
+        out.push(drop_system_named(new, "C", ", c.search_condition", &test));
+        false
+    });
+    let same = |a: &ForeignKeyDef, b: &ForeignKeyDef| {
+        (&a.columns, &a.ref_schema, &a.ref_table, &a.ref_columns, &a.on_delete) == (&b.columns, &b.ref_schema, &b.ref_table, &b.ref_columns, &b.on_delete)
+    };
+    let mut kept: Vec<&ForeignKeyDef> = new.foreign_keys.iter().filter(|f| f.name.is_none()).collect();
+    let owner = new.schema.as_deref().filter(|s| !s.is_empty());
+    old.foreign_keys.retain(|o| {
+        if o.name.is_some() {
+            return true;
+        }
+        if let Some(i) = kept.iter().position(|n| same(n, o)) {
+            kept.remove(i);
+            return true;
+        }
+        let ref_owner = match o.ref_schema.as_deref().or(owner) {
+            Some(s) => lit(s),
+            None => "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".into(),
+        };
+        let select = ",\n                    (SELECT r.owner || '.' || r.table_name FROM all_constraints r\n                      WHERE r.owner = c.r_owner AND r.constraint_name = c.r_constraint_name) AS target,\n                    (SELECT LISTAGG(cc.column_name, ',') WITHIN GROUP (ORDER BY cc.position) FROM all_cons_columns cc\n                      WHERE cc.owner = c.owner AND cc.constraint_name = c.constraint_name) AS cols";
+        let test = format!("k.target = {ref_owner} || '.' || {} AND k.cols = {}", lit(&o.ref_table), lit(&o.columns.join(",")));
+        out.push(drop_system_named(new, "R", select, &test));
+        false
+    });
+    out
+}
+
+/// `ALTER TABLE … MODIFY (…)` for columns, `DROP PRIMARY KEY`, unique
+/// constraints dropped as constraints (`DROP INDEX` refuses them), and
+/// system-named CHECKs and foreign keys dropped by looking their name up.
 pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
     use dbine_driver::alter::{self, AlterStyle, ColumnAlter, TableChange};
+    let mut unnamed = Vec::new();
     let changes: Vec<TableChange> = changes
         .iter()
         .map(|c| match c {
             TableChange::Create { table } => TableChange::Create { table: normalize(table) },
             TableChange::Drop { table } => TableChange::Drop { table: normalize(table) },
-            TableChange::Alter { old, new } => TableChange::Alter { old: normalize(old), new: normalize(new) },
+            TableChange::Alter { old, new } => {
+                let (mut old, new) = (normalize(old), normalize(new));
+                unnamed.extend(drop_unnamed(&mut old, &new));
+                TableChange::Alter { old, new }
+            }
         })
         .collect();
     let cd = |t: &TableSchema, c: &ColumnDef| ddl::column_def(&FLAVOR, t, c);
@@ -356,6 +423,27 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver
             }
         }
     }
+    // A column NOT NULL only through the primary key turns nullable when the
+    // key goes: kept NOT NULL when the new table says so (already-NOT NULL,
+    // ORA-01442, is fine).
+    for ch in &changes {
+        if let TableChange::Alter { old, new } = ch {
+            let Some(old_pk) = old.primary_key.as_ref() else { continue };
+            let name = dbine_driver::sql::qualified_name(Quote::Double, new.schema.as_deref().filter(|s| !s.is_empty()), &new.name);
+            let drop = format!("ALTER TABLE {name} DROP PRIMARY KEY;");
+            let Some(at) = script.statements.iter().position(|s| *s == drop) else { continue };
+            let in_new_pk = |c: &str| new.primary_key.as_ref().is_some_and(|k| k.columns.iter().any(|k| k == c));
+            let keep: Vec<String> = old_pk
+                .columns
+                .iter()
+                .filter(|c| !in_new_pk(c) && new.columns.iter().any(|n| &n.name == *c && !n.nullable))
+                .map(|c| statement(format!("ALTER TABLE {name} MODIFY ({} NOT NULL)", quote(c)), true, &[-1442]))
+                .collect();
+            script.statements.splice(at + 1..at + 1, keep);
+        }
+    }
+    // First, as the planner drops foreign keys: before any table they point at.
+    script.statements.splice(0..0, unnamed);
     Ok(script)
 }
 
@@ -574,5 +662,48 @@ mod tests {
                 "ALTER TABLE \"PEDIDOS\" ADD CONSTRAINT \"PK_PEDIDOS\" PRIMARY KEY (\"ID\", \"ESTADO\");",
             ]
         );
+    }
+
+    #[test]
+    fn sync_drops_system_named_checks_and_foreign_keys_by_lookup() {
+        use dbine_driver::alter::TableChange;
+        use dbine_driver::CheckDef;
+        let mut old = t();
+        old.schema = Some("APP".into());
+        old.foreign_keys[0].name = None;
+        old.checks = vec![CheckDef { name: None, expression: "estado <> 'x'".into() }, CheckDef { name: None, expression: "id > 0".into() }];
+        let mut new = old.clone();
+        new.foreign_keys.clear();
+        new.checks.remove(0);
+        let s = sync_script(&[TableChange::Alter { old: old.clone(), new }]).unwrap();
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+        assert_eq!(s.statements.len(), 2, "{:#?}", s.statements);
+        let check = &s.statements[0];
+        assert!(check.contains("c.owner = 'APP' AND c.table_name = 'PEDIDOS'") && check.contains("c.constraint_type = 'C'"), "{check}");
+        assert!(check.contains(r#"REGEXP_REPLACE(k.search_condition, '^\s+|\s+$', '') = 'estado <> ''x'''"#), "{check}");
+        assert!(check.contains(r#"EXECUTE IMMEDIATE 'ALTER TABLE "APP"."PEDIDOS" DROP CONSTRAINT "' || k.constraint_name || '"';"#), "{check}");
+        let fk = &s.statements[1];
+        assert!(fk.contains("c.constraint_type = 'R'") && fk.contains("k.target = 'APP' || '.' || 'CLIENTES' AND k.cols = 'CLIENTE_ID'"), "{fk}");
+        assert_eq!(script::split(&s.statements.join("\n")).len(), 2);
+
+        // Kept as they are: nothing to drop.
+        let s = sync_script(&[TableChange::Alter { old: old.clone(), new: old }]).unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
+    }
+
+    #[test]
+    fn sync_keeps_not_null_when_the_primary_key_goes() {
+        use dbine_driver::alter::TableChange;
+        let mut old = t();
+        old.columns[0].auto_increment = false;
+        old.columns[0].nullable = false;
+        old.foreign_keys.clear();
+        old.indexes.clear();
+        let mut new = old.clone();
+        new.primary_key = None;
+        let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
+        assert_eq!(s.statements[0], r#"ALTER TABLE "PEDIDOS" DROP PRIMARY KEY;"#);
+        assert!(s.statements[1].contains(r#"EXECUTE IMMEDIATE 'ALTER TABLE "PEDIDOS" MODIFY ("ID" NOT NULL)';"#) && s.statements[1].contains("SQLCODE != -1442"), "{:?}", s.statements);
+        assert_eq!(s.statements.len(), 2);
     }
 }

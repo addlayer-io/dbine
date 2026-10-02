@@ -695,7 +695,7 @@ const SYSTEM_SETTINGS: &[&str] = &[
 ];
 
 /// A table option that holds a JSON object.
-fn json_obj_opt(o: &BTreeMap<String, String>, key: &str) -> Result<Option<Obj>> {
+pub(crate) fn json_obj_opt(o: &BTreeMap<String, String>, key: &str) -> Result<Option<Obj>> {
     match opt(o, key) {
         None => Ok(None),
         Some(a) => match J::parse(a) {
@@ -814,13 +814,19 @@ pub fn index_schema(name: &str, idx: &J, opensearch: bool) -> TableSchema {
             options.insert(key.into(), J::Obj(v).compact());
         }
     }
-    let only_description = |v: &J| v.as_obj().is_some_and(|m| m.len() == 1) && v.get("description").is_some();
     let mut mapping_extra: Obj = m
         .as_obj()
         .into_iter()
         .flatten()
-        .filter(|(k, v)| !matches!(k.as_str(), "properties" | "dynamic") && !(k == "_meta" && only_description(v)))
-        .cloned()
+        .filter(|(k, _)| !matches!(k.as_str(), "properties" | "dynamic"))
+        .filter_map(|(k, v)| match v.as_obj() {
+            // `_meta`'s description is the comment: the rest of it stays here.
+            Some(meta) if k == "_meta" => {
+                let rest: Obj = meta.iter().filter(|(mk, _)| mk != "description").cloned().collect();
+                (!rest.is_empty()).then(|| (k.clone(), J::Obj(rest)))
+            }
+            _ => Some((k.clone(), v.clone())),
+        })
         .collect();
     mapping_extra.sort_by(|a, b| a.0.cmp(&b.0));
     if !mapping_extra.is_empty() {
@@ -835,7 +841,8 @@ pub fn index_schema(name: &str, idx: &J, opensearch: bool) -> TableSchema {
         schema: None,
         name: name.to_string(),
         columns,
-        comment: m.at(&["_meta", "description"]).map(J::text),
+        // Taking the comment off leaves an empty description: there's none.
+        comment: m.at(&["_meta", "description"]).map(J::text).filter(|d| !d.trim().is_empty()),
         options,
         ..Default::default()
     }
@@ -1112,6 +1119,9 @@ mod tests {
         );
         assert_eq!(s.options.get(LIFECYCLE).map(String::as_str), Some(r#"{"index.lifecycle.name":"pol"}"#));
         assert_eq!(s.comment.as_deref(), Some("d"));
+        // The description is the comment, not a mapping parameter too.
+        let extra = s.options.get(MAPPINGS_EXTRA).unwrap();
+        assert!(extra.contains(r#""_meta":{"owner":"x"}"#), "{extra}");
         let body = J::Obj(index_body(&s, true).unwrap());
         assert_eq!(body.at(&["settings", "index.max_result_window"]).map(J::text).as_deref(), Some("50000"));
         assert_eq!(body.at(&["settings", "index.lifecycle.name"]).map(J::text).as_deref(), Some("pol"));
