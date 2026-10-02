@@ -614,6 +614,46 @@ impl SqlServerSession {
     }
 }
 
+/// The online databases, by name, with what decides whether the explorer
+/// shows them: the login's access and the engine edition.
+const DATABASES_SQL: &str = "SELECT name, CAST(database_id AS int), CAST(HAS_DBACCESS(name) AS int),
+       CAST(SERVERPROPERTY('EngineEdition') AS int)
+  FROM sys.databases
+ WHERE state_desc = 'ONLINE'
+ ORDER BY name";
+
+struct DatabaseRow {
+    name: String,
+    id: i32,
+    /// `HAS_DBACCESS`: 1, 0, or NULL.
+    access: Option<i32>,
+}
+
+/// Engines with no cross-database access (EngineEdition 5 Azure SQL
+/// Database, 6 Synapse dedicated pool, 11 Synapse serverless, 12 SQL
+/// database in Fabric): `HAS_DBACCESS` only says yes for the connection's
+/// own database, even for the server admin, while `sys.databases` (in
+/// `master`) already lists only the databases the login may see. Every one
+/// of them is opened on a connection of its own that logs into it. The
+/// Fabric warehouse driver keeps the access check.
+fn database_scoped(variant: Variant, edition: i32) -> bool {
+    variant != Variant::Fabric && matches!(edition, 5 | 6 | 11 | 12)
+}
+
+/// The databases the explorer lists, user databases first and the system
+/// ones last, each group by name (`rows` come sorted by name). On SQL
+/// Server the system databases are ids 1–4; on the database-scoped engines
+/// only `master` is, whatever ids the rest have.
+fn visible_databases(rows: Vec<DatabaseRow>, scoped: bool) -> Vec<String> {
+    let mut dbs: Vec<(bool, String)> = rows
+        .into_iter()
+        .filter(|d| scoped || d.access == Some(1))
+        .map(|d| (if scoped { d.name.eq_ignore_ascii_case("master") } else { d.id <= 4 }, d.name))
+        .collect();
+    dbs.sort_by_key(|(system, _)| *system);
+    dbs.into_iter().map(|(_, name)| name).collect()
+}
+
 fn text(r: &Row, i: usize) -> Option<String> {
     r.try_get::<&str, _>(i).ok().flatten().map(str::to_string)
 }
@@ -627,15 +667,13 @@ impl Session for SqlServerSession {
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
-        let rows = self
-            .rows(
-                "SELECT name FROM sys.databases
-                  WHERE state_desc = 'ONLINE' AND HAS_DBACCESS(name) = 1
-                  ORDER BY CASE WHEN database_id <= 4 THEN 1 ELSE 0 END, name",
-                &[],
-            )
-            .await?;
-        Ok(rows.iter().filter_map(|r| text(r, 0)).collect())
+        let rows = self.rows(DATABASES_SQL, &[]).await?;
+        let edition = rows.first().and_then(|r| r.get::<i32, _>(3)).unwrap_or(0);
+        let dbs = rows
+            .iter()
+            .filter_map(|r| Some(DatabaseRow { name: text(r, 0)?, id: r.get::<i32, _>(1).unwrap_or(0), access: r.get::<i32, _>(2) }))
+            .collect();
+        Ok(visible_databases(dbs, database_scoped(self.variant, edition)))
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
@@ -1169,6 +1207,39 @@ mod tests {
         assert_eq!(parse_host("srv\\SQLEXPRESS", 1433), ("srv", Some("SQLEXPRESS"), 1433));
         assert_eq!(parse_host("srv,14330", 1433), ("srv", None, 14330));
         assert_eq!(parse_host("", 1433), ("localhost", None, 1433));
+    }
+
+    fn db(name: &str, id: i32, access: Option<i32>) -> DatabaseRow {
+        DatabaseRow { name: name.into(), id, access }
+    }
+
+    #[test]
+    fn sql_server_lists_what_the_login_may_open() {
+        for edition in [1, 2, 3, 4, 8, 9] {
+            assert!(!database_scoped(Variant::SqlServer, edition), "{edition}");
+        }
+        // Sorted by name, as the query returns them.
+        let rows = vec![db("master", 1, Some(1)), db("model", 3, Some(1)), db("sales", 7, Some(1)), db("secret", 6, Some(0)), db("tempdb", 2, Some(1))];
+        assert_eq!(visible_databases(rows, false), ["sales", "master", "model", "tempdb"]);
+    }
+
+    #[test]
+    fn azure_sql_database_lists_every_database_from_master() {
+        // Connected to master as the server admin: HAS_DBACCESS is 0 or NULL
+        // for every other database.
+        for v in [Variant::SqlServer, Variant::AzureSql] {
+            for edition in [5, 6, 11, 12] {
+                assert!(database_scoped(v, edition), "{v:?} {edition}");
+            }
+        }
+        let rows = vec![db("app", 3, Some(0)), db("Hyper", 4, None), db("master", 1, Some(1)), db("reports", 5, None)];
+        assert_eq!(visible_databases(rows, true), ["app", "Hyper", "reports", "master"]);
+    }
+
+    #[test]
+    fn fabric_warehouse_keeps_the_access_check() {
+        assert!(!database_scoped(Variant::Fabric, 11));
+        assert!(!database_scoped(Variant::Fabric, 12));
     }
 
     #[test]
