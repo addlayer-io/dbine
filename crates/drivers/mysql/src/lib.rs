@@ -9,6 +9,7 @@ mod backup;
 mod blocking;
 mod cells;
 mod design;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -274,6 +275,12 @@ impl Driver for MySqlDriver {
 
     fn supports_profiler(&self) -> bool {
         true
+    }
+
+    /// Every variant with indexes to list (see `index_usage`); the ones
+    /// without counters list them with a note.
+    fn supports_index_usage(&self) -> bool {
+        index_usage::supported(self.variant)
     }
 
     fn script_dialect(&self) -> ScriptDialect {
