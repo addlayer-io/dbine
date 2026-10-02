@@ -960,7 +960,6 @@ const tasks = useTasksStore();
 const syncTask = shallowRef<TaskHandle | null>(null);
 let syncRunId = '';
 let alive = true;
-const MAX_CANCEL_SENDS = 10;
 onBeforeUnmount(() => {
   alive = false;
   // The dialog is gone with the view: the run goes on in the background (a
@@ -1036,8 +1035,12 @@ async function runSync() {
   // An older run's task must not reopen this dialog: it now shows this run.
   syncTask.value?.setReopen(undefined);
   let settled = false;
-  // Cancel re-sends, counted only once a run is in flight (`syncRunId` set).
-  let sends = 0;
+  // The run whose session is registered (its first `schema-sync-progress`
+  // came), and the run a cancel was sent to after that: that one landed.
+  let readyRun = '';
+  let cancelledRun = '';
+  // The run in flight; a late event of a returned one would count it twice.
+  let liveRun = '';
   const task = startTask({
     kind: 'sync',
     title: t('tasks:compareSync.title', { target: todo.map((x) => sides[x.side].database || connName(sides[x.side].connectionId)).join(', ') }),
@@ -1045,18 +1048,19 @@ async function runSync() {
     database: first.database,
     // The run's dedicated session: interrupts the statement running and stops the rest.
     // That session only exists once the side has connected (tunnel, login), and
-    // a cancel for an unknown key is a no-op, so it's re-sent every 500 ms while
-    // the run is in flight, up to MAX_CANCEL_SENDS times (the run's backend flag
-    // stays set once one lands). Before the first run starts nothing is sent:
-    // the loop sees `isCancelling` and never starts it.
+    // a cancel for an unknown key is a no-op, so it's re-sent every 500 ms until
+    // one goes out after the run's first progress event (the session is
+    // registered by then, and its backend flag stays set), however long
+    // connecting takes. Before the first run starts nothing is sent: the loop
+    // sees `isCancelling` and never starts it.
     cancel: () => {
       const send = () => {
         if (!syncRunId) return undefined;
-        sends++;
+        if (readyRun === syncRunId) cancelledRun = syncRunId;
         return api.cancelQuery(`sync:${syncRunId}`).catch(() => {});
       };
       const timer = setInterval(() => {
-        if (settled || sends >= MAX_CANCEL_SENDS) clearInterval(timer);
+        if (settled || (syncRunId && cancelledRun === syncRunId)) clearInterval(timer);
         else send();
       }, 500);
       return send();
@@ -1069,6 +1073,12 @@ async function runSync() {
   // Cancelled for real: a side stopped short, or a side never started.
   let stopped = false;
   try {
+    // Per statement, as the backend runs them: `ran` counts the sides already done.
+    await task.listen<{ run_id: string; done: number }>('schema-sync-progress', ({ payload }) => {
+      if (payload.run_id !== liveRun) return;
+      readyRun = payload.run_id;
+      task.progress({ done: ran + payload.done });
+    });
     for (const tab of todo) {
       if (task.isCancelling) { stopped = true; break; }
       const s = tab.side;
@@ -1079,11 +1089,14 @@ async function runSync() {
       task.log(t('tasks:compareSync.sideStart', { side: tabLabel(s), count: statements.length }));
       syncRunId = crypto.randomUUID();
       let r: Awaited<ReturnType<typeof compareApi.run>>;
+      liveRun = syncRunId;
       try {
         r = await compareApi.run(side.connectionId, side.database, statements, syncRunId);
       } catch (e) {
         sync.error = t('compare:sync.failedSide', { side: tabLabel(s), message: errorMessage(e) });
         break;
+      } finally {
+        liveRun = '';
       }
       ran += r.done;
       task.progress({ done: ran });

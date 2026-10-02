@@ -82,16 +82,39 @@ async function run() {
   const target = props.target;
   const statements = script.value.statements;
   const runId = crypto.randomUUID();
+  // The run's session exists once it has connected (its first progress event);
+  // a cancel before that is a no-op, so it's re-sent every 500 ms until one
+  // goes out after it, or the run ends.
+  let ready = false;
+  let settled = false;
   const current = task = startTask({
     kind: 'drop-index',
     title: t('tasks:dialogs.dropIndex', { name: target.index, table: qualified.value }),
     connectionId: target.connectionId, database: target.database,
-    cancel: () => api.cancelQuery(`sync:${runId}`),
+    cancel: () => {
+      const send = () => api.cancelQuery(`sync:${runId}`).catch(() => {});
+      if (!ready) {
+        const timer = setInterval(() => {
+          if (settled) clearInterval(timer);
+          else { if (ready) clearInterval(timer); send(); }
+        }, 500);
+      }
+      return send();
+    },
   });
   taskId.value = current.id;
   current.log(statements.join('\n'));
+  current.progress({ done: 0, total: statements.length, unit: 'statements' });
+  try {
+    await current.listen<{ run_id: string; done: number }>('schema-sync-progress', ({ payload }) => {
+      if (payload.run_id !== runId || settled) return;
+      ready = true;
+      current.progress({ done: payload.done });
+    });
+  } catch { /* no live progress: the run still goes */ }
   // runDropIndex refreshes the tree and the "Índices" tab itself, open or not.
   const error = await runDropIndex(target, statements, runId);
+  settled = true;
   running.value = false;
   if (error) {
     runError.value = error;

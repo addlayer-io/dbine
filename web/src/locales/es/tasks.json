@@ -85,7 +85,7 @@
   },
   "dataSync": {
     "title": "Sync de datos de {{table}} ({{where}})",
-    "unit": "scripts",
+    "unit": "sentencias",
     "phase": "Aplicando en {{side}}: {{parts}}",
     "applied": "Ya aplicado en {{sides}}",
     "nothingApplied": "No llegó a aplicarse ningún script completo",
@@ -178,5 +178,22 @@
     "withRows": "{{objects}}, {{rows}}",
     "import": "Importar {{file}} en {{table}}",
     "export": "Exportar {{file}}"
+  },
+  "nativeBackup": {
+    "phase": {
+      "backup": "Copiando los datos",
+      "restore": "Restaurando los datos",
+      "verify": "Comprobando el backup",
+      "export": "Exportando con Data Pump",
+      "import": "Importando con Data Pump"
+    }
+  },
+  "importExport": {
+    "phase": {
+      "reading": "Leyendo el archivo",
+      "inserting": "Insertando filas"
+    },
+    "ofTotal": "de {{total}}",
+    "estimated": "de ~{{total}} estimadas"
   }
 }

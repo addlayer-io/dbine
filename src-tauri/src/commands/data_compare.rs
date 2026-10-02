@@ -333,6 +333,16 @@ pub struct DataScript {
     pub inserts: u64,
     pub updates: u64,
     pub deletes: u64,
+    /// Its statements as the editor cuts them ([`dbine_driver::Driver::split_script`]):
+    /// the units the run reports as they end (`query-progress`), so the
+    /// task knows its total.
+    pub statements: u64,
+    /// The target's sessions take manual transactions
+    /// ([`dbine_driver::Driver::supports_manual_transactions`]): the run
+    /// goes statement by statement inside one transaction, committed only
+    /// when every statement ran, so a failure leaves the side as it was.
+    /// Without them the script goes to the driver whole, in one call.
+    pub atomic: bool,
 }
 
 /// The rows each side gets, from the choices.
@@ -414,22 +424,71 @@ fn side_script(state: &AppState, d: &Diff, to_right: bool, plan: Plan<'_>) -> Co
     if !plan.insert.is_empty() {
         parts.push(driver.insert_script(&target.object, &names, &plan.insert)?);
     }
-    let sep = driver.script_separator();
-    let script = parts.into_iter().filter(|p| !p.trim().is_empty()).collect::<Vec<_>>().join(&format!("\n{sep}\n"));
+    let (script, statements) = assemble(driver.as_ref(), parts);
     Ok(DataScript {
         connection_id: target.connection_id.clone(),
         database: target.database.clone(),
         side: if to_right { "right" } else { "left" },
-        script,
         inserts: plan.insert.len() as u64,
         updates: plan.update.len() as u64,
         deletes: plan.delete.len() as u64,
+        statements,
+        atomic: driver.supports_manual_transactions(),
+        script,
     })
+}
+
+/// The parts joined by the engine's separator, and how many statements the
+/// editor cuts the result into.
+fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u64) {
+    let sep = driver.script_separator();
+    let script = parts.into_iter().filter(|p| !p.trim().is_empty()).collect::<Vec<_>>().join(&format!("\n{sep}\n"));
+    let statements = driver.split_script(&script).len() as u64;
+    (script, statements)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{canon, Dir, Pick};
+    use super::{assemble, canon, Dir, Pick};
+    use dbine_driver::{ObjectRef, RowChange};
+
+    /// The statement count a sync run reports against: joining the parts
+    /// neither merges nor adds statements, on every SQL engine.
+    #[test]
+    fn statement_count_is_the_sum_of_the_parts() {
+        let target = ObjectRef { kind: "table".into(), schema: Some("s".into()), name: "t".into() };
+        let cols = vec!["id".to_string(), "name".to_string()];
+        let rows: Vec<Vec<serde_json::Value>> = (1..=3).map(|i| vec![json!(i), json!(format!("n{i}"))]).collect();
+        let changes: Vec<RowChange> = (1..=2)
+            .map(|i| RowChange {
+                key: vec![("id".into(), json!(i))],
+                set: vec![("name".into(), json!("x"))],
+                row: vec![("id".into(), json!(i)), ("name".into(), json!("y"))],
+            })
+            .collect();
+        let keys = vec![vec![("id".to_string(), json!(9))]];
+        let mut checked = 0;
+        for d in dbine_drivers::all() {
+            let parts: Vec<String> = [d.delete_script(&target, &keys), d.update_script(&target, &changes), d.insert_script(&target, &cols, &rows)]
+                .into_iter()
+                .filter_map(Result::ok)
+                .collect();
+            if parts.is_empty() {
+                continue;
+            }
+            let each: u64 = parts.iter().map(|p| d.split_script(p).len() as u64).sum();
+            let (script, statements) = assemble(d.as_ref(), parts);
+            // Engines that split by their own steps (MongoDB, Redis, Solr…)
+            // don't cut by `split_script`: their count is a floor and the
+            // run's progress is clamped to it.
+            if d.info().language == dbine_driver::Language::Sql {
+                assert_eq!(statements, each, "{}: {script}", d.info().id);
+            }
+            assert!(statements > 0, "{}", d.info().id);
+            checked += 1;
+        }
+        assert!(checked > 5, "only {checked} drivers write scripts");
+    }
 
     #[test]
     fn row_choices_override_the_default() {

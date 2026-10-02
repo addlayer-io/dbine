@@ -303,12 +303,37 @@ pub(crate) async fn generate(
 
     let tables: Vec<&ObjectRef> = args.objects.iter().filter(|o| is_table(&o.kind)).collect();
     let others: Vec<&ObjectRef> = args.objects.iter().filter(|o| !is_table(&o.kind)).collect();
-    let total = args.objects.len() * [o.drop, o.create || o.indexes, o.foreign_keys, o.definitions, o.data].iter().filter(|b| **b).count();
+    let (triggers, code): (Vec<&&ObjectRef>, Vec<&&ObjectRef>) = others.iter().partition(|o| o.kind == kinds::TRIGGER);
+    // Code (views, routines, triggers) only goes out on the same engine.
+    let same_engine = other_engine.is_none();
+    // Exactly the steps the loops below take, so `done` ends at `total`.
+    let total = [
+        (o.drop, tables.len() + if same_engine { others.len() } else { 0 }),
+        (o.create || o.indexes, tables.len()),
+        (o.definitions && same_engine, code.len()),
+        (o.data, tables.len()),
+        (o.foreign_keys, tables.len()),
+        (o.definitions && same_engine, triggers.len()),
+    ]
+    .iter()
+    .filter(|(on, _)| *on)
+    .map(|(_, n)| n)
+    .sum::<usize>();
     let mut done = 0usize;
     let cancelled = || entry.cancelled.load(Ordering::SeqCst);
-    let progress = |done: usize, current: &str| {
+    // Fast steps are throttled; `force` is for the first and last event and
+    // for steps that may take long (a table's rows).
+    let last_emit = Mutex::new(None::<std::time::Instant>);
+    let progress = |done: usize, current: &str, force: bool| {
+        let now = std::time::Instant::now();
+        let mut last = last_emit.lock().expect("script progress");
+        if !force && last.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(150)) {
+            return;
+        }
+        *last = Some(now);
         let _ = app.emit("script-progress", ScriptProgress { id: args.script_id.clone(), done, total, current: current.to_string() });
     };
+    progress(0, "", true);
     let label = |obj: &ObjectRef| obj.schema().map_or(obj.name.clone(), |sc| format!("{sc}.{}", obj.name));
 
     if matches!(driver.info().language, Language::Sql | Language::Cql) {
@@ -354,14 +379,15 @@ pub(crate) async fn generate(
 
     // 1. DROP: code first (it may depend on tables), then tables.
     if o.drop {
-        for obj in others.iter().rev().filter(|_| other_engine.is_none()) {
+        for obj in others.iter().rev().filter(|_| same_engine) {
+            progress(done, &label(obj), false);
             if let Some(d) = drop_other(driver.as_ref(), obj, o.if_exists) {
                 write(&end_block(&d))?;
             }
             done += 1;
         }
         for obj in tables.iter().rev() {
-            progress(done, &label(obj));
+            progress(done, &label(obj), false);
             if let Some(t) = table_schema(obj) {
                 let ddl = w.table_ddl(&t, DdlParts { drop: true, if_exists: o.if_exists, ..Default::default() })?;
                 write(&end_block(&ddl))?;
@@ -375,7 +401,7 @@ pub(crate) async fn generate(
             if cancelled() {
                 return Err(CommandError::Cancelled);
             }
-            progress(done, &label(obj));
+            progress(done, &label(obj), false);
             match table_schema(obj) {
                 Some(t) => {
                     let parts = DdlParts { create: o.create, indexes: o.indexes, if_exists: o.if_exists && !o.drop, ..Default::default() };
@@ -393,13 +419,12 @@ pub(crate) async fn generate(
     }
     // 4. Views, routines… (triggers wait until the data is in, so a restore
     //    doesn't fire them on every INSERT).
-    let (triggers, code): (Vec<&&ObjectRef>, Vec<&&ObjectRef>) = others.iter().partition(|o| o.kind == kinds::TRIGGER);
-    if o.definitions && other_engine.is_none() {
+    if o.definitions && same_engine {
         for obj in &code {
             if cancelled() {
                 return Err(CommandError::Cancelled);
             }
-            progress(done, &label(obj));
+            progress(done, &label(obj), false);
             if let Some(def) = s.definition(obj).await? {
                 write(&end_block(&def))?;
             }
@@ -413,7 +438,7 @@ pub(crate) async fn generate(
             if cancelled() {
                 return Err(CommandError::Cancelled);
             }
-            progress(done, &label(obj));
+            progress(done, &label(obj), true);
             let (before, after) = table_schema(obj).map(|t| w.data_load_wrap(&t)).unwrap_or_default();
             if !before.is_empty() {
                 write(&format!("{before}\n"))?;
@@ -463,6 +488,7 @@ pub(crate) async fn generate(
     //     load then can't trip over a missing parent row).
     if o.foreign_keys {
         for obj in &tables {
+            progress(done, &label(obj), false);
             if let Some(t) = table_schema(obj).filter(|t| !t.foreign_keys.is_empty()) {
                 let fk = w.table_ddl(&t, DdlParts { foreign_keys: true, ..Default::default() })?;
                 if !fk.trim().is_empty() {
@@ -473,19 +499,19 @@ pub(crate) async fn generate(
         }
     }
     // 6. Triggers.
-    if o.definitions && other_engine.is_none() {
+    if o.definitions && same_engine {
         for obj in &triggers {
             if cancelled() {
                 return Err(CommandError::Cancelled);
             }
-            progress(done, &label(obj));
+            progress(done, &label(obj), false);
             if let Some(def) = s.definition(obj).await? {
                 write(&end_block(&def))?;
             }
             done += 1;
         }
     }
-    progress(total, "");
+    progress(total, "", true);
 
     let out = Arc::try_unwrap(out).map_err(|_| CommandError::Internal("script en uso".into()))?.into_inner().expect("script output");
     let script = match out {

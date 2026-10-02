@@ -679,6 +679,69 @@ async fn strings(s: &mut dyn Session, sql: &str) -> Result<Vec<Vec<Option<String
     Ok(out.results.iter().find(|r| !r.rows.is_empty()).map(|r| r.rows.iter().map(|row| row.iter().map(text).collect()).collect()).unwrap_or_default())
 }
 
+/// How long a count that scans the whole table (CQL) may take before the
+/// copy goes on without a total.
+const COUNT_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The source's rows (documents), for the copy's progress and its time
+/// left: counted where the engine's language can, the engine's own figure
+/// where it keeps one (DynamoDB's `ItemCount`, refreshed about every six
+/// hours: an estimate). `None` when there's no reasonable way to tell; the
+/// copy then shows rows without a total.
+async fn source_rows(driver: &dyn Driver, s: &mut dyn Session, t: &TableSchema) -> Option<u64> {
+    let info = driver.info();
+    let text = count_text(driver, t)?;
+    let n = if info.id == "dynamodb" {
+        let obj = ObjectRef { kind: t.kind.clone(), schema: t.schema.clone(), name: t.name.clone() };
+        let doc: serde_json::Value = serde_json::from_str(&s.definition(&obj).await.ok()??).ok()?;
+        doc.get("ItemCount").and_then(serde_json::Value::as_i64)
+    } else {
+        let mut out = QueryOutcome::default();
+        let run = s.execute(&text, 1, &mut out);
+        let r = if info.language == Language::Cql { tokio::time::timeout(COUNT_BUDGET, run).await.ok()? } else { run.await };
+        if r.is_err() || out.error.is_some() {
+            return None;
+        }
+        count_of(&out)
+    };
+    n.map(|n| n.max(0) as u64)
+}
+
+/// What [`source_rows`] runs on this engine (`Some("")` for DynamoDB, which
+/// reads the table's description instead).
+fn count_text(driver: &dyn Driver, t: &TableSchema) -> Option<String> {
+    let info = driver.info();
+    let quoted = |v: &str| serde_json::Value::String(v.to_string()).to_string();
+    Some(match (info.language, info.id) {
+        (_, "dynamodb") => String::new(),
+        // Cosmos DB's SQL runs inside a container, as `c`.
+        (_, "cosmosdb") => format!("-- container: {}\nSELECT VALUE COUNT(1) FROM c", t.name),
+        (Language::Sql | Language::Cql, _) => format!("SELECT COUNT(*) FROM {}", sql_name(driver, t)),
+        // The collection's metadata count (`count` with no filter).
+        (Language::Json, "mongodb" | "ferretdb" | "documentdb") => format!("db.getCollection({}).estimatedDocumentCount()", quoted(&t.name)),
+        (Language::Json, "elasticsearch" | "opensearch" | "opendistro") => format!("GET /{}/_count", t.name),
+        (Language::Json, "solr") => format!("GET /solr/{}/select?q=*:*&rows=0", t.name),
+        _ => return None,
+    })
+}
+
+/// The count in a count's outcome: a `count` column, the only value of the
+/// first row, a JSON response's `count` (Elasticsearch's `_count`) or Solr's
+/// "N documentos coinciden" (its `numFound`, shown as a message).
+fn count_of(out: &QueryOutcome) -> Option<i64> {
+    let num = |v: &serde_json::Value| v.as_i64().or_else(|| v.as_str().and_then(|s| int_text(s.trim())));
+    let found = out.results.iter().find_map(|r| {
+        let row = r.rows.first()?;
+        let at = r.columns.iter().position(|c| c.name.eq_ignore_ascii_case("count")).unwrap_or(0);
+        let v = row.get(at)?;
+        num(v).or_else(|| {
+            let doc: serde_json::Value = serde_json::from_str(v.as_str()?).ok()?;
+            doc.get("count").and_then(num)
+        })
+    });
+    found.or_else(|| out.messages.iter().find_map(|m| m.split_once(" documentos coinciden").and_then(|(n, _)| int_text(n.trim()))))
+}
+
 fn mssql_literal(t: &TableSchema) -> String {
     qualified_name(Quote::Bracket, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name).replace('\'', "''")
 }
@@ -1528,11 +1591,7 @@ pub async fn clone_table(
     if req.options.with_data && !skipped.is_empty() {
         notes.push(format!("columnas calculadas por el motor (no se copian, se recalculan): {}", skipped.join(", ")));
     }
-    let rows_total = if req.options.with_data && info.language == Language::Sql {
-        scalar(&mut *src, &format!("SELECT COUNT(*) FROM {}", sql_name(&*driver, &source_t))).await.ok().flatten().map(|n| n.max(0) as u64)
-    } else {
-        None
-    };
+    let rows_total = if req.options.with_data { source_rows(&*driver, &mut *src, &source_t).await } else { None };
     notes.extend(triggers::note(&*driver, &mut *src, &source_t).await);
     control.check()?;
 
@@ -2175,6 +2234,39 @@ mod tests {
             checks: vec![CheckDef { name: Some("ck_id".into()), expression: "id > 0".into() }],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn rows_are_counted_in_each_engine_language() {
+        let t = TableSchema { schema: Some("ks".into()), name: "t".into(), ..sample() };
+        let text = |d: D| count_text(&d, &t);
+        assert_eq!(text(pg()).as_deref(), Some(r#"SELECT COUNT(*) FROM "ks"."t""#));
+        assert_eq!(text(driver("cassandra", "", Family::WideColumn, Language::Cql)).as_deref(), Some(r#"SELECT COUNT(*) FROM "ks"."t""#));
+        assert_eq!(text(driver("mongodb", "", Family::Document, Language::Json)).as_deref(), Some(r#"db.getCollection("t").estimatedDocumentCount()"#));
+        assert_eq!(text(driver("opensearch", "", Family::Search, Language::Json)).as_deref(), Some("GET /t/_count"));
+        assert_eq!(text(driver("solr", "", Family::Search, Language::Json)).as_deref(), Some("GET /solr/t/select?q=*:*&rows=0"));
+        assert_eq!(text(driver("cosmosdb", "cosmos", Family::Document, Language::Sql)).as_deref(), Some("-- container: t\nSELECT VALUE COUNT(1) FROM c"));
+        assert_eq!(text(driver("dynamodb", "partiql", Family::KeyValue, Language::Sql)).as_deref(), Some(""));
+        assert_eq!(text(driver("influxdb", "", Family::TimeSeries, Language::Flux)), None);
+    }
+
+    #[test]
+    fn counts_are_read_from_each_shape() {
+        use dbine_driver::ResultColumn;
+        let one = |cols: &[&str], row: Vec<serde_json::Value>| {
+            let mut out = QueryOutcome::default();
+            out.begin_result(cols.iter().map(|c| ResultColumn { name: c.to_string(), type_name: String::new() }).collect());
+            out.push_row(row, 10);
+            out
+        };
+        assert_eq!(count_of(&one(&["count"], vec![serde_json::json!(42)])), Some(42));
+        assert_eq!(count_of(&one(&["COUNT(*)"], vec![serde_json::json!("9007199254740993")])), Some(9007199254740993));
+        assert_eq!(count_of(&one(&["epoch", "count"], vec![serde_json::json!("1"), serde_json::json!("7")])), Some(7));
+        assert_eq!(count_of(&one(&["response"], vec![serde_json::json!("{\n  \"count\" : 12,\n  \"_shards\" : {}\n}")])), Some(12));
+        let mut solr = QueryOutcome::default();
+        solr.messages.push("31 documentos coinciden (2 ms).".into());
+        assert_eq!(count_of(&solr), Some(31));
+        assert_eq!(count_of(&QueryOutcome::default()), None);
     }
 
     #[test]

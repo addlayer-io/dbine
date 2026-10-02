@@ -6,12 +6,12 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
 import { backupApi, type BackupAction, type BackupCopy, type BackupEntry } from '../api/backup';
-import type { Field } from '../api/types';
+import type { Cell, Field, QueryOutcome } from '../api/types';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 import type { BackupsTab } from '../stores/tabs';
-import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
+import { startTask, useTasksStore, type TaskHandle, type TaskProgress } from '../stores/tasks';
 
 // Backups (docs/backups.md): DBine's copies of the database (a script file
 // with its structure and data, for every engine, restored by running it) and
@@ -331,6 +331,178 @@ async function copyScript() {
   await navigator.clipboard.writeText(review.shown);
   ElMessage.success(t('backups:copied'));
 }
+// -- progress of a native run, where the engine reports it -----------------------
+// The script runs as one statement, so the progress comes from the engine's
+// own views, read from a second session every 2 s while it runs. `mark` runs
+// first on the run's own session (its id there, or the server's clock) and
+// tells the probe which operation is this one. A probe that fails (no
+// permission on the view) stops quietly: the task just shows no progress.
+// The other engines either report nothing while a backup runs, or their
+// backup statement returns at once and the history shows its state.
+type Row = Record<string, Cell>;
+type Kind = 'backup' | 'restore';
+interface ProgressProbe {
+  mark?: string;
+  sql: (mark: string, action: Kind) => string;
+  read: (rows: Row[], mark: string, action: Kind, messages: string[]) => TaskProgress | null;
+}
+const cellNum = (v: Cell) => (v == null || v === '' ? null : Number(v));
+const pct = (v: number | null): Pick<TaskProgress, 'done' | 'total' | 'unit'> | null =>
+  v == null || !Number.isFinite(v) ? null : { done: Math.round(Math.min(100, Math.max(0, v)) * 10) / 10, total: 100, unit: '%' };
+const phaseOf = (kind: string) => t(`tasks:nativeBackup.phase.${kind}`);
+const PROBES: Record<string, ProgressProbe> = {
+  // percent_complete of BACKUP / RESTORE on the run's SPID. The check after a
+  // backup (RESTORE VERIFYONLY) shows up as another RESTORE command (2022
+  // says RESTORE HEADERONLY); a restore's quick reads of the file
+  // (FILELISTONLY, HEADERONLY) are left out.
+  sqlserver: {
+    mark: 'SELECT @@SPID AS spid',
+    sql: (spid) => `SELECT command, percent_complete FROM sys.dm_exec_requests WHERE session_id = ${Number(spid)}`,
+    read: ([r], _, action) => {
+      const cmd = String(r?.command ?? '').toUpperCase().trim();
+      const kind = cmd.startsWith('BACKUP') ? 'backup'
+        : !cmd.startsWith('RESTORE') ? null
+        : action === 'backup' ? 'verify'
+        : cmd === 'RESTORE DATABASE' || cmd === 'RESTORE LOG' ? 'restore' : null;
+      const p = kind ? pct(cellNum(r.percent_complete)) : null;
+      return p && { ...p, phase: phaseOf(kind!) };
+    },
+  },
+  // Data Pump's own percent_done (what expdp ATTACH= shows), read by
+  // attaching to the user's executing job and detaching right away. It moves
+  // as objects finish: a schema that is one big table jumps from 0 to 99.
+  // v$session_longops gets no Data Pump rows on 23ai Free.
+  oracle: {
+    sql: (_, action) => `DECLARE
+  h NUMBER;
+  st VARCHAR2(30);
+  s ku$_Status;
+BEGIN
+  FOR j IN (SELECT job_name FROM user_datapump_jobs WHERE state = 'EXECUTING' AND operation = '${action === 'restore' ? 'IMPORT' : 'EXPORT'}' ORDER BY job_name DESC) LOOP
+    BEGIN
+      h := DBMS_DATAPUMP.ATTACH(j.job_name, USER);
+      DBMS_DATAPUMP.GET_STATUS(h, DBMS_DATAPUMP.KU$_STATUS_JOB_STATUS, 0, st, s);
+      DBMS_DATAPUMP.DETACH(h);
+      DBMS_OUTPUT.PUT_LINE('dbine-progress ' || TO_CHAR(s.job_status.percent_done));
+    EXCEPTION
+      -- The job ended between the query and the attach.
+      WHEN OTHERS THEN
+        IF h IS NOT NULL THEN BEGIN DBMS_DATAPUMP.DETACH(h); EXCEPTION WHEN OTHERS THEN NULL; END; END IF;
+    END;
+    EXIT;
+  END LOOP;
+END;
+/`,
+    read: (_, __, action, messages) => {
+      const line = messages.find((m) => m.startsWith('dbine-progress '));
+      const p = line ? pct(cellNum(line.slice('dbine-progress '.length).trim())) : null;
+      return p && { ...p, phase: phaseOf(action === 'restore' ? 'import' : 'export') };
+    },
+  },
+  // BACKUP / RESTORE run as jobs with their fraction completed.
+  cockroachdb: {
+    mark: "SELECT (now() - INTERVAL '2 seconds')::TIMESTAMP::STRING AS t",
+    sql: (since) => `SELECT job_type, fraction_completed FROM [SHOW JOBS]
+  WHERE job_type IN ('BACKUP', 'RESTORE') AND status = 'running' AND user_name = current_user()
+    AND created >= '${since}'::TIMESTAMP
+  ORDER BY created DESC LIMIT 1`,
+    read: ([r]) => {
+      const p = r ? pct((cellNum(r.fraction_completed) ?? NaN) * 100) : null;
+      return p && { ...p, phase: phaseOf(String(r.job_type).toUpperCase() === 'RESTORE' ? 'restore' : 'backup') };
+    },
+  },
+  // CLONE LOCAL: bytes copied of the estimate, over its stages.
+  mysql: {
+    mark: "SELECT DATE_FORMAT(NOW() - INTERVAL 2 SECOND, '%Y-%m-%d %H:%i:%s') AS t",
+    sql: (since) => `SELECT SUM(data) AS done, SUM(estimate) AS total FROM performance_schema.clone_progress
+  WHERE id = 1 HAVING SUM(state = 'In Progress') > 0 AND MIN(begin_time) >= '${since}'`,
+    read: ([r]) => {
+      const done = cellNum(r?.done);
+      const total = cellNum(r?.total);
+      return done == null || !total ? null : { done: Math.min(done, total), total, unit: 'bytes', phase: phaseOf('backup') };
+    },
+  },
+  // BACKUP / RESTORE inside TiDB: SHOW BACKUPS / RESTORES has the job's
+  // connection and its progress (a percentage).
+  tidb: {
+    mark: 'SELECT CONNECTION_ID() AS id',
+    sql: (_, action) => (action === 'restore' ? 'SHOW RESTORES' : 'SHOW BACKUPS'),
+    read: (rows, conn, action) => {
+      const r = rows.find((x) => String(x.Connection ?? x.connection) === conn);
+      const p = r ? pct(cellNum(String(r.Progress ?? r.progress ?? '').replace('%', ''))) : null;
+      return p && { ...p, phase: phaseOf(action) };
+    },
+  },
+  // BACKUP DATA: bytes transferred of the total, per service, of the running backup.
+  hana: {
+    sql: () => `SELECT SUM(TRANSFERRED_SIZE) AS DONE, SUM(TOTAL_SIZE) AS TOTAL FROM M_BACKUP_PROGRESS
+  WHERE STATE_NAME = 'running' AND BACKUP_ID = (SELECT MAX(BACKUP_ID) FROM M_BACKUP_PROGRESS WHERE STATE_NAME = 'running')`,
+    read: ([r]) => {
+      const done = cellNum(r?.DONE ?? r?.done);
+      const total = cellNum(r?.TOTAL ?? r?.total);
+      return done == null || !total ? null : { done: Math.min(done, total), total, unit: 'bytes', phase: phaseOf('backup') };
+    },
+  },
+};
+const rowsOf = (o: QueryOutcome): Row[] => {
+  const r = o.results[0];
+  if (!r) return [];
+  return r.rows.map((cells) => Object.fromEntries(r.columns.map((c, i) => [c.name, cells[i]])));
+};
+/**
+ * Polls the engine's progress of the run on `session` into `task`, from its
+ * own session. Returns the function that stops it (and closes that session).
+ */
+async function watchProgress(
+  task: TaskHandle<any>, action: string, session: string, connectionId: string, database: string,
+): Promise<() => void> {
+  // Autonomous Database runs the same Data Pump jobs as Oracle.
+  const id = driver.value?.id ?? '';
+  const probe = PROBES[id === 'oracle_adb' ? 'oracle' : id];
+  if (!probe || (action !== 'backup' && action !== 'restore')) return () => {};
+  let mark = '';
+  if (probe.mark) {
+    try {
+      const o = await api.executeQuery({ sessionId: session, connectionId, database, sql: probe.mark, maxRows: 1, record: false });
+      const v = o.error ? null : o.results[0]?.rows[0]?.[0];
+      if (v == null) return () => {};
+      mark = String(v);
+    } catch {
+      return () => {};
+    }
+  }
+  const side = `${session}:progress`;
+  let stopped = false;
+  let closed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const close = () => {
+    closed = true;
+    api.closeSession(side).catch(() => {});
+  };
+  const tick = async () => {
+    try {
+      const o = await api.executeQuery({ sessionId: side, connectionId, database, sql: probe.sql(mark, action), maxRows: 50, record: false });
+      if (o.error) stopped = true;
+      else if (!stopped) {
+        const got = probe.read(rowsOf(o), mark, action, o.messages ?? []);
+        if (got) task.progress(got);
+      }
+    } catch {
+      stopped = true;
+    }
+    // A probe still in flight when the run ended reopened the session.
+    if (closed) close();
+    else if (!stopped) timer = setTimeout(tick, 2000);
+  };
+  timer = setTimeout(tick, 1000);
+  return () => {
+    if (closed) return;
+    stopped = true;
+    clearTimeout(timer);
+    close();
+  };
+}
+
 async function runScript() {
   if (review.running) return;
   review.running = true;
@@ -346,8 +518,13 @@ async function runScript() {
   });
   reviewTask = task;
   owned.add(task);
+  let stopProgress = () => {};
   try {
+    stopProgress = await watchProgress(task, action, session, connectionId, database);
+    // Cancelled while the progress probe was being set up: the script never ran.
+    if (task.isCancelling) { task.cancelled(); return; }
     const o = await api.executeQuery({ sessionId: session, connectionId, database, sql: review.script, maxRows: 10, record: false });
+    stopProgress();
     if (o.error) {
       review.error = tb(o.error);
       if (task.isCancelling) task.cancelled(); else task.fail(review.error);
@@ -362,6 +539,7 @@ async function runScript() {
     review.error = errorMessage(e);
     if (task.isCancelling) task.cancelled(); else task.fail(e);
   } finally {
+    stopProgress();
     review.running = false;
     // Finished: "Ver detalle" shows the panel's detail, not the script ready to run again.
     task.setReopen(undefined);
