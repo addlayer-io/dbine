@@ -89,7 +89,7 @@ onMounted(async () => {
         <el-icon><ei-circle-close /></el-icon>{{ output.errors }}
         <el-icon style="margin-left: 6px;"><ei-warning /></el-icon>{{ output.warnings }}
       </button>
-      <button v-if="tasksBadge" class="sb-item sb-btn" :title="tasksBadge.title" @click="tasks.panelOpen = !tasks.panelOpen">
+      <button v-if="tasksBadge" class="sb-item sb-btn" data-tasks-toggle :title="tasksBadge.title" @click="tasks.panelOpen = !tasks.panelOpen">
         <el-icon class="is-loading"><ei-refresh /></el-icon><span class="sb-task">{{ tasksBadge.label }}</span><span class="sb-task-time">· {{ tasksBadge.elapsed }}</span>
       </button>
     </div>
