@@ -4,6 +4,7 @@ import { listen, type EventCallback, type UnlistenFn } from '@tauri-apps/api/eve
 import { getCurrentWindow, UserAttentionType } from '@tauri-apps/api/window';
 import { t } from '../i18n';
 import { errorMessage } from '../api/client';
+import { elapsedParts, estimate, etaKey, recordSample, roundEta, type EtaSeries } from '../composables/taskEta';
 
 // Long operations (a schema sync, a script run, an import…) that keep going
 // after their dialog closes. A dialog registers its run here when it starts
@@ -109,13 +110,53 @@ let seq = 0;
 /** Hooks and listeners stay out of the reactive state. */
 const hooks = new Map<string, { cancel?: () => unknown; reopen?: () => void; unlisten: UnlistenFn[] }>();
 
-/** "42 s", "58 min", "1 h 03 min". */
+/** Remaining-time samples per task: outside the reactive state (they change
+ *  on every progress update and only `etaOf` reads them). */
+const etaSeries = new Map<string, EtaSeries>();
+
+/** The one 1 s clock behind every live elapsed time and ETA (status bar,
+ *  panel, detail). It only runs while some task does. */
+let ticker: ReturnType<typeof setInterval> | null = null;
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** "45 s", "12 min 03 s", "3 h 07 min", "1 d 2 h". */
 export function formatElapsed(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return t('tasks:elapsed.seconds', { n: s });
-  const m = Math.floor(s / 60);
-  if (m < 60) return t('tasks:elapsed.minutes', { n: m, s: String(s % 60).padStart(2, '0') });
-  return t('tasks:elapsed.hours', { n: Math.floor(m / 60), m: String(m % 60).padStart(2, '0') });
+  const p = elapsedParts(ms);
+  switch (p.kind) {
+    case 'seconds': return t('tasks:elapsed.seconds', { n: p.s });
+    case 'minutes': return t('tasks:elapsed.minutes', { n: p.m, s: pad2(p.s) });
+    case 'hours': return t('tasks:elapsed.hours', { n: p.h, m: pad2(p.m) });
+    case 'days': return t('tasks:elapsed.days', { n: p.d, h: p.h });
+  }
+}
+
+/** A running task's remaining time: none (no total, or not running),
+ *  still gathering samples, or an estimate. `scope: 'phase'` when the
+ *  counter restarted during the task (the estimate covers this step only). */
+export type TaskEta =
+  | { status: 'none' }
+  | { status: 'calculating' }
+  | { status: 'eta'; remainingMs: number; confidence: 'low' | 'ok'; scope: 'task' | 'phase' };
+
+/** "menos de 1 min", "≈ 4 min", "≈ 1 h 20 min", "≈ 1 d 2 h". */
+export function formatEtaValue(ms: number): string {
+  const r = roundEta(ms);
+  switch (r.kind) {
+    case 'lessThanMinute': return t('tasks:eta.lessThanMinute');
+    case 'minutes': return t('tasks:eta.minutes', { n: r.m });
+    case 'hours': return r.m ? t('tasks:eta.hours', { h: r.h, m: pad2(r.m) }) : t('tasks:eta.hoursExact', { h: r.h });
+    case 'days': return t('tasks:eta.days', { d: r.d, h: r.h });
+  }
+}
+
+/** For a row or the status bar: "≈ 4 min restantes", "≈ 3 min para esta
+ *  etapa", "calculando…", or '' when there's no estimate to give. */
+export function formatEta(e: TaskEta): string {
+  if (e.status === 'calculating') return t('tasks:eta.calculating');
+  if (e.status !== 'eta') return '';
+  const eta = formatEtaValue(e.remainingMs);
+  return e.scope === 'phase' ? t('tasks:eta.phase', { eta }) : t('tasks:eta.remaining', { eta });
 }
 
 function inTauri() {
@@ -136,11 +177,24 @@ export const useTasksStore = defineStore('tasks', {
     panelOpen: false,
     /** The task whose built-in detail is open (no reopen hook). */
     detailId: null as string | null,
+    /** Ticks every second while a task runs (see `syncTicker`). */
+    now: Date.now(),
   }),
   getters: {
     running: (s) => s.tasks.filter((x) => x.state === 'running'),
     runningCount: (s) => s.tasks.filter((x) => x.state === 'running').length,
     byId: (s) => (id: string) => s.tasks.find((x) => x.id === id),
+    /** Live elapsed time of a task (to its end once it ended). */
+    elapsedOf: (s) => (x: Task) => (x.endedAt ?? Math.max(s.now, x.startedAt)) - x.startedAt,
+    /** Remaining-time estimate of a running task (live: reads `now`). */
+    etaOf: (s) => (x: Task): TaskEta => {
+      const { done, total } = x.progress;
+      if (x.state !== 'running' || !total || total <= 0 || (done ?? 0) >= total) return { status: 'none' };
+      const series = etaSeries.get(x.id);
+      const e = estimate(series, total, Math.max(s.now, series?.samples[series.samples.length - 1].t ?? 0));
+      if (!e) return { status: 'calculating' };
+      return { status: 'eta', ...e, scope: series && series.resets > 0 ? 'phase' : 'task' };
+    },
   },
   actions: {
     /** Register a long operation that's starting. Returns its handle. */
@@ -152,6 +206,7 @@ export const useTasksStore = defineStore('tasks', {
         background: !!opts.background, cancelling: false, canCancel: !!opts.cancel, canReopen: !!opts.reopen,
       });
       hooks.set(id, { cancel: opts.cancel, reopen: opts.reopen, unlisten: [] });
+      this.syncTicker();
       const task = () => this.byId(id);
       const end = (state: Exclude<TaskState, 'running'>, fields: Partial<Task>) => {
         const x = task();
@@ -159,13 +214,26 @@ export const useTasksStore = defineStore('tasks', {
         Object.assign(x, fields, { state, endedAt: Date.now(), cancelling: false, canCancel: false });
         const h = hooks.get(id);
         h?.unlisten.splice(0).forEach((f) => f());
+        etaSeries.delete(id);
+        this.syncTicker();
         this.notifyEnd(x);
         this.pruneFinished();
       };
       const store = this;
       return {
         id,
-        progress(p) { const x = task(); if (x) x.progress = { ...x.progress, ...p }; },
+        progress(p) {
+          const x = task();
+          if (!x) return;
+          const next = { ...x.progress, ...p };
+          x.progress = next;
+          if (x.state !== 'running' || next.done == null) return;
+          // Feed the ETA. A first report that already has work done counts
+          // from the task's start; one at 0 is the start itself.
+          const prev = etaSeries.get(id);
+          const origin = !prev && next.done > 0 ? { t: x.startedAt, done: 0 } : undefined;
+          etaSeries.set(id, recordSample(prev, etaKey(next.unit, next.total), next.done, Date.now(), origin));
+        },
         log(text, level = 'info') {
           const x = task();
           if (!x) return;
@@ -212,6 +280,14 @@ export const useTasksStore = defineStore('tasks', {
       return { task, promise };
     },
 
+    /** Run the shared clock only while something runs. */
+    syncTicker() {
+      this.now = Date.now();
+      const on = this.tasks.some((x) => x.state === 'running');
+      if (on && !ticker) ticker = setInterval(() => { this.now = Date.now(); }, 1000);
+      if (!on && ticker) { clearInterval(ticker); ticker = null; }
+    },
+
     toBackground(id: string) {
       const x = this.byId(id);
       if (x) x.background = true;
@@ -251,6 +327,7 @@ export const useTasksStore = defineStore('tasks', {
       const x = this.byId(id);
       if (!x || x.state === 'running') return;
       hooks.delete(id);
+      etaSeries.delete(id);
       this.tasks = this.tasks.filter((y) => y.id !== id);
       if (this.detailId === id) this.detailId = null;
     },
@@ -264,13 +341,13 @@ export const useTasksStore = defineStore('tasks', {
         if (++kept > MAX_FINISHED) drop.add(x.id);
       }
       if (!drop.size) return;
-      for (const id of drop) hooks.delete(id);
+      for (const id of drop) { hooks.delete(id); etaSeries.delete(id); }
       this.tasks = this.tasks.filter((x) => !drop.has(x.id));
       if (this.detailId && drop.has(this.detailId)) this.detailId = null;
     },
 
     clearFinished() {
-      for (const x of this.tasks) if (x.state !== 'running') hooks.delete(x.id);
+      for (const x of this.tasks) if (x.state !== 'running') { hooks.delete(x.id); etaSeries.delete(x.id); }
       this.tasks = this.tasks.filter((x) => x.state === 'running');
     },
 

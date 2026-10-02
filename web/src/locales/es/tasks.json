@@ -2,7 +2,10 @@
   "status": {
     "running_one": "{{count}} tarea en curso",
     "running_other": "{{count}} tareas en curso",
-    "title": "Ver las tareas en curso"
+    "title": "Ver las tareas en curso",
+    "many": "{{count}} tareas",
+    "line": "{{title}}: {{elapsed}}",
+    "lineEta": "{{title}}: {{elapsed}} · {{eta}}"
   },
   "panel": {
     "title": "Tareas",
@@ -33,8 +36,21 @@
   },
   "elapsed": {
     "seconds": "{{n}} s",
-    "minutes": "{{n}} min",
-    "hours": "{{n}} h {{m}} min"
+    "minutes": "{{n}} min {{s}} s",
+    "hours": "{{n}} h {{m}} min",
+    "days": "{{n}} d {{h}} h"
+  },
+  "eta": {
+    "calculating": "calculando…",
+    "lessThanMinute": "menos de 1 min",
+    "minutes": "≈ {{n}} min",
+    "hours": "≈ {{h}} h {{m}} min",
+    "hoursExact": "≈ {{h}} h",
+    "days": "≈ {{d}} d {{h}} h",
+    "remaining": "{{eta}} restantes",
+    "phase": "{{eta}} para esta etapa",
+    "none": "sin estimación",
+    "low": "estimación inicial, puede cambiar"
   },
   "detail": {
     "title": "Detalle de la tarea",
@@ -43,7 +59,10 @@
     "result": "Resultado",
     "error": "Error",
     "started": "Inicio",
-    "elapsed": "Duración"
+    "elapsed": "Transcurrido",
+    "remaining": "Restante estimado",
+    "ended": "Fin",
+    "duration": "Duración total"
   },
   "notify": {
     "title": {

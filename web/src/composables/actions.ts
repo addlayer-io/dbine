@@ -130,7 +130,7 @@ export async function dropObjects(connectionId: string, database: string, object
       : t('tasks:actions.dropMany', { count: objects.length, db: database || server }),
     connectionId, database, background: true,
     run: async (task) => {
-      task.progress({ total: objects.length, unit: 'objects' });
+      task.progress({ done: 0, total: objects.length, unit: 'objects' });
       const { invoke } = await import('@tauri-apps/api/core');
       const r = await invoke<Dropped>('drop_objects', {
         args: { connection_id: connectionId, database, objects },

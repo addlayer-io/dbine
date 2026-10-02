@@ -218,7 +218,8 @@ async function runRestoreCopy() {
       restoreCopy.bytes = e.payload.bytes;
       if (e.payload.total_bytes) restoreCopy.total = e.payload.total_bytes;
       task.progress({
-        done: e.payload.bytes, total: e.payload.total_bytes || undefined,
+        // No total in the event: keep the copy's size, so the estimate survives.
+        done: e.payload.bytes, total: e.payload.total_bytes || restoreCopy.total || undefined,
         phase: t('tasks:backups.statements', { n: num(e.payload.statements) }),
       });
     });
