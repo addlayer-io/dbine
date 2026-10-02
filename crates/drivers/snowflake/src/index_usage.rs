@@ -70,6 +70,7 @@ pub(crate) async fn report(s: &mut SnowflakeSession, table: &ObjectRef) -> Resul
         indexes: ixs,
         foreign_keys,
         seek_scan_split: false,
+        writes_counted: false,
         ..Default::default()
     })
 }

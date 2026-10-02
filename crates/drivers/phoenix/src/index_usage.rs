@@ -54,7 +54,7 @@ pub fn covered(rows: &[Vec<Value>]) -> BTreeMap<(String, String), Vec<String>> {
 /// The report for `t` (`None`: the table isn't there): the row key first,
 /// then the indexes in the schema's order.
 pub fn report(t: Option<&TableSchema>, covered: &BTreeMap<(String, String), Vec<String>>) -> IndexUsageReport {
-    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), ..Default::default() } };
+    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() } };
     let schema = t.schema.clone().unwrap_or_default();
     let mut indexes = Vec::new();
     if let Some(pk) = &t.primary_key {
@@ -74,7 +74,7 @@ pub fn report(t: Option<&TableSchema>, covered: &BTreeMap<(String, String), Vec<
         included_columns: covered.get(&(schema.clone(), ix.name.clone())).cloned().unwrap_or_default(),
         ..Default::default()
     }));
-    IndexUsageReport { note: Some(NOTE.into()), indexes, ..Default::default() }.derived()
+    IndexUsageReport { note: Some(NOTE.into()), indexes, writes_counted: false, ..Default::default() }.derived()
 }
 
 #[cfg(test)]

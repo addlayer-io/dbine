@@ -38,7 +38,7 @@ pub(crate) async fn report(s: &HanaSession, table: &ObjectRef) -> Result<IndexUs
 
 /// The primary key first, then the indexes in the schema's order.
 pub(crate) fn assemble(t: Option<&TableSchema>, sizes: &HashMap<String, u64>) -> IndexUsageReport {
-    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), ..Default::default() } };
+    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() } };
     let kb = |name: &str| sizes.get(name).map(|b| b.div_ceil(1024));
     let mut indexes = Vec::new();
     if let Some(pk) = &t.primary_key {
@@ -62,7 +62,7 @@ pub(crate) fn assemble(t: Option<&TableSchema>, sizes: &HashMap<String, u64>) ->
         size_kb: kb(&ix.name),
         ..Default::default()
     }));
-    IndexUsageReport { note: Some(NOTE.into()), indexes, foreign_keys: t.foreign_keys.clone(), ..Default::default() }.derived()
+    IndexUsageReport { note: Some(NOTE.into()), indexes, foreign_keys: t.foreign_keys.clone(), writes_counted: false, ..Default::default() }.derived()
 }
 
 #[cfg(test)]

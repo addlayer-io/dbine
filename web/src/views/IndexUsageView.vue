@@ -30,7 +30,7 @@ function load(force = false) {
 }
 onMounted(() => load());
 
-type Col = { id: string; label: string; num?: boolean; value: (i: IndexUsage) => string | number | null; text: (i: IndexUsage) => string };
+type Col = { id: string; label: string; num?: boolean; value: (i: IndexUsage) => string | number | null; text: (i: IndexUsage) => string; tip?: string };
 const num = (n: number | null | undefined) => (n == null ? '' : n.toLocaleString(locale()));
 const stats = computed(() => !!report.value?.stats_available);
 function size(kb: number | null) {
@@ -42,6 +42,10 @@ function size(kb: number | null) {
   return `${v.toFixed(v < 10 && i ? 1 : 0)} ${units[i]}`;
 }
 const counter = (f: (i: IndexUsage) => number) => (i: IndexUsage) => (stats.value ? num(f(i)) : '');
+// The engine doesn't count index writes: updates, writes per read and the
+// last write are unknown, not 0, so they show a dash.
+const noWrites = computed(() => stats.value && report.value?.writes_counted === false);
+const writeCol = (c: Col): Col => (noWrites.value ? { ...c, value: () => null, text: () => '—', tip: t('explorer:indexes.noWritesTip') } : c);
 const cols = computed<Col[]>(() => [
   { id: 'name', label: t('explorer:indexes.col.name'), value: (i) => i.name, text: (i) => i.name },
   { id: 'type', label: t('explorer:indexes.col.type'), value: (i) => indexTag(i), text: (i) => indexTag(i) },
@@ -52,15 +56,15 @@ const cols = computed<Col[]>(() => [
   { id: 'seeks', label: 'Seeks', num: true, value: (i) => i.seeks, text: counter((i) => i.seeks) },
   { id: 'scans', label: 'Scans', num: true, value: (i) => i.scans, text: counter((i) => i.scans) },
   { id: 'lookups', label: 'Lookups', num: true, value: (i) => i.lookups, text: counter((i) => i.lookups) },
-  { id: 'updates', label: 'Updates', num: true, value: (i) => i.updates, text: counter((i) => i.updates) },
+  writeCol({ id: 'updates', label: 'Updates', num: true, value: (i) => i.updates, text: counter((i) => i.updates) }),
   { id: 'seeks%', label: t('explorer:indexes.col.seekShare'), num: true, value: (i) => i.seek_ratio ?? null, text: (i) => (i.seek_ratio == null ? '' : sharePct(i.seek_ratio)) },
   { id: 'share', label: t('explorer:indexes.col.readShare'), num: true, value: (i) => i.read_share, text: (i) => (i.read_share == null ? '' : sharePct(i.read_share)) },
-  {
+  writeCol({
     id: 'wpr', label: t('explorer:indexes.col.writesPerRead'), num: true, value: (i) => i.writes_per_read,
     text: (i) => (i.writes_per_read == null ? '' : i.writes_per_read.toLocaleString(locale(), { maximumFractionDigits: 2 })),
-  },
+  }),
   { id: 'lastRead', label: t('explorer:indexes.col.lastRead'), value: (i) => i.last_read, text: (i) => i.last_read ?? '' },
-  { id: 'lastWrite', label: t('explorer:indexes.col.lastWrite'), value: (i) => i.last_write, text: (i) => i.last_write ?? '' },
+  writeCol({ id: 'lastWrite', label: t('explorer:indexes.col.lastWrite'), value: (i) => i.last_write, text: (i) => i.last_write ?? '' }),
 ]);
 
 // -- sorting: a click on a header sorts by it, a second click reverses ---------------------
@@ -150,12 +154,12 @@ async function copyGrid() {
             <tr v-for="i in rows" :key="i.name" :class="{ focus: i.name === tab.focus }" @contextmenu.prevent="rowMenu($event, i)">
               <td class="iu-name nm-selectable">
                 {{ i.name }}
-                <span v-if="usageBadge(i)" class="iu-badge" :class="badgeClass(usageBadge(i)!)" :title="usageBadge(i)!.healthTip ?? undefined">{{ usageBadge(i)!.text }}</span>
+                <span v-if="usageBadge(i, report)" class="iu-badge" :class="badgeClass(usageBadge(i, report)!)" :title="usageBadge(i, report)!.healthTip ?? undefined">{{ usageBadge(i, report)!.text }}</span>
               </td>
               <td :title="i.kind"><span class="iu-tag">{{ indexTag(i) }}</span></td>
               <td
                 v-for="c in cols.slice(2)" :key="c.id" :class="[{ n: c.num }, c.id === 'seeks%' && i.seek_health ? `h-${i.seek_health}` : '']" class="nm-selectable"
-                :title="c.id === 'seeks%' ? seekTip(i) ?? undefined : undefined"
+                :title="c.id === 'seeks%' ? seekTip(i) ?? undefined : c.tip"
               >{{ c.text(i) }}</td>
             </tr>
             <tr v-if="!rows.length"><td :colspan="cols.length" class="iu-dim">{{ $t('explorer:indexes.none') }}</td></tr>

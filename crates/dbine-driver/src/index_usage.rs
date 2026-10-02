@@ -7,7 +7,8 @@
 //! ([`IndexUsageReport::derive`]): reads = seeks + scans + lookups; the read
 //! share = this index's reads over the sum of the table's indexes' reads
 //! (`None` when that sum is 0); unused = no reads but updates (an index that
-//! costs on every write and helps no query); the seek ratio = seeks over
+//! costs on every write and helps no query; never judged when the engine
+//! doesn't count writes, `writes_counted` false); the seek ratio = seeks over
 //! seeks + scans, and its health: good from 0.8, warn from 0.5, bad below
 //! (more scans than seeks: the index's columns or the queries need a look).
 //! Columnstore indexes are made to be scanned: never bad.
@@ -38,6 +39,11 @@ pub struct IndexUsageReport {
     /// `seeks`): no seek ratio or health, so the UI shows a neutral share.
     #[serde(default = "yes")]
     pub seek_scan_split: bool,
+    /// The engine counts index writes (`updates`, `last_write`). `false`:
+    /// those are unknown, not 0, so there's no writes-per-read and no
+    /// index is judged unused; the UI shows a dash.
+    #[serde(default = "yes")]
+    pub writes_counted: bool,
 }
 
 fn yes() -> bool {
@@ -46,7 +52,7 @@ fn yes() -> bool {
 
 impl Default for IndexUsageReport {
     fn default() -> Self {
-        IndexUsageReport { since: None, stats_available: false, note: None, indexes: Vec::new(), foreign_keys: Vec::new(), seek_scan_split: true }
+        IndexUsageReport { since: None, stats_available: false, note: None, indexes: Vec::new(), foreign_keys: Vec::new(), seek_scan_split: true, writes_counted: true }
     }
 }
 
@@ -125,17 +131,20 @@ impl SeekHealth {
 
 impl IndexUsageReport {
     /// Fills the derived numbers of every index. Without counters
-    /// (`stats_available` false) there is no share and nothing is unused.
+    /// (`stats_available` false) there is no share and nothing is unused;
+    /// without write counts (`writes_counted` false) there is no
+    /// writes-per-read and nothing is unused either.
     pub fn derive(&mut self) {
         let stats = self.stats_available;
+        let writes = stats && self.writes_counted;
         for i in &mut self.indexes {
             i.reads = if stats { i.seeks + i.scans + i.lookups } else { 0 };
         }
         let total: u64 = self.indexes.iter().map(|i| i.reads).sum();
         for i in &mut self.indexes {
             i.read_share = (stats && total > 0).then(|| i.reads as f64 / total as f64);
-            i.unused = stats && i.reads == 0 && i.updates > 0;
-            i.writes_per_read = (stats && i.reads > 0).then(|| i.updates as f64 / i.reads as f64);
+            i.unused = writes && i.reads == 0 && i.updates > 0;
+            i.writes_per_read = (writes && i.reads > 0).then(|| i.updates as f64 / i.reads as f64);
             let probes = i.seeks + i.scans;
             i.seek_ratio = (stats && self.seek_scan_split && probes > 0).then(|| i.seeks as f64 / probes as f64);
             i.seek_health = i.seek_ratio.map(|r| SeekHealth::of(r, &i.kind));
@@ -192,6 +201,15 @@ mod tests {
     }
 
     #[test]
+    fn without_write_counts_no_unused_or_writes_per_read() {
+        let r = IndexUsageReport { stats_available: true, writes_counted: false, indexes: vec![ix("a", 5, 0, 0, 3), ix("b", 0, 0, 0, 9)], ..Default::default() }.derived();
+        assert_eq!(r.indexes[0].reads, 5);
+        assert_eq!(r.indexes[0].read_share, Some(1.0));
+        assert!(r.indexes.iter().all(|i| !i.unused && i.writes_per_read.is_none()));
+        assert!(IndexUsageReport::default().writes_counted);
+    }
+
+    #[test]
     fn seek_health_thresholds() {
         let r = IndexUsageReport {
             stats_available: true,
@@ -230,5 +248,6 @@ mod tests {
         // A host that didn't fill the derived fields (they're recomputed by the app).
         let r: IndexUsageReport = serde_json::from_str(r#"{"indexes":[{"name":"a","kind":"CLUSTERED","seeks":1}]}"#).unwrap();
         assert_eq!((r.indexes[0].reads, r.indexes[0].read_share, r.stats_available), (0, None, false));
+        assert!(r.writes_counted && r.seek_scan_split);
     }
 }

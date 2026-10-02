@@ -123,10 +123,11 @@ async fn scenario(id: &str, env: &str) {
     assert!(seeked.read_share.is_some_and(|x| x > 0.0) && untouched.read_share == Some(0.0));
     if crdb || id == "yugabytedb" {
         // No writes per index: never "sin uso", and no size.
+        assert!(!r.writes_counted && untouched.writes_per_read.is_none());
         assert!(!untouched.unused && untouched.updates == 0 && untouched.size_kb.is_none());
         assert!(seeked.last_read.is_some() || !crdb);
     } else {
-        assert!(untouched.updates >= 500 && untouched.unused, "{untouched:?}");
+        assert!(r.writes_counted && untouched.updates >= 500 && untouched.unused, "{untouched:?}");
         assert!(seeked.size_kb.is_some_and(|k| k > 0));
     }
     assert_eq!(r.foreign_keys.len(), 1);

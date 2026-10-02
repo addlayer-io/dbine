@@ -46,7 +46,7 @@ fn named_sizes(rows: &[Vec<Value>]) -> HashMap<String, u64> {
 
 pub(crate) async fn report(s: &ClickHouseSession, table: &ObjectRef) -> Result<IndexUsageReport> {
     let t = s.catalog(Some(&table.name)).await?.into_iter().next();
-    let Some(t) = t else { return Ok(IndexUsageReport { note: Some(NOTE.into()), ..Default::default() }) };
+    let Some(t) = t else { return Ok(IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() }) };
     let db = s.database.clone();
     let params = [("db", db.as_str()), ("t", table.name.as_str())];
     let pk = s.rows(PK_SIZE_SQL, &params).await.ok().and_then(|r| r.first().and_then(|r| r.first()).and_then(bytes));
@@ -80,7 +80,7 @@ pub(crate) fn assemble(t: &TableSchema, pk_bytes: Option<u64>, skip: &HashMap<St
             ..Default::default()
         });
     }
-    IndexUsageReport { note: Some(NOTE.into()), indexes, ..Default::default() }.derived()
+    IndexUsageReport { note: Some(NOTE.into()), indexes, writes_counted: false, ..Default::default() }.derived()
 }
 
 #[cfg(test)]

@@ -20,7 +20,7 @@ pub const NOTE: &str = "Firebird no registra cuántas veces se usa cada índice 
 /// The report for `t` (`None`: the table isn't there): the primary key
 /// first, then the indexes in the schema's order.
 pub fn report(t: Option<&TableSchema>) -> IndexUsageReport {
-    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), ..Default::default() } };
+    let Some(t) = t else { return IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() } };
     let mut indexes = Vec::new();
     if let Some(pk) = &t.primary_key {
         indexes.push(IndexUsage {
@@ -51,7 +51,7 @@ pub fn report(t: Option<&TableSchema>) -> IndexUsageReport {
             ..Default::default()
         });
     }
-    IndexUsageReport { note: Some(NOTE.into()), indexes, foreign_keys: t.foreign_keys.clone(), ..Default::default() }.derived()
+    IndexUsageReport { note: Some(NOTE.into()), indexes, foreign_keys: t.foreign_keys.clone(), writes_counted: false, ..Default::default() }.derived()
 }
 
 #[cfg(test)]

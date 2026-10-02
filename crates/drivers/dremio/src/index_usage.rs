@@ -13,12 +13,9 @@
 //! - reads (`seeks`): `accelerated_count`, the queries the reflection
 //!   answered. Dremio has one counter (no seeks against scans: the report
 //!   says `seek_scan_split: false`), no write counter (a reflection's
-//!   refreshes aren't counted, so none is "sin uso") and doesn't say since
-//!   when it counts. Known gap: with `updates` at 0, `derive` still gives a
-//!   reflection with reads a "writes per read" of 0, which says nothing;
-//!   the contract has no flag to hide it (a new report field would break
-//!   every driver's struct literal), so the note and
-//!   `docs/soporte-por-motor.md` say it;
+//!   refreshes aren't counted: `writes_counted: false`, so there's no
+//!   writes per read and none is "sin uso") and doesn't say since when it
+//!   counts;
 //! - last write: `last_refresh_from_table`, when it last refreshed.
 //!
 //! No keys: Dremio has no primary or foreign keys to read.
@@ -36,7 +33,7 @@ pub const PARTITION_BY: &str = "partition_by";
 pub const LOCALSORT_BY: &str = "localsort_by";
 pub const DISTRIBUTE_BY: &str = "distribute_by";
 
-pub const NOTE: &str = "Dremio no tiene índices: se listan las reflexiones de la tabla. Las lecturas son las consultas que cada reflexión aceleró (sys.reflections); Dremio no cuenta escrituras (las escrituras por lectura en 0 no significan nada) ni dice desde cuándo cuenta.";
+pub const NOTE: &str = "Dremio no tiene índices: se listan las reflexiones de la tabla. Las lecturas son las consultas que cada reflexión aceleró (sys.reflections); Dremio no cuenta escrituras ni dice desde cuándo cuenta.";
 
 type Row = Map<String, Value>;
 
@@ -124,7 +121,7 @@ pub fn usage(r: &Row) -> IndexUsage {
 pub fn report(rows: &[Row], schema: Option<&str>, table: &str) -> IndexUsageReport {
     let mut indexes: Vec<IndexUsage> = rows.iter().filter(|r| on_table(r, schema, table)).map(usage).collect();
     indexes.sort_by(|a, b| a.name.cmp(&b.name));
-    IndexUsageReport { since: None, stats_available: true, note: Some(NOTE.into()), indexes, foreign_keys: Vec::new(), seek_scan_split: false }
+    IndexUsageReport { since: None, stats_available: true, note: Some(NOTE.into()), indexes, foreign_keys: Vec::new(), seek_scan_split: false, writes_counted: false }
 }
 
 /// Each table's reflections into its `indexes`.
@@ -200,7 +197,8 @@ mod tests {
         assert_eq!((agg.kind.as_str(), agg.key_columns.clone(), agg.included_columns.clone(), agg.size_kb), ("AGGREGATION REFLECTION (DISABLED)", vec!["code".to_string()], vec!["id".to_string()], None));
         // One counter: a share, but no seek health, and nothing "unused" (no writes counted).
         assert_eq!((raw.read_share, agg.read_share), (Some(1.0), Some(0.0)));
-        assert!(r.indexes.iter().all(|i| i.seek_health.is_none() && !i.unused));
+        assert!(!r.writes_counted);
+        assert!(r.indexes.iter().all(|i| i.seek_health.is_none() && !i.unused && i.writes_per_read.is_none()));
         assert!(report(&rows(), Some("sp.my.f"), "iu_probe").indexes.is_empty(), "a dotted folder name is one part");
     }
 

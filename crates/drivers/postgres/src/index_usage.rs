@@ -30,12 +30,14 @@
 //!   over the segments. Greenplum 6 only has the coordinator's, which never
 //!   scans: the indexes are listed without counters.
 //! - YugabyteDB keeps the counters of the node the session is connected to,
-//!   and counts no table writes nor index sizes (DocDB stores them).
+//!   and counts no table writes nor index sizes (DocDB stores them):
+//!   `writes_counted` false. The same when the table's counters can't be
+//!   read.
 //!
 //! CockroachDB: `crdb_internal.index_usage_statistics` (`total_reads`,
 //! `last_read`, cluster-wide) by `crdb_internal.table_indexes` (which needs
 //! `allow_unsafe_internals` since v25, set for the read only). No writes
-//! per index, no size, no reset time.
+//! per index (`writes_counted` false), no size, no reset time.
 //!
 //! The engines without `pg_index` usage counters list their indexes (and
 //! foreign keys) with `stats_available: false` and a note: Materialize,
@@ -418,7 +420,7 @@ impl PgSession {
             Some(rows) => group_foreign_keys(&rows),
             None => Vec::new(),
         };
-        let mut report = IndexUsageReport { foreign_keys, seek_scan_split: false, ..Default::default() };
+        let mut report = IndexUsageReport { foreign_keys, seek_scan_split: false, writes_counted: false, ..Default::default() };
         let mut notes: Vec<String> = Vec::new();
         if !has_counters(v) {
             report.indexes = assemble(&columns, None, None, 0);
@@ -452,6 +454,8 @@ impl PgSession {
                 .collect()
         });
         let (mut writes, mut sizes) = (0, None);
+        // The writes come from the table's counters: unknown until read.
+        let mut writes_counted = false;
         if usage.is_none() {
             notes.push(refused_note(v).into());
         } else if v == Variant::Cockroach {
@@ -463,6 +467,7 @@ impl PgSession {
             } else if let Some(rows) = self.optional("table counters", &table_stats_sql(v, self.version, &rel, table_view)).await {
                 if let Some(r) = rows.first() {
                     writes = num(r, "writes");
+                    writes_counted = true;
                     notes.extend(seq_scan_note(num(r, "seq")));
                 }
             }
@@ -480,6 +485,7 @@ impl PgSession {
                 .map(|rows| rows.iter().map(|r| (cell(r, "idx").unwrap_or_default(), num(r, "bytes"))).collect::<HashMap<_, _>>());
         }
         report.stats_available = usage.is_some();
+        report.writes_counted = writes_counted;
         report.indexes = assemble(&columns, usage.as_ref(), sizes.as_ref(), writes);
         report.note = (!notes.is_empty()).then(|| notes.join(" "));
         Ok(report)
@@ -495,6 +501,7 @@ impl PgSession {
             foreign_keys: t.map(|t| t.foreign_keys.clone()).unwrap_or_default(),
             note: Some(no_counters_note(v).into()),
             seek_scan_split: false,
+            writes_counted: false,
             ..Default::default()
         })
     }

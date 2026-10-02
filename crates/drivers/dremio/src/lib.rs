@@ -644,6 +644,7 @@ impl Session for DremioSession {
             Err(Error::Query(e)) => Ok(Some(dbine_driver::IndexUsageReport {
                 note: Some(format!("No se pudo leer sys.reflections (en Dremio Enterprise hace falta el privilegio VIEW REFLECTION): {e}")),
                 seek_scan_split: false,
+                writes_counted: false,
                 ..Default::default()
             })),
             Err(e) => Err(e),

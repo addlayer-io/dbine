@@ -20,7 +20,8 @@
 //!   no row was never used since tracking started: zeros.
 //! - The writes (`updates`): "db block changes" of the index's segments in
 //!   `V$SEGSTAT` (since the instance started): blocks changed maintaining
-//!   the index, not rows. Refused, they stay 0 and nothing is marked unused.
+//!   the index, not rows. Refused, they're unknown (`writes_counted`
+//!   false) and nothing is marked unused.
 //!   The two windows differ: reads persist across restarts, writes restart
 //!   with the instance; and until the first flush a freshly created or used
 //!   index has writes and 0 reads, so it shows as unused (the note says so).
@@ -411,6 +412,7 @@ pub(crate) fn report(c: &Connection, owner: &str, table: &str) -> Result<IndexUs
         indexes: assemble(&indexes, &columns, usage.as_ref(), writes.as_ref(), sizes.as_ref()),
         foreign_keys: foreign_keys(owner, &fk_rows),
         seek_scan_split: false,
+        writes_counted: writes.is_some(),
     })
 }
 

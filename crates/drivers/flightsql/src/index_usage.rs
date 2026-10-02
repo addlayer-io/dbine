@@ -116,7 +116,7 @@ pub(crate) fn from_duckdb(schema: &str, constraints: &[Row], indexes: &[Row]) ->
         let unique = matches!(r.get("is_unique"), Some(Value::Bool(true))) || get(r, "is_unique") == "true";
         out.push(IndexUsage { name: get(r, "index_name"), kind: "ART".into(), unique, key_columns: index_keys(&get(r, "sql")), ..Default::default() });
     }
-    IndexUsageReport { note: Some(NOTE_DUCKDB.into()), indexes: out, foreign_keys, ..Default::default() }.derived()
+    IndexUsageReport { note: Some(NOTE_DUCKDB.into()), indexes: out, foreign_keys, writes_counted: false, ..Default::default() }.derived()
 }
 
 /// The report from `GetPrimaryKeys` and `GetImportedKeys` rows.
@@ -157,7 +157,7 @@ pub(crate) fn from_commands(pk: &[Row], imported: &[Row]) -> IndexUsageReport {
             }),
         }
     }
-    IndexUsageReport { note: Some(NOTE_OTHER.into()), indexes, foreign_keys, ..Default::default() }.derived()
+    IndexUsageReport { note: Some(NOTE_OTHER.into()), indexes, foreign_keys, writes_counted: false, ..Default::default() }.derived()
 }
 
 impl FlightSession {

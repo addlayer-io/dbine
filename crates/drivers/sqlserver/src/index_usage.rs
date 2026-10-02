@@ -267,6 +267,7 @@ pub(crate) async fn report(s: &mut SqlServerSession, table: &ObjectRef) -> Resul
         indexes: assemble(&indexes, &columns, usage.as_ref(), sizes.as_ref()),
         foreign_keys: foreign_keys(&fk_rows),
         seek_scan_split: true,
+        writes_counted: true,
     })
 }
 
