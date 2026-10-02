@@ -59,7 +59,7 @@ const percent = (x: Task) =>
   x.progress.total && x.progress.done != null ? Math.min(100, Math.round((x.progress.done / x.progress.total) * 100)) : null;
 
 const sorted = computed(() => [...tasks.tasks].sort((a, b) => Number(b.state === 'running') - Number(a.state === 'running') || b.startedAt - a.startedAt));
-const hasFinished = computed(() => tasks.tasks.some((x) => x.state !== 'running'));
+const finishedCount = computed(() => tasks.tasks.filter((x) => x.state !== 'running').length);
 
 const detail = computed(() => (tasks.detailId ? tasks.byId(tasks.detailId) ?? null : null));
 const detailResult = computed(() => {
@@ -90,6 +90,14 @@ const detailEta = computed(() => {
     v-model="tasks.panelOpen" :title="$t('tasks:panel.title')" direction="rtl" size="440px"
     :modal="false" append-to-body class="tasks-drawer"
   >
+    <template #header>
+      <div class="tp-top">
+        <span class="tp-top-title">{{ $t('tasks:panel.title') }}</span>
+        <el-button v-if="finishedCount" size="small" @click="tasks.clearFinished()">
+          {{ $t('tasks:panel.clearFinished') }} ({{ finishedCount }})
+        </el-button>
+      </div>
+    </template>
     <div v-if="!tasks.tasks.length" class="tp-empty">{{ $t('tasks:panel.empty') }}</div>
     <ul v-else class="tp-list">
       <li v-for="x in sorted" :key="x.id" class="tp-item" :class="`is-${x.state}`">
@@ -121,9 +129,6 @@ const detailEta = computed(() => {
         </div>
       </li>
     </ul>
-    <template v-if="hasFinished" #footer>
-      <el-button size="small" @click="tasks.clearFinished()">{{ $t('tasks:panel.clearFinished') }}</el-button>
-    </template>
   </el-drawer>
 
   <el-dialog
@@ -170,6 +175,8 @@ const detailEta = computed(() => {
 .tp-empty { color: var(--nm-text-dim); padding: 8px 0; }
 .tp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .tp-item { border: 1px solid var(--nm-border); border-radius: var(--nm-radius); padding: 8px 10px; background: var(--nm-bg-elev); }
+.tp-top { display: flex; align-items: center; gap: 8px; }
+.tp-top-title { flex: 1; font-weight: 600; color: var(--nm-text-strong); }
 .tp-head { display: flex; align-items: center; gap: 6px; }
 .tp-icon { flex: none; }
 .tp-ok { color: var(--nm-success); }
