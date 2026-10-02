@@ -1,9 +1,10 @@
+import { effectScope, watch } from 'vue';
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { ElNotification } from 'element-plus';
 import { listen, type EventCallback, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow, UserAttentionType } from '@tauri-apps/api/window';
 import { t } from '../i18n';
-import { errorMessage } from '../api/client';
+import { errorMessage, windowApi } from '../api/client';
 import { elapsedParts, estimate, etaKey, recordSample, roundEta, type EtaSeries } from '../composables/taskEta';
 
 // Long operations (a schema sync, a script run, an import…) that keep going
@@ -119,6 +120,13 @@ const etaSeries = new Map<string, EtaSeries>();
 let ticker: ReturnType<typeof setInterval> | null = null;
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** How long a cancel-all waits for the tasks to settle (the quit guard
+ *  waits the same before quitting anyway). */
+export const SETTLE_MS = 3000;
+/** The running list is sent to the backend at most this often. */
+const REPORT_DEBOUNCE_MS = 100;
+let windowsBound = false;
 
 /** "45 s", "12 min 03 s", "3 h 07 min", "1 d 2 h". */
 export function formatElapsed(ms: number): string {
@@ -310,9 +318,35 @@ export const useTasksStore = defineStore('tasks', {
     },
 
     /** Cancel every running task (the quit guard). Waits up to `timeoutMs`. */
-    async cancelAll(timeoutMs = 3000) {
+    async cancelAll(timeoutMs = SETTLE_MS) {
       const all = this.running.map((x) => this.cancel(x.id));
       await Promise.race([Promise.allSettled(all), new Promise((r) => setTimeout(r, timeoutMs))]);
+    },
+
+    /** Share this window's running tasks with the backend (so quitting from
+     *  any window asks about all of them) and cancel them when some window
+     *  quits ("tasks-cancel-all"). Once per window; outlives the caller. */
+    bindWindows() {
+      if (windowsBound || !inTauri()) return;
+      windowsBound = true;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const report = () => {
+        timer = null;
+        const tasks = this.running.map((x) => ({ id: x.id, title: x.title }));
+        windowApi.reportTasks(tasks).catch(() => {});
+      };
+      // Detached: the component that asked may unmount, the reporting stays.
+      effectScope(true).run(() => {
+        watch(
+          () => this.running.map((x) => `${x.id}\u0000${x.title}`).join('\u0001'),
+          () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(report, REPORT_DEBOUNCE_MS);
+          },
+          { immediate: true },
+        );
+      });
+      listen('tasks-cancel-all', () => { void this.cancelAll(SETTLE_MS); }).catch(() => {});
     },
 
     /** "Ver detalle": the dialog's own view, or the panel's detail. */

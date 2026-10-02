@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { locale } from '../i18n';
 import { useSettingsStore } from '../stores/settings';
+import { startupClaim } from './windowRole';
 
 // Anonymous usage telemetry, on by default: TelemetryConsent tells what's
 // sent once, and Configuración › General turns it off. The backend decides
@@ -27,11 +28,12 @@ function send(event: 'app_started' | 'connection_opened' | 'module_opened', prop
   invoke('track_event', { args: { event, engine: props.engine ?? null, module: props.module ?? null, locale: locale() } }).catch(() => {});
 }
 
-/** Once per run: how many people use DBine, on which OS and version. */
-export function trackAppStarted() {
+/** Once per run: how many people use DBine, on which OS and version. With
+ *  several windows, only the first one to start sends it. */
+export async function trackAppStarted() {
   if (started || !telemetryAllowed()) return;
   started = true;
-  send('app_started');
+  if (await startupClaim()) send('app_started');
 }
 
 /** Which engines are used: only the driver id, nothing about the connection. */

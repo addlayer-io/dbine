@@ -52,6 +52,31 @@ sha2 = "0.10"
 getrandom = "0.3"
 rusqlite.workspace = true
 
+# The Dock menu's "Nueva ventana" (src/dock_macos.rs): the same versions tao
+# already uses, so nothing new is compiled in.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
+
+# A second launch (taskbar task, desktop action) opens a window in the running
+# process. macOS keeps one instance by itself.
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"
+
+# The taskbar Jump List's "Nueva ventana" (src/jumplist_windows.rs).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_EnhancedStorage",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
+
 [features]
 # Release builds: only the built-in drivers (dbine_drivers::BUILT_IN) stay
 # in the app; the rest are downloaded on first use. `cargo tauri build

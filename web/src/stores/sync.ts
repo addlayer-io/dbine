@@ -10,6 +10,19 @@ import { useUiStore } from './ui';
 // Cloud backup state for the status bar and Configuración › Sincronización.
 // The backend runs the automatic sync and reports through events.
 
+/** After the saved connections were read again (`before`: id → `updated_at`
+ *  as they were): the ones gone or changed lost their sessions in the
+ *  backend, and the tabs of the ones gone close. A connection being connected
+ *  right now is left alone (that connect opens a new session). */
+export function reconcileConnections(before: Map<string, string>) {
+  const conns = useConnectionsStore();
+  for (const [id, at] of before) {
+    if (conns.byId(id)?.updated_at !== at && conns.live[id]?.status !== 'connecting') conns.forget(id);
+  }
+  const gone = new Set([...before.keys()].filter((id) => !conns.byId(id)));
+  if (gone.size) useTabsStore().closeWhere((t) => gone.has(t.connectionId));
+}
+
 export const useSyncStore = defineStore('sync', {
   state: () => ({
     info: null as SyncStatus | null,
@@ -41,12 +54,8 @@ export const useSyncStore = defineStore('sync', {
       const tabs = useTabsStore();
       const before = new Map(conns.list.map((c) => [c.id, c.updated_at]));
       await Promise.all([conns.load(), useSettingsStore().load(), useLibraryStore().load(true)]);
-      // Connections gone or changed: the backend closed their sessions.
-      for (const [id, at] of before) {
-        if (conns.byId(id)?.updated_at !== at) conns.forget(id);
-      }
+      reconcileConnections(before);
       const ids = new Set(conns.list.map((c) => c.id));
-      tabs.closeWhere((t) => !ids.has(t.connectionId));
       // Query lists the explorer shows, and the ones of open query tabs.
       const lists = new Set(Object.keys(conns.queries));
       for (const t of tabs.tabs) if (t.kind === 'query') lists.add(dbKey(t.connectionId, t.database));

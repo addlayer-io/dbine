@@ -2,14 +2,21 @@
 //!
 //! The UI owns the menu: it sends its structure with the labels in the app's
 //! language (`app_menu_set`, on start and on every language change) and this
-//! builds it. Clicking an item of the UI emits `app-menu` with the item's id;
-//! native items (copy, paste, hide, quit…) do their job themselves.
+//! builds it. Clicking an item of the UI emits `app-menu` with the item's id
+//! to the target window (`windows::target_window`); native items (copy,
+//! paste, hide, quit…) do their job themselves. "Nueva ventana" is handled
+//! here: it works with no window to forward it to.
 
 use crate::error::CommandResult;
 use serde::Deserialize;
 #[cfg(target_os = "macos")]
 use tauri::menu::{AboutMetadata, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Runtime};
+#[cfg(target_os = "macos")]
+use tauri::Runtime;
+use tauri::AppHandle;
+
+/// The item that opens a window; the backend handles it.
+const NEW_WINDOW: &str = "file.newWindow";
 
 /// The event the UI listens to; its payload is the clicked item's id.
 pub const EVENT: &str = "app-menu";
@@ -19,6 +26,9 @@ const ID_PREFIX: &str = "app-menu:";
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct AppMenuArgs {
     pub menus: Vec<MenuSpec>,
+    /// The Dock menu's "Nueva ventana" in the app's language (macOS).
+    #[serde(default, alias = "dockNewWindow")]
+    pub dock_new_window: Option<String>,
 }
 
 /// A top-level menu. The first one is the application menu (macOS titles it
@@ -70,6 +80,7 @@ pub enum NativeItem {
 }
 
 /// The menu event id of a UI item.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 fn event_id(id: &str) -> String {
     format!("{ID_PREFIX}{id}")
 }
@@ -98,6 +109,9 @@ fn item_ids(menus: &[MenuSpec]) -> Vec<&str> {
 pub async fn app_menu_set(app: AppHandle, args: AppMenuArgs) -> CommandResult<bool> {
     #[cfg(target_os = "macos")]
     {
+        if let Some(text) = &args.dock_new_window {
+            crate::dock_macos::set_label(text);
+        }
         let menu = build(&app, &args.menus).map_err(|e| crate::error::CommandError::Internal(e.to_string()))?;
         app.set_menu(menu).map_err(|e| crate::error::CommandError::Internal(e.to_string()))?;
         Ok(true)
@@ -109,11 +123,17 @@ pub async fn app_menu_set(app: AppHandle, args: AppMenuArgs) -> CommandResult<bo
     }
 }
 
-/// Forward clicks on the UI's items to the UI.
-pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
+/// Forward clicks on the UI's items to the target window's UI.
+pub fn on_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     use tauri::Emitter;
-    if let Some(id) = item_id(event.id().as_ref()) {
-        let _ = app.emit(EVENT, id);
+    let Some(id) = item_id(event.id().as_ref()) else { return };
+    if id == NEW_WINDOW {
+        crate::windows::spawn_new(app);
+    } else if let Some(w) = crate::windows::target_window(app) {
+        // With no window focused (all minimized), the target may be out of
+        // sight: bring it forward so what the item opens is seen.
+        crate::windows::bring_forward(&w);
+        let _ = app.emit_to(w.label(), EVENT, id);
     }
 }
 
@@ -219,6 +239,16 @@ mod tests {
             args.menus[1].items[0],
             Entry::Item { id: "file.newConnection".into(), label: "Nueva conexión".into(), accelerator: None },
         );
+    }
+
+    #[test]
+    fn reads_the_dock_label() {
+        let none: AppMenuArgs = serde_json::from_value(serde_json::json!({ "menus": [] })).unwrap();
+        assert_eq!(none.dock_new_window, None);
+        for key in ["dock_new_window", "dockNewWindow"] {
+            let args: AppMenuArgs = serde_json::from_value(serde_json::json!({ "menus": [], key: "Nueva ventana" })).unwrap();
+            assert_eq!(args.dock_new_window.as_deref(), Some("Nueva ventana"));
+        }
     }
 
     #[test]

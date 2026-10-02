@@ -81,6 +81,14 @@
     "message_one": "Hay {{count}} ejecución en segundo plano: {{list}}. Si cerrás la aplicación se va a cancelar. ¿Querés cerrarla igual?",
     "message_other": "Hay {{count}} ejecuciones en segundo plano: {{list}}. Si cerrás la aplicación se van a cancelar. ¿Querés cerrarla igual?",
     "confirm": "Cancelar y cerrar",
+    "stay": "Seguir trabajando",
+    "window": "{{title}} (ventana {{n}})"
+  },
+  "closeWindow": {
+    "title": "Ejecuciones en esta ventana",
+    "message_one": "Hay {{count}} ejecución en segundo plano en esta ventana: {{list}}. Si cerrás la ventana se va a cancelar. ¿Querés cerrarla igual?",
+    "message_other": "Hay {{count}} ejecuciones en segundo plano en esta ventana: {{list}}. Si cerrás la ventana se van a cancelar. ¿Querés cerrarla igual?",
+    "confirm": "Cancelar y cerrar la ventana",
     "stay": "Seguir trabajando"
   },
   "dataSync": {

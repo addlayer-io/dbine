@@ -77,6 +77,9 @@ de cada base.
 - **Pestañas de vista previa**, como en VS Code. Doble clic en una pestaña
   muestra su query u objeto en el árbol, y "Ir a la base" abre el menú de esa
   base.
+- **Varias ventanas en la misma instancia,** desde el Dock, la barra de
+  tareas o el menú. Comparten conexiones, queries y configuración. Detalle:
+  [`docs/ventanas.md`](docs/ventanas.md).
 - **Editor CodeMirror 6**, con el dialecto de cada motor y autocompletado de
   tablas y columnas. Ejecuta la selección o la sentencia bajo el cursor, y se
   puede cancelar con el mecanismo nativo de cada motor.
@@ -488,6 +491,8 @@ Documentación:
 - [`docs/cache-del-explorador.md`](docs/cache-del-explorador.md): la caché del
   árbol del explorador.
 - [`docs/esquemas.md`](docs/esquemas.md): crear y borrar esquemas.
+- [`docs/ventanas.md`](docs/ventanas.md): las ventanas, qué guarda cada
+  una y cerrar una ventana o salir.
 - [`docs/comparacion-de-esquemas.md`](docs/comparacion-de-esquemas.md): cómo
   se comparan y sincronizan dos bases.
 - [`docs/migracion.md`](docs/migracion.md) y

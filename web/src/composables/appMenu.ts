@@ -1,11 +1,13 @@
 import { onScopeDispose } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { windowApi } from '../api/client';
 import i18next, { t } from '../i18n';
 import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { checkForUpdateNow } from './updates';
 import { requestQuit } from './quitGuard';
+import { isMac } from './shortcuts';
 
 // The native menu bar (macOS only: Windows and Linux have none, as VS Code).
 // Its labels follow the app's language, so the UI builds it and sends it to
@@ -16,6 +18,11 @@ import { requestQuit } from './quitGuard';
 // installed, it's the menu that runs them. The window's own key handler asks
 // `ownsShortcut` and leaves those keys alone, so nothing runs twice. Where
 // there's no menu (Windows, Linux, a browser) the key handler keeps them all.
+//
+// Several windows share the one menu bar: each window sends its menu again
+// when it gains focus, and the backend sends a click only to the window it
+// belongs to. "Nueva ventana" (⌘⇧N) is handled in Rust; where there's no
+// menu, this module takes Ctrl+Shift+N itself.
 
 /** What the menu runs that lives in App.vue's layout. */
 export interface AppMenuActions {
@@ -31,7 +38,8 @@ type Entry =
 
 const sep: Entry = { kind: 'separator' };
 const native = (item: string, key?: string): Entry => ({ kind: 'native', item, label: key ? t(`menu:${key}`) : undefined });
-/** `key`: the shortcut's letter, always with ⌘ (the app's own shortcuts). */
+/** `key`: the shortcut's letter, always with ⌘ (the app's own shortcuts),
+ *  optionally after `Shift+`. */
 const item = (id: string, key?: string): Entry => ({
   kind: 'item', id, label: t(`menu:${id}`), accelerator: key ? `CmdOrCtrl+${key.toUpperCase()}` : undefined,
 });
@@ -48,7 +56,7 @@ function menus() {
       item('app.quit', 'q'),
     ] },
     { label: t('menu:file.title'), items: [
-      item('file.newConnection'), item('file.newQuery', 'n'), sep,
+      item('file.newConnection'), item('file.newQuery', 'n'), item('file.newWindow', 'Shift+N'), sep,
       item('file.closeTab', 'w'),
     ] },
     // Without these, ⌘C / ⌘V / ⌘Z don't reach the webview on macOS.
@@ -65,16 +73,26 @@ function menus() {
   ] satisfies { label: string; items: Entry[] }[];
 }
 
-/** The keys the menu's items take (⌘ + key), from the menu itself. */
+/** The keys the menu's items take (⌘ + key, as `shift+n` when shifted),
+ *  from the menu itself. */
 const menuKeys = new Set(
   menus().flatMap((m) => m.items).flatMap((e) => (e.kind === 'item' && e.accelerator ? [e.accelerator.slice(10).toLowerCase()] : [])),
 );
 
 let installed = false;
 
-/** True when the native menu runs this key (the caller then ignores it). */
+/** ⌘⇧N on macOS, Ctrl+Shift+N on Windows / Linux: a new window. */
+function isNewWindowKey(e: KeyboardEvent): boolean {
+  const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  return mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n';
+}
+
+/** True when the native menu, or this module, runs this key (the caller
+ *  then ignores it). */
 export function ownsShortcut(e: KeyboardEvent): boolean {
-  return installed && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && menuKeys.has(e.key.toLowerCase());
+  if (isNewWindowKey(e)) return true;
+  const key = (e.shiftKey ? 'shift+' : '') + e.key.toLowerCase();
+  return installed && e.metaKey && !e.ctrlKey && !e.altKey && menuKeys.has(key);
 }
 
 /** Install the menu and run its items. Call from App.vue's setup. */
@@ -95,7 +113,7 @@ export function useAppMenu(actions: AppMenuActions) {
   };
 
   const send = () => {
-    invoke<boolean>('app_menu_set', { args: { menus: menus() } })
+    invoke<boolean>('app_menu_set', { args: { menus: menus(), dockNewWindow: t('menu:file.newWindow') } })
       .then((ok) => { installed = ok === true; })
       .catch(() => { installed = false; });
   };
@@ -103,14 +121,32 @@ export function useAppMenu(actions: AppMenuActions) {
   send();
   i18next.on('languageChanged', send);
 
-  let unlisten: (() => void) | null = null;
+  // Without the menu (Windows, Linux) the new-window key is ours.
+  const onKey = (e: KeyboardEvent) => {
+    if (installed || !isNewWindowKey(e)) return;
+    e.preventDefault();
+    windowApi.newWindow().catch(() => {});
+  };
+  window.addEventListener('keydown', onKey);
+
+  const unlisteners: (() => void)[] = [];
   let disposed = false;
-  listen<string>('app-menu', (e) => run[e.payload]?.())
-    .then((f) => { if (disposed) f(); else unlisten = f; })
-    .catch(() => {});
+  const keep = (p: Promise<() => void>) =>
+    p.then((f) => { if (disposed) f(); else unlisteners.push(f); }).catch(() => {});
+  try {
+    const win = getCurrentWebviewWindow();
+    // This window's own listener: a global `listen` would also get the clicks
+    // the backend sends to another window.
+    keep(win.listen<string>('app-menu', (e) => run[e.payload]?.()));
+    // The focused window's menu (and language) wins.
+    keep(win.onFocusChanged(({ payload: focused }) => { if (focused) send(); }));
+  } catch {
+    // No window metadata (the dev-preview's fake backend).
+  }
   onScopeDispose(() => {
     disposed = true;
     i18next.off('languageChanged', send);
-    unlisten?.();
+    window.removeEventListener('keydown', onKey);
+    unlisteners.forEach((f) => f());
   });
 }

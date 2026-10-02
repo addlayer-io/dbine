@@ -1,7 +1,10 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
+import { watch } from 'vue';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from '../api/client';
 import type { ObjectRef, SavedQuery } from '../api/types';
 import { readJson, writeJson } from './storage';
+import { initWindowRole, windowRole } from '../composables/windowRole';
 
 // Editor tabs. A query tab points at a saved query (its text lives in the
 // state store, not here), so reopening a query focuses its tab instead of
@@ -134,6 +137,34 @@ export type Tab = QueryTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab |
 
 const KEY = 'dbine.tabs';
 
+/** This window's label, known synchronously at load ("main" outside Tauri
+ *  and in the dev-preview, whose fake backend has no window metadata). */
+const LABEL = (() => {
+  try { return getCurrentWindow().label; } catch { return 'main'; }
+})();
+
+/** Whether this window owns the saved tabs and AI conversation. Several
+ *  windows share localStorage: only the primary one ("main", or the window
+ *  promoted when it closes) restores and saves them; the rest start empty.
+ *  Until the backend has answered, only "main" counts as primary. */
+export function ownsSavedState(): boolean {
+  return windowRole.value.primary && windowRole.value.label === LABEL;
+}
+
+let followingPromotion = false;
+/** A window promoted to primary saves its tabs at once, so they're the
+ *  ones the next start restores; one with no tabs keeps the closed
+ *  window's saved session instead of wiping it (its next change saves). */
+function followPromotion() {
+  if (followingPromotion) return;
+  followingPromotion = true;
+  void initWindowRole();
+  watch(ownsSavedState, (owns) => {
+    const tabs = useTabsStore();
+    if (owns && tabs.tabs.length) tabs.persist();
+  });
+}
+
 /** Profiler tabs to start on first show: only those just opened from the
  *  menu. A tab restored with the app waits for "Iniciar" (starting may
  *  change server settings). */
@@ -157,7 +188,11 @@ function grouped(tabs: Tab[]): Tab[] {
 
 export const useTabsStore = defineStore('tabs', {
   state: () => {
-    const saved = readJson<{ tabs: Tab[]; activeId: string | null; collapsed?: string[] }>(KEY, { tabs: [], activeId: null });
+    followPromotion();
+    const empty = { tabs: [] as Tab[], activeId: null as string | null };
+    const saved = LABEL === 'main'
+      ? readJson<{ tabs: Tab[]; activeId: string | null; collapsed?: string[] }>(KEY, empty)
+      : { ...empty, collapsed: [] as string[] };
     return {
       tabs: grouped(saved.tabs),
       activeId: saved.activeId,
@@ -172,6 +207,7 @@ export const useTabsStore = defineStore('tabs', {
   },
   actions: {
     persist() {
+      if (!ownsSavedState()) return;
       writeJson(KEY, { tabs: this.tabs, activeId: this.activeId, collapsed: this.collapsed });
     },
 
@@ -445,6 +481,13 @@ export const useTabsStore = defineStore('tabs', {
     /** Tabs of a query / connection that no longer exists. */
     closeWhere(pred: (t: Tab) => boolean) {
       for (const t of this.tabs.filter(pred)) this.close(t.id, true);
+    },
+
+    /** Before this window closes: free every tab's backend session, the
+     *  same way closing each tab does. The tabs (and what's saved) stay as
+     *  they are; the window goes away right after. */
+    releaseAll() {
+      for (const t of this.tabs) this.release(t);
     },
 
     /** The tab's backend session (its connection) is no longer needed. */

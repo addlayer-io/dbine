@@ -1,12 +1,17 @@
 mod commands;
 #[cfg(debug_assertions)]
 mod devtools;
+#[cfg(target_os = "macos")]
+mod dock_macos;
 mod error;
+#[cfg(windows)]
+mod jumplist_windows;
 mod mcp;
 mod menu;
 mod state;
 mod sync;
 mod tunnels;
+mod windows;
 
 use crate::state::AppState;
 use dbine_core::StateStore;
@@ -18,8 +23,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 /// chose to cancel them): from then on an exit request goes through.
 static QUIT_CONFIRMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Quits the app after the UI's quit guard: saves the window state (the window
-/// is still alive here, so maximized/fullscreen are kept too) and exits.
+/// Quits the app after the UI's quit guard: saves the state of every window
+/// (still alive here, so maximized/fullscreen are kept too) and exits.
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
     use tauri_plugin_window_state::AppHandleExt;
@@ -54,11 +59,22 @@ fn append_app_log_raw(line: &str) {
 pub fn run() {
     // Before any driver opens a TLS connection (see Cargo.toml).
     let _ = rustls::crypto::ring::default_provider().install_default();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // First: a second launch (Jump List task, desktop action, a second
+    // double click) only opens a window in this process. macOS's
+    // LaunchServices already keeps one instance. Not in debug builds: a
+    // `cargo tauri dev` run must not hand itself over to an installed release.
+    #[cfg(all(any(windows, target_os = "linux"), not(debug_assertions)))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        windows::handle_second_launch(app, argv)
+    }));
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         // The menu bar (macOS): the UI sends it (`app_menu_set`) and gets its clicks.
         .on_menu_event(menu::on_event)
+        // Focus order (for the target window), primary window, tasks.
+        .on_window_event(windows::on_window_event)
         // Size, position and maximized state across launches. Not the
         // visibility: the window starts hidden and the UI shows it.
         .plugin(
@@ -106,6 +122,13 @@ pub fn run() {
 
             // 4. State store.
             let store = StateStore::open(&state_path).expect("open state store");
+            // Every window reloads what another one (or MCP, or a restore)
+            // changed.
+            let handle = app.handle().clone();
+            store.set_change_hook(Box::new(move |change| {
+                use tauri::Emitter;
+                let _ = handle.emit("state-changed", change);
+            }));
             let state = AppState::new(store);
             // 4c. The explorer's cache, next to the state (not part of it:
             //     never synced, rebuilt if lost; docs/cache-del-explorador.md).
@@ -121,6 +144,8 @@ pub fn run() {
             app.manage(mcp::McpRuntime::open(state.clone(), &dir));
             app.state::<mcp::McpRuntime>().attach(app.handle().clone());
             app.manage(state);
+            state::set_app_handle(app.handle().clone());
+            app.manage(windows::TaskRegistry::default());
             sync::start(app.handle().clone());
             // 6. AI assistant; the built-in model's files go in `models/`.
             let data_dir = app.path().app_data_dir().unwrap_or_else(|_| dir.clone());
@@ -137,25 +162,31 @@ pub fn run() {
                 let _ = handle.emit("component-download", p);
             });
 
-            // The window starts hidden (no blank page while the UI loads) and
-            // the UI shows it once rendered; if that never happens (a broken
-            // frontend), show it anyway so the app isn't invisible.
             #[cfg(debug_assertions)]
             devtools::start(app.handle().clone());
 
-            if let Some(win) = app.get_webview_window("main") {
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(4));
-                    if !win.is_visible().unwrap_or(true) {
-                        tracing::warn!("UI did not show the window — showing it");
-                        let _ = win.show();
-                    }
-                });
+            if let Some(win) = app.get_webview_window(windows::MAIN) {
+                windows::watch_show(&win);
             }
+            // "Nueva ventana" in the Dock menu (macOS) and the taskbar Jump
+            // List (Windows); Linux's is in the .desktop file.
+            #[cfg(target_os = "macos")]
+            dock_macos::install(app.handle().clone());
+            #[cfg(windows)]
+            jumplist_windows::install("Nueva ventana");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             quit_app,
+            windows::window_new,
+            windows::window_role,
+            windows::window_close,
+            windows::tasks_report,
+            windows::tasks_running_all,
+            windows::tasks_cancel_all_broadcast,
+            windows::app_claim_startup,
+            windows::quit_begin,
+            windows::quit_end,
             #[cfg(debug_assertions)]
             devtools::dev_report,
             commands::health::health,
@@ -318,16 +349,22 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error building tauri app")
         .run(|app, event| {
-            // A quit from outside the UI (Dock › Salir, app switcher, logout,
-            // the native Quit item): the UI asks first when background tasks
-            // are running, then calls `quit_app`. `app.exit(n)` comes with a
-            // code and goes through; with no window left there's no one to ask.
+            // The last window went away without the UI's quit guard: the
+            // target window's UI asks first when background tasks (of any
+            // window) are running, then calls `quit_app`. `app.exit(n)` comes
+            // with a code and goes through; with no window left there's no
+            // one to ask. (An OS quit on macOS — Dock › Salir, app switcher,
+            // logout — never gets here: `dock_macos` answers
+            // `applicationShouldTerminate:`.)
             if let tauri::RunEvent::ExitRequested { code: None, api, .. } = &event {
-                if !QUIT_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) && !app.webview_windows().is_empty() {
-                    use tauri::Emitter;
+                if !QUIT_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) && windows::request_quit(app) {
                     api.prevent_exit();
-                    let _ = app.emit("quit-requested", ());
                 }
+            }
+            // Dock click with every window minimized or hidden (macOS).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { has_visible_windows: false, .. } = &event {
+                windows::reopen(app);
             }
             if let tauri::RunEvent::Exit = event {
                 // The built-in model's llama-server must not outlive the app.

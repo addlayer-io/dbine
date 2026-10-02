@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
   ColumnInfo, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
-  ExecuteResponse, RunMode, SavedConnection, SavedQuery, ScriptUnit, TestResult, TxState, UpdateInfo,
+  ExecuteResponse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
 } from './types';
 
 // Every backend command, in one place. Commands take one `args` object whose
@@ -134,4 +134,23 @@ export const api = {
   checkForUpdate: () => invoke<UpdateInfo>('check_for_update', { args: {} }),
   /** Open a release page of DBine in the browser (other URLs are refused). */
   openReleasePage: (url: string) => invoke<void>('open_release_page', { args: { url } }),
+};
+
+// Windows: several windows share one backend (src-tauri/src/windows.rs).
+export const windowApi = {
+  /** Opens a new, empty window; returns its label. */
+  newWindow: () => invoke<string>('window_new'),
+  /** Who the calling window is. */
+  role: () => invoke<WindowRole>('window_role'),
+  /** Closes the calling window (not the app), saving its geometry first. */
+  close: () => invoke<void>('window_close'),
+  /** This window's running tasks: the whole list, each time it changes. */
+  reportTasks: (tasks: TaskSummary[]) => invoke<void>('tasks_report', { args: { tasks } }),
+  /** Every window's running tasks (quitting asks once about all of them). */
+  runningTasksAll: () => invoke<RunningTask[]>('tasks_running_all'),
+  /** Asks every window to cancel its tasks ("tasks-cancel-all"). */
+  cancelAllBroadcast: () => invoke<void>('tasks_cancel_all_broadcast'),
+  /** True only for the first window to ask in this run: it does the
+   *  once-per-run work (update check, app-start telemetry). */
+  claimStartup: () => invoke<boolean>('app_claim_startup'),
 };

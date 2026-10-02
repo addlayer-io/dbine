@@ -53,6 +53,13 @@ pub struct AppState {
     pub cache: Arc<std::sync::OnceLock<dbine_core::ExplorerCache>>,
 }
 
+/// The app, for events sent from here; set once at startup.
+static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+pub fn set_app_handle(app: tauri::AppHandle) {
+    let _ = APP.set(app);
+}
+
 pub fn meta_key(connection_id: &str, database: &str) -> String {
     format!("meta:{connection_id}:{database}")
 }
@@ -262,7 +269,9 @@ impl AppState {
         Ok(entry)
     }
 
-    /// Drop every session of a connection (disconnect, edit, delete).
+    /// Drop every session of a connection (disconnect, edit, delete). Every
+    /// window hears it (`state-changed`, kind `sessions-closed`): a tab of
+    /// another window on that connection is now disconnected too.
     pub fn close_connection_sessions(&self, connection_id: &str) {
         self.sessions.retain(|_, e| {
             let keep = e.connection_id != connection_id;
@@ -272,6 +281,13 @@ impl AppState {
             keep
         });
         self.tunnels.close(connection_id);
+        if let Some(app) = APP.get() {
+            use tauri::Emitter;
+            let _ = app.emit(
+                "state-changed",
+                serde_json::json!({ "kind": "sessions-closed", "id": null, "connection_id": connection_id, "database": null }),
+            );
+        }
     }
 }
 

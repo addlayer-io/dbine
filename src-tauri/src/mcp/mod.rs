@@ -354,22 +354,45 @@ impl McpRuntime {
         self.inner.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Tell the UI about pending writes (`mcp-approvals`, the whole list),
-    /// and bring the window forward when one arrives, even if it was hidden
-    /// or minimized.
+    /// Tell the UI about pending writes (`mcp-approvals`, the whole list, to
+    /// every window), and bring the window that shows the dialog (its label
+    /// in each request's `presenter`) forward when one arrives, even if it
+    /// was hidden or minimized.
     pub fn attach(&self, app: tauri::AppHandle) {
-        use tauri::{Emitter, Manager};
-        self.inner.approvals.set_sink(Arc::new(move |pending, new| {
-            let _ = app.emit("mcp-approvals", pending);
-            if new {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.unminimize();
-                    let _ = win.set_focus();
-                    let _ = win.request_user_attention(Some(tauri::UserAttentionType::Critical));
-                }
-            }
-        }));
+        self.inner.approvals.set_sink(Arc::new(move |pending, new| announce(&app, pending, new)));
+    }
+
+    /// Send the pending list again (its presenter may have changed: the
+    /// window that showed the dialog closed).
+    pub fn reannounce_approvals(&self, app: &tauri::AppHandle) {
+        let pending = self.inner.approvals.pending();
+        if !pending.is_empty() {
+            announce(app, &pending, false);
+        }
+    }
+}
+
+/// Broadcast the pending approvals, each naming the window that shows it.
+fn announce(app: &tauri::AppHandle, pending: &[approvals::ApprovalRequest], new: bool) {
+    use tauri::Emitter;
+    /// A request plus the window that shows it.
+    #[derive(serde::Serialize, Clone)]
+    struct Presented<'a> {
+        #[serde(flatten)]
+        request: &'a approvals::ApprovalRequest,
+        presenter: &'a str,
+    }
+    let target = crate::windows::target_window(app);
+    let presenter = target.as_ref().map(|w| w.label()).unwrap_or(crate::windows::MAIN);
+    let list: Vec<Presented> = pending.iter().map(|request| Presented { request, presenter }).collect();
+    let _ = app.emit("mcp-approvals", list);
+    if new {
+        if let Some(win) = target {
+            let _ = win.show();
+            let _ = win.unminimize();
+            let _ = win.set_focus();
+            let _ = win.request_user_attention(Some(tauri::UserAttentionType::Critical));
+        }
     }
 }
 

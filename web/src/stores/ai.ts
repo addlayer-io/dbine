@@ -6,7 +6,7 @@ import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { readJson, writeJson } from './storage';
 import { useSettingsStore } from './settings';
-import { useTabsStore } from './tabs';
+import { ownsSavedState, useTabsStore } from './tabs';
 
 // The AI assistant's state: detected providers, the chosen one, and the
 // conversation. The assistant never runs anything: its code goes into the
@@ -50,7 +50,8 @@ export const useAiStore = defineStore('ai', {
   state: () => ({
     detect: null as AiDetect | null,
     detecting: false,
-    messages: readJson<UiMessage[]>(HISTORY_KEY, []).filter((m) => !m.pending),
+    // Only the primary window resumes the saved conversation; others start empty.
+    messages: (ownsSavedState() ? readJson<UiMessage[]>(HISTORY_KEY, []) : []).filter((m) => !m.pending),
     running: null as string | null,
     phase: null as string | null,
     /** Detail of the phase (the engine download's percentage). */
@@ -114,6 +115,7 @@ export const useAiStore = defineStore('ai', {
     },
     setIncludeSchema(v: boolean) { useSettingsStore().set('ai.includeSchema', v); },
     persist() {
+      if (!ownsSavedState()) return;
       writeJson(HISTORY_KEY, this.messages.filter((m) => !m.pending).slice(-60));
     },
     clear() {

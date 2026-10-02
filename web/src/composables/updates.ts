@@ -4,11 +4,13 @@ import { api, errorMessage } from '../api/client';
 import type { UpdateInfo } from '../api/types';
 import { t } from '../i18n';
 import { useSettingsStore } from '../stores/settings';
+import { startupClaim } from './windowRole';
 
 // Update check (GitHub's latest release). Nothing is installed: the dialog
 // (UpdateNotice.vue) offers the release page. Two ways in:
 // - in the background, once per run, a few seconds after start: silent on
-//   errors and quiet about a version the user chose to skip;
+//   errors and quiet about a version the user chose to skip; with several
+//   windows, only the first one to start does it;
 // - by hand (Ayuda › Buscar actualizaciones…, Configuración › General):
 //   always answers, and ignores the skipped version.
 
@@ -26,6 +28,7 @@ let backgroundDone = false;
 export async function checkForUpdateInBackground() {
   if (backgroundDone) return;
   backgroundDone = true;
+  if (!(await startupClaim())) return;
   try {
     const info = await api.checkForUpdate();
     const skipped = useSettingsStore().get<string | null>(UPDATES_SKIPPED, null);
