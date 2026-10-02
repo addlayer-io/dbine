@@ -1681,3 +1681,51 @@ mod tests {
         assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
     }
 }
+
+/// What [`name_tokens`] tells apart in a body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenKind {
+    /// A word or a quoted identifier (unquoted in `text`).
+    Name,
+    /// A string, dollar or q-quote, as written.
+    String,
+    /// Any other single character.
+    Punct,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NameToken<'a> {
+    pub kind: TokenKind,
+    pub text: &'a str,
+    /// Byte offset in the body.
+    pub start: usize,
+}
+
+/// The names, strings and punctuation of a body, comments and spaces left
+/// out: what the dependency scan searches. `"…"` is a name except where the
+/// dialect takes it as a string (MySQL, with backslash escapes).
+pub fn name_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
+    let sc = Scanner { s: text, b: text.as_bytes(), d: *d };
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < text.len() {
+        let (tok, end) = sc.token(i);
+        let raw = &text[i..end];
+        let kind = match tok {
+            Tok::Word => Some(TokenKind::Name),
+            Tok::Punct => Some(TokenKind::Punct),
+            Tok::Quoted => Some(match raw.as_bytes()[0] {
+                b'`' | b'[' => TokenKind::Name,
+                b'"' if !d.backslash_escapes => TokenKind::Name,
+                _ => TokenKind::String,
+            }),
+            Tok::Space | Tok::LineComment | Tok::BlockComment => None,
+        };
+        if let Some(kind) = kind {
+            let text = if kind == TokenKind::Name && raw.len() >= 2 && matches!(raw.as_bytes()[0], b'`' | b'[' | b'"') { &raw[1..raw.len() - 1] } else { raw };
+            out.push(NameToken { kind, text, start: i });
+        }
+        i = end.max(i + 1);
+    }
+    out
+}

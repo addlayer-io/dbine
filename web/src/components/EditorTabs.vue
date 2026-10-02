@@ -41,6 +41,7 @@ function title(t: Tab): string {
   }
   if (t.kind === 'compare') return `${tr('workbench:tabs.compare')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'indexes') return `${tr('explorer:indexes.tab')} · ${t.object.name}`;
+  if (t.kind === 'dependencies') return `${tr('dependencies:tab')} · ${t.column ? `${t.object.name}.${t.column}` : t.object.name}`;
   if (t.kind === 'backups') return `${tr('backups:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'security') return `${tr('security:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'dataCompare') return `${tr('dataCompare:tab')} · ${t.object?.name || t.database || conns.byId(t.connectionId)?.name || ''}`;
@@ -100,7 +101,7 @@ const rows = computed<Row[]>(() => {
         : titles[i],
       tooltip: tooltip(t),
       color: inGroup ? groupColor(t.connectionId) : conns.colorOf(t.connectionId),
-      icon: { query: 'document', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', connection: 'connection' }[t.kind],
+      icon: { query: 'document', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', connection: 'connection' }[t.kind],
     });
   });
   return out;

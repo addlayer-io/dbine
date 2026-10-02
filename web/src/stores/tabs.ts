@@ -123,7 +123,14 @@ export interface IndexesTab extends TabBase {
   focus?: string | null;
 }
 
-export type Tab = QueryTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | ConnectionFormTab;
+/** "Dependencias · <objeto>": what depends on an object or one of its columns. */
+export interface DependenciesTab extends TabBase {
+  kind: 'dependencies';
+  object: ObjectRef;
+  column: string | null;
+}
+
+export type Tab = QueryTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | ConnectionFormTab;
 
 const KEY = 'dbine.tabs';
 
@@ -319,6 +326,16 @@ export const useTabsStore = defineStore('tabs', {
         return this.activate(open.id);
       }
       this.place({ id: newId(), kind: 'indexes', connectionId, database, object, focus, preview: false });
+    },
+
+    /** An object's (or column's) "Dependencias" tab, one per target. */
+    openDependencies(connectionId: string, database: string, object: ObjectRef, column: string | null = null) {
+      const open = this.tabs.find(
+        (t) => t.kind === 'dependencies' && t.connectionId === connectionId && t.database === database &&
+          t.object.kind === object.kind && t.object.schema === object.schema && t.object.name === object.name && t.column === column,
+      );
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'dependencies', connectionId, database, object, column, preview: false });
     },
 
     openDataCompare(connectionId: string, database: string, object: ObjectRef | null) {

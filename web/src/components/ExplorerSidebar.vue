@@ -367,6 +367,7 @@ function objectNode(c: SavedConnection, db: string, o: DbObject, hasColumns: boo
         : cols.items.length
           ? cols.items.map((col) => ({
             id: `col:${id}:${col.name}`, label: col.name, type: 'column' as const, hint: col.data_type, pk: col.primary_key, fk: fks.get(col.name),
+            connectionId: c.id, database: db, object: o,
           }))
           : [status(id, 'empty', t('explorer:tree.noColumns'))];
     if (indexesShown(c.id, o) && cols && cols.status !== 'loading' && cols.status !== 'error') node.children.push(indexesNode(c, db, o, id));
@@ -773,6 +774,9 @@ async function onContext(e: MouseEvent, n: TNode) {
       }
       items.push({ label: t('explorer:menu.copyName'), divided: true, action: () => copy(o.schema ? `${o.schema}.${o.name}` : o.name) });
       if (indexesShown(cid!, o)) items.splice(kind?.has_columns ?? true ? 2 : 1, 0, { label: t('explorer:indexes.menu'), action: () => tabs.openIndexes(cid!, db, ref) });
+      if (conns.driverOf(cid!)?.supports_dependencies) {
+        items.splice(items.findIndex((i) => i.label === t('explorer:menu.copyName')), 0, { label: t('dependencies:menu'), action: () => tabs.openDependencies(cid!, db, ref) });
+      }
       if (kind?.has_columns) {
         items.push({
           label: t('explorer:menu.refreshColumns'),
@@ -786,6 +790,10 @@ async function onContext(e: MouseEvent, n: TNode) {
       break;
     }
     case 'column':
+      if (n.object && conns.driverOf(cid!)?.supports_dependencies) {
+        const o = n.object;
+        items.push({ label: t('dependencies:menu'), action: () => tabs.openDependencies(cid!, db, { kind: o.kind, schema: o.schema, name: o.name }, n.label) });
+      }
       items.push({ label: t('explorer:menu.copyName'), action: () => copy(n.label) });
       break;
     case 'indexes':

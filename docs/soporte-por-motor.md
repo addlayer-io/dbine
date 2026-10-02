@@ -1769,6 +1769,29 @@ Los **backups del servidor** son los del propio motor. Los tienen los motores de
 - **Databricks:** que la API de ejecución de sentencias acepte un bloque `BEGIN … END`.
 - **ODBC:** la sintaxis de backup de los presets de la tabla, escrita según la documentación del fabricante.
 
+### Progreso y tiempo restante
+
+Un backup o una restauración del servidor corre como tarea en segundo plano (panel **Tareas**), con el tiempo transcurrido en todos los motores. El script se ejecuta como una sola sentencia, así que el avance sale de las vistas del propio motor: DBine las lee cada 2 s desde una segunda sesión mientras el script corre. Con un total conocido, la tarea muestra además un **estimado del tiempo restante**, calculado con el ritmo del último minuto (aparece a partir de los 5 s; si el avance se detiene, el estimado crece). Si la consulta de avance falla (por ejemplo, sin permiso sobre la vista), se deja de consultar y la tarea sigue sin porcentaje.
+
+| Motor | Qué informa | De dónde sale | Cómo se reconoce la operación |
+|---|---|---|---|
+| SQL Server (y Managed Instance) | Backup y restauración, en %; la comprobación posterior al backup (`RESTORE VERIFYONLY`) aparece como una etapa propia, con su estimado | `percent_complete` de `sys.dm_exec_requests` | Por el `@@SPID` de la sesión que corre el script. Las lecturas rápidas del archivo antes de restaurar (`FILELISTONLY`, `HEADERONLY`) no se cuentan. |
+| Oracle | Exportación e importación de Data Pump, en % | `percent_done` del trabajo (lo que muestra `expdp ATTACH=`), con `DBMS_DATAPUMP.ATTACH` y `DETACH` enseguida | El trabajo en ejecución del usuario, de exportación o importación. El porcentaje avanza al terminar cada objeto: un esquema que es una sola tabla grande salta de 0 a 99. `v$session_longops` no recibe filas de Data Pump en 23ai Free. |
+| CockroachDB | Backup y restauración, en % | `fraction_completed` de `SHOW JOBS` | El trabajo `BACKUP` o `RESTORE` del usuario creado desde que empezó el script. |
+| MySQL | Backup (`CLONE LOCAL`), en bytes copiados sobre el estimado | `performance_schema.clone_progress` | El clon en curso que empezó después del script. |
+| TiDB | Backup y restauración, en % | `SHOW BACKUPS` / `SHOW RESTORES` | Por el `CONNECTION_ID()` de la sesión que corre el script. |
+| SAP HANA | Backup (`BACKUP DATA`), en bytes transferidos sobre el total | `M_BACKUP_PROGRESS` | El backup en curso más reciente: si corren dos a la vez, se muestra el último. Sin probar contra un servidor. |
+
+**Sin progreso, y por qué:**
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| SAP HANA | Progreso de la restauración | `RECOVER DATA` corre desde SYSTEMDB con la base detenida; `M_BACKUP_PROGRESS` solo informa backups. |
+| OceanBase, StarRocks, Apache Doris, Redis, Valkey, Dragonfly | Progreso del backup | La sentencia (`ALTER SYSTEM BACKUP`, `BACKUP SNAPSHOT`, `BGSAVE`) vuelve enseguida y el backup sigue en el servidor: su estado se ve en el historial. |
+| CrateDB, H2, Manticore, GreptimeDB, DuckDB, SQLite, Memgraph, etcd, Solr, Snowflake, Databricks, BigQuery, Cloud Spanner, DynamoDB, Amazon Keyspaces, presets ODBC | Progreso del backup y de la restauración | El motor no publica el avance de la operación mientras corre: la tarea muestra solo el tiempo transcurrido. |
+| Oracle Autonomous | Progreso de la exportación y de la importación | Pendiente explícito: la consulta de Data Pump de Oracle sirve igual, pero todavía no está conectada a este motor. |
+| SingleStore, ClickHouse, Elasticsearch, OpenSearch | Progreso del backup y de la restauración | Pendiente explícito: `MV_BACKUP_STATUS` (SingleStore), `system.backups` (ClickHouse) y `_snapshot/_status` (Elasticsearch, OpenSearch) podrían dar el avance; falta verificar contra un servidor qué informan durante la operación. |
+
 ## Clonar tabla
 
 «Clonar…» (menú contextual del explorador) copia una tabla al lado de la
@@ -2302,3 +2325,70 @@ sincronización. SAP HANA y las variantes de ODBC con contadores (Db2, Db2 for
 i, ASE) solo tienen pruebas unitarias (no hay contenedores);
 `crates/drivers/odbc/tests/index_usage.rs` prueba el preset genérico por un
 driver ODBC real.
+
+## Dependencias
+
+Clic derecho en una tabla, una vista, una rutina o una columna ›
+**Ver dependencias…** abre una pestaña con lo que depende de ese objeto:
+claves foráneas, índices y claves primarias, restricciones CHECK, y vistas,
+rutinas y triggers cuyo código lo usa, con las líneas donde aparece. Cada
+resultado dice qué tan seguro es: **Confirmada** (lo registra el catálogo del
+motor), **Probable** (el código nombra el objeto; para una columna, junto con
+su tabla) o **Revisar** (el nombre solo aparece dentro de un texto, como en el
+SQL dinámico). Los comentarios no cuentan, ni un nombre calificado con otro
+esquema, ni un alias. Las aplicaciones y los reportes externos no se ven.
+
+El contrato está en `crates/dbine-driver/src/dependencies.rs`
+(`Driver::supports_dependencies` y `Session::dependents`). La versión por
+defecto sirve para todos los motores: toma las claves foráneas, los índices y
+los checks de `database_schema` y lee una por una las definiciones de las
+vistas, rutinas, triggers, paquetes, sinónimos, alias, streams, tasks y sinks
+(`CODE_KINDS`). Los drivers que tienen un registro de dependencias lo usan en
+su lugar:
+
+- **SQL Server y Azure SQL Database**: una sola consulta
+  sobre `sys.sql_modules` trae solo los cuerpos que nombran el objeto o que
+  `sys.sql_expression_dependencies` registra como usuarios. Las columnas solo
+  quedan confirmadas en los objetos con SCHEMABINDING (el catálogo no registra
+  columnas en los demás). Los módulos cifrados figuran como no legibles.
+  **Babelfish** y **Fabric Warehouse** usan la versión por defecto si su
+  catálogo no tiene esa vista.
+- **Los demás motores**: la versión por defecto. En una base con miles de
+  rutinas tarda, porque lee cada definición por separado. Las versiones con el
+  catálogo de PostgreSQL (`pg_depend`), Oracle (`ALL_DEPENDENCIES`) y MySQL
+  (`VIEW_TABLE_USAGE`) están pendientes.
+
+Los drivers que corren en su propio proceso (los que se descargan bajo
+demanda) responden `Dependents` por el protocolo; un proceso publicado antes
+responde que no lo conoce y la app corre la versión por defecto a través de
+sus otras llamadas.
+
+### Motores sin dependencias
+
+La opción no aparece (`supports_dependencies` es false) donde no hay claves
+foráneas ni objetos con código que puedan depender de otros:
+
+- **Redis, Valkey, Dragonfly, etcd**: solo keys.
+- **Amazon DynamoDB, Azure Cosmos DB, Apache Solr, Manticore Search**: tablas,
+  colecciones e índices sin vistas, rutinas ni claves foráneas (los
+  procedimientos de Cosmos DB son JavaScript que el driver no lista).
+- **Amazon Keyspaces**: sin vistas materializadas ni funciones (Cassandra y
+  ScyllaDB sí las tienen y entran por la versión por defecto).
+- **Amazon Neptune**: etiquetas y relaciones sin consultas guardadas.
+- **InfluxDB 1 (InfluxQL), InfluxDB 2 (Flux), InfluxDB 3 (SQL), Apache IoTDB,
+  TimechoDB**: medidas y series sin objetos que dependan de otros (las
+  consultas continuas y las tareas de InfluxDB no se listan).
+
+### Probado contra servidores reales
+
+`crates/drivers/sqlserver/tests/dependencies.rs` (SQL Server 2022,
+`dbine-test-sqlserver`): una tabla con clave primaria, un índice y un CHECK
+sobre una columna, otra tabla con una clave foránea hacia ella, una vista con
+SCHEMABINDING, una sin él, un procedimiento que usa la columna, uno con SQL
+dinámico y uno que usa una columna del mismo nombre de otra tabla. Para la
+tabla: la foránea, las vistas y el procedimiento quedan confirmados, el SQL
+dinámico para revisar, y el procedimiento de la otra tabla no aparece. Para la
+columna: la vista con SCHEMABINDING queda confirmada, el procedimiento como
+probable (con la línea `SELECT Pepe`), el índice y el CHECK confirmados, y ni
+la vista que no la usa ni el procedimiento de la otra tabla aparecen. La
+versión por defecto, corrida sobre la misma base, encuentra el mismo código.

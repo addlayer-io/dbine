@@ -18,6 +18,8 @@ pub struct DriverDescriptor {
     supports_profiler: bool,
     /// A table's indexes with their usage (`Session::index_usage`).
     supports_index_usage: bool,
+    /// "Ver dependencias…" (`Session::dependents`).
+    supports_dependencies: bool,
     /// Databases of keys, searched on the server (Redis, etcd).
     key_search: Option<dbine_driver::KeySearch>,
     capabilities: dbine_driver::Capabilities,
@@ -49,6 +51,7 @@ pub async fn list_drivers() -> CommandResult<Vec<DriverDescriptor>> {
             supports_schema_sync: d.supports_schema_sync(),
             supports_profiler: d.supports_profiler(),
             supports_index_usage: d.supports_index_usage(),
+            supports_dependencies: d.supports_dependencies(),
             key_search: d.key_search(),
             capabilities: d.capabilities(),
             designer: d.designer(),
