@@ -34,7 +34,13 @@ pub const fn fulltext_stoplists() -> ObjectKindInfo {
 }
 
 /// Index options that aren't written in `WITH (…)`.
-const STRUCTURAL: &[&str] = &["desc", "order", "primary_xml_index", "unique_constraint", "using", "rebuild"];
+const STRUCTURAL: &[&str] = &["desc", "order", "primary_xml_index", "unique_constraint", "using", "rebuild", PRIMARY_KEY];
+
+/// [`TableSchema::options`] key: `NONCLUSTERED` when the primary key isn't
+/// the clustered index (absent, it's clustered unless another index is).
+/// While planning a sync it also marks the primary key written as an index
+/// ([`prepare_changes`]).
+pub const PRIMARY_KEY: &str = "primary_key";
 
 /// Engines whose catalog has everything read here.
 fn rich(v: Variant) -> bool {
@@ -440,8 +446,11 @@ SELECT s.name, t.name, cc.name, cc.definition
 
 type Key = (String, String);
 
+/// A table's primary key (and whether it's nonclustered) and indexes.
+type TableIndexes = (Option<KeyDef>, bool, Vec<IndexDef>);
+
 /// Primary key and indexes per table, from the catalog.
-async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, (Option<KeyDef>, Vec<IndexDef>)>> {
+async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableIndexes>> {
     let caps = s.rows(CAPS_SQL, &[]).await?;
     let caps = caps.first();
     let (seqkey, delay, order) = caps.map(|r| (b(r, 0), b(r, 1), b(r, 2))).unwrap_or_default();
@@ -517,13 +526,14 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, (Option<K
         }
     }
 
-    let mut out: HashMap<Key, (Option<KeyDef>, Vec<IndexDef>)> = HashMap::new();
+    let mut out: HashMap<Key, TableIndexes> = HashMap::new();
     for (_, (key, ix)) in raw {
         let e = out.entry(key).or_default();
         if ix.primary {
             e.0 = Some(KeyDef { name: Some(ix.name.clone()), columns: ix.keys.iter().map(|(c, _)| c.clone()).collect() });
+            e.1 = ix.ty == 2;
         } else {
-            e.1.push(ix.to_index());
+            e.2.push(ix.to_index());
         }
     }
 
@@ -550,11 +560,11 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, (Option<K
         }
     }
     for (key, x) in ft {
-        out.entry(key).or_default().1.push(x.to_index(default_language));
+        out.entry(key).or_default().2.push(x.to_index(default_language));
     }
     // By name within each rank: the same on both sides of a compare, however
     // the indexes were made.
-    for (_, ixs) in out.values_mut() {
+    for (_, _, ixs) in out.values_mut() {
         ixs.sort_by(|a, b| drop_rank(a).cmp(&drop_rank(b)).then_with(|| a.name.cmp(&b.name)));
     }
     Ok(out)
@@ -573,9 +583,14 @@ pub(crate) async fn complete(s: &mut SqlServerSession, tables: &mut [TableSchema
         match read_indexes(s).await {
             Ok(mut by_table) => {
                 for (key, &i) in &at {
-                    let (pk, ixs) = by_table.remove(key).unwrap_or_default();
+                    let (pk, nonclustered, ixs) = by_table.remove(key).unwrap_or_default();
                     tables[i].primary_key = pk;
                     tables[i].indexes = ixs;
+                    if nonclustered {
+                        tables[i].options.insert(PRIMARY_KEY.into(), "NONCLUSTERED".into());
+                    } else {
+                        tables[i].options.remove(PRIMARY_KEY);
+                    }
                 }
             }
             Err(e) => tracing::warn!("sqlserver: index details not read: {e}"),
@@ -706,6 +721,11 @@ fn index_sql(owner: &str, ix: &IndexDef) -> Option<String> {
         }
         // Memory-optimized tables take indexes only through ALTER TABLE.
         "NONCLUSTERED HASH" => format!("ALTER TABLE {owner} ADD INDEX {name} NONCLUSTERED HASH ({}){}", col_list(&ix.columns), with_clause(ix)),
+        // The primary key, while a sync plans it as an index.
+        "CLUSTERED" | "NONCLUSTERED" if ix.options.contains_key(PRIMARY_KEY) => {
+            let constraint = if ix.name.is_empty() { String::new() } else { format!(" CONSTRAINT {name}") };
+            format!("ALTER TABLE {owner} ADD{constraint} PRIMARY KEY {kind} ({}){}", key_list(ix), with_clause(ix))
+        }
         "" | "CLUSTERED" | "NONCLUSTERED" if ix.options.contains_key("unique_constraint") => {
             let clustering = if kind.is_empty() { String::new() } else { format!(" {kind}") };
             format!("ALTER TABLE {owner} ADD CONSTRAINT {name} UNIQUE{clustering} ({}){}", key_list(ix), with_clause(ix))
@@ -764,24 +784,115 @@ fn same_index(a: &IndexDef, b: &IndexDef) -> bool {
         && a.options == b.options
 }
 
-/// Changes as the generic planner should see them: an index that depends
-/// on one that is dropped and made again (a secondary XML index on its
-/// primary; XML, spatial and full-text indexes on the primary key; the
-/// full-text index on its key index) goes too, and comes back after.
-pub(crate) fn prepare_changes(changes: &[TableChange]) -> Vec<TableChange> {
+fn is_clustered(ix: &IndexDef) -> bool {
+    matches!(kind_of(ix).as_str(), "CLUSTERED" | "CLUSTERED COLUMNSTORE")
+}
+
+/// A UNIQUE constraint or the primary key: dropped with `DROP CONSTRAINT`.
+fn is_constraint(ix: &IndexDef) -> bool {
+    ix.options.contains_key("unique_constraint") || ix.options.contains_key(PRIMARY_KEY)
+}
+
+/// Whether the table's primary key is (or would be) its clustered index:
+/// not when it says so ([`PRIMARY_KEY`]) or another index is the clustered
+/// one, as `CREATE TABLE` writes it.
+fn pk_clustered(t: &TableSchema) -> bool {
+    !t.options.get(PRIMARY_KEY).is_some_and(|v| v.trim().eq_ignore_ascii_case("NONCLUSTERED")) && !t.indexes.iter().any(is_clustered)
+}
+
+fn squash(t: &str) -> String {
+    t.to_lowercase().split_whitespace().collect()
+}
+
+/// Columns whose type or nullability changes (they take their indexes along).
+fn retyped(old: &TableSchema, new: &TableSchema) -> Vec<String> {
+    new.columns
+        .iter()
+        .filter(|n| old.columns.iter().any(|o| o.name.eq_ignore_ascii_case(&n.name) && (squash(&o.data_type) != squash(&n.data_type) || o.nullable != n.nullable)))
+        .map(|n| n.name.to_lowercase())
+        .collect()
+}
+
+/// The primary key as an index of the table, so the generic planner drops
+/// and makes it like any other: when its clustering changes too, and in
+/// the order clustered indexes need (the old clustered one goes after the
+/// nonclustered ones, the new one comes first). `None` when the old key has
+/// no name to drop it by (the generic planner warns about it); otherwise
+/// whether the key is made again.
+fn key_as_index(old: &mut TableSchema, new: &mut TableSchema) -> Option<bool> {
+    let named = |t: &TableSchema| t.primary_key.as_ref().filter(|k| !k.columns.is_empty()).map(|k| k.name.clone().filter(|n| !n.is_empty()));
+    let (old_name, new_name) = (named(old), named(new));
+    if matches!(old_name, Some(None)) {
+        return None;
+    }
+    let as_index = |t: &TableSchema, name: String| IndexDef {
+        name,
+        columns: t.primary_key.as_ref().map(|k| k.columns.clone()).unwrap_or_default(),
+        unique: true,
+        kind: Some(if pk_clustered(t) { "CLUSTERED" } else { "NONCLUSTERED" }.into()),
+        options: [(PRIMARY_KEY.to_string(), "ON".to_string())].into(),
+        ..Default::default()
+    };
+    let o = old_name.clone().map(|n| as_index(old, n.unwrap_or_default()));
+    let mut n = new_name.map(|n| as_index(new, n.or_else(|| old_name.flatten()).unwrap_or_default()));
+    let retyped = retyped(old, new);
+    let rebuilt = match (&o, &mut n) {
+        (Some(o), Some(n)) => {
+            let same = same_index(o, n) && !n.columns.iter().any(|c| retyped.contains(&c.to_lowercase()));
+            // A key that only changes its name stays (as before).
+            if same {
+                n.name = o.name.clone();
+            }
+            !same
+        }
+        (None, None) => false,
+        _ => true,
+    };
+    // A column added for the new key is NOT NULL, as the key made it.
+    if let Some(k) = &new.primary_key {
+        for c in new.columns.iter_mut() {
+            if k.columns.iter().any(|p| p.eq_ignore_ascii_case(&c.name)) && !old.columns.iter().any(|o| o.name.eq_ignore_ascii_case(&c.name)) {
+                c.nullable = false;
+            }
+        }
+    }
+    old.primary_key = None;
+    new.primary_key = None;
+    old.indexes.extend(o);
+    new.indexes.extend(n);
+    Some(rebuilt)
+}
+
+/// Changes as the generic planner should see them:
+///
+/// - On SQL Server and Azure SQL the primary key goes as an index
+///   ([`key_as_index`]), so a change of clustered index (the key gives way
+///   to a columnstore index, or takes the place back) drops and makes the
+///   key again with its clustering.
+/// - A clustered index made again under the same name, from a clustered
+///   one, is made with `DROP_EXISTING = ON` instead of dropped first.
+/// - An index that depends on one that is dropped and made again (a
+///   secondary XML index on its primary; XML, spatial and full-text indexes
+///   on the primary key; the full-text index on its key index) goes too,
+///   and comes back after.
+pub(crate) fn prepare_changes(changes: &[TableChange], variant: Variant) -> Vec<TableChange> {
     changes
         .iter()
         .map(|ch| match ch {
             TableChange::Alter { old, new } => {
-                let find = |t: &TableSchema, name: &str| t.indexes.iter().find(|i| i.name.eq_ignore_ascii_case(name)).cloned();
-                let changed = |name: &str| find(old, name).is_some_and(|o| find(new, name).is_none_or(|n| !same_index(&o, &n)));
                 let pk_cols = |t: &TableSchema| t.primary_key.as_ref().map(|k| k.columns.iter().map(|c| c.to_lowercase()).collect::<Vec<_>>()).unwrap_or_default();
-                let pk_changed = pk_cols(old) != pk_cols(new);
+                let mut pk_changed = pk_cols(old) != pk_cols(new);
                 let pk_name = old.primary_key.as_ref().and_then(|k| k.name.clone()).unwrap_or_default();
-                let mut old = old.clone();
-                // Dependents go first (the generic planner drops in list order).
-                old.indexes.sort_by_key(drop_rank);
-                for ix in &mut old.indexes {
+                let (mut old, mut new) = (old.clone(), new.clone());
+                if rich(variant) {
+                    if let Some(rebuilt) = key_as_index(&mut old, &mut new) {
+                        pk_changed = rebuilt;
+                    }
+                }
+                let find = |t: &TableSchema, name: &str| t.indexes.iter().find(|i| i.name.eq_ignore_ascii_case(name)).cloned();
+                let changed = |name: &str| find(&old, name).is_some_and(|o| find(&new, name).is_none_or(|n| !same_index(&o, &n)));
+                let mut forced = Vec::new();
+                for ix in &old.indexes {
                     let kind = kind_of(ix);
                     let force = match kind.as_str() {
                         "FULLTEXT" => ix.options.get("KEY INDEX").is_some_and(|k| changed(k) || (pk_changed && k.eq_ignore_ascii_case(&pk_name))),
@@ -789,37 +900,178 @@ pub(crate) fn prepare_changes(changes: &[TableChange]) -> Vec<TableChange> {
                         k if k.starts_with("XML ") => pk_changed || ix.options.get("primary_xml_index").is_some_and(|p| changed(p)),
                         _ => false,
                     };
-                    if force && find(new, &ix.name).is_some() {
-                        ix.options.insert("rebuild".into(), "1".into());
+                    if force && find(&new, &ix.name).is_some() {
+                        forced.push(ix.name.clone());
                     }
                 }
-                TableChange::Alter { old, new: new.clone() }
+                for ix in old.indexes.iter_mut().filter(|i| forced.contains(&i.name)) {
+                    ix.options.insert("rebuild".into(), "1".into());
+                }
+                // DROP_EXISTING: only while no column changes under the
+                // index, and not on a unique one (foreign keys may use it).
+                let columns_change = !retyped(&old, &new).is_empty() || old.columns.iter().any(|o| !new.columns.iter().any(|n| n.name.eq_ignore_ascii_case(&o.name)));
+                if rich(variant) && !columns_change {
+                    for n in new.indexes.iter_mut().filter(|n| is_clustered(n) && !is_constraint(n)) {
+                        if old.indexes.iter().any(|o| o.name.eq_ignore_ascii_case(&n.name) && is_clustered(o) && !is_constraint(o) && !o.unique && !same_index(o, n)) {
+                            n.options.insert("DROP_EXISTING".into(), "ON".into());
+                        }
+                    }
+                }
+                // Dependents go first (the generic planner drops in list order).
+                old.indexes.sort_by_key(drop_rank);
+                TableChange::Alter { old, new }
             }
             other => other.clone(),
         })
         .collect()
 }
 
-/// UNIQUE constraints and the indexes of memory-optimized tables aren't
-/// dropped with `DROP INDEX … ON`.
-pub(crate) fn fix_drops(statements: &mut [String], changes: &[TableChange]) {
+/// UNIQUE constraints, the primary key and the indexes of memory-optimized
+/// tables aren't dropped with `DROP INDEX … ON`; an index made with
+/// `DROP_EXISTING` isn't dropped first.
+pub(crate) fn fix_drops(statements: &mut Vec<String>, changes: &[TableChange]) {
     for ch in changes {
         let TableChange::Alter { old, new } = ch else { continue };
         let owner = qn(new.schema.as_deref(), &new.name);
         for ix in &old.indexes {
-            let replacement = if ix.options.contains_key("unique_constraint") {
+            let plain = format!("DROP INDEX {} ON {owner};", q(&ix.name));
+            if new.indexes.iter().any(|n| n.name.eq_ignore_ascii_case(&ix.name) && n.options.contains_key("DROP_EXISTING")) {
+                statements.retain(|s| *s != plain);
+                continue;
+            }
+            let replacement = if is_constraint(ix) {
                 format!("ALTER TABLE {owner} DROP CONSTRAINT {};", q(&ix.name))
             } else if kind_of(ix) == "NONCLUSTERED HASH" {
                 format!("ALTER TABLE {owner} DROP INDEX {};", q(&ix.name))
             } else {
                 continue;
             };
-            let plain = format!("DROP INDEX {} ON {owner};", q(&ix.name));
             for s in statements.iter_mut().filter(|s| **s == plain) {
                 *s = replacement.clone();
             }
         }
     }
+}
+
+/// Temporary table where the foreign keys that reference a key being made
+/// again wait (the sync runs every statement on one session).
+const FK_STASH: &str = "#dbine_fks";
+
+/// The foreign keys (of any table) that reference `owner`'s key `key`:
+/// their `ADD CONSTRAINT`, as they are, saved in [`FK_STASH`]; then dropped.
+fn stash_fks_sql(owner: &str, key: &str) -> String {
+    let fk_cols = |side: &str| {
+        format!(
+            "STUFF((SELECT N', ' + QUOTENAME(c.name)
+                FROM sys.foreign_key_columns fc JOIN sys.columns c ON c.object_id = fc.{side}_object_id AND c.column_id = fc.{side}_column_id
+               WHERE fc.constraint_object_id = fk.object_id ORDER BY fc.constraint_column_id FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 2, N'')"
+        )
+    };
+    let action = |what: &str, col: &str| {
+        format!("CASE fk.{col} WHEN 1 THEN N' ON {what} CASCADE' WHEN 2 THEN N' ON {what} SET NULL' WHEN 3 THEN N' ON {what} SET DEFAULT' ELSE N'' END")
+    };
+    let parent = "QUOTENAME(SCHEMA_NAME(p.schema_id)) + N'.' + QUOTENAME(p.name)";
+    let from = "FROM sys.foreign_keys fk JOIN sys.tables p ON p.object_id = fk.parent_object_id
+ WHERE fk.referenced_object_id = @t AND fk.key_index_id = @k";
+    format!(
+        "-- Foreign keys that reference {owner} ({key}): kept to be made again after the key, then dropped.
+IF OBJECT_ID(N'tempdb..{FK_STASH}') IS NULL CREATE TABLE {FK_STASH} (id int IDENTITY(1, 1) PRIMARY KEY, add_sql nvarchar(max) NOT NULL);
+DECLARE @t int = OBJECT_ID({obj});
+DECLARE @k int = (SELECT index_id FROM sys.indexes WHERE object_id = @t AND name = {keylit});
+INSERT INTO {FK_STASH} (add_sql)
+SELECT N'ALTER TABLE ' + {parent} + CASE WHEN fk.is_not_trusted = 1 THEN N' WITH NOCHECK' ELSE N' WITH CHECK' END
+     + N' ADD CONSTRAINT ' + QUOTENAME(fk.name) + N' FOREIGN KEY (' + {pcols} + N') REFERENCES ' + {reft} + N' (' + {rcols} + N')'
+     + {del} + {upd} + CASE WHEN fk.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END + N';'
+     + CASE WHEN fk.is_disabled = 1 THEN N' ALTER TABLE ' + {parent} + N' NOCHECK CONSTRAINT ' + QUOTENAME(fk.name) + N';' ELSE N'' END
+  {from}
+ ORDER BY fk.object_id;
+DECLARE @drop nvarchar(max) = (SELECT N'ALTER TABLE ' + {parent} + N' DROP CONSTRAINT ' + QUOTENAME(fk.name) + N';' + NCHAR(10)
+  {from}
+ FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)');
+IF @drop IS NOT NULL EXEC sp_executesql @drop;",
+        obj = nlit(owner),
+        keylit = nlit(key),
+        pcols = fk_cols("parent"),
+        rcols = fk_cols("referenced"),
+        reft = nlit(owner),
+        del = action("DELETE", "delete_referential_action"),
+        upd = action("UPDATE", "update_referential_action"),
+    )
+}
+
+/// The foreign keys [`stash_fks_sql`] dropped, made again.
+fn restore_fks_sql() -> String {
+    format!(
+        "-- Foreign keys dropped above with the keys they reference, made again.
+IF OBJECT_ID(N'tempdb..{FK_STASH}') IS NOT NULL
+BEGIN
+    DECLARE @add nvarchar(max) = (SELECT add_sql + NCHAR(10) FROM {FK_STASH} ORDER BY id FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)');
+    IF @add IS NOT NULL EXEC sp_executesql @add;
+    DROP TABLE {FK_STASH};
+END"
+    )
+}
+
+/// A primary key or unique index that is dropped and made again on the
+/// same columns can't go while foreign keys reference it, and those can be
+/// on tables the sync doesn't touch: the script reads them from the catalog
+/// when it runs, drops them right before the key and makes them again once
+/// every key is back (before the sync's own new foreign keys).
+pub(crate) fn keep_referencing_fks(statements: &mut Vec<String>, warnings: &mut Vec<String>, changes: &[TableChange]) {
+    let set = |c: &[String]| {
+        let mut v: Vec<String> = c.iter().map(|x| x.to_lowercase()).collect();
+        v.sort();
+        v
+    };
+    let mut inserts: Vec<(usize, String)> = Vec::new();
+    let mut last_made = None;
+    for ch in changes {
+        let TableChange::Alter { old, new } = ch else { continue };
+        let owner = qn(new.schema.as_deref(), &new.name);
+        let tname = match new.schema.as_deref().filter(|s| !s.is_empty()) {
+            Some(s) => format!("{s}.{}", new.name),
+            None => new.name.clone(),
+        };
+        for o in old.indexes.iter().filter(|i| i.unique && matches!(kind_of(i).as_str(), "" | "CLUSTERED" | "NONCLUSTERED")) {
+            let pk = o.options.contains_key(PRIMARY_KEY);
+            let drop = if is_constraint(o) { format!("ALTER TABLE {owner} DROP CONSTRAINT {};", q(&o.name)) } else { format!("DROP INDEX {} ON {owner};", q(&o.name)) };
+            let Some(at) = statements.iter().position(|s| *s == drop) else { continue };
+            let again = new.indexes.iter().find(|n| if pk { n.options.contains_key(PRIMARY_KEY) } else { n.unique && n.name.eq_ignore_ascii_case(&o.name) });
+            let Some(sql) = again.filter(|n| set(&n.columns) == set(&o.columns)).and_then(|n| index_sql(&owner, n)) else { continue };
+            let Some(made) = statements.iter().position(|s| s.contains(&sql)) else { continue };
+            inserts.push((at, stash_fks_sql(&owner, &o.name)));
+            last_made = last_made.max(Some(made));
+            warnings.push(format!(
+                "{tname}: las claves foráneas que referencian {} se quitan antes de rehacerla y se vuelven a crear después (el script las lee del catálogo al correr).",
+                o.name
+            ));
+        }
+    }
+    let Some(last) = last_made else { return };
+    inserts.push((last + 1, restore_fks_sql()));
+    inserts.sort_by_key(|x| std::cmp::Reverse(x.0));
+    for (i, s) in inserts {
+        statements.insert(i, s);
+    }
+}
+
+/// A warning for each table whose clustered index changes: the whole table
+/// is rewritten (once or twice), which takes long on a big one.
+pub(crate) fn clustering_warnings(changes: &[TableChange]) -> Vec<String> {
+    let clustered = |t: &TableSchema| t.indexes.iter().find(|i| is_clustered(i)).map(|i| (i.name.to_lowercase(), kind_of(i), i.columns.iter().map(|c| c.to_lowercase()).collect::<Vec<_>>()));
+    changes
+        .iter()
+        .filter_map(|ch| match ch {
+            TableChange::Alter { old, new } if clustered(old) != clustered(new) => Some(format!(
+                "{}: cambia el índice clúster; la tabla se reorganiza entera y puede tardar si tiene muchos datos.",
+                match new.schema.as_deref().filter(|s| !s.is_empty()) {
+                    Some(s) => format!("{s}.{}", new.name),
+                    None => new.name.clone(),
+                }
+            )),
+            _ => None,
+        })
+        .collect()
 }
 
 // --- Other objects ----------------------------------------------------------
@@ -1444,10 +1696,11 @@ mod tests {
         let mut st = AlterStyle::from_flavor(&crate::schema::FLAVOR, ColumnAlter::SqlServer, &cd, &dd);
         st.add_column = "ADD";
         st.drop_index = DropIndex::OnTable;
-        let prepared = prepare_changes(changes);
+        let prepared = prepare_changes(changes, Variant::SqlServer);
         let comments = |t: &TableSchema, c: Option<&ColumnDef>, v: Option<&str>| Some(crate::schema::comment_change(t, c, v));
         let mut s = dbine_driver::alter::sync_script_with_comments(&st, Some(&comments), &prepared).unwrap();
         fix_drops(&mut s.statements, &prepared);
+        keep_referencing_fks(&mut s.statements, &mut s.warnings, &prepared);
         s.statements
     }
 
@@ -1613,5 +1866,216 @@ mod tests {
         assert_eq!(ids(Variant::AzureSql), ids(Variant::SqlServer));
         assert_eq!(ids(Variant::Babelfish), vec!["type"]);
         assert!(ids(Variant::Fabric).is_empty());
+    }
+
+    // --- Clustered index changes -------------------------------------------
+
+    /// `Alerts.<name>` with an `Id` key named `PK_<name>`.
+    fn keyed(name: &str, pk_nonclustered: bool, indexes: Vec<IndexDef>) -> TableSchema {
+        let mut t = TableSchema {
+            schema: Some("Alerts".into()),
+            name: name.into(),
+            columns: vec![
+                ColumnDef { name: "Id".into(), data_type: "bigint".into(), nullable: false, ..Default::default() },
+                ColumnDef { name: "Code".into(), data_type: "nvarchar(50)".into(), nullable: true, ..Default::default() },
+            ],
+            primary_key: Some(KeyDef { name: Some(format!("PK_{name}")), columns: vec!["Id".into()] }),
+            indexes,
+            ..Default::default()
+        };
+        if pk_nonclustered {
+            t.options.insert(PRIMARY_KEY.into(), "NONCLUSTERED".into());
+        }
+        t
+    }
+
+    fn cci(name: &str) -> IndexDef {
+        IndexDef { name: name.into(), kind: Some("CLUSTERED COLUMNSTORE".into()), ..Default::default() }
+    }
+
+    fn rowstore(name: &str, kind: &str, cols: &[&str]) -> IndexDef {
+        IndexDef { name: name.into(), kind: Some(kind.into()), columns: cols.iter().map(|c| c.to_string()).collect(), ..Default::default() }
+    }
+
+    fn full_sync(changes: &[TableChange]) -> dbine_driver::SyncScript {
+        use dbine_driver::alter::{AlterStyle, ColumnAlter, DropIndex};
+        let cd = |t: &TableSchema, c: &ColumnDef| dbine_driver::ddl::column_def(&crate::schema::FLAVOR, t, c);
+        let dd = |t: &TableSchema, p: DdlParts| Ok(crate::schema::table_ddl(t, p));
+        let mut st = AlterStyle::from_flavor(&crate::schema::FLAVOR, ColumnAlter::SqlServer, &cd, &dd);
+        st.add_column = "ADD";
+        st.drop_index = DropIndex::OnTable;
+        let prepared = prepare_changes(changes, Variant::SqlServer);
+        let mut s = dbine_driver::alter::sync_script(&st, &prepared).unwrap();
+        fix_drops(&mut s.statements, &prepared);
+        keep_referencing_fks(&mut s.statements, &mut s.warnings, &prepared);
+        s.warnings.extend(clustering_warnings(&prepared));
+        s
+    }
+
+    fn stash(owner: &str, key: &str) -> String {
+        format!("-- Foreign keys that reference {owner} ({key}): kept to be made again after the key, then dropped.")
+    }
+
+    fn is_restore(s: &str) -> bool {
+        s.starts_with("-- Foreign keys dropped above with the keys they reference, made again.")
+    }
+
+    #[test]
+    fn clustered_key_gives_way_to_a_columnstore_index() {
+        // The owner's case: the target's key is clustered (the default); the
+        // source's is NONCLUSTERED and a columnstore index is the clustered one.
+        let changes: Vec<TableChange> = ["RuleConfigurationAudit", "RuleScenario"]
+            .iter()
+            .map(|n| TableChange::Alter { old: keyed(n, false, vec![]), new: keyed(n, true, vec![cci(&format!("CCI_{n}"))]) })
+            .collect();
+        let s = full_sync(&changes);
+        let owner = |n: &str| format!("[Alerts].[{n}]");
+        let st = &s.statements;
+        assert_eq!(st.len(), 7, "{st:#?}");
+        assert!(st[0].starts_with(&stash(&owner("RuleConfigurationAudit"), "PK_RuleConfigurationAudit")), "{st:#?}");
+        assert_eq!(st[1], "ALTER TABLE [Alerts].[RuleConfigurationAudit] DROP CONSTRAINT [PK_RuleConfigurationAudit];");
+        assert!(st[2].starts_with(&stash(&owner("RuleScenario"), "PK_RuleScenario")), "{st:#?}");
+        assert_eq!(st[3], "ALTER TABLE [Alerts].[RuleScenario] DROP CONSTRAINT [PK_RuleScenario];");
+        // The new clustered index first (the key's index is built once, on
+        // it), then the key, nonclustered.
+        assert_eq!(
+            st[4],
+            "CREATE CLUSTERED COLUMNSTORE INDEX [CCI_RuleConfigurationAudit] ON [Alerts].[RuleConfigurationAudit];\nALTER TABLE [Alerts].[RuleConfigurationAudit] ADD CONSTRAINT [PK_RuleConfigurationAudit] PRIMARY KEY NONCLUSTERED ([Id]);"
+        );
+        assert_eq!(
+            st[5],
+            "CREATE CLUSTERED COLUMNSTORE INDEX [CCI_RuleScenario] ON [Alerts].[RuleScenario];\nALTER TABLE [Alerts].[RuleScenario] ADD CONSTRAINT [PK_RuleScenario] PRIMARY KEY NONCLUSTERED ([Id]);"
+        );
+        assert!(is_restore(&st[6]), "{st:#?}");
+        // The stash reads the referencing keys by the key's index and keeps how they are.
+        assert!(st[0].contains("DECLARE @t int = OBJECT_ID(N'[Alerts].[RuleConfigurationAudit]');"), "{}", st[0]);
+        assert!(st[0].contains("WHERE object_id = @t AND name = N'PK_RuleConfigurationAudit'"), "{}", st[0]);
+        assert!(st[0].contains("fk.key_index_id = @k") && st[0].contains("WITH NOCHECK") && st[0].contains("ON DELETE CASCADE"), "{}", st[0]);
+        assert!(st[0].ends_with("IF @drop IS NOT NULL EXEC sp_executesql @drop;"), "{}", st[0]);
+        assert!(st[6].contains("EXEC sp_executesql @add;") && st[6].contains("DROP TABLE #dbine_fks;"), "{}", st[6]);
+        assert_eq!(s.warnings.iter().filter(|w| w.contains("cambia el índice clúster")).count(), 2, "{:#?}", s.warnings);
+        assert_eq!(s.warnings.iter().filter(|w| w.contains("claves foráneas")).count(), 2, "{:#?}", s.warnings);
+    }
+
+    #[test]
+    fn columnstore_index_gives_the_place_back_to_the_key() {
+        let old = keyed("T", true, vec![rowstore("IX_code", "NONCLUSTERED", &["Code"]), cci("CCI_T")]);
+        let new = keyed("T", false, vec![rowstore("IX_code", "NONCLUSTERED", &["Code"])]);
+        let st = full_sync(&[TableChange::Alter { old, new }]).statements;
+        assert_eq!(st.len(), 5, "{st:#?}");
+        assert!(st[0].starts_with(&stash("[Alerts].[T]", "PK_T")), "{st:#?}");
+        // The nonclustered key goes before the columnstore index (dropping
+        // the clustered one first would rebuild it for nothing).
+        assert_eq!(st[1], "ALTER TABLE [Alerts].[T] DROP CONSTRAINT [PK_T];");
+        assert_eq!(st[2], "DROP INDEX [CCI_T] ON [Alerts].[T];");
+        assert_eq!(st[3], "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY CLUSTERED ([Id]);");
+        assert!(is_restore(&st[4]), "{st:#?}");
+    }
+
+    #[test]
+    fn clustered_key_gives_way_to_a_rowstore_index_and_back() {
+        let old = keyed("T", false, vec![]);
+        let new = keyed("T", true, vec![rowstore("CX_code", "CLUSTERED", &["Code"])]);
+        let st = full_sync(&[TableChange::Alter { old: old.clone(), new: new.clone() }]).statements;
+        assert_eq!(st.len(), 4, "{st:#?}");
+        assert_eq!(st[1], "ALTER TABLE [Alerts].[T] DROP CONSTRAINT [PK_T];");
+        assert_eq!(st[2], "CREATE CLUSTERED INDEX [CX_code] ON [Alerts].[T] ([Code]);\nALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY NONCLUSTERED ([Id]);");
+        let st = full_sync(&[TableChange::Alter { old: new, new: old }]).statements;
+        assert_eq!(st.len(), 5, "{st:#?}");
+        assert_eq!(st[1], "ALTER TABLE [Alerts].[T] DROP CONSTRAINT [PK_T];");
+        assert_eq!(st[2], "DROP INDEX [CX_code] ON [Alerts].[T];");
+        assert_eq!(st[3], "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY CLUSTERED ([Id]);");
+    }
+
+    #[test]
+    fn one_clustered_rowstore_index_for_another() {
+        // The key stays nonclustered: it isn't touched.
+        let old = keyed("T", true, vec![rowstore("CX_a", "CLUSTERED", &["Code"])]);
+        let new = keyed("T", true, vec![rowstore("CX_b", "CLUSTERED", &["Code", "Id"])]);
+        let st = full_sync(&[TableChange::Alter { old, new }]).statements;
+        assert_eq!(st, vec!["DROP INDEX [CX_a] ON [Alerts].[T];".to_string(), "CREATE CLUSTERED INDEX [CX_b] ON [Alerts].[T] ([Code], [Id]);".to_string()]);
+    }
+
+    #[test]
+    fn same_name_clustered_index_is_made_with_drop_existing() {
+        let row = keyed("T", true, vec![rowstore("CX", "CLUSTERED", &["Code"])]);
+        let col = keyed("T", true, vec![cci("CX")]);
+        let st = full_sync(&[TableChange::Alter { old: row.clone(), new: col.clone() }]).statements;
+        assert_eq!(st, vec!["CREATE CLUSTERED COLUMNSTORE INDEX [CX] ON [Alerts].[T] WITH (DROP_EXISTING = ON);".to_string()]);
+        let st = full_sync(&[TableChange::Alter { old: col, new: row.clone() }]).statements;
+        assert_eq!(st, vec!["CREATE CLUSTERED INDEX [CX] ON [Alerts].[T] ([Code]) WITH (DROP_EXISTING = ON);".to_string()]);
+        let mut wider = row.clone();
+        wider.indexes[0].columns.push("Id".into());
+        wider.indexes[0].options.insert("FILLFACTOR".into(), "90".into());
+        let st = full_sync(&[TableChange::Alter { old: row.clone(), new: wider.clone() }]).statements;
+        assert_eq!(st, vec!["CREATE CLUSTERED INDEX [CX] ON [Alerts].[T] ([Code], [Id]) WITH (DROP_EXISTING = ON, FILLFACTOR = 90);".to_string()]);
+        // Not while a column under it changes, nor on a unique one.
+        let mut retyped = wider.clone();
+        retyped.columns[1].data_type = "nvarchar(80)".into();
+        let st = full_sync(&[TableChange::Alter { old: row.clone(), new: retyped }]).statements;
+        assert!(st.contains(&"DROP INDEX [CX] ON [Alerts].[T];".to_string()) && !st.iter().any(|s| s.contains("DROP_EXISTING")), "{st:#?}");
+        let mut unique = row.clone();
+        unique.indexes[0].unique = true;
+        let st = full_sync(&[TableChange::Alter { old: unique, new: wider }]).statements;
+        assert!(st[0] == "DROP INDEX [CX] ON [Alerts].[T];" && !st.iter().any(|s| s.contains("DROP_EXISTING")), "{st:#?}");
+    }
+
+    #[test]
+    fn key_clustering_alone_is_a_change() {
+        // A heap with a nonclustered key against a clustered key.
+        let st = full_sync(&[TableChange::Alter { old: keyed("T", false, vec![]), new: keyed("T", true, vec![]) }]).statements;
+        assert_eq!(st.len(), 4, "{st:#?}");
+        assert_eq!(st[1], "ALTER TABLE [Alerts].[T] DROP CONSTRAINT [PK_T];");
+        assert_eq!(st[2], "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY NONCLUSTERED ([Id]);");
+        // The option and an index that takes the clustered place say the same.
+        let same = full_sync(&[TableChange::Alter { old: keyed("T", true, vec![cci("C")]), new: keyed("T", false, vec![cci("C")]) }]);
+        assert!(same.statements.is_empty() && same.warnings.is_empty(), "{same:#?}");
+        // A key that only changes its name is left alone (as before).
+        let mut renamed = keyed("T", false, vec![]);
+        renamed.primary_key.as_mut().unwrap().name = Some("PK__T__3214EC07".into());
+        assert!(full_sync(&[TableChange::Alter { old: keyed("T", false, vec![]), new: renamed }]).statements.is_empty());
+    }
+
+    #[test]
+    fn key_on_other_columns_keeps_the_generic_order() {
+        // New key columns: no foreign keys are put back (they couldn't).
+        let old = keyed("T", false, vec![]);
+        let mut new = old.clone();
+        new.primary_key = Some(KeyDef { name: Some("PK_T".into()), columns: vec!["Id".into(), "Code".into()] });
+        new.columns[1].nullable = false;
+        let st = full_sync(&[TableChange::Alter { old: old.clone(), new }]).statements;
+        assert_eq!(
+            st,
+            vec![
+                "ALTER TABLE [Alerts].[T] DROP CONSTRAINT [PK_T];".to_string(),
+                "ALTER TABLE [Alerts].[T] ALTER COLUMN [Code] nvarchar(50) NOT NULL;".to_string(),
+                "ALTER TABLE [Alerts].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY CLUSTERED ([Id], [Code]);".to_string(),
+            ]
+        );
+        // A new key on a new column: the column comes NOT NULL.
+        let mut added = old.clone();
+        added.columns.push(ColumnDef { name: "Seq".into(), data_type: "int".into(), nullable: true, ..Default::default() });
+        added.primary_key = Some(KeyDef { name: Some("PK_T".into()), columns: vec!["Id".into(), "Seq".into()] });
+        let st = full_sync(&[TableChange::Alter { old, new: added }]).statements;
+        assert!(st.contains(&"ALTER TABLE [Alerts].[T] ADD [Seq] int NOT NULL;".to_string()), "{st:#?}");
+    }
+
+    #[test]
+    fn babelfish_keeps_the_generic_key() {
+        let old = keyed("T", false, vec![]);
+        let mut new = old.clone();
+        new.primary_key = Some(KeyDef { name: Some("PK_T".into()), columns: vec!["Code".into()] });
+        let prepared = prepare_changes(&[TableChange::Alter { old, new }], Variant::Babelfish);
+        let TableChange::Alter { old, new } = &prepared[0] else { unreachable!() };
+        assert!(old.primary_key.is_some() && new.primary_key.is_some() && old.indexes.is_empty() && new.indexes.is_empty());
+    }
+
+    #[test]
+    fn nonclustered_key_in_create_table() {
+        let t = keyed("T", true, vec![]);
+        let s = crate::schema::table_ddl(&t, DdlParts { create: true, ..Default::default() });
+        assert!(s.contains("CONSTRAINT [PK_T] PRIMARY KEY NONCLUSTERED ([Id])"), "{s}");
+        let s = crate::schema::table_ddl(&keyed("T", false, vec![]), DdlParts { create: true, ..Default::default() });
+        assert!(s.contains("CONSTRAINT [PK_T] PRIMARY KEY ([Id])"), "{s}");
     }
 }

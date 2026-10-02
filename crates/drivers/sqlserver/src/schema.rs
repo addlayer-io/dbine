@@ -168,8 +168,9 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
             create = create.replace(&format!("{line} NULL"), &line).replace(&format!("{line} NOT NULL"), &line);
         }
         // Only one clustered index per table: the key gives way when another
-        // index is the clustered one.
-        if t.indexes.iter().any(|i| i.kind.as_deref().is_some_and(|k| k.starts_with("CLUSTERED"))) {
+        // index is the clustered one, or when it says it's nonclustered.
+        let nonclustered = t.options.get(crate::structure::PRIMARY_KEY).is_some_and(|v| v.trim().eq_ignore_ascii_case("NONCLUSTERED"));
+        if nonclustered || t.indexes.iter().any(|i| i.kind.as_deref().is_some_and(|k| k.starts_with("CLUSTERED"))) {
             create = create.replacen(" PRIMARY KEY (", " PRIMARY KEY NONCLUSTERED (", 1);
         }
         let mut stmts = vec![create];
