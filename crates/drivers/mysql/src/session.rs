@@ -1350,6 +1350,14 @@ impl Session for MySqlSession {
         }))
     }
 
+    /// `SHOW INDEX` plus the engine's usage counters (see `index_usage`).
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        if !crate::index_usage::supported(self.variant) {
+            return Ok(None);
+        }
+        crate::index_usage::report(self, table).await.map(Some)
+    }
+
     /// One query: SHOW GRANTS, or StarRocks' roles (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         crate::permissions::check(self, database).await
