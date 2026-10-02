@@ -2741,6 +2741,9 @@
  "CockroachDB no borra backups con SQL: hay que borrar la subcarpeta del backup en el almacenamiento": [
   "crates/drivers/postgres/src/backup.rs"
  ],
+ "CockroachDB no deja una tabla sin clave primaria: {0} conserva la suya.": [
+  "crates/drivers/postgres/src/compare.rs"
+ ],
  "CockroachDB no dejó leer las consultas en curso ({0}; {1}). Hace falta ser admin o tener el privilegio VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <usuario>": [
   "crates/drivers/postgres/src/profiler.rs"
  ],
@@ -8677,6 +8680,9 @@
  "La versión de fila queda como número y no se actualiza sola (en Informix se usa WITH VERCOLS).": [
   "crates/dbine-schema/src/dialect/informix.rs"
  ],
+ "La vista «{0}» nombra la columna {1}.{2}, que se borra: si la usa, no se va a poder volver a crear. Borrala o cambiala antes de sincronizar.": [
+  "src-tauri/src/commands/compare.rs"
+ ],
  "La zona horaria de una hora no se guarda.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
@@ -13747,10 +13753,10 @@
  "Se borran todas las series del dispositivo {0} con sus datos.": [
   "crates/drivers/iotdb/src/sync.rs"
  ],
- "Se borran vistas, procedimientos o funciones: revisá que nada más dependa de ellos.": [
+ "Se borran y se vuelven a crear las vistas que usan las tablas modificadas: {0}.": [
   "src-tauri/src/commands/compare.rs"
  ],
- "Se borran y se vuelven a crear las vistas que usan las tablas modificadas: {0}.": [
+ "Se borran {0}: revisá que nada más dependa de ellos.": [
   "src-tauri/src/commands/compare.rs"
  ],
  "Se borraron los parámetros.": [
@@ -13837,6 +13843,9 @@
  ],
  "Se ven las consultas del workgroup {0} al terminar. Athena no informa quién ejecutó cada una.": [
   "crates/drivers/athena/src/profiler.rs"
+ ],
+ "Se vuelven a crear los triggers de las tablas que se reconstruyen: {0}.": [
+  "src-tauri/src/commands/compare.rs"
  ],
  "Search": [
   "crates/drivers/elasticsearch/src/plan.rs"
@@ -17462,6 +17471,9 @@
  "el campo «{0}» viene sin valor (NULL) en la fila, pero se llena por copyField desde «{1}»: Solr le pondría esa copia y dejaría de ser NULL. Dejá el campo fuera de la carga o quitá el copyField del esquema de destino.": [
   "crates/drivers/solr/src/transfer.rs"
  ],
+ "el catálogo de texto completo": [
+  "src-tauri/src/commands/compare.rs"
+ ],
  "el catálogo «{0}» no maneja roles ni permisos: depende del conector y del control de acceso configurado en el servidor (por ejemplo, Hive con hive.security=sql-standard)": [
   "crates/drivers/trino/src/security.rs"
  ],
@@ -17610,6 +17622,9 @@
  "el destino no tiene tablas temporales: {0} quedan como tablas comunes, sin versionado": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
+ "el diccionario": [
+  "src-tauri/src/commands/compare.rs"
+ ],
  "el documento {0} tiene el campo «{1}», que apareció mientras se copiaba (la base cambió durante la copia); volvé a copiarla": [
   "crates/drivers/couchdb/src/transfer.rs"
  ],
@@ -17621,6 +17636,9 @@
  ],
  "el documento «{0}» tiene un campo «{1}» propio, que se confundiría con la clave: pedí primero la columna «{2}», que va a ser la clave": [
   "crates/drivers/couchbase/src/transfer.rs"
+ ],
+ "el dominio": [
+  "src-tauri/src/commands/compare.rs"
  ],
  "el driver de {0}": [
   "crates/dbine-plugin/src/install.rs"
@@ -17829,6 +17847,9 @@
  "el nombre «{0}» tiene caracteres de control": [
   "crates/drivers/mongodb/src/security.rs"
  ],
+ "el objeto": [
+  "src-tauri/src/commands/compare.rs"
+ ],
  "el orden local (LOCALSORT BY)": [
   "crates/drivers/dremio/src/sync.rs"
  ],
@@ -17888,6 +17909,9 @@
  ],
  "el prefijo": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "el procedimiento": [
+  "src-tauri/src/commands/compare.rs"
  ],
  "el profiler no está iniciado": [
   "crates/dbine-driver/src/lib.rs",
@@ -18029,6 +18053,9 @@
  "el servidor rechazó la sesión": [
   "crates/drivers/libsql/src/hrana.rs"
  ],
+ "el sinónimo": [
+  "src-tauri/src/commands/compare.rs"
+ ],
  "el sistema operativo (V$OSSTAT)": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
@@ -18059,13 +18086,17 @@
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
  "el tipo": [
-  "crates/drivers/hana/src/transfer.rs"
+  "crates/drivers/hana/src/transfer.rs",
+  "src-tauri/src/commands/compare.rs"
  ],
  "el tipo de tabla": [
   "crates/drivers/mysql/src/design.rs"
  ],
  "el tipo {0} no tiene el campo «{1}»; su valor se perdería": [
   "crates/drivers/cassandra/src/transfer.rs"
+ ],
+ "el trigger": [
+  "src-tauri/src/commands/compare.rs"
  ],
  "el túnel SSH no pudo abrir un puerto local: {0}": [
   "crates/dbine-tunnel/src/lib.rs"
@@ -19773,6 +19804,9 @@
  "la frase no es correcta": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
+ "la función": [
+  "src-tauri/src/commands/compare.rs"
+ ],
  "la generación": [
   "crates/drivers/hana/src/transfer.rs"
  ],
@@ -19836,6 +19870,9 @@
  ],
  "la lectura trajo un registro de otra clase ({0}, {1}); revisá el filtro": [
   "crates/drivers/orientdb/src/transfer.rs"
+ ],
+ "la lista de palabras irrelevantes": [
+  "src-tauri/src/commands/compare.rs"
  ],
  "la marca de tiempo {0} no es válida": [
   "crates/drivers/iotdb/src/transfer.rs"
@@ -19937,6 +19974,9 @@
  "la ruta «{0}» tiene comillas sin cerrar o texto después de una parte entre comillas": [
   "crates/drivers/dremio/src/security.rs"
  ],
+ "la secuencia": [
+  "src-tauri/src/commands/compare.rs"
+ ],
  "la secuencia del clon se llamaría {0} y ese nombre ya existe en el esquema; elegí otro nombre": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
@@ -20029,6 +20069,9 @@
  "la tabla usa el motor «{0}» de GreptimeDB (sus filas viven en una tabla física compartida o en archivos externos); solo se clonan tablas del motor mito": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
  ],
+ "la tabla virtual": [
+  "src-tauri/src/commands/compare.rs"
+ ],
  "la tabla {0} no tiene el índice {1}": [
   "crates/drivers/dynamodb/src/lib.rs"
  ],
@@ -20057,6 +20100,12 @@
  "la versión": [
   "crates/drivers/sqlserver/src/babelfish.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "la vista": [
+  "src-tauri/src/commands/compare.rs"
+ ],
+ "la vista materializada": [
+  "src-tauri/src/commands/compare.rs"
  ],
  "la vista materializada sincrónica": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
@@ -22525,6 +22574,9 @@
  ],
  "vértices": [
   "crates/drivers/orientdb/src/monitor.rs"
+ ],
+ "y {0} más": [
+  "src-tauri/src/commands/compare.rs"
  ],
  "ya existe el archivo {0}": [
   "crates/drivers/duckdb/src/lib.rs"
