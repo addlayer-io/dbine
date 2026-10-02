@@ -6,7 +6,7 @@ use crate::model::ColumnInfo;
 mod script;
 pub use script::{
     expose_versioned, leading_keyword, split_script, strip_comments, unsafe_dml, unsafe_statements, BatchLine, ScriptDefaults, ScriptDialect, ScriptMode,
-    ScriptStatement, StatementKind, UnsafeStatement, GO_COUNT_ERROR,
+    ScriptStatement, StatementKind, UnsafeStatement, GO_COUNT_ERROR, name_tokens, NameToken, TokenKind,
 };
 
 /// How a dialect quotes identifiers.

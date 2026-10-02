@@ -15,6 +15,7 @@
 pub mod alter;
 pub mod backup;
 pub mod config;
+pub mod dependencies;
 pub mod ddl;
 pub mod error;
 pub mod index_usage;
@@ -37,6 +38,7 @@ pub mod transfer;
 pub use alter::{SyncScript, TableChange};
 pub use backup::{BackupAction, BackupEntry, BackupSpec};
 pub use config::ConnectionConfig;
+pub use dependencies::{Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation};
 pub use error::{Error, Result};
 pub use index_usage::{IndexUsage, IndexUsageReport};
 pub use info::{kinds, DriverInfo, Family, Field, FieldKind, FieldSection, FieldWhen, Language, ObjectKindInfo};
@@ -86,6 +88,12 @@ pub trait Driver: Send + Sync {
     /// the UI offers "Profiler" on its databases only then.
     fn supports_profiler(&self) -> bool {
         false
+    }
+
+    /// "Ver dependencias…" works: the engine reports foreign keys or has
+    /// objects with source to search ([`Session::dependents`]).
+    fn supports_dependencies(&self) -> bool {
+        self.capabilities().foreign_keys || !dependencies::code_kinds(self.info()).is_empty()
     }
 
     /// Its sessions implement [`Session::index_usage`]: the explorer lists a
@@ -705,6 +713,13 @@ pub trait Session: Send {
     async fn permissions(&mut self, database: Option<&str>) -> Result<Permissions> {
         let _ = database;
         Ok(Permissions::default())
+    }
+
+    /// What depends on `target` (see [`dependencies`]). The default scans
+    /// the catalog's foreign keys and every object's source; drivers whose
+    /// engine tracks dependencies override it with catalog queries.
+    async fn dependents(&mut self, target: &DependencyTarget, scan: &DependencyScan) -> Result<DependencyReport> {
+        dependencies::scan(self, target, scan).await
     }
 
     /// `table`'s indexes and how they're used (see [`index_usage`]). `None`:

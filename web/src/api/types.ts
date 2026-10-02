@@ -79,6 +79,8 @@ export interface DriverInfo {
   supports_manual_transactions?: boolean;
   /** A table's indexes with their usage (`Session::index_usage`). */
   supports_index_usage?: boolean;
+  /** "Ver dependencias…" (`Session::dependents`). */
+  supports_dependencies?: boolean;
 }
 
 /** One index and how it's used (`dbine_driver::IndexUsage`). The last four
@@ -564,4 +566,41 @@ export interface UpdateInfo {
   /** The release notes as written (Markdown), already cut short. */
   notes: string;
   published_at: string | null;
+}
+
+/** What to look for (`dbine_driver::DependencyTarget`): an object, or one of its columns. */
+export interface DependencyTarget {
+  object: ObjectRef;
+  column?: string | null;
+}
+
+export type Relation = 'foreign_key' | 'index' | 'check' | 'code';
+export type Confidence = 'confirmed' | 'probable' | 'review';
+
+export interface Mention {
+  line: number;
+  text: string;
+  /** Inside a string: dynamic SQL. */
+  dynamic: boolean;
+}
+
+/** Something that depends on the target (`dbine_driver::Dependent`). */
+export interface Dependent {
+  kind: string;
+  schema: string | null;
+  name: string;
+  parent: string | null;
+  relation: Relation;
+  confidence: Confidence;
+  detail: string | null;
+  mentions: Mention[];
+}
+
+export interface DependencyReport {
+  items: Dependent[];
+  /** Definitions read. */
+  scanned: number;
+  /** Objects whose definition couldn't be read. */
+  unreadable: string[];
+  note: string | null;
 }

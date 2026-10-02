@@ -202,6 +202,9 @@ impl Session for ReadOnlySession {
     async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<crate::IndexUsageReport>> {
         self.inner.index_usage(table).await
     }
+    async fn dependents(&mut self, target: &crate::DependencyTarget, scan: &crate::DependencyScan) -> Result<crate::DependencyReport> {
+        self.inner.dependents(target, scan).await
+    }
 }
 
 #[cfg(test)]

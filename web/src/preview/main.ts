@@ -1,6 +1,6 @@
 // Development only (not part of the app build): renders UI pieces with
 // sample data in a plain browser, to look at them without Tauri or a
-// database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs
+// database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|dependencies
 // |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]
 import './lang';
 import I18NextVue from 'i18next-vue';
@@ -38,6 +38,8 @@ import ExplorerSidebar from '../components/ExplorerSidebar.vue';
 import { installKeysPreview } from './keys-samples';
 import EditorTabs from '../components/EditorTabs.vue';
 import { installTabsPreview } from './tabs-samples';
+import { sampleDependents } from './dependencies-samples';
+import DependenciesView from '../views/DependenciesView.vue';
 import { profilerAutostart } from '../stores/tabs';
 import { bigSchema, sampleSchema } from './samples';
 import ScriptGeneratorDialog from '../components/ScriptGeneratorDialog.vue';
@@ -144,6 +146,7 @@ const app = createApp({
       view === 'connection' ? connectionTab() : view === 'monitor'
         ? h(MonitorView, { tab: { id: 'm', kind: 'monitor', connectionId: 'c1', database: '', preview: false }, active: true }) :
       view === 'support' ? h(SupportReminder) :
+      view === 'dependencies' ? h(DependenciesView, { tab: { id: 'dep', kind: 'dependencies', connectionId: 'c1', database: 'ventas', object: { kind: 'table', schema: 'dbo', name: 'Clientes' }, column: 'Pepe', preview: false } }) :
       view === 'compare' ? h(CompareView, { tab: { id: 'cmp', kind: 'compare', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'profiler' ? h(ProfilerView, { tab: { id: 'p', kind: 'profiler', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'settings' ? h(SettingsDialog) : view.startsWith('diagram') ? diagram() : ['script', 'import', 'run'].includes(view) ? dialogView() : view === 'designer' ? designer() : view === 'chart'
@@ -181,7 +184,7 @@ if (view === 'settings') {
   useSyncStore().refresh();
   useUiStore().openSettings((params.get('section') as 'general' | 'sync') ?? 'sync');
 }
-if (view === 'connection' || view === 'monitor' || view === 'profiler' || view === 'compare') {
+if (view === 'connection' || view === 'monitor' || view === 'profiler' || view === 'compare' || view === 'dependencies') {
   const conns = useConnectionsStore();
   conns.drivers = sampleDrivers;
   conns.list = [{
@@ -197,6 +200,7 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
       if (cmd === 'profiler_start') return sampleProfilerStart(params.get('mode') === 'sampled' ? 'sampled' : 'complete');
       if (cmd === 'profiler_poll') return sampleProfilerPoll();
       if (cmd === 'profiler_stop') return null;
+      if (cmd === 'get_dependents') return sampleDependents;
       if (cmd === 'test_connection') return { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
       const cmp = compareMock(cmd, a);
       if (cmp !== undefined) return cmp;

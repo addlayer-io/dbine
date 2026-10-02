@@ -119,6 +119,29 @@ pub async fn get_index_usage(state: State<'_, AppState>, args: ObjectArgs) -> Co
 }
 
 #[derive(Deserialize)]
+pub struct DependentsArgs {
+    pub connection_id: String,
+    pub database: String,
+    pub target: dbine_driver::DependencyTarget,
+}
+
+/// What depends on a table, column, view or routine ("Ver dependencias…").
+/// The generic scan reads every definition one by one, so it gets longer
+/// than other catalog reads.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_dependents(state: State<'_, AppState>, args: DependentsArgs) -> CommandResult<dbine_driver::DependencyReport> {
+    let id = state.store.get_connection(&args.connection_id)?.map(|c| c.config.driver).unwrap_or_default();
+    let driver = dbine_drivers::find(&id).ok_or_else(|| dbine_driver::Error::Unsupported(format!("driver desconocido: {id}")))?;
+    let scan = dbine_driver::DependencyScan::new(driver.info(), driver.script_dialect(), driver.capabilities().foreign_keys);
+    let target = args.target;
+    state
+        .meta_read(&args.connection_id, &args.database, DEPENDENTS_LIMIT, move |s| Box::pin(async move { s.dependents(&target, &scan).await }))
+        .await
+}
+
+const DEPENDENTS_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
+
+#[derive(Deserialize)]
 pub struct ScanKeysArgs {
     pub connection_id: String,
     pub database: String,

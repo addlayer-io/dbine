@@ -39,6 +39,7 @@ import DataCompareView from './views/DataCompareView.vue';
 import SecurityView from './views/SecurityView.vue';
 import BackupsView from './views/BackupsView.vue';
 import IndexUsageView from './views/IndexUsageView.vue';
+import DependenciesView from './views/DependenciesView.vue';
 import ConnectionView from './views/ConnectionView.vue';
 import MonitorView from './views/MonitorView.vue';
 import ProfilerView from './views/ProfilerView.vue';
@@ -208,6 +209,7 @@ watch(
               <SecurityView v-else-if="t.kind === 'security'" :tab="t" />
               <BackupsView v-else-if="t.kind === 'backups'" :tab="t" />
               <IndexUsageView v-else-if="t.kind === 'indexes'" :tab="t" />
+              <DependenciesView v-else-if="t.kind === 'dependencies'" :tab="t" />
               <ConnectionView v-else-if="t.kind === 'connection'" :tab="t" />
             </div>
           </template>

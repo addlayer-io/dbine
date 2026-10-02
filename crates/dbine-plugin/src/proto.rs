@@ -176,6 +176,10 @@ pub enum Call {
     /// A table's indexes and their usage. A host published before it
     /// answers `Unsupported`, which the app reads as "not reported" (`None`).
     IndexUsage { session: u64, table: ObjectRef },
+    /// What depends on an object. A host published before it answers
+    /// `Unsupported`, and the app runs the generic scan through the host's
+    /// other calls.
+    Dependents { session: u64, target: dbine_driver::DependencyTarget, scan: dbine_driver::DependencyScan },
 }
 
 /// Host → app.
@@ -232,6 +236,7 @@ pub enum Reply {
     TxState(Option<dbine_driver::TxState>),
     Units(Vec<dbine_driver::ScriptStatement>),
     IndexUsage(Option<dbine_driver::IndexUsageReport>),
+    Dependents(dbine_driver::DependencyReport),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -573,6 +578,15 @@ mod tests {
             ),
             (10, Call::SplitScript { driver: "oracle".into(), text: "PROMPT a\n".into() }, "SplitScript"),
             (11, Call::IndexUsage { session: 3, table: ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "t".into() } }, "IndexUsage"),
+            (
+                12,
+                Call::Dependents {
+                    session: 3,
+                    target: dbine_driver::DependencyTarget { object: ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "t".into() }, column: None },
+                    scan: dbine_driver::DependencyScan { source_kinds: vec!["view".into()], dialect: dbine_driver::ScriptDialect::generic(), foreign_keys: true },
+                },
+                "Dependents",
+            ),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

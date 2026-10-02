@@ -1075,6 +1075,15 @@ impl Session for RemoteSession {
             Ok(_) => Err(unexpected()),
         }
     }
+    async fn dependents(&mut self, target: &dbine_driver::DependencyTarget, scan: &dbine_driver::DependencyScan) -> Result<dbine_driver::DependencyReport> {
+        match self.host.call(Call::Dependents { session: self.id, target: target.clone(), scan: scan.clone() }).await {
+            Ok(Reply::Dependents(r)) => Ok(r),
+            // A host built before the call: the generic scan, through its other calls.
+            Err(Error::Unsupported(_)) => dbine_driver::dependencies::scan(self, target, scan).await,
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
         match self.host.call(Call::ListSchemas { session: self.id }).await {
             Ok(Reply::Schemas(v)) => Ok(v),

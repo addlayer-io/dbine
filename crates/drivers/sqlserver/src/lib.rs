@@ -4,6 +4,7 @@ mod babelfish;
 mod backup;
 mod clone;
 mod delta;
+mod dependencies;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -1065,6 +1066,14 @@ impl Session for SqlServerSession {
             return Ok(None);
         }
         index_usage::report(self, table).await.map(Some)
+    }
+
+    async fn dependents(&mut self, target: &dbine_driver::DependencyTarget, scan: &dbine_driver::DependencyScan) -> Result<dbine_driver::DependencyReport> {
+        match dependencies::dependents(self, target, scan).await {
+            // Babelfish and Fabric may lack sys.sql_expression_dependencies: the generic scan.
+            Err(_) if matches!(self.variant, Variant::Babelfish | Variant::Fabric) => dbine_driver::dependencies::scan(self, target, scan).await,
+            r => r,
+        }
     }
 }
 
