@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
-import { formatElapsed, useTasksStore, type Task } from '../stores/tasks';
+import { formatElapsed, formatEta, formatEtaValue, useTasksStore, type Task } from '../stores/tasks';
 import { useConnectionsStore } from '../stores/connections';
 import { useQuitGuard } from '../composables/quitGuard';
 
@@ -15,21 +15,11 @@ const conns = useConnectionsStore();
 const { t } = useTranslation();
 useQuitGuard();
 
-// Live elapsed time while the panel or a detail is open and something runs.
-const now = ref(Date.now());
-let timer: ReturnType<typeof setInterval> | null = null;
-watch(
-  () => (tasks.panelOpen || !!tasks.detailId) && tasks.runningCount > 0,
-  (on) => {
-    if (on && !timer) timer = setInterval(() => { now.value = Date.now(); }, 1000);
-    if (!on && timer) { clearInterval(timer); timer = null; }
-    now.value = Date.now();
-  },
-  { immediate: true },
-);
-onBeforeUnmount(() => { if (timer) clearInterval(timer); });
-
-const elapsed = (x: Task) => formatElapsed((x.endedAt ?? now.value) - x.startedAt);
+// Elapsed times and ETAs tick with the store's shared clock (it runs only
+// while some task does).
+const elapsed = (x: Task) => formatElapsed(tasks.elapsedOf(x));
+/** The row's "≈ 4 min restantes" / "calculando…"; nothing without a total. */
+const etaRow = (x: Task) => formatEta(tasks.etaOf(x));
 
 function where(x: Task) {
   const name = x.connectionId ? conns.byId(x.connectionId)?.name : undefined;
@@ -43,12 +33,24 @@ function unitLabel(u?: string) {
   return s === key || s === `unit.${u}` ? u : s;
 }
 
+/** "940 KB", "1.2 GB": byte counters read as sizes, not raw numbers. */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toLocaleString(locale(), { maximumFractionDigits: v < 10 ? 1 : 0 })} ${units[i]}`;
+}
+
 function progressText(x: Task) {
   const p = x.progress;
   const parts: string[] = [];
-  const fmt = (n: number) => n.toLocaleString(locale());
-  if (p.done != null && p.total != null) parts.push(t('tasks:progress.of', { done: fmt(p.done), total: fmt(p.total), unit: unitLabel(p.unit) }).trim());
-  else if (p.done != null) parts.push(t('tasks:progress.count', { done: fmt(p.done), unit: unitLabel(p.unit) }).trim());
+  const bytes = p.unit === 'bytes';
+  const fmt = (n: number) => (bytes ? formatBytes(n) : n.toLocaleString(locale()));
+  const unit = bytes ? '' : unitLabel(p.unit);
+  if (p.done != null && p.total != null) parts.push(t('tasks:progress.of', { done: fmt(p.done), total: fmt(p.total), unit }).trim());
+  else if (p.done != null) parts.push(t('tasks:progress.count', { done: fmt(p.done), unit }).trim());
   if (p.phase) parts.push(p.phase);
   return parts.join(' · ');
 }
@@ -67,6 +69,20 @@ const detailResult = computed(() => {
   try { return JSON.stringify(r, null, 2); } catch { return String(r); }
 });
 const timeOf = (ms: number) => new Date(ms).toLocaleTimeString(locale());
+
+/** The detail's "Restante estimado": the value, "calculando…" or "sin estimación". */
+const detailEta = computed(() => {
+  const x = detail.value;
+  if (!x || x.state !== 'running') return null;
+  const e = tasks.etaOf(x);
+  if (e.status === 'none') return { text: t('tasks:eta.none'), title: '' };
+  if (e.status === 'calculating') return { text: t('tasks:eta.calculating'), title: '' };
+  const value = formatEtaValue(e.remainingMs);
+  return {
+    text: e.scope === 'phase' ? t('tasks:eta.phase', { eta: value }) : value,
+    title: e.confidence === 'low' ? t('tasks:eta.low') : '',
+  };
+});
 </script>
 
 <template>
@@ -83,7 +99,7 @@ const timeOf = (ms: number) => new Date(ms).toLocaleTimeString(locale());
           <el-icon v-else-if="x.state === 'error'" class="tp-icon tp-err"><ei-circle-close /></el-icon>
           <el-icon v-else class="tp-icon tp-warn"><ei-remove /></el-icon>
           <span class="tp-title" :title="x.title">{{ x.title }}</span>
-          <span class="tp-time">{{ elapsed(x) }}</span>
+          <span class="tp-time">{{ elapsed(x) }}<template v-if="x.state === 'running' && etaRow(x)"> · {{ etaRow(x) }}</template></span>
         </div>
         <div v-if="where(x)" class="tp-where">{{ where(x) }}</div>
         <div class="tp-meta">
@@ -118,7 +134,9 @@ const timeOf = (ms: number) => new Date(ms).toLocaleTimeString(locale());
       <div class="td-row">
         <span>{{ where(detail) }}</span>
         <span>{{ $t('tasks:detail.started') }}: {{ timeOf(detail.startedAt) }}</span>
-        <span>{{ $t('tasks:detail.elapsed') }}: {{ elapsed(detail) }}</span>
+        <span v-if="detail.endedAt">{{ $t('tasks:detail.ended') }}: {{ timeOf(detail.endedAt) }}</span>
+        <span>{{ detail.endedAt ? $t('tasks:detail.duration') : $t('tasks:detail.elapsed') }}: {{ elapsed(detail) }}</span>
+        <span v-if="detailEta" :title="detailEta.title">{{ $t('tasks:detail.remaining') }}: {{ detailEta.text }}</span>
         <span>{{ detail.cancelling ? $t('tasks:panel.cancelling') : $t(`tasks:state.${detail.state}`) }}</span>
       </div>
       <div v-if="detail.state === 'running' && progressText(detail)" class="td-row">{{ progressText(detail) }}</div>

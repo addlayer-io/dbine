@@ -9,7 +9,7 @@ import { useOutputStore } from '../stores/output';
 import { useSyncStore } from '../stores/sync';
 import { useUiStore } from '../stores/ui';
 import { useTabsStore } from '../stores/tabs';
-import { useTasksStore } from '../stores/tasks';
+import { formatElapsed, formatEta, useTasksStore } from '../stores/tasks';
 import TasksPanel from './TasksPanel.vue';
 
 // Status bar (VS Code's blue strip): live connections and problems on the
@@ -25,6 +25,23 @@ const sync = useSyncStore();
 const ui = useUiStore();
 const tasks = useTasksStore();
 const { t } = useTranslation();
+
+// Running tasks: one shows its title and elapsed time; several show the count
+// and the longest-running one's time. The tooltip lists each with its ETA.
+const tasksBadge = computed(() => {
+  const run = tasks.running;
+  if (!run.length) return null;
+  const oldest = run.reduce((a, b) => (b.startedAt < a.startedAt ? b : a));
+  // The label is truncated on its own so a long title never hides the time.
+  const label = run.length === 1 ? oldest.title : t('tasks:status.many', { count: run.length });
+  const elapsed = formatElapsed(tasks.elapsedOf(oldest));
+  const lines = run.map((x) => {
+    const eta = formatEta(tasks.etaOf(x));
+    const elapsed = formatElapsed(tasks.elapsedOf(x));
+    return eta ? t('tasks:status.lineEta', { title: x.title, elapsed, eta }) : t('tasks:status.line', { title: x.title, elapsed });
+  });
+  return { label, elapsed, title: [...lines, '', t('tasks:status.title')].join('\n') };
+});
 
 /** Cloud backup state, when it's on. */
 const syncBadge = computed(() => {
@@ -72,8 +89,8 @@ onMounted(async () => {
         <el-icon><ei-circle-close /></el-icon>{{ output.errors }}
         <el-icon style="margin-left: 6px;"><ei-warning /></el-icon>{{ output.warnings }}
       </button>
-      <button v-if="tasks.runningCount" class="sb-item sb-btn" :title="$t('tasks:status.title')" @click="tasks.panelOpen = !tasks.panelOpen">
-        <el-icon class="is-loading"><ei-refresh /></el-icon>{{ $t('tasks:status.running', { count: tasks.runningCount }) }}
+      <button v-if="tasksBadge" class="sb-item sb-btn" :title="tasksBadge.title" @click="tasks.panelOpen = !tasks.panelOpen">
+        <el-icon class="is-loading"><ei-refresh /></el-icon><span class="sb-task">{{ tasksBadge.label }}</span><span class="sb-task-time">· {{ tasksBadge.elapsed }}</span>
       </button>
     </div>
     <div class="sb-right">
@@ -105,6 +122,8 @@ onMounted(async () => {
 .sb-item { display: inline-flex; align-items: center; gap: 4px; height: 100%; padding: 0 7px; font-variant-numeric: tabular-nums; }
 .sb-server { max-width: 360px; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 22px; }
 .sb-ro { background: #c27d0e; }
+.sb-task { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-task-time { flex: none; white-space: nowrap; }
 .sb-btn { font: inherit; color: inherit; background: transparent; border: none; cursor: pointer; }
 .sb-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .sb-sync-error { background: rgba(255, 90, 90, 0.35); }

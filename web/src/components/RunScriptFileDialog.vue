@@ -168,10 +168,12 @@ async function run() {
       if (e.payload.id !== runId) return;
       Object.assign(s.progress, { statements: e.payload.statements, bytes: e.payload.bytes, total_bytes: e.payload.total_bytes });
       if (e.payload.total_bytes) s.size = e.payload.total_bytes;
-      task.progress({
-        done: e.payload.statements, unit: 'statements',
-        phase: e.payload.total_bytes ? `${formatBytes(e.payload.bytes)} / ${formatBytes(e.payload.total_bytes)} · ${percent.value}%` : undefined,
-      });
+      // Bytes read out of the file's size is the one count with a known total
+      // (the ETA needs it); the statements run so far go in the phase.
+      const { statements, bytes, total_bytes } = e.payload;
+      task.progress(total_bytes
+        ? { done: bytes, total: total_bytes, unit: 'bytes', phase: t('tasks:dialogs.statements', { count: statements, n: statements.toLocaleString(locale()) }) }
+        : { done: statements, unit: 'statements', phase: undefined });
     });
     const r = await invoke<RunResult>('run_script_file', {
       args: {
