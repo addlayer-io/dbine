@@ -41,6 +41,7 @@
 
 pub mod ddl;
 mod sync;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -179,6 +180,11 @@ impl Driver for CosmosDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// The indexing policy as indexes, without counters (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -1356,6 +1362,13 @@ impl Session for CosmosSession {
     /// The account key can't be told apart (see `permissions`).
     async fn permissions(&mut self, _database: Option<&str>) -> Result<dbine_driver::Permissions> {
         Ok(permissions::decide())
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let link = format!("{}/colls/{}", self.db_link()?, table.name);
+        let path = format!("{}/colls/{}", self.db_path()?, enc(&table.name));
+        let coll = self.call(Method::GET, "colls", &link, &path, None, &[]).await?.body;
+        Ok(Some(index_usage::report(&coll)))
     }
 }
 

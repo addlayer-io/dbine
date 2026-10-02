@@ -11,6 +11,7 @@
 //! the server refuses writes.
 
 mod ddl;
+mod index_usage;
 mod sync;
 mod permissions;
 mod plan;
@@ -103,6 +104,11 @@ impl Driver for CouchbaseDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// `system:indexes` + the index service's statistics (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -1250,6 +1256,10 @@ impl Session for CbSession {
     /// `checkPermissions` of the cluster manager (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        self.index_usage_report(table).await
     }
 }
 

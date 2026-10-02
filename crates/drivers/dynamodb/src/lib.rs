@@ -6,6 +6,7 @@ mod admin;
 mod aws;
 mod backup;
 mod ddl;
+mod index_usage;
 mod sync;
 mod monitor;
 mod permissions;
@@ -110,6 +111,11 @@ impl Driver for DynamoDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// The key, GSIs and LSIs, without counters (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -683,6 +689,11 @@ impl Session for DynamoSession {
     /// IAM can't be asked (see `permissions`).
     async fn permissions(&mut self, _database: Option<&str>) -> Result<dbine_driver::Permissions> {
         Ok(permissions::decide())
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let (name, _) = target(table)?;
+        Ok(Some(index_usage::report(&self.describe(name).await?)))
     }
 }
 

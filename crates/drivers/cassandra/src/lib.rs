@@ -9,6 +9,7 @@
 mod backup;
 mod cql;
 mod ddl;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -143,6 +144,11 @@ impl Driver for CassandraDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// The primary key and the secondary indexes, without counters (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -486,7 +492,7 @@ fn boolean(row: &Row, i: usize) -> bool {
     matches!(row.columns.get(i), Some(Some(CqlValue::Boolean(true))))
 }
 
-struct Column {
+pub(crate) struct Column {
     name: String,
     typ: String,
     kind: String,
@@ -1253,6 +1259,10 @@ impl DbSession for CassandraSession {
     /// The role's own permissions and superuser status (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        self.index_usage_report(table).await
     }
 }
 

@@ -66,6 +66,7 @@
 mod blocking;
 mod convert;
 mod ddl;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -311,6 +312,11 @@ impl Driver for MongoDriver {
 
     fn supports_profiler(&self) -> bool {
         profiler::supported(self.flavor)
+    }
+
+    /// `listIndexes` + `$indexStats` (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
+        true
     }
 
     /// Unordered `insertMany` (see `transfer`).
@@ -584,6 +590,12 @@ impl MongoSession {
                         out.info("La colección ya existía; se dejó como estaba.");
                         return Ok(());
                     }
+                    // FerretDB answers some commands (`dropIndexes`) with
+                    // `ok: true`, which the client refuses: it did run.
+                    Err(e) if self.flavor == Flavor::Ferret && boolean_ok(&e) => {
+                        out.info(format!("{first}: listo."));
+                        return Ok(());
+                    }
                     Err(e) => return Err(cmd_err(e)),
                 };
                 check_write_errors(&r)?;
@@ -613,6 +625,11 @@ fn command_code(e: &mongodb::error::Error) -> Option<i32> {
         ErrorKind::Command(c) => Some(c.code),
         _ => None,
     }
+}
+
+/// The client refused a reply whose `ok` is `true` instead of `1`.
+fn boolean_ok(e: &mongodb::error::Error) -> bool {
+    matches!(e.kind.as_ref(), ErrorKind::InvalidResponse { message, .. } if message.contains("ok value") && message.contains("Boolean(true)"))
 }
 
 fn count_of(r: &Document, key: &str) -> u64 {
@@ -968,6 +985,10 @@ impl Session for MongoSession {
     /// `connectionStatus` with `showPrivileges` (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        self.index_usage_report(table).await
     }
 }
 
