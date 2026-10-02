@@ -213,13 +213,19 @@ impl Driver for SqlServerDriver {
         let mut st = AlterStyle::from_flavor(&schema::FLAVOR, if fabric { ColumnAlter::None } else { ColumnAlter::SqlServer }, &cd, &dd);
         st.add_column = "ADD";
         st.drop_index = DropIndex::OnTable;
-        // Indexes that depend on a remade one are remade too; UNIQUE
-        // constraints and memory-optimized indexes drop their own way.
-        let changes = structure::prepare_changes(changes);
+        // The primary key is planned as an index (a change of clustered
+        // index remakes it); indexes that depend on a remade one are remade
+        // too; UNIQUE constraints, the key and memory-optimized indexes drop
+        // their own way; foreign keys on a remade key step aside meanwhile.
+        let changes = structure::prepare_changes(changes, self.variant);
         // Comments are MS_Description extended properties (Fabric has none).
         let comments = |t: &TableSchema, c: Option<&dbine_driver::ColumnDef>, v: Option<&str>| Some(schema::comment_change(t, c, v));
         let mut script = dbine_driver::alter::sync_script_with_comments(&st, (!fabric).then_some(&comments as dbine_driver::alter::CommentSql), &changes)?;
         structure::fix_drops(&mut script.statements, &changes);
+        if !fabric {
+            structure::keep_referencing_fks(&mut script.statements, &mut script.warnings, &changes);
+            script.warnings.extend(structure::clustering_warnings(&changes));
+        }
         Ok(script)
     }
 

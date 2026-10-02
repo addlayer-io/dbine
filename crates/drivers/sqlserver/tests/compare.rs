@@ -507,3 +507,142 @@ async fn comments_and_included_columns_sync() {
         admin.drop_database(db).await.expect("drop_database");
     }
 }
+
+/// The owner's case: on the target the keys of two tables are clustered
+/// (the default) and another table's foreign keys reference them; on the
+/// source the keys are NONCLUSTERED and a clustered columnstore index takes
+/// the clustered place. The sync, planned as the compare tab plans it
+/// (`database_schema` on both sides, an Alter per table that differs,
+/// `sync_script`), runs on the target statement by statement on one
+/// session; the tables then read the same as the source's, with the
+/// foreign keys (and the rows) still there. Then the other way back.
+///
+/// ```sh
+/// DBINE_TEST_SQLSERVER_URL='mssql://sa:Pw_12345!@localhost:25013' \
+///   cargo test -p dbine-driver-sqlserver --test compare clustered -- --ignored --nocapture
+/// ```
+#[tokio::test]
+#[ignore]
+async fn clustered_columnstore_takes_the_keys_place_and_back() {
+    let Ok(url) = std::env::var("DBINE_TEST_SQLSERVER_URL") else {
+        eprintln!("DBINE_TEST_SQLSERVER_URL not set; skipping");
+        return;
+    };
+    let cfg = parse_url(&url);
+    let d = dbine_driver_sqlserver::drivers().remove(0);
+    let mut admin = d.connect(&cfg, Some("master")).await.expect("connect");
+    let (src_db, dst_db) = ("dbine_cci_src", "dbine_cci_dst");
+    for db in [src_db, dst_db] {
+        let _ = admin.drop_database(db).await;
+        admin.create_database(db).await.expect("create_database");
+    }
+    let mut src = d.connect(&cfg, Some(src_db)).await.unwrap();
+    let mut dst = d.connect(&cfg, Some(dst_db)).await.unwrap();
+    let ddl = |pk: &str, cci: bool| {
+        format!(
+            "CREATE SCHEMA Alerts;
+GO
+CREATE TABLE Alerts.RuleConfigurationAudit (
+    Id bigint NOT NULL CONSTRAINT PK_RuleConfigurationAudit PRIMARY KEY {pk},
+    RuleId int NOT NULL, Changed datetime2 NULL);
+CREATE INDEX IX_RuleConfigurationAudit_RuleId ON Alerts.RuleConfigurationAudit (RuleId);
+CREATE TABLE Alerts.RuleScenario (Id bigint NOT NULL CONSTRAINT PK_RuleScenario PRIMARY KEY {pk}, Name nvarchar(50) NULL);
+{}
+CREATE TABLE Alerts.AuditNote (
+    Id int NOT NULL CONSTRAINT PK_AuditNote PRIMARY KEY,
+    AuditId bigint NOT NULL, ScenarioId bigint NULL,
+    CONSTRAINT FK_AuditNote_Audit FOREIGN KEY (AuditId) REFERENCES Alerts.RuleConfigurationAudit (Id) ON DELETE CASCADE);
+ALTER TABLE Alerts.AuditNote WITH NOCHECK ADD CONSTRAINT FK_AuditNote_Scenario FOREIGN KEY (ScenarioId) REFERENCES Alerts.RuleScenario (Id);
+INSERT INTO Alerts.RuleConfigurationAudit VALUES (1, 10, NULL), (2, 20, SYSDATETIME());
+INSERT INTO Alerts.RuleScenario VALUES (1, N'uno'), (2, N'dos');
+INSERT INTO Alerts.AuditNote VALUES (1, 1, 1), (2, 2, NULL);",
+            if cci {
+                "CREATE CLUSTERED COLUMNSTORE INDEX CCI_RuleConfigurationAudit ON Alerts.RuleConfigurationAudit;
+CREATE CLUSTERED COLUMNSTORE INDEX CCI_RuleScenario ON Alerts.RuleScenario;"
+            } else {
+                ""
+            }
+        )
+    };
+    for (s, sql) in [(&mut src, ddl("NONCLUSTERED", true)), (&mut dst, ddl("", false))] {
+        for batch in sql.split("\nGO\n") {
+            run(s, batch).await.unwrap_or_else(|e| panic!("{e}\n{batch}"));
+        }
+    }
+
+    // What the compare tab sends: an Alter for each table that differs.
+    async fn sync(d: &dyn Driver, target: &mut Box<dyn Session>, want: &BTreeMap<String, TableSchema>) -> Vec<String> {
+        let have = tables_of(target).await;
+        let changes: Vec<TableChange> =
+            want.iter().filter(|(n, w)| have[*n] != **w).map(|(n, w)| TableChange::Alter { old: have[n].clone(), new: w.clone() }).collect();
+        let script = d.sync_script(&changes).expect("sync_script");
+        for w in &script.warnings {
+            eprintln!("aviso: {w}");
+        }
+        for (i, s) in script.statements.iter().enumerate() {
+            if let Err(e) = run(target, s).await {
+                panic!("statement {i} failed: {e}\n---\n{s}\n---\nwhole script:\n{}", script.statements.join("\nGO\n"));
+            }
+        }
+        let after = tables_of(target).await;
+        for (n, w) in want {
+            assert_eq!(&after[n], w, "{n} after the sync:\n{}", script.statements.join("\nGO\n"));
+        }
+        script.statements
+    }
+    async fn fks(s: &mut Box<dyn Session>) -> Vec<String> {
+        let mut out = QueryOutcome::default();
+        s.execute(
+            "SELECT fk.name + ':' + OBJECT_NAME(fk.referenced_object_id) + ':' + CAST(fk.is_not_trusted AS varchar(1)) + ':' + fk.delete_referential_action_desc COLLATE DATABASE_DEFAULT
+               FROM sys.foreign_keys fk ORDER BY fk.name",
+            100,
+            &mut out,
+        )
+        .await
+        .unwrap();
+        out.results[0].rows.iter().map(|r| r[0].as_str().unwrap().to_string()).collect()
+    }
+    async fn count(s: &mut Box<dyn Session>, sql: &str) -> i64 {
+        let mut out = QueryOutcome::default();
+        s.execute(sql, 100, &mut out).await.unwrap();
+        out.results[0].rows[0][0].as_i64().unwrap()
+    }
+    let fks_before = fks(&mut dst).await;
+    assert_eq!(
+        fks_before,
+        ["FK_AuditNote_Audit:RuleConfigurationAudit:0:CASCADE", "FK_AuditNote_Scenario:RuleScenario:1:NO_ACTION"],
+        "the target's foreign keys"
+    );
+
+    let source = tables_of(&mut src).await;
+    let target = tables_of(&mut dst).await;
+    let rca = &source["RuleConfigurationAudit"];
+    assert_eq!(rca.options.get("primary_key").map(String::as_str), Some("NONCLUSTERED"), "{rca:#?}");
+    assert!(target["RuleConfigurationAudit"].options.is_empty(), "{:#?}", target["RuleConfigurationAudit"]);
+    assert_eq!(source["AuditNote"], target["AuditNote"]);
+
+    // Source → target: the keys give way to the columnstore indexes.
+    let s = sync(d.as_ref(), &mut dst, &source).await;
+    eprintln!("-- clustered key → columnstore\n{}", s.join("\nGO\n"));
+    assert_eq!(fks(&mut dst).await, fks_before, "foreign keys after the sync");
+    assert_eq!(count(&mut dst, "SELECT CAST(COUNT(*) AS bigint) FROM Alerts.AuditNote n JOIN Alerts.RuleConfigurationAudit a ON a.Id = n.AuditId").await, 2);
+    assert_eq!(
+        count(&mut dst, "SELECT CAST(COUNT(*) AS bigint) FROM sys.indexes WHERE type = 5 AND object_id IN (OBJECT_ID('Alerts.RuleConfigurationAudit'), OBJECT_ID('Alerts.RuleScenario'))").await,
+        2
+    );
+    // Nothing left to sync.
+    let again = d.sync_script(&[TableChange::Alter { old: tables_of(&mut dst).await["RuleScenario"].clone(), new: source["RuleScenario"].clone() }]).unwrap();
+    assert!(again.statements.is_empty(), "{again:#?}");
+
+    // And back: the clustered keys take the place again.
+    let s = sync(d.as_ref(), &mut dst, &target).await;
+    eprintln!("-- columnstore → clustered key\n{}", s.join("\nGO\n"));
+    assert_eq!(fks(&mut dst).await, fks_before, "foreign keys after syncing back");
+    assert_eq!(count(&mut dst, "SELECT CAST(COUNT(*) AS bigint) FROM Alerts.AuditNote").await, 2);
+
+    drop(src);
+    drop(dst);
+    for db in [src_db, dst_db] {
+        admin.drop_database(db).await.expect("drop_database");
+    }
+}
