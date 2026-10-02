@@ -40,6 +40,10 @@ export interface DataScript {
   inserts: number;
   updates: number;
   deletes: number;
+  /** Statements in `script` (progress total). Older backends leave it out. */
+  statements?: number;
+  /** Runs inside one transaction (the engine supports manual transactions). */
+  atomic?: boolean;
 }
 
 export const dataCompareApi = {

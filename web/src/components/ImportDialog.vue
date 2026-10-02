@@ -246,6 +246,8 @@ function mappingList(): { source: string; target: string }[] {
 const running = ref(false);
 const cancelling = ref(false);
 const progressRows = ref(0);
+/** Rows in the file, once the backend knows (parsed, or counted for CSV). */
+const progressTotal = ref<number | null>(null);
 const elapsed = ref(0);
 const result = ref<ImportResult | null>(null);
 const runError = ref('');
@@ -259,6 +261,7 @@ async function runImport() {
   running.value = true;
   cancelling.value = false;
   progressRows.value = 0;
+  progressTotal.value = null;
   result.value = null;
   runError.value = '';
   const started = Date.now();
@@ -278,10 +281,21 @@ async function runImport() {
   });
   task = markRaw(h);
   try {
-    await h.listen<{ id: string; rows: number }>('import-progress', (e) => {
+    // `total`: the file's row count once known; `phase`: reading | inserting.
+    await h.listen<{ id: string; rows: number; total?: number; phase?: string }>('import-progress', (e) => {
       if (e.payload.id !== importId) return;
-      progressRows.value = e.payload.rows;
-      h.progress({ done: e.payload.rows, unit: 'rows' });
+      // The count arrives from another thread: never let `done` go back.
+      const done = Math.max(progressRows.value, e.payload.rows);
+      progressRows.value = done;
+      if (e.payload.total != null) progressTotal.value = e.payload.total;
+      const total = progressTotal.value;
+      h.progress({
+        done,
+        // A count the import went past (an odd CSV) is no longer a total.
+        total: total != null && done <= total ? total : undefined,
+        unit: 'rows',
+        phase: e.payload.phase ? t(`tasks:importExport.phase.${e.payload.phase}`) : undefined,
+      });
     });
     const r = await invoke<ImportResult>('import_file', {
       args: {
@@ -317,6 +331,10 @@ async function runImport() {
   }
 }
 
+const percent = computed(() => {
+  const total = progressTotal.value;
+  return total && progressRows.value <= total ? Math.floor((progressRows.value / total) * 100) : null;
+});
 const rate = computed(() => (elapsed.value > 500 ? Math.round(progressRows.value / (elapsed.value / 1000)) : 0));
 const seconds = (ms: number) => (ms / 1000).toFixed(1);
 
@@ -547,9 +565,14 @@ defineExpose({ step, targetMode });
             <el-icon class="is-loading"><ei-loading /></el-icon>
             {{ cancelling ? $t('scripts:run.cancelling') : $t('importData:run.importing', { file: fileName }) }}
           </div>
-          <el-progress :percentage="100" :indeterminate="true" :duration="2" :show-text="false" :stroke-width="4" class="im-bar" />
+          <el-progress v-if="percent != null" :percentage="percent" :show-text="false" :stroke-width="4" class="im-bar" />
+          <el-progress v-else :percentage="100" :indeterminate="true" :duration="2" :show-text="false" :stroke-width="4" class="im-bar" />
           <div class="im-stats">
-            <div><span class="im-stat">{{ progressRows.toLocaleString(locale()) }}</span><span class="nm-muted">{{ $t('importData:run.rows', { count: progressRows }) }}</span></div>
+            <div>
+              <span class="im-stat">{{ progressRows.toLocaleString(locale()) }}</span>
+              <span v-if="percent != null" class="nm-muted">{{ $t('tasks:importExport.ofTotal', { total: progressTotal!.toLocaleString(locale()) }) }} {{ $t('importData:run.rows', { count: progressTotal! }) }}</span>
+              <span v-else class="nm-muted">{{ $t('importData:run.rows', { count: progressRows }) }}</span>
+            </div>
             <div><span class="im-stat">{{ rate.toLocaleString(locale()) }}</span><span class="nm-muted">{{ $t('importData:run.rowsPerSecond') }}</span></div>
             <div><span class="im-stat">{{ seconds(elapsed) }}</span><span class="nm-muted">{{ $t('scripts:run.seconds') }}</span></div>
           </div>

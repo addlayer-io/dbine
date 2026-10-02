@@ -41,6 +41,8 @@ const scope = ref<'loaded' | 'all'>(props.truncated && props.source ? 'all' : 'l
 const running = ref(false);
 const cancelling = ref(false);
 const progress = ref(0);
+/** Rows the engine's estimated plan expects (streamed export only). */
+const estimate = ref<number | null>(null);
 let task: TaskHandle<ExportResult> | null = null;
 let mounted = true;
 
@@ -74,6 +76,7 @@ async function run() {
   running.value = true;
   cancelling.value = false;
   progress.value = 0;
+  estimate.value = null;
   const all = scope.value === 'all' && props.source ? { ...props.source } : null;
   const options = { ...opts };
   const exportId = crypto.randomUUID();
@@ -91,10 +94,15 @@ async function run() {
   try {
     let result: ExportResult;
     if (all) {
-      await h.listen<{ id: string; rows: number }>('export-progress', (e) => {
+      // `total`: the plan's row estimate, when the engine gives one.
+      await h.listen<{ id: string; rows: number; total?: number }>('export-progress', (e) => {
         if (e.payload.id !== exportId) return;
-        progress.value = e.payload.rows;
-        h.progress({ done: e.payload.rows, unit: 'rows' });
+        const done = Math.max(progress.value, e.payload.rows);
+        progress.value = done;
+        if (e.payload.total != null) estimate.value = e.payload.total;
+        const total = estimate.value;
+        // An estimate the export went past is no longer a total.
+        h.progress({ done, total: total != null && done <= total ? total : undefined, unit: 'rows' });
       });
       result = await exportApi.query({ exportId, ...all, path, options });
     } else {
@@ -206,6 +214,7 @@ function toBackground() {
     <div v-if="running" class="ed-progress">
       <el-icon class="is-loading"><ei-loading /></el-icon>
       <span>{{ scope === 'all' ? $t('results:exportDialog.progressRows', { count: progress, rows: progress.toLocaleString(locale()) }) : $t('results:exportDialog.progress') }}</span>
+      <span v-if="scope === 'all' && estimate != null && progress <= estimate" class="ed-estimate">{{ $t('tasks:importExport.estimated', { total: estimate.toLocaleString(locale()) }) }}</span>
     </div>
 
     <template #footer>
@@ -220,5 +229,6 @@ function toBackground() {
 .ed-scope { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .ed-help { font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.45; margin-top: 4px; }
 .ed-help.warn { color: var(--nm-warning); }
+.ed-estimate { color: var(--nm-text-dim); }
 .ed-progress { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--nm-text); margin-top: 6px; }
 </style>

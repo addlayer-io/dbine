@@ -1776,7 +1776,7 @@ Un backup o una restauración del servidor corre como tarea en segundo plano (pa
 | Motor | Qué informa | De dónde sale | Cómo se reconoce la operación |
 |---|---|---|---|
 | SQL Server (y Managed Instance) | Backup y restauración, en %; la comprobación posterior al backup (`RESTORE VERIFYONLY`) aparece como una etapa propia, con su estimado | `percent_complete` de `sys.dm_exec_requests` | Por el `@@SPID` de la sesión que corre el script. Las lecturas rápidas del archivo antes de restaurar (`FILELISTONLY`, `HEADERONLY`) no se cuentan. |
-| Oracle | Exportación e importación de Data Pump, en % | `percent_done` del trabajo (lo que muestra `expdp ATTACH=`), con `DBMS_DATAPUMP.ATTACH` y `DETACH` enseguida | El trabajo en ejecución del usuario, de exportación o importación. El porcentaje avanza al terminar cada objeto: un esquema que es una sola tabla grande salta de 0 a 99. `v$session_longops` no recibe filas de Data Pump en 23ai Free. |
+| Oracle, Oracle Autonomous | Exportación e importación de Data Pump, en % | `percent_done` del trabajo (lo que muestra `expdp ATTACH=`), con `DBMS_DATAPUMP.ATTACH` y `DETACH` enseguida | El trabajo en ejecución del usuario, de exportación o importación. El porcentaje avanza al terminar cada objeto: un esquema que es una sola tabla grande salta de 0 a 99. `v$session_longops` no recibe filas de Data Pump en 23ai Free. En Autonomous Database se usa la misma consulta; sin probar contra un servidor. |
 | CockroachDB | Backup y restauración, en % | `fraction_completed` de `SHOW JOBS` | El trabajo `BACKUP` o `RESTORE` del usuario creado desde que empezó el script. |
 | MySQL | Backup (`CLONE LOCAL`), en bytes copiados sobre el estimado | `performance_schema.clone_progress` | El clon en curso que empezó después del script. |
 | TiDB | Backup y restauración, en % | `SHOW BACKUPS` / `SHOW RESTORES` | Por el `CONNECTION_ID()` de la sesión que corre el script. |
@@ -1789,7 +1789,6 @@ Un backup o una restauración del servidor corre como tarea en segundo plano (pa
 | SAP HANA | Progreso de la restauración | `RECOVER DATA` corre desde SYSTEMDB con la base detenida; `M_BACKUP_PROGRESS` solo informa backups. |
 | OceanBase, StarRocks, Apache Doris, Redis, Valkey, Dragonfly | Progreso del backup | La sentencia (`ALTER SYSTEM BACKUP`, `BACKUP SNAPSHOT`, `BGSAVE`) vuelve enseguida y el backup sigue en el servidor: su estado se ve en el historial. |
 | CrateDB, H2, Manticore, GreptimeDB, DuckDB, SQLite, Memgraph, etcd, Solr, Snowflake, Databricks, BigQuery, Cloud Spanner, DynamoDB, Amazon Keyspaces, presets ODBC | Progreso del backup y de la restauración | El motor no publica el avance de la operación mientras corre: la tarea muestra solo el tiempo transcurrido. |
-| Oracle Autonomous | Progreso de la exportación y de la importación | Pendiente explícito: la consulta de Data Pump de Oracle sirve igual, pero todavía no está conectada a este motor. |
 | SingleStore, ClickHouse, Elasticsearch, OpenSearch | Progreso del backup y de la restauración | Pendiente explícito: `MV_BACKUP_STATUS` (SingleStore), `system.backups` (ClickHouse) y `_snapshot/_status` (Elasticsearch, OpenSearch) podrían dar el avance; falta verificar contra un servidor qué informan durante la operación. |
 
 ## Clonar tabla

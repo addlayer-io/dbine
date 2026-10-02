@@ -7,7 +7,7 @@ use dbine_driver::{DdlParts, Driver, ObjectRef, RowChange, TableSchema};
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 /// The driver of a saved connection.
 pub fn driver_of(state: &AppState, connection_id: &str) -> CommandResult<&'static Arc<dyn Driver>> {
@@ -132,6 +132,19 @@ pub struct DropObjectsArgs {
     pub connection_id: String,
     pub database: String,
     pub objects: Vec<ObjectRef>,
+    /// Progress events (`drop-objects-progress`) carry this id; none are
+    /// sent without it (older callers).
+    #[serde(default)]
+    pub id: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct DropProgress {
+    id: String,
+    /// Objects settled: dropped, or given up on (failed in a pass where
+    /// nothing else could go, or not droppable from DBine).
+    done: usize,
+    total: usize,
 }
 
 #[derive(serde::Serialize)]
@@ -145,7 +158,7 @@ pub struct DropObjectsResult {
 /// triggers…) with the driver's own DDL. In passes: an object others depend
 /// on goes once they're gone. Refused on read-only connections.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn drop_objects(state: State<'_, AppState>, args: DropObjectsArgs) -> CommandResult<DropObjectsResult> {
+pub async fn drop_objects(app: AppHandle, state: State<'_, AppState>, args: DropObjectsArgs) -> CommandResult<DropObjectsResult> {
     let conn = state.store.get_connection(&args.connection_id)?.ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
     if conn.config.read_only {
         return Err(CommandError::BadRequest(format!("«{}» es de solo lectura: no se pueden eliminar objetos", conn.name)));
@@ -165,6 +178,19 @@ pub async fn drop_objects(state: State<'_, AppState>, args: DropObjectsArgs) -> 
             None => errors.push((o.clone(), "este motor no permite eliminar este tipo de objeto desde DBine".into())),
         }
     }
+    let total = args.objects.len();
+    // Throttled; `force` for the first and the last event.
+    let mut last_emit: Option<std::time::Instant> = None;
+    let mut progress = |done: usize, force: bool| {
+        let Some(id) = &args.id else { return };
+        let now = std::time::Instant::now();
+        if !force && last_emit.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(150)) {
+            return;
+        }
+        last_emit = Some(now);
+        let _ = app.emit("drop-objects-progress", DropProgress { id: id.clone(), done, total });
+    };
+    progress(errors.len(), true);
     let key = format!("drop:{}", uuid::Uuid::new_v4());
     let entry = state.dedicated_session(&key, &args.connection_id, &args.database, false).await?;
     let mut dropped = Vec::new();
@@ -180,7 +206,10 @@ pub async fn drop_objects(state: State<'_, AppState>, args: DropObjectsArgs) -> 
                     None => Ok(()),
                 });
                 match r {
-                    Ok(()) => dropped.push(o.clone()),
+                    Ok(()) => {
+                        dropped.push(o.clone());
+                        progress(dropped.len() + errors.len(), false);
+                    }
                     Err(e) => failed.push((o.clone(), sql.clone(), e)),
                 }
             }
@@ -193,6 +222,7 @@ pub async fn drop_objects(state: State<'_, AppState>, args: DropObjectsArgs) -> 
     }
     .await;
     let _ = result;
+    progress(dropped.len() + errors.len(), true);
     state.sessions.remove(&key);
     Ok(DropObjectsResult { dropped, errors })
 }

@@ -131,11 +131,18 @@ export async function dropObjects(connectionId: string, database: string, object
     connectionId, database, background: true,
     run: async (task) => {
       task.progress({ done: 0, total: objects.length, unit: 'objects' });
+      // Per object, as the backend settles each one (typed here: the
+      // command is invoked directly, not through api/).
+      type DropProgress = { id: string; done: number; total: number };
+      const id = `drop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await task.listen<DropProgress>('drop-objects-progress', (e) => {
+        if (e.payload.id === id) task.progress({ done: e.payload.done, total: e.payload.total, unit: 'objects' });
+      });
       const { invoke } = await import('@tauri-apps/api/core');
       const r = await invoke<Dropped>('drop_objects', {
-        args: { connection_id: connectionId, database, objects },
+        args: { connection_id: connectionId, database, objects, id },
       });
-      task.progress({ done: r.dropped.length });
+      task.progress({ done: r.dropped.length + r.errors.length, total: objects.length, unit: 'objects' });
       for (const [o, e] of r.errors) task.log(`${label(o)}: ${tb(e)}`, 'error');
       const gone = new Set(r.dropped.map((o) => `${o.kind}\u0000${o.schema ?? ''}\u0000${o.name}`));
       tabs.closeWhere((t) => t.kind === 'object' && t.connectionId === connectionId && t.database === database

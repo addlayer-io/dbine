@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
 import { dataCompareApi, type DataCompareResult, type DataScript, type DataSide, type Dir } from '../api/dataCompare';
-import type { Cell, ObjectRef } from '../api/types';
+import type { Cell, ObjectRef, QueryProgress } from '../api/types';
 import { newQuery } from '../composables/actions';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -351,6 +351,13 @@ function cancelRun() {
   if (runTaskHandle) tasks.cancel(runTaskHandle.id);
 }
 
+/** `data_compare_script` also says how many statements each script has (the
+ *  units its run reports as they end); typed here until api/dataCompare.ts
+ *  carries it. */
+const statementsOf = (s: DataScript) => Math.max(1, s.statements ?? 1);
+/** The side runs inside one transaction (the engine has manual ones). */
+const atomicOf = (s: DataScript) => s.atomic === true;
+
 /** Runs every script, one side after the other; stops at the first error. */
 async function apply() {
   if (!scripts.value.length || applying.value || building.value || stale.value) return;
@@ -381,7 +388,30 @@ async function apply() {
   builtTaskHandle = null;
   runTaskHandle = task;
   runTaskId.value = task.id;
-  task.progress({ done: 0, total: toRun.length, unit: t('tasks:dataSync.unit') });
+  // Progress in statements across every side: each side's run reports its
+  // statements as they end (query-progress, as in the editor) where the
+  // engine allows; the others advance when their side ends.
+  const total = toRun.reduce((n, s) => n + statementsOf(s), 0);
+  task.progress({ done: 0, total, unit: t('tasks:dataSync.unit') });
+  /** Statements of the sides already run, the running side's, and its session. */
+  let base = 0;
+  let sideTotal = 0;
+  let liveSession: string | null = null;
+  // At most one update every 200 ms: a side can end thousands of statements.
+  let shown = 0;
+  let lastShown = 0;
+  let pending: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    if (pending) clearTimeout(pending);
+    pending = null;
+    lastShown = Date.now();
+    task.progress({ done: shown });
+  };
+  const report = (done: number, now = false) => {
+    shown = Math.max(shown, Math.min(done, total));
+    if (now) flush();
+    else pending ??= setTimeout(flush, Math.max(0, lastShown + 200 - Date.now()));
+  };
   applying.value = true;
   scriptError.value = null;
   /** The sides whose script ran to the end. */
@@ -406,11 +436,20 @@ async function apply() {
     if (alive) await compare();
   };
   try {
-    for (const [i, s] of toRun.entries()) {
+    await task.listen<QueryProgress>('query-progress', ({ payload: p }) => {
+      if (p.session_id !== liveSession) return;
+      // `total` is 0 when the driver splits the script itself: then it's
+      // the count from data_compare_script (the same cut).
+      const n = p.total > 0 ? Math.round(((p.statement + 1) * sideTotal) / p.total) : p.statement + 1;
+      report(base + Math.min(n, sideTotal));
+    });
+    for (const s of toRun) {
       // Cancelar between two sides: the next one doesn't start.
       if (task.isCancelling) { await stopped('cancel'); return; }
       const sessionId = `dsync:${s.side}:${Date.now()}`;
       session = sessionId;
+      liveSession = sessionId;
+      sideTotal = statementsOf(s);
       task.progress({ phase: t('tasks:dataSync.phase', { side: sideName(s.side), parts: summaryOf(s) }) });
       task.log(t('tasks:dataSync.phase', { side: sideName(s.side), parts: summaryOf(s) }));
       // The backend only sees a cancel once the session is connected and the
@@ -418,26 +457,63 @@ async function apply() {
       // while connecting would be lost: keep sending it until the script ends.
       const retry = setInterval(() => { if (task.isCancelling) api.cancelQuery(sessionId).catch(() => {}); }, 500);
       let failure: string | null = null;
+      const atomic = atomicOf(s);
+      /** The side may hold part of its changes: false once its transaction
+       *  is known to be rolled back (or never opened). */
+      let partial = !atomic;
       try {
-        const o = await api.executeQuery({ sessionId, connectionId: s.connection_id, database: s.database, sql: s.script, maxRows: 10, record: true });
+        // Where the engine has manual transactions, as the editor runs it
+        // ('auto': statement by statement, with progress events) inside one
+        // transaction that commits only when every statement ran: a failure
+        // or a cancel leaves the side as it was. Elsewhere, the whole script
+        // in one call ('whole'), as before: the engine's own atomicity (a
+        // multi-statement text is one implicit transaction on some) stays.
+        // Stops at the first error. The script is generated (every
+        // UPDATE/DELETE goes by key), so no WHERE check.
+        const o = await api.executeQuery({
+          sessionId, connectionId: s.connection_id, database: s.database, sql: s.script, maxRows: 10, record: true,
+          ...(atomic
+            ? { mode: 'auto' as const, autocommit: false, continueOnError: false, confirmedUnsafe: true }
+            : { mode: 'whole' as const }),
+        });
+        clearInterval(retry);
         if (o.error) failure = tb(o.error);
+        else if (atomic && task.isCancelling) failure = '';
+        else if (atomic) {
+          // A commit that fails is an error of the side; whether anything
+          // stayed is then unknown.
+          // Past this point Cancelar must not reach the session: a cancel
+          // that interrupts the COMMIT would leave its outcome unknown. A
+          // cancel now stops before the next side instead.
+          session = null;
+          partial = true;
+          await api.commitTab(sessionId);
+          partial = false;
+        }
       } catch (e) {
         failure = errorMessage(e);
       } finally {
         clearInterval(retry);
         session = null;
+        liveSession = null;
+        if (failure !== null && atomic) {
+          // Closing the session would roll it back too; this says so first.
+          await api.rollbackTab(sessionId).catch(() => {});
+        }
         api.closeSession(sessionId).catch(() => {});
       }
       if (failure !== null) {
-        if (task.isCancelling) { await stopped('cancel', s); return; }
+        const stoppedOn = partial ? s : undefined;
+        if (task.isCancelling) { await stopped('cancel', stoppedOn); return; }
         sync.tab = s.side;
         scriptError.value = t('dataCompare:failedOn', { side: sideName(s.side), error: failure });
         task.log(scriptError.value, 'error');
-        await stopped('error', s, scriptError.value);
+        await stopped('error', stoppedOn, scriptError.value);
         return;
       }
       applied.push(s);
-      task.progress({ done: i + 1 });
+      base += sideTotal;
+      report(base, true);
     }
     // A cancel that arrived after the last script ended changed nothing: it's applied.
     if (task.isCancelling) task.log(t('tasks:dataSync.lateCancel'));
@@ -464,6 +540,7 @@ async function apply() {
       task.fail(e);
     }
   } finally {
+    if (pending) clearTimeout(pending);
     applying.value = false;
     task.setReopen(undefined);
     if (runTaskHandle === task) runTaskHandle = null;

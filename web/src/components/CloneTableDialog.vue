@@ -156,9 +156,12 @@ async function start() {
       s.phase = e.phase;
       task.progress({ phase: t(`cloneTable:phase.${e.phase}`) });
     } else if (e.event === 'progress') {
+      // Some engines only estimate the total (DynamoDB's ItemCount): once
+      // the copy passes it, it's no total at all.
+      const total = e.rows_total != null && e.rows_total >= e.rows_done ? e.rows_total : null;
       s.rowsDone = e.rows_done;
-      s.rowsTotal = e.rows_total;
-      task.progress({ done: e.rows_done, total: e.rows_total ?? undefined, unit: 'rows' });
+      s.rowsTotal = total;
+      task.progress({ done: e.rows_done, total: total ?? undefined, unit: 'rows' });
     } else if (e.level !== 'info') {
       // Raw, like the notes: the template translates both once.
       s.warnings.push(e.text);

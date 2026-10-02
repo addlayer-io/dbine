@@ -10,7 +10,7 @@ use crate::state::AppState;
 use dbine_driver::{kinds, Driver, ObjectRef, QueryOutcome, SyncScript, TableChange, TableSchema};
 use dbine_schema::compare::{CodeObject, CompareOptions, CompareResult, DbModel};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 /// Kinds compared by their source.
 const CODE_KINDS: &[&str] = &[
@@ -302,19 +302,42 @@ pub struct RunResult {
     pub failed: Option<(usize, String)>,
 }
 
+/// `schema-sync-progress`: statements run so far in `run_id`. The first one
+/// (`done: 0`) also says the run's session is registered, so a cancel sent
+/// from then on reaches it.
+#[derive(Serialize, Clone)]
+struct SyncProgress<'a> {
+    run_id: &'a str,
+    done: usize,
+    total: usize,
+}
+
+/// Minimum gap between two progress events of one run (the last one always goes).
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(150);
+
 /// Run the script on the target, statement by statement; stops at the first
 /// error. Refused on read-only connections.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn schema_sync_run(state: State<'_, AppState>, args: RunArgs) -> CommandResult<RunResult> {
+pub async fn schema_sync_run(app: AppHandle, state: State<'_, AppState>, args: RunArgs) -> CommandResult<RunResult> {
     let conn = state.store.get_connection(&args.connection_id)?.ok_or_else(|| CommandError::NotFound("conexión inexistente".into()))?;
     if conn.config.read_only {
         return Err(CommandError::BadRequest(format!("«{}» es de solo lectura: no se pueden aplicar cambios", conn.name)));
     }
     let key = format!("sync:{}", args.run_id);
     let entry = state.dedicated_session(&key, &args.connection_id, &args.database, false).await?;
+    let total = args.statements.len();
+    let emit = |done| {
+        let _ = app.emit("schema-sync-progress", SyncProgress { run_id: &args.run_id, done, total });
+    };
+    emit(0);
+    let mut last = std::time::Instant::now();
     let mut done = 0;
     let mut failed = None;
     for (i, sql) in args.statements.iter().enumerate() {
+        if last.elapsed() >= PROGRESS_EVERY {
+            emit(done);
+            last = std::time::Instant::now();
+        }
         if entry.cancelled.load(std::sync::atomic::Ordering::Relaxed) {
             failed = Some((i, "cancelado".to_string()));
             break;
@@ -334,6 +357,7 @@ pub async fn schema_sync_run(state: State<'_, AppState>, args: RunArgs) -> Comma
         }
     }
     state.sessions.remove(&key);
+    emit(done);
     Ok(RunResult { done, failed })
 }
 
