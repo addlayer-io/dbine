@@ -453,9 +453,10 @@ fn index(
         report.push(Severity::Dropped, IssueCode::IndexDropped, &t.name, Some(&ix.name), "El destino no tiene índices secundarios.");
         return None;
     }
-    // A ClickHouse projection (a query) or a PostgreSQL EXCLUDE constraint
-    // has no counterpart in another engine.
-    if let Some(kind) = ix.kind.as_deref().filter(|k| !same_family && (k.eq_ignore_ascii_case("projection") || k.eq_ignore_ascii_case("exclude"))) {
+    // A ClickHouse projection (a query), a PostgreSQL EXCLUDE constraint or
+    // a Dremio reflection (RAW / AGGREGATION, a materialized copy) has no
+    // counterpart in another engine.
+    if let Some(kind) = ix.kind.as_deref().filter(|k| !same_family && ["projection", "exclude", "raw", "aggregation"].iter().any(|x| k.eq_ignore_ascii_case(x))) {
         report.push(
             Severity::Warning,
             IssueCode::IndexDropped,

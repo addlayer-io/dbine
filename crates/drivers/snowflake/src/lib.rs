@@ -12,6 +12,7 @@ mod blocking;
 mod blocks;
 mod script;
 mod ddl;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -323,6 +324,12 @@ impl Driver for SnowflakeDriver {
     }
 
     fn supports_schema_sync(&self) -> bool {
+        true
+    }
+
+    /// Hybrid tables' indexes and every table's foreign keys; no usage
+    /// counters (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -1081,6 +1088,10 @@ impl Session for SnowflakeSession {
         let snap = monitor::snapshot(&*self, &mut cache).await;
         self.mon = cache;
         Ok(snap)
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        index_usage::report(self, table).await.map(Some)
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

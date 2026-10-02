@@ -12,6 +12,7 @@
 //! `sys.memory` and `sys.jobs`.
 
 mod ddl;
+mod index_usage;
 mod permissions;
 mod plan;
 mod profiler;
@@ -126,6 +127,12 @@ impl Driver for DremioDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
+    }
+
+    /// A table's reflections, Dremio's nearest thing to indexes (see
+    /// `index_usage`).
+    fn supports_index_usage(&self) -> bool {
+        true
     }
 
     fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
@@ -621,7 +628,26 @@ impl Session for DremioSession {
                 ..Default::default()
             });
         }
+        // Reflections as the tables' indexes; a login that can't read
+        // sys.reflections gets the tables without them.
+        match self.records(index_usage::SQL).await {
+            Ok(rows) => index_usage::attach(&mut out, &rows),
+            Err(e) => tracing::debug!("dremio: reflections not read: {e}"),
+        }
         Ok(out)
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let schema = self.schema_of(table)?;
+        match self.records(index_usage::SQL).await {
+            Ok(rows) => Ok(Some(index_usage::report(&rows, Some(&schema), &table.name))),
+            Err(Error::Query(e)) => Ok(Some(dbine_driver::IndexUsageReport {
+                note: Some(format!("No se pudo leer sys.reflections (en Dremio Enterprise hace falta el privilegio VIEW REFLECTION): {e}")),
+                seek_scan_split: false,
+                ..Default::default()
+            })),
+            Err(e) => Err(e),
+        }
     }
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {

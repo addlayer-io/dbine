@@ -5,6 +5,7 @@
 
 #[path = "../../bigquery/src/gcp.rs"]
 mod gcp;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -183,6 +184,13 @@ impl Driver for SpannerDriver {
     }
 
     fn supports_schema_sync(&self) -> bool {
+        true
+    }
+
+    /// The catalog's indexes and foreign keys, with the per-index read and
+    /// write counts of `SPANNER_SYS.TABLE_OPERATIONS_STATS_HOUR` (see
+    /// `index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -1158,6 +1166,10 @@ impl Session for SpannerSession {
             }
         }
         Ok(out)
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        index_usage::report(self, table).await.map(Some)
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

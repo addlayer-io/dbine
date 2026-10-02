@@ -12,6 +12,7 @@
 mod backup;
 mod blocks;
 mod ddl;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -298,6 +299,12 @@ impl Driver for DatabricksDriver {
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
         ddl::templates()
+    }
+
+    /// No indexes, but Unity Catalog's foreign keys for the explorer (see
+    /// `index_usage`).
+    fn supports_index_usage(&self) -> bool {
+        true
     }
 
     fn supports_schema_sync(&self) -> bool {
@@ -792,6 +799,10 @@ impl Session for DatabricksSession {
             }
         }
         Ok(out)
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        index_usage::report(self, table).await.map(Some)
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

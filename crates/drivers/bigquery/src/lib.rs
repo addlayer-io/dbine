@@ -6,6 +6,7 @@
 mod blocks;
 mod ddl;
 mod gcp;
+mod index_usage;
 mod indexes;
 mod monitor;
 mod permissions;
@@ -243,6 +244,12 @@ impl Driver for BigQueryDriver {
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
         ddl::templates()
+    }
+
+    /// Search and vector indexes, with the jobs that used them (see
+    /// `index_usage`), and the foreign keys.
+    fn supports_index_usage(&self) -> bool {
+        true
     }
 
     fn supports_schema_sync(&self) -> bool {
@@ -893,6 +900,10 @@ impl Session for BigQuerySession {
             }
         }
         Ok(())
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        index_usage::report(self, table).await.map(Some)
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

@@ -129,7 +129,7 @@ fn fulltext_indexes_are_dropped_across_engines_only() {
 
 #[test]
 fn projections_and_exclusions_stay_in_their_engine() {
-    for (from, to, kind) in [("clickhouse", "postgres", "PROJECTION"), ("postgres", "mysql", "EXCLUDE")] {
+    for (from, to, kind) in [("clickhouse", "postgres", "PROJECTION"), ("postgres", "mysql", "EXCLUDE"), ("dremio", "postgres", "RAW"), ("dremio", "mysql", "AGGREGATION")] {
         let mut t = lower_sample(false);
         t.indexes[0].kind = Some(kind.into());
         let c = convert(&[t], from, to, &Options::default()).unwrap();
