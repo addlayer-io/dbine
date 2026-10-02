@@ -15,8 +15,8 @@
 //! `PARTIALLY_USED`) in the region's `INFORMATION_SCHEMA.JOBS`, kept for 180
 //! days. Reads (`seeks`) = jobs that used the index in that window; `since`
 //! = its start; last read = the last such job. One counter (no seeks
-//! against scans: `seek_scan_split` false) and no write counter, so no
-//! index is "sin uso". With more than one vector index the job doesn't say
+//! against scans: `seek_scan_split` false) and no write counter
+//! (`writes_counted` false), so no index is "sin uso". With more than one vector index the job doesn't say
 //! which one it used: their counters stay at zero and the note says so.
 //! `JOBS` needs `bigquery.jobs.listAll`; without it `JOBS_BY_USER` (the
 //! login's own jobs) and a note; without either, no counters.
@@ -150,7 +150,7 @@ pub(crate) async fn report(s: &mut BigQuerySession, table: &ObjectRef) -> Result
     let ds = s.dataset(table)?;
     let project = s.api.project.clone();
     let meta = s.api.get(&["datasets", &ds, "tables", &table.name], &[]).await?;
-    let mut r = IndexUsageReport { foreign_keys: foreign_keys(&meta, &project), seek_scan_split: false, ..Default::default() };
+    let mut r = IndexUsageReport { foreign_keys: foreign_keys(&meta, &project), seek_scan_split: false, writes_counted: false, ..Default::default() };
     // Emulators don't have these views.
     for kind in [SEARCH, VECTOR] {
         let view = if kind == SEARCH { "SEARCH_INDEXES" } else { "VECTOR_INDEXES" };
@@ -239,8 +239,8 @@ mod tests {
         assert_eq!(ixs[1].kind, "VECTOR INDEX (PENDING DISABLEMENT)");
         let usage = row(&[("search_used", "5"), ("search_last", "2026-10-01 09:00:00"), ("vector_used", "0"), ("since", "2026-04-04 00:00:00")]);
         assert!(apply(&mut ixs, &usage));
-        let r = IndexUsageReport { stats_available: true, seek_scan_split: false, indexes: ixs.clone(), ..Default::default() }.derived();
-        assert_eq!((r.indexes[0].seeks, r.indexes[0].read_share, r.indexes[0].seek_health), (5, Some(1.0), None));
+        let r = IndexUsageReport { stats_available: true, seek_scan_split: false, writes_counted: false, indexes: ixs.clone(), ..Default::default() }.derived();
+        assert_eq!((r.indexes[0].seeks, r.indexes[0].read_share, r.indexes[0].seek_health, r.indexes[0].writes_per_read), (5, Some(1.0), None, None));
         assert_eq!((r.indexes[1].seeks, r.indexes[1].read_share, r.indexes[1].unused), (0, Some(0.0), false));
         // Two vector indexes: the job doesn't say which one.
         ixs.push(ixs[1].clone());

@@ -3,6 +3,7 @@ import { api, errorMessage } from '../api/client';
 import type { IndexUsage, IndexUsageReport, ObjectRef } from '../api/types';
 import type { ForeignKeyDef } from '../api/schema-types';
 import { t } from '../i18n';
+import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 
 // A table's indexes and how they're used (`get_index_usage`), shared by the
@@ -76,10 +77,20 @@ export interface UsageBadge {
   healthTip: string | null;
 }
 
-/** The usage badge: the read share, "sin uso", or nothing without counters. */
-export function usageBadge(i: IndexUsage): UsageBadge | null {
-  if (i.unused) return { text: t('explorer:indexes.unused'), unused: true, health: null, healthTip: null };
-  if (i.read_share == null) return null;
+/** The usage badge: the read share, "sin uso" (only where writes are
+ *  counted), "0%" (counters, but no reads
+ *  on the table yet) or "sin datos" (the engine/login gives no counters).
+ *  `null` only without a report to say anything about. */
+export function usageBadge(i: IndexUsage, report?: Pick<IndexUsageReport, 'stats_available' | 'note' | 'writes_counted'> | null): UsageBadge | null {
+  if (report && !report.stats_available) {
+    return { text: t('explorer:indexes.noData'), unused: false, health: null, healthTip: report.note ? tb(report.note) : t('explorer:indexes.noDataTip') };
+  }
+  // Without write counts no index can be judged unused (the backend already
+  // leaves `unused` false; a report from an older host might not).
+  if (i.unused && report?.writes_counted !== false) return { text: t('explorer:indexes.unused'), unused: true, health: null, healthTip: null };
+  if (i.read_share == null) {
+    return report ? { text: '0%', unused: false, health: null, healthTip: t('explorer:indexes.noReadsTip') } : null;
+  }
   return { text: sharePct(i.read_share), unused: false, health: i.seek_health ?? null, healthTip: seekTip(i) };
 }
 

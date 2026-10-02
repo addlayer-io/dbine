@@ -595,6 +595,7 @@ mod tests {
             since: Some("2026-01-02 03:04:05".into()),
             stats_available: true,
             seek_scan_split: true,
+            writes_counted: false,
             note: None,
             indexes: vec![dbine_driver::IndexUsage {
                 name: "ix".into(),

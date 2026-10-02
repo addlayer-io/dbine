@@ -16,7 +16,8 @@
 //!     (`MON_GET_DATABASE.DB_CONN_TIME`). Without EXECUTE on the monitor
 //!     functions the indexes are listed without counters, with a note.
 //!   - Db2 for i: `QSYS2.SYSINDEXSTAT.QUERY_USE_COUNT` (queries that used
-//!     the index; no write counter) and `LAST_QUERY_USE`.
+//!     the index; no write counter: `writes_counted` false) and
+//!     `LAST_QUERY_USE`.
 //!   - Sybase ASE: `master..monOpenObjectActivity.UsedCount` (plans that used
 //!     the index while its descriptor was open), writes = rows inserted +
 //!     deleted + updated through it, `LastUsedDate`. Needs mon_role and the
@@ -135,7 +136,9 @@ pub fn note(p: &Preset, stats: bool) -> String {
 /// order, with `usage`'s counters where there are (`None`: no counters).
 pub fn assemble(p: &Preset, t: Option<&TableSchema>, usage: Option<&[UsageRow]>, since: Option<String>) -> IndexUsageReport {
     let stats = usage.is_some();
-    let mut r = IndexUsageReport { since, stats_available: stats, note: Some(note(p, stats)), seek_scan_split: false, ..Default::default() };
+    // Db2 for i counts queries only, no writes.
+    let writes_counted = stats && matches!(design::eng(p), Eng::Db2 | Eng::Ase);
+    let mut r = IndexUsageReport { since, stats_available: stats, note: Some(note(p, stats)), seek_scan_split: false, writes_counted, ..Default::default() };
     let Some(t) = t else { return r.derived() };
     let fill = |mut i: IndexUsage, u: Option<&UsageRow>| {
         if let Some(u) = u {
@@ -223,7 +226,7 @@ mod tests {
             vec![s("IX_B"), s("U"), s("0"), s("7"), None],
         ]);
         let r = assemble(preset("db2"), Some(&table()), Some(&rows), Some("2026-09-01 08:00:00".into()));
-        assert!(r.stats_available && !r.seek_scan_split);
+        assert!(r.stats_available && !r.seek_scan_split && r.writes_counted);
         assert_eq!(r.since.as_deref(), Some("2026-09-01 08:00:00"));
         let got: Vec<(&str, u64, u64)> = r.indexes.iter().map(|i| (i.name.as_str(), i.seeks, i.updates)).collect();
         assert_eq!(got, [("PK_T", 12, 3), ("IX_A", 5, 2), ("IX_B", 0, 7)]);
@@ -236,6 +239,15 @@ mod tests {
         assert_eq!(r.indexes[0].read_share.map(|v| (v * 100.0).round()), Some(71.0));
         assert_eq!(r.foreign_keys.len(), 1);
         assert!(r.note.unwrap().contains("INDEX_SCANS"));
+    }
+
+    #[test]
+    fn db2i_counts_no_writes() {
+        let s = |v: &str| Some(v.to_string());
+        let rows = parse_counters(&[vec![s("IX_B"), s(""), s("0"), s("0"), None]]);
+        let r = assemble(preset("db2i"), Some(&table()), Some(&rows), None);
+        assert!(r.stats_available && !r.writes_counted);
+        assert!(r.indexes.iter().all(|i| !i.unused && i.writes_per_read.is_none()));
     }
 
     #[test]

@@ -376,7 +376,9 @@ function objectNode(c: SavedConnection, db: string, o: DbObject, hasColumns: boo
 
 /** Tables of engines that report their indexes' usage (SQL Server…). */
 function indexesShown(connectionId: string, o: DbObject): boolean {
-  return o.kind === 'table' && !!conns.driverOf(connectionId)?.supports_index_usage;
+  // Tables, document collections, graph labels / relationship types and
+  // OrientDB's vertex / edge classes.
+  return ['table', 'collection', 'label', 'relationship', 'vertex', 'edge'].includes(o.kind) && !!conns.driverOf(connectionId)?.supports_index_usage;
 }
 
 /** The "Índices" folder below a table's columns. */
@@ -394,7 +396,7 @@ function indexesNode(c: SavedConnection, db: string, o: DbObject, parentId: stri
         : list.length
           ? list.map((i) => ({
             id: `ix:${id}:${i.name}`, label: i.name, type: 'index' as const, connectionId: c.id, database: db, object: o,
-            hint: indexTag(i), badge: usageBadge(i),
+            hint: indexTag(i), badge: usageBadge(i, usage?.report),
           }))
           : [status(id, 'empty', t('explorer:indexes.none'))],
   };

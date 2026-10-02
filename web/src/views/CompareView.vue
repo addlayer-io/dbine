@@ -880,13 +880,24 @@ function ixUsage(s: SideId, name: string | null, pk = false): IndexUsage | null 
   if (!report) return null;
   return report.indexes.find((i) => (pk ? i.primary_key : i.name.toLowerCase() === (name ?? '').toLowerCase())) ?? null;
 }
+function ixReport(s: SideId) {
+  const x = usageTable(s);
+  return x ? indexUsageEntry(sides[s].connectionId, sides[s].database, x) : undefined;
+}
 function ixBadge(s: SideId, name: string | null, pk = false) {
+  // The read failed on that side: say so instead of showing nothing.
+  if (ixReport(s)?.status === 'error') return { text: '—', unused: false, health: null, healthTip: ixReport(s)?.error ?? null };
   const u = ixUsage(s, name, pk);
-  return u ? usageBadge(u) : null;
+  return u ? usageBadge(u, ixReport(s)?.report) : null;
 }
 function ixBadgeTip(s: SideId, name: string | null, pk = false) {
+  const err = ixReport(s);
+  if (err?.status === 'error') return err.error ?? '';
   const u = ixUsage(s, name, pk);
   if (!u) return '';
+  const report = err?.report;
+  if (report && !report.stats_available) return usageBadge(u, report)?.healthTip ?? '';
+  if (u.read_share == null && !u.unused) return t('explorer:indexes.noReadsTip');
   if (u.unused) return t('compare:indexUsage.unused', { updates: u.updates.toLocaleString() });
   return [t('compare:indexUsage.share', { pct: sharePct(u.read_share ?? 0), reads: u.reads.toLocaleString() }), seekTip(u)].filter(Boolean).join('\n');
 }

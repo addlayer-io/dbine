@@ -77,7 +77,7 @@ async fn index_usage_live() {
     }
     let r = s.index_usage(&t).await.unwrap().expect("report").derived();
     eprintln!("{r:#?}");
-    assert!(r.stats_available && !r.seek_scan_split && r.note.is_some());
+    assert!(r.stats_available && !r.seek_scan_split && !r.writes_counted && r.note.is_some());
     assert_eq!(r.indexes.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), vec!["r_idle", "r_used"]);
     let (idle, hit) = (&r.indexes[0], &r.indexes[1]);
     assert!(used >= 2 && hit.seeks >= 2, "r_used accelerated {used} queries");

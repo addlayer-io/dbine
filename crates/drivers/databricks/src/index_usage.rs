@@ -68,7 +68,7 @@ pub(crate) async fn report(s: &mut DatabricksSession, table: &ObjectRef) -> Resu
         },
         Err(_) => Vec::new(),
     };
-    Ok(IndexUsageReport { note: Some(NOTE.into()), foreign_keys, seek_scan_split: false, ..Default::default() })
+    Ok(IndexUsageReport { note: Some(NOTE.into()), foreign_keys, seek_scan_split: false, writes_counted: false, ..Default::default() })
 }
 
 #[cfg(test)]

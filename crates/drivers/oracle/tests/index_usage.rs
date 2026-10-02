@@ -102,7 +102,7 @@ async fn index_usage_live() {
     assert_eq!(get(&r, "IX_UNTOUCHED").key_columns, ["B DESC", "UPPER(\"C\")"]);
     assert_eq!(get(&r, "IX_UNTOUCHED").kind, "FUNCTION-BASED NORMAL");
     assert!(r.indexes.iter().all(|i| i.size_kb.is_some_and(|k| k > 0)), "{r:?}");
-    assert!(get(&r, "IX_UNTOUCHED").updates > 0, "the insert changed its blocks: {r:?}");
+    assert!(r.writes_counted && get(&r, "IX_UNTOUCHED").updates > 0, "the insert changed its blocks: {r:?}");
     assert_eq!(r.foreign_keys.len(), 1);
     let fk = &r.foreign_keys[0];
     assert_eq!((fk.name.as_deref(), fk.columns.clone(), fk.ref_table.as_str(), fk.ref_columns.clone(), fk.ref_schema.clone()), (Some("FK_T_PARENT"), vec!["P".to_string()], "PARENT", vec!["ID".to_string()], None));

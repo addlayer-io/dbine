@@ -57,7 +57,7 @@ fn int(v: &Value) -> Option<u64> {
 /// connection or libSQL over HTTP). A failing `dbstat` leaves sizes empty.
 pub fn report_with<E>(q: &mut dyn FnMut(&str) -> Result<Rows, E>, table: &str) -> Result<IndexUsageReport, E> {
     let Some(t) = schema::read_schema_with(q)?.into_iter().find(|t| t.name == table) else {
-        return Ok(IndexUsageReport { note: Some(NOTE.into()), ..Default::default() });
+        return Ok(IndexUsageReport { note: Some(NOTE.into()), writes_counted: false, ..Default::default() });
     };
     let list: Vec<(String, String)> = q(&index_list_sql(table))?.iter().map(|r| (text(&r[0]), text(&r[1]))).collect();
     let without_rowid = t.options.get("without_rowid").is_some_and(|v| v == "true");
@@ -109,7 +109,7 @@ pub fn assemble(t: &TableSchema, list: &[(String, String)], without_rowid: bool,
             ..Default::default()
         });
     }
-    IndexUsageReport { note: Some(NOTE.into()), indexes, foreign_keys: t.foreign_keys.clone(), ..Default::default() }.derived()
+    IndexUsageReport { note: Some(NOTE.into()), indexes, foreign_keys: t.foreign_keys.clone(), writes_counted: false, ..Default::default() }.derived()
 }
 
 #[cfg(test)]

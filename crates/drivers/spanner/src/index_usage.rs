@@ -210,6 +210,8 @@ pub(crate) async fn report(s: &mut SpannerSession, table: &ObjectRef) -> Result<
         indexes: list,
         foreign_keys: foreign_keys(&fks),
         seek_scan_split: false,
+        // WRITE_COUNT + DELETE_COUNT, per index.
+        writes_counted: true,
     })
 }
 

@@ -36,7 +36,8 @@
 //!   rows they read: under 10% go in `seeks`, 10% or more in `scans`, so
 //!   the seek ratio is real. `LAST_ACCESS_TIME` is `last_read`. Writes per
 //!   index aren't counted: `updates` is `mysql.stats_meta.modify_count`
-//!   (rows changed since the table's last ANALYZE). A clustered primary key
+//!   (rows changed since the table's last ANALYZE); without SELECT on it
+//!   the writes are unknown (`writes_counted` false). A clustered primary key
 //!   is the row handle, not an index, and TiDB counts no reads on it: it
 //!   keeps zeros (never "unused"). TiDB counts only on tables with
 //!   statistics. Before 8.0 there's no such view: no counters, a note.
@@ -257,6 +258,9 @@ pub(crate) struct Usage {
     /// The engine counts no reads on the primary key (OceanBase: the table
     /// is organized by it): it keeps zeros, never "unused".
     pub pk_untracked: bool,
+    /// The table's writes couldn't be read (refused): `writes` is unknown,
+    /// not 0, and the report says `writes_counted: false`.
+    pub writes_unknown: bool,
 }
 
 /// The key parts grouped by index, in the order `SHOW INDEX` lists them
@@ -415,13 +419,16 @@ async fn userstat(s: &mut MySqlSession, table: &ObjectRef) -> Result<Option<Usag
             u.reads.insert(ix, Counters { seeks: num(crate::session::at(r, 1)), ..Default::default() });
         }
     }
-    if let Ok(rows) = probe(s, &table_sql).await? {
-        if let Some(r) = rows.first() {
-            // The table's rows read, less those read through an index.
-            let by_index: u64 = u.reads.values().map(|c| c.seeks).sum();
-            u.table_scans = num(crate::session::at(r, 0)).saturating_sub(by_index);
-            u.writes = num(crate::session::at(r, 1));
+    match probe(s, &table_sql).await? {
+        Ok(rows) => {
+            if let Some(r) = rows.first() {
+                // The table's rows read, less those read through an index.
+                let by_index: u64 = u.reads.values().map(|c| c.seeks).sum();
+                u.table_scans = num(crate::session::at(r, 0)).saturating_sub(by_index);
+                u.writes = num(crate::session::at(r, 1));
+            }
         }
+        Err(_) => u.writes_unknown = true,
     }
     Ok(Some(u))
 }
@@ -442,7 +449,11 @@ async fn tidb(s: &mut MySqlSession, table: &ObjectRef) -> Result<std::result::Re
             u.reads.insert(ix, c);
         }
     }
-    u.writes = num(scalar(s, &tidb_writes_sql(table)).await?);
+    // mysql.stats_meta needs SELECT on the mysql schema.
+    match probe(s, &tidb_writes_sql(table)).await? {
+        Ok(rows) => u.writes = num(rows.first().and_then(|r| crate::session::at(r, 0))),
+        Err(_) => u.writes_unknown = true,
+    }
     Ok(Ok(u))
 }
 
@@ -460,7 +471,10 @@ async fn oceanbase(s: &mut MySqlSession, table: &ObjectRef) -> Result<std::resul
             u.reads.insert(ix, Counters { seeks: num(crate::session::at(r, 1)), last_read: crate::session::at(r, 2), ..Default::default() });
         }
     }
-    u.writes = num(scalar(s, &oceanbase_writes_sql(table)).await?);
+    match probe(s, &oceanbase_writes_sql(table)).await? {
+        Ok(rows) => u.writes = num(rows.first().and_then(|r| crate::session::at(r, 0))),
+        Err(_) => u.writes_unknown = true,
+    }
     Ok(Ok(u))
 }
 
@@ -544,6 +558,7 @@ pub(crate) async fn report(s: &mut MySqlSession, table: &ObjectRef) -> Result<In
         indexes: assemble(&parts, usage.as_ref(), sizes.as_ref()),
         foreign_keys: foreign_keys(&fk_rows),
         seek_scan_split: usage.as_ref().is_some_and(|u| u.seek_scan_split),
+        writes_counted: usage.as_ref().is_some_and(|u| !u.writes_unknown),
     })
 }
 
