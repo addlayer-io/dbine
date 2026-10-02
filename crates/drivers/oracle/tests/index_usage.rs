@@ -92,7 +92,7 @@ async fn index_usage_live() {
     eprintln!("{r:#?}");
     assert!(r.stats_available, "{r:?}");
     assert!(!r.seek_scan_split);
-    assert!(r.note.as_deref().is_some_and(|n| n.contains("15 minutos")), "{:?}", r.note);
+    assert!(r.note.as_deref().is_some_and(|n| n.contains("15 minutos") && n.contains("muestreo")), "{:?}", r.note);
     assert_eq!(r.indexes.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["PK_T", "IX_SEEKED", "IX_UNTOUCHED"]);
     let get = |r: &dbine_driver::IndexUsageReport, n: &str| r.indexes.iter().find(|i| i.name == n).unwrap_or_else(|| panic!("{n} in {r:?}")).clone();
     let pk = get(&r, "PK_T");

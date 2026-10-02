@@ -178,6 +178,7 @@ async fn mysql_live() {
     check_usage(&r);
     check_pk_scans(&r);
     assert!(!r.seek_scan_split, "performance_schema doesn't split seeks from scans");
+    assert!(r.note.as_deref().is_some_and(|n| n.contains("salvo que las estadísticas se hayan reiniciado o activado después")), "{r:?}");
     assert!(r.indexes.iter().all(|i| i.seek_health.is_none()));
     let untouched = r.indexes.iter().find(|i| i.name == "ix_untouched").unwrap();
     assert_eq!(untouched.key_columns, ["b DESC"]);
@@ -230,7 +231,7 @@ async fn mariadb_live() {
     check_catalog(&r);
     check_usage(&r);
     check_pk_scans(&r);
-    assert!(r.note.as_deref().is_some_and(|n| n.contains("userstat")), "{r:?}");
+    assert!(r.note.as_deref().is_some_and(|n| n.contains("userstat") && n.contains("desde el arranque del servidor, salvo que")), "{r:?}");
     assert!(!r.seek_scan_split);
     drop_index("mariadb", &mut s, "ix_untouched").await;
     drop(s);
@@ -274,6 +275,19 @@ async fn tidb_live() {
         assert!(seeked.last_read.is_some() && seeked.seek_ratio == Some(1.0), "point lookups are seeks: {seeked:?}");
         let pk = r.indexes.iter().find(|i| i.name == "PRIMARY").unwrap();
         assert!(!pk.unused, "the clustered key isn't counted: {pk:?}");
+        assert!(r.writes_counted, "{r:?}");
+        // A login without SELECT on mysql.stats_meta: writes unknown, the privilege named.
+        let cfg = parse_url("tidb", &url);
+        run(&mut admin, "DROP USER IF EXISTS dbine_ixu_ro").await;
+        run(&mut admin, "CREATE USER dbine_ixu_ro IDENTIFIED BY 'Pw_ixu_1'").await;
+        run(&mut admin, &format!("GRANT SELECT ON {DB}.* TO dbine_ixu_ro")).await;
+        let ro = ConnectionConfig { username: Some("dbine_ixu_ro".into()), password: Some("Pw_ixu_1".into()), ..cfg };
+        let mut limited = driver("tidb").connect(&ro, Some(DB)).await.expect("connect as dbine_ixu_ro");
+        let r = report(&mut limited).await;
+        drop(limited);
+        run(&mut admin, "DROP USER dbine_ixu_ro").await;
+        eprintln!("{r:#?}");
+        assert!(!r.writes_counted && r.note.as_deref().is_some_and(|n| n.contains("SELECT sobre mysql.stats_meta")), "{r:?}");
     }
     drop_index("tidb", &mut s, "ix_untouched").await;
     drop(s);

@@ -27,6 +27,15 @@ fn q(s: &str) -> String {
     quote_ident(Quote::Double, s)
 }
 
+/// An index key column, quoted, keeping its ` DESC` (as [`from_catalog`]
+/// writes it) outside the quotes.
+fn index_column(c: &str) -> String {
+    match c.strip_suffix(" DESC") {
+        Some(name) => format!("{} DESC", q(name)),
+        None => q(c),
+    }
+}
+
 fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
@@ -294,7 +303,7 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
                 if local { "LOCAL " } else { "" },
                 if parts.if_exists { "IF NOT EXISTS " } else { "" },
                 q(&ix.name),
-                ix.columns.iter().map(|c| q(c)).collect::<Vec<_>>().join(", ")
+                ix.columns.iter().map(|c| index_column(c)).collect::<Vec<_>>().join(", ")
             ));
         }
     }
@@ -381,7 +390,7 @@ pub fn type_name(base: &str, size: &str, scale: &str) -> String {
 /// the user schemas (link and column family rows left out).
 pub const CATALOG_QUERY: &str = "SELECT TABLE_SCHEM, TABLE_NAME, TABLE_TYPE, COLUMN_FAMILY, COLUMN_NAME, SQLTypeName(DATA_TYPE),
         COLUMN_SIZE, DECIMAL_DIGITS, NULLABLE, KEY_SEQ, COLUMN_DEF, ORDINAL_POSITION, PK_NAME, DATA_TABLE_NAME,
-        INDEX_TYPE, SALT_BUCKETS, IMMUTABLE_ROWS, DEFAULT_COLUMN_FAMILY
+        INDEX_TYPE, SALT_BUCKETS, IMMUTABLE_ROWS, DEFAULT_COLUMN_FAMILY, SORT_ORDER
  FROM SYSTEM.CATALOG
  WHERE TENANT_ID IS NULL AND (TABLE_SCHEM IS NULL OR TABLE_SCHEM <> 'SYSTEM')
    AND (COLUMN_NAME IS NOT NULL OR COLUMN_FAMILY IS NULL)
@@ -483,17 +492,20 @@ pub fn from_catalog(rows: Vec<Vec<Value>>) -> Vec<TableSchema> {
         let data_pk: Vec<String> = t.primary_key.as_ref().map(|k| k.columns.clone()).unwrap_or_default();
         // Index key columns in order: `FAMILY:COL` for data columns, `:COL`
         // for the table's key columns; local indexes lead with `_INDEX_ID`.
-        let mut keyed: Vec<(i64, String)> = o
+        // SORT_ORDER is Phoenix's SortOrder system value: 1 = DESC, 2 = ASC.
+        let mut keyed: Vec<(i64, String, bool)> = o
             .columns
             .iter()
             .filter_map(|(_, r)| {
                 let seq = r.get(9).and_then(Value::as_i64)?;
                 let n = text(r.get(4));
-                (n != "_INDEX_ID").then(|| (seq, n.rsplit_once(':').map_or(n.clone(), |(_, c)| c.to_string())))
+                let desc = r.get(18).and_then(Value::as_i64) == Some(1);
+                (n != "_INDEX_ID").then(|| (seq, n.rsplit_once(':').map_or(n.clone(), |(_, c)| c.to_string()), desc))
             })
             .collect();
         keyed.sort();
-        let keyed: Vec<String> = keyed.into_iter().map(|(_, c)| c).collect();
+        let desc: Vec<bool> = keyed.iter().map(|(_, _, d)| *d).collect();
+        let keyed: Vec<String> = keyed.into_iter().map(|(_, c, _)| c).collect();
         // Phoenix appends the table's key columns that weren't indexed:
         // the indexed ones are the shortest prefix whose rest is exactly that.
         let cut = (1..=keyed.len())
@@ -505,7 +517,7 @@ pub fn from_catalog(rows: Vec<Vec<Value>>) -> Vec<TableSchema> {
         let local = o.header.get(14).and_then(Value::as_i64) == Some(2);
         t.indexes.push(IndexDef {
             name: name.clone(),
-            columns: keyed[..cut].to_vec(),
+            columns: keyed[..cut].iter().zip(&desc).map(|(c, d)| if *d { format!("{c} DESC") } else { c.clone() }).collect(),
             unique: false,
             kind: Some(if local { "local" } else { "global" }.into()),
             filter: None,
@@ -557,7 +569,7 @@ mod tests {
             primary_key: Some(KeyDef { name: Some("MYPK".into()), columns: vec!["ID".into()] }),
             indexes: vec![
                 IndexDef { name: "IXG".into(), columns: vec!["NAME".into()], kind: Some("global".into()), ..Default::default() },
-                IndexDef { name: "IXL".into(), columns: vec!["X".into(), "NAME".into()], kind: Some("local".into()), ..Default::default() },
+                IndexDef { name: "IXL".into(), columns: vec!["X".into(), "NAME DESC".into()], kind: Some("local".into()), ..Default::default() },
             ],
             options: [("SALT_BUCKETS".to_string(), "2".to_string()), ("COMPRESSION".to_string(), "GZ".to_string())].into(),
             ..Default::default()
@@ -591,7 +603,7 @@ mod tests {
              CREATE TABLE \"S\".\"A\" (\n    \"ID\" BIGINT NOT NULL,\n    \"NAME\" VARCHAR(50),\n    \
              \"CF1\".\"X\" INTEGER DEFAULT 0,\n    CONSTRAINT \"MYPK\" PRIMARY KEY (\"ID\")\n) SALT_BUCKETS=2, COMPRESSION='GZ';\n\
              CREATE INDEX IF NOT EXISTS \"IXG\" ON \"S\".\"A\" (\"NAME\");\n\
-             CREATE LOCAL INDEX IF NOT EXISTS \"IXL\" ON \"S\".\"A\" (\"X\", \"NAME\");"
+             CREATE LOCAL INDEX IF NOT EXISTS \"IXL\" ON \"S\".\"A\" (\"X\", \"NAME\" DESC);"
         );
         // NOT NULL on a value column only with IMMUTABLE_ROWS.
         let mut im = t();
@@ -639,7 +651,7 @@ mod tests {
             row("A", n.clone(), json!("0"), json!("TAGS"), json!("VARCHAR ARRAY"), json!(5), json!(1), n.clone(), n.clone(), json!(3)),
             ix,
             row("IXL", n.clone(), n.clone(), json!("_INDEX_ID"), json!("SMALLINT"), n.clone(), json!(0), json!(1), n.clone(), json!(1)),
-            row("IXL", n.clone(), n.clone(), json!("CF1:X"), json!("DECIMAL"), n.clone(), json!(1), json!(2), n.clone(), json!(2)),
+            [row("IXL", n.clone(), n.clone(), json!("CF1:X"), json!("DECIMAL"), n.clone(), json!(1), json!(2), n.clone(), json!(2)), vec![json!(1)]].concat(),
             row("IXL", n.clone(), n.clone(), json!(":ID"), json!("BIGINT"), n.clone(), json!(0), json!(3), n.clone(), json!(3)),
             row("IXL", n.clone(), n.clone(), json!(":K2"), json!("VARCHAR"), n.clone(), json!(0), json!(4), n.clone(), json!(4)),
             ix2,
@@ -662,7 +674,7 @@ mod tests {
         assert_eq!(a.options.get("IMMUTABLE_ROWS").map(String::as_str), Some("true"));
         assert_eq!(a.indexes.len(), 2);
         assert_eq!((a.indexes[0].name.as_str(), a.indexes[0].columns.clone(), a.indexes[0].kind.as_deref()), ("IXK", vec!["K2".to_string()], Some("global")));
-        assert_eq!((a.indexes[1].name.as_str(), a.indexes[1].columns.clone(), a.indexes[1].kind.as_deref()), ("IXL", vec!["X".to_string()], Some("local")));
+        assert_eq!((a.indexes[1].name.as_str(), a.indexes[1].columns.clone(), a.indexes[1].kind.as_deref()), ("IXL", vec!["X DESC".to_string()], Some("local")));
     }
 
     #[test]

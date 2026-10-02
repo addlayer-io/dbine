@@ -138,7 +138,7 @@ async function copyGrid() {
     <template v-else-if="report">
       <p v-if="report.stats_available" class="iu-note">
         {{ report.since ? $t('explorer:indexes.since', { since: report.since }) : $t('explorer:indexes.sinceRestart') }}
-        <br>{{ $t('explorer:indexes.health.smallTables') }}
+        <template v-if="report.seek_scan_split"><br>{{ $t('explorer:indexes.health.smallTables') }}</template>
       </p>
       <p v-if="report.note" class="iu-note warn">{{ tb(report.note) }}</p>
       <div ref="body" class="iu-grid">

@@ -122,7 +122,7 @@ mod tests {
             row("IX_A", "i", Some("0:B"), None, 3, "", "T", Some(1)),
             row("IX_B", "i", None, None, 0, "", "T", Some(2)),
             row("IX_B", "i", Some("_INDEX_ID"), Some(1), 1, "", "T", Some(2)),
-            row("IX_B", "i", Some("0:B"), Some(2), 2, "", "T", Some(2)),
+            [row("IX_B", "i", Some("0:B"), Some(2), 2, "", "T", Some(2)), vec![json!(1)]].concat(),
             row("IX_B", "i", Some(":ID"), Some(3), 3, "", "T", Some(2)),
         ];
         let tables = from_catalog(rows.clone());
@@ -133,7 +133,7 @@ mod tests {
         assert!(r.indexes[0].primary_key);
         assert_eq!(r.indexes[1].key_columns, ["A"]);
         assert_eq!(r.indexes[1].included_columns, ["B"]);
-        assert_eq!(r.indexes[2].key_columns, ["B"]);
+        assert_eq!(r.indexes[2].key_columns, ["B DESC"], "SORT_ORDER 1 is DESC");
         assert!(r.indexes[2].included_columns.is_empty());
         assert!(report(None, &BTreeMap::new()).indexes.is_empty());
     }

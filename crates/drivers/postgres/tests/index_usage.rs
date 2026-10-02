@@ -1,7 +1,7 @@
 //! Index usage against real servers: a table with a primary key, a foreign
-//! key and two secondary indexes; several lookups through one of them and
-//! none through the other. Then the unread one is dropped with the schema
-//! sync script. Each test reads `DBINE_TEST_<ENGINE>_URL`
+//! key and three secondary indexes; several lookups through one of them and
+//! none through the other two (one plain, one partial). Then the unread
+//! partial one is dropped with the schema sync script. Each test reads `DBINE_TEST_<ENGINE>_URL`
 //! (`postgres://user:pass@host:port/db`) and is skipped without it:
 //!
 //! ```sh
@@ -86,6 +86,7 @@ async fn scenario(id: &str, env: &str) {
     .await;
     run(&mut s, "CREATE INDEX ix_seeked ON dbine_iu.t (a) INCLUDE (c)").await;
     run(&mut s, "CREATE INDEX ix_untouched ON dbine_iu.t (b DESC) WHERE b > 0").await;
+    run(&mut s, "CREATE INDEX ix_idle ON dbine_iu.t (p)").await;
     run(&mut s, "INSERT INTO dbine_iu.t (id, a, b, c, p) SELECT g, g % 50, g, g, 1 + g % 2 FROM generate_series(1, 500) AS g").await;
     if !crdb {
         run(&mut s, "SET enable_seqscan = off").await;
@@ -109,7 +110,10 @@ async fn scenario(id: &str, env: &str) {
     let get = |n: &str| r.indexes.iter().find(|i| i.name == n).unwrap_or_else(|| panic!("{n} in {:?}", r.indexes));
     assert!(r.stats_available, "{:?}", r.note);
     assert!(!r.seek_scan_split);
-    assert_eq!(r.indexes.len(), 3);
+    assert_eq!(r.indexes.len(), 4);
+    // Cockroach 26.x names its ordered index `prefix`: shown as a B-tree.
+    assert!(r.indexes.iter().all(|i| i.kind == "BTREE"), "{:?}", r.indexes.iter().map(|i| &i.kind).collect::<Vec<_>>());
+    let idle = get("ix_idle");
     let pk = get("t_pk");
     assert!(pk.primary_key && pk.unique && pk.key_columns == ["id"]);
     let seeked = get("ix_seeked");
@@ -126,8 +130,12 @@ async fn scenario(id: &str, env: &str) {
         assert!(!r.writes_counted && untouched.writes_per_read.is_none());
         assert!(!untouched.unused && untouched.updates == 0 && untouched.size_kb.is_none());
         assert!(seeked.last_read.is_some() || !crdb);
+        assert!(!idle.unused && idle.updates == 0);
     } else {
-        assert!(r.writes_counted && untouched.updates >= 500 && untouched.unused, "{untouched:?}");
+        assert!(r.writes_counted && idle.updates >= 500 && idle.unused, "{idle:?}");
+        // Partial: the table's writes aren't all its own, so never "sin uso".
+        assert!(untouched.updates == 0 && !untouched.unused, "{untouched:?}");
+        assert!(r.note.as_deref().is_some_and(|n| n.contains("índices parciales")), "{:?}", r.note);
         assert!(seeked.size_kb.is_some_and(|k| k > 0));
     }
     assert_eq!(r.foreign_keys.len(), 1);
@@ -149,7 +157,7 @@ async fn scenario(id: &str, env: &str) {
     }
     let after = report(&mut s, "t").await;
     assert!(after.indexes.iter().all(|i| i.name != "ix_untouched"));
-    assert_eq!(after.indexes.len(), 2);
+    assert_eq!(after.indexes.len(), 3);
 
     run(&mut s, "DROP SCHEMA dbine_iu CASCADE").await;
 }

@@ -10,17 +10,14 @@
 //!   in `seeks`, and `seek_scan_split` is false so the UI shows no seek
 //!   health. On a sharded collection there is one row per shard: they're
 //!   added up and `since` is the earliest.
-//! - The writes: MongoDB has no per-index write counter. Every write to the
-//!   collection maintains its indexes (a partial or sparse one only for the
-//!   documents it covers), so `updates` is the collection's write
-//!   operations since the server started or the collection was created
-//!   (`$collStats` `latencyStats`). That count starts with the primary key
-//!   index (`_id_`), whose `accesses.since` marks it. An index created
-//!   later (its `accesses.since` after the `_id_` one, beyond the few
-//!   seconds a restart takes to load the indexes) would inherit the writes
-//!   made before it existed: it gets no writes, so it's never "sin uso",
-//!   and the note says so. Any other index with no reads on a collection
-//!   that's written is "sin uso".
+//! - The writes: MongoDB has no per-index write counter. The only one is
+//!   the collection's (`$collStats` `latencyStats.writes.ops`): operations,
+//!   not index entries (an `updateMany` is one), counted since the server
+//!   started or the collection was created, so an index created later
+//!   would carry writes made before it existed, and a partial or sparse
+//!   one writes made to documents it doesn't cover. Shown per index it
+//!   would mislead: `writes_counted` is false (the UI shows a dash and no
+//!   index is "sin uso"), and the note says why.
 //! - The size: `$collStats` `storageStats.indexSizes` (bytes, rounded up
 //!   to KB).
 //! - `$indexStats` needs the `indexStats` action (`clusterMonitor`, or
@@ -144,39 +141,12 @@ pub(crate) fn index_of(spec: &Document) -> Option<IndexUsage> {
     })
 }
 
-/// How long after the server's start an index's counters may start and
-/// still count as loaded at startup (a restart loads the indexes one by one).
-const STARTUP_SLACK_MS: i64 = 10_000;
+/// What the note says when the counters were read: why there are no writes.
+pub(crate) const NO_WRITES_NOTE: &str = "MongoDB no cuenta escrituras por índice, solo operaciones de la colección (desde que arrancó el servidor o se creó la colección, sin distinguir índices creados después): no se muestran escrituras y ningún índice se marca sin uso.";
 
 /// The report from the reads. `stats` `None`: `$indexStats` was refused
-/// (`note` says why). `writes`: the collection's write operations, counted
-/// since the `_id_` index's `accesses.since`. `server_start_ms`: when the
-/// server started (`serverStatus`), to tell the indexes loaded at startup
-/// from the ones created afterwards.
-pub(crate) fn assemble(
-    specs: &[Document],
-    stats: Option<&HashMap<String, Access>>,
-    writes: Option<u64>,
-    sizes: Option<&Document>,
-    note: Option<String>,
-    server_start_ms: Option<i64>,
-) -> IndexUsageReport {
-    // When the collection's write count started: the primary key index's
-    // counters start with it (server start or collection creation).
-    let writes_from = stats.and_then(|m| {
-        specs
-            .iter()
-            .filter_map(index_of)
-            .filter(|ix| ix.primary_key)
-            .filter_map(|ix| m.get(&ix.name).and_then(|a| a.since_ms))
-            .min()
-    });
-    // Indexes loaded at the server's start get a few seconds of slack.
-    let slack = match (writes_from, server_start_ms) {
-        (Some(w), Some(st)) if w - st <= STARTUP_SLACK_MS => STARTUP_SLACK_MS,
-        _ => 0,
-    };
-    let mut late = 0usize;
+/// (`note` says why).
+pub(crate) fn assemble(specs: &[Document], stats: Option<&HashMap<String, Access>>, sizes: Option<&Document>, note: Option<String>) -> IndexUsageReport {
     let mut since: Option<String> = None;
     let indexes = specs
         .iter()
@@ -190,31 +160,12 @@ pub(crate) fn assemble(
                     }
                 }
             }
-            let created_later = match (writes_from, stats.and_then(|m| m.get(&ix.name)).and_then(|a| a.since_ms)) {
-                (Some(w), Some(s)) => s > w + slack,
-                _ => false,
-            };
-            if created_later {
-                late += 1;
-            } else if stats.is_some() {
-                ix.updates = writes.unwrap_or(0);
-            }
             ix.size_kb = sizes.and_then(|d| d.get(&ix.name)).map(as_u64).map(|b| b.div_ceil(1024));
             ix
         })
         .collect();
-    let mut note = note;
-    if stats.is_some() && writes.is_none() && note.is_none() {
-        note = Some("MongoDB no cuenta escrituras por índice y no se pudieron leer las de la colección ($collStats): ningún índice se marca sin uso.".into());
-    } else if late > 0 && writes.is_some() && note.is_none() {
-        note = Some(format!(
-            "MongoDB no cuenta escrituras por índice: se usan las de la colección, que cuentan desde que arrancó el servidor o se creó la colección. {} se {} después: no se les asignan escrituras ni se {} sin uso.",
-            if late == 1 { "Un índice".to_string() } else { format!("{late} índices") },
-            if late == 1 { "creó" } else { "crearon" },
-            if late == 1 { "marca" } else { "marcan" },
-        ));
-    }
-    IndexUsageReport { since, stats_available: stats.is_some(), note, indexes, foreign_keys: Vec::new(), seek_scan_split: false, writes_counted: writes.is_some() }
+    let note = note.or_else(|| stats.is_some().then(|| NO_WRITES_NOTE.to_string()));
+    IndexUsageReport { since, stats_available: stats.is_some(), note, indexes, foreign_keys: Vec::new(), seek_scan_split: false, writes_counted: false }
 }
 
 /// Why `$indexStats` failed, for the note.
@@ -258,17 +209,10 @@ impl MongoSession {
                 Err(e) => (None, Some(stats_note(&e))),
             }
         };
-        let coll = self
-            .aggregate_all(&obj.name, vec![doc! { "$collStats": { "latencyStats": {}, "storageStats": {} } }])
-            .await
-            .unwrap_or_default();
-        // One row per shard: writes added up, sizes merged.
-        let mut writes: Option<u64> = None;
+        let coll = self.aggregate_all(&obj.name, vec![doc! { "$collStats": { "storageStats": {} } }]).await.unwrap_or_default();
+        // One row per shard: sizes merged.
         let mut sizes = Document::new();
         for r in &coll {
-            if let Ok(ops) = r.get_document("latencyStats").and_then(|l| l.get_document("writes")).map(|w| w.get("ops").map(as_u64).unwrap_or(0)) {
-                *writes.get_or_insert(0) += ops;
-            }
             if let Ok(s) = r.get_document("storageStats").and_then(|s| s.get_document("indexSizes")) {
                 for (k, v) in s {
                     let prev = sizes.get(k).map(as_u64).unwrap_or(0);
@@ -285,17 +229,7 @@ impl MongoSession {
             }
         }
         let sizes = (!sizes.is_empty()).then_some(&sizes);
-        // The server's start: now minus its uptime (`serverStatus`, which
-        // needs the `serverStatus` action; without it, no startup slack).
-        let server_start_ms = match stats {
-            Some(_) => self.db.run_command(doc! { "serverStatus": 1, "repl": 0, "metrics": 0, "locks": 0 }).await.ok().and_then(|r| {
-                let now = r.get_datetime("localTime").ok()?.timestamp_millis();
-                let up = r.get("uptimeMillis").map(as_u64)? as i64;
-                Some(now - up)
-            }),
-            None => None,
-        };
-        Ok(Some(assemble(&specs, stats.as_ref(), writes, sizes, note, server_start_ms)))
+        Ok(Some(assemble(&specs, stats.as_ref(), sizes, note)))
     }
 }
 
@@ -348,58 +282,32 @@ mod tests {
     }
 
     #[test]
-    fn report_counters_and_unused() {
+    fn report_counters_without_writes() {
         let t = DateTime::from_millis(1_700_000_000_000);
         let stats = accesses(&[
             doc! { "name": "_id_", "accesses": { "ops": 2_i64, "since": t } },
             doc! { "name": "email_1", "accesses": { "ops": 5_i64, "since": t } },
-            doc! { "name": "cat_at", "accesses": { "ops": 0_i64, "since": t } },
+            doc! { "name": "cat_at", "accesses": { "ops": 0_i64, "since": DateTime::from_millis(1_700_003_600_000) } },
         ]);
         let sizes = doc! { "_id_": 4096_i32, "email_1": 1000_i64 };
-        let r = assemble(&specs(), Some(&stats), Some(9), Some(&sizes), None, Some(1_700_000_000_000)).derived();
-        assert!(r.stats_available && !r.seek_scan_split);
+        let r = assemble(&specs(), Some(&stats), Some(&sizes), None).derived();
+        assert!(r.stats_available && !r.seek_scan_split && !r.writes_counted);
         assert_eq!(r.since.as_deref(), Some("2023-11-14 22:13:20"));
+        assert_eq!(r.note.as_deref(), Some(NO_WRITES_NOTE));
         let get = |n: &str| r.indexes.iter().find(|i| i.name == n).unwrap();
-        assert_eq!((get("email_1").seeks, get("email_1").scans, get("email_1").updates), (5, 0, 9));
+        assert_eq!((get("email_1").seeks, get("email_1").scans), (5, 0));
         assert_eq!(get("_id_").size_kb, Some(4));
         assert_eq!(get("email_1").size_kb, Some(1));
-        assert!(get("cat_at").unused);
-        assert!(!get("email_1").unused);
+        // Reads and shares stay; writes are unknown: none, nothing unused.
+        assert_eq!(get("email_1").read_share.map(|v| (v * 100.0).round()), Some(71.0));
+        assert!(r.indexes.iter().all(|i| i.updates == 0 && !i.unused && i.writes_per_read.is_none()));
         // No seek / scan split: no health.
         assert!(r.indexes.iter().all(|i| i.seek_health.is_none()));
     }
 
     #[test]
-    fn index_created_after_the_write_count_started() {
-        let start = 1_700_000_000_000_i64;
-        let at = |ms: i64| DateTime::from_millis(ms);
-        let rows = |late: i64| {
-            accesses(&[
-                doc! { "name": "_id_", "accesses": { "ops": 0_i64, "since": at(start + 100) } },
-                doc! { "name": "email_1", "accesses": { "ops": 0_i64, "since": at(start + 900) } },
-                doc! { "name": "cat_at", "accesses": { "ops": 0_i64, "since": at(late) } },
-            ])
-        };
-        // Loaded at the server's start (ms apart), cat_at created an hour later.
-        let r = assemble(&specs(), Some(&rows(start + 3_600_000)), Some(4), None, None, Some(start)).derived();
-        let get = |n: &str| r.indexes.iter().find(|i| i.name == n).unwrap().clone();
-        assert!(get("email_1").unused && get("email_1").updates == 4);
-        assert!(!get("cat_at").unused && get("cat_at").updates == 0);
-        assert!(r.note.as_deref().unwrap().contains("Un índice se creó después"));
-        // A collection created after the server's start: no slack, an index
-        // created a few ms after `_id_` doesn't inherit its writes.
-        let r = assemble(&specs(), Some(&rows(start + 3_600_000)), Some(4), None, None, Some(start - 86_400_000)).derived();
-        let get = |n: &str| r.indexes.iter().find(|i| i.name == n).unwrap().clone();
-        assert!(!get("email_1").unused && get("email_1").updates == 0);
-        assert!(r.note.as_deref().unwrap().contains("2 índices se crearon"));
-        // All loaded together: no note.
-        let r = assemble(&specs(), Some(&rows(start + 100)), Some(4), None, None, Some(start)).derived();
-        assert!(r.note.is_none() && r.indexes.iter().find(|i| i.name == "cat_at").unwrap().unused);
-    }
-
-    #[test]
     fn without_index_stats() {
-        let r = assemble(&specs(), None, Some(9), None, Some("x".into()), None).derived();
+        let r = assemble(&specs(), None, None, Some("x".into())).derived();
         assert!(!r.stats_available);
         assert_eq!(r.note.as_deref(), Some("x"));
         assert!(r.indexes.iter().all(|i| i.updates == 0 && !i.unused));
