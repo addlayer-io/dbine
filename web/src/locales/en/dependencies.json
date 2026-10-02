@@ -1,0 +1,41 @@
+{
+  "menu": "View dependencies…",
+  "tab": "Dependencies",
+  "refresh": "Refresh",
+  "copy": "Copy",
+  "copied": "Dependencies copied",
+  "summary": "{{confirmed}} confirmed, {{probable}} probable and {{review}} to review ({{scanned}} definitions read).",
+  "outside": "Only what is in the database is visible: applications, reports and external scripts that use it do not appear here.",
+  "unreadable": "The definition of {{names}} could not be read. Whatever depends on the object there is not in the list.",
+  "none": "Nothing in the database depends on this object.",
+  "on": "on {{parent}}",
+  "dynamic": "Dynamic SQL",
+  "relation": {
+    "foreign_key": "Foreign keys",
+    "index": "Indexes and primary keys",
+    "check": "CHECK constraints",
+    "code": "Views, routines and triggers"
+  },
+  "confidence": {
+    "confirmed": "Confirmed",
+    "probable": "Probable",
+    "review": "Review"
+  },
+  "confidenceTip": {
+    "confirmed": "The engine's catalog records the dependency.",
+    "probable": "The object's code names the object (and the column, with its table).",
+    "review": "The name appears inside a text, probably dynamic SQL: you have to read it to know whether it uses it."
+  },
+  "kind": {
+    "table": "Table",
+    "collection": "Collection",
+    "view": "View",
+    "materialized_view": "Materialized view",
+    "procedure": "Procedure",
+    "function": "Function",
+    "trigger": "Trigger",
+    "synonym": "Synonym",
+    "type": "Type",
+    "sequence": "Sequence"
+  }
+}

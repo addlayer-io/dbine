@@ -1,0 +1,41 @@
+{
+  "menu": "Mostra dipendenze…",
+  "tab": "Dipendenze",
+  "refresh": "Aggiorna",
+  "copy": "Copia",
+  "copied": "Dipendenze copiate",
+  "summary": "{{confirmed}} confermate, {{probable}} probabili e {{review}} da verificare ({{scanned}} definizioni lette).",
+  "outside": "Si vede solo ciò che è nel database: le applicazioni, i report e gli script esterni che lo usano non compaiono qui.",
+  "unreadable": "Non è stato possibile leggere la definizione di: {{names}}. Ciò che dipende dall'oggetto lì non è nell'elenco.",
+  "none": "Nulla nel database dipende da questo oggetto.",
+  "on": "su {{parent}}",
+  "dynamic": "SQL dinamico",
+  "relation": {
+    "foreign_key": "Chiavi esterne",
+    "index": "Indici e chiavi primarie",
+    "check": "Vincoli CHECK",
+    "code": "Viste, routine e trigger"
+  },
+  "confidence": {
+    "confirmed": "Confermata",
+    "probable": "Probabile",
+    "review": "Da verificare"
+  },
+  "confidenceTip": {
+    "confirmed": "Il catalogo del motore registra la dipendenza.",
+    "probable": "Il codice dell'oggetto nomina l'oggetto (e la colonna, con la sua tabella).",
+    "review": "Il nome compare dentro di un testo, probabilmente SQL dinamico: bisogna leggerlo per sapere se lo usa."
+  },
+  "kind": {
+    "table": "Tabella",
+    "collection": "Collezione",
+    "view": "Vista",
+    "materialized_view": "Vista materializzata",
+    "procedure": "Procedura",
+    "function": "Funzione",
+    "trigger": "Trigger",
+    "synonym": "Sinonimo",
+    "type": "Tipo",
+    "sequence": "Sequenza"
+  }
+}

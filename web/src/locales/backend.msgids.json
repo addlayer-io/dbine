@@ -66,6 +66,9 @@
  " Es de solo lectura: por MCP nunca pasa de lectura.": [
   "src-tauri/src/mcp/write.rs"
  ],
+ " La política de indexación está en «none»: solo se busca por id y clave de partición.": [
+  "crates/drivers/cosmosdb/src/index_usage.rs"
+ ],
  " NO CACHE": [
   "crates/drivers/hana/src/structure.rs",
   "crates/drivers/odbc/src/structure.rs"
@@ -469,6 +472,9 @@
  "ASE admite hasta 38 dígitos; el origen tiene {0}.": [
   "crates/dbine-schema/src/dialect/sybase.rs"
  ],
+ "ASE cuenta los planes que usaron cada índice (UsedCount) mientras su descriptor estuvo abierto, sin separar búsquedas de recorridos. Escrituras: filas insertadas, borradas y actualizadas.": [
+  "crates/drivers/odbc/src/index_usage.rs"
+ ],
  "ASE no borra dumps por SQL: son archivos de la máquina del Backup Server": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -676,6 +682,12 @@
  ],
  "Actualizado": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Además, DBA_INDEX_USAGE se llena por muestreo (salvo con _iut_stat_collection_type = ALL): un índice que se usa poco puede verse sin uso.": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "Además, la tabla se recorrió completa {0} {1} sin usar ningún índice (lecturas secuenciales).": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "Admin": [
   "crates/drivers/odbc/src/security/sqlstd.rs"
@@ -901,6 +913,9 @@
  "Análisis completos (hard parse)": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
+ "Apache Doris no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "Apagado": [
   "crates/drivers/firebird/src/monitor.rs"
  ],
@@ -1093,6 +1108,9 @@
  ],
  "Aurora DSQL es serverless: el uso de cómputo (DPU), el almacenamiento del clúster y la latencia están en CloudWatch, no por SQL.": [
   "crates/drivers/dsql/src/monitor.rs"
+ ],
+ "Aurora DSQL no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/dsql/src/index_usage.rs"
  ],
  "Aurora DSQL no usa bloqueos (control de concurrencia optimista): no hay bloqueos en espera que mostrar.": [
   "crates/drivers/dsql/src/monitor.rs"
@@ -1585,6 +1603,9 @@
  ],
  "BigQuery solo tiene GEOGRAPHY (WGS84, sobre la esfera): las geometrías planas cambian de sistema.": [
   "crates/dbine-schema/src/dialect/bigquery.rs"
+ ],
+ "BigQuery solo tiene índices de búsqueda y vectoriales, y esta tabla no tiene ninguno. Las claves primaria y foráneas no son índices (BigQuery no las aplica).": [
+  "crates/drivers/bigquery/src/index_usage.rs"
  ],
  "BigQuery solo tiene índices de búsqueda y vectoriales: se omite {0}.{1}.": [
   "crates/drivers/bigquery/src/sync.rs"
@@ -2372,6 +2393,9 @@
  "Cassandra y ScyllaDB hacen snapshots con nodetool (JMX) o la API REST de Scylla, no con CQL": [
   "crates/drivers/cassandra/src/backup.rs"
  ],
+ "Cassandra y ScyllaDB no cuentan el uso de cada índice: se listan sin contadores.": [
+  "crates/drivers/cassandra/src/index_usage.rs"
+ ],
  "Cassandra y ScyllaDB no listan sus snapshots por CQL": [
   "crates/drivers/cassandra/src/backup.rs"
  ],
@@ -2684,6 +2708,9 @@
  "Cluster manager (buckets, scopes, métricas): 8091; con TLS, 18091.": [
   "crates/drivers/couchbase/src/lib.rs"
  ],
+ "Clustered": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "Clustering": [
   "crates/drivers/bigquery/src/plan.rs"
  ],
@@ -2707,6 +2734,9 @@
  ],
  "Clústeres y réplicas": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "CockroachDB cuenta las lecturas de cada índice pero no las escrituras: un índice sin lecturas muestra 0 % en vez de «sin uso».": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "CockroachDB no borra backups con SQL: hay que borrar la subcarpeta del backup en el almacenamiento": [
   "crates/drivers/postgres/src/backup.rs"
@@ -2777,6 +2807,9 @@
  ],
  "Colección o core": [
   "crates/drivers/solr/src/backup.rs"
+ ],
+ "Collation": [
+  "crates/drivers/mysql/src/index_usage.rs"
  ],
  "Collection": [
   "crates/drivers/mongodb/src/blocking.rs"
@@ -3014,6 +3047,9 @@
  "Con .zip o .tar queda en un solo archivo; terminado en / queda como carpeta. En Ruta del servidor, dentro de backups.allowed_path.": [
   "crates/drivers/clickhouse/src/backup.rs"
  ],
+ "Con ALTER INDEX … MONITORING USAGE en todos los índices de la tabla, Oracle registra al menos si cada uno se usó.": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
  "Con DISTSTYLE KEY.": [
   "crates/drivers/postgres/src/design.rs"
  ],
@@ -3028,6 +3064,9 @@
  ],
  "Con logs archivados": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "Con más de un índice vectorial en la tabla, BigQuery no dice cuál usó cada consulta: esos índices quedan sin contadores.": [
+  "crates/drivers/bigquery/src/index_usage.rs"
  ],
  "Condición": [
   "crates/drivers/dynamodb/src/plan.rs"
@@ -3628,6 +3667,9 @@
  "Cosmos DB identifica cada documento por «id» (texto): al copiar hay que llenarlo con la clave ({0}).": [
   "crates/dbine-schema/src/dialect/cosmosdb.rs"
  ],
+ "Cosmos DB no lleva la cuenta del uso de cada índice (las métricas de índices son por consulta): se listan sin contadores.": [
+  "crates/drivers/cosmosdb/src/index_usage.rs"
+ ],
  "Cosmos DB otorga ALL o READ sobre un contenedor.": [
   "crates/drivers/cosmosdb/src/ddl.rs"
  ],
@@ -3676,6 +3718,9 @@
  "CouchDB no informa el uso de CPU ni las conexiones HTTP abiertas; la cola de ejecución y las reducciones de la VM Erlang muestran la carga.": [
   "crates/drivers/couchdb/src/monitor.rs"
  ],
+ "CouchDB no lleva la cuenta del uso de cada índice: se listan sin contadores.": [
+  "crates/drivers/couchdb/src/index_usage.rs"
+ ],
  "CouchDB no permite deshabilitar un usuario: cambiale la contraseña o borralo": [
   "crates/drivers/couchdb/src/security.rs"
  ],
@@ -3695,6 +3740,9 @@
  "Couchbase cortó la respuesta antes de terminar los resultados": [
   "crates/drivers/couchbase/src/transfer.rs"
  ],
+ "Couchbase cuenta las escrituras de un índice junto con los documentos de su construcción inicial, sin distinguirlas: no se muestran escrituras y ningún índice se marca sin uso.": [
+  "crates/drivers/couchbase/src/index_usage.rs"
+ ],
  "Couchbase rechazó el usuario o la contraseña.": [
   "crates/drivers/couchbase/src/lib.rs"
  ],
@@ -3713,6 +3761,9 @@
  ],
  "CrateDB guarda las últimas 10.000 consultas por nodo (stats.jobs_log_size).": [
   "crates/drivers/postgres/src/profiler.rs"
+ ],
+ "CrateDB indexa cada columna por su cuenta y no cuenta el uso de los índices. Se listan la clave primaria y los índices de texto completo, sin estadísticas de uso.": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "CrateDB no bloquea filas ni tiene transacciones: no hay bloqueos ni esperas que mostrar.": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -3946,6 +3997,9 @@
  "Databend no expone el uso de CPU ni los contadores de consultas por SQL; están en /metrics de cada nodo (Prometheus).": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "Databend no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "Databend no otorga permisos sobre «{0}»": [
   "crates/drivers/mysql/src/security/databend.rs"
  ],
@@ -3982,6 +4036,9 @@
  ],
  "Databricks no informa el catálogo de cada consulta: se ven las de todos los warehouses del workspace. Sin permisos de administrador (o CAN_MANAGE sobre el warehouse) solo se ven tus consultas.": [
   "crates/drivers/databricks/src/profiler.rs"
+ ],
+ "Databricks no tiene índices secundarios (Delta usa estadísticas por archivo, clustering y Z-order) ni contadores de uso. Las claves primarias y foráneas de Unity Catalog son informativas, no índices.": [
+  "crates/drivers/databricks/src/index_usage.rs"
  ],
  "Databricks no tiene índices: se omite {0}.{1}.": [
   "crates/drivers/databricks/src/sync.rs"
@@ -4091,6 +4148,12 @@
  ],
  "Dañado": [
   "crates/drivers/sqlserver/src/backup.rs"
+ ],
+ "Db2 cuenta los accesos a cada índice (INDEX_SCANS) sin separar búsquedas puntuales de recorridos por rango: se muestran como lecturas. Escrituras: KEY_UPDATES + INCLUDE_COL_UPDATES. Último uso: SYSCAT.INDEXES.LASTUSED.": [
+  "crates/drivers/odbc/src/index_usage.rs"
+ ],
+ "Db2 for i cuenta las consultas que usaron cada índice (QUERY_USE_COUNT) sin separar búsquedas de recorridos ni contar escrituras.": [
+  "crates/drivers/odbc/src/index_usage.rs"
  ],
  "Db2 for i no tiene EXPLAIN por SQL: los planes se ven con Visual Explain (IBM i Access Client Solutions) o el monitor de base de datos.": [
   "crates/drivers/odbc/src/explain.rs"
@@ -4673,6 +4736,9 @@
  "Dremio no tiene WITH GRANT OPTION: otorgá MANAGE GRANTS sobre el objeto": [
   "crates/drivers/dremio/src/security.rs"
  ],
+ "Dremio no tiene índices: se listan las reflexiones de la tabla. Las lecturas son las consultas que cada reflexión aceleró (sys.reflections); Dremio no cuenta escrituras ni dice desde cuándo cuenta.": [
+  "crates/drivers/dremio/src/index_usage.rs"
+ ],
  "Dremio rechazó la sesión.": [
   "crates/drivers/dremio/src/lib.rs"
  ],
@@ -4741,6 +4807,10 @@
  "DuckDB no publica su librería para esta plataforma": [
   "crates/drivers/duckdb/src/loader.rs"
  ],
+ "DuckDB no registra cuántas veces se usa cada índice ni su tamaño: se listan los índices ART con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución (INDEX_SCAN).": [
+  "crates/drivers/duckdb/src/index_usage.rs",
+  "crates/drivers/flightsql/src/index_usage.rs"
+ ],
  "DuckDB no tiene usuarios: sus esquemas no tienen dueño": [
   "crates/drivers/duckdb/src/lib.rs"
  ],
@@ -4807,6 +4877,9 @@
  ],
  "DynamoDB hace los backups por tabla.": [
   "crates/drivers/dynamodb/src/backup.rs"
+ ],
+ "DynamoDB no cuenta las lecturas de cada índice (la capacidad consumida por GSI está en CloudWatch): se listan sin contadores.": [
+  "crates/drivers/dynamodb/src/index_usage.rs"
  ],
  "DynamoDB no guarda el número {0}": [
   "crates/drivers/dynamodb/src/transfer.rs"
@@ -5155,6 +5228,9 @@
  "El emulador no tiene Cloud Monitoring: sin CPU ni almacenamiento de la instancia.": [
   "crates/drivers/spanner/src/monitor.rs"
  ],
+ "El emulador no tiene INFORMATION_SCHEMA.JOBS: se listan los índices sin contadores.": [
+  "crates/drivers/bigquery/src/index_usage.rs"
+ ],
  "El endpoint de la región: cassandra.<región>.amazonaws.com.": [
   "crates/drivers/cassandra/src/lib.rs"
  ],
@@ -5211,6 +5287,9 @@
  ],
  "El historial muestra las consultas propias; las de otros usuarios necesitan el privilegio MONITOR sobre sus warehouses.": [
   "crates/drivers/snowflake/src/monitor.rs"
+ ],
+ "El instrumento wait/io/table/sql/handler de performance_schema está desactivado: el servidor no cuenta el uso de índices. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
  ],
  "El log necesita el modelo de recuperación FULL o BULK_LOGGED y un backup completo previo.": [
   "crates/drivers/sqlserver/src/backup.rs"
@@ -5403,6 +5482,9 @@
  "El servidor no es parte de un replica set: no hay retraso de réplica que medir.": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
+ "El servidor no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/postgres/src/index_usage.rs"
+ ],
  "El servidor no informa la E/S de disco (fs.io_stats solo existe en Linux con acceso a /proc/diskstats).": [
   "crates/drivers/elasticsearch/src/lib.rs"
  ],
@@ -5414,6 +5496,9 @@
  ],
  "El servidor no permite listar las transacciones ({0}): {1}": [
   "crates/drivers/neo4j/src/profiler.rs"
+ ],
+ "El servidor no permitió leer las estadísticas de uso de CockroachDB (crdb_internal.index_usage_statistics). Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "El servidor no respondió SHOW GLOBAL STATUS: no hay contadores de actividad.": [
   "crates/drivers/mysql/src/monitor.rs"
@@ -5502,6 +5587,15 @@
  "El usuario está mirando el objeto {0}.\n": [
   "src-tauri/src/commands/ai.rs"
  ],
+ "El usuario no puede leer las estadísticas del servicio de índices (rol «External Stats Reader» o uno de administración): se listan los índices sin contadores.": [
+  "crates/drivers/couchbase/src/index_usage.rs"
+ ],
+ "El usuario no tiene el privilegio SHOW INDEX (GRANT SHOW INDEX ON DATABASE …): se listan solo los índices de las restricciones, sin contadores.": [
+  "crates/drivers/neo4j/src/index_usage.rs"
+ ],
+ "El usuario no tiene la acción indexStats (rol clusterMonitor, o dbAdmin en la base): se listan los índices sin contadores.": [
+  "crates/drivers/mongodb/src/index_usage.rs"
+ ],
  "El validador de {0} cambia: vale para los documentos que se inserten o modifiquen; los que ya existen no se revisan.": [
   "crates/drivers/mongodb/src/sync.rs"
  ],
@@ -5561,9 +5655,6 @@
  ],
  "El «SQL connection string» del almacén (Configuración → Cadenas de conexión).": [
   "crates/drivers/sqlserver/src/variant.rs"
- ],
- "El índice Mango {0} no se borra: CouchDB lo borra por su documento de diseño (DELETE _index/<documento>/json/{1}); hacelo a mano.": [
-  "crates/drivers/couchdb/src/sync.rs"
  ],
  "El índice de tiempo no admite nulos: la columna queda NOT NULL.": [
   "crates/dbine-schema/src/dialect/greptimedb.rs"
@@ -6239,6 +6330,9 @@
  "Esta compilación de SQLite no trae la tabla dbstat: no se ve el espacio por tabla.": [
   "crates/drivers/sqlite/src/monitor.rs"
  ],
+ "Esta versión de Neo4j no cuenta el uso de los índices (readCount llega en Neo4j 5): se listan sin contadores.": [
+  "crates/drivers/neo4j/src/index_usage.rs"
+ ],
  "Estado": [
   "crates/drivers/athena/src/monitor.rs",
   "crates/drivers/athena/src/plan.rs",
@@ -6301,6 +6395,9 @@
  "Este motor no da cifras reales por operador por ODBC: se muestra el plan estimado junto al resultado.": [
   "crates/drivers/odbc/src/explain.rs"
  ],
+ "Este motor no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "Este servidor no controla permisos: usa AllowAllAuthorizer, así que todo usuario puede hacer todo. Para administrarlos activá `authorizer: CassandraAuthorizer` en cassandra.yaml (scylla.yaml en ScyllaDB) y reiniciá.": [
   "crates/drivers/cassandra/src/security.rs"
  ],
@@ -6309,6 +6406,9 @@
  ],
  "Este servidor no da planes explicados (MON$EXPLAINED_PLAN llegó en Firebird 3).": [
   "crates/drivers/firebird/src/lib.rs"
+ ],
+ "Este servidor no tiene $indexStats: se listan los índices sin contadores.": [
+  "crates/drivers/mongodb/src/index_usage.rs"
  ],
  "Este servidor no tiene ACL (Redis 6 o superior) o no permite el comando ACL: no hay usuarios que administrar ({0}).": [
   "crates/drivers/redis/src/lib.rs"
@@ -6321,6 +6421,9 @@
  ],
  "Este servidor no tiene backups (el emulador de Spanner no los implementa).": [
   "crates/drivers/spanner/src/backup.rs"
+ ],
+ "Este servidor solo tiene las estadísticas del coordinador, que no cuentan las lecturas de los segmentos (las suman Greenplum 7 y Cloudberry). Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "Este usuario no es superusuario ni tiene pg_read_all_stats: solo se ven sus propias consultas.": [
   "crates/drivers/postgres/src/profiler.rs"
@@ -6459,6 +6562,7 @@
   "crates/drivers/elasticsearch/src/backup.rs"
  ],
  "Expression": [
+  "crates/drivers/mysql/src/index_usage.rs",
   "crates/drivers/sqlserver/src/plan.rs"
  ],
  "Extensiones": [
@@ -6514,7 +6618,8 @@
   "crates/drivers/mongodb/src/monitor.rs"
  ],
  "False": [
-  "crates/drivers/cosmosdb/src/transfer.rs"
+  "crates/drivers/cosmosdb/src/transfer.rs",
+  "crates/drivers/mysql/src/index_usage.rs"
  ],
  "Falta \"{0}\" en {1}": [
   "crates/drivers/dynamodb/src/admin.rs"
@@ -6689,6 +6794,9 @@
  "FerretDB no aplica validadores $jsonSchema: la colección se crea sin validar los campos.": [
   "crates/dbine-schema/src/dialect/mongodb.rs"
  ],
+ "FerretDB no cuenta el uso de los índices ($indexStats devuelve ceros): se listan sin contadores.": [
+  "crates/drivers/mongodb/src/index_usage.rs"
+ ],
  "FerretDB no informa esperas por bloqueos ni permite terminar operaciones (no tiene killOp)": [
   "crates/drivers/mongodb/src/blocking.rs"
  ],
@@ -6855,6 +6963,9 @@
  "Firebird no expone el uso de CPU del servidor por SQL.": [
   "crates/drivers/firebird/src/monitor.rs"
  ],
+ "Firebird no registra cuántas veces se usa cada índice (las tablas MON$ cuentan las lecturas por índice de toda la tabla) ni su tamaño (solo gstat lo informa): se listan los índices con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
+  "crates/drivers/firebird/src/index_usage.rs"
+ ],
  "Firebird no tiene arreglos ni mapas en SQL: se guardan como JSON en un BLOB de texto.": [
   "crates/dbine-schema/src/dialect/firebird.rs"
  ],
@@ -6896,6 +7007,9 @@
  ],
  "Flight SQL es un protocolo, no un motor: el DDL para cambiar el esquema depende de la base que está detrás (DuckDB, Dremio, InfluxDB 3, Doris…) y varias no lo aceptan por Flight SQL; conectate con el driver propio de ese motor para sincronizar esquemas": [
   "crates/drivers/flightsql/src/lib.rs"
+ ],
+ "Flight SQL informa la clave primaria y las claves foráneas de la tabla, pero no sus índices ni cuántas veces se usan.": [
+  "crates/drivers/flightsql/src/index_usage.rs"
  ],
  "Flight SQL no define métricas de servidor y este motor no expone tablas de sistema conocidas: solo se muestra la información del servidor.": [
   "crates/drivers/flightsql/src/lib.rs"
@@ -7068,6 +7182,9 @@
  "GreptimeDB no expone contadores de consultas ni de conexiones por SQL; están en /metrics (Prometheus).": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "GreptimeDB no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "GreptimeDB no tiene UPDATE: una fila se reemplaza insertándola de nuevo completa": [
   "crates/drivers/mysql/src/design.rs"
  ],
@@ -7151,6 +7268,9 @@
  ],
  "H2 no borra bases por SQL: se borran sus archivos (o DROP ALL OBJECTS)": [
   "crates/drivers/postgres/src/session.rs"
+ ],
+ "H2 no cuenta cuántas veces se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "H2 no deshabilita usuarios: se les puede cambiar la contraseña o borrarlos": [
   "crates/drivers/postgres/src/security/h2.rs"
@@ -8599,6 +8719,9 @@
  "Las estadísticas de SPANNER_SYS son por minuto (llegan con hasta un minuto de atraso) y los tamaños de tabla, por hora.": [
   "crates/drivers/spanner/src/monitor.rs"
  ],
+ "Las estadísticas de esta base nunca se reiniciaron (pg_stat_reset): los contadores corren desde que se creó, o desde la última caída del servidor.": [
+  "crates/drivers/postgres/src/index_usage.rs"
+ ],
  "Las fechas de BSON son instantes en UTC: la fecha y hora sin zona se toma como UTC.": [
   "crates/dbine-schema/src/dialect/mongodb.rs"
  ],
@@ -8610,6 +8733,9 @@
  ],
  "Las horas son las del servidor (Firebird 3 no convierte a UTC).": [
   "crates/drivers/firebird/src/profiler.rs"
+ ],
+ "Las lecturas se conservan entre reinicios; las escrituras (V$SEGSTAT) se cuentan desde el arranque de la instancia.": [
+  "crates/drivers/oracle/src/index_usage.rs"
  ],
  "Las métricas de CPU, memoria, red y disco son del nodo al que está conectada esta sesión.": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -8646,6 +8772,9 @@
  ],
  "Las tablas de {0} no tienen intervalos: queda como texto.": [
   "crates/dbine-schema/src/dialect/dremio.rs"
+ ],
+ "Las tablas estándar de Snowflake no tienen índices (sus claves primarias, únicas y foráneas son informativas); solo las tablas híbridas los tienen.": [
+  "crates/drivers/snowflake/src/index_usage.rs"
  ],
  "Las tablas sin calificar de las consultas se buscan en este dataset.": [
   "crates/drivers/bigquery/src/lib.rs"
@@ -8709,6 +8838,9 @@
  ],
  "Lecturas (range)": [
   "crates/drivers/etcd/src/lib.rs"
+ ],
+ "Lecturas = consultas de los últimos 180 días que usaron el índice (INFORMATION_SCHEMA.JOBS). BigQuery registra el uso por consulta, no por tabla: una consulta que une esta tabla con otra y usa solo el índice de la otra puede contar acá, así que el número es un máximo. BigQuery no cuenta escrituras. Leer JOBS es una consulta facturada (180 días de trabajos de la región) y se repite cada vez que se abre esta carpeta.": [
+  "crates/drivers/bigquery/src/index_usage.rs"
  ],
  "Lecturas concurrentes": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -8871,6 +9003,12 @@
  "Los contadores de filas y páginas son de esta base desde que se abrió, no de todo el servidor.": [
   "crates/drivers/firebird/src/monitor.rs"
  ],
+ "Los contadores de uso salen de monOpenObjectActivity: necesitan el rol mon_role y las opciones «enable monitoring» y «per object statistics active». Se listan los índices sin contadores.": [
+  "crates/drivers/odbc/src/index_usage.rs"
+ ],
+ "Los contadores son desde el arranque del servidor, salvo que las estadísticas se hayan reiniciado o activado después.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "Los documentos no tienen esquema fijo: el campo {0}.{1} no se agrega a los documentos que ya existen.": [
   "crates/drivers/cosmosdb/src/sync.rs",
   "crates/drivers/couchbase/src/sync.rs",
@@ -8951,6 +9089,9 @@
  ],
  "Los índices de {0} son de una sola columna.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "Los índices parciales (con filtro WHERE) no muestran escrituras: PostgreSQL cuenta las de la tabla, no cuántas filas cumplen el filtro de cada índice, así que nunca se marcan «sin uso».": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "Los índices van en minúsculas y sin caracteres especiales: «{0}» pasa a «{1}».": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs"
@@ -9164,6 +9305,12 @@
  "Marcá al menos una columna como clave de partición.": [
   "crates/drivers/cassandra/src/ddl.rs"
  ],
+ "MariaDB (userstat) cuenta filas leídas por cada índice sin separar búsquedas de recorridos: «seeks» son esas filas, «scans» de la clave primaria las leídas recorriendo la tabla (InnoDB) y «updates», las filas escritas en la tabla.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
+ "MariaDB no está contando el uso de índices: activá userstat (SET GLOBAL userstat = 1, sin reiniciar) o performance_schema (en la configuración, con reinicio). Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "MariaDB no expone el uso de CPU del servidor por SQL.": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -9178,6 +9325,9 @@
  ],
  "Materialize": [
   "crates/drivers/postgres/src/lib.rs"
+ ],
+ "Materialize no cuenta cuántas veces se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "Materialize no está registrando consultas (statement logging en 0) y la conexión es de solo lectura": [
   "crates/drivers/postgres/src/profiler.rs"
@@ -9233,6 +9383,9 @@
  ],
  "Memgraph no hace esperar a una transacción por otra: la segunda escritura falla enseguida con un error de serialización": [
   "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "Memgraph no lleva la cuenta del uso de sus índices: se listan sin contadores.": [
+  "crates/drivers/neo4j/src/index_usage.rs"
  ],
  "Memgraph no otorga permisos sobre objetos «{0}»": [
   "crates/drivers/neo4j/src/security.rs"
@@ -9692,6 +9845,9 @@
  "MonetDB restaura desempaquetando el snapshot con el servidor detenido": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "MongoDB no cuenta escrituras por índice, solo operaciones de la colección (desde que arrancó el servidor o se creó la colección, sin distinguir índices creados después): no se muestran escrituras y ningún índice se marca sin uso.": [
+  "crates/drivers/mongodb/src/index_usage.rs"
+ ],
  "MongoDB no limita el largo del texto.": [
   "crates/dbine-schema/src/dialect/mongodb.rs"
  ],
@@ -9867,10 +10023,12 @@
   "crates/dbine-schema/src/dialect/oracle.rs",
   "crates/dbine-schema/src/dialect/spanner.rs",
   "crates/drivers/databricks/src/ddl.rs",
+  "crates/drivers/databricks/src/index_usage.rs",
   "crates/drivers/firebird/src/schema.rs",
   "crates/drivers/hana/src/schema.rs",
   "crates/drivers/mysql/src/session.rs",
   "crates/drivers/oracle/src/ddl.rs",
+  "crates/drivers/oracle/src/index_usage.rs",
   "crates/drivers/postgres/src/structure.rs",
   "crates/drivers/snowflake/src/ddl.rs",
   "crates/drivers/spanner/src/lib.rs",
@@ -9952,6 +10110,9 @@
  ],
  "Neo4j Community no tiene roles ni permisos: todo usuario puede hacer todo. Los permisos son de Enterprise.": [
   "crates/drivers/neo4j/src/security.rs"
+ ],
+ "Neo4j cuenta las lecturas de cada índice pero no las escrituras: un índice sin lecturas queda en 0 % y no se marca «sin uso».": [
+  "crates/drivers/neo4j/src/index_usage.rs"
  ],
  "Neo4j hace backups con neo4j-admin (Enterprise), fuera de Cypher": [
   "crates/drivers/neo4j/src/backup.rs"
@@ -10204,6 +10365,9 @@
  "No hay un {0} «{1}» en «{2}»: se salteó `{3}`.": [
   "crates/drivers/mongodb/src/security.rs"
  ],
+ "No hay un índice Mango llamado «{0}».": [
+  "crates/drivers/couchdb/src/lib.rs"
+ ],
  "No hay una base de datos seleccionada.": [
   "crates/drivers/influxdb/src/v1.rs",
   "crates/drivers/influxdb/src/v3.rs"
@@ -10306,6 +10470,9 @@
  "No se pudieron leer las esperas de bloqueo: {0}. Hace falta el privilegio PROCESS.": [
   "crates/drivers/mysql/src/blocking.rs"
  ],
+ "No se pudieron leer las estadísticas de SPANNER_SYS.TABLE_OPERATIONS_STATS_HOUR (hace falta el permiso spanner.databases.select y, con control de acceso detallado, el rol spanner_sys_reader; el emulador no las tiene): se listan los índices sin contadores.": [
+  "crates/drivers/spanner/src/index_usage.rs"
+ ],
  "No se pudieron leer las estadísticas de ejecución: {0}": [
   "crates/drivers/athena/src/lib.rs"
  ],
@@ -10314,6 +10481,12 @@
  ],
  "No se pudieron leer las estadísticas de operadores: {0}": [
   "crates/drivers/snowflake/src/lib.rs"
+ ],
+ "No se pudieron leer las estadísticas de uso (pg_stat_all_indexes): el usuario necesita poder leerlas, por ejemplo con el rol pg_read_all_stats. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/postgres/src/index_usage.rs"
+ ],
+ "No se pudieron leer las estadísticas del servicio de índices: {0}": [
+  "crates/drivers/couchbase/src/index_usage.rs"
  ],
  "No se pudieron leer las hypertables": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -10372,6 +10545,9 @@
  "No se pudieron leer los checkpoints": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "No se pudieron leer los contadores ($indexStats): {0}": [
+  "crates/drivers/mongodb/src/index_usage.rs"
+ ],
  "No se pudieron leer los límites de la cuenta (DescribeLimits): falta el permiso dynamodb:DescribeLimits.": [
   "crates/drivers/dynamodb/src/monitor.rs"
  ],
@@ -10404,6 +10580,9 @@
  ],
  "No se pudieron leer los tamaños por base ({0}).": [
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "No se pudieron leer los índices (SHOW INDEXES): {0}. Se listan solo los de las restricciones, sin contadores.": [
+  "crates/drivers/neo4j/src/index_usage.rs"
  ],
  "No se pudieron leer: {0}.": [
   "crates/drivers/solr/src/lib.rs"
@@ -10486,11 +10665,17 @@
  "No se pudo leer GV$OB_SERVERS ({0}).": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "No se pudo leer INFORMATION_SCHEMA.JOBS (hace falta el permiso bigquery.jobs.listAll, o bigquery.jobs.list para las consultas propias): se listan los índices sin contadores.": [
+  "crates/drivers/bigquery/src/index_usage.rs"
+ ],
  "No se pudo leer INFORMATION_SCHEMA.TABLE_STORAGE ({0}); los tamaños son solo los del dataset de la sesión (hasta 50 tablas).": [
   "crates/drivers/bigquery/src/monitor.rs"
  ],
  "No se pudo leer MV_NODES ({0}).": [
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "No se pudo leer QSYS2.SYSINDEXSTAT: se listan los índices sin contadores.": [
+  "crates/drivers/odbc/src/index_usage.rs"
  ],
  "No se pudo leer REPLICA_HOST_STATUS de Aurora ({0}).": [
   "crates/drivers/mysql/src/monitor.rs"
@@ -10628,6 +10813,9 @@
   "crates/drivers/mysql/src/monitor.rs"
  ],
  "No se pudo leer sys.jobs ({0}): hace falta permiso de administrador para ver los trabajos de otros usuarios.": [
+  "crates/drivers/dremio/src/lib.rs"
+ ],
+ "No se pudo leer sys.reflections (en Dremio Enterprise hace falta el privilegio VIEW REFLECTION): {0}": [
   "crates/drivers/dremio/src/lib.rs"
  ],
  "No se pudo leer system.asynchronous_metrics ({0}).": [
@@ -11196,6 +11384,10 @@
  "Nueva validación (validate_doc_update)": [
   "crates/drivers/couchdb/src/ddl.rs"
  ],
+ "Nueva ventana": [
+  "src-tauri/src/dock_macos.rs",
+  "src-tauri/src/lib.rs"
+ ],
  "Nueva vista": [
   "crates/drivers/athena/src/ddl.rs",
   "crates/drivers/bigquery/src/ddl.rs",
@@ -11542,6 +11734,12 @@
  "OceanBase borra los backups con la política de limpieza del tenant": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "OceanBase cuenta accesos por índice sin separar búsquedas de recorridos (por muestreo salvo con _iut_stat_collection_type = ALL) y los vuelca a DBA_INDEX_USAGE cada tanto: «seeks» son esos accesos y «updates», las filas escritas en la tabla desde las últimas estadísticas. La clave primaria no lleva contadores.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
+ "OceanBase no está contando el uso de índices (_iut_enable = False). Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "OceanBase no expone el porcentaje de CPU por SQL; miralo en OCP (OceanBase Cloud Platform).": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -11693,6 +11891,12 @@
  "Oracle admite hasta 38 dígitos; el origen es ({0}, {1}): queda ({2}, {3}).": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
+ "Oracle anterior a 12.2 no cuenta cuántas veces se usa cada índice.": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "Oracle cuenta los accesos a cada índice sin distinguir búsquedas de recorridos completos": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
  "Oracle limita la columna a {0} bytes: con caracteres de varios bytes pueden entrar menos de {1} caracteres.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
@@ -11723,6 +11927,9 @@
  "Oracle solo muestra la sentencia en curso y la anterior de cada sesión: las muy rápidas pueden no verse. La hora de inicio es al segundo; la duración, la CPU, las lecturas (buffer gets) y las escrituras (escrituras directas) son la media del cursor en V$SQLSTATS.": [
   "crates/drivers/oracle/src/profiler.rs"
  ],
+ "Oracle solo registra si cada índice se usó desde que se activó MONITORING USAGE, no cuántas veces: cada índice usado cuenta como una lectura.": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
  "Orden de clustering": [
   "crates/drivers/cassandra/src/ddl.rs"
  ],
@@ -11743,6 +11950,9 @@
  ],
  "Organización": [
   "crates/drivers/influxdb/src/v2.rs"
+ ],
+ "OrientDB no lleva la cuenta del uso de cada índice: se listan sin contadores.": [
+  "crates/drivers/orientdb/src/index_usage.rs"
  ],
  "OrientDB no publica CPU, memoria ni consultas por segundo por su API REST: requieren el profiler o el agente de OrientDB Enterprise.": [
   "crates/drivers/orientdb/src/monitor.rs"
@@ -11880,6 +12090,15 @@
  "Para ver consultas por segundo y las más costosas, instalá pg_stat_statements en esta base (shared_preload_libraries y CREATE EXTENSION pg_stat_statements).": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "Para ver cuánto se usa cada índice el usuario necesita SELECT sobre DBA_INDEX_USAGE y V$SEGSTAT (los da el rol SELECT_CATALOG_ROLE).": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "Para ver cuánto se usa cada índice el usuario necesita SELECT sobre la base oceanbase (DBA_INDEX_USAGE, DBA_OBJECTS). Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
+ "Para ver cuánto se usa cada índice el usuario necesita el permiso SELECT sobre performance_schema. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "Para ver cuánto se usa cada índice el usuario necesita el permiso VIEW DATABASE STATE. Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/sqlserver/src/index_usage.rs"
  ],
@@ -11891,6 +12110,9 @@
  ],
  "Para ver los bloqueos hace falta leer V$SESSION y V$SQL (SELECT_CATALOG_ROLE): {0}": [
   "crates/drivers/oracle/src/blocking.rs"
+ ],
+ "Para ver los contadores de uso el usuario necesita EXECUTE sobre MON_GET_INDEX (o la autoridad SQLADM, DBADM o DATAACCESS): se listan los índices sin contadores.": [
+  "crates/drivers/odbc/src/index_usage.rs"
  ],
  "Para verificar el servidor: el global-bundle.pem de AWS (RDS).": [
   "crates/drivers/postgres/src/lib.rs"
@@ -12102,6 +12324,9 @@
  ],
  "Phoenix no guarda la zona horaria de una hora.": [
   "crates/dbine-schema/src/dialect/phoenix.rs"
+ ],
+ "Phoenix no registra cuántas veces se usa cada índice ni su tamaño (vive en HBase): se listan la clave de fila y los índices con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
+  "crates/drivers/phoenix/src/index_usage.rs"
  ],
  "Phoenix no tiene arreglos anidados: se guarda como texto JSON.": [
   "crates/dbine-schema/src/dialect/phoenix.rs"
@@ -12705,6 +12930,9 @@
  "Redshift no expone por SQL el uso de CPU ni de memoria de los nodos: están en CloudWatch y en la consola de Redshift.": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "Redshift no tiene índices: ordena y reparte las filas con SORTKEY y DISTKEY. Se muestran las claves foráneas.": [
+  "crates/drivers/postgres/src/index_usage.rs"
+ ],
  "Reducciones (trabajo de la VM)": [
   "crates/drivers/couchdb/src/monitor.rs"
  ],
@@ -13034,6 +13262,9 @@
  "RisingWave hace los backups de su metadata con risectl, no con SQL": [
   "crates/drivers/postgres/src/backup.rs"
  ],
+ "RisingWave no cuenta cuántas veces se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/postgres/src/index_usage.rs"
+ ],
  "RisingWave no expone por SQL el uso de CPU ni de memoria de los nodos, ni el throughput: están en su dashboard y en Prometheus.": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -13245,6 +13476,9 @@
  "Réplicas por shard (n)": [
   "crates/drivers/couchdb/src/monitor.rs"
  ],
+ "SAP HANA no registra cuántas veces se usa cada índice: se listan los índices con sus columnas (y el tamaño de los de tablas row store), sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
+  "crates/drivers/hana/src/index_usage.rs"
+ ],
  "SAVE (bloquea el servidor)": [
   "crates/drivers/redis/src/backup.rs"
  ],
@@ -13256,6 +13490,9 @@
  ],
  "SORT: ordena en memoria (ningún índice da el orden)": [
   "crates/drivers/mongodb/src/plan.rs"
+ ],
+ "SPANNER_SYS.TABLE_OPERATIONS_STATS_HOUR todavía no tiene datos (se llena al cerrar cada hora): se listan los índices sin contadores.": [
+  "crates/drivers/spanner/src/index_usage.rs"
  ],
  "SQL Anywhere admite hasta {0} dígitos; el origen tiene {1}.": [
   "crates/dbine-schema/src/dialect/sybase.rs"
@@ -13364,6 +13601,9 @@
  ],
  "SQLite no puede guardar NaN (lo convertiría en NULL): la fila trae un REAL NaN": [
   "crates/drivers/libsql/src/transfer.rs"
+ ],
+ "SQLite no registra cuántas veces se usa cada índice: se listan los índices con sus columnas y tamaño, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
+  "crates/drivers/sqlite/src/index_usage.rs"
  ],
  "SQLite no restaura ni borra copias por SQL: la copia es un archivo de base que se abre como cualquier otro": [
   "crates/drivers/sqlite/src/backup.rs"
@@ -13557,6 +13797,9 @@
  ],
  "Se leen {0} columnas y se cargan {1}": [
   "crates/drivers/sqlserver/src/transfer.rs"
+ ],
+ "Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/oracle/src/index_usage.rs"
  ],
  "Se muestran las primeras {0} de {1} bases.": [
   "crates/drivers/mongodb/src/monitor.rs"
@@ -13946,6 +14189,12 @@
  "Sin LIMIT: puede devolver la tabla entera": [
   "crates/drivers/cassandra/src/plan.rs"
  ],
+ "Sin SELECT sobre V$SEGSTAT no se ven las escrituras de cada índice, así que ninguno se marca como sin uso.": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "Sin SELECT sobre mysql.stats_meta no se ven las escrituras de la tabla, así que ningún índice se marca como sin uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "Sin SELECT_CATALOG_ROLE (o SELECT ANY DICTIONARY) no se ven: {0}.": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
@@ -14143,6 +14392,9 @@
  "SingleStore no expone el uso de CPU por SQL; miralo en SingleStore Studio o en el monitoreo del cluster.": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "SingleStore no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "SingleStore no otorga permisos sobre «{0}»": [
   "crates/drivers/mysql/src/security/singlestore.rs"
  ],
@@ -14228,6 +14480,9 @@
  "Snowflake no guarda la zona horaria de una hora.": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
  ],
+ "Snowflake no lleva contadores de uso ni tamaño por índice: se listan los índices de la tabla híbrida sin lecturas ni escrituras.": [
+  "crates/drivers/snowflake/src/index_usage.rs"
+ ],
  "Snowflake no tiene cadenas de bits: se guarda como binario.": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
  ],
@@ -14272,6 +14527,9 @@
  ],
  "Solo copia": [
   "crates/drivers/sqlserver/src/backup.rs"
+ ],
+ "Solo cuentan tus consultas: para ver las de todos hace falta el permiso bigquery.jobs.listAll en el proyecto.": [
+  "crates/drivers/bigquery/src/index_usage.rs"
  ],
  "Solo en Eon Mode (Vertica 24.1 en adelante) y con un superusuario: el punto de restauración queda en el almacenamiento comunal de la base. La base se revive desde un punto con admintools o el operador de Kubernetes, no por SQL. En Enterprise Mode los backups se hacen con vbr.": [
   "crates/drivers/odbc/src/backup.rs"
@@ -14514,6 +14772,9 @@
  ],
  "StarRocks mide VARCHAR en bytes: se usa el máximo (1 MB).": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "StarRocks no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
  ],
  "StarRocks no otorga permisos sobre «{0}»": [
   "crates/drivers/mysql/src/security/starrocks.rs"
@@ -15105,6 +15366,12 @@
  ],
  "Thread pools": [
   "crates/drivers/elasticsearch/src/monitor.rs"
+ ],
+ "TiDB cuenta consultas: «seeks» son las que leyeron menos del 10% de las filas de la tabla por el índice y «scans», el resto. «updates» son las filas modificadas desde el último ANALYZE. La clave primaria agrupada no lleva contadores.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
+ "TiDB informa el uso de índices desde la versión 8.0 (information_schema.TIDB_INDEX_USAGE). Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
  ],
  "TiDB no borra backups por SQL: se borra su carpeta en el almacenamiento": [
   "crates/drivers/mysql/src/backup.rs"
@@ -16374,6 +16641,12 @@
  ],
  "Yellowbrick no expone por SQL el CPU ni la memoria de los workers: están en Yellowbrick Manager.": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Yellowbrick no tiene índices secundarios ni cuenta su uso.": [
+  "crates/drivers/postgres/src/index_usage.rs"
+ ],
+ "YugabyteDB cuenta el uso en cada nodo: los números son los del nodo al que está conectada la sesión. No cuenta las escrituras: un índice sin lecturas muestra 0 % en vez de «sin uso».": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "YugabyteDB guarda los datos en DocDB: el tamaño de las bases, la E/S y los checkpoints se ven en la interfaz de yb-master / yb-tserver.": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -17806,6 +18079,9 @@
  "el uso de recursos (sys.dm_db_resource_stats)": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "el uso más reciente puede no figurar todavía, así que un índice recién creado o recién usado puede verse sin uso hasta el próximo volcado, y la última lectura es la hora del volcado que la registró, no la del acceso.": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
  "el usuario que lo creó": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
@@ -18211,6 +18487,9 @@
   "crates/dbine-transfer/src/copy.rs"
  ],
  "error leyendo el archivo (fila {0}): {1}": [
+  "src-tauri/src/commands/imports.rs"
+ ],
+ "error leyendo el archivo: {0}": [
   "src-tauri/src/commands/imports.rs"
  ],
  "es demasiado chico para {0} (se cargaría como 0)": [
@@ -21172,6 +21451,12 @@
  "pdate guarda milisegundos: se pierden {0} decimales de segundo.": [
   "crates/dbine-schema/src/dialect/solr.rs"
  ],
+ "performance_schema cuenta filas leídas por cada índice sin separar búsquedas de recorridos: «seeks» son esas filas, «scans» de la clave primaria las leídas recorriendo la tabla (InnoDB) y «updates», las filas escritas en la tabla.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
+ "performance_schema está desactivado en el servidor (performance_schema = OFF; se activa en la configuración y requiere reiniciar). Se listan los índices sin estadísticas de uso.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "permiso de escritura sobre el archivo (la base está abierta en solo lectura)": [
   "crates/drivers/duckdb/src/permissions.rs"
  ],
@@ -22621,6 +22906,9 @@
  "{0} no es una tabla": [
   "crates/drivers/postgres/src/clone.rs"
  ],
+ "{0} no expone cuántas veces se usa cada índice: se listan los índices con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
+  "crates/drivers/odbc/src/index_usage.rs"
+ ],
  "{0} no expone las esperas de bloqueo por SQL.": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -22683,6 +22971,9 @@
  ],
  "{0} no puede tener espacios, comillas, comas ni «;».": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "{0} no registra cuántas veces se usa cada índice: se listan la clave primaria, los índices de salto y las proyecciones con su tamaño, sin contadores. Para ver cuántos gránulos descarta cada índice en una consulta, usá EXPLAIN indexes = 1.": [
+  "crates/drivers/clickhouse/src/index_usage.rs"
  ],
  "{0} no respondió a {1}: {2}": [
   "crates/drivers/mongodb/src/monitor.rs"
@@ -22802,6 +23093,9 @@
  "{0} no tiene {1}: queda como texto.": [
   "crates/dbine-schema/src/dialect/spark.rs"
  ],
+ "{0} no tiene índices definidos por el usuario: se muestran la clave primaria y las claves foráneas.": [
+  "crates/drivers/odbc/src/index_usage.rs"
+ ],
  "{0} no tiene índices únicos (índice «{1}»): use el modelo UNIQUE KEY / PRIMARY KEY": [
   "crates/drivers/mysql/src/design.rs"
  ],
@@ -22873,6 +23167,12 @@
  ],
  "{0} trigger(s) de base (DDL) no se clonan: se dispararían con el propio script al reanudar": [
   "crates/drivers/sqlserver/src/clone.rs"
+ ],
+ "{0} y los vuelca cada 15 minutos (último volcado: {1}): {2} {3}": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "{0} y los vuelca cada 15 minutos: {1} {2}": [
+  "crates/drivers/oracle/src/index_usage.rs"
  ],
  "{0} ya tiene filas, y Phoenix no permite cargarla sin pisar las de igual clave ({1}); vaciala antes de copiar": [
   "crates/drivers/phoenix/src/transfer.rs"
@@ -23153,6 +23453,9 @@
  "{0}: TiDB no cambia una clave primaria entre CLUSTERED y NONCLUSTERED con ALTER; hay que recrear la tabla.": [
   "crates/drivers/mysql/src/design.rs"
  ],
+ "{0}: cambia el índice clúster; la tabla se reorganiza entera y puede tardar si tiene muchos datos.": [
+  "crates/drivers/sqlserver/src/structure.rs"
+ ],
  "{0}: cambiar los ajustes de indexación no reindexa los documentos que ya están.": [
   "crates/drivers/mysql/src/design.rs"
  ],
@@ -23254,6 +23557,9 @@
  ],
  "{0}: la tabla no se puede crear igual porque la columna calculada [{1}] usa {2}": [
   "crates/drivers/sqlserver/src/clone.rs"
+ ],
+ "{0}: las claves foráneas que referencian {1} se quitan antes de rehacerla y se vuelven a crear después (el script las lee del catálogo al correr).": [
+  "crates/drivers/sqlserver/src/structure.rs"
  ],
  "{0}: las propiedades de la tabla (WITH) no se sincronizan; cambialas a mano (ALTER TABLE … SET PROPERTIES).": [
   "crates/drivers/trino/src/sync.rs"
@@ -23405,6 +23711,9 @@
  ],
  "«{0}» es de todo el servidor: elegí «todo» como objeto": [
   "crates/drivers/neo4j/src/security.rs"
+ ],
+ "«{0}» es el índice de _id de CouchDB y no se borra.": [
+  "crates/drivers/couchdb/src/lib.rs"
  ],
  "«{0}» es el índice de tiempo (TIME INDEX) de la tabla.": [
   "crates/dbine-schema/src/dialect/greptimedb.rs"

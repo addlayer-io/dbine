@@ -59,7 +59,6 @@
     "deleteObjects": "Excluir {{n}} objetos…",
     "clearSelection": "Limpar a seleção",
     "newQuery": "Nova consulta",
-    "newMigration": "Nova migração…",
     "monitor": "Monitor",
     "newDatabase": "Novo banco de dados…",
     "copyServer": "Copiar servidor",
@@ -88,6 +87,7 @@
     "profiler": "Profiler",
     "generateScript": "Gerar script…",
     "migrate": "Migrar…",
+    "newMigration": "Nova migração…",
     "compareSchemas": "Comparar esquemas…",
     "exportDatabase": "Exportar banco…",
     "importData": "Importar dados…",
@@ -110,33 +110,25 @@
     "menu": "Índices…",
     "none": "Sem índices",
     "unused": "sem uso",
+    "noData": "sem dados",
+    "noDataTip": "Este servidor não fornece estatísticas de uso de índices.",
+    "noReadsTip": "Nenhum índice desta tabela teve leituras desde que as estatísticas começaram.",
+    "noWritesTip": "Este motor não informa escritas de índices",
     "unusedTitle": "É escrito, mas nenhuma consulta o leu desde que as estatísticas começaram",
     "shareTitle": "Parte das leituras da tabela que passam por este índice",
     "fkTitle": "Chave estrangeira → {{target}}",
     "refresh": "Atualizar",
     "copy": "Copiar",
     "copied": "Copiado",
-    "since": "Estatísticas desde {{since}} (o SQL Server as reinicia ao reiniciar o serviço; no Azure SQL também em um failover).",
-    "sinceRestart": "Estatísticas desde a última reinicialização do serviço (o SQL Server as reinicia ao reiniciar o serviço; no Azure SQL também em um failover).",
+    "since": "Estatísticas desde {{since}}.",
+    "sinceRestart": "Estatísticas desde a última reinicialização do servidor (o motor não informa a data).",
     "unsupported": "Este motor não informa o uso dos índices.",
-    "col": {
-      "name": "Nome",
-      "type": "Tipo",
-      "keys": "Colunas-chave",
-      "filter": "Filtro",
-      "size": "Tamanho",
-      "readShare": "% leituras",
-      "writesPerRead": "Escritas/leituras",
-      "lastRead": "Última leitura",
-      "lastWrite": "Última escrita",
-      "seekShare": "% seeks"
-    },
     "health": {
       "good": "Usado com seeks ({{seeks}} seeks, {{scans}} scans).",
       "warn": "Muitos scans para a quantidade de seeks ({{scans}} scans, {{seeks}} seeks): vale revisar as colunas do índice ou as consultas que o usam.",
       "bad": "Mais scans que seeks ({{scans}} scans, {{seeks}} seeks): revise as colunas do índice ou as consultas que o usam.",
       "columnstore": "Índice columnstore: foi feito para ser lido com scans ({{scans}} scans, {{seeks}} seeks).",
-      "smallTables": "Em tabelas pequenas o SQL Server prefere o scan porque é mais barato: lá o vermelho nem sempre é um problema."
+      "smallTables": "Em tabelas pequenas o motor prefere o scan porque é mais barato: lá o vermelho nem sempre é um problema."
     },
     "drop": {
       "menu": "Excluir índice…",
@@ -154,6 +146,18 @@
       "pkHint": "A chave primária é alterada pelo designer de tabelas",
       "tableNotFound": "A tabela {{table}} não foi encontrada no banco de dados.",
       "indexNotFound": "A estrutura da tabela não inclui o índice «{{name}}»: não é possível gerar o script."
+    },
+    "col": {
+      "name": "Nome",
+      "type": "Tipo",
+      "keys": "Colunas-chave",
+      "filter": "Filtro",
+      "size": "Tamanho",
+      "readShare": "% leituras",
+      "seekShare": "% seeks",
+      "writesPerRead": "Escritas/leituras",
+      "lastRead": "Última leitura",
+      "lastWrite": "Última escrita"
     }
   }
 }

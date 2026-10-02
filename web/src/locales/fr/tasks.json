@@ -1,0 +1,207 @@
+{
+  "status": {
+    "running_one": "{{count}} tâche en cours",
+    "running_other": "{{count}} tâches en cours",
+    "title": "Voir les tâches en cours",
+    "many": "{{count}} tâches",
+    "line": "{{title}} : {{elapsed}}",
+    "lineEta": "{{title}} : {{elapsed}} · {{eta}}"
+  },
+  "panel": {
+    "title": "Tâches",
+    "empty": "Aucune tâche.",
+    "clearFinished": "Retirer les terminées",
+    "cancel": "Annuler",
+    "cancelling": "Annulation…",
+    "detail": "Voir le détail",
+    "remove": "Retirer",
+    "background": "Continuer en arrière-plan"
+  },
+  "state": {
+    "running": "En cours",
+    "done": "Terminée",
+    "error": "Avec erreurs",
+    "cancelled": "Annulée"
+  },
+  "progress": {
+    "of": "{{done}} sur {{total}} {{unit}}",
+    "count": "{{done}} {{unit}}"
+  },
+  "unit": {
+    "statements": "instructions",
+    "rows": "lignes",
+    "bytes": "octets",
+    "tables": "tables",
+    "objects": "objets"
+  },
+  "elapsed": {
+    "seconds": "{{n}} s",
+    "minutes": "{{n}} min {{s}} s",
+    "hours": "{{n}} h {{m}} min",
+    "days": "{{n}} j {{h}} h"
+  },
+  "eta": {
+    "calculating": "calcul…",
+    "lessThanMinute": "moins de 1 min",
+    "minutes": "≈ {{n}} min",
+    "hours": "≈ {{h}} h {{m}} min",
+    "hoursExact": "≈ {{h}} h",
+    "days": "≈ {{d}} j {{h}} h",
+    "remaining": "{{eta}} restantes",
+    "phase": "{{eta}} pour cette étape",
+    "none": "pas d'estimation",
+    "low": "estimation initiale, susceptible de changer"
+  },
+  "detail": {
+    "title": "Détail de la tâche",
+    "messages": "Messages",
+    "noMessages": "Aucun message.",
+    "result": "Résultat",
+    "error": "Erreur",
+    "started": "Début",
+    "elapsed": "Écoulé",
+    "remaining": "Restant estimé",
+    "ended": "Fin",
+    "duration": "Durée totale"
+  },
+  "notify": {
+    "title": {
+      "done": "Tâche terminée",
+      "error": "Tâche avec erreurs",
+      "cancelled": "Tâche annulée"
+    },
+    "done": "{{title}} : terminée en {{elapsed}}.",
+    "error": "{{title}} : terminée avec des erreurs en {{elapsed}}.",
+    "cancelled": "{{title}} : annulée après {{elapsed}}.",
+    "withSummary": "{{title}} : {{summary}}, {{elapsed}}.",
+    "failed": "{{title}} : échec après {{elapsed}}. {{error}}"
+  },
+  "quit": {
+    "title": "Exécutions en arrière-plan",
+    "message_one": "Il y a {{count}} exécution en arrière-plan : {{list}}. Si vous fermez l'application, elle sera annulée. Fermer quand même ?",
+    "message_other": "Il y a {{count}} exécutions en arrière-plan : {{list}}. Si vous fermez l'application, elles seront annulées. Fermer quand même ?",
+    "confirm": "Annuler et fermer",
+    "stay": "Continuer à travailler",
+    "window": "{{title}} (fenêtre {{n}})"
+  },
+  "closeWindow": {
+    "title": "Exécutions dans cette fenêtre",
+    "message_one": "Il y a {{count}} exécution en arrière-plan dans cette fenêtre : {{list}}. Si vous fermez la fenêtre, elle sera annulée. La fermer quand même ?",
+    "message_other": "Il y a {{count}} exécutions en arrière-plan dans cette fenêtre : {{list}}. Si vous fermez la fenêtre, elles seront annulées. La fermer quand même ?",
+    "confirm": "Annuler et fermer la fenêtre",
+    "stay": "Continuer à travailler"
+  },
+  "dataSync": {
+    "title": "Synchronisation des données de {{table}} ({{where}})",
+    "unit": "instructions",
+    "phase": "Application sur {{side}} : {{parts}}",
+    "applied": "Déjà appliqué sur {{sides}}",
+    "nothingApplied": "Aucun script complet n'a été appliqué",
+    "stoppedOn": "{{side}} s'est arrêté à mi-chemin : il peut contenir des modifications partiellement appliquées",
+    "lateCancel": "L'annulation est arrivée alors que les scripts étaient déjà terminés : les modifications ont été appliquées.",
+    "stale": "L'exécution s'est arrêtée à mi-chemin et les données ont pu changer : ces scripts ne peuvent plus être exécutés. La comparaison a été rechargée.",
+    "regenerate": "Régénérer les scripts"
+  },
+  "compareSync": {
+    "title": "Synchronisation de {{target}}",
+    "sideStart_one": "{{side}} : {{count}} instruction",
+    "sideStart_other": "{{side}} : {{count}} instructions",
+    "summary": "{{count}} instructions sur {{total}}",
+    "summaryAll_one": "{{count}} instruction",
+    "summaryAll_other": "{{count}} instructions"
+  },
+  "backups": {
+    "copy": "Copie de {{where}}",
+    "copyDone": "{{size}} dans {{path}}",
+    "restoreCopy": "Restaurer la copie dans {{where}}",
+    "statements": "{{n}} instructions",
+    "statementsWithErrors": "{{n}} instructions, {{errors}} en erreur",
+    "native": {
+      "backup": "Sauvegarde de {{where}}",
+      "restore": "Restauration dans {{where}}",
+      "delete": "Supprimer la sauvegarde dans {{where}}"
+    }
+  },
+  "dialogs": {
+    "schemaCreate": "Créer le schéma {{name}} dans {{db}}",
+    "schemaDrop": "Supprimer le schéma {{name}} dans {{db}}",
+    "dropIndex": "Supprimer l'index {{name}} de {{table}}",
+    "cloneTable": "Cloner {{table}} en {{name}}",
+    "runScriptFile": "Exécuter {{file}} dans {{db}}",
+    "applyEdits": "Enregistrer les modifications dans {{table}}",
+    "saving": "Enregistrement…",
+    "rows_one": "{{n}} ligne",
+    "rows_other": "{{n}} lignes",
+    "statements_one": "{{n}} instruction",
+    "statements_other": "{{n}} instructions",
+    "statementsWithErrors_one": "{{n}} instruction, {{errors}} en erreur",
+    "statementsWithErrors_other": "{{n}} instructions, {{errors}} en erreur"
+  },
+  "backupsSecurity": {
+    "run": "Modification des utilisateurs et des permissions dans {{where}}"
+  },
+  "actions": {
+    "createDatabase": "Créer la base {{name}} sur {{server}}",
+    "dropDatabase": "Supprimer la base {{name}} de {{server}}",
+    "dropOne": "Supprimer {{name}} dans {{db}}",
+    "dropMany": "Supprimer {{count}} objets dans {{db}}",
+    "dropped_one": "{{count}} objet supprimé",
+    "dropped_other": "{{count}} objets supprimés",
+    "dropFailed": "impossible de supprimer {{failed}} sur {{total}} (le détail indique pourquoi)"
+  },
+  "dataCompare": {
+    "buildTitle": "Scripts de synchronisation des données de {{table}}",
+    "buildPhase": "Génération des scripts",
+    "applied": "Ces scripts ont déjà été exécutés et la comparaison a été rechargée : ils ne peuvent pas être réexécutés. Pour une autre synchronisation, régénérez-les."
+  },
+  "settingsGit": {
+    "git": {
+      "link": "Lier la bibliothèque au dépôt",
+      "commit": "Commit de la bibliothèque",
+      "pull": "Pull de la bibliothèque",
+      "push": "Push de la bibliothèque",
+      "sync": "Synchroniser la bibliothèque avec le dépôt",
+      "resolve": "Résoudre les conflits de la bibliothèque",
+      "unlink": "Délier la bibliothèque du dépôt",
+      "conflicts_one": "{{count}} script en conflit : ouvrez «Bibliothèque dans git» pour le résoudre",
+      "conflicts_other": "{{count}} scripts en conflit : ouvrez «Bibliothèque dans git» pour les résoudre"
+    },
+    "sync": {
+      "setupUpload": "Activer la synchronisation et envoyer la sauvegarde",
+      "setupRestore": "Restaurer la sauvegarde sur cette machine",
+      "now": "Synchroniser avec le cloud",
+      "upload": "Envoyer la sauvegarde vers le cloud",
+      "restore": "Restaurer depuis le cloud",
+      "change": "Changer la phrase secrète et rechiffrer la sauvegarde",
+      "disconnect": "Arrêter la synchronisation et supprimer la sauvegarde dans le cloud",
+      "local": "Restaurer la copie locale"
+    },
+    "drivers": {
+      "install": "Télécharger le pilote {{label}}"
+    }
+  },
+  "genImportExport": {
+    "script": "Script de {{db}}",
+    "scriptToFile": "Script de {{db}} dans {{file}}",
+    "withRows": "{{objects}}, {{rows}}",
+    "import": "Importer {{file}} dans {{table}}",
+    "export": "Exporter {{file}}"
+  },
+  "nativeBackup": {
+    "phase": {
+      "backup": "Copie des données",
+      "restore": "Restauration des données",
+      "verify": "Vérification de la sauvegarde",
+      "export": "Export avec Data Pump",
+      "import": "Import avec Data Pump"
+    }
+  },
+  "importExport": {
+    "phase": {
+      "reading": "Lecture du fichier",
+      "inserting": "Insertion des lignes"
+    },
+    "ofTotal": "sur {{total}}",
+    "estimated": "sur ~{{total}} estimées"
+  }
+}

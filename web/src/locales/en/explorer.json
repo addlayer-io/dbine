@@ -59,7 +59,6 @@
     "deleteObjects": "Delete {{n}} objects…",
     "clearSelection": "Clear selection",
     "newQuery": "New query",
-    "newMigration": "New migration…",
     "monitor": "Monitor",
     "newDatabase": "New database…",
     "copyServer": "Copy server",
@@ -88,6 +87,7 @@
     "profiler": "Profiler",
     "generateScript": "Generate script…",
     "migrate": "Migrate…",
+    "newMigration": "New migration…",
     "compareSchemas": "Compare schemas…",
     "exportDatabase": "Export database…",
     "importData": "Import data…",
@@ -110,33 +110,25 @@
     "menu": "Indexes…",
     "none": "No indexes",
     "unused": "unused",
+    "noData": "no data",
+    "noDataTip": "This server does not provide index usage statistics.",
+    "noReadsTip": "No index of this table had reads since the statistics began.",
+    "noWritesTip": "This engine does not report index writes",
     "unusedTitle": "Written to but never read by any query since statistics began",
     "shareTitle": "Share of the table's reads that go through this index",
     "fkTitle": "Foreign key → {{target}}",
     "refresh": "Refresh",
     "copy": "Copy",
     "copied": "Copied",
-    "since": "Statistics since {{since}} (SQL Server resets them when the service restarts; on Azure SQL also on a failover).",
-    "sinceRestart": "Statistics since the last service restart (SQL Server resets them when the service restarts; on Azure SQL also on a failover).",
+    "since": "Statistics since {{since}}.",
+    "sinceRestart": "Statistics since the last server restart (the engine does not report the date).",
     "unsupported": "This engine doesn't report index usage.",
-    "col": {
-      "name": "Name",
-      "type": "Type",
-      "keys": "Key columns",
-      "filter": "Filter",
-      "size": "Size",
-      "readShare": "% reads",
-      "writesPerRead": "Writes/reads",
-      "lastRead": "Last read",
-      "lastWrite": "Last write",
-      "seekShare": "% seeks"
-    },
     "health": {
       "good": "Used with seeks ({{seeks}} seeks, {{scans}} scans).",
       "warn": "Quite a few scans for the number of seeks ({{scans}} scans, {{seeks}} seeks): consider reviewing the index columns or the queries that use it.",
       "bad": "More scans than seeks ({{scans}} scans, {{seeks}} seeks): review the index columns or the queries that use it.",
       "columnstore": "Columnstore index: it is built to be read with scans ({{scans}} scans, {{seeks}} seeks).",
-      "smallTables": "On small tables SQL Server prefers the scan because it is cheaper: red is not always a problem there."
+      "smallTables": "On small tables the engine prefers the scan because it is cheaper: red is not always a problem there."
     },
     "drop": {
       "menu": "Drop index…",
@@ -154,6 +146,18 @@
       "pkHint": "The primary key is changed from the table designer",
       "tableNotFound": "Table {{table}} was not found in the database.",
       "indexNotFound": "The table structure does not include the index «{{name}}»: the script cannot be generated."
+    },
+    "col": {
+      "name": "Name",
+      "type": "Type",
+      "keys": "Key columns",
+      "filter": "Filter",
+      "size": "Size",
+      "readShare": "% reads",
+      "seekShare": "% seeks",
+      "writesPerRead": "Writes/reads",
+      "lastRead": "Last read",
+      "lastWrite": "Last write"
     }
   }
 }

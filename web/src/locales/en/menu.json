@@ -12,6 +12,7 @@
     "title": "File",
     "newConnection": "New connection",
     "newQuery": "New query",
+    "newWindow": "New window",
     "closeTab": "Close tab"
   },
   "edit": {

@@ -1,0 +1,207 @@
+{
+  "status": {
+    "running_one": "{{count}} tarefa em andamento",
+    "running_other": "{{count}} tarefas em andamento",
+    "title": "Ver as tarefas em andamento",
+    "many": "{{count}} tarefas",
+    "line": "{{title}}: {{elapsed}}",
+    "lineEta": "{{title}}: {{elapsed}} · {{eta}}"
+  },
+  "panel": {
+    "title": "Tarefas",
+    "empty": "Não há tarefas.",
+    "clearFinished": "Remover concluídas",
+    "cancel": "Cancelar",
+    "cancelling": "Cancelando…",
+    "detail": "Ver detalhes",
+    "remove": "Remover",
+    "background": "Continuar em segundo plano"
+  },
+  "state": {
+    "running": "Em andamento",
+    "done": "Concluída",
+    "error": "Com erros",
+    "cancelled": "Cancelada"
+  },
+  "progress": {
+    "of": "{{done}} de {{total}} {{unit}}",
+    "count": "{{done}} {{unit}}"
+  },
+  "unit": {
+    "statements": "instruções",
+    "rows": "linhas",
+    "bytes": "bytes",
+    "tables": "tabelas",
+    "objects": "objetos"
+  },
+  "elapsed": {
+    "seconds": "{{n}} s",
+    "minutes": "{{n}} min {{s}} s",
+    "hours": "{{n}} h {{m}} min",
+    "days": "{{n}} d {{h}} h"
+  },
+  "eta": {
+    "calculating": "calculando…",
+    "lessThanMinute": "menos de 1 min",
+    "minutes": "≈ {{n}} min",
+    "hours": "≈ {{h}} h {{m}} min",
+    "hoursExact": "≈ {{h}} h",
+    "days": "≈ {{d}} d {{h}} h",
+    "remaining": "{{eta}} restantes",
+    "phase": "{{eta}} para esta etapa",
+    "none": "sem estimativa",
+    "low": "estimativa inicial, pode mudar"
+  },
+  "detail": {
+    "title": "Detalhes da tarefa",
+    "messages": "Mensagens",
+    "noMessages": "Sem mensagens.",
+    "result": "Resultado",
+    "error": "Erro",
+    "started": "Início",
+    "elapsed": "Decorrido",
+    "remaining": "Restante estimado",
+    "ended": "Fim",
+    "duration": "Duração total"
+  },
+  "notify": {
+    "title": {
+      "done": "Tarefa concluída",
+      "error": "Tarefa com erros",
+      "cancelled": "Tarefa cancelada"
+    },
+    "done": "{{title}}: concluída em {{elapsed}}.",
+    "error": "{{title}}: concluída com erros em {{elapsed}}.",
+    "cancelled": "{{title}}: cancelada após {{elapsed}}.",
+    "withSummary": "{{title}}: {{summary}}, {{elapsed}}.",
+    "failed": "{{title}}: falhou após {{elapsed}}. {{error}}"
+  },
+  "quit": {
+    "title": "Execuções em segundo plano",
+    "message_one": "Há {{count}} execução em segundo plano: {{list}}. Se você fechar o aplicativo, ela será cancelada. Quer fechar mesmo assim?",
+    "message_other": "Há {{count}} execuções em segundo plano: {{list}}. Se você fechar o aplicativo, elas serão canceladas. Quer fechar mesmo assim?",
+    "confirm": "Cancelar e fechar",
+    "stay": "Continuar trabalhando",
+    "window": "{{title}} (janela {{n}})"
+  },
+  "closeWindow": {
+    "title": "Execuções nesta janela",
+    "message_one": "Há {{count}} execução em segundo plano nesta janela: {{list}}. Se você fechar a janela, ela será cancelada. Quer fechá-la mesmo assim?",
+    "message_other": "Há {{count}} execuções em segundo plano nesta janela: {{list}}. Se você fechar a janela, elas serão canceladas. Quer fechá-la mesmo assim?",
+    "confirm": "Cancelar e fechar a janela",
+    "stay": "Continuar trabalhando"
+  },
+  "dataSync": {
+    "title": "Sync de dados de {{table}} ({{where}})",
+    "unit": "instruções",
+    "phase": "Aplicando em {{side}}: {{parts}}",
+    "applied": "Já aplicado em {{sides}}",
+    "nothingApplied": "Nenhum script completo chegou a ser aplicado",
+    "stoppedOn": "{{side}} parou no meio: pode ter alterações aplicadas parcialmente",
+    "lateCancel": "O cancelamento chegou quando os scripts já tinham terminado: as alterações foram aplicadas.",
+    "stale": "A execução parou no meio e os dados podem ter mudado: esses scripts não podem mais ser executados. A comparação foi recarregada.",
+    "regenerate": "Gerar os scripts novamente"
+  },
+  "compareSync": {
+    "title": "Sync de {{target}}",
+    "sideStart_one": "{{side}}: {{count}} instrução",
+    "sideStart_other": "{{side}}: {{count}} instruções",
+    "summary": "{{count}} de {{total}} instruções",
+    "summaryAll_one": "{{count}} instrução",
+    "summaryAll_other": "{{count}} instruções"
+  },
+  "backups": {
+    "copy": "Cópia de {{where}}",
+    "copyDone": "{{size}} em {{path}}",
+    "restoreCopy": "Restaurar cópia em {{where}}",
+    "statements": "{{n}} instruções",
+    "statementsWithErrors": "{{n}} instruções, {{errors}} com erro",
+    "native": {
+      "backup": "Backup de {{where}}",
+      "restore": "Restauração em {{where}}",
+      "delete": "Excluir backup em {{where}}"
+    }
+  },
+  "dialogs": {
+    "schemaCreate": "Criar esquema {{name}} em {{db}}",
+    "schemaDrop": "Excluir esquema {{name}} em {{db}}",
+    "dropIndex": "Excluir índice {{name}} de {{table}}",
+    "cloneTable": "Clonar {{table}} como {{name}}",
+    "runScriptFile": "Executar {{file}} em {{db}}",
+    "applyEdits": "Salvar alterações em {{table}}",
+    "saving": "Salvando…",
+    "rows_one": "{{n}} linha",
+    "rows_other": "{{n}} linhas",
+    "statements_one": "{{n}} instrução",
+    "statements_other": "{{n}} instruções",
+    "statementsWithErrors_one": "{{n}} instrução, {{errors}} com erro",
+    "statementsWithErrors_other": "{{n}} instruções, {{errors}} com erro"
+  },
+  "backupsSecurity": {
+    "run": "Alteração de usuários e permissões em {{where}}"
+  },
+  "actions": {
+    "createDatabase": "Criar o banco {{name}} em {{server}}",
+    "dropDatabase": "Excluir o banco {{name}} de {{server}}",
+    "dropOne": "Excluir {{name}} em {{db}}",
+    "dropMany": "Excluir {{count}} objetos em {{db}}",
+    "dropped_one": "{{count}} objeto excluído",
+    "dropped_other": "{{count}} objetos excluídos",
+    "dropFailed": "não foi possível excluir {{failed}} de {{total}} (o detalhe diz o motivo)"
+  },
+  "dataCompare": {
+    "buildTitle": "Scripts de sync de dados de {{table}}",
+    "buildPhase": "Gerando os scripts",
+    "applied": "Estes scripts já foram executados e a comparação foi recarregada: não podem ser executados de novo. Para outro sync, gere-os novamente."
+  },
+  "settingsGit": {
+    "git": {
+      "link": "Vincular a biblioteca ao repositório",
+      "commit": "Commit da biblioteca",
+      "pull": "Pull da biblioteca",
+      "push": "Push da biblioteca",
+      "sync": "Sincronizar a biblioteca com o repositório",
+      "resolve": "Resolver os conflitos da biblioteca",
+      "unlink": "Desvincular a biblioteca do repositório",
+      "conflicts_one": "{{count}} script com conflito: abra «Biblioteca no git» para resolvê-lo",
+      "conflicts_other": "{{count}} scripts com conflito: abra «Biblioteca no git» para resolvê-los"
+    },
+    "sync": {
+      "setupUpload": "Ativar a sincronização e enviar o backup",
+      "setupRestore": "Restaurar o backup neste computador",
+      "now": "Sincronizar com a nuvem",
+      "upload": "Enviar o backup para a nuvem",
+      "restore": "Restaurar da nuvem",
+      "change": "Alterar a frase secreta e criptografar o backup novamente",
+      "disconnect": "Parar de sincronizar e excluir o backup na nuvem",
+      "local": "Restaurar cópia local"
+    },
+    "drivers": {
+      "install": "Baixar o driver de {{label}}"
+    }
+  },
+  "genImportExport": {
+    "script": "Script de {{db}}",
+    "scriptToFile": "Script de {{db}} em {{file}}",
+    "withRows": "{{objects}}, {{rows}}",
+    "import": "Importar {{file}} em {{table}}",
+    "export": "Exportar {{file}}"
+  },
+  "nativeBackup": {
+    "phase": {
+      "backup": "Copiando os dados",
+      "restore": "Restaurando os dados",
+      "verify": "Verificando o backup",
+      "export": "Exportando com o Data Pump",
+      "import": "Importando com o Data Pump"
+    }
+  },
+  "importExport": {
+    "phase": {
+      "reading": "Lendo o arquivo",
+      "inserting": "Inserindo linhas"
+    },
+    "ofTotal": "de {{total}}",
+    "estimated": "de ~{{total}} estimadas"
+  }
+}
