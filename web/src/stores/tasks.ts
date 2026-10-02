@@ -383,6 +383,7 @@ export const useTasksStore = defineStore('tasks', {
     clearFinished() {
       for (const x of this.tasks) if (x.state !== 'running') { hooks.delete(x.id); etaSeries.delete(x.id); }
       this.tasks = this.tasks.filter((x) => x.state === 'running');
+      if (this.detailId && !this.tasks.some((x) => x.id === this.detailId)) this.detailId = null;
     },
 
     /** The end notice: in-app for tasks in the background, plus the OS's
