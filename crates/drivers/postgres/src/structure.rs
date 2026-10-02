@@ -251,7 +251,9 @@ impl PgSession {
                         let mut ix = IndexDef {
                             name: name.clone(),
                             unique: flag(&r, "uniq"),
-                            kind: cell(&r, "am"),
+                            // Cockroach's `prefix` / `inverted` as PostgreSQL's btree / gin, so
+                            // the explorer and the compare speak the same names.
+                            kind: cell(&r, "am").map(|a| if v == Variant::Cockroach { compare::crdb_index_method(&a).to_string() } else { a }),
                             filter: cell(&r, "pred"),
                             ..Default::default()
                         };
