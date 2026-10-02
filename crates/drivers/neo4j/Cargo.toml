@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-neo4j"
-version = "0.1.2"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+version = "0.1.3"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
 edition.workspace = true
 license.workspace = true
 description = "DBine driver for graph databases: Neo4j and Memgraph (Bolt), Amazon Neptune (openCypher over HTTPS)"

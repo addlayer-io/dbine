@@ -26,6 +26,7 @@
 //! (`GET /server`) and calls `POST /connection/interrupt/{id}`.
 
 mod ddl;
+mod index_usage;
 mod sync;
 mod monitor;
 mod permissions;
@@ -131,6 +132,11 @@ impl Driver for OrientDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// The class's indexes and LINKs, without counters (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -1033,6 +1039,11 @@ impl Session for OrientSession {
     /// Server user or all-powerful database role (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let meta = self.metadata().await?;
+        Ok(index_usage::report(&meta, &table.name))
     }
 }
 

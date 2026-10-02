@@ -47,6 +47,7 @@ mod blocking;
 mod bolt;
 mod cypher;
 mod ddl;
+mod index_usage;
 mod monitor;
 mod neptune;
 mod packstream;
@@ -228,6 +229,12 @@ impl Driver for GraphDriver {
 
     fn supports_profiler(&self) -> bool {
         true
+    }
+
+    /// `SHOW INDEXES` with `readCount` (Neo4j 5); Memgraph lists them
+    /// without counters; Neptune has no indexes (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
+        self.flavor != Flavor::Neptune
     }
 
     /// `UNWIND $rows … CREATE` by windows, each an explicit Bolt transaction
@@ -1607,6 +1614,10 @@ impl Session for GraphSession {
     /// The user's own privileges, per flavor (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        self.index_usage_report(table).await
     }
 }
 

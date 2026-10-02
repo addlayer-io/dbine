@@ -1,8 +1,9 @@
 //! Schema sync in the HTTP console syntax, on the `_all_docs` pseudo-table
 //! (see `ddl.rs`): new Mango indexes are `POST _index` and new design
-//! documents `PUT _design/…`. Replacing or deleting a design document
-//! needs its current `_rev`, and deleting a Mango index needs the design
-//! document it lives in, which the schema doesn't carry: those are
+//! documents `PUT _design/…`. A Mango index that goes (or changes) is
+//! `DELETE _index/<name>`, the driver's shorthand that finds its design
+//! document when it runs (the schema doesn't carry it). Replacing or
+//! deleting a design document needs its current `_rev`: those are
 //! warnings. Documents have no schema: field changes are warnings too.
 
 use crate::ddl::{index_body, table_ddl, validator_doc, validator_id, validators};
@@ -73,10 +74,7 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
                 field_warnings(t, &old.columns, &new.columns, &mut warnings);
                 for o in &old.indexes {
                     if !new.indexes.iter().any(|n| eq_name(&n.name, &o.name) && ix_same(o, n)) {
-                        warnings.push(format!(
-                            "El índice Mango {} no se borra: CouchDB lo borra por su documento de diseño (DELETE _index/<documento>/json/{}); hacelo a mano.",
-                            o.name, o.name
-                        ));
+                        statements.push(format!("DELETE _index/{}", seg(&o.name)));
                     }
                 }
                 for n in &new.indexes {
@@ -155,7 +153,7 @@ mod tests {
     fn alter_indexes_design_docs_and_fields() {
         let old = all_docs(
             vec![col("_id", "string"), col("tipo", "string")],
-            vec![ix("por_tipo", &["tipo"])],
+            vec![ix("por_tipo", &["tipo"]), ix("viejo", &["v"])],
             r#"[{"_id":"_design/a","_rev":"1-x","views":{"v":{"map":"function(d){}"}}},{"_id":"_design/gone"}]"#,
         );
         let new = all_docs(
@@ -167,6 +165,7 @@ mod tests {
         assert_eq!(
             s.statements,
             vec![
+                "DELETE _index/viejo",
                 "POST _index\n{\"index\":{\"fields\":[{\"fecha\":\"desc\"}]},\"name\":\"por_fecha\",\"type\":\"json\"}",
                 "PUT _design/b\n{\"_id\":\"_design/b\",\"language\":\"javascript\"}",
             ]

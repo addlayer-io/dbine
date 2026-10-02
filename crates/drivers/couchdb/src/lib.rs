@@ -21,6 +21,9 @@
 //! Generated scripts (templates, `table_ddl`, `insert_script`) use this
 //! same syntax with paths relative to the session's database:
 //! `PUT _design/app {…}`, `POST _index {…}`, `POST _bulk_docs {"docs": […]}`.
+//! DBine extension: `DELETE _index/<name>` drops a Mango index by its name
+//! alone (CouchDB wants `DELETE _index/<design doc>/json/<name>`): the
+//! driver looks its design document up in `GET _index` first.
 //!
 //! Several statements follow each other: each HTTP line starts a new one,
 //! and several Mango documents can be written one after the other. Lines
@@ -42,6 +45,7 @@
 //! dropping the session cancels it; there's no interrupter.
 
 mod ddl;
+mod index_usage;
 mod sync;
 mod monitor;
 mod permissions;
@@ -139,6 +143,11 @@ impl Driver for CouchDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// `_all_docs` and the Mango indexes, without counters (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -696,6 +705,14 @@ impl Session for CouchSession {
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
     }
+
+    /// Only `_all_docs` has indexes (views are indexes themselves).
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        if table.name != ALL_DOCS {
+            return Ok(None);
+        }
+        self.index_usage_report().await
+    }
 }
 
 impl CouchSession {
@@ -746,6 +763,11 @@ impl CouchSession {
             }
             Stmt::Http { method, path, body } => {
                 let path = self.full_path(path)?;
+                if method == "DELETE" {
+                    if let Some(p) = self.index_by_name(&path).await? {
+                        return self.call(Method::DELETE, &p, None).await;
+                    }
+                }
                 let m = Method::from_bytes(method.as_bytes()).map_err(Error::query)?;
                 if stats {
                     let q = find_body(stmt, max_rows);
@@ -756,6 +778,31 @@ impl CouchSession {
                 self.call(m, &path, body.as_ref()).await
             }
         }
+    }
+}
+
+/// `…/{db}/_index/<name>` (one segment after `_index`): the database path and the name.
+fn index_shorthand(path: &str) -> Option<(&str, &str)> {
+    let clean = path.split('?').next().unwrap_or_default();
+    let (db, name) = clean.rsplit_once("/_index/")?;
+    (!db.is_empty() && !name.is_empty() && !name.contains('/')).then_some((db, name))
+}
+
+impl CouchSession {
+    /// `DELETE _index/<name>` (see the module docs): CouchDB's path for
+    /// that index, with its design document; `None` for any other path.
+    async fn index_by_name(&self, path: &str) -> Result<Option<String>> {
+        let Some((db, name)) = index_shorthand(path) else { return Ok(None) };
+        let name = percent_encoding::percent_decode_str(name).decode_utf8_lossy().to_string();
+        let list = self.call(Method::GET, &format!("{db}/_index"), None).await?;
+        let found = list.get("indexes").and_then(Value::as_array).into_iter().flatten().find(|i| i.get("name").and_then(Value::as_str) == Some(name.as_str()));
+        let Some(ix) = found else { return Err(Error::Query(format!("No hay un índice Mango llamado «{name}»."))) };
+        let ddoc = ix.get("ddoc").and_then(Value::as_str).unwrap_or_default().trim_start_matches("_design/");
+        if ddoc.is_empty() {
+            return Err(Error::Query(format!("«{name}» es el índice de _id de CouchDB y no se borra.")));
+        }
+        let kind = ix.get("type").and_then(Value::as_str).unwrap_or("json");
+        Ok(Some(format!("{db}/_index/{}/{}/{}", seg(ddoc), seg(kind), seg(&name))))
     }
 }
 
@@ -886,6 +933,14 @@ mod tests {
         let cols = infer_columns(&docs);
         assert_eq!(cols[1].data_type, "integer|number");
         assert!(cols[2].nullable && !cols[0].nullable && cols[0].primary_key);
+    }
+
+    #[test]
+    fn index_shorthand_paths() {
+        assert_eq!(index_shorthand("/db/_index/ix_a"), Some(("/db", "ix_a")));
+        assert_eq!(index_shorthand("/db/_index/_design/x/json/ix_a"), None);
+        assert_eq!(index_shorthand("/db/_index"), None);
+        assert_eq!(index_shorthand("/db/_find"), None);
     }
 
     #[test]
