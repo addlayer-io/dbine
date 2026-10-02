@@ -4,14 +4,29 @@ import { ElMessage } from 'element-plus';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { errorMessage } from '../api/client';
 import { MCP_APPROVALS_EVENT, mcpApi, type McpApprovalRequest, type McpDecision } from '../api/mcp';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { initWindowRole } from '../composables/windowRole';
+import { ownsSavedState } from '../stores/tabs';
 import CodeEditor from './CodeEditor.vue';
 
 // A write an MCP client wants to run (docs/mcp.md, "Aprobaciones"): one
 // dialog at a time, the rest queued. Mounted once, from App.vue. The backend
-// rejects it on its own when the countdown ends.
+// rejects it on its own when the countdown ends. Every window keeps the list
+// (it's broadcast), but only the one the backend names as `presenter` shows
+// the dialog.
 
-const queue = ref<McpApprovalRequest[]>([]);
-const current = computed(() => queue.value[0] ?? null);
+/** As broadcast: each request carries the label of the window that shows it. */
+type Presented = McpApprovalRequest & { presenter?: string };
+
+const queue = ref<Presented[]>([]);
+/** Which window shows the dialog; null until an event says (the list read at
+ *  mount has no presenter: then the primary window shows it). */
+const presenter = ref<string | null>(null);
+/** This window's label, known at once (the role's default says "main" until
+ *  the backend answers, which would make every window the presenter). */
+const LABEL = (() => { try { return getCurrentWindow().label; } catch { return 'main'; } })();
+const mine = computed(() => presenter.value === null ? ownsSavedState() : presenter.value === LABEL);
+const current = computed(() => (mine.value ? queue.value[0] : null) ?? null);
 const busy = ref(false);
 const now = ref(Date.now());
 
@@ -54,7 +69,12 @@ watch(current, (c) => {
 
 onMounted(async () => {
   try {
-    unlisten = await listen<McpApprovalRequest[]>(MCP_APPROVALS_EVENT, (e) => { queue.value = e.payload; });
+    void initWindowRole();
+    unlisten = await listen<Presented[]>(MCP_APPROVALS_EVENT, (e) => {
+      queue.value = e.payload;
+      // Each element names the presenter; an empty list leaves it as it was.
+      if (e.payload[0]?.presenter) presenter.value = e.payload[0].presenter;
+    });
     queue.value = await mcpApi.pendingApprovals();
   } catch { /* outside Tauri */ }
 });

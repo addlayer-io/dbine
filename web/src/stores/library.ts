@@ -3,6 +3,7 @@ import { ANY_SQL, libraryApi, type LibraryScript } from '../api/library';
 import type { DriverInfo } from '../api/types';
 import { useConnectionsStore } from './connections';
 import { useSettingsStore } from './settings';
+import { syncApi } from '../api/sync';
 
 // The script Library: reusable scripts per engine (not per database). Which
 // ones fit a connection: its driver, one with the same dialect (a
@@ -16,6 +17,19 @@ export function placeholders(text: string): string[] {
 }
 export function fillPlaceholders(text: string, values: Record<string, string>) {
   return text.replace(/\{\{\s*([\p{L}\p{N}_ ]+?)\s*\}\}/gu, (all, k: string) => (k in values ? values[k] : all));
+}
+
+/** The created folders as stored now: another window may have changed them
+ *  since this one read its settings, and a change made from a stale list
+ *  would erase that window's folders. Unreadable: the ones known here. */
+async function storedFolders(): Promise<string[]> {
+  const settings = useSettingsStore();
+  try {
+    const all = await syncApi.listSettings();
+    if ('library.folders' in all) settings.values['library.folders'] = all['library.folders'];
+    else delete settings.values['library.folders'];
+  } catch { /* outside Tauri */ }
+  return settings.get<string[]>('library.folders', []);
 }
 
 export const useLibraryStore = defineStore('library', {
@@ -85,7 +99,7 @@ export const useLibraryStore = defineStore('library', {
     async createFolder(path: string) {
       const clean = path.split('/').map((p) => p.trim()).filter(Boolean).join('/');
       if (!clean) return;
-      await this.setFolders([...useSettingsStore().get<string[]>('library.folders', []), clean]);
+      await this.setFolders([...(await storedFolders()), clean]);
       return clean;
     },
     /** Move / rename a folder (and everything under it). */
@@ -95,7 +109,7 @@ export const useLibraryStore = defineStore('library', {
       for (const s of this.items.filter((i) => i.folder === from || i.folder.startsWith(from + '/'))) {
         await this.save({ ...s, folder: re(s.folder) });
       }
-      await this.setFolders(useSettingsStore().get<string[]>('library.folders', []).map(re).concat(to ? [to] : []));
+      await this.setFolders((await storedFolders()).map(re).concat(to ? [to] : []));
     },
     /** Delete a folder: its scripts and subfolders move up to its parent. */
     async deleteFolder(path: string) {
@@ -104,7 +118,7 @@ export const useLibraryStore = defineStore('library', {
       for (const s of this.items.filter((i) => i.folder === path || i.folder.startsWith(path + '/'))) {
         await this.save({ ...s, folder: re(s.folder) });
       }
-      await this.setFolders(useSettingsStore().get<string[]>('library.folders', []).filter((f) => f !== path).map(re));
+      await this.setFolders((await storedFolders()).filter((f) => f !== path).map(re));
     },
     async moveScript(id: string, folder: string) {
       const s = this.items.find((i) => i.id === id);

@@ -23,6 +23,7 @@ import StatusBar from './components/StatusBar.vue';
 import { errorMessage } from './api/client';
 import { newQuery } from './composables/actions';
 import { ownsShortcut, useAppMenu } from './composables/appMenu';
+import { useCrossWindow } from './composables/crossWindow';
 import { useConnectionsStore } from './stores/connections';
 import { useSettingsStore } from './stores/settings';
 import { readJson, writeJson } from './stores/storage';
@@ -57,6 +58,8 @@ const ui = useUiStore();
 watch(() => ui.reveal?.seq, () => { sidebarOpen.value = true; ui.sidebarView = 'explorer'; });
 
 const sync = useSyncStore();
+// Other windows' writes to the local state: reload what this one shows.
+useCrossWindow();
 
 onMounted(async () => {
   try {

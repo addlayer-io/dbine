@@ -2,7 +2,8 @@
 //! script, without screen-recording or accessibility permissions.
 //!
 //! `POST http://127.0.0.1:17999/eval` (port: `DBINE_DEV_PORT`) with a JavaScript body runs it in the
-//! main window as the body of an async function; its return value (JSON)
+//! main window (`/eval?label=win-2`: another window; with no `main`, the
+//! target window) as the body of an async function; its return value (JSON)
 //! is the response. `window.__dbineSnap()` (installed by the UI in dev)
 //! returns a PNG data URL of the page. Never compiled into release builds.
 
@@ -52,11 +53,18 @@ pub fn start(app: AppHandle) {
                 Err(_) => continue,
             });
             let mut len = 0usize;
+            let mut label: Option<String> = None;
+            let mut first = true;
             let mut line = String::new();
             // Request line + headers.
             while reader.read_line(&mut line).map(|n| n > 0).unwrap_or(false) {
                 if line == "\r\n" {
                     break;
+                }
+                if std::mem::take(&mut first) {
+                    label = line.split_whitespace().nth(1).and_then(|path| path.split_once("label=")).map(|(_, l)| {
+                        l.split('&').next().unwrap_or_default().to_string()
+                    });
                 }
                 if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
                     len = v.trim().parse().unwrap_or(0);
@@ -76,7 +84,11 @@ pub fn start(app: AppHandle) {
                  catch (e) {{ r = JSON.stringify({{ ok: false, error: String(e && e.stack || e) }}); }} \
                  window.__TAURI_INTERNALS__.invoke('dev_report', {{ id: {id}, result: r }}); }})()"
             );
-            let result = match app.get_webview_window("main").map(|w| w.eval(&wrapped)) {
+            let window = match label {
+                Some(l) => app.get_webview_window(&l),
+                None => app.get_webview_window(crate::windows::MAIN).or_else(|| crate::windows::target_window(&app)),
+            };
+            let result = match window.map(|w| w.eval(&wrapped)) {
                 Some(Ok(())) => rx.recv_timeout(Duration::from_secs(60)).unwrap_or_else(|_| r#"{"ok":false,"error":"timeout"}"#.into()),
                 _ => r#"{"ok":false,"error":"no window"}"#.into(),
             };

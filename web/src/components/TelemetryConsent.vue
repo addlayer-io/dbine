@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useTabsStore } from '../stores/tabs';
 import { TELEMETRY_CONSENT, TELEMETRY_NOTICE, telemetryAllowed, trackAppStarted, trackModuleOpened } from '../composables/telemetry';
+import { initWindowRole } from '../composables/windowRole';
 
 // Telemetry is on by default. Once, this notice tells what's sent and that
 // Configuración › General turns it off; it doesn't ask. Both the choice and
@@ -11,14 +12,17 @@ import { TELEMETRY_CONSENT, TELEMETRY_NOTICE, telemetryAllowed, trackAppStarted,
 const settings = useSettingsStore();
 const open = ref(false);
 
-watch(() => settings.loaded, (l) => {
+const noticeDue = () =>
+  settings.get<boolean | null>(TELEMETRY_CONSENT, null) === null && !settings.get<boolean>(TELEMETRY_NOTICE, false);
+
+watch(() => settings.loaded, async (l) => {
   if (!l) return;
-  trackAppStarted();
-  // Not for whoever already chose (an earlier version asked).
-  if (settings.get<boolean | null>(TELEMETRY_CONSENT, null) === null && !settings.get<boolean>(TELEMETRY_NOTICE, false)) {
-    // A moment after opening, not over the first thing the user does.
-    setTimeout(() => { open.value = true; }, 2500);
-  }
+  void trackAppStarted();
+  // Not for whoever already chose (an earlier version asked), and only in
+  // the primary window: another one opened meanwhile doesn't repeat it.
+  if (!noticeDue() || !(await initWindowRole()).primary) return;
+  // A moment after opening, not over the first thing the user does.
+  setTimeout(() => { if (noticeDue()) open.value = true; }, 2500);
 }, { immediate: true });
 
 // A module counts as used when its tab is shown, not when it's restored in

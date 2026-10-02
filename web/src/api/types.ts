@@ -604,3 +604,37 @@ export interface DependencyReport {
   unreadable: string[];
   note: string | null;
 }
+
+/** The calling window (`windows::WindowRole`). */
+export interface WindowRole {
+  label: string;
+  /** Restores and saves the tabs and the AI conversation. */
+  primary: boolean;
+  window_count: number;
+}
+
+/** A running background task, as a window reports it (`windows::TaskSummary`). */
+export interface TaskSummary {
+  id: string;
+  title: string;
+}
+
+/** A running task and the window it belongs to (`windows::RunningTask`). */
+export interface RunningTask {
+  label: string;
+  id: string;
+  title: string;
+}
+
+export type StateChangeKind =
+  | 'connection' | 'folder' | 'explorer' | 'query' | 'migration'
+  | 'setting' | 'library' | 'history' | 'backup' | 'restore';
+
+/** What a write to the local state changed (`dbine_core::StateChange`),
+ *  the payload of the "state-changed" event every window gets. */
+export interface StateChange {
+  kind: StateChangeKind;
+  id: string | null;
+  connection_id: string | null;
+  database: string | null;
+}

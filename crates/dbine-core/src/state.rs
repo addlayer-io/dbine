@@ -7,7 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedConnection {
@@ -169,8 +169,35 @@ pub struct StateSnapshot {
     pub migrations: Vec<SavedMigration>,
 }
 
+/// What a successful write changed, for whoever listens (the app relays it
+/// to every window). `kind` is one of `connection`, `folder`, `explorer`
+/// (an order or folder move), `query`, `migration`, `setting`, `library`,
+/// `history`, `backup` or `restore` (the whole state replaced).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateChange {
+    pub kind: String,
+    pub id: Option<String>,
+    pub connection_id: Option<String>,
+    pub database: Option<String>,
+}
+
+impl StateChange {
+    fn new(kind: &str, id: Option<&str>) -> Self {
+        Self { kind: kind.into(), id: id.map(Into::into), connection_id: None, database: None }
+    }
+
+    fn scoped(mut self, connection_id: &str, database: Option<&str>) -> Self {
+        self.connection_id = Some(connection_id.into());
+        self.database = database.map(Into::into);
+        self
+    }
+}
+
+type ChangeHook = Arc<dyn Fn(StateChange) + Send + Sync>;
+
 pub struct StateStore {
     conn: Mutex<Connection>,
+    hook: RwLock<Option<ChangeHook>>,
 }
 
 /// Settings under this prefix belong to this machine (the sync engine's
@@ -304,11 +331,26 @@ impl StateStore {
         if !has_folder_order {
             conn.execute_batch("ALTER TABLE folders ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0").map_err(db_err)?;
         }
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self { conn: Mutex::new(conn), hook: RwLock::new(None) })
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
         self.conn.lock().map_err(|_| Error::State("state store poisoned".into()))
+    }
+
+    /// Called after every successful write, with no lock held (the hook may
+    /// read the store). Replaces any previous hook.
+    pub fn set_change_hook(&self, hook: Box<dyn Fn(StateChange) + Send + Sync>) {
+        if let Ok(mut h) = self.hook.write() {
+            *h = Some(Arc::from(hook));
+        }
+    }
+
+    fn notify(&self, change: StateChange) {
+        let hook = self.hook.read().ok().and_then(|h| h.clone());
+        if let Some(hook) = hook {
+            hook(change);
+        }
     }
 
     // -- connections --------------------------------------------------------
@@ -365,12 +407,15 @@ impl StateStore {
         )
         .map_err(db_err)?;
         self.touch()?;
+        self.notify(StateChange::new("connection", Some(&conn.id)));
         Ok(SavedConnection { config, updated_at: ts, ..conn.clone() })
     }
 
     pub fn delete_connection(&self, id: &str) -> Result<()> {
         self.lock()?.execute("DELETE FROM connections WHERE id = ?1", [id]).map_err(db_err)?;
-        self.touch()
+        self.touch()?;
+        self.notify(StateChange::new("connection", Some(id)));
+        Ok(())
     }
 
     /// Put a connection in a folder (`None` = top level), last in it.
@@ -383,7 +428,9 @@ impl StateStore {
                 params![id, folder_id],
             )
             .map_err(db_err)?;
-        self.touch()
+        self.touch()?;
+        self.notify(StateChange::new("explorer", Some(id)));
+        Ok(())
     }
 
     /// Reorder one level of the explorer: `ids` (all connections, or all
@@ -414,7 +461,10 @@ impl StateStore {
             tx.execute(sql, params![id, parent, i as i64]).map_err(db_err)?;
         }
         bump(&tx)?;
-        tx.commit().map_err(db_err)
+        tx.commit().map_err(db_err)?;
+        drop(c);
+        self.notify(StateChange::new("explorer", parent));
+        Ok(())
     }
 
     // -- folders ------------------------------------------------------------
@@ -454,6 +504,7 @@ impl StateStore {
             )
             .map_err(db_err)?;
         self.touch()?;
+        self.notify(StateChange::new("folder", Some(&f.id)));
         Ok(f.clone())
     }
 
@@ -471,7 +522,10 @@ impl StateStore {
         tx.execute("UPDATE folders SET parent_id = ?2 WHERE parent_id = ?1", params![id, parent]).map_err(db_err)?;
         tx.execute("DELETE FROM folders WHERE id = ?1", [id]).map_err(db_err)?;
         bump(&tx)?;
-        tx.commit().map_err(db_err)
+        tx.commit().map_err(db_err)?;
+        drop(c);
+        self.notify(StateChange::new("folder", Some(id)));
+        Ok(())
     }
 
     // -- queries ------------------------------------------------------------
@@ -510,6 +564,7 @@ impl StateStore {
         )
         .map_err(db_err)?;
         self.touch()?;
+        self.notify(StateChange::new("query", Some(&q.id)).scoped(&q.connection_id, Some(&q.database)));
         Ok(SavedQuery { updated_at: ts, ..q.clone() })
     }
 
@@ -520,7 +575,9 @@ impl StateStore {
 
     pub fn delete_query(&self, id: &str) -> Result<()> {
         self.lock()?.execute("DELETE FROM queries WHERE id = ?1", [id]).map_err(db_err)?;
-        self.touch()
+        self.touch()?;
+        self.notify(StateChange::new("query", Some(id)));
+        Ok(())
     }
 
     // -- saved migrations ---------------------------------------------------
@@ -565,7 +622,9 @@ impl StateStore {
             )
             .map_err(db_err)?;
         self.touch()?;
-        self.get_migration(&m.id)?.ok_or_else(|| Error::State("saved migration vanished".into()))
+        let saved = self.get_migration(&m.id)?.ok_or_else(|| Error::State("saved migration vanished".into()))?;
+        self.notify(StateChange::new("migration", Some(&m.id)).scoped(&m.connection_id, Some(&m.database)));
+        Ok(saved)
     }
 
     pub fn rename_migration(&self, id: &str, name: &str) -> Result<SavedMigration> {
@@ -577,7 +636,9 @@ impl StateStore {
             return Err(Error::State("la migración ya no existe".into()));
         }
         self.touch()?;
-        self.get_migration(id)?.ok_or_else(|| Error::State("la migración ya no existe".into()))
+        let saved = self.get_migration(id)?.ok_or_else(|| Error::State("la migración ya no existe".into()))?;
+        self.notify(StateChange::new("migration", Some(id)).scoped(&saved.connection_id, Some(&saved.database)));
+        Ok(saved)
     }
 
     /// Link a run to it: it becomes its current run (a run already linked, resumed or retried,
@@ -599,7 +660,9 @@ impl StateStore {
     /// Only the entry: neither the source, the target nor the runs' records are touched.
     pub fn delete_migration(&self, id: &str) -> Result<()> {
         self.lock()?.execute("DELETE FROM migrations WHERE id = ?1", [id]).map_err(db_err)?;
-        self.touch()
+        self.touch()?;
+        self.notify(StateChange::new("migration", Some(id)));
+        Ok(())
     }
 
     fn all_migrations(&self) -> Result<Vec<SavedMigration>> {
@@ -626,6 +689,8 @@ impl StateStore {
         if id % 200 == 0 {
             c.execute("DELETE FROM query_history WHERE id <= ?1", [id - HISTORY_MAX]).map_err(db_err)?;
         }
+        drop(c);
+        self.notify(StateChange::new("history", Some(&id.to_string())).scoped(&e.connection_id, Some(&e.database)));
         Ok(())
     }
 
@@ -675,6 +740,8 @@ impl StateStore {
                 n
             }
         };
+        drop(c);
+        self.notify(StateChange::new("history", None));
         Ok(())
     }
 
@@ -689,6 +756,8 @@ impl StateStore {
             params![b.id, b.connection_id, b.database, b.path, b.created_at, b.size as i64, b.objects as i64, b.rows as i64, b.data, b.duration_ms as i64],
         )
         .map_err(db_err)?;
+        drop(c);
+        self.notify(StateChange::new("backup", Some(&b.id)).scoped(&b.connection_id, Some(&b.database)));
         Ok(())
     }
 
@@ -734,6 +803,7 @@ impl StateStore {
 
     pub fn delete_backup(&self, id: &str) -> Result<()> {
         self.lock()?.execute("DELETE FROM backups WHERE id = ?1", [id]).map_err(db_err)?;
+        self.notify(StateChange::new("backup", Some(id)));
         Ok(())
     }
 
@@ -775,12 +845,15 @@ impl StateStore {
             )
             .map_err(db_err)?;
         self.touch()?;
+        self.notify(StateChange::new("library", Some(&s.id)));
         Ok(LibraryScript { updated_at: ts, ..s.clone() })
     }
 
     pub fn delete_library_script(&self, id: &str) -> Result<()> {
         self.lock()?.execute("DELETE FROM library WHERE id = ?1", [id]).map_err(db_err)?;
-        self.touch()
+        self.touch()?;
+        self.notify(StateChange::new("library", Some(id)));
+        Ok(())
     }
 
     // -- settings & snapshot ----------------------------------------------
@@ -823,6 +896,8 @@ impl StateStore {
         if !key.starts_with(LOCAL_PREFIX) {
             bump(&c)?;
         }
+        drop(c);
+        self.notify(StateChange::new("setting", Some(key)));
         Ok(())
     }
 
@@ -943,7 +1018,10 @@ impl StateStore {
             .map_err(db_err)?;
         }
         bump(&tx)?;
-        tx.commit().map_err(db_err)
+        tx.commit().map_err(db_err)?;
+        drop(c);
+        self.notify(StateChange::new("restore", None));
+        Ok(())
     }
 }
 
@@ -1027,6 +1105,97 @@ mod tests {
 
     fn folder(id: &str, parent: Option<&str>) -> ConnectionFolder {
         ConnectionFolder { id: id.into(), name: id.into(), parent_id: parent.map(Into::into), color: None }
+    }
+
+    fn recording(s: &StateStore) -> Arc<Mutex<Vec<StateChange>>> {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        s.set_change_hook(Box::new(move |c| sink.lock().unwrap().push(c)));
+        seen
+    }
+
+    fn kinds(seen: &Arc<Mutex<Vec<StateChange>>>) -> Vec<String> {
+        seen.lock().unwrap().drain(..).map(|c| c.kind).collect()
+    }
+
+    #[test]
+    fn change_hook_fires_once_per_successful_write() {
+        let s = StateStore::open_in_memory().unwrap();
+        let seen = recording(&s);
+
+        s.save_connection(&conn("c1")).unwrap();
+        s.save_folder(&folder("f", None)).unwrap();
+        s.move_connection("c1", Some("f")).unwrap();
+        s.reorder_explorer(ExplorerItem::Connection, Some("f"), &["c1".into()]).unwrap();
+        assert_eq!(kinds(&seen), ["connection", "folder", "explorer", "explorer"]);
+
+        let q = SavedQuery { id: "q1".into(), connection_id: "c1".into(), database: "db".into(), name: "n".into(), sql: "select 1".into(), updated_at: String::new(), last_run_at: None };
+        s.save_query(&q).unwrap();
+        {
+            let got = seen.lock().unwrap();
+            assert_eq!(got[0], StateChange { kind: "query".into(), id: Some("q1".into()), connection_id: Some("c1".into()), database: Some("db".into()) });
+        }
+        s.delete_query("q1").unwrap();
+        assert_eq!(kinds(&seen), ["query", "query"]);
+
+        let m = SavedMigration { id: "m1".into(), connection_id: "c1".into(), database: "db".into(), name: "m".into(), config: serde_json::json!({}), run_ids: vec![], created_at: String::new(), updated_at: String::new() };
+        s.save_migration(&m).unwrap();
+        s.rename_migration("m1", "otra").unwrap();
+        s.link_migration_run("m1", "r1").unwrap();
+        s.delete_migration("m1").unwrap();
+        assert_eq!(kinds(&seen), ["migration", "migration", "migration", "migration"]);
+
+        s.set_setting("ui.theme", Some(&serde_json::json!("dark"))).unwrap();
+        let lib = LibraryScript { id: "l1".into(), name: "n".into(), folder: String::new(), description: String::new(), engines: vec![], text: "x".into(), updated_at: String::new() };
+        s.save_library_script(&lib).unwrap();
+        s.delete_library_script("l1").unwrap();
+        assert_eq!(kinds(&seen), ["setting", "library", "library"]);
+
+        let h = HistoryEntry { id: 0, connection_id: "c1".into(), connection_name: "local".into(), driver: "postgres".into(), host: "h".into(), database: "db".into(), sql: "select 1".into(), started_at: now(), duration_ms: 1, rows: None, error: None };
+        s.add_history(&h).unwrap();
+        s.delete_history(None).unwrap();
+        assert_eq!(kinds(&seen), ["history", "history"]);
+
+        let snap = s.snapshot().unwrap();
+        s.replace_all(&snap).unwrap();
+        s.delete_folder("f").unwrap();
+        s.delete_connection("c1").unwrap();
+        assert_eq!(kinds(&seen), ["restore", "folder", "connection"]);
+
+        // Reads never fire.
+        s.list_connections().unwrap();
+        s.get_setting("ui.theme").unwrap();
+        assert!(kinds(&seen).is_empty());
+    }
+
+    #[test]
+    fn change_hook_does_not_fire_on_a_failed_write() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_folder(&folder("a", None)).unwrap();
+        s.save_folder(&folder("b", Some("a"))).unwrap();
+        let seen = recording(&s);
+        assert!(s.save_folder(&folder("a", Some("b"))).is_err());
+        assert!(s.reorder_explorer(ExplorerItem::Folder, Some("b"), &["a".into()]).is_err());
+        assert!(s.rename_migration("missing", "x").is_err());
+        assert!(s.link_migration_run("missing", "r").is_err());
+        assert!(kinds(&seen).is_empty());
+    }
+
+    #[test]
+    fn change_hook_can_read_the_store() {
+        // The hook runs with no lock held: reading back must not deadlock.
+        let s = Arc::new(StateStore::open_in_memory().unwrap());
+        let seen = Arc::new(Mutex::new(0usize));
+        let (store, sink) = (Arc::downgrade(&s), seen.clone());
+        s.set_change_hook(Box::new(move |_| {
+            if let Some(store) = store.upgrade() {
+                *sink.lock().unwrap() += store.list_connections().unwrap().len() + store.list_settings().unwrap().len();
+            }
+        }));
+        s.save_connection(&conn("c1")).unwrap();
+        s.set_setting("ui.theme", Some(&serde_json::json!("dark"))).unwrap();
+        s.add_history(&HistoryEntry { id: 0, connection_id: "c1".into(), connection_name: "l".into(), driver: "postgres".into(), host: "h".into(), database: "db".into(), sql: "x".into(), started_at: now(), duration_ms: 0, rows: None, error: None }).unwrap();
+        assert_eq!(*seen.lock().unwrap(), 1 + 2 + 2);
     }
 
     #[test]

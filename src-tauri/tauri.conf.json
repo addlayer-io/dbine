@@ -41,6 +41,10 @@
     "category": "DeveloperTool",
     "shortDescription": "Gestor de bases de datos multimotor",
     "longDescription": "DBine es un gestor de bases de datos para SQL Server, PostgreSQL, MySQL/MariaDB y SQLite: explorador de objetos, editor SQL, grilla de resultados y queries organizadas por base.",
+    "linux": {
+      "deb": { "desktopTemplate": "linux/dbine.desktop" },
+      "rpm": { "desktopTemplate": "linux/dbine.desktop" }
+    },
     "macOS": {
       "signingIdentity": "-",
       "hardenedRuntime": false
