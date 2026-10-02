@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
@@ -7,6 +7,7 @@ import { securityApi, type Grant, type Principal, type SecurityAction } from '..
 import type { ObjectRef } from '../api/types';
 import { tb } from '../i18n/backend';
 import { dbKey, useConnectionsStore } from '../stores/connections';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import type { SecurityTab } from '../stores/tabs';
 
 // Users and permissions (docs/usuarios-y-permisos.md): the server's (or the
@@ -82,13 +83,30 @@ const schemas = computed(() => [...new Set(objects.value.map((o) => o.schema).fi
 const databases = computed(() => conns.live[props.tab.connectionId]?.databases ?? []);
 
 // -- a change: its script, reviewed, then run --------------------------------
-const review = reactive<{ open: boolean; action: SecurityAction | null; script: string; shown: string; error: string | null; running: boolean }>({
-  open: false, action: null, script: '', shown: '', error: null, running: false,
+// The run is a task in the tasks store: it keeps going (and can be cancelled
+// from the Tareas panel, through cancel_query on its own session) after the
+// dialog closes or this tab does. The dialog is only a view of it.
+const tasks = useTasksStore();
+let alive = true;
+let runTask: TaskHandle | null = null;
+onBeforeUnmount(() => {
+  alive = false;
+  // The dialog is gone: "Ver detalle" falls back to the panel's own detail and
+  // a run still going notifies when it ends (⌘W closes the tab without a close).
+  if (runTask) {
+    runTask.setReopen(undefined);
+    runTask.background();
+  }
+});
+const review = reactive<{ open: boolean; action: SecurityAction | null; script: string; shown: string; error: string | null; running: boolean; cancelling: boolean }>({
+  open: false, action: null, script: '', shown: '', error: null, running: false, cancelling: false,
 });
 async function propose(action: SecurityAction) {
+  // A change still running owns the dialog: show it instead of replacing it.
+  if (review.running) { review.open = true; return; }
   try {
     const s = await securityApi.script(props.tab.connectionId, action);
-    Object.assign(review, { open: true, action, script: s.script, shown: s.shown, error: null, running: false });
+    Object.assign(review, { open: true, action, script: s.script, shown: s.shown, error: null, running: false, cancelling: false });
   } catch (e) {
     ElMessage.error(errorMessage(e));
   }
@@ -98,23 +116,59 @@ async function copyScript() {
   await navigator.clipboard.writeText(review.shown);
   ElMessage.success(t('security:copied'));
 }
+/** "Seguir en segundo plano", or the dialog closed (Esc) while the run goes on. */
+function sendToBackground(close?: () => void) {
+  if (runTask && tasks.byId(runTask.id)?.state === 'running') runTask.background();
+  close?.();
+}
+function cancelRun() {
+  if (runTask) tasks.cancel(runTask.id);
+}
 async function run() {
+  if (review.running) return;
   review.running = true;
+  review.cancelling = false;
   review.error = null;
+  // Its own session, so Cancelar stops exactly this run.
   const sessionId = `security-run:${Date.now()}`;
+  const connectionId = props.tab.connectionId;
+  const database = props.tab.database;
+  const name = conns.byId(connectionId)?.name ?? '';
+  const task = startTask({
+    kind: 'security', title: t('tasks:backupsSecurity.run', { where: database ? `${name} / ${database}` : name }), connectionId, database,
+    cancel: async () => {
+      review.cancelling = true;
+      // A cancel that didn't land re-enables the dialog's button (the store logs why).
+      try { await api.cancelQuery(sessionId); } catch (e) { review.cancelling = false; throw e; }
+    },
+    reopen: () => { review.open = true; },
+  });
+  runTask = task;
+  const a = review.action;
   try {
-    const o = await api.executeQuery({ sessionId, connectionId: props.tab.connectionId, database: props.tab.database, sql: review.script, maxRows: 10, record: false });
-    if (o.error) { review.error = tb(o.error); return; }
+    const o = await api.executeQuery({ sessionId, connectionId, database, sql: review.script, maxRows: 10, record: false });
+    if (o.error) {
+      review.error = tb(o.error);
+      if (task.isCancelling) task.cancelled(); else task.fail(review.error);
+      return;
+    }
+    task.finish();
+    const quiet = !!tasks.byId(task.id)?.background;
     review.open = false;
-    ElMessage.success(t('security:done'));
-    const a = review.action;
+    if (!quiet) ElMessage.success(t('security:done'));
+    if (!alive) return;
     if (a && (a.action === 'create_user' || a.action === 'create_role')) selected.value = a.name;
     if (a && a.action === 'drop') selected.value = null;
     await load();
   } catch (e) {
     review.error = errorMessage(e);
+    if (task.isCancelling) task.cancelled(); else task.fail(e);
   } finally {
     review.running = false;
+    review.cancelling = false;
+    // Finished: "Ver detalle" shows the panel's detail, not the script ready to run again.
+    task.setReopen(undefined);
+    if (runTask === task) runTask = null;
     api.closeSession(sessionId).catch(() => {});
   }
 }
@@ -287,7 +341,7 @@ function submitAddRole() {
         <el-button type="primary" :disabled="!password.value" @click="submitPassword">{{ $t('security:seeScript') }}</el-button>
       </template>
     </el-dialog>
-    <el-dialog v-model="review.open" :title="$t('security:reviewTitle')" width="680px" append-to-body>
+    <el-dialog v-model="review.open" :title="$t('security:reviewTitle')" width="680px" append-to-body :close-on-click-modal="!review.running" :show-close="!review.running" @close="review.running && sendToBackground()">
       <p class="sv-dim">{{ $t('security:reviewHint') }}</p>
       <pre class="sv-script nm-selectable">{{ review.shown }}</pre>
       <div v-if="review.error" class="sv-error">{{ review.error }}</div>
@@ -295,7 +349,11 @@ function submitAddRole() {
         <div class="sv-foot">
           <el-button @click="copyScript">{{ $t('common:copy') }}</el-button>
           <span style="flex: 1" />
-          <el-button :disabled="review.running" @click="review.open = false">{{ $t('common:cancel') }}</el-button>
+          <template v-if="review.running">
+            <el-button :disabled="review.cancelling" @click="cancelRun">{{ $t('common:cancel') }}</el-button>
+            <el-button @click="sendToBackground(() => (review.open = false))">{{ $t('tasks:panel.background') }}</el-button>
+          </template>
+          <el-button v-else @click="review.open = false">{{ $t('common:cancel') }}</el-button>
           <el-button type="primary" :loading="review.running" @click="run">{{ $t('security:run') }}</el-button>
         </div>
       </template>

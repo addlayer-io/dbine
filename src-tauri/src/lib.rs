@@ -14,6 +14,24 @@ use std::io::Write;
 use tauri::Manager;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+/// Set once the UI has confirmed quitting (no background tasks, or the user
+/// chose to cancel them): from then on an exit request goes through.
+static QUIT_CONFIRMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Quits the app after the UI's quit guard: saves the window state (the window
+/// is still alive here, so maximized/fullscreen are kept too) and exits.
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    use tauri_plugin_window_state::AppHandleExt;
+    QUIT_CONFIRMED.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Err(e) = app.save_window_state(
+        tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE,
+    ) {
+        tracing::warn!("saving the window state on quit: {e}");
+    }
+    app.exit(0);
+}
+
 /// Resolved at startup; used by the panic hook + the `get_log_dir` command.
 /// `OnceLock` because tauri's setup() is the first place we know the path.
 static LOG_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
@@ -137,6 +155,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            quit_app,
             #[cfg(debug_assertions)]
             devtools::dev_report,
             commands::health::health,
@@ -298,6 +317,17 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error building tauri app")
         .run(|app, event| {
+            // A quit from outside the UI (Dock › Salir, app switcher, logout,
+            // the native Quit item): the UI asks first when background tasks
+            // are running, then calls `quit_app`. `app.exit(n)` comes with a
+            // code and goes through; with no window left there's no one to ask.
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = &event {
+                if !QUIT_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) && !app.webview_windows().is_empty() {
+                    use tauri::Emitter;
+                    api.prevent_exit();
+                    let _ = app.emit("quit-requested", ());
+                }
+            }
             if let tauri::RunEvent::Exit = event {
                 // The built-in model's llama-server must not outlive the app.
                 dbine_ai::embedded::shutdown();

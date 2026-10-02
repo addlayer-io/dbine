@@ -9,6 +9,8 @@ import { useOutputStore } from '../stores/output';
 import { useSyncStore } from '../stores/sync';
 import { useUiStore } from '../stores/ui';
 import { useTabsStore } from '../stores/tabs';
+import { useTasksStore } from '../stores/tasks';
+import TasksPanel from './TasksPanel.vue';
 
 // Status bar (VS Code's blue strip): live connections and problems on the
 // left; the active tab's connection, database and server on the right.
@@ -21,6 +23,7 @@ const output = useOutputStore();
 const tabs = useTabsStore();
 const sync = useSyncStore();
 const ui = useUiStore();
+const tasks = useTasksStore();
 const { t } = useTranslation();
 
 /** Cloud backup state, when it's on. */
@@ -69,6 +72,9 @@ onMounted(async () => {
         <el-icon><ei-circle-close /></el-icon>{{ output.errors }}
         <el-icon style="margin-left: 6px;"><ei-warning /></el-icon>{{ output.warnings }}
       </button>
+      <button v-if="tasks.runningCount" class="sb-item sb-btn" :title="$t('tasks:status.title')" @click="tasks.panelOpen = !tasks.panelOpen">
+        <el-icon class="is-loading"><ei-refresh /></el-icon>{{ $t('tasks:status.running', { count: tasks.runningCount }) }}
+      </button>
     </div>
     <div class="sb-right">
       <button v-if="syncBadge" class="sb-item sb-btn" :class="{ 'sb-sync-error': syncBadge.icon === 'error' }" :title="syncBadge.title" @click="ui.openSettings('sync')">
@@ -86,6 +92,7 @@ onMounted(async () => {
       </template>
       <span class="sb-item">DBine{{ version ? ` ${version}` : '' }}</span>
     </div>
+    <TasksPanel />
   </footer>
 </template>
 

@@ -1,21 +1,34 @@
+<script lang="ts">
+import { ref as moduleRef } from 'vue';
+
+// Kept outside the component: Configuración is destroy-on-close and a
+// download (a task) outlives it. Reopening shows it still going.
+const busy = moduleRef<Record<string, 'install' | 'remove'>>({});
+const all = moduleRef(false);
+</script>
+
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { driversApi, type DriverPackage } from '../api/drivers';
 import { useConnectionsStore } from '../stores/connections';
 import { locale } from '../i18n';
+import { runTask, type TaskHandle } from '../stores/tasks';
 
 // Configuración → Drivers: the downloadable drivers (docs/drivers-bajo-demanda.md).
 // Each one downloads by itself on the first connection; here they can be
-// downloaded ahead (a machine that will go offline) or removed.
+// downloaded ahead (a machine that will go offline) or removed. A download
+// is a task (stores/tasks.ts): it shows in Tareas with its progress, goes on
+// if Configuración closes, and then notifies when it ends. The download has
+// no cancel path, so the task offers no Cancelar.
 
 const props = defineProps<{ packages: DriverPackage[] }>();
 const emit = defineEmits<{ changed: [] }>();
 const conns = useConnectionsStore();
+const { t } = useTranslation();
 
-const busy = ref<Record<string, 'install' | 'remove'>>({});
-const all = ref(false);
 const filter = ref('');
 
 const mb = (n: number) => (n / 1e6).toLocaleString(locale(), { maximumFractionDigits: 1 });
@@ -30,19 +43,51 @@ const missing = computed(() => props.packages.filter((p) => p.installed == null)
 const onDisk = computed(() => installed.value.reduce((n, p) => n + (p.installed ?? 0), 0));
 const toDownload = computed(() => missing.value.reduce((n, p) => n + p.size, 0));
 
-/** "45 %" while this driver downloads (the same progress the explorer shows). */
+/** The download progress the explorer shows, keyed by the component's name. */
+const downloadOf = (p: DriverPackage) => conns.downloads[`el driver de ${p.label}`];
+/** "45 %" while this driver downloads. */
 function progress(p: DriverPackage): string | null {
-  const d = conns.downloads[`el driver de ${p.label}`];
+  const d = downloadOf(p);
   return d && d.total ? `${Math.floor((d.done / d.total) * 100)} %` : null;
 }
 
+let alive = true;
+const live = new Set<TaskHandle>();
+onBeforeUnmount(() => {
+  alive = false;
+  // Configuración closed mid-download: it goes on and notifies at the end.
+  live.forEach((x) => x.background());
+});
+
 async function install(p: DriverPackage) {
   busy.value[p.package] = 'install';
+  const { task, promise } = runTask<void>({
+    kind: 'driver-install',
+    title: t('tasks:settingsGit.drivers.install', { label: p.label }),
+    // "Descargar todos" keeps going after Configuración closes: the next
+    // downloads start in the background so they notify too.
+    background: !alive,
+    run: async (task) => {
+      // Mirror the download's bytes into the task while it runs (the store
+      // subscription is detached: it outlives this component).
+      const stop = conns.$subscribe(() => {
+        const d = downloadOf(p);
+        if (d) task.progress({ done: d.done, total: d.total, unit: 'bytes' });
+      }, { detached: true });
+      try {
+        await driversApi.install(p.package);
+      } finally {
+        stop();
+      }
+    },
+  });
+  live.add(task);
   try {
-    await driversApi.install(p.package);
+    await promise;
   } catch (e) {
-    ElMessage.error(errorMessage(e));
+    if (alive) ElMessage.error(errorMessage(e));
   } finally {
+    live.delete(task);
     delete busy.value[p.package];
     emit('changed');
   }

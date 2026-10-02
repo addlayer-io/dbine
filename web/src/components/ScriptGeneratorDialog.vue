@@ -1,20 +1,24 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
-import { errorMessage } from '../api/client';
+import { errorKind, errorMessage } from '../api/client';
 import { locale } from '../i18n';
 import type { ObjectRef } from '../api/types';
 import { migrationApi, type MigrationTarget } from '../api/migration';
 import { FAMILY_LABELS, type Family } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
+import { newQuery } from '../composables/actions';
 
 // Script of a whole database (or part of it): pick the objects on the left,
 // what to emit on the right, then open it in an editor or stream it to a
 // file with progress. Backend: `generate_script` (docs/api-comandos.md).
+// The run is a task (stores/tasks.ts): "Seguir en segundo plano" closes the
+// dialog and the generation goes on; a script meant for the editor opens
+// there when it ends.
 
 interface ScriptObject { kind: string; schema: string | null; name: string }
 interface ScriptOptions {
@@ -39,6 +43,7 @@ const props = withDefaults(defineProps<{
 }>(), { title: '', driverId: '' });
 const emit = defineEmits<{ close: []; 'open-script': [script: string, connectionId: string | null] }>();
 const { t } = useTranslation();
+const tasks = useTasksStore();
 
 // ---- engine: the same one, or another (the tables converted) -------------------
 const conns = useConnectionsStore();
@@ -129,8 +134,18 @@ const nothingToEmit = computed(() =>
 const running = ref(false);
 const cancelling = ref(false);
 const progress = reactive({ done: 0, total: 0, current: '' });
-const scriptId = crypto.randomUUID();
-let unlisten: UnlistenFn | null = null;
+let task: TaskHandle<ScriptResult> | null = null;
+let mounted = true;
+
+onBeforeUnmount(() => {
+  mounted = false;
+  // Gone while generating (its host closed…): the run goes on and says so
+  // when it ends; there's no dialog left for "Ver detalle" to show.
+  if (running.value && task) {
+    task.background();
+    task.setReopen(undefined);
+  }
+});
 
 const percent = computed(() => (progress.total ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0));
 
@@ -145,6 +160,7 @@ function extension(): string {
 }
 
 async function run() {
+  if (running.value) return;
   if (!selectedCount.value) {
     ElMessage.warning(t('scripts:generator.selectAtLeastOne'));
     return;
@@ -166,16 +182,35 @@ async function run() {
   running.value = true;
   cancelling.value = false;
   Object.assign(progress, { done: 0, total: objects.length, current: '' });
+  // Everything the end needs, fixed now: the dialog may be gone by then.
+  const { connectionId, database } = props;
+  const target = otherEngine.value ? engine.value : null;
+  const openOn = target ? openConnection.value || null : null;
+  const scriptId = crypto.randomUUID();
+  const db = database || t('dialogs:database.theDatabase');
+  const h = startTask<ScriptResult>({
+    kind: 'script-generate',
+    title: path
+      ? t('tasks:genImportExport.scriptToFile', { db, file: path.split(/[\\/]/).pop() ?? path })
+      : t('tasks:genImportExport.script', { db }),
+    connectionId, database,
+    // A cancel that doesn't land re-enables the dialog's button too.
+    cancel: () => { cancelling.value = true; return invoke('cancel_query', { args: { session_id: `script:${scriptId}` } }).catch((e) => { cancelling.value = false; throw e; }); },
+    // While the dialog is up, "Ver detalle" just brings it back into view.
+    reopen: () => {},
+  });
+  task = markRaw(h);
   try {
-    unlisten = await listen<ScriptProgress>('script-progress', (e) => {
+    await h.listen<ScriptProgress>('script-progress', (e) => {
       if (e.payload.id !== scriptId) return;
       Object.assign(progress, { done: e.payload.done, total: e.payload.total, current: e.payload.current });
+      h.progress({ done: e.payload.done, total: e.payload.total, unit: 'objects', phase: e.payload.current || undefined });
     });
     const result = await invoke<ScriptResult>('generate_script', {
       args: {
         script_id: scriptId,
-        connection_id: props.connectionId,
-        database: props.database,
+        connection_id: connectionId,
+        database,
         objects,
         options: {
           ...opts,
@@ -183,37 +218,51 @@ async function run() {
           data_limit: props.supportsData && opts.data && limitRows.value ? limitValue.value : null,
         },
         path,
-        target_driver: otherEngine.value ? engine.value : null,
+        target_driver: target,
       },
     });
+    const objectsText = t('scripts:generator.savedObjects', { count: result.objects, n: result.objects.toLocaleString(locale()) });
+    h.setReopen(undefined);
+    h.finish(result, result.rows
+      ? t('tasks:genImportExport.withRows', { objects: objectsText, rows: t('tasks:dialogs.rows', { count: result.rows, n: result.rows.toLocaleString(locale()) }) })
+      : objectsText);
     if (path) {
-      const objects = t('scripts:generator.savedObjects', { count: result.objects, n: result.objects.toLocaleString(locale()) });
-      const message = result.rows
-        ? t('scripts:generator.savedWithRows', { objects, count: result.rows, n: result.rows.toLocaleString(locale()) })
-        : t('scripts:generator.saved', { objects });
-      ElMessage.success({ message, duration: 4000 });
+      if (mounted) {
+        const message = result.rows
+          ? t('scripts:generator.savedWithRows', { objects: objectsText, count: result.rows, n: result.rows.toLocaleString(locale()) })
+          : t('scripts:generator.saved', { objects: objectsText });
+        ElMessage.success({ message, duration: 4000 });
+      }
     } else if (result.script != null) {
-      emit('open-script', result.script, otherEngine.value ? openConnection.value || null : null);
+      if (mounted) emit('open-script', result.script, openOn);
+      // In the background the host is gone: open it the way it does.
+      else if (openOn) newQuery(openOn, '', result.script, t('dialogs:database.scriptNameConverted', { db }));
+      else newQuery(connectionId, database, result.script, t('dialogs:database.scriptName', { db }));
     }
-    emit('close');
+    if (mounted) emit('close');
   } catch (e) {
-    if (cancelling.value) ElMessage.info(t('scripts:generator.cancelled'));
-    else ElMessage.error({ message: errorMessage(e), duration: 6000 });
+    h.setReopen(undefined);
+    const stopped = errorKind(e) === 'cancelled' || h.isCancelling;
+    if (stopped) h.cancelled(); else h.fail(e);
+    if (mounted) {
+      if (stopped) ElMessage.info(t('scripts:generator.cancelled'));
+      else ElMessage.error({ message: errorMessage(e), duration: 6000 });
+    }
   } finally {
     running.value = false;
     cancelling.value = false;
-    unlisten?.();
-    unlisten = null;
   }
 }
 
 function cancel() {
-  if (running.value) {
-    cancelling.value = true;
-    invoke('cancel_query', { args: { session_id: `script:${scriptId}` } }).catch(() => {});
-  } else emit('close');
+  if (running.value && task) tasks.cancel(task.id);
+  else emit('close');
 }
-onBeforeUnmount(() => unlisten?.());
+
+function toBackground() {
+  task?.background();
+  emit('close');
+}
 defineExpose({ run });
 </script>
 
@@ -339,6 +388,7 @@ defineExpose({ run });
       <div class="sg-footer">
         <span v-if="!running && nothingToEmit" class="sg-warn">{{ $t('scripts:generator.pickOption') }}</span>
         <span class="nm-spacer" />
+        <el-button v-if="running" @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
         <el-button :disabled="cancelling" @click="cancel">{{ running ? $t('scripts:generator.cancelGeneration') : $t('common:cancel') }}</el-button>
         <el-button type="primary" :loading="running" :disabled="!selectedCount || nothingToEmit" @click="run">
           {{ destination === 'file' ? $t('scripts:generator.saveEllipsis') : $t('scripts:generator.generate') }}

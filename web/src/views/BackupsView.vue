@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
@@ -12,6 +11,7 @@ import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 import type { BackupsTab } from '../stores/tabs';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // Backups (docs/backups.md): DBine's copies of the database (a script file
 // with its structure and data, for every engine, restored by running it) and
@@ -68,13 +68,43 @@ function size(n: number | null) {
 }
 const num = (n: number) => n.toLocaleString(locale());
 
+// -- background tasks ------------------------------------------------------------
+// Copies, restores and native runs are registered in the tasks store, so they
+// keep going (and can be cancelled from the Tareas panel) after their dialog
+// closes or this tab does. The dialogs below are only a view of the task while
+// this component lives.
+const tasks = useTasksStore();
+let alive = true;
+const owned = new Set<TaskHandle<any>>();
+onBeforeUnmount(() => {
+  alive = false;
+  // The dialogs are gone: "Ver detalle" falls back to the panel's own detail,
+  // and a run whose dialog was still open notifies when it ends (the tab can
+  // close with ⌘W while the modal is open, which emits no close).
+  for (const h of owned) {
+    h.setReopen(undefined);
+    h.background();
+  }
+});
+/** "conexión / base" for the task's title. */
+const where = () => {
+  const name = conns.byId(props.tab.connectionId)?.name ?? '';
+  return props.tab.database ? `${name} / ${props.tab.database}` : name;
+};
+const isBackground = (h: TaskHandle<any> | null) => !!h && !!tasks.byId(h.id)?.background;
+const isRunning = (h: TaskHandle<any> | null) => !!h && tasks.byId(h.id)?.state === 'running';
+/** "Seguir en segundo plano", or the dialog closed (Esc) while its run goes on. */
+function sendToBackground(h: TaskHandle<any> | null, close?: () => void) {
+  if (isRunning(h)) h!.background();
+  close?.();
+}
+
 // -- DBine copy ----------------------------------------------------------------
 const copy = reactive({ open: false, path: '', data: true, running: false, cancelling: false, done: 0, total: 0, current: '' });
-let copyId = '';
-let unlisten: UnlistenFn | null = null;
-onBeforeUnmount(() => unlisten?.());
+let copyTask: TaskHandle<any> | null = null;
 
 async function openCopy() {
+  if (copy.running) { copy.open = true; return; }
   try {
     copy.path = await backupApi.defaultPath(props.tab.connectionId, props.tab.database);
   } catch (e) {
@@ -91,44 +121,71 @@ async function pickCopyPath() {
   } catch { /* no dialog outside Tauri */ }
 }
 async function runCopy() {
-  if (!copy.path) return;
+  if (!copy.path || copy.running) return;
   copy.running = true;
   copy.cancelling = false;
-  copyId = crypto.randomUUID();
+  const id = crypto.randomUUID();
+  const { connectionId, database } = props.tab;
+  const path = copy.path;
+  const data = copy.data;
+  // The task exists from the first click, so Cancelar and "Seguir en segundo
+  // plano" work while the object list loads too.
+  const task: TaskHandle<any> = startTask({
+    kind: 'backup-copy', title: t('tasks:backups.copy', { where: where() }), connectionId, database,
+    cancel: () => { copy.cancelling = true; return api.cancelQuery(`script:${id}`); },
+    reopen: () => { copy.open = true; },
+  });
+  copyTask = task;
+  owned.add(task);
+  const h = task;
+  Object.assign(copy, { done: 0, total: 0, current: '' });
   try {
-    await conns.loadObjects(props.tab.connectionId, props.tab.database);
-    const objects = (conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? []).map((o) => ({ kind: o.kind, schema: o.schema, name: o.name }));
+    await conns.loadObjects(connectionId, database);
+    if (h.isCancelling) throw new Error('cancelled');
+    const objects = (conns.objects[dbKey(connectionId, database)]?.items ?? []).map((o) => ({ kind: o.kind, schema: o.schema, name: o.name }));
     if (!objects.length) {
-      ElMessage.warning(t('backups:copy.empty'));
+      h.cancelled(t('backups:copy.empty'));
+      if (!isBackground(h)) ElMessage.warning(t('backups:copy.empty'));
       return;
     }
     Object.assign(copy, { done: 0, total: objects.length, current: '' });
-    unlisten = await listen<{ id: string; done: number; total: number; current: string }>('script-progress', (e) => {
-      if (e.payload.id !== copyId) return;
+    h.progress({ done: 0, total: objects.length, unit: 'objects' });
+    await h.listen<{ id: string; done: number; total: number; current: string }>('script-progress', (e) => {
+      if (e.payload.id !== id) return;
       Object.assign(copy, { done: e.payload.done, total: e.payload.total, current: e.payload.current });
+      h.progress({ done: e.payload.done, total: e.payload.total, phase: e.payload.current });
     });
-    const c = await backupApi.copy(copyId, props.tab.connectionId, props.tab.database, objects, copy.data, copy.path);
+    const c = await backupApi.copy(id, connectionId, database, objects, data, path);
+    h.finish(c, t('tasks:backups.copyDone', { size: size(c.size), path }));
+    const quiet = isBackground(h);
     copy.open = false;
-    ElMessage.success(t('backups:copy.done', { size: size(c.size) }));
-    await load();
+    if (!quiet) ElMessage.success(t('backups:copy.done', { size: size(c.size) }));
+    if (alive) await load();
   } catch (e) {
-    if (copy.cancelling) ElMessage.info(t('backups:copy.cancelled'));
-    else ElMessage.error(errorMessage(e));
+    const quiet = isBackground(task);
+    if (copy.cancelling) {
+      task.cancelled();
+      if (!quiet) ElMessage.info(t('backups:copy.cancelled'));
+    } else {
+      task.fail(e);
+      if (!quiet) ElMessage.error(errorMessage(e));
+    }
   } finally {
     copy.running = false;
-    unlisten?.();
-    unlisten = null;
+    // Finished: "Ver detalle" shows the panel's detail, not a fresh form.
+    task.setReopen(undefined);
+    owned.delete(task);
   }
 }
 function cancelCopy() {
-  copy.cancelling = true;
-  api.cancelQuery(`script:${copyId}`).catch(() => {});
+  if (copyTask) tasks.cancel(copyTask.id);
 }
 
 // -- restore a DBine copy (run its script) ------------------------------------
 const restoreCopy = reactive({ open: false, copy: null as BackupCopy | null, database: '', continueOnError: false, running: false, cancelling: false, bytes: 0, total: 0, errors: [] as string[] });
-let runId = '';
+let restoreTask: TaskHandle<any> | null = null;
 function openRestoreCopy(c: BackupCopy) {
+  if (restoreCopy.running) { restoreCopy.open = true; return; }
   Object.assign(restoreCopy, { open: true, copy: c, database: c.database, continueOnError: false, running: false, cancelling: false, bytes: 0, total: c.size, errors: [] });
 }
 async function runRestoreCopy() {
@@ -139,37 +196,65 @@ async function runRestoreCopy() {
       type: 'warning', confirmButtonText: t('backups:restore'), cancelButtonText: t('common:cancel'),
     });
   } catch { return; }
+  if (restoreCopy.running) return;
   restoreCopy.running = true;
   restoreCopy.cancelling = false;
   restoreCopy.errors = [];
-  runId = crypto.randomUUID();
-  let off: UnlistenFn | null = null;
+  const runId = crypto.randomUUID();
+  const connectionId = props.tab.connectionId;
+  const database = restoreCopy.database;
+  const name = conns.byId(connectionId)?.name ?? '';
+  const task = startTask<{ statements: number; errors: string[] }>({
+    kind: 'restore', title: t('tasks:backups.restoreCopy', { where: database ? `${name} / ${database}` : name }), connectionId, database,
+    cancel: () => { restoreCopy.cancelling = true; return api.cancelQuery(`run:${runId}`); },
+    reopen: () => { restoreCopy.open = true; },
+  });
+  restoreTask = task;
+  owned.add(task);
+  task.progress({ done: 0, total: c.size, unit: 'bytes' });
   try {
-    off = await listen<{ id: string; bytes: number; total_bytes: number }>('script-run-progress', (e) => {
+    await task.listen<{ id: string; statements: number; bytes: number; total_bytes: number }>('script-run-progress', (e) => {
       if (e.payload.id !== runId) return;
       restoreCopy.bytes = e.payload.bytes;
       if (e.payload.total_bytes) restoreCopy.total = e.payload.total_bytes;
+      task.progress({
+        done: e.payload.bytes, total: e.payload.total_bytes || undefined,
+        phase: t('tasks:backups.statements', { n: num(e.payload.statements) }),
+      });
     });
     const r = await invoke<{ statements: number; errors: string[] }>('run_script_file', {
-      args: { run_id: runId, connection_id: props.tab.connectionId, database: restoreCopy.database, path: c.path, continue_on_error: restoreCopy.continueOnError },
+      args: { run_id: runId, connection_id: connectionId, database, path: c.path, continue_on_error: restoreCopy.continueOnError },
     });
     restoreCopy.errors = r.errors;
+    for (const err of r.errors) task.log(err, 'error');
+    task.finish(r, r.errors.length
+      ? t('tasks:backups.statementsWithErrors', { n: num(r.statements), errors: num(r.errors.length) })
+      : t('tasks:backups.statements', { n: num(r.statements) }), r.errors.length ? 'error' : 'done');
     if (!r.errors.length) {
+      const quiet = isBackground(task);
       restoreCopy.open = false;
-      ElMessage.success(t('backups:restoreCopy.done', { n: num(r.statements) }));
+      if (!quiet) ElMessage.success(t('backups:restoreCopy.done', { n: num(r.statements) }));
     }
-    conns.loadObjects(props.tab.connectionId, restoreCopy.database, true).catch(() => {});
+    conns.loadObjects(connectionId, database, true).catch(() => {});
   } catch (e) {
-    if (restoreCopy.cancelling) ElMessage.info(t('backups:restoreCopy.cancelled'));
-    else restoreCopy.errors = [errorMessage(e)];
+    const quiet = isBackground(task);
+    if (restoreCopy.cancelling) {
+      task.cancelled();
+      if (!quiet) ElMessage.info(t('backups:restoreCopy.cancelled'));
+    } else {
+      task.fail(e);
+      restoreCopy.errors = [errorMessage(e)];
+    }
   } finally {
     restoreCopy.running = false;
-    off?.();
+    // Finished: "Ver detalle" shows the panel's detail (summary, log of the
+    // statement errors), not the dialog ready to restore again.
+    task.setReopen(undefined);
+    owned.delete(task);
   }
 }
 function cancelRestoreCopy() {
-  restoreCopy.cancelling = true;
-  api.cancelQuery(`run:${runId}`).catch(() => {});
+  if (restoreTask) tasks.cancel(restoreTask.id);
 }
 
 async function deleteCopy(c: BackupCopy) {
@@ -230,8 +315,9 @@ async function pickFile(f: Field) {
 }
 
 const review = reactive({ open: false, action: null as BackupAction | null, script: '', shown: '', error: null as string | null, running: false });
-let reviewSession = '';
+let reviewTask: TaskHandle<any> | null = null;
 async function propose(action: BackupAction) {
+  if (review.running) { review.open = true; return; }
   try {
     const s = await backupApi.script(props.tab.connectionId, action);
     Object.assign(review, { open: true, action, script: s.script, shown: s.shown, error: null, running: false });
@@ -245,25 +331,45 @@ async function copyScript() {
   ElMessage.success(t('backups:copied'));
 }
 async function runScript() {
+  if (review.running) return;
   review.running = true;
   review.error = null;
-  reviewSession = `backup-run:${Date.now()}`;
+  const session = `backup-run:${Date.now()}`;
+  const connectionId = props.tab.connectionId;
+  const database = spec.value?.script_database || props.tab.database;
+  const action = review.action?.action ?? 'backup';
+  const task = startTask({
+    kind: action === 'restore' ? 'restore' : 'backup', title: t(`tasks:backups.native.${action}`, { where: where() }), connectionId, database,
+    cancel: () => api.cancelQuery(session),
+    reopen: () => { review.open = true; },
+  });
+  reviewTask = task;
+  owned.add(task);
   try {
-    const database = spec.value?.script_database || props.tab.database;
-    const o = await api.executeQuery({ sessionId: reviewSession, connectionId: props.tab.connectionId, database, sql: review.script, maxRows: 10, record: false });
-    if (o.error) { review.error = tb(o.error); return; }
+    const o = await api.executeQuery({ sessionId: session, connectionId, database, sql: review.script, maxRows: 10, record: false });
+    if (o.error) {
+      review.error = tb(o.error);
+      if (task.isCancelling) task.cancelled(); else task.fail(review.error);
+      return;
+    }
+    task.finish();
+    const quiet = isBackground(task);
     review.open = false;
-    ElMessage.success(t(`backups:done.${review.action?.action ?? 'backup'}`));
-    await load();
+    if (!quiet) ElMessage.success(t(`backups:done.${action}`));
+    if (alive) await load();
   } catch (e) {
     review.error = errorMessage(e);
+    if (task.isCancelling) task.cancelled(); else task.fail(e);
   } finally {
     review.running = false;
-    api.closeSession(reviewSession).catch(() => {});
+    // Finished: "Ver detalle" shows the panel's detail, not the script ready to run again.
+    task.setReopen(undefined);
+    owned.delete(task);
+    api.closeSession(session).catch(() => {});
   }
 }
 function cancelScript() {
-  api.cancelQuery(reviewSession).catch(() => {});
+  if (reviewTask) tasks.cancel(reviewTask.id);
 }
 </script>
 
@@ -355,7 +461,7 @@ function cancelScript() {
     </section>
 
     <!-- new DBine copy -->
-    <el-dialog v-model="copy.open" :title="$t('backups:copy.new')" width="560px" append-to-body :close-on-click-modal="!copy.running" :show-close="!copy.running">
+    <el-dialog v-model="copy.open" :title="$t('backups:copy.new')" width="560px" append-to-body :close-on-click-modal="!copy.running" :show-close="!copy.running" @close="copy.running && sendToBackground(copyTask)">
       <el-form label-position="top" @submit.prevent="runCopy">
         <el-form-item :label="$t('backups:copy.file')">
           <div class="bv-row">
@@ -371,7 +477,10 @@ function cancelScript() {
         <span class="bv-dim">{{ copy.current }}</span>
       </div>
       <template #footer>
-        <el-button v-if="copy.running" :disabled="copy.cancelling" @click="cancelCopy">{{ $t('common:cancel') }}</el-button>
+        <template v-if="copy.running">
+          <el-button :disabled="copy.cancelling" @click="cancelCopy">{{ $t('common:cancel') }}</el-button>
+          <el-button type="primary" @click="sendToBackground(copyTask, () => (copy.open = false))">{{ $t('tasks:panel.background') }}</el-button>
+        </template>
         <template v-else>
           <el-button @click="copy.open = false">{{ $t('common:cancel') }}</el-button>
           <el-button type="primary" :disabled="!copy.path" @click="runCopy">{{ $t('backups:copy.run') }}</el-button>
@@ -380,7 +489,7 @@ function cancelScript() {
     </el-dialog>
 
     <!-- restore a DBine copy -->
-    <el-dialog v-model="restoreCopy.open" :title="$t('backups:restoreCopy.title')" width="560px" append-to-body :close-on-click-modal="!restoreCopy.running" :show-close="!restoreCopy.running">
+    <el-dialog v-model="restoreCopy.open" :title="$t('backups:restoreCopy.title')" width="560px" append-to-body :close-on-click-modal="!restoreCopy.running" :show-close="!restoreCopy.running" @close="restoreCopy.running && sendToBackground(restoreTask)">
       <el-form label-position="top">
         <el-form-item :label="$t('backups:restoreCopy.into')">
           <el-select v-model="restoreCopy.database" filterable allow-create :disabled="restoreCopy.running" style="width: 100%">
@@ -393,7 +502,10 @@ function cancelScript() {
       <el-progress v-if="restoreCopy.running" :percentage="restoreCopy.total ? Math.min(100, Math.round((restoreCopy.bytes / restoreCopy.total) * 100)) : 0" :stroke-width="6" />
       <div v-if="restoreCopy.errors.length" class="bv-error">{{ restoreCopy.errors.join('\n') }}</div>
       <template #footer>
-        <el-button v-if="restoreCopy.running" :disabled="restoreCopy.cancelling" @click="cancelRestoreCopy">{{ $t('common:cancel') }}</el-button>
+        <template v-if="restoreCopy.running">
+          <el-button :disabled="restoreCopy.cancelling" @click="cancelRestoreCopy">{{ $t('common:cancel') }}</el-button>
+          <el-button type="primary" @click="sendToBackground(restoreTask, () => (restoreCopy.open = false))">{{ $t('tasks:panel.background') }}</el-button>
+        </template>
         <template v-else>
           <el-button @click="restoreCopy.open = false">{{ $t('common:close') }}</el-button>
           <el-button type="primary" :disabled="!restoreCopy.database" @click="runRestoreCopy">{{ $t('backups:restore') }}</el-button>
@@ -437,7 +549,7 @@ function cancelScript() {
     </el-dialog>
 
     <!-- the script, reviewed, then run -->
-    <el-dialog v-model="review.open" :title="$t('backups:reviewTitle')" width="680px" append-to-body :close-on-click-modal="!review.running" :show-close="!review.running">
+    <el-dialog v-model="review.open" :title="$t('backups:reviewTitle')" width="680px" append-to-body :close-on-click-modal="!review.running" :show-close="!review.running" @close="review.running && sendToBackground(reviewTask)">
       <p class="bv-dim">{{ $t('backups:reviewHint', { db: spec?.script_database || tab.database || conns.byId(tab.connectionId)?.name }) }}</p>
       <pre class="bv-script nm-selectable">{{ review.shown }}</pre>
       <div v-if="review.error" class="bv-error">{{ review.error }}</div>
@@ -445,7 +557,10 @@ function cancelScript() {
         <div class="bv-foot">
           <el-button @click="copyScript">{{ $t('common:copy') }}</el-button>
           <span style="flex: 1" />
-          <el-button v-if="review.running" @click="cancelScript">{{ $t('common:cancel') }}</el-button>
+          <template v-if="review.running">
+            <el-button :disabled="!!reviewTask?.isCancelling" @click="cancelScript">{{ $t('common:cancel') }}</el-button>
+            <el-button @click="sendToBackground(reviewTask, () => (review.open = false))">{{ $t('tasks:panel.background') }}</el-button>
+          </template>
           <el-button v-else @click="review.open = false">{{ $t('common:cancel') }}</el-button>
           <el-button type="primary" :loading="review.running" @click="runScript">{{ $t('backups:run') }}</el-button>
         </div>

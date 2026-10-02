@@ -48,10 +48,11 @@ export async function dropIndexScript(target: DropIndexTarget): Promise<SyncScri
   return compareApi.script(target.connectionId, [{ op: 'alter', old: table, new: without }], [], []);
 }
 
-/** Run the script; the error of the statement that failed, or null. */
-export async function runDropIndex(target: DropIndexTarget, statements: string[]): Promise<string | null> {
+/** Run the script; the error of the statement that failed, or null.
+ *  `runId` lets the caller cancel it: `cancel_query` on `sync:<runId>`. */
+export async function runDropIndex(target: DropIndexTarget, statements: string[], runId: string = crypto.randomUUID()): Promise<string | null> {
   try {
-    const r = await compareApi.run(target.connectionId, target.database, statements, crypto.randomUUID());
+    const r = await compareApi.run(target.connectionId, target.database, statements, runId);
     if (r.failed) return tb(r.failed[1]);
   } catch (e) {
     return errorMessage(e);

@@ -8,10 +8,13 @@ import { securityApi, type Principal } from '../api/security';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { newQuery } from '../composables/actions';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // "Nuevo esquema…" (name, owner, grants) and "Borrar esquema…" (how many
 // objects it holds, with its content where the engine can): the script in
 // the engine's language is shown live and runs only once the user confirms.
+// The run is a task (stores/tasks.ts): "Seguir en segundo plano" closes the
+// dialog and it goes on; the Tareas panel shows its script and outcome.
 
 const props = defineProps<{ connectionId: string; database: string; mode: 'create' | 'drop'; schema?: string }>();
 const emit = defineEmits<{ close: []; done: [] }>();
@@ -76,6 +79,21 @@ const running = ref(false);
 const runError = ref<string | null>(null);
 let timer: ReturnType<typeof setTimeout> | undefined;
 let generation = 0;
+let task: TaskHandle | null = null;
+const taskId = ref<string | null>(null);
+const tasks = useTasksStore();
+const cancelling = computed(() => !!(taskId.value && tasks.byId(taskId.value)?.cancelling));
+/** "Cancelar": closes the dialog, or stops the script while it runs. */
+function cancel() {
+  if (running.value && taskId.value) tasks.cancel(taskId.value);
+  else emit('close');
+}
+let alive = true;
+onBeforeUnmount(() => {
+  alive = false;
+  // Closed while running (its host went away): the run goes on and says so when it ends.
+  if (running.value) task?.background();
+});
 
 async function build() {
   const n = ++generation;
@@ -141,15 +159,40 @@ async function run() {
   } catch { return; }
   running.value = true;
   runError.value = null;
+  const { connectionId, database, mode } = props;
   const sessionId = `schema-run:${Date.now()}`;
+  const current = task = startTask({
+    kind: mode === 'create' ? 'schema-create' : 'schema-drop',
+    title: t(mode === 'create' ? 'tasks:dialogs.schemaCreate' : 'tasks:dialogs.schemaDrop', { name: target, db: where.value }),
+    connectionId, database,
+    cancel: () => api.cancelQuery(sessionId),
+  });
+  taskId.value = current.id;
+  current.log(script.value);
   try {
-    const o = await api.executeQuery({ sessionId, connectionId: props.connectionId, database: props.database, sql: script.value, maxRows: 10, record: false });
-    if (o.error) { runError.value = tb(o.error); return; }
-    ElMessage.success(props.mode === 'create' ? t('schemas:created', { name: target }) : t('schemas:dropped', { name: target }));
-    emit('done');
-    emit('close');
+    const o = await api.executeQuery({ sessionId, connectionId, database, sql: script.value, maxRows: 10, record: false });
+    if (o.error) {
+      runError.value = tb(o.error);
+      if (current.isCancelling) current.cancelled(); else current.fail(runError.value);
+      return;
+    }
+    const done = mode === 'create' ? t('schemas:created', { name: target }) : t('schemas:dropped', { name: target });
+    current.finish(undefined, done);
+    if (alive) {
+      ElMessage.success(done);
+      emit('done');
+      emit('close');
+    } else {
+      // Ended in the background: what the host's @done reloads (an owner or
+      // grants can change the permissions too).
+      conns.loadObjects(connectionId, database, true).catch(() => {});
+      conns.loadQueries(connectionId, database, true);
+      conns.loadMigrations(connectionId, database, true);
+      conns.loadPermissions(connectionId, database);
+    }
   } catch (e) {
     runError.value = errorMessage(e);
+    if (current.isCancelling) current.cancelled(); else current.fail(e);
   } finally {
     running.value = false;
     api.closeSession(sessionId).catch(() => {});
@@ -234,7 +277,8 @@ async function run() {
         <el-button :disabled="!script" @click="copyScript">{{ $t('common:copy') }}</el-button>
         <el-button :disabled="!script || running" @click="openInQuery">{{ $t('schemas:openInQuery') }}</el-button>
         <span style="flex: 1" />
-        <el-button :disabled="running" @click="emit('close')">{{ $t('common:cancel') }}</el-button>
+        <el-button v-if="running" @click="task?.background(); emit('close')">{{ $t('tasks:panel.background') }}</el-button>
+        <el-button :disabled="cancelling" @click="cancel">{{ $t('common:cancel') }}</el-button>
         <el-button :type="mode === 'drop' ? 'danger' : 'primary'" :loading="running" :disabled="!canRun" @click="run">
           {{ mode === 'drop' ? $t('schemas:drop') : $t('schemas:run') }}
         </el-button>

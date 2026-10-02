@@ -89,7 +89,7 @@ function imported() {
       v-else-if="d.kind === 'run'"
       :connection-id="d.connectionId"
       :database="d.database"
-      @close="ui.closeDbDialog(); conns.loadObjects(d!.connectionId, d!.database, true)"
+      @close="ui.closeDbDialog()"
     />
   </template>
 </template>

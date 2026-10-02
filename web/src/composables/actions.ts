@@ -6,8 +6,13 @@ import { tb } from '../i18n/backend';
 import { confirmNative } from '../native';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
+import { runTask } from '../stores/tasks';
 
 // Actions reachable from several places (explorer menus, toolbars, tabs).
+// Create / drop database and drop objects run as background tasks (no dialog
+// stays open after the confirmation): they show in the Tareas panel and end
+// with a notice. None of them has a cancel path in the backend, so the panel
+// doesn't offer Cancelar.
 
 /** New saved query under a database, opened in a tab. */
 export async function newQuery(connectionId: string, database: string, sql = '', name?: string) {
@@ -74,14 +79,19 @@ export async function createDatabase(connectionId: string) {
       confirmButtonText: t('core:actions.create'), cancelButtonText: t('common:cancel'), inputValidator: (v) => !!v?.trim() || t('core:actions.nameRequired'),
     }));
   } catch { return; }
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('create_database', { args: { connection_id: connectionId, name: name.trim() } });
-    await conns.refreshDatabases(connectionId);
-    ElMessage.success(t('core:actions.createDatabase.done', { name: name.trim() }));
-  } catch (e) {
-    ElMessage.error(errorMessage(e));
-  }
+  const db = name.trim();
+  const server = conns.byId(connectionId)?.name ?? '';
+  runTask({
+    kind: 'create-database',
+    title: t('tasks:actions.createDatabase', { name: db, server }),
+    connectionId, database: db, background: true,
+    run: async (task) => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('create_database', { args: { connection_id: connectionId, name: db } });
+      // The database exists now: a failed refresh doesn't make the task fail.
+      await conns.refreshDatabases(connectionId).catch((e) => task.log(errorMessage(e), 'warn'));
+    },
+  });
 }
 
 /** Drop tables / collections / views…: one asks for confirmation, several
@@ -112,25 +122,32 @@ export async function dropObjects(connectionId: string, database: string, object
       );
     }
   } catch { return; }
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const r = await invoke<{ dropped: typeof objects; errors: [typeof objects[number], string][] }>('drop_objects', {
-      args: { connection_id: connectionId, database, objects },
-    });
-    const gone = new Set(r.dropped.map((o) => `${o.kind}\u0000${o.schema ?? ''}\u0000${o.name}`));
-    tabs.closeWhere((t) => t.kind === 'object' && t.connectionId === connectionId && t.database === database
-      && gone.has(`${t.object.kind}\u0000${t.object.schema ?? ''}\u0000${t.object.name}`));
-    await conns.loadObjects(connectionId, database, true);
-    if (r.errors.length) {
-      ElMessageBox.alert(r.errors.map(([o, e]) => `${label(o)}: ${tb(e)}`).join('\n\n'), t('core:actions.dropObjects.failed', { failed: r.errors.length, total: objects.length }), { type: 'warning' });
-    } else {
-      ElMessage.success(r.dropped.length === 1
-        ? t('core:actions.dropObjects.droppedOne', { name: label(r.dropped[0]) })
-        : t('core:actions.dropObjects.droppedMany', { count: r.dropped.length }));
-    }
-  } catch (e) {
-    ElMessage.error(errorMessage(e));
-  }
+  type Dropped = { dropped: typeof objects; errors: [typeof objects[number], string][] };
+  runTask<Dropped>({
+    kind: 'drop-objects',
+    title: objects.length === 1
+      ? t('tasks:actions.dropOne', { name: label(objects[0]), db: database || server })
+      : t('tasks:actions.dropMany', { count: objects.length, db: database || server }),
+    connectionId, database, background: true,
+    run: async (task) => {
+      task.progress({ total: objects.length, unit: 'objects' });
+      const { invoke } = await import('@tauri-apps/api/core');
+      const r = await invoke<Dropped>('drop_objects', {
+        args: { connection_id: connectionId, database, objects },
+      });
+      task.progress({ done: r.dropped.length });
+      for (const [o, e] of r.errors) task.log(`${label(o)}: ${tb(e)}`, 'error');
+      const gone = new Set(r.dropped.map((o) => `${o.kind}\u0000${o.schema ?? ''}\u0000${o.name}`));
+      tabs.closeWhere((t) => t.kind === 'object' && t.connectionId === connectionId && t.database === database
+        && gone.has(`${t.object.kind}\u0000${t.object.schema ?? ''}\u0000${t.object.name}`));
+      await conns.loadObjects(connectionId, database, true).catch((e) => task.log(errorMessage(e), 'warn'));
+      return r;
+    },
+    summary: (r) => (r.errors.length
+      ? t('tasks:actions.dropFailed', { failed: r.errors.length, total: objects.length })
+      : t('tasks:actions.dropped', { count: r.dropped.length })),
+    outcome: (r) => (r.errors.length ? 'error' : 'done'),
+  });
 }
 
 /** Drop a database: the user has to type its name to confirm. */
@@ -149,13 +166,15 @@ export async function dropDatabase(connectionId: string, database: string) {
       },
     );
   } catch { return; }
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('drop_database', { args: { connection_id: connectionId, name: database } });
-    tabs.closeWhere((t) => t.connectionId === connectionId && t.database === database);
-    await conns.refreshDatabases(connectionId);
-    ElMessage.success(t('core:actions.dropDatabase.done', { name: database }));
-  } catch (e) {
-    ElMessage.error(errorMessage(e));
-  }
+  runTask({
+    kind: 'drop-database',
+    title: t('tasks:actions.dropDatabase', { name: database, server }),
+    connectionId, database, background: true,
+    run: async (task) => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('drop_database', { args: { connection_id: connectionId, name: database } });
+      tabs.closeWhere((t) => t.connectionId === connectionId && t.database === database);
+      await conns.refreshDatabases(connectionId).catch((e) => task.log(errorMessage(e), 'warn'));
+    },
+  });
 }

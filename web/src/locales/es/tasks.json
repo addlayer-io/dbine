@@ -1,0 +1,163 @@
+{
+  "status": {
+    "running_one": "{{count}} tarea en curso",
+    "running_other": "{{count}} tareas en curso",
+    "title": "Ver las tareas en curso"
+  },
+  "panel": {
+    "title": "Tareas",
+    "empty": "No hay tareas.",
+    "clearFinished": "Quitar terminadas",
+    "cancel": "Cancelar",
+    "cancelling": "Cancelando…",
+    "detail": "Ver detalle",
+    "remove": "Quitar",
+    "background": "Seguir en segundo plano"
+  },
+  "state": {
+    "running": "En curso",
+    "done": "Terminada",
+    "error": "Con errores",
+    "cancelled": "Cancelada"
+  },
+  "progress": {
+    "of": "{{done}} de {{total}} {{unit}}",
+    "count": "{{done}} {{unit}}"
+  },
+  "unit": {
+    "statements": "sentencias",
+    "rows": "filas",
+    "bytes": "bytes",
+    "tables": "tablas",
+    "objects": "objetos"
+  },
+  "elapsed": {
+    "seconds": "{{n}} s",
+    "minutes": "{{n}} min",
+    "hours": "{{n}} h {{m}} min"
+  },
+  "detail": {
+    "title": "Detalle de la tarea",
+    "messages": "Mensajes",
+    "noMessages": "Sin mensajes.",
+    "result": "Resultado",
+    "error": "Error",
+    "started": "Inicio",
+    "elapsed": "Duración"
+  },
+  "notify": {
+    "title": {
+      "done": "Tarea terminada",
+      "error": "Tarea con errores",
+      "cancelled": "Tarea cancelada"
+    },
+    "done": "{{title}}: terminó en {{elapsed}}.",
+    "error": "{{title}}: terminó con errores en {{elapsed}}.",
+    "cancelled": "{{title}}: cancelada después de {{elapsed}}.",
+    "withSummary": "{{title}}: {{summary}}, {{elapsed}}.",
+    "failed": "{{title}}: falló después de {{elapsed}}. {{error}}"
+  },
+  "quit": {
+    "title": "Ejecuciones en segundo plano",
+    "message_one": "Hay {{count}} ejecución en segundo plano: {{list}}. Si cerrás la aplicación se va a cancelar. ¿Querés cerrarla igual?",
+    "message_other": "Hay {{count}} ejecuciones en segundo plano: {{list}}. Si cerrás la aplicación se van a cancelar. ¿Querés cerrarla igual?",
+    "confirm": "Cancelar y cerrar",
+    "stay": "Seguir trabajando"
+  },
+  "dataSync": {
+    "title": "Sync de datos de {{table}} ({{where}})",
+    "unit": "scripts",
+    "phase": "Aplicando en {{side}}: {{parts}}",
+    "applied": "Ya aplicado en {{sides}}",
+    "nothingApplied": "No llegó a aplicarse ningún script completo",
+    "stoppedOn": "{{side}} se detuvo a mitad: puede tener cambios aplicados en parte",
+    "lateCancel": "La cancelación llegó cuando los scripts ya habían terminado: los cambios quedaron aplicados.",
+    "stale": "La ejecución se detuvo a mitad y los datos pueden haber cambiado: estos scripts ya no se pueden ejecutar. La comparación se volvió a cargar.",
+    "regenerate": "Volver a generar los scripts"
+  },
+  "compareSync": {
+    "title": "Sync de {{target}}",
+    "sideStart_one": "{{side}}: {{count}} sentencia",
+    "sideStart_other": "{{side}}: {{count}} sentencias",
+    "summary": "{{count}} de {{total}} sentencias",
+    "summaryAll_one": "{{count}} sentencia",
+    "summaryAll_other": "{{count}} sentencias"
+  },
+  "backups": {
+    "copy": "Copia de {{where}}",
+    "copyDone": "{{size}} en {{path}}",
+    "restoreCopy": "Restaurar copia en {{where}}",
+    "statements": "{{n}} sentencias",
+    "statementsWithErrors": "{{n}} sentencias, {{errors}} con error",
+    "native": {
+      "backup": "Backup de {{where}}",
+      "restore": "Restauración en {{where}}",
+      "delete": "Eliminar backup en {{where}}"
+    }
+  },
+  "dialogs": {
+    "schemaCreate": "Crear esquema {{name}} en {{db}}",
+    "schemaDrop": "Borrar esquema {{name}} en {{db}}",
+    "dropIndex": "Eliminar índice {{name}} de {{table}}",
+    "cloneTable": "Clonar {{table}} como {{name}}",
+    "runScriptFile": "Ejecutar {{file}} en {{db}}",
+    "applyEdits": "Guardar cambios en {{table}}",
+    "saving": "Guardando…",
+    "rows_one": "{{n}} fila",
+    "rows_other": "{{n}} filas",
+    "statements_one": "{{n}} sentencia",
+    "statements_other": "{{n}} sentencias",
+    "statementsWithErrors_one": "{{n}} sentencia, {{errors}} con error",
+    "statementsWithErrors_other": "{{n}} sentencias, {{errors}} con error"
+  },
+  "backupsSecurity": {
+    "run": "Cambio de usuarios y permisos en {{where}}"
+  },
+  "actions": {
+    "createDatabase": "Crear la base {{name}} en {{server}}",
+    "dropDatabase": "Eliminar la base {{name}} de {{server}}",
+    "dropOne": "Eliminar {{name}} en {{db}}",
+    "dropMany": "Eliminar {{count}} objetos en {{db}}",
+    "dropped_one": "{{count}} objeto eliminado",
+    "dropped_other": "{{count}} objetos eliminados",
+    "dropFailed": "no se pudieron eliminar {{failed}} de {{total}} (el detalle dice por qué)"
+  },
+  "dataCompare": {
+    "buildTitle": "Scripts de sync de datos de {{table}}",
+    "buildPhase": "Generando los scripts",
+    "applied": "Estos scripts ya se ejecutaron y la comparación se volvió a cargar: no se pueden ejecutar de nuevo. Para otro sync, volvé a generarlos."
+  },
+  "settingsGit": {
+    "git": {
+      "link": "Vincular la biblioteca con el repo",
+      "commit": "Commit de la biblioteca",
+      "pull": "Pull de la biblioteca",
+      "push": "Push de la biblioteca",
+      "sync": "Sincronizar la biblioteca con el repo",
+      "resolve": "Resolver los conflictos de la biblioteca",
+      "unlink": "Desvincular la biblioteca del repo",
+      "conflicts_one": "{{count}} script con conflicto: abrí «Biblioteca en git» para resolverlo",
+      "conflicts_other": "{{count}} scripts con conflicto: abrí «Biblioteca en git» para resolverlos"
+    },
+    "sync": {
+      "setupUpload": "Activar la sincronización y subir el backup",
+      "setupRestore": "Restaurar el backup en esta máquina",
+      "now": "Sincronizar con la nube",
+      "upload": "Subir el backup a la nube",
+      "restore": "Restaurar desde la nube",
+      "change": "Cambiar la frase clave y volver a cifrar el backup",
+      "disconnect": "Dejar de sincronizar y borrar el backup en la nube",
+      "local": "Restaurar copia local"
+    },
+    "drivers": {
+      "install": "Descargar el driver de {{label}}"
+    }
+  },
+  "genImportExport": {
+    "script": "Script de {{db}}",
+    "scriptToFile": "Script de {{db}} en {{file}}",
+    "withRows": "{{objects}}, {{rows}}",
+    "import": "Importar {{file}} en {{table}}",
+    "export": "Exportar {{file}}"
+  }
+}

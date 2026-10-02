@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
@@ -10,6 +10,7 @@ import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DataCompareTab } from '../stores/tabs';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // Data compare (docs/comparacion-de-datos.md): a table's rows (left) against
 // another table's (right), by key; then a script, in the target engine's
@@ -227,21 +228,56 @@ const applying = ref(false);
 function pickOf(kind: Kind): { all: Dir; rows: [number, Dir][] } {
   return { all: choices[kind].all, rows: [...choices[kind].rows.entries()] };
 }
+/** The build's task, while it runs (there's no backend cancel for it: it
+ *  only reads the compare kept in memory, so it's short). */
+let buildTaskHandle: TaskHandle | null = null;
+/** The last build that ended well: "Ver detalle" reopens its scripts until
+ *  another build or a run replaces them. */
+let builtTaskHandle: TaskHandle | null = null;
 async function openSync() {
-  if (!result.value) return;
+  const res = result.value;
+  if (!res) return;
   sync.open = true;
+  // A run in progress keeps its scripts, and a build in progress fills them: the dialog shows it.
+  if (applying.value || building.value) return;
   building.value = true;
   scripts.value = [];
   scriptError.value = null;
+  stale.value = null;
+  builtTaskHandle?.setReopen(undefined);
+  builtTaskHandle = null;
+  const task = track(startTask<DataScript[]>({
+    kind: 'data-script',
+    title: t('tasks:dataCompare.buildTitle', { table: tableName() }),
+    connectionId: left.connectionId,
+    database: left.database,
+    reopen: reopenSync,
+  }));
+  buildTaskHandle = task;
+  task.progress({ phase: t('tasks:dataCompare.buildPhase') });
+  let ok = false;
   try {
-    scripts.value = await dataCompareApi.scripts(result.value.id, { changed: pickOf('changed'), only_left: pickOf('only_left'), only_right: pickOf('only_right') });
-    sync.tab = scripts.value[0]?.side ?? '';
+    const built = await dataCompareApi.scripts(res.id, { changed: pickOf('changed'), only_left: pickOf('only_left'), only_right: pickOf('only_right') });
+    const changing = built.filter((s) => s.script.trim());
+    task.finish(built, changing.length
+      ? changing.map((s) => `${sideName(s.side)}: ${summaryOf(s)}`).join(' · ')
+      : t('dataCompare:noChanges'));
+    // A compare reloaded meanwhile: these scripts belong to the old one.
+    if (!alive || result.value?.id !== res.id) return;
+    scripts.value = built;
+    sync.tab = built[0]?.side ?? '';
+    ok = true;
   } catch (e) {
-    scriptError.value = errorMessage(e);
+    task.fail(e);
+    if (alive) scriptError.value = errorMessage(e);
   } finally {
     building.value = false;
+    buildTaskHandle = null;
+    if (ok) builtTaskHandle = task;
+    else task.setReopen(undefined);
   }
 }
+const tableName = () => (left.table.split('\u0001')[1] ?? '') || (right.table.split('\u0001')[1] ?? '');
 function sideName(side: 'left' | 'right') {
   const p = side === 'right' ? right : left;
   return `${conns.byId(p.connectionId)?.name ?? ''} · ${p.table.split('\u0001')[1] ?? ''}`;
@@ -264,9 +300,60 @@ async function openInQuery() {
   if (!s) return;
   await newQuery(s.connection_id, s.database, s.script, t('dataCompare:scriptName'));
 }
+// The run is a task (stores/tasks.ts): "Seguir en segundo plano" closes the
+// dialog and the run goes on; closing the tab doesn't stop it either (its
+// sessions are its own, not the tab's). The Tareas panel cancels it and,
+// while this view lives, reopens this dialog.
+const tasks = useTasksStore();
+/** Every task this view started: when it unmounts, their "Ver detalle"
+ *  falls back to the panel's own and the running ones notify at the end. */
+const started = new Set<TaskHandle<any>>();
+function track<R>(task: TaskHandle<R>): TaskHandle<R> {
+  started.add(task as TaskHandle<any>);
+  return task;
+}
+const isRunning = (task: TaskHandle<any> | null) => !!task && tasks.byId(task.id)?.state === 'running';
+let runTaskHandle: TaskHandle | null = null;
+/** The run's task id, reactive (for the footer's "Cancelando…"). */
+const runTaskId = ref<string | null>(null);
+const cancelling = computed(() => !!runTaskId.value && !!tasks.byId(runTaskId.value)?.cancelling);
+/** These scripts can't run again until rebuilt: 'stopped' when a run
+ *  stopped partway (cancel or error; the data may have changed), 'applied'
+ *  once they ran (running them again would apply them twice). */
+const stale = ref<'stopped' | 'applied' | null>(null);
+let alive = true;
+onBeforeUnmount(() => {
+  alive = false;
+  for (const task of started) {
+    // Without the view, "Ver detalle" shows the panel's own log…
+    task.setReopen(undefined);
+    // …and what's still running tells when it ends.
+    if (isRunning(task)) task.background();
+  }
+  started.clear();
+});
+function reopenSync() {
+  tabs.activate(props.tab.id);
+  sync.open = true;
+}
+/** Closing the dialog while it runs (or builds) sends it to the background. */
+watch(() => sync.open, (open) => {
+  if (open) return;
+  if (applying.value && isRunning(runTaskHandle)) runTaskHandle!.background();
+  if (building.value && isRunning(buildTaskHandle)) buildTaskHandle!.background();
+});
+function toBackground() {
+  runTaskHandle?.background();
+  buildTaskHandle?.background();
+  sync.open = false;
+}
+function cancelRun() {
+  if (runTaskHandle) tasks.cancel(runTaskHandle.id);
+}
+
 /** Runs every script, one side after the other; stops at the first error. */
 async function apply() {
-  if (!scripts.value.length) return;
+  if (!scripts.value.length || applying.value || building.value || stale.value) return;
   if (mismatch.value) {
     try {
       await ElMessageBox.confirm(mismatchText.value, t('dataCompare:mismatch.title'), {
@@ -276,32 +363,121 @@ async function apply() {
       return;
     }
   }
+  const toRun = scripts.value.filter((s) => s.script.trim());
+  const first = toRun[0];
+  if (!first) return;
+  const table = tableName();
+  let session: string | null = null;
+  const task = startTask({
+    kind: 'data-sync',
+    title: t('tasks:dataSync.title', { table, where: toRun.map((s) => sideName(s.side)).join(' / ') }),
+    connectionId: first.connection_id,
+    database: first.database,
+    cancel: () => (session ? api.cancelQuery(session) : undefined),
+    reopen: reopenSync,
+  });
+  track(task);
+  builtTaskHandle?.setReopen(undefined);
+  builtTaskHandle = null;
+  runTaskHandle = task;
+  runTaskId.value = task.id;
+  task.progress({ done: 0, total: toRun.length, unit: t('tasks:dataSync.unit') });
   applying.value = true;
   scriptError.value = null;
+  /** The sides whose script ran to the end. */
+  const applied: DataScript[] = [];
+  /** What already changed, for the task's summary: one side may be applied
+   *  and the other not, and the Tareas panel has to say so. */
+  const appliedText = (stoppedOn?: DataScript) => [
+    applied.length
+      ? t('tasks:dataSync.applied', { sides: applied.map((s) => `${sideName(s.side)}: ${summaryOf(s)}`).join(' · ') })
+      : t('tasks:dataSync.nothingApplied'),
+    ...(stoppedOn ? [t('tasks:dataSync.stoppedOn', { side: sideName(stoppedOn.side) })] : []),
+  ].join('. ');
+  /** Stopped partway: the data may no longer match the scripts. They can't
+   *  run again (that would apply some changes twice) and the compare reloads. */
+  const stopped = async (how: 'cancel' | 'error', stoppedOn?: DataScript, error?: string) => {
+    stale.value = 'stopped';
+    task.setReopen(undefined);
+    const summary = appliedText(stoppedOn);
+    task.log(summary, how === 'error' ? 'error' : 'info');
+    if (how === 'cancel') task.cancelled(summary);
+    else task.fail(`${error ?? ''} ${summary}.`.trim());
+    if (alive) await compare();
+  };
   try {
-    for (const s of scripts.value) {
-      if (!s.script.trim()) continue;
+    for (const [i, s] of toRun.entries()) {
+      // Cancelar between two sides: the next one doesn't start.
+      if (task.isCancelling) { await stopped('cancel'); return; }
       const sessionId = `dsync:${s.side}:${Date.now()}`;
+      session = sessionId;
+      task.progress({ phase: t('tasks:dataSync.phase', { side: sideName(s.side), parts: summaryOf(s) }) });
+      task.log(t('tasks:dataSync.phase', { side: sideName(s.side), parts: summaryOf(s) }));
+      // The backend only sees a cancel once the session is connected and the
+      // script has started (it clears earlier ones), so a Cancelar pressed
+      // while connecting would be lost: keep sending it until the script ends.
+      const retry = setInterval(() => { if (task.isCancelling) api.cancelQuery(sessionId).catch(() => {}); }, 500);
+      let failure: string | null = null;
       try {
         const o = await api.executeQuery({ sessionId, connectionId: s.connection_id, database: s.database, sql: s.script, maxRows: 10, record: true });
-        if (o.error) {
-          sync.tab = s.side;
-          scriptError.value = t('dataCompare:failedOn', { side: sideName(s.side), error: tb(o.error) });
-          return;
-        }
+        if (o.error) failure = tb(o.error);
+      } catch (e) {
+        failure = errorMessage(e);
       } finally {
+        clearInterval(retry);
+        session = null;
         api.closeSession(sessionId).catch(() => {});
       }
+      if (failure !== null) {
+        if (task.isCancelling) { await stopped('cancel', s); return; }
+        sync.tab = s.side;
+        scriptError.value = t('dataCompare:failedOn', { side: sideName(s.side), error: failure });
+        task.log(scriptError.value, 'error');
+        await stopped('error', s, scriptError.value);
+        return;
+      }
+      applied.push(s);
+      task.progress({ done: i + 1 });
     }
+    // A cancel that arrived after the last script ended changed nothing: it's applied.
+    if (task.isCancelling) task.log(t('tasks:dataSync.lateCancel'));
+    // In the background the store's notice says it; here, the usual message.
+    const inBackground = !!tasks.byId(task.id)?.background;
+    // Applied: these scripts can't run again, and the finished task keeps
+    // only the panel's detail (reopening the dialog would offer Ejecutar).
+    stale.value = 'applied';
+    task.setReopen(undefined);
+    task.finish(undefined, toRun.map((s) => summaryOf(s)).join(' · '));
+    runTaskHandle = null;
+    runTaskId.value = null;
     sync.open = false;
-    ElMessage.success(t('dataCompare:applied'));
+    if (!alive) return;
+    if (!inBackground) ElMessage.success(t('dataCompare:applied'));
     await compare();
   } catch (e) {
-    scriptError.value = errorMessage(e);
+    // Only compare() or the store can throw here; the run itself is handled above.
+    stale.value ??= 'stopped';
+    task.setReopen(undefined);
+    if (task.isCancelling) task.cancelled(appliedText());
+    else {
+      scriptError.value = errorMessage(e);
+      task.fail(e);
+    }
   } finally {
     applying.value = false;
+    task.setReopen(undefined);
+    if (runTaskHandle === task) runTaskHandle = null;
+    if (runTaskId.value === task.id) runTaskId.value = null;
   }
 }
+// A new compare (the user's or the one after a run): scripts built from the
+// old one no longer match the data, so the last build's "Ver detalle" can't
+// reopen them with Ejecutar enabled. A run in progress keeps its own.
+watch(() => result.value?.id, () => {
+  builtTaskHandle?.setReopen(undefined);
+  builtTaskHandle = null;
+  if (!applying.value && !building.value) scripts.value = [];
+});
 </script>
 
 <template>
@@ -404,13 +580,25 @@ async function apply() {
       <p v-if="scripts.length > 1" class="dc-hint2">{{ $t('dataCompare:bothSides') }}</p>
       <div v-if="mismatch" class="dc-mismatch in-dialog" role="alert"><el-icon><ei-warning-filled /></el-icon>{{ mismatchText }}</div>
       <div v-if="scriptError" class="dc-error" role="alert">{{ scriptError }}</div>
+      <div v-if="stale && !applying" class="dc-mismatch in-dialog" role="alert">
+        <el-icon><ei-warning-filled /></el-icon>{{ stale === 'applied' ? $t('tasks:dataCompare.applied') : $t('tasks:dataSync.stale') }}
+        <el-button link type="primary" :disabled="!result || running || building" @click="openSync">{{ $t('tasks:dataSync.regenerate') }}</el-button>
+      </div>
       <template #footer>
         <div class="dc-foot">
           <el-button :disabled="!currentScript?.script" @click="copyScript">{{ $t('common:copy') }}</el-button>
           <el-button :disabled="!currentScript?.script" @click="openInQuery">{{ $t('dataCompare:openInQuery') }}</el-button>
           <span style="flex: 1" />
-          <el-button @click="sync.open = false">{{ $t('common:cancel') }}</el-button>
-          <el-button type="primary" :loading="applying" :disabled="!scripts.some((x) => x.script.trim())" @click="apply">{{ $t('dataCompare:run') }}</el-button>
+          <template v-if="building">
+            <el-button @click="sync.open = false">{{ $t('common:close') }}</el-button>
+            <el-button @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
+          </template>
+          <template v-else-if="applying">
+            <el-button :disabled="cancelling" @click="cancelRun">{{ cancelling ? $t('tasks:panel.cancelling') : $t('tasks:panel.cancel') }}</el-button>
+            <el-button @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
+          </template>
+          <el-button v-else @click="sync.open = false">{{ $t('common:cancel') }}</el-button>
+          <el-button type="primary" :loading="applying" :disabled="!!stale || building || !scripts.some((x) => x.script.trim())" @click="apply">{{ $t('dataCompare:run') }}</el-button>
         </div>
       </template>
     </el-dialog>
