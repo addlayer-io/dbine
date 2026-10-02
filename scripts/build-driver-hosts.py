@@ -23,16 +23,21 @@ Writes to <out-dir>:
   scripts/build-driver-hosts.py <target> <out-dir> <base-url> [<published index>]
 
 Cross-compiling (Windows from macOS): CARGO_BUILD="cargo xwin build".
+Hosts to build at once: DBINE_DRIVER_JOBS (default: one per four CPUs, up
+to three; extra ones build in target/driver-hosts-<n>).
 """
 
 import gzip
 import hashlib
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,6 +48,17 @@ def run(cmd, env=None, capture=False):
     print("+", " ".join(cmd), flush=True)
     r = subprocess.run(cmd, cwd=ROOT, env=env, check=True, stdout=subprocess.PIPE if capture else None)
     return r.stdout.decode("utf-8") if capture else None
+
+
+def build_jobs(pending):
+    """How many hosts to build at once: DBINE_DRIVER_JOBS, or one per four
+    CPUs up to three. A host build ends in a long single-threaded link (fat
+    LTO, one codegen unit), so a few run side by side well; each extra one
+    takes its own target dir (~4 GB) and recompiles the dependencies there
+    once. CI runners (2-4 CPUs) get one, as before."""
+    jobs = os.environ.get("DBINE_DRIVER_JOBS")
+    jobs = int(jobs) if jobs else min(3, (os.cpu_count() or 1) // 4)
+    return max(1, min(jobs, pending))
 
 
 def files_hash(h, directory: Path):
@@ -135,7 +151,7 @@ def main():
     native_dir = ROOT / "target" / (target if native else "") / "release"
     manifest = json.loads(run(["cargo", "run", "--quiet", "-p", "dbine-plugin-host", "--release", *native, "--", "--manifest"], capture=True))
 
-    built, reused, errors, warnings = [], [], [], []
+    built, reused, errors, warnings, todo = [], [], [], [], []
     for pkg in packages:
         crate = by_name.get(f"dbine-driver-{pkg}")
         if not crate:
@@ -152,15 +168,63 @@ def main():
                 warnings.append(f"- **{pkg}** {version}: cambió código que comparte (dbine-driver, dependencias). Si le afecta, subí su versión o el epoch.")
             reused.append(f"{pkg} {version}")
             continue
-        print(f"== {pkg} {driver_id}", flush=True)
-        env = dict(os.environ, DBINE_DRIVER_VERSION=driver_id)
-        run([*cargo_build, "--quiet", "-p", "dbine-plugin-host", "--release", "--target", target, "--no-default-features", "--features", pkg], env=env)
-        file = f"dbine-driver-{pkg}-{driver_id}-{target}.gz"
-        binary = ROOT / "target" / target / "release" / f"dbine-plugin-host{exe}"
-        with open(binary, "rb") as src, gzip.open(out / file, "wb", compresslevel=9) as dst:
-            shutil.copyfileobj(src, dst)
+        todo.append((pkg, version, driver_id, own, shared))
+
+    # Before building anything: nothing gets published while one of them fails.
+    if errors:
+        (out / "summary.md").write_text("### Drivers sin versión nueva\n\n" + "\n".join(errors) + "\n", "utf-8")
+        sys.exit("\n".join(["Drivers que cambiaron sin subir su versión:", *errors]))
+
+    # Each host is the same binary with other features, so builds that run at
+    # once need their own target dirs (slot 0 keeps the usual one).
+    jobs = build_jobs(len(todo))
+    base_dir = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
+    slots = queue.Queue()
+    for i in range(jobs):
+        slots.put(base_dir if i == 0 else base_dir / f"driver-hosts-{i}")
+    failed = threading.Event()
+
+    def build(pkg, driver_id):
+        """Build one host and gzip it into `out`; the file name, or None if
+        skipped after another build failed."""
+        target_dir = slots.get()
+        try:
+            if failed.is_set():
+                return None
+            print(f"== {pkg} {driver_id}" + (f" ({target_dir.name})" if jobs > 1 else ""), flush=True)
+            env = dict(os.environ, DBINE_DRIVER_VERSION=driver_id, CARGO_TARGET_DIR=str(target_dir))
+            cmd = [*cargo_build, "--quiet", "-p", "dbine-plugin-host", "--release", "--target", target, "--no-default-features", "--features", pkg]
+            if jobs == 1:
+                run(cmd, env=env)
+            else:
+                # Each build's output as one block, not interleaved with the others'.
+                r = subprocess.run(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                log = r.stdout.decode("utf-8", "replace")
+                print(f"+ {' '.join(cmd)}\n{log}" if log.strip() or r.returncode else "", end="", flush=True)
+                if r.returncode:
+                    raise subprocess.CalledProcessError(r.returncode, cmd)
+            file = f"dbine-driver-{pkg}-{driver_id}-{target}.gz"
+            binary = target_dir / target / "release" / f"dbine-plugin-host{exe}"
+            with open(binary, "rb") as src, gzip.open(out / file, "wb", compresslevel=9) as dst:
+                shutil.copyfileobj(src, dst)
+            return file
+        except BaseException:
+            failed.set()
+            raise
+        finally:
+            slots.put(target_dir)
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures = [pool.submit(build, pkg, driver_id) for pkg, _, driver_id, _, _ in todo]
+        wait(futures)
+    failures = [(t[0], f.exception()) for t, f in zip(todo, futures) if f.exception()]
+    if failures:
+        sys.exit("\n".join(["No compiló:", *(f"- {pkg}: {e}" for pkg, e in failures)]))
+
+    for (pkg, version, driver_id, own, shared), f in zip(todo, futures):
+        file = f.result()
         data = (out / file).read_bytes()
-        entries[driver_id] = {
+        index["drivers"][pkg][driver_id] = {
             "file": file,
             "size": len(data),
             "sha256": hashlib.sha256(data).hexdigest(),
@@ -169,10 +233,6 @@ def main():
             "manifest": [m for m in manifest if m["package"] == pkg],
         }
         built.append((pkg, version, file))
-
-    if errors:
-        (out / "summary.md").write_text("### Drivers sin versión nueva\n\n" + "\n".join(errors) + "\n", "utf-8")
-        sys.exit("\n".join(["Drivers que cambiaron sin subir su versión:", *errors]))
 
     index_file = out / f"index-{target}.json"
     index_file.write_text(json.dumps(index, ensure_ascii=False, indent=1), "utf-8")
