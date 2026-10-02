@@ -3,7 +3,7 @@ members = ["crates/dbine-driver", "crates/dbine-core", "crates/dbine-sync", "cra
 resolver = "2"
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 license = "MIT"
 
