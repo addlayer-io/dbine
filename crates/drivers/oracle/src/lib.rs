@@ -9,6 +9,7 @@
 mod backup;
 mod blocking;
 mod ddl;
+mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
@@ -349,6 +350,11 @@ impl Driver for OracleDriver {
     }
 
     fn supports_explain(&self) -> bool {
+        true
+    }
+
+    /// ALL_INDEXES plus DBA_INDEX_USAGE / V$SEGSTAT (see `index_usage`).
+    fn supports_index_usage(&self) -> bool {
         true
     }
 
@@ -1068,6 +1074,13 @@ impl Session for OracleSession {
                 }
             });
         }))
+    }
+
+    /// The dictionary plus DBA_INDEX_USAGE (see `index_usage`).
+    async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
+        let owner = self.owner(table);
+        let name = table.name.clone();
+        self.run(move |c| index_usage::report(c, &owner, &name).map(Some)).await
     }
 
     /// One query: SESSION_PRIVS and SESSION_ROLES (see `permissions`).
