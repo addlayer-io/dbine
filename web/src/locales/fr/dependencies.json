@@ -1,0 +1,41 @@
+{
+  "menu": "Voir les dépendances…",
+  "tab": "Dépendances",
+  "refresh": "Actualiser",
+  "copy": "Copier",
+  "copied": "Dépendances copiées",
+  "summary": "{{confirmed}} confirmées, {{probable}} probables et {{review}} à vérifier ({{scanned}} définitions lues).",
+  "outside": "Seul ce qui se trouve dans la base est visible : les applications, rapports et scripts externes qui l'utilisent n'apparaissent pas ici.",
+  "unreadable": "Impossible de lire la définition de : {{names}}. Ce qui dépend de l'objet à cet endroit ne figure pas dans la liste.",
+  "none": "Rien dans la base ne dépend de cet objet.",
+  "on": "sur {{parent}}",
+  "dynamic": "SQL dynamique",
+  "relation": {
+    "foreign_key": "Clés étrangères",
+    "index": "Index et clés primaires",
+    "check": "Contraintes CHECK",
+    "code": "Vues, routines et déclencheurs"
+  },
+  "confidence": {
+    "confirmed": "Confirmée",
+    "probable": "Probable",
+    "review": "À vérifier"
+  },
+  "confidenceTip": {
+    "confirmed": "Le catalogue du moteur enregistre la dépendance.",
+    "probable": "Le code de l'objet nomme l'objet (et la colonne, avec sa table).",
+    "review": "Le nom apparaît dans un texte, probablement du SQL dynamique : il faut le lire pour savoir s'il l'utilise."
+  },
+  "kind": {
+    "table": "Table",
+    "collection": "Collection",
+    "view": "Vue",
+    "materialized_view": "Vue matérialisée",
+    "procedure": "Procédure",
+    "function": "Fonction",
+    "trigger": "Déclencheur",
+    "synonym": "Synonyme",
+    "type": "Type",
+    "sequence": "Séquence"
+  }
+}
