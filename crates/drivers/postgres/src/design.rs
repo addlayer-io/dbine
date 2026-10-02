@@ -415,10 +415,11 @@ fn opt<'a>(t: &'a TableSchema, k: &str) -> Option<&'a str> {
 /// the server reported (gin, gist, brin, hash, bloom, hnsw…) but the
 /// default one.
 fn using(v: Variant, kind: Option<&str>) -> Option<String> {
-    let k = kind?.to_ascii_lowercase();
+    // Cockroach's own names (a snapshot read before they were normalized,
+    // or one going to another engine): `prefix` is btree, `inverted` GIN.
+    let k = crate::compare::crdb_index_method(kind?).to_ascii_lowercase();
     match v {
-        // CockroachDB reports `prefix` (btree) and `inverted` (GIN).
-        Variant::Cockroach => (k == "inverted" || k == "gin").then(|| "GIN".to_string()),
+        Variant::Cockroach => (k == "gin").then(|| "GIN".to_string()),
         // A single kind of index (an arrangement / a state table).
         Variant::RisingWave | Variant::Materialize | Variant::CrateDb | Variant::H2 => None,
         // Yugabyte's default is lsm; btree is PostgreSQL's.
@@ -873,6 +874,18 @@ mod tests {
         let mut t = sample();
         t.indexes[1].kind = Some("prefix".into());
         assert!(!table_ddl(Variant::Cockroach, &t, DdlParts { indexes: true, ..Default::default() }).contains("USING"));
+        // Cockroach's raw names (an older snapshot) on Cockroach and on PostgreSQL.
+        let ix = DdlParts { indexes: true, ..Default::default() };
+        assert!(!table_ddl(Variant::Postgres, &t, ix).contains("USING"));
+        t.indexes[1].kind = Some("inverted".into());
+        assert!(table_ddl(Variant::Cockroach, &t, ix).contains("\"pedidos\" USING GIN"));
+        assert!(table_ddl(Variant::Postgres, &t, ix).contains("\"pedidos\" USING GIN"));
+        // The normalized names.
+        t.indexes[1].kind = Some("btree".into());
+        assert!(!table_ddl(Variant::Cockroach, &t, ix).contains("USING"));
+        assert_eq!(using(Variant::Postgres, Some("gin")).as_deref(), Some("GIN"));
+        assert_eq!(using(Variant::Postgres, Some("hash")).as_deref(), Some("HASH"));
+        assert_eq!(using(Variant::Cockroach, Some("hash")), None);
     }
 
     #[test]

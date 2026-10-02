@@ -42,8 +42,8 @@
 //! `allow_unsafe_internals` since v25, set for the read only). No writes
 //! per index (`writes_counted` false), no size, no reset time. If the server
 //! refuses the read, the indexes are listed without counters. Cockroach's
-//! `prefix` access method (26.x) is its ordinary ordered index: `BTREE`
-//! (`inverted` stays `INVERTED`).
+//! `prefix` access method (26.x) is its ordinary ordered index: `BTREE`;
+//! `inverted` is `GIN`.
 //!
 //! The engines without `pg_index` usage counters list their indexes (and
 //! foreign keys) with `stats_available: false` and a note: Materialize,
@@ -253,11 +253,11 @@ pub(crate) fn timestamp(s: Option<String>) -> Option<String> {
 }
 
 /// The engine's access method as the report names it. CockroachDB 26.x
-/// calls its ordinary ordered index `prefix`: that's a B-tree.
+/// calls its ordinary ordered index `prefix` (a B-tree) and its `inverted`
+/// index is a GIN: named as the explorer and PostgreSQL name them.
 fn kind(am: Option<&str>) -> String {
     match am.filter(|a| !a.is_empty()) {
-        Some(a) if a.eq_ignore_ascii_case("prefix") => "BTREE".into(),
-        Some(a) => a.to_ascii_uppercase(),
+        Some(a) => crate::compare::crdb_index_method(a).to_ascii_uppercase(),
         None => "INDEX".into(),
     }
 }
@@ -660,7 +660,8 @@ mod tests {
         assert!(refused_note(Variant::Cockroach).contains("crdb_internal.index_usage_statistics"));
         assert!(!refused_note(Variant::Cockroach).contains("VIEWACTIVITY"));
         assert_eq!(kind(Some("prefix")), "BTREE");
-        assert_eq!(kind(Some("inverted")), "INVERTED");
+        assert_eq!(kind(Some("inverted")), "GIN");
+        assert_eq!(kind(Some("btree")), "BTREE");
         assert_eq!(kind(Some("gin")), "GIN");
         assert_eq!(kind(None), "INDEX");
         assert!(refused_note(Variant::Postgres).contains("pg_read_all_stats"));

@@ -135,6 +135,19 @@ pub(crate) fn reloptions(lines: &str) -> Vec<(String, String)> {
     lines.lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.trim().to_string(), v.trim().to_string())).collect()
 }
 
+/// A CockroachDB index access method by PostgreSQL's name: 26.x reports
+/// its ordinary ordered index as `prefix` (a B-tree; older versions say
+/// `btree`) and `inverted` is its GIN. Anything else stays as it is.
+pub(crate) fn crdb_index_method(am: &str) -> &str {
+    if am.eq_ignore_ascii_case("prefix") {
+        "btree"
+    } else if am.eq_ignore_ascii_case("inverted") {
+        "gin"
+    } else {
+        am
+    }
+}
+
 /// `CREATE INDEX` / `ALTER TABLE … ADD CONSTRAINT` for one index of `table`
 /// (already qualified and quoted). `using` is the access method to name.
 pub(crate) fn index_ddl(v: Variant, table: &str, ix: &IndexDef, using: Option<&str>, if_exists: bool) -> String {
@@ -1296,5 +1309,15 @@ WITH (
             "CREATE INDEX \"zz_ix\" ON \"public\".\"zz_t\" (a DESC, b) INCLUDE (\"c\");"
         );
         assert_eq!(index_ddl(Variant::RisingWave, "t", &d, None, false), "CREATE INDEX \"zz_ix2\" ON t ((lower(b))) DISTRIBUTED BY (lower(b));");
+    }
+
+    #[test]
+    fn cockroach_index_methods_by_postgres_name() {
+        assert_eq!(crdb_index_method("prefix"), "btree");
+        assert_eq!(crdb_index_method("PREFIX"), "btree");
+        assert_eq!(crdb_index_method("inverted"), "gin");
+        assert_eq!(crdb_index_method("btree"), "btree");
+        assert_eq!(crdb_index_method("gin"), "gin");
+        assert_eq!(crdb_index_method("hash"), "hash");
     }
 }

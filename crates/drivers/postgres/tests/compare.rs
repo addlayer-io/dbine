@@ -416,7 +416,8 @@ async fn cockroach() {
         assert_eq!(ix(docs, "docs_codigo_uq").include, ["titulo"]);
         let t = ix(docs, "docs_titulo_ix");
         assert_eq!((t.include.as_slice(), t.options.get("keys").map(String::as_str)), (&["j".to_string()][..], Some("titulo DESC, codigo ASC")));
-        assert_eq!(ix(docs, "docs_j_gin").kind.as_deref(), Some("inverted"));
+        assert_eq!(ix(docs, "docs_j_gin").kind.as_deref(), Some("gin"));
+        assert_eq!(t.kind.as_deref(), Some("btree"));
         assert_eq!(ix(docs, "docs_lower_ix").columns, ["(lower(titulo))"]);
         assert_eq!(docs.checks.len(), 1);
         let get = |k: &str, n: &str| oa.get(&(k.to_string(), Some("app".to_string()), n.to_string())).cloned().unwrap_or_else(|| panic!("{k} {n}"));
