@@ -1,21 +1,54 @@
+<script lang="ts">
+import type { TaskHandle } from '../stores/tasks';
+
+interface RunResult { statements: number; errors: string[]; elapsed_ms: number }
+interface RunProgress { id: string; statements: number; bytes: number; total_bytes: number }
+
+/** A run's state. It lives outside the dialog so the run keeps going (and
+ *  can be shown again) after "Seguir en segundo plano" closes it. */
+interface FileRun {
+  path: string;
+  size: number | null;
+  continueOnError: boolean;
+  running: boolean;
+  cancelling: boolean;
+  cancelled: boolean;
+  progress: { statements: number; bytes: number; total_bytes: number };
+  elapsed: number;
+  result: RunResult | null;
+  runError: string;
+  task: TaskHandle<RunResult> | null;
+  /** Dialogs showing it right now. */
+  viewers: number;
+}
+
+/** The run a reopened dialog shows (set right before it mounts). */
+let adopt: FileRun | null = null;
+</script>
+
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { computed, defineComponent, getCurrentInstance, h, markRaw, onBeforeUnmount, reactive, render, toRefs, type Component, type VNode } from 'vue';
+import { ElConfigProvider, ElMessage } from 'element-plus';
+import elEn from 'element-plus/es/locale/lang/en.mjs';
+import elEs from 'element-plus/es/locale/lang/es.mjs';
+import elPt from 'element-plus/es/locale/lang/pt-br.mjs';
+import elFr from 'element-plus/es/locale/lang/fr.mjs';
+import elIt from 'element-plus/es/locale/lang/it.mjs';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
-import { locale } from '../i18n';
+import { language, locale } from '../i18n';
 import { tb } from '../i18n/backend';
+import { useConnectionsStore } from '../stores/connections';
+import { startTask, useTasksStore } from '../stores/tasks';
 
 // Run a script file against a database (restore a dump): the backend reads
 // it in chunks and splits statements the driver's way, so files of any size
 // work. Shows progress by bytes and lists the errors at the end.
-// Backend: `run_script_file` (docs/api-comandos.md).
-
-interface RunResult { statements: number; errors: string[]; elapsed_ms: number }
-interface RunProgress { id: string; statements: number; bytes: number; total_bytes: number }
+// Backend: `run_script_file` (docs/api-comandos.md). The run is a task
+// (stores/tasks.ts): "Seguir en segundo plano" closes the dialog and the run
+// goes on; "Ver detalle" in the Tareas panel shows this dialog again.
 
 const props = withDefaults(defineProps<{
   connectionId: string;
@@ -27,22 +60,26 @@ const props = withDefaults(defineProps<{
 }>(), { initialPath: '', initialSize: null });
 const emit = defineEmits<{ close: [] }>();
 const { t } = useTranslation();
+const conns = useConnectionsStore();
+const tasks = useTasksStore();
+const inst = getCurrentInstance()!;
 
-const path = ref(props.initialPath);
-const size = ref<number | null>(props.initialSize);
-const continueOnError = ref(false);
+const s: FileRun = adopt ?? reactive<FileRun>({
+  path: props.initialPath, size: props.initialSize, continueOnError: false, running: false, cancelling: false, cancelled: false,
+  progress: { statements: 0, bytes: 0, total_bytes: 0 }, elapsed: 0, result: null, runError: '', task: null, viewers: 0,
+});
+adopt = null;
+s.viewers++;
+onBeforeUnmount(() => {
+  s.viewers--;
+  // Gone without "Seguir en segundo plano" (e.g. its host closed): the run
+  // goes on, and says so when it ends.
+  if (s.running && !s.viewers) s.task?.background();
+});
+
+const { path, size, continueOnError, running, cancelling, cancelled, elapsed, result, runError } = toRefs(s);
+const progress = s.progress;
 const fileName = computed(() => path.value.split(/[\\/]/).pop() ?? '');
-
-const running = ref(false);
-const cancelling = ref(false);
-const cancelled = ref(false);
-const progress = reactive({ statements: 0, bytes: 0, total_bytes: 0 });
-const elapsed = ref(0);
-const result = ref<RunResult | null>(null);
-const runError = ref('');
-const runId = crypto.randomUUID();
-let unlisten: UnlistenFn | null = null;
-let timer: ReturnType<typeof setInterval> | null = null;
 
 const percent = computed(() =>
   progress.total_bytes ? Math.min(100, Math.floor((progress.bytes / progress.total_bytes) * 100)) : 0);
@@ -71,54 +108,102 @@ async function pickFile() {
     });
   } catch { /* no dialog outside Tauri */ }
   if (typeof picked !== 'string') return;
-  path.value = picked;
-  size.value = null;
+  s.path = picked;
+  s.size = null;
   reset();
 }
 
 function reset() {
-  result.value = null;
-  runError.value = '';
-  cancelled.value = false;
-  Object.assign(progress, { statements: 0, bytes: 0, total_bytes: 0 });
+  s.result = null;
+  s.runError = '';
+  s.cancelled = false;
+  Object.assign(s.progress, { statements: 0, bytes: 0, total_bytes: 0 });
+}
+
+/** A reopened copy mounts outside App.vue's <el-config-provider>: it gets
+ *  the same Element Plus locale (the app's language, as App.vue does). */
+function withAppLocale(child: () => VNode): VNode {
+  const locales = { en: elEn, es: elEs, pt: elPt, fr: elFr, it: elIt };
+  return h(defineComponent({ setup: () => () => h(ElConfigProvider, { locale: locales[language.value] }, { default: child }) }));
+}
+
+/** "Ver detalle" from the Tareas panel: this dialog again, on the same run. */
+function reopener(connectionId: string, database: string) {
+  return () => {
+    if (s.viewers) return;
+    adopt = s;
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const onClose = () => { render(null, el); el.remove(); };
+    const vnode = withAppLocale(() => h(inst.type as Component, { connectionId, database, onClose }));
+    vnode.appContext = inst.appContext;
+    render(vnode, el);
+  };
 }
 
 async function run() {
-  if (!path.value) return;
+  if (!s.path || s.running) return;
+  // "Ejecutar de nuevo" is a new task: the earlier one's "Ver detalle" keeps
+  // its own outcome (the panel's detail), not this run's state.
+  s.task?.setReopen(undefined);
   reset();
-  running.value = true;
-  cancelling.value = false;
+  s.running = true;
+  s.cancelling = false;
+  const { connectionId, database } = props;
+  const runId = crypto.randomUUID();
+  const file = fileName.value;
   const started = Date.now();
-  elapsed.value = 0;
-  timer = setInterval(() => { elapsed.value = Date.now() - started; }, 250);
+  s.elapsed = 0;
+  const timer = setInterval(() => { s.elapsed = Date.now() - started; }, 250);
+  const task = startTask<RunResult>({
+    kind: 'script-run',
+    title: t('tasks:dialogs.runScriptFile', { file, db: database || conns.byId(connectionId)?.name || '' }),
+    connectionId, database,
+    cancel: () => { s.cancelling = true; return invoke('cancel_query', { args: { session_id: `run:${runId}` } }); },
+    reopen: reopener(connectionId, database),
+  });
+  s.task = markRaw(task);
   try {
-    unlisten = await listen<RunProgress>('script-run-progress', (e) => {
+    await task.listen<RunProgress>('script-run-progress', (e) => {
       if (e.payload.id !== runId) return;
-      Object.assign(progress, { statements: e.payload.statements, bytes: e.payload.bytes, total_bytes: e.payload.total_bytes });
-      if (e.payload.total_bytes) size.value = e.payload.total_bytes;
+      Object.assign(s.progress, { statements: e.payload.statements, bytes: e.payload.bytes, total_bytes: e.payload.total_bytes });
+      if (e.payload.total_bytes) s.size = e.payload.total_bytes;
+      task.progress({
+        done: e.payload.statements, unit: 'statements',
+        phase: e.payload.total_bytes ? `${formatBytes(e.payload.bytes)} / ${formatBytes(e.payload.total_bytes)} · ${percent.value}%` : undefined,
+      });
     });
-    result.value = await invoke<RunResult>('run_script_file', {
+    const r = await invoke<RunResult>('run_script_file', {
       args: {
         run_id: runId,
-        connection_id: props.connectionId,
-        database: props.database,
-        path: path.value,
-        continue_on_error: continueOnError.value,
+        connection_id: connectionId,
+        database,
+        path: s.path,
+        continue_on_error: s.continueOnError,
       },
     });
-    if (!result.value.errors.length) {
-      ElMessage.success({ message: t('scripts:run.done', { count: result.value.statements, n: result.value.statements.toLocaleString(locale()) }), duration: 3000 });
+    s.result = r;
+    for (const e of r.errors) task.log(tb(e), 'error');
+    const n = r.statements.toLocaleString(locale());
+    task.finish(
+      r,
+      r.errors.length ? t('tasks:dialogs.statementsWithErrors', { count: r.statements, n, errors: r.errors.length }) : t('tasks:dialogs.statements', { count: r.statements, n }),
+      r.errors.length ? 'error' : 'done',
+    );
+    if (!r.errors.length && s.viewers) {
+      ElMessage.success({ message: t('scripts:run.done', { count: r.statements, n }), duration: 3000 });
     }
   } catch (e) {
-    cancelled.value = cancelling.value;
-    runError.value = cancelling.value ? t('scripts:run.cancelledMessage') : errorMessage(e);
+    s.cancelled = s.cancelling || task.isCancelling;
+    s.runError = s.cancelled ? t('scripts:run.cancelledMessage') : errorMessage(e);
+    if (s.cancelled) task.cancelled(); else task.fail(e);
   } finally {
-    running.value = false;
-    cancelling.value = false;
-    if (timer) clearInterval(timer);
-    timer = null;
-    unlisten?.();
-    unlisten = null;
+    s.running = false;
+    s.cancelling = false;
+    clearInterval(timer);
+    // The file changed the database: the explorer shows it, once per run,
+    // whether the dialog is open, closed or in the background.
+    conns.loadObjects(connectionId, database, true).catch(() => {});
   }
 }
 
@@ -133,16 +218,15 @@ async function copyErrors() {
 }
 
 function cancel() {
-  if (running.value) {
-    cancelling.value = true;
-    invoke('cancel_query', { args: { session_id: `run:${runId}` } }).catch(() => {});
-  } else emit('close');
+  if (s.running && s.task) tasks.cancel(s.task.id);
+  else emit('close');
 }
 
-onBeforeUnmount(() => {
-  unlisten?.();
-  if (timer) clearInterval(timer);
-});
+function toBackground() {
+  s.task?.background();
+  emit('close');
+}
+
 defineExpose({ run });
 </script>
 
@@ -225,6 +309,7 @@ defineExpose({ run });
     </div>
 
     <template #footer>
+      <el-button v-if="running" @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
       <el-button :disabled="cancelling" @click="cancel">
         {{ running ? $t('scripts:run.cancelRun') : finished ? $t('common:close') : $t('common:cancel') }}
       </el-button>

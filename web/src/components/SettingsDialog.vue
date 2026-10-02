@@ -1,5 +1,15 @@
+<script lang="ts">
+import { ref as moduleRef, shallowRef as moduleShallowRef } from 'vue';
+import type { TaskHandle as ModuleTaskHandle } from '../stores/tasks';
+
+// The sync operation in flight and its task, outside the component: the
+// dialog is destroy-on-close and the operation (a task) outlives it.
+const busy = moduleRef<string | null>(null);
+const task = moduleShallowRef<ModuleTaskHandle | null>(null);
+</script>
+
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -14,6 +24,7 @@ import { LANGUAGES, SETTING_KEY, language, locale, setLanguage, type Lang } from
 import { tb } from '../i18n/backend';
 import { useSyncStore } from '../stores/sync';
 import { useUiStore } from '../stores/ui';
+import { runTask, type TaskHandle } from '../stores/tasks';
 import DriversSettings from './DriversSettings.vue';
 import McpSettings from './McpSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
@@ -91,7 +102,6 @@ const providerLabel = computed(() => tb(info.value?.providers.find((p) => p.kind
 /** Signed in / folder picked, first upload or restore still to do. */
 const pendingSetup = computed(() => !!cfg.value?.provider && !cfg.value.enabled);
 
-const busy = ref<string | null>(null);
 const connecting = ref<ProviderKind | null>(null);
 const remote = ref<RemoteInfo | null>(null);
 
@@ -143,19 +153,55 @@ function describe(a: SyncAction): string {
   return t(a.local_backup ? 'settings:sync.result.restoredLocal' : 'settings:sync.result.restored', { device: a.device });
 }
 
-async function act(label: string, fn: () => Promise<unknown>) {
+// Operations that talk to the provider (upload, download, re-encrypt) run as
+// tasks (stores/tasks.ts): they show in Tareas, go on if the dialog closes
+// ("Seguir en segundo plano") and then notify when they end. The sync backend
+// has no cancel path, so they offer no Cancelar. Local, instant ones (saving
+// the passphrase, forgetting the provider) stay inline.
+let alive = true;
+onBeforeUnmount(() => {
+  alive = false;
+  if (busy.value) task.value?.background();
+});
+function toBackground() {
+  task.value?.background();
+  visible.value = false;
+}
+
+interface ActOptions {
+  /** `tasks:settingsGit.sync.<key>`: run it as a task with that title. */
+  task?: string;
+  /** The success line (default: what the sync did). */
+  done?: string;
+}
+
+async function act(label: string, fn: () => Promise<unknown>, opts: ActOptions = {}) {
+  if (busy.value) return false;
   busy.value = label;
+  const outcome = (r: unknown) =>
+    opts.done ?? (r && typeof r === 'object' && 'action' in r ? describe(r as SyncAction) : undefined);
+  let current: TaskHandle | null = null;
   try {
-    const r = await fn();
-    if (r && typeof r === 'object' && 'action' in r) ElMessage.success(describe(r as SyncAction));
+    let r: unknown;
+    if (opts.task) {
+      const started = runTask<unknown>({ kind: 'settings-sync', title: t(`tasks:settingsGit.sync.${opts.task}`), run: fn, summary: outcome });
+      current = task.value = started.task;
+      r = await started.promise;
+    } else {
+      r = await fn();
+    }
+    const note = outcome(r);
+    if (note && alive) ElMessage.success(note);
     await sync.refresh();
     return true;
   } catch (e) {
-    ElMessage.error(errorMessage(e));
+    // In the background the task's notice carries the error.
+    if (alive) ElMessage.error(errorMessage(e));
     await sync.refresh();
     return false;
   } finally {
     busy.value = null;
+    if (current && task.value === current) task.value = null;
   }
 }
 
@@ -168,7 +214,7 @@ async function setupUpload() {
       );
     } catch { return; }
   }
-  if (await act('setup', () => syncApi.setup(form.pass, 'upload'))) { resetForm(); remote.value = null; }
+  if (await act('setup', () => syncApi.setup(form.pass, 'upload'), { task: 'setupUpload' })) { resetForm(); remote.value = null; }
 }
 async function setupRestore() {
   try {
@@ -177,7 +223,7 @@ async function setupRestore() {
       t('settings:sync.restoreHere'), { confirmButtonText: t('settings:sync.restore'), cancelButtonText: t('common:cancel'), type: 'warning' },
     );
   } catch { return; }
-  if (await act('setup', () => syncApi.setup(form.pass, 'restore'))) { resetForm(); remote.value = null; }
+  if (await act('setup', () => syncApi.setup(form.pass, 'restore'), { task: 'setupRestore' })) { resetForm(); remote.value = null; }
 }
 
 async function restoreNow() {
@@ -187,7 +233,7 @@ async function restoreNow() {
       t('settings:sync.restoreFromCloud'), { confirmButtonText: t('settings:sync.restore'), cancelButtonText: t('common:cancel'), type: 'warning' },
     );
   } catch { return; }
-  await act('restore', () => syncApi.restoreNow());
+  await act('restore', () => syncApi.restoreNow(), { task: 'restore' });
   loadBackups();
 }
 
@@ -195,16 +241,15 @@ async function typePassphrase() {
   if (await act('pass', () => syncApi.setPassphrase(form.pass))) {
     resetForm();
     ElMessage.success(t('settings:sync.passSaved'));
-    act('sync', () => syncApi.now());
+    act('sync', () => syncApi.now(), { task: 'now' });
   }
 }
 
 const changing = ref(false);
 async function changePassphrase() {
-  if (await act('change', () => syncApi.changePassphrase(form.current, form.next))) {
+  if (await act('change', () => syncApi.changePassphrase(form.current, form.next), { task: 'change', done: t('settings:sync.passChanged') })) {
     resetForm();
     changing.value = false;
-    ElMessage.success(t('settings:sync.passChanged'));
   }
 }
 
@@ -228,7 +273,8 @@ async function disconnect() {
   } catch (action) {
     if (action === 'close') return;
   }
-  await act('disconnect', () => syncApi.disconnect(deleteRemote));
+  // Deleting the cloud backup is a round trip; forgetting the account is local.
+  await act('disconnect', () => syncApi.disconnect(deleteRemote), deleteRemote ? { task: 'disconnect' } : {});
   remote.value = null;
 }
 
@@ -255,9 +301,8 @@ async function restoreBackup(b: LocalBackup) {
       t('settings:sync.restoreLocalTitle'), { confirmButtonText: t('settings:sync.restore'), cancelButtonText: t('common:cancel'), type: 'warning' },
     );
   } catch { return; }
-  if (await act('local', () => syncApi.restoreLocal(b.path))) {
-    ElMessage.success(t('settings:sync.localRestored'));
-    loadBackups();
+  if (await act('local', () => syncApi.restoreLocal(b.path), { task: 'local', done: t('settings:sync.localRestored') })) {
+    if (alive) loadBackups();
   }
 }
 
@@ -481,8 +526,8 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
           </div>
 
           <div class="st-actions">
-            <el-button :loading="busy === 'sync'" @click="act('sync', () => syncApi.now())"><el-icon><ei-refresh /></el-icon>&nbsp;{{ $t('settings:sync.syncNow') }}</el-button>
-            <el-button :loading="busy === 'upload'" @click="act('upload', () => syncApi.uploadNow())"><el-icon><ei-upload /></el-icon>&nbsp;{{ $t('settings:sync.uploadNow') }}</el-button>
+            <el-button :loading="busy === 'sync'" @click="act('sync', () => syncApi.now(), { task: 'now' })"><el-icon><ei-refresh /></el-icon>&nbsp;{{ $t('settings:sync.syncNow') }}</el-button>
+            <el-button :loading="busy === 'upload'" @click="act('upload', () => syncApi.uploadNow(), { task: 'upload' })"><el-icon><ei-upload /></el-icon>&nbsp;{{ $t('settings:sync.uploadNow') }}</el-button>
             <el-button :loading="busy === 'restore'" @click="restoreNow"><el-icon><ei-download /></el-icon>&nbsp;{{ $t('settings:sync.restoreFromCloud') }}</el-button>
           </div>
 
@@ -519,6 +564,9 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         </template>
       </section>
     </div>
+    <template v-if="busy && task" #footer>
+      <el-button @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
+    </template>
   </el-dialog>
 </template>
 

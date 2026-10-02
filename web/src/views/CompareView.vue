@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
@@ -17,6 +17,7 @@ import type { IndexUsage } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { readJson, writeJson } from '../stores/storage';
 import { useTabsStore, type CompareTab } from '../stores/tabs';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // "Comparar esquemas": two databases side by side, WinMerge style. Each
 // difference can be carried to the other side (→ / ←); that only edits an
@@ -951,7 +952,39 @@ const emptyScript = (tab: SyncTab | null) => !!tab?.script && !tab.done && !tab.
 /** Something to run, and every side's script generated. */
 const canRun = computed(() => sync.tabs.some((x) => !x.done && x.script?.statements.length) && sync.tabs.every((x) => x.done || (x.script && !x.error)));
 
+// A run is a task (stores/tasks.ts): "Seguir en segundo plano" closes the
+// dialog and the run goes on; closing the tab doesn't stop it either (its
+// session `sync:<runId>` isn't tied to the tab). Once this view is gone the
+// loop still runs the remaining sides, but skips reloading them.
+const tasks = useTasksStore();
+const syncTask = shallowRef<TaskHandle | null>(null);
+let syncRunId = '';
+let alive = true;
+const MAX_CANCEL_SENDS = 10;
+onBeforeUnmount(() => {
+  alive = false;
+  // The dialog is gone with the view: the run goes on in the background (a
+  // notice comes at the end) and "Ver detalle" falls back to the panel's log.
+  if (sync.running) syncTask.value?.background();
+  syncTask.value?.setReopen(undefined);
+});
+const syncCancelling = computed(() => !!syncTask.value && !!tasks.byId(syncTask.value.id)?.cancelling);
+function reopenSync() {
+  tabs.activate(props.tab.id);
+  sync.open = true;
+}
+/** Closing the dialog while it runs sends it to the background (a notice comes at the end). */
+function closeSync() {
+  if (sync.running) syncTask.value?.background();
+  sync.open = false;
+}
+function cancelSync() {
+  if (syncTask.value) tasks.cancel(syncTask.value.id);
+}
+
 async function openSync() {
+  // A run in progress: show it instead of generating new scripts over it.
+  if (sync.running) { sync.open = true; return; }
   const list = sidesWithChanges.value;
   if (!list.length) return;
   sync.tabs = list.map((side) => ({ side, script: null, error: null, done: false }));
@@ -998,29 +1031,76 @@ async function runSync() {
   }
   sync.running = true;
   sync.error = null;
+  const total = todo.reduce((n, x) => n + x.script!.statements.length, 0);
+  const first = sides[todo[0].side];
+  // An older run's task must not reopen this dialog: it now shows this run.
+  syncTask.value?.setReopen(undefined);
+  let settled = false;
+  // Cancel re-sends, counted only once a run is in flight (`syncRunId` set).
+  let sends = 0;
+  const task = startTask({
+    kind: 'sync',
+    title: t('tasks:compareSync.title', { target: todo.map((x) => sides[x.side].database || connName(sides[x.side].connectionId)).join(', ') }),
+    connectionId: first.connectionId,
+    database: first.database,
+    // The run's dedicated session: interrupts the statement running and stops the rest.
+    // That session only exists once the side has connected (tunnel, login), and
+    // a cancel for an unknown key is a no-op, so it's re-sent every 500 ms while
+    // the run is in flight, up to MAX_CANCEL_SENDS times (the run's backend flag
+    // stays set once one lands). Before the first run starts nothing is sent:
+    // the loop sees `isCancelling` and never starts it.
+    cancel: () => {
+      const send = () => {
+        if (!syncRunId) return undefined;
+        sends++;
+        return api.cancelQuery(`sync:${syncRunId}`).catch(() => {});
+      };
+      const timer = setInterval(() => {
+        if (settled || sends >= MAX_CANCEL_SENDS) clearInterval(timer);
+        else send();
+      }, 500);
+      return send();
+    },
+    reopen: reopenSync,
+  });
+  syncTask.value = task;
+  task.progress({ done: 0, total, unit: 'statements' });
+  let ran = 0;
+  // Cancelled for real: a side stopped short, or a side never started.
+  let stopped = false;
   try {
     for (const tab of todo) {
+      if (task.isCancelling) { stopped = true; break; }
       const s = tab.side;
       const side = sides[s];
       const statements = tab.script!.statements;
-      sync.active = s;
+      if (alive) sync.active = s;
+      task.progress({ phase: tabLabel(s) });
+      task.log(t('tasks:compareSync.sideStart', { side: tabLabel(s), count: statements.length }));
+      syncRunId = crypto.randomUUID();
       let r: Awaited<ReturnType<typeof compareApi.run>>;
       try {
-        r = await compareApi.run(side.connectionId, side.database, statements, crypto.randomUUID());
+        r = await compareApi.run(side.connectionId, side.database, statements, syncRunId);
       } catch (e) {
         sync.error = t('compare:sync.failedSide', { side: tabLabel(s), message: errorMessage(e) });
         break;
       }
+      ran += r.done;
+      task.progress({ done: ran });
       // What's on this side's server now; on success its pending changes are done.
       const keep = side.work;
-      try {
-        await load(s, generation);
-      } catch {
-        /* shown next to the side */
+      if (alive) {
+        try {
+          await load(s, generation);
+        } catch {
+          /* shown next to the side */
+        }
       }
       if (r.failed) {
         side.work = keep;
         const [i, msg] = r.failed;
+        // Cancelled between statements, or the interrupted statement failed because of it.
+        if (msg === 'cancelado' || task.isCancelling) stopped = true;
         sync.error = t('compare:sync.failedSide', {
           side: tabLabel(s),
           message: t('compare:sync.failed', { n: i + 1, total: statements.length, done: r.done, message: tb(msg) }),
@@ -1028,8 +1108,16 @@ async function runSync() {
         break;
       }
       tab.done = true;
-      ElMessage.success(t('compare:sync.done', { where: where(s) }));
+      task.log(t('compare:sync.done', { where: where(s) }));
+      if (alive && sync.open) ElMessage.success(t('compare:sync.done', { where: where(s) }));
     }
+    const summary = ran === total ? t('tasks:compareSync.summaryAll', { count: ran }) : t('tasks:compareSync.summary', { count: ran, total });
+    // A cancel that arrived after every statement ran changes nothing: the task is done.
+    if (stopped) task.cancelled(summary);
+    else if (sync.error) { task.log(sync.error, 'error'); task.fail(sync.error); }
+    else task.finish(undefined, summary);
+    task.setReopen(undefined);
+    if (!alive) return;
     history.length = 0;
     canUndo.value = false;
     const finished = sync.tabs.every((x) => x.done || !x.script?.statements.length);
@@ -1043,8 +1131,17 @@ async function runSync() {
     await recompare();
     // What the sync made equal leaves "Solo diferencias", the selected row too.
     if (finished && onlyDiff.value && selected.value?.status === 'equal') selectedId.value = null;
+  } catch (e) {
+    // Something after the run (reloading, recomparing) failed: the task may already have ended.
+    if (tasks.byId(task.id)?.state === 'running') task.fail(e);
+    ElMessage.error(errorMessage(e));
   } finally {
+    settled = true;
     sync.running = false;
+    syncRunId = '';
+    // Ended: "Ver detalle" shows the panel's own detail, not this dialog (which
+    // may show newer scripts by then).
+    task.setReopen(undefined);
   }
 }
 </script>
@@ -1287,7 +1384,7 @@ async function runSync() {
       width="860px"
       top="6vh"
       append-to-body
-      @close="sync.open = false"
+      @close="closeSync"
     >
       <div v-if="sync.loading" class="cv-empty small"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('compare:sync.generating') }}</div>
       <template v-else>
@@ -1316,7 +1413,11 @@ async function runSync() {
         </template>
       </template>
       <template #footer>
-        <el-button @click="sync.open = false">{{ $t('common:close') }}</el-button>
+        <template v-if="sync.running">
+          <el-button :disabled="syncCancelling" @click="cancelSync">{{ syncCancelling ? $t('tasks:panel.cancelling') : $t('tasks:panel.cancel') }}</el-button>
+          <el-button type="primary" @click="closeSync">{{ $t('tasks:panel.background') }}</el-button>
+        </template>
+        <el-button v-else @click="closeSync">{{ $t('common:close') }}</el-button>
         <el-button type="danger" :disabled="!canRun" :loading="sync.running" @click="runSync">{{ $t('common:run') }}</el-button>
       </template>
     </el-dialog>

@@ -5,6 +5,7 @@ import i18next, { t } from '../i18n';
 import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { checkForUpdateNow } from './updates';
+import { requestQuit } from './quitGuard';
 
 // The native menu bar (macOS only: Windows and Linux have none, as VS Code).
 // Its labels follow the app's language, so the UI builds it and sends it to
@@ -43,7 +44,8 @@ function menus() {
       native('about', 'app.about'), item('app.settings', ','), sep,
       native('services', 'app.services'), sep,
       native('hide', 'app.hide'), native('hideOthers', 'app.hideOthers'), native('showAll', 'app.showAll'), sep,
-      native('quit', 'app.quit'),
+      // Ours, not the native one: quitting asks first when tasks are running.
+      item('app.quit', 'q'),
     ] },
     { label: t('menu:file.title'), items: [
       item('file.newConnection'), item('file.newQuery', 'n'), sep,
@@ -81,6 +83,7 @@ export function useAppMenu(actions: AppMenuActions) {
   const tabs = useTabsStore();
   const run: Record<string, () => void> = {
     'app.settings': () => ui.openSettings(),
+    'app.quit': () => { requestQuit(); },
     'file.newConnection': () => ui.newConnection(),
     'file.newQuery': actions.newQuery,
     'file.closeTab': () => { if (tabs.activeId) tabs.close(tabs.activeId); },

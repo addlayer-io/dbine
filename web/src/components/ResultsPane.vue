@@ -16,6 +16,7 @@ import ExportDialog from './ExportDialog.vue';
 import type { FilterState } from '../composables/gridFilter';
 import { EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat } from '../composables/export';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // What a run produced: one sub-tab per result set, "Plan de ejecución" when
 // the run asked for plans, and "Mensajes" (server messages, affected rows,
@@ -175,7 +176,8 @@ const editNote = computed(() => {
 });
 
 function onDelete(rows: number[], mark: boolean) {
-  if (typeof active.value !== 'number') return;
+  // Locked while a save runs: what it sends is fixed, and its rows go when it ends.
+  if (typeof active.value !== 'number' || applying.value) return;
   const cur = deletes[active.value] ?? new Set<number>();
   const next = new Set(cur);
   for (const r of rows) {
@@ -187,7 +189,7 @@ function onDelete(rows: number[], mark: boolean) {
 }
 
 function onEdit(r: number, c: number, value: Cell | undefined) {
-  if (typeof active.value !== 'number') return;
+  if (typeof active.value !== 'number' || applying.value) return;
   const set = (edits[active.value] ??= {});
   if (value === undefined) {
     if (set[r]) {
@@ -199,7 +201,7 @@ function onEdit(r: number, c: number, value: Cell | undefined) {
   }
 }
 function discard() {
-  if (typeof active.value !== 'number') return;
+  if (typeof active.value !== 'number' || applying.value) return;
   delete edits[active.value];
   delete deletes[active.value];
 }
@@ -251,52 +253,132 @@ function pendingText(key: 'summary' | 'hint') {
 const summary = computed(() => pendingText('summary'));
 const applyHint = computed(() => pendingText('hint'));
 function addToQuery() {
-  if (!code.value) return;
+  if (!code.value || applying.value) return;
   emit('script', code.value);
   discard();
 }
 // "Guardar": the code in a dialog to review (and copy), then run on its
-// own session. Nothing runs without that click.
+// own session. Nothing runs without that click. The run is a task
+// (stores/tasks.ts): "Seguir en segundo plano" closes the dialog and the
+// save goes on, also if the tab closes; "Guardando…" in the edits bar or
+// "Ver detalle" opens the dialog again while it runs. The grid is locked
+// meanwhile (no edit can be made that the save would then drop). Once it
+// ends, "Ver detalle" shows the task's own detail (its SQL and outcome).
 const applyOpen = ref(false);
 const applying = ref(false);
 const applyError = ref<string | null>(null);
-function reviewApply() {
-  if (!code.value) return;
+/** The code being run (the edits may change meanwhile). */
+const applyingCode = ref('');
+let applyTask: TaskHandle | null = null;
+const applyTaskId = ref<string | null>(null);
+const tasks = useTasksStore();
+const applyCancelling = computed(() => !!(applying.value && applyTaskId.value && tasks.byId(applyTaskId.value)?.cancelling));
+/** The dialog's "Cancelar": closes it, or stops the save while it runs. */
+function cancelApply() {
+  if (applying.value && applyTaskId.value) tasks.cancel(applyTaskId.value);
+  else applyOpen.value = false;
+}
+let alive = true;
+onBeforeUnmount(() => {
+  alive = false;
+  // The tab closed mid-save: it goes on, says so when it ends, and its
+  // detail is the task's own (this dialog is gone).
+  if (applying.value && applyTask) {
+    applyTask.setReopen(undefined);
+    applyTask.background();
+  }
+});
+/** A cell still being edited commits (its input commits on blur) and the
+ *  code is generated now instead of after the debounce, so a save takes it. */
+async function flushEdits() {
+  const el = document.activeElement;
+  if (el instanceof HTMLElement && root.value?.contains(el)) el.blur();
+  await nextTick();
+  clearTimeout(codeTimer);
+  await generate();
+}
+async function reviewApply() {
+  // Mid-save it shows the run (sent to the background or not).
+  if (applying.value) { applyOpen.value = true; return; }
+  await flushEdits();
+  if (!code.value || applying.value) return;
   applyError.value = null;
   applyOpen.value = true;
 }
+function applyInBackground() {
+  applyTask?.background();
+  applyOpen.value = false;
+}
+let applyStarting = false;
 async function applyEdits() {
+  if (applying.value || applyStarting) return;
+  applyStarting = true;
+  try { await flushEdits(); } finally { applyStarting = false; }
   const src = props.editSource;
   const r = current.value;
-  if (!src || !r || !code.value || typeof active.value !== 'number') return;
+  const at = active.value;
+  if (!src || !r || !code.value || typeof at !== 'number' || applying.value) return;
   applying.value = true;
   applyError.value = null;
+  const sql = applyingCode.value = code.value;
+  // What's saved, as it is now: the grid takes it only if it still shows these rows.
+  const outcome = props.outcome;
+  const edited = liveEdits.value.map(([row, cols]) => [row, { ...cols }] as const);
+  const gone = [...currentDeletes.value].sort((a, b) => b - a);
+  const target = setup.value && typeof setup.value === 'object' ? setup.value.target : null;
+  const where = target ? (target.schema ? `${target.schema}.${target.name}` : target.name) : (props.title || src.database);
   const sessionId = `apply:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const task = applyTask = startTask({
+    kind: 'apply-edits',
+    title: t('tasks:dialogs.applyEdits', { table: where }),
+    connectionId: src.connectionId, database: src.database,
+    cancel: () => api.cancelQuery(sessionId),
+    reopen: () => { if (alive) applyOpen.value = true; },
+  });
+  applyTaskId.value = task.id;
+  task.log(sql);
   try {
-    const o = await api.executeQuery({ sessionId, connectionId: src.connectionId, database: src.database, sql: code.value, maxRows: 10, record: true });
-    if (o.error) { applyError.value = tb(o.error); return; }
+    const o = await api.executeQuery({ sessionId, connectionId: src.connectionId, database: src.database, sql, maxRows: 10, record: true });
+    if (o.error) {
+      applyError.value = tb(o.error);
+      if (task.isCancelling) task.cancelled(); else task.fail(applyError.value);
+      return;
+    }
+    const affected = o.results.reduce((n, x) => n + (x.rows_affected ?? 0), 0);
+    const done = !affected ? t('applyEdits:done') : gone.length ? t('applyEdits:doneAffected', { count: affected }) : t('applyEdits:doneRows', { count: affected });
+    task.finish(undefined, done);
+    if (!alive) return;
     // The grid shows the saved values right away (a table's data also
     // reloads): edited cells take their values, deleted rows go.
-    for (const [row, cols] of liveEdits.value) {
-      for (const [col, value] of Object.entries(cols)) r.rows[Number(row)][Number(col)] = value as Cell;
+    if (props.outcome === outcome) {
+      for (const [row, cols] of edited) {
+        for (const [col, value] of Object.entries(cols)) r.rows[Number(row)][Number(col)] = value as Cell;
+      }
+      for (const i of gone) r.rows.splice(i, 1);
+      r.total_rows = Math.max(0, r.total_rows - gone.length);
+      delete edits[at];
+      delete deletes[at];
     }
-    const gone = [...currentDeletes.value].sort((a, b) => b - a);
-    for (const i of gone) r.rows.splice(i, 1);
-    r.total_rows = Math.max(0, r.total_rows - gone.length);
-    const affected = o.results.reduce((n, x) => n + (x.rows_affected ?? 0), 0);
-    discard();
+    const shown = applyOpen.value;
     applyOpen.value = false;
-    ElMessage.success(!affected ? t('applyEdits:done') : gone.length ? t('applyEdits:doneAffected', { count: affected }) : t('applyEdits:doneRows', { count: affected }));
+    if (shown) ElMessage.success(done);
     emit('applied');
   } catch (e) {
     applyError.value = errorMessage(e);
+    if (task.isCancelling) task.cancelled(); else task.fail(e);
   } finally {
     applying.value = false;
+    applyTask = null;
+    applyTaskId.value = null;
+    // The dialog now shows the grid's next edits, not this run.
+    task.setReopen(undefined);
     api.closeSession(sessionId).catch(() => {});
   }
 }
+/** Mid-save, the SQL that's running; otherwise the pending edits' code. */
 async function copyCode() {
-  try { await navigator.clipboard.writeText(code.value); ElMessage.success({ message: t('results:edit.codeCopied'), duration: 1200 }); } catch { /* ignore */ }
+  const text = applying.value ? applyingCode.value : code.value;
+  try { await navigator.clipboard.writeText(text); ElMessage.success({ message: t('results:edit.codeCopied'), duration: 1200 }); } catch { /* ignore */ }
 }
 
 // -- export ---------------------------------------------------------------------------------
@@ -507,10 +589,14 @@ const statusText = computed(() => {
           <el-icon><ei-edit /></el-icon>
           <span>{{ summary }}</span>
           <div class="nm-spacer" />
-          <el-button size="small" type="primary" :disabled="!code" @click="reviewApply">{{ $t('applyEdits:save') }}</el-button>
-          <el-button size="small" :disabled="!code" @click="addToQuery">{{ $t('results:edit.addToQuery') }}</el-button>
+          <!-- Not :loading: Element Plus disables a loading button, and this one reopens the running save. -->
+          <el-button v-if="applying" size="small" type="primary" @click="reviewApply">
+            <el-icon class="is-loading"><ei-loading /></el-icon>&nbsp;{{ $t('tasks:dialogs.saving') }}
+          </el-button>
+          <el-button v-else size="small" type="primary" :disabled="!code" @click="reviewApply">{{ $t('applyEdits:save') }}</el-button>
+          <el-button size="small" :disabled="!code || applying" @click="addToQuery">{{ $t('results:edit.addToQuery') }}</el-button>
           <el-button size="small" :disabled="!code" @click="copyCode">{{ $t('common:copy') }}</el-button>
-          <el-button size="small" text @click="discard">{{ $t('results:edit.discard') }}</el-button>
+          <el-button size="small" text :disabled="applying" @click="discard">{{ $t('results:edit.discard') }}</el-button>
         </div>
         <div v-if="editNote" class="rp-edits-note">{{ editNote }}</div>
         <div v-if="codeError" class="rp-edits-note err">{{ codeError }}</div>
@@ -519,11 +605,11 @@ const statusText = computed(() => {
         :columns="current.columns"
         :rows="current.rows"
         :copy-context="{ table: table ?? null, dialect: dialect ?? '', keyColumns }"
-        :editable="canEdit"
+        :editable="canEdit && !applying"
         :no-edit-reason="noEditReason"
         :edits="currentEdits"
         :deleted="currentDeletes"
-        :deletable="canDelete"
+        :deletable="canDelete && !applying"
         :no-delete-reason="noDeleteReason"
         :filterable="filterable"
         :filters="filters"
@@ -559,16 +645,20 @@ const statusText = computed(() => {
       :initial-format="exporting.format"
       @close="exporting = null"
     />
-      <el-dialog v-model="applyOpen" :title="$t('applyEdits:title')" width="720px" append-to-body :close-on-click-modal="!applying">
-      <p class="rp-apply-hint">{{ applyHint }}</p>
-      <pre class="rp-apply-code nm-selectable">{{ code }}</pre>
+      <el-dialog
+        v-model="applyOpen" :title="$t('applyEdits:title')" width="720px" append-to-body
+        :close-on-click-modal="!applying" :close-on-press-escape="!applying" :show-close="!applying"
+      >
+      <p v-if="!applying" class="rp-apply-hint">{{ applyHint }}</p>
+      <pre class="rp-apply-code nm-selectable">{{ applying ? applyingCode : code }}</pre>
       <div v-if="applyError" class="rp-apply-error" role="alert"><el-icon><ei-circle-close-filled /></el-icon><span>{{ applyError }}</span></div>
       <template #footer>
         <div class="rp-apply-foot">
           <el-button @click="copyCode">{{ $t('common:copy') }}</el-button>
-          <el-button @click="applyOpen = false; addToQuery()">{{ $t('results:edit.addToQuery') }}</el-button>
+          <el-button :disabled="applying" @click="applyOpen = false; addToQuery()">{{ $t('results:edit.addToQuery') }}</el-button>
           <span class="rp-apply-sp" />
-          <el-button :disabled="applying" @click="applyOpen = false">{{ $t('common:cancel') }}</el-button>
+          <el-button v-if="applying" @click="applyInBackground">{{ $t('tasks:panel.background') }}</el-button>
+          <el-button :disabled="applyCancelling" @click="cancelApply">{{ $t('common:cancel') }}</el-button>
           <el-button type="primary" :loading="applying" @click="applyEdits">{{ $t('applyEdits:run') }}</el-button>
         </div>
       </template>

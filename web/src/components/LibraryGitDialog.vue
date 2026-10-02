@@ -1,5 +1,15 @@
+<script lang="ts">
+import { ref as moduleRef } from 'vue';
+
+// Kept outside the component: LibrarySidebar mounts the dialog only while it's
+// open, and a git operation (a task) outlives it. Reopening shows it running,
+// or the conflicts a pull left behind.
+const busy = moduleRef<string | null>(null);
+const conflicts = moduleRef<string[]>([]);
+</script>
+
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
@@ -8,9 +18,13 @@ import { libraryGitApi, type GitApplied, type LibraryGitStatus } from '../api/li
 import { confirmNative } from '../native';
 import { useLibraryStore } from '../stores/library';
 import { useSettingsStore } from '../stores/settings';
+import { runTask, type TaskHandle } from '../stores/tasks';
 
 // The Library in a git repo (docs/biblioteca.md): link a repo, then commit,
 // pull, push or sync. Git runs on this machine with the user's credentials.
+// Each operation is a task (stores/tasks.ts): it shows in Tareas, goes on if
+// the dialog closes ("Seguir en segundo plano") and then notifies when it
+// ends. Git has no cancel path here, so the task offers no Cancelar.
 
 const open = defineModel<boolean>({ required: true });
 const lib = useLibraryStore();
@@ -20,9 +34,14 @@ const EXTS = ['sql', 'js', 'json', 'cql', 'redis', 'flux', 'cypher'];
 
 const status = ref<LibraryGitStatus | null>(null);
 const loading = ref(false);
-const busy = ref<string | null>(null);
 const error = ref<string | null>(null);
-const conflicts = ref<string[]>([]);
+let task: TaskHandle | null = null;
+let alive = true;
+onBeforeUnmount(() => {
+  alive = false;
+  // Closed mid-run: it goes on and notifies at the end.
+  if (busy.value) task?.background();
+});
 const message = ref('');
 const remote = ref('');
 const branch = ref('main');
@@ -44,8 +63,8 @@ async function refresh(fetch = false) {
 watch(open, (o) => {
   if (!o) return;
   error.value = null;
-  conflicts.value = [];
-  refresh(true);
+  // Reopened while an operation runs in the background: don't fetch alongside it.
+  refresh(!busy.value);
 }, { immediate: true });
 
 /** The Library and its folders changed on disk: reload them. */
@@ -62,17 +81,35 @@ function summary(a: GitApplied) {
   return parts.length ? t('library:git.repoScripts', { list: parts.join(', ') }) : t('library:git.upToDate');
 }
 
+/** "Seguir en segundo plano": the operation goes on, the dialog closes. */
+function toBackground() {
+  task?.background();
+  open.value = false;
+}
+
 async function run(what: string, step: () => Promise<string | void>) {
+  if (busy.value) return;
   busy.value = what;
   error.value = null;
+  if (what !== 'resolve') conflicts.value = [];
+  const { task: current, promise } = runTask<string | void>({
+    kind: 'library-git',
+    title: t(`tasks:settingsGit.git.${what}`),
+    run: step,
+    summary: (note) => note || undefined,
+    // A pull that stopped on conflicts didn't apply anything: say so.
+    outcome: () => (conflicts.value.length ? 'error' : 'done'),
+  });
+  task = current;
   try {
-    const note = await step();
-    if (note) ElMessage.success({ message: note, duration: 3500 });
+    const note = await promise;
+    if (note && alive && !conflicts.value.length) ElMessage.success({ message: note, duration: 3500 });
   } catch (e) {
     error.value = errorMessage(e);
   } finally {
     busy.value = null;
-    await refresh();
+    if (task === current) task = null;
+    if (alive) await refresh();
   }
 }
 
@@ -92,7 +129,7 @@ const pull = () =>
   run('pull', async () => {
     const r = await libraryGitApi.pull();
     conflicts.value = r.conflicts;
-    if (r.conflicts.length) return;
+    if (r.conflicts.length) return t('tasks:settingsGit.git.conflicts', { count: r.conflicts.length });
     await reload();
     return summary(r.applied);
   });
@@ -101,7 +138,7 @@ const sync = () =>
   run('sync', async () => {
     const r = await libraryGitApi.sync(message.value);
     conflicts.value = r.conflicts;
-    if (r.conflicts.length) return;
+    if (r.conflicts.length) return t('tasks:settingsGit.git.conflicts', { count: r.conflicts.length });
     message.value = '';
     await reload();
     return t('library:git.synced', { summary: summary(r.applied) });
@@ -217,12 +254,14 @@ const STATE: Record<string, { label: string; cls: string }> = {
 
     <template #footer>
       <template v-if="status?.git && !linked">
+        <el-button v-if="busy" @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
         <el-button @click="open = false">{{ $t('common:cancel') }}</el-button>
         <el-button type="primary" :loading="busy === 'link'" :disabled="!remote.trim()" @click="link">{{ $t('library:git.link') }}</el-button>
       </template>
       <div v-else-if="linked" class="lg-footer">
         <el-button text type="danger" :disabled="!!busy" @click="unlink">{{ $t('library:git.unlink') }}</el-button>
         <div style="flex: 1" />
+        <el-button v-if="busy" @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
         <el-button :loading="busy === 'commit'" :disabled="!!busy || !status?.changes.length" @click="commit">Commit</el-button>
         <el-button :loading="busy === 'pull'" :disabled="!!busy" @click="pull">Pull</el-button>
         <el-button :loading="busy === 'push'" :disabled="!!busy" @click="push">Push</el-button>

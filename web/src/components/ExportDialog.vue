@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
-import { errorMessage } from '../api/client';
+import { errorKind, errorMessage } from '../api/client';
 import { locale, t } from '../i18n';
 import type { Cell, ResultColumn } from '../api/types';
 import {
-  EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat, type ExportOptions,
+  EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat, type ExportOptions, type ExportResult,
 } from '../composables/export';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // Advanced export: format + its options, and what to export — the rows
 // already loaded, or every row (the script runs again, read-only, and
-// streams to the file). Shows progress and can cancel.
+// streams to the file). Shows progress and can cancel. The run is a task
+// (stores/tasks.ts): "Seguir en segundo plano" closes the dialog and the
+// export goes on, with its progress in the Tareas panel.
 
 export interface ExportSource {
   connectionId: string;
@@ -32,13 +34,25 @@ const props = defineProps<{
   initialFormat?: ExportFormat;
 }>();
 const emit = defineEmits<{ close: [] }>();
+const tasks = useTasksStore();
 
 const opts = reactive<ExportOptions>(defaultOptions(props.initialFormat ?? 'csv', props.title, props.dialect));
 const scope = ref<'loaded' | 'all'>(props.truncated && props.source ? 'all' : 'loaded');
 const running = ref(false);
+const cancelling = ref(false);
 const progress = ref(0);
-const exportId = crypto.randomUUID();
-let unlisten: UnlistenFn | null = null;
+let task: TaskHandle<ExportResult> | null = null;
+let mounted = true;
+
+onBeforeUnmount(() => {
+  mounted = false;
+  // Gone while exporting (its tab closed…): the export goes on and says so
+  // when it ends; there's no dialog left for "Ver detalle" to show.
+  if (running.value && task) {
+    task.background();
+    task.setReopen(undefined);
+  }
+});
 
 watch(() => opts.format, (f) => {
   // Keep what's typed, reset what depends on the format.
@@ -50,6 +64,7 @@ watch(() => opts.format, (f) => {
 const isCsv = computed(() => ['csv', 'csv_semicolon', 'csv_excel', 'tsv'].includes(opts.format));
 
 async function run() {
+  if (running.value) return;
   const fmt = EXPORT_FORMATS.find((f) => f.id === opts.format)!;
   let path: string | null = null;
   try {
@@ -57,37 +72,69 @@ async function run() {
   } catch { /* no dialog outside Tauri */ }
   if (!path) return;
   running.value = true;
+  cancelling.value = false;
   progress.value = 0;
+  const all = scope.value === 'all' && props.source ? { ...props.source } : null;
+  const options = { ...opts };
+  const exportId = crypto.randomUUID();
+  const h = startTask<ExportResult>({
+    kind: 'export',
+    title: t('tasks:genImportExport.export', { file: path.split(/[\\/]/).pop() ?? path }),
+    connectionId: all?.connectionId, database: all?.database,
+    // Only the streamed export has a cancel path; the loaded rows are written in one go.
+    // A cancel that doesn't land re-enables the dialog's button too.
+    cancel: all ? () => { cancelling.value = true; return exportApi.cancel(exportId).catch((e) => { cancelling.value = false; throw e; }); } : undefined,
+    // While the dialog is up, "Ver detalle" just brings it back into view.
+    reopen: () => {},
+  });
+  task = markRaw(h);
   try {
-    let result;
-    if (scope.value === 'all' && props.source) {
-      unlisten = await listen<{ id: string; rows: number }>('export-progress', (e) => {
-        if (e.payload.id === exportId) progress.value = e.payload.rows;
+    let result: ExportResult;
+    if (all) {
+      await h.listen<{ id: string; rows: number }>('export-progress', (e) => {
+        if (e.payload.id !== exportId) return;
+        progress.value = e.payload.rows;
+        h.progress({ done: e.payload.rows, unit: 'rows' });
       });
-      result = await exportApi.query({ exportId, ...props.source, path, options: { ...opts } });
+      result = await exportApi.query({ exportId, ...all, path, options });
     } else {
-      result = await exportApi.rows(path, { ...opts }, props.columns, props.rows);
+      h.progress({ total: props.rows.length, unit: 'rows' });
+      result = await exportApi.rows(path, options, props.columns, props.rows);
     }
-    ElMessage.success({ message: t('results:exportDialog.done', { count: result.rows, rows: result.rows.toLocaleString(locale()), seconds: (result.elapsed_ms / 1000).toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }), duration: 3000 });
-    emit('close');
+    const rows = result.rows.toLocaleString(locale());
+    h.setReopen(undefined);
+    h.finish(result, t('tasks:dialogs.rows', { count: result.rows, n: rows }));
+    if (mounted) {
+      ElMessage.success({ message: t('results:exportDialog.done', { count: result.rows, rows, seconds: (result.elapsed_ms / 1000).toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }), duration: 3000 });
+      emit('close');
+    }
   } catch (e) {
-    ElMessage.error({ message: errorMessage(e), duration: 6000 });
+    h.setReopen(undefined);
+    const stopped = errorKind(e) === 'cancelled' || h.isCancelling;
+    if (stopped) h.cancelled(); else h.fail(e);
+    if (mounted && !stopped) ElMessage.error({ message: errorMessage(e), duration: 6000 });
   } finally {
     running.value = false;
-    unlisten?.();
-    unlisten = null;
+    cancelling.value = false;
   }
 }
 
 function cancel() {
-  if (running.value && scope.value === 'all') exportApi.cancel(exportId).catch(() => {});
-  else emit('close');
+  if (!running.value || !task) emit('close');
+  else if (scope.value === 'all') tasks.cancel(task.id);
 }
-onBeforeUnmount(() => unlisten?.());
+
+function toBackground() {
+  task?.background();
+  emit('close');
+}
 </script>
 
 <template>
-  <el-dialog :model-value="true" :title="$t('results:exportDialog.title')" width="560px" append-to-body :close-on-click-modal="false" @close="cancel">
+  <el-dialog
+    :model-value="true" :title="$t('results:exportDialog.title')" width="560px" append-to-body
+    :close-on-click-modal="false" :close-on-press-escape="!running" :show-close="!running" @close="cancel"
+  >
     <el-form label-position="top" :disabled="running" @submit.prevent>
       <el-form-item :label="$t('results:exportDialog.format')">
         <el-select v-model="opts.format" style="width: 100%">
@@ -162,7 +209,8 @@ onBeforeUnmount(() => unlisten?.());
     </div>
 
     <template #footer>
-      <el-button @click="cancel">{{ running && scope === 'all' ? $t('results:exportDialog.cancelExport') : $t('common:cancel') }}</el-button>
+      <el-button v-if="running" @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
+      <el-button v-if="!running || scope === 'all'" :disabled="cancelling" @click="cancel">{{ running ? $t('results:exportDialog.cancelExport') : $t('common:cancel') }}</el-button>
       <el-button type="primary" :loading="running" @click="run">{{ $t('results:exportDialog.submit') }}</el-button>
     </template>
   </el-dialog>

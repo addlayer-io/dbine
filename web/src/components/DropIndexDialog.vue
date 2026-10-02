@@ -1,18 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
-import { errorMessage } from '../api/client';
+import { api, errorMessage } from '../api/client';
 import type { SyncScript } from '../api/compare';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
 import { dropIndexScript, indexUsageOf, runDropIndex, type DropIndexTarget } from '../composables/dropIndex';
 import { indexUsageEntry, sharePct } from '../composables/indexUsage';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // "Eliminar índice…": the index, how much it's used, and the engine's script
 // to drop it (read-only, copyable, or opened as a query). It runs only on
-// "Eliminar".
+// "Eliminar". The run is a task (stores/tasks.ts): "Seguir en segundo plano"
+// closes the dialog and it goes on; the Tareas panel shows its script and
+// outcome, and cancels it the way a schema sync is (`sync:<runId>`): the
+// statement is interrupted where the engine allows it, or the next one
+// doesn't start.
 
 const props = defineProps<{ target: DropIndexTarget }>();
 const emit = defineEmits<{ close: [] }>();
@@ -35,6 +40,21 @@ const text = computed(() => script.value?.statements.join('\n') ?? '');
 const scriptError = ref<string | null>(null);
 const running = ref(false);
 const runError = ref<string | null>(null);
+let task: TaskHandle | null = null;
+const taskId = ref<string | null>(null);
+const tasks = useTasksStore();
+const cancelling = computed(() => !!(taskId.value && tasks.byId(taskId.value)?.cancelling));
+/** "Cancelar": closes the dialog, or stops the drop while it runs. */
+function cancel() {
+  if (running.value && taskId.value) tasks.cancel(taskId.value);
+  else emit('close');
+}
+let alive = true;
+onBeforeUnmount(() => {
+  alive = false;
+  // Closed while running (its host went away): the run goes on and says so when it ends.
+  if (running.value) task?.background();
+});
 
 onMounted(async () => {
   try {
@@ -59,12 +79,27 @@ async function run() {
   if (!script.value?.statements.length) return;
   running.value = true;
   runError.value = null;
-  const error = await runDropIndex(props.target, script.value.statements);
+  const target = props.target;
+  const statements = script.value.statements;
+  const runId = crypto.randomUUID();
+  const current = task = startTask({
+    kind: 'drop-index',
+    title: t('tasks:dialogs.dropIndex', { name: target.index, table: qualified.value }),
+    connectionId: target.connectionId, database: target.database,
+    cancel: () => api.cancelQuery(`sync:${runId}`),
+  });
+  taskId.value = current.id;
+  current.log(statements.join('\n'));
+  // runDropIndex refreshes the tree and the "Índices" tab itself, open or not.
+  const error = await runDropIndex(target, statements, runId);
   running.value = false;
   if (error) {
     runError.value = error;
+    if (current.isCancelling) current.cancelled(); else current.fail(error);
     return;
   }
+  current.finish(undefined, t('explorer:indexes.drop.done'));
+  if (!alive) return;
   ElMessage.success(t('explorer:indexes.drop.done'));
   emit('close');
 }
@@ -89,7 +124,8 @@ async function run() {
         <el-button :disabled="!text" @click="copyScript">{{ $t('common:copy') }}</el-button>
         <el-button :disabled="!text || running" @click="openInQuery">{{ $t('explorer:indexes.drop.openInQuery') }}</el-button>
         <span style="flex: 1" />
-        <el-button :disabled="running" @click="emit('close')">{{ $t('common:cancel') }}</el-button>
+        <el-button v-if="running" @click="task?.background(); emit('close')">{{ $t('tasks:panel.background') }}</el-button>
+        <el-button :disabled="cancelling" @click="cancel">{{ $t('common:cancel') }}</el-button>
         <el-button type="danger" :loading="running" :disabled="!text || !!scriptError" @click="run">{{ $t('explorer:indexes.drop.run') }}</el-button>
       </div>
     </template>

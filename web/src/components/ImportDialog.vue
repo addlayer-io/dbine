@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
-import { errorMessage } from '../api/client';
+import { errorKind, errorMessage } from '../api/client';
 import { locale } from '../i18n';
 import type { Cell, ObjectRef } from '../api/types';
 import type { TableSchema } from '../api/schema-types';
+import { useConnectionsStore } from '../stores/connections';
+import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // Import a data file into a table: file + format options, a preview with the
 // inferred types, the target (an existing table or a new one) with the column
 // mapping, and the run with progress. Backend: `preview_import_file` and
-// `import_file` (docs/api-comandos.md).
+// `import_file` (docs/api-comandos.md). The run is a task (stores/tasks.ts):
+// "Seguir en segundo plano" closes the dialog and the import goes on, with
+// its progress in the Tareas panel.
 
 type ImportFormat = 'auto' | 'csv' | 'csv_semicolon' | 'tsv' | 'json' | 'json_lines' | 'xlsx' | 'xml';
 type InferredType = 'integer' | 'number' | 'boolean' | 'date' | 'datetime' | 'text';
@@ -37,6 +40,8 @@ const props = withDefaults(defineProps<{
 }>(), { dialect: '', dataTypes: () => [], initialPath: '' });
 const emit = defineEmits<{ close: []; imported: [target: ObjectRef] }>();
 const { t } = useTranslation();
+const conns = useConnectionsStore();
+const tasks = useTasksStore();
 
 const FORMATS = computed((): { id: ImportFormat; label: string }[] => [
   { id: 'auto', label: t('importData:formats.auto') },
@@ -244,11 +249,12 @@ const progressRows = ref(0);
 const elapsed = ref(0);
 const result = ref<ImportResult | null>(null);
 const runError = ref('');
-const importId = crypto.randomUUID();
-let unlisten: UnlistenFn | null = null;
+let task: TaskHandle<ImportResult> | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
+let mounted = true;
 
 async function runImport() {
+  if (running.value) return;
   step.value = 3;
   running.value = true;
   cancelling.value = false;
@@ -259,15 +265,29 @@ async function runImport() {
   elapsed.value = 0;
   timer = setInterval(() => { elapsed.value = Date.now() - started; }, 250);
   const target = targetRef();
+  const { connectionId, database } = props;
+  const importId = crypto.randomUUID();
+  const h = startTask<ImportResult>({
+    kind: 'import',
+    title: t('tasks:genImportExport.import', { file: fileName.value, table: target.schema ? `${target.schema}.${target.name}` : target.name }),
+    connectionId, database,
+    // A cancel that doesn't land re-enables the dialog's button too.
+    cancel: () => { cancelling.value = true; return invoke('cancel_query', { args: { session_id: `import:${importId}` } }).catch((e) => { cancelling.value = false; throw e; }); },
+    // While the dialog is up, "Ver detalle" just brings it back into view.
+    reopen: () => {},
+  });
+  task = markRaw(h);
   try {
-    unlisten = await listen<{ id: string; rows: number }>('import-progress', (e) => {
-      if (e.payload.id === importId) progressRows.value = e.payload.rows;
+    await h.listen<{ id: string; rows: number }>('import-progress', (e) => {
+      if (e.payload.id !== importId) return;
+      progressRows.value = e.payload.rows;
+      h.progress({ done: e.payload.rows, unit: 'rows' });
     });
-    result.value = await invoke<ImportResult>('import_file', {
+    const r = await invoke<ImportResult>('import_file', {
       args: {
         import_id: importId,
-        connection_id: props.connectionId,
-        database: props.database,
+        connection_id: connectionId,
+        database,
         path: path.value,
         format: format.value,
         options: { ...options },
@@ -277,15 +297,23 @@ async function runImport() {
         batch: batch.value,
       },
     });
-    emit('imported', target);
+    result.value = r;
+    h.setReopen(undefined);
+    h.finish(r, t('tasks:dialogs.rows', { count: r.rows, n: r.rows.toLocaleString(locale()) }));
+    // In the background the host is gone: the explorer reload is ours.
+    if (mounted) emit('imported', target);
+    else conns.loadObjects(connectionId, database, true).catch(() => {});
   } catch (e) {
-    runError.value = cancelling.value ? t('importData:run.cancelledMessage') : errorMessage(e);
+    h.setReopen(undefined);
+    const stopped = errorKind(e) === 'cancelled' || h.isCancelling;
+    runError.value = stopped ? t('importData:run.cancelledMessage') : errorMessage(e);
+    if (stopped) h.cancelled(); else h.fail(e);
+    // A stopped or failed import into a new table may have created it.
+    if (!mounted && targetMode.value === 'new') conns.loadObjects(connectionId, database, true).catch(() => {});
   } finally {
     running.value = false;
     if (timer) clearInterval(timer);
     timer = null;
-    unlisten?.();
-    unlisten = null;
   }
 }
 
@@ -312,10 +340,13 @@ function back() {
 }
 
 function cancel() {
-  if (running.value) {
-    cancelling.value = true;
-    invoke('cancel_query', { args: { session_id: `import:${importId}` } }).catch(() => {});
-  } else emit('close');
+  if (running.value && task) tasks.cancel(task.id);
+  else emit('close');
+}
+
+function toBackground() {
+  task?.background();
+  emit('close');
 }
 
 // option changes on step 1 refresh the preview
@@ -329,8 +360,15 @@ if (props.initialPath) {
 }
 
 onBeforeUnmount(() => {
-  unlisten?.();
+  mounted = false;
   if (timer) clearInterval(timer);
+  timer = null;
+  // Gone while importing (its host closed…): the import goes on and says so
+  // when it ends; there's no dialog left for "Ver detalle" to show.
+  if (running.value && task) {
+    task.background();
+    task.setReopen(undefined);
+  }
 });
 defineExpose({ step, targetMode });
 </script>
@@ -546,6 +584,7 @@ defineExpose({ step, targetMode });
           <el-button type="primary" @click="emit('close')">{{ $t('common:close') }}</el-button>
         </template>
         <template v-else>
+          <el-button v-if="running" @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
           <el-button :disabled="cancelling" @click="cancel">{{ running ? $t('importData:run.cancelImport') : $t('common:cancel') }}</el-button>
           <el-button v-if="step > 0 && step < 3" @click="back">{{ $t('common:back') }}</el-button>
           <el-button v-if="step < 3" type="primary" :disabled="!canNext" @click="next">
