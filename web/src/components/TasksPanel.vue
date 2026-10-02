@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
 import { formatElapsed, formatEta, formatEtaValue, useTasksStore, type Task } from '../stores/tasks';
@@ -14,6 +14,28 @@ const tasks = useTasksStore();
 const conns = useConnectionsStore();
 const { t } = useTranslation();
 useQuitGuard();
+
+// The drawer isn't modal (the app stays usable behind it), so it closes by
+// hand on Escape or a click anywhere outside it. Clicks on what opens it or
+// lives on top of it (the status bar button, the detail dialog, notices,
+// dropdowns, message boxes) don't count.
+const KEEP_OPEN = '.tasks-drawer, [data-tasks-toggle], .el-overlay, .el-popper, .el-message-box, .el-notification, .el-message';
+function onPointerDown(e: PointerEvent) {
+  if (e.target instanceof Element && e.target.closest(KEEP_OPEN)) return;
+  tasks.panelOpen = false;
+}
+function onKeyDown(e: KeyboardEvent) {
+  // The detail dialog (on top) takes the first Escape.
+  if (e.key !== 'Escape' || e.defaultPrevented || tasks.detailId) return;
+  tasks.panelOpen = false;
+}
+function listen(on: boolean) {
+  const fn = on ? document.addEventListener : document.removeEventListener;
+  fn.call(document, 'pointerdown', onPointerDown as EventListener, true);
+  fn.call(document, 'keydown', onKeyDown as EventListener);
+}
+watch(() => tasks.panelOpen, (open) => listen(open), { immediate: true });
+onBeforeUnmount(() => listen(false));
 
 // Elapsed times and ETAs tick with the store's shared clock (it runs only
 // while some task does).
