@@ -215,7 +215,12 @@ def main():
             slots.put(target_dir)
 
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        futures = [pool.submit(build, pkg, driver_id) for pkg, _, driver_id, _, _ in todo]
+        # The first one alone: tools that set themselves up on first use race
+        # when several start at once (cargo xwin links its clang-cl: "File
+        # exists").
+        futures = [pool.submit(build, pkg, driver_id) for pkg, _, driver_id, _, _ in todo[:1]]
+        wait(futures)
+        futures += [pool.submit(build, pkg, driver_id) for pkg, _, driver_id, _, _ in todo[1:]]
         wait(futures)
     failures = [(t[0], f.exception()) for t, f in zip(todo, futures) if f.exception()]
     if failures:
