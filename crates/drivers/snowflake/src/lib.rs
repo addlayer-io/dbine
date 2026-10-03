@@ -16,6 +16,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod security;
 mod sync;
@@ -302,6 +303,8 @@ impl Driver for SnowflakeDriver {
             monitor: true,
             blocking: true,
             kill_session: true,
+            processes: true,
+            cancel_query: true,
             ..Default::default()
         }
     }
@@ -1111,8 +1114,23 @@ impl Session for SnowflakeSession {
     }
 
     /// Aborts the transaction (read-only connections are refused by `ReadOnlySession`).
+    /// A transaction id (from `blocking`) aborts that transaction; a query
+    /// id (from `processes`) ends the session that runs it.
     async fn kill_session(&mut self, id: &str) -> Result<()> {
-        blocking::kill(&*self, id).await
+        if processes::query_id(id).is_some() {
+            processes::abort_session_of(&*self, id).await
+        } else {
+            blocking::kill(&*self, id).await
+        }
+    }
+
+    /// The queries in flight (`QUERY_HISTORY`), with a running warehouse.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        processes::processes(&*self).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        processes::cancel(&*self, id).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

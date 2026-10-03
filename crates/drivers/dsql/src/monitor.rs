@@ -79,7 +79,7 @@ pub(crate) async fn snapshot(client: &Client) -> MonitorSnapshot {
     snap
 }
 
-async fn rows(client: &Client, sql: &str) -> Result<Vec<SimpleQueryRow>, String> {
+pub(crate) async fn rows(client: &Client, sql: &str) -> Result<Vec<SimpleQueryRow>, String> {
     let msgs = client.simple_query(sql).await.map_err(|e| match e.as_db_error() {
         Some(db) => db.message().to_string(),
         None => e.to_string(),

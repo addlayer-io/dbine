@@ -708,6 +708,10 @@ fn like_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
+/// Why there's no process list (for the error and the docs).
+const UNSUPPORTED_PROCESSES: &str = "Flight SQL no define cómo listar ni cancelar las consultas de otros clientes: depende del servidor que \
+     lo atiende. Para Dremio o Apache Doris, usá su driver propio, que sí las lista";
+
 #[async_trait]
 impl Session for FlightSession {
     async fn server_version(&mut self) -> Result<String> {
@@ -1003,6 +1007,17 @@ impl Session for FlightSession {
     ) -> Result<u64> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         self.transfer_load(spec, source, progress).await
+    }
+
+    /// Flight SQL has no command to list or stop other clients' queries;
+    /// each server behind it (DuckDB, Dremio, InfluxDB, Doris…) has its own
+    /// way or none.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported(UNSUPPORTED_PROCESSES.into()))
+    }
+
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Unsupported(UNSUPPORTED_PROCESSES.into()))
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

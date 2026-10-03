@@ -832,6 +832,10 @@ impl PhoenixSession {
     }
 }
 
+/// Why there's no process list (for the error and the docs).
+const UNSUPPORTED_PROCESSES: &str = "Phoenix no informa las consultas en curso: ni Phoenix ni HBase llevan una lista que se pueda leer \
+     o detener, y el Query Server (Avatica) solo conoce sus propias conexiones";
+
 #[async_trait]
 impl Session for PhoenixSession {
     async fn server_version(&mut self) -> Result<String> {
@@ -974,6 +978,17 @@ impl Session for PhoenixSession {
             // Phoenix keeps no DDL text for tables: the UI builds it from the columns.
             _ => Ok(None),
         }
+    }
+
+    /// Neither Phoenix nor HBase keep a list of running queries that a
+    /// client can read or stop, and the Query Server only knows its own
+    /// connections.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported(UNSUPPORTED_PROCESSES.into()))
+    }
+
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Unsupported(UNSUPPORTED_PROCESSES.into()))
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
