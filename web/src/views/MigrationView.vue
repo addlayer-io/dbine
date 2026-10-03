@@ -18,6 +18,7 @@ import { dbKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type MigrationTab } from '../stores/tabs';
 import type { MigrationConfig, SavedMigration } from '../api/savedMigrations';
 import { migrationSaves } from '../composables/savedMigrations';
+import { trackFeature } from '../composables/telemetry';
 
 // "Migrar…": a database's structure to another engine. Pick the target
 // engine (and, optionally, a saved connection of it), the tables and the
@@ -376,6 +377,7 @@ async function runMigration() {
   } catch { return; }
   if (!(await conns.ensureConnected(props.tab.connectionId)) || !(await conns.ensureConnected(targetConnection.value))) return;
   runMode.value = mode.value;
+  trackFeature('migration_run');
   const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const target = { connectionId: targetConnection.value, database: targetDatabase.value };
   parallel.value = transfer.parallel;

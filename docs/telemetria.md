@@ -21,16 +21,19 @@ operativos corre.
 
 ## Qué se envía
 
-Tres eventos, nada más:
+Cuatro eventos, nada más:
 
 | Evento | Cuándo | Datos propios |
 |---|---|---|
 | `app_started` | una vez por ejecución de la app | — |
 | `connection_opened` | la primera vez que se conecta a cada motor en una ejecución | `engine`: el id del driver (`postgres`, `sqlserver`, `redis`…) |
-| `module_opened` | la primera vez que se muestra cada módulo en una ejecución | `module`: el tipo de pestaña (`query`, `object`, `designer`, `diagram`, `monitor`, `profiler`, `migration`, `connection`, `compare`, `dataCompare`, `security`, `backups`) |
+| `module_opened` | la primera vez que se muestra cada módulo en una ejecución | `module`: el tipo de pestaña (`query`, `object`, `designer`, `diagram`, `monitor`, `profiler`, `migration`, `connection`, `compare`, `dataCompare`, `security`, `backups`, `indexes`, `dependencies`, `file`, `fileDiff`) o el panel lateral (`ai`, `projects`, `library`, `history`) |
+| `feature_used` | la primera vez que se usa cada función en una ejecución | `feature`: `ai_message` (una pregunta al asistente), `mcp_tool` (un cliente MCP usó una herramienta), `schema_sync` (se aplicó una sincronización de esquemas), `data_sync` (de datos), `migration_run` (se corrió una migración), `multi_db_run` (una consulta en varias bases). Con `ai_message`, también `provider`: el tipo de proveedor (`embedded`, `ollama`, `lm_studio`, `claude_code`, `codex`), nunca el modelo ni el texto |
 
 Con `connection_opened` y `module_opened` se ve qué motores y qué módulos se
-usan de verdad, y cuáles no aparecen nunca.
+usan de verdad, y cuáles no aparecen nunca; con `feature_used`, si las
+funciones se usan más allá de abrir su pantalla. En Aptabase, las propiedades
+(`engine`, `module`, `feature`, `provider`) se ven al abrir cada evento.
 
 Cada evento lleva además:
 
@@ -55,8 +58,8 @@ El país lo deduce el servicio a partir de la conexión; **la IP no se guarda**.
 
 La lista está fijada en el código de la app, no en la interfaz:
 `src-tauri/src/commands/telemetry.rs` descarta cualquier evento que no sea uno
-de los tres de arriba, cualquier motor que no sea un driver conocido y
-cualquier módulo que no esté en su lista.
+de los cuatro de arriba, cualquier motor que no sea un driver conocido y
+cualquier módulo, función o proveedor que no esté en sus listas.
 
 ## Dónde se guardan
 

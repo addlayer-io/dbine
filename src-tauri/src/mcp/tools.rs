@@ -117,6 +117,7 @@ pub(super) struct Done {
 
 /// Run a tool and record it in the activity log. `(text, is_error)`.
 pub async fn call(inner: &Inner, client: &McpClient, tool: &str, args: &Value) -> (String, bool) {
+    crate::commands::telemetry::track_backend_feature(&inner.state, "mcp_tool");
     if tool == super::write::TOOL {
         return super::write::call(inner, client, args).await;
     }

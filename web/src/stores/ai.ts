@@ -7,6 +7,7 @@ import { tb } from '../i18n/backend';
 import { readJson, writeJson } from './storage';
 import { useSettingsStore } from './settings';
 import { ownsSavedState, useTabsStore } from './tabs';
+import { trackFeature } from '../composables/telemetry';
 
 // The AI assistant's state: detected providers, the chosen one, and the
 // conversation. The assistant never runs anything: its code goes into the
@@ -253,6 +254,7 @@ export const useAiStore = defineStore('ai', {
       const scope = `${tab?.connectionId ?? ''}|${tab?.database ?? ''}`;
       if (this.approveScope !== scope) { this.approveReads = false; this.approveScope = scope; }
       try {
+        trackFeature('ai_message', p.kind);
         const r = await aiApi.chat(answer.id, p.kind, this.model, history, {
           connection_id: tab?.connectionId ?? null,
           database: tab?.database ?? null,
