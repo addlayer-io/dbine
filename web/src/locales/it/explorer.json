@@ -158,6 +158,26 @@
       "writesPerRead": "Scritture/letture",
       "lastRead": "Ultima lettura",
       "lastWrite": "Ultima scrittura"
+    },
+    "disabled": "disabilitato",
+    "disabledTip": "Disabilitato: l'ottimizzatore non lo usa. Clic destro › Abilita indice… per tornare a usarlo.",
+    "disable": {
+      "menu": "Disabilita indice…",
+      "title": "Disabilita indice {{name}}",
+      "intro": "L'indice «{{name}}» di {{table}} verrà disabilitato: resta definito, ma l'ottimizzatore smette di usarlo finché non viene abilitato.",
+      "scriptName": "Disabilita {{name}}",
+      "run": "Disabilita",
+      "done": "Indice disabilitato",
+      "task": "Disabilita l'indice {{name}} di {{table}}"
+    },
+    "enable": {
+      "menu": "Abilita indice…",
+      "title": "Abilita indice {{name}}",
+      "intro": "L'indice «{{name}}» di {{table}} verrà abilitato: l'ottimizzatore torna a usarlo.",
+      "scriptName": "Abilita {{name}}",
+      "run": "Abilita",
+      "done": "Indice abilitato",
+      "task": "Abilita l'indice {{name}} di {{table}}"
     }
   }
 }

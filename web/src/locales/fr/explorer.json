@@ -158,6 +158,26 @@
       "writesPerRead": "Écritures/lectures",
       "lastRead": "Dernière lecture",
       "lastWrite": "Dernière écriture"
+    },
+    "disabled": "désactivé",
+    "disabledTip": "Désactivé : l'optimiseur ne l'utilise pas. Clic droit › Activer l'index… pour l'utiliser de nouveau.",
+    "disable": {
+      "menu": "Désactiver l'index…",
+      "title": "Désactiver l'index {{name}}",
+      "intro": "L'index « {{name}} » de {{table}} va être désactivé : il reste défini, mais l'optimiseur cesse de l'utiliser jusqu'à son activation.",
+      "scriptName": "Désactiver {{name}}",
+      "run": "Désactiver",
+      "done": "Index désactivé",
+      "task": "Désactiver l'index {{name}} de {{table}}"
+    },
+    "enable": {
+      "menu": "Activer l'index…",
+      "title": "Activer l'index {{name}}",
+      "intro": "L'index « {{name}} » de {{table}} va être activé : l'optimiseur l'utilise de nouveau.",
+      "scriptName": "Activer {{name}}",
+      "run": "Activer",
+      "done": "Index activé",
+      "task": "Activer l'index {{name}} de {{table}}"
     }
   }
 }

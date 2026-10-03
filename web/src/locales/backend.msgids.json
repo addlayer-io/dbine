@@ -639,6 +639,9 @@
  "Activala si el cluster tiene la autenticación IAM habilitada: firma cada pedido con las credenciales de abajo.": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
+ "Activar un índice lo reconstruye entero: en una tabla grande tarda.": [
+  "crates/drivers/firebird/src/index_usage.rs"
+ ],
  "Actividad": [
   "crates/drivers/athena/src/monitor.rs",
   "crates/drivers/bigquery/src/monitor.rs",
@@ -758,6 +761,9 @@
  ],
  "Al mover la identidad {0} se perdió el comentario de la columna y no se pudo volver a poner: {1}": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "Al ser único, sigue impidiendo valores repetidos aunque esté deshabilitado.": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "Al terminar": [
   "crates/drivers/sqlserver/src/backup.rs"
@@ -2746,6 +2752,9 @@
  ],
  "CockroachDB no dejó leer las consultas en curso ({0}; {1}). Hace falta ser admin o tener el privilegio VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <usuario>": [
   "crates/drivers/postgres/src/profiler.rs"
+ ],
+ "CockroachDB no permite deshabilitar (ocultar) la clave primaria.": [
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "CockroachDB recomienda {0} índice(s)": [
   "crates/drivers/postgres/src/plan.rs"
@@ -5662,6 +5671,9 @@
  "El índice de tiempo no admite nulos: la columna queda NOT NULL.": [
   "crates/dbine-schema/src/dialect/greptimedb.rs"
  ],
+ "El índice está UNUSABLE: habilitarlo lo reconstruye (REBUILD), lo que recorre toda la tabla y bloquea sus escrituras mientras dura.": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
  "El índice local {0} lleva la clave de partición de la tabla ({1}) y un atributo de ordenación.": [
   "crates/drivers/dynamodb/src/ddl.rs"
  ],
@@ -5679,6 +5691,17 @@
  ],
  "El índice repite la clave de la tabla.": [
   "crates/dbine-schema/src/dialect/dynamodb.rs"
+ ],
+ "El índice se sigue manteniendo en cada escritura y sigue garantizando la unicidad; el optimizador deja de usarlo.": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo.": [
+  "crates/drivers/mysql/src/index_usage.rs",
+  "crates/drivers/odbc/src/index_usage.rs",
+  "crates/drivers/postgres/src/index_usage.rs"
+ ],
+ "El índice se sigue manteniendo en cada escritura; el planificador deja de usarlo.": [
+  "crates/drivers/mongodb/src/index_usage.rs"
  ],
  "El índice tiene {0} columnas y el destino admite hasta {1} por índice: se omite.": [
   "crates/dbine-schema/src/convert.rs"
@@ -6056,6 +6079,12 @@
  ],
  "Errors": [
   "crates/drivers/cosmosdb/src/lib.rs"
+ ],
+ "Es el índice de un cluster: Oracle no permite hacerlo invisible.": [
+  "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "Es el índice de una tabla organizada por índice (IOT): guarda la tabla misma y Oracle no permite hacerlo invisible.": [
+  "crates/drivers/oracle/src/index_usage.rs"
  ],
  "Es una conexión TNS: revisá el descriptor de conexión en DBine.": [
   "crates/dbine-core/src/conn_import/dbeaver.rs"
@@ -6954,6 +6983,9 @@
  "Firebird": [
   "crates/drivers/firebird/src/lib.rs"
  ],
+ "Firebird deja de mantenerlo; al activarlo lo reconstruye entero.": [
+  "crates/drivers/firebird/src/index_usage.rs"
+ ],
  "Firebird guarda hasta 34 dígitos significativos (DECFLOAT); el origen tiene {0}.": [
   "crates/dbine-schema/src/dialect/firebird.rs"
  ],
@@ -7335,6 +7367,9 @@
  "HTTP: 8123; con TLS, 8443.": [
   "crates/drivers/clickhouse/src/lib.rs"
  ],
+ "Habilitarlo lo reconstruye entero: en una tabla grande tarda.": [
+  "crates/drivers/odbc/src/index_usage.rs"
+ ],
  "Haiku: el más rápido": [
   "crates/dbine-ai/src/detect.rs"
  ],
@@ -7368,6 +7403,9 @@
  ],
  "Hay más de un documento con {0} en {1} (en distintas particiones); agregá la clave de partición al WHERE.": [
   "crates/drivers/cosmosdb/src/lib.rs"
+ ],
+ "Hay particiones del índice en estado UNUSABLE: habilitarlo las reconstruye una por una (REBUILD PARTITION), lo que recorre esas particiones de la tabla y bloquea sus escrituras mientras dura.": [
+  "crates/drivers/oracle/src/index_usage.rs"
  ],
  "Hay que elegir el bucket.scope de Couchbase donde crear la colección.": [
   "crates/dbine-schema/src/dialect/couchbase.rs"
@@ -7615,6 +7653,9 @@
  ],
  "Ignite no lista a los demás usuarios por SQL": [
   "crates/drivers/odbc/src/security/misc.rs"
+ ],
+ "Ignored": [
+  "crates/drivers/mysql/src/index_usage.rs"
  ],
  "Imagen (copia de los archivos de la base)": [
   "crates/drivers/odbc/src/backup.rs"
@@ -8719,6 +8760,9 @@
  "Las consultas en curso y recientes salen de las últimas {0} ejecuciones del workgroup «{1}».": [
   "crates/drivers/athena/src/monitor.rs"
  ],
+ "Las consultas que lo nombran en FORCE INDEX, USE INDEX o IGNORE INDEX fallan mientras esté deshabilitado.": [
+  "crates/drivers/mysql/src/index_usage.rs"
+ ],
  "Las consultas recientes son las que superaron el umbral de system:completed_requests (1 s por defecto).": [
   "crates/drivers/couchbase/src/lib.rs"
  ],
@@ -9695,6 +9739,9 @@
  ],
  "Miembros del replica set": [
   "crates/drivers/mongodb/src/monitor.rs"
+ ],
+ "Mientras esté deshabilitado no impide valores repetidos. Si sostiene una restricción UNIQUE o una clave foránea, el servidor lo rechaza.": [
+  "crates/drivers/odbc/src/index_usage.rs"
  ],
  "Mientras se usaba": [
   "crates/drivers/odbc/src/backup.rs"
@@ -13485,6 +13532,9 @@
  "SAP HANA no registra cuántas veces se usa cada índice: se listan los índices con sus columnas (y el tamaño de los de tablas row store), sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
   "crates/drivers/hana/src/index_usage.rs"
  ],
+ "SAP MaxDB no deshabilita la clave primaria: no es un índice aparte, es la clave de la tabla.": [
+  "crates/drivers/odbc/src/index_usage.rs"
+ ],
  "SAVE (bloquea el servidor)": [
   "crates/drivers/redis/src/backup.rs"
  ],
@@ -14146,12 +14196,18 @@
  "Si el origen es solo un nombre de archivo, el disco donde está.": [
   "crates/drivers/clickhouse/src/backup.rs"
  ],
+ "Si este índice respalda una restricción UNIQUE, Firebird no lo deja desactivar y el script falla.": [
+  "crates/drivers/firebird/src/index_usage.rs"
+ ],
  "Si está apagado, los cambios esperan un COMMIT explícito.": [
   "crates/drivers/firebird/src/lib.rs",
   "crates/drivers/oracle/src/lib.rs"
  ],
  "Si la base existe, se pasa a SINGLE_USER WITH ROLLBACK IMMEDIATE y vuelve a MULTI_USER al terminar.": [
   "crates/drivers/sqlserver/src/backup.rs"
+ ],
+ "Si la tabla no tiene clave primaria, el primer índice UNIQUE sobre columnas NOT NULL hace de clave primaria implícita y el servidor no deja deshabilitarlo.": [
+  "crates/drivers/mysql/src/index_usage.rs"
  ],
  "Si la tabla ya existe": [
   "crates/drivers/oracle/src/backup.rs"
@@ -14194,6 +14250,9 @@
  ],
  "Signature": [
   "crates/drivers/neo4j/src/neptune.rs"
+ ],
+ "Sigue haciendo cumplir la unicidad aunque el optimizador no lo use.": [
+  "crates/drivers/mysql/src/index_usage.rs"
  ],
  "Sin LIMIT: puede devolver la tabla entera": [
   "crates/drivers/cassandra/src/plan.rs"
@@ -16507,6 +16566,7 @@
   "crates/drivers/odbc/src/backup.rs"
  ],
  "Visible": [
+  "crates/drivers/mysql/src/index_usage.rs",
   "crates/drivers/mysql/src/session.rs"
  ],
  "Vista": [
@@ -18158,6 +18218,9 @@
  "el valor {0} tiene hora y no entra en un DATE sin perderla": [
   "crates/drivers/iotdb/src/transfer.rs"
  ],
+ "el índice _id_ no se puede deshabilitar": [
+  "crates/drivers/mongodb/src/index_usage.rs"
+ ],
  "el índice agregado «{0}» no tiene consulta": [
   "crates/drivers/mysql/src/design.rs"
  ],
@@ -18736,6 +18799,13 @@
  ],
  "este motor no crea usuarios por SQL": [
   "crates/drivers/odbc/src/security/misc.rs"
+ ],
+ "este motor no deshabilita índices": [
+  "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/mongodb/src/lib.rs",
+  "crates/drivers/mysql/src/index_usage.rs",
+  "crates/drivers/odbc/src/index_usage.rs",
+  "crates/drivers/postgres/src/index_usage.rs"
  ],
  "este motor no filtra en el servidor": [
   "crates/dbine-driver/src/lib.rs"
@@ -19576,6 +19646,9 @@
  ],
  "la clave primaria del original es de tipo {0}, que el clon no puede reproducir; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
+ "la clave primaria no se puede deshabilitar": [
+  "crates/drivers/mysql/src/index_usage.rs"
  ],
  "la clave privada está cifrada; exportala sin passphrase": [
   "crates/drivers/snowflake/src/lib.rs"
@@ -20638,6 +20711,9 @@
  ],
  "no instalado": [
   "crates/dbine-ai/src/detect.rs"
+ ],
+ "no latest.json in the latest release (or HTTP error), asking GitHub": [
+  "src-tauri/src/commands/updates.rs"
  ],
  "no parece una URL ni una cadena de conexión": [
   "crates/dbine-core/src/conn_import/urls.rs"
@@ -22803,6 +22879,9 @@
  "{0} de {1} tablas": [
   "src-tauri/src/commands/ai.rs"
  ],
+ "{0} deja de mantenerlo y el optimizador deja de usarlo: para volver a usarlo hay que habilitarlo, y eso lo reconstruye.": [
+  "crates/drivers/odbc/src/index_usage.rs"
+ ],
  "{0} descargado no coincide con el original (SHA-256): se borró, reintentá": [
   "crates/dbine-ai/src/embedded.rs"
  ],
@@ -22903,6 +22982,9 @@
  ],
  "{0} no deja mover el contador AUTO_INCREMENT de «{1}»: las filas nuevas que no traigan «{2}» pueden repetir valores copiados (y en una tabla UNIQUE KEY reemplazar filas); cargalas con «{3}» explícito": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
+ ],
+ "{0} no deshabilita el índice de la clave primaria: se deshabilita la restricción (SET CONSTRAINTS).": [
+  "crates/drivers/odbc/src/index_usage.rs"
  ],
  "{0} no entra en BIGINT": [
   "crates/drivers/ksqldb/src/transfer.rs"
@@ -23201,6 +23283,9 @@
  ],
  "{0} rechazó el inicio de sesión: {1} {2}": [
   "crates/dbine-sync/src/oauth.rs"
+ ],
+ "{0} respalda una restricción (PRIMARY KEY, FOREIGN KEY o UNIQUE): Firebird no deja desactivar esos índices.": [
+  "crates/drivers/firebird/src/index_usage.rs"
  ],
  "{0} se configura con credenciales de la nube: creala a mano en DBine": [
   "crates/dbine-core/src/conn_import/mod.rs"
