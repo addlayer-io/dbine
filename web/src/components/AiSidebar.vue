@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { tb } from '../i18n/backend';
-import { aiApi, type AiProviderKind } from '../api/ai';
+import { aiApi, type AiModel, type AiProvider, type AiProviderKind } from '../api/ai';
 import { newQuery } from '../composables/actions';
 import { useAiStore, type UiMessage } from '../stores/ai';
 import { useConnectionsStore } from '../stores/connections';
@@ -39,6 +39,17 @@ const contextLine = computed(() => {
   const d = c ? conns.driverOf(cur.connectionId) : null;
   return [d?.name, c?.name, cur.database || null, bridge.value ? t('ai:context.openQuery') : null].filter(Boolean).join(' · ');
 });
+
+/** What the model selector shows: the model's own name (the built-in
+ *  catalog's label, "Qwen2.5-Coder 32B"), or the provider's when it has no
+ *  model to choose (Claude Code, Codex). The provider is the group header. */
+function modelName(p: AiProvider, m: AiModel): string {
+  if (p.kind === 'embedded') {
+    const c = ai.detect?.catalog.find((x) => x.id === m.id);
+    if (c) return tb(c.label);
+  }
+  return m.id || tb(p.label);
+}
 
 const selectValue = computed({
   get: () => (provider.value ? `${provider.value.kind}|${ai.model ?? ''}` : ''),
@@ -210,10 +221,10 @@ const phaseText = computed(() => ({
     <header class="ai-head">
       <el-icon class="ai-logo"><ei-magic-stick /></el-icon>
       <strong>{{ $t('ai:title') }}</strong>
-      <el-select v-if="provider" v-model="selectValue" size="small" class="ai-model" :title="tb(provider.status)">
+      <el-select v-if="provider" v-model="selectValue" size="small" class="ai-model" :title="`${tb(provider.label)} · ${tb(provider.status)}`">
         <el-option-group v-for="p in ai.usable" :key="p.kind" :label="tb(p.label)">
-          <el-option v-for="m in p.models" :key="p.kind + m.id" :value="`${p.kind}|${m.id}`" :label="`${tb(p.label)} · ${m.id || $t('ai:defaultModel')}`">
-            <span>{{ m.id || $t('ai:defaultModel') }}</span>
+          <el-option v-for="m in p.models" :key="p.kind + m.id" :value="`${p.kind}|${m.id}`" :label="modelName(p, m)">
+            <span>{{ modelName(p, m) }}</span>
             <span v-if="m.detail" class="ai-opt-detail">{{ tb(m.detail) }}</span>
           </el-option>
         </el-option-group>
