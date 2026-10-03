@@ -18,6 +18,7 @@ mod odbc;
 mod permissions;
 mod plan;
 mod presets;
+mod processes;
 mod schemas;
 mod security;
 mod steps;
@@ -1298,6 +1299,19 @@ impl Session for OdbcSession {
         }
         let sql = blocking::kill_sql(self.preset, id)?;
         self.run(move |c, slot| c.stmt(slot)?.exec(&sql).map(|_| ())).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        let preset = self.preset;
+        if let Some(why) = processes::unsupported_reason(preset) {
+            return Err(Error::Unsupported(why.into()));
+        }
+        self.run(move |c, slot| processes::collect(preset, &mut ConnSource { c, slot })).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        let (preset, id) = (self.preset, id.to_string());
+        self.run(move |c, slot| processes::cancel(preset, &mut ConnSource { c, slot }, &id)).await
     }
 
     async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {

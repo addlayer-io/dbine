@@ -9,6 +9,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod schema;
 mod script;
@@ -430,7 +431,18 @@ impl Driver for FirebirdDriver {
     fn capabilities(&self) -> Capabilities {
         // A database is a file the client asks the server to create or
         // drop (op_create / op_drop_database), not SQL over a connection.
-        Capabilities { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ..Default::default() }
+        // Processes from MON$ATTACHMENTS; cancel and kill delete from
+        // MON$STATEMENTS / MON$ATTACHMENTS.
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: true,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            kill_session: true,
+            ..Default::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -838,6 +850,20 @@ impl Session for FirebirdSession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         self.run(monitor::snapshot).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        self.run(processes::processes).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        let (own, id) = (self.attachment_id, id.to_string());
+        self.run(move |c| processes::cancel(c, own, &id)).await
+    }
+
+    async fn kill_session(&mut self, id: &str) -> Result<()> {
+        let (own, id) = (self.attachment_id, id.to_string());
+        self.run(move |c| processes::kill(c, own, &id)).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

@@ -10,6 +10,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod schema;
 mod script;
@@ -214,8 +215,10 @@ impl Driver for HanaDriver {
             // M_BLOCKED_TRANSACTIONS and ALTER SYSTEM DISCONNECT SESSION.
             blocking: true,
             kill_session: true,
-            processes: false,
-            cancel_query: false,
+            // M_CONNECTIONS + M_ACTIVE_STATEMENTS, and ALTER SYSTEM CANCEL
+            // SESSION.
+            processes: true,
+            cancel_query: true,
         }
     }
 
@@ -740,6 +743,14 @@ impl Session for HanaSession {
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         blocking::kill(&self.conn, id).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        processes::processes(&self.conn).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        processes::cancel(&self.conn, id).await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

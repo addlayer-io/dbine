@@ -14,6 +14,11 @@ use serde_json::Value;
 
 /// Rows of a query as JSON cells (numbers as numbers or exact strings).
 pub(crate) fn rows(c: &Connection, sql: &str) -> std::result::Result<Vec<Vec<Value>>, oracledb::Error> {
+    rows_max(c, sql, 200)
+}
+
+/// [`rows`], keeping at most `max`.
+pub(crate) fn rows_max(c: &Connection, sql: &str, max: usize) -> std::result::Result<Vec<Vec<Value>>, oracledb::Error> {
     // Out of the statement cache: the thin client caches a statement whose
     // parse failed (ORA-00942 without the grant) and the next snapshot
     // would get ORA-01003 instead of the real error.
@@ -24,7 +29,7 @@ pub(crate) fn rows(c: &Connection, sql: &str) -> std::result::Result<Vec<Vec<Val
     for row in cursor {
         let row = row?;
         out.push(types.iter().enumerate().map(|(i, t)| cell(&row, i, t)).collect());
-        if out.len() >= 200 {
+        if out.len() >= max {
             break;
         }
     }

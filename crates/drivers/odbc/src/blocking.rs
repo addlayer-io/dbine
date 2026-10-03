@@ -26,9 +26,10 @@ pub fn supports_blocking(p: &Preset) -> bool {
     matches!(eng(p), Eng::Db2 | Eng::Ase | Eng::Sqla | Eng::Informix)
 }
 
-/// The preset can end another session from SQL on this connection.
+/// The preset can end another session from SQL on this connection (the
+/// ones without blocking chains end sessions from the process list).
 pub fn supports_kill(p: &Preset) -> bool {
-    matches!(eng(p), Eng::Db2 | Eng::Ase | Eng::Sqla)
+    matches!(eng(p), Eng::Db2 | Eng::Ase | Eng::Sqla | Eng::Vertica | Eng::Exasol | Eng::Netezza | Eng::Dameng)
 }
 
 /// A session in (or maybe in) a chain.
@@ -317,13 +318,20 @@ fn informix(src: &mut dyn Source) -> Result<Vec<Node>> {
     Ok(nodes)
 }
 
-/// The statement that ends session `id`, after checking it's a number.
+/// The statement that ends session `id`, after checking its shape (a
+/// number; Vertica's session ids are text).
 pub fn kill_sql(p: &Preset, id: &str) -> Result<String> {
+    if eng(p) == Eng::Vertica {
+        return Ok(format!("SELECT CLOSE_SESSION('{}')", crate::processes::vertica_session(id)?));
+    }
     let n = int(Some(id)).ok_or_else(|| Error::Query(format!("«{id}» no es un id de sesión válido")))?;
     Ok(match eng(p) {
         Eng::Db2 => format!("CALL SYSPROC.ADMIN_CMD('FORCE APPLICATION ({n})')"),
         Eng::Ase => format!("KILL {n}"),
         Eng::Sqla => format!("DROP CONNECTION {n}"),
+        Eng::Exasol => format!("KILL SESSION {n}"),
+        Eng::Netezza => format!("DROP SESSION {n}"),
+        Eng::Dameng => format!("CALL SP_CLOSE_SESSION({n})"),
         _ => return Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into())),
     })
 }
@@ -359,8 +367,11 @@ mod tests {
         for id in ["informix", "gbase8s"] {
             assert!(supports_blocking(preset(id)) && !supports_kill(preset(id)), "{id}");
         }
-        for id in ["odbc", "db2i", "db2zos", "teradata", "vertica"] {
+        for id in ["odbc", "db2i", "db2zos", "teradata"] {
             assert!(!supports_blocking(preset(id)) && !supports_kill(preset(id)), "{id}");
+        }
+        for id in ["vertica", "exasol", "netezza", "dameng"] {
+            assert!(!supports_blocking(preset(id)) && supports_kill(preset(id)), "{id}");
         }
     }
 
@@ -373,6 +384,9 @@ mod tests {
             assert!(kill_sql(preset("db2"), bad).is_err(), "{bad}");
         }
         assert!(matches!(kill_sql(preset("informix"), "3"), Err(Error::Unsupported(_))));
+        assert_eq!(kill_sql(preset("exasol"), "7").unwrap(), "KILL SESSION 7");
+        assert_eq!(kill_sql(preset("vertica"), "n1-2:0x9").unwrap(), "SELECT CLOSE_SESSION('n1-2:0x9')");
+        assert!(kill_sql(preset("vertica"), "x'); --").is_err());
     }
 
     #[test]

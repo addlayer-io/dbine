@@ -40,7 +40,7 @@ SELECT s.sid || ',' || s.serial#,
 /// The last statement of an idle session, from its open cursors: its
 /// PREV_SQL_ID is often a client's housekeeping call (DBine itself reads
 /// DBMS_OUTPUT after each statement). The latest one, DML first on a tie.
-fn last_statement_sql(sid: u32) -> String {
+pub(crate) fn last_statement_sql(sid: u32) -> String {
     format!(
         "SELECT * FROM (
            SELECT DBMS_LOB.SUBSTR(q.sql_fulltext, 1000, 1)
@@ -107,7 +107,13 @@ pub(crate) fn session_id(id: &str) -> Result<(u32, u32)> {
 
 pub fn kill(c: &Connection, id: &str) -> Result<()> {
     let (sid, serial) = session_id(id)?;
-    c.execute(&format!("ALTER SYSTEM KILL SESSION '{sid},{serial}' IMMEDIATE"), &[]).map(|_| ()).map_err(err)
+    match c.execute(&format!("ALTER SYSTEM KILL SESSION '{sid},{serial}' IMMEDIATE"), &[]) {
+        Ok(_) => Ok(()),
+        // ORA-00031: busy in a wait it can't leave right now; marked, it
+        // ends (and rolls back) as soon as it does.
+        Err(e) if crate::db_code(&e) == Some(31) => Ok(()),
+        Err(e) => Err(err(e)),
+    }
 }
 
 #[cfg(test)]

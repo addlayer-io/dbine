@@ -13,6 +13,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod script;
 mod security;
@@ -422,8 +423,9 @@ impl Driver for OracleDriver {
             // in Autonomous Database, as ADMIN).
             blocking: true,
             kill_session: true,
-            processes: false,
-            cancel_query: false,
+            // V$SESSION, and ALTER SYSTEM CANCEL SQL (18c+).
+            processes: true,
+            cancel_query: true,
         }
     }
 
@@ -1022,6 +1024,15 @@ impl Session for OracleSession {
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         let id = id.to_string();
         self.run(move |c| blocking::kill(c, &id)).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        self.run(processes::processes).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        let id = id.to_string();
+        self.run(move |c| processes::cancel(c, &id)).await
     }
 
     async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
