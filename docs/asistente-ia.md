@@ -154,8 +154,12 @@ Viajan con la sincronización:
 - `ai.model.<proveedor>`
 - `ai.includeSchema`
 
-La conversación queda en la máquina (las últimas 60 entradas); el botón
-"Nueva conversación" la borra.
+La conversación queda en la máquina (las últimas 60 entradas). "Nueva
+conversación" no la borra: la pasa al **Historial** (el ícono del reloj en el
+encabezado del panel), que guarda las últimas 50 conversaciones con su primera
+pregunta como título. Desde ahí se retoma una (la actual pasa al historial) o
+se borra una o todas. Todo queda en el almacenamiento local de la app; si se
+llena, se descartan primero las más viejas.
 
 ## Comandos
 

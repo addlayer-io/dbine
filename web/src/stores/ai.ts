@@ -46,12 +46,55 @@ const HISTORY_KEY = 'dbine.ai.conversation';
 let seq = 0;
 const newId = () => `ai-${Date.now().toString(36)}-${++seq}`;
 
+// Past conversations ("Historial"): "Nueva conversación" archives the current
+// one instead of losing it. Every window reads and writes the list fresh, so
+// two windows don't overwrite each other's archive.
+const ARCHIVE_KEY = 'dbine.ai.history';
+const CHAT_ID_KEY = 'dbine.ai.conversationId';
+const MAX_CHATS = 50;
+
+export interface SavedChat {
+  id: string;
+  /** The first question, cut. */
+  title: string;
+  /** Last change (ms). */
+  updated: number;
+  messages: UiMessage[];
+}
+
+function readArchive(): SavedChat[] {
+  return readJson<SavedChat[]>(ARCHIVE_KEY, []);
+}
+
+/** Write the list; when storage is full, drop the oldest chats until it fits. */
+function writeArchive(list: SavedChat[]) {
+  let keep = list.slice(0, MAX_CHATS);
+  while (true) {
+    try {
+      localStorage.setItem(ARCHIVE_KEY, JSON.stringify(keep));
+      return;
+    } catch {
+      if (!keep.length) return;
+      keep = keep.slice(0, Math.floor(keep.length / 2));
+    }
+  }
+}
+
+function titleOf(messages: UiMessage[]): string {
+  const first = messages.find((m) => m.role === 'user')?.content.trim().split('\n')[0] ?? '';
+  return first.length > 80 ? `${first.slice(0, 79)}…` : first;
+}
+
 export const useAiStore = defineStore('ai', {
   state: () => ({
     detect: null as AiDetect | null,
     detecting: false,
     // Only the primary window resumes the saved conversation; others start empty.
     messages: (ownsSavedState() ? readJson<UiMessage[]>(HISTORY_KEY, []) : []).filter((m) => !m.pending),
+    /** The current conversation's id in the archive (restoring one keeps its id). */
+    chatId: (ownsSavedState() ? readJson<string | null>(CHAT_ID_KEY, null) : null) ?? newId(),
+    /** The archive as last read (refreshed when the "Historial" panel opens). */
+    history: [] as SavedChat[],
     running: null as string | null,
     phase: null as string | null,
     /** Detail of the phase (the engine download's percentage). */
@@ -122,11 +165,46 @@ export const useAiStore = defineStore('ai', {
     persist() {
       if (!ownsSavedState()) return;
       writeJson(HISTORY_KEY, this.messages.filter((m) => !m.pending).slice(-60));
+      writeJson(CHAT_ID_KEY, this.chatId);
     },
+    /** Put the current conversation at the top of the archive (if it has anything). */
+    archive() {
+      const messages = this.messages.filter((m) => !m.pending).slice(-60);
+      if (!messages.length) return;
+      const rest = readArchive().filter((c) => c.id !== this.chatId);
+      writeArchive([{ id: this.chatId, title: titleOf(messages), updated: Date.now(), messages }, ...rest]);
+    },
+    /** "Nueva conversación": the current one goes to the history. */
     clear() {
       if (this.running) return;
+      this.archive();
       this.messages = [];
+      this.chatId = newId();
       this.persist();
+      this.loadHistory();
+    },
+    loadHistory() {
+      this.history = readArchive();
+    },
+    /** Reopen a past conversation; the current one goes to the history. */
+    restore(id: string) {
+      if (this.running || id === this.chatId) return;
+      const chat = readArchive().find((c) => c.id === id);
+      if (!chat) return;
+      this.archive();
+      writeArchive(readArchive().filter((c) => c.id !== id));
+      this.messages = chat.messages;
+      this.chatId = chat.id;
+      this.persist();
+      this.loadHistory();
+    },
+    deleteChat(id: string) {
+      writeArchive(readArchive().filter((c) => c.id !== id));
+      this.loadHistory();
+    },
+    clearHistory() {
+      writeArchive([]);
+      this.loadHistory();
     },
 
     async send(text: string) {

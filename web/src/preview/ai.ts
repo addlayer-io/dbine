@@ -1,5 +1,5 @@
 // Development only: the AI assistant sidebar with a mocked backend.
-// http://localhost:<port>/ai-preview.html?state=setup|chat|empty
+// http://localhost:<port>/ai-preview.html?state=setup|chat|empty|history
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -80,7 +80,17 @@ app.use(I18NextVue, { i18next });
 loadBackendCatalog();
 app.use(ElementPlus, { size: 'small' });
 for (const [name, comp] of Object.entries(Icons)) app.component(`Ei${name}`, comp as never);
+if (state === 'history') {
+  const day = 86_400_000;
+  const chat = (q: string, a: string) => [{ id: 'u', role: 'user', content: q }, { id: 'a', role: 'assistant', content: a }];
+  localStorage.setItem('dbine.ai.history', JSON.stringify([
+    { id: 'h1', title: 'me podés armar la siguiente query, pero armame los unions contra estas bases', updated: Date.now() - 3_600_000, messages: chat('me podés armar…', '```sql\nSELECT 1;\n```') },
+    { id: 'h2', title: 'Clientes con más de 5 pedidos en 2025', updated: Date.now() - day, messages: [...chat('Clientes…', 'ok'), ...chat('y por mes?', 'ok')] },
+    { id: 'h3', title: 'cómo veo qué sesiones están bloqueando a otras', updated: Date.now() - 6 * day, messages: chat('cómo veo…', 'ok') },
+  ]));
+}
 app.mount('#app');
+if (state === 'history') setTimeout(() => (document.querySelector('[title="Historial"], [title="History"]') as HTMLElement | null)?.click(), 600);
 if (state === 'chat') {
   localStorage.removeItem('dbine.ai.conversation');
   setTimeout(() => useAiStore().send('Clientes con más de 5 pedidos en 2025'), 600);
