@@ -38,7 +38,8 @@
     "schema": "Lecture de la structure de la base…",
     "engine": "Téléchargement du moteur d'IA, une seule fois…",
     "thinking": "Réflexion…",
-    "retry": "Nouvelle demande en cours…"
+    "retry": "Nouvelle demande en cours…",
+    "tool": "Consultation de la connexion :"
   },
   "setup": {
     "detecting": "Recherche d'outils d'IA sur cette machine…",
@@ -82,5 +83,18 @@
     "delete": "Supprimer cette conversation",
     "clear": "Effacer l'historique",
     "clearConfirm": "Toutes les conversations précédentes seront supprimées. L'actuelle n'est pas touchée."
+  },
+  "tools": {
+    "read_one": "A consulté la connexion {{count}} fois",
+    "read_many": "A consulté la connexion {{count}} fois",
+    "read_other": "A consulté la connexion {{count}} fois"
+  },
+  "approval": {
+    "title": "Le modèle ({{model}}) veut lire des données de {{connection}} › {{database}} avec cette requête :",
+    "local": "local",
+    "approve": "Approuver",
+    "reject": "Refuser",
+    "approveAll": "Approuver les lectures dans cette conversation",
+    "note": "Lecture seule : DBine l'exécute dans une session qui refuse toute modification. Si vous la refusez, le modèle continue sans ces données."
   }
 }
