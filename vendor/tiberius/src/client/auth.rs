@@ -39,10 +39,10 @@ impl PartialEq for SqlServerAuth {
 impl Eq for SqlServerAuth {}
 
 #[derive(Clone, Debug)]
-#[cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs"), doc))]
+#[cfg(any(feature = "winauth", all(unix, feature = "sspi-rs"), doc))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs"))))
+    doc(cfg(any(feature = "winauth", all(unix, feature = "sspi-rs"))))
 )]
 pub struct WindowsAuth {
     pub(crate) user: String,
@@ -50,7 +50,7 @@ pub struct WindowsAuth {
     pub(crate) domain: Option<String>,
 }
 
-#[cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs"), doc))]
+#[cfg(any(feature = "winauth", all(unix, feature = "sspi-rs"), doc))]
 impl PartialEq for WindowsAuth {
     fn eq(&self, other: &Self) -> bool {
         self.user == other.user
@@ -59,7 +59,7 @@ impl PartialEq for WindowsAuth {
     }
 }
 
-#[cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs"), doc))]
+#[cfg(any(feature = "winauth", all(unix, feature = "sspi-rs"), doc))]
 impl Eq for WindowsAuth {}
 
 /// Defines the method of authentication to the server.
@@ -70,10 +70,10 @@ pub enum AuthMethod {
     /// Authenticate with Windows credentials. On Windows this uses SSPI via the
     /// `winauth` feature; on Unix it uses NTLM (no Kerberos) via the `sspi-rs`
     /// feature.
-    #[cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs"), doc))]
+    #[cfg(any(feature = "winauth", all(unix, feature = "sspi-rs"), doc))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs"))))
+        doc(cfg(any(feature = "winauth", all(unix, feature = "sspi-rs"))))
     )]
     Windows(WindowsAuth),
     /// Authenticate as the currently logged in user. On Windows uses SSPI and
@@ -102,7 +102,7 @@ impl PartialEq for AuthMethod {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::SqlServer(a), Self::SqlServer(b)) => a == b,
-            #[cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs"), doc))]
+            #[cfg(any(feature = "winauth", all(unix, feature = "sspi-rs"), doc))]
             (Self::Windows(a), Self::Windows(b)) => a == b,
             #[cfg(any(
                 all(windows, feature = "winauth"),
@@ -129,10 +129,10 @@ impl AuthMethod {
     }
 
     /// Construct a new Windows authentication configuration.
-    #[cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs"), doc))]
+    #[cfg(any(feature = "winauth", all(unix, feature = "sspi-rs"), doc))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs"))))
+        doc(cfg(any(feature = "winauth", all(unix, feature = "sspi-rs"))))
     )]
     pub fn windows(user: impl AsRef<str>, password: impl ToString) -> Self {
         let (domain, user) = match user.as_ref().find('\\') {
@@ -219,7 +219,7 @@ mod tests {
         assert_eq!(format!("{:?}", AuthMethod::None), "None");
     }
 
-    #[cfg(any(all(windows, feature = "winauth"), all(unix, feature = "sspi-rs")))]
+    #[cfg(any(feature = "winauth", all(unix, feature = "sspi-rs")))]
     #[test]
     fn windows_auth_parses_domain_and_debug_redacts() {
         // `DOMAIN\user` form exercises the domain-splitting branch of `windows()`.

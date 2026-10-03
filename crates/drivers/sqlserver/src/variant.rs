@@ -36,6 +36,13 @@ impl Variant {
         !matches!(self, Variant::Babelfish)
     }
 
+    /// Accepts Windows logins (the current user, or a domain user and
+    /// password). Azure SQL Database, Fabric and Babelfish have no Active
+    /// Directory logins.
+    pub fn windows(self) -> bool {
+        self == Variant::SqlServer
+    }
+
     /// The login used when the form doesn't say.
     pub fn default_auth(self) -> &'static str {
         match self {
@@ -45,23 +52,48 @@ impl Variant {
     }
 }
 
-fn auth_field(v: Variant) -> Field {
+/// Windows authentication as the user signed in to the computer: SSPI on
+/// Windows, a Kerberos ticket (GSSAPI) on macOS and Linux.
+pub const WINDOWS_INTEGRATED: &str = "windows_integrated";
+/// Windows authentication with a domain user and password (NTLMv2).
+pub const WINDOWS_NTLM: &str = "windows_ntlm";
+
+/// NTLM with explicit domain credentials works on every OS: the vendored
+/// tiberius uses winauth's pure-Rust NTLMv2 off Windows too (PATCHES.md).
+pub const NTLM_SUPPORTED: bool = true;
+
+fn auth_options(v: Variant) -> Vec<(&'static str, &'static str)> {
     let mut options = vec![];
     if v != Variant::Fabric {
         options.push(("sql", "SQL Server (usuario y contraseña)"));
+    }
+    if v.windows() {
+        options.push((WINDOWS_INTEGRATED, "Windows: usuario actual"));
+        if NTLM_SUPPORTED {
+            options.push((WINDOWS_NTLM, "Windows: usuario y contraseña de dominio"));
+        }
     }
     options.extend([
         ("entra_password", "Microsoft Entra ID: usuario y contraseña"),
         ("entra_sp", "Microsoft Entra ID: entidad de servicio"),
         ("entra_token", "Microsoft Entra ID: token de acceso"),
     ]);
-    Field::new("auth", "Autenticación", FieldKind::Select(options))
-        .default_value(v.default_auth())
-        .help("Entra ID con usuario y contraseña no admite cuentas con MFA: usá una entidad de servicio o un token.")
+    options
+}
+
+fn auth_field(v: Variant) -> Field {
+    let help = if v.windows() {
+        "Windows: usuario actual entra con la sesión de Windows o, en macOS y Linux, con el ticket de Kerberos \
+         (kinit usuario@DOMINIO). Entra ID con usuario y contraseña no admite cuentas con MFA: usá una entidad \
+         de servicio o un token."
+    } else {
+        "Entra ID con usuario y contraseña no admite cuentas con MFA: usá una entidad de servicio o un token."
+    };
+    Field::new("auth", "Autenticación", FieldKind::Select(auth_options(v))).default_value(v.default_auth()).help(help)
 }
 
 /// The auth methods that sign in with a user and a password.
-const USER_AUTH: &[&str] = &["sql", "entra_password"];
+const USER_AUTH: &[&str] = &["sql", "entra_password", WINDOWS_NTLM];
 
 fn entra_fields() -> Vec<Field> {
     vec![
@@ -93,7 +125,11 @@ pub fn info(v: Variant) -> DriverInfo {
     let (id, name, fields) = match v {
         Variant::SqlServer => {
             let mut f = vec![Field::host(), Field::port(), Field::database(), auth_field(v)];
-            f.push(Field::username().help("Con Entra ID, la cuenta (usuario@dominio).").when("auth", USER_AUTH));
+            f.push(
+                Field::username()
+                    .help("Con Entra ID, la cuenta (usuario@dominio). Con Windows, DOMINIO\\usuario.")
+                    .when("auth", USER_AUTH),
+            );
             f.push(Field::password().when("auth", USER_AUTH));
             f.extend(entra_fields());
             f.extend([Field::encrypt(), Field::trust_cert(), Field::read_only()]);
@@ -159,11 +195,21 @@ const SQL_CLIENT_APP: &str = "2fd908ad-0664-4344-b9be-cd3e8b574c38";
 pub enum Login {
     Sql { user: String, password: String },
     Token(String),
+    /// The user signed in to the computer (SSPI / Kerberos).
+    Integrated,
+    /// A domain user (`DOMINIO\usuario`) and password, over NTLMv2. Built
+    /// only where tiberius can use it (see [`NTLM_SUPPORTED`]).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Windows { user: String, password: String },
 }
 
 pub async fn login(cfg: &ConnectionConfig, v: Variant) -> Result<Login> {
     let auth = cfg.option("auth").unwrap_or(v.default_auth());
-    if auth != "sql" && !v.entra() {
+    let windows = matches!(auth, WINDOWS_INTEGRATED | WINDOWS_NTLM);
+    if windows && !v.windows() {
+        return Err(Error::AuthFailed("este motor no admite la autenticación de Windows".into()));
+    }
+    if auth != "sql" && !windows && !v.entra() {
         return Err(Error::AuthFailed("este motor solo admite usuario y contraseña".into()));
     }
     let user = cfg.username.as_deref().map(str::trim).filter(|u| !u.is_empty());
@@ -171,6 +217,16 @@ pub async fn login(cfg: &ConnectionConfig, v: Variant) -> Result<Login> {
         "sql" => {
             let user = user.ok_or_else(|| Error::AuthFailed("falta el usuario".into()))?;
             Ok(Login::Sql { user: user.to_string(), password: cfg.password_or_empty().to_string() })
+        }
+        WINDOWS_INTEGRATED => Ok(Login::Integrated),
+        WINDOWS_NTLM if !NTLM_SUPPORTED => Err(Error::AuthFailed(
+            "Windows con usuario y contraseña de dominio solo está disponible en Windows. En macOS y Linux \
+             usá «Windows: usuario actual» con un ticket de Kerberos (kinit usuario@DOMINIO)."
+                .into(),
+        )),
+        WINDOWS_NTLM => {
+            let user = user.ok_or_else(|| Error::AuthFailed("falta el usuario de dominio (DOMINIO\\usuario)".into()))?;
+            Ok(Login::Windows { user: user.to_string(), password: cfg.password_or_empty().to_string() })
         }
         "entra_token" => {
             let t = cfg.option("access_token").map(str::trim).filter(|t| !t.is_empty());
@@ -257,6 +313,70 @@ mod tests {
         assert!(matches!(&auth.kind, FieldKind::Select(o) if o.iter().all(|(k, _)| *k != "sql")));
         assert!(info(Variant::Babelfish).fields.iter().all(|f| f.key != "auth"));
         assert!(Variant::AzureSql.forces_encryption() && !Variant::Babelfish.forces_encryption());
+    }
+
+    fn auth_keys(v: Variant) -> Vec<&'static str> {
+        auth_options(v).into_iter().map(|(k, _)| k).collect()
+    }
+
+    /// The fields a form shows for `auth` (no `when`, or a `when` on `auth`
+    /// that lists it).
+    fn shown(v: Variant, auth: &str) -> Vec<&'static str> {
+        info(v)
+            .fields
+            .into_iter()
+            .filter(|f| f.when.as_ref().is_none_or(|w| w.key != "auth" || w.values.contains(&auth)))
+            .map(|f| f.key)
+            .collect()
+    }
+
+    #[test]
+    fn windows_logins_only_on_sql_server() {
+        let ms = auth_keys(Variant::SqlServer);
+        assert!(ms.contains(&WINDOWS_INTEGRATED));
+        assert!(ms.contains(&WINDOWS_NTLM));
+        for v in [Variant::AzureSql, Variant::Fabric] {
+            let keys = auth_keys(v);
+            assert!(!keys.contains(&WINDOWS_INTEGRATED) && !keys.contains(&WINDOWS_NTLM), "{v:?}");
+        }
+        // SQL logins stay the default.
+        assert_eq!(Variant::SqlServer.default_auth(), "sql");
+    }
+
+    #[test]
+    fn windows_logins_show_their_fields() {
+        let v = Variant::SqlServer;
+        // The current user: neither user nor password.
+        let integrated = shown(v, WINDOWS_INTEGRATED);
+        assert!(!integrated.contains(&"username") && !integrated.contains(&"password"), "{integrated:?}");
+        assert!(!integrated.iter().any(|k| ["tenant_id", "client_id", "client_secret", "access_token"].contains(k)));
+        assert!(integrated.contains(&"host") && integrated.contains(&"encrypt"));
+        // A domain user: user and password (the password is a secret).
+        let ntlm = shown(v, WINDOWS_NTLM);
+        assert!(ntlm.contains(&"username") && ntlm.contains(&"password"), "{ntlm:?}");
+        assert!(info(v).fields.iter().any(|f| f.key == "password" && f.secret));
+        // SQL logins are unchanged.
+        let sql = shown(v, "sql");
+        assert!(sql.contains(&"username") && sql.contains(&"password"));
+    }
+
+    #[tokio::test]
+    async fn windows_logins_resolve() {
+        let mut cfg = ConnectionConfig::default();
+        cfg.options.insert("auth".into(), WINDOWS_INTEGRATED.into());
+        assert!(matches!(login(&cfg, Variant::SqlServer).await, Ok(Login::Integrated)));
+        for v in [Variant::AzureSql, Variant::Fabric, Variant::Babelfish] {
+            assert!(matches!(login(&cfg, v).await, Err(Error::AuthFailed(m)) if m.contains("Windows")), "{v:?}");
+        }
+        cfg.options.insert("auth".into(), WINDOWS_NTLM.into());
+        if NTLM_SUPPORTED {
+            assert!(matches!(login(&cfg, Variant::SqlServer).await, Err(Error::AuthFailed(m)) if m.contains("DOMINIO")));
+            cfg.username = Some(" CONTOSO\\ana ".into());
+            cfg.password = Some("x".into());
+            assert!(matches!(login(&cfg, Variant::SqlServer).await, Ok(Login::Windows { user, .. }) if user == "CONTOSO\\ana"));
+        } else {
+            assert!(matches!(login(&cfg, Variant::SqlServer).await, Err(Error::AuthFailed(m)) if m.contains("solo está disponible en Windows")));
+        }
     }
 
     #[tokio::test]

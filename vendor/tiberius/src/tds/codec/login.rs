@@ -326,7 +326,7 @@ impl<'a> LoginMessage<'a> {
     }
 
     #[cfg(any(
-        all(unix, any(feature = "integrated-auth-gssapi", feature = "sspi-rs")),
+        all(unix, any(feature = "integrated-auth-gssapi", feature = "sspi-rs", feature = "winauth")),
         windows
     ))]
     pub fn integrated_security(&mut self, bytes: Option<Vec<u8>>) {
@@ -1040,7 +1040,7 @@ mod tests {
     }
 
     #[cfg(any(
-        all(unix, any(feature = "integrated-auth-gssapi", feature = "sspi-rs")),
+        all(unix, any(feature = "integrated-auth-gssapi", feature = "sspi-rs", feature = "winauth")),
         windows
     ))]
     #[test]

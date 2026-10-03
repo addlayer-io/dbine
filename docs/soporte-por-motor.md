@@ -2577,3 +2577,48 @@ cuarta de columnas distintas queda un resultado por base; una base sin la
 tabla informa su error y las demás se juntan igual; en una conexión de solo
 lectura un `DELETE` se rechaza (probado en SQL Server)
 (`cargo test -p dbine --lib multi_db -- --include-ignored`).
+
+## Autenticación integrada (Windows / Kerberos)
+
+Entrar con la cuenta del dominio en lugar de un usuario de la base
+([`autenticacion-integrada.md`](autenticacion-integrada.md)).
+
+| Motor | Qué hay |
+|---|---|
+| SQL Server | **Windows: usuario actual**: SSPI en Windows (NTLM), Kerberos con el ticket de la sesión en macOS y Linux. **Windows: usuario y contraseña de dominio** (NTLMv2): en Windows, macOS y Linux. |
+| MongoDB | **Kerberos (GSSAPI)** con el ticket de la sesión (SSPI en Windows). Requiere MongoDB Enterprise. |
+| Motores por ODBC (Db2, Teradata, Hive, Impala, Spark, Vertica…) y ODBC genérico | Con los atributos del driver ODBC en **Atributos adicionales** (`Authentication=KERBEROS`, `AuthMech=1`, `Trusted_Connection=yes`…), que reemplazan a los del mismo nombre. |
+
+### Motores sin autenticación integrada
+
+| Motor | Motivo |
+|---|---|
+| SQL Server desde macOS y Linux, con usuario y contraseña de dominio | Pendiente. El cliente (tiberius) hace NTLM fuera de Windows con `sspi-rs`, cuya versión fija una versión preliminar de `crypto-bigint` incompatible con la del cliente SSH (russh). Se resuelve con un parche a la copia de tiberius de DBine (`vendor/tiberius`) que use su cliente NTLMv2 propio, en Rust, en todas las plataformas. Mientras tanto: **Windows: usuario actual** con `kinit`. |
+| Azure SQL Database, Microsoft Fabric | No tienen logins de Windows (Active Directory local): usan Microsoft Entra ID. Entra ID integrado no está todavía. |
+| Babelfish for PostgreSQL | No tiene logins de Windows. |
+| Oracle, Oracle Autonomous | El cliente es el thin de Oracle en Rust (`oracledb`), que solo hace el login con contraseña (O5LOGON). La autenticación externa (`/`, wallet con credenciales, Kerberos, usuario del sistema operativo) es del cliente con Instant Client, que DBine no usa. La del usuario del sistema operativo por red (`REMOTE_OS_AUTHENT`) además ya no existe desde Oracle 21c. |
+| PostgreSQL y compatibles (TimescaleDB, AlloyDB, Cloud SQL, Aurora, EDB, YugabyteDB, CockroachDB, Greenplum…), Amazon Aurora DSQL | El cliente (tokio-postgres) rechaza los métodos GSSAPI y SSPI del servidor; no hay forma de agregarlos sin reescribir su inicio de sesión. |
+| MySQL, MariaDB, TiDB y compatibles | El cliente (mysql_async) no tiene los plugins `authentication_kerberos_client`, `authentication_windows_client` (MySQL Enterprise) ni `auth_gssapi_client` (MariaDB). |
+| SAP HANA | El cliente (hdbconnect) solo hace el login con usuario y contraseña. |
+| Firebird | El cliente en Rust solo hace SRP; la seguridad integrada de Windows (`Win_Sspi`) es de la biblioteca nativa fbclient. |
+| Cassandra, ScyllaDB | El autenticador Kerberos es de DataStax Enterprise; el cliente (scylla) no lo trae. |
+| Neo4j | El esquema `kerberos` de Bolt necesita un plugin del servidor y un ticket que DBine no obtiene todavía. |
+| ClickHouse, Trino, Elasticsearch, OpenSearch, Solr, Apache Phoenix, Apache Drill, Dremio, CouchDB, InfluxDB, ksqlDB | El servidor admite Kerberos por HTTP (SPNEGO) en algunos casos, pero el cliente HTTP de DBine no negocia SPNEGO. Pendiente. |
+| Redis, etcd, Couchbase, OrientDB, Apache IoTDB, TDengine | El motor no tiene autenticación de Windows ni Kerberos. |
+| Arrow Flight SQL | El protocolo solo define usuario y contraseña o un token. |
+| BigQuery, Spanner, Snowflake, Databricks, Athena, DynamoDB, Cosmos DB y otros servicios en la nube | Usan la identidad de la nube (cuentas de servicio, IAM, tokens), no la del dominio. |
+| SQLite, DuckDB, libSQL y otros motores de archivo local | No hay servidor al que autenticarse. |
+
+### Probado
+
+- Unidad: cada modo arma la autenticación correcta de tiberius (SQL, usuario
+  actual, NTLM), qué campos muestra el formulario en cada modo, que Azure
+  SQL, Fabric y Babelfish no ofrezcan Windows, los mensajes de Kerberos, el
+  login GSSAPI de MongoDB y los atributos ODBC que reemplazan a los del
+  preset.
+- Contra servidores reales: el login con usuario de SQL Server sigue igual
+  (`dbine-test-sqlserver`) y el de MongoDB con usuario y contraseña también
+  (`dbine-test-mongodb`).
+- **Sin probar de punta a punta**: no hay un dominio de Active Directory de
+  prueba, así que el usuario actual (SSPI y Kerberos), NTLM y Kerberos de
+  MongoDB no se probaron contra un servidor real.

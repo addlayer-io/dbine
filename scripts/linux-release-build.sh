@@ -13,6 +13,12 @@
 # docs/actualizaciones.md, .claude/agents/release.md.
 set -euo pipefail
 cd /src
+# Kerberos (GSSAPI) headers for SQL Server's and MongoDB's Windows / Kerberos
+# authentication (libgssapi-sys runs bindgen over them). Images built before
+# it was needed don't have them.
+if ! pkg-config --exists mit-krb5-gssapi; then
+  apt-get update -qq && apt-get install -y -qq --no-install-recommends libkrb5-dev
+fi
 export DBINE_DRIVER_JOBS="${DBINE_DRIVER_JOBS:-1}"
 python3 scripts/build-driver-hosts.py x86_64-unknown-linux-gnu driver-hosts-linux \
   "https://github.com/addlayer-io/dbine/releases/download/drivers" \

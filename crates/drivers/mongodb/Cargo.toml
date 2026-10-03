@@ -12,4 +12,6 @@ futures.workspace = true
 chrono.workspace = true
 base64.workspace = true
 tracing.workspace = true
-mongodb = "3"
+# `gssapi-auth`: Kerberos (GSSAPI) logins, through the system's GSSAPI on macOS/Linux
+# (libgssapi_krb5 on Linux) and SSPI on Windows.
+mongodb = { version = "3", features = ["gssapi-auth"] }

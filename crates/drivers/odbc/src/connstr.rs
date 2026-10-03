@@ -48,10 +48,18 @@ pub fn build(preset: &Preset, cfg: &ConnectionConfig, database: &str) -> Result<
     }
 
     let driver = cfg.option("odbc_driver").unwrap_or(preset.driver_hint);
+    // The extra attributes win over the template's: that is how Kerberos or
+    // Windows integrated security is asked for (`Authentication=KERBEROS`,
+    // `AuthMech=1`, `Trusted_Connection=yes`…), replacing the user and
+    // password ones.
+    let extra = cfg.option("extra").map(|e| e.trim().trim_matches(';')).unwrap_or("");
     let port = cfg.port_or(preset.default_port).to_string();
     let host = cfg.host.trim();
     let mut parts: Vec<String> = Vec::new();
     for (key, v) in preset.template {
+        if has_key(extra, key) {
+            continue;
+        }
         let value = match v {
             V::Driver => {
                 parts.push(format!("{key}={}", driver_value(driver)));
@@ -97,11 +105,8 @@ pub fn build(preset: &Preset, cfg: &ConnectionConfig, database: &str) -> Result<
             parts.push(format!("{key}={}", escape(&value)));
         }
     }
-    if let Some(extra) = cfg.option("extra") {
-        let extra = extra.trim().trim_matches(';');
-        if !extra.is_empty() {
-            parts.push(extra.to_string());
-        }
+    if !extra.is_empty() {
+        parts.push(extra.to_string());
     }
     Ok(parts.join(";"))
 }
@@ -257,6 +262,24 @@ mod tests {
         c.host = String::new();
         let s = build(preset("ingres"), &c, "db").unwrap();
         assert!(!s.contains("SERVER="), "{s}");
+    }
+
+    /// Integrated security goes in the extra attributes, which replace the
+    /// template's attribute of the same name instead of repeating it.
+    #[test]
+    fn extra_attributes_replace_the_template() {
+        let c = cfg(&[("extra", "AuthMech=1;KrbRealm=CONTOSO.LOCAL;KrbHostFQDN=hive.contoso.local;KrbServiceName=hive")]);
+        let s = build(preset("hive"), &c, "").unwrap();
+        assert_eq!(s.matches("AuthMech=").count(), 1, "{s}");
+        assert!(s.ends_with(";AuthMech=1;KrbRealm=CONTOSO.LOCAL;KrbHostFQDN=hive.contoso.local;KrbServiceName=hive"), "{s}");
+        let mut c = cfg(&[("extra", "Authentication=KERBEROS;")]);
+        c.username = None;
+        c.password = None;
+        let s = build(preset("db2"), &c, "SAMPLE").unwrap();
+        assert_eq!(s, "DRIVER={IBM DB2 ODBC DRIVER};DATABASE=SAMPLE;HOSTNAME=db.local;PORT=50000;PROTOCOL=TCPIP;Authentication=KERBEROS");
+        // Case doesn't matter, as in ODBC.
+        let s = build(preset("db2"), &cfg(&[("extra", "uid=otro")]), "SAMPLE").unwrap();
+        assert!(!s.contains("UID=app") && s.ends_with(";uid=otro"), "{s}");
     }
 
     #[test]

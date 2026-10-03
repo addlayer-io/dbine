@@ -415,12 +415,47 @@ fn connect_error(e: tiberius::error::Error) -> Error {
     match &e {
         // 18456: login failed.
         tiberius::error::Error::Server(t) if t.code() == 18456 => Error::AuthFailed(t.message().to_string()),
+        // 18452: a Windows login from a domain the server doesn't trust.
+        tiberius::error::Error::Server(t) if t.code() == 18452 => Error::AuthFailed(format!(
+            "{} El servidor no reconoce la cuenta de Windows: revisá que la computadora o el usuario sean del dominio \
+             (o de uno de confianza) y que el host sea el nombre del servidor en el dominio.",
+            t.message()
+        )),
+        // Kerberos on macOS and Linux: no ticket, an expired one, or no KDC.
+        #[cfg(unix)]
+        tiberius::error::Error::Gssapi(m) => Error::AuthFailed(kerberos_hint(m)),
         tiberius::error::Error::Server(t) => Error::Connect(t.message().to_string()),
         // The network's own message (or ours, for a timeout), without
         // tiberius' English prefix.
         tiberius::error::Error::Io { message, .. } => Error::Connect(message.clone()),
         _ => Error::Connect(e.to_string()),
     }
+}
+
+/// A GSSAPI failure, explained: what usually fixes it comes first, the
+/// library's own text after.
+#[cfg(unix)]
+fn kerberos_hint(gss: &str) -> String {
+    let lower = gss.to_ascii_lowercase();
+    let what = if lower.contains("no kerberos credentials")
+        || lower.contains("no credentials")
+        || lower.contains("credentials cache")
+        || lower.contains("expired")
+    {
+        "no hay un ticket de Kerberos vigente"
+    } else if lower.contains("server not found") || lower.contains("unknown server") || lower.contains("not found in kerberos database") {
+        "el dominio no conoce el servicio MSSQLSvc de ese servidor (usá el nombre completo del host, no la IP ni un alias)"
+    } else if lower.contains("realm") || lower.contains("kdc") {
+        "no se pudo llegar al controlador de dominio (KDC)"
+    } else {
+        "falló Kerberos"
+    };
+    let fix = if cfg!(target_os = "macos") {
+        "Pedí un ticket con «kinit usuario@DOMINIO» en la Terminal o con la app Ticket Viewer, y revisá que el Mac vea la red del dominio."
+    } else {
+        "Pedí un ticket con «kinit usuario@DOMINIO» (klist muestra el actual) y revisá /etc/krb5.conf y que la red llegue al dominio."
+    };
+    format!("Windows (Kerberos): {what}. {fix} Detalle: {gss}")
 }
 
 /// A statement's failure: the server's own message when there is one.
@@ -479,11 +514,18 @@ fn build_config(cfg: &ConnectionConfig, database: Option<&str>, variant: Variant
     if cfg.read_only {
         c.readonly(true);
     }
-    c.authentication(match login {
+    c.authentication(auth_method(login)?);
+    Ok(c)
+}
+
+fn auth_method(login: Login) -> Result<AuthMethod> {
+    Ok(match login {
         Login::Sql { user, password } => AuthMethod::sql_server(user, password),
         Login::Token(t) => AuthMethod::aad_token(t),
-    });
-    Ok(c)
+        Login::Integrated => AuthMethod::Integrated,
+        // NTLMv2 on every OS (vendor/tiberius PATCHES.md: winauth off Windows too).
+        Login::Windows { user, password } => AuthMethod::windows(user, password),
+    })
 }
 
 /// "host\INSTANCE" or "host,port" as SQL Server tools accept them.
@@ -1212,6 +1254,42 @@ mod tests {
         );
         assert!(is_desync(&e));
         assert!(!is_desync(&tiberius::error::Error::Protocol("bad token".into())));
+    }
+
+    /// Each form login becomes the tiberius authentication it stands for.
+    #[tokio::test]
+    async fn logins_become_their_auth_method() {
+        let mut cfg = ConnectionConfig {
+            host: "sql01.contoso.local".into(),
+            username: Some("CONTOSO\\ana".into()),
+            password: Some("s3cret".into()),
+            ..Default::default()
+        };
+        let method = |cfg: &ConnectionConfig| {
+            let cfg = cfg.clone();
+            async move { auth_method(variant::login(&cfg, Variant::SqlServer).await?) }
+        };
+        assert_eq!(method(&cfg).await.unwrap(), AuthMethod::sql_server("CONTOSO\\ana", "s3cret"));
+
+        cfg.options.insert("auth".into(), variant::WINDOWS_INTEGRATED.into());
+        assert_eq!(method(&cfg).await.unwrap(), AuthMethod::Integrated);
+        // No user or password travels with the current user's login.
+        let c = build_config(&cfg, None, Variant::SqlServer, Login::Integrated).unwrap();
+        assert!(!format!("{c:?}").contains("s3cret"));
+
+        cfg.options.insert("auth".into(), variant::WINDOWS_NTLM.into());
+        assert_eq!(method(&cfg).await.unwrap(), AuthMethod::windows("CONTOSO\\ana", "s3cret"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kerberos_failures_say_what_to_do() {
+        let e = connect_error(tiberius::error::Error::Gssapi(
+            "gss_acquire_cred: No Kerberos credentials available (default cache: API:1234)".into(),
+        ));
+        assert!(matches!(&e, Error::AuthFailed(m) if m.contains("no hay un ticket de Kerberos vigente") && m.contains("kinit usuario@DOMINIO")), "{e:?}");
+        let e = connect_error(tiberius::error::Error::Gssapi("Server not found in Kerberos database".into()));
+        assert!(matches!(&e, Error::AuthFailed(m) if m.contains("MSSQLSvc")), "{e:?}");
     }
 
     #[test]

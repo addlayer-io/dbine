@@ -1169,6 +1169,7 @@
   "crates/drivers/drill/src/lib.rs",
   "crates/drivers/dynamodb/src/aws.rs",
   "crates/drivers/firebird/src/security.rs",
+  "crates/drivers/mongodb/src/lib.rs",
   "crates/drivers/mongodb/src/security.rs",
   "crates/drivers/mysql/src/security.rs",
   "crates/drivers/mysql/src/security/databend.rs",
@@ -3098,6 +3099,12 @@
  ],
  "Con Entra ID, la cuenta (usuario@dominio).": [
   "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "Con Entra ID, la cuenta (usuario@dominio). Con Windows, DOMINIO\\usuario.": [
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "Con Kerberos, el principal (usuario@DOMINIO).": [
+  "crates/drivers/mongodb/src/lib.rs"
  ],
  "Con clave primaria: se crea una TABLE (cada clave guarda su último valor; un INSERT con la misma clave reemplaza la fila).": [
   "crates/dbine-schema/src/dialect/ksqldb.rs"
@@ -5414,6 +5421,9 @@
  ],
  "El nombre del almacén o del punto de conexión SQL.": [
   "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "El nombre del servicio con el que está registrado el servidor; casi siempre «mongodb».": [
+  "crates/drivers/mongodb/src/lib.rs"
  ],
  "El nombre del {0} no puede tener caracteres de control.": [
   "crates/drivers/etcd/src/security.rs"
@@ -8283,6 +8293,12 @@
  ],
  "Kerberos": [
   "crates/drivers/odbc/src/security.rs"
+ ],
+ "Kerberos necesita el principal (usuario@DOMINIO)": [
+  "crates/drivers/mongodb/src/lib.rs"
+ ],
+ "Kerberos usa el ticket de la sesión (en macOS y Linux, el de kinit usuario@DOMINIO) y requiere MongoDB Enterprise.": [
+  "crates/drivers/mongodb/src/lib.rs"
  ],
  "Key": [
   "crates/drivers/dynamodb/src/admin.rs",
@@ -13833,7 +13849,7 @@
  "Se administra en": [
   "crates/drivers/bigquery/src/security.rs"
  ],
- "Se agregan al final de la cadena de conexión ODBC (TLS, timeouts, juego de caracteres…).": [
+ "Se agregan al final de la cadena de conexión ODBC y reemplazan a los del mismo nombre (TLS, timeouts, juego de caracteres, Kerberos o seguridad integrada de Windows…).": [
   "crates/drivers/odbc/src/lib.rs"
  ],
  "Se aplica a": [
@@ -14121,6 +14137,9 @@
   "crates/drivers/hana/src/monitor.rs",
   "crates/drivers/odbc/src/presets.rs",
   "crates/drivers/oracle/src/lib.rs"
+ ],
+ "Servicio de Kerberos": [
+  "crates/drivers/mongodb/src/lib.rs"
  ],
  "Servicio de consultas": [
   "crates/drivers/couchbase/src/lib.rs"
@@ -16378,6 +16397,9 @@
  "Usuario reservado": [
   "crates/drivers/elasticsearch/src/security.rs"
  ],
+ "Usuario y contraseña": [
+  "crates/drivers/mongodb/src/lib.rs"
+ ],
  "Usuarios": [
   "crates/drivers/influxdb/src/monitor.rs",
   "crates/drivers/snowflake/src/security.rs"
@@ -16755,8 +16777,17 @@
  "Windows": [
   "src-tauri/src/commands/telemetry.rs"
  ],
+ "Windows con usuario y contraseña de dominio solo está disponible en Windows. En macOS y Linux usá «Windows: usuario actual» con un ticket de Kerberos (kinit usuario@DOMINIO).": [
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
  "Windows trae el administrador ODBC (odbc32.dll); instalá el driver ODBC del fabricante.": [
   "crates/drivers/odbc/src/ffi.rs"
+ ],
+ "Windows: usuario actual entra con la sesión de Windows o, en macOS y Linux, con el ticket de Kerberos (kinit usuario@DOMINIO). Entra ID con usuario y contraseña no admite cuentas con MFA: usá una entidad de servicio o un token.": [
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "Windows: usuario y contraseña de dominio": [
+  "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Workers": [
   "crates/drivers/influxdb/src/monitor.rs",
@@ -17278,6 +17309,12 @@
  ],
  "configuración del servidor": [
   "crates/drivers/mysql/src/security/databend.rs"
+ ],
+ "consulta de la conexión: {0}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "consulta en {0}: {1}": [
+  "src-tauri/src/commands/ai.rs"
  ],
  "consumidor {0} de Performance Schema (estaba desactivado)": [
   "crates/drivers/mysql/src/profiler.rs"
@@ -18922,6 +18959,9 @@
   "crates/drivers/mysql/src/session.rs",
   "crates/drivers/postgres/src/security.rs"
  ],
+ "este motor no admite la autenticación de Windows": [
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
  "este motor no aplica cambios de esquema": [
   "crates/dbine-driver/src/lib.rs"
  ],
@@ -19081,7 +19121,10 @@
  "este tipo de objeto no tiene filas que copiar": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
- "estructura de {0}{1}": [
+ "estructura de {0}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "estructura de {0} en {1}": [
   "src-tauri/src/commands/ai.rs"
  ],
  "está corriendo pero no tiene modelos descargados": [
@@ -19268,6 +19311,9 @@
  "falta el usuario SSH": [
   "src-tauri/src/tunnels.rs"
  ],
+ "falta el usuario de dominio (DOMINIO\\usuario)": [
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
  "falta en el clon «{0}»": [
   "crates/dbine-transfer/src/clone_table/mysql.rs"
  ],
@@ -19385,7 +19431,10 @@
  "filas": [
   "crates/dbine-driver/src/profiler.rs"
  ],
- "filas de muestra de {0}{1}": [
+ "filas de muestra de {0}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "filas de muestra de {0} en {1}": [
   "src-tauri/src/commands/ai.rs"
  ],
  "filas desde la {0}: {1}": [
@@ -21767,6 +21816,12 @@
  "objetos CLR que no se clonan (necesitan su assembly): {0}": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
+ "objetos de la base": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "objetos de la base {0}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "ocultar (HIDDEN) la columna del período": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -21911,7 +21966,10 @@
   "crates/drivers/mongodb/src/ddl.rs",
   "crates/drivers/mongodb/src/sync.rs"
  ],
- "plan de ejecución{0}": [
+ "plan de ejecución": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "plan de ejecución en {0}": [
   "src-tauri/src/commands/ai.rs"
  ],
  "plan sin operadores": [
@@ -22878,10 +22936,16 @@
  "uso de disco": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
- "uso de índices de todas las tablas{0}": [
+ "uso de índices de todas las tablas": [
   "src-tauri/src/commands/ai.rs"
  ],
- "uso de índices de {0}{1}": [
+ "uso de índices de todas las tablas en {0}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "uso de índices de {0}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "uso de índices de {0} en {1}": [
   "src-tauri/src/commands/ai.rs"
  ],
  "usuario que también es rol": [
