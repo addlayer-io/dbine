@@ -38,7 +38,8 @@
     "schema": "Reading the database structure…",
     "engine": "Downloading the AI engine, just this once…",
     "thinking": "Thinking…",
-    "retry": "Asking again…"
+    "retry": "Asking again…",
+    "tool": "Querying the connection:"
   },
   "setup": {
     "detecting": "Looking for AI tools on this machine…",
@@ -82,5 +83,18 @@
     "delete": "Delete this conversation",
     "clear": "Clear history",
     "clearConfirm": "All previous conversations will be deleted. The current one is not touched."
+  },
+  "tools": {
+    "read_one": "Queried the connection {{count}} time",
+    "read_many": "Queried the connection {{count}} times",
+    "read_other": "Queried the connection {{count}} times"
+  },
+  "approval": {
+    "title": "The model ({{model}}) wants to read data from {{connection}} › {{database}} with this query:",
+    "local": "local",
+    "approve": "Approve",
+    "reject": "Reject",
+    "approveAll": "Approve reads in this conversation",
+    "note": "Read-only: DBine runs it in a session that rejects any change. If you reject it, the model carries on without that data."
   }
 }

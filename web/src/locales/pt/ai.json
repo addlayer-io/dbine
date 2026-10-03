@@ -38,7 +38,8 @@
     "schema": "Lendo a estrutura do banco…",
     "engine": "Baixando o motor de IA, só desta vez…",
     "thinking": "Pensando…",
-    "retry": "Perguntando de novo…"
+    "retry": "Perguntando de novo…",
+    "tool": "Consultando a conexão:"
   },
   "setup": {
     "detecting": "Procurando ferramentas de IA nesta máquina…",
@@ -82,5 +83,18 @@
     "delete": "Excluir esta conversa",
     "clear": "Limpar histórico",
     "clearConfirm": "Todas as conversas anteriores serão excluídas. A atual não é afetada."
+  },
+  "tools": {
+    "read_one": "Consultou a conexão {{count}} vez",
+    "read_many": "Consultou a conexão {{count}} vezes",
+    "read_other": "Consultou a conexão {{count}} vezes"
+  },
+  "approval": {
+    "title": "O modelo ({{model}}) quer ler dados de {{connection}} › {{database}} com esta consulta:",
+    "local": "local",
+    "approve": "Aprovar",
+    "reject": "Rejeitar",
+    "approveAll": "Aprovar leituras nesta conversa",
+    "note": "Somente leitura: o DBine a executa em uma sessão que rejeita qualquer alteração. Se você a rejeitar, o modelo segue sem esses dados."
   }
 }

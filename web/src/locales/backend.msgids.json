@@ -2,11 +2,20 @@
  "\n(No se pudo leer la estructura de la base: {0}.)\n": [
   "src-tauri/src/commands/ai.rs"
  ],
+ "\n(No se pudo listar los objetos de la base: {0}.)\n": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "\n(y {0} objetos más: list_objects los lista)": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "\n-- Dremio no tiene WITH GRANT OPTION: poder otorgar es MANAGE GRANTS sobre la carpeta.\nGRANT MANAGE GRANTS ON {0} TO {1};": [
   "crates/drivers/dremio/src/security.rs"
  ],
  "\n// Índices y restricciones\n": [
   "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "\n<objetos de «{0}»>\n{1}{2}\n</objetos>\n(Columnas, claves e índices: pedilos con describe_object o index_usage.)\n": [
+  "src-tauri/src/commands/ai.rs"
  ],
  "\n<seleccion>\n{0}\n</seleccion>\n(Si el usuario dice «esto», se refiere a la selección.)\n": [
   "src-tauri/src/commands/ai.rs"
@@ -23,10 +32,16 @@
  "\nNo hay ninguna base seleccionada: respondé en general o pedí que abra una.\n": [
   "src-tauri/src/commands/ai.rs"
  ],
+ "\nYa hiciste todas las consultas permitidas en esta respuesta: contestá con lo que tenés, sin pedir más.\n": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "\nmodelo listo en {0}s": [
   "crates/dbine-ai/examples/ask.rs"
  ],
  "  (no columns reported)": [
+  "src-tauri/src/mcp/tools.rs"
+ ],
+ "  (no indexes)": [
   "src-tauri/src/mcp/tools.rs"
  ],
  " (autoescalado, máximo)": [
@@ -447,6 +462,9 @@
  ],
  "<día {0}>": [
   "crates/drivers/sqlserver/src/transfer.rs"
+ ],
+ "<error>\nYa pediste exactamente esto y tenés el resultado más arriba. No lo pidas de nuevo: pedí otra cosa o escribí la respuesta final con lo que ya tenés.\n</error>": [
+  "src-tauri/src/commands/ai.rs"
  ],
  "ADC usa GOOGLE_APPLICATION_CREDENTIALS, `gcloud auth application-default login` o el servidor de metadatos.": [
   "crates/drivers/bigquery/src/gcp.rs"
@@ -1086,6 +1104,10 @@
  ],
  "Asistente": [
   "crates/dbine-ai/src/lib.rs"
+ ],
+ "Asistente de DBine": [
+  "src-tauri/src/mcp/tests.rs",
+  "src-tauri/src/mcp/tools.rs"
  ],
  "Asserts": [
   "crates/drivers/mongodb/src/monitor.rs"
@@ -5642,6 +5664,9 @@
   "crates/drivers/cosmosdb/src/monitor.rs"
  ],
  "El usuario está mirando el objeto {0}.\n": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "El usuario no aprobó esta consulta, así que no se ejecutó. Seguí sin esos datos: respondé con lo que tenés o escribí la consulta para que la ejecute él.": [
   "src-tauri/src/commands/ai.rs"
  ],
  "El usuario no puede leer las estadísticas del servicio de índices (rol «External Stats Reader» o uno de administración): se listan los índices sin contadores.": [
@@ -17002,6 +17027,9 @@
  "backup de {0} ({1}), DBine {2}": [
   "crates/dbine-sync/examples/open_backup.rs"
  ],
+ "bases de la conexión": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "binario sin leer ({0})": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
@@ -19053,6 +19081,9 @@
  "este tipo de objeto no tiene filas que copiar": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "estructura de {0}{1}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "está corriendo pero no tiene modelos descargados": [
   "crates/dbine-ai/src/detect.rs"
  ],
@@ -19353,6 +19384,9 @@
  ],
  "filas": [
   "crates/dbine-driver/src/profiler.rs"
+ ],
+ "filas de muestra de {0}{1}": [
+  "src-tauri/src/commands/ai.rs"
  ],
  "filas desde la {0}: {1}": [
   "crates/drivers/libsql/src/transfer.rs"
@@ -20753,6 +20787,9 @@
  "nchar({0}) supera el máximo de {1}: se usa long nvarchar.": [
   "crates/dbine-schema/src/dialect/sybase.rs"
  ],
+ "never read nor written (no evidence either way)": [
+  "src-tauri/src/mcp/tools.rs"
+ ],
  "ninguna (no puede ingresar)": [
   "crates/drivers/redis/src/security.rs"
  ],
@@ -20965,6 +21002,9 @@
  ],
  "no respondió en 20 s": [
   "crates/dbine-tunnel/src/lib.rs"
+ ],
+ "no rows without «datos»: {0}": [
+  "src-tauri/src/mcp/tests.rs"
  ],
  "no se borran documentos en una vista de CouchDB": [
   "crates/drivers/couchdb/src/ddl.rs"
@@ -21870,6 +21910,9 @@
  "pipeline de la vista": [
   "crates/drivers/mongodb/src/ddl.rs",
   "crates/drivers/mongodb/src/sync.rs"
+ ],
+ "plan de ejecución{0}": [
+  "src-tauri/src/commands/ai.rs"
  ],
  "plan sin operadores": [
   "crates/drivers/duckdb/src/plan.rs"
@@ -22835,6 +22878,12 @@
  "uso de disco": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "uso de índices de todas las tablas{0}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "uso de índices de {0}{1}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "usuario que también es rol": [
   "crates/drivers/odbc/src/security/sybase.rs"
  ],
@@ -23008,6 +23057,9 @@
  ],
  "{0} (la transacción abierta se perdió: la sesión venció)": [
   "crates/drivers/spanner/src/lib.rs"
+ ],
+ "{0} (no se leyó)": [
+  "src-tauri/src/commands/ai.rs"
  ],
  "{0} (repartido: restauralo desde el servidor)": [
   "crates/drivers/sqlserver/src/backup.rs"
@@ -23384,6 +23436,9 @@
  ],
  "{0} no informa el uso de disco ni de red por la API; el almacenamiento depende de cada conector (Hive, Iceberg…).": [
   "crates/drivers/trino/src/monitor.rs"
+ ],
+ "{0} no informa el uso de índices": [
+  "src-tauri/src/mcp/tools.rs"
  ],
  "{0} no informa memoria, conexiones, red ni caché en serverStatus; se muestran los contadores de comandos.": [
   "crates/drivers/mongodb/src/monitor.rs"
