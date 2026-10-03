@@ -6,6 +6,7 @@ import { errorMessage } from '../api/client';
 import { tb } from '../i18n/backend';
 import { aiApi, type AiModel, type AiProvider, type AiProviderKind } from '../api/ai';
 import { newQuery } from '../composables/actions';
+import SparklesIcon from './SparklesIcon.vue';
 import { useAiStore, type UiMessage } from '../stores/ai';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
@@ -247,7 +248,7 @@ const phaseText = computed(() => ({
 <template>
   <aside class="ai">
     <header class="ai-head">
-      <el-icon class="ai-logo"><ei-magic-stick /></el-icon>
+      <el-icon class="ai-logo"><SparklesIcon /></el-icon>
       <strong>{{ $t('ai:title') }}</strong>
       <el-select v-if="provider" v-model="selectValue" size="small" class="ai-model" :title="`${tb(provider.label)} · ${tb(provider.status)}`">
         <el-option-group v-for="p in ai.usable" :key="p.kind" :label="tb(p.label)">
