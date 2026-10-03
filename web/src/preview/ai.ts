@@ -98,8 +98,8 @@ if (state === 'approval') {
       { id: 'u1', role: 'user', content: '¿cuántos clientes hay en cada base tenant?' },
       {
         id: 'a1', role: 'assistant', content: '', pending: true,
-        tools: [{ label: 'bases de la conexión', ok: true }, { label: 'estructura de people.customer en tenant-aduro', ok: true }],
-        approval: { requestId: 'r1', label: 'consulta en tenant-aduro', connection: 'PROD-BRAZIL', database: 'sqldb-prod-iaas-brazilsouth-tenant-aduro', sql: 'SELECT COUNT(*) AS clientes FROM people.customer;' },
+        tools: [{ label: 'bases de la conexión', ok: true }, { label: 'estructura de people.customer en tenant-ventas', ok: true }],
+        approval: { requestId: 'r1', label: 'consulta en tenant-ventas', connection: 'prod-sql', database: 'tenant-ventas', sql: 'SELECT COUNT(*) AS clientes FROM people.customer;' },
       },
     ];
   }, 400);

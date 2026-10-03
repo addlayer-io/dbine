@@ -177,7 +177,7 @@ pub async fn ai_approve(ai: State<'_, AiRuntime>, args: ApproveArgs) -> CommandR
 #[derive(Clone, Serialize)]
 struct ToolEvent<'a> {
     chat_id: &'a str,
-    /// What it read, for the chat ("estructura de people.customer en tenant-brinks").
+    /// What it read, for the chat ("estructura de people.customer en tenant-compras").
     label: &'a str,
     ok: bool,
 }
@@ -686,7 +686,7 @@ fn json_objects(text: &str) -> impl Iterator<Item = &str> {
     found.into_iter()
 }
 
-/// What the chat shows for a read ("estructura de people.customer en tenant-brinks").
+/// What the chat shows for a read ("estructura de people.customer en tenant-compras").
 fn tool_label(name: &str, args: &serde_json::Value) -> String {
     let s = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let (db, obj) = (s("database"), s("object"));
@@ -827,9 +827,9 @@ mod tests {
         assert!(tool_call("<herramienta>{\"name\": \"execute\", \"arguments\": {}}</herramienta>").is_none(), "never a write");
         assert!(tool_call("```sql\nSELECT 1;\n```").is_none());
         // What the 3B wrote in the owner's test: prose, then the JSON.
-        let owner = "Como no tengo acceso a la conexión, podés usar index_usage:\n{\"name\": \"index_usage\", \"arguments\": {\"database\": \"sqldb-prod-iaas-brazilsouth-tenant-agilpagos\"}}";
+        let owner = "Como no tengo acceso a la conexión, podés usar index_usage:\n{\"name\": \"index_usage\", \"arguments\": {\"database\": \"tenant-compras\"}}";
         let (n, a) = tool_call(owner).unwrap();
-        assert_eq!((n.as_str(), a["database"].as_str()), ("index_usage", Some("sqldb-prod-iaas-brazilsouth-tenant-agilpagos")));
+        assert_eq!((n.as_str(), a["database"].as_str()), ("index_usage", Some("tenant-compras")));
         assert_eq!(tool_call("```json\n{\"name\": \"list_objects\", \"arguments\": {\"database\": \"b\"}}\n```").unwrap().0, "list_objects");
         assert_eq!(tool_call("<tool_call>\n{\"name\": \"list_databases\", \"arguments\": {}}\n</tool_call>").unwrap().0, "list_databases");
         assert!(tool_call("el objeto {\"name\": \"Pepe\"} no es una herramienta").is_none());

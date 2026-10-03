@@ -173,7 +173,7 @@ const app = createApp({
         ? h(MonitorView, { tab: { id: 'm', kind: 'monitor', connectionId: 'c1', database: '', preview: false }, active: true }) :
       // view=query&w=<px>: the query editor's toolbar at a given width.
       view === 'query' ? h('div', { style: `width: ${params.get('w') ?? 1300}px; height: 260px; display: flex; flex-direction: column; background: var(--ide-editor)` }, [
-        h(QueryView, { tab: { id: 'q', kind: 'query', connectionId: 'c1', database: 'sqldb-prod-iaas-brazilsouth-tenant-aduro', queryId: 'q1', preview: false, continueOnError: true } }),
+        h(QueryView, { tab: { id: 'q', kind: 'query', connectionId: 'c1', database: 'tenant-ventas', queryId: 'q1', preview: false, continueOnError: true } }),
       ]) :
       view === 'support' ? h(SupportReminder) :
       view === 'multidb' ? multiDbView() :
@@ -226,7 +226,7 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
     config: { driver: 'postgres', host: 'db-prod-01', port: 5432, database: 'ventas', username: 'app', password: null,
       encrypt: true, trust_server_certificate: false, read_only: false, options: {} },
   }];
-  conns.live.c1 = { status: 'connected', serverVersion: 'PostgreSQL 16.4', databases: view === 'compare' ? ['ventas', 'ventas_qa'] : view === 'query' ? ['sqldb-prod-iaas-brazilsouth-tenant-aduro', 'sqldb-prod-iaas-brazilsouth-tenant-brinks'] : ['ventas'], defaultDatabase: 'ventas', error: null };
+  conns.live.c1 = { status: 'connected', serverVersion: 'PostgreSQL 16.4', databases: view === 'compare' ? ['ventas', 'ventas_qa'] : view === 'query' ? ['tenant-ventas', 'tenant-compras'] : ['ventas'], defaultDatabase: 'ventas', error: null };
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
     transformCallback: () => 0,
     invoke: async (cmd: string, a?: { args?: Record<string, unknown> }) => {
