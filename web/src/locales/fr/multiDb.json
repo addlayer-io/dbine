@@ -1,0 +1,57 @@
+{
+  "action": "Exécuter sur plusieurs bases…",
+  "actionTip": "Exécute le code (ou la sélection) sur plusieurs bases de cette connexion et regroupe les résultats",
+  "dialog": {
+    "title": "Exécuter sur plusieurs bases",
+    "intro": "Le code de l'éditeur (ou la sélection) est exécuté sur chaque base choisie, chacune dans sa propre session et {{max}} à la fois. Les résultats sont regroupés dans le panneau des résultats.",
+    "filter": "Filtrer les bases (accepte *, par exemple *tenant-banque*)",
+    "all": "Toutes",
+    "none": "Aucune",
+    "count": "{{selected}} base(s) sur {{total}} choisie(s)",
+    "shown": "{{shown}} visibles",
+    "current": "actuelle",
+    "noMatch": "Aucune base ne correspond au filtre.",
+    "loading": "Chargement des bases…",
+    "noDatabases": "Impossible de lire les bases de la connexion.",
+    "readOnly": "La connexion est en lecture seule : toute instruction autre qu'une lecture est refusée.",
+    "run_one": "Exécuter sur {{count}} base",
+    "run_other": "Exécuter sur {{count}} bases",
+    "progress": "{{done}} base(s) sur {{total}} terminée(s)",
+    "close": "Fermer",
+    "empty": "Il n'y a pas de code à exécuter."
+  },
+  "confirm": {
+    "title": "Confirmer les modifications sur plusieurs bases",
+    "write_one": "Le code n'est pas en lecture seule (il contient {{keyword}}). Il sera exécuté sur {{count}} base et peut la modifier.",
+    "write_other": "Le code n'est pas en lecture seule (il contient {{keyword}}). Il sera exécuté sur {{count}} bases et peut toutes les modifier.",
+    "unknown_one": "Avec ce moteur, il est impossible de vérifier que le code est en lecture seule. Il sera exécuté sur {{count}} base et peut la modifier.",
+    "unknown_other": "Avec ce moteur, il est impossible de vérifier que le code est en lecture seule. Il sera exécuté sur {{count}} bases et peut toutes les modifier.",
+    "run_one": "Exécuter sur {{count}} base",
+    "run_other": "Exécuter sur {{count}} bases"
+  },
+  "status": {
+    "pending": "En attente ou en cours",
+    "ok": "OK",
+    "error": "Erreur",
+    "cancelled": "Annulée",
+    "skipped": "Non exécutée"
+  },
+  "summary": {
+    "ok": "{{ok}} base(s) sur {{total}} OK",
+    "error_one": "{{count}} avec erreur",
+    "error_other": "{{count}} avec erreur",
+    "cancelled_one": "{{count}} annulée",
+    "cancelled_other": "{{count}} annulées",
+    "messages": "Voir le détail par base dans Messages."
+  },
+  "results": {
+    "merged_one": "Résultat ({{count}} base)",
+    "merged_other": "Résultat ({{count}} bases)",
+    "bar": "Plusieurs bases : {{summary}}"
+  },
+  "task": {
+    "title_one": "Exécuter sur {{count}} base de {{connection}}",
+    "title_other": "Exécuter sur {{count}} bases de {{connection}}",
+    "unit": "bases"
+  }
+}

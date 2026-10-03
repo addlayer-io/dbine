@@ -1,0 +1,57 @@
+{
+  "action": "Executar em vários bancos…",
+  "actionTip": "Executa o código (ou a seleção) em vários bancos desta conexão e reúne os resultados",
+  "dialog": {
+    "title": "Executar em vários bancos",
+    "intro": "O código do editor (ou a seleção) é executado em cada banco escolhido, cada um em sua própria sessão e {{max}} por vez. Os resultados são reunidos no painel de resultados.",
+    "filter": "Filtrar bancos (aceita *, por exemplo *tenant-banco*)",
+    "all": "Todos",
+    "none": "Nenhum",
+    "count": "{{selected}} de {{total}} bancos escolhidos",
+    "shown": "{{shown}} visíveis",
+    "current": "atual",
+    "noMatch": "Nenhum banco corresponde ao filtro.",
+    "loading": "Carregando os bancos…",
+    "noDatabases": "Não foi possível ler os bancos da conexão.",
+    "readOnly": "A conexão é somente leitura: qualquer instrução que não seja de leitura é rejeitada.",
+    "run_one": "Executar em {{count}} banco",
+    "run_other": "Executar em {{count}} bancos",
+    "progress": "{{done}} de {{total}} bancos concluídos",
+    "close": "Fechar",
+    "empty": "Não há código para executar."
+  },
+  "confirm": {
+    "title": "Confirmar alterações em vários bancos",
+    "write_one": "O código não é somente de leitura (tem {{keyword}}). Será executado em {{count}} banco e pode alterá-lo.",
+    "write_other": "O código não é somente de leitura (tem {{keyword}}). Será executado em {{count}} bancos e pode alterar todos eles.",
+    "unknown_one": "Neste motor não é possível verificar se o código é somente de leitura. Será executado em {{count}} banco e pode alterá-lo.",
+    "unknown_other": "Neste motor não é possível verificar se o código é somente de leitura. Será executado em {{count}} bancos e pode alterar todos eles.",
+    "run_one": "Executar em {{count}} banco",
+    "run_other": "Executar em {{count}} bancos"
+  },
+  "status": {
+    "pending": "Em espera ou em andamento",
+    "ok": "OK",
+    "error": "Erro",
+    "cancelled": "Cancelada",
+    "skipped": "Não executada"
+  },
+  "summary": {
+    "ok": "{{ok}} de {{total}} bancos OK",
+    "error_one": "{{count}} com erro",
+    "error_other": "{{count}} com erro",
+    "cancelled_one": "{{count}} cancelada",
+    "cancelled_other": "{{count}} canceladas",
+    "messages": "Veja o detalhe por banco em Mensagens."
+  },
+  "results": {
+    "merged_one": "Resultado ({{count}} banco)",
+    "merged_other": "Resultado ({{count}} bancos)",
+    "bar": "Vários bancos: {{summary}}"
+  },
+  "task": {
+    "title_one": "Executar em {{count}} banco de {{connection}}",
+    "title_other": "Executar em {{count}} bancos de {{connection}}",
+    "unit": "bancos"
+  }
+}
