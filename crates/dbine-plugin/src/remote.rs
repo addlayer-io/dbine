@@ -959,6 +959,15 @@ impl Session for RemoteSession {
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         self.host.call(Call::KillSession { session: self.id, id: id.to_string() }).await.map(|_| ())
     }
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        match self.host.call(Call::Processes { session: self.id }).await? {
+            Reply::Processes(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.host.call(Call::CancelQuery { session: self.id, id: id.to_string() }).await.map(|_| ())
+    }
     async fn profiler_start(&mut self, opts: &ProfilerOptions) -> Result<ProfilerStarted> {
         match self.host.call(Call::ProfilerStart { session: self.id, opts: opts.clone() }).await? {
             Reply::ProfilerStarted(v) => Ok(v),

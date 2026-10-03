@@ -218,4 +218,10 @@ pub struct Capabilities {
     /// Its sessions implement `Session::kill_session`.
     #[serde(default)]
     pub kill_session: bool,
+    /// Its sessions implement `Session::processes`.
+    #[serde(default)]
+    pub processes: bool,
+    /// Its sessions implement `Session::cancel_query`.
+    #[serde(default)]
+    pub cancel_query: bool,
 }

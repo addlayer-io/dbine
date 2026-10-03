@@ -422,6 +422,8 @@ impl Driver for OracleDriver {
             // in Autonomous Database, as ADMIN).
             blocking: true,
             kill_session: true,
+            processes: false,
+            cancel_query: false,
         }
     }
 

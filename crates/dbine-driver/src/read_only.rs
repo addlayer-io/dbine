@@ -152,6 +152,12 @@ impl Session for ReadOnlySession {
     async fn kill_session(&mut self, _id: &str) -> Result<()> {
         Err(Error::Query("Conexión de solo lectura: no se pueden terminar sesiones.".into()))
     }
+    async fn processes(&mut self) -> Result<Vec<crate::ServerProcess>> {
+        self.inner.processes().await
+    }
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Query("Conexión de solo lectura: no se pueden cancelar consultas de otras sesiones.".into()))
+    }
     /// Profiles without changing server settings.
     async fn profiler_start(&mut self, opts: &crate::ProfilerOptions) -> Result<crate::ProfilerStarted> {
         let opts = crate::ProfilerOptions { change_server: false, ..opts.clone() };

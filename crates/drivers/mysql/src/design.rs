@@ -32,6 +32,8 @@ pub(crate) fn capabilities(v: Variant) -> Capabilities {
         monitor: true,
         blocking: v.has_lock_waits(),
         kill_session: v.has_lock_waits(),
+        processes: false,
+        cancel_query: false,
     }
 }
 

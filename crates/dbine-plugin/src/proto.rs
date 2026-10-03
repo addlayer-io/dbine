@@ -183,6 +183,12 @@ pub enum Call {
     /// `Unsupported`, and the app runs the generic scan through the host's
     /// other calls.
     Dependents { session: u64, target: dbine_driver::DependencyTarget, scan: dbine_driver::DependencyScan },
+    /// The server's sessions (the Monitor's "Procesos"). A host published
+    /// before it answers `Unsupported`; the app only asks drivers whose
+    /// capabilities say `processes`.
+    Processes { session: u64 },
+    /// Stop another session's statement. Same as `Processes` for older hosts.
+    CancelQuery { session: u64, id: String },
 }
 
 /// Host → app.
@@ -240,6 +246,7 @@ pub enum Reply {
     Units(Vec<dbine_driver::ScriptStatement>),
     IndexUsage(Option<dbine_driver::IndexUsageReport>),
     Dependents(dbine_driver::DependencyReport),
+    Processes(Vec<dbine_driver::ServerProcess>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -595,6 +602,8 @@ mod tests {
                 },
                 "Dependents",
             ),
+            (13, Call::Processes { session: 3 }, "Processes"),
+            (14, Call::CancelQuery { session: 3, id: "53".into() }, "CancelQuery"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

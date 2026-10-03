@@ -8,6 +8,7 @@ import type { Metric, MonitorSnapshot, MonitorTable } from '../api/types';
 import EngineIcon from '../components/EngineIcon.vue';
 import Sparkline from '../components/Sparkline.vue';
 import BlockingPanel from '../components/BlockingPanel.vue';
+import ProcessesPanel from '../components/ProcessesPanel.vue';
 import { locksApi, type BlockedSession } from '../api/locks';
 import { useConnectionsStore } from '../stores/connections';
 import type { MonitorTab } from '../stores/tabs';
@@ -46,6 +47,32 @@ async function pollBlocking() {
   } catch (e) {
     blockingError.value = errorMessage(e);
   }
+}
+/** The process list (docs/procesos.md): the dashboard or the processes. */
+const canProcesses = computed(() => !!driver.value?.capabilities.processes);
+const canCancel = computed(() => !!driver.value?.capabilities.cancel_query && !conn.value?.config.read_only);
+const view = ref<'dashboard' | 'processes'>('dashboard');
+const processesPanel = ref<InstanceType<typeof ProcessesPanel> | null>(null);
+/** The connection is open for the process list (it polls on its own). */
+const processesReady = ref(false);
+const processesLoading = ref(false);
+const showProcesses = computed(() => view.value === 'processes' && canProcesses.value);
+watch(
+  () => [props.active, showProcesses.value] as const,
+  async ([active, shown]) => {
+    if (!active || !shown || processesReady.value) return;
+    if (!(await conns.ensureConnected(props.tab.connectionId))) {
+      error.value = t('monitor:couldNotConnect');
+      return;
+    }
+    if (canKill.value || canCancel.value) conns.loadPermissions(props.tab.connectionId, '');
+    processesReady.value = true;
+  },
+  { immediate: true },
+);
+function refreshNow() {
+  if (showProcesses.value) processesPanel.value?.refresh();
+  else poll();
 }
 /** The driver doesn't report a snapshot (known before connecting). */
 const unsupported = computed(() => !!driver.value && !driver.value.capabilities.monitor);
@@ -104,13 +131,13 @@ let clock: ReturnType<typeof setInterval> | undefined;
 function schedule() {
   clearInterval(timer);
   timer = undefined;
-  if (!props.active || paused.value || unsupported.value) return;
+  if (!props.active || paused.value || unsupported.value || showProcesses.value) return;
   timer = setInterval(poll, every.value * 1000);
 }
 watch(
-  () => [props.active, paused.value, every.value] as const,
-  ([active]) => {
-    if (active && !paused.value && !unsupported.value && (!lastAt.value || Date.now() - lastAt.value > every.value * 1000)) poll();
+  () => [props.active, paused.value, every.value, showProcesses.value] as const,
+  ([active, , , processes]) => {
+    if (active && !processes && !paused.value && !unsupported.value && (!lastAt.value || Date.now() - lastAt.value > every.value * 1000)) poll();
     schedule();
   },
   { immediate: true },
@@ -221,24 +248,40 @@ const ago = computed(() => {
         <span class="mv-sub">{{ driver?.name }} · Monitor</span>
       </div>
       <div class="mv-spacer" />
-      <span class="mv-ago" :class="{ busy: loading }">
-        <el-icon v-if="loading" class="is-loading"><ei-loading /></el-icon>
+      <div v-if="canProcesses" class="mv-views" role="tablist">
+        <button role="tab" :aria-selected="view === 'dashboard'" :class="{ active: view === 'dashboard' }" @click="view = 'dashboard'">{{ $t('processes:dashboard') }}</button>
+        <button role="tab" :aria-selected="view === 'processes'" :class="{ active: view === 'processes' }" @click="view = 'processes'">{{ $t('processes:tab') }}</button>
+      </div>
+      <span class="mv-ago" :class="{ busy: loading || processesLoading }">
+        <el-icon v-if="loading || processesLoading" class="is-loading"><ei-loading /></el-icon>
         {{ paused ? $t('monitor:paused') : ago }}
       </span>
-      <el-select v-model="every" size="small" style="width: 92px" :disabled="unsupported">
+      <el-select v-model="every" size="small" style="width: 92px" :disabled="unsupported && !showProcesses">
         <el-option v-for="s in INTERVALS" :key="s" :label="$t('monitor:every', { s })" :value="s" />
       </el-select>
-      <el-button size="small" :disabled="unsupported" @click="paused = !paused">
+      <el-button size="small" :disabled="unsupported && !showProcesses" @click="paused = !paused">
         <el-icon><ei-video-play v-if="paused" /><ei-video-pause v-else /></el-icon>
         <span>{{ paused ? $t('monitor:resume') : $t('monitor:pause') }}</span>
       </el-button>
-      <el-button size="small" :disabled="loading || unsupported" @click="poll">
+      <el-button size="small" :disabled="loading || processesLoading || (unsupported && !showProcesses)" @click="refreshNow">
         <el-icon><ei-refresh /></el-icon><span>{{ $t('monitor:refresh') }}</span>
       </el-button>
     </header>
 
     <div class="mv-body">
-      <div v-if="unsupported" class="mv-empty">
+      <ProcessesPanel
+        v-if="showProcesses"
+        ref="processesPanel"
+        :connection-id="tab.connectionId"
+        :polling="active && !paused && processesReady"
+        :every="every"
+        :can-kill="canKill"
+        :can-cancel="canCancel"
+        :kill-denied="killDenied"
+        @loading="(b: boolean) => (processesLoading = b)"
+        @polled="(at: number) => (lastAt = at)"
+      />
+      <div v-else-if="unsupported" class="mv-empty">
         <el-icon :size="28"><ei-odometer /></el-icon>
         <p>{{ $t('monitor:unsupported', { engine: driver?.name ?? $t('monitor:thisEngine') }) }}</p>
       </div>
@@ -342,6 +385,13 @@ const ago = computed(() => {
 .mv-title strong { color: var(--nm-text-strong); font-weight: 600; }
 .mv-sub { font-size: 11px; color: var(--nm-text-dim); }
 .mv-spacer { flex: 1; }
+.mv-views { display: flex; border: 1px solid var(--nm-border-soft); border-radius: 4px; overflow: hidden; }
+.mv-views button {
+  padding: 3px 12px; border: 0; background: none; color: var(--nm-text-dim); cursor: pointer; font: inherit; font-size: 12px;
+}
+.mv-views button + button { border-left: 1px solid var(--nm-border-soft); }
+.mv-views button:hover { color: var(--nm-text); }
+.mv-views button.active { background: var(--ide-active, var(--ide-hover)); color: var(--nm-text-strong); }
 .mv-ago { font-size: 11.5px; color: var(--nm-text-dim); display: inline-flex; align-items: center; gap: 4px; }
 
 .mv-body { flex: 1; overflow: auto; padding: 14px 16px 24px; }

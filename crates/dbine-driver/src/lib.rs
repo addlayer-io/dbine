@@ -51,7 +51,7 @@ pub use model::{
 };
 
 pub use security::{Grant, Principal, PrincipalKind, SchemaOwnerKinds, SchemaSpec, SecurityAction, SecuritySpec};
-pub use monitor::{BlockedSession, Metric, MetricUnit, MonitorSnapshot, MonitorTable};
+pub use monitor::{BlockedSession, Metric, MetricUnit, MonitorSnapshot, MonitorTable, ServerProcess};
 pub use permissions::{Access, Permissions};
 pub use profiler::{ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted};
 pub use schema::{
@@ -635,6 +635,21 @@ pub trait Session: Send {
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         let _ = id;
         Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into()))
+    }
+
+    /// The server's sessions and running requests (the Monitor's
+    /// "Procesos"), lighter than [`Session::monitor`]: the list polls every
+    /// few seconds. Drivers that implement it set `Capabilities::processes`.
+    async fn processes(&mut self) -> Result<Vec<monitor::ServerProcess>> {
+        Err(Error::Unsupported("este motor no lista sus procesos".into()))
+    }
+
+    /// Stop the statement another session is running (its id as
+    /// `processes` reports it) and leave the session open. Drivers that
+    /// implement it set `Capabilities::cancel_query`.
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        let _ = id;
+        Err(Error::Unsupported("este motor no permite cancelar consultas de otras sesiones".into()))
     }
 
     /// Start watching the statements run against a database (see
