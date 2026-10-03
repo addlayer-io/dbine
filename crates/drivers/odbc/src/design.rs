@@ -189,8 +189,8 @@ pub fn capabilities(p: &Preset) -> Capabilities {
         monitor: crate::monitor::supports(p),
         blocking: crate::blocking::supports_blocking(p),
         kill_session: crate::blocking::supports_kill(p),
-        processes: false,
-        cancel_query: false,
+        processes: crate::processes::supports(p),
+        cancel_query: crate::processes::supports_cancel(p),
     }
 }
 
