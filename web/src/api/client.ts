@@ -4,6 +4,7 @@ import type {
   ColumnInfo, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
   ExecuteResponse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
 } from './types';
+import type { MultiDbResponse } from './types';
 
 // Every backend command, in one place. Commands take one `args` object whose
 // fields are snake_case (serde's default on the Rust side).
@@ -161,4 +162,24 @@ export const windowApi = {
   /** True only for the first window to ask in this run: it does the
    *  once-per-run work (update check, app-start telemetry). */
   claimStartup: () => invoke<boolean>('app_claim_startup'),
+};
+
+// "Ejecutar en varias bases…": the editor's script on several databases of a
+// connection (src-tauri/src/commands/multi_db.rs). Progress comes as
+// `multi-db-progress`, one event per database.
+export const multiDbApi = {
+  run: (a: {
+    runId: string; connectionId: string; databases: string[]; sql: string;
+    maxRows?: number; continueOnError?: boolean | null; confirmedWrite?: boolean;
+    /** Only check whether it needs confirming; nothing runs. */
+    checkOnly?: boolean;
+  }) =>
+    invoke<MultiDbResponse>('run_multi_db', {
+      args: {
+        run_id: a.runId, connection_id: a.connectionId, databases: a.databases, sql: a.sql,
+        max_rows: a.maxRows ?? null, continue_on_error: a.continueOnError ?? null, confirmed_write: a.confirmedWrite ?? false, check_only: a.checkOnly ?? false,
+      },
+    }),
+  /** No new database starts; the running ones are interrupted. */
+  cancel: (runId: string) => invoke<void>('cancel_multi_db', { args: { run_id: runId } }),
 };

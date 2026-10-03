@@ -46,6 +46,9 @@ const props = defineProps<{
   lineOffset?: number | null;
   /** The parent shows the run's status (time, rows) itself. */
   hideStatus?: boolean;
+  /** Sub-tab names by result index (a run on several databases: the merged
+   *  grid, or each database's result). Absent: "Resultado N". */
+  labels?: string[] | null;
 }>();
 const emit = defineEmits<{
   /** "Agregar a la query": the generated DELETE / UPDATE code. */
@@ -540,7 +543,8 @@ const statusText = computed(() => {
         :class="{ active: active === s.i }"
         @click="pick(s.i)"
       >
-        {{ $t('results:tabs.result') }} {{ sets.length > 1 ? s.i + 1 : '' }}
+        <template v-if="labels?.[s.i]">{{ labels[s.i] }}</template>
+        <template v-else>{{ $t('results:tabs.result') }} {{ sets.length > 1 ? s.i + 1 : '' }}</template>
         <span class="rp-count">{{ s.total_rows.toLocaleString(locale()) }}{{ s.truncated ? '+' : '' }}</span>
       </button>
       <button v-if="outcome?.plans.length" class="nm-subtab" :class="{ active: active === 'plan' }" @click="pick('plan')">

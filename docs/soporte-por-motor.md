@@ -2518,3 +2518,62 @@ sigue consultando, lo habilita y comprueba que vuelve:
 - `crates/drivers/mongodb/tests/index_toggle.rs` (MongoDB 7 y FerretDB 2):
   `_id_` se rechaza; FerretDB no ofrece la opción y el servidor rechaza
   `hideIndex`.
+
+## Ejecutar en varias bases
+
+En el editor de consultas, **Ejecutar en varias bases…** ejecuta el código
+(o la selección) en varias bases de la misma conexión y junta los
+resultados. El diálogo lista las bases de la conexión con un filtro que
+admite `*` (por ejemplo `*tenant-banco*`), **Todas** / **Ninguna** sobre lo
+que muestra el filtro, y recuerda la última elección por conexión; la
+primera vez viene elegida la base de la pestaña. Cada base corre en una
+sesión propia (nunca la del explorador), de a 4 a la vez, partida como la
+ejecución normal del motor (sentencia por sentencia, lote por lote o
+entera) y con el mismo máximo de filas por base. Corre como tarea: sigue en
+segundo plano y se cancela desde el diálogo o el panel **Tareas** (no
+arranca ninguna base más y se interrumpen las que están corriendo, como el
+Cancelar del editor).
+
+- **Seguridad**: una conexión de solo lectura sigue rechazando todo lo que
+  no sea lectura. Si el código no es solo de lectura (la misma
+  clasificación que la guarda de solo lectura), o el motor no es SQL y no
+  se puede verificar, pide confirmación diciendo en cuántas bases va a
+  correr. Nunca se ejecuta solo.
+- **Resultados**: si el primer resultado de cada base que terminó bien tiene
+  las mismas columnas (sin distinguir mayúsculas), se ve una sola grilla
+  con una primera columna `base`; se exporta y se copia como cualquier
+  grilla (las filas cargadas). Si no, una pestaña de resultado por base.
+  **Mensajes** tiene el resumen por base: filas y tiempo, o el error.
+- El comando es `run_multi_db` / `cancel_multi_db`
+  (`src-tauri/src/commands/multi_db.rs`) y usa solo `Session::execute`:
+  funciona en todos los motores con varias bases.
+
+### Motores sin ejecutar en varias bases
+
+La acción no aparece donde el motor tiene una sola base
+(`DriverInfo::databases_label` vacío: el explorador muestra los objetos
+directo bajo la conexión). Motivo en todos: una sola base.
+
+- **Archivos**: SQLite, libSQL / Turso, Archivos CSV / Parquet / JSON,
+  Archivos dBase (DBF), Microsoft Access.
+- **SQL**: Firebird, Amazon Aurora DSQL, H2 (servidor PostgreSQL), CrateDB,
+  Apache Phoenix, Apache Ignite 2, Apache Ignite 3, Apache Calcite Avatica,
+  HeavyDB (OmniSciDB), Manticore Search, Dameng (DM).
+- **ODBC**: IBM Db2 (LUW), IBM Db2 for i (AS/400), IBM Db2 for z/OS,
+  Teradata, Vertica, Exasol, SAP MaxDB, SAP SQL Anywhere, Actian Ingres,
+  Actian Zen (Pervasive PSQL), Altibase, CUBRID, InterSystems IRIS,
+  InterSystems Caché, Mimer SQL, MonetDB, NuoDB, Ocient, Machbase, Progress
+  OpenEdge, SQream DB, Apache Hive, Apache Impala, Apache Kyuubi, Spark
+  Thrift Server, Cloudera CDP (Hive por HTTP), Oracle NetSuite
+  (SuiteAnalytics Connect).
+- **NoSQL y búsqueda**: Amazon DynamoDB, Amazon Neptune, Elasticsearch,
+  OpenSearch, Open Distro for Elasticsearch, Apache Solr, etcd, ksqlDB.
+
+### Probado contra servidores reales
+
+SQL Server (`dbine-test-sqlserver`) y PostgreSQL (`dbine-test-postgres`):
+tres bases con la misma tabla se juntan en una grilla con `base`; con una
+cuarta de columnas distintas queda un resultado por base; una base sin la
+tabla informa su error y las demás se juntan igual; en una conexión de solo
+lectura un `DELETE` se rechaza (probado en SQL Server)
+(`cargo test -p dbine --lib multi_db -- --include-ignored`).
