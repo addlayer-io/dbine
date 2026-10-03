@@ -271,16 +271,16 @@ const phaseText = computed(() => ({
         </div>
         <div v-for="m in ai.messages" :key="m.id" class="ai-msg" :class="m.role">
           <template v-if="m.role === 'user'">
-            <div class="ai-bubble">{{ m.content }}</div>
+            <div class="ai-bubble nm-selectable">{{ m.content }}</div>
             <div v-if="m.context" class="ai-sent">{{ $t('ai:context.sent', { context: tb(m.context) }) }}</div>
           </template>
           <template v-else>
             <details v-if="thinkingOf(m)" class="ai-think">
               <summary>{{ $t('ai:reasoning') }}</summary>
-              <pre>{{ thinkingOf(m) }}</pre>
+              <pre class="nm-selectable">{{ thinkingOf(m) }}</pre>
             </details>
             <template v-for="(p, i) in parts(visible(m))" :key="i">
-              <div v-if="p.kind === 'text'" class="ai-md" v-html="p.html" />
+              <div v-if="p.kind === 'text'" class="ai-md nm-selectable" v-html="p.html" />
               <div v-else class="ai-code">
                 <div class="ai-code-bar">
                   <span>{{ p.lang || $t('ai:code.code') }}</span>
@@ -294,7 +294,7 @@ const phaseText = computed(() => ({
                     <button class="ai-act" :title="$t('common:copy')" @click="copy(p.code)"><el-icon><ei-copy-document /></el-icon></button>
                   </template>
                 </div>
-                <pre><code>{{ p.code }}</code></pre>
+                <pre class="nm-selectable"><code>{{ p.code }}</code></pre>
                 <div v-if="destructive(p.code)" class="ai-warn">
                   <el-icon><ei-warning-filled /></el-icon>
                   {{ $t('ai:code.destructive') }}
