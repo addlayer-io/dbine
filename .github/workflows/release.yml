@@ -129,7 +129,10 @@ jobs:
             "https://github.com/${{ github.repository }}/releases/download/drivers" \
             "driver-index/index-${{ matrix.target }}.json"
           cat driver-hosts/summary.md >> "$GITHUB_STEP_SUMMARY"
-          echo "DBINE_PLUGIN_CATALOG=$PWD/driver-hosts/plugins.json" >> "$GITHUB_ENV"
+          # A native path: on Windows, bash's $PWD is /d/a/… and Rust can't open it.
+          CATALOG="$PWD/driver-hosts/plugins.json"
+          if command -v cygpath >/dev/null; then CATALOG=$(cygpath -w "$CATALOG"); fi
+          echo "DBINE_PLUGIN_CATALOG=$CATALOG" >> "$GITHUB_ENV"
 
       # Before the app: a published app never points to a driver that isn't
       # there. A driver file is never replaced (its id is its version);
