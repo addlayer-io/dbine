@@ -300,7 +300,7 @@ onBeforeUnmount(() => unlisten?.());
 .mcp-snip span { grid-column: 1; font-size: 11.5px; color: var(--nm-text-dim); }
 .mcp-snip pre {
   grid-column: 1; margin: 4px 0 0; padding: 8px 10px; border-radius: 4px; border: 1px solid var(--nm-border);
-  font: 12px var(--nm-font-mono, monospace); white-space: pre-wrap; word-break: break-all; user-select: text;
+  font: 12px var(--nm-font-mono, monospace); white-space: pre-wrap; word-break: break-all; user-select: text; cursor: text;
 }
 .mcp-snip .el-button { grid-column: 2; grid-row: 1 / span 3; align-self: end; }
 </style>

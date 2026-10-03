@@ -213,9 +213,9 @@ const detailEta = computed(() => {
 .tp-actions { display: flex; gap: 4px; margin-top: 6px; }
 .tp-actions .el-button + .el-button { margin-left: 0; }
 .td-row { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--nm-text-dim); margin-bottom: 6px; }
-.td-pre { font-family: var(--nm-mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; background: var(--nm-bg); border: 1px solid var(--nm-border-soft); padding: 6px; margin: 0; user-select: text; }
+.td-pre { font-family: var(--nm-mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; background: var(--nm-bg); border: 1px solid var(--nm-border-soft); padding: 6px; margin: 0; user-select: text; cursor: text; }
 .td-err { color: var(--nm-danger); }
-.td-log { font-family: var(--nm-mono); font-size: 12px; max-height: 260px; overflow: auto; background: var(--nm-bg); border: 1px solid var(--nm-border-soft); padding: 6px; user-select: text; }
+.td-log { font-family: var(--nm-mono); font-size: 12px; max-height: 260px; overflow: auto; background: var(--nm-bg); border: 1px solid var(--nm-border-soft); padding: 6px; user-select: text; cursor: text; }
 .td-at { color: var(--nm-text-muted); }
 .td-warn { color: var(--nm-warning); }
 .td-error { color: var(--nm-danger); }

@@ -67,7 +67,14 @@ input, textarea, [contenteditable], code, pre,
 .nm-selectable, .el-message-box__message, .el-message__content {
   user-select: text;
   -webkit-user-select: text;
+  cursor: text;
 }
+/* …and the text cursor wherever text can be selected or typed (the editor
+ * included); controls inside those areas keep their own. */
+.cm-content, .cm-line { cursor: text; }
+input[type="checkbox"], input[type="radio"], input[type="range"], input[type="button"], input[type="submit"], input[type="file"],
+.nm-selectable button, .nm-selectable a, .nm-selectable .el-alert__close-btn { cursor: pointer; }
+input:disabled, textarea:disabled { cursor: not-allowed; }
 
 /* Element Plus transitions (dialogs, menus, collapses) at native speed */
 :root {

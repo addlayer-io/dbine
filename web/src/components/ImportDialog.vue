@@ -643,7 +643,7 @@ defineExpose({ step, targetMode });
 .im-grid-wrap { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--nm-border-soft); background: var(--ide-editor); }
 .im-grid { border-collapse: separate; border-spacing: 0; font-size: 12px; min-width: 100%; }
 .im-grid th, .im-grid td { padding: 3px 10px; border-right: 1px solid var(--nm-border-soft); border-bottom: 1px solid var(--nm-border-soft); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-.im-grid td { font-family: var(--nm-mono); font-size: 11.5px; user-select: text; }
+.im-grid td { font-family: var(--nm-mono); font-size: 11.5px; user-select: text; cursor: text; }
 .im-grid th { position: sticky; top: 0; background: var(--ide-sidebar); z-index: 1; font-weight: 600; }
 .im-grid .im-rn { color: var(--nm-text-muted); text-align: right; width: 1%; font-family: var(--nm-mono); font-size: 11px; position: sticky; left: 0; background: var(--ide-sidebar); z-index: 2; }
 .im-grid thead .im-rn { z-index: 3; }
