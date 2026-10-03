@@ -37,7 +37,8 @@
   "phase": {
     "schema": "Reading the database structure…",
     "engine": "Downloading the AI engine, just this once…",
-    "thinking": "Thinking…"
+    "thinking": "Thinking…",
+    "retry": "Asking again…"
   },
   "setup": {
     "detecting": "Looking for AI tools on this machine…",
@@ -66,5 +67,9 @@
   "compose": {
     "placeholder": "Ask or request a query… (Enter sends, Shift+Enter new line)",
     "send": "Send"
+  },
+  "better": {
+    "text": "Your machine can use a bigger model: {{model}}. It understands hard requests better and makes fewer SQL mistakes.",
+    "dismiss": "Not now"
   }
 }

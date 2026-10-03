@@ -37,7 +37,8 @@
   "phase": {
     "schema": "Lendo a estrutura do banco…",
     "engine": "Baixando o motor de IA, só desta vez…",
-    "thinking": "Pensando…"
+    "thinking": "Pensando…",
+    "retry": "Perguntando de novo…"
   },
   "setup": {
     "detecting": "Procurando ferramentas de IA nesta máquina…",
@@ -66,5 +67,9 @@
   "compose": {
     "placeholder": "Pergunte ou peça uma consulta… (Enter envia, Shift+Enter nova linha)",
     "send": "Enviar"
+  },
+  "better": {
+    "text": "Seu computador pode usar um modelo maior: {{model}}. Ele entende melhor os pedidos difíceis e erra menos no SQL.",
+    "dismiss": "Agora não"
   }
 }
