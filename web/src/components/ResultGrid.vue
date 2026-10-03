@@ -60,6 +60,9 @@ const widths = ref<number[]>([]);
 
 // Declared before the column watcher below, which resets them (immediate).
 const selection = ref<{ r: number; c: number } | null>(null);
+/** The other corner of a block of cells (shift+click, drag, shift+arrows):
+ *  the block runs from here to `selection`. Null: just the active cell. */
+const anchor = ref<{ r: number; c: number } | null>(null);
 const rowSel = ref<{ from: number; to: number } | null>(null);
 /** Columns the user hid, by name. Hidden columns keep their index (edits,
  *  selection and filters use it) and are only left out of the layout. */
@@ -76,6 +79,7 @@ watch(
     const names = (x?: ResultColumn[]) => (x ?? []).map((c) => c.name).join('\u0000');
     if (old && names(cols) === names(old) && widths.value.length === cols.length) {
       selection.value = null;
+      anchor.value = null;
       rowSel.value = null;
       return;
     }
@@ -86,6 +90,7 @@ watch(
       return w;
     });
     selection.value = null;
+    anchor.value = null;
     rowSel.value = null;
     scroller.value?.scrollTo({ top: 0, left: 0 });
   },
@@ -137,13 +142,48 @@ function cellClass(v: Cell) {
 
 function selectCell(r: number, c: number) {
   selection.value = { r, c };
+  anchor.value = null;
   rowSel.value = null;
   scroller.value?.focus();
 }
+/** A click on a cell: shift extends the block from the active cell, and
+ *  dragging with the button down extends it to the cell under the pointer. */
+let dragging = false;
+function onCellDown(e: MouseEvent, r: number, c: number) {
+  if (e.button !== 0) return;
+  if (e.shiftKey && selection.value) {
+    anchor.value ??= selection.value;
+    selection.value = { r, c };
+    rowSel.value = null;
+    scroller.value?.focus();
+    e.preventDefault();
+    return;
+  }
+  selectCell(r, c);
+  dragging = true;
+  window.addEventListener('mouseup', () => { dragging = false; }, { once: true });
+}
+function onCellEnter(r: number, c: number) {
+  if (!dragging || !selection.value) return;
+  if (selection.value.r === r && selection.value.c === c) return;
+  anchor.value ??= selection.value;
+  selection.value = { r, c };
+}
+/** The block of cells, when there's one (more than the active cell). */
+const block = computed(() => {
+  const a = anchor.value, s = selection.value;
+  if (!a || !s || (a.r === s.r && a.c === s.c)) return null;
+  return { r0: Math.min(a.r, s.r), r1: Math.max(a.r, s.r), c0: Math.min(a.c, s.c), c1: Math.max(a.c, s.c) };
+});
+const inBlock = (r: number, c: number) => {
+  const b = block.value;
+  return !!b && r >= b.r0 && r <= b.r1 && c >= b.c0 && c <= b.c1;
+};
 function selectRow(r: number, e: MouseEvent) {
   if (e.shiftKey && rowSel.value) rowSel.value = { from: rowSel.value.from, to: r };
   else rowSel.value = { from: r, to: r };
   selection.value = null;
+  anchor.value = null;
   scroller.value?.focus();
 }
 const rowSelected = (i: number) => {
@@ -171,6 +211,17 @@ function rowsForCopy(): Cell[][] {
 }
 
 function copyAs(format: CopyFormat) {
+  // A block of cells: those columns of those rows, shown columns only, with
+  // the values as shown (edits included).
+  const b = block.value;
+  if (b && !rowSel.value) {
+    const cols: number[] = [];
+    for (let c = b.c0; c <= b.c1; c++) if (!isHidden(c)) cols.push(c);
+    const rows: Cell[][] = [];
+    for (let r = b.r0; r <= b.r1; r++) rows.push(cols.map((c) => valueAt(r, c)));
+    copy(formatRows(format, cols.map((c) => props.columns[c]), rows, props.copyContext));
+    return;
+  }
   // A single cell with a plain format copies just its value.
   if (selection.value && !rowSel.value && (format === 'tsv' || format === 'tsv_headers')) {
     copy(tsv(props.rows[selection.value.r]?.[selection.value.c] ?? null));
@@ -189,7 +240,7 @@ function onKey(e: KeyboardEvent) {
   }
   if (rowSel.value && !mod && !e.altKey && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); toggleDelete(selectedRows()); return; }
   if (mod && e.key.toLowerCase() === 'c') { e.preventDefault(); copyAs(copyFormat.value); return; }
-  if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); rowSel.value = { from: 0, to: props.rows.length - 1 }; selection.value = null; return; }
+  if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); rowSel.value = { from: 0, to: props.rows.length - 1 }; selection.value = null; anchor.value = null; return; }
   const s = selection.value;
   if (!s) return;
   const moves: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
@@ -198,6 +249,9 @@ function onKey(e: KeyboardEvent) {
   e.preventDefault();
   const r = Math.min(props.rows.length - 1, Math.max(0, s.r + m[0]));
   const c = m[1] ? step(s.c, m[1]) : s.c;
+  // Shift extends the block from where it started; a plain arrow leaves it.
+  if (e.shiftKey) anchor.value ??= s;
+  else anchor.value = null;
   selection.value = { r, c };
   const el = scroller.value;
   if (el) {
@@ -221,6 +275,7 @@ function startEdit(r: number, c: number, text?: string) {
   if (isDeleted(r)) { ElMessage.info({ message: t('results:grid.rowDeleted'), duration: 3500 }); return; }
   const v = valueAt(r, c);
   selection.value = { r, c };
+  anchor.value = null;
   editing.value = { r, c, text: text ?? (v === null ? '' : String(v)) };
   nextTick(() => {
     editInput.value?.focus();
@@ -383,7 +438,7 @@ function openViewer(r: number, c: number) {
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 function onContext(e: MouseEvent, r: number, c: number | null) {
   e.preventDefault();
-  if (c !== null && !rowSelected(r)) selectCell(r, c);
+  if (c !== null && !rowSelected(r) && !inBlock(r, c)) selectCell(r, c);
   const items: MenuItem[] = [];
   // The rows the delete item takes: the selection when the click is on it.
   const targets = rowSelected(r) ? selectedRows() : [r];
@@ -408,7 +463,7 @@ function onContext(e: MouseEvent, r: number, c: number | null) {
     if (isEdited(r, c)) items.push({ label: t('results:grid.undoChange'), action: () => emit('edit', r, c, undefined) });
     if (!props.editable && props.noEditReason) items.push({ label: t('results:grid.notEditable', { reason: props.noEditReason }), disabled: true });
   }
-  const scope = t(rowSel.value ? 'results:grid.scopeSelected' : selection.value ? 'results:grid.scopeRow' : 'results:grid.scopeAll');
+  const scope = t(rowSel.value || block.value ? 'results:grid.scopeSelected' : selection.value ? 'results:grid.scopeRow' : 'results:grid.scopeAll');
   items.push({ label: t('results:grid.copyHeader', { scope }), header: true, divided: true });
   for (const f of COPY_FORMATS) {
     items.push({ label: t(`results:grid.copyFormat.${f.id}.label`, f.label), shortcut: f.id === copyFormat.value ? '⌘C' : undefined, action: () => copyAs(f.id) });
@@ -533,10 +588,11 @@ function columnsMenu(e: MouseEvent) {
           :key="c"
           v-show="!isHidden(c)"
           class="rg-cell"
-          :class="[cellClass(valueAt(i, c)), { active: selection && selection.r === i && selection.c === c, edited: isEdited(i, c) }]"
+          :class="[cellClass(valueAt(i, c)), { active: selection && selection.r === i && selection.c === c, ranged: inBlock(i, c), edited: isEdited(i, c) }]"
           :style="{ width: widths[c] + 'px' }"
           :title="isEdited(i, c) ? $t('results:grid.before', { value: display(v) }) : undefined"
-          @mousedown="selectCell(i, c)"
+          @mousedown="onCellDown($event, i, c)"
+          @mouseenter="onCellEnter(i, c)"
           @dblclick="editable ? startEdit(i, c) : openViewer(i, c)"
           @contextmenu="onContext($event, i, c)"
         >{{ display(valueAt(i, c)) }}</div>
@@ -685,6 +741,7 @@ function columnsMenu(e: MouseEvent) {
   border-right: 1px solid var(--nm-border-soft);
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
+.rg-cell.ranged { background: var(--ide-selection); }
 .rg-cell.active { outline: 1px solid var(--ide-focus); outline-offset: -1px; background: var(--ide-selection); }
 .rg-row.deleted { background: color-mix(in srgb, var(--nm-danger) 14%, transparent); }
 .rg-row.deleted .rg-cell { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--nm-danger) 70%, transparent); opacity: 0.7; }
