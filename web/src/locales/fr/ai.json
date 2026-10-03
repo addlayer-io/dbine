@@ -37,7 +37,8 @@
   "phase": {
     "schema": "Lecture de la structure de la base…",
     "engine": "Téléchargement du moteur d'IA, une seule fois…",
-    "thinking": "Réflexion…"
+    "thinking": "Réflexion…",
+    "retry": "Nouvelle demande en cours…"
   },
   "setup": {
     "detecting": "Recherche d'outils d'IA sur cette machine…",
@@ -66,5 +67,9 @@
   "compose": {
     "placeholder": "Posez une question ou demandez une requête… (Entrée envoie, Maj+Entrée nouvelle ligne)",
     "send": "Envoyer"
+  },
+  "better": {
+    "text": "Votre machine peut utiliser un modèle plus grand : {{model}}. Il comprend mieux les demandes difficiles et se trompe moins en SQL.",
+    "dismiss": "Pas maintenant"
   }
 }
