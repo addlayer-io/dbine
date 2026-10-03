@@ -10,6 +10,7 @@ mod literal;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 #[path = "../../trino/src/script.rs"]
 mod script;
@@ -109,7 +110,15 @@ impl Driver for AthenaDriver {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: false, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: false,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Default::default()
+        }
     }
 
     fn supports_profiler(&self) -> bool {
@@ -551,6 +560,16 @@ impl Session for AthenaSession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         self.snapshot().await
+    }
+
+    /// The workgroup's running and queued executions: Athena has no
+    /// connections to list.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        self.processes_list().await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel_running(id).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

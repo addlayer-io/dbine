@@ -13,6 +13,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod security;
 mod structure;
 mod sync;
@@ -181,7 +182,7 @@ impl Driver for DsqlDriver {
 
     /// One database (`postgres`), no foreign keys; the monitor.
     fn capabilities(&self) -> dbine_driver::Capabilities {
-        dbine_driver::Capabilities { monitor: true, ..Default::default() }
+        dbine_driver::Capabilities { monitor: true, processes: true, cancel_query: true, ..Default::default() }
     }
 
     /// No foreign keys, sequences-backed identity nor comments: DSQL
@@ -902,6 +903,14 @@ impl Session for DsqlSession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         Ok(monitor::snapshot(&self.client).await)
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        processes::processes(&self.client).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        processes::cancel(&self.client, id).await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

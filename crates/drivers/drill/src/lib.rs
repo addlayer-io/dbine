@@ -14,6 +14,7 @@
 
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod transfer;
 
@@ -110,7 +111,7 @@ impl Driver for DrillDriver {
     /// Schemas are storage-plugin workspaces, configured in the plugin
     /// (no CREATE SCHEMA): no create / drop database.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, ..Default::default() }
+        Capabilities { monitor: true, processes: true, cancel_query: true, ..Default::default() }
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -816,6 +817,15 @@ impl Session for DrillSession {
         _progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         Err(Error::Unsupported("Drill no tiene INSERT: sus tablas solo se crean con CREATE TABLE AS SELECT a partir de lo que Drill lee, así que no puede recibir filas de otra base.".into()))
+    }
+
+    /// The queries running now (`/profiles/running.json`).
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        self.processes_list().await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel_running(id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

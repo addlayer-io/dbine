@@ -15,6 +15,7 @@ mod ddl;
 mod index_usage;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod script;
 mod security;
@@ -106,7 +107,15 @@ impl Driver for DremioDriver {
 
     /// Databases are spaces: created and dropped through the catalog API.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: false, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: false,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Default::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -806,6 +815,16 @@ impl Session for DremioSession {
         let id = e.get("id").map(text).ok_or_else(|| Error::Query(format!("No se encontró {name} en el catálogo.")))?;
         let tag = e.get("tag").map(text).unwrap_or_default();
         self.conn.send(reqwest::Method::DELETE, &format!("/api/v3/catalog/{id}?tag={}", encode(&tag)), None).await.map(|_| ())
+    }
+
+    /// The jobs that haven't ended (`sys.jobs`): Dremio has no sessions.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.processes_list().await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel_running(id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

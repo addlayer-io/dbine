@@ -106,7 +106,7 @@ pub trait Runner {
     fn database(&self) -> Option<String>;
 }
 
-fn quote(name: &str) -> String {
+pub(crate) fn quote(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 

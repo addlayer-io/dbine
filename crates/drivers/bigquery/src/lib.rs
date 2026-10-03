@@ -11,6 +11,7 @@ mod indexes;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod script;
 mod security;
@@ -226,7 +227,15 @@ impl Driver for BigQueryDriver {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: true,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Default::default()
+        }
     }
 
     fn supports_profiler(&self) -> bool {
@@ -920,6 +929,16 @@ impl Session for BigQuerySession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         self.snapshot().await
+    }
+
+    /// The running and pending jobs (`jobs.list`): BigQuery has no
+    /// connections to list.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        self.processes_list().await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel_running(id).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

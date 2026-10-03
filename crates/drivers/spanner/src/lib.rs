@@ -9,6 +9,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod script;
 mod security;
@@ -144,7 +145,15 @@ impl Driver for SpannerDriver {
 
     /// Databases are created and dropped through the admin API.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: true,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Default::default()
+        }
     }
 
     fn supports_profiler(&self) -> bool {
@@ -1186,6 +1195,15 @@ impl Session for SpannerSession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         self.snapshot().await
+    }
+
+    /// The queries running now (`SPANNER_SYS.OLDEST_ACTIVE_QUERIES`).
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        self.processes_list().await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel_running(id).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

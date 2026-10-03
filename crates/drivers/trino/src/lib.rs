@@ -9,6 +9,7 @@ mod literal;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod script;
 mod security;
@@ -118,7 +119,7 @@ impl Driver for TrinoDriver {
     /// Databases are catalogs, which the server configures (`CREATE
     /// CATALOG` needs a connector and its properties): no create / drop.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, ..Capabilities::default() }
+        Capabilities { monitor: true, processes: true, cancel_query: true, ..Capabilities::default() }
     }
 
     fn supports_profiler(&self) -> bool {
@@ -926,6 +927,16 @@ impl Session for TrinoSession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         self.snapshot().await
+    }
+
+    /// The queries in flight (`system.runtime.queries`): the coordinator
+    /// has no sessions to list.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        self.processes_list().await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel_running(id).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

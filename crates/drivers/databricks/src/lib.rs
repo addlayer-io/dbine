@@ -16,6 +16,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod script;
 mod security;
@@ -281,7 +282,15 @@ impl Driver for DatabricksDriver {
 
     /// Catalogs are the databases: `CREATE CATALOG` / `DROP CATALOG … CASCADE`.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: true,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Default::default()
+        }
     }
 
     fn supports_profiler(&self) -> bool {
@@ -819,6 +828,16 @@ impl Session for DatabricksSession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         self.snapshot().await
+    }
+
+    /// The warehouse's running and queued queries (its query history): a
+    /// SQL warehouse has no sessions to list.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        self.processes_list().await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel_running(id).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {
