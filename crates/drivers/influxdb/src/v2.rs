@@ -275,6 +275,14 @@ impl Session for FluxSession {
         Err(Error::Unsupported(crate::security::TOKENS.into()))
     }
 
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported(crate::processes::V2_UNSUPPORTED.into()))
+    }
+
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Unsupported(crate::processes::V2_UNSUPPORTED.into()))
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         let resp = self
             .http

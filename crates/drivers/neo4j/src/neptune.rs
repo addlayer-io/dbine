@@ -244,6 +244,14 @@ impl Client {
         serde_json::from_str(&t).map_err(|e| Error::Query(format!("respuesta inesperada de {path}: {e}")))
     }
 
+    /// Cancel one running query by its id (the process list).
+    pub async fn cancel(&self, id: &str) -> Result<()> {
+        self.call(Method::POST, "/openCypher/status", Some(form(&[("cancelQuery", ""), ("queryId", id)]))).await.map(|_| ()).map_err(|e| match e {
+            Error::Query(m) => Error::Query(format!("no se pudo cancelar la consulta {id}: {m}")),
+            e => e,
+        })
+    }
+
     /// Cancel the running queries whose text is `query` (the interrupter).
     pub async fn cancel_matching(&self, query: &str) -> Result<()> {
         let st = self.json("/openCypher/status").await?;

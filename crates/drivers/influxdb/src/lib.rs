@@ -10,6 +10,7 @@ mod http;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod security;
 mod transfer;
@@ -83,9 +84,19 @@ impl Driver for InfluxDriver {
     }
 
     /// Buckets / databases are created and dropped through the HTTP API
-    /// (v2, v3) or InfluxQL (v1). No foreign keys in InfluxDB.
+    /// (v2, v3) or InfluxQL (v1). No foreign keys in InfluxDB. Running
+    /// queries are listed on v1 and v3, and only v1 can stop one (see
+    /// [`processes`]).
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: false, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: false,
+            monitor: true,
+            processes: !matches!(self.api, Api::Flux),
+            cancel_query: matches!(self.api, Api::InfluxQl),
+            ..Default::default()
+        }
     }
 
     /// Users and privileges: InfluxQL only (see [`security`]).

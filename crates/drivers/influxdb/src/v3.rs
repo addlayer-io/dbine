@@ -4,6 +4,7 @@
 use crate::http::{self, send_err};
 use crate::monitor;
 use crate::plan;
+use crate::processes;
 use crate::profiler;
 use crate::v1::cell;
 use dbine_driver::{
@@ -248,6 +249,27 @@ impl Session for SqlSession {
 
     async fn grants(&mut self, _principal: &str) -> Result<Vec<dbine_driver::Grant>> {
         Err(Error::Unsupported(crate::security::TOKENS.into()))
+    }
+
+    /// `system.queries` is read through a database, the session's or the
+    /// first one, as the monitor does.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        let saved = self.db.clone();
+        if self.db.is_none() {
+            self.db = self.databases().await?.into_iter().find(|d| !d.starts_with('_'));
+            if self.db.is_none() {
+                self.db = saved;
+                return Ok(Vec::new());
+            }
+        }
+        let r = tokio::time::timeout(processes::QUERY_LIMIT, self.sql(processes::V3_QUERIES)).await;
+        self.db = saved;
+        let (cols, rows) = r.map_err(|_| Error::Query("system.queries no respondió a tiempo".into()))??;
+        Ok(processes::v3_rows(&cols, &rows, chrono::Utc::now().timestamp_millis()))
+    }
+
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Unsupported(processes::V3_NO_CANCEL.into()))
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

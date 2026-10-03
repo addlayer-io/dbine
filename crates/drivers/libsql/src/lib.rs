@@ -292,6 +292,10 @@ const LIST_OBJECTS: &str = "SELECT type, name, tbl_name, COALESCE(sql, '') FROM 
    AND name NOT LIKE '\\_litestream\\_%' ESCAPE '\\' AND name NOT LIKE 'libsql\\_%' ESCAPE '\\'
  ORDER BY name";
 
+/// Why the process list and cancelling don't apply, in Spanish (for the
+/// error and the docs).
+const NO_PROCESSES: &str = "libSQL / Turso no expone las conexiones ni las consultas en curso: cada pedido Hrana es independiente y el servidor no tiene una vista ni una API para listarlas o cancelarlas";
+
 #[async_trait]
 impl Session for LibsqlSession {
     async fn server_version(&mut self) -> Result<String> {
@@ -463,6 +467,15 @@ impl Session for LibsqlSession {
     async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let name = table.name.clone();
         self.replay(|q| index_usage::report_with(q, &name)).await?.map_err(Error::Query).map(Some)
+    }
+
+    /// libSQL's server (sqld, Turso) has no view or API of the connections or running statements.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported(NO_PROCESSES.into()))
+    }
+
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Unsupported(NO_PROCESSES.into()))
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

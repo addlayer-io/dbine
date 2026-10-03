@@ -404,6 +404,10 @@ impl DuckDbSession {
     }
 }
 
+/// Why the process list and cancelling don't apply, in Spanish (for the
+/// error and the docs).
+const NO_PROCESSES: &str = "DuckDB es una base embebida: no hay un servidor con sesiones de otros clientes que listar ni consultas ajenas que cancelar";
+
 #[async_trait]
 impl Session for DuckDbSession {
     async fn server_version(&mut self) -> Result<String> {
@@ -582,6 +586,15 @@ impl Session for DuckDbSession {
             .await?;
         out.merge(local);
         res
+    }
+
+    /// Embedded: no server, so no other sessions to list or stop.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported(NO_PROCESSES.into()))
+    }
+
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Unsupported(NO_PROCESSES.into()))
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {

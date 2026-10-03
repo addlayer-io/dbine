@@ -9,6 +9,7 @@ mod command;
 mod ddl;
 mod monitor;
 mod permissions;
+mod processes;
 mod profiler;
 mod security;
 mod shape;
@@ -100,9 +101,21 @@ impl Driver for RedisDriver {
 
     /// Redis' databases are a fixed, numbered set (`databases` in the
     /// config): they aren't created or dropped (FLUSHDB empties one, from
-    /// the console). Keys have no relations.
+    /// the console). Keys have no relations. Clients are listed with
+    /// `CLIENT LIST`, closed with `CLIENT KILL` and a blocking command is
+    /// cancelled with `CLIENT UNBLOCK`, which Dragonfly lacks (see
+    /// [`processes`]).
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: false, drop_database: false, foreign_keys: false, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: false,
+            drop_database: false,
+            foreign_keys: false,
+            monitor: true,
+            kill_session: true,
+            processes: true,
+            cancel_query: self.info.id != "dragonfly",
+            ..Default::default()
+        }
     }
 
     fn supports_profiler(&self) -> bool {
@@ -244,7 +257,7 @@ fn command_err(e: RedisError) -> Error {
     }
 }
 
-fn err(e: RedisError) -> Error {
+pub(crate) fn err(e: RedisError) -> Error {
     if is_auth(&e) {
         Error::AuthFailed(e.to_string())
     } else if e.is_io_error() || e.is_connection_refusal() || e.is_timeout() {
@@ -651,6 +664,18 @@ impl Session for RedisSession {
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         self.snapshot().await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        RedisSession::processes(self).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel(id).await
+    }
+
+    async fn kill_session(&mut self, id: &str) -> Result<()> {
+        self.kill(id).await
     }
 
     async fn backups(&mut self, _database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
