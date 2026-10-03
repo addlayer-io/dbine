@@ -14,7 +14,7 @@ pub mod activity;
 pub mod approvals;
 pub mod commands;
 mod server;
-mod tools;
+pub(crate) mod tools;
 mod write;
 #[cfg(test)]
 mod tests;

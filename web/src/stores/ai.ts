@@ -40,6 +40,10 @@ export interface UiMessage extends ChatMessage {
   error?: string;
   pending?: boolean;
   provider?: string;
+  /** What a local model read from the connection to answer. */
+  tools?: { label: string; ok: boolean }[];
+  /** A read of rows waiting for the user's Aprobar / Rechazar. */
+  approval?: { requestId: string; label: string; connection: string; database: string; sql: string };
 }
 
 const HISTORY_KEY = 'dbine.ai.conversation';
@@ -95,6 +99,10 @@ export const useAiStore = defineStore('ai', {
     chatId: (ownsSavedState() ? readJson<string | null>(CHAT_ID_KEY, null) : null) ?? newId(),
     /** The archive as last read (refreshed when the "Historial" panel opens). */
     history: [] as SavedChat[],
+    /** "Aprobar lecturas en esta conversación", for `approveScope` (connection
+     *  and database): another conversation or tab target asks again. */
+    approveReads: false,
+    approveScope: null as string | null,
     running: null as string | null,
     phase: null as string | null,
     /** Detail of the phase (the engine download's percentage). */
@@ -116,7 +124,6 @@ export const useAiStore = defineStore('ai', {
       const want = useSettingsStore().get<string | null>(`ai.model.${p.kind}`, null);
       return p.models.find((m) => m.id === want)?.id ?? p.models[0]?.id ?? null;
     },
-    includeSchema: () => useSettingsStore().get<boolean>('ai.includeSchema', true),
     activeBridge(): EditorBridge | null {
       const id = useTabsStore().activeId;
       return id ? bridges.get(id) ?? null : null;
@@ -129,15 +136,23 @@ export const useAiStore = defineStore('ai', {
         try {
           await listen<{ chat_id: string; delta: { kind: 'text' | 'thinking'; text: string } }>('ai-delta', (e) => {
             const m = this.messages.find((x) => x.id === e.payload.chat_id);
-            if (!m) return;
+            if (!m?.pending) return;
             if (e.payload.delta.kind === 'thinking') m.thinking = (m.thinking ?? '') + e.payload.delta.text;
             else m.content += e.payload.delta.text;
             this.phase = 'writing';
           });
+          await listen<{ chat_id: string; request_id: string; label: string; connection: string; database: string; sql: string }>('ai-approval', (e) => {
+            const m = this.messages.find((x) => x.id === e.payload.chat_id);
+            if (m?.pending) m.approval = { requestId: e.payload.request_id, label: e.payload.label, connection: e.payload.connection, database: e.payload.database, sql: e.payload.sql };
+          });
+          await listen<{ chat_id: string; label: string; ok: boolean }>('ai-tool', (e) => {
+            const m = this.messages.find((x) => x.id === e.payload.chat_id);
+            if (m?.pending) (m.tools ??= []).push({ label: e.payload.label, ok: e.payload.ok });
+          });
           await listen<{ chat_id: string; phase: string; note: string | null }>('ai-status', (e) => {
             if (e.payload.chat_id === this.running) {
               // The backend asks again after a refusal: drop what it showed.
-              if (e.payload.phase === 'retry') {
+              if (e.payload.phase === 'retry' || e.payload.phase === 'tool') {
                 const m = this.messages.find((x) => x.id === e.payload.chat_id);
                 if (m) { m.content = ''; m.thinking = undefined; }
               }
@@ -161,7 +176,14 @@ export const useAiStore = defineStore('ai', {
       s.set('ai.provider', kind);
       if (model !== undefined) s.set(`ai.model.${kind}`, model);
     },
-    setIncludeSchema(v: boolean) { useSettingsStore().set('ai.includeSchema', v); },
+    /** Answer a read the assistant asked for. */
+    async decide(m: UiMessage, decision: 'approve' | 'approve_all' | 'reject') {
+      const a = m.approval;
+      if (!a) return;
+      m.approval = undefined;
+      if (decision === 'approve_all') this.approveReads = true;
+      try { await aiApi.approve(a.requestId, decision); } catch { /* the answer already ended */ }
+    },
     persist() {
       if (!ownsSavedState()) return;
       writeJson(HISTORY_KEY, this.messages.filter((m) => !m.pending).slice(-60));
@@ -176,10 +198,12 @@ export const useAiStore = defineStore('ai', {
     },
     /** "Nueva conversación": the current one goes to the history. */
     clear() {
-      if (this.running) return;
+      // Always available: a running answer is stopped first.
+      this.stop();
       this.archive();
       this.messages = [];
       this.chatId = newId();
+      this.approveReads = false;
       this.persist();
       this.loadHistory();
     },
@@ -188,13 +212,15 @@ export const useAiStore = defineStore('ai', {
     },
     /** Reopen a past conversation; the current one goes to the history. */
     restore(id: string) {
-      if (this.running || id === this.chatId) return;
+      if (id === this.chatId) return;
+      this.stop();
       const chat = readArchive().find((c) => c.id === id);
       if (!chat) return;
       this.archive();
       writeArchive(readArchive().filter((c) => c.id !== id));
       this.messages = chat.messages;
       this.chatId = chat.id;
+      this.approveReads = false;
       this.persist();
       this.loadHistory();
     },
@@ -223,6 +249,9 @@ export const useAiStore = defineStore('ai', {
       this.running = answer.id;
       this.phase = 'thinking';
       const object = tab?.kind === 'object' ? [tab.object.schema, tab.object.name].filter(Boolean).join('.') : null;
+      // "Aprobar lecturas en esta conversación" holds for one connection and database.
+      const scope = `${tab?.connectionId ?? ''}|${tab?.database ?? ''}`;
+      if (this.approveScope !== scope) { this.approveReads = false; this.approveScope = scope; }
       try {
         const r = await aiApi.chat(answer.id, p.kind, this.model, history, {
           connection_id: tab?.connectionId ?? null,
@@ -231,25 +260,43 @@ export const useAiStore = defineStore('ai', {
           editor_sql: b?.text() ?? null,
           selection: b?.selection() || null,
           last_error: b?.lastError() ?? null,
-          include_schema: this.includeSchema,
+          approve_reads: this.approveReads,
         });
-        const m = this.messages.find((x) => x.id === answer.id)!;
-        if (!m.content) m.content = r.text;
-        user.context = tb(r.context_summary);
+        // Gone (a new conversation) or stopped: what comes back is dropped.
+        const m = this.messages.find((x) => x.id === answer.id);
+        if (m?.pending && !m.content) m.content = r.text;
+        if (m?.pending) user.context = tb(r.context_summary);
       } catch (e) {
-        const m = this.messages.find((x) => x.id === answer.id)!;
-        m.error = errorKind(e) === 'cancelled' ? t('core:ai.stopped') : errorMessage(e);
+        const m = this.messages.find((x) => x.id === answer.id);
+        if (m?.pending) m.error = errorKind(e) === 'cancelled' ? t('core:ai.stopped') : errorMessage(e);
       } finally {
         const m = this.messages.find((x) => x.id === answer.id);
-        if (m) m.pending = false;
-        this.running = null;
-        this.phase = null;
-        this.phaseNote = null;
+        if (m) { m.pending = false; m.approval = undefined; }
+        // A newer turn may be running already (stopped, then asked again).
+        if (this.running === answer.id) {
+          this.running = null;
+          this.phase = null;
+          this.phaseNote = null;
+        }
         this.persist();
       }
     },
+    /** Stop the running answer now: the UI doesn't wait for the backend
+     *  (it stops streaming, reading or waiting for an approval on its own). */
     stop() {
-      if (this.running) aiApi.cancel(this.running);
+      const id = this.running;
+      if (!id) return;
+      aiApi.cancel(id).catch(() => { /* already over */ });
+      const m = this.messages.find((x) => x.id === id);
+      if (m?.pending) {
+        m.pending = false;
+        m.approval = undefined;
+        if (!m.content) m.error = t('core:ai.stopped');
+      }
+      this.running = null;
+      this.phase = null;
+      this.phaseNote = null;
+      this.persist();
     },
 
     async downloadModel(id: string) {

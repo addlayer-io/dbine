@@ -70,6 +70,14 @@ function modelName(p: AiProvider, m: AiModel): string {
   return m.id || tb(p.label);
 }
 
+/** The model in use, for the read-approval card ("Qwen2.5-Coder 32B, local"). */
+const modelLabel = computed(() => {
+  const p = provider.value;
+  if (!p) return '';
+  const m = p.models.find((x) => x.id === (ai.model ?? '')) ?? { id: ai.model ?? '', detail: null };
+  return `${modelName(p, m)}${p.local ? `, ${t('ai:approval.local')}` : ''}`;
+});
+
 const selectValue = computed({
   get: () => (provider.value ? `${provider.value.kind}|${ai.model ?? ''}` : ''),
   set: (v: string) => {
@@ -231,6 +239,7 @@ const phaseText = computed(() => ({
   engine: `${t('ai:phase.engine')} ${tb(ai.phaseNote)}`,
   thinking: t('ai:phase.thinking'),
   retry: t('ai:phase.retry'),
+  tool: `${t('ai:phase.tool')} ${ai.phaseNote ?? ''}`,
   writing: '',
 } as Record<string, string>)[ai.phase ?? ''] ?? '');
 </script>
@@ -251,7 +260,7 @@ const phaseText = computed(() => ({
       <div style="flex: 1" />
       <button class="ai-icon" :title="$t('ai:head.history')" :class="{ on: showHistory }" @click="toggleHistory"><el-icon><ei-clock /></el-icon></button>
       <button class="ai-icon" :title="$t('ai:head.setup')" :class="{ on: showSetup }" @click="showSetup = !showSetup; showHistory = false"><el-icon><ei-setting /></el-icon></button>
-      <button class="ai-icon" :title="$t('ai:head.newChat')" :disabled="!!ai.running || !ai.messages.length" @click="ai.clear()"><el-icon><ei-document-add /></el-icon></button>
+      <button class="ai-icon" :title="$t('ai:head.newChat')" :disabled="!ai.messages.length" @click="ai.clear()"><el-icon><ei-document-add /></el-icon></button>
       <button class="ai-icon" :title="$t('ai:head.close')" @click="$emit('close')"><el-icon><ei-close /></el-icon></button>
     </header>
 
@@ -262,7 +271,7 @@ const phaseText = computed(() => ({
         <el-button v-if="ai.history.length" size="small" text @click="clearHistory">{{ $t('ai:history.clear') }}</el-button>
       </div>
       <p v-if="!ai.history.length" class="ai-muted">{{ $t('ai:history.empty') }}</p>
-      <div v-for="c in ai.history" :key="c.id" class="ai-chat-row" :class="{ disabled: !!ai.running }" @click="!ai.running && openChat(c.id)">
+      <div v-for="c in ai.history" :key="c.id" class="ai-chat-row" @click="openChat(c.id)">
         <div class="ai-chat-main">
           <span class="ai-chat-title">{{ c.title || $t('ai:history.untitled') }}</span>
           <span class="ai-muted ai-small">{{ when(c.updated) }} · {{ $t('ai:history.messages', { count: c.messages.length }) }}</span>
@@ -318,7 +327,6 @@ const phaseText = computed(() => ({
     <template v-if="provider && !showSetup && !showHistory">
       <div class="ai-context">
         <span :title="contextLine">{{ contextLine }}</span>
-        <el-checkbox :model-value="ai.includeSchema" size="small" @update:model-value="(v: unknown) => ai.setIncludeSchema(!!v)">{{ $t('ai:context.schema') }}</el-checkbox>
       </div>
       <div class="ai-privacy" :class="{ local: provider.local }">
         <el-icon><ei-lock /></el-icon>
@@ -346,6 +354,23 @@ const phaseText = computed(() => ({
             <div v-if="m.context" class="ai-sent">{{ $t('ai:context.sent', { context: tb(m.context) }) }}</div>
           </template>
           <template v-else>
+            <details v-if="m.tools?.length" class="ai-tools" :open="m.pending">
+              <summary>{{ $t('ai:tools.read', { count: m.tools.length }) }}</summary>
+              <div v-for="(x, i) in m.tools" :key="i" :class="{ bad: !x.ok }">{{ x.label }}</div>
+            </details>
+            <div v-if="m.approval" class="ai-approve">
+              <div class="ai-approve-head">
+                <el-icon><ei-warning-filled /></el-icon>
+                <span>{{ $t('ai:approval.title', { model: provider ? modelLabel : '', connection: m.approval.connection, database: m.approval.database || '—' }) }}</span>
+              </div>
+              <pre class="nm-selectable">{{ m.approval.sql }}</pre>
+              <div class="ai-approve-acts">
+                <el-button size="small" type="primary" @click="ai.decide(m, 'approve')">{{ $t('ai:approval.approve') }}</el-button>
+                <el-button size="small" @click="ai.decide(m, 'reject')">{{ $t('ai:approval.reject') }}</el-button>
+                <el-button size="small" text @click="ai.decide(m, 'approve_all')">{{ $t('ai:approval.approveAll') }}</el-button>
+              </div>
+              <div class="ai-muted ai-small">{{ $t('ai:approval.note') }}</div>
+            </div>
             <details v-if="thinkingOf(m)" class="ai-think">
               <summary>{{ $t('ai:reasoning') }}</summary>
               <pre class="nm-selectable">{{ thinkingOf(m) }}</pre>
@@ -372,7 +397,7 @@ const phaseText = computed(() => ({
                 </div>
               </div>
             </template>
-            <div v-if="m.pending && !m.content" class="ai-muted ai-phase"><el-icon class="is-loading"><ei-loading /></el-icon> {{ phaseText || $t('ai:phase.thinking') }}</div>
+            <div v-if="m.pending && !m.content && !m.approval" class="ai-muted ai-phase"><el-icon class="is-loading"><ei-loading /></el-icon> {{ phaseText || $t('ai:phase.thinking') }}</div>
             <div v-if="m.error" class="ai-error">{{ m.error }}</div>
             <div v-if="!m.pending && m.provider" class="ai-sent">{{ tb(m.provider) }}</div>
           </template>
@@ -422,11 +447,20 @@ const phaseText = computed(() => ({
 .ai-context > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-privacy { display: flex; align-items: center; gap: 5px; padding: 4px 10px; font-size: 11px; color: var(--nm-text-dim); }
 .ai-privacy.local { color: var(--nm-success); }
+.ai-approve { margin: 4px 0 8px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--nm-warning) 55%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--nm-warning) 8%, transparent); display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.ai-approve-head { display: flex; gap: 6px; align-items: flex-start; color: var(--nm-text); }
+.ai-approve-head .el-icon { color: var(--nm-warning); margin-top: 2px; }
+.ai-approve pre { margin: 0; padding: 6px 8px; max-height: 160px; overflow: auto; border-radius: 4px; background: var(--ide-editor); font-family: var(--nm-mono); font-size: 11.5px; white-space: pre-wrap; color: var(--nm-text-strong); }
+.ai-approve-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.ai-approve-acts .el-button { margin: 0; }
+.ai-tools { margin: 2px 0 6px; font-size: 11.5px; color: var(--nm-text-dim); }
+.ai-tools summary { cursor: pointer; }
+.ai-tools div { padding-left: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-tools div.bad { color: var(--nm-danger); }
 .ai-history { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
 .ai-history-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .ai-chat-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
 .ai-chat-row:hover { background: var(--ide-hover, color-mix(in srgb, var(--nm-text) 8%, transparent)); }
-.ai-chat-row.disabled { cursor: default; opacity: 0.6; }
 .ai-chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ai-chat-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nm-text-strong); font-size: 12.5px; }
 .ai-better { margin: 4px 10px 6px; padding: 8px 10px; border: 1px solid var(--nm-border); border-radius: 6px; font-size: 12px; color: var(--nm-text); display: flex; flex-direction: column; gap: 6px; }

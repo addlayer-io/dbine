@@ -7,14 +7,16 @@ barra de actividad o con ⌘I. Sirve para:
 - explicar o corregir la query del editor;
 - entender la estructura de la base.
 
-## Regla principal: el asistente nunca ejecuta
+## Regla principal: el asistente nunca escribe
 
-El asistente **solo escribe código**. La ejecución siempre queda en manos del
-usuario:
+El asistente **nunca cambia la base**: lo que modifica datos o estructura lo
+escribe como código y la ejecución queda en manos del usuario.
 
-- No existe ningún camino técnico para que ejecute. El backend de IA no tiene
-  acceso a las sesiones de base ni al comando de ejecución, y Claude Code y
-  Codex corren sin herramientas.
+- No existe ningún camino técnico para que escriba. Con un modelo local puede
+  **leer** la conexión de la pestaña (ver «Consultar toda la conexión»), y solo
+  por las herramientas de lectura del servidor MCP, que abren sesiones de solo
+  lectura y rechazan cualquier escritura. Claude Code y Codex corren sin
+  herramientas.
 - Si el usuario le pide "borrá la tabla X", el asistente escribe el
   `DROP TABLE` y nada más.
 - Cada bloque de código tiene tres acciones:
@@ -30,6 +32,57 @@ usuario:
   antes de ejecutarlo vos". La advertencia no depende de lo que diga el modelo.
 - El prompt también le indica que no ejecuta ni dice haber ejecutado nada, con
   un ejemplo al final, que es lo que mejor respetan los modelos chicos.
+
+## Consultar toda la conexión (modelos locales)
+
+Con un modelo local (integrado, Ollama o LM Studio), el asistente no se limita
+a la base de la pestaña: puede leer **todas las bases de esa conexión** para
+armar una query que las cruce o para analizarlas ("¿qué índices no se usan en
+ninguna base?"). No recibe todo de entrada (no entraría en el contexto): lo
+pide a medida que lo necesita.
+
+- **Cómo pide:** el prompt le explica un formato propio de DBine. El modelo
+  responde solo con `<herramienta>{"name": …, "arguments": {…}}</herramienta>`,
+  DBine lo atiende y le devuelve `<resultado>…</resultado>` (o `<error>`), y
+  el modelo sigue. Se usa ese formato y no las herramientas nativas de cada
+  modelo porque en la prueba Qwen2.5-Coder con llama.cpp no generó llamadas
+  nativas; el formato propio funciona igual con los tres proveedores locales.
+- **Qué puede leer sin preguntar:** las bases de la conexión, los objetos de
+  una base, la estructura de una tabla (`describe_object`) y el uso de sus
+  índices (`index_usage`). Son lecturas del catálogo que hace DBine, no SQL
+  del modelo.
+- **Qué lee solo con tu aprobación:** filas de muestra y consultas de **solo
+  lectura** (`sample_rows`, `run_query`, `explain`). Antes de correr cada una,
+  el chat muestra una tarjeta con el modelo (por ejemplo "Qwen2.5-Coder 32B,
+  local"), la conexión › base y la consulta exacta, con **Aprobar**,
+  **Rechazar** y **Aprobar lecturas en esta conversación**. Si la rechazás, el
+  modelo recibe un `<error>` y sigue sin esos datos. "Aprobar lecturas en esta
+  conversación" deja de valer al empezar otra conversación o al cambiar de
+  conexión o de base. Aprobar no habilita escrituras: la consulta corre en una
+  sesión de solo lectura que rechaza cualquier cambio.
+- **Con qué código:** las mismas herramientas del [servidor MCP](mcp.md)
+  (`assistant_call` en `src-tauri/src/mcp/tools.rs`): sesiones de solo lectura
+  propias, rechazo de escrituras, topes de filas y de tiempo. No depende de la
+  configuración de MCP, y vale solo sobre la conexión de la pestaña (no ve
+  otras conexiones). Cada lectura queda en la actividad de MCP
+  como "Asistente de DBine".
+- **Límites:** hasta 12 lecturas por respuesta; una consulta repetida no se
+  vuelve a ejecutar. Cada resultado se recorta a 12 000 caracteres.
+- **En el chat:** mientras lee se ve "Consultando la conexión: estructura de
+  people.customer en tenant-brinks…", y debajo de la respuesta, plegada, la
+  lista de lo que consultó. Las líneas `<herramienta>` no se muestran.
+- **Modelos:** está disponible con cualquiera. Con el pedido "analizá los
+  índices de las bases y decime cuál sobra", el 32B y el 7B listaron las bases,
+  leyeron el uso de índices de cada una y respondieron bien; el 3B usó las
+  herramientas pero se fue por las ramas (planes de consultas inventadas).
+- **Cómo reconoce el pedido:** además de `<herramienta>`, acepta `<tool_call>`,
+  un bloque ```` ```json ```` o un objeto `{"name", "arguments"}` suelto después
+  de texto, que es lo que escriben a veces los modelos chicos; ese texto no se
+  muestra en el chat. `index_usage` sin `object` resume toda la base (hasta
+  400 tablas o 2 minutos).
+- **Claude Code y Codex:** no tienen estas herramientas: la estructura de las
+  otras bases saldría de la máquina. Si se habilitan más adelante, será solo
+  con metadatos, y con datos únicamente si el usuario lo aprueba.
 
 ## Proveedores
 
@@ -117,15 +170,20 @@ Se arma en `src-tauri/src/commands/ai.rs`:
 
 - **Motor y lenguaje:** SQL con su dialecto, CQL, JSON/Mongo, Redis, Flux o
   Cypher. También la base actual y si la conexión es de solo lectura.
-- **Estructura de la base** (se puede desactivar con la casilla "estructura"):
+- **Con un modelo local:** solo los nombres de las tablas, vistas y rutinas de
+  la base de la pestaña (hasta 400, con la cantidad de las que quedan afuera),
+  de la lista que ya tiene el explorador. Las columnas, claves e índices los
+  pide el modelo con las herramientas del catálogo (ver «Consultar toda la
+  conexión»), sin aprobación. No hay casilla para apagarlo: es liviano, sale
+  de la caché y llama.cpp reutiliza lo que ya procesó del mismo texto.
+- **Con Claude Code o Codex** (sin herramientas), la estructura compacta:
   - Viene de `database_schema`, así que funciona con todos los drivers que la
     implementan. Se guarda en caché 10 minutos.
   - Formato compacto: `schema.tabla(col tipo PK, col tipo NOT NULL, …)` y sus
     FK.
   - Si no entra entera, van primero las tablas nombradas en la pregunta, en el
     editor o en la pestaña, y del resto solo el nombre.
-  - Tope: unos 24 000 caracteres para modelos locales y 150 000 para Claude
-    Code y Codex.
+  - Tope: unos 150 000 caracteres.
 - **Editor:** el texto de la query abierta, la selección y el error de la
   última ejecución.
 - **Pistas del dialecto** (SQL Server, PostgreSQL, MySQL, Oracle, SQLite): cómo
@@ -144,7 +202,7 @@ muestra "Volviendo a preguntar…" y reemplaza la negativa por la nueva
 respuesta.
 
 Debajo de cada pregunta se muestra qué contexto viajó; por ejemplo,
-"SQLite · 2 tablas · editor".
+"SQLite · 2 tablas · editor" (con un modelo local, "· 48 objetos").
 
 ## Preferencias
 
@@ -152,7 +210,6 @@ Viajan con la sincronización:
 
 - `ai.provider`
 - `ai.model.<proveedor>`
-- `ai.includeSchema`
 
 La conversación queda en la máquina (las últimas 60 entradas). "Nueva
 conversación" no la borra: la pasa al **Historial** (el ícono del reloj en el

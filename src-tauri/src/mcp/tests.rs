@@ -74,7 +74,10 @@ impl Drop for Server {
 }
 
 async fn server() -> Server {
-    let dir = std::env::temp_dir().join(format!("dbine-mcp-test-{}-{}", std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+    // A counter too: tests start in parallel within the clock's resolution.
+    static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("dbine-mcp-test-{}-{}-{n}", std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)));
     std::fs::create_dir_all(&dir).unwrap();
     let db = dir.join("t.sqlite");
     {
@@ -275,4 +278,37 @@ async fn mcp_write_needs_the_level_and_the_users_approval() {
 
 fn load_connection(s: &Server, id: &str) -> SavedConnection {
     s.rt.inner.state.store.list_connections().unwrap().into_iter().find(|c| c.id == id).unwrap()
+}
+
+/// DBine's own assistant (a local model): on its connection, whatever MCP's
+/// level for it says (even hidden from MCP); rows only with "datos"; never a
+/// write; every call logged as "Asistente de DBine".
+#[tokio::test]
+async fn assistant_reads_its_connection_at_the_chats_level() {
+    let s = server().await;
+    let hidden = s.rt.inner.state.store.list_connections().unwrap().into_iter().find(|c| c.name == "oculta").unwrap();
+    let inner = &s.rt.inner;
+    let (desc, err) = super::tools::assistant_call(inner, &hidden, "describe_object", &json!({ "database": "", "object": "people" }), false).await;
+    assert!(!err && desc.contains("name"), "{desc}");
+    let (usage, err) = super::tools::assistant_call(inner, &hidden, "index_usage", &json!({ "database": "", "object": "people" }), false).await;
+    assert!(!err && usage.contains("indexes of people"), "{usage}");
+    let (msg, err) = super::tools::assistant_call(inner, &hidden, "run_query", &json!({ "database": "", "query": "select name from people" }), false).await;
+    assert!(err && msg.contains("lectura"), "no rows without «datos»: {msg}");
+    let (rows, err) = super::tools::assistant_call(inner, &hidden, "run_query", &json!({ "database": "", "query": "select name from people order by id" }), true).await;
+    assert!(!err && rows.contains("ana"), "{rows}");
+    let (msg, err) = super::tools::assistant_call(inner, &hidden, "run_query", &json!({ "database": "", "query": "delete from people" }), true).await;
+    assert!(err && msg.contains("DELETE"), "{msg}");
+    let (msg, err) = super::tools::assistant_call(inner, &hidden, "execute", &json!({ "database": "", "code": "delete from people" }), true).await;
+    assert!(err && msg.contains("desconocida"), "{msg}");
+    let log = inner.activity.list(Some("Asistente de DBine"), None, 100).unwrap();
+    assert!(log.len() >= 5, "{log:?}");
+}
+
+/// index_usage without an object sums up the whole database.
+#[tokio::test]
+async fn index_usage_overview_of_a_database() {
+    let s = server().await;
+    let conn = s.rt.inner.state.store.list_connections().unwrap().into_iter().find(|c| c.name == "lectura").unwrap();
+    let (text, err) = super::tools::assistant_call(&s.rt.inner, &conn, "index_usage", &json!({ "database": "" }), true).await;
+    assert!(!err && text.contains("tables read") && text.contains("UNUSED"), "{text}");
 }

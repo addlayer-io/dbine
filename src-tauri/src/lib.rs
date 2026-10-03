@@ -414,6 +414,7 @@ pub fn run() {
             commands::profiler::profiler_stop,
             commands::ai::ai_detect,
             commands::ai::ai_chat,
+            commands::ai::ai_approve,
             commands::ai::ai_cancel,
             commands::ai::ai_download_model,
             commands::ai::ai_delete_model,
