@@ -1,17 +1,18 @@
-//! The process list ([`dbine_driver::Session::processes`]), cancelling a
-//! connection's query ([`dbine_driver::Session::cancel_query`]) and closing
-//! a connection (`kill_session`).
+//! The process list ([`dbine_driver::Session::processes`]) and cancelling a
+//! connection's query ([`dbine_driver::Session::cancel_query`]).
 //!
 //! One row per `performance_schema.perf_connections` row, with the query
 //! it runs from `perf_queries` (both views the monitor reads), matched by
 //! `conn_id`. Clients report their running queries with each heartbeat
 //! (about every second), so a query shows up once it outlives one. The id
 //! is the `conn_id`: cancelling runs `KILL QUERY '<kill_id>'` for that
-//! connection's queries, and closing it `KILL CONNECTION <conn_id>`.
+//! connection's queries. There's no closing a connection
+//! (`KILL CONNECTION`): see below.
 //!
 //! DBine reaches the server through taosAdapter's REST API, whose pooled
 //! native connections serve every REST client: none of them is DBine's own,
-//! so no row is flagged `own`.
+//! so no row is flagged `own`, and closing one would cut a connection other
+//! clients share.
 
 use crate::ddl::lit;
 use crate::{text, TdSession};
@@ -128,14 +129,6 @@ impl TdSession {
             })?;
         }
         Ok(())
-    }
-
-    pub(crate) async fn kill_connection(&self, id: &str) -> Result<()> {
-        let n = conn_id(id)?;
-        self.conn.sql(None, &format!("KILL CONNECTION {n}")).await.map(|_| ()).map_err(|e| match e {
-            Error::Query(m) => Error::Query(format!("no se pudo cerrar la conexión {n}: {m}")),
-            e => e,
-        })
     }
 }
 

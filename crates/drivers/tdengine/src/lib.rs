@@ -101,14 +101,14 @@ impl Driver for TdDriver {
     }
 
     /// Connections and their running queries from `performance_schema`,
-    /// `KILL QUERY` and `KILL CONNECTION` (see [`processes`]).
+    /// `KILL QUERY` (see [`processes`]). No `kill_session`: the connections
+    /// are taosAdapter's pool, shared with every REST client.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             create_database: true,
             drop_database: true,
             foreign_keys: false,
             monitor: true,
-            kill_session: true,
             processes: true,
             cancel_query: true,
             ..Default::default()
@@ -775,9 +775,6 @@ impl Session for TdSession {
         self.cancel_connection_query(id).await
     }
 
-    async fn kill_session(&mut self, id: &str) -> Result<()> {
-        self.kill_connection(id).await
-    }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         self.cancel.flag.store(false, Ordering::SeqCst);

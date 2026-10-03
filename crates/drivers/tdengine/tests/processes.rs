@@ -39,7 +39,7 @@ async fn tdengine() {
     };
     let d = dbine_driver_tdengine::drivers().remove(0);
     let caps = d.capabilities();
-    assert!(caps.processes && caps.cancel_query && caps.kill_session);
+    assert!(caps.processes && caps.cancel_query && !caps.kill_session);
     // The table the profiler test fills (same rows).
     const ROWS: u64 = 2_000_000;
     let mut admin = d.connect(&c, None).await.unwrap();

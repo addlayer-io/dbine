@@ -3,9 +3,9 @@
 //! sessions (the REST API is stateless): the rows are the queries of
 //! `SHOW QUERIES` (the monitor runs its `EXTENDED` form), persistent ones
 //! (`CREATE … AS SELECT`, which run until terminated) and the push queries
-//! clients have open. Stopping one is `TERMINATE <id>`: a persistent query
-//! stops for good (its stream or table stays, no longer fed), and a push
-//! query ends for its client.
+//! clients have open. Cancelling a persistent query pauses it (`PAUSE`,
+//! undone with `RESUME`) instead of `TERMINATE`, which would stop it for
+//! good; a push query ends for its client (`TERMINATE`).
 
 use crate::{text, KsqlSession};
 use dbine_driver::{Error, Result, ServerProcess};
@@ -27,11 +27,15 @@ pub(crate) fn rows(ents: &[Value], own: Option<&str>) -> Vec<ServerProcess> {
         .flatten()
         .filter_map(|q| {
             let id = q.get("id").map(|i| i.get("id").map(text).unwrap_or_else(|| text(i))).filter(|s| !s.is_empty())?;
-            // `state` on recent servers; `statusCount` ({"RUNNING": 2}) per server otherwise.
-            let state = q.get("state").map(text).filter(|s| !s.is_empty()).or_else(|| {
-                let counts = q.get("statusCount")?.as_object()?;
-                Some(counts.iter().filter(|(_, n)| n.as_u64().unwrap_or(0) > 0).map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(", "))
-            });
+            // `statusCount` ({"RUNNING": 2}) is what each server is doing;
+            // `state` (recent servers) can lag behind it: a paused query
+            // still says RUNNING there. `state` only when there are no counts.
+            let state = q
+                .get("statusCount")
+                .and_then(Value::as_object)
+                .map(|counts| counts.iter().filter(|(_, n)| n.as_u64().unwrap_or(0) > 0).map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(", "))
+                .filter(|s| !s.is_empty())
+                .or_else(|| q.get("state").map(text).filter(|s| !s.is_empty()));
             let sql = q.get("queryString").map(text).filter(|s| !s.trim().is_empty());
             let sinks = q.get("sinks").and_then(Value::as_array).map(|a| a.iter().map(text).collect::<Vec<_>>().join(", ")).filter(|s| !s.is_empty());
             Some(ServerProcess {
@@ -76,8 +80,14 @@ impl KsqlSession {
         if self.open_query().as_deref() == Some(id) {
             return Err(Error::Query("esa es la consulta que DBine tiene abierta en esta sesión: se detiene desde su pestaña".into()));
         }
-        self.ksql(&format!("TERMINATE {id}")).await.map(|_| ()).map_err(|e| match e {
-            Error::Query(m) => Error::Query(format!("no se pudo terminar la consulta {id}: {m}")),
+        let persistent = self.processes().await?.into_iter().find(|p| p.id == id).map(|p| p.command.as_deref() == Some("PERSISTENT"));
+        let (stmt, verb) = match persistent {
+            None => return Err(Error::Query(format!("la consulta {id} ya no está en ejecución"))),
+            Some(true) => ("PAUSE", "pausar"),
+            Some(false) => ("TERMINATE", "terminar"),
+        };
+        self.ksql(&format!("{stmt} {id}")).await.map(|_| ()).map_err(|e| match e {
+            Error::Query(m) => Error::Query(format!("no se pudo {verb} la consulta {id}: {m}")),
             e => e,
         })
     }
@@ -97,9 +107,13 @@ mod tests {
              "queryType": "PUSH"},
             {"queryString": "CREATE STREAM X AS SELECT * FROM S;", "sinks": ["X"], "id": "CSAS_X_3", "statusCount": {"ERROR": 1, "RUNNING": 0},
              "queryType": "PERSISTENT"},
+            // Paused: 7.x still says RUNNING in `state`.
+            {"queryString": "CREATE STREAM Y AS SELECT * FROM S;", "sinks": ["Y"], "id": "CSAS_Y_4", "statusCount": {"PAUSED": 1},
+             "queryType": "PERSISTENT", "state": "RUNNING"},
         ]})];
         let p = rows(&ents, Some("transient_S_42"));
-        assert_eq!(p.len(), 3);
+        assert_eq!(p.len(), 4);
+        assert!(!p[3].active && p[3].status.as_deref() == Some("PAUSED"), "{:?}", p[3]);
         assert!(p[0].active && !p[0].own);
         assert_eq!((p[0].command.as_deref(), p[0].database.as_deref()), (Some("PERSISTENT"), Some("T")));
         assert!(p[1].active && p[1].own && p[1].database.is_none());
