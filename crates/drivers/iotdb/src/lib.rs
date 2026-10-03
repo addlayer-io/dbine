@@ -29,6 +29,7 @@ const ROW_LIMIT_EXCEEDED: i64 = 708;
 
 mod monitor;
 mod permissions;
+mod processes;
 mod profiler;
 mod script;
 mod security;
@@ -98,8 +99,18 @@ impl Driver for IotDbDriver {
         true
     }
 
+    /// Running queries are listed and killed by id (see [`processes`]);
+    /// the REST API has no sessions to end.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: false, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: false,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Default::default()
+        }
     }
 
     /// Time series of a device: data type, encoding and compression per
@@ -733,6 +744,14 @@ impl Session for IotDbSession {
     async fn server_version(&mut self) -> Result<String> {
         let t = self.query("SHOW VERSION", 10).await?;
         Ok(format!("{} {}", self.product, texts(&t, 0).first().cloned().unwrap_or_default()).trim().to_string())
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        IotDbSession::processes(self).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel(id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

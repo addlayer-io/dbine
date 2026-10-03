@@ -53,6 +53,7 @@ mod neptune;
 mod packstream;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod security;
 mod steps;
@@ -255,6 +256,10 @@ impl Driver for GraphDriver {
             monitor: true,
             blocking: locks,
             kill_session: locks,
+            // Every flavor lists its transactions (Neptune its queries) and
+            // stops one (see processes.rs).
+            processes: true,
+            cancel_query: true,
             ..Default::default()
         }
     }
@@ -1571,6 +1576,14 @@ impl Session for GraphSession {
             )),
             Flavor::Neptune => Err(Error::Unsupported("Neptune no informa bloqueos entre transacciones".into())),
         }
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        processes::processes(self).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        processes::cancel(self, id).await
     }
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {

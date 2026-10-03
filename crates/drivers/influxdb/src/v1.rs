@@ -5,6 +5,7 @@
 use crate::http::{self, send_err};
 use crate::monitor;
 use crate::plan;
+use crate::processes;
 use crate::profiler;
 use dbine_driver::{
     async_trait, json_f64, json_i64, json_u64, kinds, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
@@ -623,6 +624,26 @@ impl Session for InfluxQlSession {
 
     async fn grants(&mut self, principal: &str) -> Result<Vec<dbine_driver::Grant>> {
         crate::security::grants(self, principal).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        let r = tokio::time::timeout(processes::QUERY_LIMIT, self.query("SHOW QUERIES"))
+            .await
+            .map_err(|_| Error::Query("SHOW QUERIES no respondió a tiempo".into()))??;
+        Ok(r.first().map(processes::v1_rows).unwrap_or_default())
+    }
+
+    /// `KILL QUERY`. The list's own `SHOW QUERIES` is over by the time
+    /// anyone could pick it, so there's no own query to refuse.
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        let qid = processes::v1_qid(id).ok_or_else(|| Error::Query(format!("«{}» no es un id de consulta de InfluxDB (qid)", id.trim())))?;
+        if self.read_only {
+            return Err(Error::Query("Conexión de solo lectura: no se pueden cancelar consultas de otros clientes.".into()));
+        }
+        self.write_statement(&format!("KILL QUERY {qid}")).await.map_err(|e| match e {
+            Error::Query(m) => Error::Query(format!("no se pudo cancelar la consulta {qid}: {m}")),
+            e => e,
+        })
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

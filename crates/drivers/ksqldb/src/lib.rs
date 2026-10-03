@@ -24,6 +24,7 @@ mod ddl;
 mod sync;
 mod monitor;
 mod plan;
+mod processes;
 mod steps;
 mod transfer;
 
@@ -104,9 +105,10 @@ impl Driver for KsqlDriver {
     }
 
     /// ksqlDB is a single namespace (no databases to create or drop) and
-    /// has no foreign keys.
+    /// has no foreign keys. Its running queries are listed and terminated
+    /// (see [`processes`]); there are no client sessions to end.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, ..Capabilities::default() }
+        Capabilities { monitor: true, processes: true, cancel_query: true, ..Capabilities::default() }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -730,6 +732,14 @@ impl Session for KsqlSession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         self.snapshot().await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        KsqlSession::processes(self).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.terminate(id).await
     }
 
     /// A pull query read to the end, typed by its column types.

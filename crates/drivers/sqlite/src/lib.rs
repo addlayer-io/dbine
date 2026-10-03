@@ -221,6 +221,10 @@ impl SqliteSession {
     }
 }
 
+/// Why the process list and cancelling don't apply, in Spanish (for the
+/// error and the docs).
+const NO_PROCESSES: &str = "SQLite es una base embebida en un archivo: no hay un servidor con sesiones de otros clientes que listar ni consultas ajenas que cancelar";
+
 #[async_trait]
 impl Session for SqliteSession {
     async fn server_version(&mut self) -> Result<String> {
@@ -389,6 +393,15 @@ impl Session for SqliteSession {
     async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let name = table.name.clone();
         self.with(move |c| index_usage::report_with(&mut |sql| schema::query_rows(c, sql), &name).map_err(err)).await.map(Some)
+    }
+
+    /// Embedded: no server, so no other sessions to list or stop.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported(NO_PROCESSES.into()))
+    }
+
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Unsupported(NO_PROCESSES.into()))
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {

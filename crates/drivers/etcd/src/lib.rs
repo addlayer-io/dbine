@@ -624,6 +624,10 @@ fn member_row(m: &Value) -> Vec<Value> {
     ]
 }
 
+/// Why the process list and cancelling don't apply, in Spanish (for the
+/// error and the docs).
+const NO_PROCESSES: &str = "etcd no tiene sesiones de servidor ni una vista de los pedidos en curso: cada pedido es independiente (las \"sesiones\" de sus clientes son leases) y no hay forma de cancelar el de otro cliente";
+
 #[async_trait]
 impl Session for EtcdSession {
     async fn server_version(&mut self) -> Result<String> {
@@ -816,6 +820,16 @@ impl Session for EtcdSession {
             cancel.flag.store(true, Ordering::SeqCst);
             cancel.notify.notify_waiters();
         }))
+    }
+
+    /// etcd has no server sessions (a client "session" is a lease) and no
+    /// view of other clients' requests.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported(NO_PROCESSES.into()))
+    }
+
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Unsupported(NO_PROCESSES.into()))
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
