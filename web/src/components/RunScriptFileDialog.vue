@@ -353,5 +353,5 @@ defineExpose({ run });
 .rs-error { display: flex; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--nm-border-soft); }
 .rs-error:last-child { border-bottom: none; }
 .rs-error-n { color: var(--nm-text-muted); font-family: var(--nm-mono); font-size: 11px; min-width: 18px; text-align: right; padding-top: 1px; }
-.rs-error pre { margin: 0; font-family: var(--nm-mono); font-size: 11.5px; color: #f48771; white-space: pre-wrap; word-break: break-word; user-select: text; }
+.rs-error pre { margin: 0; font-family: var(--nm-mono); font-size: 11.5px; color: #f48771; white-space: pre-wrap; word-break: break-word; user-select: text; cursor: text; }
 </style>

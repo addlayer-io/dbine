@@ -598,7 +598,7 @@ function selectOptions(f: Field): [string, string][] {
 }
 .cd-test-error .el-icon { color: var(--nm-danger); margin-top: 2px; flex-shrink: 0; }
 .cd-test-error strong { color: var(--nm-text-strong); font-weight: 600; }
-.cd-test-error p { margin: 2px 0 0; color: var(--nm-text); white-space: pre-wrap; word-break: break-word; user-select: text; }
+.cd-test-error p { margin: 2px 0 0; color: var(--nm-text); white-space: pre-wrap; word-break: break-word; user-select: text; cursor: text; }
 
 /* footer */
 .cd-footer { display: flex; align-items: center; gap: 8px; }
