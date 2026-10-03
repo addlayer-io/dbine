@@ -4,7 +4,8 @@ import { useTranslation } from 'i18next-vue';
 import { tb } from '../i18n/backend';
 import { editorBridge } from '../stores/ai';
 import { dbKey, useConnectionsStore } from '../stores/connections';
-import { useTabsStore, type Tab } from '../stores/tabs';
+import { baseName, useTabsStore, type Tab } from '../stores/tabs';
+import { useProjectsStore } from '../stores/projects';
 import { useUiStore } from '../stores/ui';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
@@ -17,12 +18,15 @@ import EngineIcon from './EngineIcon.vue';
 const tabs = useTabsStore();
 const conns = useConnectionsStore();
 const ui = useUiStore();
+const projects = useProjectsStore();
 // Reactive t: tab titles follow a language switch.
 const { t: tr } = useTranslation();
 
 /** Show the tab's query / object in the explorer (and pin the tab). */
 function reveal(t: Tab) {
   tabs.pin(t.id);
+  // A project's file: its project in Proyectos.
+  if (t.kind === 'file' || t.kind === 'fileDiff') { projects.focusProject(t.projectId); return; }
   ui.revealInExplorer(t.kind === 'query'
     ? { connectionId: t.connectionId, database: t.database, queryId: t.queryId }
     : t.kind === 'object'
@@ -32,6 +36,8 @@ function reveal(t: Tab) {
 
 function title(t: Tab): string {
   if (t.kind === 'object') return t.object.name;
+  if (t.kind === 'file') return baseName(t.path);
+  if (t.kind === 'fileDiff') return `${baseName(t.path)} ${tr('workbench:tabs.fileDiffSuffix')}`;
   if (t.kind === 'designer') return conns.driverOf(t.connectionId)?.designer?.label ? tb(conns.driverOf(t.connectionId)!.designer!.label) : tr('workbench:tabs.designer');
   if (t.kind === 'monitor') return `${tr('workbench:tabs.monitor')} · ${conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'profiler') return `Profiler · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
@@ -50,11 +56,17 @@ function title(t: Tab): string {
     return `${tr('workbench:tabs.migrate')} · ${saved?.name || t.database || conns.byId(t.connectionId)?.name || ''}`;
   }
   if (t.kind === 'diagram') return `${tr('workbench:tabs.diagram')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
+  if (t.kind !== 'query') return '';
   const q = conns.queries[dbKey(t.connectionId, t.database)]?.items.find((x) => x.id === t.queryId);
   return q?.name ?? tr('workbench:tabs.query');
 }
 function tooltip(t: Tab): string {
   const c = conns.byId(t.connectionId)?.name ?? '';
+  if (t.kind === 'file' || t.kind === 'fileDiff') {
+    const p = projects.byId(t.projectId)?.name ?? '';
+    if (t.kind === 'fileDiff') return `${p} › ${t.path}`;
+    return `${p} › ${t.path} · ${c ? `${c} › ${t.database}` : tr('workbench:tabs.noBase')}`;
+  }
   const where = [c, t.database].filter(Boolean).join(' · ');
   return t.kind === 'object' ? `${t.object.schema ? t.object.schema + '.' : ''}${t.object.name} — ${where}` : `${title(t)} — ${where}`;
 }
@@ -101,7 +113,7 @@ const rows = computed<Row[]>(() => {
         : titles[i],
       tooltip: tooltip(t),
       color: inGroup ? groupColor(t.connectionId) : conns.colorOf(t.connectionId),
-      icon: { query: 'document', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', connection: 'connection' }[t.kind],
+      icon: { query: 'document', file: 'document', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', connection: 'connection' }[t.kind],
     });
   });
   return out;
@@ -153,8 +165,10 @@ function onContext(e: MouseEvent, t: Tab) {
     x: e.clientX, y: e.clientY,
     items: [
       ...(t.kind === 'query' ? [{ label: tr('common:rename'), action: () => { tabs.activate(t.id); startRename(t); } }] : []),
-      { label: tr('workbench:tabs.revealInExplorer'), shortcut: tr('workbench:tabs.doubleClick'), action: () => reveal(t) },
-      { label: tr('workbench:tabs.goToDatabase'), action: () => ui.revealInExplorer({ connectionId: t.connectionId, database: t.database, menu: true }) },
+      t.kind === 'file' || t.kind === 'fileDiff'
+        ? { label: tr('workbench:tabs.revealInProjects'), shortcut: tr('workbench:tabs.doubleClick'), action: () => reveal(t) }
+        : { label: tr('workbench:tabs.revealInExplorer'), shortcut: tr('workbench:tabs.doubleClick'), action: () => reveal(t) },
+      ...(t.connectionId ? [{ label: tr('workbench:tabs.goToDatabase'), action: () => ui.revealInExplorer({ connectionId: t.connectionId, database: t.database, menu: true }) }] : []),
       { label: tr('common:close'), action: () => tabs.close(t.id), divided: true },
       { label: tr('workbench:tabs.closeOthers'), action: () => tabs.closeOthers(t.id) },
       ...(grouping.value && t.connectionId
@@ -262,6 +276,8 @@ function onGroupContext(e: MouseEvent, g: Extract<Row, { type: 'group' }>) {
 .et-icon { font-size: 14px; flex-shrink: 0; }
 .et-icon.query { color: #75beff; }
 .et-icon.object { color: #4ec9b0; }
+.et-icon.file { color: #e5c07b; }
+.et-icon.fileDiff { color: #e5c07b; }
 .et-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .et-dirty { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--nm-text-strong); opacity: 0.85; }
 .et-dirty.error { background: var(--nm-danger); opacity: 1; }

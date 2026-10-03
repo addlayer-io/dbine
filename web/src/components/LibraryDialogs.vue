@@ -97,7 +97,7 @@ const openOpen = computed({ get: () => !!lib.opening, set: (v) => { if (!v) lib.
 const target = reactive({ connectionId: '', database: '' });
 const values = reactive<Record<string, string>>({});
 const params = computed(() => (lib.opening ? placeholders(lib.opening.script.text) : []));
-const appendable = computed(() => tabs.active?.kind === 'query' && !!ai.activeBridge);
+const appendable = computed(() => (tabs.active?.kind === 'query' || tabs.active?.kind === 'file') && !!ai.activeBridge);
 
 /** Connections whose engine the script fits (all, if none fits). */
 const targetConns = computed(() => {

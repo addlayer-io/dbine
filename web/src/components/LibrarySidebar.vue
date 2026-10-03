@@ -145,7 +145,7 @@ function onContext(e: MouseEvent, s: LibraryScript) {
     y: e.clientY,
     items: [
       { label: t('library:menu.openNew'), action: () => open(s, 'new') },
-      { label: t('library:menu.appendOpen'), disabled: tabs.active?.kind !== 'query', action: () => open(s, 'append') },
+      { label: t('library:menu.appendOpen'), disabled: tabs.active?.kind !== 'query' && tabs.active?.kind !== 'file', action: () => open(s, 'append') },
       { label: t('library:menu.edit'), divided: true, action: () => edit(s) },
       { label: t('library:menu.move'), action: () => { lib.moving = s; } },
       { label: t('common:duplicate'), action: () => lib.newScript(s.text, [...s.engines], t('library:menu.copyName', { name: s.name })) },

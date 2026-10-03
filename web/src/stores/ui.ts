@@ -18,6 +18,9 @@ export interface RevealRequest {
 }
 let revealSeq = 0;
 
+/** The left sidebar's views (the activity bar's buttons). */
+export type SidebarView = 'explorer' | 'projects' | 'library' | 'history';
+
 export const useUiStore = defineStore('ui', {
   state: () => ({
     /** Folder dialog: `null` closed, `''` new, else the id being edited. */
@@ -27,10 +30,10 @@ export const useUiStore = defineStore('ui', {
     reveal: null as RevealRequest | null,
     /** Database-level dialog open (script, export, import, run a file). */
     /** What the left sidebar shows. */
-    sidebarView: 'explorer' as 'explorer' | 'library' | 'history',
+    sidebarView: 'explorer' as SidebarView,
     /** Bumped after each run from the editor: the history view reloads. */
     historySeq: 0,
-    /** Query tabs with changes not saved yet (tab id → state): the tab
+    /** Query and file tabs with changes not saved yet (tab id → state): the tab
      *  strip shows a dot. */
     unsaved: {} as Record<string, 'dirty' | 'saving' | 'error'>,
     /** The AI assistant's sidebar. */

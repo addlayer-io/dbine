@@ -5,7 +5,8 @@
   "head": {
     "setup": "Modelli e provider",
     "newChat": "Nuova conversazione",
-    "close": "Chiudi (⌘I)"
+    "close": "Chiudi (⌘I)",
+    "history": "Cronologia"
   },
   "context": {
     "noDatabase": "Nessun database selezionato",
@@ -71,5 +72,16 @@
   "better": {
     "text": "Il tuo computer può usare un modello più grande: {{model}}. Capisce meglio le richieste difficili e sbaglia meno con l'SQL.",
     "dismiss": "Non ora"
+  },
+  "history": {
+    "title": "Conversazioni precedenti",
+    "empty": "Non ci sono ancora conversazioni precedenti: «Nuova conversazione» salva qui quella attuale.",
+    "untitled": "(senza titolo)",
+    "messages_one": "{{count}} messaggio",
+    "messages_other": "{{count}} messaggi",
+    "messages_many": "{{count}} messaggi",
+    "delete": "Elimina questa conversazione",
+    "clear": "Cancella cronologia",
+    "clearConfirm": "Tutte le conversazioni precedenti verranno eliminate. Quella attuale non viene toccata."
   }
 }

@@ -151,6 +151,46 @@ pub struct LibraryScript {
     pub updated_at: String,
 }
 
+/// A connection and one of its databases: where a project's scripts run.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectTarget {
+    pub connection_id: String,
+    pub database: String,
+}
+
+/// Which database a project's scripts run on. Local only: the repo names its
+/// environments (`.dbine.json`), this machine maps them to its connections.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectBinding {
+    /// Used when the repo has no environments, or none is active.
+    #[serde(default)]
+    pub direct: Option<ProjectTarget>,
+    /// Alias (from `.dbine.json`) → the user's connection and database.
+    #[serde(default)]
+    pub environments: BTreeMap<String, ProjectTarget>,
+    /// Alias in use; `None` = `direct`.
+    #[serde(default)]
+    pub active_environment: Option<String>,
+}
+
+/// A git working copy linked as a project ("Proyectos"). Machine-local: the
+/// path only makes sense here, so it's neither synced nor backed up.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    /// The repo's top level, canonical.
+    pub path: String,
+    #[serde(default)]
+    pub binding: ProjectBinding,
+    #[serde(default)]
+    pub sort_order: i64,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub updated_at: String,
+}
+
 /// Everything the user keeps in the IDE, as one document: what a cloud
 /// backup carries (secrets aside, which live in the keychain).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -172,7 +212,8 @@ pub struct StateSnapshot {
 /// What a successful write changed, for whoever listens (the app relays it
 /// to every window). `kind` is one of `connection`, `folder`, `explorer`
 /// (an order or folder move), `query`, `migration`, `setting`, `library`,
-/// `history`, `backup` or `restore` (the whole state replaced).
+/// `history`, `backup`, `project` (a linked git folder; local only) or
+/// `restore` (the whole state replaced).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateChange {
     pub kind: String,
@@ -296,6 +337,15 @@ impl StateStore {
                  rows          INTEGER NOT NULL,
                  data          INTEGER NOT NULL,
                  duration_ms   INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS projects (
+                 id           TEXT PRIMARY KEY,
+                 name         TEXT NOT NULL,
+                 path         TEXT NOT NULL UNIQUE,
+                 binding_json TEXT NOT NULL DEFAULT '{}',
+                 sort_order   INTEGER NOT NULL DEFAULT 0,
+                 created_at   TEXT NOT NULL,
+                 updated_at   TEXT NOT NULL
              );
              CREATE TABLE IF NOT EXISTS settings (
                  key   TEXT PRIMARY KEY,
@@ -856,6 +906,101 @@ impl StateStore {
         Ok(())
     }
 
+    // -- projects -------------------------------------------------------
+    // Folders on this machine: not a change to sync, not in a backup.
+
+    /// Every project, by `sort_order` then name.
+    pub fn list_projects(&self) -> Result<Vec<Project>> {
+        let c = self.lock()?;
+        let mut stmt = c
+            .prepare(
+                "SELECT id, name, path, binding_json, sort_order, created_at, updated_at FROM projects
+                 ORDER BY sort_order, name COLLATE NOCASE",
+            )
+            .map_err(db_err)?;
+        let rows = stmt.query_map([], row_to_project).map_err(db_err)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(db_err)
+    }
+
+    pub fn get_project(&self, id: &str) -> Result<Option<Project>> {
+        self.lock()?
+            .query_row(
+                "SELECT id, name, path, binding_json, sort_order, created_at, updated_at FROM projects WHERE id = ?1",
+                [id],
+                row_to_project,
+            )
+            .optional()
+            .map_err(db_err)
+    }
+
+    /// Insert or update. A path already linked by another project is refused.
+    pub fn save_project(&self, p: &Project) -> Result<Project> {
+        let ts = now();
+        let c = self.lock()?;
+        let taken: Option<String> = c
+            .query_row("SELECT id FROM projects WHERE path = ?1 AND id <> ?2", params![p.path, p.id], |r| r.get(0))
+            .optional()
+            .map_err(db_err)?;
+        if taken.is_some() {
+            return Err(Error::State("esa carpeta ya está vinculada como proyecto".into()));
+        }
+        let created = if p.created_at.is_empty() { ts.clone() } else { p.created_at.clone() };
+        c.execute(
+            "INSERT INTO projects (id, name, path, binding_json, sort_order, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET name = ?2, path = ?3, binding_json = ?4, sort_order = ?5, updated_at = ?7",
+            params![p.id, p.name, p.path, serde_json::to_string(&p.binding)?, p.sort_order, created, ts],
+        )
+        .map_err(db_err)?;
+        let saved = c
+            .query_row(
+                "SELECT id, name, path, binding_json, sort_order, created_at, updated_at FROM projects WHERE id = ?1",
+                [&p.id],
+                row_to_project,
+            )
+            .map_err(db_err)?;
+        drop(c);
+        self.notify(StateChange::new("project", Some(&p.id)));
+        Ok(saved)
+    }
+
+    pub fn set_project_binding(&self, id: &str, binding: &ProjectBinding) -> Result<Project> {
+        let n = self
+            .lock()?
+            .execute(
+                "UPDATE projects SET binding_json = ?2, updated_at = ?3 WHERE id = ?1",
+                params![id, serde_json::to_string(binding)?, now()],
+            )
+            .map_err(db_err)?;
+        if n == 0 {
+            return Err(Error::State("el proyecto no existe".into()));
+        }
+        self.notify(StateChange::new("project", Some(id)));
+        self.get_project(id)?.ok_or_else(|| Error::State("el proyecto no existe".into()))
+    }
+
+    /// Removes the row only: the folder is the user's and stays as it is.
+    pub fn delete_project(&self, id: &str) -> Result<()> {
+        self.lock()?.execute("DELETE FROM projects WHERE id = ?1", [id]).map_err(db_err)?;
+        self.notify(StateChange::new("project", Some(id)));
+        Ok(())
+    }
+
+    /// The order given; projects left out keep theirs, after these.
+    pub fn reorder_projects(&self, ids: &[String]) -> Result<()> {
+        let mut c = self.lock()?;
+        let tx = c.transaction().map_err(db_err)?;
+        let n = ids.len() as i64;
+        tx.execute("UPDATE projects SET sort_order = sort_order + ?1", [n]).map_err(db_err)?;
+        for (i, id) in ids.iter().enumerate() {
+            tx.execute("UPDATE projects SET sort_order = ?2 WHERE id = ?1", params![id, i as i64]).map_err(db_err)?;
+        }
+        tx.commit().map_err(db_err)?;
+        drop(c);
+        self.notify(StateChange::new("project", None));
+        Ok(())
+    }
+
     // -- settings & snapshot ----------------------------------------------
 
     /// Count a change to what a backup carries.
@@ -1038,6 +1183,19 @@ fn bump(c: &Connection) -> Result<()> {
     )
     .map_err(db_err)?;
     Ok(())
+}
+
+fn row_to_project(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
+    let binding: String = r.get(3)?;
+    Ok(Project {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        path: r.get(2)?,
+        binding: serde_json::from_str(&binding).unwrap_or_default(),
+        sort_order: r.get(4)?,
+        created_at: r.get(5)?,
+        updated_at: r.get(6)?,
+    })
 }
 
 fn row_to_query(r: &rusqlite::Row<'_>) -> rusqlite::Result<SavedQuery> {
@@ -1492,6 +1650,62 @@ mod tests {
         assert_eq!(s.list_history(None, None, 10).unwrap().len(), 2);
         s.delete_history(None).unwrap();
         assert!(s.list_history(None, None, 10).unwrap().is_empty());
+    }
+
+    fn project(id: &str, name: &str, path: &str) -> Project {
+        Project { id: id.into(), name: name.into(), path: path.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn projects_are_local_ordered_and_unique_per_folder() {
+        let s = StateStore::open_in_memory().unwrap();
+        let seen = recording(&s);
+        let rev = s.revision().unwrap();
+
+        let a = s.save_project(&project("p1", "Ventas", "/repos/ventas")).unwrap();
+        assert!(!a.created_at.is_empty());
+        s.save_project(&project("p2", "Analytics", "/repos/analytics")).unwrap();
+        assert_eq!(kinds(&seen), ["project", "project"]);
+        // Same folder twice: refused, and nothing fires.
+        let err = s.save_project(&project("p3", "Otro", "/repos/ventas")).unwrap_err();
+        assert!(err.to_string().contains("ya está vinculada"));
+        assert!(kinds(&seen).is_empty());
+        // Updating the same project keeps its path.
+        s.save_project(&Project { name: "Ventas 2".into(), ..a.clone() }).unwrap();
+        assert_eq!(s.get_project("p1").unwrap().unwrap().name, "Ventas 2");
+        assert_eq!(s.get_project("p1").unwrap().unwrap().created_at, a.created_at);
+
+        // Same order: by name.
+        let names = |s: &StateStore| s.list_projects().unwrap().into_iter().map(|p| p.id).collect::<Vec<_>>();
+        assert_eq!(names(&s), ["p2", "p1"]);
+        s.reorder_projects(&["p1".into(), "p2".into()]).unwrap();
+        assert_eq!(names(&s), ["p1", "p2"]);
+
+        let binding = ProjectBinding {
+            direct: Some(ProjectTarget { connection_id: "c1".into(), database: "ventas".into() }),
+            environments: [("prod".to_string(), ProjectTarget { connection_id: "c2".into(), database: "v".into() })].into(),
+            active_environment: Some("prod".into()),
+        };
+        let p = s.set_project_binding("p1", &binding).unwrap();
+        assert_eq!(p.binding, binding);
+        assert!(s.set_project_binding("nope", &binding).is_err());
+        kinds(&seen);
+
+        // Local only: no revision bump, not in a snapshot, kept by a restore.
+        assert_eq!(s.revision().unwrap(), rev);
+        let snap = s.snapshot().unwrap();
+        let json = serde_json::to_string(&snap).unwrap();
+        assert!(!json.contains("/repos/ventas"));
+        s.replace_all(&snap).unwrap();
+        assert_eq!(names(&s), ["p1", "p2"]);
+        assert_eq!(s.get_project("p1").unwrap().unwrap().binding, binding);
+        kinds(&seen);
+
+        s.delete_project("p2").unwrap();
+        assert_eq!(kinds(&seen), ["project"]);
+        assert_eq!(names(&s), ["p1"]);
+        // A freed folder can be linked again.
+        s.save_project(&project("p4", "Analytics", "/repos/analytics")).unwrap();
     }
 
 }

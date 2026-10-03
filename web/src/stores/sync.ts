@@ -20,7 +20,7 @@ export function reconcileConnections(before: Map<string, string>) {
     if (conns.byId(id)?.updated_at !== at && conns.live[id]?.status !== 'connecting') conns.forget(id);
   }
   const gone = new Set([...before.keys()].filter((id) => !conns.byId(id)));
-  if (gone.size) useTabsStore().closeWhere((t) => gone.has(t.connectionId));
+  if (gone.size) useTabsStore().forgetConnections(gone);
 }
 
 export const useSyncStore = defineStore('sync', {

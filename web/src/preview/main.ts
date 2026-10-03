@@ -2,6 +2,7 @@
 // sample data in a plain browser, to look at them without Tauri or a
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|dependencies
 // |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
+// |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -53,6 +54,8 @@ import {
 } from './samples';
 
 import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
+import App from '../App.vue';
+import { installProjectsPreview } from './projects-samples';
 import { multiDbOutcome, runSummary } from '../composables/multiDb';
 import { sampleLive, sampleMultiDbResponse, sampleTenantDatabases } from './multidb-samples';
 
@@ -163,7 +166,7 @@ if (view === 'multidb') installTauriMock();
 
 const app = createApp({
   render: () =>
-    h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
+    view === 'projects' ? h(App) : h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
       view === 'tabs' ? h('div', { style: 'width: 1100px; background: var(--ide-editor)' }, [h(EditorTabs)]) :
       view === 'keys' ? h('div', { style: 'width: 340px; height: 640px; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
       view === 'connection' ? connectionTab() : view === 'monitor'
@@ -256,5 +259,6 @@ function connectionTab() {
 }
 if (view === 'keys') installKeysPreview();
 if (view === 'tabs') installTabsPreview();
+if (view === 'projects') installProjectsPreview();
 for (const [name, comp] of Object.entries(Icons)) app.component(`Ei${name}`, comp as never);
 app.mount('#app');

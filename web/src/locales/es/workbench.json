@@ -8,7 +8,11 @@
     "ai": "Asistente de IA (⌘I)",
     "settings": "Configuración (⌘,)",
     "loadFailed": "No se pudieron cargar las conexiones: {{error}}",
-    "pickDatabase": "Elegí una base en el explorador: clic derecho › Nueva query."
+    "pickDatabase": "Elegí una base en el explorador: clic derecho › Nueva query.",
+    "projects": "Proyectos",
+    "projectChanges_one": "{{count}} cambio sin confirmar en tus proyectos",
+    "projectChanges_other": "{{count}} cambios sin confirmar en tus proyectos",
+    "projectChanges_many": "{{count}} cambios sin confirmar en tus proyectos"
   },
   "welcome": {
     "tagline": "Gestor de bases de datos multimotor",
@@ -86,6 +90,9 @@
     "saveFailed": "No se pudo guardar",
     "unsaved": "Sin guardar",
     "groupTitleExpand_many": "{{name}}: {{count}} pestañas · clic para expandir",
-    "groupTitleCollapse_many": "{{name}}: {{count}} pestañas · clic para colapsar"
+    "groupTitleCollapse_many": "{{name}}: {{count}} pestañas · clic para colapsar",
+    "fileDiffSuffix": "(cambios)",
+    "noBase": "sin base",
+    "revealInProjects": "Mostrar en Proyectos"
   }
 }

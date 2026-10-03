@@ -15,6 +15,7 @@
 //! - The working copy lives in the app's data folder (`library-git/`); the
 //!   remote and branch are a local setting (not synced to the cloud).
 
+use super::git_cli::{identity, run as git};
 use crate::commands::library::safe_name;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
@@ -22,13 +23,10 @@ use dbine_core::LibraryScript;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
 const SETTING: &str = "local.library_git";
 const MANIFEST: &str = ".dbine/library.json";
-/// Longest a git command may take (a clone or push over a slow link).
-const GIT_LIMIT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Config {
@@ -62,35 +60,6 @@ struct Entry {
 
 // -- git -----------------------------------------------------------------------------
 
-fn git_path() -> CommandResult<PathBuf> {
-    dbine_ai::env::find("git").ok_or_else(|| {
-        CommandError::BadRequest("no se encontró git en esta máquina: instalalo (git-scm.com) y volvé a intentar".into())
-    })
-}
-
-/// Run git in `dir`; its output, or its message as the error.
-async fn git(dir: &Path, args: &[&str]) -> CommandResult<String> {
-    let mut cmd = tokio::process::Command::new(git_path()?);
-    // Paths as they are (accents included), not octal-escaped.
-    cmd.current_dir(dir).args(["-c", "core.quotePath=false"]).args(args).env("GIT_TERMINAL_PROMPT", "0").env("GCM_INTERACTIVE", "never").kill_on_drop(true);
-    #[cfg(windows)]
-    {
-        // CREATE_NO_WINDOW: no console window next to the app.
-        cmd.creation_flags(0x0800_0000);
-    }
-    let out = tokio::time::timeout(GIT_LIMIT, cmd.output())
-        .await
-        .map_err(|_| CommandError::Connect(format!("git {} no terminó en {} s", args.first().unwrap_or(&""), GIT_LIMIT.as_secs())))?
-        .map_err(|e| CommandError::Internal(format!("no se pudo ejecutar git: {e}")))?;
-    let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
-    if out.status.success() {
-        Ok(text(&out.stdout))
-    } else {
-        let err = text(&out.stderr);
-        Err(CommandError::BadRequest(if err.is_empty() { text(&out.stdout) } else { err }))
-    }
-}
-
 fn repo_dir(app: &AppHandle) -> CommandResult<PathBuf> {
     let base = app.path().app_data_dir().map_err(|e| CommandError::Internal(e.to_string()))?;
     Ok(base.join("library-git"))
@@ -107,19 +76,6 @@ fn configured(state: &AppState, app: &AppHandle) -> CommandResult<(Config, PathB
         return Err(CommandError::BadRequest("falta la copia local del repositorio: volvé a vincularlo".into()));
     }
     Ok((cfg, dir))
-}
-
-/// Commits need a name and an email; DBine's when git has none configured.
-async fn identity(dir: &Path) -> Vec<String> {
-    let has = |key: &'static str| async move { git(dir, &["config", key]).await.map(|v| !v.is_empty()).unwrap_or(false) };
-    let mut args = Vec::new();
-    if !has("user.name").await {
-        args.extend(["-c".to_string(), "user.name=DBine".to_string()]);
-    }
-    if !has("user.email").await {
-        args.extend(["-c".to_string(), "user.email=dbine@localhost".to_string()]);
-    }
-    args
 }
 
 // -- Library <-> working copy --------------------------------------------------------
@@ -377,10 +333,7 @@ pub struct StatusArgs {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn library_git_status(app: AppHandle, state: State<'_, AppState>, args: Option<StatusArgs>) -> CommandResult<GitStatus> {
-    let version = match git_path() {
-        Ok(_) => git(&std::env::temp_dir(), &["--version"]).await.ok(),
-        Err(_) => None,
-    };
+    let version = super::git_cli::version().await;
     let empty = |git: Option<String>| GitStatus {
         git,
         remote: None,
@@ -629,6 +582,7 @@ async fn resolve(state: &AppState, dir: &Path, branch: &str, keep: &str) -> Comm
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::git_cli::git_path;
 
     fn script(id: &str, folder: &str, name: &str, engines: &[&str], text: &str) -> LibraryScript {
         LibraryScript {

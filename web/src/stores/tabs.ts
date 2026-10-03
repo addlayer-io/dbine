@@ -1,8 +1,10 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { ElMessage } from 'element-plus';
 import { api } from '../api/client';
-import type { ObjectRef, SavedQuery } from '../api/types';
+import type { ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
+import { t as tr } from '../i18n';
 import { readJson, writeJson } from './storage';
 import { initWindowRole, windowRole } from '../composables/windowRole';
 
@@ -133,7 +135,34 @@ export interface DependenciesTab extends TabBase {
   column: string | null;
 }
 
-export type Tab = QueryTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | ConnectionFormTab;
+/** A file of a linked project (docs/proyectos.md), in the query editor.
+ *  `connectionId`/`database` hold the target in use, or '' when unbound. */
+export interface FileTab extends TabBase {
+  kind: 'file';
+  projectId: string;
+  /** Relative to the repo root, with '/'. */
+  path: string;
+  /** The tab picked its own database: it stops following the project's active base. */
+  pinnedTarget?: boolean;
+  continueOnError?: boolean;
+  manualTx?: boolean;
+}
+
+/** A project file's changes against the last commit (side by side). */
+export interface FileDiffTab extends TabBase {
+  kind: 'fileDiff';
+  projectId: string;
+  path: string;
+}
+
+export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | ConnectionFormTab;
+
+/** Editor tabs that can't move to another database right now (running, or
+ *  with an open transaction). QueryView keeps it up to date. */
+export const busyTabs = new Set<string>();
+
+/** The file's name, without its folder. */
+export const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
 const KEY = 'dbine.tabs';
 
@@ -263,10 +292,10 @@ export const useTabsStore = defineStore('tabs', {
       confirmClose(ids).then((ok) => { if (ok) this.closeWhere((t) => ids.includes(t.id)); });
     },
 
-    /** A query tab's run options ("Seguir si hay un error", transactions). */
+    /** A query or file tab's run options ("Seguir si hay un error", transactions). */
     setQueryOptions(id: string, patch: Pick<QueryTab, 'continueOnError' | 'manualTx'>) {
       const t = this.tabs.find((x) => x.id === id);
-      if (t?.kind !== 'query') return;
+      if (t?.kind !== 'query' && t?.kind !== 'file') return;
       Object.assign(t, patch);
       this.persist();
     },
@@ -278,6 +307,67 @@ export const useTabsStore = defineStore('tabs', {
         return this.activate(open.id);
       }
       this.place({ id: newId(), kind: 'query', queryId: q.id, connectionId: q.connection_id, database: q.database, preview });
+    },
+
+    /** A project's file, on the project's active base (a preview tab by default). */
+    openFile(projectId: string, path: string, preview = true, target?: ProjectTarget | null) {
+      const open = this.tabs.find((t) => t.kind === 'file' && t.projectId === projectId && t.path === path);
+      if (open) {
+        if (!preview) open.preview = false;
+        return this.activate(open.id);
+      }
+      this.place({
+        id: newId(), kind: 'file', projectId, path, preview,
+        connectionId: target?.connection_id ?? '', database: target?.database ?? '',
+      });
+    },
+
+    /** A project file's diff tab (one per file). */
+    openFileDiff(projectId: string, path: string) {
+      const open = this.tabs.find((t) => t.kind === 'fileDiff' && t.projectId === projectId && t.path === path);
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'fileDiff', projectId, path, connectionId: '', database: '', preview: true });
+    },
+
+    /** The project's active base changed: its file tabs follow it, except
+     *  the ones that picked their own database, and the ones running or with
+     *  an open transaction (they stay where they are, with a notice). */
+    retargetProject(projectId: string, target: ProjectTarget | null) {
+      const c = target?.connection_id ?? '';
+      const d = target?.database ?? '';
+      for (const t of this.tabs.filter((x) => x.kind === 'file' && x.projectId === projectId && !x.pinnedTarget)) {
+        if (t.connectionId === c && t.database === d) continue;
+        if (busyTabs.has(t.id)) {
+          ElMessage.warning({ message: tr('projects:tabs.stayed', { name: baseName((t as FileTab).path) }), duration: 5000 });
+          continue;
+        }
+        this.retarget(t.id, c, d);
+      }
+    },
+
+    /** A file or folder of a project was renamed: its tabs follow. */
+    renamePath(projectId: string, from: string, to: string) {
+      for (const t of this.tabs) {
+        if ((t.kind !== 'file' && t.kind !== 'fileDiff') || t.projectId !== projectId) continue;
+        if (t.path === from) t.path = to;
+        else if (t.path.startsWith(`${from}/`)) t.path = to + t.path.slice(from.length);
+      }
+      this.persist();
+    },
+
+    /** The project was unlinked: its tabs close (asking about unsaved ones). */
+    closeProject(projectId: string) {
+      this.closeAsking((t) => (t.kind === 'file' || t.kind === 'fileDiff') && t.projectId === projectId);
+    },
+
+    /** Connections that no longer exist: their tabs close, except project
+     *  files, which stay open without a base (their text is the user's). */
+    forgetConnections(gone: Set<string>) {
+      for (const t of this.tabs) {
+        if (t.kind === 'file' && gone.has(t.connectionId)) { t.connectionId = ''; t.database = ''; }
+      }
+      this.closeWhere((t) => t.kind !== 'file' && t.kind !== 'fileDiff' && gone.has(t.connectionId));
+      this.persist();
     },
 
     openObject(connectionId: string, database: string, object: ObjectRef, view: ObjectView, preview = true) {

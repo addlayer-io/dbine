@@ -41,7 +41,12 @@
     "defaultDatabase": "padrão",
     "noDatabases": "Sem bancos visíveis",
     "emptyFolder": "Vazia: arraste conexões para cá",
-    "refreshing": "atualizando…"
+    "refreshing": "atualizando…",
+    "projects": "Projetos",
+    "noProjects": "Sem projetos: clique com o botão direito › Vincular projeto…",
+    "projectChanges_one": "{{count}} alteração sem commit",
+    "projectChanges_other": "{{count}} alterações sem commit",
+    "projectChanges_many": "{{count}} alterações sem commit"
   },
   "confirm": {
     "deleteConnection": "Excluir a conexão \"{{name}}\"?\n\nSuas consultas salvas e sua senha no chaveiro também são excluídas.",
@@ -91,7 +96,11 @@
     "compareSchemas": "Comparar esquemas…",
     "exportDatabase": "Exportar banco…",
     "importData": "Importar dados…",
-    "runScriptFile": "Executar arquivo de script…"
+    "runScriptFile": "Executar arquivo de script…",
+    "linkProject": "Vincular projeto…",
+    "cloneProject": "Clonar repositório…",
+    "openInProjects": "Abrir em Projetos",
+    "useThisDatabase": "Usar este banco"
   },
   "keySearch": {
     "placeholderPrefix": "Prefixo, por exemplo /config/",

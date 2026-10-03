@@ -1,17 +1,21 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { api, errorMessage } from '../api/client';
 import { locale, t } from '../i18n';
 import { tb } from '../i18n/backend';
-import type { QueryMessage, QueryOutcome, QueryProgress, SavedQuery, TxState, UnsafeDml } from '../api/types';
+import type { QueryMessage, QueryOutcome, QueryProgress, TxState, UnsafeDml } from '../api/types';
 import CodeEditor from '../components/CodeEditor.vue';
 import ResultsPane from '../components/ResultsPane.vue';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
 import { useSettingsStore } from '../stores/settings';
-import { closeGuards, useTabsStore, type QueryTab } from '../stores/tabs';
+import { baseName, busyTabs, closeGuards, useTabsStore, type FileTab, type QueryTab } from '../stores/tabs';
+import { useProjectsStore } from '../stores/projects';
+import {
+  extFitsDriver, extOf, isScriptFile, languageForExt, useFileDocument, useQueryDocument, type TabDocument,
+} from '../composables/tabDocument';
 import { useUiStore } from '../stores/ui';
 import { registerEditor } from '../stores/ai';
 import { useLibraryStore } from '../stores/library';
@@ -21,21 +25,24 @@ import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
 import { confirmMultiDb, multiDbOutcome, rememberSelection, runSummary, startMultiDbRun, type MultiDbLive } from '../composables/multiDb';
 import { useTasksStore } from '../stores/tasks';
 
-// A saved query open in the editor. Its text is saved as you type (to the
-// state store, under its database in the explorer); running uses the tab's
-// own session, so SETs, temp tables and transactions persist between runs.
+// A saved query, or a project's file, open in the editor. A query's text is
+// saved as you type (to the state store, under its database in the
+// explorer); a file is saved with ⌘S. Running uses the tab's own session,
+// so SETs, temp tables and transactions persist between runs.
 
-const props = defineProps<{ tab: QueryTab }>();
+const props = defineProps<{ tab: QueryTab | FileTab }>();
 
 const conns = useConnectionsStore();
 const tabs = useTabsStore();
 const ui = useUiStore();
 const output = useOutputStore();
+const projects = useProjectsStore();
 
-const query = ref<SavedQuery | null>(null);
-const loadError = ref<string | null>(null);
-const text = ref('');
-const saveState = ref<'saved' | 'saving' | 'dirty' | 'error'>('saved');
+// The document the editor shows: a saved query (autosaved) or a project's
+// file (⌘S, composables/tabDocument.ts). A tab never changes kind.
+const fileTab = props.tab.kind === 'file' ? props.tab : null;
+const doc: TabDocument = props.tab.kind === 'file' ? useFileDocument(props.tab) : useQueryDocument(props.tab);
+const { text, saveState, loadError } = doc;
 const outcome = ref<QueryOutcome | null>(null);
 /** The script behind `outcome` (exports run it again for every row). */
 const lastScript = ref('');
@@ -46,6 +53,8 @@ watch(maxRows, (v) => { if (v !== settings.get('query.maxRows', 5000)) settings.
 // Changed in Configuración or by a sync.
 watch(() => settings.values['query.maxRows'], (v) => { if (typeof v === 'number') maxRows.value = v; });
 
+/** A file tab with no base yet (its project has none active). */
+const unbound = computed(() => !props.tab.connectionId);
 const conn = computed(() => conns.byId(props.tab.connectionId));
 const driver = computed(() => conns.driverOf(props.tab.connectionId));
 /** The server's databases once connected; before that, just the tab's
@@ -56,49 +65,35 @@ const databases = computed(() => {
 });
 const loadingDatabases = ref(false);
 async function onDatabaseMenu(visible: boolean) {
-  if (!visible || conns.live[props.tab.connectionId]?.databases?.length) return;
+  if (!visible || unbound.value || conns.live[props.tab.connectionId]?.databases?.length) return;
   loadingDatabases.value = true;
   try { await conns.ensureConnected(props.tab.connectionId); } finally { loadingDatabases.value = false; }
 }
 
-async function load() {
-  loadError.value = null;
-  try {
-    const q = await api.getQuery(props.tab.queryId);
-    query.value = q;
-    text.value = q.sql;
-    saveState.value = 'saved';
-  } catch (e) {
-    loadError.value = errorMessage(e);
-  }
+// -- file tabs: the project, its active base, the file's kind ------------------------------
+const project = computed(() => (fileTab ? projects.byId(fileTab.projectId) : undefined));
+const active = computed(() => (fileTab ? projects.activeTarget(fileTab.projectId) : null));
+/** The environment the tab runs on (only while it follows the project). */
+const runEnv = computed(() => (fileTab && !fileTab.pinnedTarget ? active.value?.env ?? null : null));
+const ext = computed(() => (fileTab ? extOf(fileTab.path) : ''));
+/** Not a script (a README, a YAML…): editable, never run. */
+const runnable = computed(() => !fileTab || isScriptFile(fileTab.path));
+const extMismatch = computed(() => !!fileTab && runnable.value && !!driver.value && !extFitsDriver(ext.value, driver.value));
+const editorLanguage = computed(() => driver.value?.language ?? (fileTab ? languageForExt(ext.value) : undefined));
+/** The tab picked its own database: back to the project's active base. */
+function followProject() {
+  if (!fileTab) return;
+  fileTab.pinnedTarget = false;
+  const target = projects.activeTarget(fileTab.projectId).target;
+  tabs.retarget(props.tab.id, target?.connection_id ?? '', target?.database ?? '');
 }
-watch(() => props.tab.queryId, load, { immediate: true });
-// A restore from the cloud backup may have changed it (not while editing).
-watch(() => ui.syncSeq, () => { if (saveState.value === 'saved') load(); });
-
-// -- autosave ------------------------------------------------------------------
-let timer: ReturnType<typeof setTimeout> | null = null;
-watch(text, (v) => {
-  if (!query.value || v === query.value.sql) return;
-  saveState.value = 'dirty';
-  tabs.pin(props.tab.id);
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(save, 600);
-});
-
-async function save() {
-  if (timer) { clearTimeout(timer); timer = null; }
-  if (!query.value) return;
-  saveState.value = 'saving';
-  try {
-    query.value = await conns.saveQuery({ ...query.value, sql: text.value });
-    saveState.value = 'saved';
-  } catch (e) {
-    saveState.value = 'error';
-    ElMessage.error(t('query:saveFailed', { error: errorMessage(e) }));
-  }
+function pickProjectBase() {
+  if (!fileTab) return;
+  const a = projects.activeTarget(fileTab.projectId);
+  projects.dialog = { kind: 'target', projectId: fileTab.projectId, alias: a.env?.name ?? a.alias ?? null };
 }
-onBeforeUnmount(() => { if (saveState.value === 'dirty') save(); });
+const breadcrumbDir = computed(() => (fileTab && fileTab.path.includes('/') ? fileTab.path.slice(0, fileTab.path.lastIndexOf('/') + 1) : ''));
+
 // The tab strip shows a dot while there are changes not saved.
 watch(saveState, (v) => {
   if (v === 'saved') delete ui.unsaved[props.tab.id];
@@ -114,21 +109,19 @@ const unregisterAi = registerEditor(props.tab.id, {
   lastError: () => outcome.value?.error ?? null,
   append: (code) => { if (editor.value) editor.value.appendText(code); else text.value = `${text.value.replace(/\s+$/, '')}\n\n${code}\n`; },
   replace: (code) => { if (editor.value) editor.value.replaceAll(code); else text.value = code; },
-  rename: (name) => rename(name),
+  rename: (name) => (doc.rename ? doc.rename(name) : Promise.resolve()),
 });
 onBeforeUnmount(unregisterAi);
 
-async function rename(name: string) {
-  if (!query.value || !name.trim() || name === query.value.name) return;
-  query.value = await conns.saveQuery({ ...query.value, name: name.trim(), sql: text.value });
+async function save() {
+  await doc.save();
 }
 
 async function changeDatabase(db: string) {
-  if (!query.value || db === props.tab.database) return;
+  if (db === props.tab.database) return;
   // Another database is another session: the open transaction would go.
   if (!(await settleTransaction('database'))) return;
-  query.value = await conns.saveQuery({ ...query.value, database: db, sql: text.value });
-  tabs.retarget(props.tab.id, props.tab.connectionId, db);
+  await doc.changeDatabase(db);
   conns.loadObjects(props.tab.connectionId, db);
   txState.value = null;
 }
@@ -137,8 +130,7 @@ async function changeDatabase(db: string) {
  *  session, so nothing to settle (the transaction and #temp tables stay). */
 async function followDatabase(db: string | null | undefined) {
   if (!db || db === props.tab.database) return;
-  if (query.value) query.value = await conns.saveQuery({ ...query.value, database: db, sql: text.value });
-  tabs.retarget(props.tab.id, props.tab.connectionId, db);
+  await doc.followDatabase(db);
   conns.loadObjects(props.tab.connectionId, db);
 }
 
@@ -199,7 +191,7 @@ function loadColumnsFor(path: string[]) {
 function saveToLibrary() {
   const sel = editor.value?.selectionText() ?? '';
   const lib = useLibraryStore();
-  lib.newScript(sel.trim() ? sel : text.value, driver.value ? [driver.value.id] : [], sel.trim() ? '' : query.value?.name ?? '');
+  lib.newScript(sel.trim() ? sel : text.value, driver.value ? [driver.value.id] : [], sel.trim() ? '' : doc.title.value);
 }
 
 /** UPDATE code from edited result cells: at the end of the query, selected. */
@@ -299,12 +291,47 @@ async function answerTx(choice: 'commit' | 'rollback' | 'cancel') {
   txAsk.value = null;
   ask.resolve(choice !== 'cancel');
 }
-// Closing the tab asks while a transaction is open.
-const guardClose = () => settleTransaction('close');
-watch(txOpen, (open) => {
-  if (open) closeGuards.set(props.tab.id, guardClose);
+// Closing the tab asks while a transaction is open, and (file tabs) while
+// there are changes not saved: Guardar / No guardar / Cancelar.
+async function settleUnsaved(): Promise<boolean> {
+  if (!fileTab || (saveState.value !== 'dirty' && saveState.value !== 'error')) return true;
+  tabs.activate(props.tab.id);
+  try {
+    await ElMessageBox.confirm(t('projects:file.closeAsk', { name: baseName(fileTab.path) }), t('projects:file.closeAskTitle'), {
+      type: 'warning', confirmButtonText: t('common:save'), cancelButtonText: t('projects:file.dontSave'), distinguishCancelAndClose: true,
+    });
+  } catch (action) {
+    return action === 'cancel';
+  }
+  return doc.save();
+}
+const guardClose = async () => (await settleUnsaved()) && (await settleTransaction('close'));
+const needsGuard = computed(() => txOpen.value || (!!fileTab && (saveState.value === 'dirty' || saveState.value === 'error')));
+watch(needsGuard, (on) => {
+  if (on) closeGuards.set(props.tab.id, guardClose);
   else closeGuards.delete(props.tab.id);
 }, { immediate: true });
+// A project's file tabs follow its active base, except while busy here.
+watch(() => running.value || txOpen.value, (busy) => {
+  if (busy) busyTabs.add(props.tab.id); else busyTabs.delete(props.tab.id);
+}, { immediate: true });
+onBeforeUnmount(() => busyTabs.delete(props.tab.id));
+
+/** An environment marked `confirm_run` in .dbine.json asks before each run. */
+async function confirmEnvironment(): Promise<boolean> {
+  const env = runEnv.value;
+  if (!env?.confirm_run) return true;
+  try {
+    await ElMessageBox.confirm(
+      t('projects:file.confirmRun', { env: env.name, where: `${conn.value?.name ?? ''} › ${props.tab.database || t('query:defaultDatabase')}` }),
+      t('projects:file.confirmRunTitle'),
+      { type: 'warning', confirmButtonText: t('common:run'), cancelButtonText: t('common:cancel'), confirmButtonClass: 'el-button--danger' },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
 onBeforeUnmount(() => {
   closeGuards.delete(props.tab.id);
   txAsk.value?.resolve(false);
@@ -392,8 +419,11 @@ async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
   const script = picked.text.trim();
   if (!script) return;
   const base = picked.from + (picked.text.length - picked.text.trimStart().length);
+  if (!runnable.value) return;
+  if (unbound.value) { ElMessage.info({ message: t('projects:file.pickBase'), duration: 3000 }); return; }
+  if (!(await confirmEnvironment())) return;
   if (!(await conns.ensureConnected(props.tab.connectionId))) return;
-  if (saveState.value === 'dirty') save();
+  if (doc.autosave && saveState.value === 'dirty') save();
   runBase.value = base;
   lineOffset.value = (editor.value?.lineAt(base) ?? 1) - 1;
   await execute(script, plan, false);
@@ -416,7 +446,7 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean)
   try {
     const o = await api.executeQuery({
       sessionId: props.tab.id, connectionId: props.tab.connectionId, database: props.tab.database,
-      sql: script, maxRows: maxRows.value, queryId: props.tab.queryId, plan, record: true,
+      sql: script, maxRows: maxRows.value, queryId: doc.queryId ?? null, plan, record: true,
       mode: 'auto',
       continueOnError: perStatement.value ? continueOnError.value : null,
       confirmedUnsafe,
@@ -540,7 +570,7 @@ async function runMultiDb(databases: string[]) {
     return;
   }
   rememberSelection(connectionId, databases);
-  if (saveState.value === 'dirty') save();
+  if (doc.autosave && saveState.value === 'dirty') save();
   multiLive.value = startMultiDbRun({
     connectionId, connectionName: conn.value?.name ?? '', databases, sql: script,
     maxRows: maxRows.value, continueOnError: perStatement.value ? continueOnError.value : null,
@@ -584,13 +614,53 @@ function drag(e: PointerEvent) {
     <el-alert type="error" :title="loadError" :closable="false" />
   </div>
   <div v-else class="qv">
-    <div class="nm-toolbar qv-bar">
-      <template v-if="!running">
-        <el-button type="primary" :title="$t('query:runTitle')" @click="run()">
-          <el-icon><ei-video-play /></el-icon>&nbsp;{{ $t('common:run') }}
+    <!-- A project's file: where it is, and where it runs. -->
+    <div v-if="fileTab" class="qv-file">
+      <el-icon class="qv-file-ic"><ei-folder-opened /></el-icon>
+      <button class="qv-crumb" :title="$t('projects:file.showInProjects')" @click="projects.focusProject(fileTab.projectId)">{{ project?.name ?? '…' }}</button>
+      <span class="qv-sep">›</span>
+      <span class="qv-path nm-selectable" :title="fileTab.path"><span class="nm-muted">{{ breadcrumbDir }}</span>{{ baseName(fileTab.path) }}</span>
+      <span class="qv-sep">·</span>
+      <button v-if="runEnv" class="qv-env" :class="{ warn: runEnv.confirm_run }" :title="$t('projects:file.envTip', { env: runEnv.name })" @click="pickProjectBase">{{ runEnv.name }}</button>
+      <span v-if="!unbound" class="qv-target" :title="`${conn?.name ?? ''} › ${tab.database}`">{{ conn?.name }}<template v-if="tab.database"> › {{ tab.database }}</template></span>
+      <button v-else class="qv-crumb warn" @click="pickProjectBase">{{ active?.problem === 'missing-connection' ? $t('projects:base.missingConnection') : active?.problem === 'missing-env' ? $t('projects:base.missingEnv', { env: active?.alias ?? '' }) : $t('projects:file.noBase') }}</button>
+      <button v-if="fileTab.pinnedTarget" class="qv-crumb" :title="$t('projects:file.followProjectTip')" @click="followProject">{{ $t('projects:file.followProject') }}</button>
+      <span v-if="extMismatch" class="qv-chip warn" :title="$t('projects:file.extMismatchTip', { ext: ext, engine: driver?.name ?? '' })"><el-icon><ei-warning-filled /></el-icon>{{ $t('projects:file.extMismatch', { ext }) }}</span>
+      <div class="nm-spacer" />
+      <span v-if="saveState === 'dirty'" class="nm-muted qv-lbl2">{{ $t('projects:file.unsaved') }}</span>
+      <el-tooltip :content="$t('projects:file.saveTip')" placement="bottom" :show-after="300">
+        <el-button size="small" :type="saveState === 'dirty' ? 'primary' : undefined" :disabled="saveState === 'saved' || saveState === 'saving' || doc.missing.value === 'project'" :loading="saveState === 'saving'" @click="save">
+          {{ $t('common:save') }}
         </el-button>
+      </el-tooltip>
+    </div>
+    <div v-if="doc.missing.value === 'project'" class="qv-banner err" role="alert">
+      <el-icon><ei-warning-filled /></el-icon><span>{{ $t('projects:file.projectGone') }}</span>
+    </div>
+    <div v-else-if="doc.missing.value === 'file'" class="qv-banner err" role="alert">
+      <el-icon><ei-warning-filled /></el-icon><span>{{ $t('projects:file.deleted') }}</span>
+      <div class="nm-spacer" />
+      <el-button size="small" @click="doc.keepMine?.()">{{ $t('projects:file.saveAgain') }}</el-button>
+      <el-button size="small" @click="tabs.close(tab.id, true)">{{ $t('common:close') }}</el-button>
+    </div>
+    <div v-else-if="doc.conflict.value" class="qv-banner" role="alert">
+      <el-icon><ei-warning-filled /></el-icon><span>{{ $t('projects:file.changedOnDisk') }}</span>
+      <div class="nm-spacer" />
+      <el-button size="small" @click="doc.reloadFromDisk?.()">{{ $t('projects:file.reload') }}</el-button>
+      <el-button size="small" type="warning" @click="doc.keepMine?.()">{{ $t('projects:file.overwrite') }}</el-button>
+    </div>
+    <div class="nm-toolbar qv-bar">
+      <template v-if="!runnable" />
+      <template v-else-if="!running">
+        <el-tooltip :disabled="!unbound" :content="$t('projects:file.pickBase')" placement="bottom">
+          <span class="qv-run-wrap">
+            <el-button type="primary" :title="unbound ? undefined : $t('query:runTitle')" :disabled="unbound" @click="run()">
+              <el-icon><ei-video-play /></el-icon>&nbsp;{{ $t('common:run') }}
+            </el-button>
+          </span>
+        </el-tooltip>
         <el-tooltip :content="$t('query:runStatementTip')" placement="bottom" :show-after="300">
-          <el-button :aria-label="$t('query:runStatement')" @click="editor && runStatement(text, editor.cursor())"><el-icon><ei-caret-right /></el-icon></el-button>
+          <el-button :aria-label="$t('query:runStatement')" :disabled="unbound" @click="editor && runStatement(text, editor.cursor())"><el-icon><ei-caret-right /></el-icon></el-button>
         </el-tooltip>
         <el-button-group v-if="driver?.supports_explain">
           <el-tooltip :content="$t('query:estimatedPlanTip')" placement="bottom" :show-after="300">
@@ -610,7 +680,7 @@ function drag(e: PointerEvent) {
         </el-button>
       </el-tooltip>
       <el-select
-        v-if="driver?.databases_label !== ''"
+        v-if="!unbound && driver?.databases_label !== ''"
         :model-value="tab.database"
         filterable
         size="small"
@@ -670,7 +740,7 @@ function drag(e: PointerEvent) {
         <CodeEditor
           ref="editor"
           v-model="text"
-          :language="driver?.language"
+          :language="editorLanguage"
           :dialect="driver?.dialect"
           :schema="schema"
           :placeholder="$t('query:editorPlaceholder')"
@@ -693,7 +763,7 @@ function drag(e: PointerEvent) {
           :outcome="outcome"
           :running="running"
           :source="lastScript && !multiShown ? { connectionId: tab.connectionId, database: tab.database, sql: lastScript } : null"
-          :title="query?.name ?? $t('query:resultName')"
+          :title="doc.title.value"
           :dialect="driver?.dialect ?? ''"
           :edit-source="lastScript && !multiShown ? { connectionId: tab.connectionId, database: tab.database, language: driver?.language ?? 'sql', script: lastScript } : null"
           :labels="multiShown?.labels ?? null"
@@ -785,6 +855,34 @@ function drag(e: PointerEvent) {
   border-bottom: 1px solid var(--nm-border-soft); background: color-mix(in srgb, var(--ide-focus, var(--nm-primary)) 8%, transparent);
 }
 .qv-check { margin: 0 4px; }
+.qv-run-wrap { display: inline-flex; }
+/* A project file's header: project › path · environment, base. */
+.qv-file {
+  display: flex; align-items: center; gap: 6px; height: 26px; flex-shrink: 0; padding: 0 10px; overflow: hidden; white-space: nowrap;
+  font-size: 12px; color: var(--nm-text); border-bottom: 1px solid var(--nm-border-soft);
+}
+.qv-file > * { flex-shrink: 0; }
+.qv-file-ic { color: #c5a46d; }
+.qv-path { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--nm-text-strong); }
+.qv-sep { color: var(--nm-text-muted); }
+.qv-crumb { border: 0; padding: 0; background: none; font: inherit; color: var(--nm-text-dim); cursor: pointer; }
+.qv-crumb:hover { color: var(--nm-text-strong); text-decoration: underline; }
+.qv-crumb.warn { color: var(--nm-warning); }
+.qv-target { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--nm-text-dim); }
+.qv-env {
+  border: 1px solid color-mix(in srgb, var(--nm-accent) 55%, transparent); border-radius: 9px; padding: 0 7px; line-height: 16px;
+  background: color-mix(in srgb, var(--nm-accent) 14%, transparent); color: var(--nm-text-strong); font: inherit; font-size: 11px; cursor: pointer;
+}
+.qv-env.warn { border-color: color-mix(in srgb, var(--nm-danger) 60%, transparent); background: color-mix(in srgb, var(--nm-danger) 16%, transparent); }
+.qv-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; }
+.qv-chip.warn { color: var(--nm-warning); }
+.qv-banner {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 4px 10px; font-size: 12px; color: var(--nm-text);
+  border-bottom: 1px solid color-mix(in srgb, var(--nm-warning) 45%, transparent); background: color-mix(in srgb, var(--nm-warning) 12%, transparent);
+}
+.qv-banner > .el-icon { color: var(--nm-warning); }
+.qv-banner.err { border-bottom-color: color-mix(in srgb, var(--nm-danger) 45%, transparent); background: color-mix(in srgb, var(--nm-danger) 12%, transparent); }
+.qv-banner.err > .el-icon { color: var(--nm-danger); }
 /* The toolbar never wraps: groups (Auto/Manual, the plan buttons) keep one
    line, the database select gives up width first, then labels go and leave
    icon-only buttons (their name stays in the tooltip). The breakpoints are

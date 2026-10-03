@@ -41,7 +41,12 @@
     "defaultDatabase": "default",
     "noDatabases": "No visible databases",
     "emptyFolder": "Empty: drag connections here",
-    "refreshing": "refreshing…"
+    "refreshing": "refreshing…",
+    "projects": "Projects",
+    "noProjects": "No projects: right-click › Link project…",
+    "projectChanges_one": "{{count}} uncommitted change",
+    "projectChanges_other": "{{count}} uncommitted changes",
+    "projectChanges_many": "{{count}} uncommitted changes"
   },
   "confirm": {
     "deleteConnection": "Delete the connection \"{{name}}\"?\n\nIts saved queries and its password in the keychain are deleted too.",
@@ -91,7 +96,11 @@
     "compareSchemas": "Compare schemas…",
     "exportDatabase": "Export database…",
     "importData": "Import data…",
-    "runScriptFile": "Run script file…"
+    "runScriptFile": "Run script file…",
+    "linkProject": "Link project…",
+    "cloneProject": "Clone repository…",
+    "openInProjects": "Open in Projects",
+    "useThisDatabase": "Use this database"
   },
   "keySearch": {
     "placeholderPrefix": "Prefix, e.g. /config/",
