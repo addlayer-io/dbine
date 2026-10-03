@@ -81,13 +81,15 @@ impl KsqlSession {
             return Err(Error::Query("esa es la consulta que DBine tiene abierta en esta sesión: se detiene desde su pestaña".into()));
         }
         let persistent = self.processes().await?.into_iter().find(|p| p.id == id).map(|p| p.command.as_deref() == Some("PERSISTENT"));
-        let (stmt, verb) = match persistent {
+        let pause = match persistent {
             None => return Err(Error::Query(format!("la consulta {id} ya no está en ejecución"))),
-            Some(true) => ("PAUSE", "pausar"),
-            Some(false) => ("TERMINATE", "terminar"),
+            Some(p) => p,
         };
+        let stmt = if pause { "PAUSE" } else { "TERMINATE" };
+        // Whole sentences, so the backend catalog translates each one.
         self.ksql(&format!("{stmt} {id}")).await.map(|_| ()).map_err(|e| match e {
-            Error::Query(m) => Error::Query(format!("no se pudo {verb} la consulta {id}: {m}")),
+            Error::Query(m) if pause => Error::Query(format!("no se pudo pausar la consulta {id}: {m}")),
+            Error::Query(m) => Error::Query(format!("no se pudo terminar la consulta {id}: {m}")),
             e => e,
         })
     }
