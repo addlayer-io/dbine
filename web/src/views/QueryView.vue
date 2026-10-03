@@ -17,6 +17,9 @@ import { registerEditor } from '../stores/ai';
 import { useLibraryStore } from '../stores/library';
 import { readJson, writeJson } from '../stores/storage';
 import { formatCode, formatUnavailable } from '../composables/formatCode';
+import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
+import { confirmMultiDb, multiDbOutcome, rememberSelection, runSummary, startMultiDbRun, type MultiDbLive } from '../composables/multiDb';
+import { useTasksStore } from '../stores/tasks';
 
 // A saved query open in the editor. Its text is saved as you type (to the
 // state store, under its database in the explorer); running uses the tab's
@@ -398,6 +401,7 @@ async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
 
 async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean) {
   running.value = true;
+  multiShown.value = null;
   startClock();
   const before = { outcome: outcome.value, script: lastScript.value };
   // What a cancel that closes the session would roll back: the transaction
@@ -501,6 +505,61 @@ function cancel() {
   api.cancelQuery(props.tab.id).catch(() => {});
 }
 
+// -- "Ejecutar en varias bases…" (engines with several databases) ---------------------------
+// The script (selection or everything) runs on the databases picked in the
+// dialog, as a task; its results replace the pane's, merged into one grid
+// when they share columns (composables/multiDb.ts).
+const multiDbAvailable = computed(() => !!driver.value?.databases_label);
+const multiOpen = ref(false);
+const multiLoading = ref(false);
+const multiLive = ref<MultiDbLive | null>(null);
+/** The pane shows a multi-database run: its sub-tab labels and summary. */
+const multiShown = ref<{ labels: string[]; summary: string } | null>(null);
+const tasksStore = useTasksStore();
+let viewAlive = true;
+onBeforeUnmount(() => { viewAlive = false; });
+
+async function openMultiDb() {
+  if (multiLive.value?.running) { multiOpen.value = true; return; }
+  multiLive.value = null;
+  multiOpen.value = true;
+  if (conns.live[props.tab.connectionId]?.databases?.length) return;
+  multiLoading.value = true;
+  try { await conns.ensureConnected(props.tab.connectionId); } finally { multiLoading.value = false; }
+}
+
+async function runMultiDb(databases: string[]) {
+  const picked = editor.value?.runnable() ?? { text: text.value, from: 0 };
+  const script = picked.text.trim();
+  if (!script) { ElMessage.info({ message: t('multiDb:dialog.empty'), duration: 2000 }); return; }
+  const connectionId = props.tab.connectionId;
+  try {
+    if (!(await confirmMultiDb({ connectionId, databases, sql: script }))) return;
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+    return;
+  }
+  rememberSelection(connectionId, databases);
+  if (saveState.value === 'dirty') save();
+  multiLive.value = startMultiDbRun({
+    connectionId, connectionName: conn.value?.name ?? '', databases, sql: script,
+    maxRows: maxRows.value, continueOnError: perStatement.value ? continueOnError.value : null,
+    reopen: () => { if (viewAlive) multiOpen.value = true; },
+    onDone: (r, error) => {
+      if (!viewAlive) return;
+      multiOpen.value = false;
+      if (!r) { ElMessage.error(error ?? ''); return; }
+      const { outcome: o, labels } = multiDbOutcome(r);
+      outcome.value = o;
+      lastScript.value = script;
+      multiShown.value = { labels, summary: runSummary(r) };
+      output.add(r.databases.some((d) => d.status === 'error') ? 'error' : 'info', `${script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? ''}\n${runSummary(r)}`, {
+        where: t('multiDb:task.title', { count: databases.length, connection: conn.value?.name ?? '' }), elapsedMs: r.elapsed_ms,
+      });
+    },
+  });
+}
+
 // -- editor / results split -----------------------------------------------------------
 const split = ref(readJson('dbine.querySplit', 0.45));
 const col = ref<HTMLDivElement | null>(null);
@@ -564,6 +623,11 @@ function drag(e: PointerEvent) {
       >
         <el-option v-for="d in databases" :key="d" :label="d" :value="d" />
       </el-select>
+      <el-tooltip v-if="multiDbAvailable" :content="$t('multiDb:actionTip')" placement="bottom" :show-after="300">
+        <el-button size="small" :aria-label="$t('multiDb:action')" @click="openMultiDb">
+          <el-icon :class="{ 'is-loading': multiLive?.running }"><ei-loading v-if="multiLive?.running" /><ei-files v-else /></el-icon>&nbsp;{{ $t('multiDb:action') }}
+        </el-button>
+      </el-tooltip>
       <el-tooltip v-if="perStatement" :content="$t('query:continueOnErrorTip')" placement="bottom" :show-after="400">
         <el-checkbox v-model="continueOnError" size="small" class="qv-check">{{ $t('query:continueOnError') }}</el-checkbox>
       </el-tooltip>
@@ -620,14 +684,20 @@ function drag(e: PointerEvent) {
       </div>
       <div class="qv-sash" @pointerdown="drag" />
       <div class="qv-results">
+        <div v-if="multiShown" class="qv-multi" role="status">
+          <el-icon><ei-files /></el-icon>
+          <span>{{ $t('multiDb:results.bar', { summary: multiShown.summary }) }}</span>
+          <span class="nm-muted">{{ $t('multiDb:summary.messages') }}</span>
+        </div>
         <ResultsPane
           :outcome="outcome"
           :running="running"
-          :source="lastScript ? { connectionId: tab.connectionId, database: tab.database, sql: lastScript } : null"
+          :source="lastScript && !multiShown ? { connectionId: tab.connectionId, database: tab.database, sql: lastScript } : null"
           :title="query?.name ?? $t('query:resultName')"
           :dialect="driver?.dialect ?? ''"
-          :edit-source="lastScript ? { connectionId: tab.connectionId, database: tab.database, language: driver?.language ?? 'sql', script: lastScript } : null"
-          :line-offset="lineOffset ?? 0"
+          :edit-source="lastScript && !multiShown ? { connectionId: tab.connectionId, database: tab.database, language: driver?.language ?? 'sql', script: lastScript } : null"
+          :labels="multiShown?.labels ?? null"
+          :line-offset="multiShown ? null : lineOffset ?? 0"
           hide-status
           @script="appendScript"
           @goto="goTo"
@@ -648,6 +718,20 @@ function drag(e: PointerEvent) {
       <span class="qv-st" :title="$t('query:status.elapsed')">{{ clockText }}</span>
       <span class="qv-st" :title="$t('query:status.rowsTip')">{{ $t('results:messages.rows', { count: totalRows, rows: totalRows.toLocaleString(locale()) }) }}</span>
     </div>
+
+    <MultiDbRunDialog
+      v-if="multiOpen"
+      :connection-id="tab.connectionId"
+      :current-database="tab.database"
+      :databases="conns.live[tab.connectionId]?.databases ?? []"
+      :loading="multiLoading"
+      :read-only="!!conn?.config.read_only"
+      :live="multiLive"
+      @run="runMultiDb"
+      @close="multiOpen = false"
+      @background="multiOpen = false"
+      @cancel="multiLive && tasksStore.cancel(multiLive.taskId)"
+    />
 
     <el-dialog
       :model-value="!!txAsk"
@@ -694,7 +778,12 @@ function drag(e: PointerEvent) {
 .qv-editor { min-height: 60px; overflow: hidden; }
 .qv-sash { height: 5px; flex-shrink: 0; cursor: row-resize; border-top: 1px solid var(--nm-border-soft); }
 .qv-sash:hover { background: var(--ide-focus); }
-.qv-results { flex: 1; min-height: 0; }
+.qv-results { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.qv-results > :last-child { flex: 1; min-height: 0; }
+.qv-multi {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 3px 10px; font-size: 12px;
+  border-bottom: 1px solid var(--nm-border-soft); background: color-mix(in srgb, var(--ide-focus, var(--nm-primary)) 8%, transparent);
+}
 .qv-check { margin: 0 4px; }
 .qv-tx {
   display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 10px; font-size: 11.5px;

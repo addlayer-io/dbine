@@ -28,3 +28,4 @@ pub mod security;
 pub mod backup;
 pub mod telemetry;
 pub mod updates;
+pub mod multi_db;

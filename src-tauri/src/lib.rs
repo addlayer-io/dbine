@@ -323,6 +323,8 @@ pub fn run() {
             commands::query::rollback_tab,
             commands::query::tab_transaction_state,
             commands::query::split_script,
+            commands::multi_db::run_multi_db,
+            commands::multi_db::cancel_multi_db,
             commands::queries::list_queries,
             commands::queries::get_query,
             commands::queries::save_query,

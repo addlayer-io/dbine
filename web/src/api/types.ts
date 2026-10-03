@@ -658,3 +658,46 @@ export interface StateChange {
   connection_id: string | null;
   database: string | null;
 }
+
+// -- "Ejecutar en varias bases…" (src-tauri/src/commands/multi_db.rs) --------
+
+/** How a database of a multi-database run ended ('skipped': never started, the run was cancelled first). */
+export type MultiDbStatus = 'ok' | 'error' | 'cancelled' | 'skipped';
+
+/** One database's outcome (`DbRun`). */
+export interface MultiDbRun {
+  database: string;
+  status: MultiDbStatus;
+  error: string | null;
+  /** Rows of its result sets (before the max-rows cut). */
+  rows: number;
+  rows_affected: number | null;
+  elapsed_ms: number;
+  /** Its result sets, minus the one merged into the shared grid. */
+  results: StatementResult[];
+  messages: string[];
+}
+
+/** What `run_multi_db` returns (`MultiDbResponse`). */
+export interface MultiDbResponse {
+  /** Nothing ran: the script isn't read-only (first writing keyword; '' when
+   *  the engine's language can't be checked). Run again with `confirmedWrite`. */
+  needs_confirmation: string | null;
+  /** Every database's first result set in one grid, with `base` first. */
+  merged: StatementResult | null;
+  databases: MultiDbRun[];
+  cancelled: boolean;
+  elapsed_ms: number;
+}
+
+/** `multi-db-progress`: a database ended. */
+export interface MultiDbProgress {
+  run_id: string;
+  database: string;
+  status: MultiDbStatus;
+  rows: number;
+  elapsed_ms: number;
+  error: string | null;
+  done: number;
+  total: number;
+}

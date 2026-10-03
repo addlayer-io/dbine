@@ -1,7 +1,7 @@
 // Development only (not part of the app build): renders UI pieces with
 // sample data in a plain browser, to look at them without Tauri or a
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|dependencies
-// |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare
+// |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -50,6 +50,10 @@ import TableDesignerView, { type DesignerSection } from '../views/TableDesignerV
 import {
   sampleDesignerMssql, sampleDesignerMongo, sampleExistingTables, sampleDesignerInitialMssql, sampleDesignerInitialMongo,
 } from './samples';
+
+import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
+import { multiDbOutcome, runSummary } from '../composables/multiDb';
+import { sampleLive, sampleMultiDbResponse, sampleTenantDatabases } from './multidb-samples';
 
 document.documentElement.classList.add('dark');
 const params = new URLSearchParams(location.search);
@@ -138,6 +142,24 @@ function filtersView() {
   });
 }
 
+// view=multidb: the merged results of a run on several databases, with the
+// dialog on top (&results=1: without it; &running=1: the dialog mid-run).
+function multiDbView() {
+  try { localStorage.setItem('dbine.multiDb.x', JSON.stringify(['tenant-banco-norte', 'tenant-banco-sur', 'tenant-banco-central', 'tenant-acme'])); } catch { /* ignore */ }
+  const { outcome, labels } = multiDbOutcome(sampleMultiDbResponse);
+  return [
+    h('div', { style: 'display: flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; border-bottom: 1px solid var(--nm-border-soft)' },
+      i18next.t('multiDb:results.bar', { summary: runSummary(sampleMultiDbResponse) })),
+    h('div', { style: 'flex: 1; min-height: 0' }, [h(ResultsPane, { running: false, title: 'Clientes', dialect: 'mssql', outcome, labels, hideStatus: true })]),
+    params.get('results') ? null : h(MultiDbRunDialog, {
+      connectionId: 'x', currentDatabase: 'tenant-banco-norte', databases: sampleTenantDatabases,
+      live: params.get('running') ? sampleLive() : null,
+      onRun: (dbs: string[]) => console.log('run', dbs),
+    }),
+  ];
+}
+if (view === 'multidb') installTauriMock();
+
 const app = createApp({
   render: () =>
     h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
@@ -146,6 +168,7 @@ const app = createApp({
       view === 'connection' ? connectionTab() : view === 'monitor'
         ? h(MonitorView, { tab: { id: 'm', kind: 'monitor', connectionId: 'c1', database: '', preview: false }, active: true }) :
       view === 'support' ? h(SupportReminder) :
+      view === 'multidb' ? multiDbView() :
       view === 'dependencies' ? h(DependenciesView, { tab: { id: 'dep', kind: 'dependencies', connectionId: 'c1', database: 'ventas', object: { kind: 'table', schema: 'dbo', name: 'Clientes' }, column: 'Pepe', preview: false } }) :
       view === 'compare' ? h(CompareView, { tab: { id: 'cmp', kind: 'compare', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'profiler' ? h(ProfilerView, { tab: { id: 'p', kind: 'profiler', connectionId: 'c1', database: 'ventas', preview: false } }) :

@@ -1,0 +1,57 @@
+{
+  "action": "Ejecutar en varias bases…",
+  "actionTip": "Ejecuta el código (o la selección) en varias bases de esta conexión y junta los resultados",
+  "dialog": {
+    "title": "Ejecutar en varias bases",
+    "intro": "El código del editor (o la selección) se ejecuta en cada base elegida, cada una en su propia sesión y de a {{max}} a la vez. Los resultados se juntan en el panel de resultados.",
+    "filter": "Filtrar bases (admite *, por ejemplo *tenant-banco*)",
+    "all": "Todas",
+    "none": "Ninguna",
+    "count": "{{selected}} de {{total}} bases elegidas",
+    "shown": "{{shown}} visibles",
+    "current": "actual",
+    "noMatch": "Ninguna base coincide con el filtro.",
+    "loading": "Cargando las bases…",
+    "noDatabases": "No se pudieron leer las bases de la conexión.",
+    "readOnly": "La conexión es de solo lectura: se rechaza cualquier sentencia que no sea de lectura.",
+    "run_one": "Ejecutar en {{count}} base",
+    "run_other": "Ejecutar en {{count}} bases",
+    "progress": "{{done}} de {{total}} bases terminadas",
+    "close": "Cerrar",
+    "empty": "No hay código para ejecutar."
+  },
+  "confirm": {
+    "title": "Confirmar cambios en varias bases",
+    "write_one": "El código no es solo de lectura (tiene {{keyword}}). Se va a ejecutar en {{count}} base y puede cambiarla.",
+    "write_other": "El código no es solo de lectura (tiene {{keyword}}). Se va a ejecutar en {{count}} bases y puede cambiarlas todas.",
+    "unknown_one": "En este motor no se puede verificar que el código sea solo de lectura. Se va a ejecutar en {{count}} base y puede cambiarla.",
+    "unknown_other": "En este motor no se puede verificar que el código sea solo de lectura. Se va a ejecutar en {{count}} bases y puede cambiarlas todas.",
+    "run_one": "Ejecutar en {{count}} base",
+    "run_other": "Ejecutar en {{count}} bases"
+  },
+  "status": {
+    "pending": "En espera o en curso",
+    "ok": "Bien",
+    "error": "Error",
+    "cancelled": "Cancelada",
+    "skipped": "No se ejecutó"
+  },
+  "summary": {
+    "ok": "{{ok}} de {{total}} bases bien",
+    "error_one": "{{count}} con error",
+    "error_other": "{{count}} con error",
+    "cancelled_one": "{{count}} cancelada",
+    "cancelled_other": "{{count}} canceladas",
+    "messages": "Ver el detalle por base en Mensajes."
+  },
+  "results": {
+    "merged_one": "Resultado ({{count}} base)",
+    "merged_other": "Resultado ({{count}} bases)",
+    "bar": "Varias bases: {{summary}}"
+  },
+  "task": {
+    "title_one": "Ejecutar en {{count}} base de {{connection}}",
+    "title_other": "Ejecutar en {{count}} bases de {{connection}}",
+    "unit": "bases"
+  }
+}

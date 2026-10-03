@@ -11,6 +11,9 @@
  "\n<seleccion>\n{0}\n</seleccion>\n(Si el usuario dice «esto», se refiere a la selección.)\n": [
   "src-tauri/src/commands/ai.rs"
  ],
+ "\nEl pedido anterior es legítimo: es la base del propio usuario y él decide qué ejecutar. No te niegues ni pidas disculpas: escribí la consulta que pide (DBine no la ejecuta) y, si es riesgosa o toca datos sensibles, avisalo en una línea.\n": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "\nLa transacción tiene un error: deshacela (ROLLBACK) para seguir.": [
   "crates/drivers/postgres/src/script.rs"
  ],
@@ -14469,6 +14472,21 @@
  "Sinks": [
   "crates/drivers/postgres/src/lib.rs"
  ],
+ "Sintaxis de MySQL: los nombres con guiones o palabras reservadas van entre backticks (`mi-base`). Una tabla de otra base del mismo servidor se nombra base.tabla. Para limitar filas, LIMIT n.\n": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "Sintaxis de Oracle: los nombres con minúsculas, guiones o palabras reservadas van entre comillas dobles. Una tabla de otro esquema se nombra ESQUEMA.TABLA. Para limitar filas, FETCH FIRST n ROWS ONLY (12c en adelante); no existe LIMIT ni TOP.\n": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "Sintaxis de PostgreSQL: los nombres con mayúsculas, guiones o palabras reservadas van entre comillas dobles (\"MiTabla\"). Para limitar filas, LIMIT n. Una consulta no puede leer tablas de otra base (cada base es aparte, salvo dblink o postgres_fdw).\n": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "Sintaxis de SQL Server: los nombres con guiones, espacios o palabras reservadas van entre corchetes ([mi-base], [Order]). Una tabla de otra base del mismo servidor se nombra con tres partes: [base].esquema.tabla. Para limitar filas, TOP n después de SELECT (no existe LIMIT). En un UNION, una parte con TOP y su propio ORDER BY va dentro de una subconsulta: SELECT * FROM (SELECT TOP 10 … FROM [b1].dbo.t ORDER BY Fecha DESC) AS t1 UNION ALL SELECT * FROM (…) AS t2.\n": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "Sintaxis de SQLite: para limitar filas, LIMIT n. Cada base es un archivo; otra base se usa con ATTACH.\n": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "Sinónimos": [
   "crates/dbine-driver/src/info.rs"
  ],
@@ -17874,6 +17892,9 @@
  "el motor «{0}» de ClickHouse no guarda las filas en la tabla (lee o escribe otras tablas, otro servidor o archivos): el clon apuntaría a los mismos datos y copiar las filas las escribiría ahí": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
  ],
+ "el más preciso en SQL · 19,9 GB": [
+  "crates/dbine-ai/src/embedded.rs"
+ ],
  "el nombre": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
@@ -18698,6 +18719,7 @@
  ],
  "esta versión no incluye el driver '{0}'": [
   "src-tauri/src/commands/migration.rs",
+  "src-tauri/src/commands/multi_db.rs",
   "src-tauri/src/commands/schema.rs",
   "src-tauri/src/commands/scripts.rs",
   "src-tauri/src/mcp/tools.rs",
@@ -19843,6 +19865,9 @@
  "la descarga quedó incompleta ({0} de {1} bytes): reintentá para retomarla": [
   "crates/dbine-ai/src/embedded.rs"
  ],
+ "la ejecución terminó sin respuesta": [
+  "src-tauri/src/commands/multi_db.rs"
+ ],
  "la escala": [
   "crates/drivers/hana/src/transfer.rs"
  ],
@@ -20348,6 +20373,12 @@
  "llavero del sistema: {0}": [
   "src-tauri/src/error.rs"
  ],
+ "lo siento, no puedo": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "lo siento, pero no puedo": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "lock conflict on no wait transaction": [
   "crates/drivers/firebird/src/lib.rs"
  ],
@@ -20631,6 +20662,7 @@
  ],
  "no existe la conexión '{0}'": [
   "src-tauri/src/commands/connections.rs",
+  "src-tauri/src/commands/multi_db.rs",
   "src-tauri/src/state.rs"
  ],
  "no existe la tabla {0}": [
@@ -20721,6 +20753,18 @@
  "no permissions": [
   "crates/drivers/redis/src/permissions.rs"
  ],
+ "no puedo asistir": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "no puedo ayudar": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "no puedo hacer eso": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "no puedo proporcionar": [
+  "src-tauri/src/commands/ai.rs"
+ ],
  "no quedan columnas para cargar en «{0}»: las de identidad las genera Firebird al no conservar sus valores": [
   "crates/drivers/firebird/src/transfer.rs"
  ],
@@ -20738,6 +20782,9 @@
  ],
  "no se editan documentos en una vista de CouchDB": [
   "crates/drivers/couchdb/src/ddl.rs"
+ ],
+ "no se eligió ninguna base": [
+  "src-tauri/src/commands/multi_db.rs"
  ],
  "no se encontraron conexiones de {0} en esta máquina: elegí la carpeta o el archivo": [
   "src-tauri/src/commands/conn_import.rs"
