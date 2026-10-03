@@ -93,6 +93,11 @@ export const useAiStore = defineStore('ai', {
           });
           await listen<{ chat_id: string; phase: string; note: string | null }>('ai-status', (e) => {
             if (e.payload.chat_id === this.running) {
+              // The backend asks again after a refusal: drop what it showed.
+              if (e.payload.phase === 'retry') {
+                const m = this.messages.find((x) => x.id === e.payload.chat_id);
+                if (m) { m.content = ''; m.thinking = undefined; }
+              }
               this.phase = e.payload.phase;
               this.phaseNote = e.payload.note === null ? null : tb(e.payload.note);
             }

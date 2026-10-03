@@ -38,7 +38,7 @@ orden:
 
 | Proveedor | Qué es | Privacidad |
 |---|---|---|
-| **Integrado en DBine** | llama.cpp dentro de la app (Metal en Mac) con Qwen2.5-Coder 3B o 7B, que se descargan una vez | Local: nada sale de la máquina |
+| **Integrado en DBine** | llama.cpp dentro de la app (Metal en Mac) con Qwen2.5-Coder 3B, 7B o 32B, que se descargan una vez | Local: nada sale de la máquina |
 | **Ollama** | servidor local (`localhost:11434` u `OLLAMA_HOST`) | Local |
 | **Claude Code** | el CLI `claude` con la cuenta del usuario | La pregunta, la estructura y el editor van a Anthropic |
 | **Codex** | el CLI `codex` con la cuenta del usuario | Ídem, a OpenAI |
@@ -49,11 +49,22 @@ orden:
   lee una vez el PATH del shell de login y se le suman las carpetas habituales
   (Homebrew, npm global, mise, asdf, nvm…).
 - Si Ollama está instalado pero cerrado, se ofrece abrirlo.
-- Si Ollama está abierto pero sin modelos, se ofrece bajar `qwen2.5-coder:7b`.
+- Si Ollama está abierto pero sin modelos, se ofrece bajar `qwen2.5-coder:7b`,
+  o `qwen2.5-coder:32b` desde 48 GB de RAM.
 
 **Sin nada instalado:** se recomienda descargar el modelo integrado. Se marca
 como recomendado el más grande que la RAM de la máquina aguanta cómodo: el 7B
-desde 16 GB.
+desde 16 GB y el 32B desde 48 GB. Quien ya usa uno más chico que el
+recomendado ve un aviso en el chat para descargarlo ("Ahora no" lo oculta
+para ese modelo).
+
+**Por qué esos modelos.** En una prueba del 2026-10-03 (MacBook M5 Max),
+consultas reales de SQL Server entre bases (`[base].esquema.tabla`, con
+corchetes por los guiones) solo salieron bien con el 32B: el 3B, el 7B y el
+14B nombraban mal la base o el esquema, y Qwen3-30B-A3B gastaba la respuesta
+pensando. El 14B no rindió mejor que el 7B, así que no está en el catálogo.
+En la misma prueba, 24 pedidos legítimos que suenan sensibles (contraseñas,
+permisos, datos personales, borrados) no tuvieron rechazos con ningún modelo.
 
 ### Claude Code y Codex, sin herramientas
 
@@ -117,7 +128,20 @@ Se arma en `src-tauri/src/commands/ai.rs`:
     Code y Codex.
 - **Editor:** el texto de la query abierta, la selección y el error de la
   última ejecución.
+- **Pistas del dialecto** (SQL Server, PostgreSQL, MySQL, Oracle, SQLite): cómo
+  se citan los nombres, cómo se nombra una tabla de otra base y cómo se limitan
+  las filas, que es en lo que más se equivocan los modelos chicos.
 - **Nunca se envían filas de datos.**
+
+## Si el modelo se niega
+
+Un modelo chico a veces responde "Lo siento, no puedo ayudarte con eso" a un
+pedido legítimo sobre la base del propio usuario. Si la respuesta es corta, no
+trae código y se disculpa o dice que no puede (en español, inglés, portugués,
+francés o italiano), DBine vuelve a preguntar una sola vez agregando al prompt
+que el pedido es legítimo y que el usuario decide qué ejecutar. El chat
+muestra "Volviendo a preguntar…" y reemplaza la negativa por la nueva
+respuesta.
 
 Debajo de cada pregunta se muestra qué contexto viajó; por ejemplo,
 "SQLite · 2 tablas · editor".

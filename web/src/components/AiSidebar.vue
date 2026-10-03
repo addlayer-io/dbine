@@ -166,6 +166,22 @@ const busy = ref<string | null>(null);
 async function download(id: string) {
   try { await ai.downloadModel(id); } catch (e) { ElMessage.error(errorMessage(e)); }
 }
+// A bigger built-in model this machine handles comfortably than the one in
+// use: offered once in the chat (the setup panel always marks it).
+const BETTER_DISMISSED = 'dbine.ai.betterModelDismissed';
+const betterDismissed = ref<string | null>((() => { try { return localStorage.getItem(BETTER_DISMISSED); } catch { return null; } })());
+const betterModel = computed(() => {
+  const cat = ai.detect?.catalog;
+  if (provider.value?.kind !== 'embedded' || !cat) return null;
+  const rec = cat.findIndex((m) => m.recommended);
+  const cur = cat.findIndex((m) => m.id === ai.model);
+  if (rec < 0 || cur < 0 || rec <= cur || cat[rec].installed || betterDismissed.value === cat[rec].id) return null;
+  return cat[rec];
+});
+function dismissBetter(id: string) {
+  betterDismissed.value = id;
+  try { localStorage.setItem(BETTER_DISMISSED, id); } catch { /* not kept */ }
+}
 async function startOllama() {
   busy.value = 'ollama';
   try { await aiApi.startOllama(); await ai.refresh(); } catch (e) { ElMessage.error(errorMessage(e)); } finally { busy.value = null; }
@@ -184,6 +200,7 @@ const phaseText = computed(() => ({
   schema: t('ai:phase.schema'),
   engine: `${t('ai:phase.engine')} ${tb(ai.phaseNote)}`,
   thinking: t('ai:phase.thinking'),
+  retry: t('ai:phase.retry'),
   writing: '',
 } as Record<string, string>)[ai.phase ?? ''] ?? '');
 </script>
@@ -261,6 +278,14 @@ const phaseText = computed(() => ({
         <el-icon><ei-lock /></el-icon>
         <span v-if="provider.local">{{ $t('ai:privacy.local') }}</span>
         <span v-else>{{ $t('ai:privacy.remote', { vendor: provider.kind === 'claude_code' ? 'Anthropic' : 'OpenAI' }) }}</span>
+      </div>
+      <div v-if="betterModel" class="ai-better">
+        <span>{{ $t('ai:better.text', { model: tb(betterModel.label) }) }}</span>
+        <el-progress v-if="ai.downloads[betterModel.id]" :percentage="pct(betterModel.id)" :stroke-width="4" />
+        <div v-else class="ai-better-acts">
+          <el-button size="small" type="primary" plain @click="download(betterModel.id)">{{ $t('ai:setup.download', { size: gb(betterModel.size) }) }}</el-button>
+          <el-button size="small" text @click="dismissBetter(betterModel.id)">{{ $t('ai:better.dismiss') }}</el-button>
+        </div>
       </div>
 
       <div ref="list" class="ai-list">
@@ -351,6 +376,9 @@ const phaseText = computed(() => ({
 .ai-context > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-privacy { display: flex; align-items: center; gap: 5px; padding: 4px 10px; font-size: 11px; color: var(--nm-text-dim); }
 .ai-privacy.local { color: var(--nm-success); }
+.ai-better { margin: 4px 10px 6px; padding: 8px 10px; border: 1px solid var(--nm-border); border-radius: 6px; font-size: 12px; color: var(--nm-text); display: flex; flex-direction: column; gap: 6px; }
+.ai-better-acts { display: flex; gap: 6px; }
+.ai-better-acts .el-button { margin: 0; }
 
 .ai-list { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 12px; }
 .ai-empty { color: var(--nm-text); line-height: 1.5; }

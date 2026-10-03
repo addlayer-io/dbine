@@ -37,7 +37,8 @@
   "phase": {
     "schema": "Leyendo la estructura de la base…",
     "engine": "Descargando el motor de IA, solo esta vez…",
-    "thinking": "Pensando…"
+    "thinking": "Pensando…",
+    "retry": "Volviendo a preguntar…"
   },
   "setup": {
     "detecting": "Buscando herramientas de IA en esta máquina…",
@@ -66,5 +67,9 @@
   "compose": {
     "placeholder": "Preguntá o pedí una query… (Enter envía, Shift+Enter nueva línea)",
     "send": "Enviar"
+  },
+  "better": {
+    "text": "Tu equipo puede usar un modelo más grande: {{model}}. Entiende mejor los pedidos difíciles y se equivoca menos en el SQL.",
+    "dismiss": "Ahora no"
   }
 }
