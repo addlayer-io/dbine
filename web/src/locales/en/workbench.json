@@ -8,7 +8,11 @@
     "ai": "AI assistant (⌘I)",
     "settings": "Settings (⌘,)",
     "loadFailed": "Couldn't load the connections: {{error}}",
-    "pickDatabase": "Pick a database in the explorer: right-click › New query."
+    "pickDatabase": "Pick a database in the explorer: right-click › New query.",
+    "projects": "Projects",
+    "projectChanges_one": "{{count}} uncommitted change in your projects",
+    "projectChanges_other": "{{count}} uncommitted changes in your projects",
+    "projectChanges_many": "{{count}} uncommitted changes in your projects"
   },
   "welcome": {
     "tagline": "Multi-engine database manager",
@@ -86,6 +90,9 @@
     "saveFailed": "Couldn't save",
     "unsaved": "Unsaved",
     "groupTitleExpand_many": "{{name}}: {{count}} tabs · click to expand",
-    "groupTitleCollapse_many": "{{name}}: {{count}} tabs · click to collapse"
+    "groupTitleCollapse_many": "{{name}}: {{count}} tabs · click to collapse",
+    "fileDiffSuffix": "(changes)",
+    "noBase": "no database",
+    "revealInProjects": "Show in Projects"
   }
 }

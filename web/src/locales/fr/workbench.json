@@ -8,7 +8,11 @@
     "ai": "Assistant IA (⌘I)",
     "settings": "Paramètres (⌘,)",
     "loadFailed": "Impossible de charger les connexions : {{error}}",
-    "pickDatabase": "Choisissez une base dans l'explorateur : clic droit › Nouvelle requête."
+    "pickDatabase": "Choisissez une base dans l'explorateur : clic droit › Nouvelle requête.",
+    "projects": "Projets",
+    "projectChanges_one": "{{count}} modification non validée dans vos projets",
+    "projectChanges_other": "{{count}} modifications non validées dans vos projets",
+    "projectChanges_many": "{{count}} modifications non validées dans vos projets"
   },
   "welcome": {
     "tagline": "Gestionnaire de bases de données multimoteur",
@@ -86,6 +90,9 @@
     "saveFailed": "Impossible d'enregistrer",
     "unsaved": "Non enregistré",
     "groupTitleExpand_many": "{{name}} : {{count}} onglets · cliquez pour développer",
-    "groupTitleCollapse_many": "{{name}} : {{count}} onglets · cliquez pour réduire"
+    "groupTitleCollapse_many": "{{name}} : {{count}} onglets · cliquez pour réduire",
+    "fileDiffSuffix": "(modifications)",
+    "noBase": "sans base",
+    "revealInProjects": "Afficher dans Projets"
   }
 }

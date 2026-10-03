@@ -2,6 +2,8 @@ import { listen } from '@tauri-apps/api/event';
 import type { StateChange } from '../api/types';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 import { useLibraryStore } from '../stores/library';
+import { useProjectsStore } from '../stores/projects';
+import { fileDocs } from './tabDocument';
 import { useSettingsStore } from '../stores/settings';
 import { reconcileConnections } from '../stores/sync';
 import { useTabsStore } from '../stores/tabs';
@@ -96,6 +98,20 @@ const library: Handler = () => useLibraryStore().load(true);
 
 const history: Handler = async () => { useUiStore().historySeq++; };
 
+/** Projects linked, renamed, unlinked or rebound in another window. Their
+ *  file tabs here follow the active base; a tab whose project is gone keeps
+ *  its text, with saving off ("El proyecto ya no está vinculado"). */
+const projects: Handler = async () => {
+  const store = useProjectsStore();
+  if (!store.loaded) return;
+  await store.load(true);
+  const tabs = useTabsStore();
+  for (const id of new Set(tabs.tabs.flatMap((t) => (t.kind === 'file' ? [t.projectId] : [])))) {
+    if (store.byId(id)) tabs.retargetProject(id, store.activeTarget(id).target);
+  }
+  for (const d of fileDocs.values()) d.projectGone(!store.byId(d.projectId()));
+};
+
 /** Kind → the group handled together (one reload per burst). */
 const GROUPS: Partial<Record<Change['kind'], [string, Handler]>> = {
   connection: ['connections', connections],
@@ -106,6 +122,7 @@ const GROUPS: Partial<Record<Change['kind'], [string, Handler]>> = {
   setting: ['settings', settings],
   library: ['library', library],
   history: ['history', history],
+  project: ['projects', projects],
   // "restore": the "sync-applied" event reloads everything (stores/sync.ts).
   // "backup": the backups view reads its list when opened.
 };

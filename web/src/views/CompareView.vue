@@ -12,6 +12,7 @@ import type { CheckDef, ColumnDef, ForeignKeyDef, IndexDef, KeyDef, TableSchema 
 import CodeEditor from '../components/CodeEditor.vue';
 import { newQuery } from '../composables/actions';
 import { lineDiff } from '../composables/lineDiff';
+import CodeDiff from '../components/CodeDiff.vue';
 import { badgeClass, indexUsageEntry, loadIndexUsage, seekTip, sharePct, usageBadge } from '../composables/indexUsage';
 import type { Dependent, DependencyReport, DependencyTarget, IndexUsage } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
@@ -1963,12 +1964,7 @@ async function runSync() {
               <button class="cv-trash" :class="{ on: !!objectMark(selObject)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => objectDropMenu(selObject!))"><el-icon><ei-delete /></el-icon></button>
             </div>
           </div>
-          <div class="cv-code">
-            <div v-for="(l, i) in codeDiff" :key="i" class="cv-cline" :class="l.kind">
-              <pre class="cv-cl" :class="{ none: l.left === null }">{{ l.left ?? '' }}</pre>
-              <pre class="cv-cl" :class="{ none: l.right === null }">{{ l.right ?? '' }}</pre>
-            </div>
-          </div>
+          <CodeDiff :lines="codeDiff" />
         </template>
 
         <!-- A table or object an arrow or a drop removed from both sides: only its arrows and trash, to undo it. -->
@@ -2181,12 +2177,5 @@ async function runSync() {
 .cv-cell .cv-ixbadge.h-good { background: color-mix(in srgb, var(--nm-success) 20%, transparent); color: var(--nm-success); }
 .cv-cell .cv-ixbadge.h-warn { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); color: var(--nm-warning); }
 .cv-cell .cv-ixbadge.h-bad { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
-.cv-code { flex: 1; overflow: auto; font-family: var(--nm-mono); font-size: 12px; }
-.cv-cline { display: grid; grid-template-columns: 1fr 1fr; }
-.cv-cl { margin: 0; padding: 0 12px; white-space: pre-wrap; word-break: break-all; min-height: 18px; line-height: 18px; border-right: 1px solid var(--nm-border-soft); }
-.cv-cline.changed .cv-cl { background: color-mix(in srgb, var(--nm-warning) 14%, transparent); }
-.cv-cline.left .cv-cl:first-child { background: color-mix(in srgb, #3794ff 16%, transparent); }
-.cv-cline.right .cv-cl:last-child { background: color-mix(in srgb, #89d185 16%, transparent); }
-.cv-cl.none { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--nm-text-muted) 10%, transparent) 6px 7px) !important; }
 .cv-script { height: 52vh; border: 1px solid var(--nm-border); border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; }
 </style>

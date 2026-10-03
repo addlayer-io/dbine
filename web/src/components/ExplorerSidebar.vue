@@ -10,7 +10,8 @@ import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
-import type { ConnectionFolder, DbObject, DriverInfo, KeyEntry, KeySearch, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
+import type { ConnectionFolder, DbObject, DriverInfo, KeyEntry, KeySearch, Permissions, ProjectInfo, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
+import { useProjectsStore } from '../stores/projects';
 import { dbKey, objKey, useConnectionsStore, type KeyBrowse } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
@@ -46,7 +47,9 @@ type NodeType = 'group' | 'connection' | 'database' | 'schema' | 'folder' | 'que
   // A key database's search row, namespace folders and "Cargar más".
   | 'keysearch' | 'keyns' | 'keymore'
   // A table's "Índices" folder and its indexes.
-  | 'indexes' | 'index';
+  | 'indexes' | 'index'
+  // "Proyectos": the linked projects whose base is this database.
+  | 'projects' | 'project';
 
 interface TNode {
   id: string;
@@ -59,6 +62,9 @@ interface TNode {
   object?: DbObject;
   query?: SavedQuery;
   migration?: SavedMigration;
+  project?: ProjectInfo;
+  /** A project's pending changes. */
+  changes?: number;
   /** A saved migration's state (its status icon). */
   state?: SavedMigrationState;
   hint?: string;
@@ -85,6 +91,8 @@ interface TNode {
 const conns = useConnectionsStore();
 const tabs = useTabsStore();
 const ui = useUiStore();
+const projects = useProjectsStore();
+void projects.load();
 const { t } = useTranslation();
 
 const KIND_ICONS: Record<string, string> = {
@@ -114,6 +122,22 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
       ? queries.map((q) => ({ id: `q:${q.id}`, label: q.name, type: 'query' as const, connectionId: c.id, database: db, query: q }))
       : [status(qid, 'empty', t('explorer:tree.noQueries'))],
   }];
+  // Linked projects (git repos of scripts) whose base is this database.
+  const linked = projects.projectsFor(c.id, db);
+  const pid = `ps:${c.id}:${db}`;
+  out.push({
+    id: pid, label: t('explorer:tree.projects'), type: 'projects', connectionId: c.id, database: db, count: linked.length,
+    children: linked.length
+      ? linked.map((p) => {
+        const st = projects.status[p.id]?.data;
+        const branch = st?.detached ? (st.head ?? '') : st?.branch;
+        return {
+          id: `p:${c.id}:${db}:${p.id}`, label: p.name, type: 'project' as const, connectionId: c.id, database: db, project: p,
+          hint: branch ? `⎇ ${branch}` : undefined, changes: st?.changes.length || undefined,
+        };
+      })
+      : [status(pid, 'empty', t('explorer:tree.noProjects'))],
+  });
   // Migrations started from this database (never listed under the target).
   const migrations = conns.migrations[k]?.items ?? [];
   const mid = `ms:${c.id}:${db}`;
@@ -522,6 +546,11 @@ function open(n: TNode, preview: boolean) {
   }
 }
 
+/** "Vincular proyecto…" from a database: that database becomes its base. */
+function linkProject(connectionId: string, database: string, mode: 'link' | 'clone') {
+  projects.dialog = { kind: 'link', mode, binding: null, target: { connection_id: connectionId, database } };
+}
+
 // -- context menu -------------------------------------------------------------------------
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 /** "Clonar…": the table being cloned. */
@@ -556,7 +585,7 @@ async function removeConnection(c: SavedConnection) {
   );
   if (!ok) return;
   await conns.remove(c.id);
-  tabs.closeWhere((t) => t.connectionId === c.id);
+  tabs.forgetConnections(new Set([c.id]));
 }
 
 /** "host:port" (or the file) of a connection, for "Copiar servidor". */
@@ -718,6 +747,15 @@ async function onContext(e: MouseEvent, n: TNode) {
       items.push({ label: t('explorer:menu.renameEllipsis'), action: () => renameQuery(n.query!) });
       items.push({ label: t('common:duplicate'), action: () => duplicateQuery(n.query!) });
       items.push({ label: t('common:delete'), danger: true, divided: true, action: () => deleteQuery(n.query!) });
+      break;
+    case 'projects':
+      items.push({ label: t('explorer:menu.linkProject'), action: () => linkProject(cid!, db, 'link') });
+      items.push({ label: t('explorer:menu.cloneProject'), action: () => linkProject(cid!, db, 'clone') });
+      items.push({ label: t('common:refresh'), divided: true, action: () => projects.load(true) });
+      break;
+    case 'project':
+      items.push({ label: t('explorer:menu.openInProjects'), action: () => projects.focusProject(n.project!.id) });
+      items.push({ label: t('explorer:menu.useThisDatabase'), action: () => projects.useDatabase(n.project!.id, cid!, db) });
       break;
     case 'migrations':
       items.push({ label: t('explorer:menu.newMigration'), action: () => newMigration(cid!, db) });
@@ -1103,6 +1141,11 @@ function onClick(n: TNode, node: { expanded: boolean; isLeaf?: boolean }, e?: Mo
     return;
   }
   if (n.type === 'keysearch') return;
+  if (n.type === 'project' && n.project && n.connectionId) {
+    void projects.useDatabase(n.project.id, n.connectionId, n.database ?? '');
+    projects.focusProject(n.project.id);
+    return;
+  }
   if (n.type === 'index' && n.object && n.connectionId) {
     const o = n.object;
     tabs.openIndexes(n.connectionId, n.database ?? '', { kind: o.kind, schema: o.schema, name: o.name }, n.label);
@@ -1228,6 +1271,8 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             <el-icon v-else-if="n.type === 'folder'" class="ex-ic f"><ei-folder /></el-icon>
             <el-icon v-else-if="n.type === 'query'" class="ex-ic q"><ei-document /></el-icon>
             <el-icon v-else-if="n.type === 'migrations'" class="ex-ic q"><ei-switch /></el-icon>
+            <el-icon v-else-if="n.type === 'projects'" class="ex-ic g"><ei-folder-opened /></el-icon>
+            <el-icon v-else-if="n.type === 'project'" class="ex-ic g"><ei-folder /></el-icon>
             <el-icon
               v-else-if="n.type === 'migration'"
               class="ex-ic mg"
@@ -1270,6 +1315,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
               v-if="n.badge" class="ex-ixbadge" :class="badgeClass(n.badge)"
               :title="n.badge.disabled ? n.badge.healthTip! : n.badge.unused ? $t('explorer:indexes.unusedTitle') : [$t('explorer:indexes.shareTitle'), n.badge.healthTip].filter(Boolean).join('\n')"
             >{{ n.badge.text }}</span>
+            <span v-if="n.changes" class="ex-changes" :title="$t('explorer:tree.projectChanges', { count: n.changes })">{{ n.changes }}</span>
             <span v-if="n.hint" class="ex-hint">{{ n.hint }}</span>
           </span>
         </template>
@@ -1295,6 +1341,10 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 
 <style scoped>
 .ex { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.ex-changes {
+  flex: none; min-width: 14px; height: 14px; padding: 0 4px; margin-left: 4px; box-sizing: border-box; border-radius: 7px;
+  background: color-mix(in srgb, #e2c08d 30%, transparent); color: #e2c08d; font-size: 10px; line-height: 14px; text-align: center;
+}
 .ex-header { display: flex; align-items: center; gap: 2px; height: 35px; padding: 0 8px 0 20px; flex-shrink: 0; }
 .ex-filter { padding: 0 8px 6px; flex-shrink: 0; }
 .ex-tagbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; color: var(--nm-text-dim); }

@@ -8,7 +8,11 @@
     "ai": "Assistente de IA (⌘I)",
     "settings": "Configurações (⌘,)",
     "loadFailed": "Não foi possível carregar as conexões: {{error}}",
-    "pickDatabase": "Escolha um banco no explorador: clique com o botão direito › Nova consulta."
+    "pickDatabase": "Escolha um banco no explorador: clique com o botão direito › Nova consulta.",
+    "projects": "Projetos",
+    "projectChanges_one": "{{count}} alteração sem commit nos seus projetos",
+    "projectChanges_other": "{{count}} alterações sem commit nos seus projetos",
+    "projectChanges_many": "{{count}} alterações sem commit nos seus projetos"
   },
   "welcome": {
     "tagline": "Gerenciador de bancos de dados multimotor",
@@ -86,6 +90,9 @@
     "saveFailed": "Não foi possível salvar",
     "unsaved": "Não salvo",
     "groupTitleExpand_many": "{{name}}: {{count}} abas · clique para expandir",
-    "groupTitleCollapse_many": "{{name}}: {{count}} abas · clique para recolher"
+    "groupTitleCollapse_many": "{{name}}: {{count}} abas · clique para recolher",
+    "fileDiffSuffix": "(alterações)",
+    "noBase": "sem banco",
+    "revealInProjects": "Mostrar em Projetos"
   }
 }

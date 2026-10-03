@@ -648,7 +648,7 @@ export interface RunningTask {
 
 export type StateChangeKind =
   | 'connection' | 'folder' | 'explorer' | 'query' | 'migration'
-  | 'setting' | 'library' | 'history' | 'backup' | 'restore';
+  | 'setting' | 'library' | 'history' | 'backup' | 'restore' | 'project';
 
 /** What a write to the local state changed (`dbine_core::StateChange`),
  *  the payload of the "state-changed" event every window gets. */
@@ -701,3 +701,38 @@ export interface MultiDbProgress {
   done: number;
   total: number;
 }
+
+// -- Proyectos: git repos of scripts linked to this machine --------------------
+// (src-tauri/src/commands/projects.rs, projects_git.rs; docs/proyectos.md)
+
+export interface ProjectTarget { connection_id: string; database: string }
+export interface ProjectBinding {
+  /** Used when the repo has no environments, or none is active. */
+  direct: ProjectTarget | null;
+  /** Alias (from .dbine.json) → the user's connection + database. Local only. */
+  environments: Record<string, ProjectTarget>;
+  /** Alias in use; null = `direct`. */
+  active_environment: string | null;
+}
+export interface Project { id: string; name: string; path: string; binding: ProjectBinding; sort_order: number; created_at: string; updated_at: string }
+export interface ProjectEnvironment { name: string; engine: string | null; confirm_run: boolean; description: string }
+export interface ProjectManifest { version: number; name: string | null; engine: string | null; environments: ProjectEnvironment[]; default_environment: string | null }
+export interface ProjectInfo extends Project { exists: boolean; is_repo: boolean; manifest: ProjectManifest | null; manifest_error: string | null; manifest_warnings: string[] }
+/** U = untracked, C = conflict. */
+export type ChangeMark = 'M' | 'A' | 'U' | 'D' | 'R' | 'C';
+export interface FileChange { path: string; orig_path: string | null; index: string; worktree: string; mark: ChangeMark }
+export interface ProjectStatus {
+  git: boolean; exists: boolean; is_repo: boolean; branch: string | null; detached: boolean; head: string | null;
+  upstream: string | null; remote: string | null; has_remote: boolean; ahead: number; behind: number; changes: FileChange[]; truncated: boolean;
+  operation: 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null; last_commit: string | null; fetch_error: string | null; identity_missing: boolean;
+}
+export interface FsEntry { name: string; path: string; is_dir: boolean; symlink: boolean; size: number; ignored: boolean }
+export interface FileContent { path: string; text: string; eol: 'lf' | 'crlf'; bom: boolean; mtime_ms: number; size: number; hash: string }
+export interface FileStat { path: string; exists: boolean; mtime_ms: number; size: number; hash: string }
+export interface WriteOut { written: boolean; conflict: boolean; stat: FileStat }
+export interface FileDiff { path: string; orig_path: string | null; mark: ChangeMark; before: string | null; after: string | null; binary: boolean; too_large: boolean }
+export interface ProjectPullOut { up_to_date: boolean; updated: string[]; conflicts: string[]; operation: string | null; note?: string | null }
+export interface ProjectSyncOut extends ProjectPullOut { pushed: boolean }
+export interface FolderInspect { path: string; exists: boolean; is_repo: boolean; repo_root: string | null; already_linked: string | null; suggested_name: string; has_manifest: boolean; empty: boolean }
+export interface GitProgress { op_id: string; phase: string; percent: number | null }
+export interface ProjectFilesChanged { project_id: string; paths: string[]; reason: 'write' | 'create' | 'rename' | 'delete' | 'pull' | 'discard' | 'operation' | 'checkout' }

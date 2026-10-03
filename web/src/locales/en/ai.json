@@ -5,7 +5,8 @@
   "head": {
     "setup": "Models and providers",
     "newChat": "New conversation",
-    "close": "Close (⌘I)"
+    "close": "Close (⌘I)",
+    "history": "History"
   },
   "context": {
     "noDatabase": "No database selected",
@@ -71,5 +72,16 @@
   "better": {
     "text": "Your machine can use a bigger model: {{model}}. It understands hard requests better and makes fewer SQL mistakes.",
     "dismiss": "Not now"
+  },
+  "history": {
+    "title": "Previous conversations",
+    "empty": "No previous conversations yet: “New conversation” saves the current one here.",
+    "untitled": "(untitled)",
+    "messages_one": "{{count}} message",
+    "messages_other": "{{count}} messages",
+    "messages_many": "{{count}} messages",
+    "delete": "Delete this conversation",
+    "clear": "Clear history",
+    "clearConfirm": "All previous conversations will be deleted. The current one is not touched."
   }
 }

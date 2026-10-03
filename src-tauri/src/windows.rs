@@ -219,7 +219,9 @@ pub fn request_quit(app: &AppHandle) -> bool {
 /// or close prompt is open. Otherwise an OS quit goes straight through.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn quit_needs_ui(app: &AppHandle) -> bool {
-    quit_owner(app).is_some() || app.try_state::<TaskRegistry>().is_some_and(|r| !r.is_empty())
+    quit_owner(app).is_some()
+        || app.try_state::<TaskRegistry>().is_some_and(|r| !r.is_empty())
+        || crate::commands::projects::has_unsaved(app)
 }
 
 /// Focus tracking, and cleanup when a window goes away.

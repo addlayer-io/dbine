@@ -7,6 +7,8 @@ import { api, windowApi } from '../api/client';
 import { SETTLE_MS, useTasksStore } from '../stores/tasks';
 import { useTabsStore } from '../stores/tabs';
 import { initWindowRole, refreshWindowRole } from './windowRole';
+import { unsavedFilesApi } from '../api/projects';
+import { saveAllFiles, unsavedHere } from './projectWatch';
 
 // Every way out goes through here. Quitting the app (`requestQuit`):
 // - the menu's Salir (⌘Q, `app.quit` in appMenu.ts, a custom item),
@@ -164,11 +166,55 @@ async function titlesEverywhere(running: Running[]): Promise<string[]> {
     : running.map((x) => x.title);
 }
 
+/** Project files not saved (file tabs don't autosave): "Guardar todo" /
+ *  "No guardar" / "Cancelar". `everywhere`: every window's (a quit), else
+ *  this window's (closing it). True to go on. */
+async function settleUnsavedFiles(everywhere: boolean): Promise<boolean> {
+  const here = unsavedHere();
+  let titles = here;
+  const all = everywhere && inTauri();
+  if (all) {
+    try {
+      const { label } = await initWindowRole();
+      const others = await unsavedFilesApi.all();
+      if (Array.isArray(others)) titles = [...here, ...others.filter((x) => x.label !== label).map((x) => x.title)];
+    } catch { /* an older backend: this window's */ }
+  }
+  if (!titles.length) return true;
+  try {
+    await ElMessageBox.confirm(t('projects:quit.message', { count: titles.length, list: titles.join(', ') }), t('projects:quit.title'), {
+      type: 'warning',
+      confirmButtonText: t('projects:quit.saveAll'),
+      cancelButtonText: t('projects:quit.dontSave'),
+      distinguishCancelAndClose: true,
+    });
+  } catch (action) {
+    return action === 'cancel';
+  }
+  if (!all) return saveAllFiles();
+  // Every window saves its own (this one too, through the same event).
+  try {
+    await unsavedFilesApi.saveAllBroadcast();
+  } catch {
+    return saveAllFiles();
+  }
+  const deadline = Date.now() + SETTLE_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    let left = unsavedHere().length;
+    try { left += (await unsavedFilesApi.all()).length; } catch { /* this window's only */ }
+    if (!left) return true;
+  }
+  // A save failed (its tab shows why): the quit stops.
+  return false;
+}
+
 /** Asks about every window's tasks and quits. */
 async function quitFlow() {
   try {
     const running = await runningEverywhere();
     if (!(await confirmStop('quit', await titlesEverywhere(running)))) return;
+    if (!(await settleUnsavedFiles(true))) return;
     if (running.length) await cancelEverywhereAndSettle();
     await exitApp();
   } catch {
@@ -190,6 +236,7 @@ export async function requestUpdateRestart(): Promise<void> {
   await exclusive(async () => {
     const running = await runningEverywhere();
     if (!(await confirmStop('update', await titlesEverywhere(running)))) return;
+    if (!(await settleUnsavedFiles(true))) return;
     if (running.length) await cancelEverywhereAndSettle();
     try {
       await api.updateInstallAndRestart();
@@ -215,6 +262,7 @@ async function closeFlow() {
   try {
     const tasks = useTasksStore();
     if (!(await confirmStop('closeWindow', tasks.running.map((x) => x.title)))) return;
+    if (!(await settleUnsavedFiles(false))) return;
     if (tasks.runningCount) await cancelAndSettle();
     // End the tabs' backend sessions without touching the saved tabs (the
     // window goes away; another one may be the primary by now).

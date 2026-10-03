@@ -17,6 +17,8 @@ import EditorTabs from './components/EditorTabs.vue';
 import ExplorerSidebar from './components/ExplorerSidebar.vue';
 import LibrarySidebar from './components/LibrarySidebar.vue';
 import HistorySidebar from './components/HistorySidebar.vue';
+import ProjectsSidebar from './components/ProjectsSidebar.vue';
+import ProjectDialogs from './components/ProjectDialogs.vue';
 import LibraryDialogs from './components/LibraryDialogs.vue';
 import OutputPanel from './components/OutputPanel.vue';
 import StatusBar from './components/StatusBar.vue';
@@ -24,14 +26,18 @@ import { errorMessage } from './api/client';
 import { newQuery } from './composables/actions';
 import { ownsShortcut, useAppMenu } from './composables/appMenu';
 import { useCrossWindow } from './composables/crossWindow';
+import { useProjectWatch } from './composables/projectWatch';
+import { fileDocs } from './composables/tabDocument';
+import { useProjectsStore } from './stores/projects';
 import { useConnectionsStore } from './stores/connections';
 import { useSettingsStore } from './stores/settings';
 import { readJson, writeJson } from './stores/storage';
 import { useSyncStore } from './stores/sync';
 import { useTabsStore } from './stores/tabs';
-import { useUiStore } from './stores/ui';
+import { useUiStore, type SidebarView } from './stores/ui';
 import ObjectView from './views/ObjectView.vue';
 import QueryView from './views/QueryView.vue';
+import FileDiffView from './views/FileDiffView.vue';
 import DesignerTabView from './views/DesignerTabView.vue';
 import DiagramTabView from './views/DiagramTabView.vue';
 import MigrationView from './views/MigrationView.vue';
@@ -56,10 +62,15 @@ const tabs = useTabsStore();
 const ui = useUiStore();
 // Revealing something in the explorer needs the explorer visible.
 watch(() => ui.reveal?.seq, () => { sidebarOpen.value = true; ui.sidebarView = 'explorer'; });
+// "Mostrar en Proyectos" (Explorer, tabs, the editor): the Proyectos sidebar.
+const projects = useProjectsStore();
+watch(() => projects.focus?.seq, () => { sidebarOpen.value = true; ui.sidebarView = 'projects'; });
 
 const sync = useSyncStore();
 // Other windows' writes to the local state: reload what this one shows.
 useCrossWindow();
+// Project files changed on disk (here, another window, another editor).
+useProjectWatch();
 
 onMounted(async () => {
   try {
@@ -69,9 +80,19 @@ onMounted(async () => {
     ElMessage.error(t('workbench:app.loadFailed', { error: errorMessage(e) }));
     return;
   }
-  // Tabs of connections deleted since last run.
+  // Tabs of connections deleted since last run (a project's file stays, without a base).
   const ids = new Set(conns.list.map((c) => c.id));
-  tabs.closeWhere((t) => t.kind !== 'connection' && !ids.has(t.connectionId));
+  tabs.forgetConnections(new Set(tabs.tabs.filter((t) => t.kind !== 'connection' && t.connectionId && !ids.has(t.connectionId)).map((t) => t.connectionId)));
+  tabs.closeWhere((t) => t.kind !== 'connection' && t.kind !== 'file' && t.kind !== 'fileDiff' && !ids.has(t.connectionId));
+  // Projects: file tabs follow their project's active base; a project
+  // unlinked meanwhile leaves its tabs with saving off.
+  projects.load().then(() => {
+    for (const id of new Set(tabs.tabs.flatMap((t) => (t.kind === 'file' ? [t.projectId] : [])))) {
+      if (projects.byId(id)) tabs.retargetProject(id, projects.activeTarget(id).target);
+    }
+    for (const d of fileDocs.values()) d.projectGone(!projects.byId(d.projectId()));
+    tabs.closeWhere((t) => t.kind === 'fileDiff' && !projects.byId(t.projectId));
+  });
   // Titles of reopened query tabs come from their database's query list.
   for (const t of tabs.tabs) if (t.kind === 'query') conns.loadQueries(t.connectionId, t.database);
 });
@@ -81,10 +102,10 @@ const sidebarOpen = ref(readJson('dbine.sidebarOpen', true));
 const panelHeight = ref(readJson('dbine.panelHeight', 180));
 const panelOpen = ref(readJson('dbine.panelOpen', false));
 watch(sidebarOpen, (v) => writeJson('dbine.sidebarOpen', v));
-// The left sidebar shows the Explorer or the script Library (⭐).
-ui.sidebarView = readJson<'explorer' | 'library' | 'history'>('dbine.sidebarView', 'explorer');
+// The left sidebar shows the Explorer, Proyectos, the script Library (⭐) or the history.
+ui.sidebarView = readJson<SidebarView>('dbine.sidebarView', 'explorer');
 watch(() => ui.sidebarView, (v) => writeJson('dbine.sidebarView', v));
-function toggleView(v: 'explorer' | 'library' | 'history') {
+function toggleView(v: SidebarView) {
   if (sidebarOpen.value && ui.sidebarView === v) sidebarOpen.value = false;
   else { ui.sidebarView = v; sidebarOpen.value = true; }
 }
@@ -166,6 +187,10 @@ watch(
         <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'explorer' }" :title="$t('workbench:app.explorer')" @click="toggleView('explorer')">
           <el-icon :size="22"><ei-coin /></el-icon>
         </button>
+        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'projects' }" :title="$t('workbench:app.projects')" @click="toggleView('projects')">
+          <el-icon :size="21"><ei-folder-opened /></el-icon>
+          <span v-if="projects.totalChanges" class="ide-activity-badge" :aria-label="$t('workbench:app.projectChanges', { count: projects.totalChanges })">{{ projects.totalChanges > 99 ? '99+' : projects.totalChanges }}</span>
+        </button>
         <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'library' }" :title="$t('workbench:app.library')" @click="toggleView('library')">
           <el-icon :size="21"><ei-star /></el-icon>
         </button>
@@ -189,6 +214,7 @@ watch(
 
       <div class="ide-sidebar" :class="{ hidden: !sidebarOpen }">
         <ExplorerSidebar v-show="ui.sidebarView === 'explorer'" />
+        <ProjectsSidebar v-if="ui.sidebarView === 'projects'" />
         <LibrarySidebar v-if="ui.sidebarView === 'library'" />
         <HistorySidebar v-if="ui.sidebarView === 'history'" />
         <div class="ide-sash-x" @pointerdown.prevent="drag($event, 'x')" />
@@ -200,7 +226,8 @@ watch(
           <!-- Restored tabs need their connection loaded before they run anything. -->
           <template v-for="t in conns.loaded ? tabs.tabs : []" :key="t.id">
             <div v-show="t.id === tabs.activeId" class="ide-tab-view">
-              <QueryView v-if="t.kind === 'query'" :tab="t" />
+              <QueryView v-if="t.kind === 'query' || t.kind === 'file'" :tab="t" />
+              <FileDiffView v-else-if="t.kind === 'fileDiff'" :tab="t" />
               <ObjectView v-else-if="t.kind === 'object'" :tab="t" />
               <DesignerTabView v-else-if="t.kind === 'designer'" :tab="t" />
               <DiagramTabView v-else-if="t.kind === 'diagram'" :tab="t" />
@@ -235,6 +262,7 @@ watch(
     <MoveDialog />
     <DatabaseDialogs />
     <LibraryDialogs />
+    <ProjectDialogs />
     <SettingsDialog />
     <McpApprovals />
   </div>
@@ -251,6 +279,10 @@ watch(
   border: none; background: transparent; color: #858585; cursor: pointer;
 }
 .ide-activity-item:hover, .ide-activity-item.active { color: #ffffff; }
+.ide-activity-badge {
+  position: absolute; right: 7px; bottom: 9px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px;
+  background: var(--ide-focus, #0078d4); color: #ffffff; font-size: 9.5px; font-weight: 600; line-height: 16px; text-align: center; pointer-events: none;
+}
 .ide-activity-item.active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: #ffffff; }
 .ide-sidebar { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--ide-sidebar); }
 .ide-sidebar > :first-child { flex: 1; }

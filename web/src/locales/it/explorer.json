@@ -41,7 +41,12 @@
     "defaultDatabase": "predefinito",
     "noDatabases": "Nessun database visibile",
     "emptyFolder": "Vuota: trascina qui le connessioni",
-    "refreshing": "aggiornamento…"
+    "refreshing": "aggiornamento…",
+    "projects": "Progetti",
+    "noProjects": "Nessun progetto: clic destro › Collega progetto…",
+    "projectChanges_one": "{{count}} modifica non committata",
+    "projectChanges_other": "{{count}} modifiche non committate",
+    "projectChanges_many": "{{count}} modifiche non committate"
   },
   "confirm": {
     "deleteConnection": "Eliminare la connessione \"{{name}}\"?\n\nVengono eliminate anche le sue query salvate e la sua password nel portachiavi.",
@@ -91,7 +96,11 @@
     "compareSchemas": "Confronta schemi…",
     "exportDatabase": "Esporta database…",
     "importData": "Importa dati…",
-    "runScriptFile": "Esegui file di script…"
+    "runScriptFile": "Esegui file di script…",
+    "linkProject": "Collega progetto…",
+    "cloneProject": "Clona repository…",
+    "openInProjects": "Apri in Progetti",
+    "useThisDatabase": "Usa questo database"
   },
   "keySearch": {
     "placeholderPrefix": "Prefisso, ad esempio /config/",

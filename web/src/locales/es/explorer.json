@@ -41,7 +41,12 @@
     "defaultDatabase": "predeterminada",
     "noDatabases": "Sin bases visibles",
     "emptyFolder": "Vacía: arrastrá conexiones acá",
-    "refreshing": "actualizando…"
+    "refreshing": "actualizando…",
+    "projects": "Proyectos",
+    "noProjects": "Sin proyectos: clic derecho › Vincular proyecto…",
+    "projectChanges_one": "{{count}} cambio sin confirmar",
+    "projectChanges_other": "{{count}} cambios sin confirmar",
+    "projectChanges_many": "{{count}} cambios sin confirmar"
   },
   "confirm": {
     "deleteConnection": "¿Eliminar la conexión \"{{name}}\"?\n\nTambién se eliminan sus queries guardadas y su contraseña del llavero.",
@@ -91,7 +96,11 @@
     "compareSchemas": "Comparar esquemas…",
     "exportDatabase": "Exportar base…",
     "importData": "Importar datos…",
-    "runScriptFile": "Ejecutar archivo de script…"
+    "runScriptFile": "Ejecutar archivo de script…",
+    "linkProject": "Vincular proyecto…",
+    "cloneProject": "Clonar repositorio…",
+    "openInProjects": "Abrir en Proyectos",
+    "useThisDatabase": "Usar esta base"
   },
   "keySearch": {
     "placeholderPrefix": "Prefijo, por ejemplo /config/",

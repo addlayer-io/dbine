@@ -517,6 +517,9 @@
  "Abierta hace (s)": [
   "crates/drivers/firebird/src/monitor.rs"
  ],
+ "Abortar": [
+  "src-tauri/src/commands/projects_git.rs"
+ ],
  "Aborted": [
   "crates/drivers/postgres/src/session.rs"
  ],
@@ -1165,6 +1168,9 @@
  ],
  "Autenticación del servidor": [
   "crates/drivers/etcd/src/security.rs"
+ ],
+ "Authentication failed": [
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "Authorization": [
   "crates/drivers/bigquery/src/lib.rs",
@@ -3323,9 +3329,15 @@
  "Configuración (JSON)": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "Confirmar": [
+  "src-tauri/src/commands/projects_git.rs"
+ ],
  "Confirmar automáticamente (autocommit)": [
   "crates/drivers/firebird/src/lib.rs",
   "crates/drivers/oracle/src/lib.rs"
+ ],
+ "Conflicto": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "Conflicto de escritura con una transacción abierta ({0} reintentos)": [
   "crates/drivers/mongodb/src/blocking.rs"
@@ -3609,6 +3621,9 @@
  "Contenido": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "Continuar": [
+  "src-tauri/src/commands/projects_git.rs"
+ ],
  "Contraseña": [
   "crates/dbine-driver/src/info.rs",
   "crates/drivers/cassandra/src/security.rs",
@@ -3766,6 +3781,9 @@
  ],
  "Could not load conf": [
   "crates/drivers/solr/src/lib.rs"
+ ],
+ "Could not resolve host": [
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "Count": [
   "crates/drivers/duckdb/src/lib.rs",
@@ -4344,6 +4362,9 @@
  ],
  "Desbalance: el trabajador más lento tardó {0} ms (promedio {1} ms)": [
   "crates/drivers/bigquery/src/plan.rs"
+ ],
+ "Descartar": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "Descendente": [
   "crates/drivers/cassandra/src/ddl.rs"
@@ -5046,6 +5067,21 @@
  "El archivo (ARCHIVE) donde se guarda el punto de restauración.": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "El archivo .dbine.json es demasiado grande (máximo 64 KB)": [
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "El archivo .dbine.json no debe tener credenciales; se ignoró «{0}»": [
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "El archivo .dbine.json no es JSON válido: {0}": [
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "El archivo .dbine.json no tiene el formato esperado: {0}": [
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "El archivo .dbine.json tiene que ser un objeto JSON": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "El archivo queda en el disco del servidor H2. SCRIPT escribe SQL que se restaura con RUNSCRIPT (indicá la ruta del archivo); BACKUP copia el archivo de la base en un .zip que solo se restaura con el servidor detenido (org.h2.tools.Restore). H2 no guarda un historial de backups ni los borra.": [
   "crates/drivers/postgres/src/backup.rs"
  ],
@@ -5254,6 +5290,12 @@
  ],
  "El endpoint del clúster (escritor) o el de lectura.": [
   "crates/drivers/postgres/src/lib.rs"
+ ],
+ "El entorno por defecto «{0}» no está en la lista de entornos": [
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "El entorno «{0}» está repetido": [
+  "src-tauri/src/commands/projects.rs"
  ],
  "El espacio usado es el de los archivos Parquet ya persistidos de «{0}»; los datos que todavía están en memoria (WAL) no suman.": [
   "crates/drivers/influxdb/src/v3.rs"
@@ -6846,7 +6888,8 @@
  ],
  "Fetch": [
   "crates/drivers/couchdb/src/plan.rs",
-  "crates/drivers/elasticsearch/src/plan.rs"
+  "crates/drivers/elasticsearch/src/plan.rs",
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "Fetch de documentos": [
   "crates/drivers/elasticsearch/src/monitor.rs"
@@ -7355,6 +7398,12 @@
  "HANA no tiene versión de fila automática: queda como binario y no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/hana.rs"
  ],
+ "HEAD desacoplado: Pull/Push necesitan una rama": [
+  "src-tauri/src/commands/projects_git.rs"
+ ],
+ "HEAD desacoplado: cambiá a una rama antes de confirmar": [
+  "src-tauri/src/commands/projects_git.rs"
+ ],
  "HTTP {0} en {1}": [
   "crates/drivers/drill/src/lib.rs"
  ],
@@ -7514,6 +7563,9 @@
   "crates/drivers/mysql/src/security/starrocks.rs",
   "crates/drivers/odbc/src/presets.rs",
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Host key verification failed": [
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "Hosts": [
   "crates/drivers/hana/src/monitor.rs"
@@ -10688,6 +10740,9 @@
  "No se pudo estimar «{0}»: {1}": [
   "crates/drivers/bigquery/src/lib.rs"
  ],
+ "No se pudo leer .dbine.json: {0}": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "No se pudo leer /admin/vitals del servicio de consultas: faltan su CPU y los tiempos de consulta.": [
   "crates/drivers/couchbase/src/lib.rs"
  ],
@@ -11111,6 +11166,9 @@
  ],
  "Nombre de colección válido para Solr: «{0}».": [
   "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "Nombre de entorno inválido «{0}»: usá letras, números, «_», «.» o «-» (hasta 40)": [
+  "src-tauri/src/commands/projects.rs"
  ],
  "Nombre de la base": [
   "crates/drivers/oracle/src/lib.rs"
@@ -12341,6 +12399,9 @@
  "Permiso inválido: {0}. Elegí READ, WRITE o READWRITE.": [
   "crates/drivers/etcd/src/security.rs"
  ],
+ "Permission denied (publickey)": [
+  "src-tauri/src/commands/git_cli.rs"
+ ],
  "Permissions": [
   "crates/drivers/cosmosdb/src/security.rs"
  ],
@@ -12439,6 +12500,9 @@
  ],
  "Plantillas, pipelines, configuración persistente del cluster y los índices del sistema.": [
   "crates/drivers/elasticsearch/src/backup.rs"
+ ],
+ "Please tell me who you are": [
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "Point": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
@@ -12684,6 +12748,9 @@
  "Proyecto": [
   "crates/drivers/bigquery/src/monitor.rs"
  ],
+ "Proyectos": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "Próxima": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -12720,6 +12787,9 @@
  "Puerto de administración": [
   "crates/drivers/couchbase/src/lib.rs"
  ],
+ "Pull": [
+  "src-tauri/src/commands/projects_git.rs"
+ ],
  "Punto como geo_point: los valores van como lat/lon, WKT o GeoJSON.": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs"
  ],
@@ -12734,6 +12804,9 @@
  ],
  "Puntos escritos": [
   "crates/drivers/influxdb/src/monitor.rs"
+ ],
+ "Push": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "Páginas": [
   "crates/drivers/cosmosdb/src/plan.rs",
@@ -14453,6 +14526,9 @@
  ],
  "Sincronización (synchronous)": [
   "crates/drivers/sqlite/src/monitor.rs"
+ ],
+ "Sincronizar": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "Sincronía": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -16840,6 +16916,9 @@
  "acción": [
   "crates/drivers/elasticsearch/src/monitor.rs"
  ],
+ "acción desconocida": [
+  "src-tauri/src/commands/projects_git.rs"
+ ],
  "activa sin validar": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -16848,6 +16927,9 @@
  ],
  "activar las versiones del sistema (SYSTEM_VERSIONING)": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
+ "actualizá git a 2.27 o confirmá tus cambios antes del Pull": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "admin/metrics de los cores ({0})": [
   "crates/drivers/solr/src/lib.rs"
@@ -17099,6 +17181,9 @@
  "compaction necesita una revisión": [
   "crates/drivers/etcd/src/lib.rs"
  ],
+ "completá el nombre y el email": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "con ROW MOVEMENT": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
@@ -17226,6 +17311,12 @@
  "creando el índice": [
   "crates/drivers/dynamodb/src/admin.rs"
  ],
+ "crear el archivo": [
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "crear la carpeta": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "crear una base": [
   "crates/drivers/couchdb/src/lib.rs",
   "crates/drivers/mongodb/src/lib.rs",
@@ -17312,6 +17403,9 @@
  ],
  "del índice": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
+ ],
+ "demasiados archivos (máximo {0})": [
+  "src-tauri/src/commands/projects.rs"
  ],
  "demasiados permisos: como mucho {0}": [
   "src-tauri/src/commands/schemas.rs"
@@ -17506,6 +17600,9 @@
  ],
  "el archivo del servidor": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "el archivo es demasiado grande para abrirlo ({0} MB)": [
+  "src-tauri/src/commands/projects.rs"
  ],
  "el archivo no coincide con el original (SHA-256): se borró, reintentá": [
   "crates/drivers/duckdb/src/loader.rs"
@@ -17742,6 +17839,9 @@
  "el emulador de Spanner no implementa SPANNER_SYS: no hay consultas que ver": [
   "crates/drivers/spanner/src/profiler.rs"
  ],
+ "el entorno «{0}» no está definido en .dbine.json": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "el esquema de partición {0}({1})": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -17810,6 +17910,9 @@
  ],
  "el historial de Query Insights": [
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "el host SSH no es de confianza todavía: conectate una vez desde una terminal": [
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "el inquilino (tenant ID) no es válido": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -18022,17 +18125,30 @@
   "crates/drivers/trino/src/lib.rs",
   "src-tauri/src/commands/profiler.rs"
  ],
+ "el proyecto necesita un nombre": [
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "el proyecto no existe": [
+  "crates/dbine-core/src/state.rs",
+  "src-tauri/src/commands/projects.rs"
+ ],
  "el puerto SSH no es un número": [
   "src-tauri/src/tunnels.rs"
  ],
  "el puerto tiene que estar entre 1024 y 65535": [
   "src-tauri/src/mcp/commands.rs"
  ],
+ "el remoto tiene cambios que no tenés: hacé Pull o Sincronizar primero": [
+  "src-tauri/src/commands/git_cli.rs"
+ ],
  "el rendimiento (RU/s)": [
   "crates/drivers/cosmosdb/src/sync.rs"
  ],
  "el repositorio": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "el repositorio no tiene remoto: agregá uno (Agregar remoto…)": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "el rol «{0}»": [
   "crates/drivers/postgres/src/clone.rs"
@@ -18625,6 +18741,10 @@
  "es una vista": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
  ],
+ "esa carpeta ya está vinculada como proyecto": [
+  "crates/dbine-core/src/state.rs",
+  "src-tauri/src/commands/projects.rs"
+ ],
  "esa es la sesión con la que DBine está consultando: no se puede terminar desde acá": [
   "crates/drivers/postgres/src/blocking.rs"
  ],
@@ -18674,6 +18794,9 @@
  ],
  "escribí la contraseña nueva": [
   "crates/drivers/mongodb/src/security.rs"
+ ],
+ "escribí un mensaje para el commit": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "escribí un nombre": [
   "crates/drivers/cassandra/src/security.rs",
@@ -19123,8 +19246,12 @@
  "falta la URL de la base": [
   "crates/drivers/libsql/src/hrana.rs"
  ],
+ "falta la URL del remoto": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "falta la URL del repositorio": [
-  "src-tauri/src/commands/library_git.rs"
+  "src-tauri/src/commands/library_git.rs",
+  "src-tauri/src/commands/projects.rs"
  ],
  "falta la base": [
   "crates/drivers/clickhouse/src/backup.rs",
@@ -19151,6 +19278,9 @@
  ],
  "falta la carpeta del repositorio a crear": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "falta la carpeta donde clonar": [
+  "src-tauri/src/commands/projects.rs"
  ],
  "falta la clave JSON de la cuenta de servicio": [
   "crates/drivers/bigquery/src/gcp.rs"
@@ -19187,6 +19317,9 @@
  ],
  "falta la región de AWS": [
   "crates/drivers/dynamodb/src/aws.rs"
+ ],
+ "falta la ruta": [
+  "src-tauri/src/commands/project_paths.rs"
  ],
  "falta la ruta del archivo SQLite": [
   "crates/drivers/sqlite/src/lib.rs"
@@ -19270,8 +19403,18 @@
  "función": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
+ "git no tiene credenciales para este remoto: configurá el credential helper o la clave SSH ({0})": [
+  "src-tauri/src/commands/git_cli.rs"
+ ],
+ "git no tiene tu nombre y email configurados": [
+  "src-tauri/src/commands/git_cli.rs",
+  "src-tauri/src/commands/projects_git.rs"
+ ],
+ "git sin salida": [
+  "src-tauri/src/commands/git_cli.rs"
+ ],
  "git {0} no terminó en {1} s": [
-  "src-tauri/src/commands/library_git.rs"
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "global.ini [{0}] {1} = {2} en la capa {3} ({4})": [
   "crates/drivers/hana/src/profiler.rs"
@@ -19306,11 +19449,17 @@
  "guarda la lista de roles de cada usuario (set-user-role la reemplaza)": [
   "crates/drivers/solr/src/security.rs"
  ],
+ "guardar el archivo": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "hana: no se pudo cancelar la sentencia: {0}": [
   "crates/drivers/hana/src/lib.rs"
  ],
  "hay bytes que no son texto UTF-8 y la columna destino es de texto: no se pueden cargar sin cambiarlos": [
   "crates/drivers/bigquery/src/transfer.rs"
+ ],
+ "hay conflictos sin resolver: resolvelos antes de confirmar": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "hay fields con": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
@@ -19326,6 +19475,9 @@
  ],
  "hay más de una sentencia": [
   "crates/drivers/duckdb/src/transfer.rs"
+ ],
+ "hay un rebase en curso: continualo o abortalo": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "hay un valor que no es JSON válido y la columna destino es {0}": [
   "crates/drivers/bigquery/src/transfer.rs"
@@ -19626,6 +19778,10 @@
  ],
  "la carpeta necesita un nombre": [
   "src-tauri/src/commands/folders.rs"
+ ],
+ "la carpeta no es un repositorio git": [
+  "src-tauri/src/commands/projects.rs",
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "la carpeta {0} no existe": [
   "crates/dbine-sync/src/folder.rs"
@@ -20048,6 +20204,9 @@
  "la query ya no existe": [
   "src-tauri/src/commands/queries.rs"
  ],
+ "la rama no existe en el remoto: hacé Push": [
+  "src-tauri/src/commands/projects_git.rs"
+ ],
  "la relación no trae sus nodos de origen y destino": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
@@ -20077,6 +20236,22 @@
  ],
  "la ruta del archivo": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "la ruta es demasiado larga": [
+  "src-tauri/src/commands/project_paths.rs"
+ ],
+ "la ruta no es válida": [
+  "src-tauri/src/commands/project_paths.rs",
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "la ruta no puede salir de la carpeta del proyecto": [
+  "src-tauri/src/commands/project_paths.rs"
+ ],
+ "la ruta sale de la carpeta del proyecto": [
+  "src-tauri/src/commands/project_paths.rs"
+ ],
+ "la ruta tiene que ser relativa al proyecto": [
+  "src-tauri/src/commands/project_paths.rs"
  ],
  "la ruta «{0}» tiene comillas sin cerrar o texto después de una parte entre comillas": [
   "crates/drivers/dremio/src/security.rs"
@@ -20360,6 +20535,12 @@
  "lectura sin pedido": [
   "crates/drivers/couchdb/src/transfer.rs"
  ],
+ "leer el archivo": [
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "leer la carpeta": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "leer la cuenta": [
   "crates/dbine-sync/src/gdrive.rs",
   "crates/dbine-sync/src/onedrive.rs"
@@ -20605,6 +20786,9 @@
  "no es true ni false": [
   "crates/drivers/athena/src/transfer.rs"
  ],
+ "no es un archivo de texto UTF-8": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "no es un número": [
   "crates/drivers/athena/src/transfer.rs",
   "crates/drivers/solr/src/transfer.rs"
@@ -20675,7 +20859,8 @@
   "crates/dbine-core/src/conn_import/mod.rs"
  ],
  "no existe «{0}»": [
-  "crates/drivers/orientdb/src/security.rs"
+  "crates/drivers/orientdb/src/security.rs",
+  "src-tauri/src/commands/project_paths.rs"
  ],
  "no figura en la base de seguridad": [
   "crates/drivers/firebird/src/security.rs"
@@ -20685,7 +20870,8 @@
   "crates/drivers/elasticsearch/src/security.rs"
  ],
  "no hay cambios para confirmar": [
-  "src-tauri/src/commands/library_git.rs"
+  "src-tauri/src/commands/library_git.rs",
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "no hay campos para identificar el registro": [
   "crates/drivers/orientdb/src/ddl.rs"
@@ -20695,6 +20881,9 @@
  ],
  "no hay columnas para importar: revisá la correspondencia": [
   "src-tauri/src/commands/imports.rs"
+ ],
+ "no hay commits para enviar: confirmá primero": [
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "no hay conexiones de DBeaver (data-sources.json) en {0}": [
   "crates/dbine-core/src/conn_import/dbeaver.rs"
@@ -20715,6 +20904,9 @@
  ],
  "no hay ninguna conexión «{0}» disponible por MCP (list_connections muestra las que hay)": [
   "src-tauri/src/mcp/tools.rs"
+ ],
+ "no hay ninguna operación en curso": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "no hay propiedades para identificar el elemento": [
   "crates/drivers/neo4j/src/ddl.rs"
@@ -20793,7 +20985,7 @@
   "crates/drivers/neo4j/src/neptune.rs"
  ],
  "no se encontró git en esta máquina: instalalo (git-scm.com) y volvé a intentar": [
-  "src-tauri/src/commands/library_git.rs"
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "no se encontró la tabla {0}": [
   "crates/drivers/dsql/src/transfer.rs",
@@ -20807,6 +20999,9 @@
  ],
  "no se encontró «{0}» o no tiene columnas": [
   "crates/dbine-transfer/src/clone_table.rs"
+ ],
+ "no se encuentra la carpeta del proyecto": [
+  "src-tauri/src/commands/project_paths.rs"
  ],
  "no se entiende el bastión «{0}» (usuario@servidor:puerto)": [
   "src-tauri/src/tunnels.rs"
@@ -20950,6 +21145,9 @@
   "crates/drivers/iotdb/src/lib.rs",
   "crates/drivers/iotdb/src/transfer.rs"
  ],
+ "no se pudo conectar con el remoto ({0})": [
+  "src-tauri/src/commands/git_cli.rs"
+ ],
  "no se pudo conectar con {0}: {1}": [
   "crates/dbine-sync/src/provider.rs"
  ],
@@ -20979,6 +21177,10 @@
  ],
  "no se pudo crear la carpeta {0}: {1}": [
   "src-tauri/src/commands/backup.rs"
+ ],
+ "no se pudo crear la carpeta «{0}»: {1}": [
+  "src-tauri/src/commands/project_paths.rs",
+  "src-tauri/src/commands/projects.rs"
  ],
  "no se pudo crear sin nombre la restricción única «{0}» del clon; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -21024,13 +21226,16 @@
   "crates/drivers/ksqldb/src/lib.rs"
  ],
  "no se pudo ejecutar git: {0}": [
-  "src-tauri/src/commands/library_git.rs"
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "no se pudo ejecutar {0}: {1}": [
   "crates/dbine-ai/src/cli.rs"
  ],
  "no se pudo elegir un nombre libre para la tabla de historial del clon (la tabla es temporal, con SYSTEM_VERSIONING); elegí otro nombre para la tabla": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
+ "no se pudo eliminar «{0}»: {1}": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "no se pudo escribir el archivo: {0}": [
   "src-tauri/src/commands/export.rs"
@@ -21265,6 +21470,9 @@
  "no se pudo volver a poner la restricción {0} en el clon: {1}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
  ],
+ "no se pudo {0}: {1}": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "no se puede borrar el catálogo «{0}»: es el de la sesión actual": [
   "crates/drivers/databricks/src/lib.rs"
  ],
@@ -21418,6 +21626,12 @@
  "no se puede identificar el documento a borrar": [
   "crates/drivers/couchbase/src/ddl.rs"
  ],
+ "no se puede mover una carpeta adentro de sí misma": [
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "no se puede tocar la carpeta .git": [
+  "src-tauri/src/commands/project_paths.rs"
+ ],
  "no se reconoce el tipo anidado «{0}» para copiarlo sin pérdida": [
   "crates/drivers/duckdb/src/transfer.rs"
  ],
@@ -21542,6 +21756,9 @@
  ],
  "operación actual": [
   "crates/drivers/mongodb/src/monitor.rs"
+ ],
+ "operación cancelada": [
+  "src-tauri/src/commands/git_cli.rs"
  ],
  "oracle: no se pudo cancelar la sentencia: {0}": [
   "crates/drivers/oracle/src/lib.rs"
@@ -22573,6 +22790,9 @@
  "una lista de registros": [
   "crates/drivers/orientdb/src/lib.rs"
  ],
+ "una parte de la ruta no es una carpeta": [
+  "src-tauri/src/commands/project_paths.rs"
+ ],
  "una partición": [
   "crates/drivers/cosmosdb/src/plan.rs"
  ],
@@ -22756,11 +22976,17 @@
  "ya existe un ítem con ese id en su partición: {0}": [
   "crates/drivers/cosmosdb/src/transfer.rs"
  ],
+ "ya existe «{0}» y no está vacía": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "ya hay series bajo {0} (de otro dispositivo); elegí otro nombre": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
  ],
  "ya hay un profiler capturando en esta conexión{0}: detenelo antes de iniciar otro": [
   "src-tauri/src/commands/profiler.rs"
+ ],
+ "ya hay una operación de git en curso en este proyecto ({0})": [
+  "src-tauri/src/commands/projects_git.rs"
  ],
  "ya se está descargando": [
   "src-tauri/src/commands/ai.rs"
@@ -23926,6 +24152,9 @@
  "«{0}» es una base del sistema de MongoDB y no se borra": [
   "crates/drivers/mongodb/src/lib.rs"
  ],
+ "«{0}» es una carpeta": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "«{0}» es una tabla Apache Hudi: Athena solo la lee, no puede insertar filas.": [
   "crates/drivers/athena/src/transfer.rs"
  ],
@@ -23979,6 +24208,9 @@
  ],
  "«{0}» no es un WKT válido": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "«{0}» no es un archivo": [
+  "src-tauri/src/commands/projects.rs"
  ],
  "«{0}» no es un arreglo": [
   "crates/drivers/phoenix/src/transfer.rs"
@@ -24237,6 +24469,9 @@
  ],
  "«{0}» no es una base de usuario": [
   "crates/drivers/couchdb/src/lib.rs"
+ ],
+ "«{0}» no es una carpeta": [
+  "src-tauri/src/commands/projects.rs"
  ],
  "«{0}» no es una colección (bucket.scope.colección)": [
   "crates/drivers/couchbase/src/security.rs"

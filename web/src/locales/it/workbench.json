@@ -8,7 +8,11 @@
     "ai": "Assistente IA (⌘I)",
     "settings": "Impostazioni (⌘,)",
     "loadFailed": "Impossibile caricare le connessioni: {{error}}",
-    "pickDatabase": "Scegli un database in Esplora risorse: clic destro › Nuova query."
+    "pickDatabase": "Scegli un database in Esplora risorse: clic destro › Nuova query.",
+    "projects": "Progetti",
+    "projectChanges_one": "{{count}} modifica non committata nei tuoi progetti",
+    "projectChanges_other": "{{count}} modifiche non committate nei tuoi progetti",
+    "projectChanges_many": "{{count}} modifiche non committate nei tuoi progetti"
   },
   "welcome": {
     "tagline": "Gestore di database multimotore",
@@ -86,6 +90,9 @@
     "saveFailed": "Impossibile salvare",
     "unsaved": "Non salvato",
     "groupTitleExpand_many": "{{name}}: {{count}} schede · clic per espandere",
-    "groupTitleCollapse_many": "{{name}}: {{count}} schede · clic per comprimere"
+    "groupTitleCollapse_many": "{{name}}: {{count}} schede · clic per comprimere",
+    "fileDiffSuffix": "(modifiche)",
+    "noBase": "senza database",
+    "revealInProjects": "Mostra in Progetti"
   }
 }

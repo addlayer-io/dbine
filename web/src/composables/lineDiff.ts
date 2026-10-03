@@ -1,6 +1,7 @@
 // Side-by-side line diff (longest common subsequence), for comparing the
 // source of views, procedures and functions. Lines compare with their
-// spacing collapsed, like the backend's comparison.
+// spacing collapsed, like the backend's comparison; `exact` compares them
+// as they are (a project file's git diff, where spacing is a change too).
 
 export interface DiffLine {
   left: string | null;
@@ -11,11 +12,11 @@ export interface DiffLine {
 
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ');
 
-export function lineDiff(a: string, b: string): DiffLine[] {
+export function lineDiff(a: string, b: string, opts: { exact?: boolean } = {}): DiffLine[] {
   const x = a.replace(/\r\n/g, '\n').split('\n');
   const y = b.replace(/\r\n/g, '\n').split('\n');
-  const nx = x.map(norm);
-  const ny = y.map(norm);
+  const nx = opts.exact ? x : x.map(norm);
+  const ny = opts.exact ? y : y.map(norm);
   const n = x.length;
   const m = y.length;
   // Too big for the table: line by line.
@@ -38,7 +39,8 @@ export function lineDiff(a: string, b: string): DiffLine[] {
   while (i < n || j < m) {
     if (i < n && j < m && nx[i] === ny[j]) {
       out.push({ left: x[i++], right: y[j++], kind: 'same' });
-    } else if (j < m && (i >= n || lcs[i][j + 1] >= lcs[i + 1][j])) {
+    } else if (j < m && (i >= n || (opts.exact ? lcs[i][j + 1] > lcs[i + 1][j] : lcs[i][j + 1] >= lcs[i + 1][j]))) {
+      // (exact: on a tie the removal goes first, so a replaced line pairs up below)
       out.push({ left: null, right: y[j++], kind: 'right' });
     } else {
       out.push({ left: x[i++], right: null, kind: 'left' });
