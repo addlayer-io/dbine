@@ -690,19 +690,27 @@ fn json_objects(text: &str) -> impl Iterator<Item = &str> {
 fn tool_label(name: &str, args: &serde_json::Value) -> String {
     let s = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let (db, obj) = (s("database"), s("object"));
-    let on = if db.is_empty() { String::new() } else { format!(" en {db}") };
+    // Whole sentences (with and without the database), so the backend
+    // catalog can translate each one.
+    let with_db = !db.is_empty();
     match name {
         "list_databases" => "bases de la conexión".into(),
-        "list_objects" => format!("objetos{on}"),
-        "describe_object" => format!("estructura de {obj}{on}"),
-        "index_usage" if obj.is_empty() => format!("uso de índices de todas las tablas{on}"),
-        "index_usage" => format!("uso de índices de {obj}{on}"),
-        "sample_rows" => format!("filas de muestra de {obj}{on}"),
+        "list_objects" if with_db => format!("objetos de la base {db}"),
+        "list_objects" => "objetos de la base".into(),
+        "describe_object" if with_db => format!("estructura de {obj} en {db}"),
+        "describe_object" => format!("estructura de {obj}"),
+        "index_usage" if obj.is_empty() && with_db => format!("uso de índices de todas las tablas en {db}"),
+        "index_usage" if obj.is_empty() => "uso de índices de todas las tablas".into(),
+        "index_usage" if with_db => format!("uso de índices de {obj} en {db}"),
+        "index_usage" => format!("uso de índices de {obj}"),
+        "sample_rows" if with_db => format!("filas de muestra de {obj} en {db}"),
+        "sample_rows" => format!("filas de muestra de {obj}"),
         "run_query" => {
             let q: String = s("query").split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
-            format!("consulta{on}: {q}")
+            if with_db { format!("consulta en {db}: {q}") } else { format!("consulta de la conexión: {q}") }
         }
-        "explain" => format!("plan de ejecución{on}"),
+        "explain" if with_db => format!("plan de ejecución en {db}"),
+        "explain" => "plan de ejecución".into(),
         other => other.to_string(),
     }
 }
