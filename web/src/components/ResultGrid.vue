@@ -64,6 +64,16 @@ const selection = ref<{ r: number; c: number } | null>(null);
  *  the block runs from here to `selection`. Null: just the active cell. */
 const anchor = ref<{ r: number; c: number } | null>(null);
 const rowSel = ref<{ from: number; to: number } | null>(null);
+type Block = { r0: number; r1: number; c0: number; c1: number };
+/** Earlier blocks of a multiple selection (⌘/Ctrl+click adds one, like a
+ *  spreadsheet); the current one is still anchor..selection. */
+const cellExtra = ref<Block[]>([]);
+/** Earlier row ranges of a multiple row selection (⌘/Ctrl+click on the numbers). */
+const rowExtra = ref<{ from: number; to: number }[]>([]);
+function clearExtras() {
+  cellExtra.value = [];
+  rowExtra.value = [];
+}
 /** Columns the user hid, by name. Hidden columns keep their index (edits,
  *  selection and filters use it) and are only left out of the layout. */
 const hiddenNames = ref<Set<string>>(new Set());
@@ -81,6 +91,7 @@ watch(
       selection.value = null;
       anchor.value = null;
       rowSel.value = null;
+      clearExtras();
       return;
     }
     hiddenNames.value = new Set();
@@ -92,6 +103,7 @@ watch(
     selection.value = null;
     anchor.value = null;
     rowSel.value = null;
+    clearExtras();
     scroller.value?.scrollTo({ top: 0, left: 0 });
   },
   { immediate: true },
@@ -144,6 +156,7 @@ function selectCell(r: number, c: number) {
   selection.value = { r, c };
   anchor.value = null;
   rowSel.value = null;
+  clearExtras();
   scroller.value?.focus();
 }
 /** A click on a cell: shift extends the block from the active cell, and
@@ -151,6 +164,18 @@ function selectCell(r: number, c: number) {
 let dragging = false;
 function onCellDown(e: MouseEvent, r: number, c: number) {
   if (e.button !== 0) return;
+  // ⌘/Ctrl: keep what's selected and start another block here.
+  if ((e.metaKey || e.ctrlKey) && selection.value && !rowSel.value) {
+    const s = selection.value;
+    cellExtra.value = [...cellExtra.value, block.value ?? { r0: s.r, r1: s.r, c0: s.c, c1: s.c }];
+    selection.value = { r, c };
+    anchor.value = null;
+    scroller.value?.focus();
+    e.preventDefault();
+    dragging = true;
+    window.addEventListener('mouseup', () => { dragging = false; }, { once: true });
+    return;
+  }
   if (e.shiftKey && selection.value) {
     anchor.value ??= selection.value;
     selection.value = { r, c };
@@ -175,20 +200,34 @@ const block = computed(() => {
   if (!a || !s || (a.r === s.r && a.c === s.c)) return null;
   return { r0: Math.min(a.r, s.r), r1: Math.max(a.r, s.r), c0: Math.min(a.c, s.c), c1: Math.max(a.c, s.c) };
 });
+const within = (b: Block, r: number, c: number) => r >= b.r0 && r <= b.r1 && c >= b.c0 && c <= b.c1;
+/** Part of the selection beyond the active cell alone: the current block, or
+ *  any block of a multiple selection (then the active cell too). */
 const inBlock = (r: number, c: number) => {
   const b = block.value;
-  return !!b && r >= b.r0 && r <= b.r1 && c >= b.c0 && c <= b.c1;
+  if (b && within(b, r, c)) return true;
+  if (!cellExtra.value.length) return false;
+  const s = selection.value;
+  return (!!s && s.r === r && s.c === c) || cellExtra.value.some((x) => within(x, r, c));
 };
 function selectRow(r: number, e: MouseEvent) {
-  if (e.shiftKey && rowSel.value) rowSel.value = { from: rowSel.value.from, to: r };
-  else rowSel.value = { from: r, to: r };
+  if ((e.metaKey || e.ctrlKey) && rowSel.value) {
+    rowExtra.value = [...rowExtra.value, rowSel.value];
+    rowSel.value = { from: r, to: r };
+  } else if (e.shiftKey && rowSel.value) rowSel.value = { from: rowSel.value.from, to: r };
+  else {
+    rowSel.value = { from: r, to: r };
+    rowExtra.value = [];
+  }
   selection.value = null;
   anchor.value = null;
+  cellExtra.value = [];
   scroller.value?.focus();
 }
+const inRange = (x: { from: number; to: number }, i: number) => i >= Math.min(x.from, x.to) && i <= Math.max(x.from, x.to);
 const rowSelected = (i: number) => {
   const s = rowSel.value;
-  return !!s && i >= Math.min(s.from, s.to) && i <= Math.max(s.from, s.to);
+  return (!!s && inRange(s, i)) || rowExtra.value.some((x) => inRange(x, i));
 };
 
 function tsv(v: Cell) {
@@ -204,8 +243,7 @@ const copyFormat = ref<CopyFormat>(defaultCopyFormat());
 
 /** The rows a copy takes: the selected rows, the selected cell's row, or all. */
 function rowsForCopy(): Cell[][] {
-  const s = rowSel.value;
-  if (s) return props.rows.slice(Math.min(s.from, s.to), Math.max(s.from, s.to) + 1);
+  if (rowSel.value) return selectedRows().map((i) => props.rows[i]);
   if (selection.value) return [props.rows[selection.value.r]];
   return props.rows;
 }
@@ -213,6 +251,21 @@ function rowsForCopy(): Cell[][] {
 function copyAs(format: CopyFormat) {
   // A block of cells: those columns of those rows, shown columns only, with
   // the values as shown (edits included).
+  // A multiple selection: every row and column it touches, in grid order,
+  // with the cells left out empty (as a spreadsheet pastes them).
+  if (cellExtra.value.length && !rowSel.value && selection.value) {
+    const s = selection.value;
+    const blocks = [...cellExtra.value, block.value ?? { r0: s.r, r1: s.r, c0: s.c, c1: s.c }];
+    const rs = new Set<number>(), cs = new Set<number>();
+    for (const x of blocks) {
+      for (let r = x.r0; r <= x.r1; r++) rs.add(r);
+      for (let c = x.c0; c <= x.c1; c++) if (!isHidden(c)) cs.add(c);
+    }
+    const rowsIdx = [...rs].sort((a, b) => a - b), cols = [...cs].sort((a, b) => a - b);
+    const rows = rowsIdx.map((r) => cols.map((c) => (blocks.some((x) => within(x, r, c)) ? valueAt(r, c) : null)));
+    copy(formatRows(format, cols.map((c) => props.columns[c]), rows, props.copyContext));
+    return;
+  }
   const b = block.value;
   if (b && !rowSel.value) {
     const cols: number[] = [];
@@ -240,7 +293,7 @@ function onKey(e: KeyboardEvent) {
   }
   if (rowSel.value && !mod && !e.altKey && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); toggleDelete(selectedRows()); return; }
   if (mod && e.key.toLowerCase() === 'c') { e.preventDefault(); copyAs(copyFormat.value); return; }
-  if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); rowSel.value = { from: 0, to: props.rows.length - 1 }; selection.value = null; anchor.value = null; return; }
+  if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); rowSel.value = { from: 0, to: props.rows.length - 1 }; selection.value = null; anchor.value = null; clearExtras(); return; }
   const s = selection.value;
   if (!s) return;
   const moves: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
@@ -251,7 +304,10 @@ function onKey(e: KeyboardEvent) {
   const c = m[1] ? step(s.c, m[1]) : s.c;
   // Shift extends the block from where it started; a plain arrow leaves it.
   if (e.shiftKey) anchor.value ??= s;
-  else anchor.value = null;
+  else {
+    anchor.value = null;
+    cellExtra.value = [];
+  }
   selection.value = { r, c };
   const el = scroller.value;
   if (el) {
@@ -276,6 +332,7 @@ function startEdit(r: number, c: number, text?: string) {
   const v = valueAt(r, c);
   selection.value = { r, c };
   anchor.value = null;
+  cellExtra.value = [];
   editing.value = { r, c, text: text ?? (v === null ? '' : String(v)) };
   nextTick(() => {
     editInput.value?.focus();
@@ -321,11 +378,10 @@ watch(() => props.rows, () => { editing.value = null; });
 
 // -- deleting rows (marked here; the DELETE code comes with the UPDATEs) -----------------
 function selectedRows(): number[] {
-  const s = rowSel.value;
-  if (!s) return [];
-  const out: number[] = [];
-  for (let i = Math.min(s.from, s.to); i <= Math.max(s.from, s.to); i++) out.push(i);
-  return out;
+  const ranges = [...rowExtra.value, ...(rowSel.value ? [rowSel.value] : [])];
+  const out = new Set<number>();
+  for (const x of ranges) for (let i = Math.min(x.from, x.to); i <= Math.max(x.from, x.to); i++) out.add(i);
+  return [...out].sort((a, b) => a - b);
 }
 /** Marks the rows, or unmarks them when they're all marked already. */
 function toggleDelete(rows: number[]) {
@@ -463,12 +519,12 @@ function onContext(e: MouseEvent, r: number, c: number | null) {
     if (isEdited(r, c)) items.push({ label: t('results:grid.undoChange'), action: () => emit('edit', r, c, undefined) });
     if (!props.editable && props.noEditReason) items.push({ label: t('results:grid.notEditable', { reason: props.noEditReason }), disabled: true });
   }
-  const scope = t(rowSel.value || block.value ? 'results:grid.scopeSelected' : selection.value ? 'results:grid.scopeRow' : 'results:grid.scopeAll');
+  const scope = t(rowSel.value || block.value || cellExtra.value.length ? 'results:grid.scopeSelected' : selection.value ? 'results:grid.scopeRow' : 'results:grid.scopeAll');
   items.push({ label: t('results:grid.copyHeader', { scope }), header: true, divided: true });
   for (const f of COPY_FORMATS) {
     items.push({ label: t(`results:grid.copyFormat.${f.id}.label`, f.label), shortcut: f.id === copyFormat.value ? '⌘C' : undefined, action: () => copyAs(f.id) });
   }
-  items.push({ label: t('results:grid.copyAllWithHeaders'), action: () => { rowSel.value = null; selection.value = null; copy(formatRows('tsv_headers', props.columns, props.rows)); } });
+  items.push({ label: t('results:grid.copyAllWithHeaders'), action: () => { rowSel.value = null; selection.value = null; clearExtras(); copy(formatRows('tsv_headers', props.columns, props.rows)); } });
   items.push({ label: t('results:grid.copyFormatHeader'), header: true, divided: true });
   for (const f of COPY_FORMATS) {
     items.push({
