@@ -62,9 +62,23 @@ async fn ksqldb() {
     admin.cancel_query(&transient.id).await.unwrap();
     let took = tokio::time::timeout(Duration::from_secs(10), push).await.expect("the push query ended").unwrap();
     assert!(took < Duration::from_secs(20), "ended before its timeout: {took:?}");
+    // A persistent query is paused, not terminated: it stays listed, idle.
     admin.cancel_query(&persistent.id).await.unwrap();
-    assert!(!admin.processes().await.unwrap().iter().any(|p| p.id == persistent.id), "terminated");
-    assert!(admin.cancel_query(&persistent.id).await.is_err(), "nothing left to terminate");
+    // The pause lands asynchronously: give it a few seconds.
+    let mut paused = None;
+    for _ in 0..30 {
+        let p = admin.processes().await.unwrap().into_iter().find(|p| p.id == persistent.id).expect("still listed");
+        if p.status.as_deref() == Some("PAUSED") {
+            paused = Some(p);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let paused = paused.expect("the persistent query got paused");
+    assert!(!paused.active, "{paused:?}");
+    exec(&mut admin, &format!("RESUME {};", persistent.id)).await;
+    exec(&mut admin, &format!("TERMINATE {};", persistent.id)).await;
+    assert!(admin.cancel_query(&persistent.id).await.is_err(), "nothing left to stop");
     assert!(admin.cancel_query("X; DROP STREAM DBINE_PROC_S").await.is_err(), "the id is validated");
     exec(&mut admin, "DROP STREAM IF EXISTS DBINE_PROC_X DELETE TOPIC;").await;
     exec(&mut admin, "DROP STREAM IF EXISTS DBINE_PROC_S DELETE TOPIC;").await;
