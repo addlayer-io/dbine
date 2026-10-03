@@ -50,6 +50,9 @@ de cada base.
 
 - **Monitor del servidor**, con clic derecho sobre la conexión: CPU, memoria,
   sesiones y actividad, en los motores que lo exponen.
+- **Procesos**, en el Monitor: la lista en vivo de sesiones y consultas en
+  curso, con filtros, bloqueos resaltados, y la opción de cancelar una
+  consulta o terminar una sesión. Detalle: [`docs/procesos.md`](docs/procesos.md).
 - **Profiler**, con clic derecho sobre una base: una pestaña con todas las
   consultas que cualquier cliente ejecuta sobre esa base, en vivo, como el
   Profiler de SQL Server. De cada una muestra la hora, la duración, el texto,

@@ -2524,7 +2524,7 @@ sigue consultando, lo habilita y comprueba que vuelve:
 En el editor de consultas, **Ejecutar en varias bases…** ejecuta el código
 (o la selección) en varias bases de la misma conexión y junta los
 resultados. El diálogo lista las bases de la conexión con un filtro que
-admite `*` (por ejemplo `*tenant-banco*`), **Todas** / **Ninguna** sobre lo
+admite `*` (por ejemplo `*tenant-n*`), **Todas** / **Ninguna** sobre lo
 que muestra el filtro, y recuerda la última elección por conexión; la
 primera vez viene elegida la base de la pestaña. Cada base corre en una
 sesión propia (nunca la del explorador), de a 4 a la vez, partida como la
@@ -2622,3 +2622,93 @@ Entrar con la cuenta del dominio en lugar de un usuario de la base
 - **Sin probar de punta a punta**: no hay un dominio de Active Directory de
   prueba, así que el usuario actual (SSPI y Kerberos), NTLM y Kerberos de
   MongoDB no se probaron contra un servidor real.
+
+## Procesos
+
+La lista de procesos del Monitor ([`procesos.md`](procesos.md)). Cada motor
+la completa con lo que informa; hay tres capacidades por separado: listar,
+cancelar la consulta de otra sesión (la sesión sigue abierta) y terminar la
+sesión (su transacción se deshace).
+
+**Listan procesos:** PostgreSQL y los motores que conservan
+`pg_stat_activity` (TimescaleDB, AlloyDB, Cloud SQL, Aurora PostgreSQL, EDB,
+Fujitsu, KingbaseES, openGauss, Greenplum, Cloudberry, Greengage,
+YugabyteDB), CockroachDB, Redshift, Yellowbrick, Materialize, RisingWave,
+CrateDB, H2, Denodo, Aurora DSQL; MySQL, MariaDB, Aurora MySQL, TiDB,
+OceanBase, SingleStore, StarRocks, Doris, VeloDB, Databend, Manticore,
+GreptimeDB; SQL Server, Azure SQL, Fabric y Babelfish; Oracle, SAP HANA,
+Firebird; MongoDB, FerretDB, DocumentDB, Elasticsearch, OpenSearch,
+Couchbase, CouchDB, Cassandra, ScyllaDB, OrientDB; Redis, Valkey,
+Dragonfly, Neo4j, Memgraph, Amazon Neptune, InfluxDB 1 y 3, IoTDB,
+TDengine, ksqlDB; ClickHouse, Trino, Presto, Starburst, Drill, Dremio,
+Databricks, Snowflake, BigQuery, Athena y Spanner; y, por ODBC, Db2 LUW,
+Db2 for i, Sybase ASE, SQL Anywhere, Teradata, Vertica, Exasol, Netezza,
+Dameng y Altibase.
+
+**Cancelan la consulta de otra sesión:** todos los anteriores salvo los de
+la tabla de abajo (SQL Server y su familia, Cassandra y ScyllaDB, InfluxDB 3,
+Dragonfly, Denodo, FerretDB, Sybase ASE, SQL Anywhere, Teradata, Netezza y
+Altibase). Cada motor usa su forma nativa: `pg_cancel_backend`, `KILL
+QUERY`, `ALTER SYSTEM CANCEL SQL`, `killOp`, `CLIENT UNBLOCK`,
+`TERMINATE TRANSACTION`, `WLM_CANCEL_ACTIVITY`, `INTERRUPT_STATEMENT`, etc.
+En Neo4j, Memgraph, ksqlDB y CouchDB «cancelar» tiene un alcance distinto
+(deshace la transacción, pausa la consulta persistente, solo detiene
+replicaciones transitorias): está en [`procesos.md`](procesos.md#según-el-motor).
+
+**Terminan la sesión:** los que aparecen en [Bloqueos](#bloqueos) con
+«Terminar sesiones», SQL Server y su familia (también Fabric y Babelfish),
+Netezza, Redis, Valkey y Dragonfly (`CLIENT KILL`), Firebird, OrientDB y
+Snowflake (la sesión de la consulta elegida). TDengine, ClickHouse, Trino,
+Presto, Starburst, Drill, Dremio, Databricks, BigQuery, Athena, Spanner,
+Couchbase, Elasticsearch, OpenSearch, CouchDB, InfluxDB, IoTDB, ksqlDB,
+Memgraph, Neptune, Db2 for i, Teradata, Altibase, Manticore y GreptimeDB
+no terminan sesiones (o no tienen sesiones que terminar).
+
+**Pruebas:** hay pruebas contra servidor real (`tests/processes.rs` de cada
+driver, que se corren con la variable `DBINE_TEST_<MOTOR>_URL` y se omiten
+sin ella) para los drivers propios de cada motor. Las variantes por ODBC
+(Db2 LUW, Db2 for i, Sybase ASE, SQL Anywhere, Teradata, Vertica, Exasol,
+Netezza, Dameng y Altibase) no tienen prueba de este tipo: se escribieron
+según la documentación del fabricante y se verifican con respuestas
+simuladas.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| SQL Server, Azure SQL, Fabric | Cancelar la consulta | `KILL` es lo único que existe: cierra la sesión y deshace su transacción; no hay forma de detener la sentencia y conservar la sesión. |
+| Babelfish | Cancelar la consulta | Babelfish no permite detener la consulta de otra sesión desde T-SQL: solo terminarla (`KILL`), lo que cierra la sesión. |
+| Fabric | Texto de la sentencia | Las vistas del almacén no se pueden unir con `dm_exec_sql_text`. |
+| Cassandra, ScyllaDB | Cancelar y terminar | CQL no puede detener el pedido de otro cliente ni cerrar su conexión. La lista es la del nodo coordinador (tablas virtuales locales); Cassandra 4.0 o posterior (`system_views`), y las consultas en curso desde la 4.1. ScyllaDB solo lista conexiones. |
+| Amazon Keyspaces | Todo | Amazon Keyspaces no expone sus conexiones ni las consultas en curso. |
+| InfluxDB 3 | Cancelar | No tiene `KILL QUERY` ni una API para detener la consulta de otro cliente. |
+| InfluxDB 2 (Flux) | Todo | Ninguna API lista ni detiene las consultas de otros clientes. |
+| Dragonfly | Cancelar | No tiene `CLIENT UNBLOCK`: no se puede cortar el comando bloqueante de otro cliente sin cerrar su conexión. Tampoco informa comando ni usuario. |
+| Denodo | Cancelar y terminar | VQL no tiene forma de cancelar una consulta: se cancelan desde Diagnostic & Monitoring Tool o por JMX. |
+| FerretDB | Cancelar y terminar | Lista sus sesiones (backends de PostgreSQL) con poco detalle y no tiene `killOp`. |
+| Amazon Neptune | Terminar | Solo tiene consultas en curso (`/openCypher/status`) y las cancela con `cancelQuery`; no hay sesiones. |
+| Sybase ASE | Cancelar | ASE solo termina una sesión entera (`KILL`). El texto del lote sale de las tablas MDA (`monProcessSQLText`) y solo si el monitoreo está activo. |
+| SQL Anywhere | Cancelar | No hay cancelación del pedido de otra conexión, solo `DROP CONNECTION`. |
+| Teradata | Cancelar, terminar y texto | Abortar un pedido necesita el id de host de PM/API, que SQL no da. El texto exige una llamada a `MonitorSQLText` por sesión, por eso no se muestra. |
+| Netezza | Cancelar | Solo se termina una sesión (`DROP SESSION`). |
+| Altibase | Cancelar | No hay cancelación por SQL. **Pendiente**: terminar sesiones (no está implementado; falta confirmar la sentencia que Altibase ofrece). |
+| Db2 for i | Terminar | **Pendiente**: cancela con `QSYS2.CANCEL_SQL`, pero terminar el trabajo no está implementado (sus vistas de bloqueos difieren de Db2 LUW y no se pudieron validar). |
+| Manticore, GreptimeDB | Terminar | Solo informan consultas en curso: `KILL` termina la consulta, no hay sesión que cerrar. |
+| Materialize, RisingWave, CrateDB | Terminar | Cancelan con su forma nativa; terminar sesiones no está en las vistas de bloqueos de estos motores (ver [Bloqueos](#bloqueos)). |
+| TDengine | Terminar | Sus conexiones son el pool compartido de taosAdapter: cerrar una cortaría a otros clientes. |
+| Spanner (emulador) | Todo | El emulador no implementa `SPANNER_SYS` ni `cancel_query`: no hay consultas en curso que listar. Spanner real sí. |
+| Spanner, ClickHouse, Trino, Presto, Starburst, Drill, Dremio, Databricks, BigQuery, Athena, Couchbase, Elasticsearch, OpenSearch | Terminar | Su protocolo es HTTP/REST sin sesiones que el operador pueda cerrar (las de Spanner son un pool del cliente): listan consultas o tareas en curso, que sí se cancelan. |
+| Solr | Todo | No lleva una lista de consultas ni de sesiones: `/tasks/list` solo ve, núcleo por núcleo, las consultas enviadas con `canCancel=true`. |
+| Azure Cosmos DB, DynamoDB | Todo | Son servicios HTTP sin estado: no exponen sesiones ni consultas en curso. |
+| etcd | Todo | No tiene sesiones de servidor ni una vista de los pedidos en curso: cada pedido es independiente (las «sesiones» de los clientes son leases) y no se puede cancelar el de otro cliente. |
+| libSQL / Turso | Todo | Cada pedido Hrana es independiente y el servidor no tiene una vista ni una API para listarlos o cancelarlos. |
+| SQLite, DuckDB | Todo | Son bases embebidas: no hay un servidor con sesiones de otros clientes que listar ni consultas ajenas que cancelar. |
+| Flight SQL | Todo | El protocolo no define cómo listar ni cancelar las consultas de otros clientes: depende del servidor. Para Dremio o Apache Doris, el driver propio sí las lista. |
+| Phoenix | Todo | Ni Phoenix ni HBase llevan una lista que se pueda leer o detener, y el Query Server (Avatica) solo conoce sus propias conexiones. |
+| Db2 for z/OS (ODBC) | Todo | No expone sus hilos por SQL: se ven con `-DISPLAY THREAD`, IFI u OMEGAMON. |
+| Spark Thrift Server, Kyuubi (ODBC) | Todo | No exponen sus sesiones por SQL: se ven en la interfaz web de Spark. |
+| Hive (ODBC) | Todo | HiveServer2 no lista sus sesiones por SQL: se ven en su interfaz web (puerto 10002). |
+| Actian Zen (ODBC) | Todo | No expone sus sesiones por SQL: se ven en Zen Monitor. |
+| Mimer SQL (ODBC) | Todo | No expone sus sesiones por SQL: se ven con `sqlmonitor`. |
+| NetSuite (ODBC) | Todo | SuiteAnalytics Connect es un servicio de solo lectura: no informa sesiones. |
+| Access, dBase (ODBC) | Todo | Son bases de archivos sin servidor: no tienen sesiones que listar. |
+| ODBC genérico | Todo | El preset genérico no conoce las vistas de sesiones del motor: hay que usar el preset del motor. |
+| Informix, Cubrid, MonetDB, IRIS, OpenEdge, MaxDB, NuoDB, HeavyDB, Machbase, Ignite, Ignite3, Ocient, SQream, Ingres, Virtuoso, Impala (ODBC) | Todo | **Pendiente**, no imposible: DBine todavía no lista los procesos de estos motores. Falta escribir, para cada uno, la consulta a sus vistas de sesiones (en el código el preset responde «este motor todavía no lista sus procesos en DBine»). |
