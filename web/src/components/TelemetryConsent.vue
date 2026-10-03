@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { useTabsStore } from '../stores/tabs';
+import { useUiStore } from '../stores/ui';
 import { TELEMETRY_CONSENT, TELEMETRY_NOTICE, telemetryAllowed, trackAppStarted, trackModuleOpened } from '../composables/telemetry';
 import { initWindowRole } from '../composables/windowRole';
 
@@ -31,6 +32,15 @@ const tabs = useTabsStore();
 watch(() => [tabs.tabs.find((t) => t.id === tabs.activeId)?.kind, telemetryAllowed()] as const, ([kind, allowed]) => {
   if (kind && allowed) trackModuleOpened(kind);
 }, { immediate: true });
+
+// Side panels that aren't tabs: the AI assistant, Proyectos, Biblioteca, Historial.
+const ui = useUiStore();
+watch(() => [ui.aiOpen, telemetryAllowed()] as const, ([open, allowed]) => {
+  if (open && allowed) trackModuleOpened('ai');
+}, { immediate: true });
+watch(() => [ui.sidebarView, telemetryAllowed()] as const, ([view, allowed]) => {
+  if (allowed && view !== 'explorer') trackModuleOpened(view);
+});
 
 function close() {
   open.value = false;

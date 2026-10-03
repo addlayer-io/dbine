@@ -6,6 +6,7 @@ import { errorMessage, multiDbApi } from '../api/client';
 import type { Message, MultiDbProgress, MultiDbResponse, MultiDbStatus, QueryOutcome, StatementResult } from '../api/types';
 import { readJson, writeJson } from '../stores/storage';
 import { startTask } from '../stores/tasks';
+import { trackFeature } from './telemetry';
 
 // "Ejecutar en varias bases…": the editor's script on several databases of a
 // connection (src-tauri/src/commands/multi_db.rs). The run is a task
@@ -150,6 +151,7 @@ export function startMultiDbRun(a: {
         if (p.status === 'error') task.log(`${p.database}: ${tb(p.error ?? '')}`, 'error');
       });
     } catch { /* no live progress: the run still goes */ }
+    trackFeature('multi_db_run');
     try {
       const r = await multiDbApi.run({
         runId, connectionId: a.connectionId, databases: a.databases, sql: a.sql,

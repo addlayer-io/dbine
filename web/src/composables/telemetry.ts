@@ -23,9 +23,12 @@ const counted = new Set<string>();
 const modules = new Set<string>();
 let started = false;
 
-function send(event: 'app_started' | 'connection_opened' | 'module_opened', props: { engine?: string; module?: string } = {}) {
+type Props = { engine?: string; module?: string; feature?: string; provider?: string };
+function send(event: 'app_started' | 'connection_opened' | 'module_opened' | 'feature_used', props: Props = {}) {
   if (!telemetryAllowed()) return;
-  invoke('track_event', { args: { event, engine: props.engine ?? null, module: props.module ?? null, locale: locale() } }).catch(() => {});
+  invoke('track_event', {
+    args: { event, engine: props.engine ?? null, module: props.module ?? null, feature: props.feature ?? null, provider: props.provider ?? null, locale: locale() },
+  }).catch(() => {});
 }
 
 /** Once per run: how many people use DBine, on which OS and version. With
@@ -41,6 +44,18 @@ export function trackConnectionOpened(engine: string) {
   if (counted.has(engine) || !telemetryAllowed()) return;
   counted.add(engine);
   send('connection_opened', { engine });
+}
+
+/** Features used (an action, not a screen): once per run per feature and,
+ *  for the assistant, per kind of provider. The backend drops anything not
+ *  on its lists (src-tauri/src/commands/telemetry.rs). */
+export type Feature = 'ai_message' | 'schema_sync' | 'data_sync' | 'migration_run' | 'multi_db_run';
+const features = new Set<string>();
+export function trackFeature(feature: Feature, provider?: string) {
+  const key = `${feature}|${provider ?? ''}`;
+  if (features.has(key) || !telemetryAllowed()) return;
+  features.add(key);
+  send('feature_used', { feature, provider });
 }
 
 /** Which parts of the workbench are used: the tab kind, once per run. */

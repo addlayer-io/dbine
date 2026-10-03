@@ -19,6 +19,7 @@ import { useConnectionsStore } from '../stores/connections';
 import { readJson, writeJson } from '../stores/storage';
 import { useTabsStore, type CompareTab } from '../stores/tabs';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
+import { trackFeature } from '../composables/telemetry';
 
 // "Comparar esquemas": two databases side by side, WinMerge style. Each
 // difference can be carried to the other side (→ / ←); that only edits an
@@ -1644,6 +1645,7 @@ async function runSync() {
       readyRun = payload.run_id;
       task.progress({ done: ran + payload.done });
     });
+    trackFeature('schema_sync');
     for (const tab of todo) {
       if (task.isCancelling) { stopped = true; break; }
       const s = tab.side;

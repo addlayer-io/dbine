@@ -11,6 +11,7 @@ import { tb } from '../i18n/backend';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DataCompareTab } from '../stores/tabs';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
+import { trackFeature } from '../composables/telemetry';
 
 // Data compare (docs/comparacion-de-datos.md): a table's rows (left) against
 // another table's (right), by key; then a script, in the target engine's
@@ -375,6 +376,7 @@ async function apply() {
   if (!first) return;
   const table = tableName();
   let session: string | null = null;
+  trackFeature('data_sync');
   const task = startTask({
     kind: 'data-sync',
     title: t('tasks:dataSync.title', { table, where: toRun.map((s) => sideName(s.side)).join(' / ') }),

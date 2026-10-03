@@ -4,7 +4,8 @@
 //! (managed installs). What can leave is fixed
 //! here, not by the caller: the event name from a closed list, the engine id
 //! of a connection (never host, user, database or queries), the workbench
-//! module opened (a tab kind from a closed list), the app version,
+//! module opened (a tab kind or side panel from a closed list), the feature
+//! used (a closed list, plus the kind of AI provider for the assistant), the app version,
 //! the OS name and version and the UI language. There is no install or user
 //! id: Aptabase groups events by a random session that lives while the app is
 //! used. The country is derived by Aptabase from the request; the IP isn't
@@ -22,22 +23,36 @@ const INGEST_URL: &str = "https://us.aptabase.com/api/v0/events";
 const SESSION_IDLE: Duration = Duration::from_secs(4 * 60 * 60);
 
 /// The workbench modules `module_opened` can name: the tab kinds of the UI
-/// (`web/src/stores/tabs.ts`).
+/// (`web/src/stores/tabs.ts`) and the side panels that aren't tabs.
 const MODULES: &[&str] = &[
     "query", "object", "designer", "diagram", "monitor", "profiler", "migration", "connection", "compare",
-    "dataCompare", "security", "backups",
+    "dataCompare", "security", "backups", "indexes", "dependencies", "file", "fileDiff",
+    // side panels
+    "ai", "projects", "library", "history",
 ];
+
+/// What `feature_used` can name: an action done, not a screen opened.
+const FEATURES: &[&str] = &["ai_message", "mcp_tool", "schema_sync", "data_sync", "migration_run", "multi_db_run"];
+
+/// The kind of AI provider an `ai_message` used (never the model or the text).
+const PROVIDERS: &[&str] = &["embedded", "ollama", "lm_studio", "claude_code", "codex"];
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackEventArgs {
-    /// `app_started`, `connection_opened` or `module_opened`.
+    /// `app_started`, `connection_opened`, `module_opened` or `feature_used`.
     pub event: String,
     /// The driver id, for `connection_opened`.
     pub engine: Option<String>,
     /// The module, for `module_opened`.
     #[serde(default)]
     pub module: Option<String>,
+    /// The feature, for `feature_used`.
+    #[serde(default)]
+    pub feature: Option<String>,
+    /// The AI provider kind, for `feature_used` / `ai_message`.
+    #[serde(default)]
+    pub provider: Option<String>,
     /// The UI language (`es`, `en`…).
     pub locale: String,
 }
@@ -51,6 +66,10 @@ pub async fn track_event(app: tauri::AppHandle, args: TrackEventArgs) -> Command
     }
     let mut props = Map::new();
     match args.event.as_str() {
+        "feature_used" => match feature_props(args.feature.as_deref(), args.provider.as_deref()) {
+            Some(p) => props = p,
+            None => return Ok(()),
+        },
         "app_started" => {}
         "connection_opened" => {
             let engine = args.engine.unwrap_or_default();
@@ -69,18 +88,56 @@ pub async fn track_event(app: tauri::AppHandle, args: TrackEventArgs) -> Command
         // Anything else isn't on the list: it never leaves.
         _ => return Ok(()),
     }
-    let locale: String = args.locale.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(16).collect();
+    post(&args.event, props, &args.locale, &app.package_info().version.to_string());
+    Ok(())
+}
+
+/// `feature_used`'s props, or `None` when something isn't on the lists.
+fn feature_props(feature: Option<&str>, provider: Option<&str>) -> Option<Map<String, Value>> {
+    let feature = feature.filter(|f| FEATURES.contains(f))?;
+    let mut props = Map::new();
+    props.insert("feature".into(), Value::String(feature.into()));
+    if feature == "ai_message" {
+        let provider = provider.filter(|p| PROVIDERS.contains(p))?;
+        props.insert("provider".into(), Value::String(provider.into()));
+    }
+    Some(props)
+}
+
+/// A feature used where there's no UI to send it from (the MCP server):
+/// once per run, only when the user hasn't turned telemetry off.
+pub fn track_backend_feature(state: &crate::state::AppState, feature: &'static str) {
+    static SENT: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    // Tests run the MCP server: they never report.
+    if cfg!(test) || disabled_by_env() || state.store.get_setting("telemetry.consent").ok().flatten() == Some(Value::Bool(false)) {
+        return;
+    }
+    {
+        let mut sent = SENT.lock().unwrap_or_else(|e| e.into_inner());
+        if sent.contains(&feature) {
+            return;
+        }
+        sent.push(feature);
+    }
+    if let Some(props) = feature_props(Some(feature), None) {
+        post("feature_used", props, "", env!("CARGO_PKG_VERSION"));
+    }
+}
+
+/// Send an event already checked against the lists, in the background.
+fn post(event: &str, props: Map<String, Value>, locale: &str, version: &str) {
+    let locale: String = locale.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(16).collect();
     let (os_name, os_version) = os();
     let event = json!([{
         "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         "sessionId": session_id(),
-        "eventName": args.event,
+        "eventName": event,
         "systemProps": {
             "isDebug": cfg!(debug_assertions),
             "osName": os_name,
             "osVersion": os_version,
             "locale": locale,
-            "appVersion": app.package_info().version.to_string(),
+            "appVersion": version,
             "sdkVersion": concat!("dbine@", env!("CARGO_PKG_VERSION")),
         },
         "props": props,
@@ -102,7 +159,6 @@ pub async fn track_event(app: tauri::AppHandle, args: TrackEventArgs) -> Command
             tracing::warn!("telemetry event not sent: {why}");
         }
     });
-    Ok(())
 }
 
 /// `DO_NOT_TRACK` (the common convention, any value but empty or `0`) or
@@ -190,4 +246,22 @@ fn os_version() -> String {
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn os_version() -> String {
     String::new()
+}
+
+#[cfg(test)]
+mod feature_tests {
+    use super::*;
+
+    #[test]
+    fn only_listed_features_and_providers_leave() {
+        let p = feature_props(Some("schema_sync"), None).unwrap();
+        assert_eq!(p.get("feature"), Some(&Value::String("schema_sync".into())));
+        assert!(p.get("provider").is_none());
+        let p = feature_props(Some("ai_message"), Some("embedded")).unwrap();
+        assert_eq!(p.get("provider"), Some(&Value::String("embedded".into())));
+        assert!(feature_props(Some("ai_message"), Some("qwen2.5-coder-32b")).is_none(), "a model name never leaves");
+        assert!(feature_props(Some("ai_message"), None).is_none());
+        assert!(feature_props(Some("select * from people"), None).is_none());
+        assert!(MODULES.contains(&"ai") && MODULES.contains(&"indexes"));
+    }
 }
