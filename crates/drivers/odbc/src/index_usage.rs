@@ -25,17 +25,106 @@
 //!   - Everyone else (Db2 for z/OS, Informix, Teradata, SQL Anywhere,
 //!     Altibase, CUBRID, Dameng, IRIS…): no per-index counters reachable
 //!     over SQL; the indexes are listed with a note.
+//! - Disabled indexes ("Deshabilitar índice"), where the engine has them:
+//!   - Informix / GBase 8s: `SET INDEXES ix DISABLED | ENABLED`; the state is
+//!     `sysobjstate` (objtype `I`, state `D`). A disabled index isn't
+//!     maintained: enabling it rebuilds it.
+//!   - SAP MaxDB: `ALTER INDEX ix ON t DISABLE | ENABLE`; the state is
+//!     `DOMAIN.INDEXES.DISABLED` (`YES`). Still maintained, not used.
+//!   - No native disable (left out): Db2 LUW / i / z/OS, ASE, SQL Anywhere,
+//!     Teradata, Ingres, Mimer, CUBRID, Altibase, IRIS, OpenEdge, NuoDB,
+//!     MonetDB, Virtuoso, Zen, Access, Machbase… and Dameng, whose
+//!     `ALTER INDEX … INVISIBLE` and catalog column weren't verified.
 //! - Vertica, Exasol and Netezza have no user indexes (projections, automatic
 //!   indexes, zone maps): only the key and the foreign keys. Engines with
 //!   neither indexes nor foreign keys (Hive, Impala, Spark…) don't offer it.
 
 use crate::design::{self, Eng};
 use crate::presets::Preset;
-use dbine_driver::{IndexUsage, IndexUsageReport, TableSchema};
+use dbine_driver::sql::{qualified_name, quote_ident};
+use dbine_driver::{Error, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript, TableSchema};
 
 /// The "Índices" folder is offered: the engine has indexes or reports keys.
 pub fn supported(p: &Preset) -> bool {
     design::has_indexes(p) || design::reports_foreign_keys(p)
+}
+
+/// The engine can disable an index and enable it again.
+pub fn toggle_supported(p: &Preset) -> bool {
+    matches!(design::eng(p), Eng::Informix | Eng::MaxDb)
+}
+
+/// The names of the table's disabled indexes, and the parameters.
+pub fn disabled_sql(e: Eng, schema: Option<&str>, table: &str) -> Option<(&'static str, Vec<String>)> {
+    let schema = schema.filter(|s| !s.is_empty());
+    let sql = match (e, schema.is_some()) {
+        (Eng::Informix, true) => {
+            "SELECT TRIM(o.name) FROM sysobjstate o, systables t
+              WHERE t.tabid = o.tabid AND o.objtype = 'I' AND o.state = 'D' AND t.owner = ? AND t.tabname = ?"
+        }
+        (Eng::Informix, false) => {
+            "SELECT TRIM(o.name) FROM sysobjstate o, systables t
+              WHERE t.tabid = o.tabid AND o.objtype = 'I' AND o.state = 'D' AND t.tabname = ?"
+        }
+        (Eng::MaxDb, true) => "SELECT INDEXNAME FROM DOMAIN.INDEXES WHERE SCHEMANAME = ? AND TABLENAME = ? AND DISABLED = 'YES'",
+        (Eng::MaxDb, false) => "SELECT INDEXNAME FROM DOMAIN.INDEXES WHERE TABLENAME = ? AND DISABLED = 'YES'",
+        _ => return None,
+    };
+    Some((sql, schema.map(str::to_string).into_iter().chain([table.to_string()]).collect()))
+}
+
+/// `disabled_sql`'s rows marked on the report (re-derived: a disabled
+/// index is never judged unused).
+pub fn mark_disabled(mut r: IndexUsageReport, rows: &[Vec<Option<String>>]) -> IndexUsageReport {
+    let off: Vec<&str> = rows.iter().filter_map(|r| r.first()?.as_deref()).map(str::trim).collect();
+    for i in &mut r.indexes {
+        i.disabled = !i.primary_key && off.contains(&i.name.trim());
+    }
+    r.derived()
+}
+
+/// "Deshabilitar / Habilitar índice" (see the module's notes).
+pub fn toggle_script(p: &Preset, table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+    let e = design::eng(p);
+    if !toggle_supported(p) {
+        return Err(Error::Unsupported("este motor no deshabilita índices".into()));
+    }
+    if index.primary_key {
+        return Err(Error::Unsupported(match e {
+            Eng::MaxDb => "SAP MaxDB no deshabilita la clave primaria: no es un índice aparte, es la clave de la tabla.".into(),
+            _ => format!("{} no deshabilita el índice de la clave primaria: se deshabilita la restricción (SET CONSTRAINTS).", p.name),
+        }));
+    }
+    let q = design::quote(p);
+    let mut warnings = Vec::new();
+    let statement = match e {
+        Eng::Informix => {
+            if enable {
+                warnings.push("Habilitarlo lo reconstruye entero: en una tabla grande tarda.".to_string());
+                if index.unique {
+                    warnings.push("Si mientras estuvo deshabilitado entraron valores repetidos, habilitarlo falla.".to_string());
+                }
+            } else {
+                warnings.push(format!("{} deja de mantenerlo y el optimizador deja de usarlo: para volver a usarlo hay que habilitarlo, y eso lo reconstruye.", p.name));
+                if index.unique {
+                    warnings.push("Mientras esté deshabilitado no impide valores repetidos. Si sostiene una restricción UNIQUE o una clave foránea, el servidor lo rechaza.".to_string());
+                }
+            }
+            format!("SET INDEXES {} {}", qualified_name(q, table.schema(), &index.name), if enable { "ENABLED" } else { "DISABLED" })
+        }
+        _ => {
+            if !enable {
+                warnings.push("El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo.".to_string());
+            }
+            format!(
+                "ALTER INDEX {} ON {} {}",
+                quote_ident(q, &index.name),
+                qualified_name(q, table.schema(), &table.name),
+                if enable { "ENABLE" } else { "DISABLE" }
+            )
+        }
+    };
+    Ok(SyncScript { statements: vec![statement], warnings })
 }
 
 /// One index's counters, by catalog name. `primary`: the primary key's
@@ -197,6 +286,58 @@ mod tests {
             foreign_keys: vec![ForeignKeyDef { columns: vec!["P_ID".into()], ref_table: "P".into(), ref_columns: vec!["ID".into()], ..Default::default() }],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn which_presets_toggle() {
+        let on: Vec<&str> = PRESETS.iter().filter(|p| toggle_supported(p)).map(|p| p.id).collect();
+        assert_eq!(on, ["informix", "gbase8s", "maxdb"]);
+    }
+
+    #[test]
+    fn toggle_scripts() {
+        let t = ObjectRef { kind: "table".into(), schema: Some("app".into()), name: "pedidos".into() };
+        let ix = IndexUsage { name: "ix_fecha".into(), ..Default::default() };
+        for id in ["informix", "gbase8s"] {
+            let off = toggle_script(preset(id), &t, &ix, false).unwrap();
+            assert_eq!(off.statements, [r#"SET INDEXES "app"."ix_fecha" DISABLED"#], "{id}");
+            assert_eq!(off.warnings.len(), 1);
+            let on = toggle_script(preset(id), &t, &ix, true).unwrap();
+            assert_eq!(on.statements, [r#"SET INDEXES "app"."ix_fecha" ENABLED"#], "{id}");
+        }
+        let uq = IndexUsage { unique: true, ..ix.clone() };
+        assert!(toggle_script(preset("informix"), &t, &uq, false).unwrap().warnings[1].contains("valores repetidos"));
+        let off = toggle_script(preset("maxdb"), &t, &ix, false).unwrap();
+        assert_eq!(off.statements, [r#"ALTER INDEX "ix_fecha" ON "app"."pedidos" DISABLE"#]);
+        assert_eq!(off.warnings, ["El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo."]);
+        let on = toggle_script(preset("maxdb"), &t, &ix, true).unwrap();
+        assert_eq!(on.statements, [r#"ALTER INDEX "ix_fecha" ON "app"."pedidos" ENABLE"#]);
+        assert!(on.warnings.is_empty());
+        let pk = IndexUsage { name: "PK".into(), primary_key: true, unique: true, ..Default::default() };
+        for id in ["informix", "gbase8s", "maxdb"] {
+            assert!(matches!(toggle_script(preset(id), &t, &pk, false), Err(Error::Unsupported(m)) if m.contains("clave primaria")), "{id}");
+        }
+        for p in PRESETS.iter().filter(|p| !toggle_supported(p)) {
+            assert!(matches!(toggle_script(p, &t, &ix, false), Err(Error::Unsupported(_))), "{}", p.id);
+        }
+    }
+
+    #[test]
+    fn disabled_state_queries() {
+        let (sql, params) = disabled_sql(Eng::Informix, Some("app"), "pedidos").unwrap();
+        assert!(sql.contains("sysobjstate") && sql.contains("o.objtype = 'I'") && sql.contains("o.state = 'D'") && sql.contains("t.owner = ?"));
+        assert_eq!(params, ["app", "pedidos"]);
+        let (sql, params) = disabled_sql(Eng::Informix, None, "pedidos").unwrap();
+        assert!(!sql.contains("owner") && params == ["pedidos"]);
+        let (sql, params) = disabled_sql(Eng::MaxDb, Some("APP"), "T").unwrap();
+        assert!(sql.contains("DOMAIN.INDEXES") && sql.contains("DISABLED = 'YES'"));
+        assert_eq!(params, ["APP", "T"]);
+        assert!(disabled_sql(Eng::Db2, Some("APP"), "T").is_none() && disabled_sql(Eng::Dameng, Some("APP"), "T").is_none());
+
+        let r = assemble(preset("informix"), Some(&table()), None, None);
+        let r = mark_disabled(r, &[vec![Some("IX_A ".into())], vec![Some("PK_T".into())]]);
+        let got: Vec<(&str, bool)> = r.indexes.iter().map(|i| (i.name.as_str(), i.disabled)).collect();
+        assert_eq!(got, [("PK_T", false), ("IX_A", true), ("IX_B", false)]);
     }
 
     #[test]

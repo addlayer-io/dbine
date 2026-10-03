@@ -25,9 +25,15 @@
 //!   missing (FerretDB has no `$indexStats`): the indexes are listed without
 //!   counters and the note says why.
 //! - No foreign keys: documents reference each other only by convention.
+//! - Disable / enable: a hidden index (`hidden: true` in its spec,
+//!   MongoDB 4.4+) is `disabled`. `toggle_script` hides or unhides it with
+//!   `hideIndex` / `unhideIndex` (`collMod`): the index keeps being
+//!   maintained and the planner ignores it, so unhiding is instant. `_id_`
+//!   can't be hidden. FerretDB and DocumentDB have no hidden indexes.
 
 use crate::{Flavor, MongoSession};
-use dbine_driver::{IndexUsage, IndexUsageReport, ObjectRef, Result};
+use crate::ddl::q;
+use dbine_driver::{Error, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript};
 use mongodb::bson::{doc, Bson, Document};
 use std::collections::HashMap;
 
@@ -137,8 +143,24 @@ pub(crate) fn index_of(spec: &Document) -> Option<IndexUsage> {
         primary_key,
         key_columns: columns,
         filter,
+        disabled: spec.get_bool("hidden").unwrap_or(false),
         ..Default::default()
     })
+}
+
+/// Hides (`enable` false) or unhides `index` of `table`, in shell syntax.
+pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+    if index.name == "_id_" {
+        return Err(Error::Unsupported("el índice _id_ no se puede deshabilitar".into()));
+    }
+    let method = if enable { "unhideIndex" } else { "hideIndex" };
+    let statements = vec![format!("db.getCollection({}).{method}({})", q(&table.name), q(&index.name))];
+    let warnings = if enable {
+        Vec::new()
+    } else {
+        vec!["El índice se sigue manteniendo en cada escritura; el planificador deja de usarlo.".to_string()]
+    };
+    Ok(SyncScript { statements, warnings })
 }
 
 /// What the note says when the counters were read: why there are no writes.
@@ -264,6 +286,25 @@ mod tests {
         assert_eq!(get("geo").kind, "2DSPHERE");
         assert_eq!(get("geo").key_columns, ["loc (2dsphere)"]);
         assert_eq!(get("exp").kind, "BTREE TTL HIDDEN");
+        assert!(get("exp").disabled);
+        assert!(ix.iter().filter(|i| i.name != "exp").all(|i| !i.disabled));
+    }
+
+    #[test]
+    fn toggle_scripts() {
+        let t = ObjectRef { kind: "collection".into(), schema: None, name: "pedidos".into() };
+        let ix = IndexUsage { name: "ix_\"a".into(), ..Default::default() };
+        let off = toggle_script(&t, &ix, false).unwrap();
+        assert_eq!(off.statements, [r#"db.getCollection("pedidos").hideIndex("ix_\"a")"#]);
+        assert_eq!(off.warnings, ["El índice se sigue manteniendo en cada escritura; el planificador deja de usarlo."]);
+        let on = toggle_script(&t, &ix, true).unwrap();
+        assert_eq!(on.statements, [r#"db.getCollection("pedidos").unhideIndex("ix_\"a")"#]);
+        assert!(on.warnings.is_empty());
+        // The statements parse back to `collMod`.
+        let parsed = crate::shell::parse_script(&off.statements[0]).unwrap();
+        assert_eq!(parsed[0].cmd, doc! { "collMod": "pedidos", "index": { "name": "ix_\"a", "hidden": true } });
+        let id = IndexUsage { name: "_id_".into(), primary_key: true, ..Default::default() };
+        assert!(matches!(toggle_script(&t, &id, false), Err(Error::Unsupported(_))));
     }
 
     #[test]

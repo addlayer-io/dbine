@@ -437,6 +437,15 @@ impl Driver for PgDriver {
         index_usage::supported(self.variant)
     }
 
+    /// CockroachDB only: `ALTER INDEX … NOT VISIBLE` (see `index_usage`).
+    fn supports_index_toggle(&self) -> bool {
+        index_usage::toggle_supported(self.variant)
+    }
+
+    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+        index_usage::toggle_script(self.variant, table, index, enable)
+    }
+
     fn capabilities(&self) -> Capabilities {
         design::capabilities(self.variant)
     }

@@ -18,7 +18,8 @@
 //!     collection is not an error, as in mongosh).
 //!   - Indexes: `createIndex(keys, options)` (the shell's default name when
 //!     `name` is missing), `createIndexes([keys…], options)`,
-//!     `dropIndex(name | keys)`, `dropIndexes()`.
+//!     `dropIndex(name | keys)`, `dropIndexes()`, `hideIndex(name | keys)`,
+//!     `unhideIndex(name | keys)` (`collMod`, MongoDB 4.4+).
 //!   - Creation: `db.createCollection(name, options)`,
 //!     `db.createView(name, source, pipeline, options)`,
 //!     `db.dropDatabase()`. DBine extension: a third argument
@@ -317,6 +318,20 @@ impl Driver for MongoDriver {
     /// `listIndexes` + `$indexStats` (see `index_usage`).
     fn supports_index_usage(&self) -> bool {
         true
+    }
+
+    /// Hidden indexes (MongoDB 4.4+). FerretDB answers `collMod` with
+    /// "'collMod.index.hidden' is not supported yet"; Amazon DocumentDB has
+    /// no hidden indexes.
+    fn supports_index_toggle(&self) -> bool {
+        self.flavor == Flavor::Mongo
+    }
+
+    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+        if !self.supports_index_toggle() {
+            return Err(dbine_driver::Error::Unsupported("este motor no deshabilita índices".into()));
+        }
+        index_usage::toggle_script(table, index, enable)
     }
 
     /// Unordered `insertMany` (see `transfer`).

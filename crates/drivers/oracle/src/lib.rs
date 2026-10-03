@@ -358,6 +358,16 @@ impl Driver for OracleDriver {
         true
     }
 
+    /// `ALTER INDEX … INVISIBLE` / `VISIBLE`, in Autonomous Database too
+    /// (see `index_usage::toggle_script`).
+    fn supports_index_toggle(&self) -> bool {
+        true
+    }
+
+    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+        index_usage::toggle_script(table, index, enable)
+    }
+
     fn supports_profiler(&self) -> bool {
         true
     }

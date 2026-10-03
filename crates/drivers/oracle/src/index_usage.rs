@@ -6,7 +6,15 @@
 //!   the table can read them. LOB indexes are skipped (they're the LOB's,
 //!   not a query's). Oracle has no INCLUDE columns nor filtered indexes.
 //!   The kind is `INDEX_TYPE` (`NORMAL`, `BITMAP`, `FUNCTION-BASED NORMAL`,
-//!   `IOT - TOP`…), with ` INVISIBLE` appended when the optimizer ignores it.
+//!   `IOT - TOP`…), with ` INVISIBLE` appended when the optimizer ignores it,
+//!   ` UNUSABLE` when the whole index is (`STATUS`) and ` PARTITIONS
+//!   UNUSABLE` when some of its partitions or subpartitions are. Any of the
+//!   three is `disabled`: the optimizer doesn't use it.
+//! - Disabling and enabling ([`toggle_script`]): `ALTER INDEX … INVISIBLE` /
+//!   `VISIBLE` (11g+), not UNUSABLE: an invisible index is still maintained
+//!   and still enforces uniqueness (a primary key's too), and making it
+//!   visible again needs no rebuild. Enabling an UNUSABLE one rebuilds it
+//!   (`REBUILD`, or each unusable partition), which the kind above tells.
 //! - The counters: `DBA_INDEX_USAGE` (12.2+), which Oracle keeps across
 //!   restarts. It has a single "accessed N times" counter
 //!   (`TOTAL_ACCESS_COUNT`), not seeks apart from scans: it goes to `seeks`,
@@ -38,16 +46,25 @@
 //! - Since when: `DBA_INDEX_USAGE` doesn't say (`None`); under MONITORING
 //!   USAGE, the earliest `START_MONITORING`.
 
-use crate::{db_code, err};
-use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport, Result};
+use crate::{db_code, err, quote};
+use dbine_driver::{Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript};
 use oracledb::{Connection, Row};
 use std::collections::HashMap;
 
 /// The table's indexes (`:1` owner, `:2` table), the primary key's first.
+/// Then whether it's unusable: 2 whole (`STATUS`), 1 some partitions or
+/// subpartitions (a partitioned index's own status is `N/A`), 0 not.
 pub(crate) const INDEXES_SQL: &str = "SELECT i.owner, i.index_name, i.index_type, i.uniqueness, i.visibility,
         CASE WHEN EXISTS (SELECT 1 FROM all_constraints k
                            WHERE k.owner = i.table_owner AND k.table_name = i.table_name AND k.constraint_type = 'P'
-                             AND k.index_owner = i.owner AND k.index_name = i.index_name) THEN 1 ELSE 0 END
+                             AND k.index_owner = i.owner AND k.index_name = i.index_name) THEN 1 ELSE 0 END,
+        CASE WHEN i.status = 'UNUSABLE' THEN 2
+             WHEN i.partitioned = 'YES' AND (
+                  EXISTS (SELECT 1 FROM all_ind_partitions p
+                           WHERE p.index_owner = i.owner AND p.index_name = i.index_name AND p.status = 'UNUSABLE')
+               OR EXISTS (SELECT 1 FROM all_ind_subpartitions sp
+                           WHERE sp.index_owner = i.owner AND sp.index_name = i.index_name AND sp.status = 'UNUSABLE')) THEN 1
+             ELSE 0 END
    FROM all_indexes i
   WHERE i.table_owner = :1 AND i.table_name = :2 AND i.index_type <> 'LOB'
   ORDER BY 6 DESC, i.index_name";
@@ -163,6 +180,38 @@ pub(crate) struct IndexRow {
     pub unique: bool,
     pub invisible: bool,
     pub primary_key: bool,
+    pub unusable: Unusable,
+}
+
+/// Whether an index (or part of it) is UNUSABLE: Oracle neither uses nor
+/// maintains it until it's rebuilt.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) enum Unusable {
+    #[default]
+    No,
+    /// Some partitions or subpartitions (rebuilt one by one).
+    Partitions,
+    /// The whole index (`ALTER INDEX … REBUILD`).
+    Whole,
+}
+
+/// What the kind says about it, in the words `assemble` appends.
+const INVISIBLE: &str = " INVISIBLE";
+const UNUSABLE: &str = " UNUSABLE";
+const PARTITIONS_UNUSABLE: &str = " PARTITIONS UNUSABLE";
+
+/// The kind shown: `INDEX_TYPE` plus what makes the optimizer ignore it.
+fn kind(ix: &IndexRow) -> String {
+    let mut k = ix.kind.clone();
+    if ix.invisible {
+        k.push_str(INVISIBLE);
+    }
+    k.push_str(match ix.unusable {
+        Unusable::No => "",
+        Unusable::Partitions => PARTITIONS_UNUSABLE,
+        Unusable::Whole => UNUSABLE,
+    });
+    k
 }
 
 /// One ALL_IND_COLUMNS row (with its expression, if any).
@@ -222,7 +271,8 @@ pub(crate) fn assemble(
             let u = usage.and_then(|m| m.get(&key)).cloned().unwrap_or_default();
             IndexUsage {
                 name: ix.name.clone(),
-                kind: if ix.invisible { format!("{} INVISIBLE", ix.kind) } else { ix.kind.clone() },
+                kind: kind(ix),
+                disabled: ix.invisible || ix.unusable != Unusable::No,
                 unique: ix.unique || ix.primary_key,
                 primary_key: ix.primary_key,
                 key_columns: columns.iter().filter(|c| c.owner == ix.owner && c.index == ix.name).map(column).collect(),
@@ -329,6 +379,11 @@ pub(crate) fn report(c: &Connection, owner: &str, table: &str) -> Result<IndexUs
             unique: text(&r, 3).as_deref() == Some("UNIQUE"),
             invisible: text(&r, 4).as_deref() == Some("INVISIBLE"),
             primary_key: num(&r, 5) == 1,
+            unusable: match num(&r, 6) {
+                2 => Unusable::Whole,
+                1 => Unusable::Partitions,
+                _ => Unusable::No,
+            },
         });
     }
     let mut columns = Vec::new();
@@ -419,12 +474,91 @@ pub(crate) fn report(c: &Connection, owner: &str, table: &str) -> Result<IndexUs
     })
 }
 
+pub(crate) const DISABLE_WARNING: &str =
+    "El índice se sigue manteniendo en cada escritura y sigue garantizando la unicidad; el optimizador deja de usarlo.";
+pub(crate) const REBUILD_WARNING: &str =
+    "El índice está UNUSABLE: habilitarlo lo reconstruye (REBUILD), lo que recorre toda la tabla y bloquea sus escrituras mientras dura.";
+pub(crate) const REBUILD_PARTITIONS_WARNING: &str = "Hay particiones del índice en estado UNUSABLE: habilitarlo las reconstruye una por una (REBUILD PARTITION), lo que recorre esas particiones de la tabla y bloquea sus escrituras mientras dura.";
+
+/// "Deshabilitar / Habilitar índice": `ALTER INDEX … INVISIBLE` / `VISIBLE`.
+/// Enabling an UNUSABLE index (its kind says so, see [`assemble`]) rebuilds
+/// it first: the whole index, or a block that rebuilds each unusable
+/// partition and subpartition (a partitioned index can't be rebuilt whole,
+/// ORA-14086). The index is taken to be in the table's schema (the usual
+/// case: `IndexUsage` doesn't carry its owner). Refused where Oracle refuses
+/// VISIBLE / INVISIBLE: an IOT's index (ORA-25176) and a cluster's (ORA-14142).
+pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+    let kind = index.kind.to_uppercase();
+    if kind.starts_with("IOT") {
+        return Err(Error::Unsupported(
+            "Es el índice de una tabla organizada por índice (IOT): guarda la tabla misma y Oracle no permite hacerlo invisible.".into(),
+        ));
+    }
+    if kind.starts_with("CLUSTER") {
+        return Err(Error::Unsupported("Es el índice de un cluster: Oracle no permite hacerlo invisible.".into()));
+    }
+    let name = match table.schema() {
+        Some(s) => format!("{}.{}", quote(s), quote(&index.name)),
+        None => quote(&index.name),
+    };
+    if !enable {
+        return Ok(SyncScript { statements: vec![format!("ALTER INDEX {name} INVISIBLE")], warnings: vec![DISABLE_WARNING.into()] });
+    }
+    let unusable = if kind.ends_with(PARTITIONS_UNUSABLE) {
+        Unusable::Partitions
+    } else if kind.ends_with(UNUSABLE) {
+        Unusable::Whole
+    } else {
+        Unusable::No
+    };
+    let mut statements = Vec::new();
+    let mut warnings = Vec::new();
+    match unusable {
+        Unusable::Whole => {
+            statements.push(format!("ALTER INDEX {name} REBUILD"));
+            warnings.push(REBUILD_WARNING.to_string());
+        }
+        Unusable::Partitions => {
+            statements.push(rebuild_partitions(table, &index.name, &name));
+            warnings.push(REBUILD_PARTITIONS_WARNING.to_string());
+        }
+        Unusable::No => {}
+    }
+    // Only UNUSABLE (visible): the rebuild is the whole enabling.
+    if unusable == Unusable::No || kind.contains(INVISIBLE) {
+        statements.push(format!("ALTER INDEX {name} VISIBLE"));
+    }
+    Ok(SyncScript { statements, warnings })
+}
+
+/// A PL/SQL block that rebuilds every unusable partition and subpartition
+/// of `index` (`quoted`, as `ALTER INDEX` names it), read from the dictionary
+/// when it runs.
+fn rebuild_partitions(table: &ObjectRef, index: &str, quoted: &str) -> String {
+    let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
+    let owner = table.schema().map_or_else(|| "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".to_string(), lit);
+    let ix = lit(index);
+    let alter = lit(&format!("ALTER INDEX {quoted} REBUILD "));
+    format!(
+        "BEGIN
+  FOR p IN (SELECT partition_name n FROM all_ind_partitions
+             WHERE index_owner = {owner} AND index_name = {ix} AND status = 'UNUSABLE') LOOP
+    EXECUTE IMMEDIATE {alter} || 'PARTITION \"' || p.n || '\"';
+  END LOOP;
+  FOR p IN (SELECT subpartition_name n FROM all_ind_subpartitions
+             WHERE index_owner = {owner} AND index_name = {ix} AND status = 'UNUSABLE') LOOP
+    EXECUTE IMMEDIATE {alter} || 'SUBPARTITION \"' || p.n || '\"';
+  END LOOP;
+END;"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn ix(name: &str, kind: &str) -> IndexRow {
-        IndexRow { owner: "APP".into(), name: name.into(), kind: kind.into(), unique: false, invisible: false, primary_key: false }
+        IndexRow { owner: "APP".into(), name: name.into(), kind: kind.into(), unique: false, invisible: false, primary_key: false, unusable: Unusable::No }
     }
 
     fn col(index: &str, name: &str, descending: bool, expression: Option<&str>) -> ColumnRow {
@@ -490,6 +624,78 @@ mod tests {
         let bare = assemble(&indexes, &columns, None, None, None);
         assert_eq!(bare.len(), 4);
         assert!(bare.iter().all(|i| i.seeks == 0 && i.updates == 0 && i.size_kb.is_none()));
+    }
+
+    fn usage(name: &str, kind: &str) -> IndexUsage {
+        IndexUsage { name: name.into(), kind: kind.into(), ..Default::default() }
+    }
+
+    fn t(schema: Option<&str>) -> ObjectRef {
+        ObjectRef { kind: "table".into(), schema: schema.map(Into::into), name: "PEDIDOS".into() }
+    }
+
+    #[test]
+    fn disabled_is_invisible_or_unusable() {
+        let mut inv = ix("IX_INV", "NORMAL");
+        inv.invisible = true;
+        let mut dead = ix("IX_DEAD", "NORMAL");
+        dead.unusable = Unusable::Whole;
+        let mut part = ix("IX_PART", "NORMAL");
+        part.unusable = Unusable::Partitions;
+        part.invisible = true;
+        let out = assemble(&[ix("IX_ON", "BITMAP"), inv, dead, part], &[], None, None, None);
+        assert_eq!(out.iter().map(|i| i.disabled).collect::<Vec<_>>(), [false, true, true, true]);
+        assert_eq!(out.iter().map(|i| i.kind.as_str()).collect::<Vec<_>>(), ["BITMAP", "NORMAL INVISIBLE", "NORMAL UNUSABLE", "NORMAL INVISIBLE PARTITIONS UNUSABLE"]);
+        assert!(INDEXES_SQL.contains("i.status = 'UNUSABLE'") && INDEXES_SQL.contains("all_ind_subpartitions"));
+    }
+
+    #[test]
+    fn toggle_makes_it_invisible_and_visible() {
+        let off = toggle_script(&t(Some("APP")), &usage("IX_FECHA", "NORMAL"), false).unwrap();
+        assert_eq!(off.statements, [r#"ALTER INDEX "APP"."IX_FECHA" INVISIBLE"#]);
+        assert_eq!(off.warnings, [DISABLE_WARNING]);
+        let on = toggle_script(&t(Some("APP")), &usage("IX_FECHA", "NORMAL INVISIBLE"), true).unwrap();
+        assert_eq!(on.statements, [r#"ALTER INDEX "APP"."IX_FECHA" VISIBLE"#]);
+        assert!(on.warnings.is_empty());
+        // No schema: the session's; quotes doubled.
+        let odd = toggle_script(&t(None), &usage("Ix\"q", "NORMAL"), false).unwrap();
+        assert_eq!(odd.statements, [r#"ALTER INDEX "Ix""q" INVISIBLE"#]);
+        // A primary key's index can be made invisible (it still enforces the key).
+        let mut pk = usage("PK_PEDIDOS", "NORMAL");
+        pk.primary_key = true;
+        assert!(toggle_script(&t(Some("APP")), &pk, false).is_ok());
+    }
+
+    #[test]
+    fn enabling_an_unusable_index_rebuilds_it() {
+        let both = toggle_script(&t(Some("APP")), &usage("IX_A", "NORMAL INVISIBLE UNUSABLE"), true).unwrap();
+        assert_eq!(both.statements, [r#"ALTER INDEX "APP"."IX_A" REBUILD"#, r#"ALTER INDEX "APP"."IX_A" VISIBLE"#]);
+        assert_eq!(both.warnings, [REBUILD_WARNING]);
+        let dead = toggle_script(&t(Some("APP")), &usage("IX_A", "NORMAL UNUSABLE"), true).unwrap();
+        assert_eq!(dead.statements, [r#"ALTER INDEX "APP"."IX_A" REBUILD"#]);
+        // Disabling an unusable index only hides it.
+        assert_eq!(toggle_script(&t(Some("APP")), &usage("IX_A", "NORMAL UNUSABLE"), false).unwrap().statements, [r#"ALTER INDEX "APP"."IX_A" INVISIBLE"#]);
+
+        let parts = toggle_script(&t(Some("O'K")), &usage("IX_P", "NORMAL PARTITIONS UNUSABLE"), true).unwrap();
+        assert_eq!(parts.statements.len(), 1, "visible: the rebuild is all");
+        let block = &parts.statements[0];
+        assert!(block.starts_with("BEGIN") && block.ends_with("END;"), "{block}");
+        assert!(block.contains("index_owner = 'O''K' AND index_name = 'IX_P'"), "{block}");
+        assert!(block.contains(r#"'ALTER INDEX "O''K"."IX_P" REBUILD ' || 'PARTITION "' || p.n || '"'"#), "{block}");
+        assert!(block.contains("REBUILD ' || 'SUBPARTITION"), "{block}");
+        assert_eq!(parts.warnings, [REBUILD_PARTITIONS_WARNING]);
+        let mine = toggle_script(&t(None), &usage("IX_P", "NORMAL INVISIBLE PARTITIONS UNUSABLE"), true).unwrap();
+        assert!(mine.statements[0].contains("index_owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')"));
+        assert_eq!(mine.statements[1], r#"ALTER INDEX "IX_P" VISIBLE"#);
+    }
+
+    #[test]
+    fn iot_and_cluster_indexes_are_refused() {
+        for kind in ["IOT - TOP", "CLUSTER"] {
+            for enable in [false, true] {
+                assert!(matches!(toggle_script(&t(Some("APP")), &usage("X", kind), enable), Err(Error::Unsupported(_))), "{kind}");
+            }
+        }
     }
 
     #[test]

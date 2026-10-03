@@ -283,6 +283,16 @@ impl Driver for MySqlDriver {
         index_usage::supported(self.variant)
     }
 
+    /// Invisible (MySQL 8.0+, Aurora, Cloud SQL, TiDB, OceanBase) or
+    /// ignored (MariaDB 10.6+) indexes; see `index_usage::toggle_script`.
+    fn supports_index_toggle(&self) -> bool {
+        index_usage::toggle_supported(self.variant)
+    }
+
+    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+        index_usage::toggle_script(self.variant, table, index, enable)
+    }
+
     fn script_dialect(&self) -> ScriptDialect {
         script_dialect(self.variant)
     }

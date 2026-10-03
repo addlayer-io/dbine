@@ -2434,3 +2434,87 @@ columna: la vista con SCHEMABINDING queda confirmada, el procedimiento como
 probable (con la línea `SELECT Pepe`), el índice y el CHECK confirmados, y ni
 la vista que no la usa ni el procedimiento de la otra tabla aparecen. La
 versión por defecto, corrida sobre la misma base, encuentra el mismo código.
+
+## Deshabilitar y habilitar índices
+
+Clic derecho en un índice (en el explorador o en la pestaña **Índices**) ›
+**Deshabilitar índice…**; si ya está deshabilitado, **Habilitar índice…**. El
+diálogo muestra la sentencia del motor y lo que conviene saber antes, y corre
+como tarea (como **Eliminar índice…**). Un índice deshabilitado queda definido
+pero el optimizador no lo usa: el explorador y la pestaña lo marcan
+**deshabilitado** y nunca como "sin uso". El contrato está en
+`crates/dbine-driver/src/lib.rs` (`Driver::supports_index_toggle` y
+`Driver::index_toggle_script`) y el estado en `IndexUsage::disabled`. No forma
+parte de la estructura (`IndexDef`): **Comparar esquemas** no ve diferencia
+entre un índice habilitado y uno deshabilitado.
+
+| Motor | Deshabilitar | Habilitar | Notas |
+|---|---|---|---|
+| SQL Server, Azure SQL Database | `ALTER INDEX … DISABLE` | `ALTER INDEX … REBUILD` | Deja de mantenerse y libera su espacio; habilitarlo lo reconstruye entero. El índice clustered deja la tabla sin acceso, y el de la clave primaria o un UNIQUE deshabilita las claves foráneas que lo apuntan (no vuelven solas). |
+| MySQL 8, Aurora MySQL, Cloud SQL para MySQL, TiDB, OceanBase (MySQL) | `ALTER TABLE … ALTER INDEX … INVISIBLE` | `… VISIBLE` | Se sigue manteniendo. La clave primaria (también la implícita) no se puede. OceanBase sin probar contra un servidor. MySQL 5.7 rechaza la sentencia. |
+| MariaDB | `… IGNORED` | `… NOT IGNORED` | Desde 10.6. Una base MariaDB conectada como "MySQL" recibe la sintaxis de MySQL y la rechaza. |
+| Oracle, Oracle Autonomous Database | `ALTER INDEX … INVISIBLE` | `ALTER INDEX … VISIBLE` | No UNUSABLE: sigue mantenido y garantizando la unicidad (también el de la clave primaria). Un índice UNUSABLE se marca deshabilitado y habilitarlo lo reconstruye, por particiones si hace falta. Los de tablas IOT y de cluster no se pueden. |
+| Firebird | `ALTER INDEX … INACTIVE` | `ALTER INDEX … ACTIVE` | Activarlo lo reconstruye. Los índices de restricciones (PRIMARY KEY, FOREIGN KEY, UNIQUE) no se pueden. |
+| CockroachDB | `ALTER INDEX t@ix NOT VISIBLE` | `… VISIBLE` | Desde 22.2. La clave primaria no se puede. |
+| MongoDB | `hideIndex` | `unhideIndex` | Desde 4.4 (`collMod`). El índice `_id_` no se puede. |
+| IBM Informix, GBase 8s (ODBC) | `SET INDEXES … DISABLED` | `… ENABLED` | Sin probar contra un servidor. No se mantiene mientras está deshabilitado; habilitarlo lo reconstruye. |
+| SAP MaxDB (ODBC) | `ALTER INDEX … DISABLE` | `… ENABLE` | Sin probar contra un servidor. |
+
+### Motores sin deshabilitar índices
+
+La opción no aparece (`supports_index_toggle` es false) donde el motor no
+tiene una forma nativa de apagar un índice sin borrarlo:
+
+- **PostgreSQL y su familia** (PostgreSQL, TimescaleDB, YugabyteDB,
+  KingbaseES, AlloyDB para PostgreSQL, Amazon Aurora PostgreSQL, Cloud SQL
+  para PostgreSQL, EDB Postgres Advanced Server, Fujitsu Enterprise Postgres,
+  openGauss, Greenplum, Apache Cloudberry, Greengage DB, Amazon Redshift,
+  Amazon Aurora DSQL, H2 (servidor PostgreSQL), Materialize, RisingWave,
+  Yellowbrick): no hay forma soportada; marcar el índice como inválido
+  tocando `pg_index` a mano no es razonable de ofrecer. **Babelfish for
+  PostgreSQL** tampoco acepta `ALTER INDEX … DISABLE`.
+- **SQLite, libSQL / Turso, DuckDB, Archivos dBase (DBF), Microsoft Access**:
+  sin estado de índice; solo se crean y se borran.
+- **IBM Db2 (LUW), IBM Db2 for i (AS/400), IBM Db2 for z/OS, SAP ASE
+  (Sybase), SAP SQL Anywhere, SAP HANA, Teradata, Actian Ingres, Actian Zen
+  (Pervasive PSQL), Mimer SQL, CUBRID, Altibase, InterSystems IRIS,
+  InterSystems Caché, Progress OpenEdge, NuoDB, MonetDB, OpenLink Virtuoso,
+  Machbase, Ocient, Exasol, IBM Netezza, Vertica, ODBC (genérico)**: sin
+  sentencia para deshabilitar un índice (o sin índices de usuario). CUBRID 10
+  podría tener `INVISIBLE`: pendiente de verificar.
+- **Dameng (DM)**: pendiente; probablemente acepta `ALTER INDEX … INVISIBLE`,
+  sin verificar la sintaxis ni dónde se lee el estado.
+- **SingleStore, StarRocks, Apache Doris, VeloDB, Databend, GreptimeDB,
+  ClickHouse, Timeplus Proton, Apache Phoenix, CrateDB, Apache Ignite 2,
+  Apache Ignite 3, Arrow Flight SQL, Dremio, Snowflake, Google BigQuery,
+  Google Cloud Spanner, Databricks SQL, Azure Databricks**: los índices (o
+  claves de ordenamiento, índices de salto) solo se crean y se borran.
+- **FerretDB**: rechaza `hidden` (probado contra `dbine-test-ferretdb`).
+  **Amazon DocumentDB**: no tiene índices ocultos (según la documentación de
+  AWS, sin probar).
+- **Apache Cassandra, ScyllaDB, Amazon Keyspaces, Couchbase, CouchDB, Azure
+  Cosmos DB, Amazon DynamoDB, Neo4j, Memgraph, OrientDB**: sin forma de
+  apagar un índice secundario sin borrarlo.
+
+### Probado contra servidores reales
+
+Cada prueba crea una tabla con un índice, lo deshabilita con el script del
+driver, comprueba que `index_usage` lo marca deshabilitado y que la tabla se
+sigue consultando, lo habilita y comprueba que vuelve:
+
+- `crates/drivers/sqlserver/tests/index_toggle.rs` (SQL Server 2022,
+  `dbine-test-sqlserver`).
+- `crates/drivers/mysql/tests/index_toggle.rs` (MySQL 8.4, MariaDB 11.8,
+  TiDB 7.5 y 8.5): además, la clave primaria se rechaza.
+- `crates/drivers/oracle/tests/index_toggle.rs` (Oracle 23ai Free): además, el
+  índice de la clave primaria invisible sigue rechazando duplicados
+  (ORA-00001), un índice UNUSABLE se reconstruye al habilitarlo (también por
+  particiones) y el de una tabla IOT se rechaza.
+- `crates/drivers/firebird/tests/index_toggle.rs` (Firebird 5): la clave
+  primaria se rechaza y una restricción UNIQUE con nombre la rechaza el
+  servidor.
+- `crates/drivers/postgres/tests/index_toggle.rs` (CockroachDB 26.3): la clave
+  primaria se rechaza.
+- `crates/drivers/mongodb/tests/index_toggle.rs` (MongoDB 7 y FerretDB 2):
+  `_id_` se rechaza; FerretDB no ofrece la opción y el servidor rechaza
+  `hideIndex`.

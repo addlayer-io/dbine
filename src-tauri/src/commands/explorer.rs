@@ -119,6 +119,23 @@ pub async fn get_index_usage(state: State<'_, AppState>, args: ObjectArgs) -> Co
 }
 
 #[derive(Deserialize)]
+pub struct IndexToggleArgs {
+    pub connection_id: String,
+    pub table: ObjectRef,
+    /// As `get_index_usage` returned it.
+    pub index: dbine_driver::IndexUsage,
+    pub enable: bool,
+}
+
+/// "Deshabilitar / Habilitar índice": the engine's statements, with what to
+/// know first. They run like a schema sync (`schema_sync_run`).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn index_toggle_script(state: State<'_, AppState>, args: IndexToggleArgs) -> CommandResult<dbine_driver::SyncScript> {
+    let driver = crate::commands::schema::driver_of(&state, &args.connection_id)?;
+    Ok(driver.index_toggle_script(&args.table, &args.index, args.enable)?)
+}
+
+#[derive(Deserialize)]
 pub struct DependentsArgs {
     pub connection_id: String,
     pub database: String,

@@ -71,6 +71,8 @@ export type SeekHealth = 'good' | 'warn' | 'bad';
 export interface UsageBadge {
   text: string;
   unused: boolean;
+  /** The index is disabled: it reads 0 on purpose. */
+  disabled?: boolean;
   /** Its color: seeks against scans (`seek_health`, derived by the backend). */
   health: SeekHealth | null;
   /** Why that color (null without seeks or scans). */
@@ -82,6 +84,7 @@ export interface UsageBadge {
  *  on the table yet) or "sin datos" (the engine/login gives no counters).
  *  `null` only without a report to say anything about. */
 export function usageBadge(i: IndexUsage, report?: Pick<IndexUsageReport, 'stats_available' | 'note' | 'writes_counted'> | null): UsageBadge | null {
+  if (i.disabled) return { text: t('explorer:indexes.disabled'), unused: false, disabled: true, health: null, healthTip: t('explorer:indexes.disabledTip') };
   if (report && !report.stats_available) {
     return { text: t('explorer:indexes.noData'), unused: false, health: null, healthTip: report.note ? tb(report.note) : t('explorer:indexes.noDataTip') };
   }
@@ -96,7 +99,7 @@ export function usageBadge(i: IndexUsage, report?: Pick<IndexUsageReport, 'stats
 
 /** The badge's classes: `unused`, or its seek health (`h-good`, `h-warn`, `h-bad`). */
 export function badgeClass(b: UsageBadge): string[] {
-  return b.unused ? ['unused'] : b.health ? [`h-${b.health}`] : [];
+  return b.disabled ? ['disabled'] : b.unused ? ['unused'] : b.health ? [`h-${b.health}`] : [];
 }
 
 /** Why an index's seek health is what it is. */

@@ -73,6 +73,9 @@ pub enum Call {
     Manifest,
     Connect { driver: String, config: ConnectionConfig, database: Option<String> },
     SyncScript { driver: String, changes: Vec<TableChange> },
+    /// The statements that disable or enable an index. A host published
+    /// before it answers `Unsupported` (and its manifest doesn't offer it).
+    IndexToggleScript { driver: String, table: ObjectRef, index: dbine_driver::IndexUsage, enable: bool },
     TableDdl { driver: String, table: TableSchema, parts: DdlParts },
     InsertScript { driver: String, target: ObjectRef, columns: Vec<String>, rows: Vec<Vec<Value>> },
     FilteredBrowse { driver: String, browse: String, filters: Vec<ColumnFilter> },
@@ -301,6 +304,10 @@ pub struct DriverMeta {
     /// in older manifests: not offered).
     #[serde(default)]
     pub supports_index_usage: bool,
+    /// "Deshabilitar / Habilitar índice" (`Driver::index_toggle_script`;
+    /// absent in older manifests: not offered).
+    #[serde(default)]
+    pub supports_index_toggle: bool,
 }
 
 /// The contract's metadata types hold `&'static str` (interned when read),
@@ -351,6 +358,7 @@ impl DriverMeta {
             script_defaults: Some(d.script_defaults()),
             supports_manual_transactions: d.supports_manual_transactions(),
             supports_index_usage: d.supports_index_usage(),
+            supports_index_toggle: d.supports_index_toggle(),
         }
     }
 }
