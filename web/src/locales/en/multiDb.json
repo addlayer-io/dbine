@@ -1,0 +1,57 @@
+{
+  "action": "Run on several databases…",
+  "actionTip": "Runs the code (or the selection) on several databases of this connection and merges the results",
+  "dialog": {
+    "title": "Run on several databases",
+    "intro": "The editor code (or the selection) runs on each chosen database, each in its own session and {{max}} at a time. The results are merged in the results panel.",
+    "filter": "Filter databases (supports *, e.g. *tenant-bank*)",
+    "all": "All",
+    "none": "None",
+    "count": "{{selected}} of {{total}} databases selected",
+    "shown": "{{shown}} visible",
+    "current": "current",
+    "noMatch": "No database matches the filter.",
+    "loading": "Loading databases…",
+    "noDatabases": "Could not read the databases of the connection.",
+    "readOnly": "The connection is read-only: any statement that is not a read is rejected.",
+    "run_one": "Run on {{count}} database",
+    "run_other": "Run on {{count}} databases",
+    "progress": "{{done}} of {{total}} databases finished",
+    "close": "Close",
+    "empty": "There is no code to run."
+  },
+  "confirm": {
+    "title": "Confirm changes on several databases",
+    "write_one": "The code is not read-only (it has {{keyword}}). It will run on {{count}} database and may change it.",
+    "write_other": "The code is not read-only (it has {{keyword}}). It will run on {{count}} databases and may change all of them.",
+    "unknown_one": "On this engine it is not possible to verify that the code is read-only. It will run on {{count}} database and may change it.",
+    "unknown_other": "On this engine it is not possible to verify that the code is read-only. It will run on {{count}} databases and may change all of them.",
+    "run_one": "Run on {{count}} database",
+    "run_other": "Run on {{count}} databases"
+  },
+  "status": {
+    "pending": "Waiting or running",
+    "ok": "OK",
+    "error": "Error",
+    "cancelled": "Cancelled",
+    "skipped": "Not run"
+  },
+  "summary": {
+    "ok": "{{ok}} of {{total}} databases OK",
+    "error_one": "{{count}} with error",
+    "error_other": "{{count}} with errors",
+    "cancelled_one": "{{count}} cancelled",
+    "cancelled_other": "{{count}} cancelled",
+    "messages": "See the per-database detail in Messages."
+  },
+  "results": {
+    "merged_one": "Result ({{count}} database)",
+    "merged_other": "Result ({{count}} databases)",
+    "bar": "Several databases: {{summary}}"
+  },
+  "task": {
+    "title_one": "Run on {{count}} database of {{connection}}",
+    "title_other": "Run on {{count}} databases of {{connection}}",
+    "unit": "databases"
+  }
+}

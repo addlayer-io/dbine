@@ -1,0 +1,57 @@
+{
+  "action": "Esegui su più database…",
+  "actionTip": "Esegue il codice (o la selezione) su più database di questa connessione e unisce i risultati",
+  "dialog": {
+    "title": "Esegui su più database",
+    "intro": "Il codice dell'editor (o la selezione) viene eseguito su ogni database scelto, ciascuno nella propria sessione e {{max}} alla volta. I risultati vengono uniti nel pannello dei risultati.",
+    "filter": "Filtra database (supporta *, ad esempio *tenant-banca*)",
+    "all": "Tutti",
+    "none": "Nessuno",
+    "count": "{{selected}} database su {{total}} scelti",
+    "shown": "{{shown}} visibili",
+    "current": "corrente",
+    "noMatch": "Nessun database corrisponde al filtro.",
+    "loading": "Caricamento dei database…",
+    "noDatabases": "Impossibile leggere i database della connessione.",
+    "readOnly": "La connessione è in sola lettura: qualsiasi istruzione che non sia di lettura viene rifiutata.",
+    "run_one": "Esegui su {{count}} database",
+    "run_other": "Esegui su {{count}} database",
+    "progress": "{{done}} database su {{total}} terminati",
+    "close": "Chiudi",
+    "empty": "Non c'è codice da eseguire."
+  },
+  "confirm": {
+    "title": "Conferma le modifiche su più database",
+    "write_one": "Il codice non è di sola lettura (contiene {{keyword}}). Verrà eseguito su {{count}} database e può modificarlo.",
+    "write_other": "Il codice non è di sola lettura (contiene {{keyword}}). Verrà eseguito su {{count}} database e può modificarli tutti.",
+    "unknown_one": "Con questo motore non è possibile verificare che il codice sia di sola lettura. Verrà eseguito su {{count}} database e può modificarlo.",
+    "unknown_other": "Con questo motore non è possibile verificare che il codice sia di sola lettura. Verrà eseguito su {{count}} database e può modificarli tutti.",
+    "run_one": "Esegui su {{count}} database",
+    "run_other": "Esegui su {{count}} database"
+  },
+  "status": {
+    "pending": "In attesa o in corso",
+    "ok": "OK",
+    "error": "Errore",
+    "cancelled": "Annullata",
+    "skipped": "Non eseguita"
+  },
+  "summary": {
+    "ok": "{{ok}} database su {{total}} OK",
+    "error_one": "{{count}} con errore",
+    "error_other": "{{count}} con errore",
+    "cancelled_one": "{{count}} annullata",
+    "cancelled_other": "{{count}} annullate",
+    "messages": "Vedi il dettaglio per database in Messaggi."
+  },
+  "results": {
+    "merged_one": "Risultato ({{count}} database)",
+    "merged_other": "Risultato ({{count}} database)",
+    "bar": "Più database: {{summary}}"
+  },
+  "task": {
+    "title_one": "Esegui su {{count}} database di {{connection}}",
+    "title_other": "Esegui su {{count}} database di {{connection}}",
+    "unit": "database"
+  }
+}
