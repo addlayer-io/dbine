@@ -584,7 +584,7 @@ function drag(e: PointerEvent) {
     <el-alert type="error" :title="loadError" :closable="false" />
   </div>
   <div v-else class="qv">
-    <div class="nm-toolbar">
+    <div class="nm-toolbar qv-bar">
       <template v-if="!running">
         <el-button type="primary" :title="$t('query:runTitle')" @click="run()">
           <el-icon><ei-video-play /></el-icon>&nbsp;{{ $t('common:run') }}
@@ -606,7 +606,7 @@ function drag(e: PointerEvent) {
       </el-button>
       <el-tooltip :content="formatOff ?? $t('query:formatTip')" placement="bottom" :show-after="400">
         <el-button :disabled="!!formatOff" :loading="formatting" :aria-label="$t('query:format')" @click="formatQuery">
-          <el-icon v-if="!formatting"><ei-magic-stick /></el-icon>&nbsp;{{ $t('query:format') }}
+          <el-icon v-if="!formatting"><ei-magic-stick /></el-icon><span class="qv-lbl">&nbsp;{{ $t('query:format') }}</span>
         </el-button>
       </el-tooltip>
       <el-select
@@ -614,7 +614,7 @@ function drag(e: PointerEvent) {
         :model-value="tab.database"
         filterable
         size="small"
-        style="width: 234px"
+        class="qv-db"
         :loading="loadingDatabases"
         :placeholder="driver?.databases_label ? tb(driver.databases_label) : $t('query:database')"
         :title="tab.database"
@@ -625,11 +625,11 @@ function drag(e: PointerEvent) {
       </el-select>
       <el-tooltip v-if="multiDbAvailable" :content="$t('multiDb:actionTip')" placement="bottom" :show-after="300">
         <el-button size="small" :aria-label="$t('multiDb:action')" @click="openMultiDb">
-          <el-icon :class="{ 'is-loading': multiLive?.running }"><ei-loading v-if="multiLive?.running" /><ei-files v-else /></el-icon>&nbsp;{{ $t('multiDb:action') }}
+          <el-icon :class="{ 'is-loading': multiLive?.running }"><ei-loading v-if="multiLive?.running" /><ei-files v-else /></el-icon><span class="qv-lbl">&nbsp;{{ $t('multiDb:action') }}</span>
         </el-button>
       </el-tooltip>
       <el-tooltip v-if="perStatement" :content="$t('query:continueOnErrorTip')" placement="bottom" :show-after="400">
-        <el-checkbox v-model="continueOnError" size="small" class="qv-check">{{ $t('query:continueOnError') }}</el-checkbox>
+        <el-checkbox v-model="continueOnError" size="small" class="qv-check" :aria-label="$t('query:continueOnError')"><span class="qv-lbl2">{{ $t('query:continueOnError') }}</span></el-checkbox>
       </el-tooltip>
       <template v-if="offersManualTx">
         <el-radio-group
@@ -656,12 +656,12 @@ function drag(e: PointerEvent) {
       <div class="nm-spacer" />
       <el-popover v-if="driver?.query_help" placement="bottom-end" :width="520" trigger="click">
         <template #reference>
-          <el-button link :title="$t('query:syntaxTitle')"><el-icon><ei-question-filled /></el-icon>&nbsp;{{ $t('query:syntax') }}</el-button>
+          <el-button link :title="$t('query:syntaxTitle')"><el-icon><ei-question-filled /></el-icon><span class="qv-lbl">&nbsp;{{ $t('query:syntax') }}</span></el-button>
         </template>
         <pre class="qv-help nm-selectable">{{ tb(driver.query_help) }}</pre>
       </el-popover>
-      <span class="nm-muted">{{ $t('query:maxRows') }}</span>
-      <el-select v-model="maxRows" size="small" style="width: 96px">
+      <span class="nm-muted qv-lbl2">{{ $t('query:maxRows') }}</span>
+      <el-select v-model="maxRows" size="small" style="width: 96px" :title="$t('query:maxRows')">
         <el-option v-for="n in [100, 1000, 5000, 20000, 100000]" :key="n" :label="n.toLocaleString(locale())" :value="n" />
       </el-select>
     </div>
@@ -785,6 +785,17 @@ function drag(e: PointerEvent) {
   border-bottom: 1px solid var(--nm-border-soft); background: color-mix(in srgb, var(--ide-focus, var(--nm-primary)) 8%, transparent);
 }
 .qv-check { margin: 0 4px; }
+/* The toolbar never wraps: groups (Auto/Manual, the plan buttons) keep one
+   line, the database select gives up width first, then labels go and leave
+   icon-only buttons (their name stays in the tooltip). The breakpoints are
+   the toolbar's own width, so opening the AI sidebar counts. */
+.qv-bar { container-type: inline-size; overflow: hidden; }
+.qv-bar > * { flex-shrink: 0; }
+.qv-bar :deep(.el-radio-group), .qv-bar :deep(.el-button-group) { display: inline-flex; flex-wrap: nowrap; flex-shrink: 0; }
+.qv-bar :deep(.el-radio-button__inner), .qv-bar :deep(.el-button) { white-space: nowrap; }
+.qv-bar .qv-db { flex: 0 1 234px; width: auto; min-width: 110px; }
+@container (max-width: 1180px) { .qv-lbl { display: none; } }
+@container (max-width: 960px) { .qv-lbl2 { display: none; } }
 .qv-tx {
   display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 10px; font-size: 11.5px;
   color: var(--nm-warning); border: 1px solid color-mix(in srgb, var(--nm-warning) 50%, transparent);

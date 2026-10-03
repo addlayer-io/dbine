@@ -40,6 +40,7 @@ import EditorTabs from '../components/EditorTabs.vue';
 import { installTabsPreview } from './tabs-samples';
 import { sampleDependents } from './dependencies-samples';
 import DependenciesView from '../views/DependenciesView.vue';
+import QueryView from '../views/QueryView.vue';
 import { profilerAutostart } from '../stores/tabs';
 import { bigSchema, sampleSchema } from './samples';
 import ScriptGeneratorDialog from '../components/ScriptGeneratorDialog.vue';
@@ -167,6 +168,10 @@ const app = createApp({
       view === 'keys' ? h('div', { style: 'width: 340px; height: 640px; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
       view === 'connection' ? connectionTab() : view === 'monitor'
         ? h(MonitorView, { tab: { id: 'm', kind: 'monitor', connectionId: 'c1', database: '', preview: false }, active: true }) :
+      // view=query&w=<px>: the query editor's toolbar at a given width.
+      view === 'query' ? h('div', { style: `width: ${params.get('w') ?? 1300}px; height: 260px; display: flex; flex-direction: column; background: var(--ide-editor)` }, [
+        h(QueryView, { tab: { id: 'q', kind: 'query', connectionId: 'c1', database: 'sqldb-prod-iaas-brazilsouth-tenant-aduro', queryId: 'q1', preview: false, continueOnError: true } }),
+      ]) :
       view === 'support' ? h(SupportReminder) :
       view === 'multidb' ? multiDbView() :
       view === 'dependencies' ? h(DependenciesView, { tab: { id: 'dep', kind: 'dependencies', connectionId: 'c1', database: 'ventas', object: { kind: 'table', schema: 'dbo', name: 'Clientes' }, column: 'Pepe', preview: false } }) :
@@ -207,16 +212,18 @@ if (view === 'settings') {
   useSyncStore().refresh();
   useUiStore().openSettings((params.get('section') as 'general' | 'sync') ?? 'sync');
 }
-if (view === 'connection' || view === 'monitor' || view === 'profiler' || view === 'compare' || view === 'dependencies') {
+if (view === 'connection' || view === 'monitor' || view === 'profiler' || view === 'compare' || view === 'dependencies' || view === 'query') {
   const conns = useConnectionsStore();
   // Compare reads index usage and checks dependents before a drop (both faked in compare-samples).
-  conns.drivers = view === 'compare' ? sampleDrivers.map((d) => ({ ...d, supports_index_usage: true, supports_dependencies: true })) : sampleDrivers;
+  conns.drivers = view === 'compare' ? sampleDrivers.map((d) => ({ ...d, supports_index_usage: true, supports_dependencies: true }))
+    : view === 'query' ? sampleDrivers.map((d) => ({ ...d, supports_manual_transactions: true }))
+      : sampleDrivers;
   conns.list = [{
     id: 'c1', name: 'Producción · ventas', color: '#3794ff', folder_id: null, tags: ['prod'], save_password: true, updated_at: '',
     config: { driver: 'postgres', host: 'db-prod-01', port: 5432, database: 'ventas', username: 'app', password: null,
       encrypt: true, trust_server_certificate: false, read_only: false, options: {} },
   }];
-  conns.live.c1 = { status: 'connected', serverVersion: 'PostgreSQL 16.4', databases: view === 'compare' ? ['ventas', 'ventas_qa'] : ['ventas'], defaultDatabase: 'ventas', error: null };
+  conns.live.c1 = { status: 'connected', serverVersion: 'PostgreSQL 16.4', databases: view === 'compare' ? ['ventas', 'ventas_qa'] : view === 'query' ? ['sqldb-prod-iaas-brazilsouth-tenant-aduro', 'sqldb-prod-iaas-brazilsouth-tenant-brinks'] : ['ventas'], defaultDatabase: 'ventas', error: null };
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
     transformCallback: () => 0,
     invoke: async (cmd: string, a?: { args?: Record<string, unknown> }) => {
@@ -226,6 +233,10 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
       if (cmd === 'profiler_stop') return null;
       if (cmd === 'get_dependents' && view !== 'compare') return sampleDependents;
       if (cmd === 'test_connection') return { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
+      if (view === 'query') {
+        if (cmd === 'get_query') return { id: 'q1', name: 'Query', sql: 'select top 10 * from people.Person', connection_id: 'c1', database: null, folder: null, updated_at: '' };
+        return null;
+      }
       const cmp = compareMock(cmd, a);
       if (cmp !== undefined) return cmp;
       throw { kind: 'preview', message: `"${cmd}" no está disponible en la vista previa` };
