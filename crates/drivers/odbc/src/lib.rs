@@ -281,6 +281,15 @@ impl Driver for OdbcDriver {
         index_usage::supported(self.preset)
     }
 
+    /// Informix, GBase 8s and SAP MaxDB (see [`index_usage`]).
+    fn supports_index_toggle(&self) -> bool {
+        index_usage::toggle_supported(self.preset)
+    }
+
+    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+        index_usage::toggle_script(self.preset, table, index, enable)
+    }
+
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(self.preset, changes)
     }
@@ -1219,7 +1228,17 @@ impl Session for OdbcSession {
             (true, Some(sql)) => self.query(sql.to_string(), Vec::new()).await.ok().and_then(|r| r.into_iter().next()).and_then(|r| col(&r, 0)),
             _ => None,
         };
-        Ok(Some(index_usage::assemble(preset, tables.first(), usage.as_deref(), since)))
+        let report = index_usage::assemble(preset, tables.first(), usage.as_deref(), since);
+        let Some((sql, params)) = index_usage::disabled_sql(e, table.schema(), &table.name) else {
+            return Ok(Some(report));
+        };
+        match self.query(sql.to_string(), params).await {
+            Ok(rows) => Ok(Some(index_usage::mark_disabled(report, &rows))),
+            Err(err) => {
+                tracing::debug!("odbc: disabled indexes not read: {err}");
+                Ok(Some(report))
+            }
+        }
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {

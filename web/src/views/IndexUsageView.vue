@@ -6,7 +6,7 @@ import type { IndexUsage } from '../api/types';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { badgeClass, indexTag, indexUsageEntry, loadIndexUsage, seekTip, sharePct, usageBadge } from '../composables/indexUsage';
-import { dropIndexItem, type DropIndexTarget } from '../composables/dropIndex';
+import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composables/dropIndex';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import DropIndexDialog from '../components/DropIndexDialog.vue';
 import { useConnectionsStore } from '../stores/connections';
@@ -104,7 +104,10 @@ function rowMenu(e: MouseEvent, i: IndexUsage) {
     label: t('explorer:menu.copyName'),
     action: () => navigator.clipboard.writeText(i.name).then(() => ElMessage.success({ message: t('explorer:indexes.copied'), duration: 1200 })).catch(() => {}),
   }];
-  const drop = dropIndexItem({ connectionId: props.tab.connectionId, database: props.tab.database, table: props.tab.object, index: i.name }, (x) => { dropping.value = x; });
+  const target = { connectionId: props.tab.connectionId, database: props.tab.database, table: props.tab.object, index: i.name };
+  const toggle = toggleIndexItem(target, (x) => { dropping.value = x; });
+  if (toggle) items.push({ ...toggle, divided: true });
+  const drop = dropIndexItem(target, (x) => { dropping.value = x; }, !toggle);
   if (drop) items.push(drop);
   menu.value = { x: e.clientX, y: e.clientY, items };
 }
@@ -194,6 +197,7 @@ async function copyGrid() {
 .iu-tag { font-size: 10.5px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--nm-border); color: var(--nm-text-dim); }
 .iu-badge { margin-left: 6px; font-size: 10.5px; padding: 0 5px; border-radius: 8px; background: color-mix(in srgb, var(--nm-accent) 18%, transparent); color: var(--nm-text); font-weight: 400; }
 .iu-badge.unused { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
+.iu-badge.disabled { background: color-mix(in srgb, var(--nm-text-dim) 22%, transparent); color: var(--nm-text-dim); }
 .iu-badge.h-good { background: color-mix(in srgb, var(--nm-success) 20%, transparent); color: var(--nm-success); }
 .iu-badge.h-warn { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); color: var(--nm-warning); }
 .iu-badge.h-bad { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }

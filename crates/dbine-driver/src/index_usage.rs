@@ -86,6 +86,12 @@ pub struct IndexUsage {
     pub last_read: Option<String>,
     #[serde(default)]
     pub last_write: Option<String>,
+    /// The optimizer doesn't use it: disabled (SQL Server, Informix),
+    /// inactive (Firebird), invisible (MySQL, TiDB, Oracle), ignored
+    /// (MariaDB) or hidden (MongoDB). See [`crate::Driver::index_toggle_script`].
+    /// Never judged unused (it's read 0 times on purpose).
+    #[serde(default)]
+    pub disabled: bool,
     /// Derived ([`IndexUsageReport::derive`]): seeks + scans + lookups.
     #[serde(default)]
     pub reads: u64,
@@ -143,7 +149,7 @@ impl IndexUsageReport {
         let total: u64 = self.indexes.iter().map(|i| i.reads).sum();
         for i in &mut self.indexes {
             i.read_share = (stats && total > 0).then(|| i.reads as f64 / total as f64);
-            i.unused = writes && i.reads == 0 && i.updates > 0;
+            i.unused = writes && !i.disabled && i.reads == 0 && i.updates > 0;
             i.writes_per_read = (writes && i.reads > 0).then(|| i.updates as f64 / i.reads as f64);
             let probes = i.seeks + i.scans;
             i.seek_ratio = (stats && self.seek_scan_split && probes > 0).then(|| i.seeks as f64 / probes as f64);
@@ -185,6 +191,13 @@ mod tests {
         assert!(!get("a").unused);
         assert_eq!(get("a").writes_per_read.map(|v| (v * 1000.0).round() / 1000.0), Some(1.333));
         assert_eq!(get("b").writes_per_read, None);
+    }
+
+    #[test]
+    fn a_disabled_index_is_not_unused() {
+        let off = IndexUsage { disabled: true, ..ix("off", 0, 0, 0, 5) };
+        let r = IndexUsageReport { stats_available: true, indexes: vec![ix("pk", 3, 0, 0, 5), off], ..Default::default() }.derived();
+        assert!(!r.indexes[1].unused);
     }
 
     #[test]

@@ -45,6 +45,13 @@
 //! `prefix` access method (26.x) is its ordinary ordered index: `BTREE`;
 //! `inverted` is `GIN`.
 //!
+//! Disabling an index ("Deshabilitar índice"): only CockroachDB (22.2+)
+//! has a supported way, `ALTER INDEX t@ix NOT VISIBLE` (the optimizer stops
+//! using it; it's still maintained and still enforces uniqueness). Its state
+//! comes from `information_schema.statistics.is_visible`, which needs no
+//! `allow_unsafe_internals`. PostgreSQL and the rest of the family have
+//! none: flipping `pg_index.indisvalid` by hand isn't something to offer.
+//!
 //! The engines without `pg_index` usage counters list their indexes (and
 //! foreign keys) with `stats_available: false` and a note: Materialize,
 //! RisingWave, CrateDB, H2 (from `information_schema`), Redshift (no
@@ -53,8 +60,8 @@
 use crate::catalog::{cell, lit};
 use crate::session::PgSession;
 use crate::Variant;
-use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, TableSchema};
+use dbine_driver::sql::{qualified_name, quote_ident, Quote};
+use dbine_driver::{Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript, TableSchema};
 use std::collections::HashMap;
 use tokio_postgres::SimpleQueryRow;
 
@@ -213,6 +220,45 @@ pub(crate) fn cockroach_sql(rel: &str) -> String {
          LEFT JOIN crdb_internal.index_usage_statistics u ON u.table_id = ti.descriptor_id AND u.index_id = ti.index_id
          WHERE ti.descriptor_id = {rel}::INT8"
     )
+}
+
+/// CockroachDB: the table's invisible indexes ("deshabilitados").
+pub(crate) fn cockroach_invisible_sql(v: Variant, schema: Option<&str>, name: &str) -> String {
+    let schema = match schema.filter(|s| !s.is_empty()) {
+        Some(s) => lit(v, s),
+        None => "current_schema()".into(),
+    };
+    format!(
+        "SELECT DISTINCT index_name AS idx FROM information_schema.statistics
+         WHERE table_schema = {schema} AND table_name = {} AND is_visible = 'NO'",
+        lit(v, name)
+    )
+}
+
+/// Whether the variant can disable an index: CockroachDB only.
+pub(crate) fn toggle_supported(v: Variant) -> bool {
+    v == Variant::Cockroach
+}
+
+/// "Deshabilitar / Habilitar índice" on CockroachDB: `NOT VISIBLE` /
+/// `VISIBLE`. The primary index can't be invisible.
+pub(crate) fn toggle_script(v: Variant, table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+    if !toggle_supported(v) {
+        return Err(Error::Unsupported("este motor no deshabilita índices".into()));
+    }
+    if index.primary_key {
+        return Err(Error::Unsupported("CockroachDB no permite deshabilitar (ocultar) la clave primaria.".into()));
+    }
+    let owner = qualified_name(Quote::Double, table.schema(), &table.name);
+    let mut warnings = Vec::new();
+    if !enable {
+        warnings.push("El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo.".to_string());
+        if index.unique {
+            warnings.push("Al ser único, sigue impidiendo valores repetidos aunque esté deshabilitado.".to_string());
+        }
+    }
+    let state = if enable { "VISIBLE" } else { "NOT VISIBLE" };
+    Ok(SyncScript { statements: vec![format!("ALTER INDEX {owner}@{} {state}", quote_ident(Quote::Double, &index.name))], warnings })
 }
 
 /// One `indexes_sql` row.
@@ -511,6 +557,14 @@ impl PgSession {
         report.stats_available = usage.is_some();
         report.writes_counted = writes_counted;
         report.indexes = assemble(&columns, usage.as_ref(), sizes.as_ref(), writes);
+        if toggle_supported(v) {
+            if let Some(rows) = self.optional("visibility", &cockroach_invisible_sql(v, schema, &table.name)).await {
+                let off: Vec<String> = rows.iter().filter_map(|r| cell(r, "idx")).collect();
+                for ix in &mut report.indexes {
+                    ix.disabled = off.contains(&ix.name);
+                }
+            }
+        }
         report.note = (!notes.is_empty()).then(|| notes.join(" "));
         Ok(report)
     }
@@ -538,6 +592,30 @@ mod tests {
 
     fn col(index: &str, att: &str, included: bool, descending: bool) -> ColumnRow {
         ColumnRow { index: index.into(), am: Some("btree".into()), att: Some(att.into()), expr: att.into(), included, descending, ..Default::default() }
+    }
+
+    #[test]
+    fn cockroach_toggles_by_visibility() {
+        let t = ObjectRef { kind: "table".into(), schema: Some("ven tas".into()), name: "Pedidos".into() };
+        let ix = IndexUsage { name: "ix_fecha".into(), ..Default::default() };
+        let off = toggle_script(Variant::Cockroach, &t, &ix, false).unwrap();
+        assert_eq!(off.statements, [r#"ALTER INDEX "ven tas"."Pedidos"@"ix_fecha" NOT VISIBLE"#]);
+        assert_eq!(off.warnings, ["El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo."]);
+        let on = toggle_script(Variant::Cockroach, &t, &ix, true).unwrap();
+        assert_eq!(on.statements, [r#"ALTER INDEX "ven tas"."Pedidos"@"ix_fecha" VISIBLE"#]);
+        assert!(on.warnings.is_empty());
+        let bare = ObjectRef { schema: None, ..t.clone() };
+        assert_eq!(toggle_script(Variant::Cockroach, &bare, &ix, true).unwrap().statements, [r#"ALTER INDEX "Pedidos"@"ix_fecha" VISIBLE"#]);
+        let uq = IndexUsage { unique: true, ..ix.clone() };
+        assert_eq!(toggle_script(Variant::Cockroach, &t, &uq, false).unwrap().warnings.len(), 2);
+        let pk = IndexUsage { name: "pedidos_pkey".into(), primary_key: true, unique: true, ..Default::default() };
+        assert!(matches!(toggle_script(Variant::Cockroach, &t, &pk, false), Err(Error::Unsupported(m)) if m.contains("clave primaria")));
+        for v in Variant::ALL.iter().filter(|&&v| v != Variant::Cockroach) {
+            assert!(!toggle_supported(*v) && toggle_script(*v, &t, &ix, false).is_err(), "{v:?}");
+        }
+        let sql = cockroach_invisible_sql(Variant::Cockroach, Some("s"), "t");
+        assert!(sql.contains("is_visible = 'NO'") && sql.contains("table_schema = 's'") && sql.contains("table_name = 't'"), "{sql}");
+        assert!(cockroach_invisible_sql(Variant::Cockroach, None, "t").contains("current_schema()"));
     }
 
     #[test]

@@ -31,7 +31,7 @@ import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
 import DropIndexDialog from './DropIndexDialog.vue';
-import { dropIndexItem, type DropIndexTarget } from '../composables/dropIndex';
+import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composables/dropIndex';
 
 // The explorer: user folders (clients, environments… nested at will) →
 // connections → databases → Queries + the kinds of objects the driver
@@ -803,7 +803,10 @@ async function onContext(e: MouseEvent, n: TNode) {
       items.push({ label: t('explorer:indexes.menu'), action: () => tabs.openIndexes(cid!, db, ref, n.type === 'index' ? n.label : null) });
       if (n.type === 'index') items.push({ label: t('explorer:menu.copyName'), action: () => copy(n.label) });
       items.push({ label: t('common:refresh'), divided: true, action: () => loadIndexUsage(cid!, db, ref, true) });
-      const drop = n.type === 'index' && dropIndexItem({ connectionId: cid!, database: db, table: ref, index: n.label }, (x) => { droppingIndex.value = x; });
+      const target = { connectionId: cid!, database: db, table: ref, index: n.label };
+      const toggle = n.type === 'index' && toggleIndexItem(target, (x) => { droppingIndex.value = x; });
+      if (toggle) items.push({ ...toggle, divided: true });
+      const drop = n.type === 'index' && dropIndexItem(target, (x) => { droppingIndex.value = x; }, !toggle);
       if (drop) items.push(drop);
       break;
     }
@@ -1265,7 +1268,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             <span v-if="n.count !== undefined" class="ex-count">{{ n.count }}</span>
             <span
               v-if="n.badge" class="ex-ixbadge" :class="badgeClass(n.badge)"
-              :title="n.badge.unused ? $t('explorer:indexes.unusedTitle') : [$t('explorer:indexes.shareTitle'), n.badge.healthTip].filter(Boolean).join('\n')"
+              :title="n.badge.disabled ? n.badge.healthTip! : n.badge.unused ? $t('explorer:indexes.unusedTitle') : [$t('explorer:indexes.shareTitle'), n.badge.healthTip].filter(Boolean).join('\n')"
             >{{ n.badge.text }}</span>
             <span v-if="n.hint" class="ex-hint">{{ n.hint }}</span>
           </span>
@@ -1351,6 +1354,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ic.ix { color: var(--nm-text-dim); }
 .ex-ixbadge { flex: none; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; line-height: 15px; background: color-mix(in srgb, var(--nm-accent) 18%, transparent); color: var(--nm-text); }
 .ex-ixbadge.unused { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
+.ex-ixbadge.disabled { background: color-mix(in srgb, var(--nm-text-dim) 22%, transparent); color: var(--nm-text-dim); }
 .ex-ixbadge.h-good { background: color-mix(in srgb, var(--nm-success) 20%, transparent); color: var(--nm-success); }
 .ex-ixbadge.h-warn { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); color: var(--nm-warning); }
 .ex-ixbadge.h-bad { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }

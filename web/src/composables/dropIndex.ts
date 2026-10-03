@@ -20,7 +20,12 @@ export interface DropIndexTarget {
   database: string;
   table: ObjectRef;
   index: string;
+  /** What the dialog does: drop (the default), or disable / enable it
+   *  (`Driver::index_toggle_script`). */
+  mode?: IndexAction;
 }
+
+export type IndexAction = 'drop' | 'disable' | 'enable';
 
 /** The index's usage, as last read for the table. */
 export function indexUsageOf(target: DropIndexTarget): IndexUsage | null {
@@ -34,6 +39,26 @@ export function dropIndexItem(target: DropIndexTarget, open: (target: DropIndexT
   if (!conns.driverOf(target.connectionId)?.supports_schema_sync || conns.byId(target.connectionId)?.config.read_only) return null;
   const item: MenuItem = { label: t('explorer:indexes.drop.menu'), danger: true, divided, action: () => open(target) };
   return indexUsageOf(target)?.primary_key ? { ...item, disabled: true, hint: t('explorer:indexes.drop.pkHint') } : item;
+}
+
+/** "Deshabilitar índice…" or, on a disabled one, "Habilitar índice…"; null
+ *  where the engine can't (`supports_index_toggle`), on read-only
+ *  connections, and before the table's usage was read. */
+export function toggleIndexItem(target: DropIndexTarget, open: (target: DropIndexTarget) => void): MenuItem | null {
+  const conns = useConnectionsStore();
+  const i = indexUsageOf(target);
+  if (!i || !conns.driverOf(target.connectionId)?.supports_index_toggle || conns.byId(target.connectionId)?.config.read_only) return null;
+  const mode: IndexAction = i.disabled ? 'enable' : 'disable';
+  return { label: t(`explorer:indexes.${mode}.menu`), action: () => open({ ...target, mode }) };
+}
+
+/** The engine's statements that disable or enable the index. */
+export async function toggleIndexScript(target: DropIndexTarget): Promise<SyncScript> {
+  const index = indexUsageOf(target);
+  if (!index) throw new Error(t('explorer:indexes.drop.indexNotFound', { name: target.index }));
+  return invoke<SyncScript>('index_toggle_script', {
+    args: { connection_id: target.connectionId, table: target.table, index, enable: target.mode === 'enable' },
+  });
 }
 
 /** The script that drops the index, with the generator's warnings. */

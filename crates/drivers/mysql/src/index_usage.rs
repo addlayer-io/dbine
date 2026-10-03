@@ -59,11 +59,16 @@
 //! FLUSH INDEX_STATISTICS, userstat enabled later), which the note says. Size: InnoDB's `mysql.innodb_index_stats` (`size`
 //! pages × `innodb_page_size`, partitions summed; persistent statistics,
 //! as of the last ANALYZE), where the login can read it.
+//!
+//! Disabled indexes (`IndexUsage::disabled`): `SHOW INDEX`'s `Visible = NO`
+//! (MySQL 8.0+, TiDB, OceanBase: invisible) or `Ignored = YES` (MariaDB
+//! 10.6+: ignored). Servers without the column report none. Toggling them
+//! is `toggle_script`.
 
 use crate::session::{lit, named, MySqlSession};
 use crate::{err, Variant};
 use dbine_driver::sql::{quote_ident, Quote};
-use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, Session};
+use dbine_driver::{Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, Session, SyncScript};
 use mysql_async::prelude::Queryable;
 use mysql_async::Row;
 use std::collections::HashMap;
@@ -78,12 +83,62 @@ fn db_expr(table: &ObjectRef) -> String {
     table.schema().map_or_else(|| "DATABASE()".to_string(), lit)
 }
 
-pub(crate) fn show_index_sql(table: &ObjectRef) -> String {
+/// The table's name, qualified with its database when the ref has one.
+fn table_sql(table: &ObjectRef) -> String {
     let t = quote_ident(Quote::Backtick, &table.name);
     match table.schema() {
-        Some(s) => format!("SHOW INDEX FROM {}.{t}", quote_ident(Quote::Backtick, s)),
-        None => format!("SHOW INDEX FROM {t}"),
+        Some(s) => format!("{}.{t}", quote_ident(Quote::Backtick, s)),
+        None => t,
     }
+}
+
+pub(crate) fn show_index_sql(table: &ObjectRef) -> String {
+    format!("SHOW INDEX FROM {}", table_sql(table))
+}
+
+/// Engines that take an index out of the optimizer's hands while keeping
+/// it maintained: MySQL 8.0+ (Aurora, Cloud SQL), TiDB and OceanBase
+/// (`INVISIBLE`), MariaDB 10.6+ (`IGNORED`). The others have no such
+/// switch: SingleStore, StarRocks, Doris / VeloDB, Databend and GreptimeDB
+/// only drop and recreate, Manticore has no indexes to list.
+pub(crate) fn toggle_supported(v: Variant) -> bool {
+    matches!(v, Variant::MySql | Variant::MariaDb | Variant::TiDb | Variant::OceanBase)
+}
+
+pub(crate) const TOGGLE_MAINTAINED: &str = "El índice se sigue manteniendo en cada escritura; el optimizador deja de usarlo.";
+pub(crate) const TOGGLE_HINTS: &str = "Las consultas que lo nombran en FORCE INDEX, USE INDEX o IGNORE INDEX fallan mientras esté deshabilitado.";
+pub(crate) const TOGGLE_UNIQUE: &str = "Sigue haciendo cumplir la unicidad aunque el optimizador no lo use.";
+pub(crate) const TOGGLE_IMPLICIT_PK: &str = "Si la tabla no tiene clave primaria, el primer índice UNIQUE sobre columnas NOT NULL hace de clave primaria implícita y el servidor no deja deshabilitarlo.";
+
+/// `ALTER TABLE … ALTER INDEX …` that hides `index` from the optimizer
+/// (`enable` false) or gives it back. The primary key can't be hidden on
+/// any of these engines; an implicit one (the first NOT NULL unique key of
+/// a table without a primary key) isn't visible from `IndexUsage`, so a
+/// unique index gets a warning and the server has the last word.
+pub(crate) fn toggle_script(v: Variant, table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+    if !toggle_supported(v) {
+        return Err(Error::Unsupported("este motor no deshabilita índices".into()));
+    }
+    if index.primary_key || index.name.eq_ignore_ascii_case("PRIMARY") {
+        return Err(Error::Unsupported("la clave primaria no se puede deshabilitar".into()));
+    }
+    let state = match (v, enable) {
+        (Variant::MariaDb, false) => "IGNORED",
+        (Variant::MariaDb, true) => "NOT IGNORED",
+        (_, false) => "INVISIBLE",
+        (_, true) => "VISIBLE",
+    };
+    let statement = format!("ALTER TABLE {} ALTER INDEX {} {state}", table_sql(table), quote_ident(Quote::Backtick, &index.name));
+    let mut warnings = Vec::new();
+    if !enable {
+        warnings.push(TOGGLE_MAINTAINED.to_string());
+        warnings.push(TOGGLE_HINTS.to_string());
+        if index.unique {
+            warnings.push(TOGGLE_UNIQUE.to_string());
+            warnings.push(TOGGLE_IMPLICIT_PK.to_string());
+        }
+    }
+    Ok(SyncScript { statements: vec![statement], warnings })
 }
 
 pub(crate) fn foreign_keys_sql(table: &ObjectRef) -> String {
@@ -207,6 +262,8 @@ pub(crate) struct KeyPart {
     pub kind: Option<String>,
     /// TiDB: the clustered primary key (the row handle).
     pub clustered: bool,
+    /// Invisible (`Visible = NO`) or ignored (MariaDB: `Ignored = YES`).
+    pub disabled: bool,
 }
 
 /// A `SHOW INDEX` row through `get` (a cell by any of its column names).
@@ -232,6 +289,8 @@ pub(crate) fn key_part(get: &dyn Fn(&[&str]) -> Option<String>) -> Option<KeyPar
         unique: get(&["Non_unique", "NON_UNIQUE"]).is_some_and(|n| n == "0"),
         kind,
         clustered: get(&["Clustered"]).is_some_and(|c| c.eq_ignore_ascii_case("YES")),
+        disabled: get(&["Visible", "IS_VISIBLE"]).is_some_and(|c| c.eq_ignore_ascii_case("NO"))
+            || get(&["Ignored", "IGNORED"]).is_some_and(|c| c.eq_ignore_ascii_case("YES")),
     })
 }
 
@@ -293,6 +352,7 @@ pub(crate) fn assemble(parts: &[KeyPart], usage: Option<&Usage>, sizes: Option<&
                 scans: c.scans + if primary_key { usage.map_or(0, |u| u.table_scans) } else { 0 },
                 updates: if handle { 0 } else { usage.map_or(0, |u| u.writes) },
                 last_read: c.last_read,
+                disabled: first.disabled,
                 ..Default::default()
             }
         })
@@ -719,6 +779,54 @@ mod tests {
         let p = row(&[("Key_name", "ix_bm"), ("Seq_in_index", "1"), ("Column_name", "k"), ("Index_type", "BITMAP")]);
         let out = assemble(&[p], None, None);
         assert_eq!((out[0].kind.as_str(), out[0].unique, out[0].key_columns.clone()), ("BITMAP", false, vec!["k".to_string()]));
+    }
+
+    #[test]
+    fn disabled_indexes_from_show_index() {
+        let parts = vec![
+            // MySQL 8.0 / TiDB / OceanBase: Visible.
+            row(&[("Key_name", "PRIMARY"), ("Seq_in_index", "1"), ("Column_name", "id"), ("Non_unique", "0"), ("Visible", "YES")]),
+            row(&[("Key_name", "ix_hidden"), ("Seq_in_index", "1"), ("Column_name", "a"), ("Non_unique", "1"), ("Visible", "NO")]),
+            // MariaDB 10.6+: Ignored.
+            row(&[("Key_name", "ix_ignored"), ("Seq_in_index", "1"), ("Column_name", "b"), ("Non_unique", "1"), ("Ignored", "YES")]),
+            row(&[("Key_name", "ix_used"), ("Seq_in_index", "1"), ("Column_name", "c"), ("Non_unique", "1"), ("Ignored", "NO")]),
+            // MySQL 5.7, MariaDB before 10.6: no such column.
+            row(&[("Key_name", "ix_old"), ("Seq_in_index", "1"), ("Column_name", "d"), ("Non_unique", "1")]),
+        ];
+        let out = assemble(&parts, None, None);
+        assert_eq!(out.iter().map(|i| i.disabled).collect::<Vec<_>>(), [false, true, true, false, false]);
+    }
+
+    #[test]
+    fn toggle_scripts_per_engine() {
+        let x = t(Some("shop"), "or`ders");
+        let ix = IndexUsage { name: "ix_fecha".into(), kind: "BTREE".into(), ..Default::default() };
+        for v in [Variant::MySql, Variant::TiDb, Variant::OceanBase] {
+            let off = toggle_script(v, &x, &ix, false).unwrap();
+            assert_eq!(off.statements, ["ALTER TABLE `shop`.`or``ders` ALTER INDEX `ix_fecha` INVISIBLE"], "{v:?}");
+            assert_eq!(off.warnings, [TOGGLE_MAINTAINED, TOGGLE_HINTS]);
+            let on = toggle_script(v, &x, &ix, true).unwrap();
+            assert_eq!(on.statements, ["ALTER TABLE `shop`.`or``ders` ALTER INDEX `ix_fecha` VISIBLE"], "{v:?}");
+            assert!(on.warnings.is_empty());
+        }
+        let maria = toggle_script(Variant::MariaDb, &t(None, "t"), &ix, false).unwrap();
+        assert_eq!(maria.statements, ["ALTER TABLE `t` ALTER INDEX `ix_fecha` IGNORED"]);
+        assert_eq!(toggle_script(Variant::MariaDb, &t(None, "t"), &ix, true).unwrap().statements, ["ALTER TABLE `t` ALTER INDEX `ix_fecha` NOT IGNORED"]);
+
+        // A unique key: still enforced, and maybe the implicit primary key.
+        let uq = IndexUsage { name: "uq_codigo".into(), unique: true, ..Default::default() };
+        let w = toggle_script(Variant::MySql, &x, &uq, false).unwrap().warnings;
+        assert_eq!(w, [TOGGLE_MAINTAINED, TOGGLE_HINTS, TOGGLE_UNIQUE, TOGGLE_IMPLICIT_PK]);
+
+        // The primary key, and the engines without the switch.
+        let pk = IndexUsage { name: "PRIMARY".into(), primary_key: true, unique: true, ..Default::default() };
+        for enable in [false, true] {
+            assert!(matches!(toggle_script(Variant::MySql, &x, &pk, enable), Err(Error::Unsupported(m)) if m.contains("clave primaria")));
+        }
+        for v in [Variant::SingleStore, Variant::StarRocks, Variant::Doris, Variant::VeloDb, Variant::Databend, Variant::GreptimeDb, Variant::Manticore] {
+            assert!(!toggle_supported(v), "{v:?}");
+            assert!(matches!(toggle_script(v, &x, &ix, false), Err(Error::Unsupported(_))), "{v:?}");
+        }
     }
 
     #[test]

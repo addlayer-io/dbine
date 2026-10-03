@@ -458,6 +458,15 @@ impl Driver for FirebirdDriver {
         schema::sync_script(changes)
     }
 
+    /// `ALTER INDEX … INACTIVE` / `ACTIVE` (see [`index_usage::toggle_script`]).
+    fn supports_index_toggle(&self) -> bool {
+        true
+    }
+
+    fn index_toggle_script(&self, _table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+        index_usage::toggle_script(index, enable)
+    }
+
     /// INSERTs of many rows per `EXECUTE BLOCK` (see `transfer`).
     fn supports_bulk_load(&self) -> bool {
         true

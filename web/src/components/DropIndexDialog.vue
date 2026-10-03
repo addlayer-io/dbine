@@ -7,7 +7,7 @@ import type { SyncScript } from '../api/compare';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
-import { dropIndexScript, indexUsageOf, runDropIndex, type DropIndexTarget } from '../composables/dropIndex';
+import { dropIndexScript, indexUsageOf, runDropIndex, toggleIndexScript, type DropIndexTarget } from '../composables/dropIndex';
 import { indexUsageEntry, sharePct } from '../composables/indexUsage';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
@@ -23,13 +23,18 @@ const props = defineProps<{ target: DropIndexTarget }>();
 const emit = defineEmits<{ close: [] }>();
 const { t } = useTranslation();
 
+// "Deshabilitar / Habilitar índice…" use the same dialog: their texts live
+// under explorer:indexes.disable / .enable, the script comes from the engine.
+const mode = computed(() => props.target.mode ?? 'drop');
+const k = (key: string) => `explorer:indexes.${mode.value}.${key}`;
+
 const qualified = computed(() => (props.target.table.schema ? `${props.target.table.schema}.${props.target.table.name}` : props.target.table.name));
 
 const num = (n: number) => n.toLocaleString(locale());
 const usageLine = computed(() => {
   const report = indexUsageEntry(props.target.connectionId, props.target.database, props.target.table)?.report;
   const i = indexUsageOf(props.target);
-  if (!i || !report?.stats_available) return null;
+  if (!i || !report?.stats_available || mode.value === 'enable') return null;
   if (i.unused) return t('explorer:indexes.drop.usageUnused', { writes: num(i.updates) });
   if (i.read_share == null) return t('explorer:indexes.drop.usageNone');
   return t('explorer:indexes.drop.usageShare', { share: sharePct(i.read_share), seeks: num(i.seeks), scans: num(i.scans), lookups: num(i.lookups) });
@@ -58,7 +63,7 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   try {
-    script.value = await dropIndexScript(props.target);
+    script.value = mode.value === 'drop' ? await dropIndexScript(props.target) : await toggleIndexScript(props.target);
   } catch (e) {
     scriptError.value = errorMessage(e);
   }
@@ -71,7 +76,7 @@ async function copyScript() {
   } catch { /* no clipboard */ }
 }
 function openInQuery() {
-  newQuery(props.target.connectionId, props.target.database, text.value, t('explorer:indexes.drop.scriptName', { name: props.target.index }));
+  newQuery(props.target.connectionId, props.target.database, text.value, t(k('scriptName'), { name: props.target.index }));
   emit('close');
 }
 
@@ -89,7 +94,7 @@ async function run() {
   let settled = false;
   const current = task = startTask({
     kind: 'drop-index',
-    title: t('tasks:dialogs.dropIndex', { name: target.index, table: qualified.value }),
+    title: t(mode.value === 'drop' ? 'tasks:dialogs.dropIndex' : k('task'), { name: target.index, table: qualified.value }),
     connectionId: target.connectionId, database: target.database,
     cancel: () => {
       const send = () => api.cancelQuery(`sync:${runId}`).catch(() => {});
@@ -121,19 +126,19 @@ async function run() {
     if (current.isCancelling) current.cancelled(); else current.fail(error);
     return;
   }
-  current.finish(undefined, t('explorer:indexes.drop.done'));
+  current.finish(undefined, t(k('done')));
   if (!alive) return;
-  ElMessage.success(t('explorer:indexes.drop.done'));
+  ElMessage.success(t(k('done')));
   emit('close');
 }
 </script>
 
 <template>
   <el-dialog
-    :model-value="true" width="600px" append-to-body :title="$t('explorer:indexes.drop.title', { name: target.index })"
+    :model-value="true" width="600px" append-to-body :title="$t(k('title'), { name: target.index })"
     :close-on-click-modal="false" :close-on-press-escape="!running" :show-close="!running" @close="emit('close')"
   >
-    <p class="di-p">{{ $t('explorer:indexes.drop.intro', { name: target.index, table: qualified }) }}</p>
+    <p class="di-p">{{ $t(k('intro'), { name: target.index, table: qualified }) }}</p>
     <p v-if="usageLine" class="di-p di-usage">{{ usageLine }}</p>
     <el-alert v-for="w in script?.warnings ?? []" :key="w" type="warning" :title="tb(w)" :closable="false" show-icon class="di-warn" />
 
@@ -149,7 +154,7 @@ async function run() {
         <span style="flex: 1" />
         <el-button v-if="running" @click="task?.background(); emit('close')">{{ $t('tasks:panel.background') }}</el-button>
         <el-button :disabled="cancelling" @click="cancel">{{ $t('common:cancel') }}</el-button>
-        <el-button type="danger" :loading="running" :disabled="!text || !!scriptError" @click="run">{{ $t('explorer:indexes.drop.run') }}</el-button>
+        <el-button :type="mode === 'enable' ? 'primary' : 'danger'" :loading="running" :disabled="!text || !!scriptError" @click="run">{{ $t(k('run')) }}</el-button>
       </div>
     </template>
   </el-dialog>

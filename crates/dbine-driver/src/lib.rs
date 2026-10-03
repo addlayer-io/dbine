@@ -96,6 +96,23 @@ pub trait Driver: Send + Sync {
         self.capabilities().foreign_keys || !dependencies::code_kinds(self.info()).is_empty()
     }
 
+    /// Indexes can be disabled and enabled again ([`Driver::index_toggle_script`]);
+    /// the explorer and the "Índices" tab offer "Deshabilitar índice…" /
+    /// "Habilitar índice…" on what [`Session::index_usage`] lists.
+    fn supports_index_toggle(&self) -> bool {
+        false
+    }
+
+    /// The statements that disable (`enable` false) or enable `index` of
+    /// `table`, in the driver's language, with what the user should know
+    /// first (a clustered index makes the table unreadable…). `index` is as
+    /// [`Session::index_usage`] reported it: what can't be disabled (a
+    /// primary key on most engines) is refused with [`Error::Unsupported`].
+    fn index_toggle_script(&self, table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
+        let _ = (table, index, enable);
+        Err(Error::Unsupported("este motor no deshabilita índices".into()))
+    }
+
     /// Its sessions implement [`Session::index_usage`]: the explorer lists a
     /// table's indexes with their usage, and "Índices…" opens the details.
     fn supports_index_usage(&self) -> bool {

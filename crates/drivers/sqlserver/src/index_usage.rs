@@ -23,12 +23,12 @@
 use crate::variant::Variant;
 use crate::{err, is_desync, text, SqlServerSession};
 use dbine_driver::sql::{qualified_name, Quote};
-use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result};
+use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, SyncScript};
 use std::collections::HashMap;
 use tiberius::Row;
 
 /// The table's indexes (no heap, no hypothetical ones). `@P1`: the table.
-pub(crate) const INDEXES_SQL: &str = "SELECT CAST(i.index_id AS int), i.name, i.type_desc, i.is_unique, i.is_primary_key, i.filter_definition
+pub(crate) const INDEXES_SQL: &str = "SELECT CAST(i.index_id AS int), i.name, i.type_desc, i.is_unique, i.is_primary_key, i.filter_definition, i.is_disabled
   FROM sys.indexes i
  WHERE i.object_id = OBJECT_ID(@P1) AND i.index_id > 0 AND i.is_hypothetical = 0
  ORDER BY i.index_id";
@@ -80,6 +80,7 @@ pub(crate) struct IndexRow {
     pub unique: bool,
     pub primary_key: bool,
     pub filter: Option<String>,
+    pub disabled: bool,
 }
 
 /// One `sys.index_columns` row.
@@ -137,6 +138,7 @@ pub(crate) fn assemble(indexes: &[IndexRow], columns: &[ColumnRow], usage: Optio
                 updates: u.updates,
                 last_read: u.last_read,
                 last_write: u.last_write,
+                disabled: ix.disabled,
                 ..Default::default()
             }
         })
@@ -220,6 +222,7 @@ pub(crate) async fn report(s: &mut SqlServerSession, table: &ObjectRef) -> Resul
             unique: flag(r, 3),
             primary_key: flag(r, 4),
             filter: text(r, 5),
+            disabled: flag(r, 6),
         })
         .collect();
     let columns: Vec<ColumnRow> = s
@@ -275,8 +278,21 @@ pub(crate) async fn report(s: &mut SqlServerSession, table: &ObjectRef) -> Resul
 mod tests {
     use super::*;
 
+    #[test]
+    fn toggle_scripts() {
+        let t = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "Pedidos".into() };
+        let nc = IndexUsage { name: "IX_Fecha".into(), kind: "NONCLUSTERED".into(), ..Default::default() };
+        let off = toggle_script(&t, &nc, false);
+        assert_eq!(off.statements, ["ALTER INDEX [IX_Fecha] ON [dbo].[Pedidos] DISABLE"]);
+        assert_eq!(off.warnings.len(), 1);
+        assert_eq!(toggle_script(&t, &nc, true).statements, ["ALTER INDEX [IX_Fecha] ON [dbo].[Pedidos] REBUILD"]);
+        let pk = IndexUsage { name: "PK_Pedidos".into(), kind: "CLUSTERED".into(), primary_key: true, unique: true, ..Default::default() };
+        let w = toggle_script(&t, &pk, false).warnings;
+        assert!(w[0].contains("clustered") && w[1].contains("claves foráneas"), "{w:?}");
+    }
+
     fn ix(id: i32, name: &str, kind: &str) -> IndexRow {
-        IndexRow { id, name: name.into(), kind: kind.into(), unique: false, primary_key: false, filter: None }
+        IndexRow { id, name: name.into(), kind: kind.into(), unique: false, primary_key: false, filter: None, disabled: false }
     }
 
     fn col(index: i32, name: &str, included: bool, descending: bool, key_ordinal: i32) -> ColumnRow {
@@ -468,4 +484,29 @@ mod tests {
         assert!(usage_note(Variant::AzureSql).contains("VIEW DATABASE STATE"));
         assert!(usage_note(Variant::Babelfish).contains("Babelfish"));
     }
+}
+
+/// "Deshabilitar / Habilitar índice": `ALTER INDEX … DISABLE` and
+/// `ALTER INDEX … REBUILD` (enabling a disabled index rebuilds it whole).
+pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool) -> SyncScript {
+    let owner = qualified_name(Quote::Bracket, table.schema(), &table.name);
+    let name = dbine_driver::sql::quote_ident(Quote::Bracket, &index.name);
+    let kind = index.kind.to_uppercase();
+    let clustered = kind.contains("CLUSTERED") && !kind.contains("NONCLUSTERED");
+    let mut warnings = Vec::new();
+    if enable {
+        warnings.push("Habilitar un índice deshabilitado lo reconstruye entero (REBUILD): en una tabla grande tarda y la bloquea mientras tanto.".to_string());
+        if index.primary_key || index.unique {
+            warnings.push("Las claves foráneas que se deshabilitaron con este índice siguen deshabilitadas: hay que habilitarlas aparte (ALTER TABLE … WITH CHECK CHECK CONSTRAINT).".to_string());
+        }
+    } else {
+        if clustered {
+            warnings.push("Es el índice clustered: mientras esté deshabilitado no se puede leer ni escribir la tabla.".to_string());
+        }
+        if index.primary_key || index.unique {
+            warnings.push("Las claves foráneas que apuntan a este índice también se deshabilitan, y no vuelven solas al habilitarlo.".to_string());
+        }
+        warnings.push("SQL Server deja de mantenerlo y libera su espacio: para volver a usarlo hay que reconstruirlo.".to_string());
+    }
+    SyncScript { statements: vec![format!("ALTER INDEX {name} ON {owner} {}", if enable { "REBUILD" } else { "DISABLE" })], warnings }
 }

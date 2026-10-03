@@ -98,6 +98,18 @@ impl Driver for SqlServerDriver {
         self.variant != Variant::Fabric
     }
 
+    /// Fabric has no indexes; Babelfish doesn't take `ALTER INDEX … DISABLE`.
+    fn supports_index_toggle(&self) -> bool {
+        !matches!(self.variant, Variant::Fabric | Variant::Babelfish)
+    }
+
+    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
+        if !self.supports_index_toggle() {
+            return Err(dbine_driver::Error::Unsupported("este motor no deshabilita índices".into()));
+        }
+        Ok(index_usage::toggle_script(table, index, enable))
+    }
+
     fn supports_profiler(&self) -> bool {
         true
     }

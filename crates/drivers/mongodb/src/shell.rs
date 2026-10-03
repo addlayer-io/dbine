@@ -923,6 +923,16 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
             };
             stmt(doc! { "dropIndexes": coll, "index": index }, Shape::Reply)
         }
+        // db.c.hideIndex(name | keys) / unhideIndex(…): `collMod` (MongoDB 4.4+).
+        "hideIndex" | "unhideIndex" => {
+            let mut index = match a.next() {
+                Some(Value::String(s)) => doc! { "name": s },
+                Some(v @ Value::Object(_)) => doc! { "keyPattern": to_doc(v)? },
+                _ => return Err(format!("{method} necesita el nombre o las claves del índice")),
+            };
+            index.insert("hidden", method == "hideIndex");
+            stmt(doc! { "collMod": coll, "index": index }, Shape::Reply)
+        }
         other => return Err(format!("método no soportado: db.{coll}.{other}()")),
     })
 }
@@ -999,6 +1009,16 @@ mod tests {
         let mut v = parse_script(s).unwrap();
         assert_eq!(v.len(), 1, "{v:?}");
         v.remove(0)
+    }
+
+    #[test]
+    fn hide_and_unhide_index() {
+        let h = one(r#"db.getCollection("pedidos").hideIndex("ix_a")"#);
+        assert_eq!(h.cmd, doc! { "collMod": "pedidos", "index": { "name": "ix_a", "hidden": true } });
+        assert_eq!(write_reason(&h.cmd).as_deref(), Some("collMod"));
+        let u = one("db.pedidos.unhideIndex({ a: 1, b: -1 })");
+        assert_eq!(u.cmd, doc! { "collMod": "pedidos", "index": { "keyPattern": { "a": 1, "b": -1 }, "hidden": false } });
+        assert!(parse_script("db.pedidos.hideIndex()").is_err());
     }
 
     #[test]

@@ -507,6 +507,9 @@ impl Driver for RemoteDriver {
     fn supports_index_usage(&self) -> bool {
         self.meta.supports_index_usage
     }
+    fn supports_index_toggle(&self) -> bool {
+        self.meta.supports_index_toggle
+    }
     fn key_search(&self) -> Option<KeySearch> {
         self.meta.key_search.clone()
     }
@@ -602,6 +605,12 @@ impl Driver for RemoteDriver {
     }
     fn sync_script(&self, changes: &[TableChange]) -> Result<SyncScript> {
         match self.blocking(Call::SyncScript { driver: self.id(), changes: changes.to_vec() })? {
+            Reply::Sync(s) => Ok(s),
+            _ => Err(unexpected()),
+        }
+    }
+    fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<SyncScript> {
+        match self.blocking(Call::IndexToggleScript { driver: self.id(), table: table.clone(), index: index.clone(), enable })? {
             Reply::Sync(s) => Ok(s),
             _ => Err(unexpected()),
         }
