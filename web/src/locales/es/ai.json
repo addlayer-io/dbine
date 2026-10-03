@@ -5,7 +5,8 @@
   "head": {
     "setup": "Modelos y proveedores",
     "newChat": "Nueva conversación",
-    "close": "Cerrar (⌘I)"
+    "close": "Cerrar (⌘I)",
+    "history": "Historial"
   },
   "context": {
     "noDatabase": "Sin base seleccionada",
@@ -71,5 +72,16 @@
   "better": {
     "text": "Tu equipo puede usar un modelo más grande: {{model}}. Entiende mejor los pedidos difíciles y se equivoca menos en el SQL.",
     "dismiss": "Ahora no"
+  },
+  "history": {
+    "title": "Conversaciones anteriores",
+    "empty": "Todavía no hay conversaciones anteriores: «Nueva conversación» guarda la actual acá.",
+    "untitled": "(sin título)",
+    "messages_one": "{{count}} mensaje",
+    "messages_other": "{{count}} mensajes",
+    "messages_many": "{{count}} mensajes",
+    "delete": "Borrar esta conversación",
+    "clear": "Borrar historial",
+    "clearConfirm": "Se borran todas las conversaciones anteriores. La actual no se toca."
   }
 }

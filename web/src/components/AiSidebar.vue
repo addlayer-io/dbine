@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { tb } from '../i18n/backend';
@@ -27,6 +27,25 @@ onMounted(() => ai.init());
 const input = ref('');
 const list = ref<HTMLElement | null>(null);
 const showSetup = ref(false);
+// "Historial": past conversations ("Nueva conversación" archives the current one).
+const showHistory = ref(false);
+function toggleHistory() {
+  showHistory.value = !showHistory.value;
+  if (showHistory.value) { showSetup.value = false; ai.loadHistory(); }
+}
+function openChat(id: string) {
+  ai.restore(id);
+  showHistory.value = false;
+}
+function when(ms: number) {
+  return new Date(ms).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' });
+}
+async function clearHistory() {
+  try {
+    await ElMessageBox.confirm(t('ai:history.clearConfirm'), t('ai:history.clear'), { type: 'warning', confirmButtonText: t('ai:history.clear'), cancelButtonText: t('common:cancel') });
+  } catch { return; }
+  ai.clearHistory();
+}
 
 const provider = computed(() => ai.provider);
 const needsSetup = computed(() => !!ai.detect && !provider.value);
@@ -230,13 +249,29 @@ const phaseText = computed(() => ({
         </el-option-group>
       </el-select>
       <div style="flex: 1" />
-      <button class="ai-icon" :title="$t('ai:head.setup')" :class="{ on: showSetup }" @click="showSetup = !showSetup"><el-icon><ei-setting /></el-icon></button>
+      <button class="ai-icon" :title="$t('ai:head.history')" :class="{ on: showHistory }" @click="toggleHistory"><el-icon><ei-clock /></el-icon></button>
+      <button class="ai-icon" :title="$t('ai:head.setup')" :class="{ on: showSetup }" @click="showSetup = !showSetup; showHistory = false"><el-icon><ei-setting /></el-icon></button>
       <button class="ai-icon" :title="$t('ai:head.newChat')" :disabled="!!ai.running || !ai.messages.length" @click="ai.clear()"><el-icon><ei-document-add /></el-icon></button>
       <button class="ai-icon" :title="$t('ai:head.close')" @click="$emit('close')"><el-icon><ei-close /></el-icon></button>
     </header>
 
     <!-- Setup: no provider, or asked for -->
-    <section v-if="needsSetup || showSetup || !ai.detect" class="ai-setup">
+    <section v-if="showHistory" class="ai-history">
+      <div class="ai-history-head">
+        <strong>{{ $t('ai:history.title') }}</strong>
+        <el-button v-if="ai.history.length" size="small" text @click="clearHistory">{{ $t('ai:history.clear') }}</el-button>
+      </div>
+      <p v-if="!ai.history.length" class="ai-muted">{{ $t('ai:history.empty') }}</p>
+      <div v-for="c in ai.history" :key="c.id" class="ai-chat-row" :class="{ disabled: !!ai.running }" @click="!ai.running && openChat(c.id)">
+        <div class="ai-chat-main">
+          <span class="ai-chat-title">{{ c.title || $t('ai:history.untitled') }}</span>
+          <span class="ai-muted ai-small">{{ when(c.updated) }} · {{ $t('ai:history.messages', { count: c.messages.length }) }}</span>
+        </div>
+        <button class="ai-icon" :title="$t('ai:history.delete')" @click.stop="ai.deleteChat(c.id)"><el-icon><ei-delete /></el-icon></button>
+      </div>
+    </section>
+
+    <section v-else-if="needsSetup || showSetup || !ai.detect" class="ai-setup">
       <div v-if="!ai.detect" class="ai-muted"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('ai:setup.detecting') }}</div>
       <template v-else>
         <p v-if="needsSetup" class="ai-lead">
@@ -280,7 +315,7 @@ const phaseText = computed(() => ({
     </section>
 
     <!-- Conversation -->
-    <template v-if="provider && !showSetup">
+    <template v-if="provider && !showSetup && !showHistory">
       <div class="ai-context">
         <span :title="contextLine">{{ contextLine }}</span>
         <el-checkbox :model-value="ai.includeSchema" size="small" @update:model-value="(v: unknown) => ai.setIncludeSchema(!!v)">{{ $t('ai:context.schema') }}</el-checkbox>
@@ -387,6 +422,13 @@ const phaseText = computed(() => ({
 .ai-context > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-privacy { display: flex; align-items: center; gap: 5px; padding: 4px 10px; font-size: 11px; color: var(--nm-text-dim); }
 .ai-privacy.local { color: var(--nm-success); }
+.ai-history { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.ai-history-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ai-chat-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
+.ai-chat-row:hover { background: var(--ide-hover, color-mix(in srgb, var(--nm-text) 8%, transparent)); }
+.ai-chat-row.disabled { cursor: default; opacity: 0.6; }
+.ai-chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ai-chat-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nm-text-strong); font-size: 12.5px; }
 .ai-better { margin: 4px 10px 6px; padding: 8px 10px; border: 1px solid var(--nm-border); border-radius: 6px; font-size: 12px; color: var(--nm-text); display: flex; flex-direction: column; gap: 6px; }
 .ai-better-acts { display: flex; gap: 6px; }
 .ai-better-acts .el-button { margin: 0; }
