@@ -84,6 +84,13 @@
     "stay": "Continua a lavorare",
     "window": "{{title}} (finestra {{n}})"
   },
+  "update": {
+    "title": "Esecuzioni in background",
+    "message_one": "C'è {{count}} esecuzione in background: {{list}}. Per completare l'aggiornamento DBine si riavvia e verrà annullata. Vuoi riavviare comunque?",
+    "message_other": "Ci sono {{count}} esecuzioni in background: {{list}}. Per completare l'aggiornamento DBine si riavvia e verranno annullate. Vuoi riavviare comunque?",
+    "confirm": "Annulla e riavvia",
+    "stay": "Continua a lavorare"
+  },
   "closeWindow": {
     "title": "Esecuzioni in questa finestra",
     "message_one": "C'è {{count}} esecuzione in background in questa finestra: {{list}}. Se chiudi la finestra verrà annullata. Vuoi chiuderla comunque?",

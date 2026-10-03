@@ -3,7 +3,7 @@ import { ElMessageBox } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { t } from '../i18n';
-import { windowApi } from '../api/client';
+import { api, windowApi } from '../api/client';
 import { SETTLE_MS, useTasksStore } from '../stores/tasks';
 import { useTabsStore } from '../stores/tabs';
 import { initWindowRole, refreshWindowRole } from './windowRole';
@@ -17,6 +17,10 @@ import { initWindowRole, refreshWindowRole } from './windowRole';
 // It asks once about the running tasks of every window; on "Cancelar y
 // cerrar" it asks every window to cancel theirs, waits a little for them to
 // settle and quits anyway. `quit_app` saves the window state and exits.
+//
+// Restarting to finish an update (`requestUpdateRestart`, from the update
+// dialog) is a quit too: it asks once about every window's tasks, cancels
+// them and then lets the backend install the update and relaunch.
 //
 // Closing one window while others stay (`requestCloseWindow`) asks only
 // about this window's tasks, cancels them, ends its tabs' sessions and
@@ -64,7 +68,7 @@ async function runningEverywhere(): Promise<Running[]> {
 }
 
 /** Ask before stopping running work; true to go ahead. */
-async function confirmStop(prefix: 'quit' | 'closeWindow', titles: string[]): Promise<boolean> {
+async function confirmStop(prefix: 'quit' | 'closeWindow' | 'update', titles: string[]): Promise<boolean> {
   const count = titles.length;
   if (!count) return true;
   const list = titles.join(', ');
@@ -152,16 +156,19 @@ async function exclusive(flow: () => Promise<void>) {
   }
 }
 
+/** The running tasks' titles; with several windows, each says which one it's in. */
+async function titlesEverywhere(running: Running[]): Promise<string[]> {
+  const { windowCount } = await refreshWindowRole();
+  return windowCount > 1 || new Set(running.map((x) => x.label)).size > 1
+    ? running.map((x) => t('tasks:quit.window', { title: x.title, n: windowNumber(x.label) }))
+    : running.map((x) => x.title);
+}
+
 /** Asks about every window's tasks and quits. */
 async function quitFlow() {
   try {
     const running = await runningEverywhere();
-    const { windowCount } = await refreshWindowRole();
-    // With several windows, say which one each task is in.
-    const titles = windowCount > 1 || new Set(running.map((x) => x.label)).size > 1
-      ? running.map((x) => t('tasks:quit.window', { title: x.title, n: windowNumber(x.label) }))
-      : running.map((x) => x.title);
-    if (!(await confirmStop('quit', titles))) return;
+    if (!(await confirmStop('quit', await titlesEverywhere(running)))) return;
     if (running.length) await cancelEverywhereAndSettle();
     await exitApp();
   } catch {
@@ -172,6 +179,25 @@ async function quitFlow() {
 /** The single way to quit (menu, ⌘Q, the last window's close button, the OS's quit request). */
 export function requestQuit(): Promise<void> {
   return exclusive(quitFlow);
+}
+
+/** Install the downloaded update and relaunch, after asking about every
+ *  window's running tasks (and cancelling them). Resolves without doing
+ *  anything when the user stays or another window's prompt is open; throws
+ *  the backend's error when the install fails (the app stays open). */
+export async function requestUpdateRestart(): Promise<void> {
+  const failures: unknown[] = [];
+  await exclusive(async () => {
+    const running = await runningEverywhere();
+    if (!(await confirmStop('update', await titlesEverywhere(running)))) return;
+    if (running.length) await cancelEverywhereAndSettle();
+    try {
+      await api.updateInstallAndRestart();
+    } catch (e) {
+      failures.push(e);
+    }
+  });
+  if (failures.length) throw failures[0];
 }
 
 /** This window's close button: closes only this window, or quits when it's

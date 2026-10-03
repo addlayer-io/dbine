@@ -4,13 +4,31 @@
     "text": "Versión {{latest}} disponible. Tenés la {{current}}.",
     "skip": "Omitir esta versión",
     "later": "Más tarde",
-    "download": "Descargar"
+    "download": "Descargar",
+    "updateNow": "Actualizar ahora",
+    "downloading": "Descargando DBine {{latest}}…",
+    "progress": "{{done}} de {{total}}",
+    "progressUnknown": "{{done}} descargados",
+    "verifying": "Verificando la firma…",
+    "cancel": "Cancelar",
+    "readyTitle": "DBine {{latest}} está lista",
+    "ready": "La actualización está descargada y verificada. Reiniciá DBine para terminar de instalarla.",
+    "restart": "Reiniciar para terminar",
+    "failedTitle": "No se pudo actualizar DBine",
+    "failed": "Podés descargar la nueva versión desde su página.",
+    "openPage": "Abrir la página de descarga",
+    "close": "Cerrar"
+  },
+  "reason": {
+    "package": "Instalaste DBine con un paquete del sistema: descargá la nueva versión desde su página.",
+    "location": "Mové DBine a Aplicaciones para que se actualice sola."
   },
   "settings": {
     "installed": "Versión instalada: {{version}}",
-    "help": "DBine se fija solo al abrirse. Las actualizaciones se descargan desde la página de la versión.",
+    "help": "DBine se fija sola al abrirse si hay una versión nueva, y se actualiza desde ahí.",
     "check": "Buscar actualizaciones"
   },
-  "upToDate": "Tenés la última versión ({{version}}).",
+  "upToDate": "Estás en la última versión ({{version}}).",
+  "busyInWindow": "La actualización está en curso en la ventana {{n}}.",
   "failed": "No se pudo buscar actualizaciones: {{error}}"
 }

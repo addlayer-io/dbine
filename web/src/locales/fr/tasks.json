@@ -84,6 +84,13 @@
     "stay": "Continuer à travailler",
     "window": "{{title}} (fenêtre {{n}})"
   },
+  "update": {
+    "title": "Exécutions en arrière-plan",
+    "message_one": "Il y a {{count}} exécution en arrière-plan : {{list}}. Pour terminer la mise à jour, DBine redémarre et elle sera annulée. Redémarrer quand même ?",
+    "message_other": "Il y a {{count}} exécutions en arrière-plan : {{list}}. Pour terminer la mise à jour, DBine redémarre et elles seront annulées. Redémarrer quand même ?",
+    "confirm": "Annuler et redémarrer",
+    "stay": "Continuer à travailler"
+  },
   "closeWindow": {
     "title": "Exécutions dans cette fenêtre",
     "message_one": "Il y a {{count}} exécution en arrière-plan dans cette fenêtre : {{list}}. Si vous fermez la fenêtre, elle sera annulée. La fermer quand même ?",

@@ -19408,6 +19408,12 @@
  "la SGA (V$SGAINFO)": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
+ "la actualización todavía no se descargó": [
+  "src-tauri/src/commands/updates.rs"
+ ],
+ "la actualización ya se está descargando": [
+  "src-tauri/src/commands/updates.rs"
+ ],
  "la app cerró el canal": [
   "crates/dbine-plugin/src/host.rs"
  ],
@@ -19788,6 +19794,9 @@
   "crates/drivers/phoenix/src/transfer.rs",
   "crates/drivers/solr/src/transfer.rs",
   "crates/drivers/tdengine/src/transfer.rs"
+ ],
+ "la firma de la actualización no es válida": [
+  "src-tauri/src/commands/updates.rs"
  ],
  "la fracción de segundo no es válida": [
   "crates/drivers/hana/src/transfer.rs"
@@ -20596,6 +20605,9 @@
   "src-tauri/src/commands/data_compare.rs",
   "src-tauri/src/commands/security.rs"
  ],
+ "no hay ninguna actualización para descargar": [
+  "src-tauri/src/commands/updates.rs"
+ ],
  "no hay ninguna conexión «{0}» disponible por MCP (list_connections muestra las que hay)": [
   "src-tauri/src/mcp/tools.rs"
  ],
@@ -20876,6 +20888,9 @@
  "no se pudo descargar el driver de {0}: {1}": [
   "crates/dbine-plugin/src/install.rs"
  ],
+ "no se pudo descargar la actualización: {0}": [
+  "src-tauri/src/commands/updates.rs"
+ ],
  "no se pudo descargar {0}: HTTP {1}": [
   "crates/dbine-ai/src/embedded.rs"
  ],
@@ -20938,6 +20953,9 @@
  ],
  "no se pudo instalar el motor de IA: {0}": [
   "crates/dbine-ai/src/embedded.rs"
+ ],
+ "no se pudo instalar la actualización: {0}": [
+  "src-tauri/src/commands/updates.rs"
  ],
  "no se pudo interpretar una fecha y hora con zona para pasarla a UTC": [
   "crates/drivers/bigquery/src/transfer.rs"

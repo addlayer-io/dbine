@@ -5,6 +5,8 @@ name: release
 # version is taken from the tag. A manual run (Actions → release → Run
 # workflow) builds everything and keeps the installers as workflow
 # artifacts, without publishing a release.
+# If the release already exists (created locally with `gh release create`,
+# which pushes the tag too), the tag run builds without publishing.
 
 on:
   push:
@@ -19,7 +21,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A release goes out by one path only (docs/actualizaciones.md): from CI
+  # or locally (`gh release create vX.Y.Z`, which also pushes the tag and
+  # starts this workflow). When the release already exists, it's a local
+  # one: CI only builds and keeps the installers as artifacts, so it never
+  # replaces the local packages or their latest.json.
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.route.outputs.publish }}
+    steps:
+      - id: route
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::Release $GITHUB_REF_NAME already exists (published locally): building without publishing."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: route
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -108,7 +135,7 @@ jobs:
       # there. A driver file is never replaced (its id is its version);
       # the index is.
       - name: Publish new driver versions
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: needs.route.outputs.publish == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,11 +146,29 @@ jobs:
           fi
           gh release upload drivers "index-${{ matrix.target }}.json" --clobber
 
+      # The app updates itself from latest.json (docs/actualizaciones.md):
+      # every installer it points at must be signed with the updater key.
+      # Without the key, stop instead of publishing unsigned updates.
+      - name: Updater signing key present
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEY" ] || [ -z "$PASSWORD" ]; then
+            echo "::error::Missing secrets TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD: updates can't be signed."
+            exit 1
+          fi
+
       - name: Build (and publish on tags)
         id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the updater bundles (.app.tar.gz, NSIS, AppImage) and
+          # their .sig files; the public key is in tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # Cloud sync app registrations (docs/sincronizacion.md); empty
           # when the secrets aren't set: the providers show as unavailable.
           DBINE_GOOGLE_CLIENT_ID: ${{ secrets.DBINE_GOOGLE_CLIENT_ID }}
@@ -131,8 +176,9 @@ jobs:
           DBINE_MICROSOFT_CLIENT_ID: ${{ secrets.DBINE_MICROSOFT_CLIENT_ID }}
         with:
           tauriScript: npx --yes @tauri-apps/cli@^2
-          args: --target ${{ matrix.target }} --features plugins
-          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          # tauri.updater.conf.json: also the signed updater packages.
+          args: --target ${{ matrix.target }} --features plugins --config src-tauri/tauri.updater.conf.json
+          tagName: ${{ needs.route.outputs.publish == 'true' && github.ref_name || '' }}
           releaseName: DBine ${{ github.ref_name }}
           releaseBody: |
             Instaladores de DBine ${{ github.ref_name }}.
@@ -150,17 +196,21 @@ jobs:
             - Los drivers de cada motor (salvo SQLite) se descargan la primera vez que te conectás.
           releaseDraft: false
           prerelease: false
+          # latest.json for the in-app updater, merged across the four
+          # jobs; Windows updates through the NSIS installer.
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
 
-      - name: Keep drivers as artifacts (manual runs)
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+      - name: Keep drivers as artifacts (manual runs and local releases)
+        if: ${{ needs.route.outputs.publish != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: dbine-drivers-${{ matrix.name }}
           path: driver-hosts/
           if-no-files-found: error
 
-      - name: Keep installers as artifacts (manual runs)
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+      - name: Keep installers as artifacts (manual runs and local releases)
+        if: ${{ needs.route.outputs.publish != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: dbine-${{ matrix.name }}

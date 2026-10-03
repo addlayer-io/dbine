@@ -33,6 +33,10 @@ dbine-schema = { path = "../crates/dbine-schema" }
 dbine-transfer = { path = "../crates/dbine-transfer" }
 dbine-ai = { path = "../crates/dbine-ai" }
 tauri-plugin-opener = "2"
+# In-app updates (commands/updates.rs, docs/actualizaciones.md). Pinned to
+# 2.12: 2.13 needs tauri 2.12. Without `zip`: the updater bundles are the
+# NSIS installer, the AppImage and the macOS .app.tar.gz, none zipped.
+tauri-plugin-updater = { version = "~2.12", default-features = false, features = ["rustls-tls", "system-proxy"] }
 reqwest.workspace = true
 tokio.workspace = true
 serde.workspace = true

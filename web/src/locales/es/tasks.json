@@ -84,6 +84,13 @@
     "stay": "Seguir trabajando",
     "window": "{{title}} (ventana {{n}})"
   },
+  "update": {
+    "title": "Ejecuciones en segundo plano",
+    "message_one": "Hay {{count}} ejecución en segundo plano: {{list}}. Para terminar la actualización DBine se reinicia y se va a cancelar. ¿Querés reiniciar igual?",
+    "message_other": "Hay {{count}} ejecuciones en segundo plano: {{list}}. Para terminar la actualización DBine se reinicia y se van a cancelar. ¿Querés reiniciar igual?",
+    "confirm": "Cancelar y reiniciar",
+    "stay": "Seguir trabajando"
+  },
   "closeWindow": {
     "title": "Ejecuciones en esta ventana",
     "message_one": "Hay {{count}} ejecución en segundo plano en esta ventana: {{list}}. Si cerrás la ventana se va a cancelar. ¿Querés cerrarla igual?",

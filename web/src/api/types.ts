@@ -81,6 +81,8 @@ export interface DriverInfo {
   supports_index_usage?: boolean;
   /** "Ver dependencias…" (`Session::dependents`). */
   supports_dependencies?: boolean;
+  /** "Deshabilitar / Habilitar índice" (`Driver::index_toggle_script`). */
+  supports_index_toggle?: boolean;
 }
 
 /** One index and how it's used (`dbine_driver::IndexUsage`). The last four
@@ -102,6 +104,8 @@ export interface IndexUsage {
   updates: number;
   last_read: string | null;
   last_write: string | null;
+  /** The optimizer doesn't use it: disabled, inactive, invisible, ignored or hidden, depending on the engine. */
+  disabled?: boolean;
   /** seeks + scans + lookups. */
   reads: number;
   /** This index's reads over the table's (0–1); null when the table has none. */
@@ -566,6 +570,22 @@ export interface UpdateInfo {
   /** The release notes as written (Markdown), already cut short. */
   notes: string;
   published_at: string | null;
+  /** This install can download and install `latest` by itself. */
+  installable: boolean;
+  /** Why it can't: a build without the updater key, macOS not run from an
+   *  installed app, a deb/rpm/MSI install, or no updater manifest. */
+  reason: 'unsigned' | 'location' | 'package' | 'no_manifest' | null;
+  /** The update's state in this run (`ready`: downloaded, waiting for the restart). */
+  phase: 'idle' | 'downloading' | 'ready';
+  /** The window driving the update (its label). */
+  owner: string | null;
+}
+
+/** `update-progress` (to the update's window only). */
+export interface UpdateProgress {
+  phase: 'downloading' | 'verifying';
+  downloaded: number;
+  total: number | null;
 }
 
 /** What to look for (`dbine_driver::DependencyTarget`): an object, or one of its columns. */

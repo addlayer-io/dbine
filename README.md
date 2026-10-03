@@ -301,6 +301,15 @@ Detalle: [`docs/mcp.md`](docs/mcp.md).
   conexión. Nunca van al archivo de estado ni a los logs.
 - El estado local es un SQLite en la carpeta de configuración de la app.
 
+### Actualizaciones
+
+- **Se actualiza sola** en macOS, Windows y con la AppImage de Linux:
+  descarga la versión nueva, verifica su firma y se reinicia para terminar,
+  sin cortar las ejecuciones en segundo plano sin preguntar. Con los paquetes
+  `.deb` y `.rpm`, avisa y ofrece la página de la versión.
+
+Detalle: [`docs/actualizaciones.md`](docs/actualizaciones.md).
+
 ## Motores
 
 Cada motor es un crate en `crates/drivers/`. Toda función nueva tiene que
