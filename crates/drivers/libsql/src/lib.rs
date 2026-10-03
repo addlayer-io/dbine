@@ -52,8 +52,16 @@ struct LibsqlDriver {
     info: DriverInfo,
 }
 
+/// SQLite's, minus `PRAGMA legacy_alter_table`: the libSQL server refuses it
+/// ("unsupported statement"). The foreign-keys PRAGMAs around a rebuild stay.
 fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
-    schema::sync_script(changes)
+    let mut script = schema::sync_script(changes)?;
+    for st in &mut script.statements {
+        if st.contains("legacy_alter_table") {
+            *st = st.lines().filter(|l| !l.contains("legacy_alter_table")).collect::<Vec<_>>().join("\n");
+        }
+    }
+    Ok(script)
 }
 
 #[async_trait]
@@ -542,7 +550,9 @@ mod tests {
         let mut new = old.clone();
         new.columns[1].nullable = false;
         let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
-        assert_eq!(s.statements.len(), 1);
-        assert!(s.statements[0].contains("INSERT INTO \"t__dbine_new\" (\"id\", \"n\") SELECT \"id\", \"n\" FROM \"t\";\nDROP TABLE \"t\";\nALTER TABLE \"t__dbine_new\" RENAME TO \"t\";"), "{}", s.statements[0]);
+        // The rebuild, between SQLite's PRAGMAs for it (foreign keys off, legacy rename).
+        assert_eq!(s.statements.len(), 3, "{:?}", s.statements);
+        assert!(s.statements[0].starts_with("PRAGMA foreign_keys = OFF;"));
+        assert!(s.statements[1].contains("INSERT INTO \"t__dbine_new\" (\"id\", \"n\") SELECT \"id\", \"n\" FROM \"t\";\nDROP TABLE \"t\";\nALTER TABLE \"t__dbine_new\" RENAME TO \"t\";"), "{}", s.statements[1]);
     }
 }
