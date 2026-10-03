@@ -147,3 +147,48 @@ pub struct BlockedSession {
     /// Its current (or last) statement.
     pub sql: Option<String>,
 }
+
+/// One session (or running request) of the server, for the Monitor's
+/// process list ([`crate::Session::processes`]). Engines fill what they
+/// report; the rest stays `None`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ServerProcess {
+    /// The engine's id for it: what `Session::kill_session` and
+    /// `Session::cancel_query` take ("53", "12345", a query id…).
+    pub id: String,
+    /// Its state as the engine says it ("running", "sleeping", "idle in
+    /// transaction"…).
+    pub status: Option<String>,
+    /// Running something right now (not idle, not sleeping).
+    #[serde(default)]
+    pub active: bool,
+    /// A server's own background process (checkpointer, replication…),
+    /// not a client's.
+    #[serde(default)]
+    pub system: bool,
+    /// The session DBine lists them from.
+    #[serde(default)]
+    pub own: bool,
+    pub user: Option<String>,
+    /// The client machine (host or address).
+    pub host: Option<String>,
+    /// The client application.
+    pub program: Option<String>,
+    pub database: Option<String>,
+    /// What kind of statement or command ("SELECT", "Query", "find"…).
+    pub command: Option<String>,
+    /// How long the current statement has been running (or, when idle,
+    /// since the last one ended), ms.
+    pub elapsed_ms: Option<u64>,
+    /// CPU time used, ms.
+    pub cpu_ms: Option<u64>,
+    /// Logical reads (pages, blocks or rows, as the engine counts them).
+    pub reads: Option<u64>,
+    pub writes: Option<u64>,
+    /// What it waits on ("LCK_M_X", "Lock: transactionid"…).
+    pub wait: Option<String>,
+    /// The session it waits for, when blocked.
+    pub blocked_by: Option<String>,
+    /// Its current (or last) statement, whole.
+    pub sql: Option<String>,
+}

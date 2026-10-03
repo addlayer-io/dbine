@@ -124,4 +124,8 @@ export interface Capabilities {
   blocking?: boolean;
   /** Its sessions can end another server session. */
   kill_session?: boolean;
+  /** Its sessions list the server's processes (the Monitor's "Procesos"). */
+  processes?: boolean;
+  /** Its sessions stop another session's statement. */
+  cancel_query?: boolean;
 }

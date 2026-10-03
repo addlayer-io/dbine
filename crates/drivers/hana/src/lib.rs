@@ -214,6 +214,8 @@ impl Driver for HanaDriver {
             // M_BLOCKED_TRANSACTIONS and ALTER SYSTEM DISCONNECT SESSION.
             blocking: true,
             kill_session: true,
+            processes: false,
+            cancel_query: false,
         }
     }
 

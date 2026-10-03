@@ -409,6 +409,8 @@ pub fn run() {
             commands::monitor::monitor_snapshot,
             commands::monitor::monitor_blocking,
             commands::monitor::monitor_kill_session,
+            commands::monitor::monitor_processes,
+            commands::monitor::monitor_cancel_query,
             commands::profiler::profiler_start,
             commands::profiler::profiler_poll,
             commands::profiler::profiler_stop,

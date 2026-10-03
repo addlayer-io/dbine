@@ -1103,6 +1103,14 @@ impl Session for PgSession {
         crate::blocking::kill(self, id).await
     }
 
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        crate::processes::processes(self).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        crate::processes::cancel(self, id).await
+    }
+
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         crate::backup::history(self, database).await
     }

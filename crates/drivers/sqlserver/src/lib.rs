@@ -192,6 +192,8 @@ impl Driver for SqlServerDriver {
             // SQL Server's DMVs and KILL (not Fabric's warehouse nor Babelfish).
             blocking: matches!(self.variant, Variant::SqlServer | Variant::AzureSql),
             kill_session: matches!(self.variant, Variant::SqlServer | Variant::AzureSql),
+            processes: false,
+            cancel_query: false,
         }
     }
 

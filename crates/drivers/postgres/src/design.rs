@@ -165,7 +165,8 @@ pub(crate) fn identity_option(always: bool, type_name: &str, start: i128, increm
 
 pub fn capabilities(v: Variant) -> Capabilities {
     let supported = crate::blocking::supported(v);
-    Capabilities { blocking: supported, kill_session: supported, ..engine_capabilities(v) }
+    let processes = crate::processes::supported(v);
+    Capabilities { blocking: supported, kill_session: supported, processes, cancel_query: processes, ..engine_capabilities(v) }
 }
 
 fn engine_capabilities(v: Variant) -> Capabilities {
