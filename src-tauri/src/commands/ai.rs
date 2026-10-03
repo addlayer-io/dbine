@@ -22,6 +22,8 @@ pub struct AiRuntime {
     downloads: DashMap<String, Cancel>,
     /// Structure read for context, per connection + database (10 minutes).
     schemas: DashMap<String, (Instant, Arc<Vec<TableSchema>>)>,
+    /// Reads waiting for the user's Aprobar / Rechazar in the chat.
+    approvals: DashMap<String, tokio::sync::oneshot::Sender<String>>,
 }
 
 impl AiRuntime {
@@ -31,6 +33,7 @@ impl AiRuntime {
             chats: DashMap::new(),
             downloads: DashMap::new(),
             schemas: DashMap::new(),
+            approvals: DashMap::new(),
         }
     }
 }
@@ -120,12 +123,11 @@ pub struct ChatContext {
     pub selection: Option<String>,
     #[serde(default)]
     pub last_error: Option<String>,
-    #[serde(default = "yes")]
-    pub include_schema: bool,
-}
-
-fn yes() -> bool {
-    true
+    /// "Aprobar lecturas en esta conversación": a local model's reads of rows
+    /// (sample_rows, run_query, explain) run without asking each time. The
+    /// UI resets it on a new conversation or another connection / database.
+    #[serde(default)]
+    pub approve_reads: bool,
 }
 
 #[derive(Deserialize)]
@@ -143,6 +145,41 @@ pub struct ChatArgs {
 struct DeltaEvent<'a> {
     chat_id: &'a str,
     delta: Delta,
+}
+
+/// A read waiting for the user: where and the exact query.
+#[derive(Clone, Serialize)]
+struct ApprovalEvent<'a> {
+    chat_id: &'a str,
+    request_id: &'a str,
+    label: &'a str,
+    connection: &'a str,
+    database: &'a str,
+    sql: &'a str,
+}
+
+#[derive(Deserialize)]
+pub struct ApproveArgs {
+    pub request_id: String,
+    /// `approve`, `approve_all` (the rest of the conversation) or `reject`.
+    pub decision: String,
+}
+
+/// The user's answer to a read the assistant asked for.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ai_approve(ai: State<'_, AiRuntime>, args: ApproveArgs) -> CommandResult<()> {
+    if let Some((_, tx)) = ai.approvals.remove(&args.request_id) {
+        let _ = tx.send(args.decision);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Serialize)]
+struct ToolEvent<'a> {
+    chat_id: &'a str,
+    /// What it read, for the chat ("estructura de people.customer en tenant-brinks").
+    label: &'a str,
+    ok: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -163,7 +200,7 @@ pub struct ChatOut {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, AiRuntime>, args: ChatArgs) -> CommandResult<ChatOut> {
+pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, AiRuntime>, mcp: State<'_, crate::mcp::McpRuntime>, args: ChatArgs) -> CommandResult<ChatOut> {
     let cancel = Cancel::new();
     ai.chats.insert(args.chat_id.clone(), cancel.clone());
     let id = args.chat_id.clone();
@@ -184,7 +221,124 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, A
         let emit = |d: Delta| {
             let _ = app.emit("ai-delta", DeltaEvent { chat_id: &id, delta: d });
         };
-        let mut text = dbine_ai::chat(&req, &ai.endpoints, &emit, &cancel).await?;
+        // A local model may read the tab's whole connection through DBine's
+        // read-only tools (the MCP server's code): it asks with a
+        // <herramienta> line, DBine answers, and it goes on. Remote models
+        // (Claude Code, Codex) don't get them.
+        let conn = args.context.connection_id.as_deref().and_then(|c| state.store.get_connection(c).ok().flatten());
+        let tools_on = args.provider.local() && conn.is_some();
+        if tools_on {
+            let name = conn.as_ref().map(|c| c.name.as_str()).unwrap_or("");
+            req.system.push_str(&tools_prompt(name, args.context.database.as_deref().unwrap_or("")));
+        }
+        let mut steps = 0;
+        let mut approve_all = args.context.approve_reads;
+        // Small models loop asking the same thing: a repeat isn't run again.
+        let mut asked: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut text = loop {
+            if cancel.is_cancelled() {
+                return Err(AiError::Cancelled.into());
+            }
+            // Stream the answer, but not a tool request: hold the start
+            // until it's clear which one it is.
+            let held = std::sync::Mutex::new((String::new(), !tools_on));
+            let on = |d: Delta| match d {
+                Delta::Text(t) => {
+                    let mut h = held.lock().unwrap();
+                    if h.1 {
+                        emit(Delta::Text(t));
+                        return;
+                    }
+                    h.0.push_str(&t);
+                    let start = h.0.trim_start();
+                    if start.len() >= TOOL_OPEN.len() || !TOOL_OPEN.starts_with(start) {
+                        if !start.starts_with(TOOL_OPEN) && !start.starts_with('{') {
+                            h.1 = true;
+                            emit(Delta::Text(std::mem::take(&mut h.0)));
+                        }
+                    }
+                }
+                other => emit(other),
+            };
+            let out = dbine_ai::chat(&req, &ai.endpoints, &on, &cancel).await?;
+            let call = if tools_on && steps < MAX_TOOL_STEPS { tool_call(&out) } else { None };
+            let Some((name, mut targs)) = call else {
+                let (rest, passed) = {
+                    let h = held.lock().unwrap();
+                    (h.0.clone(), h.1)
+                };
+                if !passed && !rest.is_empty() {
+                    emit(Delta::Text(rest));
+                }
+                break out;
+            };
+            steps += 1;
+            if targs.get("database").and_then(|v| v.as_str()).is_none() {
+                targs["database"] = serde_json::Value::String(args.context.database.clone().unwrap_or_default());
+            }
+            let conn = conn.as_ref().expect("tools_on");
+            if !asked.insert(format!("{name}{targs}")) {
+                req.messages.push(ChatMessage { role: "assistant".into(), content: format!("{TOOL_OPEN}{}{TOOL_CLOSE}", serde_json::json!({ "name": name, "arguments": targs })) });
+                req.messages.push(ChatMessage { role: "user".into(), content: REPEATED.into() });
+                continue;
+            }
+            let mut label = tool_label(&name, &targs);
+            let _ = app.emit("ai-status", StatusEvent { chat_id: &id, phase: "tool", note: Some(label.clone()) });
+            // A read of rows runs only after the user approves its exact
+            // query in the chat; catalog reads (structure, index usage) don't ask.
+            let refused = if READS_ROWS.contains(&name.as_str()) && !approve_all {
+                let preview = tokio::select! {
+                    p = crate::mcp::tools::assistant_preview(&mcp.inner, conn, &name, &targs) => p,
+                    _ = cancel.cancelled() => return Err(AiError::Cancelled.into()),
+                };
+                match preview {
+                    Err(e) => Some(e),
+                    Ok(sql) => {
+                        let request_id = format!("{id}:{steps}");
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        ai.approvals.insert(request_id.clone(), tx);
+                        let database = targs["database"].as_str().unwrap_or("").to_string();
+                        let _ = app.emit("ai-approval", ApprovalEvent { chat_id: &id, request_id: &request_id, label: &label, connection: &conn.name, database: &database, sql: &sql });
+                        let decision = tokio::select! {
+                            d = rx => d.unwrap_or_default(),
+                            _ = cancel.cancelled() => {
+                                ai.approvals.remove(&request_id);
+                                return Err(AiError::Cancelled.into());
+                            }
+                        };
+                        match decision.as_str() {
+                            "approve" => None,
+                            "approve_all" => {
+                                approve_all = true;
+                                None
+                            }
+                            _ => Some(REFUSED_READ.to_string()),
+                        }
+                    }
+                }
+            } else {
+                None
+            };
+            let (result, failed) = match refused {
+                Some(why) => {
+                    label = format!("{label} (no se leyó)");
+                    (why, true)
+                }
+                // Stop ends the turn mid-read too (a whole database's index
+                // overview can take a couple of minutes).
+                None => tokio::select! {
+                    r = crate::mcp::tools::assistant_call(&mcp.inner, conn, &name, &targs, true) => r,
+                    _ = cancel.cancelled() => return Err(AiError::Cancelled.into()),
+                },
+            };
+            let _ = app.emit("ai-tool", ToolEvent { chat_id: &id, label: &label, ok: !failed });
+            req.messages.push(ChatMessage { role: "assistant".into(), content: format!("{TOOL_OPEN}{}{TOOL_CLOSE}", serde_json::json!({ "name": name, "arguments": targs })) });
+            let tag = if failed { "error" } else { "resultado" };
+            req.messages.push(ChatMessage { role: "user".into(), content: format!("<{tag}>\n{}\n</{tag}>", truncate(&result, TOOL_RESULT_MAX)) });
+            if steps == MAX_TOOL_STEPS {
+                req.system.push_str("\nYa hiciste todas las consultas permitidas en esta respuesta: contestá con lo que tenés, sin pedir más.\n");
+            }
+        };
         // Small local models sometimes refuse a legitimate ask: once, the
         // same question again with a line saying it's fine. The UI drops
         // the refusal it showed on "retry".
@@ -272,6 +426,9 @@ pub async fn ai_pull_ollama(app: AppHandle, ai: State<'_, AiRuntime>, args: IdAr
 
 // -- context ----------------------------------------------------------------------
 
+/// Object names a local model gets up front; it asks for the rest.
+const SUMMARY_NAMES: usize = 400;
+
 /// How much structure fits: small local models get less.
 fn schema_budget(kind: ProviderKind) -> usize {
     match kind {
@@ -323,7 +480,28 @@ async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &
         if let Some(o) = &ctx.object {
             s.push_str(&format!("El usuario está mirando el objeto {o}.\n"));
         }
-        if ctx.include_schema {
+        if args.provider.local() {
+            // A local model reads details through the catalog tools: it gets
+            // only the names here (from the explorer's cached list).
+            match state.meta_read(&conn.id, &db, Duration::from_secs(60), |s| Box::pin(s.list_objects())).await {
+                Ok(objects) => {
+                    let names: Vec<String> = objects
+                        .iter()
+                        .filter(|o| o.parent.is_none())
+                        .map(|o| match o.schema.as_deref().filter(|x| !x.is_empty()) {
+                            Some(sc) => format!("{} {sc}.{}", o.kind, o.name),
+                            None => format!("{} {}", o.kind, o.name),
+                        })
+                        .collect();
+                    let shown = names.len().min(SUMMARY_NAMES);
+                    let more = if names.len() > shown { format!("\n(y {} objetos más: list_objects los lista)", names.len() - shown) } else { String::new() };
+                    s.push_str(&format!("\n<objetos de «{db}»>\n{}{more}\n</objetos>\n(Columnas, claves e índices: pedilos con describe_object o index_usage.)\n", names[..shown].join("\n")));
+                    summary.push(format!("{} objetos", names.len()));
+                }
+                Err(e) => s.push_str(&format!("\n(No se pudo listar los objetos de la base: {e}.)\n")),
+            }
+        } else {
+            // Claude Code and Codex have no tools: the structure goes as context.
             let _ = app.emit("ai-status", StatusEvent { chat_id: &args.chat_id, phase: "schema", note: None });
             match schema_for(state, ai, &conn.id, &db).await {
                 Ok(tables) => {
@@ -405,6 +583,128 @@ fn refused(text: &str) -> bool {
         "não posso ajudar", "desculpe, mas não posso", "je ne peux pas vous aider", "je ne peux pas t'aider", "non posso aiutar",
     ];
     SIGNS.iter().any(|s| t.contains(s))
+}
+
+const TOOL_OPEN: &str = "<herramienta>";
+const TOOL_CLOSE: &str = "</herramienta>";
+/// Reads per answer: enough for a few databases' structure, bounded so a
+/// confused model can't loop.
+const MAX_TOOL_STEPS: usize = 12;
+/// Tools that read rows: each one waits for the user's approval.
+const READS_ROWS: &[&str] = &["sample_rows", "run_query", "explain"];
+const REFUSED_READ: &str = "El usuario no aprobó esta consulta, así que no se ejecutó. Seguí sin esos datos: respondé con lo que tenés o escribí la consulta para que la ejecute él.";
+const REPEATED: &str = "<error>\nYa pediste exactamente esto y tenés el resultado más arriba. No lo pidas de nuevo: pedí otra cosa o escribí la respuesta final con lo que ya tenés.\n</error>";
+/// A tool's answer, cut for a small model's context.
+const TOOL_RESULT_MAX: usize = 12_000;
+
+/// How a local model reads the connection: one tool per answer, in a line
+/// DBine recognizes (models' own tool formats vary and small ones misuse
+/// them; this works the same on the built-in model, Ollama and LM Studio).
+fn tools_prompt(connection: &str, database: &str) -> String {
+    format!(
+        "\nTENÉS ACCESO a la conexión «{connection}» de la pestaña: a todas sus bases, no solo a «{database}». Nunca digas que no tenés acceso ni le pidas al usuario que use una herramienta: \
+         usala vos. DBine lee lo que le pidas y te contesta.\n\
+         Para pedir algo, respondé SOLO con una línea así, sin nada antes ni después:\n\
+         {TOOL_OPEN}{{\"name\": \"NOMBRE\", \"arguments\": {{…}}}}{TOOL_CLOSE}\n\
+         DBine te contesta con <resultado>…</resultado> (o <error>…</error>) y seguís. Herramientas:\n\
+         - list_databases {{}}: las bases de la conexión.\n\
+         - list_objects {{\"database\": \"…\"}}: tablas, vistas y rutinas de una base.\n\
+         - describe_object {{\"database\": \"…\", \"object\": \"esquema.tabla\"}}: columnas, claves e índices.\n\
+         - index_usage {{\"database\": \"…\", \"object\": \"esquema.tabla\"}}: los índices de una tabla y cuánto se usan. Sin \"object\", revisa todas las tablas de la base \
+           y resume los índices sin uso, deshabilitados y nunca leídos.\n\
+         - sample_rows {{\"database\": \"…\", \"object\": \"esquema.tabla\", \"limit\": 20}}: las primeras filas de una tabla.\n\
+         - run_query {{\"database\": \"…\", \"query\": \"SELECT …\"}}: una consulta de solo lectura (las que escriben se rechazan); devuelve las filas.\n\
+         - explain {{\"database\": \"…\", \"query\": \"SELECT …\"}}: el plan estimado de una consulta.\n\
+         Las tres últimas leen datos: el usuario ve la consulta y la aprueba antes de que corra; si la rechaza, recibís <error> y seguís sin esos datos.\n\
+         Pedí de a una herramienta por respuesta y solo lo que necesites. Cuando tengas lo suficiente, escribí la respuesta final (el código en un bloque). Nada de esto ejecuta cambios: vos solo leés.\n\
+         Ejemplo. Usuario: «¿qué índices sobran en las bases?». Respuesta:\n\
+         {TOOL_OPEN}{{\"name\": \"list_databases\", \"arguments\": {{}}}}{TOOL_CLOSE}\n\
+         y después, con cada base que devuelva:\n\
+         {TOOL_OPEN}{{\"name\": \"index_usage\", \"arguments\": {{\"database\": \"ventas\"}}}}{TOOL_CLOSE}\n"
+    )
+}
+
+/// The tool a model's answer asks for, wherever it wrote it: our
+/// <herramienta> line, Qwen's own <tool_call> tags, a ```json block, or a bare
+/// {"name": …, "arguments": …} object after some text (small models mix them).
+fn tool_call(out: &str) -> Option<(String, serde_json::Value)> {
+    let tagged = [(TOOL_OPEN, TOOL_CLOSE), ("<tool_call>", "</tool_call>")]
+        .iter()
+        .filter_map(|(open, close)| {
+            let a = out.find(open)? + open.len();
+            let b = out[a..].find(close).map_or(out.len(), |b| a + b);
+            Some(&out[a..b])
+        })
+        .collect::<Vec<_>>();
+    for body in tagged.iter().copied().chain(json_objects(out)) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(body.trim()) else { continue };
+        let Some(name) = v.get("name").and_then(|n| n.as_str()) else { continue };
+        if !crate::mcp::tools::ASSISTANT_TOOLS.contains(&name) {
+            continue;
+        }
+        let args = v.get("arguments").or_else(|| v.get("parameters")).filter(|a| a.is_object()).cloned().unwrap_or_else(|| serde_json::json!({}));
+        return Some((name.to_string(), args));
+    }
+    None
+}
+
+/// Every balanced {…} in `text` that mentions "name", outermost first.
+fn json_objects(text: &str) -> impl Iterator<Item = &str> {
+    let b = text.as_bytes();
+    let mut found = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'{' {
+            let (mut depth, mut j, mut in_str, mut esc) = (0usize, i, false, false);
+            while j < b.len() {
+                let c = b[j];
+                if in_str {
+                    if esc { esc = false } else if c == b'\\' { esc = true } else if c == b'"' { in_str = false }
+                } else if c == b'"' {
+                    in_str = true;
+                } else if c == b'{' {
+                    depth += 1;
+                } else if c == b'}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                j += 1;
+            }
+            if j < b.len() {
+                let obj = &text[i..=j];
+                if obj.contains("\"name\"") {
+                    found.push(obj);
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    found.into_iter()
+}
+
+/// What the chat shows for a read ("estructura de people.customer en tenant-brinks").
+fn tool_label(name: &str, args: &serde_json::Value) -> String {
+    let s = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let (db, obj) = (s("database"), s("object"));
+    let on = if db.is_empty() { String::new() } else { format!(" en {db}") };
+    match name {
+        "list_databases" => "bases de la conexión".into(),
+        "list_objects" => format!("objetos{on}"),
+        "describe_object" => format!("estructura de {obj}{on}"),
+        "index_usage" if obj.is_empty() => format!("uso de índices de todas las tablas{on}"),
+        "index_usage" => format!("uso de índices de {obj}{on}"),
+        "sample_rows" => format!("filas de muestra de {obj}{on}"),
+        "run_query" => {
+            let q: String = s("query").split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect();
+            format!("consulta{on}: {q}")
+        }
+        "explain" => format!("plan de ejecución{on}"),
+        other => other.to_string(),
+    }
 }
 
 /// Added to the prompt on the second try after a refusal.
@@ -516,6 +816,25 @@ fn compact_schema(tables: &[TableSchema], hint: &str, budget: usize) -> (String,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_calls() {
+        let (n, a) = tool_call("<herramienta>{\"name\": \"describe_object\", \"arguments\": {\"database\": \"b\", \"object\": \"people.customer\"}}</herramienta>").unwrap();
+        assert_eq!(n, "describe_object");
+        assert_eq!(a["object"], "people.customer");
+        assert_eq!(tool_call("Primero listo las bases.\n<herramienta>{\"name\": \"list_databases\", \"arguments\": {}}</herramienta>").unwrap().0, "list_databases");
+        assert_eq!(tool_call("{\"name\": \"list_databases\", \"arguments\": {}}").unwrap().0, "list_databases", "bare JSON");
+        assert!(tool_call("<herramienta>{\"name\": \"execute\", \"arguments\": {}}</herramienta>").is_none(), "never a write");
+        assert!(tool_call("```sql\nSELECT 1;\n```").is_none());
+        // What the 3B wrote in the owner's test: prose, then the JSON.
+        let owner = "Como no tengo acceso a la conexión, podés usar index_usage:\n{\"name\": \"index_usage\", \"arguments\": {\"database\": \"sqldb-prod-iaas-brazilsouth-tenant-agilpagos\"}}";
+        let (n, a) = tool_call(owner).unwrap();
+        assert_eq!((n.as_str(), a["database"].as_str()), ("index_usage", Some("sqldb-prod-iaas-brazilsouth-tenant-agilpagos")));
+        assert_eq!(tool_call("```json\n{\"name\": \"list_objects\", \"arguments\": {\"database\": \"b\"}}\n```").unwrap().0, "list_objects");
+        assert_eq!(tool_call("<tool_call>\n{\"name\": \"list_databases\", \"arguments\": {}}\n</tool_call>").unwrap().0, "list_databases");
+        assert!(tool_call("el objeto {\"name\": \"Pepe\"} no es una herramienta").is_none());
+        assert_eq!(tool_label("describe_object", &serde_json::json!({"database": "t1", "object": "people.customer"})), "estructura de people.customer en t1");
+    }
 
     #[test]
     fn refusals() {

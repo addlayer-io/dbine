@@ -11,7 +11,6 @@
   "context": {
     "noDatabase": "Sin base seleccionada",
     "openQuery": "query abierta",
-    "schema": "estructura",
     "sent": "contexto: {{context}}"
   },
   "suggest": {
@@ -39,7 +38,8 @@
     "schema": "Leyendo la estructura de la base…",
     "engine": "Descargando el motor de IA, solo esta vez…",
     "thinking": "Pensando…",
-    "retry": "Volviendo a preguntar…"
+    "retry": "Volviendo a preguntar…",
+    "tool": "Consultando la conexión:"
   },
   "setup": {
     "detecting": "Buscando herramientas de IA en esta máquina…",
@@ -83,5 +83,18 @@
     "delete": "Borrar esta conversación",
     "clear": "Borrar historial",
     "clearConfirm": "Se borran todas las conversaciones anteriores. La actual no se toca."
+  },
+  "tools": {
+    "read_one": "Consultó la conexión {{count}} vez",
+    "read_many": "Consultó la conexión {{count}} veces",
+    "read_other": "Consultó la conexión {{count}} veces"
+  },
+  "approval": {
+    "title": "El modelo ({{model}}) quiere leer datos de {{connection}} › {{database}} con esta consulta:",
+    "local": "local",
+    "approve": "Aprobar",
+    "reject": "Rechazar",
+    "approveAll": "Aprobar lecturas en esta conversación",
+    "note": "Solo lectura: DBine la corre en una sesión que rechaza cualquier cambio. Si la rechazás, el modelo sigue sin esos datos."
   }
 }

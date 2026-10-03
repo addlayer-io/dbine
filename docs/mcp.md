@@ -45,6 +45,7 @@ Dos topes se aplican siempre, sea cual sea el nivel elegido:
 | `list_databases` | Esquema | Las bases de una conexión. |
 | `list_objects` | Esquema | Tablas, vistas, colecciones y demás objetos de una base. |
 | `describe_object` | Esquema | Columnas, clave primaria, claves foráneas e índices. |
+| `index_usage` | Esquema | Los índices de una tabla y cuánto se usan: lecturas, escrituras, porcentaje de las lecturas, sin uso y deshabilitados. |
 | `sample_rows` | Lectura | Las primeras filas de una tabla o colección. |
 | `run_query` | Lectura | Una consulta de solo lectura en el lenguaje del motor. |
 | `explain` | Lectura | El plan estimado de una consulta, en los motores que tienen planes. |

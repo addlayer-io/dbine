@@ -40,7 +40,8 @@ export interface ChatContext {
   editor_sql: string | null;
   selection: string | null;
   last_error: string | null;
-  include_schema: boolean;
+  /** "Aprobar lecturas en esta conversación": a local model's reads of rows run without asking. */
+  approve_reads?: boolean;
 }
 
 export const aiApi = {
@@ -48,6 +49,9 @@ export const aiApi = {
   chat: (chatId: string, provider: AiProviderKind, model: string | null, messages: ChatMessage[], context: ChatContext) =>
     invoke<{ text: string; context_summary: string }>('ai_chat', { args: { chat_id: chatId, provider, model, messages, context } }),
   cancel: (id: string) => invoke<void>('ai_cancel', { args: { id } }),
+  /** The user's answer to a read the assistant asked for. */
+  approve: (requestId: string, decision: 'approve' | 'approve_all' | 'reject') =>
+    invoke<void>('ai_approve', { args: { request_id: requestId, decision } }),
   downloadModel: (id: string) => invoke<void>('ai_download_model', { args: { id } }),
   deleteModel: (id: string) => invoke<void>('ai_delete_model', { args: { id } }),
   startOllama: () => invoke<void>('ai_start_ollama'),

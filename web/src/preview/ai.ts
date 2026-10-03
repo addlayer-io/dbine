@@ -1,5 +1,5 @@
 // Development only: the AI assistant sidebar with a mocked backend.
-// http://localhost:<port>/ai-preview.html?state=setup|chat|empty|history
+// http://localhost:<port>/ai-preview.html?state=setup|chat|empty|history|approval
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -91,6 +91,19 @@ if (state === 'history') {
 }
 app.mount('#app');
 if (state === 'history') setTimeout(() => (document.querySelector('[title="Historial"], [title="History"]') as HTMLElement | null)?.click(), 600);
+if (state === 'approval') {
+  setTimeout(() => {
+    const ai = useAiStore();
+    ai.messages = [
+      { id: 'u1', role: 'user', content: '¿cuántos clientes hay en cada base tenant?' },
+      {
+        id: 'a1', role: 'assistant', content: '', pending: true,
+        tools: [{ label: 'bases de la conexión', ok: true }, { label: 'estructura de people.customer en tenant-aduro', ok: true }],
+        approval: { requestId: 'r1', label: 'consulta en tenant-aduro', connection: 'PROD-BRAZIL', database: 'sqldb-prod-iaas-brazilsouth-tenant-aduro', sql: 'SELECT COUNT(*) AS clientes FROM people.customer;' },
+      },
+    ];
+  }, 400);
+}
 if (state === 'chat') {
   localStorage.removeItem('dbine.ai.conversation');
   setTimeout(() => useAiStore().send('Clientes con más de 5 pedidos en 2025'), 600);

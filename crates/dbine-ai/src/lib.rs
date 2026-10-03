@@ -103,10 +103,14 @@ impl Cancel {
         self.1.load(std::sync::atomic::Ordering::SeqCst)
     }
     pub async fn cancelled(&self) {
+        // Registered before the flag is read: a cancel in between isn't lost.
+        let notified = self.0.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
         if self.is_cancelled() {
             return;
         }
-        self.0.notified().await
+        notified.await
     }
 }
 
