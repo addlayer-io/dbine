@@ -18,6 +18,7 @@ pub mod json;
 mod monitor;
 mod permissions;
 pub mod plan;
+mod processes;
 mod profiler;
 mod security;
 mod steps;
@@ -278,7 +279,7 @@ impl Driver for Es {
     /// A cluster has no level between it and its indices: no databases to
     /// create or drop, and no foreign keys.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { monitor: true, ..Capabilities::default() }
+        Capabilities { monitor: true, processes: true, cancel_query: true, ..Capabilities::default() }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -892,6 +893,34 @@ impl Session for EsSession {
             s.notes.push("El servidor no informa la E/S de disco (fs.io_stats solo existe en Linux con acceso a /proc/diskstats).".into());
         }
         Ok(s)
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        let rb = self.request("GET", processes::LIST_PATH).timeout(processes::QUERY_LIMIT);
+        let body = self.call(rb).await?;
+        let tasks = J::parse(&body).map_err(|e| Error::Query(format!("Respuesta inesperada del servidor: {e}")))?;
+        Ok(processes::rows(&tasks, &self.opaque_id))
+    }
+
+    /// Requests are tasks: cancelling one is `POST _tasks/<id>/_cancel`.
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        if self.read_only {
+            return Err(Error::Query("Conexión de solo lectura: no se pueden cancelar tareas.".into()));
+        }
+        let id = id.trim();
+        if !processes::valid_task_id(id) {
+            return Err(Error::Query(format!("«{id}» no es un id de tarea (nodo:número)")));
+        }
+        let (status, body) = http::send(self.request("GET", &format!("/_tasks/{id}"))).await?;
+        if status >= 400 && status != 404 {
+            return Err(Error::Query(es_error_message(status, &body)));
+        }
+        processes::check_cancel(id, status, &body, &self.opaque_id)?;
+        let body = self.call(self.request("POST", &format!("/_tasks/{id}/_cancel"))).await?;
+        match processes::cancel_failure(&body) {
+            Some(why) => Err(Error::Query(format!("no se pudo cancelar la tarea {id}: {why}"))),
+            None => Ok(()),
+        }
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

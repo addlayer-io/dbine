@@ -30,7 +30,7 @@ use mongodb::bson::{doc, Bson, Document};
 use mongodb::Client;
 use std::collections::BTreeSet;
 
-const TXN_PREFIX: &str = "lsid:";
+pub(crate) const TXN_PREFIX: &str = "lsid:";
 
 /// Who holds or waits for a lock.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -62,7 +62,7 @@ struct Resource {
 }
 
 /// An opid as text (a number on mongod, "shard:n" through mongos).
-fn opid(v: &Bson) -> Option<String> {
+pub(crate) fn opid(v: &Bson) -> Option<String> {
     match v {
         Bson::Int32(i) => Some(i.to_string()),
         Bson::Int64(i) => Some(i.to_string()),
@@ -81,7 +81,7 @@ fn hyphenated(bytes: &[u8]) -> Option<String> {
 }
 
 /// The session id (UUID text) of an operation or idle session.
-fn lsid(op: &Document) -> Option<String> {
+pub(crate) fn lsid(op: &Document) -> Option<String> {
     match op.get_document("lsid").ok()?.get("id")? {
         Bson::Binary(b) => hyphenated(&b.bytes),
         _ => None,
@@ -345,12 +345,12 @@ pub async fn blocking(client: &Client, flavor: Flavor) -> Result<Vec<BlockedSess
     }
 }
 
-fn unsupported_ferret() -> Error {
+pub(crate) fn unsupported_ferret() -> Error {
     Error::Unsupported("FerretDB no informa esperas por bloqueos ni permite terminar operaciones (no tiene killOp)".into())
 }
 
 /// An opid as `blocking` gives it: digits, or "shard:digits" through mongos.
-fn valid_opid(id: &str) -> bool {
+pub(crate) fn valid_opid(id: &str) -> bool {
     let n = id.rsplit_once(':').map_or(id, |(shard, n)| {
         if !shard.is_empty() && shard.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) {
             n

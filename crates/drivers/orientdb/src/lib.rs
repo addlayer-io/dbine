@@ -31,6 +31,7 @@ mod sync;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod security;
 mod steps;
 mod transfer;
@@ -152,7 +153,16 @@ impl Driver for OrientDriver {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: true,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            kill_session: true,
+            ..Default::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -1020,6 +1030,18 @@ impl Session for OrientSession {
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         monitor::snapshot(self).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        OrientSession::processes(self).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.end_connection(id, "interrupt").await
+    }
+
+    async fn kill_session(&mut self, id: &str) -> Result<()> {
+        self.end_connection(id, "kill").await
     }
 
     async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {

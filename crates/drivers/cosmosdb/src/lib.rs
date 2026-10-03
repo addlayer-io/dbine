@@ -1115,6 +1115,11 @@ impl Session for CosmosSession {
         security::grants(self, principal).await
     }
 
+    /// Cosmos DB is a stateless HTTP API: no sessions or running requests.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported("Azure Cosmos DB es un servicio HTTP sin estado: no expone sesiones ni consultas en curso que listar o cancelar".into()))
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         let mut charge = 0.0;
         let account = match self.call(Method::GET, "", "", "/", None, &[]).await {

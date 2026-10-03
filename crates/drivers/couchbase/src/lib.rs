@@ -15,6 +15,7 @@ mod index_usage;
 mod sync;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod security;
 mod steps;
@@ -139,7 +140,15 @@ impl Driver for CouchbaseDriver {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: false, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: false,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Default::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -1094,6 +1103,16 @@ impl Session for CbSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         self.transfer_load(spec, columns, source, progress).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        processes::processes(self).await
+    }
+
+    /// Requests are all the Query service knows: cancelling one deletes it
+    /// from `system:active_requests`.
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        processes::cancel(self, id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

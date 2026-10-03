@@ -50,6 +50,7 @@ mod sync;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod security;
 mod steps;
 mod transfer;
@@ -157,7 +158,15 @@ impl Driver for CouchDriver {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: false, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: false,
+            monitor: true,
+            processes: true,
+            cancel_query: true,
+            ..Default::default()
+        }
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -630,6 +639,16 @@ impl Session for CouchSession {
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         self.snapshot().await
+    }
+
+    /// `/_active_tasks`: indexers, compactions and replications.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        CouchSession::processes(self).await
+    }
+
+    /// Only replications started with `_replicate` can be stopped.
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.cancel_task(id).await
     }
 
     async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
