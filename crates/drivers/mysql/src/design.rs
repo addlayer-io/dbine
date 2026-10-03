@@ -31,9 +31,9 @@ pub(crate) fn capabilities(v: Variant) -> Capabilities {
         foreign_keys: v.has_foreign_keys(),
         monitor: true,
         blocking: v.has_lock_waits(),
-        kill_session: v.has_lock_waits(),
-        processes: false,
-        cancel_query: false,
+        kill_session: crate::processes::can_kill(v),
+        processes: true,
+        cancel_query: true,
     }
 }
 

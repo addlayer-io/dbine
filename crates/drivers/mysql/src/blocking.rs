@@ -9,6 +9,9 @@
 //! - TiDB: pessimistic lock waits from `information_schema.DATA_LOCK_WAITS`
 //!   and `CLUSTER_TIDB_TRX`; sessions from `CLUSTER_PROCESSLIST`.
 //!
+//! `KILL` ends a session on every engine that has sessions to end (see
+//! `processes::can_kill`).
+//!
 //! The waits give the edges (who waits for whom); the process list fills in
 //! user, host, database and statement for every session in a chain.
 
@@ -194,7 +197,9 @@ impl MySqlSession {
             .collect())
     }
 
-    pub(crate) async fn blocking_chains(&mut self) -> Result<Vec<BlockedSession>> {
+    /// Who waits for whom right now: row (or TiDB pessimistic) lock waits,
+    /// plus metadata-lock waits on MySQL 8.
+    pub(crate) async fn wait_edges(&mut self) -> Result<Vec<Edge>> {
         let tidb = self.variant == Variant::TiDb;
         let mut edges = if tidb {
             self.edges(TIDB_WAITS, true).await?
@@ -218,6 +223,12 @@ impl MySqlSession {
             }
         };
         edges.dedup();
+        Ok(edges)
+    }
+
+    pub(crate) async fn blocking_chains(&mut self) -> Result<Vec<BlockedSession>> {
+        let tidb = self.variant == Variant::TiDb;
+        let edges = self.wait_edges().await?;
         if edges.is_empty() {
             return Ok(Vec::new());
         }
@@ -275,8 +286,12 @@ impl MySqlSession {
     }
 
     pub(crate) async fn kill_connection(&mut self, id: &str) -> Result<()> {
-        let id = session_id(id)?;
-        let sql = if self.variant == Variant::TiDb { format!("KILL TIDB {id}") } else { format!("KILL {id}") };
+        let sql = match self.variant {
+            // Session ids are UUIDs, checked before they're quoted.
+            Variant::Databend => format!("KILL CONNECTION '{}'", crate::processes::databend_id(id)?),
+            Variant::TiDb => format!("KILL TIDB {}", session_id(id)?),
+            _ => format!("KILL {}", session_id(id)?),
+        };
         self.rows(&sql).await.map(|_| ())
     }
 }

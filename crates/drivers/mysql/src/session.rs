@@ -32,6 +32,8 @@ pub struct MySqlSession {
     cancelled: Arc<AtomicBool>,
     /// The running profiler, if any.
     profiler: Option<crate::profiler::State>,
+    /// The first process-list query this server answered (see `processes`).
+    pub(crate) processes_query: usize,
 }
 
 /// A string literal for a text-protocol query. Doubling `'` is safe with
@@ -68,7 +70,7 @@ pub(crate) fn named(r: &Row, names: &[&str]) -> Option<String> {
 
 impl MySqlSession {
     pub(crate) fn new(conn: Conn, opts: Opts, product: Variant, database: Option<String>) -> Self {
-        Self { conn, opts, variant: product.base(), product, sizes: None, database, cancelled: Arc::default(), profiler: None }
+        Self { conn, opts, variant: product.base(), product, sizes: None, database, cancelled: Arc::default(), profiler: None, processes_query: 0 }
     }
 
     pub(crate) async fn rows(&mut self, sql: &str) -> Result<Vec<Row>> {
@@ -1249,10 +1251,18 @@ impl Session for MySqlSession {
     }
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {
-        if !self.variant.has_lock_waits() {
+        if !crate::processes::can_kill(self.variant) {
             return Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into()));
         }
         self.kill_connection(id).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        crate::processes::processes(self).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        crate::processes::cancel(self, id).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

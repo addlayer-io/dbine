@@ -9,6 +9,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod schema;
 mod script;
@@ -189,10 +190,12 @@ impl Driver for SqlServerDriver {
             drop_database: db,
             foreign_keys: true,
             monitor: true,
-            // SQL Server's DMVs and KILL (not Fabric's warehouse nor Babelfish).
+            // SQL Server's DMVs (not Fabric's warehouse nor Babelfish).
             blocking: matches!(self.variant, Variant::SqlServer | Variant::AzureSql),
-            kill_session: matches!(self.variant, Variant::SqlServer | Variant::AzureSql),
-            processes: false,
+            // KILL ends a session everywhere; nothing stops another
+            // session's statement and keeps it (see `processes`).
+            kill_session: true,
+            processes: true,
             cancel_query: false,
         }
     }
@@ -1052,10 +1055,15 @@ impl Session for SqlServerSession {
     }
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {
-        match self.variant {
-            Variant::SqlServer | Variant::AzureSql => monitor::kill(self, id).await,
-            _ => Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into())),
-        }
+        monitor::kill(self, id).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        processes::processes(self).await
+    }
+
+    async fn cancel_query(&mut self, _id: &str) -> Result<()> {
+        processes::cancel(self)
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

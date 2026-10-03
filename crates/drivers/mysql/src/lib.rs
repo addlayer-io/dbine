@@ -13,6 +13,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod security;
 mod session;
