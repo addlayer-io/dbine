@@ -53,6 +53,19 @@ pub const CATALOG: &[CatalogModel] = &[
         sha256: "509287f78cb4d4cf6b3843734733b914b2c158e43e22a7f4bf5e963800894d3c",
         min_ram_gb: 16,
     },
+    // The smallest that gets cross-database SQL Server right (brackets,
+    // three-part names): 3B, 7B and 14B didn't in the refusal/quality bench
+    // of 2026-10-03, and Qwen3-30B-A3B ran out of tokens thinking.
+    CatalogModel {
+        id: "qwen2.5-coder-32b",
+        label: "Qwen2.5-Coder 32B",
+        detail: "el más preciso en SQL · 19,9 GB",
+        file: "qwen2.5-coder-32b-instruct-q4_k_m.gguf",
+        url: "https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct-GGUF/resolve/main/qwen2.5-coder-32b-instruct-q4_k_m.gguf",
+        size: 19_851_335_872,
+        sha256: "4d64b316b5e6319d9613e0d97935d9ebd631fc7e334da400d00085eca749d085",
+        min_ram_gb: 48,
+    },
 ];
 
 pub fn catalog_model(id: &str) -> Option<&'static CatalogModel> {

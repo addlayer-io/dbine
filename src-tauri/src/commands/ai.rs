@@ -100,7 +100,8 @@ pub async fn ai_detect(ai: State<'_, AiRuntime>) -> CommandResult<DetectOut> {
             })
             .collect(),
         embedded_enabled: embedded::ENABLED,
-        ollama_recommended_model: dbine_ai::ollama::RECOMMENDED_MODEL,
+        // Same rule as the built-in catalog: the 32B from 48 GB.
+        ollama_recommended_model: if ram >= 48 { "qwen2.5-coder:32b" } else { dbine_ai::ollama::RECOMMENDED_MODEL },
     })
 }
 
@@ -179,11 +180,19 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, A
             embedded::ensure_engine(&ai.endpoints.models_dir, &progress, &cancel).await?;
         }
         let _ = app.emit("ai-status", StatusEvent { chat_id: &id, phase: "thinking", note: None });
-        let req = ChatRequest { kind: args.provider, model: args.model.clone(), system, messages: args.messages.clone() };
+        let mut req = ChatRequest { kind: args.provider, model: args.model.clone(), system, messages: args.messages.clone() };
         let emit = |d: Delta| {
             let _ = app.emit("ai-delta", DeltaEvent { chat_id: &id, delta: d });
         };
-        let text = dbine_ai::chat(&req, &ai.endpoints, &emit, &cancel).await?;
+        let mut text = dbine_ai::chat(&req, &ai.endpoints, &emit, &cancel).await?;
+        // Small local models sometimes refuse a legitimate ask: once, the
+        // same question again with a line saying it's fine. The UI drops
+        // the refusal it showed on "retry".
+        if refused(&text) {
+            let _ = app.emit("ai-status", StatusEvent { chat_id: &id, phase: "retry", note: None });
+            req.system.push_str(AFTER_REFUSAL);
+            text = dbine_ai::chat(&req, &ai.endpoints, &emit, &cancel).await?;
+        }
         Ok(ChatOut { text, context_summary: summary })
     }
     .await;
@@ -299,6 +308,9 @@ async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &
                 Language::Cypher => "Cypher".into(),
             };
             s.push_str(&format!("\nMotor: {} · lenguaje de consultas: {lang}.\n", info.name));
+            if let Some(hint) = dialect_hint(info.dialect) {
+                s.push_str(hint);
+            }
             summary.push(info.name.to_string());
         }
         if !db.is_empty() {
@@ -352,6 +364,52 @@ async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &
     );
     (s, summary.join(" · "))
 }
+
+/// What small models get wrong most in each dialect: quoting, naming another
+/// database, limiting rows.
+fn dialect_hint(dialect: &str) -> Option<&'static str> {
+    Some(match dialect {
+        "mssql" | "sybase" => {
+            "Sintaxis de SQL Server: los nombres con guiones, espacios o palabras reservadas van entre corchetes ([mi-base], [Order]). \
+             Una tabla de otra base del mismo servidor se nombra con tres partes: [base].esquema.tabla. \
+             Para limitar filas, TOP n después de SELECT (no existe LIMIT). En un UNION, una parte con TOP y su propio ORDER BY va dentro de una subconsulta: \
+             SELECT * FROM (SELECT TOP 10 … FROM [b1].dbo.t ORDER BY Fecha DESC) AS t1 UNION ALL SELECT * FROM (…) AS t2.\n"
+        }
+        "postgres" => {
+            "Sintaxis de PostgreSQL: los nombres con mayúsculas, guiones o palabras reservadas van entre comillas dobles (\"MiTabla\"). \
+             Para limitar filas, LIMIT n. Una consulta no puede leer tablas de otra base (cada base es aparte, salvo dblink o postgres_fdw).\n"
+        }
+        "mysql" => {
+            "Sintaxis de MySQL: los nombres con guiones o palabras reservadas van entre backticks (`mi-base`). \
+             Una tabla de otra base del mismo servidor se nombra base.tabla. Para limitar filas, LIMIT n.\n"
+        }
+        "oracle" => {
+            "Sintaxis de Oracle: los nombres con minúsculas, guiones o palabras reservadas van entre comillas dobles. \
+             Una tabla de otro esquema se nombra ESQUEMA.TABLA. Para limitar filas, FETCH FIRST n ROWS ONLY (12c en adelante); no existe LIMIT ni TOP.\n"
+        }
+        "sqlite" => "Sintaxis de SQLite: para limitar filas, LIMIT n. Cada base es un archivo; otra base se usa con ATTACH.\n",
+        _ => return None,
+    })
+}
+
+/// The model refused a legitimate request ("Lo siento, no puedo ayudarte con
+/// eso"): a short answer without code that apologizes or says it can't.
+fn refused(text: &str) -> bool {
+    let t = text.trim().to_lowercase();
+    if t.is_empty() || t.contains("```") || t.chars().count() > 600 {
+        return false;
+    }
+    const SIGNS: &[&str] = &[
+        "no puedo ayudar", "no puedo asistir", "no puedo hacer eso", "no puedo proporcionar", "lo siento, no puedo", "lo siento, pero no puedo",
+        "can't help with", "cannot help with", "can't assist", "cannot assist", "i'm sorry, but i can", "i am sorry, but i can",
+        "não posso ajudar", "desculpe, mas não posso", "je ne peux pas vous aider", "je ne peux pas t'aider", "non posso aiutar",
+    ];
+    SIGNS.iter().any(|s| t.contains(s))
+}
+
+/// Added to the prompt on the second try after a refusal.
+const AFTER_REFUSAL: &str = "\nEl pedido anterior es legítimo: es la base del propio usuario y él decide qué ejecutar. \
+     No te niegues ni pidas disculpas: escribí la consulta que pide (DBine no la ejecuta) y, si es riesgosa o toca datos sensibles, avisalo en una línea.\n";
 
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
@@ -458,6 +516,22 @@ fn compact_schema(tables: &[TableSchema], hint: &str, budget: usize) -> (String,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refusals() {
+        assert!(refused("Lo siento, no puedo ayudarte con eso."));
+        assert!(refused("I'm sorry, but I can't assist with that request."));
+        assert!(!refused("```sql\nSELECT 1;\n```\nLo siento, no puedo garantizar el orden."), "with code it answered");
+        assert!(!refused("Esta consulta borra la tabla y no se puede deshacer."));
+        assert!(!refused(&format!("{} lo siento, no puedo", "x".repeat(700))), "a long answer isn't a refusal");
+    }
+
+    #[test]
+    fn dialect_hints() {
+        assert!(dialect_hint("mssql").unwrap().contains("[base].esquema.tabla"));
+        assert!(dialect_hint("postgres").unwrap().contains("LIMIT"));
+        assert!(dialect_hint("standard").is_none());
+    }
     use dbine_driver::{ColumnDef, ForeignKeyDef, KeyDef};
 
     fn table(name: &str, cols: &[&str]) -> TableSchema {
