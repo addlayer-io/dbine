@@ -177,7 +177,7 @@ pub async fn ai_approve(ai: State<'_, AiRuntime>, args: ApproveArgs) -> CommandR
 #[derive(Clone, Serialize)]
 struct ToolEvent<'a> {
     chat_id: &'a str,
-    /// What it read, for the chat ("estructura de people.customer en tenant-compras").
+    /// What it read, for the chat ("estructura de ventas.clientes en tenant-compras").
     label: &'a str,
     ok: bool,
 }
@@ -686,7 +686,7 @@ fn json_objects(text: &str) -> impl Iterator<Item = &str> {
     found.into_iter()
 }
 
-/// What the chat shows for a read ("estructura de people.customer en tenant-compras").
+/// What the chat shows for a read ("estructura de ventas.clientes en tenant-compras").
 fn tool_label(name: &str, args: &serde_json::Value) -> String {
     let s = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let (db, obj) = (s("database"), s("object"));
@@ -827,9 +827,9 @@ mod tests {
 
     #[test]
     fn tool_calls() {
-        let (n, a) = tool_call("<herramienta>{\"name\": \"describe_object\", \"arguments\": {\"database\": \"b\", \"object\": \"people.customer\"}}</herramienta>").unwrap();
+        let (n, a) = tool_call("<herramienta>{\"name\": \"describe_object\", \"arguments\": {\"database\": \"b\", \"object\": \"ventas.clientes\"}}</herramienta>").unwrap();
         assert_eq!(n, "describe_object");
-        assert_eq!(a["object"], "people.customer");
+        assert_eq!(a["object"], "ventas.clientes");
         assert_eq!(tool_call("Primero listo las bases.\n<herramienta>{\"name\": \"list_databases\", \"arguments\": {}}</herramienta>").unwrap().0, "list_databases");
         assert_eq!(tool_call("{\"name\": \"list_databases\", \"arguments\": {}}").unwrap().0, "list_databases", "bare JSON");
         assert!(tool_call("<herramienta>{\"name\": \"execute\", \"arguments\": {}}</herramienta>").is_none(), "never a write");
@@ -841,7 +841,7 @@ mod tests {
         assert_eq!(tool_call("```json\n{\"name\": \"list_objects\", \"arguments\": {\"database\": \"b\"}}\n```").unwrap().0, "list_objects");
         assert_eq!(tool_call("<tool_call>\n{\"name\": \"list_databases\", \"arguments\": {}}\n</tool_call>").unwrap().0, "list_databases");
         assert!(tool_call("el objeto {\"name\": \"Pepe\"} no es una herramienta").is_none());
-        assert_eq!(tool_label("describe_object", &serde_json::json!({"database": "t1", "object": "people.customer"})), "estructura de people.customer en t1");
+        assert_eq!(tool_label("describe_object", &serde_json::json!({"database": "t1", "object": "ventas.clientes"})), "estructura de ventas.clientes en t1");
     }
 
     #[test]

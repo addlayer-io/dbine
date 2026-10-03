@@ -516,13 +516,13 @@ mod tests {
         let skipped = DbOutcome { database: "t4".into(), skipped: true, ..Default::default() };
         let (merged, runs) = merge(vec![
             ok("t1", vec![set(&["id"], vec![vec![json!(1)]])]),
-            failed("t2", "Invalid object name 'people.customer'."),
+            failed("t2", "Invalid object name 'ventas.clientes'."),
             DbOutcome { database: "t3".into(), connect_error: Some("login failed".into()), ..Default::default() },
             skipped,
         ]);
         assert_eq!(merged.expect("merged").rows, vec![vec![json!("t1"), json!(1)]]);
         assert_eq!(runs[1].status, DbStatus::Error);
-        assert_eq!(runs[1].error.as_deref(), Some("Invalid object name 'people.customer'."));
+        assert_eq!(runs[1].error.as_deref(), Some("Invalid object name 'ventas.clientes'."));
         assert_eq!(runs[2].error.as_deref(), Some("login failed"));
         assert_eq!(runs[3].status, DbStatus::Skipped);
     }
@@ -620,13 +620,13 @@ mod live {
         for (i, db) in dbs.iter().enumerate() {
             let cols = if *db == "mdb_odd" { "id INT, nickname NVARCHAR(50)" } else { "id INT, name NVARCHAR(50)" };
             setup(&cfg, db, &[
-                "CREATE SCHEMA people".into(),
-                format!("CREATE TABLE people.customer ({cols})"),
-                format!("INSERT INTO people.customer VALUES ({i}, N'c{i}'), ({}, N'd{i}')", i + 10),
+                "CREATE SCHEMA ventas".into(),
+                format!("CREATE TABLE ventas.clientes ({cols})"),
+                format!("INSERT INTO ventas.clientes VALUES ({i}, N'c{i}'), ({}, N'd{i}')", i + 10),
             ])
             .await;
         }
-        let sql = "SELECT TOP 10 * FROM people.customer ORDER BY id";
+        let sql = "SELECT TOP 10 * FROM ventas.clientes ORDER BY id";
         let (m, runs) = run_on(&cfg, &dbs[..3], sql).await;
         print("mssql same", &m, &runs);
         assert_eq!(m.as_ref().unwrap().rows.len(), 6);
@@ -638,15 +638,15 @@ mod live {
         assert_eq!(runs.len(), 4);
 
         // A database without the table: its error is reported, the rest merge.
-        setup(&cfg, "mdb_t3", &["DROP TABLE people.customer".into()]).await;
-        let (m, runs) = run_on(&cfg, &dbs[..3], "SELECT TOP 10 id, name FROM people.customer\nGO\nSELECT 1 AS later").await;
+        setup(&cfg, "mdb_t3", &["DROP TABLE ventas.clientes".into()]).await;
+        let (m, runs) = run_on(&cfg, &dbs[..3], "SELECT TOP 10 id, name FROM ventas.clientes\nGO\nSELECT 1 AS later").await;
         print("mssql error", &m, &runs);
         assert_eq!(runs[2].status, DbStatus::Error);
         assert!(m.is_some());
 
         let mut ro = cfg.clone();
         ro.read_only = true;
-        let (_, runs) = run_on(&ro, &dbs[..1], "DELETE FROM people.customer").await;
+        let (_, runs) = run_on(&ro, &dbs[..1], "DELETE FROM ventas.clientes").await;
         print("mssql read-only", &None, &runs);
         assert_eq!(runs[0].status, DbStatus::Error);
         assert_eq!(write_keyword(dbine_drivers::find("sqlserver").unwrap().as_ref(), "SELECT 1; UPDATE x SET a = 1").as_deref(), Some("UPDATE"));
@@ -677,20 +677,20 @@ mod live {
         for (i, db) in dbs.iter().enumerate() {
             let cols = if *db == "mdb_odd" { "id int, nickname text" } else { "id int, name text" };
             setup(&cfg, db, &[
-                "CREATE SCHEMA people".into(),
-                format!("CREATE TABLE people.customer ({cols})"),
-                format!("INSERT INTO people.customer VALUES ({i}, 'c{i}'), ({}, 'd{i}')", i + 10),
+                "CREATE SCHEMA ventas".into(),
+                format!("CREATE TABLE ventas.clientes ({cols})"),
+                format!("INSERT INTO ventas.clientes VALUES ({i}, 'c{i}'), ({}, 'd{i}')", i + 10),
             ])
             .await;
         }
-        let sql = "SELECT * FROM people.customer ORDER BY id LIMIT 10;";
+        let sql = "SELECT * FROM ventas.clientes ORDER BY id LIMIT 10;";
         let (m, runs) = run_on(&cfg, &dbs[..3], sql).await;
         print("pg same", &m, &runs);
         assert_eq!(m.as_ref().unwrap().rows.len(), 6);
         let (m, runs) = run_on(&cfg, &dbs, sql).await;
         print("pg odd", &m, &runs);
         assert!(m.is_none());
-        setup(&cfg, "mdb_t3", &["DROP TABLE people.customer".into()]).await;
+        setup(&cfg, "mdb_t3", &["DROP TABLE ventas.clientes".into()]).await;
         let (m, runs) = run_on(&cfg, &dbs[..3], sql).await;
         print("pg error", &m, &runs);
         assert_eq!(runs[2].status, DbStatus::Error);

@@ -69,7 +69,7 @@ pide a medida que lo necesita.
 - **Límites:** hasta 12 lecturas por respuesta; una consulta repetida no se
   vuelve a ejecutar. Cada resultado se recorta a 12 000 caracteres.
 - **En el chat:** mientras lee se ve "Consultando la conexión: estructura de
-  people.customer en tenant-compras…", y debajo de la respuesta, plegada, la
+  ventas.clientes en tenant-compras…", y debajo de la respuesta, plegada, la
   lista de lo que consultó. Las líneas `<herramienta>` no se muestran.
 - **Modelos:** está disponible con cualquiera. Con el pedido "analizá los
   índices de las bases y decime cuál sobra", el 32B y el 7B listaron las bases,

@@ -4,7 +4,7 @@
   "dialog": {
     "title": "Executar em vários bancos",
     "intro": "O código do editor (ou a seleção) é executado em cada banco escolhido, cada um em sua própria sessão e {{max}} por vez. Os resultados são reunidos no painel de resultados.",
-    "filter": "Filtrar bancos (aceita *, por exemplo *tenant-banco*)",
+    "filter": "Filtrar bancos (aceita *, por exemplo *tenant-n*)",
     "all": "Todos",
     "none": "Nenhum",
     "count": "{{selected}} de {{total}} bancos escolhidos",

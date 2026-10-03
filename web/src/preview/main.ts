@@ -149,14 +149,14 @@ function filtersView() {
 // view=multidb: the merged results of a run on several databases, with the
 // dialog on top (&results=1: without it; &running=1: the dialog mid-run).
 function multiDbView() {
-  try { localStorage.setItem('dbine.multiDb.x', JSON.stringify(['tenant-banco-norte', 'tenant-banco-sur', 'tenant-banco-central', 'tenant-acme'])); } catch { /* ignore */ }
+  try { localStorage.setItem('dbine.multiDb.x', JSON.stringify(['tenant-norte', 'tenant-sur', 'tenant-centro', 'tenant-acme'])); } catch { /* ignore */ }
   const { outcome, labels } = multiDbOutcome(sampleMultiDbResponse);
   return [
     h('div', { style: 'display: flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; border-bottom: 1px solid var(--nm-border-soft)' },
       i18next.t('multiDb:results.bar', { summary: runSummary(sampleMultiDbResponse) })),
     h('div', { style: 'flex: 1; min-height: 0' }, [h(ResultsPane, { running: false, title: 'Clientes', dialect: 'mssql', outcome, labels, hideStatus: true })]),
     params.get('results') ? null : h(MultiDbRunDialog, {
-      connectionId: 'x', currentDatabase: 'tenant-banco-norte', databases: sampleTenantDatabases,
+      connectionId: 'x', currentDatabase: 'tenant-norte', databases: sampleTenantDatabases,
       live: params.get('running') ? sampleLive() : null,
       onRun: (dbs: string[]) => console.log('run', dbs),
     }),
@@ -237,7 +237,7 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
       if (cmd === 'get_dependents' && view !== 'compare') return sampleDependents;
       if (cmd === 'test_connection') return { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
       if (view === 'query') {
-        if (cmd === 'get_query') return { id: 'q1', name: 'Query', sql: 'select top 10 * from people.Person', connection_id: 'c1', database: null, folder: null, updated_at: '' };
+        if (cmd === 'get_query') return { id: 'q1', name: 'Query', sql: 'select top 10 * from ventas.clientes', connection_id: 'c1', database: null, folder: null, updated_at: '' };
         return null;
       }
       const cmp = compareMock(cmd, a);

@@ -4,7 +4,7 @@
   "dialog": {
     "title": "Ejecutar en varias bases",
     "intro": "El código del editor (o la selección) se ejecuta en cada base elegida, cada una en su propia sesión y de a {{max}} a la vez. Los resultados se juntan en el panel de resultados.",
-    "filter": "Filtrar bases (admite *, por ejemplo *tenant-banco*)",
+    "filter": "Filtrar bases (admite *, por ejemplo *tenant-n*)",
     "all": "Todas",
     "none": "Ninguna",
     "count": "{{selected}} de {{total}} bases elegidas",
