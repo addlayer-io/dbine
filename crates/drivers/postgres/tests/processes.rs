@@ -5,6 +5,11 @@
 //!
 //! ```sh
 //! DBINE_TEST_POSTGRES_URL=postgres://postgres:pw@localhost:25010/postgres \
+//! DBINE_TEST_COCKROACH_URL=postgres://root@localhost:26014/defaultdb \
+//! DBINE_TEST_CRATEDB_URL=postgres://crate@localhost:25021/doc \
+//! DBINE_TEST_RISINGWAVE_URL=postgres://root@localhost:25023/dev \
+//! DBINE_TEST_MATERIALIZE_URL=postgres://materialize@localhost:25024/materialize \
+//! DBINE_TEST_H2_URL=postgres://sa:sa@localhost:25025/test \
 //!   cargo test -p dbine-driver-postgres --test processes -- --ignored
 //! ```
 
@@ -43,65 +48,168 @@ async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
     }
 }
 
-/// A session sleeping in a statement shows up active with its text, the
+/// How each engine names a session and keeps one busy.
+struct Engine {
+    driver: &'static str,
+    env: &'static str,
+    /// The session's own id, as `processes` lists it (None: found by the
+    /// statement's text).
+    id_sql: Option<&'static str>,
+    /// A statement that runs for tens of seconds, tagged `dbine_processes_test`.
+    busy_sql: &'static str,
+    /// Whether the engine shows the running statement (Materialize doesn't).
+    shows_sql: bool,
+}
+
+const PG: Engine = Engine {
+    driver: "postgres",
+    env: "",
+    id_sql: Some("SELECT pg_backend_pid()::text"),
+    busy_sql: "SELECT pg_sleep(30) AS dbine_processes_test",
+    shows_sql: true,
+};
+
+/// The id `processes` gives the session whose raw id is `raw`: RisingWave
+/// prefixes it with the frontend's worker id.
+fn find<'a>(list: &'a [dbine_driver::ServerProcess], e: &Engine, raw: &str) -> Option<&'a dbine_driver::ServerProcess> {
+    if e.driver == "risingwave" {
+        list.iter().find(|p| p.id.rsplit_once(':').map(|(_, n)| n) == Some(raw))
+    } else {
+        list.iter().find(|p| p.id == raw)
+    }
+}
+
+/// A session busy in a statement shows up active with its text, the
 /// lister's own row is flagged, and cancelling stops the statement but
 /// leaves the session usable.
-async fn list_and_cancel(driver: &str, env: &str) {
-    let Some(cfg) = cfg(driver, env) else {
-        eprintln!("{env} not set; skipping");
+async fn list_and_cancel(e: Engine) {
+    let Some(cfg) = cfg(e.driver, e.env) else {
+        eprintln!("{} not set; skipping", e.env);
         return;
     };
+    let driver = e.driver;
     let d = dbine_driver_postgres::drivers().into_iter().find(|d| d.info().id == driver).unwrap();
     assert!(d.capabilities().processes && d.capabilities().cancel_query);
     let mut admin = d.connect(&cfg, None).await.unwrap();
-    let own = scalar(&mut admin, "SELECT pg_backend_pid()::text").await;
+    let own_raw = match e.id_sql {
+        Some(sql) => Some(scalar(&mut admin, sql).await),
+        None => None,
+    };
 
     let mut worker = d.connect(&cfg, None).await.unwrap();
-    let worker_id = scalar(&mut worker, "SELECT pg_backend_pid()::text").await;
-    let sleeping = tokio::spawn(async move {
-        let r = run(&mut worker, "SELECT pg_sleep(30) AS dbine_processes_test").await;
+    let worker_raw = match e.id_sql {
+        Some(sql) => Some(scalar(&mut worker, sql).await),
+        None => None,
+    };
+    let busy = e.busy_sql;
+    let running = tokio::spawn(async move {
+        let r = run(&mut worker, busy).await;
         (r, worker)
     });
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
 
     let list = admin.processes().await.unwrap();
-    let w = list.iter().find(|p| p.id == worker_id).expect("the worker is listed");
+    let w = match &worker_raw {
+        Some(raw) => find(&list, &e, raw),
+        None => list.iter().find(|p| p.sql.as_deref().is_some_and(|q| q.contains("dbine_processes_test") && !q.contains("processes()"))),
+    }
+    .expect("the worker is listed");
     eprintln!("{driver}: {w:#?}");
-    assert!(w.active, "{w:?}");
-    assert!(w.sql.as_deref().unwrap_or("").contains("dbine_processes_test"), "{w:?}");
-    assert!(w.elapsed_ms.unwrap_or(0) >= 500, "{w:?}");
-    assert_eq!(w.command.as_deref(), Some("SELECT"));
-    assert!(!w.own && !w.system);
-    assert!(list.iter().find(|p| p.id == own).expect("its own session is listed").own);
+    assert!(!w.own && !w.system, "{w:?}");
+    if e.shows_sql {
+        assert!(w.active, "{w:?}");
+        assert!(w.sql.as_deref().unwrap_or("").contains("dbine_processes_test"), "{w:?}");
+        assert!(w.elapsed_ms.unwrap_or(0) >= 500, "{w:?}");
+        assert_eq!(w.command.as_deref(), Some("SELECT"));
+    }
+    let own = list.iter().find(|p| p.own).expect("its own session is flagged");
+    if let Some(raw) = &own_raw {
+        assert_eq!(find(&list, &e, raw).map(|p| &p.id), Some(&own.id));
+    }
+    let (worker_id, own_id) = (w.id.clone(), own.id.clone());
 
     admin.cancel_query(&worker_id).await.unwrap();
-    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), sleeping).await.expect("the statement stopped").unwrap();
-    assert!(r.is_err(), "the sleep was cancelled");
-    assert_eq!(scalar(&mut worker, "SELECT 1::text").await, "1", "the session is still open");
+    let (r, mut worker) = tokio::time::timeout(Duration::from_secs(10), running).await.expect("the statement stopped").unwrap();
+    assert!(r.is_err(), "the statement was cancelled");
+    assert_eq!(scalar(&mut worker, "SELECT 1").await, "1", "the session is still open");
     assert!(admin.cancel_query("1; DROP TABLE x").await.is_err(), "the id is validated");
-    assert!(admin.cancel_query(&own).await.is_err(), "not its own session");
+    assert!(admin.cancel_query(&own_id).await.is_err(), "not its own session");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn postgres() {
-    list_and_cancel("postgres", "DBINE_TEST_POSTGRES_URL").await;
+    list_and_cancel(Engine { env: "DBINE_TEST_POSTGRES_URL", ..PG }).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn timescaledb() {
-    list_and_cancel("timescaledb", "DBINE_TEST_TIMESCALEDB_URL").await;
+    list_and_cancel(Engine { driver: "timescaledb", env: "DBINE_TEST_TIMESCALEDB_URL", ..PG }).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn yugabytedb() {
-    list_and_cancel("yugabytedb", "DBINE_TEST_YUGABYTEDB_URL").await;
+    list_and_cancel(Engine { driver: "yugabytedb", env: "DBINE_TEST_YUGABYTEDB_URL", ..PG }).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn opengauss() {
-    list_and_cancel("opengauss", "DBINE_TEST_OPENGAUSS_URL").await;
+    list_and_cancel(Engine { driver: "opengauss", env: "DBINE_TEST_OPENGAUSS_URL", ..PG }).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn cockroachdb() {
+    list_and_cancel(Engine { driver: "cockroachdb", env: "DBINE_TEST_COCKROACH_URL", id_sql: Some("SHOW session_id"), ..PG }).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn risingwave() {
+    list_and_cancel(Engine { driver: "risingwave", env: "DBINE_TEST_RISINGWAVE_URL", id_sql: Some("SELECT pg_backend_pid()::varchar"), ..PG }).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn h2() {
+    list_and_cancel(Engine {
+        driver: "h2",
+        env: "DBINE_TEST_H2_URL",
+        id_sql: Some("SELECT CAST(SESSION_ID() AS VARCHAR)"),
+        busy_sql: "SELECT SUM(\"X\") AS dbine_processes_test FROM SYSTEM_RANGE(1, 3000000000)",
+        shows_sql: true,
+    })
+    .await;
+}
+
+/// CrateDB has no "my session id" function: the worker is found by its
+/// statement.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn cratedb() {
+    list_and_cancel(Engine {
+        driver: "cratedb",
+        env: "DBINE_TEST_CRATEDB_URL",
+        id_sql: None,
+        busy_sql: "SELECT sum(a) AS dbine_processes_test FROM generate_series(1, 2000000000) AS t(a)",
+        shows_sql: true,
+    })
+    .await;
+}
+
+/// Materialize lists sessions without their statements.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn materialize() {
+    list_and_cancel(Engine {
+        driver: "materialize",
+        env: "DBINE_TEST_MATERIALIZE_URL",
+        id_sql: Some("SELECT pg_backend_pid()::text"),
+        busy_sql: "SELECT sum(a) AS dbine_processes_test FROM generate_series(1, 2000000000) AS a",
+        shows_sql: false,
+    })
+    .await;
 }
