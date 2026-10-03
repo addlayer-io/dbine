@@ -158,6 +158,26 @@
       "writesPerRead": "Writes/reads",
       "lastRead": "Last read",
       "lastWrite": "Last write"
+    },
+    "disabled": "disabled",
+    "disabledTip": "Disabled: the optimizer does not use it. Right-click › Enable index… to use it again.",
+    "disable": {
+      "menu": "Disable index…",
+      "title": "Disable index {{name}}",
+      "intro": "The index “{{name}}” of {{table}} will be disabled: it stays defined, but the optimizer stops using it until it is enabled.",
+      "scriptName": "Disable {{name}}",
+      "run": "Disable",
+      "done": "Index disabled",
+      "task": "Disable index {{name}} of {{table}}"
+    },
+    "enable": {
+      "menu": "Enable index…",
+      "title": "Enable index {{name}}",
+      "intro": "The index “{{name}}” of {{table}} will be enabled: the optimizer uses it again.",
+      "scriptName": "Enable {{name}}",
+      "run": "Enable",
+      "done": "Index enabled",
+      "task": "Enable index {{name}} of {{table}}"
     }
   }
 }
