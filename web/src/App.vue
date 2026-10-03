@@ -47,6 +47,7 @@ import SecurityView from './views/SecurityView.vue';
 import BackupsView from './views/BackupsView.vue';
 import IndexUsageView from './views/IndexUsageView.vue';
 import DependenciesView from './views/DependenciesView.vue';
+import SparklesIcon from './components/SparklesIcon.vue';
 import ConnectionView from './views/ConnectionView.vue';
 import MonitorView from './views/MonitorView.vue';
 import ProfilerView from './views/ProfilerView.vue';
@@ -205,7 +206,7 @@ watch(
           <el-icon :size="20"><ei-tickets /></el-icon>
         </button>
         <button class="ide-activity-item" :class="{ active: ui.aiOpen }" :title="$t('workbench:app.ai')" @click="ui.aiOpen = !ui.aiOpen">
-          <el-icon :size="21"><ei-magic-stick /></el-icon>
+          <el-icon :size="21"><SparklesIcon /></el-icon>
         </button>
         <button class="ide-activity-item" :class="{ active: ui.settingsSection }" :title="$t('workbench:app.settings')" @click="ui.openSettings()">
           <el-icon :size="21"><ei-setting /></el-icon>

@@ -1,6 +1,6 @@
 # Asistente de IA
 
-Un chat en la barra lateral derecha. Se abre con el ícono de la varita en la
+Un chat en la barra lateral derecha. Se abre con el ícono de las estrellitas en la
 barra de actividad o con ⌘I. Sirve para:
 
 - escribir queries;
