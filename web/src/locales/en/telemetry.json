@@ -2,13 +2,13 @@
   "consent": {
     "title": "Anonymous usage data",
     "text": "DBine sends anonymous usage data. It helps us know how much it's used and what to work on.",
-    "sent": "What's sent: the DBine version, the operating system, the language, which database engines and which DBine modules you use (for example PostgreSQL or the monitor) and the approximate country.",
+    "sent": "What's sent: the DBine version, the operating system, the language, which database engines and which DBine modules and features you use (for example PostgreSQL, the monitor or the AI assistant, and whether it's a local or external model) and the approximate country.",
     "notSent": "Never sent: server names, users, databases, queries or data. There's no identifier of you.",
     "change": "If you want to turn it off, go to Settings › General › Share anonymous usage data.",
     "ok": "Got it"
   },
   "settings": {
     "label": "Share anonymous usage data",
-    "help": "Version, operating system, language, engines you use and approximate country. Never servers, queries or data."
+    "help": "Version, operating system, language, engines, modules and features you use, and approximate country. Never servers, queries or data."
   }
 }

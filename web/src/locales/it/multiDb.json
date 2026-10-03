@@ -4,7 +4,7 @@
   "dialog": {
     "title": "Esegui su più database",
     "intro": "Il codice dell'editor (o la selezione) viene eseguito su ogni database scelto, ciascuno nella propria sessione e {{max}} alla volta. I risultati vengono uniti nel pannello dei risultati.",
-    "filter": "Filtra database (supporta *, ad esempio *tenant-banca*)",
+    "filter": "Filtra database (supporta *, ad esempio *tenant-n*)",
     "all": "Tutti",
     "none": "Nessuno",
     "count": "{{selected}} database su {{total}} scelti",

@@ -4,7 +4,7 @@
   "dialog": {
     "title": "Run on several databases",
     "intro": "The editor code (or the selection) runs on each chosen database, each in its own session and {{max}} at a time. The results are merged in the results panel.",
-    "filter": "Filter databases (supports *, e.g. *tenant-bank*)",
+    "filter": "Filter databases (supports *, e.g. *tenant-n*)",
     "all": "All",
     "none": "None",
     "count": "{{selected}} of {{total}} databases selected",
