@@ -195,6 +195,17 @@ rango); con varios, pide escribir «eliminar» para confirmar.
 | Comando | args | Devuelve |
 |---|---|---|
 | `monitor_snapshot` | `{ connection_id }` | `MonitorSnapshot` |
+| `monitor_processes` | `{ connection_id }` | `ServerProcess[]` |
+| `monitor_cancel_query` | `{ connection_id, id }` | nada |
+| `monitor_kill_session` | `{ connection_id, id }` | nada |
+
+`monitor_processes` es la lista de [Procesos](procesos.md), solo para los
+drivers con `capabilities.processes`; sondea por una sesión propia
+(`processes:<id>`) y, si la conexión se cae, la próxima llamada reconecta.
+`monitor_cancel_query` (`capabilities.cancel_query`) detiene la sentencia de
+otra sesión y la deja abierta; `monitor_kill_session` la termina. El `id` es
+el que informa `monitor_processes`. Ninguno tiene eventos ni se cancela: son
+llamadas cortas. La interfaz las oculta en las conexiones de solo lectura.
 
 Solo para los drivers con `capabilities.monitor`. Usa una sesión propia de la
 conexión (`monitor:<id>`), así el sondeo no espera detrás del explorador ni de
