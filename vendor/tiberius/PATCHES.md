@@ -136,6 +136,18 @@ files kept). Every changed site is marked `PATCH(dbine)` in the source.
      isn't a workspace member). Live ones in DBine's
      `crates/drivers/sqlserver/src/script_live.rs`.
 
+9. **NTLM with domain credentials off Windows** — `Cargo.toml`
+   (`winauth` no longer Windows-only), `src/client/auth.rs`,
+   `src/client/connection.rs`, `src/tds/codec/login.rs`,
+   `src/tds/codec/token/token_sspi.rs`, `src/tds/context.rs`,
+   `src/tds/stream/token.rs`. Upstream only offers `AuthMethod::windows`
+   (NTLM with `DOMAIN\user` + password) on Windows, or off Windows through
+   `sspi-rs`, whose `sspi 0.18` pins `crypto-bigint =0.7.0-rc.8` and can't be
+   built alongside russh. This uses winauth's pure-Rust NTLMv2 client on every
+   OS, so DBine's "Windows: usuario y contraseña de dominio" works from macOS
+   and Linux. Windows keeps SSPI for the integrated login; Unix keeps GSSAPI
+   (`integrated-auth-gssapi`).
+
 ## Not needed on 0.13 (already upstream)
 
 * **Requested packet size** — `Config::packet_size(n)` exists upstream and is

@@ -387,7 +387,7 @@ default-features = false
 version = "0.18"
 optional = true
 
-[target."cfg(windows)".dependencies.winauth]
+[dependencies.winauth]
 version = "0.0.5"
 optional = true
 

@@ -145,7 +145,10 @@ fn info(p: &'static Preset) -> DriverInfo {
         fields.push(
             Field::new("extra", "Atributos adicionales", FieldKind::Text)
                 .placeholder("Clave=Valor;OtraClave=Valor")
-                .help("Se agregan al final de la cadena de conexión ODBC (TLS, timeouts, juego de caracteres…).")
+                .help(
+                    "Se agregan al final de la cadena de conexión ODBC y reemplazan a los del mismo nombre (TLS, timeouts, \
+                     juego de caracteres, Kerberos o seguridad integrada de Windows…).",
+                )
                 .advanced(),
         );
     }

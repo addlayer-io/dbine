@@ -157,7 +157,7 @@ pub enum ReceivedToken {
     // Consumed by `flush_sspi`, which is only compiled with an integrated-auth
     // backend; without one the payload is decoded but never read.
     #[cfg_attr(
-        not(any(windows, feature = "integrated-auth-gssapi", feature = "sspi-rs")),
+        not(any(windows, feature = "integrated-auth-gssapi", feature = "sspi-rs", feature = "winauth")),
         allow(dead_code)
     )]
     Sspi(TokenSspi),
@@ -271,7 +271,7 @@ where
         }
     }
 
-    #[cfg(any(windows, feature = "integrated-auth-gssapi", feature = "sspi-rs"))]
+    #[cfg(any(windows, feature = "integrated-auth-gssapi", feature = "sspi-rs", feature = "winauth"))]
     pub(crate) async fn flush_sspi(self) -> crate::Result<TokenSspi> {
         let mut stream = self.try_unfold();
         let mut last_error = None;

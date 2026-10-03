@@ -87,7 +87,7 @@ use dbine_driver::{
 use futures::TryStreamExt;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::error::ErrorKind;
-use mongodb::options::{ClientOptions, Credential, ServerAddress, Tls, TlsOptions};
+use mongodb::options::{AuthMechanism, ClientOptions, Credential, ServerAddress, Tls, TlsOptions};
 use mongodb::{Client, Database};
 use shell::{Item, Shape, Stmt};
 use steps::Step;
@@ -160,10 +160,36 @@ fn build_info(flavor: Flavor) -> DriverInfo {
             .help("Varios miembros separados por coma: host1:27017,host2:27017."),
         Field::port(),
         Field::database().help("Base inicial; vacía = la de la cadena de conexión o «test»."),
-        Field::username(),
-        Field::password(),
-        Field::new("auth_source", "Base de autenticación", FieldKind::Text).placeholder("admin").advanced(),
     ];
+    if flavor == Flavor::Mongo {
+        // Kerberos is MongoDB Enterprise's; FerretDB and DocumentDB don't have it.
+        fields.extend([
+            Field::new(
+                "auth",
+                "Autenticación",
+                FieldKind::Select(vec![(AUTH_PASSWORD, "Usuario y contraseña"), (AUTH_KERBEROS, "Kerberos (GSSAPI)")]),
+            )
+            .default_value(AUTH_PASSWORD)
+            .help("Kerberos usa el ticket de la sesión (en macOS y Linux, el de kinit usuario@DOMINIO) y requiere MongoDB Enterprise."),
+            Field::username().help("Con Kerberos, el principal (usuario@DOMINIO)."),
+            Field::password().when("auth", &[AUTH_PASSWORD]),
+            Field::new("auth_source", "Base de autenticación", FieldKind::Text)
+                .placeholder("admin")
+                .advanced()
+                .when("auth", &[AUTH_PASSWORD]),
+            Field::new("kerberos_service", "Servicio de Kerberos", FieldKind::Text)
+                .placeholder("mongodb")
+                .help("El nombre del servicio con el que está registrado el servidor; casi siempre «mongodb».")
+                .advanced()
+                .when("auth", &[AUTH_KERBEROS]),
+        ]);
+    } else {
+        fields.extend([
+            Field::username(),
+            Field::password(),
+            Field::new("auth_source", "Base de autenticación", FieldKind::Text).placeholder("admin").advanced(),
+        ]);
+    }
     match flavor {
         Flavor::Mongo => {
             fields.push(
@@ -238,6 +264,35 @@ fn err(e: mongodb::error::Error) -> Error {
     }
 }
 
+/// Sign in with a user and password (SCRAM, the server's default).
+const AUTH_PASSWORD: &str = "password";
+/// Sign in with the session's Kerberos ticket (MongoDB Enterprise).
+const AUTH_KERBEROS: &str = "kerberos";
+
+/// The login the form asks for; `None` without a user (no authentication).
+fn credential(cfg: &ConnectionConfig, flavor: Flavor) -> Result<Option<Credential>> {
+    let user = cfg.username.as_deref().map(str::trim).filter(|u| !u.is_empty());
+    let kerberos = flavor == Flavor::Mongo && cfg.option("auth") == Some(AUTH_KERBEROS);
+    if kerberos {
+        let user = user.ok_or_else(|| Error::AuthFailed("Kerberos necesita el principal (usuario@DOMINIO)".into()))?;
+        let mut c = Credential::default();
+        c.username = Some(user.to_string());
+        c.mechanism = Some(AuthMechanism::Gssapi);
+        c.source = Some("$external".into());
+        if let Some(service) = cfg.option("kerberos_service").map(str::trim).filter(|s| !s.is_empty()) {
+            c.mechanism_properties = Some(doc! { "SERVICE_NAME": service });
+        }
+        return Ok(Some(c));
+    }
+    Ok(user.map(|user| {
+        let mut c = Credential::default();
+        c.username = Some(user.to_string());
+        c.password = cfg.password.clone();
+        c.source = cfg.option("auth_source").map(str::to_string);
+        c
+    }))
+}
+
 async fn client_options(cfg: &ConnectionConfig, flavor: Flavor) -> Result<ClientOptions> {
     let mut o = base_options(cfg, flavor).await?;
     if flavor == Flavor::DocumentDb {
@@ -274,13 +329,7 @@ async fn base_options(cfg: &ConnectionConfig, flavor: Flavor) -> Result<ClientOp
         })
         .collect::<std::result::Result<_, _>>()
         .map_err(|e| Error::Connect(e.to_string()))?;
-    if let Some(user) = cfg.username.as_deref().filter(|u| !u.is_empty()) {
-        let mut c = Credential::default();
-        c.username = Some(user.to_string());
-        c.password = cfg.password.clone();
-        c.source = cfg.option("auth_source").map(str::to_string);
-        o.credential = Some(c);
-    }
+    o.credential = credential(cfg, flavor)?;
     match cfg.option("replica_set") {
         Some(rs) => o.repl_set_name = Some(rs.to_string()),
         None if o.hosts.len() == 1 => o.direct_connection = Some(true),
@@ -1020,6 +1069,30 @@ mod tests {
             let st = shell::parse_script(&browse_text(n, 5)).unwrap();
             assert_eq!(st[0].cmd.get_str("find"), Ok(n));
         }
+    }
+
+    #[test]
+    fn kerberos_logins() {
+        let mut cfg = ConnectionConfig { username: Some("ana@CONTOSO.LOCAL".into()), password: Some("x".into()), ..Default::default() };
+        // Unchanged: user and password, SCRAM by default.
+        let c = credential(&cfg, Flavor::Mongo).unwrap().unwrap();
+        assert_eq!((c.mechanism, c.password.as_deref()), (None, Some("x")));
+        cfg.options.insert("auth".into(), AUTH_KERBEROS.into());
+        cfg.options.insert("kerberos_service".into(), "mongosvc".into());
+        let c = credential(&cfg, Flavor::Mongo).unwrap().unwrap();
+        assert_eq!(c.mechanism, Some(AuthMechanism::Gssapi));
+        assert_eq!((c.username.as_deref(), c.password, c.source.as_deref()), (Some("ana@CONTOSO.LOCAL"), None, Some("$external")));
+        assert_eq!(c.mechanism_properties.unwrap().get_str("SERVICE_NAME"), Ok("mongosvc"));
+        // Only MongoDB offers it.
+        assert_eq!(credential(&cfg, Flavor::Ferret).unwrap().unwrap().mechanism, None);
+        cfg.username = None;
+        assert!(matches!(credential(&cfg, Flavor::Mongo), Err(Error::AuthFailed(_))));
+        // The form: the password and auth database only for passwords.
+        let info = build_info(Flavor::Mongo);
+        let when = |k: &str| info.fields.iter().find(|f| f.key == k).and_then(|f| f.when.as_ref()).map(|w| w.values.clone());
+        assert_eq!(when("password"), Some(vec![AUTH_PASSWORD]));
+        assert_eq!(when("kerberos_service"), Some(vec![AUTH_KERBEROS]));
+        assert!(build_info(Flavor::DocumentDb).fields.iter().all(|f| f.key != "auth" && f.when.is_none()));
     }
 
     #[test]

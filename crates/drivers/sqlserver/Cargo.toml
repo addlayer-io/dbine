@@ -9,7 +9,17 @@ dbine-driver = { path = "../../dbine-driver" }
 tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-tiberius = { version = "0.13.0", default-features = false, features = ["tds73", "chrono", "rust_decimal", "rustls", "sql-browser-tokio"] }
+# Windows authentication. tiberius gates each backend on its own target, so
+# both are listed for every OS and only the matching one is built:
+# - `winauth` (Windows only): the current user through SSPI, and NTLMv2
+#   with a domain user and password.
+# - `integrated-auth-gssapi` (Unix only): the current user through Kerberos
+#   (GSSAPI, the system's ticket cache). Links libgssapi_krb5 on Linux and
+#   the system's GSS framework on macOS.
+# NTLM with a user and password on macOS/Linux would need tiberius'
+# `sspi-rs`, whose sspi 0.18 pins a crypto-bigint release candidate that
+# conflicts with russh's (docs/autenticacion-integrada.md).
+tiberius = { version = "0.13.0", default-features = false, features = ["tds73", "chrono", "rust_decimal", "rustls", "sql-browser-tokio", "winauth", "integrated-auth-gssapi"] }
 tokio-util = { version = "0.7.19", features = ["compat"] }
 chrono.workspace = true
 futures.workspace = true

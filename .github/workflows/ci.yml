@@ -15,7 +15,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libssl-dev libxdo-dev
+            librsvg2-dev patchelf libssl-dev libxdo-dev \
+            libkrb5-dev  # Kerberos (GSSAPI) for Windows authentication: SQL Server, MongoDB
 
       - uses: dtolnay/rust-toolchain@stable
         with:
