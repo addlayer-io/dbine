@@ -2,13 +2,13 @@
   "consent": {
     "title": "Données d'utilisation anonymes",
     "text": "DBine envoie des données d'utilisation anonymes. Elles nous aident à savoir combien il est utilisé et sur quoi travailler.",
-    "sent": "Ce qui est envoyé : la version de DBine, le système d'exploitation, la langue, les moteurs de base de données et les modules de DBine que vous utilisez (par exemple PostgreSQL ou le moniteur) et le pays approximatif.",
+    "sent": "Ce qui est envoyé : la version de DBine, le système d'exploitation, la langue, les moteurs de base de données et les modules et fonctions de DBine que vous utilisez (par exemple PostgreSQL, le moniteur ou l'assistant IA, et s'il s'agit d'un modèle local ou externe) et le pays approximatif.",
     "notSent": "Jamais envoyé : noms de serveurs, utilisateurs, bases, requêtes ou données. Il n'y a aucun identifiant vous concernant.",
     "change": "Si vous voulez le désactiver, allez dans Paramètres › Général › Partager des données d'utilisation anonymes.",
     "ok": "Compris"
   },
   "settings": {
     "label": "Partager des données d'utilisation anonymes",
-    "help": "Version, système d'exploitation, langue, moteurs utilisés et pays approximatif. Jamais de serveurs, requêtes ou données."
+    "help": "Version, système d'exploitation, langue, moteurs, modules et fonctions utilisés, et pays approximatif. Jamais de serveurs, requêtes ou données."
   }
 }

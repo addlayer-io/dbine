@@ -657,6 +657,9 @@
  "Actian Zen escribe el plan en un archivo del servidor (SET QRYPLAN); no lo devuelve por ODBC.": [
   "crates/drivers/odbc/src/explain.rs"
  ],
+ "Actian Zen no expone sus sesiones por SQL: se ven en Zen Monitor": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
  "Actian Zen respalda con la herramienta butil (-startbu / -endbu), no con SQL": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -924,6 +927,9 @@
  ],
  "Amazon Keyspaces es un servicio administrado: CPU, memoria, capacidad consumida y latencias se ven en Amazon CloudWatch, no por CQL.": [
   "crates/drivers/cassandra/src/monitor.rs"
+ ],
+ "Amazon Keyspaces no expone sus conexiones ni las consultas en curso": [
+  "crates/drivers/cassandra/src/processes.rs"
  ],
  "Amazon Keyspaces no muestra las consultas de otros clientes por CQL (quedan en CloudTrail)": [
   "crates/drivers/cassandra/src/profiler.rs"
@@ -1240,6 +1246,9 @@
  "Avro": [
   "crates/drivers/odbc/src/design.rs"
  ],
+ "Azure Cosmos DB es un servicio HTTP sin estado: no expone sesiones ni consultas en curso que listar o cancelar": [
+  "crates/drivers/cosmosdb/src/lib.rs"
+ ],
  "Azure Data Studio guarda las contraseñas en su propio almacén: se piden al conectar la primera vez.": [
   "crates/dbine-core/src/conn_import/ads.rs"
  ],
@@ -1374,6 +1383,9 @@
  ],
  "Babelfish no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/sqlserver/src/index_usage.rs"
+ ],
+ "Babelfish no permite detener la consulta de otra sesión desde T-SQL: solo terminarla (KILL), lo que cierra la sesión": [
+  "crates/drivers/sqlserver/src/processes.rs"
  ],
  "Babelfish no permite otorgar sobre un esquema con opción de otorgar: hacelo sin ella o sobre cada objeto": [
   "crates/drivers/sqlserver/src/security.rs"
@@ -1679,6 +1691,9 @@
  "Bloque {0}": [
   "crates/drivers/odbc/src/plan.rs"
  ],
+ "Bloqueada": [
+  "crates/drivers/neo4j/src/processes.rs"
+ ],
  "Bloqueada por": [
   "crates/drivers/hana/src/monitor.rs",
   "crates/drivers/oracle/src/monitor.rs",
@@ -1933,6 +1948,9 @@
  ],
  "CHAR({0}) supera los {1} de NVARCHAR: se usa NCLOB.": [
   "crates/dbine-schema/src/dialect/hana.rs"
+ ],
+ "CLIENT LIST no respondió a tiempo": [
+  "crates/drivers/redis/src/processes.rs"
  ],
  "CLONE LOCAL (MySQL 8.0.17 o posterior) hace una copia física de todo el servidor en una carpeta del propio servidor. Necesita el plugin clone (INSTALL PLUGIN clone SONAME 'mysql_clone.so') y el privilegio BACKUP_ADMIN. Restaurar no se hace por SQL: se detiene MySQL y se lo arranca con --datadir apuntando a esa carpeta (o se la copia en lugar del directorio de datos). El historial muestra la última clonación.": [
   "crates/drivers/mysql/src/backup.rs"
@@ -2309,6 +2327,7 @@
   "crates/drivers/redis/src/security.rs"
  ],
  "Cancelled": [
+  "crates/drivers/drill/src/processes.rs",
   "crates/drivers/flightsql/src/lib.rs"
  ],
  "Cannot execute query on non idempotent": [
@@ -2979,6 +2998,7 @@
  "Command": [
   "crates/drivers/dsql/src/plan.rs",
   "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/mysql/src/processes.rs",
   "crates/drivers/postgres/src/plan.rs"
  ],
  "Comment": [
@@ -3250,7 +3270,9 @@
  "Conexión de solo lectura: no se puede {0}.": [
   "crates/drivers/couchdb/src/lib.rs",
   "crates/drivers/mongodb/src/lib.rs",
-  "crates/drivers/neo4j/src/lib.rs"
+  "crates/drivers/neo4j/src/lib.rs",
+  "crates/drivers/orientdb/src/processes.rs",
+  "crates/drivers/redis/src/processes.rs"
  ],
  "Conexión de solo lectura: no se pueden borrar bases.": [
   "crates/dbine-driver/src/read_only.rs",
@@ -3259,6 +3281,19 @@
   "crates/drivers/duckdb/src/lib.rs",
   "crates/drivers/influxdb/src/v1.rs",
   "crates/drivers/iotdb/src/lib.rs"
+ ],
+ "Conexión de solo lectura: no se pueden cancelar consultas de otras sesiones.": [
+  "crates/dbine-driver/src/read_only.rs"
+ ],
+ "Conexión de solo lectura: no se pueden cancelar consultas de otros clientes.": [
+  "crates/drivers/influxdb/src/v1.rs",
+  "crates/drivers/iotdb/src/processes.rs"
+ ],
+ "Conexión de solo lectura: no se pueden cancelar consultas.": [
+  "crates/drivers/couchbase/src/processes.rs"
+ ],
+ "Conexión de solo lectura: no se pueden cancelar tareas.": [
+  "crates/drivers/elasticsearch/src/lib.rs"
  ],
  "Conexión de solo lectura: no se pueden cargar datos.": [
   "crates/dbine-driver/src/read_only.rs",
@@ -3276,6 +3311,9 @@
   "crates/drivers/duckdb/src/lib.rs",
   "crates/drivers/influxdb/src/v1.rs",
   "crates/drivers/iotdb/src/lib.rs"
+ ],
+ "Conexión de solo lectura: no se pueden detener replicaciones.": [
+  "crates/drivers/couchdb/src/processes.rs"
  ],
  "Conexión de solo lectura: no se pueden escribir puntos.": [
   "crates/drivers/influxdb/src/v1.rs",
@@ -3783,6 +3821,9 @@
  "CouchDB no permite deshabilitar un usuario: cambiale la contraseña o borralo": [
   "crates/drivers/couchdb/src/security.rs"
  ],
+ "CouchDB no permite detener una tarea de tipo «{0}» desde la API: solo se cancelan replicaciones": [
+  "crates/drivers/couchdb/src/processes.rs"
+ ],
  "CouchDB no tiene tablas: los documentos van a la base de la sesión, junto con los de las demás tablas (conviene un campo que diga de qué tabla vienen). Del esquema solo se crean los índices Mango.": [
   "crates/dbine-schema/src/dialect/couchdb.rs"
  ],
@@ -4015,7 +4056,8 @@
   "crates/drivers/dsql/src/sync.rs"
  ],
  "Daemon": [
-  "crates/drivers/mysql/src/monitor.rs"
+  "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/mysql/src/processes.rs"
  ],
  "Dameng": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
@@ -4039,7 +4081,8 @@
   "crates/drivers/iotdb/src/monitor.rs",
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/mysql/src/monitor.rs",
-  "crates/drivers/odbc/src/presets.rs"
+  "crates/drivers/odbc/src/presets.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "Database pages": [
   "crates/drivers/odbc/src/monitor_tests.rs"
@@ -4223,6 +4266,9 @@
  "Db2 for z/OS no cambia la nulabilidad de una columna con ALTER: esos cambios quedan afuera.": [
   "crates/drivers/odbc/src/sync.rs"
  ],
+ "Db2 for z/OS no expone sus hilos por SQL: se ven con -DISPLAY THREAD, IFI u OMEGAMON": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
  "Db2 for z/OS no otorga roles con GRANT: un usuario toma un rol a través de un contexto de confianza (CREATE TRUSTED CONTEXT … DEFAULT ROLE)": [
   "crates/drivers/odbc/src/security/ibm.rs"
  ],
@@ -4354,6 +4400,9 @@
  ],
  "Denodo exporta sus metadatos con su herramienta de exportación, no con un backup del servidor": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "Denodo no cancela consultas por VQL: se cancelan desde Diagnostic & Monitoring Tool o por JMX": [
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "Denodo no crea tablas por SQL: las vistas base se definen en Denodo": [
   "crates/drivers/postgres/src/lib.rs"
@@ -4763,6 +4812,9 @@
   "crates/drivers/redis/src/lib.rs",
   "crates/drivers/redis/src/monitor.rs"
  ],
+ "Dragonfly no tiene CLIENT UNBLOCK: no se puede cortar el comando bloqueante de otro cliente sin cerrar su conexión (CLIENT KILL)": [
+  "crates/drivers/redis/src/processes.rs"
+ ],
  "Dragonfly {0}": [
   "crates/drivers/redis/src/lib.rs"
  ],
@@ -4866,6 +4918,9 @@
  "DuckDB corre dentro del servidor Flight SQL: no expone CPU, conexiones ni consultas en curso por SQL.": [
   "crates/drivers/flightsql/src/lib.rs"
  ],
+ "DuckDB es una base embebida: no hay un servidor con sesiones de otros clientes que listar ni consultas ajenas que cancelar": [
+  "crates/drivers/duckdb/src/lib.rs"
+ ],
  "DuckDB no borra exportaciones: son carpetas de esta computadora": [
   "crates/drivers/duckdb/src/backup.rs"
  ],
@@ -4936,6 +4991,9 @@
  ],
  "DynamoDB devolvió un tipo de atributo que esta versión de DBine no conoce": [
   "crates/drivers/dynamodb/src/transfer.rs"
+ ],
+ "DynamoDB es un servicio HTTP sin estado: no tiene sesiones ni consultas en curso que listar o cancelar": [
+  "crates/drivers/dynamodb/src/lib.rs"
  ],
  "DynamoDB es un servicio administrado: la API no expone CPU, memoria, conexiones ni sesiones.": [
   "crates/drivers/dynamodb/src/monitor.rs"
@@ -5919,6 +5977,9 @@
  "En cola por carga": [
   "crates/drivers/snowflake/src/monitor.rs"
  ],
+ "En cola {0} ms": [
+  "crates/drivers/neo4j/src/processes.rs"
+ ],
  "En curso (s)": [
   "crates/drivers/dsql/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs"
@@ -6349,13 +6410,15 @@
  ],
  "Esperando un bloqueo": [
   "crates/drivers/mongodb/src/blocking.rs",
-  "crates/drivers/neo4j/src/blocking.rs"
+  "crates/drivers/neo4j/src/blocking.rs",
+  "crates/drivers/neo4j/src/processes.rs"
  ],
  "Esperando un bloqueo ({0})": [
   "crates/drivers/snowflake/src/blocking.rs"
  ],
  "Esperando un bloqueo {0}": [
-  "crates/drivers/neo4j/src/blocking.rs"
+  "crates/drivers/neo4j/src/blocking.rs",
+  "crates/drivers/neo4j/src/processes.rs"
  ],
  "Esperando un bloqueo {0} ({1}){2}": [
   "crates/drivers/mongodb/src/blocking.rs"
@@ -7127,6 +7190,9 @@
  "Flight SQL informa la clave primaria y las claves foráneas de la tabla, pero no sus índices ni cuántas veces se usan.": [
   "crates/drivers/flightsql/src/index_usage.rs"
  ],
+ "Flight SQL no define cómo listar ni cancelar las consultas de otros clientes: depende del servidor que lo atiende. Para Dremio o Apache Doris, usá su driver propio, que sí las lista": [
+  "crates/drivers/flightsql/src/lib.rs"
+ ],
  "Flight SQL no define métricas de servidor y este motor no expone tablas de sistema conocidas: solo se muestra la información del servidor.": [
   "crates/drivers/flightsql/src/lib.rs"
  ],
@@ -7587,17 +7653,22 @@
  "Hive no tiene backups de la base: solo EXPORT TABLE / IMPORT TABLE por tabla, que no reemplazan un backup": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "HiveServer2 no lista sus sesiones por SQL: se ven en su interfaz web (puerto 10002)": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
  "Host": [
   "crates/drivers/hana/src/monitor.rs",
   "crates/drivers/influxdb/src/monitor.rs",
   "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/mysql/src/processes.rs",
   "crates/drivers/mysql/src/security.rs",
   "crates/drivers/mysql/src/security/databend.rs",
   "crates/drivers/mysql/src/security/doris.rs",
   "crates/drivers/mysql/src/security/singlestore.rs",
   "crates/drivers/mysql/src/security/starrocks.rs",
   "crates/drivers/odbc/src/presets.rs",
-  "crates/drivers/postgres/src/monitor.rs"
+  "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "Host key verification failed": [
   "src-tauri/src/commands/git_cli.rs"
@@ -7662,6 +7733,9 @@
  "IN sobre la clave de partición: el coordinador consulta varias particiones": [
   "crates/drivers/cassandra/src/plan.rs"
  ],
+ "INACTIVE (transacción abierta)": [
+  "crates/drivers/oracle/src/processes.rs"
+ ],
  "INIT (FORMAT en una URL). Si no, el backup se agrega al archivo (NOINIT).": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -7718,7 +7792,8 @@
   "crates/drivers/athena/src/plan.rs"
  ],
  "Idle": [
-  "crates/drivers/odbc/src/blocking.rs"
+  "crates/drivers/odbc/src/blocking.rs",
+  "crates/drivers/odbc/src/processes.rs"
  ],
  "Ignite": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
@@ -7915,6 +7990,9 @@
  "InfluxDB 2 no puede devolver sin pérdida un tag con retorno de carro (\\r): su CSV lo descarta.": [
   "crates/drivers/influxdb/src/transfer.rs"
  ],
+ "InfluxDB 2 no tiene una API que liste ni cancele las consultas de otros clientes": [
+  "crates/drivers/influxdb/src/processes.rs"
+ ],
  "InfluxDB 2 y 3 autorizan con tokens de API, no con usuarios y permisos que se cambien con consultas: administralos desde la interfaz o la CLI de InfluxDB": [
   "crates/drivers/influxdb/src/security.rs"
  ],
@@ -7923,6 +8001,9 @@
  ],
  "InfluxDB 3 no informa el uso de CPU del host; «CPU de los workers» es el tiempo ocupado del runtime (100 % = un núcleo).": [
   "crates/drivers/influxdb/src/monitor.rs"
+ ],
+ "InfluxDB 3 no permite cancelar la consulta de otro cliente (no tiene KILL QUERY ni una API para eso)": [
+  "crates/drivers/influxdb/src/processes.rs"
  ],
  "InfluxDB no informó sus políticas de retención": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
@@ -7955,7 +8036,9 @@
   "crates/drivers/influxdb/src/lib.rs"
  ],
  "Info": [
-  "crates/drivers/mysql/src/monitor.rs"
+  "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/mysql/src/processes.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "Informix": [
   "crates/drivers/odbc/src/monitor_tests.rs"
@@ -9089,7 +9172,8 @@
  ],
  "Lock": [
   "crates/drivers/odbc/src/plan.rs",
-  "crates/drivers/postgres/src/blocking.rs"
+  "crates/drivers/postgres/src/blocking.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "Locks": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -9278,6 +9362,9 @@
  "Límite de conexiones": [
   "crates/drivers/dsql/src/security.rs",
   "crates/drivers/postgres/src/security.rs"
+ ],
+ "Límite de consultas concurrentes": [
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "Límite de datos por consulta": [
   "crates/drivers/athena/src/monitor.rs"
@@ -9470,7 +9557,8 @@
   "crates/drivers/phoenix/src/lib.rs"
  ],
  "Materialize": [
-  "crates/drivers/postgres/src/lib.rs"
+  "crates/drivers/postgres/src/lib.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "Materialize no cuenta cuántas veces se usa cada índice. Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/postgres/src/index_usage.rs"
@@ -9845,6 +9933,9 @@
  "Mimer SQL da el plan solo con SET EXPLAIN en BSQL; no hay forma de pedirlo por ODBC.": [
   "crates/drivers/odbc/src/explain.rs"
  ],
+ "Mimer SQL no expone sus sesiones por SQL: se ven con sqlmonitor": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
  "Mimer restaura copiando el archivo del backup en lugar del databank y aplicando el log con ALTER DATABANK … RESTORE: la copia no se hace por SQL": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -10014,6 +10105,9 @@
  ],
  "MongoDB tiene un solo validador por colección y {0} tiene {1}": [
   "crates/drivers/mongodb/src/ddl.rs"
+ ],
+ "MonitorSession, hace falta el permiso MONITOR SESSION": [
+  "crates/drivers/odbc/src/processes.rs"
  ],
  "Monitoreo interno": [
   "crates/drivers/influxdb/src/monitor.rs"
@@ -10240,6 +10334,7 @@
   "crates/drivers/neo4j/src/monitor.rs",
   "crates/drivers/neo4j/src/plan.rs",
   "crates/drivers/odbc/src/blocking.rs",
+  "crates/drivers/odbc/src/processes.rs",
   "crates/drivers/sqlserver/src/plan.rs"
  ],
  "Necesaria si el workgroup no define una.": [
@@ -10595,6 +10690,9 @@
  "No se pudieron leer las bases y sus tamaños": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "No se pudieron leer las conexiones (MON$ATTACHMENTS): {0}": [
+  "crates/drivers/firebird/src/processes.rs"
+ ],
  "No se pudieron leer las conexiones ({0}): hace falta un usuario con permiso sobre performance_schema.": [
   "crates/drivers/tdengine/src/lib.rs"
  ],
@@ -10714,6 +10812,12 @@
  ],
  "No se pudieron leer los parámetros (pg_settings)": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "No se pudieron leer los procesos (hace falta el rol MONITORING): {0}": [
+  "crates/drivers/hana/src/processes.rs"
+ ],
+ "No se pudieron leer los procesos ({0}): {1}": [
+  "crates/drivers/odbc/src/processes.rs"
  ],
  "No se pudieron leer los segmentos (gp_segment_configuration)": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -11741,7 +11845,8 @@
   "crates/drivers/clickhouse/src/schema.rs"
  ],
  "Number": [
-  "crates/drivers/odbc/src/blocking.rs"
+  "crates/drivers/odbc/src/blocking.rs",
+  "crates/drivers/odbc/src/processes.rs"
  ],
  "Nunca se ejecutó": [
   "crates/drivers/dsql/src/plan.rs",
@@ -12269,6 +12374,9 @@
  "Para ver los contadores de uso el usuario necesita EXECUTE sobre MON_GET_INDEX (o la autoridad SQLADM, DBADM o DATAACCESS): se listan los índices sin contadores.": [
   "crates/drivers/odbc/src/index_usage.rs"
  ],
+ "Para ver los procesos hace falta leer V$SESSION, V$SQL y V$SESS_IO (SELECT_CATALOG_ROLE): {0}": [
+  "crates/drivers/oracle/src/processes.rs"
+ ],
  "Para verificar el servidor: el global-bundle.pem de AWS (RDS).": [
   "crates/drivers/postgres/src/lib.rs"
  ],
@@ -12482,6 +12590,9 @@
  ],
  "Phoenix no guarda la zona horaria de una hora.": [
   "crates/dbine-schema/src/dialect/phoenix.rs"
+ ],
+ "Phoenix no informa las consultas en curso: ni Phoenix ni HBase llevan una lista que se pueda leer o detener, y el Query Server (Avatica) solo conoce sus propias conexiones": [
+  "crates/drivers/phoenix/src/lib.rs"
  ],
  "Phoenix no registra cuántas veces se usa cada índice ni su tamaño (vive en HBase): se listan la clave de fila y los índices con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
   "crates/drivers/phoenix/src/index_usage.rs"
@@ -13094,6 +13205,9 @@
  "Redo generado": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
+ "Redshift": [
+  "crates/drivers/postgres/src/processes.rs"
+ ],
  "Redshift Serverless no expone por SQL el CPU ni la memoria: la capacidad (RPU) y el consumo están en CloudWatch.": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -13198,6 +13312,9 @@
  ],
  "Relativa a la carpeta de copias del servidor, o una URL s3://.": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "Remote": [
+  "crates/drivers/hana/src/processes.rs"
  ],
  "Rendimiento": [
   "crates/drivers/cosmosdb/src/ddl.rs"
@@ -13313,6 +13430,7 @@
  ],
  "Respuesta inesperada del servidor: {0}": [
   "crates/drivers/elasticsearch/src/lib.rs",
+  "crates/drivers/elasticsearch/src/processes.rs",
   "crates/drivers/elasticsearch/src/security.rs",
   "crates/drivers/solr/src/lib.rs"
  ],
@@ -13718,6 +13836,9 @@
  "SQL Server no guarda la zona horaria de una hora.": [
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
+ "SQL Server no puede detener la consulta de otra sesión sin terminarla: KILL cierra la sesión y deshace su transacción": [
+  "crates/drivers/sqlserver/src/processes.rs"
+ ],
  "SQL Server no tiene arreglos ni mapas: se guarda como JSON en texto.": [
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
@@ -13747,6 +13868,9 @@
  ],
  "SQL++ reemplaza la lista entera de grupos de un usuario (ALTER USER … GROUPS …): escribila completa en el editor": [
   "crates/drivers/couchbase/src/security.rs"
+ ],
+ "SQLite es una base embebida en un archivo: no hay un servidor con sesiones de otros clientes que listar ni consultas ajenas que cancelar": [
+  "crates/drivers/sqlite/src/lib.rs"
  ],
  "SQLite guarda enteros de hasta 8 bytes; los mayores quedan como número real.": [
   "crates/dbine-schema/src/dialect/sqlite.rs"
@@ -14121,7 +14245,8 @@
   "crates/drivers/odbc/src/presets.rs"
  ],
  "Server status": [
-  "crates/drivers/orientdb/src/monitor.rs"
+  "crates/drivers/orientdb/src/monitor.rs",
+  "crates/drivers/orientdb/src/processes.rs"
  ],
  "Serverless": [
   "crates/drivers/databricks/src/monitor.rs",
@@ -14630,7 +14755,8 @@
  ],
  "Sleep": [
   "crates/drivers/mysql/src/blocking.rs",
-  "crates/drivers/mysql/src/monitor.rs"
+  "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/mysql/src/processes.rs"
  ],
  "Slices": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -14670,6 +14796,9 @@
  ],
  "Snowflake admite hasta 38 dígitos; el origen tiene {0}.": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
+ ],
+ "Snowflake necesita un warehouse para listar las consultas en curso: la conexión no tiene uno": [
+  "crates/drivers/snowflake/src/processes.rs"
  ],
  "Snowflake no devolvió la hora del servidor": [
   "crates/drivers/snowflake/src/profiler.rs"
@@ -14830,6 +14959,9 @@
  "Solr no lista las consultas en curso ni las conexiones abiertas; se muestran los pedidos que Jetty está atendiendo.": [
   "crates/drivers/solr/src/lib.rs"
  ],
+ "Solr no lleva una lista de las consultas en curso ni de sesiones: su gestión de tareas (/tasks/list) solo ve, núcleo por núcleo, las consultas que se enviaron con canCancel=true": [
+  "crates/drivers/solr/src/lib.rs"
+ ],
  "Solr no tiene arreglos anidados: cada elemento queda como texto.": [
   "crates/dbine-schema/src/dialect/solr.rs"
  ],
@@ -14955,6 +15087,9 @@
  "Spark SQL no tiene usuarios ni GRANT propios: la autorización la da el catálogo o Ranger": [
   "crates/drivers/odbc/src/security.rs"
  ],
+ "Spark Thrift Server y Kyuubi no exponen sus sesiones por SQL: se ven en la interfaz web de Spark": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
  "Splits en cola": [
   "crates/drivers/trino/src/monitor.rs"
  ],
@@ -15001,10 +15136,12 @@
   "crates/drivers/athena/src/plan.rs",
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/mysql/src/processes.rs",
   "crates/drivers/mysql/src/profiler.rs"
  ],
  "Statement": [
   "crates/drivers/iotdb/src/monitor.rs",
+  "crates/drivers/iotdb/src/processes.rs",
   "crates/drivers/iotdb/src/profiler.rs",
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -15101,6 +15238,9 @@
  ],
  "SuiteAnalytics Connect es de solo lectura: no se cambian tablas": [
   "crates/drivers/odbc/src/sync.rs"
+ ],
+ "SuiteAnalytics Connect es un servicio de solo lectura de NetSuite: no informa sesiones": [
+  "crates/drivers/odbc/src/processes.rs"
  ],
  "SuiteAnalytics Connect no expone planes de ejecución.": [
   "crates/drivers/odbc/src/explain.rs"
@@ -15701,7 +15841,9 @@
   "crates/dbine-schema/src/dialect/iotdb.rs",
   "crates/drivers/iotdb/src/lib.rs",
   "crates/drivers/iotdb/src/transfer.rs",
-  "crates/drivers/mysql/src/monitor.rs"
+  "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/mysql/src/processes.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "Time (ms)": [
   "crates/drivers/neo4j/src/plan.rs"
@@ -16312,14 +16454,17 @@
  ],
  "User": [
   "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/mysql/src/processes.rs",
   "crates/drivers/mysql/src/security.rs",
-  "crates/drivers/odbc/src/presets.rs"
+  "crates/drivers/odbc/src/presets.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "User is ": [
   "crates/drivers/redis/src/permissions.rs"
  ],
  "Userid": [
-  "crates/drivers/odbc/src/blocking.rs"
+  "crates/drivers/odbc/src/blocking.rs",
+  "crates/drivers/odbc/src/processes.rs"
  ],
  "Users": [
   "crates/drivers/cosmosdb/src/security.rs"
@@ -16746,6 +16891,9 @@
   "crates/drivers/orientdb/src/lib.rs",
   "crates/drivers/orientdb/src/monitor.rs"
  ],
+ "Waiting for": [
+  "crates/drivers/mysql/src/processes.rs"
+ ],
  "Wallet (carpeta descomprimida)": [
   "crates/drivers/oracle/src/lib.rs"
  ],
@@ -16853,7 +17001,8 @@
   "crates/drivers/spanner/src/lib.rs"
  ],
  "Yellowbrick": [
-  "crates/drivers/postgres/src/lib.rs"
+  "crates/drivers/postgres/src/lib.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "Yellowbrick hace sus backups con ybbackup / ybrestore, herramientas de línea de comandos": [
   "crates/drivers/postgres/src/backup.rs"
@@ -17070,6 +17219,9 @@
  "blob inválido: {0}": [
   "crates/drivers/libsql/src/transfer.rs"
  ],
+ "bloqueada por otra transacción": [
+  "crates/drivers/snowflake/src/processes.rs"
+ ],
  "bloques": [
   "crates/dbine-driver/src/profiler.rs"
  ],
@@ -17125,7 +17277,17 @@
  "canal con la app: {0}": [
   "crates/dbine-plugin/src/host.rs"
  ],
+ "cancelar comandos de otros clientes": [
+  "crates/drivers/redis/src/processes.rs"
+ ],
+ "cancelar consultas de otras sesiones": [
+  "crates/drivers/neo4j/src/processes.rs"
+ ],
+ "cancelar una consulta (ALTER SYSTEM CANCEL SQL) requiere Oracle 18c o posterior: {0}": [
+  "crates/drivers/oracle/src/processes.rs"
+ ],
  "cancelándose": [
+  "crates/drivers/elasticsearch/src/processes.rs",
   "crates/drivers/postgres/src/backup.rs"
  ],
  "carga en lote: {0}": [
@@ -17157,6 +17319,9 @@
  ],
  "caído": [
   "crates/drivers/solr/src/monitor.rs"
+ ],
+ "cerrar conexiones de otros clientes": [
+  "crates/drivers/redis/src/processes.rs"
  ],
  "char admite hasta 65536: se usa varchar.": [
   "crates/dbine-schema/src/dialect/trino.rs"
@@ -17901,6 +18066,9 @@
  "el elemento no trae su id": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
+ "el emulador de Spanner no implementa SPANNER_SYS ni cancel_query: no hay consultas en curso que listar": [
+  "crates/drivers/spanner/src/processes.rs"
+ ],
  "el emulador de Spanner no implementa SPANNER_SYS: no hay consultas que ver": [
   "crates/drivers/spanner/src/profiler.rs"
  ],
@@ -18159,6 +18327,9 @@
  "el prefijo": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "el preset ODBC genérico no conoce las vistas de sesiones del motor: usá el preset del motor": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
  "el procedimiento": [
   "src-tauri/src/commands/compare.rs"
  ],
@@ -18315,6 +18486,12 @@
  "el servidor rechazó la sesión": [
   "crates/drivers/libsql/src/hrana.rs"
  ],
+ "el servidor tardó demasiado en listar sus conexiones": [
+  "crates/drivers/cassandra/src/processes.rs"
+ ],
+ "el servidor tardó demasiado en listar sus operaciones (currentOp)": [
+  "crates/drivers/mongodb/src/processes.rs"
+ ],
  "el sinónimo": [
   "src-tauri/src/commands/compare.rs"
  ],
@@ -18419,6 +18596,9 @@
  ],
  "el valor {0} tiene hora y no entra en un DATE sin perderla": [
   "crates/drivers/iotdb/src/transfer.rs"
+ ],
+ "el warehouse {0} está suspendido: la lista de procesos no lo reanuda para no consumir créditos": [
+  "crates/drivers/snowflake/src/processes.rs"
  ],
  "el índice _id_ no se puede deshabilitar": [
   "crates/drivers/mongodb/src/index_usage.rs"
@@ -18674,16 +18854,24 @@
   "crates/drivers/hana/src/transfer.rs"
  ],
  "en cola": [
-  "crates/drivers/elasticsearch/src/monitor.rs"
+  "crates/drivers/athena/src/processes.rs",
+  "crates/drivers/elasticsearch/src/monitor.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "en cola (ms)": [
   "crates/drivers/cassandra/src/monitor.rs",
   "crates/drivers/elasticsearch/src/monitor.rs"
  ],
+ "en cola del warehouse": [
+  "crates/drivers/databricks/src/processes.rs",
+  "crates/drivers/snowflake/src/processes.rs"
+ ],
  "en cola {0} ms": [
-  "crates/drivers/athena/src/profiler.rs"
+  "crates/drivers/athena/src/profiler.rs",
+  "crates/drivers/cassandra/src/processes.rs"
  ],
  "en curso": [
+  "crates/drivers/couchdb/src/processes.rs",
   "crates/drivers/postgres/src/backup.rs",
   "crates/drivers/redis/src/backup.rs"
  ],
@@ -18691,7 +18879,15 @@
   "crates/drivers/mongodb/src/monitor.rs"
  ],
  "en ejecución": [
-  "crates/drivers/postgres/src/blocking.rs"
+  "crates/drivers/clickhouse/src/processes.rs",
+  "crates/drivers/iotdb/src/processes.rs",
+  "crates/drivers/neo4j/src/processes.rs",
+  "crates/drivers/postgres/src/blocking.rs",
+  "crates/drivers/postgres/src/processes.rs",
+  "crates/drivers/spanner/src/processes.rs"
+ ],
+ "en ejecución ({0})": [
+  "crates/drivers/spanner/src/processes.rs"
  ],
  "en este motor el dueño de un esquema tiene que ser un usuario, no un rol": [
   "crates/drivers/odbc/src/schemas.rs"
@@ -18707,6 +18903,9 @@
  ],
  "en pausa": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "en transacción (MULTI)": [
+  "crates/drivers/redis/src/processes.rs"
  ],
  "en un motor de grafos, los nodos de una etiqueta no se copian sin sus relaciones": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -18791,6 +18990,9 @@
  "es demasiado chico para {0} (se cargaría como 0)": [
   "crates/drivers/athena/src/transfer.rs"
  ],
+ "es una base de archivos sin servidor: no tiene sesiones que listar": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
  "es una hypertable de TimescaleDB: el clon sería una tabla común, sin su partición por tiempo ni sus chunks": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
@@ -18810,8 +19012,39 @@
   "crates/dbine-core/src/state.rs",
   "src-tauri/src/commands/projects.rs"
  ],
+ "esa es la conexión con la que DBine está consultando: no se puede cancelar desde acá": [
+  "crates/drivers/orientdb/src/processes.rs"
+ ],
+ "esa es la conexión con la que DBine está consultando: no se puede cortar desde acá": [
+  "crates/drivers/redis/src/processes.rs"
+ ],
+ "esa es la consulta que DBine tiene abierta en esta sesión: se detiene desde su pestaña": [
+  "crates/drivers/ksqldb/src/processes.rs"
+ ],
+ "esa es la sesión con la que DBine está consultando: no se puede cancelar desde acá": [
+  "crates/drivers/dsql/src/processes.rs",
+  "crates/drivers/firebird/src/processes.rs",
+  "crates/drivers/hana/src/processes.rs",
+  "crates/drivers/mysql/src/processes.rs",
+  "crates/drivers/odbc/src/processes.rs",
+  "crates/drivers/oracle/src/processes.rs",
+  "crates/drivers/postgres/src/processes.rs"
+ ],
+ "esa es la sesión con la que DBine está consultando: no se puede cerrar desde acá": [
+  "crates/drivers/firebird/src/processes.rs"
+ ],
  "esa es la sesión con la que DBine está consultando: no se puede terminar desde acá": [
-  "crates/drivers/postgres/src/blocking.rs"
+  "crates/drivers/postgres/src/blocking.rs",
+  "crates/drivers/snowflake/src/processes.rs"
+ ],
+ "esa es la transacción con la que DBine está consultando: no se puede cancelar desde acá": [
+  "crates/drivers/neo4j/src/processes.rs"
+ ],
+ "esa es una operación de la sesión con la que DBine está consultando: no se puede cancelar desde acá": [
+  "crates/drivers/mongodb/src/processes.rs"
+ ],
+ "esa es una tarea de la sesión con la que DBine está consultando: no se puede cancelar desde acá": [
+  "crates/drivers/elasticsearch/src/processes.rs"
  ],
  "esa solicitud ya no está pendiente: se respondió o venció": [
   "src-tauri/src/mcp/approvals.rs"
@@ -18889,11 +19122,17 @@
  "espacio de nombres": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
+ "esperando un bloqueo": [
+  "crates/drivers/mongodb/src/processes.rs"
+ ],
  "esquema de URL no admitido: {0}://": [
   "crates/drivers/libsql/src/hrana.rs"
  ],
  "esta base no informa roles (el emulador de Spanner no tiene el control de acceso detallado): {0}": [
   "crates/drivers/spanner/src/security.rs"
+ ],
+ "esta replicación está definida en el documento «{0}» de {1}: se detiene borrando o editando ese documento": [
+  "crates/drivers/couchdb/src/processes.rs"
  ],
  "esta versión de DBine no tiene configurado el acceso a {0} (falta registrar la app: ver docs/sincronizacion.md)": [
   "src-tauri/src/commands/sync.rs",
@@ -18934,6 +19173,9 @@
  ],
  "estadísticas extendidas: {0} / {1}": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
+ ],
+ "este Cassandra no lista sus conexiones (system_views llegó en la 4.0): {0}": [
+  "crates/drivers/cassandra/src/processes.rs"
  ],
  "este Cassandra no tiene system_views.queries (llegó en la 4.0): {0}": [
   "crates/drivers/cassandra/src/profiler.rs"
@@ -18989,6 +19231,9 @@
  ],
  "este motor no busca claves en el servidor": [
   "crates/dbine-driver/src/lib.rs"
+ ],
+ "este motor no cancela la sentencia de otra sesión sin cerrarla": [
+  "crates/drivers/odbc/src/processes.rs"
  ],
  "este motor no clona bases": [
   "crates/dbine-driver/src/lib.rs"
@@ -19050,6 +19295,9 @@
  "este motor no lista sus backups por SQL": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "este motor no lista sus procesos": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
  "este motor no muestra las consultas de otros clientes": [
   "crates/drivers/postgres/src/profiler.rs"
  ],
@@ -19061,6 +19309,9 @@
  ],
  "este motor no otorga permisos sobre un esquema": [
   "src-tauri/src/commands/schemas.rs"
+ ],
+ "este motor no permite cancelar consultas de otras sesiones": [
+  "crates/dbine-driver/src/lib.rs"
  ],
  "este motor no permite eliminar este tipo de objeto desde DBine": [
   "src-tauri/src/commands/schema.rs"
@@ -19099,6 +19350,9 @@
  ],
  "este motor solo admite usuario y contraseña": [
   "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "este motor todavía no lista sus procesos en DBine": [
+  "crates/drivers/odbc/src/processes.rs"
  ],
  "este motor todavía no muestra planes de ejecución": [
   "crates/dbine-driver/src/lib.rs"
@@ -19165,6 +19419,9 @@
  ],
  "etcd no tiene la opción de otorgar permisos a otros: solo root administra usuarios y roles.": [
   "crates/drivers/etcd/src/security.rs"
+ ],
+ "etcd no tiene sesiones de servidor ni una vista de los pedidos en curso: cada pedido es independiente (las \"sesiones\" de sus clientes son leases) y no hay forma de cancelar el de otro cliente": [
+  "crates/drivers/etcd/src/lib.rs"
  ],
  "etcd restaura un snapshot sin el servidor corriendo (etcdutl snapshot restore): no se hace con una conexión": [
   "crates/drivers/etcd/src/backup.rs"
@@ -19629,11 +19886,17 @@
  "inactiva con transacción abierta": [
   "crates/drivers/hana/src/blocking.rs",
   "crates/drivers/mongodb/src/blocking.rs",
+  "crates/drivers/mongodb/src/processes.rs",
   "crates/drivers/mysql/src/blocking.rs",
+  "crates/drivers/mysql/src/processes.rs",
   "crates/drivers/neo4j/src/blocking.rs",
   "crates/drivers/odbc/src/blocking.rs",
   "crates/drivers/oracle/src/blocking.rs",
-  "crates/drivers/postgres/src/blocking.rs"
+  "crates/drivers/postgres/src/blocking.rs",
+  "crates/drivers/sqlserver/src/processes.rs"
+ ],
+ "inactiva en transacción": [
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "indicá el puerto del servidor de la base": [
   "src-tauri/src/tunnels.rs"
@@ -20056,6 +20319,21 @@
   "src-tauri/src/commands/backup.rs",
   "src-tauri/src/commands/security.rs"
  ],
+ "la conexión {0} está inactiva: no hay una operación en curso que cancelar": [
+  "crates/drivers/mongodb/src/processes.rs"
+ ],
+ "la conexión {0} no está ejecutando nada": [
+  "crates/drivers/orientdb/src/processes.rs"
+ ],
+ "la conexión {0} no está ejecutando ninguna consulta (o todavía no la informó)": [
+  "crates/drivers/tdengine/src/processes.rs"
+ ],
+ "la conexión {0} no existe o tu usuario no la ve (hace falta SYSDBA, RDB$ADMIN o MONITOR_ANY_ATTACHMENT para las de otros usuarios)": [
+  "crates/drivers/firebird/src/processes.rs"
+ ],
+ "la conexión {0} ya se cerró o no existe": [
+  "crates/drivers/orientdb/src/processes.rs"
+ ],
  "la conexión «{0}» necesita la contraseña: el usuario tiene que conectarse una vez desde DBine en esta sesión": [
   "src-tauri/src/mcp/tools.rs"
  ],
@@ -20082,6 +20360,12 @@
  ],
  "la consulta {0} no terminó en {1} s": [
   "crates/drivers/trino/src/transfer.rs"
+ ],
+ "la consulta {0} ya no está en ejecución": [
+  "crates/drivers/ksqldb/src/processes.rs"
+ ],
+ "la consulta {0} ya terminó o no existe": [
+  "crates/drivers/couchbase/src/processes.rs"
  ],
  "la copia de las filas no terminó": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -20217,8 +20501,26 @@
  "la lectura trajo un registro de otra clase ({0}, {1}); revisá el filtro": [
   "crates/drivers/orientdb/src/transfer.rs"
  ],
+ "la lista de consultas tardó demasiado": [
+  "crates/drivers/athena/src/processes.rs",
+  "crates/drivers/clickhouse/src/processes.rs",
+  "crates/drivers/databricks/src/processes.rs",
+  "crates/drivers/drill/src/processes.rs",
+  "crates/drivers/spanner/src/processes.rs",
+  "crates/drivers/trino/src/processes.rs"
+ ],
  "la lista de palabras irrelevantes": [
   "src-tauri/src/commands/compare.rs"
+ ],
+ "la lista de procesos no respondió a tiempo": [
+  "crates/drivers/neo4j/src/processes.rs"
+ ],
+ "la lista de sesiones tardó demasiado": [
+  "crates/drivers/dsql/src/processes.rs"
+ ],
+ "la lista de trabajos tardó demasiado": [
+  "crates/drivers/bigquery/src/processes.rs",
+  "crates/drivers/dremio/src/processes.rs"
  ],
  "la marca de tiempo {0} no es válida": [
   "crates/drivers/iotdb/src/transfer.rs"
@@ -20256,6 +20558,9 @@
  ],
  "la nulabilidad": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "la operación {0} ya terminó o no existe": [
+  "crates/drivers/mongodb/src/processes.rs"
  ],
  "la organización física": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
@@ -20366,6 +20671,21 @@
  "la sesión ya se cerró": [
   "crates/dbine-plugin/src/host.rs"
  ],
+ "la sesión {0} no está ejecutando nada": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
+ "la sesión {0} no está ejecutando nada (o tu usuario no ve sus consultas)": [
+  "crates/drivers/postgres/src/processes.rs"
+ ],
+ "la sesión {0} no existe o no está ejecutando nada": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
+ "la sesión {0},{1} es de DBine: cancelá la consulta desde su pestaña, o usá «Terminar sesión»": [
+  "crates/drivers/oracle/src/processes.rs"
+ ],
+ "la sesión {0},{1} ya no existe": [
+  "crates/drivers/oracle/src/processes.rs"
+ ],
  "la supertabla": [
   "crates/drivers/tdengine/src/sync.rs"
  ],
@@ -20451,6 +20771,18 @@
  ],
  "la tarea de Oracle terminó inesperadamente: {0}": [
   "crates/drivers/oracle/src/lib.rs"
+ ],
+ "la tarea {0} no se puede cancelar (el servidor no la marca como cancelable)": [
+  "crates/drivers/elasticsearch/src/processes.rs"
+ ],
+ "la tarea {0} ya terminó": [
+  "crates/drivers/elasticsearch/src/processes.rs"
+ ],
+ "la tarea {0} ya terminó o no existe": [
+  "crates/drivers/elasticsearch/src/processes.rs"
+ ],
+ "la tarea «{0}» ya terminó o no existe": [
+  "crates/drivers/couchdb/src/processes.rs"
  ],
  "la transferencia no existe": [
   "crates/dbine-transfer/src/engine.rs",
@@ -20627,6 +20959,9 @@
  "leer la cuenta": [
   "crates/dbine-sync/src/gdrive.rs",
   "crates/dbine-sync/src/onedrive.rs"
+ ],
+ "libSQL / Turso no expone las conexiones ni las consultas en curso: cada pedido Hrana es independiente y el servidor no tiene una vista ni una API para listarlas o cancelarlas": [
+  "crates/drivers/libsql/src/lib.rs"
  ],
  "libSQL no expone CPU, memoria ni sesiones por SQL: en Turso, el uso (filas leídas y escritas, almacenamiento) está en la consola o en la API de la plataforma.": [
   "crates/drivers/libsql/src/lib.rs"
@@ -20935,6 +21270,9 @@
   "src-tauri/src/commands/multi_db.rs",
   "src-tauri/src/state.rs"
  ],
+ "no existe la sesión {0}": [
+  "crates/drivers/postgres/src/processes.rs"
+ ],
  "no existe la tabla {0}": [
   "crates/drivers/postgres/src/clone.rs"
  ],
@@ -21076,6 +21414,9 @@
  "no se encontró git en esta máquina: instalalo (git-scm.com) y volvé a intentar": [
   "src-tauri/src/commands/git_cli.rs"
  ],
+ "no se encontró la sesión de la consulta {0}": [
+  "crates/drivers/snowflake/src/processes.rs"
+ ],
  "no se encontró la tabla {0}": [
   "crates/drivers/dsql/src/transfer.rs",
   "crates/drivers/dynamodb/src/lib.rs"
@@ -21211,15 +21552,72 @@
  "no se pudo borrar {0}: {1}": [
   "src-tauri/src/commands/backup.rs"
  ],
+ "no se pudo cancelar el comando del cliente {0}: no existe o no está esperando en un comando bloqueante (BLPOP, XREAD BLOCK, WAIT…). Redis ejecuta un comando a la vez, así que los demás terminan solos; un script largo se corta con SCRIPT KILL": [
+  "crates/drivers/redis/src/processes.rs"
+ ],
+ "no se pudo cancelar el trabajo {0}: {1}": [
+  "crates/drivers/bigquery/src/processes.rs",
+  "crates/drivers/dremio/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta de la conexión {0} (hace falta SESSION ADMIN): {1}": [
+  "crates/drivers/hana/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta de la sesión {0}: no existe, no está ejecutando nada o tu usuario no tiene permiso": [
+  "crates/drivers/dsql/src/processes.rs",
+  "crates/drivers/postgres/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta de la sesión {0}: {1}": [
+  "crates/drivers/dsql/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta {0} de la conexión {1}: {2}": [
+  "crates/drivers/tdengine/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta {0}: ya terminó": [
+  "crates/drivers/athena/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta {0}: ya terminó o no existe": [
+  "crates/drivers/snowflake/src/processes.rs",
+  "crates/drivers/trino/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta {0}: ya terminó o tu usuario no tiene permiso para verla": [
+  "crates/drivers/clickhouse/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta {0}: ya terminó, no existe o tu usuario no tiene permiso": [
+  "crates/drivers/drill/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta {0}: {1}": [
+  "crates/drivers/influxdb/src/v1.rs",
+  "crates/drivers/iotdb/src/processes.rs",
+  "crates/drivers/neo4j/src/neptune.rs",
+  "crates/drivers/spanner/src/processes.rs"
+ ],
+ "no se pudo cancelar la consulta {0}: {1}. Por API solo se cancelan las sentencias enviadas con la Statement Execution API (como las de DBine); las de otros clientes se cancelan desde la interfaz de Databricks": [
+  "crates/drivers/databricks/src/processes.rs"
+ ],
  "no se pudo cancelar la consulta: {0}": [
   "crates/drivers/neo4j/src/lib.rs",
   "crates/drivers/orientdb/src/lib.rs"
+ ],
+ "no se pudo cancelar la tarea {0}: {1}": [
+  "crates/drivers/elasticsearch/src/lib.rs"
+ ],
+ "no se pudo cancelar la transacción {0}: ya terminó": [
+  "crates/drivers/neo4j/src/processes.rs"
+ ],
+ "no se pudo cancelar la transacción {0}: ya terminó o tu usuario no tiene permiso (TRANSACTION_MANAGEMENT)": [
+  "crates/drivers/neo4j/src/processes.rs"
+ ],
+ "no se pudo cancelar {0}: la transacción ya terminó": [
+  "crates/drivers/neo4j/src/processes.rs"
  ],
  "no se pudo cargar DuckDB ({0}): {1}": [
   "crates/drivers/duckdb/src/loader.rs"
  ],
  "no se pudo cerrar el archivo: {0}": [
   "src-tauri/src/commands/export.rs"
+ ],
+ "no se pudo cerrar el cliente {0}: ya no existe": [
+  "crates/drivers/redis/src/processes.rs"
  ],
  "no se pudo conectar al destino: {0}": [
   "src-tauri/src/commands/migration.rs"
@@ -21377,6 +21775,9 @@
  "no se pudo interpretar una fecha y hora con zona para pasarla a UTC": [
   "crates/drivers/bigquery/src/transfer.rs"
  ],
+ "no se pudo leer CLIENT LIST (en servicios administrados suele estar deshabilitado): {0}": [
+  "crates/drivers/redis/src/processes.rs"
+ ],
  "no se pudo leer GOOGLE_APPLICATION_CREDENTIALS ({0}): {1}": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
@@ -21467,6 +21868,9 @@
  "no se pudo leer la lista de consultas del coordinador (/v1/query): {0}": [
   "crates/drivers/trino/src/profiler.rs"
  ],
+ "no se pudo leer la lista de procesos": [
+  "crates/drivers/mysql/src/processes.rs"
+ ],
  "no se pudo leer la secuencia {0}": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
@@ -21505,6 +21909,9 @@
  "no se pudo mover el IDENTITY del clon después de las filas copiadas; no se clona": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "no se pudo pausar la consulta {0}: {1}": [
+  "crates/drivers/ksqldb/src/processes.rs"
+ ],
  "no se pudo pedir el token de Google: {0}": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
@@ -21540,6 +21947,9 @@
  ],
  "no se pudo seguir el estado del trabajo y se canceló: {0}": [
   "crates/drivers/dremio/src/transfer.rs"
+ ],
+ "no se pudo terminar la consulta {0}: {1}": [
+  "crates/drivers/ksqldb/src/processes.rs"
  ],
  "no se pudo terminar la sesión {0}: no existe, ya terminó o tu usuario no tiene permiso para terminarla": [
   "crates/drivers/postgres/src/blocking.rs"
@@ -21959,6 +22369,9 @@
  "performance_schema está desactivado en el servidor (performance_schema = OFF; se activa en la configuración y requiere reiniciar). Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/mysql/src/index_usage.rs"
  ],
+ "performance_schema no respondió a tiempo": [
+  "crates/drivers/tdengine/src/processes.rs"
+ ],
  "permiso de escritura sobre el archivo (la base está abierta en solo lectura)": [
   "crates/drivers/duckdb/src/permissions.rs"
  ],
@@ -22064,6 +22477,9 @@
  "readonly = 0 (el perfil del usuario es de solo lectura)": [
   "crates/drivers/clickhouse/src/permissions.rs"
  ],
+ "reanudando el warehouse": [
+  "crates/drivers/snowflake/src/processes.rs"
+ ],
  "rechazado por el usuario: no se ejecutó nada": [
   "src-tauri/src/mcp/write.rs"
  ],
@@ -22168,6 +22584,7 @@
  ],
  "réplica": [
   "crates/drivers/redis/src/monitor.rs",
+  "crates/drivers/redis/src/processes.rs",
   "crates/drivers/solr/src/monitor.rs"
  ],
  "réplicas": [
@@ -22327,7 +22744,8 @@
   "crates/drivers/spanner/src/lib.rs"
  ],
  "sesión {0}": [
-  "crates/drivers/snowflake/src/blocking.rs"
+  "crates/drivers/snowflake/src/blocking.rs",
+  "crates/drivers/snowflake/src/processes.rs"
  ],
  "signo de numeric inválido": [
   "crates/drivers/postgres/src/transfer.rs"
@@ -22545,6 +22963,9 @@
  "sys.dm_db_resource_stats está vacío en master: conectate a una base de usuario para ver CPU, memoria y E/S.": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "system.queries no respondió a tiempo": [
+  "crates/drivers/influxdb/src/v3.rs"
+ ],
  "sí, por {0}": [
   "crates/drivers/postgres/src/security.rs"
  ],
@@ -22707,6 +23128,9 @@
  ],
  "true: agrega los campos nuevos al mapping": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "tu usuario no tiene el privilegio ALTER SYSTEM para cancelar la consulta: {0}": [
+  "crates/drivers/oracle/src/processes.rs"
  ],
  "túnel SSH: {0}": [
   "src-tauri/src/tunnels.rs"
@@ -24283,6 +24707,9 @@
  "«{0}» es una tabla Hive sobre archivos en S3: si un INSERT de Athena falla a mitad de camino, los archivos que ya escribió quedan en la tabla y no hay forma de deshacerlos, así que la carga no puede ser todo o nada. La carga masiva en Athena solo va a tablas Iceberg (TBLPROPERTIES ('table_type' = 'ICEBERG')).": [
   "crates/drivers/athena/src/transfer.rs"
  ],
+ "«{0}» es una transacción inactiva: no hay una operación en curso que cancelar (se puede terminar la sesión)": [
+  "crates/drivers/mongodb/src/processes.rs"
+ ],
  "«{0}» es una vista: Athena no carga filas en vistas.": [
   "crates/drivers/athena/src/transfer.rs"
  ],
@@ -24380,20 +24807,81 @@
  "«{0}» no es un id de backup del catálogo": [
   "crates/drivers/hana/src/backup.rs"
  ],
+ "«{0}» no es un id de cliente de Redis": [
+  "crates/drivers/redis/src/processes.rs"
+ ],
+ "«{0}» no es un id de conexión (connectionId)": [
+  "crates/drivers/orientdb/src/processes.rs"
+ ],
+ "«{0}» no es un id de conexión de Firebird": [
+  "crates/drivers/firebird/src/processes.rs"
+ ],
  "«{0}» no es un id de conexión de SAP HANA": [
   "crates/drivers/hana/src/blocking.rs"
+ ],
+ "«{0}» no es un id de conexión de TDengine": [
+  "crates/drivers/tdengine/src/processes.rs"
  ],
  "«{0}» no es un id de conexión válido": [
   "crates/drivers/mysql/src/blocking.rs"
  ],
+ "«{0}» no es un id de consulta": [
+  "crates/drivers/trino/src/processes.rs"
+ ],
+ "«{0}» no es un id de consulta (requestId)": [
+  "crates/drivers/couchbase/src/processes.rs"
+ ],
+ "«{0}» no es un id de consulta de ClickHouse": [
+  "crates/drivers/clickhouse/src/processes.rs"
+ ],
+ "«{0}» no es un id de consulta de Databricks": [
+  "crates/drivers/databricks/src/processes.rs"
+ ],
+ "«{0}» no es un id de consulta de Drill": [
+  "crates/drivers/drill/src/processes.rs"
+ ],
+ "«{0}» no es un id de consulta de InfluxDB (qid)": [
+  "crates/drivers/influxdb/src/v1.rs"
+ ],
+ "«{0}» no es un id de consulta de IoTDB": [
+  "crates/drivers/iotdb/src/processes.rs"
+ ],
+ "«{0}» no es un id de consulta de Neptune": [
+  "crates/drivers/neo4j/src/processes.rs"
+ ],
+ "«{0}» no es un id de consulta de Snowflake": [
+  "crates/drivers/snowflake/src/processes.rs"
+ ],
+ "«{0}» no es un id de consulta de Spanner": [
+  "crates/drivers/spanner/src/processes.rs"
+ ],
+ "«{0}» no es un id de consulta de ksqlDB": [
+  "crates/drivers/ksqldb/src/processes.rs"
+ ],
+ "«{0}» no es un id de ejecución de Athena": [
+  "crates/drivers/athena/src/processes.rs"
+ ],
  "«{0}» no es un id de operación (opid)": [
-  "crates/drivers/mongodb/src/blocking.rs"
+  "crates/drivers/mongodb/src/blocking.rs",
+  "crates/drivers/mongodb/src/processes.rs"
+ ],
+ "«{0}» no es un id de proceso de GreptimeDB": [
+  "crates/drivers/mysql/src/processes.rs"
+ ],
+ "«{0}» no es un id de replicación": [
+  "crates/drivers/couchdb/src/processes.rs"
  ],
  "«{0}» no es un id de sesión (PID)": [
-  "crates/drivers/postgres/src/blocking.rs"
+  "crates/drivers/dsql/src/processes.rs",
+  "crates/drivers/postgres/src/blocking.rs",
+  "crates/drivers/postgres/src/processes.rs"
  ],
  "«{0}» no es un id de sesión de CockroachDB": [
-  "crates/drivers/postgres/src/blocking.rs"
+  "crates/drivers/postgres/src/blocking.rs",
+  "crates/drivers/postgres/src/processes.rs"
+ ],
+ "«{0}» no es un id de sesión de Databend": [
+  "crates/drivers/mysql/src/processes.rs"
  ],
  "«{0}» no es un id de sesión de H2": [
   "crates/drivers/postgres/src/blocking.rs"
@@ -24404,14 +24892,37 @@
  "«{0}» no es un id de sesión de Oracle (se espera «sid,serial#»)": [
   "crates/drivers/oracle/src/blocking.rs"
  ],
+ "«{0}» no es un id de sesión de RisingWave (worker:sesión)": [
+  "crates/drivers/postgres/src/processes.rs"
+ ],
+ "«{0}» no es un id de sesión de Vertica": [
+  "crates/drivers/odbc/src/processes.rs"
+ ],
  "«{0}» no es un id de sesión de Yellowbrick": [
   "crates/drivers/postgres/src/blocking.rs"
  ],
+ "«{0}» no es un id de sesión de {1}": [
+  "crates/drivers/postgres/src/processes.rs"
+ ],
  "«{0}» no es un id de sesión válido": [
-  "crates/drivers/odbc/src/blocking.rs"
+  "crates/drivers/odbc/src/blocking.rs",
+  "crates/drivers/odbc/src/processes.rs"
+ ],
+ "«{0}» no es un id de tarea (nodo:número)": [
+  "crates/drivers/elasticsearch/src/lib.rs"
+ ],
+ "«{0}» no es un id de trabajo de BigQuery": [
+  "crates/drivers/bigquery/src/processes.rs"
+ ],
+ "«{0}» no es un id de trabajo de Dremio": [
+  "crates/drivers/dremio/src/processes.rs"
+ ],
+ "«{0}» no es un id de transacción de Memgraph": [
+  "crates/drivers/neo4j/src/processes.rs"
  ],
  "«{0}» no es un id de transacción de Neo4j": [
-  "crates/drivers/neo4j/src/blocking.rs"
+  "crates/drivers/neo4j/src/blocking.rs",
+  "crates/drivers/neo4j/src/processes.rs"
  ],
  "«{0}» no es un id de transacción de Snowflake": [
   "crates/drivers/snowflake/src/blocking.rs"
@@ -24446,6 +24957,9 @@
  ],
  "«{0}» no es un nombre de rutina válido": [
   "crates/drivers/postgres/src/security.rs"
+ ],
+ "«{0}» no es un nombre de trabajo de IBM i (se espera «123456/USUARIO/TRABAJO»)": [
+  "crates/drivers/odbc/src/processes.rs"
  ],
  "«{0}» no es un nombre de usuario válido en CouchDB (no puede empezar con _ ni tener :)": [
   "crates/drivers/couchdb/src/security.rs"
