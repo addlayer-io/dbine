@@ -71,6 +71,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod security;
 mod shell;
@@ -413,6 +414,8 @@ impl Driver for MongoDriver {
             monitor: true,
             blocking: locks,
             kill_session: locks,
+            processes: true,
+            cancel_query: locks,
             ..Default::default()
         }
     }
@@ -795,6 +798,15 @@ impl Session for MongoSession {
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         self.refuse_if_read_only("terminar operaciones")?;
         blocking::kill(&self.client, self.flavor, id).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        processes::processes(&self.client, self.flavor, &self.tag).await
+    }
+
+    async fn cancel_query(&mut self, id: &str) -> Result<()> {
+        self.refuse_if_read_only("cancelar operaciones")?;
+        processes::cancel(&self.client, self.flavor, &self.tag, id).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

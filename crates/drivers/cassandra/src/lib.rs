@@ -13,6 +13,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod processes;
 mod profiler;
 mod security;
 mod steps;
@@ -32,6 +33,7 @@ use steps::Step;
 use scylla::observability::tracing::TracingInfo;
 use scylla::client::session::Session;
 use scylla::client::session_builder::SessionBuilder;
+use scylla::client::SelfIdentity;
 use scylla::client::PoolSize;
 use scylla::errors::TranslationError;
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
@@ -167,7 +169,15 @@ impl Driver for CassandraDriver {
 
     /// Keyspaces are created and dropped; CQL has no foreign keys.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: false, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: false,
+            monitor: true,
+            // No CQL ends another client's query or connection.
+            processes: processes::unsupported_reason(self.flavor).is_none(),
+            ..Default::default()
+        }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -239,8 +249,12 @@ impl Driver for CassandraDriver {
         let nodes = if nodes.is_empty() { vec![format!("localhost:{port}")] } else { nodes };
         let keyspace = database.filter(|d| !d.is_empty()).or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
 
+        let client_id = processes::new_client_id();
         let mut b = SessionBuilder::new()
             .known_nodes(&nodes)
+            // Names the connections in the server's client lists, and
+            // tells this session's own apart (see processes.rs).
+            .custom_identity(SelfIdentity::new().with_application_name("DBine").with_client_id(client_id.clone()))
             .connection_timeout(Duration::from_secs(15))
             .pool_size(PoolSize::PerHost(NonZeroUsize::MIN))
             // The explorer reads system_schema itself.
@@ -275,6 +289,7 @@ impl Driver for CassandraDriver {
             consistency: None,
             serial: None,
             paging: Paging::Default,
+            client_id,
         }))
     }
 }
@@ -386,6 +401,8 @@ pub struct CassandraSession {
     serial: Option<SerialConsistency>,
     /// cqlsh's `PAGING`.
     paging: Paging,
+    /// `CLIENT_ID` sent in STARTUP: marks this session's connections.
+    client_id: String,
 }
 
 /// Page size of the editor's SELECTs (cqlsh `PAGING`).
@@ -1151,6 +1168,10 @@ impl DbSession for CassandraSession {
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         monitor::snapshot(&self.session, self.flavor).await
+    }
+
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        processes::processes(&self.session, self.flavor, &self.client_id).await
     }
 
     async fn profiler_start(&mut self, opts: &dbine_driver::ProfilerOptions) -> Result<dbine_driver::ProfilerStarted> {

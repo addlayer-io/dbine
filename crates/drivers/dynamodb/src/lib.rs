@@ -503,6 +503,11 @@ impl Session for DynamoSession {
         backup::history(self, database).await
     }
 
+    /// DynamoDB is a stateless HTTP API: no sessions or running requests.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported("DynamoDB es un servicio HTTP sin estado: no tiene sesiones ni consultas en curso que listar o cancelar".into()))
+    }
+
     /// `DescribeTable` of the tables (a few in parallel, at most
     /// [`monitor::MAX_TABLES`]) and `DescribeLimits`.
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

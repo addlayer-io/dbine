@@ -618,6 +618,12 @@ impl Session for SolrSession {
         Ok(self.version.clone())
     }
 
+    /// Solr has no sessions, and its task API only sees queries sent with
+    /// `canCancel=true`, core by core: no list of what's running.
+    async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
+        Err(Error::Unsupported("Solr no lleva una lista de las consultas en curso ni de sesiones: su gestión de tareas (/tasks/list) solo ve, núcleo por núcleo, las consultas que se enviaron con canCancel=true".into()))
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         let mut s = MonitorSnapshot::default();
         let mut refused = Vec::new();

@@ -22,9 +22,9 @@ use std::collections::{BTreeMap, HashMap};
 const MIB: f64 = 1024.0 * 1024.0;
 const MAX_ROWS: usize = 200;
 
-type Rec = HashMap<String, Option<CqlValue>>;
+pub(crate) type Rec = HashMap<String, Option<CqlValue>>;
 
-async fn query(s: &Session, cql: &str) -> std::result::Result<Vec<Rec>, String> {
+pub(crate) async fn query(s: &Session, cql: &str) -> std::result::Result<Vec<Rec>, String> {
     let res = s.query_unpaged(cql, ()).await.map_err(|e| e.to_string())?;
     let rows = res.into_rows_result().map_err(|e| e.to_string())?;
     let names: Vec<String> = rows.column_specs().iter().map(|c| c.name().to_string()).collect();
@@ -51,11 +51,11 @@ fn cql_f64(v: &CqlValue) -> Option<f64> {
     .filter(|f| f.is_finite())
 }
 
-fn f(r: &Rec, k: &str) -> Option<f64> {
+pub(crate) fn f(r: &Rec, k: &str) -> Option<f64> {
     r.get(k)?.as_ref().and_then(cql_f64)
 }
 
-fn s(r: &Rec, k: &str) -> String {
+pub(crate) fn s(r: &Rec, k: &str) -> String {
     match r.get(k) {
         Some(Some(CqlValue::Text(s) | CqlValue::Ascii(s))) => s.clone(),
         Some(Some(v)) => match value::to_json(v) {

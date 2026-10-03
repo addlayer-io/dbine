@@ -27,7 +27,7 @@ fn clip(s: String) -> Value {
 }
 
 /// Idle connections show `-` or nothing as their command.
-fn busy(c: &Value) -> bool {
+pub(crate) fn busy(c: &Value) -> bool {
     let info = c.get("commandInfo").map(as_text).unwrap_or_default();
     !matches!(info.as_str(), "" | "-" | "Server status" | "Listening")
 }
