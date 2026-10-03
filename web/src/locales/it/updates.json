@@ -4,13 +4,31 @@
     "text": "La versione {{latest}} è disponibile. Hai la {{current}}.",
     "skip": "Ignora questa versione",
     "later": "Più tardi",
-    "download": "Scarica"
+    "download": "Scarica",
+    "updateNow": "Aggiorna ora",
+    "downloading": "Download di DBine {{latest}}…",
+    "progress": "{{done}} di {{total}}",
+    "progressUnknown": "{{done}} scaricati",
+    "verifying": "Verifica della firma…",
+    "cancel": "Annulla",
+    "readyTitle": "DBine {{latest}} è pronto",
+    "ready": "L'aggiornamento è stato scaricato e verificato. Riavvia DBine per completare l'installazione.",
+    "restart": "Riavvia per completare",
+    "failedTitle": "Impossibile aggiornare DBine",
+    "failed": "Puoi scaricare la nuova versione dalla sua pagina.",
+    "openPage": "Apri la pagina di download",
+    "close": "Chiudi"
+  },
+  "reason": {
+    "package": "Hai installato DBine con un pacchetto di sistema: scarica la nuova versione dalla sua pagina.",
+    "location": "Sposta DBine in Applicazioni perché si aggiorni da solo."
   },
   "settings": {
     "installed": "Versione installata: {{version}}",
-    "help": "DBine controlla da solo all'avvio. Gli aggiornamenti si scaricano dalla pagina della versione.",
+    "help": "DBine controlla da solo all'avvio se c'è una nuova versione e si aggiorna da lì.",
     "check": "Verifica aggiornamenti"
   },
   "upToDate": "Hai l'ultima versione ({{version}}).",
+  "busyInWindow": "L'aggiornamento è in corso nella finestra {{n}}.",
   "failed": "Impossibile verificare gli aggiornamenti: {{error}}"
 }

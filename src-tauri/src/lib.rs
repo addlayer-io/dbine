@@ -27,6 +27,14 @@ static QUIT_CONFIRMED: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 /// (still alive here, so maximized/fullscreen are kept too) and exits.
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
+    prepare_exit(&app);
+    app.exit(0);
+}
+
+/// The UI's quit guard went through (quitting, or restarting to finish an
+/// update): let the exit request pass and save every window's state while
+/// the windows are still alive.
+pub(crate) fn prepare_exit(app: &tauri::AppHandle) {
     use tauri_plugin_window_state::AppHandleExt;
     QUIT_CONFIRMED.store(true, std::sync::atomic::Ordering::SeqCst);
     if let Err(e) = app.save_window_state(
@@ -34,7 +42,25 @@ fn quit_app(app: tauri::AppHandle) {
     ) {
         tracing::warn!("saving the window state on quit: {e}");
     }
-    app.exit(0);
+}
+
+/// The exit didn't happen after all (an update that failed to install):
+/// later exit requests go through the quit guard again.
+pub(crate) fn cancel_exit() {
+    QUIT_CONFIRMED.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// What must not outlive the process: on `RunEvent::Exit`, and before the
+/// Windows updater ends the process itself (it never reaches that event).
+pub(crate) fn exit_cleanup(app: &tauri::AppHandle) {
+    // The built-in model's llama-server must not outlive the app.
+    dbine_ai::embedded::shutdown();
+    // Profilers put server settings back (a few seconds at most).
+    let state = app.state::<AppState>();
+    // The timeout's timer must be created inside the runtime.
+    tauri::async_runtime::block_on(async {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), commands::profiler::stop_all(&state)).await;
+    });
 }
 
 /// Resolved at startup; used by the panic hook + the `get_log_dir` command.
@@ -71,6 +97,9 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // In-app updates; only Rust calls it (commands/updates.rs), the
+        // webview has no updater permission.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // The menu bar (macOS): the UI sends it (`app_menu_set`) and gets its clicks.
         .on_menu_event(menu::on_event)
         // Focus order (for the target window), primary window, tasks.
@@ -103,7 +132,10 @@ pub fn run() {
             // the writer mid-line.
             Box::leak(Box::new(file_guard));
             let _ = tracing_subscriber::registry()
-                .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+                // The updater plugin logs a missing latest.json (releases up
+                // to 0.1.3) as an ERROR; commands/updates.rs already logs
+                // every check failure, with the GitHub fallback.
+                .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,tauri_plugin_updater=off")))
                 .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(file_writer))
                 .with(tracing_subscriber::fmt::layer())
                 .try_init();
@@ -316,6 +348,9 @@ pub fn run() {
             commands::telemetry::track_event,
             commands::updates::check_for_update,
             commands::updates::open_release_page,
+            commands::updates::update_download,
+            commands::updates::update_cancel,
+            commands::updates::update_install_and_restart,
             commands::drivers::drivers_packages,
             commands::drivers::drivers_install,
             commands::drivers::drivers_remove,
@@ -367,14 +402,7 @@ pub fn run() {
                 windows::reopen(app);
             }
             if let tauri::RunEvent::Exit = event {
-                // The built-in model's llama-server must not outlive the app.
-                dbine_ai::embedded::shutdown();
-                // Profilers put server settings back (a few seconds at most).
-                let state = app.state::<AppState>();
-                // The timeout's timer must be created inside the runtime.
-                tauri::async_runtime::block_on(async {
-                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), commands::profiler::stop_all(&state)).await;
-                });
+                exit_cleanup(app);
             }
         });
 }

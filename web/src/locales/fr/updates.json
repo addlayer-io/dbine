@@ -4,13 +4,31 @@
     "text": "La version {{latest}} est disponible. Vous avez la {{current}}.",
     "skip": "Ignorer cette version",
     "later": "Plus tard",
-    "download": "Télécharger"
+    "download": "Télécharger",
+    "updateNow": "Mettre à jour maintenant",
+    "downloading": "Téléchargement de DBine {{latest}}…",
+    "progress": "{{done}} sur {{total}}",
+    "progressUnknown": "{{done}} téléchargés",
+    "verifying": "Vérification de la signature…",
+    "cancel": "Annuler",
+    "readyTitle": "DBine {{latest}} est prêt",
+    "ready": "La mise à jour est téléchargée et vérifiée. Redémarrez DBine pour terminer son installation.",
+    "restart": "Redémarrer pour terminer",
+    "failedTitle": "Impossible de mettre à jour DBine",
+    "failed": "Vous pouvez télécharger la nouvelle version depuis sa page.",
+    "openPage": "Ouvrir la page de téléchargement",
+    "close": "Fermer"
+  },
+  "reason": {
+    "package": "Vous avez installé DBine avec un paquet du système : téléchargez la nouvelle version depuis sa page.",
+    "location": "Déplacez DBine dans Applications pour qu'il se mette à jour tout seul."
   },
   "settings": {
     "installed": "Version installée : {{version}}",
-    "help": "DBine vérifie seul à l'ouverture. Les mises à jour se téléchargent depuis la page de la version.",
+    "help": "DBine vérifie seul à l'ouverture s'il existe une nouvelle version et se met à jour à partir de là.",
     "check": "Rechercher des mises à jour"
   },
-  "upToDate": "Vous avez la dernière version ({{version}}).",
+  "upToDate": "Vous êtes sur la dernière version ({{version}}).",
+  "busyInWindow": "La mise à jour est en cours dans la fenêtre {{n}}.",
   "failed": "Impossible de rechercher des mises à jour : {{error}}"
 }

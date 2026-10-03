@@ -38,3 +38,14 @@ usó.
 - **Salir** (⌘Q, **Salir** en el menú o en el Dock, o el cierre del sistema)
   cierra todas las ventanas. Si hay tareas corriendo, pregunta una sola vez con
   las de todas las ventanas.
+
+## Actualizaciones
+
+- **La búsqueda al abrir DBine** la hace una sola ventana: la primera que
+  arranca.
+- **El aviso de una versión nueva aparece en una sola ventana:** la que la
+  encontró, o la ventana donde se eligió **Ayuda › Buscar actualizaciones…**.
+  Si se busca desde otra ventana mientras se descarga, avisa en qué ventana
+  está la descarga.
+- **Reiniciar para terminar** pregunta una sola vez por las tareas de todas
+  las ventanas, como Salir. Detalle: [`actualizaciones.md`](actualizaciones.md).

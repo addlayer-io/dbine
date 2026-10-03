@@ -4,13 +4,31 @@
     "text": "Version {{latest}} is available. You have {{current}}.",
     "skip": "Skip this version",
     "later": "Later",
-    "download": "Download"
+    "download": "Download",
+    "updateNow": "Update now",
+    "downloading": "Downloading DBine {{latest}}…",
+    "progress": "{{done}} of {{total}}",
+    "progressUnknown": "{{done}} downloaded",
+    "verifying": "Verifying the signature…",
+    "cancel": "Cancel",
+    "readyTitle": "DBine {{latest}} is ready",
+    "ready": "The update has been downloaded and verified. Restart DBine to finish installing it.",
+    "restart": "Restart to finish",
+    "failedTitle": "Could not update DBine",
+    "failed": "You can download the new version from its release page.",
+    "openPage": "Open the download page",
+    "close": "Close"
+  },
+  "reason": {
+    "package": "You installed DBine with a system package: download the new version from its release page.",
+    "location": "Move DBine to Applications so it can update itself."
   },
   "settings": {
     "installed": "Installed version: {{version}}",
-    "help": "DBine checks on its own when it opens. Updates are downloaded from the release page.",
+    "help": "DBine checks for a new version when it opens and updates itself from there.",
     "check": "Check for updates"
   },
-  "upToDate": "You have the latest version ({{version}}).",
+  "upToDate": "You're on the latest version ({{version}}).",
+  "busyInWindow": "The update is in progress in window {{n}}.",
   "failed": "Could not check for updates: {{error}}"
 }

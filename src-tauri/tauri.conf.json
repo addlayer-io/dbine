@@ -48,6 +48,15 @@
     "macOS": {
       "signingIdentity": "-",
       "hardenedRuntime": false
+    },
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM2M0U0QzU3MTZBMTY2QUQKUldTdFpxRVdWMHcreGp2MWg2RDZaRVd1YXFwekNKMDdlV0VWb3JLMnZoeituaXRVdkR0andNU24K",
+      "endpoints": ["https://github.com/addlayer-io/dbine/releases/latest/download/latest.json"],
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
     }
   }
 }

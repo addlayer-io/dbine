@@ -130,8 +130,16 @@ export const api = {
     invoke<ProfilerStarted>('profiler_start', { args: { profiler_id: profilerId, connection_id: connectionId, database } }),
   profilerPoll: (profilerId: string) => invoke<ProfiledStatement[]>('profiler_poll', { args: { profiler_id: profilerId } }),
   profilerStop: (profilerId: string) => invoke<void>('profiler_stop', { args: { profiler_id: profilerId } }),
-  /** Ask GitHub for the latest release. Nothing is installed: the UI offers its page. */
-  checkForUpdate: () => invoke<UpdateInfo>('check_for_update', { args: {} }),
+  /** Look for a newer release (the updater manifest, else GitHub's latest
+   *  release). The calling window becomes the update's owner. */
+  checkForUpdate: (manual = false) => invoke<UpdateInfo>('check_for_update', { args: { manual } }),
+  /** Download and verify the update found; progress comes as `update-progress`. */
+  updateDownload: () => invoke<void>('update_download', { args: {} }),
+  /** Stop a running download (the download answers `cancelled`). */
+  updateCancel: () => invoke<void>('update_cancel'),
+  /** Install the downloaded update and relaunch. Only through the quit guard
+   *  (`requestUpdateRestart` in quitGuard.ts). */
+  updateInstallAndRestart: () => invoke<void>('update_install_and_restart'),
   /** Open a release page of DBine in the browser (other URLs are refused). */
   openReleasePage: (url: string) => invoke<void>('open_release_page', { args: { url } }),
 };

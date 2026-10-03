@@ -84,6 +84,13 @@
     "stay": "Keep working",
     "window": "{{title}} (window {{n}})"
   },
+  "update": {
+    "title": "Background runs",
+    "message_one": "There is {{count}} background run: {{list}}. To finish the update DBine restarts, and it will be cancelled. Restart anyway?",
+    "message_other": "There are {{count}} background runs: {{list}}. To finish the update DBine restarts, and they will be cancelled. Restart anyway?",
+    "confirm": "Cancel and restart",
+    "stay": "Keep working"
+  },
   "closeWindow": {
     "title": "Runs in this window",
     "message_one": "There is {{count}} background run in this window: {{list}}. If you close the window it will be cancelled. Close it anyway?",
