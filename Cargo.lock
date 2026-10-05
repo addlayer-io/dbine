@@ -2317,7 +2317,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "dbine"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2360,7 +2360,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-ai"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "flate2",
  "futures",
@@ -2378,7 +2378,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -2403,7 +2403,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "async-trait",
  "serde",
@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-drivers"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "dbine-driver",
  "dbine-driver-athena",
@@ -2989,7 +2989,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-plugin"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "async-trait",
  "dbine-driver",
@@ -3009,7 +3009,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-plugin-host"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "dbine-driver",
  "dbine-drivers",
@@ -3025,7 +3025,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-schema"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "dbine-driver",
  "dbine-drivers",
@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-sync"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "argon2 0.5.3",
  "async-trait",
@@ -3058,7 +3058,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-transfer"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -3074,7 +3074,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-tunnel"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "russh",
  "thiserror 2.0.21",
