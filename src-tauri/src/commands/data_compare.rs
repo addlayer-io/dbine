@@ -86,6 +86,10 @@ struct Diff {
     key: Vec<String>,
     /// (left name, right name) of each compared column.
     columns: Vec<(String, String)>,
+    /// Each side's identity / auto-increment columns: inserting their values
+    /// needs the engine's wrap (SQL Server's IDENTITY_INSERT).
+    left_identity: Vec<String>,
+    right_identity: Vec<String>,
     only_left: Vec<Vec<Value>>,
     only_right: Vec<Vec<Value>>,
     changed: Vec<ChangedRow>,
@@ -169,7 +173,9 @@ pub async fn data_compare(state: State<'_, AppState>, args: DataCompareArgs) -> 
     let limit = args.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, 5_000_000);
     let (l, r) = tokio::try_join!(read(&state, &args.left, limit), read(&state, &args.right, limit))?;
     let (lcols, lnames, lrows, ltrunc) = l;
-    let (_rcols, rnames, rrows, rtrunc) = r;
+    let (rcols, rnames, rrows, rtrunc) = r;
+    let identity = |cols: &[dbine_driver::ColumnInfo]| -> Vec<String> { cols.iter().filter(|c| c.auto_increment).map(|c| c.name.clone()).collect() };
+    let (left_identity, right_identity) = (identity(&lcols), identity(&rcols));
 
     // Columns both have (by name, ignoring case), in the left's order.
     let find = |names: &[String], n: &str| names.iter().position(|x| x.eq_ignore_ascii_case(n));
@@ -262,6 +268,8 @@ pub async fn data_compare(state: State<'_, AppState>, args: DataCompareArgs) -> 
             right: args.right,
             key: result.key.clone(),
             columns: columns.into_iter().map(|c| (c.0, c.2)).collect(),
+            left_identity,
+            right_identity,
             only_left,
             only_right,
             changed,
@@ -422,7 +430,8 @@ fn side_script(state: &AppState, d: &Diff, to_right: bool, plan: Plan<'_>) -> Co
         parts.push(driver.update_script(&target.object, &changes)?);
     }
     if !plan.insert.is_empty() {
-        parts.push(driver.insert_script(&target.object, &names, &plan.insert)?);
+        let identity = if to_right { &d.right_identity } else { &d.left_identity };
+        parts.extend(insert_parts(driver.as_ref(), &target.object, &names, identity, &plan.insert)?);
     }
     let (script, statements) = assemble(driver.as_ref(), parts);
     Ok(DataScript {
@@ -440,6 +449,29 @@ fn side_script(state: &AppState, d: &Diff, to_right: bool, plan: Plan<'_>) -> Co
 
 /// The parts joined by the engine's separator, and how many statements the
 /// editor cuts the result into.
+/// The inserts of a sync. Rows copied with their identity values need the
+/// engine's wrap: SQL Server refuses them unless IDENTITY_INSERT is on
+/// (error 544); other engines wrap nothing.
+fn insert_parts(driver: &dyn dbine_driver::Driver, target: &ObjectRef, names: &[String], identity: &[String], rows: &[Vec<Value>]) -> CommandResult<Vec<String>> {
+    let inserts = driver.insert_script(target, names, rows)?;
+    let (before, after) = if names.iter().any(|n| identity.iter().any(|i| i.eq_ignore_ascii_case(n))) {
+        driver.data_load_wrap(&identity_table(target, identity))
+    } else {
+        (String::new(), String::new())
+    };
+    Ok([before, inserts, after].into_iter().filter(|p| !p.trim().is_empty()).collect())
+}
+
+/// The target as `data_load_wrap` takes it: only which columns are identity.
+fn identity_table(object: &ObjectRef, identity: &[String]) -> dbine_driver::TableSchema {
+    dbine_driver::TableSchema {
+        schema: object.schema.clone(),
+        name: object.name.clone(),
+        columns: identity.iter().map(|n| dbine_driver::ColumnDef { name: n.clone(), auto_increment: true, ..Default::default() }).collect(),
+        ..Default::default()
+    }
+}
+
 fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u64) {
     let sep = driver.script_separator();
     let script = parts.into_iter().filter(|p| !p.trim().is_empty()).collect::<Vec<_>>().join(&format!("\n{sep}\n"));
@@ -449,11 +481,32 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 
 #[cfg(test)]
 mod tests {
-    use super::{assemble, canon, Dir, Pick};
+    use super::{assemble, canon, insert_parts, Dir, Pick};
     use dbine_driver::{ObjectRef, RowChange};
 
     /// The statement count a sync run reports against: joining the parts
     /// neither merges nor adds statements, on every SQL engine.
+    #[test]
+    fn inserts_into_an_identity_column_are_wrapped() {
+        let target = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "destino".into() };
+        let names = vec!["id".to_string(), "codigo".to_string()];
+        let rows = vec![vec![json!(5), json!("a")]];
+        let mssql = dbine_drivers::find("sqlserver").unwrap();
+        let parts = insert_parts(mssql.as_ref(), &target, &names, &["id".into()], &rows).unwrap();
+        assert_eq!(parts.len(), 3, "{parts:?}");
+        assert_eq!(parts[0], "SET IDENTITY_INSERT [dbo].[destino] ON;");
+        assert!(parts[1].starts_with("INSERT INTO [dbo].[destino]"));
+        assert_eq!(parts[2], "SET IDENTITY_INSERT [dbo].[destino] OFF;");
+        // No identity column among the inserted ones: nothing to wrap.
+        assert_eq!(insert_parts(mssql.as_ref(), &target, &names, &[], &rows).unwrap().len(), 1);
+        // PostgreSQL takes the values as they come, then moves the sequence
+        // past them, so the next insert doesn't collide with a copied id.
+        let pg = dbine_drivers::find("postgres").unwrap();
+        let parts = insert_parts(pg.as_ref(), &target, &names, &["id".into()], &rows).unwrap();
+        assert_eq!(parts.len(), 2, "{parts:?}");
+        assert!(parts[0].starts_with("INSERT INTO") && parts[1].contains("setval(pg_get_serial_sequence"), "{parts:?}");
+    }
+
     #[test]
     fn statement_count_is_the_sum_of_the_parts() {
         let target = ObjectRef { kind: "table".into(), schema: Some("s".into()), name: "t".into() };

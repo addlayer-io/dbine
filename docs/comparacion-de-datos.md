@@ -57,6 +57,11 @@ actualizar e insertar.
 
 - Las actualizaciones cambian solo las columnas distintas.
 - Un borrado siempre lleva la clave: nunca se genera un `DELETE` sin `WHERE`.
+- Las filas que se insertan con el valor de una columna identity o
+  autoincremental llevan lo que el motor necesita (`data_load_wrap`): en SQL
+  Server, `SET IDENTITY_INSERT … ON` antes y `OFF` después (sin eso, el error
+  544); en PostgreSQL, la secuencia se mueve después del último valor, para
+  que el próximo insert no choque con un id copiado.
 - Las conexiones de solo lectura rechazan el script al ejecutarlo.
 
 ## Comandos
