@@ -118,6 +118,25 @@ estado (transacción abierta, esquema o `SET`) se pierde:
 
 SQL Server cancela con una atención TDS y conserva la sesión.
 
+## Protocolo de consultas (PostgreSQL)
+
+Algunos gateways y proxies delante de un PostgreSQL solo aceptan el protocolo
+simple de consultas: rechazan el extendido (sentencias preparadas y parámetros)
+con un error como `0A000 Extended query protocol is not supported by this
+gateway`. Las conexiones de la familia PostgreSQL tienen, en la sección
+avanzada, **Protocolo de consultas**:
+
+- **Automático** (por defecto): al conectar, DBine prueba el protocolo
+  extendido; si el servidor lo rechaza, la sesión sigue en una conexión nueva
+  con el simple, sin que haga falta configurar nada.
+- **Solo protocolo simple**: lo fuerza, para un gateway que la detección no
+  reconozca.
+
+Con el protocolo simple el editor y el explorador funcionan igual, con dos
+diferencias: los resultados no muestran el tipo de cada columna, y la
+transferencia masiva, la comparación de datos y el clonado de tablas no están
+disponibles (necesitan el protocolo extendido) y lo dicen al intentarlos.
+
 ## Contrato (drivers)
 
 Todo entra por `crates/dbine-driver`, con valores por defecto que mantienen el

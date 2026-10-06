@@ -274,6 +274,24 @@ impl Variant {
     /// The server form, plus the CA certificate; managed services start
     /// with TLS on (they ask for it, or should).
     fn fields(self) -> Vec<Field> {
+        let mut fields = self.server_fields();
+        fields.push(
+            Field::new(
+                PROTOCOL_OPTION,
+                "Protocolo de consultas",
+                FieldKind::Select(vec![("auto", "Automático"), ("simple", "Solo protocolo simple")]),
+            )
+            .default_value("auto")
+            .help(
+                "Automático usa el protocolo extendido y pasa al simple si el servidor no lo acepta. \
+                 «Solo protocolo simple» es para gateways y proxies que rechazan el extendido.",
+            )
+            .advanced(),
+        );
+        fields
+    }
+
+    fn server_fields(self) -> Vec<Field> {
         let mut fields = Field::server_set();
         // H2's PostgreSQL server has no TLS.
         if self == Variant::H2 {
@@ -553,28 +571,25 @@ impl Driver for PgDriver {
 
         let tls = MakeTlsConnector::new(tls_connector(v, cfg)?);
 
-        let (client, mut connection) = tokio::time::timeout(Duration::from_secs(20), pg.connect(tls.clone()))
-            .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(|e| connect_error(v, e))?;
-
-        // Drive the connection, forwarding notices (RAISE NOTICE, warnings…).
-        let (tx, notices) = mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            loop {
-                match futures::future::poll_fn(|cx| connection.poll_message(cx)).await {
-                    Some(Ok(AsyncMessage::Notice(n))) => {
-                        let _ = tx.send(n);
-                    }
-                    Some(Ok(_)) => {}
-                    Some(Err(e)) => {
-                        tracing::debug!("postgres connection closed: {e}");
-                        break;
-                    }
-                    None => break,
+        let (mut client, mut notices) = open(v, &pg, &tls).await?;
+        // Gateways and proxies that only take the simple protocol answer a
+        // Parse with an error (and may leave the connection out of step):
+        // found out on a probe, the session goes on a fresh connection.
+        let simple = match cfg.option(PROTOCOL_OPTION).map(str::trim) {
+            Some("simple") => true,
+            _ => {
+                let refused = match tokio::time::timeout(PROBE_LIMIT, client.prepare("SELECT 1")).await {
+                    Ok(Ok(_)) => false,
+                    Ok(Err(e)) => extended_refused(&e),
+                    Err(_) => true,
+                };
+                if refused {
+                    tracing::info!("{}: the server refuses the extended protocol; using the simple one", self.info.id);
+                    (client, notices) = open(v, &pg, &tls).await?;
                 }
+                refused
             }
-        });
+        };
 
         if cfg.read_only {
             // Server-side guard on top of the ReadOnlySession wrapper; not
@@ -598,8 +613,57 @@ impl Driver for PgDriver {
             0
         };
 
-        Ok(Box::new(PgSession::new(client, tls, v, version, dbname, notices)))
+        let mut session = PgSession::new(client, tls, v, version, dbname, notices);
+        session.simple = simple;
+        Ok(Box::new(session))
     }
+}
+
+/// The connection option that picks the query protocol: `auto` (extended,
+/// falling back to simple when the server refuses it) or `simple`.
+pub(crate) const PROTOCOL_OPTION: &str = "query_protocol";
+
+/// Longest the extended-protocol probe may take on connect.
+const PROBE_LIMIT: Duration = Duration::from_secs(5);
+
+/// Connect and drive the connection, forwarding notices (RAISE NOTICE,
+/// warnings…).
+async fn open(v: Variant, pg: &tokio_postgres::Config, tls: &MakeTlsConnector) -> Result<(tokio_postgres::Client, mpsc::UnboundedReceiver<tokio_postgres::error::DbError>)> {
+    let (client, mut connection) = tokio::time::timeout(Duration::from_secs(20), pg.connect(tls.clone()))
+        .await
+        .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+        .map_err(|e| connect_error(v, e))?;
+    let (tx, notices) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            match futures::future::poll_fn(|cx| connection.poll_message(cx)).await {
+                Some(Ok(AsyncMessage::Notice(n))) => {
+                    let _ = tx.send(n);
+                }
+                Some(Ok(_)) => {}
+                Some(Err(e)) => {
+                    tracing::debug!("postgres connection closed: {e}");
+                    break;
+                }
+                None => break,
+            }
+        }
+    });
+    Ok((client, notices))
+}
+
+/// The server turned down the extended protocol (as opposed to failing the
+/// probe statement for another reason): `0A000 feature_not_supported`, or a
+/// message that says so, or the connection dropped on it.
+fn extended_refused(e: &tokio_postgres::Error) -> bool {
+    if e.is_closed() {
+        return true;
+    }
+    if e.code() == Some(&SqlState::FEATURE_NOT_SUPPORTED) {
+        return true;
+    }
+    let m = e.to_string().to_ascii_lowercase();
+    m.contains("extended query") || m.contains("extended protocol") || m.contains("simple query")
 }
 
 /// TLS as the form asks: the CA file, when given, is trusted on top of the
