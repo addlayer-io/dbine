@@ -1222,8 +1222,14 @@
  "Autoescalado máx.": [
   "crates/drivers/bigquery/src/monitor.rs"
  ],
+ "Automático": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
  "Automático (según la clave primaria)": [
   "crates/drivers/mysql/src/design.rs"
+ ],
+ "Automático usa el protocolo extendido y pasa al simple si el servidor no lo acepta. «Solo protocolo simple» es para gateways y proxies que rechazan el extendido.": [
+  "crates/drivers/postgres/src/lib.rs"
  ],
  "Automático: con clave primaria, PRIMARY KEY (StarRocks) o UNIQUE KEY (Doris); sin ella, DUPLICATE KEY.": [
   "crates/drivers/mysql/src/design.rs"
@@ -12894,6 +12900,9 @@
  "Protocolo": [
   "crates/drivers/neo4j/src/monitor.rs"
  ],
+ "Protocolo de consultas": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
  "Protocolo nativo": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
@@ -14907,6 +14916,9 @@
  ],
  "Solo para una credencial con la clave de la cuenta de almacenamiento (WITH CREDENTIAL).": [
   "crates/drivers/sqlserver/src/backup.rs"
+ ],
+ "Solo protocolo simple": [
+  "crates/drivers/postgres/src/lib.rs"
  ],
  "Solo se ven las conexiones del frontend al que está conectado DBine.": [
   "crates/drivers/mysql/src/profiler.rs"
@@ -19130,6 +19142,9 @@
  ],
  "esta base no informa roles (el emulador de Spanner no tiene el control de acceso detallado): {0}": [
   "crates/drivers/spanner/src/security.rs"
+ ],
+ "esta conexión usa solo el protocolo simple de consultas: copiar o comparar datos necesita el protocolo extendido. Si el servidor lo acepta, cambiá «Protocolo de consultas» a Automático en la conexión": [
+  "crates/drivers/postgres/src/session.rs"
  ],
  "esta replicación está definida en el documento «{0}» de {1}: se detiene borrando o editando ese documento": [
   "crates/drivers/couchdb/src/processes.rs"

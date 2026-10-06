@@ -40,6 +40,11 @@ pub struct PgSession {
     /// A text of several statements controlled the transaction: the
     /// tracked state can't be trusted until the server is asked.
     tx_unsure: bool,
+    /// Only the simple query protocol (a gateway or proxy that refuses the
+    /// extended one, or the connection asked for it): no prepared
+    /// statements or bound parameters, so the explorer inlines its values,
+    /// result columns go without type names, and bulk copies are refused.
+    pub(crate) simple: bool,
 }
 
 /// `$1`/`$2` (schema, name) resolved to a regclass; an empty schema means
@@ -61,7 +66,7 @@ impl PgSession {
         database: String,
         notices: mpsc::UnboundedReceiver<DbError>,
     ) -> Self {
-        Self { client, tls, variant, version, database, notices, profiler: None, autocommit: true, tx: TxState::Idle, tx_unsure: false }
+        Self { client, tls, variant, version, database, notices, profiler: None, autocommit: true, tx: TxState::Idle, tx_unsure: false, simple: false }
     }
 
     /// `pg_proc` filter for plain functions and procedures (no aggregates
@@ -89,6 +94,26 @@ impl PgSession {
         } else {
             REGCLASS
         }
+    }
+
+    /// `sql` with `$1`, `$2`… replaced by `params` as string literals, run
+    /// over the simple protocol: the explorer's parameterized queries in
+    /// [`Self::simple`] mode.
+    async fn inlined(&self, sql: &str, params: &[&str]) -> Result<Vec<SimpleQueryRow>> {
+        self.text(&inline(self.variant, sql, params)).await
+    }
+
+    /// The bulk copies need the extended protocol (prepared statements,
+    /// COPY with binary rows): refused, with the reason, in simple mode.
+    pub(crate) fn require_extended(&self) -> Result<()> {
+        if self.simple {
+            return Err(Error::Unsupported(
+                "esta conexión usa solo el protocolo simple de consultas: copiar o comparar datos necesita el protocolo extendido. \
+                 Si el servidor lo acepta, cambiá «Protocolo de consultas» a Automático en la conexión"
+                    .into(),
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn filter(&self, col: &str) -> String {
@@ -154,6 +179,14 @@ impl PgSession {
              WHERE c.relkind IN ('r', 'p', 'v', 'm') AND {}",
             self.filter("n.nspname")
         );
+        if self.simple {
+            return Ok(self
+                .text(&sql)
+                .await?
+                .iter()
+                .map(|r| DbObject { kind: s_get(r, 0), schema: Some(s_get(r, 1)), name: s_get(r, 2), parent: None })
+                .collect());
+        }
         let rows = self.client.query(&sql, &[]).await.map_err(err)?;
         Ok(rows
             .iter()
@@ -181,6 +214,18 @@ impl PgSession {
         );
         let mut out = Vec::new();
         for sql in [routines, triggers] {
+            if self.simple {
+                match self.text(&sql).await {
+                    Ok(rows) => out.extend(rows.iter().map(|r| DbObject {
+                        kind: s_get(r, 0),
+                        schema: Some(s_get(r, 1)),
+                        name: s_get(r, 2),
+                        parent: r.get(3).map(str::to_string),
+                    })),
+                    Err(e) => tracing::debug!("{:?}: routines/triggers unavailable: {e}", self.variant),
+                }
+                continue;
+            }
             match self.client.query(&sql, &[]).await {
                 Ok(rows) => out.extend(rows.iter().map(|r| DbObject {
                     kind: r.get(0),
@@ -398,6 +443,26 @@ impl PgSession {
              ORDER BY a.attnum",
             regclass = self.regclass()
         );
+        if self.simple {
+            return Ok(self
+                .inlined(&sql, &[obj.schema().unwrap_or(""), &obj.name])
+                .await?
+                .iter()
+                .map(|r| {
+                    let default_value = r.get(3).map(str::to_string);
+                    let auto_increment = s_bool(r, 5)
+                        || default_value.as_deref().is_some_and(|d| d.starts_with("nextval(") || d == "unique_rowid()");
+                    ColumnInfo {
+                        name: s_get(r, 0),
+                        data_type: s_get(r, 1),
+                        nullable: s_bool(r, 2),
+                        primary_key: s_bool(r, 4),
+                        auto_increment,
+                        default_value,
+                    }
+                })
+                .collect());
+        }
         let rows = self.client.query(&sql, &[&obj.schema().unwrap_or(""), &obj.name]).await.map_err(err)?;
         Ok(rows
             .iter()
@@ -424,12 +489,20 @@ impl PgSession {
              WHERE c.oid = {regclass} AND c.relkind IN ('v', 'm')",
             regclass = self.regclass()
         );
-        let Some(r) =
-            self.client.query_opt(&sql, &[&obj.schema().unwrap_or(""), &obj.name]).await.map_err(err)?
-        else {
-            return Ok(None);
+        let (relkind, nsp, def): (String, String, String) = if self.simple {
+            let rows = self.inlined(&sql, &[obj.schema().unwrap_or(""), &obj.name]).await?;
+            let Some(r) = rows.first() else {
+                return Ok(None);
+            };
+            (s_get(r, 0), s_get(r, 1), s_get(r, 2))
+        } else {
+            let Some(r) =
+                self.client.query_opt(&sql, &[&obj.schema().unwrap_or(""), &obj.name]).await.map_err(err)?
+            else {
+                return Ok(None);
+            };
+            (r.get(0), r.get(1), r.get(2))
         };
-        let (relkind, nsp, def): (String, String, String) = (r.get(0), r.get(1), r.get(2));
         let q = qualified_name(Quote::Double, Some(&nsp), &obj.name);
         let head = if relkind == "m" {
             format!("CREATE MATERIALIZED VIEW {q} AS\n")
@@ -450,6 +523,9 @@ impl PgSession {
              ORDER BY p.oid",
             self.routine_filter()
         );
+        if self.simple {
+            return Ok(joined_text(self.inlined(&sql, &[obj.schema().unwrap_or(""), &obj.name]).await?));
+        }
         joined(self.client.query(&sql, &[&obj.schema().unwrap_or(""), &obj.name]).await.map_err(err)?)
     }
 
@@ -459,6 +535,9 @@ impl PgSession {
              WHERE t.tgname = $2::text AND NOT t.tgisinternal
                AND (n.nspname = $1::text OR ($1::text = '' AND pg_table_is_visible(c.oid)))
              ORDER BY c.relname";
+        if self.simple {
+            return Ok(joined_text(self.inlined(sql, &[obj.schema().unwrap_or(""), &obj.name]).await?));
+        }
         joined(self.client.query(sql, &[&obj.schema().unwrap_or(""), &obj.name]).await.map_err(err)?)
     }
 
@@ -580,7 +659,9 @@ impl PgSession {
             _ => false,
         };
         let catalog = v.has_pg_catalog();
-        let types = self.tx == TxState::Idle && catalog && returns_rows;
+        // Column type names come from describing the statement, which the
+        // simple protocol can't do.
+        let types = self.tx == TxState::Idle && catalog && returns_rows && !self.simple;
         let in_transaction = self.tx == TxState::Open;
         let first = out.results.len();
         let client = &self.client;
@@ -616,6 +697,7 @@ impl PgSession {
             out.results.truncate(first);
         }
         let after = !types
+            && !self.simple
             && in_transaction
             && catalog
             && returns_rows
@@ -1144,6 +1226,7 @@ impl Session for PgSession {
     }
 
     async fn read_batches(&mut self, spec: &dbine_driver::ReadSpec, sink: dbine_driver::BatchSinkRef) -> Result<u64> {
+        self.require_extended()?;
         crate::transfer::read_batches(self, spec, sink).await
     }
 
@@ -1154,6 +1237,7 @@ impl Session for PgSession {
         source: &mut dyn dbine_driver::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
+        self.require_extended()?;
         crate::transfer::bulk_load(self, spec, source, progress).await
     }
 
@@ -1162,10 +1246,12 @@ impl Session for PgSession {
     }
 
     async fn key_range(&mut self, table: &ObjectRef, column: &str) -> Result<Option<(i64, i64, u64)>> {
+        self.require_extended()?;
         crate::delta::key_range(self, table, column).await
     }
 
     async fn delta_summary(&mut self, spec: &dbine_driver::DeltaSpec) -> Result<Vec<dbine_driver::BucketSum>> {
+        self.require_extended()?;
         crate::delta::summary(self, spec).await
     }
 
@@ -1177,6 +1263,7 @@ impl Session for PgSession {
         source: &mut dyn dbine_driver::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::DeltaResult> {
+        self.require_extended()?;
         crate::delta::apply(self, spec, buckets, columns, source, progress).await
     }
 
@@ -1211,6 +1298,43 @@ impl Session for PgSession {
 }
 
 /// Every first column of `rows`, one after the other; `None` when empty.
+/// `$1`, `$2`… in `sql` replaced by `params` as string literals (the
+/// simple protocol has no bound parameters). `$10` isn't taken for `$1`.
+fn inline(v: Variant, sql: &str, params: &[&str]) -> String {
+    let mut out = String::with_capacity(sql.len() + 32);
+    let mut chars = sql.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if c == '$' {
+            let digits: String = sql[i + 1..].chars().take_while(char::is_ascii_digit).collect();
+            if let Some(p) = digits.parse::<usize>().ok().filter(|n| *n >= 1).and_then(|n| params.get(n - 1)) {
+                out.push_str(&lit(v, p));
+                for _ in 0..digits.len() {
+                    chars.next();
+                }
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// A text-protocol cell, `""` when NULL.
+fn s_get(r: &SimpleQueryRow, i: usize) -> String {
+    r.get(i).unwrap_or_default().to_string()
+}
+
+/// A text-protocol boolean (`t` / `true`).
+fn s_bool(r: &SimpleQueryRow, i: usize) -> bool {
+    matches!(r.get(i).map(str::to_ascii_lowercase).as_deref(), Some("t" | "true" | "1"))
+}
+
+/// [`joined`] over text-protocol rows.
+fn joined_text(rows: Vec<SimpleQueryRow>) -> Option<String> {
+    let parts: Vec<String> = rows.iter().filter_map(|r| r.get(0).map(str::to_string)).collect();
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
+}
+
 fn joined(rows: Vec<tokio_postgres::Row>) -> Result<Option<String>> {
     let parts: Vec<String> = rows.iter().filter_map(|r| r.try_get::<_, Option<String>>(0).ok().flatten()).collect();
     Ok((!parts.is_empty()).then(|| parts.join("\n\n")))
@@ -1293,6 +1417,17 @@ async fn run_script(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parameters_are_inlined_as_literals() {
+        assert_eq!(
+            inline(Variant::Postgres, "WHERE n = $1::text AND r = $2::text OR $1::text = ''", &["pub'lic", "t"]),
+            "WHERE n = 'pub''lic'::text AND r = 't'::text OR 'pub''lic'::text = ''"
+        );
+        // `$10` is not `$1` followed by 0, and unknown or dollar-quoted text stays.
+        assert_eq!(inline(Variant::Postgres, "$10 $3 $$x$$", &["a"]), "$10 $3 $$x$$");
+        assert_eq!(inline(Variant::Redshift, "$1", &["a\\b"]), "'a\\\\b'");
+    }
 
     #[test]
     fn only_materialize_scripts_go_one_by_one() {

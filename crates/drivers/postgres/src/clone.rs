@@ -1083,6 +1083,7 @@ pub(crate) async fn script(v: Variant, source: &mut dyn Session, target: &mut dy
         .as_any()
         .and_then(|a| a.downcast_mut::<PgSession>())
         .ok_or_else(|| Error::Unsupported("el origen no es una sesión de PostgreSQL".into()))?;
+    s.require_extended()?;
     if s.version > 0 && s.version < 100000 {
         return Err(Error::Unsupported("clonar necesita PostgreSQL 10 o posterior en el origen".into()));
     }

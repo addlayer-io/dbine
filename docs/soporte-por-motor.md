@@ -1212,6 +1212,11 @@ cambia el dato en silencio ni lo deja a medias sin decirlo.
   simple: todo llega como el texto del servidor. Una falla del destino (una
   restricción, disco lleno) recién aparece cuando termina su ventana; con
   la confirmación en 0 la tabla entera es una ventana.
+- **PostgreSQL con «Solo protocolo simple».** Una conexión que usa solo el
+  protocolo simple (un gateway que rechaza el extendido; ver
+  [ejecución de scripts](ejecucion-de-scripts.md#protocolo-de-consultas-postgresql))
+  no copia, no compara datos ni clona: esas operaciones necesitan el
+  protocolo extendido y se rechazan con el motivo.
 - **Clonado y sincronización en PostgreSQL.** YugabyteDB no clona (tablets y
   particionado por hash no están en el catálogo de PostgreSQL); openGauss tiene
   un catálogo de PostgreSQL 9.2 con opciones de almacenamiento propias y
