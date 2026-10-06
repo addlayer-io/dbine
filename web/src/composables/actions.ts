@@ -18,6 +18,12 @@ import { runTask } from '../stores/tasks';
 export async function newQuery(connectionId: string, database: string, sql = '', name?: string) {
   const conns = useConnectionsStore();
   const tabs = useTabsStore();
+  // No saved connection behind it (the "Nueva conexión" form, Configuración…):
+  // a query can't be stored for it (the state DB refuses it with a foreign key error).
+  if (!connectionId || !conns.byId(connectionId)) {
+    ElMessage.info(t('workbench:app.pickDatabase'));
+    return;
+  }
   await conns.loadQueries(connectionId, database);
   try {
     const q = await conns.saveQuery({

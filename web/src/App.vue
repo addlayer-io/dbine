@@ -146,7 +146,10 @@ function drag(e: PointerEvent, axis: 'x' | 'y') {
 
 /** New query where the active tab is. */
 function newQueryHere() {
-  const tab = tabs.active;
+  // The active tab's connection; when it has none saved ("Nueva conexión",
+  // Configuración…), the last open tab that has one.
+  const saved = (x: { connectionId: string } | null | undefined) => !!x?.connectionId && !!conns.byId(x.connectionId);
+  const tab = saved(tabs.active) ? tabs.active : [...tabs.tabs].reverse().find(saved);
   if (!tab) { ElMessage.info(t('workbench:app.pickDatabase')); return; }
   newQuery(tab.connectionId, tab.database);
 }
