@@ -463,20 +463,26 @@ fn kerberos_hint(gss: &str) -> String {
     format!("Windows (Kerberos): {what}. {fix} Detalle: {gss}")
 }
 
-/// A statement's failure: the server's own message when there is one.
+/// A statement's failure: the server's own message when there is one. A
+/// connection tiberius won't use anymore is a connection error, so the app
+/// drops the session and the next call opens a new one.
 fn err(e: tiberius::error::Error) -> Error {
     match &e {
         tiberius::error::Error::Server(t) => Error::Query(t.message().to_string()),
         // The server acknowledged the interrupter's attention.
         tiberius::error::Error::Cancelled => Error::Cancelled,
+        _ if is_desync(&e) => Error::Connect(format!("se perdió la conexión con el servidor: {e}")),
         _ => Error::Query(e.to_string()),
     }
 }
 
-/// tiberius refuses every command on a connection a command timeout left
-/// half-read. The refusal comes before anything is sent.
+/// tiberius refuses every command on a connection it can't trust anymore:
+/// one a command timeout left half-read ("out of sync"), or one a cancelled
+/// multi-packet write left with half a message on the wire ("cancelled
+/// write"). The refusal comes before anything is sent, so the command can
+/// go again on a new connection.
 fn is_desync(e: &tiberius::error::Error) -> bool {
-    matches!(e, tiberius::error::Error::Protocol(m) if m.contains("out of sync"))
+    matches!(e, tiberius::error::Error::Protocol(m) if m.contains("can no longer be used"))
 }
 
 fn build_config(cfg: &ConnectionConfig, database: Option<&str>, variant: Variant, login: Login) -> Result<Config> {
@@ -1264,6 +1270,14 @@ mod tests {
         );
         assert!(is_desync(&e));
         assert!(!is_desync(&tiberius::error::Error::Protocol("bad token".into())));
+        // Half a message left on the wire by a cancelled write (the schema
+        // compare report): the same, and a connection error for the app.
+        let poisoned = tiberius::error::Error::Protocol(
+            "connection was left in an inconsistent state by a cancelled write and can no longer be used; open a new connection".into(),
+        );
+        assert!(is_desync(&poisoned));
+        assert!(matches!(err(poisoned), Error::Connect(_)));
+        assert!(matches!(err(tiberius::error::Error::Protocol("bad token".into())), Error::Query(_)));
     }
 
     /// Each form login becomes the tiberius authentication it stands for.

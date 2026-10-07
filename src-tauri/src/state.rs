@@ -207,34 +207,46 @@ impl AppState {
     }
 
     /// Run a structure read (objects, columns, the whole schema…) on the
-    /// database's shared metadata session, within `limit`, counting the wait
-    /// for the session. A catalog query blocked on the server (a lock held by
-    /// a long transaction or DDL) would otherwise hang forever and queue every
-    /// explorer call behind it: on timeout the query is interrupted, the
-    /// session dropped (the next call opens a fresh one) and the error says
-    /// what happened.
+    /// database's shared metadata session, within `limit`. A catalog query
+    /// blocked on the server (a lock held by a long transaction or DDL) would
+    /// otherwise hang forever and queue every explorer call behind it: on
+    /// timeout the query is interrupted, the session dropped (the next call
+    /// opens a fresh one) and the error says what happened.
+    ///
+    /// Waiting for the session while another read holds it (a schema compare
+    /// of a big database, a dependents scan) doesn't count toward `limit` and
+    /// never interrupts that read: it has its own ceiling, also `limit`, after
+    /// which this call gives up alone ("busy"). A read that fails because the
+    /// connection broke drops the session too.
     pub async fn meta_read<T, F>(&self, connection_id: &str, database: &str, limit: std::time::Duration, f: F) -> CommandResult<T>
     where
         F: for<'a> FnOnce(&'a mut Box<dyn Session>) -> std::pin::Pin<Box<dyn std::future::Future<Output = dbine_driver::Result<T>> + Send + 'a>>,
     {
         let key = meta_key(connection_id, database);
         let entry = self.session(&key, connection_id, database).await?;
-        let work = async {
-            let mut s = entry.session.lock().await;
-            f(&mut s).await
+        let on = if database.is_empty() { String::new() } else { format!(" de «{database}»") };
+        let Ok(mut s) = tokio::time::timeout(limit, entry.session.lock()).await else {
+            return Err(CommandError::Connect(format!(
+                "la conexión sigue ocupada leyendo la estructura{on} (por ejemplo, una comparación de esquemas en curso); volvé a intentar en un momento."
+            )));
         };
-        match tokio::time::timeout(limit, work).await {
+        match tokio::time::timeout(limit, f(&mut s)).await {
+            Ok(Err(e @ (dbine_driver::Error::Connect(_) | dbine_driver::Error::Io(_)))) => {
+                drop(s);
+                self.sessions.remove_if(&key, |_, held| Arc::ptr_eq(held, &entry));
+                Err(e.into())
+            }
             Ok(r) => Ok(r?),
             Err(_) => {
                 if let Some(i) = &entry.interrupter {
                     i();
                 }
                 entry.cancel.notify_waiters();
+                drop(s);
                 self.sessions.remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
                 Err(CommandError::Connect(format!(
-                    "el servidor no respondió en {} s leyendo la estructura{}. Puede estar bloqueado por una transacción o un cambio de estructura en curso; se canceló la consulta, volvé a intentar.",
+                    "el servidor no respondió en {} s leyendo la estructura{on}. Puede estar bloqueado por una transacción o un cambio de estructura en curso; se canceló la consulta, volvé a intentar.",
                     limit.as_secs(),
-                    if database.is_empty() { String::new() } else { format!(" de «{database}»") }
                 )))
             }
         }

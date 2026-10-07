@@ -20330,6 +20330,9 @@
   "crates/drivers/firebird/src/lib.rs",
   "crates/drivers/oracle/src/lib.rs"
  ],
+ "la conexión sigue ocupada leyendo la estructura{0} (por ejemplo, una comparación de esquemas en curso); volvé a intentar en un momento.": [
+  "src-tauri/src/state.rs"
+ ],
  "la conexión ya no existe": [
   "src-tauri/src/commands/backup.rs",
   "src-tauri/src/commands/security.rs"
