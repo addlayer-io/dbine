@@ -6,6 +6,7 @@
 
 mod backup;
 mod blocking;
+mod create_db;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -203,6 +204,15 @@ impl Driver for HanaDriver {
 
     fn supports_manual_transactions(&self) -> bool {
         true
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -723,6 +733,14 @@ impl Session for HanaSession {
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
         self.conn.exec(format!("CREATE SCHEMA {}", quote(name.trim()))).await.map_err(err)
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

@@ -1304,6 +1304,14 @@ impl Session for MySqlSession {
         self.conn.query_drop(format!("CREATE DATABASE {}", quote_ident(Quote::Backtick, name))).await.map_err(err)
     }
 
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
+    }
+
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if !crate::design::capabilities(self.variant).drop_database {
             return Err(Error::Unsupported("este motor no borra bases desde DBine".into()));
