@@ -1723,6 +1723,72 @@ del fabricante:
   contenedor de prueba.
 - Los presets ODBC: no hay contenedores ni drivers ODBC de esos motores.
 
+## Crear bases: opciones
+
+«Nueva base de datos» ([`crear-bases.md`](crear-bases.md)) ofrece opciones
+avanzadas, con «Ver script» y sugerencias del servidor, en: SQL Server y
+Azure SQL; la familia PostgreSQL (PostgreSQL, TimescaleDB, EDB, Fujitsu,
+AlloyDB, Cloud SQL, Aurora, KingbaseES, Greenplum, Cloudberry, Greengage,
+YugabyteDB, openGauss, CockroachDB, Redshift, RisingWave y Yellowbrick); la
+familia MySQL (MySQL, MariaDB, TiDB, OceanBase, SingleStore, StarRocks, Doris,
+VeloDB y GreptimeDB); Oracle, SAP HANA, Firebird, Sybase ASE y Netezza (por
+ODBC); ClickHouse, Snowflake, BigQuery, Databricks, Athena y Cloud Spanner;
+Cassandra, ScyllaDB, Amazon Keyspaces, Couchbase, CouchDB, OrientDB,
+InfluxDB 1, 2 y 3, IoTDB, TDengine, Neo4j y Cosmos DB.
+
+**Probado contra servidores reales** (`tests/create_database.rs` de cada
+driver): SQL Server; PostgreSQL, TimescaleDB, openGauss, YugabyteDB,
+Greengage, CockroachDB y RisingWave; MySQL, MariaDB, TiDB y GreptimeDB;
+Oracle, Firebird, ClickHouse, Cassandra, Couchbase (Community), CouchDB,
+OrientDB, InfluxDB 1, 2 y 3, IoTDB 1 y 2, TDengine y Neo4j Enterprise.
+BigQuery y Spanner, contra sus emuladores. Materialize y StarRocks, solo la
+creación sin opciones.
+
+**Sin verificar contra un servidor real** (siguen la documentación del
+fabricante): Azure SQL, Snowflake, Databricks, Athena, Redshift, Yellowbrick,
+KingbaseES, Greenplum, Cloudberry, OceanBase, SingleStore, Doris, SAP HANA,
+Sybase ASE, Netezza, Cosmos DB, ScyllaDB, Amazon Keyspaces y Timeplus. EDB,
+Fujitsu, AlloyDB, Cloud SQL y Aurora usan el mismo código que PostgreSQL.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| Materialize | opciones | `CREATE DATABASE` solo toma el nombre. |
+| Databend | opciones | `CREATE DATABASE` toma un `ENGINE` con un solo valor útil. |
+| Memgraph | opciones | `CREATE DATABASE` solo toma el nombre. |
+| Timeplus Proton | opciones | `CREATE DATABASE` solo toma el nombre. |
+| Dremio | opciones | `CREATE` solo toma el nombre. |
+| Microsoft Fabric | opciones | Las bases se crean desde su portal. |
+| Babelfish | opciones | T-SQL de Babelfish no tiene opciones de `CREATE DATABASE`. |
+| Neptune | crear bases | Una sola base por clúster: no hay nada que crear. |
+| MongoDB | crear bases | Las bases se crean solas al escribir el primer documento. |
+| DuckDB | opciones | La base es un archivo; mostrar su ruta en «Ver script» exige cambiar el contrato. Ver pendientes. |
+| ODBC genérico | opciones | No se sabe qué motor hay detrás, así que no se puede armar un `CREATE DATABASE` con opciones. |
+| Trino | crear bases | No crea bases desde DBine. Ver pendientes (esquemas). |
+| Apache Drill, Apache Phoenix | crear bases | No crean bases desde DBine. |
+| Aurora DSQL | crear bases | No crea bases desde DBine. |
+| Arrow Flight SQL | crear bases | No crea bases desde DBine. |
+| Elasticsearch, Solr | crear bases | No crean bases desde DBine. |
+| DynamoDB, ksqlDB, etcd, Redis | crear bases | No crean bases desde DBine. |
+| SQLite, libSQL | crear bases | No crean bases desde DBine. |
+| H2 | crear bases | Crea la base al conectarse a un nombre nuevo (con `-ifNotExists`). |
+| CrateDB | crear bases | Una sola base por clúster: se organiza en esquemas. |
+| Denodo | crear bases | Las bases se crean desde Denodo. |
+| Manticore | crear bases | No tiene bases de datos. |
+| Db2, Informix, Teradata | crear bases | No crean bases desde DBine. Ver pendientes. |
+
+**Pendientes explícitos:**
+
+- **Db2, Informix y Teradata:** hay que habilitar primero la creación de bases
+  en sus drivers; recién después tiene sentido ofrecerles opciones.
+- **DuckDB:** el contrato (`create_database_script`) tendría que poder
+  mostrar la ruta del archivo que se va a crear.
+- **Spanner con dialecto PostgreSQL:** el driver habla GoogleSQL, así que no
+  podría usar la base que crea. Hace falta soporte del dialecto en el driver.
+- **Esquemas de Trino:** sus opciones necesitan un contrato de opciones de
+  esquema, que todavía no existe.
+- **IoTDB 2:** al borrar una base quedan reglas de TTL huérfanas. Es un
+  error conocido, sin resolver.
+
 ## Backups
 
 La pestaña **Backups** ([`backups.md`](backups.md)).

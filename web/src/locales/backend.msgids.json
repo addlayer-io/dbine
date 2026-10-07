@@ -278,6 +278,9 @@
  "(el del bucket)": [
   "crates/drivers/couchbase/src/ddl.rs"
  ],
+ "(el id de la organización de la conexión)": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
  "(el predeterminado)": [
   "crates/drivers/flightsql/src/lib.rs",
   "crates/drivers/odbc/src/design.rs",
@@ -436,14 +439,23 @@
  "0 (sin vencimiento)": [
   "crates/drivers/cassandra/src/ddl.rs"
  ],
+ "0: sin compresión": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "1 contraseña": [
   "crates/drivers/redis/src/security.rs"
  ],
  "1 para un servidor de un solo nodo; vacío usa el valor del clúster.": [
   "crates/drivers/mysql/src/design.rs"
  ],
+ "1: escribe sin fsync": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "1: lo que cambió desde el nivel 0": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "1: una etapa": [
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "2: lo que cambió desde el nivel 1": [
   "crates/drivers/odbc/src/backup.rs"
@@ -856,6 +868,7 @@
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/neo4j/src/monitor.rs",
   "crates/drivers/oracle/src/monitor.rs",
+  "crates/drivers/orientdb/src/create_db.rs",
   "crates/drivers/orientdb/src/monitor.rs",
   "crates/drivers/phoenix/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
@@ -939,6 +952,9 @@
  ],
  "Amazon Keyspaces no tiene índices secundarios: los índices de {0} no se crean.": [
   "crates/drivers/cassandra/src/sync.rs"
+ ],
+ "Ambas (both)": [
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "Analizador": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -1030,6 +1046,9 @@
  ],
  "Archivos (bytes)": [
   "crates/drivers/phoenix/src/monitor.rs"
+ ],
+ "Archivos STT antes de fusionar (STT_TRIGGER)": [
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "Archivos abiertos": [
   "crates/drivers/couchdb/src/monitor.rs",
@@ -1134,6 +1153,9 @@
  "Athena no dio estadísticas de ejecución para: {0}": [
   "crates/drivers/athena/src/lib.rs"
  ],
+ "Atomic": [
+  "crates/drivers/clickhouse/src/create_db.rs"
+ ],
  "Atributo de TTL": [
   "crates/drivers/dynamodb/src/ddl.rs"
  ],
@@ -1218,6 +1240,9 @@
  ],
  "Auto vacuum": [
   "crates/drivers/sqlite/src/monitor.rs"
+ ],
+ "Autoescalado (RU/s máximas)": [
+  "crates/drivers/cosmosdb/src/create_db.rs"
  ],
  "Autoescalado máx.": [
   "crates/drivers/bigquery/src/monitor.rs"
@@ -1581,6 +1606,9 @@
  "Bases y tamaños (bytes)": [
   "crates/drivers/clickhouse/src/monitor.rs",
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "Basic": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "Basic {0}": [
   "crates/drivers/elasticsearch/src/http.rs"
@@ -2202,6 +2230,9 @@
  "Caché de páginas de la conexión": [
   "crates/drivers/sqlite/src/lib.rs"
  ],
+ "Caché del último dato (CACHEMODEL)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Caché máxima por shard (bytes)": [
   "crates/drivers/influxdb/src/monitor.rs"
  ],
@@ -2416,6 +2447,15 @@
  "Carpeta de tnsnames.ora": [
   "crates/drivers/oracle/src/lib.rs"
  ],
+ "Carpeta del archivo": [
+  "crates/drivers/firebird/src/create_db.rs"
+ ],
+ "Carpeta del archivo de datos (.mdf)": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Carpeta del archivo de log (.ldf)": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
  "Carpeta del backup": [
   "crates/drivers/mysql/src/backup.rs"
  ],
@@ -2562,6 +2602,9 @@
  ],
  "Clases de documentos": [
   "crates/drivers/orientdb/src/lib.rs"
+ ],
+ "Clasificación de caracteres (LC_CTYPE)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Claude": [
   "crates/dbine-ai/src/detect.rs"
@@ -2792,6 +2835,9 @@
  "Clúster": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "Clúster (ON CLUSTER)": [
+  "crates/drivers/clickhouse/src/create_db.rs"
+ ],
  "Clúster de esta sesión": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -2843,6 +2889,9 @@
   "crates/drivers/iotdb/src/lib.rs",
   "crates/drivers/sqlite/src/monitor.rs"
  ],
+ "Codificación (encoding)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "Cola (ms)": [
   "crates/drivers/athena/src/monitor.rs"
  ],
@@ -2882,6 +2931,9 @@
  ],
  "Collection": [
   "crates/drivers/mongodb/src/blocking.rs"
+ ],
+ "Colocación (COLOCATION)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Column": [
   "crates/drivers/mysql/src/session.rs",
@@ -2991,14 +3043,19 @@
   "crates/drivers/redis/src/monitor.rs"
  ],
  "Comentario": [
+  "crates/drivers/athena/src/create_db.rs",
   "crates/drivers/cassandra/src/ddl.rs",
+  "crates/drivers/clickhouse/src/create_db.rs",
+  "crates/drivers/databricks/src/create_db.rs",
   "crates/drivers/hana/src/backup.rs",
   "crates/drivers/mysql/src/backup.rs",
+  "crates/drivers/mysql/src/create_db.rs",
   "crates/drivers/mysql/src/security/doris.rs",
   "crates/drivers/mysql/src/security/starrocks.rs",
   "crates/drivers/odbc/src/backup.rs",
   "crates/drivers/postgres/src/security/h2.rs",
   "crates/drivers/snowflake/src/backup.rs",
+  "crates/drivers/snowflake/src/create_db.rs",
   "crates/drivers/snowflake/src/security.rs"
  ],
  "Command": [
@@ -3096,6 +3153,9 @@
   "crates/drivers/iotdb/src/lib.rs",
   "crates/drivers/odbc/src/backup.rs",
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Compresión (COMP)": [
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "Compresión de la columna: CODEC(…).": [
   "crates/drivers/clickhouse/src/schema.rs"
@@ -3271,7 +3331,7 @@
   "crates/drivers/redis/src/transfer.rs"
  ],
  "Conexión de solo lectura: no se puede crear una base.": [
-  "crates/drivers/orientdb/src/lib.rs"
+  "crates/drivers/orientdb/src/create_db.rs"
  ],
  "Conexión de solo lectura: no se puede {0}.": [
   "crates/drivers/couchdb/src/lib.rs",
@@ -3312,11 +3372,12 @@
  ],
  "Conexión de solo lectura: no se pueden crear bases.": [
   "crates/dbine-driver/src/read_only.rs",
+  "crates/drivers/cassandra/src/create_db.rs",
   "crates/drivers/cassandra/src/lib.rs",
-  "crates/drivers/couchbase/src/lib.rs",
+  "crates/drivers/couchbase/src/create_db.rs",
   "crates/drivers/duckdb/src/lib.rs",
   "crates/drivers/influxdb/src/v1.rs",
-  "crates/drivers/iotdb/src/lib.rs"
+  "crates/drivers/iotdb/src/create_db.rs"
  ],
  "Conexión de solo lectura: no se pueden detener replicaciones.": [
   "crates/drivers/couchdb/src/processes.rs"
@@ -3840,6 +3901,9 @@
   "crates/dbine-schema/src/dialect/couchbase.rs",
   "crates/drivers/couchbase/src/lib.rs"
  ],
+ "Couchbase (en disco)": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "Couchbase borra el scope con todas sus colecciones: marcá «con su contenido» para confirmarlo": [
   "crates/drivers/couchbase/src/ddl.rs"
  ],
@@ -3854,6 +3918,12 @@
  ],
  "Couchbase solo registra las consultas de más de {0} ms (queryCompletedThreshold).": [
   "crates/drivers/couchbase/src/profiler.rs"
+ ],
+ "Couchbase: valueOnly o fullEviction. Efímero: noEviction o nruEviction. Vacía: la del tipo.": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Couchstore": [
+  "crates/drivers/couchbase/src/create_db.rs"
  ],
  "Could not load conf": [
   "crates/drivers/solr/src/lib.rs"
@@ -3890,6 +3960,7 @@
   "crates/drivers/postgres/src/blocking.rs"
  ],
  "CrateDB tiene una sola base por clúster: se organizan en esquemas": [
+  "crates/drivers/postgres/src/create_db.rs",
   "crates/drivers/postgres/src/session.rs"
  ],
  "Crea bases de datos": [
@@ -3897,6 +3968,12 @@
  ],
  "Crea el repositorio antes del snapshot. La carpeta tiene que estar en path.repo de cada nodo.": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "Crea la base dentro de ese pool (reemplaza al objetivo de servicio).": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Crea la base en todos los nodos del clúster.": [
+  "crates/drivers/clickhouse/src/create_db.rs"
  ],
  "Crea un lease con ese TTL y lo asocia a la clave: al vencer, la clave se borra.": [
   "crates/drivers/etcd/src/ddl.rs"
@@ -3931,6 +4008,12 @@
  "Crear índice primario": [
   "crates/drivers/couchbase/src/ddl.rs"
  ],
+ "Crecimiento de datos": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Crecimiento del log": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
  "Credencial": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -3958,6 +4041,9 @@
  "Créditos: no disponible ({0}).": [
   "crates/drivers/snowflake/src/monitor.rs"
  ],
+ "Cualquier usuario con CREATEDB puede copiarla.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "Cuenta": [
   "crates/drivers/cosmosdb/src/monitor.rs",
   "crates/drivers/firebird/src/security.rs",
@@ -3975,6 +4061,12 @@
  ],
  "Cuota del backend": [
   "crates/drivers/etcd/src/lib.rs"
+ ],
+ "Cuota en el tablespace por defecto": [
+  "crates/drivers/oracle/src/create_db.rs"
+ ],
+ "Cuánto se puede leer o restaurar hacia atrás: de 1h a 7d. Vacía: 1h.": [
+  "crates/drivers/spanner/src/create_db.rs"
  ],
  "Cypher": [
   "src-tauri/src/commands/ai.rs"
@@ -4008,6 +4100,9 @@
  ],
  "Cómputo prom. (ms)": [
   "crates/drivers/bigquery/src/plan.rs"
+ ],
+ "DATA VERSION RETENTION TIME, para consultas sobre datos pasados (time travel). Vacío: la del sistema.": [
+  "crates/drivers/odbc/src/create_db.rs"
  ],
  "DATABASE ADMIN o DATABASE RECOVERY OPERATOR (en SYSTEMDB)": [
   "crates/drivers/hana/src/permissions.rs"
@@ -4458,8 +4553,10 @@
  ],
  "Descripción": [
   "crates/drivers/athena/src/monitor.rs",
+  "crates/drivers/bigquery/src/create_db.rs",
   "crates/drivers/couchbase/src/security.rs",
   "crates/drivers/elasticsearch/src/security.rs",
+  "crates/drivers/influxdb/src/create_db.rs",
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/odbc/src/security/ibm.rs",
   "crates/drivers/odbc/src/security/sqlstd.rs",
@@ -4496,6 +4593,9 @@
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/orientdb/src/plan.rs",
   "crates/drivers/sqlserver/src/backup.rs"
+ ],
+ "Destino de restauración o réplica (HOT_STANDBY)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Destinos": [
   "crates/drivers/ksqldb/src/monitor.rs",
@@ -4675,6 +4775,9 @@
  "Disco del servidor usado": [
   "crates/drivers/iotdb/src/monitor.rs"
  ],
+ "Disco en la mayoría (persistToMajority)": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "Disco total": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -4704,6 +4807,12 @@
  "Dispositivo alineado: sus series comparten el tiempo, como las columnas de una fila.": [
   "crates/dbine-schema/src/dialect/iotdb.rs"
  ],
+ "Dispositivo de datos": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
+ "Dispositivo del log (LOG ON)": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
  "Dispositivo virtual (herramienta externa)": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -4716,6 +4825,9 @@
  ],
  "Distinct": [
   "crates/drivers/cosmosdb/src/plan.rs"
+ ],
+ "Distingue mayúsculas (CASE_SENSITIVE)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Distribución": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -4947,7 +5059,17 @@
   "crates/drivers/firebird/src/security.rs",
   "crates/drivers/oracle/src/backup.rs",
   "crates/drivers/postgres/src/monitor.rs",
-  "crates/drivers/snowflake/src/security.rs"
+  "crates/drivers/snowflake/src/security.rs",
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Dueño (OWNED BY)": [
+  "crates/drivers/hana/src/create_db.rs"
+ ],
+ "Dueño (owner)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Durabilidad mínima (durabilityMinLevel)": [
+  "crates/drivers/couchbase/src/create_db.rs"
  ],
  "Duración (ms)": [
   "crates/drivers/bigquery/src/plan.rs",
@@ -4967,6 +5089,12 @@
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/sqlserver/src/babelfish.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "Duración de cada grupo de shards": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "Duración de cada shard (SHARD DURATION)": [
+  "crates/drivers/influxdb/src/create_db.rs"
  ],
  "Duración del último BGSAVE (s)": [
   "crates/drivers/redis/src/backup.rs"
@@ -5034,6 +5162,15 @@
  "DynamoDB siguió rechazando la escritura después de {0} intentos ({1})": [
   "crates/drivers/dynamodb/src/transfer.rs"
  ],
+ "Días de Time Travel (DATA_RETENTION_TIME_IN_DAYS)": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
+ "Días por archivo (DURATION)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Días que se puede extender la retención para no perder streams. De 0 a 90.": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
  "Dónde buscar tnsnames.ora para resolver alias. No hace falta instalar Instant Client.": [
   "crates/drivers/oracle/src/lib.rs"
  ],
@@ -5048,8 +5185,12 @@
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/neo4j/src/security.rs",
   "crates/drivers/spanner/src/monitor.rs",
+  "crates/drivers/sqlserver/src/create_db.rs",
   "crates/drivers/sqlserver/src/monitor.rs",
   "crates/drivers/tdengine/src/lib.rs"
+ ],
+ "Efímero (solo en memoria)": [
+  "crates/drivers/couchbase/src/create_db.rs"
  ],
  "Ejecuciones": [
   "crates/drivers/oracle/src/monitor.rs",
@@ -5336,6 +5477,9 @@
  "El destino no tiene índices secundarios.": [
   "crates/dbine-schema/src/convert.rs"
  ],
+ "El dialecto SQL de la base. No se puede cambiar después.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "El dispositivo {0} no tiene series para leer.": [
   "crates/drivers/iotdb/src/transfer.rs"
  ],
@@ -5568,6 +5712,9 @@
  ],
  "El profiling es por servidor: en un replica set solo se ve lo que corre en el primario.": [
   "crates/drivers/mongodb/src/profiler.rs"
+ ],
+ "El proveedor builtin": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "El registro de consultas lentas de TiDB solo guarda las de más de {0} ms y la conexión es de solo lectura: se muestrean las consultas en curso.": [
   "crates/drivers/mysql/src/profiler.rs"
@@ -5875,6 +6022,9 @@
  "Elastic Cloud: si se completa, reemplaza al servidor y al puerto.": [
   "crates/drivers/elasticsearch/src/lib.rs"
  ],
+ "Elastic pool": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
  "Elasticsearch": [
   "crates/drivers/elasticsearch/src/lib.rs"
  ],
@@ -5990,6 +6140,9 @@
   "crates/drivers/dsql/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "En disco (plocal)": [
+  "crates/drivers/orientdb/src/create_db.rs"
+ ],
  "En ejecución": [
   "crates/drivers/snowflake/src/monitor.rs"
  ],
@@ -5999,11 +6152,17 @@
  "En el servidor, cada nodo escribe su parte en esa carpeta; en la nube, bucket/carpeta.": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "En el servidor. Con carpeta, el nombre es el del archivo (se le agrega .fdb si no tiene extensión). Vacía: el nombre es la ruta completa o un alias de databases.conf.": [
+  "crates/drivers/firebird/src/create_db.rs"
+ ],
  "En lugar de usuario y contraseña (Dremio Software 24 o posterior).": [
   "crates/drivers/dremio/src/lib.rs"
  ],
  "En memoria (MB)": [
   "crates/drivers/duckdb/src/monitor.rs"
+ ],
+ "En memoria (memory)": [
+  "crates/drivers/orientdb/src/create_db.rs"
  ],
  "En minúsculas, sin espacios ni \\ / * ? \" < > | , #.": [
   "crates/drivers/elasticsearch/src/backup.rs"
@@ -6050,6 +6209,9 @@
  ],
  "Enlace": [
   "crates/drivers/spanner/src/plan.rs"
+ ],
+ "Enriquecer el log de transacciones (txLogEnrichment)": [
+  "crates/drivers/neo4j/src/create_db.rs"
  ],
  "Entero de 16 bytes como BIGNUMERIC.": [
   "crates/dbine-schema/src/dialect/bigquery.rs"
@@ -6232,6 +6394,9 @@
  ],
  "Es el índice de una tabla organizada por índice (IOT): guarda la tabla misma y Oracle no permite hacerlo invisible.": [
   "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "Es plantilla (IS_TEMPLATE)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Es una conexión TNS: revisá el descriptor de conexión en DBine.": [
   "crates/dbine-core/src/conn_import/dbeaver.rs"
@@ -6643,6 +6808,9 @@
  "Etiqueta o tipo de relación": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
+ "Etiquetas (labels)": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
  "Evento": [
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
@@ -6755,6 +6923,9 @@
  "Extensión DocumentDB": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
+ "Extensión máxima de retención (MAX_DATA_EXTENSION_TIME_IN_DAYS)": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
  "Externa (no tiene contraseña en Solr)": [
   "crates/drivers/solr/src/security.rs"
  ],
@@ -6778,6 +6949,18 @@
  ],
  "Factor de escala": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "Factor de replicación (replication_factor)": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
+ "Factores por datacenter": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
+ "Falla de una región (REGION)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Falla de una zona (ZONE)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Fallaron algunos shards": [
   "crates/drivers/elasticsearch/src/plan.rs"
@@ -6833,6 +7016,9 @@
  ],
  "Falta el esquema.": [
   "crates/drivers/oracle/src/backup.rs"
+ ],
+ "Falta el nombre de la base": [
+  "crates/drivers/odbc/src/create_db.rs"
  ],
  "Falta el nombre de la clase.": [
   "crates/drivers/orientdb/src/ddl.rs"
@@ -6931,6 +7117,7 @@
   "crates/drivers/neo4j/src/backup.rs"
  ],
  "Falta la ruta o el alias de la base de datos.": [
+  "crates/drivers/firebird/src/create_db.rs",
   "crates/drivers/firebird/src/lib.rs"
  ],
  "Falta la tabla a restaurar.": [
@@ -7089,6 +7276,12 @@
   "crates/drivers/firebird/src/monitor.rs",
   "crates/drivers/spanner/src/plan.rs"
  ],
+ "Filas máximas por bloque (MAXROWS)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Filas mínimas por bloque (MINROWS)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Filas por clustering": [
   "crates/drivers/cassandra/src/plan.rs"
  ],
@@ -7227,6 +7420,9 @@
  "Formato (fechas)": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
+ "Formato de almacenamiento (storeFormat)": [
+  "crates/drivers/neo4j/src/create_db.rs"
+ ],
  "Formato de la clave": [
   "crates/drivers/ksqldb/src/ddl.rs"
  ],
@@ -7248,6 +7444,9 @@
  ],
  "Fragmentos en ejecución": [
   "crates/drivers/drill/src/lib.rs"
+ ],
+ "Frecuencia de checkpoint (barreras)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Frontend líder": [
   "crates/drivers/mysql/src/monitor.rs"
@@ -7408,6 +7607,9 @@
  "Grupo de consumo": [
   "crates/drivers/odbc/src/security.rs"
  ],
+ "Grupo de recursos (resource_group)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "Grupo de usuarios": [
   "crates/drivers/hana/src/security.rs"
  ],
@@ -7419,6 +7621,12 @@
  ],
  "Grupos": [
   "crates/drivers/databricks/src/security.rs"
+ ],
+ "Grupos de regiones de datos (DATA_REGION_GROUP_NUM)": [
+  "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "Grupos de regiones de esquema (SCHEMA_REGION_GROUP_NUM)": [
+  "crates/drivers/iotdb/src/create_db.rs"
  ],
  "Grupos externos": [
   "crates/drivers/couchbase/src/security.rs"
@@ -7445,6 +7653,7 @@
   "crates/drivers/postgres/src/monitor.rs"
  ],
  "H2 crea la base al conectarse a un nombre nuevo (con -ifNotExists)": [
+  "crates/drivers/postgres/src/create_db.rs",
   "crates/drivers/postgres/src/session.rs"
  ],
  "H2 embebido no está en DBine (solo H2 en modo servidor)": [
@@ -7644,6 +7853,9 @@
  "Hilos del JVM": [
   "crates/drivers/solr/src/monitor.rs"
  ],
+ "Historial de consultas (COLLECT HISTORY)": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
  "Historial de consultas: no disponible ({0}).": [
   "crates/drivers/snowflake/src/monitor.rs"
  ],
@@ -7693,6 +7905,9 @@
  ],
  "Hybrid join": [
   "crates/drivers/odbc/src/plan.rs"
+ ],
+ "Hyperscale": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "Hypertable": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -8173,6 +8388,22 @@
   "crates/drivers/mysql/src/design.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "Intercalación (COLLATE)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Intercalación (LC_COLLATE)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Intercalación (collation)": [
+  "crates/drivers/mysql/src/create_db.rs",
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Intercalación por defecto (DEFAULT_DDL_COLLATION)": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
+ "Intercalación por defecto (collation)": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
  "Intercalar en la tabla padre": [
   "crates/drivers/spanner/src/lib.rs"
  ],
@@ -8183,6 +8414,9 @@
   "crates/dbine-schema/src/dialect/databend.rs",
   "crates/dbine-schema/src/dialect/manticore.rs",
   "crates/dbine-schema/src/dialect/sqlite.rs"
+ ],
+ "Intervalo de barreras (ms)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Intervalo de días a segundos (hasta 9999 días): los años y meses no entran en el mismo intervalo de Teradata.": [
   "crates/dbine-schema/src/dialect/teradata.rs"
@@ -8198,6 +8432,9 @@
  ],
  "Intervalo de partición (ms)": [
   "crates/drivers/iotdb/src/monitor.rs"
+ ],
+ "Intervalo de partición por tiempo (TIME_PARTITION_INTERVAL)": [
+  "crates/drivers/iotdb/src/create_db.rs"
  ],
  "Intervalo de refresh": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -8380,6 +8617,12 @@
   "crates/drivers/mysql/src/design.rs",
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "Juego de caracteres (character set)": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "Juego de caracteres por defecto": [
+  "crates/drivers/firebird/src/create_db.rs"
+ ],
  "Kerberos": [
   "crates/drivers/odbc/src/security.rs"
  ],
@@ -8466,6 +8709,9 @@
  ],
  "La autenticación integrada (Windows/Kerberos) no se importa: se usa usuario y contraseña.": [
   "crates/dbine-core/src/conn_import/dbeaver.rs"
+ ],
+ "La base admite un único supertable; no se cambia después.": [
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "La base de H2: un nombre bajo el directorio base del servidor (-baseDir), como «test».": [
   "crates/drivers/postgres/src/lib.rs"
@@ -8692,6 +8938,9 @@
  "La cuenta de Entra ID (usuario@dominio).": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "La de las columnas de texto que se creen sin una.": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
  "La del Query Server (phoenix.queryserver.serialization).": [
   "crates/drivers/phoenix/src/lib.rs"
  ],
@@ -8909,6 +9158,9 @@
  "La vista «{0}» nombra la columna {1}.{2}, que se borra: si la usa, no se va a poder volver a crear. Borrala o cambiala antes de sincronizar.": [
   "src-tauri/src/commands/compare.rs"
  ],
+ "La vuelve una base multirregión. Las regiones salen de SHOW REGIONS FROM CLUSTER.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "La zona horaria de una hora no se guarda.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
@@ -8986,6 +9238,9 @@
  ],
  "Las propiedades no guardan mapas: el JSON queda como texto.": [
   "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "Las regiones del keyspace multirregión, separadas por comas (3 réplicas cada una).": [
+  "crates/drivers/cassandra/src/create_db.rs"
  ],
  "Las réplicas de geo-replicación se ven desde la base primaria en sys.dm_geo_replication_link_status (no incluido).": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -9209,6 +9464,9 @@
  "Los UNSIGNED_* de Phoenix no amplían el rango: se usa un tipo más grande con signo.": [
   "crates/dbine-schema/src/dialect/phoenix.rs"
  ],
+ "Los _id llevan la partición adelante («partición:id») y las consultas por partición son más rápidas. Desde CouchDB 3.": [
+  "crates/drivers/couchdb/src/create_db.rs"
+ ],
  "Los archivos se llaman <prefijo><n>.bp.": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -9350,6 +9608,9 @@
  "Líder": [
   "crates/drivers/etcd/src/lib.rs"
  ],
+ "Líder por defecto (default_leader)": [
+  "crates/drivers/spanner/src/create_db.rs"
+ ],
  "Límite (bytes)": [
   "crates/drivers/hana/src/monitor.rs"
  ],
@@ -9367,6 +9628,7 @@
  ],
  "Límite de conexiones": [
   "crates/drivers/dsql/src/security.rs",
+  "crates/drivers/postgres/src/create_db.rs",
   "crates/drivers/postgres/src/security.rs"
  ],
  "Límite de consultas concurrentes": [
@@ -9463,6 +9725,9 @@
   "crates/drivers/duckdb/src/files.rs",
   "crates/drivers/duckdb/src/lib.rs"
  ],
+ "Magma": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "Mango query": [
   "crates/drivers/couchdb/src/plan.rs"
  ],
@@ -9493,6 +9758,9 @@
  "Manticore no filtra por «no contiene» en el servidor": [
   "crates/drivers/mysql/src/design.rs"
  ],
+ "Manticore no tiene bases de datos": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
  "Manticore no tiene binarios: los bytes se guardan como texto.": [
   "crates/dbine-schema/src/dialect/manticore.rs"
  ],
@@ -9522,6 +9790,9 @@
  ],
  "Manticore: la tabla no devolvió la columna id": [
   "crates/drivers/mysql/src/transfer.rs"
+ ],
+ "Manual: desde 400, de a 100. Autoescalado: el máximo, desde 1000, de a 1000.": [
+  "crates/drivers/cosmosdb/src/create_db.rs"
  ],
  "Manual: desde 400. Escalado automático: el máximo, desde 1000.": [
   "crates/drivers/cosmosdb/src/ddl.rs"
@@ -9604,6 +9875,12 @@
  ],
  "Mayor compresión (101)": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "Mayoría (majority)": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Mayoría y disco en el activo (majorityAndPersistActive)": [
+  "crates/drivers/couchbase/src/create_db.rs"
  ],
  "Measurements": [
   "crates/drivers/influxdb/src/v1.rs",
@@ -9714,6 +9991,9 @@
   "crates/drivers/influxdb/src/monitor.rs",
   "crates/drivers/neo4j/src/monitor.rs"
  ],
+ "Memoria de escritura por vnode (BUFFER, MB)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Memoria de la JVM": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -9725,6 +10005,9 @@
  ],
  "Memoria de la base": [
   "crates/drivers/firebird/src/monitor.rs"
+ ],
+ "Memoria de la caché por vnode (CACHESIZE, MB)": [
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "Memoria de las consultas": [
   "crates/drivers/mysql/src/monitor.rs"
@@ -9859,8 +10142,12 @@
  ],
  "Memory": [
   "crates/dbine-transfer/src/clone_table/analytics.rs",
+  "crates/drivers/clickhouse/src/create_db.rs",
   "crates/drivers/clickhouse/src/schema.rs",
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "Memory (sin persistencia)": [
+  "crates/drivers/clickhouse/src/create_db.rs"
  ],
  "Memstore": [
   "crates/drivers/phoenix/src/monitor.rs"
@@ -9904,6 +10191,9 @@
  "Metacomando de psql ignorado: {0} (DBine ejecuta solo SQL)": [
   "crates/drivers/postgres/src/session.rs"
  ],
+ "Microsegundos (us)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Microsoft Entra ID rechazó el inicio de sesión: {0}": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
@@ -9936,6 +10226,9 @@
  "Mientras se usaba": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "Milisegundos (ms)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Mimer SQL da el plan solo con SET EXPLAIN en BSQL; no hay forma de pedirlo por ODBC.": [
   "crates/drivers/odbc/src/explain.rs"
  ],
@@ -9965,7 +10258,8 @@
   "crates/drivers/mysql/src/design.rs"
  ],
  "Modelo de recuperación": [
-  "crates/drivers/sqlserver/src/backup.rs"
+  "crates/drivers/sqlserver/src/backup.rs",
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "Modelo {0} KEY({1}): las columnas de la clave van primero en la tabla.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
@@ -10343,6 +10637,9 @@
   "crates/drivers/odbc/src/processes.rs",
   "crates/drivers/sqlserver/src/plan.rs"
  ],
+ "Nanosegundos (ns)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Necesaria si el workgroup no define una.": [
   "crates/drivers/athena/src/lib.rs"
  ],
@@ -10407,6 +10704,7 @@
   "crates/drivers/neo4j/src/profiler.rs"
  ],
  "Neptune tiene una sola base por cluster": [
+  "crates/drivers/neo4j/src/create_db.rs",
   "crates/drivers/neo4j/src/lib.rs"
  ],
  "Neptune toma cada pedido HTTP como una transacción propia: una carga cancelada podría confirmar filas después de terminar": [
@@ -10473,6 +10771,10 @@
   "crates/drivers/dynamodb/src/ddl.rs",
   "crates/drivers/phoenix/src/ddl.rs"
  ],
+ "Ninguna (none)": [
+  "crates/drivers/couchbase/src/create_db.rs",
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Nivel": [
   "crates/drivers/odbc/src/backup.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -10486,7 +10788,11 @@
  "Nivel 9": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "Nivel de aislamiento (ISOLATION LEVEL)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "Nivel de compatibilidad": [
+  "crates/drivers/sqlserver/src/create_db.rs",
   "crates/drivers/sqlserver/src/plan.rs"
  ],
  "Nivel de consistencia actual: {0}.": [
@@ -10513,14 +10819,23 @@
  "Nivel de validación": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
+ "Nivel del WAL (WAL_LEVEL)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Nivel en la base": [
   "crates/drivers/odbc/src/security/informix.rs"
+ ],
+ "No (OFF)": [
+  "crates/drivers/neo4j/src/create_db.rs"
  ],
  "No (los objetos en uso fallan)": [
   "crates/drivers/odbc/src/backup.rs"
  ],
  "No altera la secuencia de backups (diferenciales y logs). Managed Instance solo acepta éstos, a una URL.": [
   "crates/drivers/sqlserver/src/backup.rs"
+ ],
+ "No distingue mayúsculas (CASE_INSENSITIVE)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "No existe el bucket «{0}».": [
   "crates/drivers/influxdb/src/v2.rs"
@@ -10640,6 +10955,9 @@
  ],
  "No query plan": [
   "crates/drivers/spanner/src/plan.rs"
+ ],
+ "No recolectar (OFF)": [
+  "crates/drivers/odbc/src/create_db.rs"
  ],
  "No se clonan dueños, permisos ni tablespaces: los objetos quedan del usuario que ejecuta el script.": [
   "crates/drivers/postgres/src/clone.rs"
@@ -11324,6 +11642,9 @@
  "Nombre de la base": [
   "crates/drivers/oracle/src/lib.rs"
  ],
+ "Nombre de la política de retención (NAME)": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
  "Nombre de los archivos. Sin ruta, van a la carpeta de backups de datos del servidor (basepath_databackup); también puede ser una ruta absoluta del servidor.": [
   "crates/drivers/hana/src/backup.rs"
  ],
@@ -11936,6 +12257,7 @@
   "crates/drivers/sqlserver/src/plan.rs"
  ],
  "Objetivo de servicio": [
+  "crates/drivers/sqlserver/src/create_db.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
  "Objeto": [
@@ -12262,6 +12584,9 @@
  "Otorgado a roles": [
   "crates/drivers/snowflake/src/security.rs"
  ],
+ "Otras propiedades": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
  "Otras tablas (sin detalle, pedí las que necesites): {0}\n": [
   "src-tauri/src/commands/ai.rs"
  ],
@@ -12441,6 +12766,9 @@
   "crates/drivers/dsql/src/plan.rs",
   "crates/drivers/postgres/src/plan.rs"
  ],
+ "Particionada (partitioned)": [
+  "crates/drivers/couchdb/src/create_db.rs"
+ ],
  "Particionada por": [
   "crates/drivers/athena/src/ddl.rs",
   "crates/drivers/bigquery/src/plan.rs"
@@ -12462,7 +12790,8 @@
  "Particiones": [
   "crates/drivers/ksqldb/src/ddl.rs",
   "crates/drivers/ksqldb/src/monitor.rs",
-  "crates/drivers/mysql/src/backup.rs"
+  "crates/drivers/mysql/src/backup.rs",
+  "crates/drivers/mysql/src/create_db.rs"
  ],
  "Particiones físicas": [
   "crates/drivers/cosmosdb/src/monitor.rs"
@@ -12566,9 +12895,18 @@
  "Permite restaurar a cualquier momento entre este backup y el siguiente.": [
   "crates/drivers/postgres/src/backup.rs"
  ],
+ "Permitir vaciar el bucket (flushEnabled)": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "Persona": [
   "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/orientdb/src/ddl.rs"
+ ],
+ "Período de fsync del WAL (WAL_FSYNC_PERIOD, ms)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Período de retención (retention_period)": [
+  "crates/drivers/influxdb/src/create_db.rs"
  ],
  "Peticiones HTTP por ruta": [
   "crates/drivers/influxdb/src/monitor.rs"
@@ -12656,6 +12994,9 @@
   "crates/drivers/dsql/src/plan.rs",
   "crates/drivers/postgres/src/plan.rs"
  ],
+ "Plantilla (template)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "Plantillas, pipelines, configuración persistente del cluster y los índices del sistema.": [
   "crates/drivers/elasticsearch/src/backup.rs"
  ],
@@ -12677,8 +13018,14 @@
  "Política de desalojo": [
   "crates/drivers/redis/src/monitor.rs"
  ],
+ "Política de desalojo (evictionPolicy)": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "Política de indexación (JSON)": [
   "crates/drivers/cosmosdb/src/ddl.rs"
+ ],
+ "Política de ubicación (placement policy)": [
+  "crates/drivers/mysql/src/create_db.rs"
  ],
  "Pool de recursos": [
   "crates/drivers/mysql/src/security/singlestore.rs",
@@ -12686,6 +13033,9 @@
  ],
  "Pools de hilos": [
   "crates/drivers/cassandra/src/monitor.rs"
+ ],
+ "Por datacenter (NetworkTopologyStrategy)": [
+  "crates/drivers/cassandra/src/create_db.rs"
  ],
  "Por defecto": [
   "crates/drivers/elasticsearch/src/ddl.rs",
@@ -12712,6 +13062,9 @@
  ],
  "Posición en el archivo": [
   "crates/drivers/sqlserver/src/backup.rs"
+ ],
+ "PostgreSQL 15 o posterior. Vacío: el de la plantilla.": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "PostgreSQL necesita CREATE TYPE para un enumerado: queda como texto. Valores: {0}.": [
   "crates/dbine-schema/src/dialect/postgres.rs"
@@ -12740,6 +13093,9 @@
  "Precisión de {0} decimales de segundo reducida a {1}.": [
   "crates/dbine-schema/src/dialect/postgres.rs"
  ],
+ "Precisión del tiempo (PRECISION)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Predicado": [
   "crates/drivers/sqlserver/src/plan.rs"
  ],
@@ -12758,6 +13114,9 @@
  ],
  "Prefijo de claves": [
   "crates/drivers/etcd/src/lib.rs"
+ ],
+ "Premium": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "Presto": [
   "crates/drivers/trino/src/lib.rs",
@@ -12906,6 +13265,9 @@
  "Protocolo nativo": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
+ "Proveedor de locale (locale provider)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "Proyecto": [
   "crates/drivers/bigquery/src/monitor.rs"
  ],
@@ -12977,6 +13339,9 @@
  "Páginas consultadas": [
   "crates/drivers/firebird/src/monitor.rs"
  ],
+ "Páginas de metadatos por vnode (PAGES)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Páginas desalojadas": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
@@ -13020,8 +13385,14 @@
  "RAM de datos (buckets)": [
   "crates/drivers/couchbase/src/lib.rs"
  ],
+ "REGION necesita al menos 3 regiones.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "RU de esta lectura del monitor": [
   "crates/drivers/cosmosdb/src/monitor.rs"
+ ],
+ "RU/s: «{0}» no es un valor válido": [
+  "crates/drivers/cosmosdb/src/create_db.rs"
  ],
  "Rack": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -13263,6 +13634,7 @@
   "crates/drivers/phoenix/src/lib.rs"
  ],
  "Regiones": [
+  "crates/drivers/cassandra/src/create_db.rs",
   "crates/drivers/iotdb/src/monitor.rs",
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/phoenix/src/monitor.rs"
@@ -13304,6 +13676,9 @@
  ],
  "Región de los jobs (US, EU, southamerica-east1…). Vacía = la del dataset.": [
   "crates/drivers/bigquery/src/lib.rs"
+ ],
+ "Región principal (PRIMARY REGION)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Regla ACL inválida: {0}. Ejemplos: +@read, -@dangerous, +get, +config|get, ~app:*, %R~, &canal*.": [
   "crates/drivers/redis/src/security.rs"
@@ -13363,9 +13738,16 @@
   "crates/drivers/sqlserver/src/babelfish.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "Replicación (class)": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
  "Replicated": [
   "crates/dbine-transfer/src/clone_table/analytics.rs",
+  "crates/drivers/clickhouse/src/create_db.rs",
   "crates/drivers/clickhouse/src/schema.rs"
+ ],
+ "Replicated (réplicas vía Keeper)": [
+  "crates/drivers/clickhouse/src/create_db.rs"
  ],
  "Repositorio": [
   "crates/drivers/elasticsearch/src/backup.rs",
@@ -13505,11 +13887,29 @@
  "Resultados reutilizados (últimos 15 min)": [
   "crates/drivers/athena/src/monitor.rs"
  ],
+ "Retención": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "Retención (DURATION)": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "Retención (KEEP)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Retención (TTL)": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
  "Retención de Time Travel (días)": [
   "crates/drivers/snowflake/src/backup.rs"
  ],
  "Retención de versiones": [
   "crates/drivers/spanner/src/monitor.rs"
+ ],
+ "Retención de versiones (días)": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
+ "Retención de versiones (version_retention_period)": [
+  "crates/drivers/spanner/src/create_db.rs"
  ],
  "Retiene el bloqueo": [
   "crates/drivers/mongodb/src/blocking.rs",
@@ -13555,6 +13955,12 @@
  ],
  "Rewinds estimados": [
   "crates/drivers/sqlserver/src/plan.rs"
+ ],
+ "RisingWave 2.5 o posterior, con licencia. Vacía: la del sistema.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "RisingWave 2.5 o posterior, con licencia. Vacío: el del sistema.": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "RisingWave hace los backups de su metadata con risectl, no con SQL": [
   "crates/drivers/postgres/src/backup.rs"
@@ -13698,6 +14104,9 @@
   "crates/drivers/clickhouse/src/backup.rs",
   "crates/drivers/phoenix/src/avatica.rs"
  ],
+ "Ruta en Keeper (zoo_path)": [
+  "crates/drivers/clickhouse/src/create_db.rs"
+ ],
  "Ruta en el servidor (no en esta máquina). Vacío, o una carpeta terminada en / o \\: el archivo se llama <base>_<tipo>_<fecha>.bak (.trn para el log).": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -13711,6 +14120,7 @@
   "crates/drivers/odbc/src/backup.rs"
  ],
  "Réplica": [
+  "crates/drivers/clickhouse/src/create_db.rs",
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/sqlserver/src/babelfish.rs",
@@ -13745,14 +14155,29 @@
  "Réplicas (Always On)": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "Réplicas (REPLICA)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Réplicas (REPLICATION)": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
  "Réplicas (SolrCloud)": [
   "crates/drivers/solr/src/ddl.rs"
  ],
  "Réplicas (System Replication)": [
   "crates/drivers/hana/src/monitor.rs"
  ],
+ "Réplicas (n)": [
+  "crates/drivers/couchdb/src/create_db.rs"
+ ],
  "Réplicas (number_of_replicas)": [
   "crates/drivers/postgres/src/design.rs"
+ ],
+ "Réplicas (replicaNumber)": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Réplicas (replication_num)": [
+  "crates/drivers/mysql/src/create_db.rs"
  ],
  "Réplicas conectadas": [
   "crates/drivers/postgres/src/monitor.rs",
@@ -13766,6 +14191,12 @@
  ],
  "Réplicas de esquema": [
   "crates/drivers/iotdb/src/monitor.rs"
+ ],
+ "Réplicas de los datos (DATA_REPLICATION_FACTOR)": [
+  "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "Réplicas del esquema (SCHEMA_REPLICATION_FACTOR)": [
+  "crates/drivers/iotdb/src/create_db.rs"
  ],
  "Réplicas no activas": [
   "crates/drivers/solr/src/monitor.rs"
@@ -14191,6 +14622,9 @@
  "Según el servidor": [
   "crates/drivers/mysql/src/design.rs"
  ],
+ "Según la configuración (DEFAULT)": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
  "Selectores": [
   "crates/drivers/redis/src/security.rs"
  ],
@@ -14216,6 +14650,9 @@
  ],
  "Separadas por coma. Activa la recuperación a un punto en el tiempo (PITR) en cada una: desde ese momento Keyspaces guarda backups continuos de los últimos 35 días.": [
   "crates/drivers/cassandra/src/backup.rs"
+ ],
+ "Separadas por comas. Necesitan la región principal.": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Separados por coma.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -14406,6 +14843,7 @@
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
  "Shard": [
+  "crates/drivers/clickhouse/src/create_db.rs",
   "crates/drivers/elasticsearch/src/plan.rs"
  ],
  "Shards": [
@@ -14413,6 +14851,9 @@
   "crates/drivers/influxdb/src/plan.rs",
   "crates/drivers/postgres/src/backup.rs",
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Shards (q)": [
+  "crates/drivers/couchdb/src/create_db.rs"
  ],
  "Shards activos": [
   "crates/drivers/elasticsearch/src/monitor.rs"
@@ -14508,6 +14949,12 @@
  "Sigue haciendo cumplir la unicidad aunque el optimizador no lo use.": [
   "crates/drivers/mysql/src/index_usage.rs"
  ],
+ "Simple": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Sin Fail-safe y con Time Travel de 0 o 1 día: más barata para datos que se pueden regenerar.": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
  "Sin LIMIT: puede devolver la tabla entera": [
   "crates/drivers/cassandra/src/plan.rs"
  ],
@@ -14555,6 +15002,12 @@
  ],
  "Sin comprimir": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "Sin desalojo (noEviction)": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Sin distinguir mayúsculas (und:ci)": [
+  "crates/drivers/bigquery/src/create_db.rs"
  ],
  "Sin el catálogo jmx solo se ven el CPU y la memoria del coordinador; configurá el conector JMX (catalog/jmx.properties) para ver los de cada nodo y los totales de consultas.": [
   "crates/drivers/trino/src/monitor.rs"
@@ -14878,6 +15331,12 @@
  "Solo en Eon Mode (Vertica 24.1 en adelante) y con un superusuario: el punto de restauración queda en el almacenamiento comunal de la base. La base se revive desde un punto con admintools o el operador de Kubernetes, no por SQL. En Enterprise Mode los backups se hacen con vbr.": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "Solo en clústeres de datos compartidos. Vacío: el volumen por defecto.": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "Solo en instancias multirregión: la región que recibe las escrituras. Vacío: la de la configuración.": [
+  "crates/drivers/spanner/src/create_db.rs"
+ ],
  "Solo hace falta declarar los atributos que son clave de la tabla o de un índice; el resto de los atributos de cada ítem es libre.": [
   "crates/drivers/dynamodb/src/ddl.rs"
  ],
@@ -14895,6 +15354,9 @@
  ],
  "Solo lectura (servidor)": [
   "crates/drivers/flightsql/src/lib.rs"
+ ],
+ "Solo los cambios (DIFF)": [
+  "crates/drivers/neo4j/src/create_db.rs"
  ],
  "Solo para campos text: standard, english, whitespace…": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -15120,6 +15582,9 @@
  "Standalone (replication handler)": [
   "crates/drivers/solr/src/backup.rs"
  ],
+ "Standard": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
  "StarRocks guarda hasta 1 MB por valor de texto.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
@@ -15286,6 +15751,9 @@
  ],
  "Sí: el campo guarda una lista de valores.": [
   "crates/drivers/solr/src/ddl.rs"
+ ],
+ "Sí: las tablas chicas comparten un tablet. Vacío: lo que diga el clúster.": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "TABLE ACCESS FULL de tabla grande (~{0} filas)": [
   "crates/drivers/oracle/src/plan.rs"
@@ -15521,15 +15989,23 @@
  ],
  "Tablespace": [
   "crates/drivers/oracle/src/ddl.rs",
-  "crates/drivers/oracle/src/monitor.rs"
+  "crates/drivers/oracle/src/monitor.rs",
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Tablespace por defecto": [
+  "crates/drivers/oracle/src/create_db.rs"
  ],
  "Tablespace predeterminado": [
   "crates/drivers/oracle/src/security.rs"
+ ],
+ "Tablespace temporal": [
+  "crates/drivers/oracle/src/create_db.rs"
  ],
  "Tablespaces": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
  "Tablets": [
+  "crates/drivers/cassandra/src/create_db.rs",
   "crates/drivers/cassandra/src/monitor.rs",
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -15566,6 +16042,9 @@
  "Tamaño comprimido": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
+ "Tamaño de datos": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
  "Tamaño de la base": [
   "crates/drivers/etcd/src/lib.rs",
   "crates/drivers/firebird/src/monitor.rs",
@@ -15588,6 +16067,12 @@
   "crates/drivers/firebird/src/monitor.rs",
   "crates/drivers/sqlite/src/monitor.rs"
  ],
+ "Tamaño de página (PAGESIZE, KB)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Tamaño de página (PAGE_SIZE)": [
+  "crates/drivers/firebird/src/create_db.rs"
+ ],
  "Tamaño de página: {0}.": [
   "crates/drivers/cassandra/src/lib.rs"
  ],
@@ -15598,17 +16083,35 @@
  "Tamaño del archivo": [
   "crates/drivers/sqlite/src/lib.rs"
  ],
+ "Tamaño del log": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
  "Tamaño en bytes (aprox.)": [
   "crates/drivers/dynamodb/src/plan.rs"
+ ],
+ "Tamaño inicial de datos (MB)": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Tamaño inicial del log (MB)": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "Tamaño medio de fila": [
   "crates/drivers/odbc/src/plan.rs"
  ],
+ "Tamaño máximo": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
  "Tamaño máximo (bytes)": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
+ "Tamaño máximo de datos": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
  "Tamaño máximo de la caché": [
   "crates/drivers/sqlite/src/monitor.rs"
+ ],
+ "Tamaño máximo del log": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "Tamaño promedio de fila (B)": [
   "crates/drivers/sqlserver/src/plan.rs"
@@ -15724,6 +16227,9 @@
  ],
  "Thread pools": [
   "crates/drivers/elasticsearch/src/monitor.rs"
+ ],
+ "Throughput compartido": [
+  "crates/drivers/cosmosdb/src/create_db.rs"
  ],
  "TiDB cuenta consultas: «seeks» son las que leyeron menos del 10% de las filas de la tabla por el índice y «scans», el resto. «updates» son las filas modificadas desde el último ANALYZE. La clave primaria agrupada no lleva contadores.": [
   "crates/drivers/mysql/src/index_usage.rs"
@@ -15935,6 +16441,9 @@
  ],
  "Tipo de bloqueo": [
   "crates/drivers/oracle/src/monitor.rs"
+ ],
+ "Tipo de bucket (bucketType)": [
+  "crates/drivers/couchbase/src/create_db.rs"
  ],
  "Tipo de key desconocido: {0}": [
   "crates/drivers/redis/src/ddl.rs"
@@ -16181,6 +16690,9 @@
  "UNION sin miembros: {0}": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
+ "UNLIMITED o un número": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "URL de S3": [
   "crates/drivers/clickhouse/src/backup.rs"
  ],
@@ -16247,6 +16759,7 @@
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
  ],
  "Ubicación": [
+  "crates/drivers/bigquery/src/create_db.rs",
   "crates/drivers/bigquery/src/lib.rs",
   "crates/drivers/bigquery/src/monitor.rs"
  ],
@@ -16259,8 +16772,14 @@
  "Ubicación (location)": [
   "crates/drivers/odbc/src/presets.rs"
  ],
+ "Ubicación administrada (MANAGED LOCATION)": [
+  "crates/drivers/databricks/src/create_db.rs"
+ ],
  "Ubicación de resultados": [
   "crates/drivers/athena/src/lib.rs"
+ ],
+ "Ubicación en S3 (LOCATION)": [
+  "crates/drivers/athena/src/create_db.rs"
  ],
  "Ubicar los archivos de datos y de log (MOVE)": [
   "crates/drivers/sqlserver/src/backup.rs"
@@ -16309,6 +16828,9 @@
  ],
  "Un repositorio creado con CREATE REPOSITORY (SHOW REPOSITORIES los lista).": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "Un solo supertable (SINGLE_STABLE)": [
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "Un stream usa columnas KEY; una tabla exige PRIMARY KEY.": [
   "crates/drivers/ksqldb/src/ddl.rs"
@@ -16381,6 +16903,15 @@
  ],
  "Una partición": [
   "crates/drivers/cassandra/src/plan.rs"
+ ],
+ "Una por línea, como clave=valor.": [
+  "crates/drivers/athena/src/create_db.rs"
+ ],
+ "Una por línea, como clave=valor: minúsculas, números, _ y -.": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
+ "Una región (SingleRegionStrategy)": [
+  "crates/drivers/cassandra/src/create_db.rs"
  ],
  "Una restricción CHECK de {0} no tiene nombre: borrala a mano ({1}).": [
   "crates/dbine-driver/src/alter.rs"
@@ -16609,11 +17140,110 @@
  "Vaciarla y cargar": [
   "crates/drivers/oracle/src/backup.rs"
  ],
+ "Vacía o 0: los datos no vencen. Mínimo 1h.": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "Vacía o 0: no vencen. Solo en Couchbase Enterprise.": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Vacía: 1 MB.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacía: 100 MB, el mínimo. Sale de la cuota libre del cluster.": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Vacía: 2.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacía: 256 MB.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacía: 3650d. Con unidad (m, h, d) o en minutos; hasta tres valores separados por comas (frío, tibio, caliente).": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacía: INF, los datos no vencen. Mínimo 1h.": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "Vacía: LATIN9.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Vacía: NetworkTopologyStrategy. SimpleStrategy ignora los datacenters: solo para un cluster de un datacenter.": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
+ "Vacía: UNLIMITED.": [
+  "crates/drivers/oracle/src/create_db.rs"
+ ],
+ "Vacía: la carpeta de datos por defecto del servidor.": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Vacía: la carpeta de logs por defecto del servidor.": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Vacía: la configurada en el servidor (database_replicated_default_zk_path).": [
+  "crates/drivers/clickhouse/src/create_db.rs"
+ ],
+ "Vacía: la de la conexión (o US). No se puede cambiar después.": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
+ "Vacía: la de la plantilla.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Vacía: la de la plantilla. Define cómo se ordenan y comparan los textos.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Vacía: la del juego de caracteres. Define cómo se ordenan y comparan los textos.": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "Vacía: la del servidor, como hasta ahora.": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
+ "Vacía: la del servidor. Define cómo se ordenan y comparan los textos.": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Vacía: la elige el servidor según la retención.": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "Vacía: la que asigne el catálogo de datos.": [
+  "crates/drivers/athena/src/create_db.rs"
+ ],
+ "Vacía: la raíz del metastore. Tiene que estar dentro de una ubicación externa.": [
+  "crates/drivers/databricks/src/create_db.rs"
+ ],
+ "Vacía: las comparaciones distinguen mayúsculas.": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
+ "Vacía: los datos no vencen. Con unidad (ms, s, m, h, d, w) o en milisegundos.": [
+  "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "Vacía: milisegundos. No se cambia después.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacía: none.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacía: none. Las que escriben a disco no van con un bucket efímero.": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Vacía: sin política. Decide en qué regiones o nodos quedan las réplicas.": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "Vacía: sin vencimiento. Es la de las tablas que no indiquen otra.": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "Vacía: template0. La base nueva es una copia de esta.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Vacía: template1. Para otra codificación o locale que el de template1, usá template0.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "Vacío = la predeterminada (indexa todo).": [
   "crates/drivers/cosmosdb/src/ddl.rs"
  ],
  "Vacío = sin TTL. -1 = TTL activado, sin vencimiento salvo que el documento traiga su «ttl».": [
   "crates/drivers/cosmosdb/src/ddl.rs"
+ ],
+ "Vacío o -1: sin límite.": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Vacío o :memory: abre una base en memoria.": [
   "crates/drivers/duckdb/src/lib.rs"
@@ -16621,17 +17251,120 @@
  "Vacío si el servidor corre sin autenticación.": [
   "crates/drivers/influxdb/src/v3.rs"
  ],
+ "Vacío: 0. Copias de solo lectura.": [
+  "crates/drivers/neo4j/src/create_db.rs"
+ ],
+ "Vacío: 1.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacío: 1. 2 necesita un árbitro; 3, tres dnodes.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacío: 1. Con NetworkTopologyStrategy se aplica a cada datacenter que no tenga su propio factor.": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
+ "Vacío: 1. Hacen falta tantos nodos de datos como réplicas más uno.": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Vacío: 1. Solo cuenta en InfluxDB Enterprise.": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "Vacío: 100.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacío: 10d. El tramo de tiempo de cada archivo de datos.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacío: 2.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacío: 2. En cuántos grupos de nodos virtuales se reparte la base.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacío: 3000. Con nivel 2; 0 hace fsync en cada escritura.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacío: 4096.": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Vacío: Couchbase.": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Vacío: NONE. Es el de las columnas de texto que no indiquen otro.": [
+  "crates/drivers/firebird/src/create_db.rs"
+ ],
+ "Vacío: OFF. DIFF o FULL activan la captura de cambios (CDC).": [
+  "crates/drivers/neo4j/src/create_db.rs"
+ ],
  "Vacío: ahora. Si no, la base como estaba en ese momento, dentro de su retención de Time Travel.": [
   "crates/drivers/snowflake/src/backup.rs"
+ ],
+ "Vacío: autogen.": [
+  "crates/drivers/influxdb/src/create_db.rs"
  ],
  "Vacío: backup completo. Si no, solo guarda lo que cambió desde ese backup.": [
   "crates/drivers/clickhouse/src/backup.rs"
  ],
+ "Vacío: base nueva. Un backup o dump que el servidor pueda leer (file:, s3:, gs:, azb:, https:).": [
+  "crates/drivers/neo4j/src/create_db.rs"
+ ],
  "Vacío: el DATA_BACKUP_DEST que ya tiene el tenant.": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "Vacío: el de la cuenta. De 0 a 90 (0 o 1 si es transitoria).": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
+ "Vacío: el del cluster.": [
+  "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "Vacío: el del cluster. Magma pide más memoria (1024 MB antes de Couchbase 7.6).": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "Vacío: el del cluster. Solo IoTDB 1.x; IoTDB 2 lo toma de la configuración del cluster.": [
+  "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "Vacío: el del servidor (8192 desde Firebird 3).": [
+  "crates/drivers/firebird/src/create_db.rs"
+ ],
+ "Vacío: el del servidor (Atomic).": [
+  "crates/drivers/clickhouse/src/create_db.rs"
+ ],
+ "Vacío: el del servidor (db.format).": [
+  "crates/drivers/neo4j/src/create_db.rs"
+ ],
+ "Vacío: el del servidor. Es el que toman las tablas nuevas.": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "Vacío: el grupo por defecto.": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Vacío: el log comparte los dispositivos de datos.": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
+ "Vacío: el login con el que estás conectado.": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
  "Vacío: el mismo que el de destino. Si es otro, se reasigna con REMAP_SCHEMA.": [
   "crates/drivers/oracle/src/backup.rs"
+ ],
+ "Vacío: el n del cluster. Copias de cada shard; no puede superar la cantidad de nodos.": [
+  "crates/drivers/couchdb/src/create_db.rs"
+ ],
+ "Vacío: el q del cluster. En cuántas partes se divide la base.": [
+  "crates/drivers/couchdb/src/create_db.rs"
+ ],
+ "Vacío: el tablespace permanente por defecto de la base. Ahí van las tablas del esquema.": [
+  "crates/drivers/oracle/src/create_db.rs"
+ ],
+ "Vacío: el temporal por defecto de la base.": [
+  "crates/drivers/oracle/src/create_db.rs"
+ ],
+ "Vacío: el usuario con el que estás conectado.": [
+  "crates/drivers/hana/src/create_db.rs",
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "Vacío: en disco. En memoria se pierde al reiniciar el servidor.": [
+  "crates/drivers/orientdb/src/create_db.rs"
  ],
  "Vacío: la clave primaria.": [
   "crates/drivers/postgres/src/design.rs"
@@ -16645,14 +17378,47 @@
  "Vacío: las del backup. En un clúster con menos nodos, 1.": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "Vacío: las del clúster (por defecto, una por núcleo de las hojas).": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "Vacío: las del clúster. Es el valor por defecto de las tablas nuevas.": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "Vacío: las tablas nuevas no vencen.": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
+ "Vacío: lo decide el cluster.": [
+  "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "Vacío: lo que diga el cluster (1 en un servidor solo). Copias que aceptan escrituras.": [
+  "crates/drivers/neo4j/src/create_db.rs"
+ ],
+ "Vacío: lo que diga el servidor (tablets activos por defecto desde ScyllaDB 6). No funciona con SimpleStrategy.": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
+ "Vacío: los datos no vencen.": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "Vacío: los dispositivos por defecto del servidor (ON DEFAULT).": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
  "Vacío: los que elija CrateDB.": [
   "crates/drivers/postgres/src/design.rs"
+ ],
+ "Vacío: pg_default.": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "Vacío: por la clave primaria o la primera columna. RANDOMLY para reparto al azar.": [
   "crates/drivers/postgres/src/design.rs"
  ],
  "Vacío: sin límite.": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "Vacío: sin throughput de base; cada contenedor tiene el suyo. Las cuentas serverless no lo admiten.": [
+  "crates/drivers/cosmosdb/src/create_db.rs"
+ ],
+ "Vacío: sí. No: las escrituras no pasan por el commit log (se pierden si cae un nodo).": [
+  "crates/drivers/cassandra/src/create_db.rs"
  ],
  "Validar con los campos ($jsonSchema)": [
   "crates/drivers/mongodb/src/ddl.rs"
@@ -16681,6 +17447,9 @@
  ],
  "Value": [
   "crates/drivers/dynamodb/src/admin.rs"
+ ],
+ "Van en PROPERTIES tal como las escribís.": [
+  "crates/drivers/mysql/src/create_db.rs"
  ],
  "Varios miembros separados por coma: host1:27017,host2:27017.": [
   "crates/drivers/mongodb/src/lib.rs"
@@ -16715,6 +17484,9 @@
  ],
  "Vencimiento de la contraseña": [
   "crates/drivers/odbc/src/security/ibm.rs"
+ ],
+ "Vencimiento por defecto de las tablas (días)": [
+  "crates/drivers/bigquery/src/create_db.rs"
  ],
  "Ventana": [
   "crates/drivers/ksqldb/src/plan.rs"
@@ -16851,6 +17623,12 @@
  "Vertica revive la base desde un punto de restauración con admintools o el operador de Kubernetes, no por SQL": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "Vida de los datos (TTL)": [
+  "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "Vida máxima de los documentos (maxTTL, segundos)": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "View": [
   "crates/drivers/clickhouse/src/lib.rs"
  ],
@@ -16895,6 +17673,9 @@
  ],
  "Volcó datos a disco (spill)": [
   "crates/drivers/influxdb/src/plan.rs"
+ ],
+ "Volumen de almacenamiento (storage_volume)": [
+  "crates/drivers/mysql/src/create_db.rs"
  ],
  "Vuelve enseguida; el avance se ve en el historial.": [
   "crates/drivers/clickhouse/src/backup.rs"
@@ -17172,6 +17953,9 @@
  "al motor de IA le falta el runtime de Visual C++ de Microsoft: instalá «Microsoft Visual C++ Redistributable» y volvé a intentar": [
   "crates/dbine-ai/src/embedded.rs"
  ],
+ "almacenamiento: «{0}» no es un valor válido": [
+  "crates/drivers/orientdb/src/create_db.rs"
+ ],
  "amarillo (hay réplicas sin asignar)": [
   "crates/drivers/elasticsearch/src/monitor.rs"
  ],
@@ -17277,6 +18061,9 @@
  "caché de DuckDB envenenada": [
   "crates/drivers/duckdb/src/lib.rs"
  ],
+ "caché del último dato": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "cadena de conexión": [
   "crates/dbine-core/src/conn_import/urls.rs"
  ],
@@ -17344,6 +18131,9 @@
  "char({0}) supera el máximo de MySQL: se usa longtext.": [
   "crates/dbine-schema/src/dialect/mysql.rs"
  ],
+ "clasificación de caracteres": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "clave de configuración inválida": [
   "src-tauri/src/commands/settings.rs"
  ],
@@ -17370,6 +18160,9 @@
  "clave pública: {0}": [
   "crates/drivers/snowflake/src/lib.rs"
  ],
+ "clave=valor (una por línea)": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
  "claves": [
   "crates/dbine-driver/src/profiler.rs"
  ],
@@ -17394,9 +18187,15 @@
  "clonar necesita que origen y destino usen el mismo driver": [
   "crates/dbine-plugin/src/remote.rs"
  ],
+ "codificación": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "colección": [
   "crates/drivers/mongodb/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs"
+ ],
+ "colocación": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "columna {0}: en serialización JSON, Avatica no acepta arreglos como parámetros; conectá con serialización protobuf": [
   "crates/drivers/phoenix/src/transfer.rs"
@@ -17420,6 +18219,9 @@
  "completá el nombre y el email": [
   "src-tauri/src/commands/projects.rs"
  ],
+ "compresión": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "con ROW MOVEMENT": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
@@ -17440,6 +18242,9 @@
  ],
  "con subparticiones ({0}-{1})": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
+ ],
+ "con una carpeta, el nombre es solo el del archivo (sin carpetas)": [
+  "crates/drivers/firebird/src/create_db.rs"
  ],
  "con vencimiento": [
   "crates/drivers/redis/src/monitor.rs"
@@ -17560,9 +18365,13 @@
   "src-tauri/src/commands/projects.rs"
  ],
  "crear una base": [
+  "crates/drivers/couchdb/src/create_db.rs",
   "crates/drivers/couchdb/src/lib.rs",
   "crates/drivers/mongodb/src/lib.rs",
-  "crates/drivers/neo4j/src/lib.rs"
+  "crates/drivers/neo4j/src/create_db.rs"
+ ],
+ "crecimiento de {0}: «{1}» no es un tamaño ni un porcentaje": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "credenciales de AWS: {0}": [
   "crates/drivers/neo4j/src/neptune.rs"
@@ -17582,6 +18391,9 @@
  ],
  "cuerpo de _bulk": [
   "crates/drivers/elasticsearch/src/transfer.rs"
+ ],
+ "cuota: «{0}» no es UNLIMITED ni un tamaño (500M, 10G…)": [
+  "crates/drivers/oracle/src/create_db.rs"
  ],
  "currentOp (hace falta el privilegio inprog)": [
   "crates/drivers/mongodb/src/monitor.rs"
@@ -17606,6 +18418,9 @@
  ],
  "data_load_wrap de {0}: {1}": [
   "crates/dbine-plugin/src/remote.rs"
+ ],
+ "datacenter:réplicas separados por comas. Un datacenter sin «:n» toma el factor de replicación.": [
+  "crates/drivers/cassandra/src/create_db.rs"
  ],
  "datos (sin comprimir)": [
   "crates/drivers/couchdb/src/monitor.rs"
@@ -17748,6 +18563,12 @@
  "disco en uso": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "dispositivo de datos": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
+ "dispositivo del log": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
  "distinto de": [
   "crates/drivers/cassandra/src/ddl.rs"
  ],
@@ -17769,6 +18590,12 @@
  "dsql: {0} has no primary key; read in one statement": [
   "crates/drivers/dsql/src/transfer.rs"
  ],
+ "dueño": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "durabilidad mínima": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "duración": [
   "crates/drivers/couchbase/src/lib.rs",
   "crates/drivers/drill/src/lib.rs",
@@ -17788,8 +18615,23 @@
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/redis/src/monitor.rs"
  ],
+ "duración de cada grupo de shards": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "duración de cada shard": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
  "duración total": [
   "crates/drivers/influxdb/src/monitor.rs"
+ ],
+ "días de Time Travel": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
+ "días por archivo": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "edición": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "ejecución: {0}": [
   "crates/drivers/couchbase/src/lib.rs"
@@ -18936,6 +19778,9 @@
   "crates/drivers/bigquery/src/lib.rs",
   "crates/drivers/bigquery/src/transfer.rs"
  ],
+ "enriquecer el log": [
+  "crates/drivers/neo4j/src/create_db.rs"
+ ],
  "entero de 32 bits": [
   "crates/drivers/solr/src/transfer.rs"
  ],
@@ -19219,6 +20064,9 @@
  "este motor no admite la autenticación de Windows": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "este motor no admite opciones al crear una base": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
  "este motor no aplica cambios de esquema": [
   "crates/dbine-driver/src/lib.rs"
  ],
@@ -19261,6 +20109,7 @@
  ],
  "este motor no crea bases desde DBine": [
   "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/mysql/src/create_db.rs",
   "crates/drivers/mysql/src/session.rs"
  ],
  "este motor no crea esquemas desde DBine": [
@@ -19287,6 +20136,9 @@
   "crates/dbine-driver/src/transfer.rs"
  ],
  "este motor no genera DDL de tablas": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
+ "este motor no genera el script de creación de una base": [
   "crates/dbine-driver/src/lib.rs"
  ],
  "este motor no genera scripts de actualización": [
@@ -19441,11 +20293,29 @@
  "etcd restaura un snapshot sin el servidor corriendo (etcdutl snapshot restore): no se hace con una conexión": [
   "crates/drivers/etcd/src/backup.rs"
  ],
+ "etiquetas: el valor de «{0}», «{1}», solo admite minúsculas, números, _ y -": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
+ "etiquetas: un dataset admite hasta 64": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
+ "etiquetas: «{0}» no es una clave válida (minúsculas, números, _ y -, empezando por una letra)": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
  "events_statements_history_long está desactivado y la conexión es de solo lectura": [
   "crates/drivers/mysql/src/profiler.rs"
  ],
+ "extensión máxima de retención": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
  "factor de escala": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "factor de replicación": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
+ "factores por datacenter": [
+  "crates/drivers/cassandra/src/create_db.rs"
  ],
  "falló": [
   "crates/drivers/cassandra/src/profiler.rs",
@@ -19546,7 +20416,9 @@
   "crates/drivers/firebird/src/security.rs"
  ],
  "falta el nombre de la base": [
-  "crates/drivers/duckdb/src/lib.rs"
+  "crates/drivers/duckdb/src/lib.rs",
+  "crates/drivers/orientdb/src/create_db.rs",
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "falta el nombre de la colección": [
   "crates/drivers/mongodb/src/ddl.rs"
@@ -19716,6 +20588,12 @@
   "crates/drivers/dremio/src/lib.rs",
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "filas máximas": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "filas mínimas": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "filtro del índice {0}": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
@@ -19746,11 +20624,17 @@
  "float de 32 bits": [
   "crates/drivers/solr/src/transfer.rs"
  ],
+ "formato de almacenamiento": [
+  "crates/drivers/neo4j/src/create_db.rs"
+ ],
  "formato de credenciales desconocido": [
   "crates/dbine-core/src/secrets.rs"
  ],
  "fracción del rendimiento": [
   "crates/drivers/cosmosdb/src/monitor.rs"
+ ],
+ "frecuencia de checkpoint": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "fsync del WAL (promedio)": [
   "crates/drivers/etcd/src/lib.rs"
@@ -19777,6 +20661,9 @@
  "grupo de la base": [
   "crates/drivers/odbc/src/security/sybase.rs"
  ],
+ "grupo de recursos": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "grupo de servicio": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
@@ -19784,7 +20671,11 @@
   "crates/drivers/postgres/src/delta.rs"
  ],
  "grupos de regiones de datos": [
+  "crates/drivers/iotdb/src/create_db.rs",
   "crates/drivers/iotdb/src/monitor.rs"
+ ],
+ "grupos de regiones de esquema": [
+  "crates/drivers/iotdb/src/create_db.rs"
  ],
  "grupos del sistema (GRANT ROLE … TO GROUP …)": [
   "crates/drivers/odbc/src/security.rs"
@@ -19859,6 +20750,9 @@
  "historial compactado hasta la revisión {0}": [
   "crates/drivers/etcd/src/lib.rs"
  ],
+ "historial de consultas": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
  "hora con zona": [
   "crates/dbine-schema/src/logical.rs"
  ],
@@ -19913,11 +20807,17 @@
  "inactiva en transacción": [
   "crates/drivers/postgres/src/processes.rs"
  ],
+ "indicá al menos una región": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
  "indicá el puerto del servidor de la base": [
   "src-tauri/src/tunnels.rs"
  ],
  "indicá la base de «{0}»: Doris lee un nombre solo como una base": [
   "crates/drivers/mysql/src/security/doris.rs"
+ ],
+ "indicá las RU/s del throughput compartido": [
+  "crates/drivers/cosmosdb/src/create_db.rs"
  ],
  "inprog (o enableProfiler sobre todas las bases: el profiling de «{0}» está apagado y su sampleRate está en {1})": [
   "crates/drivers/mongodb/src/permissions.rs"
@@ -19931,8 +20831,25 @@
  "instalado, pero su servidor local no está iniciado (Developer › Start Server)": [
   "crates/dbine-ai/src/detect.rs"
  ],
+ "intercalación": [
+  "crates/drivers/mysql/src/create_db.rs",
+  "crates/drivers/postgres/src/create_db.rs",
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
  "intercalación (collation)": [
   "crates/drivers/mongodb/src/ddl.rs"
+ ],
+ "intercalación: «{0}» no es un valor válido (und:ci)": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
+ "intercalación: «{0}» no es una especificación de collation": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
+ "intervalo de barreras": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "intervalo de partición": [
+  "crates/drivers/iotdb/src/create_db.rs"
  ],
  "intervalo de partición (ms)": [
   "crates/drivers/iotdb/src/monitor.rs"
@@ -19942,6 +20859,12 @@
  ],
  "ipaddress no guarda máscaras de red.": [
   "crates/dbine-schema/src/dialect/trino.rs"
+ ],
+ "juego de caracteres": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "juego de caracteres: «{0}» no es un valor válido": [
+  "crates/drivers/firebird/src/create_db.rs"
  ],
  "ksqlDB confirmó {0} filas de {1}": [
   "crates/drivers/ksqldb/src/transfer.rs"
@@ -20049,6 +20972,11 @@
  ],
  "la base ya existe: elegí otro nombre o reemplazala": [
   "crates/drivers/snowflake/src/backup.rs"
+ ],
+ "la base «{0}» se creó, pero falló este paso: {1}\n{2}": [
+  "crates/drivers/firebird/src/create_db.rs",
+  "crates/drivers/postgres/src/create_db.rs",
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "la base «{0}» ya existe": [
   "crates/drivers/mongodb/src/lib.rs"
@@ -20656,6 +21584,9 @@
  "la ruta sale de la carpeta del proyecto": [
   "src-tauri/src/commands/project_paths.rs"
  ],
+ "la ruta tiene caracteres de control": [
+  "crates/drivers/firebird/src/create_db.rs"
+ ],
  "la ruta tiene que ser relativa al proyecto": [
   "src-tauri/src/commands/project_paths.rs"
  ],
@@ -20860,6 +21791,7 @@
   "crates/drivers/postgres/src/session.rs"
  ],
  "las bases de Denodo se crean desde Denodo": [
+  "crates/drivers/postgres/src/create_db.rs",
   "crates/drivers/postgres/src/session.rs"
  ],
  "las columnas": [
@@ -20915,6 +21847,9 @@
  ],
  "las perdería": [
   "crates/dbine-transfer/src/clone_table.rs"
+ ],
+ "las regiones y la supervivencia necesitan una región principal (PRIMARY REGION)": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "las réplicas de Always On": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -21120,11 +22055,20 @@
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs"
  ],
+ "líder por defecto: «{0}» no es una región": [
+  "crates/drivers/spanner/src/create_db.rs"
+ ],
  "líderes": [
   "crates/drivers/solr/src/monitor.rs"
  ],
  "límite": [
   "crates/drivers/cassandra/src/monitor.rs"
+ ],
+ "límite de conexiones: «{0}» no es un número (-1 o más)": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "límite de conexiones: «{0}» no es un número ni UNLIMITED": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "límite de memoria": [
   "crates/drivers/mysql/src/monitor.rs"
@@ -21144,6 +22088,12 @@
  "membresía": [
   "crates/drivers/couchbase/src/lib.rs"
  ],
+ "memoria de escritura": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "memoria de la caché": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "memoria máx. (MB)": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -21158,6 +22108,9 @@
  ],
  "mientras se creaba la tabla de paso": [
   "crates/dbine-transfer/src/retry.rs"
+ ],
+ "modelo de recuperación": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "modelo del catálogo": [
   "crates/dbine-ai/examples/ask.rs"
@@ -21197,6 +22150,15 @@
  ],
  "ninguno asociado: nadie puede ingresar con este rol": [
   "crates/drivers/dsql/src/security.rs"
+ ],
+ "nivel de aislamiento": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "nivel de compatibilidad": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "nivel del WAL": [
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "no acepta esa clave": [
   "crates/dbine-tunnel/src/lib.rs"
@@ -22241,6 +23203,9 @@
  "objetivo de estadísticas": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
+ "objetivo de servicio": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
  "objetos CLR que no se clonan (necesitan su assembly): {0}": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
@@ -22356,6 +23321,15 @@
  "para editar un documento de CouchDB hace falta su _id": [
   "crates/drivers/couchdb/src/ddl.rs"
  ],
+ "para el tamaño del log, indicá su dispositivo": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
+ "para elegir la carpeta del log, indicá también la carpeta del archivo de datos": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "para elegir shard o réplica, indicá también la ruta en Keeper": [
+  "crates/drivers/clickhouse/src/create_db.rs"
+ ],
  "para renombrar una clave de etcd hace falta también su valor": [
   "crates/drivers/etcd/src/ddl.rs"
  ],
@@ -22368,6 +23342,9 @@
  ],
  "para ver el script del clonado, elegí la conexión de destino": [
   "src-tauri/src/commands/migration.rs"
+ ],
+ "particionada: «{0}» no es un valor válido": [
+  "crates/drivers/couchdb/src/create_db.rs"
  ],
  "pasarla a UTC cambia el día, y antes de 1582-10-15 los calendarios no coinciden": [
   "crates/drivers/hana/src/transfer.rs"
@@ -22393,6 +23370,12 @@
  "permiso de escritura sobre el archivo (la base está abierta en solo lectura)": [
   "crates/drivers/duckdb/src/permissions.rs"
  ],
+ "período de fsync": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "período de retención": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
  "pipeline de la vista": [
   "crates/drivers/mongodb/src/ddl.rs",
   "crates/drivers/mongodb/src/sync.rs"
@@ -22410,6 +23393,9 @@
   "crates/drivers/athena/src/plan.rs",
   "crates/drivers/trino/src/plan.rs"
  ],
+ "política de desalojo": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "políticas: {0} / {1}": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
@@ -22426,6 +23412,7 @@
   "crates/drivers/cassandra/src/monitor.rs"
  ],
  "precisión": [
+  "crates/drivers/tdengine/src/create_db.rs",
   "crates/drivers/tdengine/src/lib.rs"
  ],
  "principales de IAM con roles/spanner.fineGrainedAccessUser y el permiso sobre este rol (se asignan en IAM)": [
@@ -22458,8 +23445,21 @@
  "progreso de la carga": [
   "crates/drivers/dsql/src/transfer.rs"
  ],
+ "propiedades: el valor de «{0}» tiene caracteres de control": [
+  "crates/drivers/athena/src/create_db.rs"
+ ],
+ "propiedades: «{0}» no es un nombre de propiedad válido": [
+  "crates/drivers/athena/src/create_db.rs"
+ ],
+ "propiedades: «{0}» no tiene la forma clave=valor": [
+  "crates/drivers/athena/src/create_db.rs",
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
  "protocolo {0} pedido; este driver habla el {1}": [
   "crates/dbine-plugin/src/host.rs"
+ ],
+ "proveedor de locale": [
+  "crates/drivers/postgres/src/create_db.rs"
  ],
  "put necesita un valor": [
   "crates/drivers/etcd/src/lib.rs"
@@ -22474,7 +23474,8 @@
   "crates/dbine-driver/src/profiler.rs",
   "crates/drivers/firebird/src/profiler.rs",
   "crates/drivers/neo4j/src/profiler.rs",
-  "crates/drivers/sqlserver/src/profiler.rs"
+  "crates/drivers/sqlserver/src/profiler.rs",
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "quedaron pedidos a Cosmos DB sin respuesta: el servidor podría escribir ítems después": [
   "crates/drivers/cosmosdb/src/transfer.rs"
@@ -22510,8 +23511,17 @@
  "registros leídos {0}": [
   "crates/drivers/firebird/src/profiler.rs"
  ],
+ "región": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
+ "región principal": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "repite el campo «{0}»": [
   "crates/drivers/mongodb/src/transfer.rs"
+ ],
+ "replicación": [
+  "crates/drivers/cassandra/src/create_db.rs"
  ],
  "respuesta de GitHub inválida: {0}": [
   "src-tauri/src/commands/updates.rs"
@@ -22567,6 +23577,17 @@
  "restricción CHECK": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "retención": [
+  "crates/drivers/influxdb/src/create_db.rs",
+  "crates/drivers/mysql/src/create_db.rs",
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "retención de versiones": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
+ "retención de versiones: «{0}» no es una duración (por ejemplo 1h, 3d, 7d)": [
+  "crates/drivers/spanner/src/create_db.rs"
+ ],
  "retiene el bloqueo": [
   "crates/drivers/neo4j/src/blocking.rs"
  ],
@@ -22597,19 +23618,27 @@
  "ruta de dispositivo inesperada: {0}": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
  ],
+ "ruta en Keeper": [
+  "crates/drivers/clickhouse/src/create_db.rs"
+ ],
  "rápido y liviano · 2,1 GB": [
   "crates/dbine-ai/src/embedded.rs"
  ],
  "réplica": [
+  "crates/drivers/clickhouse/src/create_db.rs",
   "crates/drivers/redis/src/monitor.rs",
   "crates/drivers/redis/src/processes.rs",
   "crates/drivers/solr/src/monitor.rs"
  ],
  "réplicas": [
+  "crates/drivers/couchbase/src/create_db.rs",
+  "crates/drivers/couchdb/src/create_db.rs",
   "crates/drivers/dynamodb/src/monitor.rs",
   "crates/drivers/elasticsearch/src/monitor.rs",
+  "crates/drivers/mysql/src/create_db.rs",
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs",
+  "crates/drivers/tdengine/src/create_db.rs",
   "crates/drivers/tdengine/src/lib.rs"
  ],
  "réplicas de datos": [
@@ -22617,6 +23646,18 @@
  ],
  "réplicas de esquema": [
   "crates/drivers/iotdb/src/monitor.rs"
+ ],
+ "réplicas de los datos": [
+  "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "réplicas del datacenter": [
+  "crates/drivers/cassandra/src/create_db.rs"
+ ],
+ "réplicas del esquema": [
+  "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "réplicas: «{0}» no es un valor válido": [
+  "crates/drivers/influxdb/src/create_db.rs"
  ],
  "sa_role o ser el dueño de la base": [
   "crates/drivers/odbc/src/permissions.rs"
@@ -23016,8 +24057,23 @@
   "crates/drivers/dynamodb/src/monitor.rs",
   "crates/drivers/influxdb/src/v3.rs"
  ],
+ "tamaño de página": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "tamaño de página: «{0}» no es 4096, 8192, 16384 ni 32768": [
+  "crates/drivers/firebird/src/create_db.rs"
+ ],
  "tamaño en disco (bytes)": [
   "crates/drivers/influxdb/src/monitor.rs"
+ ],
+ "tamaño inicial de {0}: «{1}» no es un tamaño": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "tamaño máximo de {0}: «{1}» no es un tamaño ni UNLIMITED": [
+  "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "tamaño máximo: «{0}» no es un tamaño": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "tamaño primario": [
   "crates/drivers/elasticsearch/src/monitor.rs"
@@ -23039,6 +24095,9 @@
  ],
  "the other call got no reply: {0}": [
   "crates/dbine-plugin/src/remote.rs"
+ ],
+ "throughput compartido: «{0}» no es un valor válido": [
+  "crates/drivers/cosmosdb/src/create_db.rs"
  ],
  "tidb_slow_log_threshold = 0 (estaba en {0} ms)": [
   "crates/drivers/mysql/src/profiler.rs"
@@ -23111,6 +24170,9 @@
  "timestamp de Manticore son segundos Unix de 32 bits sin signo: solo entre 1970 y 2106.": [
   "crates/dbine-schema/src/dialect/manticore.rs"
  ],
+ "tipo de bucket": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "tipo de geometría WKB desconocido ({0})": [
   "crates/drivers/hana/src/transfer.rs"
  ],
@@ -23144,6 +24206,9 @@
  "trabajos en curso en «{0}»: {1}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
  ],
+ "transitoria: «{0}» no es un valor válido": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
  "true: agrega los campos nuevos al mapping": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
@@ -23152,6 +24217,15 @@
  ],
  "túnel SSH: {0}": [
   "src-tauri/src/tunnels.rs"
+ ],
+ "ubicación administrada: «{0}» no es una URL de almacenamiento (s3://, abfss://, gs://…)": [
+  "crates/drivers/databricks/src/create_db.rs"
+ ],
+ "ubicación: «{0}» no es una región ni una multirregión": [
+  "crates/drivers/bigquery/src/create_db.rs"
+ ],
+ "ubicación: «{0}» no es una ruta s3://": [
+  "crates/drivers/athena/src/create_db.rs"
  ],
  "un JSON dentro de un tipo anidado (STRUCT, lista, MAP o UNION) se carga desde una cadena JSON con el texto del documento, como lo lee DBine; un texto suelto en esa posición no es un documento JSON y no se carga para no cambiar su significado": [
   "crates/drivers/duckdb/src/transfer.rs"
@@ -23236,6 +24310,9 @@
  "un solo documento ocupa más de {0} MiB en la respuesta: no se puede leer con la memoria acotada de la transferencia": [
   "crates/drivers/elasticsearch/src/transfer.rs"
  ],
+ "un solo supertable": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "un stream depende de su origen: clonarlo no copia sus datos de forma fiel": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
@@ -23277,6 +24354,9 @@
  ],
  "un valor espacial tiene que ser WKB o WKT, no {0}": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "un warehouse de Fabric se crea desde el portal de Fabric": [
+  "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "un índice espacial": [
   "crates/drivers/neo4j/src/ddl.rs"
@@ -23393,6 +24473,9 @@
  "usuario que también es rol": [
   "crates/drivers/odbc/src/security/sybase.rs"
  ],
+ "vaciar el bucket": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "vacío = <base>-<fecha y hora>": [
   "crates/drivers/spanner/src/backup.rs"
  ],
@@ -23448,6 +24531,9 @@
  "vacío: todas; si no, separadas por comas": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "valor de la propiedad": [
+  "crates/drivers/mysql/src/create_db.rs"
+ ],
  "valor inesperado del servidor (tipo {0})": [
   "crates/drivers/libsql/src/transfer.rs"
  ],
@@ -23462,6 +24548,9 @@
  ],
  "varchar({0}) supera los 4000 bytes de VARCHAR2: se usa CLOB.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
+ "vencimiento de las tablas: «{0}» no es un número entero de días": [
+  "crates/drivers/bigquery/src/create_db.rs"
  ],
  "versión": [
   "crates/drivers/cassandra/src/monitor.rs",
@@ -23482,11 +24571,17 @@
  "versión vieja": [
   "crates/dbine-plugin/src/remote.rs"
  ],
+ "vida máxima": [
+  "crates/drivers/couchbase/src/create_db.rs"
+ ],
  "view query (control de acceso)": [
   "crates/drivers/trino/src/permissions.rs"
  ],
  "vista inválida: {0}": [
   "crates/drivers/couchdb/src/lib.rs"
+ ],
+ "volumen de almacenamiento": [
+  "crates/drivers/mysql/src/create_db.rs"
  ],
  "vértices": [
   "crates/drivers/orientdb/src/monitor.rs"
@@ -23779,6 +24874,9 @@
  "{0} modelo(s) · local, nada sale de esta máquina": [
   "crates/dbine-ai/src/detect.rs"
  ],
+ "{0} necesita PostgreSQL {1} o posterior en el servidor": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "{0} necesita una clave": [
   "crates/drivers/etcd/src/lib.rs",
   "crates/drivers/etcd/src/security.rs"
@@ -23788,6 +24886,9 @@
  ],
  "{0} no admite la columna «{1}» en una clave: la tabla queda DUPLICATE KEY y no garantiza unicidad.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "{0} no admite opciones al crear una base": [
+  "crates/drivers/odbc/src/create_db.rs"
  ],
  "{0} no admite transacciones manuales desde DBine": [
   "crates/drivers/postgres/src/session.rs"
@@ -23801,6 +24902,9 @@
  "{0} no clona bases": [
   "crates/drivers/postgres/src/clone.rs",
   "src-tauri/src/commands/migration.rs"
+ ],
+ "{0} no crea ni borra bases desde DBine": [
+  "crates/drivers/odbc/src/create_db.rs"
  ],
  "{0} no da cifras reales en EXPLAIN: se muestran los planes estimados.": [
   "crates/drivers/postgres/src/session.rs"
@@ -23900,6 +25004,9 @@
  ],
  "{0} no expone por SQL el uso de CPU ni de memoria de los hosts (con grupos de recursos: gp_toolkit.gp_resgroup_status_per_host).": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "{0} no genera el script de creación de una base": [
+  "crates/drivers/odbc/src/create_db.rs"
  ],
  "{0} no guarda la zona horaria de una hora.": [
   "crates/dbine-schema/src/dialect/dremio.rs"
@@ -24655,8 +25762,36 @@
  "{0}: «{1}» no es true ni false.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
+ "{0}: «{1}» no es un número de días entre 0 y {2}": [
+  "crates/drivers/snowflake/src/create_db.rs"
+ ],
+ "{0}: «{1}» no es un número positivo": [
+  "crates/drivers/postgres/src/create_db.rs"
+ ],
  "{0}: «{1}» no es un número.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "{0}: «{1}» no es un tamaño (100, 500M, 2G…)": [
+  "crates/drivers/odbc/src/create_db.rs"
+ ],
+ "{0}: «{1}» no es un valor válido": [
+  "crates/drivers/cassandra/src/create_db.rs",
+  "crates/drivers/clickhouse/src/create_db.rs",
+  "crates/drivers/couchbase/src/create_db.rs",
+  "crates/drivers/couchdb/src/create_db.rs",
+  "crates/drivers/iotdb/src/create_db.rs",
+  "crates/drivers/mysql/src/create_db.rs",
+  "crates/drivers/neo4j/src/create_db.rs",
+  "crates/drivers/odbc/src/create_db.rs",
+  "crates/drivers/postgres/src/create_db.rs",
+  "crates/drivers/sqlserver/src/create_db.rs",
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "{0}: «{1}» no es una duración válida (por ejemplo 30d, 12h o 1h30m)": [
+  "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "{0}: «{1}» no es una duración válida (por ejemplo 7d, 12h o 3600000)": [
+  "crates/drivers/iotdb/src/create_db.rs"
  ],
  "{0}; además, {1} usa tablas u objetos que no se clonan": [
   "crates/drivers/sqlserver/src/clone.rs"
@@ -24962,6 +26097,9 @@
  ],
  "«{0}» no es un nombre de base de Db2": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "«{0}» no es un nombre de bucket válido: letras, números y _ - . % (hasta 100)": [
+  "crates/drivers/couchbase/src/create_db.rs"
  ],
  "«{0}» no es un nombre de función válido": [
   "crates/drivers/dsql/src/security.rs"
@@ -25370,6 +26508,9 @@
  "Última ejecución": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "Última fila (last_row)": [
+  "crates/drivers/tdengine/src/create_db.rs"
+ ],
  "Última novedad": [
   "crates/drivers/ksqldb/src/monitor.rs"
  ],
@@ -25402,6 +26543,9 @@
  ],
  "Último vacuum": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Último valor de cada columna (last_value)": [
+  "crates/drivers/tdengine/src/create_db.rs"
  ],
  "Últimos 15 minutos": [
   "crates/drivers/athena/src/monitor.rs",

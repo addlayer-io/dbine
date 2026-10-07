@@ -178,9 +178,20 @@ SQL usan el planificador común `dbine_driver::alter::sync_script` con su
 
 | Comando | args | Devuelve |
 |---|---|---|
-| `create_database` | `{ connection_id, name }` | `void` |
+| `create_database` | `{ connection_id, name, options? }` | `void` |
+| `create_database_script` | `{ connection_id, name, options? }` | `string` |
+| `create_database_choices` | `{ connection_id }` | `FieldChoices[]` |
 | `drop_database` | `{ connection_id, name }` | `void` |
 | `drop_objects` | `{ connection_id, database, objects: ObjectRef[] }` | `{ dropped: ObjectRef[], errors: [ObjectRef, string][] }` |
+
+`options` es un mapa `key` → valor con las opciones avanzadas del motor
+(`DriverInfo.create_database_fields`); si falta o está vacío, la base se crea
+solo con el nombre. `create_database_script` devuelve lo que ejecutaría
+`create_database` (SQL, o la llamada a la API en BigQuery, Couchbase y otros
+motores HTTP) y falla si el nombre está vacío. `create_database_choices`
+devuelve las sugerencias del servidor (`{ key, default, values }`) y una lista
+vacía si no tiene. Si un paso posterior a la creación falla, el error dice que
+la base se creó y cuál fue el paso. Detalle: [`crear-bases.md`](crear-bases.md).
 
 `drop_objects` borra tablas y colecciones con el DDL del driver (`table_ddl`
 con `drop`). En los motores SQL también borra vistas, rutinas y triggers.
