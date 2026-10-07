@@ -8,6 +8,7 @@
 
 mod backup;
 mod blocking;
+mod create_db;
 mod ddl;
 mod index_usage;
 mod monitor;
@@ -408,6 +409,15 @@ impl Driver for OracleDriver {
 
     fn backup_script(&self, action: &dbine_driver::BackupAction) -> Result<String> {
         backup::script(action)
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     /// The "databases" are schemas: created as schema-only accounts
@@ -861,6 +871,14 @@ impl Session for OracleSession {
             Ok(())
         })
         .await
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     /// `DROP USER … CASCADE`: the schema and everything in it.

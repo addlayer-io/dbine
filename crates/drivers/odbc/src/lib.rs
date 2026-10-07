@@ -9,6 +9,7 @@
 mod backup;
 mod blocking;
 mod connstr;
+mod create_db;
 mod design;
 mod explain;
 mod ffi;
@@ -260,6 +261,15 @@ impl Driver for OdbcDriver {
 
     fn capabilities(&self) -> Capabilities {
         design::capabilities(self.preset)
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields(self.preset)
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(self.preset, name, options)
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -1247,6 +1257,22 @@ impl Session for OdbcSession {
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
         self.database_ddl("CREATE", name).await
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    /// The generic preset keeps the plain create (its quoting comes from
+    /// the driver); Sybase ASE and Netezza take their options.
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        if !matches!(design::eng(self.preset), design::Eng::Ase | design::Eng::Netezza) {
+            if options.values().all(|v| v.trim().is_empty()) {
+                return self.create_database(name).await;
+            }
+            return Err(Error::Unsupported(format!("{} no admite opciones al crear una base", self.preset.name)));
+        }
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

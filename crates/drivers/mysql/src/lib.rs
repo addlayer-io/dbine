@@ -8,6 +8,7 @@
 mod backup;
 mod blocking;
 mod cells;
+mod create_db;
 mod design;
 mod index_usage;
 mod monitor;
@@ -266,6 +267,15 @@ impl Driver for MySqlDriver {
 
     fn capabilities(&self) -> Capabilities {
         design::capabilities(self.variant)
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields(self.variant)
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(self.variant, name, options)
     }
 
     /// `LOAD DATA LOCAL INFILE` or big multi-row INSERTs (see `transfer`);

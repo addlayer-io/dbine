@@ -5,6 +5,7 @@
 //! The client is synchronous: every call runs on a blocking thread. A
 //! Firebird connection is one database file, so there's a single namespace.
 
+mod create_db;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -426,6 +427,15 @@ impl Driver for FirebirdDriver {
 
     fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
         security::script(action)
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -938,6 +948,14 @@ impl Session for FirebirdSession {
         })
         .await
         .map_err(join_err)?
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
