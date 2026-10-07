@@ -40,7 +40,10 @@ de cada base.
   - diagrama ER, generar script, exportar o importar la base, ejecutar un
     archivo de script;
   - comparar esquemas, migrar, clonar o sincronizar, y Profiler;
-  - crear o eliminar la base, copiar su nombre o el del servidor.
+  - crear o eliminar la base, copiar su nombre o el del servidor;
+  - **crear una base con las opciones avanzadas de cada motor** (intercalación,
+    archivos, réplicas, retención…), con el script a la vista. Detalle:
+    [`docs/crear-bases.md`](docs/crear-bases.md).
 - **Crear y borrar esquemas**, con su dueño y sus permisos en el mismo script,
   que se revisa antes de ejecutarlo. Detalle:
   [`docs/esquemas.md`](docs/esquemas.md).
@@ -505,6 +508,7 @@ Documentación:
 - [`docs/cache-del-explorador.md`](docs/cache-del-explorador.md): la caché del
   árbol del explorador.
 - [`docs/esquemas.md`](docs/esquemas.md): crear y borrar esquemas.
+- [`docs/crear-bases.md`](docs/crear-bases.md): crear bases con opciones.
 - [`docs/ventanas.md`](docs/ventanas.md): las ventanas, qué guarda cada
   una y cerrar una ventana o salir.
 - [`docs/comparacion-de-esquemas.md`](docs/comparacion-de-esquemas.md): cómo
