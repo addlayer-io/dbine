@@ -33,6 +33,8 @@ pub struct DriverDescriptor {
     backup: Option<dbine_driver::BackupSpec>,
     /// "Nuevo esquema…" / "Borrar esquema…"; `None`: not offered.
     schema_spec: Option<dbine_driver::SchemaSpec>,
+    /// "Nueva base de datos"'s advanced options; empty: just the name.
+    create_database_fields: Vec<dbine_driver::Field>,
     script_separator: &'static str,
     /// How the editor runs a script ("Seguir si hay un error" only matters
     /// when it isn't `whole`) and the engine's defaults for it.
@@ -62,6 +64,7 @@ pub async fn list_drivers() -> CommandResult<Vec<DriverDescriptor>> {
             security: d.security(),
             backup: d.backup(),
             schema_spec: d.schema_spec(),
+            create_database_fields: d.create_database_fields(),
             script_separator: d.script_separator(),
             script_mode: d.script_mode(),
             script_defaults: d.script_defaults(),

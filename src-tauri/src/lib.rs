@@ -342,6 +342,8 @@ pub fn run() {
             commands::clone_table::clone_table,
             commands::clone_table::clone_table_cancel,
             commands::schema::create_database,
+            commands::schema::create_database_script,
+            commands::schema::create_database_choices,
             commands::schema::drop_database,
             commands::schema::drop_objects,
             commands::schemas::schema_spec,

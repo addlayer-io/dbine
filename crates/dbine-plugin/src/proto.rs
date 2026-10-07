@@ -189,6 +189,13 @@ pub enum Call {
     Processes { session: u64 },
     /// Stop another session's statement. Same as `Processes` for older hosts.
     CancelQuery { session: u64, id: String },
+    /// "Nueva base de datos" with options: the script, the server's
+    /// suggestions, and the creation. A host published before them
+    /// answers `Unsupported`; the app only asks drivers whose manifest
+    /// lists `create_database_fields`.
+    CreateDatabaseScript { driver: String, name: String, options: std::collections::BTreeMap<String, String> },
+    CreateDatabaseChoices { session: u64 },
+    CreateDatabaseWith { session: u64, name: String, options: std::collections::BTreeMap<String, String> },
 }
 
 /// Host → app.
@@ -247,6 +254,7 @@ pub enum Reply {
     IndexUsage(Option<dbine_driver::IndexUsageReport>),
     Dependents(dbine_driver::DependencyReport),
     Processes(Vec<dbine_driver::ServerProcess>),
+    Choices(Vec<dbine_driver::FieldChoices>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -315,6 +323,10 @@ pub struct DriverMeta {
     /// absent in older manifests: not offered).
     #[serde(default)]
     pub supports_index_toggle: bool,
+    /// "Nueva base de datos"'s advanced options (absent in older
+    /// manifests: just the name).
+    #[serde(default, deserialize_with = "owned")]
+    pub create_database_fields: Vec<dbine_driver::Field>,
 }
 
 /// The contract's metadata types hold `&'static str` (interned when read),
@@ -366,6 +378,7 @@ impl DriverMeta {
             supports_manual_transactions: d.supports_manual_transactions(),
             supports_index_usage: d.supports_index_usage(),
             supports_index_toggle: d.supports_index_toggle(),
+            create_database_fields: d.create_database_fields(),
         }
     }
 }
@@ -604,6 +617,9 @@ mod tests {
             ),
             (13, Call::Processes { session: 3 }, "Processes"),
             (14, Call::CancelQuery { session: 3, id: "53".into() }, "CancelQuery"),
+            (15, Call::CreateDatabaseScript { driver: "sqlserver".into(), name: "v".into(), options: Default::default() }, "CreateDatabaseScript"),
+            (16, Call::CreateDatabaseChoices { session: 3 }, "CreateDatabaseChoices"),
+            (17, Call::CreateDatabaseWith { session: 3, name: "v".into(), options: Default::default() }, "CreateDatabaseWith"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

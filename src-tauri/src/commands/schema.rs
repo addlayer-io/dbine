@@ -107,14 +107,46 @@ pub struct DatabaseNameArgs {
     pub name: String,
 }
 
+#[derive(Deserialize)]
+pub struct CreateDatabaseArgs {
+    pub connection_id: String,
+    pub name: String,
+    /// The advanced options (`Driver::create_database_fields`) by key.
+    #[serde(default)]
+    pub options: std::collections::BTreeMap<String, String>,
+}
+
 #[tauri::command(rename_all = "camelCase")]
-pub async fn create_database(state: State<'_, AppState>, args: DatabaseNameArgs) -> CommandResult<()> {
+pub async fn create_database(state: State<'_, AppState>, args: CreateDatabaseArgs) -> CommandResult<()> {
     if args.name.trim().is_empty() {
         return Err(CommandError::BadRequest("la base necesita un nombre".into()));
     }
     let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
     let mut s = entry.session.lock().await;
-    Ok(s.create_database(args.name.trim()).await?)
+    Ok(s.create_database_with(args.name.trim(), &args.options).await?)
+}
+
+/// What "Ver script" shows for "Nueva base de datos".
+#[tauri::command(rename_all = "camelCase")]
+pub async fn create_database_script(state: State<'_, AppState>, args: CreateDatabaseArgs) -> CommandResult<String> {
+    if args.name.trim().is_empty() {
+        return Err(CommandError::BadRequest("la base necesita un nombre".into()));
+    }
+    Ok(driver_of(&state, &args.connection_id)?.create_database_script(args.name.trim(), &args.options)?)
+}
+
+#[derive(Deserialize)]
+pub struct ConnectionArgs {
+    pub connection_id: String,
+}
+
+/// The server's suggestions for "Nueva base de datos"'s options
+/// (collations, default paths, users…). Empty when it has none.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn create_database_choices(state: State<'_, AppState>, args: ConnectionArgs) -> CommandResult<Vec<dbine_driver::FieldChoices>> {
+    let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
+    let mut s = entry.session.lock().await;
+    Ok(s.create_database_choices().await?)
 }
 
 #[tauri::command(rename_all = "camelCase")]

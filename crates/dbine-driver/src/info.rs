@@ -287,3 +287,15 @@ impl ObjectKindInfo {
         Self::new(kinds::COLLECTION, "Colecciones", true, true, false)
     }
 }
+
+/// A server's suggestions for one field of a form whose values depend on the
+/// server (the collations it has, its default data path, its users…).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FieldChoices {
+    /// The field's `key`.
+    pub key: String,
+    /// What the server uses when the field is left empty, to show it.
+    pub default: Option<String>,
+    /// Values to pick from (the field still takes any other).
+    pub values: Vec<String>,
+}

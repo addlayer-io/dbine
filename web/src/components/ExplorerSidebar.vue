@@ -18,7 +18,7 @@ import { useUiStore } from '../stores/ui';
 import { useSettingsStore } from '../stores/settings';
 import { readJson, writeJson } from '../stores/storage';
 import { confirmNative } from '../native';
-import { createDatabase, deleteQuery, dropDatabase, dropObjects, duplicateQuery, newFromTemplate, newQuery, renameQuery } from '../composables/actions';
+import { createDatabase, creatingDatabase, deleteQuery, dropDatabase, dropObjects, duplicateQuery, newFromTemplate, newQuery, renameQuery } from '../composables/actions';
 import {
   deleteSavedMigration, duplicateSavedMigration, newMigration, openSavedMigration, renameSavedMigration, savedMigrationState, type SavedMigrationState,
 } from '../composables/savedMigrations';
@@ -28,6 +28,7 @@ import EngineIcon from './EngineIcon.vue';
 import KeySearchRow from './KeySearchRow.vue';
 import CloneTableDialog from './CloneTableDialog.vue';
 import SchemaDialog from './SchemaDialog.vue';
+import CreateDatabaseDialog from './CreateDatabaseDialog.vue';
 import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
@@ -1324,6 +1325,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
     <DropIndexDialog v-if="droppingIndex" :target="droppingIndex" @close="droppingIndex = null" />
     <CloneTableDialog v-if="cloning" :connection-id="cloning.connectionId" :database="cloning.database" :object="cloning.object" @close="cloning = null" />
+    <CreateDatabaseDialog v-if="creatingDatabase" :connection-id="creatingDatabase" @close="creatingDatabase = null" />
     <SchemaDialog
       v-if="schemaDialog" :connection-id="schemaDialog.connectionId" :database="schemaDialog.database" :mode="schemaDialog.mode" :schema="schemaDialog.schema"
       @done="loadDatabase(schemaDialog!.connectionId, schemaDialog!.database, true)" @close="schemaDialog = null"

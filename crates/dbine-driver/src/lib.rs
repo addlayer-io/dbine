@@ -41,7 +41,7 @@ pub use config::ConnectionConfig;
 pub use dependencies::{Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation};
 pub use error::{Error, Result};
 pub use index_usage::{IndexUsage, IndexUsageReport};
-pub use info::{kinds, DriverInfo, Family, Field, FieldKind, FieldSection, FieldWhen, Language, ObjectKindInfo};
+pub use info::{kinds, DriverInfo, Family, Field, FieldChoices, FieldKind, FieldSection, FieldWhen, Language, ObjectKindInfo};
 pub use filter::{ColumnFilter, FilterOp};
 pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
 pub use model::{
@@ -265,6 +265,23 @@ pub trait Driver: Send + Sync {
     /// gives one (see there).
     fn schema_spec(&self) -> Option<security::SchemaSpec> {
         None
+    }
+
+    /// The advanced options of "Nueva base de datos": the clauses of the
+    /// engine's CREATE DATABASE (collation, files, owner, encoding…), in
+    /// order. Empty: the database is created with just its name. Their
+    /// values reach [`Driver::create_database_script`] and
+    /// [`Session::create_database_with`] by `key`.
+    fn create_database_fields(&self) -> Vec<Field> {
+        Vec::new()
+    }
+
+    /// The code that creates database `name` with `options` (field key →
+    /// value; a missing or empty value means the server's default), as
+    /// [`Session::create_database_with`] runs it: what "Ver script" shows.
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        let _ = (name, options);
+        Err(Error::Unsupported("este motor no genera el script de creación de una base".into()))
     }
 
     /// The code that creates schema `name` (quoted as the engine needs) in
@@ -595,6 +612,23 @@ pub trait Session: Send {
     async fn create_database(&mut self, name: &str) -> Result<()> {
         let _ = name;
         Err(Error::Unsupported("este motor no crea bases desde DBine".into()))
+    }
+
+    /// The server's suggestions and defaults for
+    /// [`Driver::create_database_fields`]: the collations it has, its
+    /// default data and log paths, its users and tablespaces…
+    async fn create_database_choices(&mut self) -> Result<Vec<info::FieldChoices>> {
+        Ok(Vec::new())
+    }
+
+    /// Create database `name` with `options` (see
+    /// [`Driver::create_database_fields`]). Without options it's
+    /// [`Session::create_database`].
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        if options.values().all(|v| v.trim().is_empty()) {
+            return self.create_database(name).await;
+        }
+        Err(Error::Unsupported("este motor no admite opciones al crear una base".into()))
     }
 
     /// Drop a database (keyspace, dataset…) and everything in it.
