@@ -10,6 +10,7 @@
 //! `system:active_requests`. Read-only sessions also send `readonly`, so
 //! the server refuses writes.
 
+mod create_db;
 mod ddl;
 mod index_usage;
 mod sync;
@@ -137,6 +138,15 @@ impl Driver for CouchbaseDriver {
     /// Multi-row SQL++ `INSERT`s, several at once (see `transfer.rs`).
     fn supports_bulk_load(&self) -> bool {
         true
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -1033,26 +1043,17 @@ impl Session for CbSession {
         }))
     }
 
+    /// A Couchbase bucket of 100 MB without flush (see [`create_db`]).
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        if self.conn.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden crear bases.".into()));
-        }
-        let rb = self
-            .conn
-            .http
-            .post(format!("{}/pools/default/buckets", self.conn.mgmt))
-            .form(&[("name", name), ("ramQuota", "100"), ("bucketType", "couchbase"), ("flushEnabled", "0")]);
-        self.conn.mgmt_send(rb).await?;
-        // The bucket takes a moment before its scopes answer.
-        for _ in 0..40 {
-            if self.conn.mgmt_get(&format!("/pools/default/buckets/{}/scopes", encode(name))).await.is_ok()
-                && self.conn.post_query(&json!({"statement": format!("SELECT RAW 1 FROM {}.`_default`.`_default` LIMIT 1", q(name))})).await.is_ok()
-            {
-                return Ok(());
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-        Ok(())
+        self.create_database_with_impl(name, &std::collections::BTreeMap::new()).await
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

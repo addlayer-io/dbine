@@ -27,6 +27,7 @@ const COMPRESSIONS: &[&str] = &["UNCOMPRESSED", "SNAPPY", "LZ4", "GZIP", "ZSTD",
 /// IoTDB's answer when a result has more rows than `row_limit`.
 const ROW_LIMIT_EXCEEDED: i64 = 708;
 
+mod create_db;
 mod monitor;
 mod permissions;
 mod processes;
@@ -97,6 +98,15 @@ impl Driver for IotDbDriver {
     /// REST `insertTablet` in columnar tablets (see `transfer.rs`).
     fn supports_bulk_load(&self) -> bool {
         true
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     /// Running queries are listed and killed by id (see [`processes`]);
@@ -930,10 +940,16 @@ impl Session for IotDbSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se pueden crear bases.".into()));
-        }
-        self.non_query(&format!("CREATE DATABASE {}", database_path(name))).await
+        self.create_database_with_impl(name, &BTreeMap::new()).await
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    /// `CREATE DATABASE … WITH …` (see [`create_db`]).
+    async fn create_database_with(&mut self, name: &str, options: &BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

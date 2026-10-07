@@ -44,6 +44,7 @@
 //! views, `_changes`, `_dbs_info`). Every call is one HTTP request, so
 //! dropping the session cancels it; there's no interrupter.
 
+mod create_db;
 mod ddl;
 mod index_usage;
 mod sync;
@@ -155,6 +156,15 @@ impl Driver for CouchDriver {
     /// `_bulk_docs` in chunks (see `transfer.rs`).
     fn supports_bulk_load(&self) -> bool {
         true
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -609,6 +619,14 @@ impl Session for CouchSession {
         self.refuse_if_read_only("crear una base")?;
         ddl::check_database_name(name)?;
         self.call(Method::PUT, &format!("/{}", seg(name)), None).await.map(|_| ())
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     /// `DELETE /{name}`.

@@ -8,6 +8,7 @@
 
 mod backup;
 mod cql;
+mod create_db;
 mod ddl;
 mod index_usage;
 mod monitor;
@@ -165,6 +166,15 @@ impl Driver for CassandraDriver {
     /// toggle overrides it).
     fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
         dbine_driver::ScriptDefaults { continue_on_error: true, ..dbine_driver::ScriptDefaults::for_language(self.info().language) }
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields(self.flavor)
+    }
+
+    fn create_database_script(&self, name: &str, options: &BTreeMap<String, String>) -> Result<String> {
+        create_db::script(self.flavor, name, options)
     }
 
     /// Keyspaces are created and dropped; CQL has no foreign keys.
@@ -1149,6 +1159,14 @@ impl DbSession for CassandraSession {
         let cql = format!("CREATE KEYSPACE {ks} WITH replication = {{'class': 'NetworkTopologyStrategy', 'replication_factor': 1}}");
         self.session.query_unpaged(cql, ()).await.map_err(|e| Error::Query(e.to_string()))?;
         Ok(())
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

@@ -25,6 +25,7 @@
 //! interrupter finds the server connection running the session's statement
 //! (`GET /server`) and calls `POST /connection/interrupt/{id}`.
 
+mod create_db;
 mod ddl;
 mod index_usage;
 mod sync;
@@ -150,6 +151,15 @@ impl Driver for OrientDriver {
 
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
         dialect()
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -930,12 +940,13 @@ impl Session for OrientSession {
         Ok(out)
     }
 
-    /// `POST /database/{name}/plocal/graph`.
+    /// `POST /database/{name}/plocal/graph` (see [`create_db`]).
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        if self.read_only {
-            return Err(Error::Query("Conexión de solo lectura: no se puede crear una base.".into()));
-        }
-        self.call(Method::POST, &format!("/database/{}/plocal/graph", seg(name.trim())), None).await.map(|_| ())
+        self.create_database_with_impl(name, &std::collections::BTreeMap::new()).await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

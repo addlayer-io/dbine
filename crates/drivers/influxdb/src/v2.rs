@@ -426,6 +426,11 @@ impl Session for FluxSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
+        self.create_database_with(name, &std::collections::BTreeMap::new()).await
+    }
+
+    /// `POST /api/v2/buckets` with the retention rules (see [`crate::create_db`]).
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.check_writable("crear")?;
         let orgs = self.get("/api/v2/orgs", &[("org", self.org.as_str())]).await?;
         let org_id = orgs
@@ -433,8 +438,8 @@ impl Session for FluxSession {
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::Query(format!("No se encontró la organización «{}».", self.org)))?
             .to_string();
-        let body = json!({ "orgID": org_id, "name": name, "retentionRules": [] });
-        self.send(self.http.post(format!("{}/api/v2/buckets", self.base)).json(&body)).await?;
+        let body = crate::create_db::bucket(name, &org_id, options)?;
+        self.send(self.http.post(format!("{}{}", self.base, crate::create_db::V2_PATH)).json(&body)).await?;
         Ok(())
     }
 

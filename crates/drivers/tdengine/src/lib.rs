@@ -11,6 +11,7 @@
 //! taosKeeper feeds it, the `log` database (`taosd_dnodes_info`: CPU,
 //! memory, disk and network of each dnode).
 
+mod create_db;
 mod ddl;
 mod permissions;
 mod processes;
@@ -98,6 +99,15 @@ impl Driver for TdDriver {
 
     fn supports_explain(&self) -> bool {
         true
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     /// Connections and their running queries from `performance_schema`,
@@ -719,7 +729,12 @@ impl Session for TdSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.query(&format!("CREATE DATABASE {}", q(name))).await.map(|_| ())
+        self.create_database_with(name, &std::collections::BTreeMap::new()).await
+    }
+
+    /// `CREATE DATABASE` with its parameters (see [`create_db`]).
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.query(&create_db::script(name, options)?).await.map(|_| ())
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

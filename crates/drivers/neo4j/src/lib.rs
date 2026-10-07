@@ -45,6 +45,7 @@
 mod backup;
 mod blocking;
 mod bolt;
+mod create_db;
 mod cypher;
 mod ddl;
 mod index_usage;
@@ -243,6 +244,15 @@ impl Driver for GraphDriver {
     /// own, so a cancelled load could commit after it returned.
     fn supports_bulk_load(&self) -> bool {
         self.flavor != Flavor::Neptune
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields(self.flavor)
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(self.flavor, name, options)
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -1347,14 +1357,16 @@ impl Session for GraphSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.refuse_if_read_only("crear una base")?;
-        let n = cypher::ident(name.trim());
-        match self.flavor {
-            Flavor::Neo4j => self.query_on(&format!("CREATE DATABASE {n} IF NOT EXISTS WAIT"), Some("system")).await.map_err(enterprise_hint)?,
-            Flavor::Memgraph => self.query(&format!("CREATE DATABASE {n}")).await?,
-            Flavor::Neptune => return Err(Error::Unsupported("Neptune tiene una sola base por cluster".into())),
-        };
-        Ok(())
+        self.create_database_with_impl(name, &std::collections::BTreeMap::new()).await
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    /// `CREATE DATABASE … TOPOLOGY … OPTIONS {…}` (see [`create_db`]).
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

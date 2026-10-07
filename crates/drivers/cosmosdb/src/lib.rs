@@ -40,6 +40,7 @@
 //! the account's connection string).
 
 pub mod ddl;
+mod create_db;
 mod sync;
 mod index_usage;
 mod monitor;
@@ -207,6 +208,15 @@ impl Driver for CosmosDriver {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         transfer::copy_native(source, target, spec, progress).await
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -1248,10 +1258,12 @@ impl Session for CosmosSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.check_writable()?;
-        let body = json!({ "id": name });
-        self.call(Method::POST, "dbs", "", "/dbs", Some(&body), &[("Content-Type", "application/json".to_string())]).await?;
-        Ok(())
+        self.create_database_with_impl(name, &std::collections::BTreeMap::new()).await
+    }
+
+    /// With shared throughput (see [`create_db`]).
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
