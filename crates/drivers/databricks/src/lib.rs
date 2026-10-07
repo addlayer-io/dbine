@@ -11,6 +11,7 @@
 
 mod backup;
 mod blocks;
+mod create_db;
 mod ddl;
 mod index_usage;
 mod monitor;
@@ -259,6 +260,15 @@ struct Statement {
 impl Driver for DatabricksDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
@@ -860,6 +870,14 @@ impl Session for DatabricksSession {
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
         self.run(&format!("CREATE CATALOG {}", quote_ident(Quote::Backtick, name)), 1, None).await.map(|_| ())
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

@@ -10,6 +10,7 @@ use base64::Engine;
 mod backup;
 mod blocking;
 mod blocks;
+mod create_db;
 mod script;
 mod ddl;
 mod index_usage;
@@ -272,6 +273,15 @@ pub struct SnowflakeSession {
 impl Driver for SnowflakeDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     /// snowsql's reading: backslash escapes, `$$` bodies; anonymous blocks
@@ -1002,6 +1012,14 @@ impl Session for SnowflakeSession {
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
         self.statement(&format!("CREATE DATABASE {}", qualified_name(Quote::Double, None, name)), None, 1).await.map(|_| ())
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

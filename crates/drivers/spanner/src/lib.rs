@@ -5,6 +5,7 @@
 
 #[path = "../../bigquery/src/gcp.rs"]
 mod gcp;
+mod create_db;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -121,6 +122,15 @@ pub struct SpannerSession {
 impl Driver for SpannerDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
@@ -1233,6 +1243,14 @@ impl Session for SpannerSession {
         let body = json!({ "createStatement": format!("CREATE DATABASE {}", bq(name)) });
         let op = self.api.post(&format!("{}/databases", self.instance), &body).await?;
         self.wait(op).await
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn read_batches(&mut self, spec: &dbine_driver::transfer::ReadSpec, sink: dbine_driver::transfer::BatchSinkRef) -> Result<u64> {

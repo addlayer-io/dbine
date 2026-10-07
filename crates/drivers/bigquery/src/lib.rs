@@ -4,6 +4,7 @@
 //! returns the last statement's result. Datasets are the databases.
 
 mod blocks;
+mod create_db;
 mod ddl;
 mod gcp;
 mod index_usage;
@@ -203,6 +204,15 @@ pub struct BigQuerySession {
 
 #[async_trait]
 impl Driver for BigQueryDriver {
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
+    }
+
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
         script::dialect()
     }
@@ -828,6 +838,14 @@ impl Session for BigQuerySession {
             body["location"] = json!(l);
         }
         self.api.post(&["datasets"], &[], &body).await.map(|_| ())
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
