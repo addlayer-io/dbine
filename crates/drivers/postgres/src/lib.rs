@@ -20,6 +20,7 @@ mod blocking;
 mod catalog;
 mod clone;
 mod compare;
+mod create_db;
 mod delta;
 mod design;
 mod index_usage;
@@ -494,6 +495,14 @@ impl Driver for PgDriver {
 
     fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
         security::script(self.variant, action)
+    }
+
+    fn create_database_fields(&self) -> Vec<Field> {
+        create_db::fields(self.variant)
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(self.variant, name, options)
     }
 
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {

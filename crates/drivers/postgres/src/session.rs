@@ -1160,6 +1160,14 @@ impl Session for PgSession {
         self.create_db(name).await
     }
 
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
+    }
+
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if self.variant == Variant::Denodo {
             return Err(Error::Unsupported("las bases de Denodo se borran desde Denodo".into()));
