@@ -543,10 +543,15 @@ impl Session for InfluxQlSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
+        self.create_database_with(name, &std::collections::BTreeMap::new()).await
+    }
+
+    /// `CREATE DATABASE … WITH …` (see [`crate::create_db`]).
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         if self.read_only {
             return Err(Error::Query("Conexión de solo lectura: no se pueden crear bases.".into()));
         }
-        self.write_statement(&format!("CREATE DATABASE {}", ident(name))).await
+        self.write_statement(&crate::create_db::influxql(name, options)?).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

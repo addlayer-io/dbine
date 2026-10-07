@@ -5,6 +5,7 @@
 //!
 //! Sessions are stateless HTTP clients; measurements are the objects.
 
+mod create_db;
 mod csv;
 mod http;
 mod monitor;
@@ -81,6 +82,15 @@ impl Driver for InfluxDriver {
     /// (see [`profiler`]).
     fn supports_profiler(&self) -> bool {
         !matches!(self.api, Api::Flux)
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields(self.api)
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(self.api, name, options)
     }
 
     /// Buckets / databases are created and dropped through the HTTP API

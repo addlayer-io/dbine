@@ -419,8 +419,14 @@ impl Session for SqlSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        let url = format!("{}/api/v3/configure/database", self.base);
-        self.configure(self.http.post(url).json(&json!({ "db": name })), "crear").await
+        self.create_database_with(name, &std::collections::BTreeMap::new()).await
+    }
+
+    /// With the retention period (see [`crate::create_db`]).
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        let body = crate::create_db::database(name, options)?;
+        let url = format!("{}{}", self.base, crate::create_db::V3_PATH);
+        self.configure(self.http.post(url).json(&body), "crear").await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
