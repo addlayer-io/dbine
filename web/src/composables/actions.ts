@@ -1,3 +1,4 @@
+import { ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { errorMessage } from '../api/client';
 import type { SavedQuery } from '../api/types';
@@ -77,14 +78,18 @@ export async function newFromTemplate(connectionId: string, database: string, tp
 }
 
 /** Create a database on the connection's server (asks the name). */
-export async function createDatabase(connectionId: string) {
+/** The connection "Nueva base de datos" is open for (CreateDatabaseDialog). */
+export const creatingDatabase = ref<string | null>(null);
+
+/** "Nueva base de datos": the dialog asks the name and, where the engine
+ *  has them, the advanced options; `runCreateDatabase` does the rest. */
+export function createDatabase(connectionId: string) {
+  creatingDatabase.value = connectionId;
+}
+
+/** Create the database as a background task, with the dialog's options. */
+export function runCreateDatabase(connectionId: string, name: string, options: Record<string, string> = {}) {
   const conns = useConnectionsStore();
-  let name: string;
-  try {
-    ({ value: name } = await ElMessageBox.prompt(t('core:actions.createDatabase.prompt'), t('core:actions.createDatabase.title'), {
-      confirmButtonText: t('core:actions.create'), cancelButtonText: t('common:cancel'), inputValidator: (v) => !!v?.trim() || t('core:actions.nameRequired'),
-    }));
-  } catch { return; }
   const db = name.trim();
   const server = conns.byId(connectionId)?.name ?? '';
   runTask({
@@ -93,7 +98,7 @@ export async function createDatabase(connectionId: string) {
     connectionId, database: db, background: true,
     run: async (task) => {
       const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('create_database', { args: { connection_id: connectionId, name: db } });
+      await invoke('create_database', { args: { connection_id: connectionId, name: db, options } });
       // The database exists now: a failed refresh doesn't make the task fail.
       await conns.refreshDatabases(connectionId).catch((e) => task.log(errorMessage(e), 'warn'));
     },

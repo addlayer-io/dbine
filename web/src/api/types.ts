@@ -29,6 +29,14 @@ export interface Field {
   when?: { key: string; values: string[] } | null;
 }
 
+/** A server's suggestions for a field (its collations, default paths…). */
+export interface FieldChoices {
+  key: string;
+  /** What the server uses when the field is left empty. */
+  default: string | null;
+  values: string[];
+}
+
 export interface ObjectKindInfo {
   id: string;
   label: string;
@@ -60,6 +68,8 @@ export interface DriverInfo {
   backup?: BackupSpec | null;
   /** "Nuevo esquema…" / "Borrar esquema…"; null: not offered. */
   schema_spec?: SchemaSpec | null;
+  /** "Nueva base de datos"'s advanced options; empty: just the name. */
+  create_database_fields?: Field[];
   /** Its sessions implement the profiler ("Profiler" on its databases). */
   supports_profiler: boolean;
   /** Databases of keys, searched on the server a page at a time (Redis, etcd). */

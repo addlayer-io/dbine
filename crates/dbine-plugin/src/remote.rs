@@ -561,6 +561,12 @@ impl Driver for RemoteDriver {
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
         self.meta.schema_spec.clone()
     }
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        self.meta.create_database_fields.clone()
+    }
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        text(self.blocking(Call::CreateDatabaseScript { driver: self.id(), name: name.to_string(), options: options.clone() })?)
+    }
     fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
         let database = database.map(str::to_string);
         text(self.blocking(Call::CreateSchemaScript { driver: self.id(), name: name.to_string(), owner: owner.map(str::to_string), database })?)
@@ -964,6 +970,15 @@ impl Session for RemoteSession {
             Reply::Processes(v) => Ok(v),
             _ => Err(unexpected()),
         }
+    }
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        match self.host.call(Call::CreateDatabaseChoices { session: self.id }).await? {
+            Reply::Choices(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.host.call(Call::CreateDatabaseWith { session: self.id, name: name.to_string(), options: options.clone() }).await.map(|_| ())
     }
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.host.call(Call::CancelQuery { session: self.id, id: id.to_string() }).await.map(|_| ())

@@ -319,7 +319,8 @@ impl Call {
             | ProfilerPoll { session } | ProfilerStop { session } | ScanKeys { session, .. } | ReadBatches { session, .. }
             | BulkLoad { session, .. } | KeyRange { session, .. } | DeltaSummary { session, .. } | DeltaApply { session, .. }
             | Permissions { session, .. } | ListSchemas { session } | IndexUsage { session, .. } | Dependents { session, .. }
-            | Processes { session } | CancelQuery { session, .. } => Some(*session),
+            | Processes { session } | CancelQuery { session, .. } | CreateDatabaseChoices { session }
+            | CreateDatabaseWith { session, .. } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
             CopyNative { from, .. } => Some(*from),
@@ -432,6 +433,7 @@ impl State {
             Call::DeleteScript { driver, target, keys } => Reply::Text(self.driver(&driver)?.delete_script(&target, &keys)?),
             Call::SecurityScript { driver, action } => Reply::Text(self.driver(&driver)?.security_script(&action)?),
             Call::BackupScript { driver, action } => Reply::Text(self.driver(&driver)?.backup_script(&action)?),
+            Call::CreateDatabaseScript { driver, name, options } => Reply::Text(self.driver(&driver)?.create_database_script(&name, &options)?),
             Call::CreateSchemaScript { driver, name, owner, database } => {
                 Reply::Text(self.driver(&driver)?.create_schema_script(database.as_deref(), &name, owner.as_deref())?)
             }
@@ -598,6 +600,11 @@ impl State {
             Call::IndexUsage { session, table } => Reply::IndexUsage(self.slot(session)?.session.lock().await.index_usage(&table).await?),
             Call::Dependents { session, target, scan } => Reply::Dependents(self.slot(session)?.session.lock().await.dependents(&target, &scan).await?),
             Call::Processes { session } => Reply::Processes(self.slot(session)?.session.lock().await.processes().await?),
+            Call::CreateDatabaseChoices { session } => Reply::Choices(self.slot(session)?.session.lock().await.create_database_choices().await?),
+            Call::CreateDatabaseWith { session, name, options } => {
+                self.slot(session)?.session.lock().await.create_database_with(&name, &options).await?;
+                Reply::Unit
+            }
             Call::CancelQuery { session, id } => {
                 self.slot(session)?.session.lock().await.cancel_query(&id).await?;
                 Reply::Unit

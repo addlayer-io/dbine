@@ -3,6 +3,7 @@
 mod babelfish;
 mod backup;
 mod clone;
+mod create_db;
 mod delta;
 mod dependencies;
 mod index_usage;
@@ -179,6 +180,15 @@ impl Driver for SqlServerDriver {
 
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
+        create_db::fields(self.variant)
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(self.variant, name, options)
     }
 
     /// Azure SQL Database creates and drops databases from `master` with
@@ -1005,6 +1015,14 @@ impl Session for SqlServerSession {
         }
         sent.map_err(err)?.into_results().await.map_err(err)?;
         Ok(())
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     /// Other connections are rolled back and closed first (SINGLE_USER WITH

@@ -1,0 +1,10 @@
+{
+  "name": "Nombre",
+  "advanced": "Opciones avanzadas",
+  "default": "Predeterminado del servidor",
+  "serverDefault": "Predeterminado: {{value}}",
+  "showScript": "Ver script",
+  "script": "Script",
+  "openInQuery": "Abrir en una consulta",
+  "scriptName": "Crear {{name}}"
+}
