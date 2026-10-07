@@ -8,6 +8,7 @@
 //! line. A `session_id` keeps `SET`s and temporary tables between runs.
 
 mod backup;
+mod create_db;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -125,6 +126,15 @@ pub struct ClickHouseDriver {
 impl Driver for ClickHouseDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<Field> {
+        create_db::fields(self.flavor)
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(self.flavor, name, options)
     }
 
     fn supports_explain(&self) -> bool {
@@ -1141,6 +1151,14 @@ impl Session for ClickHouseSession {
         self.send(&sql, &[], false).await?;
         self.done();
         Ok(())
+    }
+
+    async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
+        self.create_database_choices_impl().await
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.create_database_with_impl(name, options).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

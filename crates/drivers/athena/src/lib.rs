@@ -4,6 +4,7 @@
 
 #[path = "../../dynamodb/src/aws.rs"]
 mod aws;
+mod create_db;
 mod ddl;
 #[path = "../../trino/src/literal.rs"]
 mod literal;
@@ -97,6 +98,15 @@ where
 impl Driver for AthenaDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// "Nueva base de datos"'s options (see [`create_db`]).
+    fn create_database_fields(&self) -> Vec<Field> {
+        create_db::fields()
+    }
+
+    fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        create_db::script(name, options)
     }
 
     fn supports_explain(&self) -> bool {
@@ -592,6 +602,10 @@ impl Session for AthenaSession {
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
         self.run(&format!("CREATE DATABASE {}", quote_ident(Quote::Backtick, name)), 1).await.map(|_| ())
+    }
+
+    async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.run(&create_db::script(name, options)?, 1).await.map(|_| ())
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
