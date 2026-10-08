@@ -3164,3 +3164,94 @@ ofrece **Renombrar…** en ese motor.
 | OrientDB | sí | clases de vértices, aristas y documentos (`ALTER CLASS … NAME`, `UNSAFE` en aristas) y propiedades (`ALTER PROPERTY … NAME` + `UPDATE … SET nuevo = viejo REMOVE viejo`) | — | se listan, no se reescriben (funciones) | sus índices se borran y se recrean (conservan el nombre); en aristas se mueven los campos `out_`/`in_` de los vértices; no es atómico; no renombra índices, funciones ni secuencias, ni V/E, `out`/`in`, ni atributos `@`; una clase de documentos con índices la rechaza el motor si no llega su estructura |
 | Neo4j, Memgraph, Amazon Neptune | no se ofrece | — | — | — | Una etiqueta o un tipo de relación no se renombra: cambiarlo es `SET n:Nueva REMOVE n:Vieja` sobre cada nodo (o recrear cada relación), que reescribe los datos, puede tardar horas en un grafo grande, no es atómico fuera de una transacción del tamaño del grafo y obliga a recrear los índices y las restricciones de la etiqueta. Las consultas guardadas fuera de la base tampoco se ven. |
 
+
+## Filas aproximadas y comentarios
+
+[Documentar la base](documentar-la-base.md) muestra, debajo de cada tabla,
+**Filas (aproximadas)**, y los comentarios de vistas, rutinas, triggers,
+secuencias y tipos. Los trae `Session::row_estimates` y
+`Session::object_comments` (`crates/dbine-driver/src/stats.rs`); por defecto
+devuelven vacío. Las filas salen **solo de estadísticas que el motor ya
+guarda**, nunca de un `COUNT`: no recorre ni bloquea. El número puede estar
+desactualizado hasta que el motor refresque sus estadísticas. Una tabla sin
+estadísticas queda sin cifra.
+
+Lo implementan todos los drivers menos Spanner, IoTDB, ksqlDB e InfluxDB 1/2
+(sus motivos están en la tabla).
+
+**Probado contra servidores reales:** PostgreSQL 16 y CockroachDB; SQL Server
+2022 (incluido el preset ODBC genérico sobre ODBC Driver 18); Oracle 23;
+Firebird; MySQL y MariaDB; ClickHouse y Timeplus; BigQuery (emulador); Trino
+(conector `memory`); Dremio, Drill, DSQL (como PostgreSQL común), Flight SQL
+(GizmoSQL) y Phoenix; SQLite y DuckDB (archivos); libSQL, TDengine e InfluxDB 3;
+MongoDB, FerretDB, CouchDB, Elasticsearch y Redis. **Todo lo demás solo tiene
+pruebas unitarias** y sigue la documentación del fabricante.
+
+| Driver | Filas (fuente) | Comentarios (fuente) |
+|---|---|---|
+| `postgres` (PostgreSQL y familia) | `pg_class.reltuples` de tablas, particionadas y vistas materializadas (sin `ANALYZE`: -1, o 0 sin páginas antes de PG 14, y se omite) | `obj_description` de vistas, vistas materializadas, secuencias, funciones, procedimientos, triggers y tipos |
+| `postgres`: CockroachDB | `estimated_row_count` de `SHOW TABLES` (estadísticas de tabla; `reltuples` viene siempre nulo); 0 solo si `SHOW STATISTICS` tiene la tabla | como PostgreSQL |
+| `postgres`: Redshift | `svv_table_info.tbl_rows`, luego `pg_class` | como PostgreSQL |
+| `postgres`: Yellowbrick | contadores de `sys.table`, luego `pg_class` | como PostgreSQL |
+| `postgres`: CrateDB | documentos de los shards primarios (`sys.shards`) | ninguna: CrateDB no guarda comentarios |
+| `postgres`: RisingWave | claves del estado de cada tabla y vista materializada (`rw_catalog.rw_table_stats`) | como PostgreSQL |
+| `postgres`: H2 | `information_schema.tables.row_count_estimate` | `REMARKS` |
+| `postgres`: Materialize | ninguna: guarda tamaños, no filas | `mz_internal.mz_comments` |
+| `postgres`: Denodo | ninguna: sus vistas leen las fuentes en vivo | descripción de las vistas |
+| `dsql` | `pg_class.reltuples` (DSQL corre `ANALYZE` solo; -1 se omite) | `obj_description` de vistas, secuencias y funciones; se salta lo que DSQL rechaza leer |
+| `mysql` (MySQL, MariaDB, TiDB, OceanBase, StarRocks, Doris…) | `information_schema.TABLES.TABLE_ROWS`, la estimación del motor de almacenamiento (en StarRocks y Doris, los informes de tablets); Databend: `system.tables.num_rows`; Manticore: `SHOW TABLE … STATUS` (`indexed_documents`), una tabla por vez | `ROUTINE_COMMENT` de procedimientos y funciones; `TABLE_COMMENT` de secuencias de MariaDB y de vistas (y vistas materializadas de StarRocks) cuando el motor guarda uno. Los triggers no tienen comentarios |
+| `sqlserver` (y Azure SQL, Fabric) | `sys.dm_db_partition_stats` (necesita `VIEW DATABASE STATE`); sin ese permiso, `sys.partitions.rows` | propiedad extendida `MS_Description` de vistas, procedimientos, funciones, triggers, secuencias, sinónimos y tipos. Fabric no tiene propiedades extendidas |
+| `oracle` | `ALL_TABLES.NUM_ROWS` (estadísticas de `DBMS_STATS`; NULL se omite); vistas materializadas bajo el nombre de la vista | `ALL_TAB_COMMENTS` (vistas) y `ALL_MVIEW_COMMENTS`; Oracle no guarda comentarios de unidades PL/SQL, secuencias ni sinónimos |
+| `hana` | `M_TABLES.RECORD_COUNT`; sin acceso, `M_CS_TABLES.RECORD_COUNT` (solo tablas columnares) | `SYS.VIEWS.COMMENTS` (vistas); HANA no guarda comentarios de procedimientos, funciones, triggers ni secuencias |
+| `firebird` | Firebird no guarda un conteo: se estima como `1 / selectividad` de la estadística del índice único (`RDB$INDICES.RDB$STATISTICS`), prefiriendo la clave primaria. Sin índice único, o con estadística nunca calculada (0), se omite. Se actualiza con `SET STATISTICS` | `RDB$DESCRIPTION` de vistas, procedimientos, funciones, paquetes, triggers, secuencias y dominios |
+| `odbc`: Db2 (LUW) | `SYSCAT.TABLES.CARD` (`RUNSTATS`; -1 = nunca) | `REMARKS` |
+| `odbc`: Db2 for z/OS | `SYSIBM.SYSTABLES.CARDF` (`RUNSTATS`) | `REMARKS` |
+| `odbc`: Db2 for i | `QSYS2.SYSTABLESTAT.NUMBER_ROWS` | `LONG_COMMENT` |
+| `odbc`: Sybase ASE | `row_count()` (`systabstats`) | solo tablas y columnas |
+| `odbc`: SQL Anywhere | `SYS.SYSTAB.count` (se actualiza en cada checkpoint) | `remarks` |
+| `odbc`: Informix, GBase 8s | `systables.nrows` de las tablas que vio `UPDATE STATISTICS` | solo tablas y columnas |
+| `odbc`: Teradata | `DBC.StatsV.RowCount` (`COLLECT STATISTICS`) | `CommentString` |
+| `odbc`: Vertica | `v_monitor.projection_storage.row_count`, la proyección más grande | `v_catalog.comments` |
+| `odbc`: Exasol | `EXA_ALL_TABLES.TABLE_ROW_COUNT` | columnas `*_COMMENT` |
+| `odbc`: Netezza | `_V_TABLE.RELTUPLES` | `DESCRIPTION` |
+| `odbc`: Dameng | `ALL_TABLES.NUM_ROWS` (`DBMS_STATS`) | `ALL_TAB_COMMENTS` |
+| `odbc`: MonetDB | `sys.tablestorage.rowcount` | `sys.comments` |
+| `odbc`: Ingres | `iitables.num_rows` | solo tablas y columnas |
+| `odbc`: SQream | `sqream_catalog.tables.row_count` | ninguna |
+| `odbc`: SQL Server (preset genérico) | `sys.partitions.rows` | `MS_Description` |
+| `odbc`: Hive, Impala, Spark, Kyuubi, Cloudera | ninguna: las estadísticas están en el metastore y piden una llamada `DESCRIBE`/`SHOW TABLE STATS` por tabla. Pendiente explícito: decisión del dueño | ninguna |
+| `odbc`: MaxDB | ninguna: no se pudo confirmar que `SYSINFO.TABLESIZE` no recorra datos, así que se excluye por la regla de no escanear | ninguna |
+| `odbc`: IRIS, Caché, OpenEdge, Mimer y los presets menores | ninguna: no se conoce una fuente de catálogo confiable | ninguna |
+| `sqlite`, `libsql` | `sqlite_stat1`, solo si existe (lo crea `ANALYZE`); sin esa tabla no hay estadística y la respuesta es vacía. Nunca se ejecuta `ANALYZE`, porque escribe en el archivo | ninguna: SQLite no tiene comentarios en los objetos |
+| `duckdb` | `duckdb_tables().estimated_size` (metadatos de almacenamiento); las tablas de catálogos adjuntos de otros motores no tienen | `COMMENT ON` de vistas, macros, secuencias y tipos |
+| `clickhouse` (y Timeplus Proton) | `system.tables.total_rows`; NULL (Log, tablas externas, vistas) se omite | `COMMENT` de vistas, vistas materializadas y diccionarios |
+| `trino` (y Presto) | `SHOW STATS FOR` por tabla, `row_count` de la fila resumen: pregunta al conector las estadísticas que guarda (metastore de Hive, resumen de snapshot de Iceberg, log de Delta…). Máximo `MAX_TABLES` tablas; sin estadísticas del conector se omite | `system.metadata.table_comments` (vistas) y `system.metadata.materialized_views`; Trino no tiene comentarios de funciones |
+| `athena` | `numRows` (Hive/Spark `ANALYZE`) o `recordCount` (crawler de Glue) en los parámetros de la tabla del catálogo, con `ListTableMetadata`: gratis, no factura ni lee S3. El `ANALYZE` de Athena solo guarda estadísticas de columnas | parámetro `comment` de las vistas; Athena escribe ahí «Presto View» (se descarta) y no tiene `COMMENT` para vistas, así que solo salen las creadas desde Hive o Spark |
+| `bigquery` | `numRows` de `tables.get` (REST, sin job de consulta, sin costo) para tablas, snapshots, clones y vistas materializadas; las vistas y las tablas externas no tienen | `description` de vistas, vistas materializadas, funciones y procedimientos. Cada objeto se lee por separado, hasta `MAX_OBJECTS` |
+| `databricks` | propiedad `spark.sql.statistics.numRows` por la API REST de Unity Catalog (no despierta ningún warehouse); la deja `ANALYZE TABLE … COMPUTE STATISTICS` o la optimización predictiva. Sin `ANALYZE`, se omite. El catálogo `hive_metastore` no está en la API: vacío | `comment` de vistas, vistas materializadas y funciones |
+| `snowflake` | columna `rows` de `SHOW TABLES` y `SHOW MATERIALIZED VIEWS` (metadatos de micro-particiones; sin warehouse, no factura). Las tablas externas no tienen | vistas, vistas materializadas, funciones, procedimientos, secuencias, streams y tareas; el texto fijo de `description` cuando no hay comentario se descarta |
+| `dremio` | ninguna: ni `INFORMATION_SCHEMA` ni la API del catálogo traen conteos, y contar correría un job que lee la fuente | descripción (wiki) de las vistas por la API del catálogo, hasta `MAX_VIEWS`; sin jobs |
+| `drill` | `NUM_ROWS` de `INFORMATION_SCHEMA.TABLES`, que viene del metastore de Drill una vez corrido `ANALYZE TABLE … REFRESH METADATA`; sin metastore es NULL y se omite; antes de Drill 1.17 no existe la columna | ninguna: Drill no tiene `COMMENT` |
+| `flightsql` | solo si el servidor es DuckDB (GizmoSQL): `duckdb_tables().estimated_size`; Dremio, DataFusion y otros: ninguna, porque los comandos de metadatos de Flight SQL (`GetTables`) no traen conteos | solo con DuckDB (GizmoSQL): `comment` de `duckdb_views()`; Flight SQL no lista funciones ni secuencias |
+| `phoenix` | `SYSTEM.STATS` (guide posts de `UPDATE STATISTICS` y compactaciones mayores), suma de `GUIDE_POSTS_ROW_COUNT`; corre corto por las filas después del último guide post (300 MB por defecto); una tabla chica o sin estadísticas se omite; las vistas comparten el almacenamiento y no tienen. Avatica genérico: vacío | ninguna: Phoenix no tiene `COMMENT` |
+| `cassandra` (y ScyllaDB) | estimaciones de particiones del nodo (`system.table_estimates` en Cassandra 4.0+, `system.size_estimates` antes y en ScyllaDB), extrapoladas al anillo por la fracción de rangos que cubre el nodo. **Cuentan particiones, no filas CQL**: una tabla con columnas de clustering tiene más filas. Amazon Keyspaces no tiene ninguna de las dos tablas: ninguna | `comment` de tablas (viene con el esquema) y de vistas materializadas (`system_schema.views`); tipos y funciones no tienen |
+| `influxdb`: v3 | filas de los archivos Parquet ya persistidos (`system.parquet_files`), sin leer datos; **los puntos que siguen en el WAL (los últimos minutos) todavía no suman**; un token sin acceso a las tablas de sistema no obtiene nada | ninguna: InfluxDB no tiene comentarios |
+| `influxdb`: v1 y v2 | ninguna: el motor no guarda estadísticas de filas | ninguna: Flux e InfluxQL no tienen comentarios |
+| `tdengine` | ninguna: `SHOW TABLE DISTRIBUTED` las daría sin leer datos, pero cuesta más cuanto más crecen las tablas y queda fuera por la regla de no cargar el servidor. Pendiente explícito: decisión del dueño | `ins_tables.table_comment` de las subtablas (tablas y supertablas ya traen el suyo); vistas, streams y tópicos no tienen |
+| `mongodb` (y FerretDB, DocumentDB) | `estimatedDocumentCount` por colección (metadatos, sin recorrer); las vistas y las colecciones que el usuario no puede contar se omiten | ninguna: MongoDB no guarda comentarios en colecciones, vistas ni índices |
+| `cosmosdb` | `documentsCount` de `x-ms-resource-usage` (con `x-ms-populatequotainfo`); el servicio lo actualiza cada pocos minutos; -1 mientras no lo sabe. Un `COUNT` leería todos los ítems y costaría RU | ninguna |
+| `couchbase` | gauge `kv_collection_item_count` por colección, de la API REST de estadísticas (`/pools/default/stats/range`, Couchbase Server 7.0+), sumado entre nodos; versiones anteriores o sin el privilegio: ninguna | ninguna: no guarda comentarios |
+| `couchdb` | `doc_count` de `GET /{db}` para `_all_docs`; las vistas solo informan el tamaño del índice | ninguna |
+| `dynamodb` | `ItemCount` de `DescribeTable`, de la tabla y de sus índices secundarios; el servicio lo refresca cada unas seis horas, así que atrasa respecto de las escrituras recientes. Un `Scan` con `COUNT` leería y facturaría toda la tabla | ninguna: las etiquetas no son comentarios |
+| `elasticsearch` (y OpenSearch, Open Distro) | `docs.count` de `_cat/indices` (documentos de los primarios; cuenta también los anidados); un data stream suma sus índices de respaldo; los índices cerrados y los alias se omiten | ninguna |
+| `solr` | `index.numDocs` de `admin/cores?action=STATUS`. En SolrCloud solo se informa la colección si todos sus shards tienen una réplica en el nodo al que se conecta DBine | ninguna |
+| `orientdb` | `records` de cada clase en los metadatos de la base (`GET /database/{db}`); es polimórfico: incluye los registros de las subclases | las clases y sus propiedades ya traen su descripción con el esquema; funciones, secuencias e índices no tienen |
+| `neo4j` | nodos por etiqueta y relaciones por tipo, desde el count store (solo las dos formas exactas de `count` que el planificador responde sin tocar datos). Memgraph: `count` de `SHOW INDEX INFO` en índices de solo etiqueta o solo tipo; una etiqueta sin índice no tiene cifra. Neptune: ninguna, porque su resumen de estadísticas da totales del grafo y los nombres, no un conteo por etiqueta | ninguna: Neo4j, Memgraph y Neptune no guardan comentarios |
+| `redis` (y Valkey, Dragonfly) | cantidad de claves de la base lógica (`keys=` de `INFO keyspace`), **por base y no por colección**: no aparece bajo ninguna tabla del documento | ninguna |
+| `etcd` | gauge `etcd_debugging_mvcc_keys_total` de `/metrics`, de **todo el espacio de claves** (etcd no lleva conteo por prefijo): no aparece bajo ninguna tabla del documento; una conexión limitada a un prefijo, o sin acceso a `/metrics`, no obtiene nada | ninguna |
+| `spanner` | ninguna: no guarda conteos de filas (`SPANNER_SYS` solo informa tamaños en bytes) | ninguna: GoogleSQL no tiene `COMMENT` |
+| `iotdb` | ninguna: el esquema no guarda conteos por dispositivo, y contar sería un `SELECT COUNT(*)` sobre los TsFiles, que la regla de no escanear prohíbe | ninguna: no tiene comentarios |
+| `ksqldb` | ninguna: no expone cantidad de mensajes por stream ni tabla | ninguna: no tiene comentarios |
+
+**Pendiente explícito:** TDengine (filas) y Hive, Impala, Spark, Kyuubi y
+Cloudera por ODBC (filas) esperan la decisión del dueño.
