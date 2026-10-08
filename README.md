@@ -239,6 +239,10 @@ de cada base.
     se revisa antes de ejecutarlo.
 
   Detalle: [`docs/backups.md`](docs/backups.md).
+- **Tareas programadas:** scripts, exportaciones, comparaciones de esquemas
+  y backups que corren solos con DBine cerrado, con aviso del sistema,
+  historial y aprobación previa de lo que cambia datos. Detalle:
+  [`docs/tareas-programadas.md`](docs/tareas-programadas.md).
 
 ### Biblioteca de scripts
 

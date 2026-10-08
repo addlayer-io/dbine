@@ -2861,3 +2861,22 @@ simuladas.
 | Access, dBase (ODBC) | Todo | Son bases de archivos sin servidor: no tienen sesiones que listar. |
 | ODBC genérico | Todo | El preset genérico no conoce las vistas de sesiones del motor: hay que usar el preset del motor. |
 | Informix, Cubrid, MonetDB, IRIS, OpenEdge, MaxDB, NuoDB, HeavyDB, Machbase, Ignite, Ignite3, Ocient, SQream, Ingres, Virtuoso, Impala (ODBC) | Todo | **Pendiente**, no imposible: DBine todavía no lista los procesos de estos motores. Falta escribir, para cada uno, la consulta a sus vistas de sesiones (en el código el preset responde «este motor todavía no lista sus procesos en DBine»). |
+
+## Tareas programadas
+
+Las tareas programadas ([`tareas-programadas.md`](tareas-programadas.md)) funcionan en **todos los motores**, con los cuatro tipos de paso: ejecutar un script, exportar a archivo, comparar esquemas y backup. No agregan nada al driver: cada paso usa lo que el motor ya ofrece para esa función.
+
+- **Ejecutar un script y Exportar:** hasta donde llega la ejecución de scripts y la exportación de cada motor. La exportación corre siempre en solo lectura.
+- **Comparar esquemas:** hasta donde llega la comparación de cada motor, que no cambia por ser una tarea (ver [Comparar esquemas](#comparar-esquemas)). El script de sincronización se guarda en un archivo y nunca se ejecuta.
+- **Backup:** el **Backup del motor** solo existe en los motores que tienen backups propios (ver [Backups](#backups)). Los demás ofrecen solo la **Copia de DBine**, así que todos los motores se pueden respaldar.
+
+Probado: los pasos de las tareas tienen pruebas automáticas con bases SQLite (aprobación de cambios, exportación, comparación, copia de DBine, detener o seguir ante un error). Sobre los demás motores no hay pruebas propias de las tareas: cada paso usa el mismo código que la función equivalente de la app, con el soporte y las pruebas contra servidores que se listan en sus secciones.
+
+El registro en el programador del sistema (LaunchAgent, Programador de tareas, systemd o cron) y la notificación se probaron con los textos que generan en las pruebas automáticas; según el código, la ejecución real contra cada sistema operativo no tiene pruebas automáticas.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| Los de la lista "Qué falta y por qué" de [Backups](#backups) | Backup del motor | Sin backups propios por SQL o por el protocolo, el paso ofrece solo la **Copia de DBine**. Los motivos de cada motor están en esa sección. |
+| Los de la sección [Comparar esquemas](#comparar-esquemas) con límites | Lo que la comparación no cubre | La tarea compara lo mismo que la función; los límites y sus motivos están en esa sección. |
+| Conexiones que no guardan su contraseña | Correr sin atención | La tarea lee la contraseña del llavero del sistema; sin contraseña guardada no hay quién la escriba. |
+| Linux sin systemd | Acceso al llavero desde cron | Una tarea registrada con `crontab` puede no ver el llavero del usuario; un timer de systemd de usuario sí. |

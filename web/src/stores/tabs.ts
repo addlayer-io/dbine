@@ -140,6 +140,13 @@ export interface HealthTab extends TabBase {
   kind: 'health';
 }
 
+/** A scheduled task's editor and history (docs/tareas-programadas.md).
+ *  Not tied to a connection (`connectionId` ''); `taskId` null: a new one. */
+export interface ScheduledTaskTab extends TabBase {
+  kind: 'scheduledTask';
+  taskId: string | null;
+}
+
 /** "Buscar · <base>": object names and the text of views, routines, triggers… */
 export interface SearchTab extends TabBase {
   kind: 'search';
@@ -165,7 +172,7 @@ export interface FileDiffTab extends TabBase {
   path: string;
 }
 
-export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ConnectionFormTab;
+export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ConnectionFormTab;
 
 /** Editor tabs that can't move to another database right now (running, or
  *  with an open transaction). QueryView keeps it up to date. */
@@ -479,6 +486,13 @@ export const useTabsStore = defineStore('tabs', {
       const open = this.tabs.find((t) => t.kind === 'health' && t.connectionId === connectionId && t.database === database);
       if (open) return this.activate(open.id);
       this.place({ id: newId(), kind: 'health', connectionId, database, preview: false });
+    },
+
+    /** A scheduled task's tab, one per task (`null`: a new one). */
+    openScheduledTask(taskId: string | null) {
+      const open = taskId && this.tabs.find((t) => t.kind === 'scheduledTask' && t.taskId === taskId);
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'scheduledTask', connectionId: '', database: '', taskId, preview: false });
     },
 
     /** A database's "Buscar" tab, one per database. */

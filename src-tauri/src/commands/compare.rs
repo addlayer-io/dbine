@@ -60,7 +60,12 @@ pub struct Loaded {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn schema_compare_load(state: State<'_, AppState>, args: LoadArgs) -> CommandResult<Loaded> {
-    let driver = driver_of(&state, &args.connection_id)?;
+    load_model(&state, args).await
+}
+
+/// A database's tables and code objects, as the comparison reads them.
+pub(crate) async fn load_model(state: &AppState, args: LoadArgs) -> CommandResult<Loaded> {
+    let driver = driver_of(state, &args.connection_id)?;
     let schemas = args.schemas.clone();
     let wanted = move |s: &Option<String>| schemas.is_empty() || s.as_deref().is_some_and(|s| schemas.iter().any(|w| w == s));
     let (tables, objects, warnings) = state
@@ -156,7 +161,11 @@ pub struct ScriptArgs {
 /// tables, then the code objects that come (views over the new columns).
 #[tauri::command(rename_all = "camelCase")]
 pub async fn schema_sync_script(state: State<'_, AppState>, args: ScriptArgs) -> CommandResult<SyncScript> {
-    let driver = driver_of(&state, &args.connection_id)?;
+    sync_script(&state, args)
+}
+
+pub(crate) fn sync_script(state: &AppState, args: ScriptArgs) -> CommandResult<SyncScript> {
+    let driver = driver_of(state, &args.connection_id)?;
     let mut objects = args.objects;
     let extra = dependent_views(&args.tables, &objects, &args.views);
     let note = (!extra.is_empty()).then(|| {

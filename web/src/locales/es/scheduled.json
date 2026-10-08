@@ -1,0 +1,129 @@
+{
+  "title": "Tareas programadas",
+  "tab": "Tarea",
+  "newTask": "Nueva tarea",
+  "namePlaceholder": "Nombre de la tarea",
+  "empty": "No hay tareas programadas. Una tarea corre sola, con DBine cerrado: un script, una exportación, una comparación de esquemas o un backup.",
+  "enabled": "Activa",
+  "disabled": "Desactivada",
+  "enable": "Activar",
+  "disable": "Desactivar",
+  "open": "Abrir",
+  "save": "Guardar",
+  "saved": "Tarea guardada.",
+  "saveFirst": "Guardá los cambios antes de ejecutarla",
+  "runNow": "Ejecutar ahora",
+  "started": "«{{name}}» se está ejecutando.",
+  "delete": "Eliminar",
+  "deleteConfirm": "¿Eliminar la tarea «{{name}}»? Deja de ejecutarse y se borra su historial.",
+  "notScheduled": "La tarea se guardó, pero el sistema no la programó: {{error}}",
+  "notRegistered": "No está programada en el sistema",
+  "needsApproval": "Hay cambios sin aprobar",
+  "prodHint": "Cambia datos en una conexión de producción",
+  "nextRun": "Próxima ejecución",
+  "nextRunAt": "Próxima: {{at}}.",
+  "neverRan": "Todavía no se ejecutó",
+  "when": {
+    "title": "Cuándo",
+    "types": {
+      "daily": "Todos los días",
+      "weekly": "Algunos días",
+      "monthly": "Una vez al mes",
+      "interval": "Cada tantos minutos"
+    },
+    "at": "a las",
+    "onDay": "el día",
+    "every": "cada",
+    "minutes": "minutos",
+    "daily": "Todos los días a las {{time}}",
+    "weekly": "{{days}} a las {{time}}",
+    "monthly": "El día {{day}} a las {{time}}",
+    "interval_one": "Cada {{count}} minuto",
+    "interval_other": "Cada {{count}} minutos",
+    "hint": "Corre con DBine cerrado, mientras tu usuario tenga la sesión iniciada. Si la computadora estaba apagada, corre al volver a encenderla."
+  },
+  "days": {
+    "1": "Lun",
+    "2": "Mar",
+    "3": "Mié",
+    "4": "Jue",
+    "5": "Vie",
+    "6": "Sáb",
+    "7": "Dom"
+  },
+  "notify": {
+    "title": "Avisar",
+    "failure": "Si falla o encuentra diferencias",
+    "always": "Siempre",
+    "never": "Nunca"
+  },
+  "steps": "Pasos",
+  "addStep": "Agregar paso",
+  "varsHint": "En nombres de archivo y scripts se pueden usar:",
+  "kinds": {
+    "run_script": "Ejecutar un script",
+    "export": "Exportar a archivo",
+    "compare_schemas": "Comparar esquemas",
+    "backup": "Backup"
+  },
+  "step": {
+    "namePlaceholder": "Nombre (opcional)",
+    "onError": {
+      "stop": "Si falla, detener la tarea",
+      "continue": "Si falla, seguir con el próximo"
+    },
+    "up": "Subir",
+    "down": "Bajar",
+    "remove": "Quitar el paso",
+    "database": "Base de datos",
+    "script": "Script",
+    "query": "Consulta",
+    "continueOnError": "Seguir con la próxima sentencia si una falla",
+    "format": "Formato",
+    "header": "Nombres de columna en la primera fila",
+    "source": "Base de referencia",
+    "target": "Base a comparar",
+    "ignoreCase": "Ignorar mayúsculas",
+    "ignoreSchema": "Emparejar sin el esquema",
+    "ignoreComments": "Ignorar comentarios",
+    "includeDrops": "Incluir borrados",
+    "compareHint": "Si las bases difieren, guarda el script que lleva la base a comparar a la de referencia y avisa. El script no se ejecuta.",
+    "native": "Backup del motor",
+    "copy": "Copia de DBine",
+    "noNative": "Este motor no tiene backups propios: la tarea hace una copia de DBine (estructura y datos en un script).",
+    "secretKept": "Se guarda aparte, en el llavero",
+    "withData": "Con los datos",
+    "folder": "Carpeta",
+    "pickFolder": "Carpeta de destino",
+    "fileName": "Nombre del archivo"
+  },
+  "formats": {
+    "csv": "CSV",
+    "csv_semicolon": "CSV con punto y coma",
+    "csv_excel": "CSV para Excel",
+    "tsv": "TSV",
+    "xlsx": "Excel (.xlsx)",
+    "json": "JSON",
+    "json_lines": "JSON Lines",
+    "xml": "XML",
+    "sql": "SQL (INSERT)"
+  },
+  "history": "Historial",
+  "noRuns": "Todavía no se ejecutó.",
+  "status": {
+    "running": "En curso",
+    "ok": "Bien",
+    "partial": "Con errores",
+    "failed": "Falló"
+  },
+  "trigger": {
+    "schedule": "programada",
+    "manual": "manual"
+  },
+  "approve": {
+    "title": "Esta tarea cambia datos o estructura",
+    "text": "Estos pasos van a ejecutarse solos, sin que nadie los revise antes. Revisá a qué base apuntan:",
+    "production": "Hay pasos sobre conexiones de producción.",
+    "ok": "Aprobar y guardar"
+  }
+}

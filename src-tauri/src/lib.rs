@@ -10,6 +10,7 @@ mod mcp;
 mod menu;
 mod state;
 mod sync;
+mod tasks;
 mod tunnels;
 mod windows;
 
@@ -65,7 +66,7 @@ pub(crate) fn exit_cleanup(app: &tauri::AppHandle) {
 
 /// Resolved at startup; used by the panic hook + the `get_log_dir` command.
 /// `OnceLock` because tauri's setup() is the first place we know the path.
-static LOG_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+pub(crate) static LOG_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
 pub fn log_dir() -> Option<&'static std::path::Path> {
     LOG_DIR.get().map(|p| p.as_path())
@@ -85,6 +86,11 @@ fn append_app_log_raw(line: &str) {
 pub fn run() {
     // Before any driver opens a TLS connection (see Cargo.toml).
     let _ = rustls::crypto::ring::default_provider().install_default();
+    // Started by the OS scheduler: run the task with no window and exit,
+    // before anything of the app starts (tasks/headless.rs).
+    if let Some(id) = tasks::headless::requested() {
+        std::process::exit(tasks::headless::run(&id));
+    }
     let builder = tauri::Builder::default();
     // First: a second launch (Jump List task, desktop action, a second
     // double click) only opens a window in this process. macOS's
@@ -175,6 +181,12 @@ pub fn run() {
             // 4b. The local MCP server (off unless the user turned it on; docs/mcp.md).
             app.manage(mcp::McpRuntime::open(state.clone(), &dir));
             app.state::<mcp::McpRuntime>().attach(app.handle().clone());
+            // The OS scheduler's entries follow the app (moved, updated).
+            #[cfg(not(debug_assertions))]
+            {
+                let state = state.clone();
+                std::thread::spawn(move || commands::scheduled::resync_all(&state));
+            }
             app.manage(state);
             state::set_app_handle(app.handle().clone());
             app.manage(windows::TaskRegistry::default());
@@ -351,6 +363,13 @@ pub fn run() {
             commands::datagen::datagen_preview,
             commands::datagen::datagen_run,
             commands::db_health::database_health,
+            commands::scheduled::scheduled_tasks_list,
+            commands::scheduled::scheduled_task_check,
+            commands::scheduled::scheduled_task_save,
+            commands::scheduled::scheduled_task_delete,
+            commands::scheduled::scheduled_task_enable,
+            commands::scheduled::scheduled_task_run_now,
+            commands::scheduled::scheduled_task_runs,
             commands::schema::drop_database,
             commands::schema::drop_objects,
             commands::schemas::schema_spec,

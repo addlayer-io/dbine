@@ -17,6 +17,7 @@ import EditorTabs from './components/EditorTabs.vue';
 import ExplorerSidebar from './components/ExplorerSidebar.vue';
 import LibrarySidebar from './components/LibrarySidebar.vue';
 import HistorySidebar from './components/HistorySidebar.vue';
+import ScheduledSidebar from './components/ScheduledSidebar.vue';
 import ProjectsSidebar from './components/ProjectsSidebar.vue';
 import ProjectDialogs from './components/ProjectDialogs.vue';
 import LibraryDialogs from './components/LibraryDialogs.vue';
@@ -49,6 +50,7 @@ import IndexUsageView from './views/IndexUsageView.vue';
 import DependenciesView from './views/DependenciesView.vue';
 import SearchView from './views/SearchView.vue';
 import HealthView from './views/HealthView.vue';
+import ScheduledTaskView from './views/ScheduledTaskView.vue';
 import SparklesIcon from './components/SparklesIcon.vue';
 import ConnectionView from './views/ConnectionView.vue';
 import MonitorView from './views/MonitorView.vue';
@@ -203,6 +205,9 @@ watch(
         <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'history' }" :title="$t('history:title')" @click="toggleView('history')">
           <el-icon :size="21"><ei-clock /></el-icon>
         </button>
+        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'scheduled' }" :title="$t('scheduled:title')" @click="toggleView('scheduled')">
+          <el-icon :size="21"><ei-alarm-clock /></el-icon>
+        </button>
         <button class="ide-activity-item" :title="$t('workbench:app.newQuery')" @click="newQueryHere">
           <el-icon :size="22"><ei-document-add /></el-icon>
         </button>
@@ -223,6 +228,7 @@ watch(
         <ProjectsSidebar v-if="ui.sidebarView === 'projects'" />
         <LibrarySidebar v-if="ui.sidebarView === 'library'" />
         <HistorySidebar v-if="ui.sidebarView === 'history'" />
+        <ScheduledSidebar v-if="ui.sidebarView === 'scheduled'" />
         <div class="ide-sash-x" @pointerdown.prevent="drag($event, 'x')" />
       </div>
 
@@ -248,6 +254,7 @@ watch(
               <DependenciesView v-else-if="t.kind === 'dependencies'" :tab="t" />
               <SearchView v-else-if="t.kind === 'search'" :tab="t" />
               <HealthView v-else-if="t.kind === 'health'" :tab="t" />
+              <ScheduledTaskView v-else-if="t.kind === 'scheduledTask'" :tab="t" />
               <ConnectionView v-else-if="t.kind === 'connection'" :tab="t" />
             </div>
           </template>
