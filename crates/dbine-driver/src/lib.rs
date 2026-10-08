@@ -29,6 +29,7 @@ pub mod security;
 pub mod plan;
 pub mod profiler;
 pub mod read_only;
+pub mod rename;
 pub mod runtime;
 pub mod schema;
 pub mod health;
@@ -43,6 +44,7 @@ pub use backup::{BackupAction, BackupEntry, BackupSpec};
 pub use config::ConnectionConfig;
 pub use dependencies::{Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation};
 pub use error::{Error, Result};
+pub use rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
 pub use index_usage::{IndexUsage, IndexUsageReport};
 pub use info::{
     kinds, DatabaseProperties, DriverInfo, Family, Field, FieldChoices, FieldKind, FieldSection, FieldWhen, Language, ObjectKindInfo,
@@ -117,6 +119,24 @@ pub trait Driver: Send + Sync {
     fn index_toggle_script(&self, table: &ObjectRef, index: &IndexUsage, enable: bool) -> Result<SyncScript> {
         let _ = (table, index, enable);
         Err(Error::Unsupported("este motor no deshabilita índices".into()))
+    }
+
+    /// What "Renombrar…" renames on this engine and how it puts back the
+    /// code that names it ([`rename::RenameSpec`]); `None`: not offered.
+    fn rename_spec(&self) -> Option<RenameSpec> {
+        None
+    }
+
+    /// The statements that rename the target, in the driver's language:
+    /// only the rename itself (the app rewrites and puts back the
+    /// dependents around it). A routine, view or trigger on an engine with
+    /// no `RENAME` is dropped and created again with its header renamed
+    /// ([`rename::rename_header`]). The new name is quoted as
+    /// [`rename::quote_new`] does, so the rewritten code matches it.
+    /// Warnings: grants lost, a `DEFINER`, data copied…
+    fn rename_script(&self, req: &RenameRequest) -> Result<SyncScript> {
+        let _ = req;
+        Err(Error::Unsupported("este motor no renombra objetos".into()))
     }
 
     /// Its sessions implement [`Session::index_usage`]: the explorer lists a
@@ -884,6 +904,19 @@ mod tests {
             has_schemas: true,
             object_kinds: vec![],
         })
+    }
+
+    #[test]
+    fn renames_are_unsupported_by_default() {
+        let d = bare();
+        assert!(d.rename_spec().is_none());
+        let req = RenameRequest {
+            target: RenameTarget::Object { object: ObjectRef { kind: "table".into(), schema: None, name: "t".into() }, parent: None },
+            new_name: "u".into(),
+            table: None,
+            definition: None,
+        };
+        assert!(matches!(d.rename_script(&req), Err(Error::Unsupported(_))));
     }
 
     #[test]

@@ -1,0 +1,67 @@
+{
+  "menu": "Renombrar…",
+  "title": "Renombrar {{name}}",
+  "what": {
+    "object": "{{kind}} {{name}}",
+    "column": "Columna {{name}}",
+    "index": "Índice {{name}}",
+    "constraint": "Restricción {{name}}",
+    "schema": "Esquema {{name}}"
+  },
+  "where": "en {{where}}",
+  "newName": "Nuevo nombre",
+  "quotedHint": "En el script se escribe como {{quoted}} (entre comillas, para conservar mayúsculas o caracteres especiales).",
+  "collides": "Ya hay un objeto con el nombre «{{name}}»: el motor va a rechazar el cambio.",
+  "keepViewColumns": "Mantener los nombres de columna de las vistas (nuevo AS viejo)",
+  "reading": "Buscando lo que depende de {{name}} y leyendo sus definiciones…",
+  "same": "Escribí un nombre distinto del actual.",
+  "empty": "Escribí el nombre nuevo.",
+  "summary": "{{rewrite}} se reescriben, {{engine}} los actualiza el motor y {{manual}} necesitan atención manual ({{scanned}} definiciones leídas).",
+  "outside": "Otras bases, aplicaciones y reportes externos no se revisan: lo que use el nombre viejo fuera de esta base deja de funcionar.",
+  "unreadable": "No se pudo leer la definición de: {{names}}. Lo que dependa del objeto ahí no se reescribe.",
+  "atomic": "El script corre en una transacción: si una sentencia falla, no cambia nada.",
+  "notAtomic": "Este motor no deshace los cambios de estructura: si una sentencia falla, lo anterior queda hecho. Revisá el script antes de correrlo.",
+  "group": {
+    "rewrite": "Se reescriben",
+    "engine": "Lo actualiza el motor",
+    "manual": "Atención manual"
+  },
+  "groupHint": {
+    "rewrite": "DBine cambia el nombre en su código y los vuelve a crear con el script. Destildá los que prefieras tocar a mano.",
+    "engine": "Claves, índices y objetos que el motor sigue solo: no hay que hacer nada.",
+    "manual": "DBine no los cambia: revisalos después de renombrar."
+  },
+  "engine": "lo actualiza el motor",
+  "tracked": "el motor lo sigue solo",
+  "review": "revisar a mano",
+  "reviewHint": "Parte del texto no se pudo decidir: si lo tildás, esas líneas quedan como están.",
+  "schemabound": "con SCHEMABINDING: se borra antes y se crea después",
+  "line": "línea {{line}}",
+  "openDefinition": "Abrir definición",
+  "manualReason": {
+    "dynamic": "SQL dinámico: el nombre aparece dentro de un texto",
+    "unreadable": "no se pudo leer su definición",
+    "not_rewritten": "este motor no reescribe esta clase de referencia",
+    "no_match": "el texto no lo nombra de una forma que DBine reconozca"
+  },
+  "reason": {
+    "in_string": "dentro de un texto (SQL dinámico)",
+    "qualified": "calificado con otro nombre",
+    "other_schema": "sin esquema, en un objeto de otro esquema",
+    "case": "sin comillas puede referirse a otro objeto (mayúsculas y minúsculas)",
+    "maybe_function": "seguido de «(»: puede ser una función con el mismo nombre",
+    "ambiguous_column": "columna sin tabla en una sentencia que lee varias",
+    "alias_named_like_schema": "hay un alias que se llama como el esquema"
+  },
+  "nothing": "Nada en la base depende de este objeto: el script solo lo renombra.",
+  "script": "Script",
+  "openInQuery": "Abrir en una consulta",
+  "scriptName": "Renombrar {{name}}",
+  "prodConfirm": "Es una conexión de producción. Escribí {{name}} para confirmar.",
+  "run": "Renombrar",
+  "task": "Renombrar {{name}} a {{to}}",
+  "done": "{{name}} ahora se llama {{to}}",
+  "rolledBack": "No cambió nada: se deshizo todo el script.",
+  "queryTabs_one": "Hay {{count}} pestaña de consulta abierta que nombra «{{name}}»: no se modificó.",
+  "queryTabs_other": "Hay {{count}} pestañas de consulta abiertas que nombran «{{name}}»: no se modificaron."
+}

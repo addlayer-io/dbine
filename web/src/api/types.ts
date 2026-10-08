@@ -114,6 +114,8 @@ export interface DriverInfo {
   supports_dependencies?: boolean;
   /** "Deshabilitar / Habilitar índice" (`Driver::index_toggle_script`). */
   supports_index_toggle?: boolean;
+  /** "Renombrar…" (`Driver::rename_spec`); absent or null: not offered. */
+  rename?: RenameSpec | null;
 }
 
 /** One index and how it's used (`dbine_driver::IndexUsage`). The last four
@@ -654,6 +656,72 @@ export interface DependencyReport {
   /** Objects whose definition couldn't be read. */
   unreadable: string[];
   note: string | null;
+}
+
+/** What "Renombrar…" renames (`dbine_driver::RenameTarget`). */
+export type RenameTarget =
+  | { what: 'object'; object: ObjectRef; parent?: string | null }
+  | { what: 'column'; table: ObjectRef; column: string }
+  | { what: 'index'; table: ObjectRef; index: string }
+  | { what: 'constraint'; table: ObjectRef; constraint: string }
+  | { what: 'schema'; database?: string | null; schema: string };
+
+/** What a driver renames and how (`dbine_driver::RenameSpec`). */
+export interface RenameSpec {
+  kinds: string[];
+  columns: boolean;
+  indexes: boolean;
+  constraints: boolean;
+  schemas: boolean;
+  /** Dependent kinds the engine updates by itself. */
+  tracked: string[];
+  replace: 'drop_create' | 'create_or_replace' | 'create_or_alter';
+  references: 'sql' | 'pipeline' | 'none';
+  fold: 'lower' | 'upper' | 'none';
+  transactional: boolean;
+  note: string | null;
+}
+
+/** A rename to script (`dbine_driver::RenameRequest`). */
+export interface RenameRequest {
+  target: RenameTarget;
+  new_name: string;
+  table?: import('./schema-types').TableSchema | null;
+  definition?: string | null;
+}
+
+export interface RenameEdit { line: number; before: string; after: string }
+export type UnresolvedReason = 'in_string' | 'qualified' | 'other_schema' | 'case' | 'maybe_function' | 'ambiguous_column' | 'alias_named_like_schema';
+export interface RenameUnresolved { line: number; text: string; reason: UnresolvedReason }
+export type ManualReason = 'dynamic' | 'unreadable' | 'not_rewritten' | 'no_match';
+
+/** What happens to a dependent (`commands::rename::Action`). */
+export type RenameAction =
+  | { kind: 'engine' }
+  | { kind: 'tracked' }
+  | { kind: 'manual'; reason: ManualReason; unresolved?: RenameUnresolved[] }
+  | {
+    kind: 'rewrite'; object: import('./compare').CodeObject; edits: RenameEdit[]; unresolved: RenameUnresolved[];
+    schemabound: boolean; default_selected: boolean;
+  };
+
+export interface RenameImpactItem { dependent: Dependent; action: RenameAction; original: string | null }
+
+/** `rename_impact` (`commands::rename::RenameImpact`). */
+export interface RenameImpact {
+  items: RenameImpactItem[];
+  scanned: number;
+  unreadable: string[];
+  note: string | null;
+  spec_note: string | null;
+  /** Another object already has the new name. */
+  collides: boolean;
+  /** The new name as the script writes it (quoted when needed). */
+  quoted_name: string;
+  /** The script runs in one transaction. */
+  atomic: boolean;
+  definition: string | null;
+  table: import('./schema-types').TableSchema | null;
 }
 
 /** The calling window (`windows::WindowRole`). */

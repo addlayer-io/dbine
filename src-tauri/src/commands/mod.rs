@@ -1,4 +1,5 @@
 pub mod compare;
+pub mod rename;
 pub mod conn_import;
 pub mod connections;
 pub mod drivers;

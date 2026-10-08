@@ -561,6 +561,9 @@ impl Driver for RemoteDriver {
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
         self.meta.schema_spec.clone()
     }
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        self.meta.rename.clone()
+    }
     fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
         self.meta.create_database_fields.clone()
     }
@@ -620,6 +623,12 @@ impl Driver for RemoteDriver {
     }
     fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<SyncScript> {
         match self.blocking(Call::IndexToggleScript { driver: self.id(), table: table.clone(), index: index.clone(), enable })? {
+            Reply::Sync(s) => Ok(s),
+            _ => Err(unexpected()),
+        }
+    }
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<SyncScript> {
+        match self.blocking(Call::RenameScript { driver: self.id(), request: req.clone() })? {
             Reply::Sync(s) => Ok(s),
             _ => Err(unexpected()),
         }

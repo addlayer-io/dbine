@@ -6,6 +6,7 @@
 // |query[&sample=editor] (⌘-click, unknown names, parameters, snippets: preview/editor-samples.ts)
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 // |timeline[&tab=tq|tf|to] (the history sidebar's "Esta pestaña" next to a stand-in editor: preview/timeline-samples.ts)
+// |rename[&prod=0][&name=<nuevo>][&fail=1] ("Renombrar…" over a fake impact and script: preview/rename-samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -64,6 +65,8 @@ import { installTimelinePreview, TimelinePreview } from './timeline-samples';
 import { multiDbOutcome, runSummary } from '../composables/multiDb';
 import { sampleLive, sampleMultiDbResponse, sampleTenantDatabases } from './multidb-samples';
 import { EDITOR_SAMPLE_SQL, installEditorSample } from './editor-samples';
+import RenameDialog from '../components/RenameDialog.vue';
+import { installRenamePreview } from './rename-samples';
 
 document.documentElement.classList.add('dark');
 const params = new URLSearchParams(location.search);
@@ -73,6 +76,7 @@ const view = params.get('view') ?? 'plan';
 // view=import&step=2[&target=new] jumps to the target step once the preview has loaded.
 // &run=1 starts the job (script / run views): the mock keeps it running,
 // except run_script_file, which ends with sample errors.
+const renameDialog = ref<{ name: string } | null>(null);
 const importDialog = ref<{ step: number; targetMode: string } | null>(null);
 const jobDialog = ref<{ run: () => void } | null>(null);
 if (params.get('run')) setTimeout(() => jobDialog.value?.run(), 400);
@@ -220,6 +224,10 @@ const app = createApp({
       ]) :
       view === 'support' ? h(SupportReminder) :
       view === 'multidb' ? multiDbView() :
+      view === 'rename' ? h(RenameDialog, {
+        ref: renameDialog, onClose: () => console.log('close'),
+        target: { connectionId: 'c1', database: 'ventas', target: { what: 'object', object: { kind: 'table', schema: 'dbo', name: 'Clientes' }, parent: null } },
+      }) :
       view === 'dependencies' ? h(DependenciesView, { tab: { id: 'dep', kind: 'dependencies', connectionId: 'c1', database: 'ventas', object: { kind: 'table', schema: 'dbo', name: 'Clientes' }, column: 'Pepe', preview: false } }) :
       view === 'compare' ? h(CompareView, { tab: { id: 'cmp', kind: 'compare', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'profiler' ? h(ProfilerView, { tab: { id: 'p', kind: 'profiler', connectionId: 'c1', database: 'ventas', preview: false } }) :
@@ -310,6 +318,10 @@ function connectionTab() {
   return t && t.kind === 'connection' ? h(ConnectionView, { tab: t }) : null;
 }
 if (view === 'keys') installKeysPreview();
+if (view === 'rename') {
+  installRenamePreview();
+  setTimeout(() => { if (renameDialog.value) renameDialog.value.name = params.get('name') ?? 'ClientesActivos'; }, 300);
+}
 if (view === 'tabs') installTabsPreview();
 if (view === 'projects') installProjectsPreview();
 if (view === 'timeline') installTimelinePreview();

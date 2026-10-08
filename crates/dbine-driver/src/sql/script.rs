@@ -1699,6 +1699,8 @@ pub struct NameToken<'a> {
     pub text: &'a str,
     /// Byte offset in the body.
     pub start: usize,
+    /// Where it ends, quotes included (`start..end` is the token as written).
+    pub end: usize,
 }
 
 /// The names, strings and punctuation of a body, comments and spaces left
@@ -1723,9 +1725,71 @@ pub fn name_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
         };
         if let Some(kind) = kind {
             let text = if kind == TokenKind::Name && raw.len() >= 2 && matches!(raw.as_bytes()[0], b'`' | b'[' | b'"') { &raw[1..raw.len() - 1] } else { raw };
-            out.push(NameToken { kind, text, start: i });
+            out.push(NameToken { kind, text, start: i, end });
         }
         i = end.max(i + 1);
     }
     out
+}
+
+/// [`name_tokens`], also inside PostgreSQL routine bodies: the `AS $tag$
+/// … $tag$` of a `CREATE … FUNCTION|PROCEDURE` whose `LANGUAGE` is `sql` or
+/// `plpgsql` is code, read with its offsets kept. Strings inside the body
+/// (`EXECUTE '…'`, a `$q$` in `format()`) stay strings. What the dependency
+/// scan and the rename search; other dollar blocks stay strings.
+pub fn code_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
+    let toks = name_tokens(text, d);
+    if !d.dollar_quotes {
+        return toks;
+    }
+    let word = |t: &NameToken<'_>, w: &str| t.kind == TokenKind::Name && t.text.eq_ignore_ascii_case(w) && !matches!(text.as_bytes()[t.start], b'"');
+    let creates: Vec<usize> = (0..toks.len()).filter(|&i| word(&toks[i], "create")).collect();
+    let mut out = Vec::with_capacity(toks.len());
+    for (i, t) in toks.iter().enumerate() {
+        let body = t.kind == TokenKind::String && t.text.starts_with('$') && i > 0 && word(&toks[i - 1], "as") && {
+            // The CREATE it belongs to, and where the next one starts.
+            let from = creates.iter().rev().find(|&&c| c < i).copied();
+            let to = creates.iter().find(|&&c| c > i).copied().unwrap_or(toks.len());
+            from.is_some_and(|c| {
+                let head = &toks[c..i];
+                let routine = head.iter().take(6).any(|h| word(h, "function") || word(h, "procedure"));
+                let language = toks[c..to].windows(2).find(|w| word(&w[0], "language")).map(|w| w[1].text.trim_matches('\'').to_ascii_lowercase());
+                routine && matches!(language.as_deref(), Some("sql" | "plpgsql"))
+            })
+        };
+        if !body {
+            out.push(t.clone());
+            continue;
+        }
+        let tag_len = t.text[1..].find('$').map_or(t.text.len(), |p| p + 2);
+        let inner_end = if t.text.len() >= 2 * tag_len && t.text.ends_with(&t.text[..tag_len]) { t.text.len() - tag_len } else { t.text.len() };
+        let base = t.start + tag_len;
+        for n in name_tokens(&text[base..t.start + inner_end], d) {
+            out.push(NameToken { start: n.start + base, end: n.end + base, ..n });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod code_token_tests {
+    use super::*;
+
+    #[test]
+    fn routine_bodies_are_code_and_their_strings_stay_strings() {
+        let pg = ScriptDialect::postgres();
+        let body = "CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'select 1 from clientes'; RETURN (SELECT count(*) FROM clientes); END $$";
+        let toks = code_tokens(body, &pg);
+        let names: Vec<&str> = toks.iter().filter(|t| t.kind == TokenKind::Name).map(|t| t.text).collect();
+        assert!(names.contains(&"clientes"));
+        assert!(toks.iter().any(|t| t.kind == TokenKind::String && t.text.contains("from clientes")));
+        // Offsets point into the whole text.
+        for t in &toks {
+            assert!(body[t.start..t.end].contains(t.text), "{t:?}");
+        }
+        // Not a routine body: a plain dollar string, or another language.
+        assert!(!code_tokens("SELECT $$ from clientes $$", &pg).iter().any(|t| t.kind == TokenKind::Name && t.text == "clientes"));
+        let js = "CREATE FUNCTION f() RETURNS int LANGUAGE plv8 AS $$ return clientes $$";
+        assert!(!code_tokens(js, &pg).iter().any(|t| t.kind == TokenKind::Name && t.text == "clientes"));
+    }
 }

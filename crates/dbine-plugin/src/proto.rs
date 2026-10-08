@@ -213,6 +213,9 @@ pub enum Call {
     /// (none known).
     RowEstimates { session: u64 },
     ObjectComments { session: u64 },
+    /// "Renombrar…": the statements that rename an object. A host published
+    /// before it answers `Unsupported` (and its manifest doesn't offer it).
+    RenameScript { driver: String, request: dbine_driver::RenameRequest },
 }
 
 /// Host → app.
@@ -345,6 +348,10 @@ pub struct DriverMeta {
     /// absent in older manifests: not offered).
     #[serde(default)]
     pub supports_index_toggle: bool,
+    /// "Renombrar…" (`Driver::rename_spec`; absent in older manifests: not
+    /// offered).
+    #[serde(default)]
+    pub rename: Option<dbine_driver::RenameSpec>,
     /// "Nueva base de datos"'s advanced options (absent in older
     /// manifests: just the name).
     #[serde(default, deserialize_with = "owned")]
@@ -400,6 +407,7 @@ impl DriverMeta {
             supports_manual_transactions: d.supports_manual_transactions(),
             supports_index_usage: d.supports_index_usage(),
             supports_index_toggle: d.supports_index_toggle(),
+            rename: d.rename_spec(),
             create_database_fields: d.create_database_fields(),
         }
     }
@@ -602,6 +610,35 @@ mod tests {
         assert!(rmp_serde::from_slice::<HostToHost>(&body).is_ok());
     }
 
+    fn rename_request() -> dbine_driver::RenameRequest {
+        dbine_driver::RenameRequest {
+            target: dbine_driver::RenameTarget::Column { table: ObjectRef { kind: "table".into(), schema: Some("public".into()), name: "t".into() }, column: "a".into() },
+            new_name: "b".into(),
+            table: Some(TableSchema { name: "t".into(), ..Default::default() }),
+            definition: None,
+        }
+    }
+
+    #[test]
+    fn a_rename_round_trips() {
+        let body = rmp_serde::to_vec_named(&ToHost::Call { id: 9, call: Call::RenameScript { driver: "postgres".into(), request: rename_request() } }).unwrap();
+        match rmp_serde::from_slice::<ToHost>(&body).unwrap() {
+            ToHost::Call { call: Call::RenameScript { driver, request }, .. } => {
+                assert_eq!(driver, "postgres");
+                assert_eq!(request.new_name, "b");
+                assert!(matches!(request.target, dbine_driver::RenameTarget::Column { ref column, .. } if column == "a"));
+                assert_eq!(request.table.unwrap().name, "t");
+            }
+            other => panic!("{other:?}"),
+        }
+        // The manifest's spec, and a manifest without it.
+        let spec = dbine_driver::RenameSpec { kinds: vec!["table".into()], columns: true, fold: dbine_driver::Fold::Lower, transactional: true, ..Default::default() };
+        let back: dbine_driver::RenameSpec = rmp_serde::from_slice(&rmp_serde::to_vec_named(&spec).unwrap()).unwrap();
+        assert_eq!(back.kinds, vec!["table".to_string()]);
+        assert_eq!(back.fold, dbine_driver::Fold::Lower);
+        assert!(back.transactional && back.columns && !back.schemas);
+    }
+
     #[test]
     fn a_host_older_than_schema_calls_answers_unsupported() {
         // A host published before the schema calls: its `Call` lacks them.
@@ -649,6 +686,7 @@ mod tests {
             (22, Call::HealthChecks { session: 3, database: "v".into() }, "HealthChecks"),
             (23, Call::RowEstimates { session: 3 }, "RowEstimates"),
             (24, Call::ObjectComments { session: 3 }, "ObjectComments"),
+            (25, Call::RenameScript { driver: "postgres".into(), request: rename_request() }, "RenameScript"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

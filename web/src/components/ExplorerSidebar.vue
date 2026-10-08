@@ -38,6 +38,8 @@ import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '.
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
 import DropIndexDialog from './DropIndexDialog.vue';
 import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composables/dropIndex';
+import { renameItem, type RenameDialogTarget } from '../composables/rename';
+import RenameDialog from './RenameDialog.vue';
 
 // The explorer: user folders (clients, environments… nested at will) →
 // connections → databases → Queries + the kinds of objects the driver
@@ -562,6 +564,8 @@ const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 const cloning = ref<{ connectionId: string; database: string; object: { kind: string; schema: string | null; name: string } } | null>(null);
 /** "Eliminar índice…": the index being dropped. */
 const droppingIndex = ref<DropIndexTarget | null>(null);
+const renaming = ref<RenameDialogTarget | null>(null);
+const openRename = (x: RenameDialogTarget) => { renaming.value = x; };
 /** "Nuevo esquema…" / "Borrar esquema…": the dialog open. */
 /** The table "Generar datos de prueba" is open for. */
 const generatingData = ref<{ connectionId: string; database: string; table: { kind: string; schema: string | null; name: string } } | null>(null);
@@ -803,8 +807,10 @@ async function onContext(e: MouseEvent, n: TNode) {
       for (const tpl of d?.create_templates ?? []) items.push({ label: tb(tpl.label), action: () => newFromTemplate(cid!, db, tpl, s) });
       items.push({ label: t('common:refresh'), divided: true, action: () => loadDatabase(cid!, db, true) });
       items.push({ label: t('explorer:menu.copyName'), action: () => copy(s) });
+      const renameSchema = schemasEditable(cid!) && renameItem({ connectionId: cid!, database: db, target: { what: 'schema', database: db || null, schema: s } }, openRename, true);
+      if (renameSchema) items.push(renameSchema);
       if (schemasEditable(cid!)) {
-        items.push({ label: t('schemas:menuDrop'), danger: true, divided: true, action: () => { schemaDialog.value = { connectionId: cid!, database: db, mode: 'drop', schema: s }; } });
+        items.push({ label: t('schemas:menuDrop'), danger: true, divided: !renameSchema, action: () => { schemaDialog.value = { connectionId: cid!, database: db, mode: 'drop', schema: s }; } });
       }
       break;
     }
@@ -849,7 +855,9 @@ async function onContext(e: MouseEvent, n: TNode) {
           },
         });
       }
-      items.push({ label: t('explorer:menu.deleteEllipsis'), danger: true, divided: true, action: () => dropObjects(cid!, db, [ref]) });
+      const rename = renameItem({ connectionId: cid!, database: db, target: { what: 'object', object: ref, parent: o.parent ?? null } }, openRename, true);
+      if (rename) items.push(rename);
+      items.push({ label: t('explorer:menu.deleteEllipsis'), danger: true, divided: !rename, action: () => dropObjects(cid!, db, [ref]) });
       break;
     }
     case 'column':
@@ -858,6 +866,11 @@ async function onContext(e: MouseEvent, n: TNode) {
         items.push({ label: t('dependencies:menu'), action: () => tabs.openDependencies(cid!, db, { kind: o.kind, schema: o.schema, name: o.name }, n.label) });
       }
       items.push({ label: t('explorer:menu.copyName'), action: () => copy(n.label) });
+      if (n.object) {
+        const o = n.object;
+        const rename = renameItem({ connectionId: cid!, database: db, target: { what: 'column', table: { kind: o.kind, schema: o.schema, name: o.name }, column: n.label } }, openRename, true);
+        if (rename) items.push(rename);
+      }
       break;
     case 'indexes':
     case 'index': {
@@ -867,9 +880,11 @@ async function onContext(e: MouseEvent, n: TNode) {
       if (n.type === 'index') items.push({ label: t('explorer:menu.copyName'), action: () => copy(n.label) });
       items.push({ label: t('common:refresh'), divided: true, action: () => loadIndexUsage(cid!, db, ref, true) });
       const target = { connectionId: cid!, database: db, table: ref, index: n.label };
+      const rename = n.type === 'index' && renameItem({ connectionId: cid!, database: db, target: { what: 'index', table: ref, index: n.label } }, openRename, true);
+      if (rename) items.push(rename);
       const toggle = n.type === 'index' && toggleIndexItem(target, (x) => { droppingIndex.value = x; });
-      if (toggle) items.push({ ...toggle, divided: true });
-      const drop = n.type === 'index' && dropIndexItem(target, (x) => { droppingIndex.value = x; }, !toggle);
+      if (toggle) items.push({ ...toggle, divided: !rename });
+      const drop = n.type === 'index' && dropIndexItem(target, (x) => { droppingIndex.value = x; }, !toggle && !rename);
       if (drop) items.push(drop);
       break;
     }
@@ -1350,6 +1365,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     </div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
     <DropIndexDialog v-if="droppingIndex" :target="droppingIndex" @close="droppingIndex = null" />
+    <RenameDialog v-if="renaming" :target="renaming" @close="renaming = null" />
     <CloneTableDialog v-if="cloning" :connection-id="cloning.connectionId" :database="cloning.database" :object="cloning.object" @close="cloning = null" />
     <CreateDatabaseDialog v-if="creatingDatabase" :connection-id="creatingDatabase" @close="creatingDatabase = null" />
     <GenerateDataDialog v-if="generatingData" :connection-id="generatingData.connectionId" :database="generatingData.database" :table="generatingData.table" @close="generatingData = null" />
