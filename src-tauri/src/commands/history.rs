@@ -9,9 +9,19 @@ use dbine_driver::QueryOutcome;
 use serde::Deserialize;
 use tauri::State;
 
+/// Where a run came from, for its tab's timeline.
+#[derive(Default)]
+pub struct Origin {
+    pub query_id: Option<String>,
+    pub project_id: Option<String>,
+    pub file_path: Option<String>,
+}
+
 /// Record a run (never fails the query: a history error is only logged).
-pub fn record(state: &AppState, connection_id: &str, database: &str, sql: &str, started_at: String, out: &QueryOutcome) {
+pub fn record(state: &AppState, connection_id: &str, database: &str, sql: &str, started_at: String, out: &QueryOutcome, origin: Origin) {
     let Ok(Some(conn)) = state.store.get_connection(connection_id) else { return };
+    // A file is its project and its path: both or neither.
+    let file = origin.project_id.zip(origin.file_path);
     let rows = (!out.results.is_empty()).then(|| out.results.iter().map(|r| r.rows_affected.unwrap_or(r.total_rows)).sum());
     let entry = HistoryEntry {
         id: 0,
@@ -25,6 +35,9 @@ pub fn record(state: &AppState, connection_id: &str, database: &str, sql: &str, 
         duration_ms: out.elapsed_ms,
         rows,
         error: out.error.clone(),
+        query_id: origin.query_id,
+        project_id: file.as_ref().map(|f| f.0.clone()),
+        file_path: file.map(|f| f.1),
     };
     if let Err(e) = state.store.add_history(&entry) {
         tracing::warn!(%e, "could not record the query in the history");
@@ -56,6 +69,22 @@ pub struct HistoryListArgs {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn history_list(state: State<'_, AppState>, args: HistoryListArgs) -> CommandResult<Vec<HistoryEntry>> {
     Ok(state.store.list_history(args.search.as_deref(), args.before, args.limit.unwrap_or(200).min(1000))?)
+}
+
+#[derive(Deserialize)]
+pub struct HistoryOfArgs {
+    pub query_id: Option<String>,
+    pub project_id: Option<String>,
+    pub file_path: Option<String>,
+    pub limit: Option<u32>,
+}
+
+/// The runs of one saved query or one project file, newest first (the
+/// tab's timeline).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn history_of(state: State<'_, AppState>, args: HistoryOfArgs) -> CommandResult<Vec<HistoryEntry>> {
+    let file = args.project_id.as_deref().zip(args.file_path.as_deref());
+    Ok(state.store.list_history_of(args.query_id.as_deref(), file, args.limit.unwrap_or(200).min(1000))?)
 }
 
 #[derive(Deserialize)]

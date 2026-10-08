@@ -63,7 +63,7 @@ pub enum ExplorerItem {
 /// A query kept under a database in the explorer.
 /// A statement run from the editor (the history sidebar). Local to this
 /// machine: not in the cloud backup.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub id: i64,
     pub connection_id: String,
@@ -79,10 +79,42 @@ pub struct HistoryEntry {
     /// Rows returned or affected, when the engine says.
     pub rows: Option<u64>,
     pub error: Option<String>,
+    /// The saved query it was run from (its tab's timeline).
+    #[serde(default)]
+    pub query_id: Option<String>,
+    /// The project file it was run from (`project_id` + `file_path`).
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub file_path: Option<String>,
 }
 
 /// How many statements the history keeps (the oldest go first).
 const HISTORY_MAX: i64 = 20_000;
+
+/// A saved query's text at one moment: its timeline in the history
+/// sidebar (docs/historial.md). Local to this machine, like the history.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueryVersion {
+    pub id: i64,
+    pub query_id: String,
+    pub saved_at: String,
+    /// Lines added and removed against the version before it.
+    pub added: u32,
+    pub removed: u32,
+    /// `None` in a list; the text comes with [`StateStore::get_query_version`].
+    pub sql: Option<String>,
+}
+
+/// While typing, at most one version of a query per this many seconds
+/// (an explicit save, a run or closing the tab always records one).
+pub const VERSION_THROTTLE_SECS: i64 = 60;
+/// Versions kept per query, at most.
+const VERSIONS_MAX: usize = 300;
+/// Every version of the last days stays; then one a day (the day's last)
+/// up to `VERSIONS_DAILY_DAYS`; older ones go.
+const VERSIONS_ALL_DAYS: i64 = 7;
+const VERSIONS_DAILY_DAYS: i64 = 90;
 
 /// A copy DBine made of a database: a script with its structure (and its
 /// data) in a local file (the Backups tab). Local to this machine.
@@ -333,6 +365,17 @@ impl StateStore {
                  rows            INTEGER,
                  error           TEXT
              );
+             -- A saved query's versions (its timeline): local only, not in the snapshot.
+             CREATE TABLE IF NOT EXISTS query_versions (
+                 id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                 query_id TEXT NOT NULL,
+                 saved_at TEXT NOT NULL,
+                 sql      TEXT NOT NULL,
+                 hash     TEXT NOT NULL,
+                 added    INTEGER NOT NULL DEFAULT 0,
+                 removed  INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE INDEX IF NOT EXISTS query_versions_by_query ON query_versions(query_id, id);
              CREATE TABLE IF NOT EXISTS backups (
                  id            TEXT PRIMARY KEY,
                  connection_id TEXT NOT NULL,
@@ -403,6 +446,25 @@ impl StateStore {
         if !has_folder_order {
             conn.execute_batch("ALTER TABLE folders ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0").map_err(db_err)?;
         }
+        // Where a run came from (a saved query, a project's file): added with the timeline.
+        let has_origin: bool = conn
+            .query_row("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'query_id'", [], |r| r.get(0))
+            .map_err(db_err)?;
+        if !has_origin {
+            conn.execute_batch(
+                "ALTER TABLE query_history ADD COLUMN query_id TEXT;
+                 ALTER TABLE query_history ADD COLUMN project_id TEXT;
+                 ALTER TABLE query_history ADD COLUMN file_path TEXT;",
+            )
+            .map_err(db_err)?;
+        }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS query_history_by_query ON query_history(query_id) WHERE query_id IS NOT NULL;
+             CREATE INDEX IF NOT EXISTS query_history_by_file ON query_history(project_id, file_path) WHERE project_id IS NOT NULL;
+             -- Versions of queries deleted meanwhile (with their connection, or by a restore).
+             DELETE FROM query_versions WHERE query_id NOT IN (SELECT id FROM queries);",
+        )
+        .map_err(db_err)?;
         Ok(Self { conn: Mutex::new(conn), hook: RwLock::new(None) })
     }
 
@@ -646,7 +708,11 @@ impl StateStore {
     }
 
     pub fn delete_query(&self, id: &str) -> Result<()> {
-        self.lock()?.execute("DELETE FROM queries WHERE id = ?1", [id]).map_err(db_err)?;
+        {
+            let c = self.lock()?;
+            c.execute("DELETE FROM queries WHERE id = ?1", [id]).map_err(db_err)?;
+            c.execute("DELETE FROM query_versions WHERE query_id = ?1", [id]).map_err(db_err)?;
+        }
         self.touch()?;
         self.notify(StateChange::new("query", Some(id)));
         Ok(())
@@ -752,9 +818,23 @@ impl StateStore {
     pub fn add_history(&self, e: &HistoryEntry) -> Result<()> {
         let c = self.lock()?;
         c.execute(
-            "INSERT INTO query_history (connection_id, connection_name, driver, host, database, sql, started_at, duration_ms, rows, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![e.connection_id, e.connection_name, e.driver, e.host, e.database, e.sql, e.started_at, e.duration_ms as i64, e.rows.map(|r| r as i64), e.error],
+            "INSERT INTO query_history (connection_id, connection_name, driver, host, database, sql, started_at, duration_ms, rows, error, query_id, project_id, file_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                e.connection_id,
+                e.connection_name,
+                e.driver,
+                e.host,
+                e.database,
+                e.sql,
+                e.started_at,
+                e.duration_ms as i64,
+                e.rows.map(|r| r as i64),
+                e.error,
+                e.query_id,
+                e.project_id,
+                e.file_path
+            ],
         )
         .map_err(db_err)?;
         let id = c.last_insert_rowid();
@@ -773,29 +853,31 @@ impl StateStore {
         let like = search.filter(|s| !s.trim().is_empty()).map(|s| format!("%{}%", s.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")));
         let mut stmt = c
             .prepare(
-                "SELECT id, connection_id, connection_name, driver, host, database, sql, started_at, duration_ms, rows, error FROM query_history
+                "SELECT id, connection_id, connection_name, driver, host, database, sql, started_at, duration_ms, rows, error, query_id, project_id, file_path
+                 FROM query_history
                  WHERE (?1 IS NULL OR sql LIKE ?1 ESCAPE '\\' OR host LIKE ?1 ESCAPE '\\' OR database LIKE ?1 ESCAPE '\\' OR connection_name LIKE ?1 ESCAPE '\\')
                    AND (?2 IS NULL OR id < ?2)
                  ORDER BY id DESC LIMIT ?3",
             )
             .map_err(db_err)?;
-        let rows = stmt
-            .query_map(params![like, before, limit], |r| {
-                Ok(HistoryEntry {
-                    id: r.get(0)?,
-                    connection_id: r.get(1)?,
-                    connection_name: r.get(2)?,
-                    driver: r.get(3)?,
-                    host: r.get(4)?,
-                    database: r.get(5)?,
-                    sql: r.get(6)?,
-                    started_at: r.get(7)?,
-                    duration_ms: r.get::<_, i64>(8)? as u64,
-                    rows: r.get::<_, Option<i64>>(9)?.map(|n| n as u64),
-                    error: r.get(10)?,
-                })
-            })
+        let rows = stmt.query_map(params![like, before, limit], row_to_history).map_err(db_err)?;
+        rows.collect::<std::result::Result<_, _>>().map_err(db_err)
+    }
+
+    /// The runs of one saved query, or of one project file, newest first
+    /// (a tab's timeline).
+    pub fn list_history_of(&self, query_id: Option<&str>, file: Option<(&str, &str)>, limit: u32) -> Result<Vec<HistoryEntry>> {
+        let c = self.lock()?;
+        let (project, path) = file.unzip();
+        let mut stmt = c
+            .prepare(
+                "SELECT id, connection_id, connection_name, driver, host, database, sql, started_at, duration_ms, rows, error, query_id, project_id, file_path
+                 FROM query_history
+                 WHERE (?1 IS NOT NULL AND query_id = ?1) OR (?2 IS NOT NULL AND project_id = ?2 AND file_path = ?3)
+                 ORDER BY id DESC LIMIT ?4",
+            )
             .map_err(db_err)?;
+        let rows = stmt.query_map(params![query_id, project, path, limit], row_to_history).map_err(db_err)?;
         rows.collect::<std::result::Result<_, _>>().map_err(db_err)
     }
 
@@ -815,6 +897,106 @@ impl StateStore {
         drop(c);
         self.notify(StateChange::new("history", None));
         Ok(())
+    }
+
+    // -- query versions (a saved query's timeline) ---------------------------
+    // Local, like the history: no `touch()`, not in the snapshot.
+
+    /// Record `sql` as the query's newest version, unless it's blank, equals
+    /// the newest one, or (with `throttle`) the newest is younger than that.
+    /// `saved_at`: when the text was saved (RFC 3339). Prunes the query's old
+    /// versions afterwards. `None` when nothing was recorded.
+    pub fn add_query_version(&self, query_id: &str, sql: &str, saved_at: &str, throttle: Option<chrono::Duration>) -> Result<Option<QueryVersion>> {
+        if sql.trim().is_empty() {
+            return Ok(None);
+        }
+        let hash = text_hash(sql);
+        let c = self.lock()?;
+        let last: Option<(String, String, String)> = c
+            .query_row(
+                "SELECT saved_at, hash, sql FROM query_versions WHERE query_id = ?1 ORDER BY id DESC LIMIT 1",
+                [query_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()
+            .map_err(db_err)?;
+        if let Some((at, h, _)) = &last {
+            if *h == hash {
+                return Ok(None);
+            }
+            if let (Some(min), Some(prev), Some(this)) = (throttle, parse_ts(at), parse_ts(saved_at)) {
+                if this - prev < min {
+                    return Ok(None);
+                }
+            }
+        }
+        let (added, removed) = match &last {
+            Some((_, _, prev)) => line_changes(prev, sql),
+            None => (0, 0),
+        };
+        c.execute(
+            "INSERT INTO query_versions (query_id, saved_at, sql, hash, added, removed) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![query_id, saved_at, sql, hash, added, removed],
+        )
+        .map_err(db_err)?;
+        let id = c.last_insert_rowid();
+        prune_versions(&c, query_id, chrono::Utc::now())?;
+        Ok(Some(QueryVersion { id, query_id: query_id.to_string(), saved_at: saved_at.to_string(), added, removed, sql: None }))
+    }
+
+    /// The versions around a save of a query's text (`before`: the query as
+    /// it was; `None` for a new one). The text it had is kept when no
+    /// version has it yet and it stood for a while (or there are no versions
+    /// at all, a query from before the timeline), so the state before an
+    /// edit can always come back. Then the new text, throttled unless `force`
+    /// (an explicit save, a run, closing the tab).
+    pub fn version_query_save(&self, query_id: &str, before: Option<&SavedQuery>, sql: &str, force: bool) -> Result<()> {
+        let min = chrono::Duration::seconds(VERSION_THROTTLE_SECS);
+        let now = chrono::Utc::now();
+        if let Some(b) = before.filter(|b| b.sql != sql && !b.sql.trim().is_empty()) {
+            let newest: Option<String> = self
+                .lock()?
+                .query_row("SELECT hash FROM query_versions WHERE query_id = ?1 ORDER BY id DESC LIMIT 1", [query_id], |r| r.get(0))
+                .optional()
+                .map_err(db_err)?;
+            let stood = parse_ts(&b.updated_at).is_none_or(|at| now - at >= min);
+            let at = if parse_ts(&b.updated_at).is_some() { b.updated_at.clone() } else { now.to_rfc3339() };
+            match newest {
+                None => {
+                    self.add_query_version(query_id, &b.sql, &at, None)?;
+                }
+                Some(h) if h != text_hash(&b.sql) && stood => {
+                    self.add_query_version(query_id, &b.sql, &at, None)?;
+                }
+                _ => {}
+            }
+        }
+        self.add_query_version(query_id, sql, &now.to_rfc3339(), (!force).then_some(min))?;
+        Ok(())
+    }
+
+    /// A query's versions, newest first (without their text).
+    pub fn list_query_versions(&self, query_id: &str) -> Result<Vec<QueryVersion>> {
+        let c = self.lock()?;
+        let mut stmt = c
+            .prepare("SELECT id, query_id, saved_at, added, removed FROM query_versions WHERE query_id = ?1 ORDER BY id DESC")
+            .map_err(db_err)?;
+        let rows = stmt
+            .query_map([query_id], |r| {
+                Ok(QueryVersion { id: r.get(0)?, query_id: r.get(1)?, saved_at: r.get(2)?, added: r.get(3)?, removed: r.get(4)?, sql: None })
+            })
+            .map_err(db_err)?;
+        rows.collect::<std::result::Result<_, _>>().map_err(db_err)
+    }
+
+    /// One version, with its text.
+    pub fn get_query_version(&self, id: i64) -> Result<Option<QueryVersion>> {
+        self.lock()?
+            .query_row("SELECT id, query_id, saved_at, added, removed, sql FROM query_versions WHERE id = ?1", [id], |r| {
+                Ok(QueryVersion { id: r.get(0)?, query_id: r.get(1)?, saved_at: r.get(2)?, added: r.get(3)?, removed: r.get(4)?, sql: r.get(5)? })
+            })
+            .optional()
+            .map_err(db_err)
     }
 
     // -- backup copies --------------------------------------------------
@@ -1303,6 +1485,99 @@ fn row_to_project(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
     })
 }
 
+fn text_hash(s: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(s.as_bytes()))
+}
+
+fn parse_ts(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&chrono::Utc))
+}
+
+/// Lines added and removed going from `a` to `b` (a changed line counts as
+/// both, as in git). Past a size it counts the differing middle as replaced.
+pub fn line_changes(a: &str, b: &str) -> (u32, u32) {
+    let x: Vec<&str> = a.lines().collect();
+    let y: Vec<&str> = b.lines().collect();
+    let pre = x.iter().zip(&y).take_while(|(p, q)| p == q).count();
+    let (x, y) = (&x[pre..], &y[pre..]);
+    let suf = x.iter().rev().zip(y.iter().rev()).take_while(|(p, q)| p == q).count();
+    let (x, y) = (&x[..x.len() - suf], &y[..y.len() - suf]);
+    let (n, m) = (x.len(), y.len());
+    if n == 0 || m == 0 || n.saturating_mul(m) > 4_000_000 {
+        return (m as u32, n as u32);
+    }
+    // The longest common subsequence's length, one row at a time.
+    let mut prev = vec![0u32; m + 1];
+    let mut cur = vec![0u32; m + 1];
+    for xi in x {
+        for (j, yj) in y.iter().enumerate() {
+            cur[j + 1] = if xi == yj { prev[j] + 1 } else { cur[j].max(prev[j + 1]) };
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    let common = prev[m] as usize;
+    ((m - common) as u32, (n - common) as u32)
+}
+
+/// Which versions go (`rows`: id and when, newest first): every one of the
+/// last `VERSIONS_ALL_DAYS`, then the newest of each day up to
+/// `VERSIONS_DAILY_DAYS`, and never more than `VERSIONS_MAX`.
+fn versions_to_drop(rows: &[(i64, chrono::DateTime<chrono::Utc>)], now: chrono::DateTime<chrono::Utc>) -> Vec<i64> {
+    let mut keep = 0usize;
+    let mut last_day = None;
+    let mut drop = Vec::new();
+    for (id, at) in rows {
+        let age = now - *at;
+        let day = at.date_naive();
+        let kept = if keep >= VERSIONS_MAX || age > chrono::Duration::days(VERSIONS_DAILY_DAYS) {
+            false
+        } else if age <= chrono::Duration::days(VERSIONS_ALL_DAYS) {
+            true
+        } else {
+            last_day != Some(day)
+        };
+        if kept {
+            keep += 1;
+            last_day = Some(day);
+        } else {
+            drop.push(*id);
+        }
+    }
+    drop
+}
+
+fn prune_versions(c: &Connection, query_id: &str, now: chrono::DateTime<chrono::Utc>) -> Result<()> {
+    let mut stmt = c.prepare("SELECT id, saved_at FROM query_versions WHERE query_id = ?1 ORDER BY id DESC").map_err(db_err)?;
+    let rows: Vec<(i64, String)> =
+        stmt.query_map([query_id], |r| Ok((r.get(0)?, r.get(1)?))).map_err(db_err)?.collect::<rusqlite::Result<_>>().map_err(db_err)?;
+    // An unreadable date counts as now (kept while recent ones are).
+    let rows: Vec<_> = rows.into_iter().map(|(id, at)| (id, parse_ts(&at).unwrap_or(now))).collect();
+    for id in versions_to_drop(&rows, now) {
+        c.execute("DELETE FROM query_versions WHERE id = ?1", [id]).map_err(db_err)?;
+    }
+    Ok(())
+}
+
+fn row_to_history(r: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryEntry> {
+    Ok(HistoryEntry {
+        id: r.get(0)?,
+        connection_id: r.get(1)?,
+        connection_name: r.get(2)?,
+        driver: r.get(3)?,
+        host: r.get(4)?,
+        database: r.get(5)?,
+        sql: r.get(6)?,
+        started_at: r.get(7)?,
+        duration_ms: r.get::<_, i64>(8)? as u64,
+        rows: r.get::<_, Option<i64>>(9)?.map(|n| n as u64),
+        error: r.get(10)?,
+        query_id: r.get(11)?,
+        project_id: r.get(12)?,
+        file_path: r.get(13)?,
+    })
+}
+
 fn row_to_query(r: &rusqlite::Row<'_>) -> rusqlite::Result<SavedQuery> {
     Ok(SavedQuery {
         id: r.get(0)?,
@@ -1414,7 +1689,7 @@ mod tests {
         s.delete_library_script("l1").unwrap();
         assert_eq!(kinds(&seen), ["setting", "library", "library"]);
 
-        let h = HistoryEntry { id: 0, connection_id: "c1".into(), connection_name: "local".into(), driver: "postgres".into(), host: "h".into(), database: "db".into(), sql: "select 1".into(), started_at: now(), duration_ms: 1, rows: None, error: None };
+        let h = HistoryEntry { id: 0, connection_id: "c1".into(), connection_name: "local".into(), driver: "postgres".into(), host: "h".into(), database: "db".into(), sql: "select 1".into(), started_at: now(), duration_ms: 1, rows: None, error: None, ..Default::default() };
         s.add_history(&h).unwrap();
         s.delete_history(None).unwrap();
         assert_eq!(kinds(&seen), ["history", "history"]);
@@ -1457,7 +1732,7 @@ mod tests {
         }));
         s.save_connection(&conn("c1")).unwrap();
         s.set_setting("ui.theme", Some(&serde_json::json!("dark"))).unwrap();
-        s.add_history(&HistoryEntry { id: 0, connection_id: "c1".into(), connection_name: "l".into(), driver: "postgres".into(), host: "h".into(), database: "db".into(), sql: "x".into(), started_at: now(), duration_ms: 0, rows: None, error: None }).unwrap();
+        s.add_history(&HistoryEntry { id: 0, connection_id: "c1".into(), connection_name: "l".into(), driver: "postgres".into(), host: "h".into(), database: "db".into(), sql: "x".into(), started_at: now(), duration_ms: 0, rows: None, error: None, ..Default::default() }).unwrap();
         assert_eq!(*seen.lock().unwrap(), 1 + 2 + 2);
     }
 
@@ -1739,6 +2014,7 @@ mod tests {
         let entry = |sql: &str, host: &str| HistoryEntry {
             id: 0, connection_id: "c1".into(), connection_name: "Prod".into(), driver: "postgres".into(), host: host.into(),
             database: "app".into(), sql: sql.into(), started_at: now(), duration_ms: 12, rows: Some(3), error: None,
+            ..Default::default()
         };
         s.add_history(&entry("SELECT * FROM clientes", "pg1")).unwrap();
         s.add_history(&entry("UPDATE stock SET n = 0 -- 100%", "pg2")).unwrap();
@@ -1835,5 +2111,131 @@ mod tests {
         s.delete_task("t1").unwrap();
         assert!(s.list_tasks().unwrap().is_empty());
         assert!(s.list_task_runs(None, 10).unwrap().is_empty());
+    }
+
+    fn saved(s: &StateStore, id: &str, sql: &str, updated_at: &str) -> SavedQuery {
+        let q = SavedQuery { id: id.into(), connection_id: "c1".into(), database: "db".into(), name: "q".into(), sql: sql.into(), updated_at: String::new(), last_run_at: None };
+        s.save_query(&q).unwrap();
+        SavedQuery { updated_at: updated_at.into(), ..q }
+    }
+
+    fn texts(s: &StateStore, q: &str) -> Vec<String> {
+        s.list_query_versions(q).unwrap().iter().map(|v| s.get_query_version(v.id).unwrap().unwrap().sql.unwrap()).collect()
+    }
+
+    #[test]
+    fn query_versions_dedupe_throttle_and_stay_local() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("c1")).unwrap();
+        saved(&s, "q1", "", "");
+        let rev = s.revision().unwrap();
+        let min = chrono::Duration::seconds(VERSION_THROTTLE_SECS);
+        let t0 = chrono::Utc::now() - chrono::Duration::minutes(10);
+        let at = |secs: i64| (t0 + chrono::Duration::seconds(secs)).to_rfc3339();
+        assert!(s.add_query_version("q1", "  \n", &at(0), Some(min)).unwrap().is_none(), "a blank text isn't a version");
+        let v1 = s.add_query_version("q1", "select 1\nfrom a", &at(0), Some(min)).unwrap().unwrap();
+        assert_eq!((v1.added, v1.removed), (0, 0));
+        assert!(s.add_query_version("q1", "select 1\nfrom a", &at(120), None).unwrap().is_none(), "same text as the newest");
+        assert!(s.add_query_version("q1", "select 2\nfrom a", &at(30), Some(min)).unwrap().is_none(), "throttled");
+        let v2 = s.add_query_version("q1", "select 2\nfrom a\nwhere x", &at(30), None).unwrap().unwrap();
+        assert_eq!((v2.added, v2.removed), (2, 1));
+        assert!(s.add_query_version("q1", "select 3", &at(95), Some(min)).unwrap().unwrap().id > v2.id);
+        assert_eq!(texts(&s, "q1"), ["select 3", "select 2\nfrom a\nwhere x", "select 1\nfrom a"]);
+        assert_eq!(s.revision().unwrap(), rev, "versions aren't a change to sync");
+        assert!(!serde_json::to_string(&s.snapshot().unwrap()).unwrap().contains("where x"));
+        // Deleting the query takes its versions.
+        s.delete_query("q1").unwrap();
+        assert!(s.list_query_versions("q1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_save_keeps_the_text_before_it() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("c1")).unwrap();
+        // A query from before the timeline: its text becomes the first version.
+        let old = (chrono::Utc::now() - chrono::Duration::days(2)).to_rfc3339();
+        let before = saved(&s, "q1", "select viejo", &old);
+        s.version_query_save("q1", Some(&before), "select nuevo", false).unwrap();
+        assert_eq!(texts(&s, "q1"), ["select nuevo", "select viejo"]);
+        // Typing on: throttled, and the text a moment ago isn't kept either.
+        let recent = chrono::Utc::now().to_rfc3339();
+        let before = saved(&s, "q1", "select nuevo 2", &recent);
+        s.version_query_save("q1", Some(&before), "select nuevo 3", false).unwrap();
+        assert_eq!(texts(&s, "q1").len(), 2);
+        // An explicit save always records.
+        s.version_query_save("q1", Some(&before), "select nuevo 3", true).unwrap();
+        assert_eq!(texts(&s, "q1")[0], "select nuevo 3");
+        // A text that stood for a while (say the app closed before a version)
+        // is kept before the next edit replaces it.
+        let before = saved(&s, "q1", "select quieto", &(chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339());
+        s.version_query_save("q1", Some(&before), "select editado", false).unwrap();
+        assert_eq!(texts(&s, "q1")[..2], ["select editado".to_string(), "select quieto".to_string()]);
+    }
+
+    #[test]
+    fn old_versions_thin_out() {
+        let now = chrono::Utc::now();
+        let ago = |h: i64| now - chrono::Duration::hours(h);
+        // Newest first: three today, two on day 10 (one goes), one on day 20, one past 90 days.
+        let rows = vec![(9, ago(1)), (8, ago(2)), (7, ago(3)), (6, ago(240)), (5, ago(240) - chrono::Duration::minutes(5)), (4, ago(480)), (3, ago(24 * 100))];
+        let dropped = versions_to_drop(&rows, now);
+        assert!(dropped.contains(&3) && !dropped.contains(&6) && !dropped.contains(&4) && !dropped.contains(&9));
+        // Same calendar day as id 6 (5 minutes before), unless it crossed midnight.
+        assert_eq!(dropped.contains(&5), rows[3].1.date_naive() == rows[4].1.date_naive());
+        // A cap per query, newest kept.
+        let n = VERSIONS_MAX as i64 + 10;
+        let many: Vec<_> = (0..n).map(|i| (n - i, now - chrono::Duration::seconds(i))).collect();
+        let dropped = versions_to_drop(&many, now);
+        assert_eq!(dropped, (1..=10).rev().collect::<Vec<i64>>());
+    }
+
+    #[test]
+    fn line_changes_count_like_git() {
+        assert_eq!(line_changes("a\nb\nc", "a\nb\nc"), (0, 0));
+        assert_eq!(line_changes("a\nb\nc", "a\nB\nc\nd"), (2, 1));
+        assert_eq!(line_changes("", "a\nb"), (2, 0));
+        assert_eq!(line_changes("a\nb", ""), (0, 2));
+        assert_eq!(line_changes("x\na\ny\nb", "a\nb\nz"), (1, 2));
+    }
+
+    #[test]
+    fn runs_are_listed_by_query_and_by_file() {
+        let s = StateStore::open_in_memory().unwrap();
+        let run = |sql: &str, q: Option<&str>, f: Option<(&str, &str)>| HistoryEntry {
+            connection_id: "c1".into(), sql: sql.into(), started_at: now(),
+            query_id: q.map(Into::into), project_id: f.map(|f| f.0.into()), file_path: f.map(|f| f.1.into()),
+            ..Default::default()
+        };
+        s.add_history(&run("select 1", Some("q1"), None)).unwrap();
+        s.add_history(&run("select 2", None, Some(("p1", "a.sql")))).unwrap();
+        s.add_history(&run("select 3", None, Some(("p1", "b.sql")))).unwrap();
+        s.add_history(&run("select 4", Some("q1"), None)).unwrap();
+        s.add_history(&run("select 5", None, None)).unwrap();
+        let sqls = |v: Vec<HistoryEntry>| v.into_iter().map(|e| e.sql).collect::<Vec<_>>();
+        assert_eq!(sqls(s.list_history_of(Some("q1"), None, 10).unwrap()), ["select 4", "select 1"]);
+        assert_eq!(sqls(s.list_history_of(None, Some(("p1", "a.sql")), 10).unwrap()), ["select 2"]);
+        assert!(s.list_history_of(None, None, 10).unwrap().is_empty());
+        assert_eq!(s.list_history(None, None, 10).unwrap()[3].project_id.as_deref(), Some("p1"));
+    }
+
+    #[test]
+    fn old_history_tables_gain_the_origin_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.db");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE query_history (id INTEGER PRIMARY KEY AUTOINCREMENT, connection_id TEXT NOT NULL, connection_name TEXT NOT NULL,
+                 driver TEXT NOT NULL, host TEXT NOT NULL, database TEXT NOT NULL, sql TEXT NOT NULL, started_at TEXT NOT NULL,
+                 duration_ms INTEGER NOT NULL, rows INTEGER, error TEXT);
+                 INSERT INTO query_history (connection_id, connection_name, driver, host, database, sql, started_at, duration_ms)
+                 VALUES ('c1', 'l', 'postgres', 'h', 'db', 'select viejo', '2026-01-01T00:00:00Z', 1);",
+            )
+            .unwrap();
+        let s = StateStore::open(&path).unwrap();
+        let all = s.list_history(None, None, 10).unwrap();
+        assert_eq!((all[0].sql.as_str(), all[0].query_id.as_deref()), ("select viejo", None));
+        drop(s);
+        assert!(StateStore::open(&path).is_ok(), "opening it again changes nothing");
     }
 }

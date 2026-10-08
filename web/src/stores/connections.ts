@@ -471,8 +471,8 @@ export const useConnectionsStore = defineStore('connections', {
     },
 
     /** Save and keep the explorer's list in step. */
-    async saveQuery(q: SavedQuery): Promise<SavedQuery> {
-      const saved = await api.saveQuery(q);
+    async saveQuery(q: SavedQuery, checkpoint = false): Promise<SavedQuery> {
+      const saved = await api.saveQuery(q, checkpoint);
       const k = dbKey(saved.connection_id, saved.database);
       // It may have moved to another database: drop it from the old list.
       for (const [key, l] of Object.entries(this.queries)) {

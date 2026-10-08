@@ -17,6 +17,11 @@ export interface HistoryEntry {
   duration_ms: number;
   rows: number | null;
   error: string | null;
+  /** The saved query it ran from (its tab's timeline). */
+  query_id: string | null;
+  /** The project file it ran from. */
+  project_id: string | null;
+  file_path: string | null;
 }
 
 export const historyApi = {

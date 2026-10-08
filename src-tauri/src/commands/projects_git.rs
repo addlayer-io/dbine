@@ -415,6 +415,127 @@ pub async fn diff(store: &StateStore, args: DiffArgs) -> CommandResult<FileDiff>
     Ok(FileDiff { path: args.path, orig_path: orig, mark, before: flat(before), after: flat(after), binary, too_large })
 }
 
+// -- a file's commits (its tab's timeline, docs/historial.md) ----------------------------
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct FileCommit {
+    pub hash: String,
+    pub short: String,
+    pub author: String,
+    /// The author's date, ISO 8601.
+    pub date: String,
+    pub subject: String,
+    /// The file's path in that commit (a rename may have changed it since).
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileLogArgs {
+    pub id: String,
+    pub path: String,
+    pub limit: Option<u32>,
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn project_file_log(state: State<'_, AppState>, args: FileLogArgs) -> CommandResult<Vec<FileCommit>> {
+    file_log(&state.store, args).await
+}
+
+/// The commits that touched a file, newest first, following renames. Empty
+/// when there's no git, the folder isn't a repo or nothing is committed yet.
+pub async fn file_log(store: &StateStore, args: FileLogArgs) -> CommandResult<Vec<FileCommit>> {
+    rel_ok(&args.path)?;
+    let (_, root) = root_of(store, &args.id)?;
+    if git_cli::git_path().is_err() || !root.join(".git").exists() {
+        return Ok(Vec::new());
+    }
+    let n = format!("-n{}", args.limit.unwrap_or(100).clamp(1, 1000));
+    let out = git_cli::output(
+        &root,
+        &[
+            "--no-optional-locks",
+            "--literal-pathspecs",
+            "log",
+            "--follow",
+            &n,
+            "--name-only",
+            "--format=%x1e%H%x1f%h%x1f%an%x1f%aI%x1f%s",
+            "--",
+            &args.path,
+        ],
+        RunOpts::default(),
+    )
+    .await?;
+    // No commits yet (or an unborn branch): nothing to show.
+    if !out.ok() {
+        return Ok(Vec::new());
+    }
+    Ok(parse_file_log(&String::from_utf8_lossy(&out.stdout), &args.path))
+}
+
+/// `git log --name-only` with the format above: one record per commit, the
+/// file's name in it after the header line.
+fn parse_file_log(raw: &str, path: &str) -> Vec<FileCommit> {
+    raw.split('\u{1e}')
+        .filter_map(|rec| {
+            let mut lines = rec.lines();
+            let head: Vec<&str> = lines.next()?.splitn(5, '\u{1f}').collect();
+            let [hash, short, author, date, subject] = head[..] else { return None };
+            let name = lines.map(str::trim).filter(|l| !l.is_empty()).last().unwrap_or(path);
+            Some(FileCommit {
+                hash: hash.to_string(),
+                short: short.to_string(),
+                author: author.to_string(),
+                date: date.to_string(),
+                subject: subject.to_string(),
+                path: name.to_string(),
+            })
+        })
+        .collect()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileAtArgs {
+    pub id: String,
+    /// A full or abbreviated commit hash.
+    pub commit: String,
+    /// The file's path in that commit ([`FileCommit::path`]).
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct FileAtCommit {
+    /// `None`: not in that commit, binary or too large.
+    pub text: Option<String>,
+    pub binary: bool,
+    pub too_large: bool,
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn project_file_at(state: State<'_, AppState>, args: FileAtArgs) -> CommandResult<FileAtCommit> {
+    file_at(&state.store, args).await
+}
+
+/// A file as it was in a commit.
+pub async fn file_at(store: &StateStore, args: FileAtArgs) -> CommandResult<FileAtCommit> {
+    rel_ok(&args.path)?;
+    // Only a hash: nothing git could read as an option or a revision expression.
+    if !(4..=64).contains(&args.commit.len()) || !args.commit.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(CommandError::BadRequest("el commit no es válido".into()));
+    }
+    let (_, root) = repo_root(store, &args.id).await?;
+    let Some(bytes) = show(&root, &format!("{}:{}", args.commit, args.path.replace('\\', "/"))).await else {
+        return Ok(FileAtCommit { text: None, binary: false, too_large: false });
+    };
+    if bytes.len() > DIFF_MAX {
+        return Ok(FileAtCommit { text: None, binary: false, too_large: true });
+    }
+    Ok(match decode_text(&bytes) {
+        Some((text, _, _)) => FileAtCommit { text: Some(text), binary: false, too_large: false },
+        None => FileAtCommit { text: None, binary: true, too_large: false },
+    })
+}
+
 // -- commit -----------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -993,6 +1114,39 @@ mod tests {
         assert!(plain.join("sub/a.sql").is_file() && plain.join(".git").is_dir());
         let st = status(&w.store, &w.ev, StatusArgs { id: id.clone(), ..Default::default() }).await;
         assert!(st.is_err(), "unlinked");
+    }
+
+    #[test]
+    fn file_log_is_parsed() {
+        let raw = "\u{1e}aaaa1111\u{1f}aaaa\u{1f}Ana\u{1f}2026-10-08T10:00:00-03:00\u{1f}fix: x\u{1f}y\n\nsql/nuevo.sql\n\u{1e}bbbb\u{1f}bbb\u{1f}Leo\u{1f}2026-10-01T09:00:00+00:00\u{1f}base\n\nviejo.sql\n\u{1e}cccc\u{1f}ccc\u{1f}M\u{1f}2026-09-01T09:00:00+00:00\u{1f}merge\n";
+        let log = parse_file_log(raw, "sql/nuevo.sql");
+        assert_eq!(log.len(), 3);
+        assert_eq!((log[0].author.as_str(), log[0].subject.as_str(), log[0].path.as_str()), ("Ana", "fix: x\u{1f}y", "sql/nuevo.sql"));
+        assert_eq!(log[1].path, "viejo.sql");
+        assert_eq!(log[2].path, "sql/nuevo.sql", "no name (a merge): the asked path");
+    }
+
+    #[tokio::test]
+    async fn a_files_commits_follow_renames() {
+        let Some(w) = World::new().await else { return };
+        let (id, root) = w.clone("log").await;
+        let log = |p: &str| file_log(&w.store, FileLogArgs { id: id.clone(), path: p.into(), limit: None });
+        assert!(log("a.sql").await.unwrap().is_empty(), "nothing committed yet");
+        w.write(&id, "a.sql", "select 1;\n");
+        w.commit(&id, "primero").await;
+        w.write(&id, "a.sql", "select 2;\n");
+        w.commit(&id, "segundo").await;
+        g(&root, &["mv", "a.sql", "b.sql"]).await;
+        w.commit(&id, "renombrado").await;
+        let commits = log("b.sql").await.unwrap();
+        assert_eq!(commits.iter().map(|c| (c.subject.as_str(), c.path.as_str())).collect::<Vec<_>>(), [("renombrado", "b.sql"), ("segundo", "a.sql"), ("primero", "a.sql")]);
+        assert_eq!(commits[0].author, "Test");
+        let at = |c: &str, p: &str| file_at(&w.store, FileAtArgs { id: id.clone(), commit: c.into(), path: p.into() });
+        assert_eq!(at(&commits[2].hash, "a.sql").await.unwrap().text.as_deref(), Some("select 1;\n"));
+        assert_eq!(at(&commits[1].short, "a.sql").await.unwrap().text.as_deref(), Some("select 2;\n"));
+        assert_eq!(at(&commits[1].hash, "b.sql").await.unwrap().text, None, "not there yet");
+        assert!(at("HEAD", "b.sql").await.is_err() && at("--output=x", "b.sql").await.is_err(), "only a hash");
+        assert!(at(&commits[0].hash, "../x").await.is_err() && log("../x").await.is_err());
     }
 
     #[tokio::test]
