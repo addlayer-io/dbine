@@ -37,6 +37,7 @@
   "review": "review manually",
   "reviewHint": "Part of the text could not be decided: if you check it, those lines stay as they are.",
   "schemabound": "with SCHEMABINDING: dropped first and created afterwards",
+  "carried": "Used by {{names}}: dropped first and recreated unchanged afterwards.",
   "line": "line {{line}}",
   "openDefinition": "Open definition",
   "manualReason": {
