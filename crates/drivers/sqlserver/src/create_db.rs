@@ -29,6 +29,11 @@ const COMPAT: [(&str, &str); 7] = [
     ("100", "100 (SQL Server 2008)"),
 ];
 
+/// The compatibility levels offered (newest first).
+pub(crate) fn compat_options() -> Vec<(&'static str, &'static str)> {
+    COMPAT.to_vec()
+}
+
 pub(crate) fn fields(v: Variant) -> Vec<Field> {
     let collation = Field::new("collation", "Intercalación (collation)", FieldKind::Text)
         .help("Vacía: la del servidor. Define cómo se ordenan y comparan los textos.");
@@ -80,11 +85,11 @@ pub(crate) fn fields(v: Variant) -> Vec<Field> {
     }
 }
 
-fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+pub(crate) fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
     o.get(key).map(|v| v.trim()).filter(|v| !v.is_empty())
 }
 
-fn check(ok: bool, what: &str, v: &str) -> Result<()> {
+pub(crate) fn check(ok: bool, what: &str, v: &str) -> Result<()> {
     if ok {
         Ok(())
     } else {
@@ -92,12 +97,12 @@ fn check(ok: bool, what: &str, v: &str) -> Result<()> {
     }
 }
 
-fn word(v: &str) -> bool {
+pub(crate) fn word(v: &str) -> bool {
     !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// `64MB`, `1 GB`, `10%` (growth) or a bare number of MB.
-fn size(v: &str, percent: bool) -> Option<String> {
+pub(crate) fn size(v: &str, percent: bool) -> Option<String> {
     let s: String = v.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_ascii_uppercase();
     let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
     if digits.is_empty() {
@@ -111,7 +116,7 @@ fn size(v: &str, percent: bool) -> Option<String> {
     }
 }
 
-fn literal(s: &str) -> String {
+pub(crate) fn literal(s: &str) -> String {
     format!("N'{}'", s.replace('\'', "''"))
 }
 

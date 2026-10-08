@@ -40,6 +40,17 @@ pub fn pairs<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<(&'static str, &'sta
     Vec::<(String, String)>::deserialize(d).map(|v| v.iter().map(|(a, b)| (intern(a), intern(b))).collect())
 }
 
+/// Metadata types (`Field`…) whose `&'static str`s serde only reads from
+/// `'static` input: read through an owned JSON value, whatever the input.
+pub fn owned<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'static>,
+{
+    let v = serde_json::Value::deserialize(d)?;
+    T::deserialize(v).map_err(serde::de::Error::custom)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

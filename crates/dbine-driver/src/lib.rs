@@ -41,7 +41,10 @@ pub use config::ConnectionConfig;
 pub use dependencies::{Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation};
 pub use error::{Error, Result};
 pub use index_usage::{IndexUsage, IndexUsageReport};
-pub use info::{kinds, DriverInfo, Family, Field, FieldChoices, FieldKind, FieldSection, FieldWhen, Language, ObjectKindInfo};
+pub use info::{
+    kinds, DatabaseProperties, DriverInfo, Family, Field, FieldChoices, FieldKind, FieldSection, FieldWhen, Language, ObjectKindInfo,
+    PropertyInfo,
+};
 pub use filter::{ColumnFilter, FilterOp};
 pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
 pub use model::{
@@ -282,6 +285,14 @@ pub trait Driver: Send + Sync {
     fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
         let _ = (name, options);
         Err(Error::Unsupported("este motor no genera el script de creación de una base".into()))
+    }
+
+    /// The code that applies `changes` (field key → new value, only the
+    /// ones the user changed; see [`Session::database_properties`]) to
+    /// `database`, as [`Session::alter_database`] runs it.
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        let _ = (database, changes);
+        Err(Error::Unsupported("este motor no modifica las propiedades de una base".into()))
     }
 
     /// The code that creates schema `name` (quoted as the engine needs) in
@@ -629,6 +640,20 @@ pub trait Session: Send {
             return self.create_database(name).await;
         }
         Err(Error::Unsupported("este motor no admite opciones al crear una base".into()))
+    }
+
+    /// "Propiedades" of `database`: what can be changed, its current
+    /// values, read-only facts and warnings. Drivers that implement it set
+    /// `Capabilities::database_properties`.
+    async fn database_properties(&mut self, database: &str) -> Result<info::DatabaseProperties> {
+        let _ = database;
+        Err(Error::Unsupported("este motor no muestra las propiedades de una base".into()))
+    }
+
+    /// Apply `changes` to `database` (see [`Driver::alter_database_script`]).
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        let _ = (database, changes);
+        Err(Error::Unsupported("este motor no modifica las propiedades de una base".into()))
     }
 
     /// Drop a database (keyspace, dataset…) and everything in it.

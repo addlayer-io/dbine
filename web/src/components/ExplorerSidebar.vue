@@ -29,6 +29,7 @@ import KeySearchRow from './KeySearchRow.vue';
 import CloneTableDialog from './CloneTableDialog.vue';
 import SchemaDialog from './SchemaDialog.vue';
 import CreateDatabaseDialog from './CreateDatabaseDialog.vue';
+import DatabasePropertiesDialog from './DatabasePropertiesDialog.vue';
 import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
@@ -559,6 +560,8 @@ const cloning = ref<{ connectionId: string; database: string; object: { kind: st
 /** "Eliminar índice…": the index being dropped. */
 const droppingIndex = ref<DropIndexTarget | null>(null);
 /** "Nuevo esquema…" / "Borrar esquema…": the dialog open. */
+/** The database "Propiedades" is open for. */
+const dbProperties = ref<{ connectionId: string; database: string } | null>(null);
 const schemaDialog = ref<{ connectionId: string; database: string; mode: 'create' | 'drop'; schema?: string } | null>(null);
 /** Schemas can be created and dropped here: the engine has them and the connection isn't read-only. */
 function schemasEditable(cid: string): boolean {
@@ -735,6 +738,9 @@ async function onContext(e: MouseEvent, n: TNode) {
       dbItems(cid!, db, items);
       items.push({ label: t('common:refresh'), divided: true, action: () => loadDatabase(cid!, db, true) });
       items.push({ label: t('explorer:menu.copyName'), action: () => copy(db) });
+      if (conns.driverOf(cid!)?.capabilities.database_properties) {
+        items.push({ label: t('dbProperties:menu'), divided: true, action: () => { dbProperties.value = { connectionId: cid!, database: db }; } });
+      }
       if (conns.driverOf(cid!)?.capabilities.drop_database && !conns.byId(cid!)?.config.read_only) {
         items.push(guarded(cid!, db, 'drop_database', { label: t('explorer:menu.dropDatabase'), danger: true, divided: true, action: () => dropDatabase(cid!, db) }));
       }
@@ -1326,6 +1332,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <DropIndexDialog v-if="droppingIndex" :target="droppingIndex" @close="droppingIndex = null" />
     <CloneTableDialog v-if="cloning" :connection-id="cloning.connectionId" :database="cloning.database" :object="cloning.object" @close="cloning = null" />
     <CreateDatabaseDialog v-if="creatingDatabase" :connection-id="creatingDatabase" @close="creatingDatabase = null" />
+    <DatabasePropertiesDialog v-if="dbProperties" :connection-id="dbProperties.connectionId" :database="dbProperties.database" @close="dbProperties = null" />
     <SchemaDialog
       v-if="schemaDialog" :connection-id="schemaDialog.connectionId" :database="schemaDialog.database" :mode="schemaDialog.mode" :schema="schemaDialog.schema"
       @done="loadDatabase(schemaDialog!.connectionId, schemaDialog!.database, true)" @close="schemaDialog = null"

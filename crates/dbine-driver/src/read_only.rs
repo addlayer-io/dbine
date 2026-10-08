@@ -134,6 +134,12 @@ impl Session for ReadOnlySession {
     async fn create_database_with(&mut self, _name: &str, _options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         Err(Error::Query("Conexión de solo lectura: no se pueden crear bases.".into()))
     }
+    async fn database_properties(&mut self, database: &str) -> Result<crate::DatabaseProperties> {
+        self.inner.database_properties(database).await
+    }
+    async fn alter_database(&mut self, _database: &str, _changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        Err(Error::Query("Conexión de solo lectura: no se pueden modificar las propiedades de una base.".into()))
+    }
     async fn create_database_choices(&mut self) -> Result<Vec<crate::FieldChoices>> {
         self.inner.create_database_choices().await
     }
