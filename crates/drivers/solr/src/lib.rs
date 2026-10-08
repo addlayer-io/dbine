@@ -17,6 +17,7 @@ mod plan;
 mod permissions;
 mod security;
 mod backup;
+mod rename;
 mod stats;
 pub mod transfer;
 
@@ -243,6 +244,15 @@ impl Driver for Solr {
         sync::sync_script(changes)
     }
 
+    /// Cores on a standalone server (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::rename::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::rename::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
+    }
+
     /// Basic authentication and rule-based authorization (security.json).
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
         Some(security::spec())
@@ -353,6 +363,9 @@ impl SolrSession {
             return Ok(());
         }
         if status >= 400 {
+            if self.cloud && rename::is_core_rename(&req) {
+                return Err(Error::Query(rename::CLOUD.into()));
+            }
             return Err(Error::Query(solr_error_message(status, &text)));
         }
         match J::parse(&text) {

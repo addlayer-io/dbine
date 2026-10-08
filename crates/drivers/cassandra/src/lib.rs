@@ -17,6 +17,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod security;
 mod stats;
 mod steps;
@@ -221,6 +222,15 @@ impl Driver for CassandraDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(self.flavor == Flavor::Keyspaces, changes)
+    }
+
+    /// Primary key columns only (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::rename::RenameSpec> {
+        rename::spec(self.flavor)
+    }
+
+    fn rename_script(&self, req: &dbine_driver::rename::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(self.flavor, &self.script_dialect(), req)
     }
 
     fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
