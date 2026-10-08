@@ -18,6 +18,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod security;
 mod session;
 mod stats;
@@ -309,6 +310,16 @@ impl Driver for MySqlDriver {
 
     fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
         index_usage::toggle_script(self.variant, table, index, enable)
+    }
+
+    /// Tables and views with `RENAME TABLE`, columns with `CHANGE COLUMN`,
+    /// indexes with `RENAME INDEX`; the emulations, tables only (see `rename`).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        rename::spec(self.variant)
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(self.variant, req)
     }
 
     fn script_dialect(&self) -> ScriptDialect {

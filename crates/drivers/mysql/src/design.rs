@@ -237,18 +237,7 @@ pub(crate) fn sync_script(v: Variant, changes: &[dbine_driver::TableChange]) -> 
         Variant::Manticore => ColumnAlter::None,
         _ => ColumnAlter::Modify { keyword: "MODIFY COLUMN" },
     };
-    let cd = |t: &TableSchema, c: &dbine_driver::ColumnDef| {
-        let t = escaped_comments(t);
-        let mut c = t.columns.iter().find(|x| x.name == c.name).cloned().unwrap_or_else(|| c.clone());
-        // A MariaDB column CHECK goes after the rest of the column.
-        let (ty, check) = column_check(&c.data_type);
-        c.data_type = ty;
-        let def = ddl::column_def(&f, &t, &c);
-        match check {
-            Some(ch) => format!("{def} {ch}"),
-            None => def,
-        }
-    };
+    let cd = |t: &TableSchema, c: &dbine_driver::ColumnDef| column_definition(v, t, c);
     let dd = |t: &TableSchema, p: DdlParts| table_ddl(v, t, p);
     let mut st = AlterStyle::from_flavor(&f, column, &cd, &dd);
     st.drop_index = if matches!(v, Variant::StarRocks | Variant::Doris | Variant::VeloDb) { DropIndex::OnTable } else { DropIndex::AlterTable };
@@ -261,6 +250,23 @@ pub(crate) fn sync_script(v: Variant, changes: &[dbine_driver::TableChange]) -> 
     }
     engine_sync(v, changes, &mut script)?;
     Ok(script)
+}
+
+/// The whole column as `MODIFY` / `CHANGE COLUMN` take it (name included):
+/// type, generated expression, default, nullability, `AUTO_INCREMENT` and
+/// comment, from `t`'s own copy of the column when it has one.
+pub(crate) fn column_definition(v: Variant, t: &TableSchema, c: &dbine_driver::ColumnDef) -> String {
+    let f = flavor(v);
+    let t = escaped_comments(t);
+    let mut c = t.columns.iter().find(|x| x.name == c.name).cloned().unwrap_or_else(|| c.clone());
+    // A MariaDB column CHECK goes after the rest of the column.
+    let (ty, check) = column_check(&c.data_type);
+    c.data_type = ty;
+    let def = ddl::column_def(&f, &t, &c);
+    match check {
+        Some(ch) => format!("{def} {ch}"),
+        None => def,
+    }
 }
 
 /// A table comment change (the schema sync): `ALTER TABLE … COMMENT =`

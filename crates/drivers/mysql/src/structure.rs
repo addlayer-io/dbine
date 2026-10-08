@@ -64,7 +64,7 @@ pub(crate) fn split_top(s: &str) -> Vec<String> {
 }
 
 /// The text between the `(` at `open` and its matching `)`.
-fn inside(s: &str, open: usize) -> Option<&str> {
+pub(crate) fn inside(s: &str, open: usize) -> Option<&str> {
     let mut depth = 0i32;
     let mut quote: Option<char> = None;
     let mut prev = '\0';
