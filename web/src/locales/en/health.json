@@ -1,0 +1,20 @@
+{
+  "menu": "Health check",
+  "tab": "Health",
+  "title": "Health check · {{name}}",
+  "checkedAt": "Checked on {{at}}",
+  "run": "Check again",
+  "running": "Checking the database…",
+  "showOk": "Show what's OK",
+  "severity": {
+    "critical": "Critical",
+    "warning": "Warnings",
+    "info": "Information",
+    "ok": "OK"
+  },
+  "openFix": "Open in a query",
+  "fixName": "Fix: {{title}}",
+  "more": "and {{count}} more",
+  "allOk": "No problems found.",
+  "skipped": "Could not be checked:"
+}

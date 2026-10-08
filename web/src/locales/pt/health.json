@@ -1,0 +1,20 @@
+{
+  "menu": "Verificação de integridade",
+  "tab": "Integridade",
+  "title": "Verificação de integridade · {{name}}",
+  "checkedAt": "Verificado em {{at}}",
+  "run": "Verificar novamente",
+  "running": "Verificando o banco…",
+  "showOk": "Mostrar o que está OK",
+  "severity": {
+    "critical": "Críticos",
+    "warning": "Avisos",
+    "info": "Informações",
+    "ok": "OK"
+  },
+  "openFix": "Abrir em uma consulta",
+  "fixName": "Correção: {{title}}",
+  "more": "e mais {{count}}",
+  "allOk": "Nenhum problema encontrado.",
+  "skipped": "Não foi possível verificar:"
+}

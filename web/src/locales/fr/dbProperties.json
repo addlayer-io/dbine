@@ -1,0 +1,12 @@
+{
+  "menu": "Propriétés…",
+  "title": "Propriétés de « {{name}} »",
+  "apply": "Appliquer",
+  "confirmTitle": "Appliquer les modifications à « {{name}} »",
+  "warningsTitle": "Attention :",
+  "applied": "Propriétés de « {{name}} » mises à jour",
+  "scriptName": "Propriétés de {{name}}",
+  "nothing": "Ce moteur n'a rien à afficher ni à modifier dans cet onglet.",
+  "readOnly": "Connexion en lecture seule : les propriétés sont visibles mais non modifiables.",
+  "noChanges": "(aucune modification)"
+}

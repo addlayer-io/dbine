@@ -1,0 +1,129 @@
+{
+  "title": "Attività pianificate",
+  "tab": "Attività",
+  "newTask": "Nuova attività",
+  "namePlaceholder": "Nome dell'attività",
+  "empty": "Non ci sono attività pianificate. Un'attività si esegue da sola, con DBine chiuso: uno script, un'esportazione, un confronto di schemi o un backup.",
+  "enabled": "Attiva",
+  "disabled": "Disattivata",
+  "enable": "Attiva",
+  "disable": "Disattiva",
+  "open": "Apri",
+  "save": "Salva",
+  "saved": "Attività salvata.",
+  "saveFirst": "Salva le modifiche prima di eseguirla",
+  "runNow": "Esegui ora",
+  "started": "«{{name}}» è in esecuzione.",
+  "delete": "Elimina",
+  "deleteConfirm": "Eliminare l'attività «{{name}}»? Smette di essere eseguita e la sua cronologia viene cancellata.",
+  "notScheduled": "L'attività è stata salvata, ma il sistema non l'ha pianificata: {{error}}",
+  "notRegistered": "Non pianificata nel sistema",
+  "needsApproval": "Ci sono modifiche non approvate",
+  "prodHint": "Modifica dati su una connessione di produzione",
+  "nextRun": "Prossima esecuzione",
+  "nextRunAt": "Prossima: {{at}}.",
+  "neverRan": "Non ancora eseguita",
+  "when": {
+    "title": "Quando",
+    "types": {
+      "daily": "Ogni giorno",
+      "weekly": "Alcuni giorni",
+      "monthly": "Una volta al mese",
+      "interval": "Ogni tot minuti"
+    },
+    "at": "alle",
+    "onDay": "il giorno",
+    "every": "ogni",
+    "minutes": "minuti",
+    "daily": "Ogni giorno alle {{time}}",
+    "weekly": "{{days}} alle {{time}}",
+    "monthly": "Il giorno {{day}} alle {{time}}",
+    "interval_one": "Ogni {{count}} minuto",
+    "interval_other": "Ogni {{count}} minuti",
+    "hint": "Si esegue con DBine chiuso, finché il tuo utente ha la sessione attiva. Se il computer era spento, si esegue quando viene riacceso."
+  },
+  "days": {
+    "1": "Lun",
+    "2": "Mar",
+    "3": "Mer",
+    "4": "Gio",
+    "5": "Ven",
+    "6": "Sab",
+    "7": "Dom"
+  },
+  "notify": {
+    "title": "Avvisa",
+    "failure": "Se fallisce o trova differenze",
+    "always": "Sempre",
+    "never": "Mai"
+  },
+  "steps": "Passaggi",
+  "addStep": "Aggiungi passaggio",
+  "varsHint": "Nei nomi di file e negli script puoi usare:",
+  "kinds": {
+    "run_script": "Esegui uno script",
+    "export": "Esporta in un file",
+    "compare_schemas": "Confronta schemi",
+    "backup": "Backup"
+  },
+  "step": {
+    "namePlaceholder": "Nome (facoltativo)",
+    "onError": {
+      "stop": "Se fallisce, interrompi l'attività",
+      "continue": "Se fallisce, continua con il successivo"
+    },
+    "up": "Sposta su",
+    "down": "Sposta giù",
+    "remove": "Rimuovi il passaggio",
+    "database": "Database",
+    "script": "Script",
+    "query": "Query",
+    "continueOnError": "Continua con l'istruzione successiva se una fallisce",
+    "format": "Formato",
+    "header": "Nomi delle colonne nella prima riga",
+    "source": "Database di riferimento",
+    "target": "Database da confrontare",
+    "ignoreCase": "Ignora maiuscole e minuscole",
+    "ignoreSchema": "Abbina senza lo schema",
+    "ignoreComments": "Ignora i commenti",
+    "includeDrops": "Includi le eliminazioni",
+    "compareHint": "Se i database differiscono, salva lo script che porta il database da confrontare a quello di riferimento e invia un avviso. Lo script non viene eseguito.",
+    "native": "Backup del motore",
+    "copy": "Copia di DBine",
+    "noNative": "Questo motore non ha backup propri: l'attività crea una copia di DBine (struttura e dati in uno script).",
+    "secretKept": "Conservato a parte, nel portachiavi",
+    "withData": "Con i dati",
+    "folder": "Cartella",
+    "pickFolder": "Cartella di destinazione",
+    "fileName": "Nome del file"
+  },
+  "formats": {
+    "csv": "CSV",
+    "csv_semicolon": "CSV con punto e virgola",
+    "csv_excel": "CSV per Excel",
+    "tsv": "TSV",
+    "xlsx": "Excel (.xlsx)",
+    "json": "JSON",
+    "json_lines": "JSON Lines",
+    "xml": "XML",
+    "sql": "SQL (INSERT)"
+  },
+  "history": "Cronologia",
+  "noRuns": "Non ancora eseguita.",
+  "status": {
+    "running": "In corso",
+    "ok": "OK",
+    "partial": "Con errori",
+    "failed": "Non riuscita"
+  },
+  "trigger": {
+    "schedule": "pianificata",
+    "manual": "manuale"
+  },
+  "approve": {
+    "title": "Questa attività modifica dati o struttura",
+    "text": "Questi passaggi verranno eseguiti da soli, senza che nessuno li riveda prima. Controlla a quale database puntano:",
+    "production": "Ci sono passaggi su connessioni di produzione.",
+    "ok": "Approva e salva"
+  }
+}

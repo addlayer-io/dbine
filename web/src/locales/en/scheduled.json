@@ -1,0 +1,129 @@
+{
+  "title": "Scheduled tasks",
+  "tab": "Task",
+  "newTask": "New task",
+  "namePlaceholder": "Task name",
+  "empty": "There are no scheduled tasks. A task runs on its own, with DBine closed: a script, an export, a schema comparison or a backup.",
+  "enabled": "Active",
+  "disabled": "Disabled",
+  "enable": "Enable",
+  "disable": "Disable",
+  "open": "Open",
+  "save": "Save",
+  "saved": "Task saved.",
+  "saveFirst": "Save your changes before running it",
+  "runNow": "Run now",
+  "started": "“{{name}}” is running.",
+  "delete": "Delete",
+  "deleteConfirm": "Delete the task “{{name}}”? It stops running and its history is erased.",
+  "notScheduled": "The task was saved, but the system didn't schedule it: {{error}}",
+  "notRegistered": "Not scheduled in the system",
+  "needsApproval": "There are unapproved changes",
+  "prodHint": "Changes data on a production connection",
+  "nextRun": "Next run",
+  "nextRunAt": "Next: {{at}}.",
+  "neverRan": "Hasn't run yet",
+  "when": {
+    "title": "When",
+    "types": {
+      "daily": "Every day",
+      "weekly": "Some days",
+      "monthly": "Once a month",
+      "interval": "Every few minutes"
+    },
+    "at": "at",
+    "onDay": "on day",
+    "every": "every",
+    "minutes": "minutes",
+    "daily": "Every day at {{time}}",
+    "weekly": "{{days}} at {{time}}",
+    "monthly": "On day {{day}} at {{time}}",
+    "interval_one": "Every {{count}} minute",
+    "interval_other": "Every {{count}} minutes",
+    "hint": "Runs with DBine closed, as long as your user is signed in. If the computer was off, it runs when it's turned back on."
+  },
+  "days": {
+    "1": "Mon",
+    "2": "Tue",
+    "3": "Wed",
+    "4": "Thu",
+    "5": "Fri",
+    "6": "Sat",
+    "7": "Sun"
+  },
+  "notify": {
+    "title": "Notify",
+    "failure": "If it fails or finds differences",
+    "always": "Always",
+    "never": "Never"
+  },
+  "steps": "Steps",
+  "addStep": "Add step",
+  "varsHint": "In file names and scripts you can use:",
+  "kinds": {
+    "run_script": "Run a script",
+    "export": "Export to file",
+    "compare_schemas": "Compare schemas",
+    "backup": "Backup"
+  },
+  "step": {
+    "namePlaceholder": "Name (optional)",
+    "onError": {
+      "stop": "If it fails, stop the task",
+      "continue": "If it fails, continue with the next one"
+    },
+    "up": "Move up",
+    "down": "Move down",
+    "remove": "Remove step",
+    "database": "Database",
+    "script": "Script",
+    "query": "Query",
+    "continueOnError": "Continue with the next statement if one fails",
+    "format": "Format",
+    "header": "Column names in the first row",
+    "source": "Reference database",
+    "target": "Database to compare",
+    "ignoreCase": "Ignore case",
+    "ignoreSchema": "Match without the schema",
+    "ignoreComments": "Ignore comments",
+    "includeDrops": "Include drops",
+    "compareHint": "If the databases differ, it saves the script that takes the database to compare to the reference one and sends a notification. The script is not run.",
+    "native": "Engine backup",
+    "copy": "DBine copy",
+    "noNative": "This engine has no backups of its own: the task makes a DBine copy (structure and data in a script).",
+    "secretKept": "Stored separately, in the keychain",
+    "withData": "With data",
+    "folder": "Folder",
+    "pickFolder": "Destination folder",
+    "fileName": "File name"
+  },
+  "formats": {
+    "csv": "CSV",
+    "csv_semicolon": "CSV with semicolon",
+    "csv_excel": "CSV for Excel",
+    "tsv": "TSV",
+    "xlsx": "Excel (.xlsx)",
+    "json": "JSON",
+    "json_lines": "JSON Lines",
+    "xml": "XML",
+    "sql": "SQL (INSERT)"
+  },
+  "history": "History",
+  "noRuns": "Hasn't run yet.",
+  "status": {
+    "running": "Running",
+    "ok": "OK",
+    "partial": "With errors",
+    "failed": "Failed"
+  },
+  "trigger": {
+    "schedule": "scheduled",
+    "manual": "manual"
+  },
+  "approve": {
+    "title": "This task changes data or structure",
+    "text": "These steps will run on their own, with nobody reviewing them first. Check which database they point to:",
+    "production": "There are steps on production connections.",
+    "ok": "Approve and save"
+  }
+}
