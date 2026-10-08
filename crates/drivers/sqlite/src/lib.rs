@@ -9,6 +9,7 @@ pub mod monitor;
 mod permissions;
 pub mod plan;
 pub mod properties;
+pub mod rename;
 pub mod schema;
 pub mod stats;
 pub mod transfer;
@@ -174,6 +175,16 @@ impl Driver for SqliteDriver {
     /// Columns are added in place; any other change rebuilds the table.
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         schema::sync_script(changes)
+    }
+
+    /// Tables and columns with `ALTER TABLE … RENAME`, which views and
+    /// triggers follow; triggers and indexes created again (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec(properties::Flavor::Sqlite))
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(properties::Flavor::Sqlite, req)
     }
 
     /// `cfg.host` is the database file; `database` doesn't apply.
