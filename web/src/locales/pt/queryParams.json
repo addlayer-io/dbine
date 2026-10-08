@@ -1,0 +1,22 @@
+{
+  "title": "Parâmetros da consulta",
+  "intro": "A consulta tem parâmetros. Cada valor é escrito no texto como um literal do motor, com as aspas correspondentes; à direita você vê como fica.",
+  "type": "Tipo",
+  "types": {
+    "text": "Texto",
+    "number": "Número",
+    "date": "Data",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "Valor",
+    "number": "Por exemplo 42 ou 3.5",
+    "date": "AAAA-MM-DD ou AAAA-MM-DD hh:mm:ss"
+  },
+  "invalid": {
+    "number": "Não é um número.",
+    "date": "Escreva a data como AAAA-MM-DD, com hora opcional (hh:mm ou hh:mm:ss)."
+  },
+  "disable": "Não pedir parâmetros nesta aba",
+  "disableTip": "Executa o texto como está e para de procurar parâmetros nesta aba. Pode ser reativado pelo menu do editor."
+}

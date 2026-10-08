@@ -1,0 +1,22 @@
+{
+  "title": "Paramètres de la requête",
+  "intro": "La requête comporte des paramètres. Chaque valeur est écrite dans le texte comme un littéral du moteur, avec les guillemets appropriés ; à droite, vous voyez le résultat.",
+  "type": "Type",
+  "types": {
+    "text": "Texte",
+    "number": "Nombre",
+    "date": "Date",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "Valeur",
+    "number": "Par exemple 42 ou 3.5",
+    "date": "AAAA-MM-JJ ou AAAA-MM-JJ hh:mm:ss"
+  },
+  "invalid": {
+    "number": "Ce n'est pas un nombre.",
+    "date": "Saisissez la date au format AAAA-MM-JJ, avec l'heure en option (hh:mm ou hh:mm:ss)."
+  },
+  "disable": "Ne pas demander de paramètres dans cet onglet",
+  "disableTip": "Exécute le texte tel quel et cesse de chercher des paramètres dans cet onglet. On peut le réactiver depuis le menu de l'éditeur."
+}

@@ -230,6 +230,16 @@
       "title": "DETACH DELETE senza WHERE",
       "message": "DETACH DELETE senza WHERE cancella tutti i nodi trovati dal MATCH",
       "why": "Cancella i nodi e tutte le loro relazioni. Senza un WHERE o un filtro sulle proprietà, porta via tutti i nodi del pattern. Rivedi il MATCH; per cancellarne molti, fallo a lotti (CALL { … } IN TRANSACTIONS)."
+    },
+    "unknown-table": {
+      "title": "Tabella sconosciuta",
+      "message": "«{{name}}» non esiste in questo database",
+      "why": "Il nome non è tra gli oggetti del database della scheda (secondo esplora risorse). Può essere un errore di battitura, un oggetto di un altro database o uno che non esiste ancora. Le tabelle temporanee, le CTE, gli alias e gli oggetti creati dallo stesso script non vengono segnalati."
+    },
+    "unknown-column": {
+      "title": "Colonna sconosciuta",
+      "message": "«{{table}}» non ha una colonna «{{column}}»",
+      "why": "La colonna non è tra le colonne caricate della tabella. Vengono controllate solo le colonne qualificate (alias.colonna) o quelle dell'elenco di un INSERT, e solo quando la tabella esiste e le sue colonne sono già state caricate."
     }
   }
 }

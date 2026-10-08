@@ -9267,5 +9267,7 @@
   "{0} (log de transacciones)": "{0} (journal des transactions)",
   "{0}: crecimiento automático": "{0} : croissance automatique",
   "{0}: tamaño (MB)": "{0} : taille (Mo)",
-  "{0}: tamaño máximo": "{0} : taille maximale"
+  "{0}: tamaño máximo": "{0} : taille maximale",
+  "el commit no es válido": "le commit n'est pas valide",
+  "esa versión ya no existe": "cette version n'existe plus"
 }

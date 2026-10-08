@@ -16,6 +16,14 @@
     "find": "Localizar e substituir",
     "gotoLine": "Ir para a linha…",
     "optimize": "Otimizar consulta",
-    "problems": "Ver problemas"
+    "problems": "Ver problemas",
+    "goToDefinition": "Ir para a definição",
+    "revealInExplorer": "Mostrar no explorador",
+    "detectParams": "Pedir os parâmetros ao executar",
+    "click": "clique"
+  },
+  "nav": {
+    "notFound": "Não há tabela, view ou rotina com esse nome no banco da aba.",
+    "notLoaded": "Os objetos do banco ainda não foram carregados: conecte-se para ir à definição."
   }
 }

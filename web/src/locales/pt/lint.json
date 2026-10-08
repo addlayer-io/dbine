@@ -230,6 +230,16 @@
       "title": "DETACH DELETE sem WHERE",
       "message": "DETACH DELETE sem WHERE apaga todos os nós que o MATCH encontra",
       "why": "Apaga os nós e todas as suas relações. Sem um WHERE ou um filtro de propriedades, leva todos os nós do padrão. Revise o MATCH; para apagar muitos, faça em lotes (CALL { … } IN TRANSACTIONS)."
+    },
+    "unknown-table": {
+      "title": "Tabela desconhecida",
+      "message": "“{{name}}” não existe neste banco",
+      "why": "O nome não está entre os objetos do banco da aba (segundo o explorador). Pode ser um erro de digitação, um objeto de outro banco ou um que ainda não existe. Tabelas temporárias, CTEs, aliases e objetos que o próprio script cria não são marcados."
+    },
+    "unknown-column": {
+      "title": "Coluna desconhecida",
+      "message": "“{{table}}” não tem a coluna “{{column}}”",
+      "why": "A coluna não está entre as colunas carregadas da tabela. Só são verificadas colunas qualificadas (alias.coluna) ou da lista de um INSERT, e somente quando a tabela existe e suas colunas já foram carregadas."
     }
   }
 }

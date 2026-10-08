@@ -16,6 +16,14 @@
     "find": "Find and replace",
     "gotoLine": "Go to line…",
     "optimize": "Optimize query",
-    "problems": "Show problems"
+    "problems": "Show problems",
+    "goToDefinition": "Go to definition",
+    "revealInExplorer": "Show in explorer",
+    "detectParams": "Ask for parameters when running",
+    "click": "click"
+  },
+  "nav": {
+    "notFound": "There is no table, view or routine with that name in the tab's database.",
+    "notLoaded": "The database objects haven't loaded yet: connect to go to the definition."
   }
 }

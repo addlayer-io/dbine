@@ -1,0 +1,22 @@
+{
+  "title": "Parametri della query",
+  "intro": "La query ha dei parametri. Ogni valore viene scritto nel testo come un letterale del motore, con gli apici corretti; a destra vedi come risulta.",
+  "type": "Tipo",
+  "types": {
+    "text": "Testo",
+    "number": "Numero",
+    "date": "Data",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "Valore",
+    "number": "Ad esempio 42 o 3.5",
+    "date": "AAAA-MM-GG o AAAA-MM-GG hh:mm:ss"
+  },
+  "invalid": {
+    "number": "Non è un numero.",
+    "date": "Scrivi la data come AAAA-MM-GG, con l'ora facoltativa (hh:mm o hh:mm:ss)."
+  },
+  "disable": "Non chiedere parametri in questa scheda",
+  "disableTip": "Esegue il testo così com'è e smette di cercare parametri in questa scheda. Si riattiva dal menu dell'editor."
+}

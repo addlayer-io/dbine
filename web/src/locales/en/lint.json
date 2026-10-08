@@ -230,6 +230,16 @@
       "title": "DETACH DELETE without WHERE",
       "message": "DETACH DELETE without WHERE deletes all the nodes the MATCH finds",
       "why": "It deletes the nodes and all their relationships. Without a WHERE or a property filter, it takes all the nodes of the pattern with it. Review the MATCH; to delete many, do it in batches (CALL { … } IN TRANSACTIONS)."
+    },
+    "unknown-table": {
+      "title": "Unknown table",
+      "message": "“{{name}}” does not exist in this database",
+      "why": "The name is not among the objects of the tab's database (according to the explorer). It may be a typo, an object from another database, or one that doesn't exist yet. Temporary tables, CTEs, aliases and objects the same script creates are not flagged."
+    },
+    "unknown-column": {
+      "title": "Unknown column",
+      "message": "“{{table}}” has no column “{{column}}”",
+      "why": "The column is not among the table's loaded columns. Only qualified columns (alias.column) or those in an INSERT list are checked, and only when the table exists and its columns have already loaded."
     }
   }
 }

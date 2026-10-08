@@ -230,6 +230,16 @@
       "title": "DETACH DELETE sans WHERE",
       "message": "DETACH DELETE sans WHERE supprime tous les nœuds trouvés par le MATCH",
       "why": "Supprime les nœuds et toutes leurs relations. Sans WHERE ni filtre de propriétés, il emporte tous les nœuds du motif. Vérifiez le MATCH ; pour en supprimer beaucoup, faites-le par lots (CALL { … } IN TRANSACTIONS)."
+    },
+    "unknown-table": {
+      "title": "Table inconnue",
+      "message": "« {{name}} » n'existe pas dans cette base",
+      "why": "Le nom ne figure pas parmi les objets de la base de l'onglet (selon l'explorateur). Il peut s'agir d'une faute de frappe, d'un objet d'une autre base ou d'un objet qui n'existe pas encore. Les tables temporaires, les CTE, les alias et les objets que le script crée lui-même ne sont pas signalés."
+    },
+    "unknown-column": {
+      "title": "Colonne inconnue",
+      "message": "« {{table}} » n'a pas de colonne « {{column}} »",
+      "why": "La colonne ne figure pas parmi les colonnes chargées de la table. Seules les colonnes qualifiées (alias.colonne) ou celles de la liste d'un INSERT sont vérifiées, et uniquement lorsque la table existe et que ses colonnes sont déjà chargées."
     }
   }
 }
