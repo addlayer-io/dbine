@@ -25,6 +25,8 @@ pub fn spec() -> RenameSpec {
     RenameSpec {
         kinds: vec![VERTEX.into(), EDGE.into(), kinds::TABLE.into()],
         columns: true,
+        // A class's indexes come from its table (`database_schema`).
+        wants_table: true,
         references: ReferenceStyle::None,
         note: Some(
             "OrientDB renombra la clase con ALTER CLASS … NAME y la propiedad con ALTER PROPERTY … NAME. Sus índices se borran antes y se vuelven \

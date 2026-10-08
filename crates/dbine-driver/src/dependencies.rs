@@ -321,13 +321,52 @@ fn qualifies_next(toks: &[NameToken<'_>], i: usize) -> bool {
     toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".") && toks.get(i + 2).is_some_and(|t| t.kind == TokenKind::Name)
 }
 
-/// The name at `i` is qualified (`x.name`) with a schema other than
-/// `schema`. Only judged when the target has a schema.
+/// The name at `i` isn't qualified (`x.name`, `a.b.name`) with a schema
+/// other than `schema`. Only judged when the target has a schema.
 pub(crate) fn qualifier_ok(toks: &[NameToken<'_>], i: usize, schema: Option<&str>) -> bool {
     let Some(schema) = schema else { return true };
-    match (i.checked_sub(2).map(|k| &toks[k]), i.checked_sub(1).map(|k| &toks[k])) {
-        (Some(q), Some(dot)) if dot.kind == TokenKind::Punct && dot.text == "." && q.kind == TokenKind::Name => eq(q.text, schema),
-        _ => true,
+    let mut quals = Vec::new();
+    let mut k = i;
+    while k >= 2 && toks[k - 1].kind == TokenKind::Punct && toks[k - 1].text == "." && toks[k - 2].kind == TokenKind::Name {
+        quals.push(toks[k - 2].text.to_string());
+        k -= 2;
+    }
+    match_qualifiers(&quals, schema) != Qualified::Other
+}
+
+/// How the qualifiers written before a name compare with a schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Qualified {
+    /// None written.
+    None,
+    /// The schema: its last parts (`dfs.tmp.v`, `` `dfs`.`tmp`.v ``,
+    /// `` `dfs.tmp`.v `` for `dfs.tmp`), maybe after a database or catalog.
+    Same,
+    /// Only the schema's last parts (`tmp.v` for `dfs.tmp`): the schema
+    /// through a default the text doesn't show, maybe.
+    Partial,
+    Other,
+}
+
+/// `quals`, the qualifiers before a name nearest first (`["tmp", "dfs"]`
+/// for `dfs.tmp.v`), against `schema`, which may have dots of its own
+/// (Drill's `dfs.tmp`, Dremio's `espacio.carpeta`). A quoted part may hold
+/// the dots too: parts are joined with `.` before comparing.
+pub fn match_qualifiers(quals: &[String], schema: &str) -> Qualified {
+    if quals.is_empty() {
+        return Qualified::None;
+    }
+    let mut joined = String::new();
+    for q in quals {
+        joined = if joined.is_empty() { q.clone() } else { format!("{q}.{joined}") };
+        if eq(&joined, schema) {
+            return Qualified::Same;
+        }
+    }
+    if schema.to_lowercase().ends_with(&format!(".{}", joined.to_lowercase())) {
+        Qualified::Partial
+    } else {
+        Qualified::Other
     }
 }
 
@@ -473,6 +512,27 @@ mod tests {
         assert!(find_mentions("SELECT ventas FROM dbo.t", &tsql(), &target).is_none());
         assert!(find_mentions("SELECT x FROM ventas.t", &tsql(), &target).is_some());
         assert!(schema_dependents(&schema(), &DependencyTarget { object: ObjectRef { kind: SCHEMA.into(), schema: None, name: "Clientes".into() }, column: None }).is_empty());
+    }
+
+    #[test]
+    fn dotted_schemas_match_consecutive_qualifiers() {
+        let g = ScriptDialect::generic();
+        let target = || table("dfs.tmp", "v");
+        for body in ["SELECT * FROM dfs.tmp.v", "SELECT * FROM `dfs`.`tmp`.`v`", "SELECT * FROM `dfs.tmp`.v", "SELECT * FROM v", "SELECT * FROM tmp.v"] {
+            assert!(find_mentions(body, &g, &target()).is_some(), "{body}");
+        }
+        for body in ["SELECT * FROM dfs.otro.v", "SELECT * FROM otro.v", "SELECT * FROM `cp`.`tmp2`.v"] {
+            assert!(find_mentions(body, &g, &target()).is_none(), "{body}");
+        }
+        let pg = ScriptDialect::postgres();
+        assert!(find_mentions("SELECT * FROM \"esp\".\"carpeta\".\"v\"", &pg, &table("esp.carpeta", "v")).is_some());
+        assert!(find_mentions("SELECT * FROM esp.v", &pg, &table("esp.carpeta", "v")).is_none());
+        let q = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(match_qualifiers(&q(&["tmp", "dfs"]), "dfs.tmp"), Qualified::Same);
+        assert_eq!(match_qualifiers(&q(&["dbo", "db"]), "dbo"), Qualified::Same);
+        assert_eq!(match_qualifiers(&q(&["tmp"]), "dfs.tmp"), Qualified::Partial);
+        assert_eq!(match_qualifiers(&q(&["dfs"]), "dfs.tmp"), Qualified::Other);
+        assert_eq!(match_qualifiers(&[], "dfs.tmp"), Qualified::None);
     }
 
     #[test]

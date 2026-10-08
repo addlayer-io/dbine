@@ -96,7 +96,7 @@ watch([impact, selected], async () => {
   const im = impact.value;
   if (!im) { script.value = null; return; }
   const mine = seq;
-  const chosen = [...selected.value].sort((a, b) => a - b).map((i) => im.items[i].action).flatMap((a) => (a.kind === 'rewrite' ? [{ object: a.object, schemabound: a.schemabound }] : []));
+  const chosen = [...selected.value].sort((a, b) => a - b).map((i) => im.items[i].action).flatMap((a) => (a.kind === 'rewrite' ? [{ object: a.object, schemabound: a.schemabound, carried: a.carried ?? [] }] : []));
   try {
     const s = await renameScript(props.target, impactFor.value, im, chosen);
     if (mine === seq) { script.value = s; scriptError.value = null; }
@@ -254,6 +254,9 @@ defineExpose({ name, loadImpact });
                 <code class="rn-before">{{ e.before }}</code>
                 <code class="rn-after">{{ e.after }}</code>
               </div>
+              <div v-if="item.action.carried?.length" class="rn-carried rn-dim">
+                {{ $t('rename:carried', { names: item.action.carried.map((c) => (c.schema ? `${c.schema}.${c.name}` : c.name)).join(', ') }) }}
+              </div>
               <div v-for="u in item.action.unresolved" :key="`u${u.line}${u.reason}`" class="rn-unres">
                 <span class="rn-line">{{ $t('rename:line', { line: u.line }) }}</span>
                 <code>{{ u.text }}</code>
@@ -346,6 +349,7 @@ defineExpose({ name, loadImpact });
 .rn-after { grid-column: 2; color: var(--nm-success, #4ec9b0); }
 .rn-line { color: var(--nm-text-dim); grid-row: span 2; }
 .rn-unres code { color: var(--nm-warning, #d7ba7d); }
+.rn-carried { font-size: 12px; margin: 2px 0 2px 26px; }
 .rn-why { color: var(--nm-warning, #d7ba7d); font-size: 12px; grid-column: 2; }
 .rn-head .rn-why { grid-column: auto; }
 .rn-script-head { margin-top: 10px; font-weight: 600; font-size: 13px; color: var(--nm-text-strong); }

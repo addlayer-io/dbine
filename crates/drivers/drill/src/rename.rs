@@ -11,7 +11,7 @@
 use dbine_driver::rename::{rename_header, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
-pub const NOTE: &str = "Drill solo renombra vistas: la crea con el nombre nuevo en el mismo espacio de trabajo y borra la anterior. Las vistas que la usan no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE VIEW. Las sentencias no son transaccionales. Las vistas que la nombran con el espacio de trabajo en dos partes (dfs.tmp.vista, sin comillas invertidas que lo agrupen) no se detectan: revisalas después.";
+pub const NOTE: &str = "Drill solo renombra vistas: la crea con el nombre nuevo en el mismo espacio de trabajo y borra la anterior. Las vistas que la usan no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE VIEW. Las sentencias no son transaccionales.";
 
 pub fn spec() -> Option<RenameSpec> {
     Some(RenameSpec {

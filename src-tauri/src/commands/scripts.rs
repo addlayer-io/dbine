@@ -171,6 +171,7 @@ pub(crate) fn drop_other(driver: &dyn Driver, obj: &ObjectRef, if_exists: bool) 
         kinds::SEQUENCE if driver.info().id == "cubrid" => "SERIAL",
         kinds::SEQUENCE => "SEQUENCE",
         kinds::SYNONYM => "SYNONYM",
+        kinds::STREAM => "STREAM",
         kinds::TYPE if matches!(driver.info().id, "mimer" | "firebird") => "DOMAIN",
         kinds::TYPE => "TYPE",
         "domain" => "DOMAIN",
@@ -181,7 +182,7 @@ pub(crate) fn drop_other(driver: &dyn Driver, obj: &ObjectRef, if_exists: bool) 
     let dialect = driver.info().dialect;
     let quote = match dialect {
         "mssql" | "sybase" => dbine_driver::sql::Quote::Bracket,
-        "mysql" | "bigquery" | "spanner" | "hive" | "clickhouse" | "sparksql" | "databricks" | "orientdb" => dbine_driver::sql::Quote::Backtick,
+        "mysql" | "bigquery" | "spanner" | "hive" | "clickhouse" | "sparksql" | "databricks" | "orientdb" | "tdengine" => dbine_driver::sql::Quote::Backtick,
         _ => dbine_driver::sql::Quote::Double,
     };
     // These don't take (or may not take) `IF EXISTS` in DROP (Oracle only
@@ -193,7 +194,10 @@ pub(crate) fn drop_other(driver: &dyn Driver, obj: &ObjectRef, if_exists: bool) 
     if obj.kind == kinds::SYNONYM && obj.schema().is_some_and(|s| s.eq_ignore_ascii_case("PUBLIC")) && matches!(driver.info().id, "oracle" | "oracle_adb" | "hana") {
         return Some(format!("DROP PUBLIC SYNONYM {};", dbine_driver::sql::quote_ident(quote, &obj.name)));
     }
-    let name = dbine_driver::sql::qualified_name(quote, obj.schema(), &obj.name);
+    // TDengine's streams aren't qualified with a database (`DROP STREAM db.s`
+    // is a syntax error), even though the explorer lists them under one.
+    let schema = if obj.kind == kinds::STREAM && driver.info().id == "tdengine" { None } else { obj.schema() };
+    let name = dbine_driver::sql::qualified_name(quote, schema, &obj.name);
     // An Oracle type something depends on is only dropped with FORCE.
     let force = if obj.kind == kinds::TYPE && dialect == "oracle" && !matches!(driver.info().id, "dameng") { " FORCE" } else { "" };
     Some(format!("DROP {keyword} {}{name}{force};", if if_exists { "IF EXISTS " } else { "" }))
@@ -628,4 +632,21 @@ pub async fn run_script_file(app: AppHandle, state: State<'_, AppState>, args: R
     state.sessions.remove(&key);
     result?;
     Ok(RunFileResult { statements, errors, elapsed_ms: started.elapsed().as_millis() as u64 })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
+        ObjectRef { kind: kind.into(), schema: Some(schema.into()), name: name.into() }
+    }
+
+    #[test]
+    fn streams_drop_and_tdengine_quotes() {
+        let td = dbine_drivers::find("tdengine").unwrap();
+        // TDengine: backticks, and a stream is never qualified with its database.
+        assert_eq!(drop_other(td.as_ref(), &obj(kinds::STREAM, "db", "s1"), true).as_deref(), Some("DROP STREAM IF EXISTS `s1`;"));
+        assert_eq!(drop_other(td.as_ref(), &obj(kinds::VIEW, "db", "v"), false).as_deref(), Some("DROP VIEW `db`.`v`;"));
+    }
 }

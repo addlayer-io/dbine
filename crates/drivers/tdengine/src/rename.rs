@@ -4,21 +4,23 @@
 //! follows it). Supertable columns, subtables, tables, views, streams,
 //! topics and databases can't be renamed.
 //!
-//! Streams are listed, not rewritten: the app can't drop a stream to put
-//! it back. The server refuses a tag a stream or a topic uses, and a
-//! column a topic uses; a stream on a normal table's column is left
-//! naming the old one.
+//! The streams that name the column or tag are rewritten, dropped before
+//! the rename and created again after it (`DropCreate`) over the same
+//! output table, which the server allows. The server refuses a tag a
+//! stream uses, so dropping it first is what lets the rename through. A
+//! column or tag a topic uses is still refused: topics aren't rewritten.
 
 use crate::ddl::{q, qualified, SUBTABLE, SUPERTABLE, TAG};
-use dbine_driver::rename::{quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget};
+use dbine_driver::rename::{quote_new, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
 use dbine_driver::{kinds, Error, Result, ScriptDialect, SyncScript};
 
 const NOTE: &str = "TDengine renombra columnas de tablas comunes y tags de supertablas; no renombra tablas, supertablas, \
-columnas de supertablas ni bases de datos. Los streams que usan el nombre se listan pero no se reescriben.";
+columnas de supertablas ni bases de datos. Los streams que usan el nombre se borran antes del cambio y se vuelven a crear después, \
+reescritos, sobre la misma tabla de salida; lo que llegue mientras tanto no lo procesan.";
 const TAG_USERS: &str =
-    "Si un stream o un tópico usa el tag, el servidor rechaza el cambio: hay que borrarlo, renombrar y volver a crearlo con el nombre nuevo.";
-const COLUMN_USERS: &str = "Los streams que usan la columna no se actualizan y dejan de andar: hay que borrarlos y volver a crearlos con el nombre nuevo. \
-Si un tópico usa la columna, el servidor rechaza el cambio.";
+    "Si un tópico usa el tag, el servidor rechaza el cambio: hay que borrarlo, renombrar y volver a crearlo con el nombre nuevo.";
+const COLUMN_USERS: &str =
+    "Si un tópico usa la columna, el servidor rechaza el cambio: hay que borrarlo, renombrar y volver a crearlo con el nombre nuevo.";
 
 /// Backticks for names (strings take backslash escapes in TDengine).
 fn dialect() -> ScriptDialect {
@@ -33,7 +35,9 @@ pub(crate) fn spec() -> RenameSpec {
         constraints: false,
         schemas: false,
         tracked: Vec::new(),
-        references: ReferenceStyle::None,
+        // No CREATE OR REPLACE STREAM: dropped, renamed, created again.
+        replace: ReplaceStyle::DropCreate,
+        references: ReferenceStyle::Sql,
         fold: Fold::Lower,
         transactional: false,
         note: Some(NOTE.into()),
@@ -107,7 +111,7 @@ mod tests {
     fn spec_renames_columns_only() {
         let s = spec();
         assert!(s.columns && s.kinds.is_empty() && !s.indexes && !s.constraints && !s.schemas && !s.transactional);
-        assert_eq!(s.references, ReferenceStyle::None);
+        assert_eq!((s.references, s.replace), (ReferenceStyle::Sql, ReplaceStyle::DropCreate));
         assert_eq!(s.fold, Fold::Lower);
     }
 

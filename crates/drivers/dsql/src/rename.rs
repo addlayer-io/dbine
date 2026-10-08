@@ -10,7 +10,7 @@
 //! transaction, so the script isn't atomic.
 
 use dbine_driver::rename::{quote_new, Fold, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
-use dbine_driver::sql::{name_tokens, qualified_name, quote_ident, NameToken, Quote, ScriptDialect, TokenKind};
+use dbine_driver::sql::{qualified_name, quote_ident, Quote, ScriptDialect};
 use dbine_driver::{kinds, Error, ObjectRef, ReferenceStyle, Result, SyncScript};
 
 const ENGINE: &str = "Aurora DSQL";
@@ -98,104 +98,11 @@ fn object_statements(object: &ObjectRef, definition: Option<&str>, new: &str, wa
     Ok(vec![format!("ALTER {alter} {name} RENAME TO {new};")])
 }
 
-/// An unquoted word (a quoted name's text has no quotes, so it's shorter
-/// than what it spans).
-fn word(t: &NameToken<'_>, w: &str) -> bool {
-    t.kind == TokenKind::Name && t.end - t.start == t.text.len() && t.text.eq_ignore_ascii_case(w)
-}
-
-fn punct(t: &NameToken<'_>, p: &str) -> bool {
-    t.kind == TokenKind::Punct && t.text == p
-}
-
-/// The name a token stands for: quoted as is, unquoted folded to lower case.
-fn ident(t: &NameToken<'_>, body: &str) -> String {
-    let raw = &body[t.start..t.end];
-    match raw.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
-        Some(inner) => inner.replace("\"\"", "\""),
-        None => raw.to_lowercase(),
-    }
-}
-
 /// Each overload's arguments in the function's definition
-/// (`pg_get_functiondef` of every overload, one after the other), without
-/// their defaults, as `ALTER FUNCTION f(…)` takes them. Bodies are strings
-/// to the lexer, so a `CREATE` inside one is not a header.
+/// ([`dbine_driver::rename::routine_signatures`], functions only: DSQL has
+/// no procedures).
 fn signatures(definition: &str, name: &str) -> Vec<String> {
-    let toks = name_tokens(definition, &ScriptDialect::postgres());
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < toks.len() {
-        if !word(&toks[i], "create") {
-            i += 1;
-            continue;
-        }
-        let mut j = i + 1;
-        if toks.get(j).is_some_and(|t| word(t, "or")) && toks.get(j + 1).is_some_and(|t| word(t, "replace")) {
-            j += 2;
-        }
-        if !toks.get(j).is_some_and(|t| word(t, "function")) {
-            i += 1;
-            continue;
-        }
-        // schema.name, then "(".
-        j += 1;
-        let mut last = j;
-        while toks.get(last + 1).is_some_and(|t| punct(t, ".")) && toks.get(last + 2).is_some_and(|t| t.kind == TokenKind::Name) {
-            last += 2;
-        }
-        let named = toks.get(last).is_some_and(|t| t.kind == TokenKind::Name && ident(t, definition).eq_ignore_ascii_case(name));
-        if !named || !toks.get(last + 1).is_some_and(|t| punct(t, "(")) {
-            i = j;
-            continue;
-        }
-        let (args, end) = arguments(&toks, last + 1, definition);
-        out.push(args);
-        i = end;
-    }
-    out
-}
-
-/// The argument list opened at `toks[open]` (`(`), defaults cut off, and
-/// the index after its `)`.
-fn arguments(toks: &[NameToken<'_>], open: usize, body: &str) -> (String, usize) {
-    let mut args: Vec<(usize, usize)> = Vec::new();
-    let mut current: Option<(usize, usize)> = None;
-    let mut cut = false;
-    let mut depth = 0usize;
-    let mut end = toks.len();
-    for (k, t) in toks.iter().enumerate().skip(open) {
-        if punct(t, "(") || punct(t, "[") {
-            depth += 1;
-            if depth == 1 {
-                continue;
-            }
-        } else if punct(t, "]") {
-            depth = depth.saturating_sub(1).max(1);
-        } else if punct(t, ")") {
-            depth -= 1;
-            if depth == 0 {
-                end = k + 1;
-                break;
-            }
-        } else if depth == 1 && punct(t, ",") {
-            args.extend(current.take());
-            cut = false;
-            continue;
-        } else if depth == 1 && (word(t, "default") || punct(t, "=")) {
-            cut = true;
-        }
-        if !cut {
-            current = Some((current.map_or(k, |c| c.0), k));
-        }
-    }
-    args.extend(current);
-    let text = args
-        .iter()
-        .map(|&(a, b)| body[toks[a].start..toks[b].end].split_whitespace().collect::<Vec<_>>().join(" "))
-        .collect::<Vec<_>>()
-        .join(", ");
-    (text, end)
+    dbine_driver::rename::routine_signatures(definition, name).into_iter().filter(|(kind, _)| *kind == "FUNCTION").map(|(_, args)| args).collect()
 }
 
 #[cfg(test)]

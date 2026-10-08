@@ -13,7 +13,9 @@ use crate::commands::compare::{plan_around, ObjectChange};
 use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
-use dbine_driver::rename::{names_in_code, quote_new, rewrite_references, trigger_routine, with_create_style, writes_to_table, Edit, RewriteOptions, Unresolved};
+use dbine_driver::rename::{
+    carried_dependents, names_in_code, quote_new, rewrite_references, trigger_routine, with_create_style, writes_to_table, Edit, RewriteOptions, Unresolved,
+};
 use dbine_driver::{
     kinds, Confidence, DependencyReport, DependencyScan, Dependent, Driver, ObjectRef, ReferenceStyle, Relation, RenameRequest, RenameSpec,
     RenameTarget, ReplaceStyle, ScriptDialect, SyncScript, TableSchema,
@@ -89,8 +91,10 @@ pub enum Action {
         unresolved: Vec<Unresolved>,
     },
     /// DBine rewrites it. `default_selected` is false when part of it was
-    /// left out (`unresolved`).
-    Rewrite { object: CodeObject, edits: Vec<Edit>, unresolved: Vec<Unresolved>, schemabound: bool, default_selected: bool },
+    /// left out (`unresolved`). `carried`: what depends on it, dropped
+    /// with it and created again unchanged (a view dropped and created
+    /// again that other views read, [`carried_dependents`]).
+    Rewrite { object: CodeObject, edits: Vec<Edit>, unresolved: Vec<Unresolved>, schemabound: bool, default_selected: bool, carried: Vec<CodeObject> },
 }
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,7 +143,8 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
     let dialect = driver.script_dialect();
     let scan = DependencyScan::new(driver.info(), dialect, driver.capabilities().foreign_keys);
     let target = args.target.clone();
-    let tracked = spec.tracked.clone();
+    let tracked = spec.tracked_for_target(&args.target).to_vec();
+    let wants_table = spec.wants_table;
     // Engines whose database is the schema: the explorer's objects carry no
     // schema, while the catalog and the stored definitions name the database.
     let database = (!driver.info().has_schemas && !args.database.is_empty()).then(|| args.database.clone());
@@ -194,7 +199,12 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
                     RenameTarget::Object { object, .. } if object.kind != kinds::TABLE => s.definition(object).await.ok().flatten(),
                     _ => None,
                 };
-                let table = match target.table() {
+                // An object's own table only where the driver uses it (OrientDB's indexes).
+                let owner = match &target {
+                    RenameTarget::Object { object, .. } if wants_table => Some(object),
+                    _ => target.table(),
+                };
+                let table = match owner {
                     Some(t) => s.database_schema().await?.into_iter().find(|x| x.name == t.name && same_schema(x.schema.as_deref(), t.schema(), db.as_deref())),
                     None => None,
                 };
@@ -219,16 +229,52 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
         .filter(|(at, _, added)| *added && !defs.get(*at).and_then(|d| d.as_deref()).is_some_and(|d| names_in_code(d, &dialect, column)))
         .map(|(at, _, _)| *at)
         .collect();
-    let items = classify(&dialect, &spec, &args.target, &new_name, args.keep_view_columns, &report, defs, &ctx)
+    let mut items: Vec<ImpactItem> = classify(&dialect, &spec, &args.target, &new_name, args.keep_view_columns, &report, defs, &ctx)
         .into_iter()
         .enumerate()
         .filter(|(i, _)| !unrelated.contains(i))
         .map(|(_, item)| item)
         .collect();
+    let mut unreadable = report.unreadable;
+    // Views dropped and created again: what reads them goes with them.
+    let roots: Vec<(usize, ObjectRef)> = items
+        .iter()
+        .enumerate()
+        .filter(|(_, it)| matches!(it.action, Action::Rewrite { .. }) && carries(&spec, &it.dependent.kind))
+        .map(|(i, it)| (i, ObjectRef { kind: it.dependent.kind.clone(), schema: it.dependent.schema.clone(), name: it.dependent.name.clone() }))
+        .collect();
+    if !roots.is_empty() {
+        let mut skip: Vec<ObjectRef> = items.iter().map(|it| ObjectRef { kind: it.dependent.kind.clone(), schema: it.dependent.schema.clone(), name: it.dependent.name.clone() }).collect();
+        if let RenameTarget::Object { object, .. } = &args.target {
+            skip.push(object.clone());
+        }
+        let scan = DependencyScan::new(driver.info(), dialect, driver.capabilities().foreign_keys);
+        let found = state
+            .meta_read(&args.connection_id, &args.database, IMPACT_LIMIT, move |s| {
+                Box::pin(async move {
+                    let mut out = Vec::with_capacity(roots.len());
+                    for (at, root) in roots {
+                        out.push((at, carried_dependents(s.as_mut(), &root, &skip, &scan).await?));
+                    }
+                    Ok(out)
+                })
+            })
+            .await?;
+        for (at, (carried, missing)) in found {
+            if let Action::Rewrite { carried: c, .. } = &mut items[at].action {
+                *c = carried.into_iter().map(|(o, definition)| CodeObject { kind: o.kind, schema: o.schema, name: o.name, definition }).collect();
+            }
+            for m in missing {
+                if !unreadable.contains(&m) {
+                    unreadable.push(m);
+                }
+            }
+        }
+    }
     Ok(RenameImpact {
         items,
         scanned: report.scanned,
-        unreadable: report.unreadable,
+        unreadable,
         note: report.note,
         spec_note: spec.note.clone(),
         collides,
@@ -354,7 +400,7 @@ pub(crate) fn classify(
                 Action::Engine
             } else if ctx.shared_routines.contains(&at) {
                 manual(ManualReason::SharedRoutine)
-            } else if spec.tracked.contains(&d.kind) {
+            } else if spec.tracked_for_target(target).contains(&d.kind) {
                 Action::Tracked
             } else if d.confidence == Confidence::Review {
                 manual(ManualReason::Dynamic)
@@ -380,6 +426,7 @@ pub(crate) fn classify(
                         unresolved: r.unresolved,
                         schemabound: dialect.bracket_idents && schemabound(body),
                         default_selected: clean,
+                        carried: Vec::new(),
                     }
                 }
             } else {
@@ -389,6 +436,12 @@ pub(crate) fn classify(
             ImpactItem { dependent: d, action, original }
         })
         .collect()
+}
+
+/// A rewritten dependent of that kind is dropped and created again, and
+/// what reads it has to go with it: views put back with `DropCreate`.
+fn carries(spec: &RenameSpec, kind: &str) -> bool {
+    (kind == kinds::VIEW || kind == kinds::MATERIALIZED_VIEW) && spec.replace_for(kind) == ReplaceStyle::DropCreate
 }
 
 /// A T-SQL module bound to its schema (`WITH SCHEMABINDING`): `sp_rename`
@@ -403,6 +456,9 @@ pub struct RewriteChoice {
     pub object: CodeObject,
     #[serde(default)]
     pub schemabound: bool,
+    /// [`Action::Rewrite`]'s `carried`, as the impact gave it.
+    #[serde(default)]
+    pub carried: Vec<CodeObject>,
 }
 
 #[derive(Deserialize)]
@@ -431,7 +487,7 @@ pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &Ren
     let middle = driver.rename_script(request)?;
     let dialect = driver.script_dialect();
     let mut lost = Vec::new();
-    let objects: Vec<ObjectChange> = rewrites
+    let mut objects: Vec<ObjectChange> = rewrites
         .iter()
         .map(|r| {
             let style = spec.replace_for(&r.object.kind);
@@ -444,9 +500,23 @@ pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &Ren
             }
         })
         .collect();
+    // What reads a dropped one goes and comes back as it is, once.
+    let same = |a: &CodeObject, b: &CodeObject| a.kind == b.kind && a.schema == b.schema && a.name.eq_ignore_ascii_case(&b.name);
+    let mut carried: Vec<&CodeObject> = Vec::new();
+    for r in rewrites.iter().filter(|r| spec.replace_for(&r.object.kind) == ReplaceStyle::DropCreate || r.schemabound) {
+        for c in &r.carried {
+            if !rewrites.iter().any(|x| same(&x.object, c)) && !carried.iter().any(|x| same(x, c)) {
+                carried.push(c);
+            }
+        }
+    }
+    for c in carried {
+        lost.push(format!("«{}»", c.name));
+        objects.push(ObjectChange::Replace { object: c.clone() });
+    }
     let mut script = plan_around(driver, middle, &objects);
     script.statements.extend(spec.epilogue_for(&request.target));
-    if !lost.is_empty() {
+    if !lost.is_empty() && spec.grants_on_objects {
         script.warnings.push(format!("Se borran y se vuelven a crear {}: se pierden los permisos otorgados sobre ellos.", lost.join(", ")));
     }
     Ok(script)
@@ -590,7 +660,7 @@ mod tests {
     }
 
     fn choice(name: &str, def: &str, schemabound: bool) -> RewriteChoice {
-        RewriteChoice { object: CodeObject { kind: "view".into(), schema: Some("dbo".into()), name: name.into(), definition: def.into() }, schemabound }
+        RewriteChoice { object: CodeObject { kind: "view".into(), schema: Some("dbo".into()), name: name.into(), definition: def.into() }, schemabound, carried: vec![] }
     }
 
     fn request(new: &str) -> RenameRequest {
@@ -641,6 +711,57 @@ mod tests {
         let s = build_script(&d, &d.spec, &request("Nuevo"), &[]).unwrap();
         assert_eq!(s.statements, vec!["EXEC sp_rename N'dbo.Clientes', N'Nuevo';"]);
         assert!(s.warnings.is_empty());
+    }
+
+    #[test]
+    fn dropped_views_carry_what_reads_them() {
+        let d = fake(ReplaceStyle::DropCreate);
+        let view = |name: &str, def: &str| CodeObject { kind: "view".into(), schema: Some("dbo".into()), name: name.into(), definition: def.into() };
+        let mut v1 = choice("v1", "CREATE VIEW dbo.v1 AS SELECT a FROM dbo.Nuevo", false);
+        v1.carried = vec![view("v2", "CREATE VIEW dbo.v2 AS SELECT a FROM dbo.v1"), view("v3", "CREATE VIEW dbo.v3 AS SELECT a FROM dbo.v2")];
+        // Another rewrite carrying v2 too: once.
+        let mut w = choice("w", "CREATE VIEW dbo.w AS SELECT a FROM dbo.Nuevo", false);
+        w.carried = vec![view("v2", "CREATE VIEW dbo.v2 AS SELECT a FROM dbo.v1 JOIN dbo.w ON 1 = 1")];
+        let s = build_script(&d, &d.spec, &request("Nuevo"), &[v1.clone(), w]).unwrap();
+        assert_eq!(
+            s.statements,
+            vec![
+                "DROP VIEW IF EXISTS [dbo].[w];",
+                "DROP VIEW IF EXISTS [dbo].[v3];",
+                "DROP VIEW IF EXISTS [dbo].[v2];",
+                "DROP VIEW IF EXISTS [dbo].[v1];",
+                "EXEC sp_rename N'dbo.Clientes', N'Nuevo';",
+                "CREATE VIEW dbo.v1 AS SELECT a FROM dbo.Nuevo",
+                "CREATE VIEW dbo.w AS SELECT a FROM dbo.Nuevo",
+                "CREATE VIEW dbo.v2 AS SELECT a FROM dbo.v1",
+                "CREATE VIEW dbo.v3 AS SELECT a FROM dbo.v2",
+            ]
+        );
+        assert!(s.warnings[0].contains("«v2»") && s.warnings[0].contains("«v3»"), "{:?}", s.warnings);
+        // Not carried where the dependent is created in place.
+        let d = fake(ReplaceStyle::CreateOrAlter);
+        let s = build_script(&d, &d.spec, &request("Nuevo"), &[v1]).unwrap();
+        assert_eq!(s.statements.len(), 2, "{:?}", s.statements);
+        assert!(carries(&fake(ReplaceStyle::DropCreate).spec, "view") && !carries(&fake(ReplaceStyle::DropCreate).spec, "procedure"));
+    }
+
+    #[test]
+    fn tracked_per_target_and_no_grants() {
+        // SQLite: a table's views follow it, a view created again doesn't.
+        let spec = RenameSpec { tracked: vec!["view".into()], tracked_for: [("view".to_string(), vec![])].into(), ..fake(ReplaceStyle::DropCreate).spec };
+        let r = report(vec![dependent("view", "v2", Relation::Code, Confidence::Probable)]);
+        let defs = vec![Some("CREATE VIEW dbo.v2 AS SELECT a FROM dbo.v".into())];
+        let items = classify(&ScriptDialect::tsql(), &spec, &table_target(), "Nuevo", true, &r, defs.clone(), &Context::default());
+        assert_eq!(items[0].action, Action::Tracked);
+        let view = RenameTarget::Object { object: ObjectRef { kind: "view".into(), schema: Some("dbo".into()), name: "v".into() }, parent: None };
+        let items = classify(&ScriptDialect::tsql(), &spec, &view, "w", true, &r, defs, &Context::default());
+        assert!(matches!(&items[0].action, Action::Rewrite { object, .. } if object.definition.ends_with("FROM dbo.w")), "{:?}", items[0].action);
+        // No grants to lose: no warning about them.
+        let mut d = fake(ReplaceStyle::DropCreate);
+        d.spec.grants_on_objects = false;
+        let s = build_script(&d, &d.spec, &request("Nuevo"), &[choice("v1", "CREATE VIEW dbo.v1 AS SELECT a FROM dbo.Nuevo", false)]).unwrap();
+        assert_eq!(s.statements.len(), 3);
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
     }
 
     #[test]

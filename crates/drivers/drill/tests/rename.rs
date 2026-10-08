@@ -8,11 +8,9 @@
 //! Drill renames only views, by creating them again: the views on them are
 //! rewritten with `rewrite_references` and put back with `CREATE OR
 //! REPLACE VIEW` after the rename, statement by statement, as the app does.
-//! Tables (files), columns and workspaces are refused.
-//!
-//! `dfs.tmp.rn_v` (the workspace written as two names) isn't found by "Ver
-//! dependencias" nor rewritten: the shared scan compares one qualifier with
-//! the whole workspace. The fixture names it `dfs.tmp`.rn_v and bare.
+//! Tables (files), columns and workspaces are refused. The views on the
+//! renamed one name it every way Drill takes: `dfs.tmp`.rn_v, dfs.tmp.rn_v,
+//! `dfs`.`tmp`.`rn_v` and bare.
 
 use dbine_driver::rename::{rewrite_references, with_create_style, RenameTarget, RewriteOptions};
 use dbine_driver::{Confidence, ConnectionConfig, DependencyScan, Driver, ObjectRef, QueryOutcome, Relation, RenameRequest, Session};
@@ -77,7 +75,7 @@ async fn drill_rename_with_impact() {
     let d = dbine_driver_drill::drivers().remove(0);
     let mut s = d.connect(&c, Some("dfs.tmp")).await.unwrap();
     let mut out = QueryOutcome::default();
-    for v in ["rn_v", "rn_w", "rn_far", "rn_other", "rn v2"] {
+    for v in ["rn_v", "rn_w", "rn_far", "rn_dots", "rn_ticks", "rn_other", "rn v2"] {
         let _ = s.execute(&format!("DROP VIEW IF EXISTS `dfs.tmp`.`{v}`"), 10, &mut out).await;
     }
     let _ = s.execute("DROP TABLE IF EXISTS `dfs.tmp`.`rn_t`", 10, &mut out).await;
@@ -86,6 +84,8 @@ async fn drill_rename_with_impact() {
          CREATE VIEW `dfs.tmp`.`rn_v` AS SELECT id, pepe FROM `dfs.tmp`.`rn_t` WHERE pepe <> 'x';
          CREATE VIEW rn_w AS SELECT pepe FROM rn_v;
          CREATE VIEW `dfs.tmp`.`rn_far` AS SELECT pepe FROM `dfs.tmp`.rn_v;
+         CREATE VIEW `dfs.tmp`.`rn_dots` AS SELECT pepe FROM dfs.tmp.rn_v;
+         CREATE VIEW `dfs.tmp`.`rn_ticks` AS SELECT a.pepe FROM `dfs`.`tmp`.`rn_v` a JOIN dfs.tmp.rn_t b ON a.id = b.id;
          CREATE VIEW rn_other AS SELECT pepe FROM rn_t;",
         10,
         &mut out,
@@ -104,11 +104,13 @@ async fn drill_rename_with_impact() {
     assert!(manual.is_empty(), "{manual:?}");
     assert_eq!(one(s.as_mut(), "SELECT pepe FROM `dfs.tmp`.`rn_w`").await, "a");
     assert_eq!(one(s.as_mut(), "SELECT pepe FROM `dfs.tmp`.`rn_far`").await, "a");
+    assert_eq!(one(s.as_mut(), "SELECT pepe FROM `dfs.tmp`.`rn_dots`").await, "a");
+    assert_eq!(one(s.as_mut(), "SELECT pepe FROM `dfs.tmp`.`rn_ticks`").await, "a");
     assert_eq!(one(s.as_mut(), "SELECT pepe FROM `dfs.tmp`.`rn v2`").await, "a");
     assert_eq!(one(s.as_mut(), "SELECT pepe FROM `dfs.tmp`.`rn_other`").await, "a");
     assert_eq!(one(s.as_mut(), "SELECT count(*) FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = 'dfs.tmp' AND TABLE_NAME = 'rn_v'").await, "0");
 
-    for v in ["rn_w", "rn_far", "rn_other", "rn v2"] {
+    for v in ["rn_w", "rn_far", "rn_dots", "rn_ticks", "rn_other", "rn v2"] {
         s.execute(&format!("DROP VIEW `dfs.tmp`.`{v}`"), 10, &mut out).await.unwrap();
     }
     s.execute("DROP TABLE `dfs.tmp`.`rn_t`", 10, &mut out).await.unwrap();

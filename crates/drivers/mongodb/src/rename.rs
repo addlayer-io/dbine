@@ -48,6 +48,9 @@ pub(crate) fn spec(flavor: Flavor) -> RenameSpec {
         fold: Fold::None,
         transactional: false,
         note: Some(if views { NOTE_MONGO } else { NOTE_NO_VIEWS }.to_string()),
+        // Roles grant on a collection's name, not on the object: a view
+        // created again under the same name keeps them.
+        grants_on_objects: false,
         ..Default::default()
     }
 }
@@ -327,6 +330,7 @@ mod tests {
         assert!(m.columns && !m.indexes && !m.constraints && !m.schemas && !m.transactional);
         assert_eq!(m.references, ReferenceStyle::Pipeline);
         assert_eq!(m.replace, ReplaceStyle::DropCreate);
+        assert!(!m.grants_on_objects);
         for f in [Flavor::Ferret, Flavor::DocumentDb] {
             let s = spec(f);
             assert_eq!(s.kinds, ["collection"]);

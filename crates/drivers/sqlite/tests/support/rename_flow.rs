@@ -2,8 +2,8 @@
 //! the driver's statements run in one transaction, as the app runs them,
 //! and what depends on the target keeps working.
 
-use dbine_driver::rename::RenameTarget;
-use dbine_driver::{DependencyScan, Driver, ObjectRef, QueryOutcome, RenameRequest, Session};
+use dbine_driver::rename::{rewrite_references, RenameTarget, RewriteOptions};
+use dbine_driver::{DependencyScan, Driver, ObjectRef, QueryOutcome, Relation, RenameRequest, Session};
 use serde_json::Value;
 
 async fn run(s: &mut dyn Session, statements: &[String]) -> dbine_driver::Result<()> {
@@ -40,7 +40,7 @@ fn req(target: RenameTarget, new: &str) -> RenameRequest {
 pub async fn rename_flow(d: &dyn Driver, s: &mut dyn Session) {
     let mut out = QueryOutcome::default();
     s.execute(
-        "DROP VIEW IF EXISTS rn_v; DROP TABLE IF EXISTS rn_t2; DROP TABLE IF EXISTS rn_log;
+        "DROP VIEW IF EXISTS rn_w; DROP VIEW IF EXISTS rn_v; DROP VIEW IF EXISTS \"RN V\"; DROP TABLE IF EXISTS rn_t2; DROP TABLE IF EXISTS rn_log;
          DROP TABLE IF EXISTS rn_t; DROP TABLE IF EXISTS \"RN T\";
          CREATE TABLE rn_t (id INTEGER PRIMARY KEY, pepe TEXT CHECK (pepe <> ''));
          CREATE TABLE rn_t2 (id INTEGER PRIMARY KEY, tid INT REFERENCES rn_t (id), pepe TEXT);
@@ -107,6 +107,42 @@ pub async fn rename_flow(d: &dyn Driver, s: &mut dyn Session) {
     let ix = one(s, "SELECT sql FROM sqlite_master WHERE name = 'RN Ix'").await;
     assert!(ix.contains("\"Nuevo Pepe\" COLLATE NOCASE DESC") && ix.contains("WHERE"), "{ix}");
 
+    // View: created again under the new name. SQLite doesn't follow that in
+    // what uses it (`tracked_for`): a view and an INSTEAD OF trigger on it
+    // are rewritten, dropped first and created after, as the app plans it.
+    s.execute(
+        "CREATE VIEW rn_w AS SELECT v.\"Nuevo Pepe\" FROM rn_v v;
+         CREATE TRIGGER rn_tr_v INSTEAD OF INSERT ON rn_v BEGIN INSERT INTO rn_log VALUES ('v'); END;",
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    let view = ObjectRef { kind: "view".into(), schema: None, name: "rn_v".into() };
+    let target = RenameTarget::Object { object: view.clone(), parent: None };
+    assert!(spec.tracked_for_target(&target).is_empty());
+    let report = s.dependents(&target.dependency_target(), &scan).await.unwrap();
+    let (mut drops, mut creates, mut names) = (Vec::new(), Vec::new(), Vec::new());
+    for dep in report.items.iter().filter(|x| x.relation == Relation::Code) {
+        let def = s.definition(&ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() }).await.unwrap().unwrap();
+        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == "view", ..Default::default() };
+        let r = rewrite_references(&def, &d.script_dialect(), &target.rewrite_target(), "RN V", &spec, &opts);
+        assert!(r.unresolved.is_empty() && !r.edits.is_empty(), "{}: {r:?}", dep.name);
+        drops.push(format!("DROP {} \"{}\";", if dep.kind == "view" { "VIEW" } else { "TRIGGER" }, dep.name));
+        creates.push(r.text);
+        names.push(dep.name.clone());
+    }
+    names.sort();
+    assert_eq!(names, ["rn_tr_v", "rn_w"]);
+    let mut r = req(target, "RN V");
+    r.definition = s.definition(&view).await.unwrap();
+    let statements: Vec<String> = drops.into_iter().chain(d.rename_script(&r).unwrap().statements).chain(creates).collect();
+    run(s, &statements).await.unwrap();
+    assert_eq!(one(s, "SELECT count(*) FROM sqlite_master WHERE name = 'rn_v'").await, "0");
+    assert_eq!(one(s, "SELECT count(*) FROM rn_w").await, "3");
+    s.execute("INSERT INTO \"RN V\" (id, \"Nuevo Pepe\") VALUES (9, 'z')", 10, &mut out).await.unwrap();
+    assert_eq!(one(s, "SELECT count(*) FROM rn_log WHERE msg = 'v'").await, "1");
+
     // A view already broken makes SQLite refuse the rename; nothing changes.
     s.execute("CREATE TABLE rn_z (a); CREATE VIEW rn_broken AS SELECT a FROM rn_z; DROP TABLE rn_z;", 10, &mut out).await.unwrap();
     let script = d.rename_script(&req(RenameTarget::Object { object: table("RN T"), parent: None }, "rn_t")).unwrap();
@@ -115,7 +151,7 @@ pub async fn rename_flow(d: &dyn Driver, s: &mut dyn Session) {
     assert_eq!(one(s, "SELECT count(*) FROM \"RN T\"").await, "3");
 
     s.execute(
-        "DROP VIEW rn_broken; DROP VIEW rn_v; DROP TABLE rn_t2; DROP TABLE rn_log; DROP TABLE \"RN T\";",
+        "DROP VIEW rn_broken; DROP VIEW rn_w; DROP VIEW \"RN V\"; DROP TABLE rn_t2; DROP TABLE rn_log; DROP TABLE \"RN T\";",
         10,
         &mut out,
     )
