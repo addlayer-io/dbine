@@ -145,6 +145,43 @@ tiene se descarta con un aviso:
 Qué se compara en cada motor y qué no: `docs/soporte-por-motor.md`, sección
 "Comparar esquemas".
 
+## Modificar una tabla
+
+**Modificar…**, en el menú de una tabla del explorador, abre el diseñador de
+"Nueva tabla" en modo edición, con la tabla como está hoy. Se pueden agregar,
+cambiar y borrar columnas, índices y claves foráneas, y editar comentarios y
+opciones. El nombre y el esquema de la tabla no se cambian acá: para eso está
+**Renombrar…**.
+
+- **Revisar cambios…** arma un solo script: el `ALTER` del motor desde la tabla
+  como estaba hasta la editada, con la misma maquinaria que **Comparar
+  esquemas**. Se muestra en la pestaña SQL con sus avisos.
+- No se ejecuta nada hasta **Ejecutar N sentencias**. Si hay avisos de pérdida
+  de datos, pide una confirmación más; en una conexión de producción hay que
+  escribir el nombre de la tabla.
+- Corre todo o nada en los motores que ejecutan el DDL dentro de una
+  transacción.
+- Las vistas que usan la tabla se borran y se vuelven a crear alrededor del
+  `ALTER`. Si el motor reconstruye la tabla (SQLite, para cambiar tipo o
+  nulabilidad), también se recrean sus triggers.
+- El diseñador conserva lo que no muestra: los `CHECK`, las columnas `INCLUDE`
+  y las opciones de los índices, el orden de las columnas de la clave y otras
+  opciones.
+- Renombrar una columna existente en la grilla abre el diálogo
+  **Renombrar** en modo recolección: muestra lo que depende de la columna
+  (vistas, rutinas…) y el script del renombre con los dependientes
+  reescritos. **Usar en el diseñador** agrega ese script, que corre **primero**,
+  antes del `ALTER`. Donde la `rename_spec` del motor no cubre columnas, el
+  nombre queda fijo en el diseñador y se explica por qué.
+- Si el motor no puede aplicar un cambio (el tipo de una columna en Cassandra,
+  los campos de documentos que ya existen en MongoDB), el script lo avisa y no
+  se ejecuta nada.
+
+Se ofrece cuando el driver tiene diseñador, `supports_schema_sync`, el tipo
+del objeto es el del diseñador y la conexión no es de solo lectura. Los motores
+que no lo tienen, con el motivo, están en `docs/soporte-por-motor.md`
+("Modificar tablas").
+
 ## Comandos
 
 Están en `docs/api-comandos.md`, en la sección "Comparar esquemas".

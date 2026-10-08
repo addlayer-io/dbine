@@ -36,7 +36,7 @@ de cada base.
   sobre una conexión comparte un solo túnel, que se vuelve a abrir solo si se
   cae. Detalle: [`docs/tuneles-ssh.md`](docs/tuneles-ssh.md).
 - **Menú contextual de la base:**
-  - nueva query, nueva tabla con diseñador, nuevos objetos desde plantillas;
+  - nueva query, nueva tabla con diseñador (y modificar una existente), nuevos objetos desde plantillas;
   - diagrama ER, generar script, exportar o importar la base, ejecutar un
     archivo de script;
   - comparar esquemas, migrar, clonar o sincronizar, y Profiler;

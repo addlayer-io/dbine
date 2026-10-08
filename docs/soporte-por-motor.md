@@ -3256,3 +3256,47 @@ pruebas unitarias** y sigue la documentación del fabricante.
 
 **Pendiente explícito:** TDengine (filas) y Hive, Impala, Spark, Kyuubi y
 Cloudera por ODBC (filas) esperan la decisión del dueño.
+
+## Modificar tablas (diseñador en modo edición)
+
+**Modificar…** abre el diseñador con la tabla tal como está, y arma un solo
+script con el `ALTER` del motor (el mismo de **Comparar esquemas**, `Driver::sync_script`).
+Cómo se usa: [`comparacion-de-esquemas.md`](comparacion-de-esquemas.md#modificar-una-tabla).
+El explorador lo ofrece cuando el driver tiene diseñador (`designer`), responde
+`supports_schema_sync`, el tipo del objeto es el del diseñador (tabla, colección,
+índice, stream…) y la conexión no es de solo lectura.
+
+Lo tienen todos los motores que cumplen esas dos condiciones, es decir, los de
+las tablas "Sincronización" de este documento que también tienen diseñador.
+Qué puede cambiar en cada uno es lo que dicen esas tablas: lo que el motor no
+aplica con DDL queda como aviso en el script y no se ejecuta (por ejemplo, el
+tipo de una columna en Cassandra, o los campos de documentos que ya existen en
+MongoDB).
+
+**Probado contra servidores reales:** SQL Server, PostgreSQL, CockroachDB,
+MySQL, MariaDB, SQLite, Oracle, ClickHouse, Cassandra y MongoDB. **Todo lo
+demás solo tiene pruebas unitarias** y sigue la documentación del fabricante.
+
+El renombre de una columna dentro del diseñador pasa por **Renombrar…**
+([`renombrar.md`](renombrar.md)). En los motores cuya `rename_spec` no cubre
+columnas, el nombre de una columna existente queda fijo en el diseñador y se
+muestra el motivo (ver "Renombrar con impacto"). El nombre y el esquema de la
+tabla no se cambian acá: es **Renombrar…**.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| Denodo | Modificar… | Es una capa virtual: no tiene diseñador (`designer` devuelve `None`) ni DDL de tablas; las vistas se definen en Denodo. |
+| Apache Calcite Avatica (Phoenix en modo genérico) | Modificar… | Sin diseñador ni sincronización: el DDL depende de la base detrás del servidor y el driver no sabe cuál es. |
+| Amazon Neptune | Modificar… | Sin diseñador ni sincronización: no tiene esquema definido por el usuario, indexa todo solo y no tiene restricciones. |
+| NetSuite (ODBC) | Modificar… | SuiteAnalytics Connect es de solo lectura: no tiene diseñador ni sincronización. |
+| InfluxDB (v1, v2, v3) | Modificar… | Sin diseñador ni DDL: los measurements y sus campos se crean al escribir datos. |
+| Apache Drill | Modificar… | Sin diseñador ni sincronización: sus tablas son archivos creados con `CREATE TABLE AS`, sin columnas que modificar. |
+| Apache Arrow Flight SQL | Modificar… | Es un protocolo, no un motor: el DDL depende del backend y no hay uno portable. Conviene conectarse con el driver propio de la base. |
+| CouchDB | Modificar… | Tiene sincronización (índices y design docs), pero no diseñador: los documentos no tienen esquema, así que no hay tabla que abrir. |
+| Redis, Valkey, Dragonfly | Modificar… | Tienen diseñador de keys, pero no sincronización: las keys no tienen esquema que alterar. |
+| etcd | Modificar… | Tiene diseñador de claves, pero no sincronización: no tiene esquema, solo claves con valores. |
+| Cosmos DB | Cambiar un contenedor existente | La sincronización solo crea y borra contenedores: la partition key, las claves únicas, la política de índices, el TTL y las RU/s se cambian desde el portal o la CLI de Azure, no con SQL. El script avisa y no ejecuta. |
+| Cassandra, ScyllaDB, Keyspaces | Cambiar el tipo de una columna o la clave primaria | El motor no tiene `ALTER` para eso: hay que recrear la tabla. El script avisa y no ejecuta. |
+| MongoDB, FerretDB, DocumentDB | Cambiar los campos de documentos que ya existen | Los documentos no tienen columnas: se modifican reescribiendo cada uno. Se cambian el validador, los índices y las opciones; los campos quedan como aviso. |
+| Elasticsearch, OpenSearch | Cambiar el tipo o borrar un campo, cambiar shards | El mapping no se modifica en el lugar: hay que reindexar. El script avisa. |
+| Pendiente explícito | Modificar… en los motores donde no se probó | Solo los diez motores de arriba se probaron contra un servidor. Falta probar el resto: no hay contenedores ni emuladores para todos. |
