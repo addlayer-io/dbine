@@ -612,7 +612,10 @@ impl PgSession {
         let mut fixes = Vec::new();
         for r in &rows {
             let (schema, table, ia, ib) = (get(r, 0), get(r, 1), get(r, 2), get(r, 3));
-            objects.push(format!("{schema}.{table} · {ia} = {ib}"));
+            // Named in a stable order: index oids don't follow creation
+            // order everywhere (CockroachDB).
+            let (first, second) = if ia <= ib { (&ia, &ib) } else { (&ib, &ia) };
+            objects.push(format!("{schema}.{table} · {first} = {second}"));
             // Drop the one no constraint needs; both needed: nothing to drop.
             let drop = match (truthy(r, 4), truthy(r, 5)) {
                 (_, false) => Some(&ib),
