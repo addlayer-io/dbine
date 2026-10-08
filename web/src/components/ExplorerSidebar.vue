@@ -1256,9 +1256,9 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             @drop="onRowDrop($event, n)"
           >
             <template v-if="n.type === 'connection'">
-              <span class="ex-conn-ic">
+              <span class="ex-conn-ic" :class="{ tinted: !!conns.colorOf(n.connectionId) }" :style="{ '--c': conns.colorOf(n.connectionId) || 'transparent' }">
                 <EngineIcon :id="conns.byId(n.connectionId)?.config.driver ?? ''" :name="n.hint ?? ''" :size="15" />
-                <span class="ex-conn-dot" :class="conns.live[n.connectionId]?.status" :style="{ '--c': conns.colorOf(n.connectionId) || 'var(--nm-accent)' }" />
+                <span class="ex-conn-dot" :class="conns.live[n.connectionId]?.status ?? 'disconnected'" />
               </span>
             </template>
             <el-icon v-else-if="n.type === 'group'" class="ex-ic g" :style="n.color ? { color: n.color } : undefined">
@@ -1434,13 +1434,15 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ktype.stream { background: #c0392b; }
 .ex-ktype.json { background: #2f8f8f; }
 .ex-conn-ic { position: relative; display: inline-flex; flex-shrink: 0; }
-/* Status dot on the logo's corner, ringed with the sidebar color. */
+/* The connection's color: a frame around the engine logo (the dot is only status). */
+.ex-conn-ic.tinted { padding: 1px; border-radius: 4px; box-shadow: 0 0 0 1.5px var(--c); margin: 0 1px; }
+/* Status dot on the logo's corner, ringed with the sidebar color:
+ * green connected, red disconnected or failed. */
 .ex-conn-dot {
   position: absolute; right: -3px; bottom: -2px;
   width: 8px; height: 8px; border-radius: 50%; box-sizing: border-box;
-  border: 2px solid var(--c); background: var(--ide-sidebar); box-shadow: 0 0 0 1.5px var(--ide-sidebar);
+  background: var(--nm-danger); box-shadow: 0 0 0 1.5px var(--ide-sidebar);
 }
-.ex-conn-dot.connected { background: var(--c); }
-.ex-conn-dot.error { border-color: var(--nm-danger); }
-.ex-conn-dot.connecting { animation: ide-pulse 1.4s ease-in-out infinite; }
+.ex-conn-dot.connected { background: var(--nm-success, #3fb950); }
+.ex-conn-dot.connecting { background: var(--nm-success, #3fb950); animation: ide-pulse 1.4s ease-in-out infinite; }
 </style>
