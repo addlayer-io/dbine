@@ -18,6 +18,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod script;
 mod search;
 mod security;
@@ -372,6 +373,17 @@ impl Driver for OracleDriver {
 
     fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
         index_usage::toggle_script(table, index, enable)
+    }
+
+    /// Tables, views, sequences, private synonyms, triggers, columns,
+    /// indexes and constraints with Oracle's own rename; procedures,
+    /// functions and packages created again (see `rename`).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn supports_profiler(&self) -> bool {

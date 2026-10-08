@@ -3105,7 +3105,7 @@ ofrece **Renombrar…** en ese motor.
 | Aurora DSQL | pendiente | | | | |
 | SQL Server, Azure SQL, Fabric, Babelfish | pendiente | | | | |
 | MySQL, MariaDB, TiDB, SingleStore, Doris, StarRocks, OceanBase… | pendiente | | | | |
-| Oracle | pendiente | | | | |
+| Oracle, Oracle Autonomous Database | sí | tabla, vista, columna, índice, restricción, secuencia, sinónimo privado y trigger con el `RENAME` del motor (vistas, secuencias y sinónimos: solo conectado como el dueño del esquema); procedimientos, funciones y paquetes por recreación (`CREATE` con el nombre nuevo y `DROP` del viejo) | claves foráneas, índices y checks; las vistas y el código quedan `INVALID` | `CREATE OR REPLACE [FORCE]`: quedan `VALID` sin recompilar; lo que depende de ellos se recompila solo al usarse | el DDL confirma solo (sin transacción); no renombra usuarios (esquemas), sinónimos públicos, vistas materializadas ni tipos; recrear una rutina pierde sus permisos; los hints en comentarios no se tocan |
 | SQLite | pendiente | | | | |
 | libSQL | pendiente | | | | |
 | DuckDB | pendiente | | | | |
