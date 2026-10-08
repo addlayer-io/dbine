@@ -1,0 +1,69 @@
+{
+  "menu": "Rename…",
+  "title": "Rename {{name}}",
+  "what": {
+    "object": "{{kind}} {{name}}",
+    "column": "Column {{name}}",
+    "index": "Index {{name}}",
+    "constraint": "Constraint {{name}}",
+    "schema": "Schema {{name}}",
+    "database": "Database {{name}}"
+  },
+  "where": "in {{where}}",
+  "newName": "New name",
+  "quotedHint": "In the script it is written as {{quoted}} (quoted, to keep case or special characters).",
+  "collides": "An object named “{{name}}” already exists: the engine will reject the change.",
+  "keepViewColumns": "Keep the view column names (new AS old)",
+  "reading": "Looking for what depends on {{name}} and reading their definitions…",
+  "same": "Enter a name different from the current one.",
+  "empty": "Enter the new name.",
+  "summary": "{{rewrite}} will be rewritten, {{engine}} are updated by the engine and {{manual}} need manual attention ({{scanned}} definitions read).",
+  "outside": "Other databases, applications and external reports are not checked: anything that uses the old name outside this database will stop working.",
+  "unreadable": "Could not read the definition of: {{names}}. Anything that depends on the object there is not rewritten.",
+  "atomic": "The script runs in a transaction: if a statement fails, nothing changes.",
+  "notAtomic": "This engine does not roll back structure changes: if a statement fails, what came before stays done. Review the script before running it.",
+  "group": {
+    "rewrite": "Rewritten",
+    "engine": "Updated by the engine",
+    "manual": "Manual attention"
+  },
+  "groupHint": {
+    "rewrite": "DBine changes the name in their code and recreates them with the script. Uncheck the ones you prefer to edit by hand.",
+    "engine": "Keys, indexes and objects the engine follows on its own: nothing to do.",
+    "manual": "DBine does not change them: review them after renaming."
+  },
+  "engine": "updated by the engine",
+  "tracked": "followed by the engine on its own",
+  "review": "review manually",
+  "reviewHint": "Part of the text could not be decided: if you check it, those lines stay as they are.",
+  "schemabound": "with SCHEMABINDING: dropped first and created afterwards",
+  "line": "line {{line}}",
+  "openDefinition": "Open definition",
+  "manualReason": {
+    "dynamic": "dynamic SQL: the name appears inside a string",
+    "unreadable": "its definition could not be read",
+    "not_rewritten": "this engine does not rewrite this kind of reference",
+    "no_match": "the text does not name it in a way DBine recognizes",
+    "shared_routine": "it is also run by triggers on other tables: its NEW and OLD are not only from this table"
+  },
+  "reason": {
+    "in_string": "inside a string (dynamic SQL)",
+    "qualified": "qualified with another name",
+    "other_schema": "no schema, in an object of another schema",
+    "case": "unquoted, it may refer to another object (upper and lower case)",
+    "maybe_function": "followed by “(”: it may be a function with the same name",
+    "ambiguous_column": "column without a table in a statement that reads several",
+    "alias_named_like_schema": "there is an alias named like the schema"
+  },
+  "nothing": "Nothing in the database depends on this object: the script only renames it.",
+  "script": "Script",
+  "openInQuery": "Open in a query",
+  "scriptName": "Rename {{name}}",
+  "prodConfirm": "This is a production connection. Type {{name}} to confirm.",
+  "run": "Rename",
+  "task": "Rename {{name}} to {{to}}",
+  "done": "{{name}} is now called {{to}}",
+  "rolledBack": "Nothing changed: the whole script was rolled back.",
+  "queryTabs_one": "There is {{count}} open query tab that names “{{name}}”: it was not modified.",
+  "queryTabs_other": "There are {{count}} open query tabs that name “{{name}}”: they were not modified."
+}

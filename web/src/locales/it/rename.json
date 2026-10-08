@@ -1,0 +1,69 @@
+{
+  "menu": "Rinomina…",
+  "title": "Rinomina {{name}}",
+  "what": {
+    "object": "{{kind}} {{name}}",
+    "column": "Colonna {{name}}",
+    "index": "Indice {{name}}",
+    "constraint": "Vincolo {{name}}",
+    "schema": "Schema {{name}}",
+    "database": "Database {{name}}"
+  },
+  "where": "in {{where}}",
+  "newName": "Nuovo nome",
+  "quotedHint": "Nello script viene scritto come {{quoted}} (tra virgolette, per mantenere maiuscole o caratteri speciali).",
+  "collides": "Esiste già un oggetto con il nome «{{name}}»: il motore rifiuterà la modifica.",
+  "keepViewColumns": "Mantieni i nomi delle colonne delle viste (nuovo AS vecchio)",
+  "reading": "Ricerca di ciò che dipende da {{name}} e lettura delle relative definizioni…",
+  "same": "Inserisci un nome diverso da quello attuale.",
+  "empty": "Inserisci il nuovo nome.",
+  "summary": "{{rewrite}} verranno riscritti, {{engine}} vengono aggiornati dal motore e {{manual}} richiedono attenzione manuale ({{scanned}} definizioni lette).",
+  "outside": "Altri database, applicazioni e report esterni non vengono controllati: ciò che usa il vecchio nome fuori da questo database smette di funzionare.",
+  "unreadable": "Impossibile leggere la definizione di: {{names}}. Ciò che dipende dall’oggetto lì non viene riscritto.",
+  "atomic": "Lo script viene eseguito in una transazione: se un'istruzione fallisce, non cambia nulla.",
+  "notAtomic": "Questo motore non annulla le modifiche alla struttura: se un'istruzione fallisce, quanto precede resta applicato. Controlla lo script prima di eseguirlo.",
+  "group": {
+    "rewrite": "Vengono riscritti",
+    "engine": "Aggiornato dal motore",
+    "manual": "Attenzione manuale"
+  },
+  "groupHint": {
+    "rewrite": "DBine cambia il nome nel loro codice e li ricrea con lo script. Deseleziona quelli che preferisci modificare a mano.",
+    "engine": "Chiavi, indici e oggetti che il motore segue da solo: non c’è nulla da fare.",
+    "manual": "DBine non li modifica: controllali dopo la rinomina."
+  },
+  "engine": "aggiornato dal motore",
+  "tracked": "seguito dal motore in autonomia",
+  "review": "da controllare a mano",
+  "reviewHint": "Una parte del testo non è stato possibile stabilirla: se lo selezioni, quelle righe restano come sono.",
+  "schemabound": "con SCHEMABINDING: viene eliminato prima e creato dopo",
+  "line": "riga {{line}}",
+  "openDefinition": "Apri definizione",
+  "manualReason": {
+    "dynamic": "SQL dinamico: il nome compare dentro un testo",
+    "unreadable": "non è stato possibile leggerne la definizione",
+    "not_rewritten": "questo motore non riscrive questo tipo di riferimento",
+    "no_match": "il testo non lo nomina in un modo che DBine riconosca",
+    "shared_routine": "viene eseguita anche da trigger di altre tabelle: i suoi NEW e OLD non sono solo di questa tabella"
+  },
+  "reason": {
+    "in_string": "dentro un testo (SQL dinamico)",
+    "qualified": "qualificato con un altro nome",
+    "other_schema": "senza schema, in un oggetto di un altro schema",
+    "case": "senza virgolette può riferirsi a un altro oggetto (maiuscole e minuscole)",
+    "maybe_function": "seguito da «(»: può essere una funzione con lo stesso nome",
+    "ambiguous_column": "colonna senza tabella in un'istruzione che ne legge diverse",
+    "alias_named_like_schema": "c’è un alias con lo stesso nome dello schema"
+  },
+  "nothing": "Nulla nel database dipende da questo oggetto: lo script si limita a rinominarlo.",
+  "script": "Script",
+  "openInQuery": "Apri in una query",
+  "scriptName": "Rinomina {{name}}",
+  "prodConfirm": "È una connessione di produzione. Scrivi {{name}} per confermare.",
+  "run": "Rinomina",
+  "task": "Rinomina {{name}} in {{to}}",
+  "done": "{{name}} ora si chiama {{to}}",
+  "rolledBack": "Non è cambiato nulla: l’intero script è stato annullato.",
+  "queryTabs_one": "C'è {{count}} scheda di query aperta che nomina «{{name}}»: non è stata modificata.",
+  "queryTabs_other": "Ci sono {{count}} schede di query aperte che nominano «{{name}}»: non sono state modificate."
+}

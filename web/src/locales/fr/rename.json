@@ -1,0 +1,69 @@
+{
+  "menu": "Renommer…",
+  "title": "Renommer {{name}}",
+  "what": {
+    "object": "{{kind}} {{name}}",
+    "column": "Colonne {{name}}",
+    "index": "Index {{name}}",
+    "constraint": "Contrainte {{name}}",
+    "schema": "Schéma {{name}}",
+    "database": "Base de données {{name}}"
+  },
+  "where": "dans {{where}}",
+  "newName": "Nouveau nom",
+  "quotedHint": "Dans le script, il s’écrit {{quoted}} (entre guillemets, pour conserver la casse ou les caractères spéciaux).",
+  "collides": "Un objet nommé « {{name}} » existe déjà : le moteur va rejeter le changement.",
+  "keepViewColumns": "Conserver les noms de colonne des vues (nouveau AS ancien)",
+  "reading": "Recherche de ce qui dépend de {{name}} et lecture de leurs définitions…",
+  "same": "Saisissez un nom différent du nom actuel.",
+  "empty": "Saisissez le nouveau nom.",
+  "summary": "{{rewrite}} seront réécrits, {{engine}} sont mis à jour par le moteur et {{manual}} nécessitent une intervention manuelle ({{scanned}} définitions lues).",
+  "outside": "Les autres bases, applications et rapports externes ne sont pas vérifiés : tout ce qui utilise l’ancien nom en dehors de cette base cessera de fonctionner.",
+  "unreadable": "Impossible de lire la définition de : {{names}}. Ce qui dépend de l’objet à cet endroit n’est pas réécrit.",
+  "atomic": "Le script s’exécute dans une transaction : si une instruction échoue, rien ne change.",
+  "notAtomic": "Ce moteur n’annule pas les changements de structure : si une instruction échoue, ce qui précède reste appliqué. Vérifiez le script avant de l’exécuter.",
+  "group": {
+    "rewrite": "Réécrits",
+    "engine": "Mis à jour par le moteur",
+    "manual": "Intervention manuelle"
+  },
+  "groupHint": {
+    "rewrite": "DBine change le nom dans leur code et les recrée avec le script. Décochez ceux que vous préférez modifier à la main.",
+    "engine": "Clés, index et objets que le moteur suit seul : rien à faire.",
+    "manual": "DBine ne les modifie pas : vérifiez-les après le renommage."
+  },
+  "engine": "mis à jour par le moteur",
+  "tracked": "suivi par le moteur",
+  "review": "à vérifier manuellement",
+  "reviewHint": "Une partie du texte n’a pas pu être déterminée : si vous le cochez, ces lignes restent telles quelles.",
+  "schemabound": "avec SCHEMABINDING : supprimé avant et recréé après",
+  "line": "ligne {{line}}",
+  "openDefinition": "Ouvrir la définition",
+  "manualReason": {
+    "dynamic": "SQL dynamique : le nom apparaît dans une chaîne de texte",
+    "unreadable": "sa définition n’a pas pu être lue",
+    "not_rewritten": "ce moteur ne réécrit pas ce type de référence",
+    "no_match": "le texte ne le nomme pas d’une manière que DBine reconnaît",
+    "shared_routine": "elle est aussi exécutée par des déclencheurs d’autres tables : ses NEW et OLD ne viennent pas seulement de cette table"
+  },
+  "reason": {
+    "in_string": "dans une chaîne de texte (SQL dynamique)",
+    "qualified": "qualifié avec un autre nom",
+    "other_schema": "sans schéma, dans un objet d’un autre schéma",
+    "case": "sans guillemets, peut désigner un autre objet (majuscules et minuscules)",
+    "maybe_function": "suivi de « ( » : peut être une fonction du même nom",
+    "ambiguous_column": "colonne sans table dans une instruction qui en lit plusieurs",
+    "alias_named_like_schema": "un alias porte le même nom que le schéma"
+  },
+  "nothing": "Rien dans la base ne dépend de cet objet : le script se contente de le renommer.",
+  "script": "Script",
+  "openInQuery": "Ouvrir dans une requête",
+  "scriptName": "Renommer {{name}}",
+  "prodConfirm": "Il s’agit d’une connexion de production. Saisissez {{name}} pour confirmer.",
+  "run": "Renommer",
+  "task": "Renommer {{name}} en {{to}}",
+  "done": "{{name}} s’appelle désormais {{to}}",
+  "rolledBack": "Rien n’a changé : tout le script a été annulé.",
+  "queryTabs_one": "{{count}} onglet de requête ouvert nomme « {{name}} » : il n’a pas été modifié.",
+  "queryTabs_other": "{{count}} onglets de requête ouverts nomment « {{name}} » : ils n’ont pas été modifiés."
+}
