@@ -14,6 +14,7 @@ mod plan;
 mod processes;
 mod properties;
 mod profiler;
+mod rename;
 mod schema;
 mod script;
 mod search;
@@ -114,6 +115,16 @@ impl Driver for SqlServerDriver {
             return Err(dbine_driver::Error::Unsupported("este motor no deshabilita índices".into()));
         }
         Ok(index_usage::toggle_script(table, index, enable))
+    }
+
+    /// `sp_rename`; modules are written again with `CREATE OR ALTER`
+    /// (see `rename`).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec(self.variant))
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(self.variant, req)
     }
 
     fn supports_profiler(&self) -> bool {
