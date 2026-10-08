@@ -21,6 +21,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod script;
 mod search;
 mod security;
@@ -342,6 +343,16 @@ impl Driver for DatabricksDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
+    }
+
+    /// Tables and views with `ALTER … RENAME TO`, columns with `RENAME
+    /// COLUMN` (see `rename`).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {

@@ -3133,9 +3133,9 @@ ofrece **Renombrar…** en ese motor.
 | Amazon Keyspaces | no | — | — | — | su `ALTER TABLE` no tiene `RENAME` |
 | Elasticsearch, OpenSearch, Open Distro | sí | índice por copia (`PUT /old/_block/write` → `POST /old/_clone/new` → espera a la copia → `DELETE /old`, o `_aliases` con `remove_index`); alias (`_aliases` remove+add atómico) | alias del índice: pasan al nuevo en el mismo paso atómico | — | el clon copia los datos (tarda, ocupa disco) y el índice no acepta escrituras mientras dura; los campos no se renombran (exige reindexar); los data streams no se renombran |
 | Apache Solr | sí | core en modo standalone (CoreAdmin `RENAME`) | — | — | la carpeta del core conserva el nombre anterior; en SolrCloud no se renombra (`RENAME` solo agrega un alias) y el servidor lo rechaza |
-| Snowflake | pendiente | | | | |
-| BigQuery | pendiente | | | | |
-| Databricks | pendiente | | | | |
+| Snowflake | sí (sin prueba en vivo) | tablas, vistas, vistas materializadas, secuencias (`ALTER … RENAME TO`), funciones y procedimientos (`ALTER FUNCTION\|PROCEDURE f(tipos) RENAME TO`, cada sobrecarga), columnas (`ALTER TABLE … RENAME COLUMN`), esquemas (`ALTER SCHEMA … RENAME TO`) | claves foráneas | `CREATE OR REPLACE` (pierde los permisos: no se agrega `COPY GRANTS`) | sin índices ni restricciones; las bases de datos todavía no se renombran (pendiente: el explorador no ofrece renombrar la base en motores con esquemas); el DDL se confirma sentencia por sentencia |
+| BigQuery | sí (sin prueba en vivo) | tablas (`ALTER TABLE … RENAME TO`), columnas (`ALTER TABLE … RENAME COLUMN`) | — | `CREATE OR REPLACE` | sin vistas, rutinas ni datasets; no renombra columnas de partición, de clustering, de claves ni campos de STRUCT; se pierden los índices de búsqueda y vectoriales; con streaming activo no se puede; las referencias escritas `proyecto.dataset.tabla` entre un solo par de comillas invertidas no se detectan |
+| Databricks | sí (sin prueba en vivo) | tablas (`ALTER TABLE … RENAME TO`), vistas (`ALTER VIEW … RENAME TO`), columnas (`ALTER TABLE … RENAME COLUMN`, con column mapping) | — | `CREATE OR REPLACE` | columnas solo en tablas Delta con `delta.columnMapping.mode` = `name` o `id`; sin esquemas, funciones ni vistas materializadas; con AWS Glue como metastore no hay `RENAME` |
 | Trino, Presto | pendiente | | | | |
 | Amazon Athena | pendiente | | | | |
 | Dremio | pendiente | | | | |

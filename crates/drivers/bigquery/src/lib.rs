@@ -16,6 +16,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod script;
 mod search;
 mod security;
@@ -287,6 +288,15 @@ impl Driver for BigQueryDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
+    }
+
+    /// Tables and their columns with `ALTER TABLE … RENAME` (see `rename`).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     /// IAM roles on datasets, tables and views, through DCL.
