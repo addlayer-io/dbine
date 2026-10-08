@@ -14,6 +14,7 @@ mod profiler;
 mod properties;
 mod security;
 mod shape;
+mod stats;
 mod steps;
 mod transfer;
 
@@ -661,6 +662,15 @@ impl Session for RedisSession {
     /// Keys aren't tables: there's no schema to draw or script, so the ER
     /// diagram and the script generator don't apply to Redis.
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
+        Ok(Vec::new())
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.stats_rows().await
+    }
+
+    /// Redis, Valkey and Dragonfly keep no comments.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
         Ok(Vec::new())
     }
 

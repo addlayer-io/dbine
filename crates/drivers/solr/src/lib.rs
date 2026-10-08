@@ -17,6 +17,7 @@ mod plan;
 mod permissions;
 mod security;
 mod backup;
+mod stats;
 pub mod transfer;
 
 use dbine_driver::{
@@ -673,6 +674,15 @@ impl Session for SolrSession {
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         Ok(vec!["default".into()])
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    /// Solr keeps no comments.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(Vec::new())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

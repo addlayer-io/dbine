@@ -48,6 +48,7 @@ mod permissions;
 mod plan;
 mod properties;
 mod security;
+mod stats;
 mod steps;
 mod transfer;
 
@@ -1230,6 +1231,15 @@ impl Session for CosmosSession {
         let mut v: Vec<String> = items.iter().filter_map(|d| d.get("id")?.as_str().map(str::to_string)).collect();
         v.sort();
         Ok(v)
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    /// Cosmos DB keeps no comments.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(Vec::new())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

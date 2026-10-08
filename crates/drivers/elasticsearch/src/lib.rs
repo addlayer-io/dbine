@@ -21,6 +21,7 @@ pub mod plan;
 mod processes;
 mod profiler;
 mod security;
+mod stats;
 mod steps;
 mod sync;
 mod transfer;
@@ -675,6 +676,15 @@ impl Session for EsSession {
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         Ok(vec!["default".into()])
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    /// Indices, aliases and data streams have no comments.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(Vec::new())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

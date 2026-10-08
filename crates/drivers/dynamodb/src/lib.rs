@@ -11,6 +11,7 @@ mod sync;
 mod monitor;
 mod permissions;
 mod plan;
+mod stats;
 mod transfer;
 
 use aws_sdk_dynamodb::error::{DisplayErrorContext, ProvideErrorMetadata, SdkError};
@@ -610,6 +611,15 @@ impl Session for DynamoSession {
             }
         };
         Ok(Some(serde_json::to_string_pretty(&doc)?))
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    /// DynamoDB keeps no comments.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(Vec::new())
     }
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {

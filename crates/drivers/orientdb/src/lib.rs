@@ -35,6 +35,7 @@ mod plan;
 mod processes;
 mod properties;
 mod security;
+mod stats;
 mod steps;
 mod transfer;
 
@@ -792,6 +793,15 @@ impl Session for OrientSession {
             dbs.push(self.db.clone());
         }
         Ok(dbs)
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    /// Only classes keep a description, and those come with the schema.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(Vec::new())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

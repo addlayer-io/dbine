@@ -54,6 +54,7 @@ mod plan;
 mod processes;
 mod properties;
 mod security;
+mod stats;
 mod steps;
 mod transfer;
 
@@ -548,6 +549,15 @@ impl Session for CouchSession {
             Err(Error::Query(_) | Error::Statement(_) | Error::AuthFailed(_)) if !self.db.is_empty() => Ok(vec![self.db.clone()]),
             Err(e) => Err(e),
         }
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    /// CouchDB keeps no comments.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(Vec::new())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
