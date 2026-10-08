@@ -11,7 +11,7 @@ use crate::ddl::{path, q};
 use dbine_driver::rename::{quote_new, rename_header, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
-pub const NOTE: &str = "Dremio no tiene RENAME: las columnas se renombran con CHANGE COLUMN, solo en tablas Iceberg (como las de $scratch o de un catálogo Nessie); en archivos Parquet, JSON o de otros orígenes el servidor rechaza el cambio. Las vistas se renombran creándolas con el nombre nuevo y borrando la anterior. Las vistas que usan el objeto no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE VIEW. Las sentencias no son transaccionales. Solo se buscan dependientes en el mismo espacio u origen, y no se detectan los que nombran el objeto a través de carpetas (espacio.carpeta.vista): revisalos después.";
+pub const NOTE: &str = "Dremio no tiene RENAME: las columnas se renombran con CHANGE COLUMN, solo en tablas Iceberg (como las de $scratch o de un catálogo Nessie); en archivos Parquet, JSON o de otros orígenes el servidor rechaza el cambio. Las vistas se renombran creándolas con el nombre nuevo y borrando la anterior. Las vistas que usan el objeto no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE VIEW. Las sentencias no son transaccionales. Solo se buscan dependientes en el mismo espacio u origen y sus carpetas: revisá después los de otros espacios.";
 
 pub const VIEW_RECREATED: &str = "La vista se crea con el nombre nuevo y se borra la anterior: pierde sus reflexiones, su wiki, sus etiquetas y los permisos otorgados sobre ella.";
 

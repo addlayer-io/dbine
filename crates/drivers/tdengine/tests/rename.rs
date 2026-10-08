@@ -9,11 +9,13 @@
 //! TDengine has no keys, checks, procedures or (in the community edition)
 //! views, so the fixture is a normal table with a stream on its column, a
 //! second table with a same-named column, and a supertable with a tag
-//! index, a subtable and a stream on another tag.
+//! index, a subtable and a stream on another tag. The streams are
+//! rewritten, dropped before the rename and created again after it, as the
+//! app plans it (`DropCreate`).
 
 use dbine_driver::dependencies::DependencyScan;
-use dbine_driver::rename::{RenameRequest, RenameTarget};
-use dbine_driver::{ConnectionConfig, ObjectRef, QueryOutcome, Session};
+use dbine_driver::rename::{rewrite_references, RenameRequest, RenameTarget, RewriteOptions};
+use dbine_driver::{Confidence, ConnectionConfig, Driver, ObjectRef, QueryOutcome, Relation, Session};
 
 async fn run(s: &mut Box<dyn Session>, sql: &str) -> dbine_driver::Result<QueryOutcome> {
     let mut out = QueryOutcome::default();
@@ -28,6 +30,37 @@ async fn request(s: &mut Box<dyn Session>, kind: &str, table: &str, column: &str
         table: t,
         definition: None,
     }
+}
+
+/// The rename as the app runs it: the streams that name the target
+/// rewritten, dropped first and created after. Returns the rewritten ones.
+async fn apply(d: &dyn Driver, s: &mut Box<dyn Session>, req: &RenameRequest) -> dbine_driver::Result<Vec<String>> {
+    let spec = d.rename_spec().unwrap();
+    let dialect = d.script_dialect();
+    let scan = DependencyScan::new(d.info(), dialect, d.capabilities().foreign_keys);
+    let report = s.dependents(&req.target.dependency_target(), &scan).await.unwrap();
+    let (mut drops, mut creates, mut names) = (Vec::new(), Vec::new(), Vec::new());
+    for dep in report.items.iter().filter(|x| x.relation == Relation::Code && x.confidence != Confidence::Review) {
+        let obj = ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() };
+        let def = s.definition(&obj).await.unwrap().unwrap();
+        let r = rewrite_references(&def, &dialect, &req.target.rewrite_target(), &req.new_name, &spec, &RewriteOptions { dependent_schema: dep.schema.clone(), ..Default::default() });
+        assert!(r.unresolved.is_empty() && !r.edits.is_empty(), "{}: {def} -> {r:?}", dep.name);
+        assert_eq!(dep.kind, "stream");
+        drops.push(format!("DROP STREAM IF EXISTS `{}`", dep.name));
+        creates.push(r.text);
+        names.push(dep.name.clone());
+    }
+    let statements: Vec<String> = drops.into_iter().chain(d.rename_script(req)?.statements).chain(creates).collect();
+    for st in &statements {
+        eprintln!("> {st}");
+        run(s, st).await?;
+    }
+    Ok(names)
+}
+
+async fn stream_sql(s: &mut Box<dyn Session>, name: &str) -> String {
+    let out = run(s, &format!("SELECT sql FROM information_schema.ins_streams WHERE stream_name = '{name}'")).await.unwrap();
+    out.results[0].rows.first().and_then(|r| r[0].as_str()).unwrap_or_default().to_string()
 }
 
 async fn columns(s: &mut Box<dyn Session>, table: &str) -> Vec<String> {
@@ -77,18 +110,11 @@ async fn tdengine_rename() {
 
     let spec = d.rename_spec().unwrap();
 
-    // Column of a normal table: the stream that names it is listed.
+    // Column of a normal table: the stream that names it is rewritten.
     let req = request(&mut s, "table", "t", "pepe", "PepA").await;
     assert!(spec.allows(&req.target));
-    let scan = DependencyScan::new(d.info(), d.script_dialect(), d.capabilities().foreign_keys);
-    let report = s.dependents(&req.target.dependency_target(), &scan).await.unwrap();
-    let names: Vec<_> = report.items.iter().map(|i| (i.kind.as_str(), i.name.as_str())).collect();
-    eprintln!("dependents of t.pepe: {names:?}");
-    assert!(names.contains(&("stream", "dbine_rename_s1")), "{names:?}");
-    let script = d.rename_script(&req).unwrap();
-    for st in &script.statements {
-        run(&mut s, st).await.unwrap();
-    }
+    assert_eq!(apply(d.as_ref(), &mut s, &req).await.unwrap(), ["dbine_rename_s1"]);
+    assert!(stream_sql(&mut s, "dbine_rename_s1").await.contains("sum(`PepA`)"), "{}", stream_sql(&mut s, "dbine_rename_s1").await);
     assert_eq!(columns(&mut s, "t").await, vec!["ts", "PepA"]);
     assert_eq!(columns(&mut s, "t2").await, vec!["ts", "pepe"]);
     let out = run(&mut s, "SELECT `PepA` FROM t").await.unwrap();
@@ -96,26 +122,27 @@ async fn tdengine_rename() {
 
     // The timestamp column of a normal table renames too.
     let req = request(&mut s, "table", "t2", "ts", "momento").await;
-    for st in &d.rename_script(&req).unwrap().statements {
-        run(&mut s, st).await.unwrap();
-    }
+    assert!(apply(d.as_ref(), &mut s, &req).await.unwrap().is_empty());
     assert_eq!(columns(&mut s, "t2").await, vec!["momento", "pepe"]);
 
     // A supertable tag: its index and the subtable follow it.
     let req = request(&mut s, "supertable", "m", "loc", "lugar").await;
-    for st in &d.rename_script(&req).unwrap().statements {
-        run(&mut s, st).await.unwrap();
-    }
+    assert!(apply(d.as_ref(), &mut s, &req).await.unwrap().is_empty());
     let out = run(&mut s, "SELECT column_name FROM information_schema.ins_indexes WHERE db_name = 'dbine_rename' AND index_name = 'ix_loc'").await.unwrap();
     assert_eq!(out.results[0].rows[0][0], serde_json::json!("lugar"));
     let out = run(&mut s, "SELECT lugar FROM c1").await.unwrap();
     assert_eq!(out.results[0].rows[0][0], serde_json::json!("a"));
 
-    // A tag a stream uses: the server refuses it.
+    // A tag a stream uses: the server refuses it alone, so the stream is
+    // dropped first and created again on the new name.
     let req = request(&mut s, "supertable", "m", "zona", "region").await;
     let st = d.rename_script(&req).unwrap().statements.remove(0);
     let err = run(&mut s, &st).await.unwrap_err();
     eprintln!("tag used by a stream: {err}");
+    assert_eq!(apply(d.as_ref(), &mut s, &req).await.unwrap(), ["dbine_rename_s2"]);
+    assert!(stream_sql(&mut s, "dbine_rename_s2").await.contains("count(region)"), "{}", stream_sql(&mut s, "dbine_rename_s2").await);
+    // The stream writes into its old output table again.
+    run(&mut s, "INSERT INTO c1 VALUES (now, 2)").await.unwrap();
 
     // Supertable columns and subtables are refused before reaching the server.
     let req = request(&mut s, "supertable", "m", "v", "w").await;

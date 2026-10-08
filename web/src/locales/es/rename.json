@@ -37,6 +37,7 @@
   "review": "revisar a mano",
   "reviewHint": "Parte del texto no se pudo decidir: si lo tildás, esas líneas quedan como están.",
   "schemabound": "con SCHEMABINDING: se borra antes y se crea después",
+  "carried": "Lo usan {{names}}: se borran antes y se vuelven a crear sin cambios después.",
   "line": "línea {{line}}",
   "openDefinition": "Abrir definición",
   "manualReason": {

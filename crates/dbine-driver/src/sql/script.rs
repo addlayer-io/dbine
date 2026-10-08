@@ -167,6 +167,8 @@ impl ScriptDialect {
             "mssql" | "sybase" => Self::tsql(),
             "oracle" => Self::oracle(),
             "db2" => Self::db2(),
+            // `name` in backticks, '…' and "…" strings with backslash escapes.
+            "tdengine" => Self { backslash_escapes: true, ..Self::generic() },
             _ => Self::generic(),
         }
     }
@@ -1644,6 +1646,12 @@ mod tests {
         assert_eq!(ScriptDialect::for_hint("db2"), ScriptDialect::db2());
         assert_eq!(ScriptDialect::for_hint("standard"), ScriptDialect::generic());
         assert_eq!(ScriptDialect::for_hint(""), ScriptDialect::generic());
+        // TDengine: "…" is a string, `…` a name.
+        let td = ScriptDialect::for_hint("tdengine");
+        assert!(td.backslash_escapes && td.backtick_idents);
+        let toks = name_tokens("SELECT `a`, \"b\" FROM t", &td);
+        assert!(toks.iter().any(|t| t.kind == TokenKind::String && t.text.contains('b')));
+        assert!(toks.iter().any(|t| t.kind == TokenKind::Name && t.text == "a"));
     }
 
     #[test]

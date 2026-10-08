@@ -3,8 +3,8 @@
 //!
 //! Each script runs as the app runs it: statement by statement, the
 //! request filled the way the app fills it (`table` from
-//! `database_schema` for a property, `definition` for a vertex or edge
-//! class, nothing for a document class).
+//! `database_schema` for a property and for a class, since the spec asks
+//! for it, `wants_table`; `definition` too for a vertex or edge class).
 
 use dbine_driver::{kinds, ConnectionConfig, Driver, ObjectRef, QueryOutcome, RenameRequest, RenameTarget, Session, TableSchema};
 use dbine_driver_orientdb::{EDGE, VERTEX};
@@ -161,10 +161,11 @@ async fn rename() {
 
     // 3. Vertex class T → Persona: indexes recreated on it, edges and links still there.
     let t = obj(VERTEX, "T");
+    assert!(d.rename_spec().unwrap().wants_table);
     let req = RenameRequest {
         target: RenameTarget::Object { object: t.clone(), parent: None },
         new_name: "Persona".into(),
-        table: None,
+        table: Some(table(&mut s, "T").await),
         definition: s.definition(&t).await.unwrap(),
     };
     apply(d.as_ref(), &mut s, &req).await.unwrap();
@@ -178,8 +179,13 @@ async fn rename() {
     assert_eq!(one(&mut s, "SELECT code FROM OFunction WHERE name = 'porPepe'", "code").await, json!("SELECT FROM T WHERE pepe = :p"));
 
     // 4. Document class: renamed; with an index and nothing to read it
-    // from, the engine refuses and nothing changes.
-    let req = RenameRequest { target: RenameTarget::Object { object: obj(kinds::TABLE, "T2"), parent: None }, new_name: "Enlaces".into(), table: None, definition: None };
+    // from (a request without `table`), the engine refuses and nothing changes.
+    let req = RenameRequest {
+        target: RenameTarget::Object { object: obj(kinds::TABLE, "T2"), parent: None },
+        new_name: "Enlaces".into(),
+        table: Some(table(&mut s, "T2").await),
+        definition: None,
+    };
     apply(d.as_ref(), &mut s, &req).await.unwrap();
     assert_eq!(one(&mut s, "SELECT t.id AS id FROM Enlaces", "id").await, json!(1));
     run(&mut s, "CREATE INDEX Otra.pepe ON Otra (pepe) NOTUNIQUE").await;
@@ -187,7 +193,7 @@ async fn rename() {
     let err = apply(d.as_ref(), &mut s, &req).await.unwrap_err();
     assert!(err.contains("indexes"), "{err}");
     assert_eq!(one(&mut s, "SELECT pepe FROM Otra", "pepe").await, json!("otra"));
-    // With the table (as the app could pass it), the index moves along.
+    // With the table (as the app passes it), the index moves along.
     let req = RenameRequest { table: Some(table(&mut s, "Otra").await), ..req };
     apply(d.as_ref(), &mut s, &req).await.unwrap();
     assert_eq!(indexes_of(&mut s, "Otra2").await, vec![("Otra.pepe".to_string(), vec!["pepe".to_string()])]);

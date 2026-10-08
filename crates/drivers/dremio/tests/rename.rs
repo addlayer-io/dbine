@@ -87,6 +87,30 @@ async fn rename(d: &dyn Driver, c: &ConnectionConfig, target: RenameTarget, new:
     Ok(manual)
 }
 
+/// A folder in a space, through the REST API (spaces don't take `CREATE FOLDER`).
+async fn folder(c: &ConnectionConfig, path: &[&str]) {
+    let base = format!("http://{}:{}", c.host, c.port);
+    let http = reqwest::Client::new();
+    let login: Value = http
+        .post(format!("{base}/apiv2/login"))
+        .json(&serde_json::json!({"userName": c.username, "password": c.password}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let token = login["token"].as_str().unwrap();
+    let r = http
+        .post(format!("{base}/api/v3/catalog"))
+        .header("Authorization", format!("_dremio{token}"))
+        .json(&serde_json::json!({"entityType": "folder", "path": path}))
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_success(), "{}", r.text().await.unwrap_or_default());
+}
+
 #[tokio::test]
 #[ignore]
 async fn dremio_rename_with_impact() {
@@ -134,6 +158,26 @@ async fn dremio_rename_with_impact() {
         one(s.as_mut(), &format!("SELECT count(*) FROM INFORMATION_SCHEMA.\"TABLES\" WHERE TABLE_SCHEMA = '{SPACE}' AND TABLE_NAME = 'v'")).await,
         "0"
     );
+
+    // A view in a folder, named through it (space.folder.view) by views
+    // in the space and in the folder itself.
+    folder(&c, &[SPACE, "f"]).await;
+    s.execute(
+        &format!(
+            "CREATE VIEW {SPACE}.f.fv AS SELECT pepe FROM {SPACE}.w;
+             CREATE VIEW {SPACE}.top AS SELECT pepe FROM {SPACE}.f.fv;
+             CREATE VIEW {SPACE}.f.near AS SELECT x.pepe FROM \"{SPACE}\".\"f\".\"fv\" x;"
+        ),
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    let manual = rename(d.as_ref(), &c, RenameTarget::Object { object: obj("view", &format!("{SPACE}.f"), "fv"), parent: None }, "fv2").await.unwrap();
+    assert!(manual.is_empty(), "{manual:?}");
+    assert_eq!(one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.top")).await, "a");
+    assert_eq!(one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.f.near")).await, "a");
+    assert_eq!(one(s.as_mut(), &format!("SELECT pepe FROM {SPACE}.f.fv2")).await, "a");
 
     s.execute("DROP TABLE \"$scratch\".rn_t; DROP TABLE \"$scratch\".rn_t3", 10, &mut out).await.unwrap();
     s.drop_database(SPACE).await.unwrap();

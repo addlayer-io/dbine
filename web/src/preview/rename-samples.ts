@@ -40,7 +40,7 @@ function impact(to: string): RenameImpact {
       {
         dependent: { kind: 'view', schema: 'dbo', name: 'vClientesActivos', parent: null, relation: 'code', confidence: 'confirmed', detail: null, mentions: [] },
         action: {
-          kind: 'rewrite', schemabound: false, default_selected: true, unresolved: [],
+          kind: 'rewrite', carried: [], schemabound: false, default_selected: true, unresolved: [],
           object: view('vClientesActivos', `CREATE VIEW dbo.vClientesActivos AS\nSELECT c.id, c.nombre\nFROM dbo.${q} c\nWHERE c.activo = 1`),
           edits: [{ line: 3, before: 'FROM dbo.Clientes c', after: `FROM dbo.${q} c` }],
         },
@@ -49,7 +49,7 @@ function impact(to: string): RenameImpact {
       {
         dependent: { kind: 'view', schema: 'dbo', name: 'vSaldos', parent: null, relation: 'code', confidence: 'confirmed', detail: null, mentions: [] },
         action: {
-          kind: 'rewrite', schemabound: true, default_selected: true, unresolved: [],
+          kind: 'rewrite', carried: [], schemabound: true, default_selected: true, unresolved: [],
           object: view('vSaldos', `CREATE VIEW dbo.vSaldos WITH SCHEMABINDING AS\nSELECT c.id, c.saldo FROM dbo.${q} c`),
           edits: [{ line: 2, before: 'SELECT c.id, c.saldo FROM dbo.Clientes c', after: `SELECT c.id, c.saldo FROM dbo.${q} c` }],
         },
@@ -58,7 +58,7 @@ function impact(to: string): RenameImpact {
       {
         dependent: { kind: 'procedure', schema: 'dbo', name: 'pAltaCliente', parent: null, relation: 'code', confidence: 'confirmed', detail: null, mentions: [] },
         action: {
-          kind: 'rewrite', schemabound: false, default_selected: false,
+          kind: 'rewrite', carried: [], schemabound: false, default_selected: false,
           object: { kind: 'procedure', schema: 'dbo', name: 'pAltaCliente', definition: `CREATE PROCEDURE dbo.pAltaCliente @n nvarchar(80) AS\nINSERT INTO dbo.${q} (nombre) VALUES (@n);\nEXEC dbo.pLog N'alta en Clientes';` },
           edits: [{ line: 2, before: 'INSERT INTO dbo.Clientes (nombre) VALUES (@n);', after: `INSERT INTO dbo.${q} (nombre) VALUES (@n);` }],
           unresolved: [{ line: 3, text: "EXEC dbo.pLog N'alta en Clientes';", reason: 'in_string' }],

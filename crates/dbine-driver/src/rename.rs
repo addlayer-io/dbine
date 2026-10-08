@@ -11,7 +11,7 @@
 //! rewritten (dynamic SQL), and anything it can't be sure of goes to
 //! [`Rewrite::unresolved`] for the user to look at instead of being guessed.
 
-use crate::dependencies::{eq, names_word, DependencyTarget, CONSTRAINT, SCHEMA};
+use crate::dependencies::{eq, match_qualifiers, names_word, DependencyTarget, Qualified, CONSTRAINT, SCHEMA};
 use crate::kinds;
 use crate::model::ObjectRef;
 use crate::schema::TableSchema;
@@ -49,6 +49,18 @@ impl RenameTarget {
             RenameTarget::Index { index, .. } => index,
             RenameTarget::Constraint { constraint, .. } => constraint,
             RenameTarget::Schema { schema, .. } => schema,
+        }
+    }
+
+    /// What [`RenameSpec::tracked_for`] keys it by: the object's kind, or
+    /// `column`, `index`, `constraint`, `schema`.
+    pub fn spec_key(&self) -> &str {
+        match self {
+            RenameTarget::Object { object, .. } => &object.kind,
+            RenameTarget::Column { .. } => "column",
+            RenameTarget::Index { .. } => "index",
+            RenameTarget::Constraint { .. } => "constraint",
+            RenameTarget::Schema { .. } => "schema",
         }
     }
 
@@ -156,7 +168,7 @@ impl Fold {
 
 /// What a driver renames ([`crate::Driver::rename_spec`]); `None` there:
 /// the explorer doesn't offer "Renombrar…".
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RenameSpec {
     /// Object kinds it renames (`table`, `view`, `procedure`…).
@@ -189,9 +201,50 @@ pub struct RenameSpec {
     /// on them is valid again). `{schema}` stands for the target's schema
     /// as a string literal; without one it isn't run.
     pub epilogue: Option<String>,
+    /// `tracked` for some targets only ([`RenameTarget::spec_key`]: the
+    /// object's kind, `column`, `index`…). SQLite follows a table or column
+    /// rename in its views and triggers, not a view created again under a
+    /// new name: `{"view": []}`.
+    pub tracked_for: BTreeMap<String, Vec<String>>,
+    /// The dependents put back with `DropCreate` lose the grants on them
+    /// (the app says so). `false` where there are none to lose (a MongoDB
+    /// view's access goes by the database's roles).
+    pub grants_on_objects: bool,
+    /// The app reads the table of an object rename (`RenameRequest::table`)
+    /// when the target is a table: OrientDB names its indexes after it.
+    pub wants_table: bool,
+}
+
+impl Default for RenameSpec {
+    fn default() -> Self {
+        RenameSpec {
+            kinds: Vec::new(),
+            columns: false,
+            indexes: false,
+            constraints: false,
+            schemas: false,
+            tracked: Vec::new(),
+            replace: ReplaceStyle::default(),
+            references: ReferenceStyle::default(),
+            fold: Fold::default(),
+            transactional: false,
+            note: None,
+            replace_kinds: BTreeMap::new(),
+            holds_rows: Vec::new(),
+            epilogue: None,
+            tracked_for: BTreeMap::new(),
+            grants_on_objects: true,
+            wants_table: false,
+        }
+    }
 }
 
 impl RenameSpec {
+    /// The dependent kinds the engine follows by itself for that target.
+    pub fn tracked_for_target(&self, target: &RenameTarget) -> &[String] {
+        self.tracked_for.get(target.spec_key()).unwrap_or(&self.tracked)
+    }
+
     /// Whether it renames that target.
     pub fn allows(&self, target: &RenameTarget) -> bool {
         match target {
@@ -436,6 +489,25 @@ fn qualifier(toks: &[Tok<'_>], i: usize) -> Option<usize> {
     (i >= 2 && toks[i - 1].punct(".") && toks[i - 2].is_name()).then(|| i - 2)
 }
 
+/// The qualifiers before the name at `i`, nearest first (`a.b.name`:
+/// `b`, then `a`), as indexes.
+fn qualifiers(toks: &[Tok<'_>], i: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut k = i;
+    while let Some(q) = qualifier(toks, k) {
+        out.push(q);
+        k = q;
+    }
+    out
+}
+
+/// How the qualifiers before the name at `i` compare with `schema`
+/// ([`match_qualifiers`]: a schema with dots is several of them).
+fn qualified_as(toks: &[Tok<'_>], i: usize, schema: &str) -> Qualified {
+    let quals: Vec<String> = qualifiers(toks, i).into_iter().map(|q| toks[q].value()).collect();
+    match_qualifiers(&quals, schema)
+}
+
 fn dotted_after(toks: &[Tok<'_>], i: usize) -> bool {
     toks.get(i + 1).is_some_and(|t| t.punct(".")) && toks.get(i + 2).is_some_and(|t| t.is_name())
 }
@@ -551,6 +623,154 @@ pub fn trigger_routine(definition: &str, dialect: &ScriptDialect) -> Option<(Opt
     toks.get(last + 1).filter(|t| t.punct("("))?;
     let schema = (last > first).then(|| toks[last - 2].value());
     Some((schema, toks[last].value()))
+}
+
+/// Each overload's identity in a PostgreSQL routine's definition
+/// (`pg_get_functiondef` of every overload, one after the other):
+/// `FUNCTION` or `PROCEDURE` and its arguments without their defaults, as
+/// `ALTER FUNCTION f(…)` takes them, for the routine called `name`
+/// (unquoted names fold to lower case). Bodies are strings to the lexer,
+/// so a `CREATE` inside one is not a header. PostgreSQL and its family
+/// (Aurora DSQL…).
+pub fn routine_signatures(definition: &str, name: &str) -> Vec<(&'static str, String)> {
+    use crate::sql::{name_tokens, NameToken};
+    // An unquoted word (a quoted name's text has no quotes, so it's
+    // shorter than what it spans).
+    fn word(t: &NameToken<'_>, w: &str) -> bool {
+        t.kind == TokenKind::Name && t.end - t.start == t.text.len() && t.text.eq_ignore_ascii_case(w)
+    }
+    fn punct(t: &NameToken<'_>, p: &str) -> bool {
+        t.kind == TokenKind::Punct && t.text == p
+    }
+    // The name a token stands for: quoted as is, unquoted folded to lower case.
+    fn ident(t: &NameToken<'_>, body: &str) -> String {
+        let raw = &body[t.start..t.end];
+        match raw.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
+            Some(inner) => inner.replace("\"\"", "\""),
+            None => raw.to_lowercase(),
+        }
+    }
+    // The argument list opened at `toks[open]` (`(`), defaults cut off,
+    // and the index after its `)`.
+    fn arguments(toks: &[NameToken<'_>], open: usize, body: &str) -> (String, usize) {
+        // Each argument's first and last token, up to its DEFAULT.
+        let mut args: Vec<(usize, usize)> = Vec::new();
+        let mut current: Option<(usize, usize)> = None;
+        let mut cut = false;
+        let mut depth = 0usize;
+        let mut end = toks.len();
+        for (k, t) in toks.iter().enumerate().skip(open) {
+            if punct(t, "(") || punct(t, "[") {
+                depth += 1;
+                if depth == 1 {
+                    continue;
+                }
+            } else if punct(t, "]") {
+                depth = depth.saturating_sub(1).max(1);
+            } else if punct(t, ")") {
+                depth -= 1;
+                if depth == 0 {
+                    end = k + 1;
+                    break;
+                }
+            } else if depth == 1 && punct(t, ",") {
+                args.extend(current.take());
+                cut = false;
+                continue;
+            } else if depth == 1 && (word(t, "default") || punct(t, "=")) {
+                cut = true;
+            }
+            if !cut {
+                current = Some((current.map_or(k, |c| c.0), k));
+            }
+        }
+        args.extend(current);
+        let text = args
+            .iter()
+            .map(|&(a, b)| body[toks[a].start..toks[b].end].split_whitespace().collect::<Vec<_>>().join(" "))
+            .collect::<Vec<_>>()
+            .join(", ");
+        (text, end)
+    }
+
+    let toks = name_tokens(definition, &ScriptDialect::postgres());
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < toks.len() {
+        if !word(&toks[i], "create") {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        if toks.get(j).is_some_and(|t| word(t, "or")) && toks.get(j + 1).is_some_and(|t| word(t, "replace")) {
+            j += 2;
+        }
+        let kind = match toks.get(j) {
+            Some(t) if word(t, "function") => "FUNCTION",
+            Some(t) if word(t, "procedure") => "PROCEDURE",
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        // schema.name, then "(".
+        j += 1;
+        let mut last = j;
+        while toks.get(last + 1).is_some_and(|t| punct(t, ".")) && toks.get(last + 2).is_some_and(|t| t.kind == TokenKind::Name) {
+            last += 2;
+        }
+        let named = toks.get(last).is_some_and(|t| t.kind == TokenKind::Name && ident(t, definition).eq_ignore_ascii_case(name));
+        if !named || !toks.get(last + 1).is_some_and(|t| punct(t, "(")) {
+            i = j;
+            continue;
+        }
+        let (args, end) = arguments(&toks, last + 1, definition);
+        out.push((kind, args));
+        i = end;
+    }
+    out
+}
+
+/// Objects [`carried_dependents`] reads at most.
+pub const MAX_CARRIED: usize = 200;
+
+/// What a dependent the rename drops and creates again (`DropCreate`)
+/// carries with it: what depends on `dropped`, transitively, unchanged. The
+/// engine may refuse to drop a view another view reads (Spanner, Firebird),
+/// so they go first and come back after it. Breadth first: each one comes
+/// after what it depends on. `skip`: what the plan handles already (the
+/// target, the rename's own dependents). Returns them with their
+/// definitions, and the ones whose definition couldn't be read.
+pub async fn carried_dependents<S: crate::Session + ?Sized>(
+    s: &mut S,
+    dropped: &ObjectRef,
+    skip: &[ObjectRef],
+    scan: &crate::DependencyScan,
+) -> crate::Result<(Vec<(ObjectRef, String)>, Vec<String>)> {
+    let same = |a: &ObjectRef, b: &ObjectRef| a.kind == b.kind && eq(&a.name, &b.name) && a.schema() == b.schema();
+    let mut out: Vec<(ObjectRef, String)> = Vec::new();
+    let mut unreadable = Vec::new();
+    let mut queue = std::collections::VecDeque::from([dropped.clone()]);
+    while let Some(next) = queue.pop_front() {
+        let report = s.dependents(&DependencyTarget { object: next, column: None }, scan).await?;
+        for d in report.items.into_iter().filter(|d| d.relation == crate::Relation::Code) {
+            let o = ObjectRef { kind: d.kind, schema: d.schema, name: d.name };
+            if same(&o, dropped) || skip.iter().any(|k| same(k, &o)) || out.iter().any(|(k, _)| same(k, &o)) {
+                continue;
+            }
+            if out.len() == MAX_CARRIED {
+                return Ok((out, unreadable));
+            }
+            match s.definition(&o).await {
+                Ok(Some(def)) => {
+                    queue.push_back(o.clone());
+                    out.push((o, def));
+                }
+                _ => unreadable.push(o.schema().map_or_else(|| o.name.clone(), |sc| format!("{sc}.{}", o.name))),
+            }
+        }
+    }
+    Ok((out, unreadable))
 }
 
 /// Collects the replacements and the mentions left out.
@@ -669,7 +889,14 @@ fn objects(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
         }
         let q = qualifier(toks, i);
         match (q, object.schema()) {
-            (Some(q), Some(s)) if !eq(&toks[q].value(), s) => continue,
+            (Some(_), Some(s)) => match qualified_as(toks, i, s) {
+                Qualified::Partial => {
+                    w.unsure(t.start, UnresolvedReason::Qualified);
+                    continue;
+                }
+                Qualified::Other => continue,
+                Qualified::Same | Qualified::None => {}
+            },
             (Some(q), None) if opts.database.as_deref().is_some_and(|db| eq(&toks[q].value(), db)) => {}
             (Some(_), None) => {
                 w.unsure(t.start, UnresolvedReason::Qualified);
@@ -685,7 +912,7 @@ fn objects(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
             w.unsure(t.start, UnresolvedReason::Case);
             continue;
         }
-        let first = q.unwrap_or(i);
+        let first = qualifiers(toks, i).last().copied().unwrap_or(i);
         if first > 0 && toks[first - 1].word("as") {
             continue; // an alias called like it
         }
@@ -916,10 +1143,7 @@ const ROW_TABLES: &[&str] = &["inserted", "deleted", "new", "old"];
 fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, table: &ObjectRef, column: &str, new: &str, opts: &RewriteOptions) {
     let names_table = |idx: usize| {
         hit(&toks[idx], &table.name, d, fold) != Hit::No
-            && match (qualifier(toks, idx), table.schema()) {
-                (Some(q), Some(s)) => eq(&toks[q].value(), s),
-                _ => true,
-            }
+            && table.schema().is_none_or(|s| matches!(qualified_as(toks, idx, s), Qualified::Same | Qualified::None))
     };
     // A trigger on the table (or a routine one runs): NEW / OLD /
     // inserted / deleted, and the names REFERENCING gives them, are its rows.
@@ -1392,6 +1616,27 @@ mod tests {
     }
 
     #[test]
+    fn dotted_schemas() {
+        let g = ScriptDialect::generic();
+        let t = table("dfs.tmp", "v");
+        let body = "CREATE VIEW `dfs.tmp`.`w` AS SELECT * FROM `dfs`.`tmp`.`v` JOIN dfs.tmp.v ON 1 = 1 JOIN `dfs.tmp`.v ON 1 = 1 JOIN v ON 1 = 1 JOIN dfs.otro.v ON 1 = 1";
+        let r = rw(body, &g, &t, "n");
+        assert_eq!(r.text, "CREATE VIEW `dfs.tmp`.`w` AS SELECT * FROM `dfs`.`tmp`.`n` JOIN dfs.tmp.n ON 1 = 1 JOIN `dfs.tmp`.n ON 1 = 1 JOIN n ON 1 = 1 JOIN dfs.otro.v ON 1 = 1");
+        assert!(r.unresolved.is_empty());
+        // Only the schema's tail: maybe it, through the default plugin.
+        let r = rw("SELECT * FROM tmp.v", &g, &t, "n");
+        assert!(r.edits.is_empty());
+        assert_eq!(r.unresolved[0].reason, UnresolvedReason::Qualified);
+        // Dremio: a space's folder; a column through the dotted table.
+        let pg = ScriptDialect::postgres();
+        let c = column("esp.carpeta", "t", "pepe");
+        let r = view("CREATE VIEW esp.carpeta.v AS SELECT pepe FROM esp.carpeta.t", &pg, &c, "nuevo");
+        assert_eq!(r.text, "CREATE VIEW esp.carpeta.v AS SELECT nuevo AS pepe FROM esp.carpeta.t");
+        let r = view("CREATE VIEW esp.carpeta.v AS SELECT x.pepe FROM \"esp\".\"carpeta\".t x JOIN esp.otra.t y ON 1 = 1", &pg, &c, "nuevo");
+        assert_eq!(r.text, "CREATE VIEW esp.carpeta.v AS SELECT x.nuevo AS pepe FROM \"esp\".\"carpeta\".t x JOIN esp.otra.t y ON 1 = 1");
+    }
+
+    #[test]
     fn the_database_qualifies_a_target_without_schema() {
         let g = ScriptDialect::generic();
         let opts = RewriteOptions { database: Some("db".into()), ..Default::default() };
@@ -1472,8 +1717,26 @@ mod tests {
         assert!(s.epilogue_for(&RenameTarget::Object { object: obj(kinds::TABLE, "", "t"), parent: None }).is_none());
         assert!(RenameSpec::default().epilogue_for(&col).is_none());
         // Older specs (a plugin host's manifest) read without the new fields.
-        let old: RenameSpec = serde_json::from_str(r#"{"kinds":["table"],"replace":"drop_create"}"#).unwrap();
+        let old: RenameSpec = serde_json::from_str(r#"{"kinds":["table"],"replace":"drop_create","tracked":["view"]}"#).unwrap();
         assert!(old.replace_kinds.is_empty() && old.holds_rows.is_empty() && old.epilogue.is_none());
+        assert!(old.tracked_for.is_empty() && old.grants_on_objects && !old.wants_table);
+        // Per target tracked: the general list where the target has none.
+        let view = RenameTarget::Object { object: obj(kinds::VIEW, "", "v"), parent: None };
+        let t = RenameSpec { tracked_for: [("view".to_string(), vec![])].into(), ..old };
+        assert!(t.tracked_for_target(&view).is_empty());
+        assert_eq!(t.tracked_for_target(&RenameTarget::Column { table: obj(kinds::TABLE, "", "t"), column: "c".into() }), ["view"]);
+        assert_eq!(col.spec_key(), "column");
+    }
+
+    #[test]
+    fn postgres_routine_signatures() {
+        let def = "CREATE OR REPLACE FUNCTION public.f(a integer, b text DEFAULT 'x'::text)\n RETURNS int LANGUAGE sql AS $$ CREATE FUNCTION f(z int) $$;\n\nCREATE OR REPLACE PROCEDURE public.\"F\"(c numeric(10, 2)[]) LANGUAGE plpgsql AS $$ BEGIN END $$;\n\nCREATE FUNCTION public.f(VARIADIC n int[] = '{}') RETURNS int AS 'select 1' LANGUAGE sql";
+        assert_eq!(
+            routine_signatures(def, "f"),
+            [("FUNCTION", "a integer, b text".to_string()), ("PROCEDURE", "c numeric(10, 2)[]".to_string()), ("FUNCTION", "VARIADIC n int[]".to_string())]
+        );
+        assert!(routine_signatures(def, "g").is_empty());
+        assert!(routine_signatures("CREATE VIEW f AS SELECT 1", "f").is_empty());
     }
 
     #[test]

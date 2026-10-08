@@ -1,6 +1,7 @@
 //! "Renombrar…" on a real file (no server needed, so it runs by default).
-//! SQLite follows views, triggers, indexes, checks and foreign keys by
-//! itself, so nothing is rewritten (see `support/rename_flow.rs`).
+//! SQLite follows a table's or a column's rename in views, triggers,
+//! indexes, checks and foreign keys by itself; what uses a renamed view is
+//! rewritten (see `support/rename_flow.rs`).
 
 #[path = "support/rename_flow.rs"]
 mod rename_flow;

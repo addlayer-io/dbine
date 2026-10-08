@@ -4,14 +4,11 @@
 //! `ALTER TABLE … RENAME TO` and columns with `RENAME COLUMN` (3.25+).
 //! With `legacy_alter_table` off, SQLite rewrites by itself the views,
 //! triggers, indexes, checks and foreign keys that name them (`tracked`).
-//! Triggers and indexes have no `RENAME`: they are created again under the
-//! new name and the old one dropped. DDL is transactional, so the whole
-//! script runs atomically.
-//!
-//! Views are not offered: renaming one means creating it again, and SQLite
-//! doesn't follow that in the views and triggers that use it, while the
-//! spec's `tracked` (views and triggers, right for tables and columns)
-//! would show them as followed.
+//! Views, triggers and indexes have no `RENAME`: they are created again
+//! under the new name and the old one dropped. SQLite doesn't follow that
+//! in what uses them (`tracked_for` leaves them out), so the app rewrites
+//! the views and triggers that name a renamed view. DDL is transactional,
+//! so the whole script runs atomically.
 //!
 //! libSQL's server refuses `PRAGMA legacy_alter_table`; SQLite's script
 //! turns it off before renaming a table, in case the connection had it on.
@@ -22,7 +19,7 @@ use dbine_driver::rename::{quote_new, rename_header, Fold, RenameRequest, Rename
 use dbine_driver::sql::{qualified_name, quote_ident, Quote, ScriptDialect};
 use dbine_driver::{kinds, DdlParts, Error, ObjectRef, Result, SyncScript, TableSchema};
 
-pub const NOTE: &str = "SQLite actualiza por sí solo las vistas, los triggers, los índices, los CHECK y las claves foráneas que usan la tabla o la columna. Si alguna vista de la base ya está rota (usa una tabla o una columna que no existe), SQLite rechaza el cambio: corregila o borrala antes. Los triggers y los índices se renombran creándolos con el nombre nuevo y borrando los anteriores.";
+pub const NOTE: &str = "SQLite actualiza por sí solo las vistas, los triggers, los índices, los CHECK y las claves foráneas que usan la tabla o la columna. Si alguna vista de la base ya está rota (usa una tabla o una columna que no existe), SQLite rechaza el cambio: corregila o borrala antes. Las vistas, los triggers y los índices se renombran creándolos con el nombre nuevo y borrando los anteriores; lo que usa una vista renombrada no se actualiza solo: DBine lo reescribe.";
 
 const LEGACY_OFF: &str = "PRAGMA legacy_alter_table = OFF;";
 
@@ -40,7 +37,7 @@ fn engine(f: Flavor) -> &'static str {
 
 pub fn spec(_f: Flavor) -> RenameSpec {
     RenameSpec {
-        kinds: vec![kinds::TABLE.into(), VIRTUAL_TABLE.into(), kinds::TRIGGER.into()],
+        kinds: vec![kinds::TABLE.into(), VIRTUAL_TABLE.into(), kinds::VIEW.into(), kinds::TRIGGER.into()],
         columns: true,
         indexes: true,
         constraints: false,
@@ -52,6 +49,9 @@ pub fn spec(_f: Flavor) -> RenameSpec {
         fold: Fold::None,
         transactional: true,
         note: Some(NOTE.into()),
+        // Only a table's or a column's rename is followed; what is created
+        // again under a new name isn't.
+        tracked_for: [kinds::VIEW, kinds::TRIGGER, "index"].into_iter().map(|k| (k.to_string(), Vec::new())).collect(),
         ..Default::default()
     }
 }
@@ -90,9 +90,13 @@ pub fn script(f: Flavor, req: &RenameRequest) -> Result<SyncScript> {
             vec![terminated(&created), format!("DROP TRIGGER {};", qn(object))]
         }
         RenameTarget::Object { object, .. } if object.kind == kinds::VIEW => {
-            return Err(Error::Unsupported(format!(
-                "{engine} no renombra vistas desde DBine: creá la vista con el nombre nuevo, corregí lo que la usa y borrá la anterior"
-            )))
+            let def = req
+                .definition
+                .as_deref()
+                .ok_or_else(|| Error::Query(format!("no se pudo leer la definición de la vista «{}» para renombrarla", object.name)))?;
+            let created = rename_header(def, &dialect(), Fold::None, &req.new_name)
+                .ok_or_else(|| Error::Query(format!("no se pudo leer el encabezado CREATE VIEW de «{}»", object.name)))?;
+            vec![terminated(&created), format!("DROP VIEW {};", qn(object))]
         }
         RenameTarget::Object { object, .. } => return Err(Error::Unsupported(format!("{engine} no renombra objetos de tipo «{}»", object.kind))),
         RenameTarget::Column { table, column } => vec![format!("ALTER TABLE {} RENAME COLUMN {} TO {new};", qn(table), q(column))],
@@ -167,9 +171,14 @@ mod tests {
     fn spec_lists_what_sqlite_renames() {
         for f in [Flavor::Sqlite, Flavor::Libsql] {
             let s = spec(f);
-            assert_eq!(s.kinds, ["table", "virtual_table", "trigger"]);
+            assert_eq!(s.kinds, ["table", "virtual_table", "view", "trigger"]);
             assert!(s.columns && s.indexes && !s.constraints && !s.schemas && s.transactional);
             assert_eq!(s.tracked, ["view", "trigger"]);
+            let target = |kind: &str| RenameTarget::Object { object: ObjectRef { kind: kind.into(), schema: None, name: "x".into() }, parent: None };
+            assert_eq!(s.tracked_for_target(&target("table")), ["view", "trigger"]);
+            assert_eq!(s.tracked_for_target(&RenameTarget::Column { table: tref("t"), column: "c".into() }), ["view", "trigger"]);
+            assert!(s.tracked_for_target(&target("view")).is_empty() && s.tracked_for_target(&target("trigger")).is_empty());
+            assert!(s.tracked_for_target(&RenameTarget::Index { table: tref("t"), index: "i".into() }).is_empty());
             assert_eq!(s.replace, ReplaceStyle::DropCreate);
             assert_eq!(s.fold, Fold::None);
             assert!(s.note.as_deref().unwrap().contains("rota"));
@@ -217,6 +226,15 @@ mod tests {
     }
 
     #[test]
+    fn views_are_created_again() {
+        let mut r = req(obj("view", "v"), "Ventas Netas");
+        r.definition = Some("CREATE VIEW v AS SELECT id FROM t".into());
+        let s = script(Flavor::Sqlite, &r).unwrap();
+        assert_eq!(s.statements, ["CREATE VIEW [Ventas Netas] AS SELECT id FROM t;", "DROP VIEW \"v\";"]);
+        assert!(matches!(script(Flavor::Libsql, &req(obj("view", "v"), "w")), Err(Error::Query(_))));
+    }
+
+    #[test]
     fn indexes_are_created_again() {
         let t = TableSchema {
             name: "t".into(),
@@ -246,7 +264,7 @@ mod tests {
 
     #[test]
     fn refused() {
-        assert!(matches!(script(Flavor::Sqlite, &req(obj("view", "v"), "w")), Err(Error::Unsupported(_))));
+        assert!(matches!(script(Flavor::Sqlite, &req(obj("sequence", "s"), "w")), Err(Error::Unsupported(_))));
         let c = RenameTarget::Constraint { table: tref("t"), constraint: "ck".into() };
         assert!(matches!(script(Flavor::Sqlite, &req(c, "ck2")), Err(Error::Unsupported(_))));
         let d = RenameTarget::Schema { database: None, schema: "aux".into() };

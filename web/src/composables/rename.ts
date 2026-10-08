@@ -90,7 +90,7 @@ export function renameImpact(d: RenameDialogTarget, newName: string, keepViewCol
 }
 
 /** The script for the dependents the user kept. */
-export function renameScript(d: RenameDialogTarget, newName: string, impact: RenameImpact, rewrites: { object: CodeObject; schemabound: boolean }[]): Promise<SyncScript> {
+export function renameScript(d: RenameDialogTarget, newName: string, impact: RenameImpact, rewrites: { object: CodeObject; schemabound: boolean; carried: CodeObject[] }[]): Promise<SyncScript> {
   return invoke<SyncScript>('rename_script', {
     args: {
       connection_id: d.connectionId, database: d.database,

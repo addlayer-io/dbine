@@ -686,6 +686,12 @@ export interface RenameSpec {
   holds_rows: string[];
   /** Run after the whole script (`{schema}` = the target's schema). */
   epilogue: string | null;
+  /** `tracked` for some targets only (the object's kind, `column`, `index`…). */
+  tracked_for?: Record<string, string[]>;
+  /** Dependents dropped and created again lose their grants (false: none to lose). */
+  grants_on_objects?: boolean;
+  /** The app reads an object rename's table (`RenameRequest::table`). */
+  wants_table?: boolean;
 }
 
 /** A rename to script (`dbine_driver::RenameRequest`). */
@@ -709,6 +715,8 @@ export type RenameAction =
   | {
     kind: 'rewrite'; object: import('./compare').CodeObject; edits: RenameEdit[]; unresolved: RenameUnresolved[];
     schemabound: boolean; default_selected: boolean;
+    /** What reads it, dropped with it and created again unchanged. */
+    carried: import('./compare').CodeObject[];
   };
 
 export interface RenameImpactItem { dependent: Dependent; action: RenameAction; original: string | null }
