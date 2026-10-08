@@ -69,7 +69,15 @@
     "summaryBoth": "{{cells}} en {{rows}}, {{deletes}}, sin guardar.",
     "deletes_one": "{{count}} fila para eliminar",
     "deletes_many": "{{count}} filas para eliminar",
-    "deletes_other": "{{count}} filas para eliminar"
+    "deletes_other": "{{count}} filas para eliminar",
+    "pending": "{{list}}, sin guardar.",
+    "cellsInRows": "{{cells}} en {{rows}}",
+    "newRows_one": "{{count}} fila nueva",
+    "newRows_many": "{{count}} filas nuevas",
+    "newRows_other": "{{count}} filas nuevas",
+    "newDocs_one": "{{count}} documento nuevo",
+    "newDocs_many": "{{count}} documentos nuevos",
+    "newDocs_other": "{{count}} documentos nuevos"
   },
   "exportDialog": {
     "title": "Exportar resultado",
@@ -184,7 +192,12 @@
     "restoreRows": "Restaurar {{count}} filas",
     "cantDelete": "No se puede eliminar: {{reason}}",
     "rowDeleted": "La fila está marcada para eliminar: restaurala para editarla",
-    "markedDelete": "Marcada para eliminar"
+    "markedDelete": "Marcada para eliminar",
+    "addRow": "Agregar fila",
+    "removeNewRow": "Quitar la fila nueva",
+    "removeNewRows": "Quitar las {{count}} filas nuevas",
+    "newRow": "Fila nueva: se inserta al guardar",
+    "defaultValue": "(predeterminado)"
   },
   "chart": {
     "kind": {
@@ -224,5 +237,20 @@
     "noNumeric": "Este resultado no tiene columnas numéricas para graficar.",
     "pickValues": "Elegí al menos una columna en «Valores».",
     "tooMany": "Demasiadas categorías ({{n}}): agrupá por otra columna o elegí una agregación."
+  },
+  "insert": {
+    "addRow": "Agregar fila",
+    "addDocument": "Agregar documento",
+    "cant": "No se pueden agregar filas: {{reason}}"
+  },
+  "addDocument": {
+    "titleDocument": "Agregar documento",
+    "titleRow": "Agregar fila",
+    "hintDocument": "Escribí el documento en JSON. Un objeto agrega un documento y una lista de objetos agrega varios. Si no ponés _id, lo genera la base.",
+    "hintRow": "Escribí la fila en JSON, con un campo por columna. Un objeto agrega una fila y una lista de objetos agrega varias. Las columnas que no pongas toman su valor predeterminado.",
+    "add": "Agregar",
+    "invalidJson": "El JSON no es válido: {{error}}",
+    "notObject": "Tiene que ser un objeto, o una lista de objetos.",
+    "empty": "El documento está vacío: agregá al menos un campo."
   }
 }

@@ -69,7 +69,15 @@
     "summaryBoth": "{{cells}} in {{rows}}, {{deletes}}, non ancora salvato.",
     "deletes_one": "{{count}} riga da eliminare",
     "deletes_many": "{{count}} righe da eliminare",
-    "deletes_other": "{{count}} righe da eliminare"
+    "deletes_other": "{{count}} righe da eliminare",
+    "pending": "{{list}}, non salvato.",
+    "cellsInRows": "{{cells}} in {{rows}}",
+    "newRows_one": "{{count}} riga nuova",
+    "newRows_many": "{{count}} righe nuove",
+    "newRows_other": "{{count}} righe nuove",
+    "newDocs_one": "{{count}} documento nuovo",
+    "newDocs_many": "{{count}} documenti nuovi",
+    "newDocs_other": "{{count}} documenti nuovi"
   },
   "exportDialog": {
     "title": "Esporta risultato",
@@ -184,7 +192,12 @@
     "restoreRows": "Ripristina {{count}} righe",
     "cantDelete": "Impossibile eliminare: {{reason}}",
     "rowDeleted": "La riga è contrassegnata per l'eliminazione: ripristinala per modificarla",
-    "markedDelete": "Contrassegnata per l'eliminazione"
+    "markedDelete": "Contrassegnata per l'eliminazione",
+    "addRow": "Aggiungi riga",
+    "removeNewRow": "Rimuovi la riga nuova",
+    "removeNewRows": "Rimuovi le {{count}} righe nuove",
+    "newRow": "Riga nuova: viene inserita al salvataggio",
+    "defaultValue": "(predefinito)"
   },
   "chart": {
     "kind": {
@@ -224,5 +237,20 @@
     "noNumeric": "Questo risultato non ha colonne numeriche da rappresentare.",
     "pickValues": "Scegli almeno una colonna in «Valori».",
     "tooMany": "Troppe categorie ({{n}}): raggruppa per un’altra colonna o scegli un’aggregazione."
+  },
+  "insert": {
+    "addRow": "Aggiungi riga",
+    "addDocument": "Aggiungi documento",
+    "cant": "Impossibile aggiungere righe: {{reason}}"
+  },
+  "addDocument": {
+    "titleDocument": "Aggiungi documento",
+    "titleRow": "Aggiungi riga",
+    "hintDocument": "Scrivi il documento in JSON. Un oggetto aggiunge un documento e un elenco di oggetti ne aggiunge diversi. Se non indichi _id, lo genera il database.",
+    "hintRow": "Scrivi la riga in JSON, con un campo per colonna. Un oggetto aggiunge una riga e un elenco di oggetti ne aggiunge diverse. Le colonne che non indichi assumono il valore predefinito.",
+    "add": "Aggiungi",
+    "invalidJson": "Il JSON non è valido: {{error}}",
+    "notObject": "Deve essere un oggetto o un elenco di oggetti.",
+    "empty": "Il documento è vuoto: aggiungi almeno un campo."
   }
 }

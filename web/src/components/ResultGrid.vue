@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { t } from '../i18n';
 import { Filter, MoreFilled } from '@element-plus/icons-vue';
-import { coerce, sameValue, type Edits } from '../composables/gridEdit';
+import { coerce, coerceNew, sameValue, type Edits } from '../composables/gridEdit';
 import { isSaveShortcut } from '../composables/shortcuts';
 import type { Cell, ResultColumn } from '../api/types';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
@@ -38,6 +38,11 @@ const props = defineProps<{
   filterable?: boolean;
   /** The column filters, by column name. */
   filters?: Record<string, FilterState>;
+  /** The last `added` rows are new (not in the table yet): a cell left
+   *  alone takes the column's default, and removing the row drops it. */
+  added?: number;
+  /** New rows can be added (the INSERT code is generated, never run). */
+  insertable?: boolean;
 }>();
 const emit = defineEmits<{
   /** A cell's new value; `undefined` reverts it. */
@@ -46,6 +51,8 @@ const emit = defineEmits<{
   delete: [rows: number[], mark: boolean];
   /** A column's filter changed; `null` clears it. */
   filter: [column: string, state: FilterState | null];
+  /** "Agregar fila": the pane adds a new row at the end. */
+  add: [];
 }>();
 
 const ROW_H = 22;
@@ -135,13 +142,21 @@ function display(v: Cell): string {
   return String(v);
 }
 const isDeleted = (r: number) => !!props.deleted?.has(r);
+/** Index of the first new row (rows from here on aren't in the table yet). */
+const base = computed(() => props.rows.length - (props.added ?? 0));
+const isAdded = (r: number) => r >= base.value;
+/** A new row's cell the user hasn't set: the column's default goes. */
+const isUnset = (r: number, c: number) => isAdded(r) && !(props.edits?.[r] && c in props.edits[r]);
+/** A row's cells can be edited: the result's when editable, new rows when
+ *  rows can be added (a table without a key still takes new rows). */
+const canEditRow = (r: number) => (isAdded(r) ? !!props.insertable : !!props.editable);
 /** The value shown: the edit, if any (a row marked for deletion shows its
  *  original values: its edits are ignored). */
 function valueAt(r: number, c: number): Cell {
   const e = isDeleted(r) ? undefined : props.edits?.[r];
   return e && c in e ? e[c] : props.rows[r]?.[c] ?? null;
 }
-const isEdited = (r: number, c: number) => !isDeleted(r) && !!props.edits?.[r] && c in props.edits[r];
+const isEdited = (r: number, c: number) => !isDeleted(r) && !isAdded(r) && !!props.edits?.[r] && c in props.edits[r];
 
 function cellClass(v: Cell) {
   if (v === null) return 'nm-null';
@@ -288,8 +303,8 @@ function onKey(e: KeyboardEvent) {
   const sel = selection.value;
   if (sel && !mod && !e.altKey) {
     if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); startEdit(sel.r, sel.c); return; }
-    if (props.editable && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); startEdit(sel.r, sel.c, ''); return; }
-    if (props.editable && e.key.length === 1) { e.preventDefault(); startEdit(sel.r, sel.c, e.key); return; }
+    if (canEditRow(sel.r) && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); startEdit(sel.r, sel.c, ''); return; }
+    if (canEditRow(sel.r) && e.key.length === 1) { e.preventDefault(); startEdit(sel.r, sel.c, e.key); return; }
   }
   if (rowSel.value && !mod && !e.altKey && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); toggleDelete(selectedRows()); return; }
   if (mod && e.key.toLowerCase() === 'c') { e.preventDefault(); copyAs(copyFormat.value); return; }
@@ -324,7 +339,7 @@ const editInput = ref<HTMLInputElement | null>(null);
 const editLeft = computed(() => (editing.value ? NUM_W + widthUpTo(editing.value.c) : 0));
 
 function startEdit(r: number, c: number, text?: string) {
-  if (!props.editable) {
+  if (!canEditRow(r)) {
     if (props.noEditReason) ElMessage.info({ message: t('results:grid.cantEdit', { reason: props.noEditReason }), duration: 3500 });
     return;
   }
@@ -333,7 +348,7 @@ function startEdit(r: number, c: number, text?: string) {
   selection.value = { r, c };
   anchor.value = null;
   cellExtra.value = [];
-  editing.value = { r, c, text: text ?? (v === null ? '' : String(v)) };
+  editing.value = { r, c, text: text ?? (v === null || isUnset(r, c) ? '' : String(v)) };
   nextTick(() => {
     editInput.value?.focus();
     if (text === undefined) editInput.value?.select();
@@ -343,6 +358,15 @@ function commitEdit(move: [number, number] | null = null) {
   const e = editing.value;
   if (!e) return;
   editing.value = null;
+  if (isAdded(e.r)) {
+    // A new row: an empty input leaves the cell to the column's default
+    // (an explicit NULL comes from "Establecer NULL").
+    const set = !isUnset(e.r, e.c);
+    if (e.text === '') { if (set && valueAt(e.r, e.c) !== null) emit('edit', e.r, e.c, undefined); }
+    else emit('edit', e.r, e.c, coerceNew(props.columns[e.c]?.type_name ?? '', e.text));
+    afterCommit(e, move);
+    return;
+  }
   const original = props.rows[e.r]?.[e.c] ?? null;
   const prev = valueAt(e.r, e.c);
   // Leaving a NULL untouched keeps it NULL (the input shows it empty).
@@ -350,6 +374,9 @@ function commitEdit(move: [number, number] | null = null) {
     const v = coerce(original, e.text);
     emit('edit', e.r, e.c, sameValue(v, original) ? undefined : v);
   }
+  afterCommit(e, move);
+}
+function afterCommit(e: { r: number; c: number }, move: [number, number] | null) {
   scroller.value?.focus();
   if (move) {
     selection.value = {
@@ -371,10 +398,24 @@ function onEditKey(ev: KeyboardEvent) {
   ev.stopPropagation();
 }
 function setNull(r: number, c: number) {
-  if (!props.editable || isDeleted(r)) return startEdit(r, c);
+  if (!canEditRow(r) || isDeleted(r)) return startEdit(r, c);
+  if (isAdded(r)) { emit('edit', r, c, !isUnset(r, c) && valueAt(r, c) === null ? undefined : null); return; }
   emit('edit', r, c, props.rows[r]?.[c] === null ? undefined : null);
 }
 watch(() => props.rows, () => { editing.value = null; });
+
+/** Scrolls to a (new) row and starts editing its first shown cell. */
+function editRow(r: number) {
+  const el = scroller.value;
+  if (el) {
+    const top = r * ROW_H;
+    const below = ROW_H * (HEAD.value + 1);
+    if (top < el.scrollTop || top + below > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top + below - el.clientHeight);
+  }
+  const c = isHidden(0) ? step(0, 1) : 0;
+  nextTick(() => startEdit(r, c));
+}
+defineExpose({ editRow });
 
 // -- deleting rows (marked here; the DELETE code comes with the UPDATEs) -----------------
 function selectedRows(): number[] {
@@ -386,6 +427,12 @@ function selectedRows(): number[] {
 /** Marks the rows, or unmarks them when they're all marked already. */
 function toggleDelete(rows: number[]) {
   if (!rows.length) return;
+  // New rows are just dropped: nothing to delete on the server.
+  if (rows.every(isAdded)) {
+    if (editing.value && rows.includes(editing.value.r)) editing.value = null;
+    emit('delete', rows, true);
+    return;
+  }
   if (!props.deletable) {
     const reason = props.noDeleteReason ?? props.noEditReason;
     if (reason) ElMessage.info({ message: t('results:grid.cantDelete', { reason }), duration: 3500 });
@@ -499,7 +546,12 @@ function onContext(e: MouseEvent, r: number, c: number | null) {
   // The rows the delete item takes: the selection when the click is on it.
   const targets = rowSelected(r) ? selectedRows() : [r];
   const restore = targets.every(isDeleted);
-  const delItem: MenuItem = {
+  const onlyNew = targets.every(isAdded);
+  const delItem: MenuItem = onlyNew ? {
+    label: t(targets.length > 1 ? 'results:grid.removeNewRows' : 'results:grid.removeNewRow', { count: targets.length }),
+    shortcut: rowSel.value && rowSelected(r) ? '⌦' : undefined,
+    action: () => toggleDelete(targets),
+  } : {
     label: targets.length > 1
       ? t(restore ? 'results:grid.restoreRows' : 'results:grid.deleteRows', { count: targets.length })
       : t(restore ? 'results:grid.restoreRow' : 'results:grid.deleteRow'),
@@ -509,15 +561,20 @@ function onContext(e: MouseEvent, r: number, c: number | null) {
     hint: props.deletable ? undefined : (props.noDeleteReason ?? props.noEditReason ?? undefined),
     action: () => toggleDelete(targets),
   };
-  if (c === null) items.push(delItem);
+  const addItem: MenuItem = {
+    label: t('results:grid.addRow'),
+    disabled: !props.insertable,
+    action: () => emit('add'),
+  };
+  if (c === null) items.push(delItem, addItem);
   if (c !== null) items.push({ label: t('results:grid.copyCell'), shortcut: copyFormat.value === 'tsv' ? '⌘C' : undefined, action: () => copy(tsv(props.rows[r][c])) });
   if (c !== null) items.push({ label: t('results:grid.viewValue'), action: () => openViewer(r, c) });
   if (c !== null) {
-    items.push({ label: t('results:grid.editCell'), shortcut: 'F2', divided: true, disabled: !props.editable, action: () => startEdit(r, c) });
-    items.push({ label: t('results:grid.setNull'), disabled: !props.editable || isDeleted(r), action: () => setNull(r, c) });
-    items.push(delItem);
+    items.push({ label: t('results:grid.editCell'), shortcut: 'F2', divided: true, disabled: !canEditRow(r), action: () => startEdit(r, c) });
+    items.push({ label: t('results:grid.setNull'), disabled: !canEditRow(r) || isDeleted(r), action: () => setNull(r, c) });
+    items.push(delItem, addItem);
     if (isEdited(r, c)) items.push({ label: t('results:grid.undoChange'), action: () => emit('edit', r, c, undefined) });
-    if (!props.editable && props.noEditReason) items.push({ label: t('results:grid.notEditable', { reason: props.noEditReason }), disabled: true });
+    if (!canEditRow(r) && props.noEditReason) items.push({ label: t('results:grid.notEditable', { reason: props.noEditReason }), disabled: true });
   }
   const scope = t(rowSel.value || block.value || cellExtra.value.length ? 'results:grid.scopeSelected' : selection.value ? 'results:grid.scopeRow' : 'results:grid.scopeAll');
   items.push({ label: t('results:grid.copyHeader', { scope }), header: true, divided: true });
@@ -632,26 +689,26 @@ function columnsMenu(e: MouseEvent) {
         v-for="{ r, i } in visible"
         :key="i"
         class="rg-row"
-        :class="{ odd: i % 2 === 1, selected: rowSelected(i), deleted: isDeleted(i) }"
-        :title="isDeleted(i) ? $t('results:grid.markedDelete') : undefined"
+        :class="{ odd: i % 2 === 1, selected: rowSelected(i), deleted: isDeleted(i), added: isAdded(i) }"
+        :title="isDeleted(i) ? $t('results:grid.markedDelete') : isAdded(i) ? $t('results:grid.newRow') : undefined"
         :style="{ top: (i + HEAD) * ROW_H + 'px', width: totalW + 'px' }"
       >
         <div class="rg-num" :style="{ width: NUM_W + 'px' }" @click="selectRow(i, $event)" @contextmenu="onContext($event, i, null)">
-          {{ i + 1 }}
+          {{ isAdded(i) ? '+' : i + 1 }}
         </div>
         <div
           v-for="(v, c) in r"
           :key="c"
           v-show="!isHidden(c)"
           class="rg-cell"
-          :class="[cellClass(valueAt(i, c)), { active: selection && selection.r === i && selection.c === c, ranged: inBlock(i, c), edited: isEdited(i, c) }]"
+          :class="[isUnset(i, c) ? 'rg-default' : cellClass(valueAt(i, c)), { active: selection && selection.r === i && selection.c === c, ranged: inBlock(i, c), edited: isEdited(i, c) }]"
           :style="{ width: widths[c] + 'px' }"
           :title="isEdited(i, c) ? $t('results:grid.before', { value: display(v) }) : undefined"
           @mousedown="onCellDown($event, i, c)"
           @mouseenter="onCellEnter(i, c)"
-          @dblclick="editable ? startEdit(i, c) : openViewer(i, c)"
+          @dblclick="canEditRow(i) ? startEdit(i, c) : openViewer(i, c)"
           @contextmenu="onContext($event, i, c)"
-        >{{ display(valueAt(i, c)) }}</div>
+        >{{ isUnset(i, c) ? $t('results:grid.defaultValue') : display(valueAt(i, c)) }}</div>
       </div>
     </div>
     <input
@@ -799,6 +856,9 @@ function columnsMenu(e: MouseEvent) {
 }
 .rg-cell.ranged { background: var(--ide-selection); }
 .rg-cell.active { outline: 1px solid var(--ide-focus); outline-offset: -1px; background: var(--ide-selection); }
+.rg-row.added { background: color-mix(in srgb, var(--nm-success) 12%, transparent); }
+.rg-row.added .rg-num { color: var(--nm-success); box-shadow: inset 2px 0 0 var(--nm-success); }
+.rg-cell.rg-default { color: var(--nm-text-dim); font-style: italic; }
 .rg-row.deleted { background: color-mix(in srgb, var(--nm-danger) 14%, transparent); }
 .rg-row.deleted .rg-cell { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--nm-danger) 70%, transparent); opacity: 0.7; }
 .rg-row.deleted .rg-num { color: var(--nm-danger); box-shadow: inset 2px 0 0 var(--nm-danger); }

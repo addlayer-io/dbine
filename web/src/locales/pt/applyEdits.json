@@ -11,5 +11,6 @@
   "hintBoth": "Estas instruções vão ser executadas no servidor ({{deletes}}; {{cells}} em {{rows}}). Primeiro as linhas são excluídas e depois as demais são atualizadas. Revise-as antes de salvar.",
   "doneAffected_one": "Alterações salvas: 1 linha afetada",
   "doneAffected_many": "Alterações salvas: {{count}} linhas afetadas",
-  "doneAffected_other": "Alterações salvas: {{count}} linhas afetadas"
+  "doneAffected_other": "Alterações salvas: {{count}} linhas afetadas",
+  "hintInserts": "Estas instruções serão executadas no servidor ({{list}}). Primeiro as linhas são excluídas, depois atualizadas e, por fim, as novas são inseridas. Revise-as antes de salvar."
 }

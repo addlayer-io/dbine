@@ -22,7 +22,14 @@ export interface EditSetup {
   keyColumns: string[];
   all: boolean;
   note: string | null;
+  /** Identity / auto-increment columns: a new row that sets one needs the
+   *  engine's explicit-value switch (SQL Server's IDENTITY_INSERT…). */
+  identity: string[];
 }
+
+/** A new row (or document): the values set, by column / field name. Columns
+ *  left out take the table's default (or the engine's generated id). */
+export type NewRow = [string, unknown][];
 
 const IDENT = String.raw`(?:"(?:[^"]|"")+"|\[[^\]]+\]|` + '`[^`]+`' + String.raw`|[\p{L}_#@$][\p{L}\p{N}_#@$]*)`;
 const QUALIFIED = new RegExp(String.raw`^(${IDENT})(?:\s*\.\s*(${IDENT}))?(?:\s*\.\s*(${IDENT}))?`, 'u');
@@ -105,18 +112,20 @@ export async function resolveEditing(connectionId: string, database: string, tar
     ?? objs.find((o) => o.name.toLowerCase() === lower && (!target.schema || (o.schema ?? '').toLowerCase() === target.schema!.toLowerCase()));
   const ref: ObjectRef = found ? { kind: found.kind, schema: found.schema, name: found.name } : target;
   const cols = await conns.loadColumns(connectionId, database, { ...ref, parent: found?.parent ?? null });
+  const identity = cols.filter((c) => c.auto_increment).map((c) => c.name);
   let pk = cols.filter((c) => c.primary_key).map((c) => c.name);
   if (!pk.length && columns.includes('_id')) pk = ['_id'];
   if (pk.length) {
     const missing = pk.filter((k) => !columns.includes(k));
     if (missing.length) return t('core:gridEdit.missingKey', { columns: missing.join(', ') });
-    return { target: ref, keyColumns: pk, all: false, note: null };
+    return { target: ref, keyColumns: pk, all: false, note: null, identity };
   }
   return {
     target: ref,
     keyColumns: columns,
     all: true,
     note: t('core:gridEdit.noPrimaryKey'),
+    identity,
   };
 }
 
@@ -188,4 +197,26 @@ export function buildChanges(columns: ResultColumn[], rows: Cell[][], edits: Edi
       return { key: rowKey(columns, row, setup, dialect), set, row: names.map((c, i) => [c, row[i] ?? null] as [string, Cell]) };
     })
     .filter((c) => c.set.length);
+}
+
+/** Rows added in the grid as new rows: only the cells the user set (an
+ *  untouched cell takes the column's default). Rows with nothing set are
+ *  left out. */
+export function buildInserts(columns: ResultColumn[], added: Record<number, Cell>[]): NewRow[] {
+  return added
+    .map((cells) => Object.entries(cells).map(([c, v]) => [columns[Number(c)]?.name, v] as [string, Cell]).filter(([n]) => n !== undefined))
+    .filter((r) => r.length);
+}
+
+/** What the user typed in a new row's cell, as a value of the column's type
+ *  (a new row has no original value to take the type from). */
+export function coerceNew(typeName: string, text: string): Cell {
+  const v = text.trim();
+  const ty = typeName.toLowerCase();
+  if (/^(bit|bool|boolean)\b/.test(ty)) {
+    if (/^(true|verdadero|1|sí|si)$/i.test(v)) return true;
+    if (/^(false|falso|0|no)$/i.test(v)) return false;
+  }
+  if (/(int|dec|numeric|number|float|double|real|money|serial)/.test(ty) && v !== '' && !Number.isNaN(Number(v))) return Number(v);
+  return text;
 }

@@ -98,6 +98,11 @@ de cada base.
 - **Edición de celdas:** al modificar una celda se genera el código de
   actualización en el lenguaje del motor. DBine no lo ejecuta: lo agrega a la
   query y vos decidís.
+- **Agregar filas y documentos:** las filas nuevas se suman a los cambios
+  pendientes junto con ediciones y borrados, y el código de inserción sale en
+  el lenguaje de cada motor (SQL, comandos de Redis, `insertMany`, Cypher…).
+  Los motores de documentos agregan uno o varios documentos desde un editor
+  JSON, también en colecciones vacías.
 - **Grilla virtualizada** con varios resultados por ejecución, mensajes y visor
   de celdas (con JSON formateado).
 - **Filtros por columna** en los datos de una tabla (valores, rangos, nulos,

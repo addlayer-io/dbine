@@ -462,6 +462,36 @@ fn insert_parts(driver: &dyn dbine_driver::Driver, target: &ObjectRef, names: &[
     Ok([before, inserts, after].into_iter().filter(|p| !p.trim().is_empty()).collect())
 }
 
+/// New rows from the results grid ("Agregar fila", "Agregar documento") as
+/// the engine's insert code, in the order they were added: consecutive rows
+/// that set the same columns go in one `insert_script` call, and a batch
+/// that sets an identity column gets the engine's wrap. No rows: it only
+/// asks whether the engine writes inserts (with the result's `columns`, as
+/// a row of NULLs: IoTDB needs its Time column), and only its
+/// `Unsupported` is the reason the UI shows.
+pub(crate) fn new_rows_parts(driver: &dyn dbine_driver::Driver, target: &ObjectRef, rows: &[Vec<(String, Value)>], identity: &[String], columns: &[String]) -> CommandResult<Vec<String>> {
+    if rows.is_empty() {
+        let probe: Vec<Vec<Value>> = if columns.is_empty() { Vec::new() } else { vec![vec![Value::Null; columns.len()]] };
+        return match driver.insert_script(target, columns, &probe) {
+            Err(e @ dbine_driver::Error::Unsupported(_)) => Err(e.into()),
+            _ => Ok(Vec::new()),
+        };
+    }
+    let rows: Vec<&Vec<(String, Value)>> = rows.iter().filter(|r| !r.is_empty()).collect();
+    let mut parts = Vec::new();
+    let mut i = 0;
+    while i < rows.len() {
+        let names: Vec<String> = rows[i].iter().map(|(n, _)| n.clone()).collect();
+        let mut batch = Vec::new();
+        while i < rows.len() && rows[i].iter().map(|(n, _)| n).eq(names.iter()) {
+            batch.push(rows[i].iter().map(|(_, v)| v.clone()).collect());
+            i += 1;
+        }
+        parts.extend(insert_parts(driver, target, &names, identity, &batch)?);
+    }
+    Ok(parts)
+}
+
 /// The target as `data_load_wrap` takes it: only which columns are identity.
 fn identity_table(object: &ObjectRef, identity: &[String]) -> dbine_driver::TableSchema {
     dbine_driver::TableSchema {
@@ -481,7 +511,7 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 
 #[cfg(test)]
 mod tests {
-    use super::{assemble, canon, insert_parts, Dir, Pick};
+    use super::{assemble, canon, insert_parts, new_rows_parts, Dir, Pick};
     use dbine_driver::{ObjectRef, RowChange};
 
     /// The statement count a sync run reports against: joining the parts
@@ -505,6 +535,70 @@ mod tests {
         let parts = insert_parts(pg.as_ref(), &target, &names, &["id".into()], &rows).unwrap();
         assert_eq!(parts.len(), 2, "{parts:?}");
         assert!(parts[0].starts_with("INSERT INTO") && parts[1].contains("setval(pg_get_serial_sequence"), "{parts:?}");
+    }
+
+    #[test]
+    fn grid_new_rows_batch_by_columns_and_wrap_identity() {
+        let target = ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "clientes".into() };
+        let mssql = dbine_drivers::find("sqlserver").unwrap();
+        let rows = vec![
+            vec![("nombre".to_string(), json!("Ana"))],
+            vec![("nombre".to_string(), json!("Luis"))],
+            vec![("id".to_string(), json!(9)), ("nombre".to_string(), json!("Eva"))],
+            vec![],
+        ];
+        let parts = new_rows_parts(mssql.as_ref(), &target, &rows, &["id".into()], &[]).unwrap();
+        // The first two share their columns (one INSERT batch, no identity);
+        // the third sets the identity column: wrapped.
+        assert_eq!(parts.len(), 4, "{parts:?}");
+        assert!(parts[0].contains("N'Ana'") && parts[0].contains("N'Luis'"), "{parts:?}");
+        assert_eq!(parts[1], "SET IDENTITY_INSERT [dbo].[clientes] ON;");
+        assert!(parts[2].contains("[id]") && parts[2].contains("N'Eva'"), "{parts:?}");
+        assert_eq!(parts[3], "SET IDENTITY_INSERT [dbo].[clientes] OFF;");
+        // A document with nested fields goes to MongoDB as it is.
+        let mongo = dbine_drivers::find("mongodb").unwrap();
+        let coll = ObjectRef { kind: "collection".into(), schema: None, name: "pedidos".into() };
+        let doc = vec![vec![("cliente".to_string(), json!({"nombre": "Ana"})), ("items".to_string(), json!([1, 2]))]];
+        let parts = new_rows_parts(mongo.as_ref(), &coll, &doc, &[], &[]).unwrap();
+        assert_eq!(parts.len(), 1, "{parts:?}");
+        assert!(parts[0].contains("pedidos") && parts[0].contains("\"nombre\"") , "{parts:?}");
+        // No rows: only whether the engine writes inserts.
+        assert!(new_rows_parts(mssql.as_ref(), &target, &[], &[], &[]).unwrap().is_empty());
+        assert!(new_rows_parts(mongo.as_ref(), &coll, &[], &[], &[]).unwrap().is_empty());
+    }
+
+    /// Every engine either writes a new row's insert code or says why not
+    /// (`Unsupported`, the reason "Agregar fila" shows); none fails the
+    /// empty probe the UI sends to find out.
+    #[test]
+    fn every_engine_writes_new_rows_or_says_why() {
+        let mut unsupported = Vec::new();
+        let mut failed = Vec::new();
+        for d in dbine_drivers::all() {
+            let id = d.info().id;
+            // IoTDB (and TimechoDB) write to a device under a database path,
+            // with a Time column.
+            let tsdb = matches!(id, "iotdb" | "timechodb");
+            let schema = tsdb.then(|| "root.ventas".to_string());
+            let columns: Vec<String> = if tsdb { vec!["Time".into(), "nombre".into()] } else { vec!["id".into(), "nombre".into()] };
+            let row = vec![columns.iter().cloned().zip([json!(1), json!("Ana")]).collect::<Vec<_>>()];
+            let target = ObjectRef { kind: "table".into(), schema, name: "clientes".into() };
+            match new_rows_parts(d.as_ref(), &target, &[], &[], &columns) {
+                Ok(p) => assert!(p.is_empty(), "{id}: {p:?}"),
+                Err(e) => {
+                    unsupported.push(id);
+                    // An engine that can't insert says so for real rows too.
+                    assert!(new_rows_parts(d.as_ref(), &target, &row, &[], &[]).is_err(), "{id}: probe failed ({e:?}) but rows worked");
+                    continue;
+                }
+            }
+            match new_rows_parts(d.as_ref(), &target, &row, &[], &[]) {
+                Ok(parts) => assert!(parts.iter().any(|p| p.contains("Ana")), "{id}: {parts:?}"),
+                Err(e) => failed.push(format!("{id}: {e:?}")),
+            }
+        }
+        eprintln!("engines without inserts: {unsupported:?}");
+        assert!(failed.is_empty(), "{failed:#?}");
     }
 
     #[test]

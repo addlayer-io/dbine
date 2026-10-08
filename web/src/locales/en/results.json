@@ -69,7 +69,15 @@
     "summaryBoth": "{{cells}} in {{rows}}, {{deletes}}, not saved.",
     "deletes_one": "{{count}} row to delete",
     "deletes_many": "{{count}} rows to delete",
-    "deletes_other": "{{count}} rows to delete"
+    "deletes_other": "{{count}} rows to delete",
+    "pending": "{{list}}, unsaved.",
+    "cellsInRows": "{{cells}} in {{rows}}",
+    "newRows_one": "{{count}} new row",
+    "newRows_many": "{{count}} new rows",
+    "newRows_other": "{{count}} new rows",
+    "newDocs_one": "{{count}} new document",
+    "newDocs_many": "{{count}} new documents",
+    "newDocs_other": "{{count}} new documents"
   },
   "exportDialog": {
     "title": "Export result",
@@ -184,7 +192,12 @@
     "restoreRows": "Restore {{count}} rows",
     "cantDelete": "Can't delete: {{reason}}",
     "rowDeleted": "The row is marked for deletion: restore it to edit it",
-    "markedDelete": "Marked for deletion"
+    "markedDelete": "Marked for deletion",
+    "addRow": "Add row",
+    "removeNewRow": "Remove the new row",
+    "removeNewRows": "Remove the {{count}} new rows",
+    "newRow": "New row: inserted on save",
+    "defaultValue": "(default)"
   },
   "chart": {
     "kind": {
@@ -224,5 +237,20 @@
     "noNumeric": "This result has no numeric columns to chart.",
     "pickValues": "Pick at least one column in «Values».",
     "tooMany": "Too many categories ({{n}}): group by another column or pick an aggregation."
+  },
+  "insert": {
+    "addRow": "Add row",
+    "addDocument": "Add document",
+    "cant": "Can't add rows: {{reason}}"
+  },
+  "addDocument": {
+    "titleDocument": "Add document",
+    "titleRow": "Add row",
+    "hintDocument": "Write the document as JSON. An object adds one document and a list of objects adds several. If you leave out _id, the database generates it.",
+    "hintRow": "Write the row as JSON, with one field per column. An object adds one row and a list of objects adds several. Columns you leave out take their default value.",
+    "add": "Add",
+    "invalidJson": "The JSON is not valid: {{error}}",
+    "notObject": "It must be an object, or a list of objects.",
+    "empty": "The document is empty: add at least one field."
   }
 }

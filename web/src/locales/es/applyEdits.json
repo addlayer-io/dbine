@@ -11,5 +11,6 @@
   "hintBoth": "Se van a ejecutar estas sentencias sobre el servidor ({{deletes}}; {{cells}} en {{rows}}). Primero se eliminan las filas y después se actualizan las demás. Revisalas antes de guardar.",
   "doneAffected_one": "Cambios guardados: 1 fila afectada",
   "doneAffected_many": "Cambios guardados: {{count}} filas afectadas",
-  "doneAffected_other": "Cambios guardados: {{count}} filas afectadas"
+  "doneAffected_other": "Cambios guardados: {{count}} filas afectadas",
+  "hintInserts": "Se van a ejecutar estas sentencias sobre el servidor ({{list}}). Primero se eliminan las filas, después se actualizan y al final se insertan las nuevas. Revisalas antes de guardar."
 }

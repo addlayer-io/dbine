@@ -11,5 +11,6 @@
   "hintBoth": "Queste istruzioni verranno eseguite sul server ({{deletes}}; {{cells}} in {{rows}}). Prima vengono eliminate le righe e poi vengono aggiornate le altre. Controllale prima di salvare.",
   "doneAffected_one": "Modifiche salvate: 1 riga interessata",
   "doneAffected_many": "Modifiche salvate: {{count}} righe interessate",
-  "doneAffected_other": "Modifiche salvate: {{count}} righe interessate"
+  "doneAffected_other": "Modifiche salvate: {{count}} righe interessate",
+  "hintInserts": "Queste istruzioni verranno eseguite sul server ({{list}}). Prima vengono eliminate le righe, poi aggiornate e infine inserite quelle nuove. Controllale prima di salvare."
 }
