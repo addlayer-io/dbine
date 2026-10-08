@@ -25,5 +25,7 @@
   "lines_one": "1 linha",
   "lines_many": "{{count}} linhas",
   "lines_other": "{{count}} linhas",
-  "none": "Sem resultados."
+  "none": "Sem resultados.",
+  "column": "Coluna",
+  "columns": "Colunas"
 }

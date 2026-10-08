@@ -37,15 +37,15 @@ let unlisten: UnlistenFn | null = null;
 
 const driver = computed(() => conns.driverOf(props.tab.connectionId));
 const kindOptions = computed(() => driver.value?.object_kinds ?? []);
-const kindLabel = (id: string) => tb(kindOptions.value.find((k) => k.id === id)?.label ?? id);
+const kindLabel = (id: string) => (id === 'column' ? t('search:column') : tb(kindOptions.value.find((k) => k.id === id)?.label ?? id));
 
 /** Hits by object, objects in the order they were found. */
 const groups = computed(() => {
-  const out = new Map<string, { key: string; kind: string; schema: string | null; name: string; parent: string | null; inName: boolean; lines: Hit[] }>();
+  const out = new Map<string, { key: string; kind: string; schema: string | null; name: string; parent: string | null; inName: boolean; type: string; lines: Hit[] }>();
   for (const h of hits.value) {
     const key = `${h.kind}|${h.schema ?? ''}|${h.parent ?? ''}|${h.name}`;
     let g = out.get(key);
-    if (!g) out.set(key, (g = { key, kind: h.kind, schema: h.schema, name: h.name, parent: h.parent, inName: false, lines: [] }));
+    if (!g) out.set(key, (g = { key, kind: h.kind, schema: h.schema, name: h.name, parent: h.parent, inName: false, type: h.kind === 'column' ? h.text : '', lines: [] }));
     if (h.line === 0) g.inName = true;
     else g.lines.push(h);
   }
@@ -100,7 +100,12 @@ onUnmounted(() => {
   unlisten?.();
 });
 
-function open(g: { kind: string; schema: string | null; name: string }) {
+function open(g: { kind: string; schema: string | null; name: string; parent?: string | null }) {
+  // A column: its table's structure.
+  if (g.kind === 'column' && g.parent) {
+    tabs.openObject(props.tab.connectionId, props.tab.database, { kind: 'table', schema: g.schema, name: g.parent }, 'structure', false);
+    return;
+  }
   const k = kindOptions.value.find((x) => x.id === g.kind);
   tabs.openObject(props.tab.connectionId, props.tab.database, { kind: g.kind, schema: g.schema, name: g.name }, k?.has_definition ? 'definition' : k?.browsable ? 'data' : 'structure', false);
 }
@@ -137,6 +142,7 @@ function marked(line: string): string {
       <el-checkbox v-model="wholeWord" size="small">{{ $t('search:wholeWord') }}</el-checkbox>
       <el-select v-model="kinds" multiple collapse-tags clearable size="small" :placeholder="$t('search:allKinds')" style="width: 220px">
         <el-option v-for="k in kindOptions" :key="k.id" :label="tb(k.label)" :value="k.id" />
+        <el-option value="column" :label="$t('search:columns')" />
       </el-select>
     </div>
 
@@ -163,7 +169,8 @@ function marked(line: string): string {
           <span class="sv-kind">{{ kindLabel(g.kind) }}</span>
           <span class="sv-name"><span v-if="g.schema" class="nm-muted">{{ g.schema }}.</span>{{ g.name }}</span>
           <span v-if="g.parent" class="nm-muted">({{ g.parent }})</span>
-          <span v-if="g.inName" class="sv-badge">{{ $t('search:inName') }}</span>
+          <span v-if="g.type" class="nm-muted sv-type">{{ g.type }}</span>
+          <span v-if="g.inName && g.kind !== 'column'" class="sv-badge">{{ $t('search:inName') }}</span>
           <span v-if="g.lines.length" class="sv-count">{{ $t('search:lines', { count: g.lines.length }) }}</span>
         </button>
         <button v-for="h in g.lines.slice(0, 50)" :key="h.line" class="sv-line" @click="open(g)">
@@ -198,6 +205,7 @@ function marked(line: string): string {
 .sv-obj { font-size: 12.5px; }
 .sv-kind { font-size: 10.5px; color: var(--nm-text-dim); text-transform: uppercase; letter-spacing: 0.03em; min-width: 72px; }
 .sv-name { color: var(--nm-text-strong); }
+.sv-type { font-family: var(--nm-mono); font-size: 11px; }
 .sv-badge { font-size: 10.5px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--nm-accent) 22%, transparent); }
 .sv-count { font-size: 11px; color: var(--nm-text-dim); }
 .sv-line { padding-left: 86px; font-size: 12px; }
