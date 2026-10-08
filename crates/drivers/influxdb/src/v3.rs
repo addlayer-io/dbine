@@ -251,6 +251,23 @@ impl Session for SqlSession {
         Err(Error::Unsupported(crate::security::TOKENS.into()))
     }
 
+    /// Rows of the Parquet files already persisted, from the catalog's
+    /// `system.parquet_files` (no data is read). Points still in the WAL
+    /// (the last minutes) don't add up yet. A token that can't read the
+    /// system tables gets none. InfluxDB has no comments on objects.
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        if self.db.is_none() {
+            return Ok(Vec::new());
+        }
+        match self.sql(PARQUET_ROWS).await {
+            Ok((cols, rows)) => Ok(parquet_row_estimates(&cols, &rows)),
+            Err(e) => {
+                tracing::debug!("influxdb3 row estimates: {e}");
+                Ok(Vec::new())
+            }
+        }
+    }
+
     /// `system.queries` is read through a database, the session's or the
     /// first one, as the monitor does.
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
@@ -534,9 +551,37 @@ fn sql_literal(v: &J) -> String {
     dbine_driver::ddl::sql_literal(&dbine_driver::ddl::SqlFlavor::ansi(), v)
 }
 
+/// Rows per table in the persisted Parquet files (catalog metadata).
+const PARQUET_ROWS: &str = "SELECT table_name, sum(row_count) AS row_count FROM system.parquet_files GROUP BY table_name";
+
+fn parquet_row_estimates(cols: &[String], rows: &[Vec<J>]) -> Vec<dbine_driver::stats::RowEstimate> {
+    let (Some(t), Some(n)) = (cols.iter().position(|c| c == "table_name"), cols.iter().position(|c| c == "row_count")) else {
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|r| {
+            let name = r.get(t)?.as_str()?.to_string();
+            let rows = match r.get(n)? {
+                J::Number(v) => v.as_u64().or_else(|| v.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64))?,
+                J::String(v) => v.trim().parse().ok()?,
+                _ => return None,
+            };
+            Some(dbine_driver::stats::RowEstimate { object: ObjectRef { kind: kinds::MEASUREMENT.into(), schema: None, name }, rows })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parquet_rows_per_table() {
+        let cols = vec!["table_name".to_string(), "row_count".to_string()];
+        let rows = vec![vec![json!("cpu"), json!(1500)], vec![json!("mem"), json!("20")], vec![json!("x"), J::Null]];
+        let got: Vec<_> = parquet_row_estimates(&cols, &rows).into_iter().map(|e| (e.object.kind, e.object.name, e.rows)).collect();
+        assert_eq!(got, vec![("measurement".into(), "cpu".into(), 1500), ("measurement".into(), "mem".into(), 20)]);
+    }
 
     #[test]
     fn filtered_browse_before_order_by() {

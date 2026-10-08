@@ -15,6 +15,7 @@ mod permissions;
 mod plan;
 mod properties;
 mod schema;
+mod stats;
 mod transfer;
 
 use dbine_driver::sql::{
@@ -612,6 +613,16 @@ impl Session for DuckDbSession {
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         let h = self.interrupt.clone();
         Some(Arc::new(move || h.interrupt()))
+    }
+
+    /// `estimated_size` from the catalog (see [`stats`]).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        Ok(stats::row_estimates(self.strings(stats::ROWS, vec![self.catalog.clone()], 3).await?))
+    }
+
+    /// `COMMENT ON` views, macros, sequences and types (see [`stats`]).
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(stats::object_comments(self.strings(stats::COMMENTS, vec![self.catalog.clone()], 4).await?))
     }
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {

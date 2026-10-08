@@ -653,6 +653,32 @@ impl Session for TdSession {
         Ok(out)
     }
 
+    /// Child tables' comments (`ins_tables.table_comment`): supertables and
+    /// normal tables bring theirs with `database_schema`; views, streams and
+    /// topics have none. No `row_estimates`: TDengine's catalog keeps no row
+    /// counts, and `SHOW TABLE DISTRIBUTED` reads every data block's index.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        let db = self.db()?;
+        let rows = self
+            .strings(&format!(
+                "SELECT table_name, table_comment FROM information_schema.ins_tables
+                 WHERE db_name = {} AND type = 'CHILD_TABLE' AND table_comment IS NOT NULL AND table_comment <> '' LIMIT {MAX_SUBTABLES}",
+                lit(&db)
+            ))
+            .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| {
+                let mut r = r.into_iter();
+                let (name, comment) = (r.next()?, r.next()?);
+                Some(dbine_driver::stats::ObjectComment {
+                    object: ObjectRef { kind: SUBTABLE.into(), schema: Some(db.clone()), name },
+                    comment,
+                })
+            })
+            .collect())
+    }
+
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
         let db = self.obj_db(obj)?;
         let show = |what: &str| format!("SHOW CREATE {what} {}", qualified(Some(&db), &obj.name));
