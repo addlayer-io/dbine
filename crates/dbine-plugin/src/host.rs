@@ -321,7 +321,7 @@ impl Call {
             | Permissions { session, .. } | ListSchemas { session } | IndexUsage { session, .. } | Dependents { session, .. }
             | Processes { session } | CancelQuery { session, .. } | CreateDatabaseChoices { session }
             | CreateDatabaseWith { session, .. } | DatabaseProperties { session, .. } | AlterDatabase { session, .. }
-            | SearchCode { session, .. } | HealthChecks { session, .. } => Some(*session),
+            | SearchCode { session, .. } | HealthChecks { session, .. } | RowEstimates { session } | ObjectComments { session } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
             CopyNative { from, .. } => Some(*from),
@@ -604,6 +604,8 @@ impl State {
             Call::Processes { session } => Reply::Processes(self.slot(session)?.session.lock().await.processes().await?),
             Call::CreateDatabaseChoices { session } => Reply::Choices(self.slot(session)?.session.lock().await.create_database_choices().await?),
             Call::HealthChecks { session, database } => Reply::HealthChecks(self.slot(session)?.session.lock().await.health_checks(&database).await?),
+            Call::RowEstimates { session } => Reply::RowEstimates(self.slot(session)?.session.lock().await.row_estimates().await?),
+            Call::ObjectComments { session } => Reply::ObjectComments(self.slot(session)?.session.lock().await.object_comments().await?),
             Call::SearchCode { session, query } => Reply::CodeSearch(self.slot(session)?.session.lock().await.search_code(&query).await?),
             Call::DatabaseProperties { session, database } => {
                 Reply::DatabaseProperties(self.slot(session)?.session.lock().await.database_properties(&database).await?)

@@ -220,6 +220,12 @@ impl Session for ReadOnlySession {
     async fn health_checks(&mut self, database: &str) -> Result<Vec<crate::health::HealthCheck>> {
         self.inner.health_checks(database).await
     }
+    async fn row_estimates(&mut self) -> Result<Vec<crate::stats::RowEstimate>> {
+        self.inner.row_estimates().await
+    }
+    async fn object_comments(&mut self) -> Result<Vec<crate::stats::ObjectComment>> {
+        self.inner.object_comments().await
+    }
     async fn search_code(&mut self, query: &crate::search::CodeSearch) -> Result<Option<crate::search::CodeSearchReport>> {
         self.inner.search_code(query).await
     }

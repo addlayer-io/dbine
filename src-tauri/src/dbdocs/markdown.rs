@@ -187,6 +187,9 @@ fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labe
     if let Some(c) = t.comment.as_deref().filter(|c| !c.trim().is_empty()) {
         let _ = writeln!(out, "{}\n", md(c));
     }
+    if let Some(rows) = td.rows {
+        let _ = writeln!(out, "{}: {}\n", md(l.get("rows")), super::thousands(rows));
+    }
     columns(out, &t.columns, Some(t), anchors, l);
     if let Some(pk) = &t.primary_key {
         let name = pk.name.as_deref().map(|n| format!("{} ", md(n))).unwrap_or_default();
@@ -259,6 +262,9 @@ fn object(out: &mut String, doc: &Doc, o: &ObjectDoc, id: &str, l: &Labels) {
     let _ = writeln!(out, "<a id=\"{id}\"></a>\n\n#### {}\n", md(&qualified(o.schema.as_deref(), &o.name)));
     if let Some(p) = &o.parent {
         let _ = writeln!(out, "{}: {}\n", md(l.get("parent")), md(p));
+    }
+    if let Some(c) = o.comment.as_deref() {
+        let _ = writeln!(out, "{}\n", md(c));
     }
     if !o.columns.is_empty() {
         columns(out, &o.columns, None, &Anchors { tables: Default::default() }, l);

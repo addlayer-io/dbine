@@ -109,6 +109,7 @@
       "synonym": "Synonyms",
       "package": "Packages",
       "index": "Indexes"
-    }
+    },
+    "rows": "Rows (approximate)"
   }
 }

@@ -32,6 +32,7 @@ pub mod read_only;
 pub mod runtime;
 pub mod schema;
 pub mod health;
+pub mod stats;
 pub mod search;
 pub mod serde_static;
 pub mod sql;
@@ -820,6 +821,20 @@ pub trait Session: Send {
     /// the checks every engine shares. Empty: none of its own.
     async fn health_checks(&mut self, database: &str) -> Result<Vec<health::HealthCheck>> {
         let _ = database;
+        Ok(Vec::new())
+    }
+
+    /// Approximate rows of the session database's tables (collections…)
+    /// from statistics the engine keeps (see [`stats`]): never a count, so
+    /// it neither scans nor locks. Empty: the engine keeps none.
+    async fn row_estimates(&mut self) -> Result<Vec<stats::RowEstimate>> {
+        Ok(Vec::new())
+    }
+
+    /// Comments on the session database's objects other than tables and
+    /// columns (those come with [`Session::database_schema`]): views,
+    /// procedures, functions, triggers, sequences, types… Empty: none.
+    async fn object_comments(&mut self) -> Result<Vec<stats::ObjectComment>> {
         Ok(Vec::new())
     }
 
