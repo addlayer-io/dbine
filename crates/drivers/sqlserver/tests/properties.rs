@@ -7,7 +7,7 @@
 //!   cargo test -p dbine-driver-sqlserver --test properties -- --ignored
 //! ```
 
-use dbine_driver::{ConnectionConfig, QueryOutcome, Session};
+use dbine_driver::{ConnectionConfig, QueryOutcome};
 use std::collections::BTreeMap;
 
 fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
