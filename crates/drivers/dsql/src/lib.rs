@@ -14,6 +14,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod processes;
+mod rename;
 mod security;
 mod stats;
 mod structure;
@@ -236,6 +237,16 @@ impl Driver for DsqlDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
+    }
+
+    /// Tables, views, sequences, functions, columns and constraints, with
+    /// DSQL's subset of `ALTER … RENAME` (see `rename`).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
