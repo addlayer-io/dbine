@@ -4,8 +4,9 @@
 //! (it opens in a query); it never runs it by itself.
 //!
 //! The app adds the checks every engine can answer from what it already
-//! reports (connections, long queries, blocking, backups, unused indexes);
-//! the driver adds its own (configuration, statistics, bloat, space…).
+//! reports (connections, cache, long queries, blocking, open transactions,
+//! the last backup); the driver adds its own (configuration, statistics,
+//! unused indexes, bloat, space…).
 
 use serde::{Deserialize, Serialize};
 

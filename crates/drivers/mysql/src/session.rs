@@ -1384,6 +1384,11 @@ impl Session for MySqlSession {
         crate::index_usage::report(self, table).await.map(Some)
     }
 
+    /// The engine's own "Chequeo de salud" findings (see `health`).
+    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        self.health_checks_impl(database).await
+    }
+
     /// One query: SHOW GRANTS, or StarRocks' roles (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         crate::permissions::check(self, database).await

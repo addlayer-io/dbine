@@ -10,6 +10,7 @@ mod blocking;
 mod cells;
 mod create_db;
 mod design;
+mod health;
 mod index_usage;
 mod monitor;
 mod permissions;
