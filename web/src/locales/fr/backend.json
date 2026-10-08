@@ -9261,5 +9261,11 @@
   "«{0}» tiene más de {1} filas: se tomaron las primeras {2}.": "« {0} » a plus de {1} lignes : les {2} premières ont été prises.",
   "«{0}» tiene uniones de distinto tipo con las demás tablas: se usa {1}": "« {0} » a des jointures de types différents avec les autres tables : {1} est utilisé",
   "Índice faltante": "Índice faltante",
-  "… ({0} operadores más)": "… ({0} opérateurs de plus)"
+  "… ({0} operadores más)": "… ({0} opérateurs de plus)",
+  "Opciones ANSI y de seguridad": "Options ANSI et de sécurité",
+  "{0} (archivo de datos)": "{0} (fichier de données)",
+  "{0} (log de transacciones)": "{0} (journal des transactions)",
+  "{0}: crecimiento automático": "{0} : croissance automatique",
+  "{0}: tamaño (MB)": "{0} : taille (Mo)",
+  "{0}: tamaño máximo": "{0} : taille maximale"
 }

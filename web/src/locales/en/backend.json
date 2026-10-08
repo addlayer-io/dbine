@@ -9261,5 +9261,11 @@
   "«{0}» tiene más de {1} filas: se tomaron las primeras {2}.": "\"{0}\" has more than {1} rows: the first {2} were taken.",
   "«{0}» tiene uniones de distinto tipo con las demás tablas: se usa {1}": "\"{0}\" has joins of different types with the other tables: {1} is used",
   "Índice faltante": "Índice faltante",
-  "… ({0} operadores más)": "… ({0} more operators)"
+  "… ({0} operadores más)": "… ({0} more operators)",
+  "Opciones ANSI y de seguridad": "ANSI and security options",
+  "{0} (archivo de datos)": "{0} (data file)",
+  "{0} (log de transacciones)": "{0} (transaction log)",
+  "{0}: crecimiento automático": "{0}: autogrowth",
+  "{0}: tamaño (MB)": "{0}: size (MB)",
+  "{0}: tamaño máximo": "{0}: maximum size"
 }
