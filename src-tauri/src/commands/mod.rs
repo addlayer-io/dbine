@@ -29,6 +29,7 @@ pub mod migration;
 pub mod clone_table;
 pub mod history;
 pub mod data_compare;
+pub mod datagen;
 pub mod security;
 pub mod backup;
 pub mod telemetry;

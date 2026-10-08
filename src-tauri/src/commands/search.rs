@@ -80,12 +80,22 @@ pub async fn search_database(app: AppHandle, state: State<'_, AppState>, args: S
     result
 }
 
+/// Kinds whose "definition" is DDL the engine generates, not code someone
+/// wrote: searched only when asked for by kind (their names are always).
+const GENERATED_DDL: &[&str] = &[dbine_driver::kinds::TABLE];
+
 async fn run(app: &AppHandle, entry: &crate::state::SessionEntry, args: &SearchArgs, with_source: &[String]) -> CommandResult<SearchResult> {
-    let q = &args.query;
+    // "Código" without a kind filter: every kind with source but tables.
+    let mut resolved = args.query.clone();
+    if resolved.kinds.is_empty() {
+        resolved.kinds = with_source.iter().filter(|k| !GENERATED_DDL.contains(&k.as_str())).cloned().collect();
+    }
+    let names_any_kind = args.query.kinds.is_empty();
+    let q = &resolved;
     let cap = if q.max_hits == 0 { DEFAULT_CAP } else { q.max_hits };
     let mut out = SearchResult::default();
     let cancelled = || entry.cancelled.load(Ordering::Relaxed);
-    let wanted = |kind: &str| q.kinds.is_empty() || q.kinds.iter().any(|k| k == kind);
+    let wanted = |kind: &str| q.kinds.iter().any(|k| k == kind);
     let emit = |done: usize, total: usize, hits: Vec<SearchHit>| {
         let _ = app.emit("code-search-progress", Progress { search_id: &args.search_id, done, total, hits });
     };
@@ -95,14 +105,14 @@ async fn run(app: &AppHandle, entry: &crate::state::SessionEntry, args: &SearchA
     if args.names && !q.text.is_empty() {
         let hits: Vec<SearchHit> = objects
             .iter()
-            .filter(|o| wanted(&o.kind) && line_matches(&o.name, q))
+            .filter(|o| (names_any_kind || wanted(&o.kind)) && line_matches(&o.name, q))
             .take(cap)
             .map(|o| CodeHit { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone(), parent: o.parent.clone(), line: 0, text: String::new() })
             .collect();
         emit(0, 0, hits.clone());
         out.hits = hits;
     }
-    if !args.code || q.text.is_empty() || out.hits.len() >= cap {
+    if !args.code || q.text.is_empty() || q.kinds.is_empty() || out.hits.len() >= cap {
         out.truncated = out.hits.len() >= cap;
         return Ok(out);
     }
