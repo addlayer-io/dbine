@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-flightsql"
-version = "0.1.5"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+version = "0.1.6"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
 edition.workspace = true
 license.workspace = true
 description = "DBine driver for Arrow Flight SQL servers (GizmoSQL, Dremio, InfluxDB 3, Doris…)"

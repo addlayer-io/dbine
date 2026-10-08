@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-couchdb"
-version = "0.1.5"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+version = "0.1.6"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
 edition.workspace = true
 license.workspace = true
 

@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-odbc"
-version = "0.1.5"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+version = "0.1.6"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
 edition.workspace = true
 license.workspace = true
 description = "DBine ODBC driver: one generic session plus presets for engines that only ship an ODBC driver (DB2, Sybase, Informix, Teradata, Hive…)"
