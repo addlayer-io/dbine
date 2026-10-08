@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { errorMessage } from '../api/client';
 import type { Field, Language, QueryOutcome } from '../api/types';
 import type { DdlParts, DesignerSpec, ForeignKeyDef, IndexDef, TableSchema } from '../api/schema-types';
-import type { SyncScript } from '../api/compare';
+import type { CodeObject, SyncScript } from '../api/compare';
 import CodeEditor from '../components/CodeEditor.vue';
 import { useTranslation } from 'i18next-vue';
 import { tb } from '../i18n/backend';
@@ -42,15 +42,18 @@ const props = withDefaults(defineProps<{
   alter?: boolean;
   /** Edit mode: the rename script for an existing column (the user reviewed
    *  its impact), or null when the user cancelled. Absent: names are fixed. */
-  resolveRename?: ((from: string, to: string) => Promise<SyncScript | null>) | null;
+  resolveRename?: ((from: string, to: string) => Promise<{ script: SyncScript; rewritten: CodeObject[] } | null>) | null;
   /** Edit mode: why existing columns can't be renamed here, if they can't. */
   renameBlocked?: string | null;
   /** Edit mode: run the script all or nothing (engines with DDL in transactions). */
   atomic?: boolean;
+  /** Edit mode: the database's code objects (views over the table are made
+   *  again around the ALTER, and the triggers of a rebuilt table). */
+  codeObjects?: CodeObject[];
 }>(), {
   schemas: () => [], existingTables: () => [], initial: undefined,
   language: 'sql', dialect: '', initialSection: 'columns',
-  alter: false, resolveRename: null, renameBlocked: null, atomic: false,
+  alter: false, resolveRename: null, renameBlocked: null, atomic: false, codeObjects: () => [],
 });
 
 const emit = defineEmits<{
@@ -83,7 +86,11 @@ interface ColRow {
   /** Edit mode: the name last confirmed (a rename reviewed, or the original). */
   confirmed: string;
 }
-interface IdxRow { key: number; name: string; columns: string[]; unique: boolean; kind: string; filter: string }
+interface IdxRow {
+  key: number; name: string; columns: string[]; unique: boolean; kind: string; filter: string;
+  /** Edit mode: the index's name in the database (null: a new one). */
+  orig?: string | null;
+}
 interface FkRow {
   key: number; name: string; columns: string[]; target: string; ref_columns: string[];
   on_delete: string; on_update: string;
@@ -159,6 +166,7 @@ function load() {
   }
   idxs.value = (t?.indexes ?? []).map((i) => ({
     key: nextKey(), name: i.name, columns: [...i.columns], unique: i.unique, kind: i.kind ?? '', filter: i.filter ?? '',
+    orig: props.alter ? i.name : null,
   }));
   fks.value = (t?.foreign_keys ?? []).map((f) => ({
     key: nextKey(), name: f.name ?? '', columns: [...f.columns], target: targetKey(f.ref_schema, f.ref_table),
@@ -170,7 +178,7 @@ function load() {
   renames.clear();
 }
 /** Edit mode: reviewed renames, by the column's name in the database. */
-const renames = reactive(new Map<string, { to: string; script: SyncScript }>());
+const renames = reactive(new Map<string, { to: string; script: SyncScript; rewritten: CodeObject[] }>());
 let baseline: TableSchema | null = null;
 load();
 watch(() => [props.spec, props.initial], () => { load(); takeBaseline(); });
@@ -195,8 +203,19 @@ watch(sections, (s) => { if (!s.some((x) => x.id === section.value)) section.val
 // -- the TableSchema being designed ---------------------------------------------------------
 const table = computed<TableSchema>(() => {
   const spec = props.spec;
-  const pk = cols.value.filter((c) => c.pk && c.name.trim()).map((c) => c.name.trim());
   const targets = targetMap.value;
+  // Edit mode: what the designer doesn't show is kept as the table has it
+  // (CHECKs, index INCLUDE and settings, options it doesn't offer, the key's
+  // column order), so a rebuilt table or a recreated index doesn't lose it.
+  const src = props.alter ? props.initial : undefined;
+  const now = new Map(cols.value.filter((c) => c.orig).map((c) => [c.orig!, c.name.trim()]));
+  const cur = (n: string) => (now.has(n) ? now.get(n)! : n);
+  const alive = (n: string) => !!n && colNames.value.includes(n);
+  let pk = cols.value.filter((c) => c.pk && c.name.trim()).map((c) => c.name.trim());
+  const pkOrder = (src?.primary_key?.columns ?? []).map(cur);
+  if (pkOrder.length) pk = [...pkOrder.filter((n) => pk.includes(n)), ...pk.filter((n) => !pkOrder.includes(n))];
+  const srcCol = (c: ColRow) => (c.orig ? src?.columns.find((x) => x.name === c.orig) : undefined);
+  const srcIdx = (i: IdxRow) => (i.orig ? src?.indexes.find((x) => x.name === i.orig) : undefined);
   return {
     kind: spec.kind,
     schema: spec.schemas ? schema.value || null : null,
@@ -208,7 +227,7 @@ const table = computed<TableSchema>(() => {
       default_value: spec.defaults && c.default_value.trim() ? c.default_value.trim() : null,
       auto_increment: spec.auto_increment && c.auto_increment,
       comment: spec.comments && c.comment.trim() ? c.comment.trim() : null,
-      options: optsOut(spec.column_options, c.options),
+      options: { ...srcCol(c)?.options, ...optsOut(spec.column_options, c.options) },
     })),
     primary_key: spec.primary_key && pk.length ? { name: pkName.value, columns: pk } : null,
     foreign_keys: spec.foreign_keys
@@ -222,13 +241,19 @@ const table = computed<TableSchema>(() => {
       })
       : [],
     indexes: spec.indexes
-      ? idxs.value.map((i): IndexDef => ({
-        name: i.name.trim(), columns: [...i.columns], unique: i.unique,
-        kind: i.kind.trim() || null, filter: i.filter.trim() || null,
-      }))
+      ? idxs.value.map((i): IndexDef => {
+        const o = srcIdx(i);
+        return {
+          name: i.name.trim(), columns: [...i.columns], unique: i.unique,
+          kind: i.kind.trim() || null, filter: i.filter.trim() || null,
+          ...(o?.include?.length ? { include: o.include.map(cur).filter(alive) } : {}),
+          ...(o?.options && Object.keys(o.options).length ? { options: { ...o.options } } : {}),
+        };
+      })
       : [],
+    ...(src?.checks?.length ? { checks: JSON.parse(JSON.stringify(src.checks)) } : {}),
     comment: spec.comments && tableComment.value.trim() ? tableComment.value.trim() : null,
-    options: optsOut(spec.table_options, tableOpts),
+    options: { ...src?.options, ...optsOut(spec.table_options, tableOpts) },
   };
 });
 
@@ -368,7 +393,10 @@ function renameCol(c: ColRow, v: string) {
   if (!old || old === now) return;
   const swap = (a: string[]) => a.map((x) => (x === old ? now : x)).filter(Boolean);
   for (const x of idxs.value) x.columns = swap(x.columns);
-  for (const f of fks.value) f.columns = swap(f.columns);
+  for (const f of fks.value) {
+    f.columns = swap(f.columns);
+    if (isSelf(f.target)) f.ref_columns = swap(f.ref_columns);
+  }
 }
 
 /** Edit mode: an existing column's new name, once typed (Enter or leaving
@@ -387,9 +415,9 @@ async function confirmName(c: ColRow) {
   if (!props.resolveRename) { renameCol(c, c.confirmed); return; }
   renaming.value = true;
   try {
-    const script = await props.resolveRename(c.orig, now);
-    if (script) {
-      renames.set(c.orig, { to: now, script });
+    const got = await props.resolveRename(c.orig, now);
+    if (got) {
+      renames.set(c.orig, { to: now, script: got.script, rewritten: got.rewritten });
       c.confirmed = now;
     } else {
       renameCol(c, c.confirmed);
@@ -479,6 +507,8 @@ function addIndex() {
 
 // -- foreign keys --------------------------------------------------------------------------
 const SELF = '\u0000self';
+/** A foreign key to this same table (new: SELF; edit mode: the table's own key). */
+const isSelf = (target: string) => target === SELF || (props.alter && target === targetKey(props.spec.schemas ? schema.value || null : null, name.value.trim()));
 function targetKey(s: string | null, n: string): string {
   return `${s ?? ''}\u0001${n}`;
 }
@@ -540,7 +570,10 @@ function renamedBaseline(): TableSchema {
   const f = (n: string) => to.get(n) ?? n;
   for (const c of b.columns) c.name = f(c.name);
   if (b.primary_key) b.primary_key.columns = b.primary_key.columns.map(f);
-  for (const i of b.indexes) i.columns = i.columns.map(f);
+  for (const i of b.indexes) {
+    i.columns = i.columns.map(f);
+    if (i.include) i.include = i.include.map(f);
+  }
   for (const k of b.foreign_keys) {
     k.columns = k.columns.map(f);
     if (k.ref_table === b.name && (k.ref_schema ?? null) === (b.schema ?? null)) k.ref_columns = k.ref_columns.map(f);
@@ -551,8 +584,12 @@ function renamedBaseline(): TableSchema {
 /** Edit mode: the rename scripts, then the engine's ALTER for the rest. */
 const review = ref<SyncScript | null>(null);
 async function alterScript(): Promise<SyncScript> {
+  // The code objects as they'll be once the renames ran (their rewritten views).
+  const same = (a: CodeObject, b: CodeObject) => a.kind === b.kind && a.name === b.name && (a.schema ?? null) === (b.schema ?? null);
+  const rewritten = [...renames.values()].flatMap((r) => r.rewritten);
+  const views = props.codeObjects.map((o) => rewritten.find((r) => same(r, o)) ?? o);
   const rest = await invoke<SyncScript>('schema_sync_script', {
-    args: { connection_id: props.connectionId, tables: [{ op: 'alter', old: renamedBaseline(), new: table.value }], objects: [], views: [] },
+    args: { connection_id: props.connectionId, tables: [{ op: 'alter', old: renamedBaseline(), new: table.value }], objects: [], views },
   });
   const pre = [...renames.values()].map((r) => r.script);
   const out = {
@@ -565,8 +602,8 @@ async function alterScript(): Promise<SyncScript> {
 
 function scriptText(sc: SyncScript): string {
   const c = props.language === 'sql' ? '--' : '//';
-  if (!sc.statements.length) return `${c} ${t('designer:alter.noChanges')}`;
   const warn = sc.warnings.map((w) => `${c} ⚠ ${tb(w)}`).join('\n');
+  if (!sc.statements.length) return `${warn ? `${warn}\n\n` : ''}${c} ${t(sc.warnings.length ? 'designer:alter.nothingRuns' : 'designer:alter.noChanges')}`;
   return `${warn ? `${warn}\n\n` : ''}${sc.statements.join('\n\n')}`;
 }
 
@@ -658,7 +695,16 @@ async function startReview() {
   runError.value = null;
   const text = await freshDdl();
   if (text === null) return;
-  if (!review.value?.statements.length) { ElMessage.info(t('designer:alter.noChanges')); return; }
+  if (!review.value?.statements.length) {
+    // Nothing runs: say why when the engine left changes out.
+    if (review.value?.warnings.length) {
+      section.value = 'script';
+      ElMessage.warning(t('designer:alter.nothingRuns'));
+    } else {
+      ElMessage.info(t('designer:alter.noChanges'));
+    }
+    return;
+  }
   section.value = 'script';
   reviewing.value = true;
 }

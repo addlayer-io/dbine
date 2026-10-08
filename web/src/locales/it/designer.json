@@ -127,6 +127,7 @@
     "run_one": "Esegui {{count}} istruzione",
     "run_other": "Esegui {{count}} istruzioni",
     "noChanges": "Non ci sono modifiche da applicare.",
+    "nothingRuns": "Il motore non può applicare queste modifiche: gli avvisi dello script spiegano perché. Non viene eseguito nulla.",
     "warningsTitle": "Prima di applicare",
     "runAnyway": "Esegui comunque",
     "rolledBack": "È stato annullato tutto: la tabella è rimasta com'era.",

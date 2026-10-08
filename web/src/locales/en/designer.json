@@ -127,6 +127,7 @@
     "run_one": "Run {{count}} statement",
     "run_other": "Run {{count}} statements",
     "noChanges": "There are no changes to apply.",
+    "nothingRuns": "The engine can't apply these changes: the script's warnings say why. Nothing runs.",
     "warningsTitle": "Before applying",
     "runAnyway": "Run anyway",
     "rolledBack": "Everything was rolled back: the table is as it was.",

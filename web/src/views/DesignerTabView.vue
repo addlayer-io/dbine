@@ -6,7 +6,7 @@ import { useTranslation } from 'i18next-vue';
 import { tb } from '../i18n/backend';
 import { errorMessage } from '../api/client';
 import type { TableSchema } from '../api/schema-types';
-import type { SyncScript } from '../api/compare';
+import { compareApi, type CodeObject, type SyncScript } from '../api/compare';
 import TableDesignerView from './TableDesignerView.vue';
 import RenameDialog from '../components/RenameDialog.vue';
 import { newQuery } from '../composables/actions';
@@ -30,6 +30,9 @@ const tables = ref<TableSchema[]>([]);
 /** Edit mode: the table being edited, as the database has it now. */
 const editing = computed(() => props.tab.table ?? null);
 const loading = ref(!!props.tab.table);
+/** Edit mode: the database's code objects, so the ALTER recreates the views
+ *  over the table and the triggers of a rebuilt table (as "Comparar esquemas"). */
+const codeObjects = ref<CodeObject[]>([]);
 const loadError = ref<string | null>(null);
 const initial = computed(() => {
   const e = editing.value;
@@ -40,7 +43,13 @@ onMounted(async () => {
   if (!editing.value && !driver.value?.designer?.foreign_keys && !driver.value?.designer?.schemas) return;
   try {
     if (!(await conns.ensureConnected(props.tab.connectionId))) return;
-    tables.value = await invoke<TableSchema[]>('database_schema', { args: { connection_id: props.tab.connectionId, database: props.tab.database } });
+    if (editing.value) {
+      const m = await compareApi.load(props.tab.connectionId, props.tab.database);
+      tables.value = m.tables;
+      codeObjects.value = m.objects;
+    } else {
+      tables.value = await invoke<TableSchema[]>('database_schema', { args: { connection_id: props.tab.connectionId, database: props.tab.database } });
+    }
   } catch (e) {
     // A new table works without the pickers; an edit needs the table.
     if (editing.value) loadError.value = errorMessage(e);
@@ -57,12 +66,13 @@ const canRenameColumns = computed(() => !!editing.value && renameAllowed(renameS
 
 /** A column renamed in the designer: the "Renombrar" dialog shows its impact
  *  and hands back the script (it doesn't run it). */
-const renameAsk = ref<{ target: RenameDialogTarget; to: string; done: (s: SyncScript | null) => void } | null>(null);
-function resolveRename(from: string, to: string): Promise<SyncScript | null> {
+type Collected = { script: SyncScript; rewritten: CodeObject[] };
+const renameAsk = ref<{ target: RenameDialogTarget; to: string; done: (r: Collected | null) => void } | null>(null);
+function resolveRename(from: string, to: string): Promise<Collected | null> {
   return new Promise((done) => { renameAsk.value = { target: columnTarget(from), to, done }; });
 }
-function renameCollected(s: SyncScript) {
-  renameAsk.value?.done(s);
+function renameCollected(script: SyncScript, rewritten: CodeObject[]) {
+  renameAsk.value?.done({ script, rewritten });
   renameAsk.value = null;
 }
 function renameClosed() {
@@ -115,6 +125,7 @@ function openScript(ddl: string) {
     :dialect="driver.dialect"
     :initial="initial"
     :alter="!!editing"
+    :code-objects="codeObjects"
     :resolve-rename="canRenameColumns ? resolveRename : null"
     :rename-blocked="editing && !canRenameColumns ? $t('designer:alter.noColumnRename') : null"
     :atomic="!!renameSpec(tab.connectionId)?.transactional"

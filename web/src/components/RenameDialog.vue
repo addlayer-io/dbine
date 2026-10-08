@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
-import type { SyncScript } from '../api/compare';
+import type { CodeObject, SyncScript } from '../api/compare';
 import type { RenameImpact, RenameImpactItem } from '../api/types';
 import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
@@ -27,7 +27,9 @@ const props = defineProps<{
   collect?: boolean;
   initialName?: string;
 }>();
-const emit = defineEmits<{ close: []; collected: [script: SyncScript] }>();
+/** `rewritten`: the dependents the script rewrites, as they'll be (the
+ *  designer recreates views over its ALTER from these). */
+const emit = defineEmits<{ close: []; collected: [script: SyncScript, rewritten: CodeObject[]] }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
 const tabs = useTabsStore();
@@ -162,7 +164,9 @@ onBeforeUnmount(() => {
 const canCollect = computed(() => !!script.value && !scriptError.value && !loading.value && !nameProblem.value && impactFor.value === trimmed.value && !impact.value?.collides);
 function collectScript() {
   if (!canCollect.value || !script.value) return;
-  emit('collected', script.value);
+  const im = impact.value;
+  const rewritten = im ? [...selected.value].flatMap((i) => { const a = im.items[i].action; return a.kind === 'rewrite' ? [a.object] : []; }) : [];
+  emit('collected', script.value, rewritten);
   emit('close');
 }
 
