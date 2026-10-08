@@ -567,6 +567,9 @@ impl Driver for RemoteDriver {
     fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
         text(self.blocking(Call::CreateDatabaseScript { driver: self.id(), name: name.to_string(), options: options.clone() })?)
     }
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        text(self.blocking(Call::AlterDatabaseScript { driver: self.id(), database: database.to_string(), changes: changes.clone() })?)
+    }
     fn create_schema_script(&self, database: Option<&str>, name: &str, owner: Option<&str>) -> Result<String> {
         let database = database.map(str::to_string);
         text(self.blocking(Call::CreateSchemaScript { driver: self.id(), name: name.to_string(), owner: owner.map(str::to_string), database })?)
@@ -979,6 +982,15 @@ impl Session for RemoteSession {
     }
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.host.call(Call::CreateDatabaseWith { session: self.id, name: name.to_string(), options: options.clone() }).await.map(|_| ())
+    }
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        match self.host.call(Call::DatabaseProperties { session: self.id, database: database.to_string() }).await? {
+            Reply::DatabaseProperties(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.host.call(Call::AlterDatabase { session: self.id, database: database.to_string(), changes: changes.clone() }).await.map(|_| ())
     }
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.host.call(Call::CancelQuery { session: self.id, id: id.to_string() }).await.map(|_| ())

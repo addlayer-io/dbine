@@ -140,6 +140,42 @@ pub struct ConnectionArgs {
     pub connection_id: String,
 }
 
+/// "Propiedades" of a database: what can be changed, its current values,
+/// facts and warnings. Read on the server-level session, as creating and
+/// dropping databases are (some changes can't run from inside the
+/// database: PostgreSQL's SET TABLESPACE).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn database_properties(state: State<'_, AppState>, args: DatabaseArgs) -> CommandResult<dbine_driver::DatabaseProperties> {
+    let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
+    let mut s = entry.session.lock().await;
+    Ok(s.database_properties(&args.database).await?)
+}
+
+#[derive(Deserialize)]
+pub struct AlterDatabaseArgs {
+    pub connection_id: String,
+    pub database: String,
+    /// Field key → new value: only what the user changed.
+    pub changes: std::collections::BTreeMap<String, String>,
+}
+
+/// The script "Aplicar" shows before it runs.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn alter_database_script(state: State<'_, AppState>, args: AlterDatabaseArgs) -> CommandResult<String> {
+    Ok(driver_of(&state, &args.connection_id)?.alter_database_script(&args.database, &args.changes)?)
+}
+
+/// Apply the confirmed changes. Refused on read-only connections.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn alter_database(state: State<'_, AppState>, args: AlterDatabaseArgs) -> CommandResult<()> {
+    if args.changes.is_empty() {
+        return Ok(());
+    }
+    let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
+    let mut s = entry.session.lock().await;
+    Ok(s.alter_database(&args.database, &args.changes).await?)
+}
+
 /// The server's suggestions for "Nueva base de datos"'s options
 /// (collations, default paths, users…). Empty when it has none.
 #[tauri::command(rename_all = "camelCase")]

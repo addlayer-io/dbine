@@ -191,6 +191,7 @@ pub fn capabilities(p: &Preset) -> Capabilities {
         kill_session: crate::blocking::supports_kill(p),
         processes: crate::processes::supports(p),
         cancel_query: crate::processes::supports_cancel(p),
+        database_properties: false,
     }
 }
 

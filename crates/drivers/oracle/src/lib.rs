@@ -436,6 +436,7 @@ impl Driver for OracleDriver {
             // V$SESSION, and ALTER SYSTEM CANCEL SQL (18c+).
             processes: true,
             cancel_query: true,
+            database_properties: false,
         }
     }
 

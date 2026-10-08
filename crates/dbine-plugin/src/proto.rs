@@ -196,6 +196,12 @@ pub enum Call {
     CreateDatabaseScript { driver: String, name: String, options: std::collections::BTreeMap<String, String> },
     CreateDatabaseChoices { session: u64 },
     CreateDatabaseWith { session: u64, name: String, options: std::collections::BTreeMap<String, String> },
+    /// "Propiedades" of a database: read, the script, apply. A host
+    /// published before them answers `Unsupported`; the app only asks
+    /// drivers whose capabilities say `database_properties`.
+    DatabaseProperties { session: u64, database: String },
+    AlterDatabaseScript { driver: String, database: String, changes: std::collections::BTreeMap<String, String> },
+    AlterDatabase { session: u64, database: String, changes: std::collections::BTreeMap<String, String> },
 }
 
 /// Host → app.
@@ -255,6 +261,7 @@ pub enum Reply {
     Dependents(dbine_driver::DependencyReport),
     Processes(Vec<dbine_driver::ServerProcess>),
     Choices(Vec<dbine_driver::FieldChoices>),
+    DatabaseProperties(dbine_driver::DatabaseProperties),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -620,6 +627,9 @@ mod tests {
             (15, Call::CreateDatabaseScript { driver: "sqlserver".into(), name: "v".into(), options: Default::default() }, "CreateDatabaseScript"),
             (16, Call::CreateDatabaseChoices { session: 3 }, "CreateDatabaseChoices"),
             (17, Call::CreateDatabaseWith { session: 3, name: "v".into(), options: Default::default() }, "CreateDatabaseWith"),
+            (18, Call::DatabaseProperties { session: 3, database: "v".into() }, "DatabaseProperties"),
+            (19, Call::AlterDatabaseScript { driver: "sqlserver".into(), database: "v".into(), changes: Default::default() }, "AlterDatabaseScript"),
+            (20, Call::AlterDatabase { session: 3, database: "v".into(), changes: Default::default() }, "AlterDatabase"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
@@ -634,6 +644,26 @@ mod tests {
         let body = rmp_serde::to_vec_named(&OldPermissions { backup: dbine_driver::Access::Allowed }).unwrap();
         let p: dbine_driver::Permissions = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(p.create_schema, dbine_driver::Access::Unknown);
+    }
+
+    #[test]
+    fn database_properties_round_trip() {
+        let p = dbine_driver::DatabaseProperties {
+            fields: vec![dbine_driver::Field::new("recovery", "Modelo de recuperación", dbine_driver::FieldKind::Text).group("Opciones")],
+            values: [("recovery".to_string(), "FULL".to_string())].into(),
+            info: vec![dbine_driver::PropertyInfo { group: String::new(), label: "Tamaño".into(), value: "16 MB".into() }],
+            choices: Vec::new(),
+            warnings: [("recovery".to_string(), "rompe la cadena de backups".to_string())].into(),
+        };
+        let body = rmp_serde::to_vec_named(&Reply::DatabaseProperties(p)).unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::DatabaseProperties(back) => {
+                assert_eq!(back.fields[0].group, "Opciones");
+                assert_eq!(back.values["recovery"], "FULL");
+                assert_eq!(back.warnings.len(), 1);
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

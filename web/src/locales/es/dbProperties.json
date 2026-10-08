@@ -1,0 +1,12 @@
+{
+  "menu": "Propiedades…",
+  "title": "Propiedades de «{{name}}»",
+  "apply": "Aplicar",
+  "confirmTitle": "Aplicar cambios en «{{name}}»",
+  "warningsTitle": "Atención:",
+  "applied": "Propiedades de «{{name}}» actualizadas",
+  "scriptName": "Propiedades de {{name}}",
+  "nothing": "Este motor no tiene nada que mostrar ni cambiar en esta pestaña.",
+  "readOnly": "Conexión de solo lectura: las propiedades se ven pero no se pueden cambiar.",
+  "noChanges": "(sin cambios)"
+}

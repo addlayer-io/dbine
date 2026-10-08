@@ -229,6 +229,7 @@ impl Driver for HanaDriver {
             // SESSION.
             processes: true,
             cancel_query: true,
+            database_properties: false,
         }
     }
 

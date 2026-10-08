@@ -11,6 +11,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod processes;
+mod properties;
 mod profiler;
 mod schema;
 mod script;
@@ -191,6 +192,10 @@ impl Driver for SqlServerDriver {
         create_db::script(self.variant, name, options)
     }
 
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(self.variant, database, changes)
+    }
+
     /// Azure SQL Database creates and drops databases from `master` with
     /// plain T-SQL; a Fabric warehouse is created in the Fabric portal.
     fn capabilities(&self) -> Capabilities {
@@ -207,6 +212,7 @@ impl Driver for SqlServerDriver {
             kill_session: true,
             processes: true,
             cancel_query: false,
+            database_properties: matches!(self.variant, Variant::SqlServer | Variant::AzureSql),
         }
     }
 
@@ -1015,6 +1021,14 @@ impl Session for SqlServerSession {
         }
         sent.map_err(err)?.into_results().await.map_err(err)?;
         Ok(())
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {

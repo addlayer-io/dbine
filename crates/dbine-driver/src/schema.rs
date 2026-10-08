@@ -224,4 +224,8 @@ pub struct Capabilities {
     /// Its sessions implement `Session::cancel_query`.
     #[serde(default)]
     pub cancel_query: bool,
+    /// Its sessions implement `Session::database_properties` and
+    /// `alter_database` ("Propiedades" on a database).
+    #[serde(default)]
+    pub database_properties: bool,
 }

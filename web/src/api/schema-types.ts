@@ -128,4 +128,6 @@ export interface Capabilities {
   processes?: boolean;
   /** Its sessions stop another session's statement. */
   cancel_query?: boolean;
+  /** "Propiedades" on its databases: view and change their settings. */
+  database_properties?: boolean;
 }

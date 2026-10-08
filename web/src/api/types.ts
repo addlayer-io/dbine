@@ -31,6 +31,25 @@ export interface Field {
   group?: string;
 }
 
+/** One read-only fact of a database's properties. */
+export interface PropertyInfo {
+  /** Its tab ('' : General). */
+  group: string;
+  label: string;
+  value: string;
+}
+
+/** "Propiedades" of a database: editable fields and their current values,
+ *  facts, the server's suggestions and warnings for disruptive changes. */
+export interface DatabaseProperties {
+  fields: Field[];
+  values: Record<string, string>;
+  info: PropertyInfo[];
+  choices: FieldChoices[];
+  /** Field key → what changing it does (kicks sessions, takes it offline…). */
+  warnings: Record<string, string>;
+}
+
 /** A server's suggestions for a field (its collations, default paths…). */
 export interface FieldChoices {
   key: string;

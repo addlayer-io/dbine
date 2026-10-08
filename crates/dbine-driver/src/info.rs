@@ -320,3 +320,29 @@ pub struct FieldChoices {
     /// Values to pick from (the field still takes any other).
     pub values: Vec<String>,
 }
+
+/// One read-only fact in a database's properties (size, created, state…).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PropertyInfo {
+    /// The tab it's shown in (empty: General).
+    pub group: String,
+    pub label: String,
+    pub value: String,
+}
+
+/// What "Propiedades" shows for one database: the settings that can be
+/// changed (as form fields, in tabs by `group`) with their current values,
+/// read-only facts, the server's suggestions, and warnings for changes that
+/// disrupt the database (they kick sessions, take it offline…).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DatabaseProperties {
+    #[serde(deserialize_with = "crate::serde_static::owned")]
+    pub fields: Vec<Field>,
+    /// Field key → its current value.
+    pub values: std::collections::BTreeMap<String, String>,
+    pub info: Vec<PropertyInfo>,
+    pub choices: Vec<FieldChoices>,
+    /// Field key → what changing it does to the database or its users, shown
+    /// before the change runs.
+    pub warnings: std::collections::BTreeMap<String, String>,
+}
