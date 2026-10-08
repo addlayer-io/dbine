@@ -1442,7 +1442,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ktype.json { background: #2f8f8f; }
 .ex-conn-ic { position: relative; display: inline-flex; flex-shrink: 0; }
 /* The connection's color: a frame around the engine logo (the dot is only status). */
-.ex-conn-ic.tinted { padding: 1px; border-radius: 4px; box-shadow: 0 0 0 2.5px var(--c); margin: 0 2px; }
+.ex-conn-ic.tinted { border-radius: 3px; box-shadow: 0 0 0 2px var(--c); margin: 0 2px; }
 /* Status dot on the logo's corner, ringed with the sidebar color:
  * green connected, red disconnected or failed. */
 .ex-conn-dot {
