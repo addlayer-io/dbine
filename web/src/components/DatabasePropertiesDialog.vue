@@ -177,15 +177,17 @@ function close() {
 .dp-tabs { margin-top: -6px; }
 .dp-tabs :deep(.el-tabs__content) { display: none; }
 .dp-facts {
-  display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 14px;
+  display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 4px 14px; margin: 0 0 14px;
   padding: 8px 10px; border: 1px solid var(--nm-border-soft); border-radius: 4px; background: var(--nm-bg-elev); font-size: 12px;
 }
-.dp-facts dt { color: var(--nm-text-dim); }
+.dp-facts dt { color: var(--nm-text-dim); overflow-wrap: anywhere; }
 .dp-facts dd { margin: 0; color: var(--nm-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+/* minmax(0, …): long labels (file names without spaces) wrap instead of widening the column past the dialog. */
+.dp-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 14px; }
+.dp-grid > * { min-width: 0; }
 .dp-grid .wide { grid-column: 1 / -1; }
 .dp-grid :deep(.el-form-item) { margin-bottom: 12px; }
-.dp-grid :deep(.el-form-item__label) { display: flex; align-items: center; gap: 4px; line-height: 1.3; margin-bottom: 4px; }
+.dp-grid :deep(.el-form-item__label) { display: flex; align-items: center; gap: 4px; line-height: 1.3; margin-bottom: 4px; overflow-wrap: anywhere; }
 .dp-none { font-size: 12px; margin: 4px 0; }
 .dp-script { margin-top: 12px; border: 1px solid var(--nm-border-soft); border-radius: 4px; }
 .dp-script-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 4px 10px; border-bottom: 1px solid var(--nm-border-soft); font-size: 12px; }

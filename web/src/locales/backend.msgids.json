@@ -14430,6 +14430,9 @@
   "crates/drivers/sqlserver/src/create_db.rs",
   "crates/drivers/sqlserver/src/properties.rs"
  ],
+ "Opciones ANSI y de seguridad": [
+  "crates/drivers/sqlserver/src/properties.rs"
+ ],
  "Opción de recuperación desconocida: {0}.": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -25742,8 +25745,7 @@
   "crates/drivers/tdengine/src/lib.rs"
  ],
  "máximo": [
-  "crates/dbine-transfer/src/clone_table/pg.rs",
-  "crates/drivers/sqlserver/src/properties.rs"
+  "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
  "método": [
   "crates/drivers/influxdb/src/monitor.rs"
@@ -27912,9 +27914,6 @@
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs"
  ],
- "tamaño (MB)": [
-  "crates/drivers/sqlserver/src/properties.rs"
- ],
  "tamaño (bytes)": [
   "crates/drivers/dynamodb/src/monitor.rs",
   "crates/drivers/influxdb/src/v3.rs"
@@ -28567,11 +28566,17 @@
  "{0} (además no se pudo hacer visible lo ya confirmado: {1})": [
   "crates/drivers/solr/src/transfer.rs"
  ],
+ "{0} (archivo de datos)": [
+  "crates/drivers/sqlserver/src/properties.rs"
+ ],
  "{0} (la transacción abierta se perdió: la sesión venció)": [
   "crates/drivers/spanner/src/lib.rs"
  ],
  "{0} (lo administra el servidor)": [
   "crates/drivers/sqlite/src/properties.rs"
+ ],
+ "{0} (log de transacciones)": [
+  "crates/drivers/sqlserver/src/properties.rs"
  ],
  "{0} (más antigua interesante: {1}, más antigua activa: {2}, siguiente: {3})": [
   "crates/drivers/firebird/src/health.rs"
@@ -29713,6 +29718,9 @@
  "{0}: capped, serie temporal y colección agrupada se fijan al crearla y no se cambian; se deja como está.": [
   "crates/drivers/mongodb/src/sync.rs"
  ],
+ "{0}: crecimiento automático": [
+  "crates/drivers/sqlserver/src/properties.rs"
+ ],
  "{0}: el DEFAULT de la columna [{1}] usa {2}, que no se clona (usa tablas u objetos que no se clonan); la columna queda sin ese DEFAULT": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
@@ -29874,6 +29882,12 @@
  ],
  "{0}: tabla memory-optimized (DBCC CHECKIDENT no la acepta); su identidad sigue desde el mayor valor copiado ({1}) y no desde {2} como en el origen": [
   "crates/drivers/sqlserver/src/clone.rs"
+ ],
+ "{0}: tamaño (MB)": [
+  "crates/drivers/sqlserver/src/properties.rs"
+ ],
+ "{0}: tamaño máximo": [
+  "crates/drivers/sqlserver/src/properties.rs"
  ],
  "{0}: un dispositivo no pasa de alineado a no alineado (ni al revés) sin recrear sus series; se deja como está.": [
   "crates/drivers/iotdb/src/sync.rs"

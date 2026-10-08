@@ -36,15 +36,15 @@ const SWITCHES: &[(&str, &str, &str, &str, &str)] = &[
     ),
     ("allow_snapshot_isolation", "Permitir aislamiento SNAPSHOT", "ALLOW_SNAPSHOT_ISOLATION", "snapshot_isolation_state", "Aislamiento"),
     ("read_committed_snapshot", "READ COMMITTED con versiones (READ_COMMITTED_SNAPSHOT)", "READ_COMMITTED_SNAPSHOT", "is_read_committed_snapshot_on", "Aislamiento"),
-    ("ansi_nulls", "ANSI_NULLS", "ANSI_NULLS", "is_ansi_nulls_on", "ANSI y seguridad"),
-    ("ansi_padding", "ANSI_PADDING", "ANSI_PADDING", "is_ansi_padding_on", "ANSI y seguridad"),
-    ("ansi_warnings", "ANSI_WARNINGS", "ANSI_WARNINGS", "is_ansi_warnings_on", "ANSI y seguridad"),
-    ("arithabort", "ARITHABORT", "ARITHABORT", "is_arithabort_on", "ANSI y seguridad"),
-    ("quoted_identifier", "QUOTED_IDENTIFIER", "QUOTED_IDENTIFIER", "is_quoted_identifier_on", "ANSI y seguridad"),
-    ("concat_null_yields_null", "CONCAT_NULL_YIELDS_NULL", "CONCAT_NULL_YIELDS_NULL", "is_concat_null_yields_null_on", "ANSI y seguridad"),
-    ("recursive_triggers", "Triggers recursivos (RECURSIVE_TRIGGERS)", "RECURSIVE_TRIGGERS", "is_recursive_triggers_on", "ANSI y seguridad"),
-    ("trustworthy", "Confiable (TRUSTWORTHY)", "TRUSTWORTHY", "is_trustworthy_on", "ANSI y seguridad"),
-    ("db_chaining", "Encadenamiento entre bases (DB_CHAINING)", "DB_CHAINING", "is_db_chaining_on", "ANSI y seguridad"),
+    ("ansi_nulls", "ANSI_NULLS", "ANSI_NULLS", "is_ansi_nulls_on", "Opciones ANSI y de seguridad"),
+    ("ansi_padding", "ANSI_PADDING", "ANSI_PADDING", "is_ansi_padding_on", "Opciones ANSI y de seguridad"),
+    ("ansi_warnings", "ANSI_WARNINGS", "ANSI_WARNINGS", "is_ansi_warnings_on", "Opciones ANSI y de seguridad"),
+    ("arithabort", "ARITHABORT", "ARITHABORT", "is_arithabort_on", "Opciones ANSI y de seguridad"),
+    ("quoted_identifier", "QUOTED_IDENTIFIER", "QUOTED_IDENTIFIER", "is_quoted_identifier_on", "Opciones ANSI y de seguridad"),
+    ("concat_null_yields_null", "CONCAT_NULL_YIELDS_NULL", "CONCAT_NULL_YIELDS_NULL", "is_concat_null_yields_null_on", "Opciones ANSI y de seguridad"),
+    ("recursive_triggers", "Triggers recursivos (RECURSIVE_TRIGGERS)", "RECURSIVE_TRIGGERS", "is_recursive_triggers_on", "Opciones ANSI y de seguridad"),
+    ("trustworthy", "Confiable (TRUSTWORTHY)", "TRUSTWORTHY", "is_trustworthy_on", "Opciones ANSI y de seguridad"),
+    ("db_chaining", "Encadenamiento entre bases (DB_CHAINING)", "DB_CHAINING", "is_db_chaining_on", "Opciones ANSI y de seguridad"),
 ];
 
 /// The switches Azure SQL Database lets change.
@@ -302,17 +302,22 @@ impl SqlServerSession {
             let mut total = 0i64;
             for f in &files {
                 let Some(logical) = text(f, 0) else { continue };
-                let kind = if text(f, 1).as_deref() == Some("LOG") { "log" } else { "datos" };
                 total += text(f, 3).and_then(|p| p.parse::<i64>().ok()).unwrap_or(0);
+                // Whole-literal labels, so each one reaches the backend catalog as a pattern.
                 info.push(PropertyInfo {
                     group: "Archivos".into(),
-                    label: format!("{logical} ({kind})"),
+                    label: if text(f, 1).as_deref() == Some("LOG") { format!("{logical} (log de transacciones)") } else { format!("{logical} (archivo de datos)") },
                     value: text(f, 2).unwrap_or_default(),
                 });
-                for (what, label, kind_) in [("size", "tamaño (MB)", FieldKind::Number), ("growth", "crecimiento", FieldKind::Text), ("max", "máximo", FieldKind::Text)] {
+                for (what, kind_) in [("size", FieldKind::Number), ("growth", FieldKind::Text), ("max", FieldKind::Text)] {
                     let key = file_key(&logical, what);
+                    let label = match what {
+                        "size" => format!("{logical}: tamaño (MB)"),
+                        "growth" => format!("{logical}: crecimiento automático"),
+                        _ => format!("{logical}: tamaño máximo"),
+                    };
                     fields.push(
-                        Field::new(intern(&key), intern(&format!("{logical}: {label}")), kind_)
+                        Field::new(intern(&key), intern(&label), kind_)
                             .help(if what == "size" { "Solo puede crecer: para achicar un archivo se usa DBCC SHRINKFILE." } else { "" })
                             .group("Archivos"),
                     );
