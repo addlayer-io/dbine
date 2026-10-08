@@ -1446,12 +1446,12 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-conn-ic.tinted { margin-left: 6px; }
 /* A thick bar on the left and thin lines above and below: a "[" around the logo. */
 .ex-conn-ic.tinted::before {
-  content: ''; position: absolute; left: -6px; top: -1px; bottom: -1px; width: 6px;
+  content: ''; position: absolute; left: -6px; top: -1.5px; bottom: -1.5px; width: 6px;
   border-radius: 2px 0 0 2px; background: var(--c);
 }
 .ex-conn-ic.tinted::after {
-  content: ''; position: absolute; left: -6px; right: 0; top: -1px; bottom: -1px;
-  border-top: 1px solid var(--c); border-bottom: 1px solid var(--c); border-radius: 2px 0 0 2px;
+  content: ''; position: absolute; left: -6px; right: 0; top: -1.5px; bottom: -1.5px;
+  border-top: 2px solid var(--c); border-bottom: 2px solid var(--c); border-radius: 2px 0 0 2px;
   pointer-events: none;
 }
 /* Status dot on the logo's corner, ringed with the sidebar color:
