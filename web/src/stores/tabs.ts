@@ -64,6 +64,8 @@ export interface DesignerTab extends TabBase {
   kind: 'designer';
   /** Schema preselected (the one the user right-clicked in). */
   schema: string | null;
+  /** "Modificar tabla…": the existing table being edited. */
+  table?: ObjectRef | null;
 }
 
 /** The ER diagram of a database. */
@@ -449,8 +451,11 @@ export const useTabsStore = defineStore('tabs', {
       this.activate(tab.id);
     },
 
-    openDesigner(connectionId: string, database: string, schema: string | null) {
-      this.place({ id: newId(), kind: 'designer', connectionId, database, schema, preview: false });
+    openDesigner(connectionId: string, database: string, schema: string | null, table: ObjectRef | null = null) {
+      const open = table && this.tabs.find((t) => t.kind === 'designer' && t.connectionId === connectionId && t.database === database
+        && t.table?.name === table.name && (t.table?.schema ?? null) === (table.schema ?? null));
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'designer', connectionId, database, schema, table, preview: false });
     },
 
     openDiagram(connectionId: string, database: string) {

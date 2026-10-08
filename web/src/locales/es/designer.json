@@ -109,5 +109,28 @@
     "optionRequired": "Falta completar: {{option}}.",
     "columnOptionMissing": "{{column}}: falta {{option}}.",
     "unnamed": "(sin nombre)"
+  },
+  "alter": {
+    "menu": "Modificar…",
+    "tab": "Modificar {{name}}",
+    "title": "Modificar {{object}}",
+    "loading": "Leyendo la estructura de {{name}}…",
+    "notFound": "No se encontró {{name}} en la base: puede que la hayan borrado o renombrado. Refrescá el explorador.",
+    "unsupported": "Este motor no aplica cambios de estructura desde DBine: escribí el ALTER en una query.",
+    "tableNameFixed": "Para cambiar el nombre de la tabla usá «Renombrar…» en el explorador: muestra lo que la usa antes de cambiarlo.",
+    "renameHint": "Cambiá el nombre y confirmá (Enter o salir del campo): DBine muestra lo que usa la columna y el script del cambio.",
+    "renamedFrom": "Antes se llamaba «{{name}}»: el cambio de nombre corre primero.",
+    "noColumnRename": "Este motor no renombra columnas desde DBine.",
+    "confirmName": "Confirmá el nuevo nombre de «{{name}}» (Enter o salir del campo) para revisar a quién afecta.",
+    "review": "Revisar cambios…",
+    "reviewText": "Revisá el script: corre en este orden, y nada se aplica hasta que lo ejecutes.",
+    "run_one": "Ejecutar {{count}} sentencia",
+    "run_other": "Ejecutar {{count}} sentencias",
+    "noChanges": "No hay cambios para aplicar.",
+    "warningsTitle": "Antes de aplicar",
+    "runAnyway": "Ejecutar igual",
+    "rolledBack": "Se deshizo todo: la tabla quedó como estaba.",
+    "partial": "Las sentencias anteriores a esa ({{done}}) ya se aplicaron.",
+    "done": "Se aplicaron los cambios en {{name}}."
   }
 }

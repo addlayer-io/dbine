@@ -44,6 +44,7 @@ function title(t: Tab): string {
   if (t.kind === 'object') return t.object.name;
   if (t.kind === 'file') return baseName(t.path);
   if (t.kind === 'fileDiff') return `${baseName(t.path)} ${tr('workbench:tabs.fileDiffSuffix')}`;
+  if (t.kind === 'designer' && t.table) return tr('designer:alter.tab', { name: t.table.name });
   if (t.kind === 'designer') return conns.driverOf(t.connectionId)?.designer?.label ? tb(conns.driverOf(t.connectionId)!.designer!.label) : tr('workbench:tabs.designer');
   if (t.kind === 'monitor') return `${tr('workbench:tabs.monitor')} · ${conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'profiler') return `Profiler · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
