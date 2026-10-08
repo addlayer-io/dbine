@@ -1443,10 +1443,16 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-conn-ic { position: relative; display: inline-flex; flex-shrink: 0; }
 /* The connection's color: a frame around the engine logo (the dot is only status). */
 /* The connection's color: a bar on the logo's left. */
-.ex-conn-ic.tinted { margin-left: 5px; }
+.ex-conn-ic.tinted { margin-left: 6px; }
+/* A thick bar on the left and thin lines above and below: a "[" around the logo. */
 .ex-conn-ic.tinted::before {
-  content: ''; position: absolute; left: -5px; top: 0; bottom: 0; width: 3px;
-  border-radius: 2px; background: var(--c);
+  content: ''; position: absolute; left: -6px; top: -1px; bottom: -1px; width: 4px;
+  border-radius: 2px 0 0 2px; background: var(--c);
+}
+.ex-conn-ic.tinted::after {
+  content: ''; position: absolute; left: -6px; right: 0; top: -1px; bottom: -1px;
+  border-top: 1px solid var(--c); border-bottom: 1px solid var(--c); border-radius: 2px 0 0 2px;
+  pointer-events: none;
 }
 /* Status dot on the logo's corner, ringed with the sidebar color:
  * green connected, red disconnected or failed. */
