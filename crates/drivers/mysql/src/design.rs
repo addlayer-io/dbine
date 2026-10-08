@@ -34,7 +34,7 @@ pub(crate) fn capabilities(v: Variant) -> Capabilities {
         kill_session: crate::processes::can_kill(v),
         processes: true,
         cancel_query: true,
-        database_properties: false,
+        database_properties: crate::properties::supported(v),
     }
 }
 

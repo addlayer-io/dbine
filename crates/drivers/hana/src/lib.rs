@@ -13,6 +13,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod schema;
 mod script;
 mod security;
@@ -215,6 +216,11 @@ impl Driver for HanaDriver {
         create_db::script(name, options)
     }
 
+    /// Nothing can change (see [`properties`]).
+    fn alter_database_script(&self, _database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(changes)
+    }
+
     fn capabilities(&self) -> Capabilities {
         // The "databases" below a connection are schemas.
         Capabilities {
@@ -229,7 +235,8 @@ impl Driver for HanaDriver {
             // SESSION.
             processes: true,
             cancel_query: true,
-            database_properties: false,
+            // Facts only: HANA has no ALTER SCHEMA (see `properties`).
+            database_properties: true,
         }
     }
 
@@ -742,6 +749,14 @@ impl Session for HanaSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

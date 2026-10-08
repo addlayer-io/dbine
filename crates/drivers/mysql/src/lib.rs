@@ -16,6 +16,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod security;
 mod session;
 mod structure;
@@ -276,6 +277,10 @@ impl Driver for MySqlDriver {
 
     fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
         create_db::script(self.variant, name, options)
+    }
+
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(self.variant, database, changes)
     }
 
     /// `LOAD DATA LOCAL INFILE` or big multi-row INSERTs (see `transfer`);

@@ -31,7 +31,7 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
 }
 
 /// `UNLIMITED`, or a size: digits with an optional K / M / G / T.
-fn quota(v: &str) -> Result<String> {
+pub(crate) fn quota(v: &str) -> Result<String> {
     let s = v.replace(' ', "").to_ascii_uppercase();
     if s == "UNLIMITED" {
         return Ok(s);
@@ -46,7 +46,7 @@ fn quota(v: &str) -> Result<String> {
 }
 
 /// A tablespace's name, folded like an unquoted identifier.
-fn tablespace(v: &str) -> Result<String> {
+pub(crate) fn tablespace(v: &str) -> Result<String> {
     Ok(quote(&schema_name(v)?))
 }
 
