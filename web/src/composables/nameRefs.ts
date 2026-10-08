@@ -340,7 +340,15 @@ export function unknownNames(idx: NameIndex, doc: string): LintFinding[] {
     }
     if (tok.text === ')') {
       fromAt.delete(parens.length);
-      parens.pop();
+      const inFn = parens.pop();
+      // `(SELECT … x AS y …) alias`: a derived table, its columns are the
+      // subquery's own names, not a table's. The alias hides a table of the
+      // same name read inside it, and its columns aren't checked.
+      if (inFn === false) {
+        let j = i + 1;
+        if (lc(t[j]) === 'as') j++;
+        if (t[j]?.word && !KEYWORDS.has(lc(t[j]))) stmtAliases.set(unquote(t[j].text).toLowerCase(), null);
+      }
       continue;
     }
     const inFunction = parens.some(Boolean);
