@@ -2,13 +2,13 @@
 // sample data in a plain browser, to look at them without Tauri or a
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|dependencies
 // |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
-// |docs (documents with nested fields: the JSON tree view)
+// |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
 import { loadBackendCatalog } from '../i18n/backend';
-import { createApp, h, ref } from 'vue';
+import { createApp, h, reactive, ref } from 'vue';
 import { createPinia } from 'pinia';
 import SettingsDialog from '../components/SettingsDialog.vue';
 import { installSettingsMock } from './samples';
@@ -22,6 +22,7 @@ import 'element-plus/theme-chalk/dark/css-vars.css';
 import '../styles/global.scss';
 import PlanView from '../components/PlanView.vue';
 import ChartView from '../components/ChartView.vue';
+import JsonTreeView from '../components/JsonTreeView.vue';
 import ResultsPane from '../components/ResultsPane.vue';
 import CompareView from '../views/CompareView.vue';
 import SupportReminder from '../components/SupportReminder.vue';
@@ -143,6 +144,28 @@ const sampleDocuments = {
   ]),
 };
 
+// view=docs-edit: the JSON tree alone and editable; each edit / delete it
+// emits is applied to the sample and logged ("edit r c value").
+const pvDocEdits = reactive<Record<number, Record<number, string | number | boolean | null>>>({});
+const pvDocDeleted = ref(new Set<number>());
+function docsEditView() {
+  return h(JsonTreeView, {
+    columns: sampleDocuments.columns, rows: sampleDocuments.rows, edits: pvDocEdits, deleted: pvDocDeleted.value,
+    editable: true, deletable: true, insertable: true,
+    onEdit: (r: number, c: number, v: string | number | boolean | null | undefined) => {
+      if (v === undefined) delete pvDocEdits[r]?.[c];
+      else (pvDocEdits[r] ??= {})[c] = v;
+      console.log('edit', r, c, JSON.stringify(v));
+    },
+    onDelete: (rows: number[], mark: boolean) => {
+      const next = new Set(pvDocDeleted.value);
+      for (const r of rows) { if (mark) next.add(r); else next.delete(r); }
+      pvDocDeleted.value = next;
+      console.log('delete', JSON.stringify(rows), mark);
+    },
+  });
+}
+
 // view=filters: the column filter row, filtering the sample locally.
 const pvFilters = ref<Record<string, FilterState>>({});
 function filtersView() {
@@ -199,6 +222,7 @@ const app = createApp({
       view === 'settings' ? h(SettingsDialog) : view.startsWith('diagram') ? diagram() : ['script', 'import', 'run'].includes(view) ? dialogView() : view === 'designer' ? designer() : view === 'chart'
         ? h(ChartView, { columns: sampleResult.columns, rows: sampleResult.rows })
         : view === 'filters' ? filtersView()
+        : view === 'docs-edit' ? docsEditView()
         : view === 'docs'
           ? h(ResultsPane, {
             running: false, title: 'pedidos',
