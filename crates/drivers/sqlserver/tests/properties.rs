@@ -8,6 +8,7 @@
 //! ```
 
 use dbine_driver::{ConnectionConfig, QueryOutcome, Session};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
