@@ -1,5 +1,5 @@
 //! "Buscar en la base" (docs/busqueda.md): object names and the text of
-//! views, routines, triggers… On a session of its own (the explorer's
+//! views, routines, triggers…, and column names. On a session of its own (the explorer's
 //! stays free), read-only, cancellable with `cancel_query` on
 //! `search:<id>`. Names come from `list_objects`; the text from the
 //! driver's catalog query when it has one (`Session::search_code`), else
@@ -83,6 +83,8 @@ pub async fn search_database(app: AppHandle, state: State<'_, AppState>, args: S
 /// Kinds whose "definition" is DDL the engine generates, not code someone
 /// wrote: searched only when asked for by kind (their names are always).
 const GENERATED_DDL: &[&str] = &[dbine_driver::kinds::TABLE];
+/// A hit in a column's name (not an object kind: the UI offers it apart).
+const COLUMN: &str = "column";
 
 async fn run(app: &AppHandle, entry: &crate::state::SessionEntry, args: &SearchArgs, with_source: &[String]) -> CommandResult<SearchResult> {
     // "Código" without a kind filter: every kind with source but tables.
@@ -111,6 +113,31 @@ async fn run(app: &AppHandle, entry: &crate::state::SessionEntry, args: &SearchA
             .collect();
         emit(0, 0, hits.clone());
         out.hits = hits;
+        // Column names: kind "column", the table as `parent`, the type as `text`.
+        if (names_any_kind || wanted(COLUMN)) && out.hits.len() < cap && !cancelled() {
+            match s.database_schema().await {
+                Ok(tables) => {
+                    let hits: Vec<SearchHit> = tables
+                        .iter()
+                        .flat_map(|t| t.columns.iter().map(move |c| (t, c)))
+                        .filter(|(_, c)| line_matches(&c.name, q))
+                        .take(cap - out.hits.len())
+                        .map(|(t, c)| CodeHit {
+                            kind: COLUMN.into(),
+                            schema: t.schema.clone(),
+                            name: c.name.clone(),
+                            parent: Some(t.name.clone()),
+                            line: 0,
+                            text: c.data_type.clone(),
+                        })
+                        .collect();
+                    emit(0, 0, hits.clone());
+                    out.hits.extend(hits);
+                }
+                // Engines without a schema read: names and code still answer.
+                Err(e) => tracing::debug!("column search skipped: {e}"),
+            }
+        }
     }
     if !args.code || q.text.is_empty() || q.kinds.is_empty() || out.hits.len() >= cap {
         out.truncated = out.hits.len() >= cap;
