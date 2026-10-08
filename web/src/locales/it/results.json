@@ -198,7 +198,15 @@
     "removeNewRow": "Rimuovi la riga nuova",
     "removeNewRows": "Rimuovi le {{count}} righe nuove",
     "newRow": "Riga nuova: viene inserita al salvataggio",
-    "defaultValue": "(predefinito)"
+    "defaultValue": "(predefinito)",
+    "stats": {
+      "count": "Conteggio: {{n}}",
+      "sum": "Somma: {{v}}",
+      "avg": "Media: {{v}}",
+      "min": "Min: {{v}}",
+      "max": "Max: {{v}}",
+      "title": "{{cells}} celle selezionate, {{numbers}} con numeri (quelle vuote non contano)"
+    }
   },
   "chart": {
     "kind": {

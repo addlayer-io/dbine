@@ -198,7 +198,15 @@
     "removeNewRow": "Retirer la nouvelle ligne",
     "removeNewRows": "Retirer les {{count}} nouvelles lignes",
     "newRow": "Nouvelle ligne : insérée à l'enregistrement",
-    "defaultValue": "(par défaut)"
+    "defaultValue": "(par défaut)",
+    "stats": {
+      "count": "Nombre : {{n}}",
+      "sum": "Somme : {{v}}",
+      "avg": "Moyenne : {{v}}",
+      "min": "Min : {{v}}",
+      "max": "Max : {{v}}",
+      "title": "{{cells}} cellules sélectionnées, {{numbers}} avec des nombres (les vides ne comptent pas)"
+    }
   },
   "chart": {
     "kind": {

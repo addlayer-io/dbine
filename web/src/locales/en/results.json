@@ -198,7 +198,15 @@
     "removeNewRow": "Remove the new row",
     "removeNewRows": "Remove the {{count}} new rows",
     "newRow": "New row: inserted on save",
-    "defaultValue": "(default)"
+    "defaultValue": "(default)",
+    "stats": {
+      "count": "Count: {{n}}",
+      "sum": "Sum: {{v}}",
+      "avg": "Average: {{v}}",
+      "min": "Min: {{v}}",
+      "max": "Max: {{v}}",
+      "title": "{{cells}} cells selected, {{numbers}} with numbers (empty ones don't count)"
+    }
   },
   "chart": {
     "kind": {

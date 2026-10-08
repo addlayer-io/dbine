@@ -198,7 +198,15 @@
     "removeNewRow": "Remover a linha nova",
     "removeNewRows": "Remover as {{count}} linhas novas",
     "newRow": "Linha nova: é inserida ao salvar",
-    "defaultValue": "(padrão)"
+    "defaultValue": "(padrão)",
+    "stats": {
+      "count": "Contagem: {{n}}",
+      "sum": "Soma: {{v}}",
+      "avg": "Média: {{v}}",
+      "min": "Mín: {{v}}",
+      "max": "Máx: {{v}}",
+      "title": "{{cells}} células selecionadas, {{numbers}} com números (as vazias não contam)"
+    }
   },
   "chart": {
     "kind": {
