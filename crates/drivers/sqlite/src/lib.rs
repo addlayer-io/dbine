@@ -10,6 +10,7 @@ mod permissions;
 pub mod plan;
 pub mod properties;
 pub mod schema;
+pub mod stats;
 pub mod transfer;
 
 use dbine_driver::sql::{leading_keyword, quote_ident, select_top, split_statements, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode};
@@ -398,6 +399,12 @@ impl Session for SqliteSession {
     async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let name = table.name.clone();
         self.with(move |c| index_usage::report_with(&mut |sql| schema::query_rows(c, sql), &name).map_err(err)).await.map(Some)
+    }
+
+    /// From `sqlite_stat1` when `ANALYZE` has run; otherwise none (see [`stats`]).
+    /// SQLite has no comments on objects, so `object_comments` stays empty.
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.with(|c| stats::row_estimates_with(&mut |sql| schema::query_rows(c, sql)).map_err(err)).await
     }
 
     /// Embedded: no server, so no other sessions to list or stop.

@@ -15,7 +15,7 @@ use dbine_driver::{
 };
 use dbine_driver_sqlite::schema::Rows;
 use dbine_driver_sqlite::properties::{self, Flavor};
-use dbine_driver_sqlite::{index_usage, monitor as sqlite_monitor, plan, schema};
+use dbine_driver_sqlite::{index_usage, monitor as sqlite_monitor, plan, schema, stats};
 use hrana::{Client, StmtResult};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -474,6 +474,12 @@ impl Session for LibsqlSession {
     async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let name = table.name.clone();
         self.replay(|q| index_usage::report_with(q, &name)).await?.map_err(Error::Query).map(Some)
+    }
+
+    /// From `sqlite_stat1` when `ANALYZE` has run; otherwise none (see
+    /// `dbine_driver_sqlite::stats`). No comments on objects, as in SQLite.
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.replay(|q| stats::row_estimates_with(q)).await?.map_err(Error::Query)
     }
 
     /// libSQL's server (sqld, Turso) has no view or API of the connections or running statements.
