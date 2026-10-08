@@ -24,6 +24,11 @@ pub struct ExecuteArgs {
     pub max_rows: Option<usize>,
     /// Saved query being run, to record when it last ran.
     pub query_id: Option<String>,
+    /// The project file being run (its project and path), for its timeline.
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub file_path: Option<String>,
     #[serde(default)]
     pub plan: PlanMode,
     /// Keep it in the history (what the user ran from the editor; not a
@@ -161,6 +166,14 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
     if let Some(id) = &args.query_id {
         if let Err(e) = state.store.mark_query_run(id) {
             tracing::warn!(%e, "could not record query run");
+        }
+        // A run is a moment worth keeping in the query's timeline.
+        if args.record {
+            if let Ok(Some(q)) = state.store.get_query(id) {
+                if let Err(e) = state.store.add_query_version(id, &q.sql, &chrono::Utc::now().to_rfc3339(), None) {
+                    tracing::warn!(%e, "could not record the query's version");
+                }
+            }
         }
     }
     let started = std::time::Instant::now();
@@ -334,7 +347,8 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
     }
     out.elapsed_ms = started.elapsed().as_millis() as u64;
     if args.record {
-        crate::commands::history::record(&state, &args.connection_id, &args.database, &args.sql, started_at, &out);
+        let origin = crate::commands::history::Origin { query_id: args.query_id.clone(), project_id: args.project_id.clone(), file_path: args.file_path.clone() };
+        crate::commands::history::record(&state, &args.connection_id, &args.database, &args.sql, started_at, &out, origin);
     }
     Ok(ExecuteResponse { outcome: out, needs_confirmation: Vec::new(), session_closed })
 }

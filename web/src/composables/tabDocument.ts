@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import { api, errorMessage } from '../api/client';
+import { api, errorMessage, runFiles } from '../api/client';
+import { timelineApi } from '../api/timeline';
 import { projectsApi } from '../api/projects';
 import type { DriverInfo, FileStat, Language, SavedQuery } from '../api/types';
 import { t } from '../i18n';
@@ -8,6 +9,7 @@ import { useConnectionsStore } from '../stores/connections';
 import { useProjectsStore } from '../stores/projects';
 import { baseName, useTabsStore, type FileTab, type QueryTab } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
+import { timelineSeq } from './timeline';
 
 // What the query editor (QueryView) edits: a saved query (its text in the
 // local state, saved as you type) or a project's file (on disk, saved with
@@ -43,6 +45,10 @@ export interface TabDocument {
 
 // -- a saved query --------------------------------------------------------------------
 
+/** Open saved-query tabs (by tab id), for the timeline: save before a
+ *  restore. */
+export const queryDocs = new Map<string, { queryId: string; save(): Promise<boolean> }>();
+
 export function useQueryDocument(tab: QueryTab): TabDocument & { query: Ref<SavedQuery | null> } {
   const conns = useConnectionsStore();
   const tabs = useTabsStore();
@@ -74,16 +80,19 @@ export function useQueryDocument(tab: QueryTab): TabDocument & { query: Ref<Save
     saveState.value = 'dirty';
     tabs.pin(tab.id);
     if (timer) clearTimeout(timer);
-    timer = setTimeout(save, 600);
+    timer = setTimeout(() => write(false), 600);
   });
 
-  async function save(): Promise<boolean> {
+  /** `checkpoint`: the text always becomes a version in the timeline (⌘S,
+   *  a run, closing the tab); the autosave keeps one a minute at most. */
+  async function write(checkpoint: boolean): Promise<boolean> {
     if (timer) { clearTimeout(timer); timer = null; }
     if (!query.value) return true;
     saveState.value = 'saving';
     try {
-      query.value = await conns.saveQuery({ ...query.value, sql: text.value });
+      query.value = await conns.saveQuery({ ...query.value, sql: text.value }, checkpoint);
       saveState.value = 'saved';
+      timelineSeq.value++;
       return true;
     } catch (e) {
       saveState.value = 'error';
@@ -91,7 +100,15 @@ export function useQueryDocument(tab: QueryTab): TabDocument & { query: Ref<Save
       return false;
     }
   }
-  onBeforeUnmount(() => { if (saveState.value === 'dirty') save(); });
+  const save = () => write(true);
+  const handle = { queryId: tab.queryId, save };
+  queryDocs.set(tab.id, handle);
+  onBeforeUnmount(() => {
+    if (queryDocs.get(tab.id) === handle) queryDocs.delete(tab.id);
+    if (saveState.value === 'dirty') void save();
+    // Closing the tab keeps its text in the timeline.
+    else if (query.value) void timelineApi.checkpoint(tab.queryId).then((v) => { if (v) timelineSeq.value++; }).catch(() => {});
+  });
 
   async function rename(name: string) {
     if (!query.value || !name.trim() || name === query.value.name) return;
@@ -245,7 +262,12 @@ export function useFileDocument(tab: FileTab): TabDocument {
     },
   };
   fileDocs.set(tab.id, handle);
-  onBeforeUnmount(() => { if (fileDocs.get(tab.id) === handle) fileDocs.delete(tab.id); });
+  // The editor's runs from this tab go to the file's timeline.
+  watch(() => `${tab.projectId}\u0000${tab.path}`, () => runFiles.set(tab.id, { projectId: tab.projectId, path: tab.path }), { immediate: true });
+  onBeforeUnmount(() => {
+    if (fileDocs.get(tab.id) === handle) fileDocs.delete(tab.id);
+    runFiles.delete(tab.id);
+  });
 
   return {
     text, saveState, loadError, conflict, missing, queryId: undefined, autosave: false,

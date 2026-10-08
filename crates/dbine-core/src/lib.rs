@@ -11,4 +11,4 @@ pub mod tasks;
 
 pub use dbine_driver::{Error, Result};
 pub use cache::ExplorerCache;
-pub use state::{BackupCopy, ConnectionFolder, ExplorerItem, HistoryEntry, LibraryScript, Project, ProjectBinding, ProjectTarget, SavedConnection, SavedMigration, SavedQuery, StateChange, StateSnapshot, StateStore};
+pub use state::{BackupCopy, ConnectionFolder, ExplorerItem, HistoryEntry, LibraryScript, Project, ProjectBinding, ProjectTarget, QueryVersion, SavedConnection, SavedMigration, SavedQuery, StateChange, StateSnapshot, StateStore};

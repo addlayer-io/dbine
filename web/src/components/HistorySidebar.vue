@@ -10,15 +10,23 @@ import { tb } from '../i18n/backend';
 import { confirmNative } from '../native';
 import { useConnectionsStore } from '../stores/connections';
 import { useUiStore } from '../stores/ui';
+import { readJson, writeJson } from '../stores/storage';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
+import HistoryTimeline from './HistoryTimeline.vue';
 
-// The query history (the 🕘 in the activity bar; docs/historial.md): what was
-// run from the editor, grouped by the server it ran on, newest first.
+// The query history (the 🕘 in the activity bar; docs/historial.md). "Esta
+// pestaña": the active tab's timeline (HistoryTimeline). "Todas las
+// ejecuciones": what was run from the editor, grouped by the server it ran
+// on, newest first.
 
 const { t } = useTranslation();
 const conns = useConnectionsStore();
 const ui = useUiStore();
+
+const MODE_KEY = 'dbine.history.mode';
+const mode = ref<'tab' | 'all'>(readJson<'tab' | 'all'>(MODE_KEY, 'tab') === 'all' ? 'all' : 'tab');
+watch(mode, (m) => writeJson(MODE_KEY, m));
 
 const PAGE = 200;
 const items = ref<HistoryEntry[]>([]);
@@ -42,8 +50,9 @@ async function load(append = false) {
     loading.value = false;
   }
 }
-onMounted(() => load());
-watch(() => ui.historySeq, () => load());
+onMounted(() => { if (mode.value === 'all') void load(); });
+watch(() => ui.historySeq, () => { if (mode.value === 'all') void load(); });
+watch(mode, (m) => { if (m === 'all') void load(); });
 let timer: ReturnType<typeof setTimeout> | undefined;
 watch(search, () => { clearTimeout(timer); timer = setTimeout(() => load(), 250); });
 
@@ -146,9 +155,17 @@ function onKey(ev: KeyboardEvent) {
     <div class="hs-header">
       <span class="hs-title">{{ $t('history:title') }}</span>
       <div style="flex: 1" />
-      <button class="hs-icon" :title="$t('common:refresh')" @click="load()"><el-icon><ei-refresh /></el-icon></button>
-      <button class="hs-icon" :title="$t('history:clear')" :disabled="!items.length" @click="clearAll"><el-icon><ei-delete /></el-icon></button>
+      <template v-if="mode === 'all'">
+        <button class="hs-icon" :title="$t('common:refresh')" @click="load()"><el-icon><ei-refresh /></el-icon></button>
+        <button class="hs-icon" :title="$t('history:clear')" :disabled="!items.length" @click="clearAll"><el-icon><ei-delete /></el-icon></button>
+      </template>
     </div>
+    <div class="hs-modes" role="tablist">
+      <button role="tab" class="hs-mode" :class="{ on: mode === 'tab' }" :aria-selected="mode === 'tab'" data-mode="tab" @click="mode = 'tab'">{{ $t('history:modeTab') }}</button>
+      <button role="tab" class="hs-mode" :class="{ on: mode === 'all' }" :aria-selected="mode === 'all'" data-mode="all" @click="mode = 'all'">{{ $t('history:modeAll') }}</button>
+    </div>
+    <HistoryTimeline v-if="mode === 'tab'" />
+    <template v-else>
     <div class="hs-filter">
       <el-input v-model="search" size="small" clearable :placeholder="$t('history:search')">
         <template #prefix><el-icon><ei-search /></el-icon></template>
@@ -191,6 +208,7 @@ function onKey(ev: KeyboardEvent) {
       </div>
       <button v-if="more" class="hs-more" :disabled="loading" @click="load(true)">{{ $t('history:more') }}</button>
     </div>
+    </template>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
   </div>
 </template>
@@ -202,6 +220,9 @@ function onKey(ev: KeyboardEvent) {
 .hs-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; border-radius: 4px; background: none; color: var(--nm-text-dim); cursor: pointer; }
 .hs-icon:hover:not(:disabled) { background: var(--ide-hover); color: var(--nm-text-strong); }
 .hs-icon:disabled { opacity: .4; cursor: default; }
+.hs-modes { display: flex; gap: 2px; margin: 0 10px 8px; padding: 2px; border-radius: 5px; background: var(--ide-hover); flex: none; }
+.hs-mode { flex: 1; border: 0; border-radius: 4px; background: none; color: var(--nm-text-dim); font: inherit; font-size: 11.5px; padding: 3px 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hs-mode.on { background: var(--ide-sidebar); color: var(--nm-text-strong); box-shadow: 0 0 0 1px var(--nm-border-soft); }
 .hs-filter { padding: 0 10px 8px; flex: none; }
 .hs-list { flex: 1; min-height: 0; overflow: auto; outline: none; padding-bottom: 12px; }
 .hs-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 16px; color: var(--nm-text-dim); font-size: 12px; text-align: center; }

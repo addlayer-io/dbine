@@ -24,6 +24,12 @@ export function errorKind(e: unknown): string | null {
   return e && typeof e === 'object' && 'kind' in e ? String((e as CommandErrorShape).kind) : null;
 }
 
+/** A project file run from a tab: its runs go to the file's timeline. */
+export interface RunFile { projectId: string; path: string }
+/** The project file each file tab (by its id, the run's session) has open;
+ *  file tabs fill it (tabDocument), so the editor's runs carry it. */
+export const runFiles = new Map<string, RunFile>();
+
 export const api = {
   listDrivers: () => invoke<DriverInfo[]>('list_drivers'),
   listConnections: () => invoke<SavedConnection[]>('list_connections'),
@@ -93,15 +99,21 @@ export const api = {
     confirmedUnsafe?: boolean;
     /** The tab's transactions: false = manual. Omitted: unchanged. */
     autocommit?: boolean | null;
-  }) =>
-    invoke<ExecuteResponse>('execute_query', {
+    /** The project file being run (its timeline); omitted: the one open in
+     *  the session's tab, if any (`runFiles`). */
+    file?: RunFile | null;
+  }) => {
+    const file = a.file ?? (a.record ? runFiles.get(a.sessionId) : undefined) ?? null;
+    return invoke<ExecuteResponse>('execute_query', {
       args: {
         session_id: a.sessionId, connection_id: a.connectionId, database: a.database,
         sql: a.sql, max_rows: a.maxRows ?? null, query_id: a.queryId ?? null, plan: a.plan ?? 'none',
         record: a.record ?? false, mode: a.mode ?? 'whole', continue_on_error: a.continueOnError ?? null,
         confirmed_unsafe: a.confirmedUnsafe ?? false, autocommit: a.autocommit ?? null,
+        project_id: file?.projectId ?? null, file_path: file?.path ?? null,
       },
-    }),
+    });
+  },
   /** The script cut as the engine's tool would. `statements`: statement by
    *  statement even inside T-SQL batches (run the statement at the cursor). */
   splitScript: (a: { connectionId?: string; driver?: string; sql: string; statements?: boolean }) =>
@@ -119,7 +131,9 @@ export const api = {
   listQueries: (connectionId: string, database: string) =>
     invoke<SavedQuery[]>('list_queries', { args: { connection_id: connectionId, database } }),
   getQuery: (id: string) => invoke<SavedQuery>('get_query', { args: { id } }),
-  saveQuery: (query: SavedQuery) => invoke<SavedQuery>('save_query', { args: { query } }),
+  /** `checkpoint`: always keep the text as a version (an explicit save);
+   *  otherwise at most one a minute while typing. */
+  saveQuery: (query: SavedQuery, checkpoint = false) => invoke<SavedQuery>('save_query', { args: { query, checkpoint } }),
   deleteQuery: (id: string) => invoke<void>('delete_query', { args: { id } }),
 
   getLogDir: () => invoke<string | null>('get_log_dir'),
