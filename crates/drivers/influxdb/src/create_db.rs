@@ -51,12 +51,12 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
     o.get(key).map(|v| v.trim()).filter(|v| !v.is_empty())
 }
 
-fn bad(what: &str, v: &str) -> Error {
+pub(crate) fn bad(what: &str, v: &str) -> Error {
     Error::Query(format!("{what}: «{v}» no es una duración válida (por ejemplo 30d, 12h o 1h30m)"))
 }
 
 /// `30d`, `1h30m`… as (amount, unit) pairs, units among `units`.
-fn segments<'a>(v: &str, units: &[&'a str]) -> Option<Vec<(u64, &'a str)>> {
+pub(crate) fn segments<'a>(v: &str, units: &[&'a str]) -> Option<Vec<(u64, &'a str)>> {
     let s = v.to_ascii_lowercase();
     let mut rest = s.as_str();
     let mut out = Vec::new();
@@ -76,7 +76,7 @@ fn segments<'a>(v: &str, units: &[&'a str]) -> Option<Vec<(u64, &'a str)>> {
 }
 
 /// An InfluxQL duration literal (`INF` only when `inf`).
-fn influxql_duration(v: &str, inf: bool, what: &str) -> Result<String> {
+pub(crate) fn influxql_duration(v: &str, inf: bool, what: &str) -> Result<String> {
     if inf && v.eq_ignore_ascii_case("inf") {
         return Ok("INF".into());
     }
@@ -85,7 +85,7 @@ fn influxql_duration(v: &str, inf: bool, what: &str) -> Result<String> {
 }
 
 /// A duration in seconds (`0` is 0).
-fn seconds(v: &str, what: &str) -> Result<u64> {
+pub(crate) fn seconds(v: &str, what: &str) -> Result<u64> {
     if v == "0" {
         return Ok(0);
     }

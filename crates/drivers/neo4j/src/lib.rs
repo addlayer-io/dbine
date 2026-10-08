@@ -56,6 +56,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod security;
 mod steps;
 mod sync;
@@ -270,8 +271,16 @@ impl Driver for GraphDriver {
             // stops one (see processes.rs).
             processes: true,
             cancel_query: true,
+            // Neo4j (changes on Enterprise) and Memgraph (facts); Neptune
+            // keeps its settings in the cluster (see properties.rs).
+            database_properties: dbs,
             ..Default::default()
         }
+    }
+
+    /// `ALTER DATABASE …` on `system` (see [`properties`]).
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(self.flavor, database, changes)
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -1367,6 +1376,14 @@ impl Session for GraphSession {
     /// `CREATE DATABASE … TOPOLOGY … OPTIONS {…}` (see [`create_db`]).
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

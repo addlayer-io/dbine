@@ -63,7 +63,7 @@ fn bad(what: &str, v: &str) -> Error {
 }
 
 /// `10d`, `12h`, `1440m` or a bare number of minutes, as written.
-fn span(v: &str, what: &str) -> Result<String> {
+pub(crate) fn span(v: &str, what: &str) -> Result<String> {
     let s = v.trim().to_ascii_lowercase();
     let digits = s.chars().take_while(char::is_ascii_digit).count();
     let ok = (1..=9).contains(&digits) && matches!(&s[digits..], "" | "m" | "h" | "d");

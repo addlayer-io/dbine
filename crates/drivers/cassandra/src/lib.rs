@@ -16,6 +16,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod security;
 mod steps;
 mod sync;
@@ -177,6 +178,11 @@ impl Driver for CassandraDriver {
         create_db::script(self.flavor, name, options)
     }
 
+    /// "Propiedades" of a keyspace (see [`properties`]).
+    fn alter_database_script(&self, database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
+        properties::script(self.flavor, database, changes)
+    }
+
     /// Keyspaces are created and dropped; CQL has no foreign keys.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
@@ -186,6 +192,7 @@ impl Driver for CassandraDriver {
             monitor: true,
             // No CQL ends another client's query or connection.
             processes: processes::unsupported_reason(self.flavor).is_none(),
+            database_properties: true,
             ..Default::default()
         }
     }
@@ -1167,6 +1174,14 @@ impl DbSession for CassandraSession {
 
     async fn create_database_with(&mut self, name: &str, options: &BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

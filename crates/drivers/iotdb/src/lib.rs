@@ -32,6 +32,7 @@ mod monitor;
 mod permissions;
 mod processes;
 mod profiler;
+mod properties;
 mod script;
 mod security;
 mod sync;
@@ -119,8 +120,14 @@ impl Driver for IotDbDriver {
             monitor: true,
             processes: true,
             cancel_query: true,
+            database_properties: true,
             ..Default::default()
         }
+    }
+
+    /// "Propiedades": the TTL and the region groups (see [`properties`]).
+    fn alter_database_script(&self, database: &str, changes: &BTreeMap<String, String>) -> Result<String> {
+        properties::script(database, changes)
     }
 
     /// Time series of a device: data type, encoding and compression per
@@ -1020,6 +1027,15 @@ impl Session for IotDbSession {
             }
         }
         Ok(())
+    }
+
+    /// "Propiedades" (see [`properties`]).
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     /// The user's own privileges (see `permissions`).

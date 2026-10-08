@@ -11,6 +11,7 @@ mod monitor;
 mod permissions;
 mod processes;
 mod profiler;
+mod properties;
 mod security;
 mod shape;
 mod steps;
@@ -114,6 +115,7 @@ impl Driver for RedisDriver {
             kill_session: true,
             processes: true,
             cancel_query: self.info.id != "dragonfly",
+            database_properties: true,
             ..Default::default()
         }
     }
@@ -660,6 +662,11 @@ impl Session for RedisSession {
     /// diagram and the script generator don't apply to Redis.
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         Ok(Vec::new())
+    }
+
+    /// Facts only: nothing is set per database (see [`properties`]).
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

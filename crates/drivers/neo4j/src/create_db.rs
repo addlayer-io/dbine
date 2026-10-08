@@ -48,7 +48,7 @@ fn bad(what: &str, v: &str) -> Error {
     Error::Query(format!("{what}: «{v}» no es un valor válido"))
 }
 
-fn count(v: &str, what: &str, min: u32) -> Result<u32> {
+pub(crate) fn count(v: &str, what: &str, min: u32) -> Result<u32> {
     v.parse::<u32>().ok().filter(|n| (min..=100).contains(n)).ok_or_else(|| bad(what, v))
 }
 

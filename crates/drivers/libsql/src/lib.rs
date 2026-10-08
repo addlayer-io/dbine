@@ -14,6 +14,7 @@ use dbine_driver::{
     QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
 };
 use dbine_driver_sqlite::schema::Rows;
+use dbine_driver_sqlite::properties::{self, Flavor};
 use dbine_driver_sqlite::{index_usage, monitor as sqlite_monitor, plan, schema};
 use hrana::{Client, StmtResult};
 use serde_json::Value;
@@ -99,7 +100,13 @@ impl Driver for LibsqlDriver {
     /// Databases are created and dropped through Turso's platform API (or
     /// sqld's admin API), not with SQL.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: false, drop_database: false, foreign_keys: true, monitor: true, ..Default::default() }
+        Capabilities { create_database: false, drop_database: false, foreign_keys: true, monitor: true, database_properties: true, ..Default::default() }
+    }
+
+    /// Only `user_version`: sqld refuses the other PRAGMAs that write and
+    /// `VACUUM` (see `dbine_driver_sqlite::properties`).
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(Flavor::Libsql, database, changes)
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -476,6 +483,25 @@ impl Session for LibsqlSession {
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
         Err(Error::Unsupported(NO_PROCESSES.into()))
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        let mut p = self.replay(|q| properties::read(q, database, Flavor::Libsql)).await?;
+        p.info.insert(0, dbine_driver::PropertyInfo { group: String::new(), label: "URL".into(), value: self.client.base().to_string() });
+        Ok(p)
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        if self.read_only {
+            return Err(Error::Query("La conexión es de solo lectura: no se permite cambiar las propiedades de la base.".into()));
+        }
+        let statements = properties::alter(Flavor::Libsql, database, changes)?;
+        for (i, sql) in statements.iter().enumerate() {
+            if let Err(e) = self.client.execute(sql).await {
+                return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {sql}\n{e}", statements.len())) });
+            }
+        }
+        Ok(())
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
