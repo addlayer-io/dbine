@@ -144,6 +144,17 @@ pub(crate) fn script(name: &str, o: &BTreeMap<String, String>) -> Result<String>
     Ok(format!("CREATE DATABASE {}{tail}", q(name)))
 }
 
+/// The dialog's tab of each field: storage and replication, memory and
+/// cache, WAL and compression.
+pub(crate) fn grouped(f: Field) -> Field {
+    let g = match f.key {
+        "buffer" | "pages" | "pagesize" | "cachemodel" | "cachesize" => "Memoria y caché",
+        "wal_level" | "wal_fsync_period" | "comp" | "minrows" | "maxrows" | "stt_trigger" => "WAL y compresión",
+        _ => "Almacenamiento",
+    };
+    f.group(g)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

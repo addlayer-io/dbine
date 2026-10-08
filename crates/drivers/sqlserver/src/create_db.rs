@@ -34,24 +34,28 @@ pub(crate) fn fields(v: Variant) -> Vec<Field> {
         .help("Vacía: la del servidor. Define cómo se ordenan y comparan los textos.");
     match v {
         Variant::SqlServer => vec![
-            collation,
-            Field::new("owner", "Dueño", FieldKind::Text).help("Vacío: el login con el que estás conectado."),
+            collation.group("General"),
+            Field::new("owner", "Dueño", FieldKind::Text).help("Vacío: el login con el que estás conectado.").group("General"),
+            // In pairs, data then log: the tab reads as a two-column table.
+            Field::new("data_path", "Carpeta de datos (.mdf)", FieldKind::Text)
+                .help("Vacía: la carpeta de datos por defecto del servidor.")
+                .group("Archivos"),
+            Field::new("log_path", "Carpeta del log (.ldf)", FieldKind::Text)
+                .help("Vacía: la carpeta de logs por defecto del servidor. Para elegirla, indicá también la de datos.")
+                .group("Archivos"),
+            Field::new("data_size", "Datos: tamaño inicial (MB)", FieldKind::Number).group("Archivos"),
+            Field::new("log_size", "Log: tamaño inicial (MB)", FieldKind::Number).group("Archivos"),
+            Field::new("data_growth", "Datos: crecimiento", FieldKind::Text).placeholder("64MB o 10%").group("Archivos"),
+            Field::new("log_growth", "Log: crecimiento", FieldKind::Text).placeholder("64MB o 10%").group("Archivos"),
+            Field::new("data_max", "Datos: tamaño máximo", FieldKind::Text).placeholder("UNLIMITED o 10GB").group("Archivos"),
+            Field::new("log_max", "Log: tamaño máximo", FieldKind::Text).placeholder("UNLIMITED o 2TB").group("Archivos"),
             Field::new(
                 "recovery",
                 "Modelo de recuperación",
                 FieldKind::Select(vec![("FULL", "Completo (FULL)"), ("SIMPLE", "Simple"), ("BULK_LOGGED", "Registro masivo (BULK_LOGGED)")]),
-            ),
-            Field::new("compatibility", "Nivel de compatibilidad", FieldKind::Select(COMPAT.to_vec())),
-            Field::new("data_path", "Carpeta del archivo de datos (.mdf)", FieldKind::Text)
-                .help("Vacía: la carpeta de datos por defecto del servidor."),
-            Field::new("data_size", "Tamaño inicial de datos (MB)", FieldKind::Number),
-            Field::new("data_growth", "Crecimiento de datos", FieldKind::Text).placeholder("64MB o 10%"),
-            Field::new("data_max", "Tamaño máximo de datos", FieldKind::Text).placeholder("UNLIMITED o 10GB"),
-            Field::new("log_path", "Carpeta del archivo de log (.ldf)", FieldKind::Text)
-                .help("Vacía: la carpeta de logs por defecto del servidor."),
-            Field::new("log_size", "Tamaño inicial del log (MB)", FieldKind::Number),
-            Field::new("log_growth", "Crecimiento del log", FieldKind::Text).placeholder("64MB o 10%"),
-            Field::new("log_max", "Tamaño máximo del log", FieldKind::Text).placeholder("UNLIMITED o 2TB"),
+            )
+            .group("Opciones"),
+            Field::new("compatibility", "Nivel de compatibilidad", FieldKind::Select(COMPAT.to_vec())).group("Opciones"),
         ],
         Variant::AzureSql => vec![
             collation,

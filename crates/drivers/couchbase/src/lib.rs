@@ -142,7 +142,7 @@ impl Driver for CouchbaseDriver {
 
     /// "Nueva base de datos"'s options (see [`create_db`]).
     fn create_database_fields(&self) -> Vec<dbine_driver::Field> {
-        create_db::fields()
+        create_db::fields().into_iter().map(create_db::grouped).collect()
     }
 
     fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
