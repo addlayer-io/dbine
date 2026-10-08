@@ -3153,13 +3153,13 @@ ofrece **Renombrar…** en ese motor.
 | ODBC: Exasol | sí (sin prueba en vivo) | tabla, vista, columna, esquema (`RENAME TABLE\|VIEW\|SCHEMA`, `ALTER TABLE … RENAME COLUMN`) | — | `CREATE OR REPLACE` | — |
 | ODBC: resto de los presets | no | — | — | — | sintaxis sin confirmar |
 | Apache Phoenix | pendiente | | | | |
-| ksqlDB | pendiente | | | | |
+| ksqlDB | no | — | — | — | no renombra streams, tablas ni columnas (`ALTER STREAM/TABLE` solo agrega columnas) |
 | Redis, Valkey, Dragonfly | sí | claves (`RENAMENX` dentro de un `EVAL`: si la clave nueva ya existe, falla sin pisarla) | — | — (el servidor no guarda nada que nombre una clave) | conserva valor y TTL; en Redis Cluster las dos claves tienen que caer en el mismo hash slot (se avisa si no; usar la misma etiqueta `{…}`) |
 | etcd | no | — | — | — | el lenguaje de scripts (etcdctl) no tiene `txn`: no hay forma atómica de poner la clave nueva y borrar la vieja sin pisar una existente |
 | Amazon DynamoDB | no | — | — | — | el servicio no renombra tablas |
-| InfluxDB | pendiente | | | | |
-| Apache IoTDB, TimechoDB | pendiente | | | | |
-| TDengine | pendiente | | | | |
+| InfluxDB (v1, v2, v3) | no | — | — | — | InfluxQL no renombra bases, políticas de retención ni measurements; en v2 la API renombra un bucket, pero el script de la sesión es Flux y no puede expresarlo; InfluxDB 3 Core no renombra bases ni tablas |
+| Apache IoTDB, TimechoDB | no | — | — | — | el modelo de árbol no renombra series, dispositivos ni bases (`ALTER TIMESERIES … RENAME` solo cambia claves de tags); el modelo de tabla de 2.x rechaza renombrar tablas y columnas |
+| TDengine | sí | columnas de tablas comunes (`ALTER TABLE … RENAME COLUMN a b`, la de marca de tiempo incluida) y tags de supertablas (`ALTER STABLE … RENAME TAG a b`) | el índice del tag | no se reescriben: los streams que usan el nombre se listan y hay que borrarlos y volver a crearlos a mano | no renombra tablas, supertablas, columnas de supertablas, subtablas, vistas, streams, tópicos ni bases; el servidor rechaza un tag que usa un stream o un tópico y una columna que usa un tópico; un stream sobre una columna de tabla común queda nombrando la vieja |
 | OrientDB | sí | clases de vértices, aristas y documentos (`ALTER CLASS … NAME`, `UNSAFE` en aristas) y propiedades (`ALTER PROPERTY … NAME` + `UPDATE … SET nuevo = viejo REMOVE viejo`) | — | se listan, no se reescriben (funciones) | sus índices se borran y se recrean (conservan el nombre); en aristas se mueven los campos `out_`/`in_` de los vértices; no es atómico; no renombra índices, funciones ni secuencias, ni V/E, `out`/`in`, ni atributos `@`; una clase de documentos con índices la rechaza el motor si no llega su estructura |
 | Neo4j, Memgraph, Amazon Neptune | no se ofrece | — | — | — | Una etiqueta o un tipo de relación no se renombra: cambiarlo es `SET n:Nueva REMOVE n:Vieja` sobre cada nodo (o recrear cada relación), que reescribe los datos, puede tardar horas en un grafo grande, no es atómico fuera de una transacción del tamaño del grafo y obliga a recrear los índices y las restricciones de la etiqueta. Las consultas guardadas fuera de la base tampoco se ven. |
 
