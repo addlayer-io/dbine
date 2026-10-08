@@ -135,12 +135,18 @@ def user_facing(s: str) -> bool:
 UNITS = ["páginas", "bloques", "filas", "bytes", "documentos", "claves"]
 
 
+# Files whose strings only go to an AI model (prompts and what they carry):
+# never shown, never translated.
+PROMPT_FILES = {"src-tauri/src/optimizer/ai.rs"}
+
+
 def main():
     msgs: dict[str, set[str]] = {}
     for u in UNITS:
         msgs.setdefault(u, set()).add("crates/dbine-driver/src/profiler.rs")
     files = [p for p in (ROOT / "crates").rglob("*.rs") if "/tests/" not in str(p) and p.name != "build.rs"]
     files += list((ROOT / "src-tauri/src").rglob("*.rs"))
+    files = [f for f in files if str(f.relative_to(ROOT)) not in PROMPT_FILES]
     for f in sorted(files):
         src = strip_tests(f.read_text(encoding="utf-8"))
         for lit in literals(src):

@@ -44,9 +44,6 @@
  "  (no indexes)": [
   "src-tauri/src/mcp/tools.rs"
  ],
- "  índice {0}{1} ({2}){3}\n": [
-  "src-tauri/src/optimizer/ai.rs"
- ],
  " (autoescalado, máximo)": [
   "crates/drivers/cosmosdb/src/monitor.rs"
  ],
@@ -8116,9 +8113,6 @@
  ],
  "Estadísticas desactualizadas (%)": [
   "crates/drivers/postgres/src/monitor.rs"
- ],
- "Estas alternativas fallan al compilarlas en la base (sin ejecutarlas). Corregilas para que sean válidas y sigan siendo EQUIVALENTES a la original; una que no puedas corregir, omitila. Respondé SOLO con el mismo formato, solo con las corregidas, o NINGUNA.\n": [
-  "src-tauri/src/optimizer/ai.rs"
  ],
  "Estas tablas tienen autovacuum_enabled = off: nadie limpia sus filas muertas ni actualiza sus estadísticas, salvo un VACUUM manual.": [
   "crates/drivers/postgres/src/health.rs"
@@ -18682,9 +18676,6 @@
  "Sos un asistente de SQL Server. Esquema:\nclientes(id int PK, nombre nvarchar(120), ciudad nvarchar(80))\npedidos(id int PK, cliente_id int FK->clientes.id, fecha date, total decimal(14,2))\nRespondé con un bloque ```sql y una línea de explicación.": [
   "crates/dbine-ai/examples/ask.rs"
  ],
- "Sos un experto en rendimiento de {0}. Te paso una consulta ({1}), la estructura de las tablas que usa y un resumen de su plan de ejecución.\nProponé como máximo {2} reescrituras EQUIVALENTES que puedan ser más rápidas en {3}:\n- Equivalente quiere decir que devuelve exactamente las mismas filas y columnas, en el mismo orden de columnas, y en el mismo orden de filas si la original tiene ORDER BY. Cuidá los NULL, los duplicados y los tipos.\n- No agregues ni quites filtros, no cambies límites de filas, no uses tablas o columnas que no estén en la estructura.\n- No propongas crear índices ni cambiar la estructura: solo reescrituras de la consulta.\n- Si no ves ninguna mejora real, respondé solo NINGUNA.\nRespondé SOLO con este formato, sin texto antes ni después:\n<alternativa>\n<titulo>qué cambia, en pocas palabras</titulo>\n<explicacion>por qué puede ser más rápida, en una o dos oraciones</explicacion>\n<consulta>\nla consulta completa\n</consulta>\n</alternativa>\nEscribí el título y la explicación en {4}.": [
-  "src-tauri/src/optimizer/ai.rs"
- ],
  "Sosa": [
   "src-tauri/src/commands/datagen.rs"
  ],
@@ -23978,9 +23969,6 @@
  "espacio de nombres": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
- "español": [
-  "src-tauri/src/optimizer/ai.rs"
- ],
  "esperando un bloqueo": [
   "crates/drivers/mongodb/src/processes.rs"
  ],
@@ -24741,9 +24729,6 @@
  "fracción del rendimiento": [
   "crates/drivers/cosmosdb/src/monitor.rs"
  ],
- "francés": [
-  "src-tauri/src/optimizer/ai.rs"
- ],
  "frecuencia de checkpoint": [
   "crates/drivers/postgres/src/create_db.rs"
  ],
@@ -24953,9 +24938,6 @@
  ],
  "indicá las regiones actuales del keyspace y la nueva (al menos dos)": [
   "crates/drivers/cassandra/src/properties.rs"
- ],
- "inglés": [
-  "src-tauri/src/optimizer/ai.rs"
  ],
  "inprog (o enableProfiler sobre todas las bases: el profiling de «{0}» está apagado y su sampleRate está en {1})": [
   "crates/drivers/mongodb/src/permissions.rs"
@@ -27887,9 +27869,6 @@
  ],
  "por lista automática (AUTOMATIC)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
- ],
- "portugués": [
-  "src-tauri/src/optimizer/ai.rs"
  ],
  "posesión": [
   "crates/drivers/cassandra/src/monitor.rs"
