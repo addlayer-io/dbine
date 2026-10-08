@@ -6,6 +6,7 @@
 //! Firebird connection is one database file, so there's a single namespace.
 
 mod create_db;
+mod health;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -924,6 +925,11 @@ impl Session for FirebirdSession {
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         self.run(schema::database_schema).await
+    }
+
+    /// "Chequeo de salud" of the database (see `health`).
+    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        self.health_checks_impl(database).await
     }
 
     /// "Buscar en la base" from the catalog (see `search`).

@@ -13,6 +13,7 @@ mod backup;
 mod blocks;
 mod create_db;
 mod ddl;
+mod health;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -886,6 +887,11 @@ impl Session for DatabricksSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    /// "Chequeo de salud": cost and maintenance from control-plane calls (see `health`).
+    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        self.health_checks_impl(database).await
     }
 
     async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
