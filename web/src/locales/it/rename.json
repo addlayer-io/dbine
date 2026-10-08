@@ -37,6 +37,7 @@
   "review": "da controllare a mano",
   "reviewHint": "Una parte del testo non è stato possibile stabilirla: se lo selezioni, quelle righe restano come sono.",
   "schemabound": "con SCHEMABINDING: viene eliminato prima e creato dopo",
+  "carried": "Usato da {{names}}: eliminati prima e ricreati senza modifiche dopo.",
   "line": "riga {{line}}",
   "openDefinition": "Apri definizione",
   "manualReason": {

@@ -37,6 +37,7 @@
   "review": "à vérifier manuellement",
   "reviewHint": "Une partie du texte n’a pas pu être déterminée : si vous le cochez, ces lignes restent telles quelles.",
   "schemabound": "avec SCHEMABINDING : supprimé avant et recréé après",
+  "carried": "Utilisé par {{names}} : supprimés avant et recréés sans changement après.",
   "line": "ligne {{line}}",
   "openDefinition": "Ouvrir la définition",
   "manualReason": {

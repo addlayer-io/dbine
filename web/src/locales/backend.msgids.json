@@ -197,6 +197,9 @@
  "# Ya definidos por el configset: {0}.\n": [
   "crates/drivers/solr/src/ddl.rs"
  ],
+ "$rename no entra en arrays: donde la ruta del campo pasa por un array, el documento queda como estaba.": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
  "% del máximo": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
@@ -1146,6 +1149,9 @@
  "Amazon Keyspaces no muestra las consultas de otros clientes por CQL (quedan en CloudTrail)": [
   "crates/drivers/cassandra/src/profiler.rs"
  ],
+ "Amazon Keyspaces no renombra columnas, tablas ni keyspaces.": [
+  "crates/drivers/cassandra/src/rename.rs"
+ ],
  "Amazon Keyspaces no tiene índices secundarios: los cambios de índices de {0} no se aplican.": [
   "crates/drivers/cassandra/src/sync.rs"
  ],
@@ -1379,6 +1385,9 @@
   "crates/dbine-core/src/conn_import/mod.rs",
   "crates/dbine-schema/src/dialect/spark.rs"
  ],
+ "Athena (el catálogo de Glue) solo acepta nombres en minúsculas, con letras, números y guiones bajos: probá con «{0}»": [
+  "crates/drivers/athena/src/rename.rs"
+ ],
  "Athena es un servicio sin servidor: no expone CPU, memoria ni conexiones; el consumo se mide en datos escaneados (o DPU con capacidad reservada).": [
   "crates/drivers/athena/src/monitor.rs"
  ],
@@ -1387,6 +1396,21 @@
  ],
  "Athena no dio estadísticas de ejecución para: {0}": [
   "crates/drivers/athena/src/lib.rs"
+ ],
+ "Athena no renombra bases de datos": [
+  "crates/drivers/athena/src/rename.rs"
+ ],
+ "Athena no tiene restricciones": [
+  "crates/drivers/athena/src/rename.rs"
+ ],
+ "Athena no tiene índices": [
+  "crates/drivers/athena/src/rename.rs"
+ ],
+ "Athena renombra tablas y columnas solo si son Iceberg: con una tabla externa (Hive) el servidor rechaza el cambio de nombre de la tabla, y DBine no renombra sus columnas porque en Parquet u ORC dejarían de leer sus datos. Las vistas se renombran creándolas con el nombre nuevo y borrando la anterior. Las vistas que usan el objeto no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE VIEW. Las sentencias no son transaccionales.": [
+  "crates/drivers/athena/src/rename.rs"
+ ],
+ "Athena solo renombra columnas de tablas Iceberg: «{0}» es una tabla externa ({1}) y en ella el cambio es solo de metadatos, así que en Parquet u ORC la columna dejaría de leer sus datos": [
+  "crates/drivers/athena/src/rename.rs"
  ],
  "Atomic": [
   "crates/drivers/clickhouse/src/create_db.rs"
@@ -1408,6 +1432,9 @@
  ],
  "August": [
   "src-tauri/src/tasks/os.rs"
+ ],
+ "Aurora DSQL confirma cada sentencia DDL en su propia transacción: si una falla, las anteriores quedan aplicadas. Las vistas que usan el objeto se actualizan solas.": [
+  "crates/drivers/dsql/src/rename.rs"
  ],
  "Aurora DSQL es serverless: el uso de cómputo (DPU), el almacenamiento del clúster y la latencia están en CloudWatch, no por SQL.": [
   "crates/drivers/dsql/src/monitor.rs"
@@ -1671,6 +1698,12 @@
  ],
  "Babelfish no permite otorgar sobre un esquema con opción de otorgar: hacelo sin ella o sobre cada objeto": [
   "crates/drivers/sqlserver/src/security.rs"
+ ],
+ "Babelfish no repone procedimientos ni funciones con CREATE OR ALTER: «{0}» se borra y se crea con el nombre nuevo, y pierde los permisos otorgados sobre él.": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "Babelfish renombra con sp_rename. Las vistas que lo nombran se reponen con CREATE OR ALTER y conservan sus permisos, pero los procedimientos y las funciones no: se borran antes y se vuelven a crear después, y pierden los permisos otorgados. No renombra triggers, índices ni restricciones.": [
+  "crates/drivers/sqlserver/src/rename.rs"
  ],
  "Backends": [
   "crates/drivers/mysql/src/monitor.rs"
@@ -1940,6 +1973,9 @@
  "BigQuery es un servicio administrado: no expone CPU, memoria ni conexiones; el consumo se mide en slots y bytes procesados.": [
   "crates/drivers/bigquery/src/monitor.rs"
  ],
+ "BigQuery no actualiza las vistas ni las rutinas que nombran lo renombrado: DBine las vuelve a crear con CREATE OR REPLACE. Las sentencias DDL no corren dentro de una transacción. Al renombrar una tabla se pierden sus índices de búsqueda y vectoriales; una tabla que recibe datos por streaming no se puede renombrar hasta que el streaming termina. Las referencias escritas con el camino entero entre un solo par de comillas invertidas (`proyecto.dataset.tabla`) no se detectan: hay que revisarlas.": [
+  "crates/drivers/bigquery/src/rename.rs"
+ ],
  "BigQuery no agrega columnas NOT NULL a una tabla existente: {0}.{1} se agrega como NULLABLE.": [
   "crates/drivers/bigquery/src/sync.rs"
  ],
@@ -1957,6 +1993,27 @@
  ],
  "BigQuery no permite que un principal otorgue a otros sus roles (no hay WITH GRANT OPTION): para eso, dale roles/bigquery.dataOwner": [
   "crates/drivers/bigquery/src/security.rs"
+ ],
+ "BigQuery no renombra campos de un STRUCT, solo columnas de la tabla.": [
+  "crates/drivers/bigquery/src/rename.rs"
+ ],
+ "BigQuery no renombra datasets.": [
+  "crates/drivers/bigquery/src/rename.rs"
+ ],
+ "BigQuery no renombra la columna «{0}»: {1}.": [
+  "crates/drivers/bigquery/src/rename.rs"
+ ],
+ "BigQuery no renombra objetos de tipo «{0}».": [
+  "crates/drivers/bigquery/src/rename.rs"
+ ],
+ "BigQuery no renombra restricciones.": [
+  "crates/drivers/bigquery/src/rename.rs"
+ ],
+ "BigQuery no renombra vistas: hay que crearla con el nombre nuevo y borrar la anterior.": [
+  "crates/drivers/bigquery/src/rename.rs"
+ ],
+ "BigQuery no renombra índices.": [
+  "crates/drivers/bigquery/src/rename.rs"
  ],
  "BigQuery no tiene arreglos de arreglos: se guarda como JSON.": [
   "crates/dbine-schema/src/dialect/bigquery.rs"
@@ -2273,6 +2330,9 @@
  ],
  "Búsquedas en curso": [
   "crates/drivers/elasticsearch/src/monitor.rs"
+ ],
+ "CHANGE COLUMN vuelve a escribir la columna «{0}» entera: si tiene un juego de caracteres o una intercalación distintos de los de la tabla, agregalos a la sentencia antes de ejecutarla.": [
+  "crates/drivers/mysql/src/rename.rs"
  ],
  "CHAR admite hasta 255: se usa VARCHAR.": [
   "crates/dbine-schema/src/dialect/spark.rs"
@@ -2921,11 +2981,32 @@
  "Cassandra no otorga permisos sobre objetos «{0}»": [
   "crates/drivers/cassandra/src/security.rs"
  ],
+ "Cassandra no renombra keyspaces.": [
+  "crates/drivers/cassandra/src/rename.rs"
+ ],
+ "Cassandra no renombra tablas: hay que crear una tabla con el nombre nuevo y copiar los datos.": [
+  "crates/drivers/cassandra/src/rename.rs"
+ ],
+ "Cassandra no renombra vistas materializadas, tipos ni funciones: hay que crearlos con el nombre nuevo y borrar los anteriores.": [
+  "crates/drivers/cassandra/src/rename.rs"
+ ],
+ "Cassandra no renombra índices: hay que borrarlo y crearlo con el nombre nuevo.": [
+  "crates/drivers/cassandra/src/rename.rs"
+ ],
+ "Cassandra no tiene restricciones con nombre.": [
+  "crates/drivers/cassandra/src/rename.rs"
+ ],
  "Cassandra no tiene «con opción de otorgar»: otorgá además el permiso AUTHORIZE sobre el mismo recurso": [
   "crates/drivers/cassandra/src/security.rs"
  ],
  "Cassandra solo muestra las consultas en curso de cada nodo, sin el cliente, el usuario ni el keyspace: se ven las de todos los keyspaces.": [
   "crates/drivers/cassandra/src/profiler.rs"
+ ],
+ "Cassandra solo renombra columnas de la clave primaria (de partición o de clustering). El servidor rechaza el cambio si la columna tiene un índice secundario o la usa una vista materializada.": [
+  "crates/drivers/cassandra/src/rename.rs"
+ ],
+ "Cassandra solo renombra columnas de la clave primaria; «{0}» es una columna común. Para cambiarle el nombre hay que agregar una columna nueva, copiar los datos y borrar la anterior.": [
+  "crates/drivers/cassandra/src/rename.rs"
  ],
  "Cassandra y ScyllaDB hacen snapshots con nodetool (JMX) o la API REST de Scylla, no con CQL": [
   "crates/drivers/cassandra/src/backup.rs"
@@ -3196,6 +3277,9 @@
  "ClickHouse admite hasta Decimal(76, S); el origen tiene {0} dígitos.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
+ "ClickHouse no actualiza las vistas que usan lo renombrado: DBine las vuelve a crear con CREATE OR REPLACE. Una vista materializada se reemplaza por una nueva: si no tiene TO y guarda sus propios datos, se pierden. No se renombran columnas de la clave de ordenamiento, de la primaria, de la partición o de muestreo, ni las que lee una vista materializada. Las tablas Distributed que apuntan a la tabla no se detectan: hay que revisarlas. Las bases de datos solo se renombran con el motor Atomic.": [
+  "crates/drivers/clickhouse/src/rename.rs"
+ ],
  "ClickHouse no admite NULL en arreglos, mapas ni JSON: un nulo queda como valor vacío.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
@@ -3219,6 +3303,9 @@
  ],
  "ClickHouse no tiene índices únicos: queda un índice de salto de datos que no garantiza unicidad.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
+ ],
+ "ClickHouse solo renombra tablas, vistas, vistas materializadas, diccionarios, columnas y bases de datos": [
+  "crates/drivers/clickhouse/src/rename.rs"
  ],
  "Client secret": [
   "crates/drivers/databricks/src/lib.rs"
@@ -3345,6 +3432,9 @@
  ],
  "CockroachDB no permite deshabilitar (ocultar) la clave primaria.": [
   "crates/drivers/postgres/src/index_usage.rs"
+ ],
+ "CockroachDB no renombra lo que usan vistas, funciones o triggers: DBine borra esas dependencias antes del cambio y las vuelve a crear después. Su DDL se confirma sentencia por sentencia: si una falla, las anteriores quedan aplicadas.": [
+  "crates/drivers/postgres/src/rename.rs"
  ],
  "CockroachDB recomienda {0} índice(s)": [
   "crates/drivers/postgres/src/plan.rs"
@@ -4603,6 +4693,12 @@
  "Couchbase cuenta las escrituras de un índice junto con los documentos de su construcción inicial, sin distinguirlas: no se muestran escrituras y ningún índice se marca sin uso.": [
   "crates/drivers/couchbase/src/index_usage.rs"
  ],
+ "Couchbase no renombra buckets, scopes ni colecciones": [
+  "crates/drivers/couchbase/src/rename.rs"
+ ],
+ "Couchbase no renombra buckets, scopes ni colecciones: desde DBine se renombran campos, con un UPDATE que reescribe cada documento que tiene el campo. Hace falta un índice que sirva para encontrarlos (uno sobre el campo o el primario). Las funciones SQL++ que nombran el campo se muestran y no se reescriben.": [
+  "crates/drivers/couchbase/src/rename.rs"
+ ],
  "Couchbase rechazó el usuario o la contraseña.": [
   "crates/drivers/couchbase/src/lib.rs"
  ],
@@ -4651,6 +4747,9 @@
  ],
  "CrateDB no tiene transacciones ni bloqueos de filas: ninguna sesión espera a otra": [
   "crates/drivers/postgres/src/blocking.rs"
+ ],
+ "CrateDB renombra columnas desde la versión 5.5.": [
+  "crates/drivers/postgres/src/rename.rs"
  ],
  "CrateDB tiene una sola base por clúster: se organizan en esquemas": [
   "crates/drivers/postgres/src/create_db.rs",
@@ -5041,11 +5140,29 @@
   "crates/dbine-core/src/conn_import/mod.rs",
   "crates/dbine-schema/src/dialect/spark.rs"
  ],
+ "Databricks no actualiza las vistas ni las funciones que nombran lo renombrado: DBine las vuelve a crear con CREATE OR REPLACE. Las sentencias DDL no corren dentro de una transacción. Renombrar una columna necesita una tabla Delta con column mapping (delta.columnMapping.mode = 'name' o 'id'). Con AWS Glue como metastore no se puede renombrar.": [
+  "crates/drivers/databricks/src/rename.rs"
+ ],
  "Databricks no expone el CPU ni la memoria del warehouse por la API; el consumo se ve en el tiempo de cómputo de las consultas y en las tablas de sistema (system.billing, system.query).": [
   "crates/drivers/databricks/src/monitor.rs"
  ],
  "Databricks no informa el catálogo de cada consulta: se ven las de todos los warehouses del workspace. Sin permisos de administrador (o CAN_MANAGE sobre el warehouse) solo se ven tus consultas.": [
   "crates/drivers/databricks/src/profiler.rs"
+ ],
+ "Databricks no renombra esquemas.": [
+  "crates/drivers/databricks/src/rename.rs"
+ ],
+ "Databricks no renombra la columna «{0}»: la tabla no tiene column mapping. Se activa con ALTER TABLE … SET TBLPROPERTIES ('delta.columnMapping.mode' = 'name').": [
+  "crates/drivers/databricks/src/rename.rs"
+ ],
+ "Databricks no renombra objetos de tipo «{0}».": [
+  "crates/drivers/databricks/src/rename.rs"
+ ],
+ "Databricks no renombra restricciones.": [
+  "crates/drivers/databricks/src/rename.rs"
+ ],
+ "Databricks no tiene índices que se puedan renombrar.": [
+  "crates/drivers/databricks/src/rename.rs"
  ],
  "Databricks no tiene índices secundarios (Delta usa estadísticas por archivo, clustering y Z-order) ni contadores de uso. Las claves primarias y foráneas de Unity Catalog son informativas, no índices.": [
   "crates/drivers/databricks/src/index_usage.rs"
@@ -5186,6 +5303,9 @@
  "Db2 for i no tiene EXPLAIN por SQL: los planes se ven con Visual Explain (IBM i Access Client Solutions) o el monitor de base de datos.": [
   "crates/drivers/odbc/src/explain.rs"
  ],
+ "Db2 for i renombra tablas, vistas e índices, no columnas. Lo que usa el nombre viejo se borra y se vuelve a crear.": [
+  "crates/drivers/odbc/src/rename.rs"
+ ],
  "Db2 for z/OS no cambia la nulabilidad de una columna con ALTER: esos cambios quedan afuera.": [
   "crates/drivers/odbc/src/sync.rs"
  ],
@@ -5197,6 +5317,9 @@
  ],
  "Db2 for z/OS no tiene BOOLEAN: se usa SMALLINT (0/1).": [
   "crates/dbine-schema/src/dialect/db2.rs"
+ ],
+ "Db2 for z/OS rechaza renombrar una tabla que tiene triggers o que lee una vista: las vistas que se reescriben se borran antes y se vuelven a crear después; las demás hacen fallar el cambio.": [
+  "crates/drivers/odbc/src/rename.rs"
  ],
  "Db2 for z/OS: los cambios de columnas pueden dejar el tablespace con REORG pendiente; corré el utilitario REORG después.": [
   "crates/drivers/odbc/src/sync.rs"
@@ -5233,6 +5356,9 @@
  ],
  "Db2 no tiene tipo JSON: se guarda como CLOB (JSON_VALUE y JSON_TABLE trabajan sobre él).": [
   "crates/dbine-schema/src/dialect/db2.rs"
+ ],
+ "Db2 rechaza renombrar una tabla que tiene triggers o que está en una clave foránea (como padre o como hija): hay que quitarlos antes. Las vistas y rutinas que usan el nombre viejo quedan inválidas hasta que se reponen con CREATE OR REPLACE.": [
+  "crates/drivers/odbc/src/rename.rs"
  ],
  "Db2 restaura con el comando RESTORE DATABASE del procesador de línea de comandos, con la base sin uso: ADMIN_CMD no lo ejecuta": [
   "crates/drivers/odbc/src/backup.rs"
@@ -5372,6 +5498,9 @@
  "Denodo no ofrece planes de ejecución (EXPLAIN) por esta conexión": [
   "crates/drivers/postgres/src/session.rs"
  ],
+ "Denodo no renombra objetos por SQL: las vistas se definen en Denodo": [
+  "crates/drivers/postgres/src/rename.rs"
+ ],
  "Derivado de la clave de la tabla: DynamoDB no expone planes de ejecución": [
   "crates/drivers/dynamodb/src/plan.rs"
  ],
@@ -5468,6 +5597,9 @@
  ],
  "Después de ciertos ALTER TABLE la tabla queda en espera de REORG: se puede leer, pero no cambiar. Una tabla no disponible (por ejemplo, tras una carga NOT RECOVERABLE restaurada) hay que recargarla o volver a crearla.": [
   "crates/drivers/odbc/src/health.rs"
+ ],
+ "Después de renombrar una columna, la tabla ya no se puede consultar con SQL heredado (legacy SQL) ni como parte de una tabla comodín. BigQuery tampoco renombra columnas de tablas con políticas de acceso por fila.": [
+  "crates/drivers/bigquery/src/rename.rs"
  ],
  "Después del backup borra los puntos más viejos de ese nombre (maxNumBackupPoints).": [
   "crates/drivers/solr/src/backup.rs"
@@ -5906,8 +6038,23 @@
  "Dremio no expone contadores acumulados por SQL: la actividad es la suma de los trabajos de los últimos 5 minutos (sys.jobs).": [
   "crates/drivers/dremio/src/lib.rs"
  ],
+ "Dremio no renombra espacios, orígenes ni carpetas desde SQL": [
+  "crates/drivers/dremio/src/rename.rs"
+ ],
+ "Dremio no renombra tablas: creá una nueva con CREATE TABLE … AS SELECT y borrá la anterior": [
+  "crates/drivers/dremio/src/rename.rs"
+ ],
+ "Dremio no tiene RENAME: las columnas se renombran con CHANGE COLUMN, solo en tablas Iceberg (como las de $scratch o de un catálogo Nessie); en archivos Parquet, JSON o de otros orígenes el servidor rechaza el cambio. Las vistas se renombran creándolas con el nombre nuevo y borrando la anterior. Las vistas que usan el objeto no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE VIEW. Las sentencias no son transaccionales. Solo se buscan dependientes en el mismo espacio u origen y sus carpetas: revisá después los de otros espacios.": [
+  "crates/drivers/dremio/src/rename.rs"
+ ],
  "Dremio no tiene WITH GRANT OPTION: otorgá MANAGE GRANTS sobre el objeto": [
   "crates/drivers/dremio/src/security.rs"
+ ],
+ "Dremio no tiene restricciones con nombre": [
+  "crates/drivers/dremio/src/rename.rs"
+ ],
+ "Dremio no tiene índices: las reflexiones no se renombran": [
+  "crates/drivers/dremio/src/rename.rs"
  ],
  "Dremio no tiene índices: se listan las reflexiones de la tabla. Las lecturas son las consultas que cada reflexión aceleró (sys.reflections); Dremio no cuenta escrituras ni dice desde cuándo cuenta.": [
   "crates/drivers/dremio/src/index_usage.rs"
@@ -5917,6 +6064,9 @@
  ],
  "Dremio solo modifica tablas Iceberg ($scratch, Nessie, Arctic, catálogos Iceberg): en otros orígenes el ALTER falla.": [
   "crates/drivers/dremio/src/sync.rs"
+ ],
+ "Dremio solo renombra vistas y columnas": [
+  "crates/drivers/dremio/src/rename.rs"
  ],
  "Dremio {0}": [
   "crates/drivers/dremio/src/lib.rs"
@@ -5933,6 +6083,15 @@
  "Drill no guarda datos propios: no hay espacio usado, caché ni bloqueos que informar; esos dependen de cada origen (archivos, Hive, JDBC…).": [
   "crates/drivers/drill/src/lib.rs"
  ],
+ "Drill no renombra columnas: salen de los archivos que lee": [
+  "crates/drivers/drill/src/rename.rs"
+ ],
+ "Drill no renombra espacios de trabajo: se configuran en el plugin de almacenamiento": [
+  "crates/drivers/drill/src/rename.rs"
+ ],
+ "Drill no renombra tablas: son archivos o carpetas del origen, que se renombran fuera de Drill": [
+  "crates/drivers/drill/src/rename.rs"
+ ],
  "Drill no tiene CREATE TABLE con columnas (solo CREATE TABLE … AS SELECT sobre archivos).": [
   "crates/dbine-schema/src/dialect/dremio.rs"
  ],
@@ -5948,6 +6107,12 @@
  "Drill no tiene UPDATE: sus tablas no se modifican, se recrean con CREATE TABLE AS SELECT.": [
   "crates/drivers/drill/src/lib.rs"
  ],
+ "Drill no tiene restricciones": [
+  "crates/drivers/drill/src/rename.rs"
+ ],
+ "Drill no tiene índices": [
+  "crates/drivers/drill/src/rename.rs"
+ ],
  "Drill pide iniciar sesión: revisá el usuario y la contraseña.": [
   "crates/drivers/drill/src/lib.rs",
   "crates/drivers/drill/src/transfer.rs"
@@ -5958,6 +6123,12 @@
  "Drill rechazó la sesión.": [
   "crates/drivers/drill/src/lib.rs",
   "crates/drivers/drill/src/transfer.rs"
+ ],
+ "Drill solo renombra vistas": [
+  "crates/drivers/drill/src/rename.rs"
+ ],
+ "Drill solo renombra vistas: la crea con el nombre nuevo en el mismo espacio de trabajo y borra la anterior. Las vistas que la usan no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE VIEW. Las sentencias no son transaccionales.": [
+  "crates/drivers/drill/src/rename.rs"
  ],
  "Drillbits": [
   "crates/drivers/drill/src/lib.rs"
@@ -5977,6 +6148,9 @@
  "DuckDB es una base embebida: no hay un servidor con sesiones de otros clientes que listar ni consultas ajenas que cancelar": [
   "crates/drivers/duckdb/src/lib.rs"
  ],
+ "DuckDB no actualiza las vistas ni las macros que usan el objeto: DBine las reescribe y las repone con CREATE OR REPLACE después del cambio. DuckDB rechaza renombrar una tabla que tiene índices o a la que apunta una clave foránea, y una columna que está en un índice o en una clave foránea: borralos antes y crealos de nuevo después.": [
+  "crates/drivers/duckdb/src/rename.rs"
+ ],
  "DuckDB no borra exportaciones: son carpetas de esta computadora": [
   "crates/drivers/duckdb/src/backup.rs"
  ],
@@ -5987,11 +6161,26 @@
   "crates/drivers/duckdb/src/index_usage.rs",
   "crates/drivers/flightsql/src/index_usage.rs"
  ],
+ "DuckDB no renombra esquemas": [
+  "crates/drivers/duckdb/src/rename.rs"
+ ],
+ "DuckDB no renombra la columna «{0}» porque está en una clave foránea: hay que reconstruir la tabla": [
+  "crates/drivers/duckdb/src/rename.rs"
+ ],
+ "DuckDB no renombra restricciones": [
+  "crates/drivers/duckdb/src/rename.rs"
+ ],
+ "DuckDB no renombra índices: hay que borrarlo y crearlo con el nombre nuevo": [
+  "crates/drivers/duckdb/src/rename.rs"
+ ],
  "DuckDB no tiene usuarios: sus esquemas no tienen dueño": [
   "crates/drivers/duckdb/src/lib.rs"
  ],
  "DuckDB no tiene versión de fila automática.": [
   "crates/dbine-schema/src/dialect/duckdb.rs"
+ ],
+ "DuckDB solo renombra tablas, vistas y columnas: las macros, las secuencias y los tipos se crean con el nombre nuevo": [
+  "crates/drivers/duckdb/src/rename.rs"
  ],
  "Dueño": [
   "crates/drivers/databricks/src/properties.rs",
@@ -6215,6 +6404,9 @@
  "El DATE de Oracle también guarda la hora (queda en 00:00:00).": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
+ "El DDL de MySQL no es transaccional: cada sentencia se confirma sola y, si una falla, las anteriores quedan hechas.": [
+  "crates/drivers/mysql/src/rename.rs"
+ ],
  "El FLOAT de MaxDB llega hasta 10^62: los valores de coma flotante mayores no entran.": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
  ],
@@ -6268,6 +6460,9 @@
  ],
  "El WHERE del UPDATE tiene que incluir el «id» del documento.": [
   "crates/drivers/cosmosdb/src/ddl.rs"
+ ],
+ "El alias «{0}» no apunta a ningún índice.": [
+  "crates/drivers/elasticsearch/src/rename.rs"
  ],
  "El almacenamiento de la cuenta necesita acceso a SNOWFLAKE.ACCOUNT_USAGE (IMPORTED PRIVILEGES sobre la base SNOWFLAKE).": [
   "crates/drivers/snowflake/src/monitor.rs"
@@ -6361,6 +6556,9 @@
  ],
  "El cliente de Oracle no pudo leer la respuesta ({0}). Si el resultado tiene TIMESTAMP WITH TIME ZONE con región, convertilo con TO_CHAR(…, 'YYYY-MM-DD HH24:MI:SS.FF TZR').": [
   "crates/drivers/oracle/src/lib.rs"
+ ],
+ "El clon copia el índice «{0}»: según su tamaño tarda y ocupa espacio en disco (en el mismo nodo suele usar enlaces duros y es rápido). Mientras dura, «{1}» no acepta escrituras.": [
+  "crates/drivers/elasticsearch/src/rename.rs"
  ],
  "El cluster no tiene carpeta de backups por defecto: hacé un backup con una carpeta y \"Guardarla como carpeta por defecto\", o fijá la propiedad location (CLUSTERPROP).": [
   "crates/drivers/solr/src/backup.rs"
@@ -6604,6 +6802,9 @@
  "El monitor no ejecuta SQL en el warehouse (lo mantendría encendido y consumiría DBU); los tamaños de tablas no se informan.": [
   "crates/drivers/databricks/src/monitor.rs"
  ],
+ "El motor actualiza por sí solo las vistas, vistas materializadas y sinks que dependen del objeto. No renombra columnas.": [
+  "crates/drivers/postgres/src/rename.rs"
+ ],
  "El motor de Access (ACE/Jet) escribe el plan en SHOWPLAN.OUT solo con una clave de registro de depuración; no lo devuelve por ODBC.": [
   "crates/drivers/odbc/src/explain.rs"
  ],
@@ -6645,6 +6846,12 @@
  ],
  "El nombre que tenía la base al hacer el backup. Si es distinto del destino, se restaura con new_db_name.": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "El nombre «{0}» no es válido: solo letras, números, punto, guion y guion bajo, y no puede empezar con guion.": [
+  "crates/drivers/solr/src/rename.rs"
+ ],
+ "El nombre «{0}» no sirve para un alias: va en minúsculas, no puede empezar con -, _ o + ni tener espacios, comas ni \\ / * ? \" < > | # :": [
+  "crates/drivers/elasticsearch/src/rename.rs"
  ],
  "El número de backup tiene que ser 1 o más.": [
   "crates/drivers/sqlserver/src/backup.rs"
@@ -6918,6 +7125,9 @@
  "El validador de {0} cambia: vale para los documentos que se inserten o modifiquen; los que ya existen no se revisan.": [
   "crates/drivers/mongodb/src/sync.rs"
  ],
+ "El validador de «{0}» se cambia con collMod para que nombre el campo nuevo.": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
  "El validador no controla el tipo de los elementos ({0}).": [
   "crates/dbine-schema/src/dialect/mongodb.rs"
  ],
@@ -6986,6 +7196,9 @@
  ],
  "El índice está UNUSABLE: habilitarlo lo reconstruye (REBUILD), lo que recorre toda la tabla y bloquea sus escrituras mientras dura.": [
   "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "El índice filtrado «{0}» usa la columna en su filtro: se borra antes de renombrarla y se vuelve a crear después.": [
+  "crates/drivers/sqlserver/src/rename.rs"
  ],
  "El índice local {0} lleva la clave de partición de la tabla ({1}) y un atributo de ordenación.": [
   "crates/drivers/dynamodb/src/ddl.rs"
@@ -7132,6 +7345,9 @@
  "En Memgraph, {0} lleva una sola propiedad.": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
+ "En Redis Cluster la clave nueva cae en otro hash slot ({0} → {1}) y el cambio falla (CROSSSLOT); fuera de un cluster no importa. Para que caigan en el mismo slot, repetí la etiqueta entre llaves en los dos nombres, como {usuario:1}:perfil.": [
+  "crates/drivers/redis/src/rename.rs"
+ ],
  "En Redis los comandos ({0}) se otorgan para todo el usuario, no sobre una clave. Para limitar las claves elegí ~, %R~ o %W~ sobre la clave.": [
   "crates/drivers/redis/src/security.rs"
  ],
@@ -7147,6 +7363,9 @@
  "En SolrCloud cada backup es de una colección y se restaura en una colección nueva; en standalone, de un core, y se restaura en ese core o en uno nuevo. La carpeta tiene que existir en el servidor y estar en solr.allowPaths (o dentro de SOLR_HOME). En standalone Solr solo informa el último backup de cada core.": [
   "crates/drivers/solr/src/backup.rs"
  ],
+ "En SolrCloud las colecciones no se renombran: RENAME de la Collections API solo agrega un alias con el nombre nuevo y la colección conserva el suyo. Si alcanza con otro nombre para consultarla, creá un alias (action=CREATEALIAS).": [
+  "crates/drivers/solr/src/rename.rs"
+ ],
  "En SolrCloud, con _default se crea una copia propia de la colección. En modo standalone el configset se comparte: los campos agregados se escriben en él y los ven los demás cores que lo usan.": [
   "crates/drivers/solr/src/ddl.rs"
  ],
@@ -7155,6 +7374,9 @@
  ],
  "En VeloDB Cloud, el uso de CPU y memoria de cada cluster de cómputo está en la consola de VeloDB.": [
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "En YugabyteDB el DDL no es transaccional: si una sentencia falla, las anteriores quedan aplicadas.": [
+  "crates/drivers/postgres/src/rename.rs"
  ],
  "En cola": [
   "crates/drivers/snowflake/src/monitor.rs"
@@ -7895,6 +8117,9 @@
  "Estadísticas desactualizadas (%)": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "Estas alternativas fallan al compilarlas en la base (sin ejecutarlas). Corregilas para que sean válidas y sigan siendo EQUIVALENTES a la original; una que no puedas corregir, omitila. Respondé SOLO con el mismo formato, solo con las corregidas, o NINGUNA.\n": [
+  "src-tauri/src/optimizer/ai.rs"
+ ],
  "Estas tablas tienen autovacuum_enabled = off: nadie limpia sus filas muertas ni actualiza sus estadísticas, salvo un VACUUM manual.": [
   "crates/drivers/postgres/src/health.rs"
  ],
@@ -7918,6 +8143,12 @@
  ],
  "Este motor no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/mysql/src/index_usage.rs"
+ ],
+ "Este motor no tiene DDL transaccional: cada paso se confirma solo. Las colecciones se renombran con renameCollection y conservan sus documentos e índices. Los roles con privilegios sobre el nombre viejo no se actualizan.": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "Este motor solo renombra tablas desde DBine. Las vistas que se reescriben se borran y se vuelven a crear.": [
+  "crates/drivers/mysql/src/rename.rs"
  ],
  "Este servidor no controla permisos: usa AllowAllAuthorizer, así que todo usuario puede hacer todo. Para administrarlos activá `authorizer: CassandraAuthorizer` en cassandra.yaml (scylla.yaml en ScyllaDB) y reiniciá.": [
   "crates/drivers/cassandra/src/security.rs"
@@ -8018,6 +8249,9 @@
  ],
  "Exasol admite hasta {0} dígitos; el origen tiene {1}.": [
   "crates/dbine-schema/src/dialect/exasol.rs"
+ ],
+ "Exasol no actualiza las vistas ni las funciones que usan el nombre viejo: se reponen con CREATE OR REPLACE. Al renombrar una vista, su texto guardado sigue con el nombre viejo en el encabezado.": [
+  "crates/drivers/odbc/src/rename.rs"
  ],
  "Exasol no deshabilita usuarios: quitale CREATE SESSION o cambiale la contraseña": [
   "crates/drivers/odbc/src/security.rs"
@@ -8141,6 +8375,9 @@
  ],
  "Fabric no usa contraseñas: los usuarios son de Microsoft Entra ID": [
   "crates/drivers/sqlserver/src/security.rs"
+ ],
+ "Fabric renombra tablas y columnas con sp_rename. El código que las nombra se repone con CREATE OR ALTER. El script no corre en una transacción: si una sentencia falla, lo anterior queda hecho.": [
+  "crates/drivers/sqlserver/src/rename.rs"
  ],
  "Factor de escala": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -8619,6 +8856,12 @@
  ],
  "Firebird solo muestra las sentencias mientras se ejecutan: las muy rápidas pueden no verse.": [
   "crates/drivers/firebird/src/profiler.rs"
+ ],
+ "Firebird solo renombra columnas, y rechaza el cambio mientras algo use la columna: una vista, un procedimiento, una función, un trigger, un CHECK o una clave primaria, única o foránea. Por eso lo que se reescribe se borra antes y se vuelve a crear después con CREATE OR ALTER, y lo que quede sin reescribir (código que la nombra de una forma que DBine no reconoce) hace fallar el cambio. El script no corre en una transacción: si el cambio falla, lo ya borrado queda borrado y se crea con el resto del script.": [
+  "crates/drivers/firebird/src/rename.rs"
+ ],
+ "Firebird solo renombra columnas: no tiene RENAME para tablas, vistas, índices ni procedimientos.": [
+  "crates/drivers/firebird/src/rename.rs"
  ],
  "Firebird {0}": [
   "crates/drivers/firebird/src/lib.rs"
@@ -9139,6 +9382,9 @@
  ],
  "Hay transacciones deshechas o en limbo que nadie limpió: la basura se acumula y cada lectura la recorre. Corré un barrido fuera de horario pico (gfix -sweep <base> o gfix -sweep desde el servidor). {0}": [
   "crates/drivers/firebird/src/health.rs"
+ ],
+ "Hay un CHECK sin nombre sobre la columna: revisalo después de renombrar.": [
+  "crates/drivers/mysql/src/rename.rs"
  ],
  "Hay una transacción abierta: confirmala (:commit) o deshacela (:rollback) antes de cambiar de base.": [
   "crates/drivers/neo4j/src/lib.rs"
@@ -9677,6 +9923,9 @@
  ],
  "Informix": [
   "crates/drivers/odbc/src/monitor_tests.rs"
+ ],
+ "Informix actualiza solo las vistas que usan el nombre viejo. En los triggers cambia el encabezado pero no las acciones, y los procedimientos SPL quedan como estaban: los que se reescriben se borran y se vuelven a crear.": [
+  "crates/drivers/odbc/src/rename.rs"
  ],
  "Informix admite hasta {0} dígitos; el origen tiene {1}.": [
   "crates/dbine-schema/src/dialect/informix.rs"
@@ -10405,6 +10654,9 @@
  "La columna «{0}» se repite: cada fila se guarda como un objeto JSON y sus claves no pueden repetirse.": [
   "crates/drivers/etcd/src/transfer.rs"
  ],
+ "La columna «{0}» tiene el índice secundario «{1}» y Cassandra no la renombra así: borrá el índice, renombrá la columna y volvé a crearlo.": [
+  "crates/drivers/cassandra/src/rename.rs"
+ ],
  "La columna «{0}» trae un JSON inválido: {1}": [
   "crates/drivers/etcd/src/transfer.rs"
  ],
@@ -10445,6 +10697,15 @@
  "La de las columnas de texto que se creen sin una.": [
   "crates/drivers/snowflake/src/create_db.rs"
  ],
+ "La definición de «{0}» no tiene un CREATE.": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "La definición leída del servidor no es JSON válido: {0}": [
+  "crates/drivers/elasticsearch/src/rename.rs"
+ ],
+ "La definición leída del servidor no tiene el formato esperado.": [
+  "crates/drivers/elasticsearch/src/rename.rs"
+ ],
  "La del Query Server (phoenix.queryserver.serialization).": [
   "crates/drivers/phoenix/src/lib.rs"
  ],
@@ -10453,6 +10714,9 @@
  ],
  "La del servidor (en Druid, «/druid/v2/sql/avatica-protobuf/» usa protobuf).": [
   "crates/drivers/phoenix/src/avatica.rs"
+ ],
+ "La ejecuta el trigger «{0}»": [
+  "src-tauri/src/commands/rename.rs"
  ],
  "La etiqueta": [
   "crates/drivers/neo4j/src/sync.rs"
@@ -10680,6 +10944,15 @@
  "La versión de intercalación cambió: reconstruí los índices sobre textos (REINDEX) y después actualizá la versión registrada.": [
   "crates/drivers/postgres/src/properties.rs"
  ],
+ "La vista se crea con el nombre nuevo y se borra la anterior: pierde sus reflexiones, su wiki, sus etiquetas y los permisos otorgados sobre ella.": [
+  "crates/drivers/dremio/src/rename.rs"
+ ],
+ "La vista se crea con el nombre nuevo y se borra la anterior: se pierden los permisos de Lake Formation otorgados sobre ella.": [
+  "crates/drivers/athena/src/rename.rs"
+ ],
+ "La vista se crea con el nombre nuevo y se borra la anterior: se pierden los permisos otorgados sobre ella.": [
+  "crates/drivers/spanner/src/rename.rs"
+ ],
  "La vista «{0}» nombra la columna {1}.{2}, que se borra: si la usa, no se va a poder volver a crear. Borrala o cambiala antes de sincronizar.": [
   "src-tauri/src/commands/compare.rs"
  ],
@@ -10697,6 +10970,10 @@
  ],
  "Las RU/s «{0}» no son un número entero positivo.": [
   "crates/drivers/cosmosdb/src/ddl.rs"
+ ],
+ "Las aplicaciones que sigan escribiendo «{0}» lo vuelven a crear en los documentos nuevos.": [
+  "crates/drivers/couchbase/src/rename.rs",
+  "crates/drivers/mongodb/src/rename.rs"
  ],
  "Las aplicaciones que usan user_version para sus migraciones pueden volver a correrlas o saltearlas.": [
   "crates/drivers/sqlite/src/properties.rs"
@@ -10806,6 +11083,9 @@
  "Las regiones del keyspace multirregión, separadas por comas (3 réplicas cada una).": [
   "crates/drivers/cassandra/src/create_db.rs"
  ],
+ "Las restricciones CHECK que usan «{0}» se borran antes de renombrarla y se vuelven a crear con el nombre nuevo: SQL Server no deja renombrar una columna que usan.": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
  "Las réplicas de geo-replicación se ven desde la base primaria en sys.dm_geo_replication_link_status (no incluido).": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
@@ -10823,6 +11103,9 @@
  ],
  "Las sesiones nuevas en la base empiezan en solo lectura: no podrán escribir sin cambiarlo en la sesión.": [
   "crates/drivers/postgres/src/properties.rs"
+ ],
+ "Las tablas Distributed que apuntan a esta tabla no se detectan: hay que revisarlas. Si un diccionario la lee, ClickHouse rechaza el cambio de nombre.": [
+  "crates/drivers/clickhouse/src/rename.rs"
  ],
  "Las tablas Iceberg de Dremio no tienen clave primaria: la unicidad no se controla.": [
   "crates/dbine-schema/src/dialect/dremio.rs"
@@ -10862,6 +11145,18 @@
  ],
  "Las vistas de las subcarpetas se llaman carpeta/archivo.": [
   "crates/drivers/duckdb/src/files.rs"
+ ],
+ "Las vistas del esquema que nombran tablas sin calificar dejan de funcionar: Trino las resuelve con el esquema en que se crearon, que deja de existir. Volvé a crearlas (SHOW CREATE VIEW) en el esquema nuevo después de renombrar.": [
+  "crates/drivers/trino/src/rename.rs"
+ ],
+ "Las vistas que se reescriben se reponen con CREATE OR REPLACE y conservan sus permisos; las rutinas y los triggers se borran y se vuelven a crear (MySQL no tiene CREATE OR REPLACE para ellos), así que pierden los permisos otorgados sobre ellos. Para crear uno cuyo DEFINER no es tu usuario hace falta el privilegio SET_USER_ID (SET_ANY_DEFINER desde MySQL 8.2) o SUPER.": [
+  "crates/drivers/mysql/src/rename.rs"
+ ],
+ "Las vistas que se reescriben se vuelven a crear con CREATE OR REPLACE.": [
+  "crates/drivers/mysql/src/rename.rs"
+ ],
+ "Las vistas, rutinas y triggers que se reescriben se vuelven a crear con CREATE OR REPLACE (en las rutinas y los triggers equivale a borrarlos y crearlos). Para crear uno cuyo DEFINER no es tu usuario hace falta el privilegio SET USER o SUPER.": [
+  "crates/drivers/mysql/src/rename.rs"
  ],
  "Las {0} tablas replicadas están al día": [
   "crates/drivers/clickhouse/src/health.rs"
@@ -11034,6 +11329,9 @@
  "Lo que se escribe en una tabla columnar va primero al delta store, que ocupa más memoria y se lee más lento que el principal. La fusión automática lo vacía; si quedó grande, fusionalo a mano (usa CPU y memoria mientras corre).": [
   "crates/drivers/hana/src/health.rs"
  ],
+ "Lo que se puede renombrar lo decide el conector del catálogo (memory e Iceberg renombran tablas, vistas y columnas; Hive no renombra algunas cosas): si el conector no puede, el servidor rechaza la sentencia. Las vistas no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE, después de un USE del esquema del objeto para que sus nombres sin calificar se resuelvan como al crearlas. Las sentencias no son transaccionales: si una falla, las anteriores quedan hechas.": [
+  "crates/drivers/trino/src/rename.rs"
+ ],
  "Locale del proveedor": [
   "crates/drivers/postgres/src/properties.rs"
  ],
@@ -11094,6 +11392,9 @@
  "Los _id llevan la partición adelante («partición:id») y las consultas por partición son más rápidas. Desde CouchDB 3.": [
   "crates/drivers/couchdb/src/create_db.rs"
  ],
+ "Los alias de «{0}» ({1}) pasan a «{2}» en el mismo paso que borra el original.": [
+  "crates/drivers/elasticsearch/src/rename.rs"
+ ],
  "Los archivos se llaman <prefijo><n>.bp.": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -11115,6 +11416,9 @@
  "Los cambios de columnas e índices son trabajos asincrónicos del servidor: cada uno tiene que terminar antes del siguiente en la misma tabla (SHOW ALTER TABLE COLUMN). Si una sentencia falla porque la tabla está ocupada, volvé a ejecutarla cuando termine.": [
   "crates/drivers/mysql/src/design.rs"
  ],
+ "Los campos no se renombran: hay que reindexar en un índice nuevo con el campo renombrado (_reindex con un script) o agregar un alias de campo (type: alias).": [
+  "crates/drivers/elasticsearch/src/rename.rs"
+ ],
  "Los conectores de Trino no guardan geometrías: queda como texto (WKT).": [
   "crates/dbine-schema/src/dialect/trino.rs"
  ],
@@ -11129,6 +11433,9 @@
  ],
  "Los contadores son desde el arranque del servidor, salvo que las estadísticas se hayan reiniciado o activado después.": [
   "crates/drivers/mysql/src/index_usage.rs"
+ ],
+ "Los diccionarios y las tablas Distributed que leen la columna no se detectan: hay que revisarlos.": [
+  "crates/drivers/clickhouse/src/rename.rs"
  ],
  "Los documentos no tienen esquema fijo: el campo {0}.{1} no se agrega a los documentos que ya existen.": [
   "crates/drivers/cosmosdb/src/sync.rs",
@@ -11157,6 +11464,9 @@
  "Los enteros son de 8 bytes: el valor queda como FLOAT y pierde precisión pasados los 15 dígitos.": [
   "crates/dbine-schema/src/dialect/graph.rs"
  ],
+ "Los hints que nombran el índice (/*+ INDEX(…) */) son comentarios y no se actualizan: hay que revisarlos a mano.": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
  "Los incrementales piden el parámetro TRACKMOD de la base en YES.": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -11178,11 +11488,17 @@
  "Los roles y permisos de Memgraph requieren la edición Enterprise. ({0})": [
   "crates/drivers/neo4j/src/security.rs"
  ],
+ "Los search_path (de usuarios, bases o funciones) que nombren «{0}» no se actualizan.": [
+  "crates/drivers/postgres/src/rename.rs"
+ ],
  "Los snapshots quedan en un repositorio registrado en el cluster (una carpeta compartida listada en path.repo de cada nodo, o S3, GCS, Azure…). Sin repositorio, se puede registrar uno de tipo fs desde las opciones.": [
   "crates/drivers/elasticsearch/src/backup.rs"
  ],
  "Los snapshots se guardan en un repositorio (CREATE REPOSITORY): el tipo fs necesita que la carpeta esté en path.repo del crate.yml de cada nodo; también hay s3, azure, gcs y url. Abarcan todo el clúster o las tablas elegidas. Para restaurar, las tablas no pueden existir: borralas antes.": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "Los streams externos y los diccionarios que leen este stream por nombre no se detectan: hay que revisarlos.": [
+  "crates/drivers/clickhouse/src/rename.rs"
  ],
  "Los tamaños de almacenamiento se actualizan cada {0} minutos{1}.": [
   "crates/drivers/bigquery/src/monitor.rs"
@@ -11217,11 +11533,21 @@
  "Los índices parciales (con filtro WHERE) no muestran escrituras: PostgreSQL cuenta las de la tabla, no cuántas filas cumplen el filtro de cada índice, así que nunca se marcan «sin uso».": [
   "crates/drivers/postgres/src/index_usage.rs"
  ],
+ "Los índices que usan el campo se borran antes y se vuelven a crear después con el campo nuevo: {0}. Mientras tanto las consultas no los usan y los únicos no controlan duplicados.": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "Los índices que usan el campo se borran después del UPDATE y se vuelven a crear con el campo nuevo: {0}.": [
+  "crates/drivers/couchbase/src/rename.rs"
+ ],
  "Los índices tienen estadísticas calculadas": [
   "crates/drivers/firebird/src/health.rs"
  ],
  "Los índices van en minúsculas y sin caracteres especiales: «{0}» pasa a «{1}».": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "Los índices, restricciones y secuencias de la tabla conservan sus nombres (por ejemplo, «…_pkey»).": [
+  "crates/drivers/dsql/src/rename.rs",
+  "crates/drivers/postgres/src/rename.rs"
  ],
  "Los ítems no tienen esquema fijo: el atributo {0}.{1} no se agrega a los ítems que ya existen.": [
   "crates/drivers/dynamodb/src/sync.rs"
@@ -12196,8 +12522,20 @@
  "MongoDB no permite deshabilitar el ingreso de un usuario: sacale los roles o borralo": [
   "crates/drivers/mongodb/src/security.rs"
  ],
+ "MongoDB no renombra bases de datos": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "MongoDB no renombra índices: hay que borrarlo y crearlo con el nombre nuevo": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "MongoDB no tiene DDL transaccional: cada paso se confirma solo. Las colecciones se renombran con renameCollection y conservan sus documentos e índices; las vistas no se pueden renombrar, así que se borran y se crean con el nombre nuevo y el mismo pipeline (no guardan datos). Las vistas que las usan se reescriben (viewOn, $lookup, $graphLookup, $unionWith, $out, $merge) y se vuelven a crear. Los roles con privilegios sobre el nombre viejo no se actualizan, y las colecciones de series temporales no se pueden renombrar.": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
  "MongoDB no tiene permisos «con opción de otorgar»: para que alguien otorgue roles, dale userAdmin o un rol con la acción grantRole": [
   "crates/drivers/mongodb/src/security.rs"
+ ],
+ "MongoDB no tiene restricciones con nombre": [
+  "crates/drivers/mongodb/src/rename.rs"
  ],
  "MongoDB no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/mongodb.rs"
@@ -12312,6 +12650,12 @@
  "MySQL no indexa columnas JSON: se omite el índice.": [
   "crates/dbine-schema/src/dialect/mysql.rs"
  ],
+ "MySQL no renombra bases de datos": [
+  "crates/drivers/mysql/src/rename.rs"
+ ],
+ "MySQL no renombra restricciones: hay que borrarlas y crearlas con el nombre nuevo": [
+  "crates/drivers/mysql/src/rename.rs"
+ ],
  "MySQL no restaura una clonación por SQL: se arranca el servidor con --datadir en esa carpeta": [
   "crates/drivers/mysql/src/backup.rs"
  ],
@@ -12323,6 +12667,9 @@
  ],
  "MySQL no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/mysql.rs"
+ ],
+ "MySQL solo renombra tablas y vistas; las rutinas y los triggers se crean con el nombre nuevo": [
+  "crates/drivers/mysql/src/rename.rs"
  ],
  "Más de un 20 % de filas muertas: la tabla ocupa más de lo que necesita y las lecturas recorren filas que ya no existen. Si se repite, autovacuum no alcanza: revisá transacciones largas o bajá autovacuum_vacuum_scale_factor de esas tablas.": [
   "crates/drivers/postgres/src/health.rs"
@@ -12965,6 +13312,10 @@
   "crates/drivers/dremio/src/lib.rs",
   "crates/drivers/dremio/src/properties.rs"
  ],
+ "No se leyó la firma de «{0}»: si tiene sobrecargas, el motor pide indicar sus argumentos.": [
+  "crates/drivers/dsql/src/rename.rs",
+  "crates/drivers/postgres/src/rename.rs"
+ ],
  "No se modifica": [
   "crates/drivers/cassandra/src/properties.rs"
  ],
@@ -13256,6 +13607,9 @@
  "No se pudo leer _Sql_Qplan: {0}": [
   "crates/drivers/odbc/src/explain.rs"
  ],
+ "No se pudo leer a qué índices apunta el alias «{0}».": [
+  "crates/drivers/elasticsearch/src/rename.rs"
+ ],
  "No se pudo leer el CPU ni la memoria de los tservers (yb_servers_metrics)": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -13343,6 +13697,15 @@
  "No se pudo leer la contraseña guardada en el llavero del sistema ({0}). Si macOS te pide acceso, se usa la contraseña de tu usuario de Mac y conviene elegir «Permitir siempre». Mientras tanto, escribí la contraseña de la base:": [
   "src-tauri/src/state.rs"
  ],
+ "No se pudo leer la definición de «{0}»: si tiene alias, se pierden al borrarlo y hay que volver a crearlos sobre «{1}».": [
+  "crates/drivers/elasticsearch/src/rename.rs"
+ ],
+ "No se pudo leer la definición de «{0}»: sin ella no se puede crear con el nombre nuevo.": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "No se pudo leer la definición de «{0}»: sin los tipos de sus argumentos Snowflake no sabe cuál renombrar.": [
+  "crates/drivers/snowflake/src/rename.rs"
+ ],
  "No se pudo leer la estructura de la base ({0}): se copia solo «{1}», sin seguir claves foráneas.": [
   "src-tauri/src/commands/subset/mod.rs"
  ],
@@ -13427,6 +13790,12 @@
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "No se pudo leer «{0}»: no se revisaron sus índices ni su validador.": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "No se pudo leer «{0}»: no se revisaron sus índices.": [
+  "crates/drivers/couchbase/src/rename.rs"
+ ],
  "No se pudo leer «{0}»: {1}": [
   "crates/drivers/sqlite/src/monitor.rs"
  ],
@@ -13494,14 +13863,26 @@
  "No se puede leer system.query_log ({0}): se muestrean las consultas en curso.": [
   "crates/drivers/clickhouse/src/profiler.rs"
  ],
+ "No se puede renombrar la columna «{0}»: es parte de una clave de la tabla (de ordenamiento, primaria, de partición o de muestreo).": [
+  "crates/drivers/clickhouse/src/rename.rs"
+ ],
+ "No se puede renombrar la columna «{0}»: la lee una vista materializada, que dejaría de cargar filas. Hay que cambiar o borrar la vista antes.": [
+  "crates/drivers/clickhouse/src/rename.rs"
+ ],
  "No se pueden listar los repositorios": [
   "crates/drivers/mysql/src/backup.rs"
  ],
  "No se pueden listar los trabajos de backup de TiDB": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "No se reconoce el encabezado CREATE de «{0}».": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
  "No se reconoce el tipo «{0}»: queda igual y hay que revisarlo.": [
   "crates/dbine-schema/src/convert.rs"
+ ],
+ "No se reconocen los argumentos de «{0}» en su definición.": [
+  "crates/drivers/snowflake/src/rename.rs"
  ],
  "No tiene: lo tiene cada contenedor, o la cuenta es serverless. No hay nada para cambiar acá.": [
   "crates/drivers/cosmosdb/src/properties.rs"
@@ -14521,6 +14902,9 @@
  "Oracle anterior a 12.2 no cuenta cuántas veces se usa cada índice.": [
   "crates/drivers/oracle/src/index_usage.rs"
  ],
+ "Oracle confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. Las vistas y el código que nombran el objeto quedan inválidos hasta que se reponen; al final, el script vuelve a compilar el esquema para que lo que depende de lo repuesto quede válido. Los hints (/*+ … */) son comentarios y no se modifican.": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
  "Oracle cuenta los accesos a cada índice sin distinguir búsquedas de recorridos completos": [
   "crates/drivers/oracle/src/index_usage.rs"
  ],
@@ -14529,6 +14913,18 @@
  ],
  "Oracle no admite «{0}» en {1} (hasta unos {2} bytes): pasa a {3}.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
+ "Oracle no renombra objetos de tipo «{0}».": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "Oracle no renombra procedimientos, funciones ni paquetes: se crea «{0}» con el nombre nuevo y se borra «{1}». Se pierden los permisos otorgados sobre el objeto viejo.": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "Oracle no renombra sinónimos públicos: hay que borrarlo y crearlo con el nombre nuevo.": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "Oracle no renombra usuarios (esquemas).": [
+  "crates/drivers/oracle/src/rename.rs"
  ],
  "Oracle no tiene arreglos ni mapas en columnas: se guarda como JSON.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
@@ -14547,6 +14943,9 @@
  ],
  "Oracle no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
+ "Oracle renombra vistas, secuencias y sinónimos solo en el esquema del usuario conectado: el script se detiene si la conexión no es la de {0}.": [
+  "crates/drivers/oracle/src/rename.rs"
  ],
  "Oracle reutilizó un cursor sin estadísticas de ejecución; el plan no trae cifras reales: {0}": [
   "crates/drivers/oracle/src/lib.rs"
@@ -14579,6 +14978,9 @@
   "crates/drivers/influxdb/src/properties.rs",
   "crates/drivers/influxdb/src/v2.rs"
  ],
+ "OrientDB no admite «{0}» en el nombre de una propiedad": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
  "OrientDB no lleva la cuenta del uso de cada índice: se listan sin contadores.": [
   "crates/drivers/orientdb/src/index_usage.rs"
  ],
@@ -14599,6 +15001,9 @@
  ],
  "OrientDB no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "OrientDB renombra la clase con ALTER CLASS … NAME y la propiedad con ALTER PROPERTY … NAME. Sus índices se borran antes y se vuelven a crear después, porque el motor no los actualiza. Cada sentencia corre por separado: si una falla, lo anterior queda hecho. Lo que nombre la clase o la propiedad en funciones o en la aplicación hay que cambiarlo a mano.": [
+  "crates/drivers/orientdb/src/rename.rs"
  ],
  "Origen": [
   "crates/drivers/dremio/src/security.rs",
@@ -15274,6 +15679,9 @@
  "Presto no asigna dueño a un esquema": [
   "crates/drivers/trino/src/lib.rs"
  ],
+ "Presto no renombra vistas materializadas": [
+  "crates/drivers/trino/src/rename.rs"
+ ],
  "Presto solo borra esquemas vacíos (no tiene CASCADE)": [
   "crates/drivers/trino/src/lib.rs"
  ],
@@ -15612,6 +16020,15 @@
  "REGION necesita al menos 3 regiones.": [
   "crates/drivers/postgres/src/create_db.rs",
   "crates/drivers/postgres/src/properties.rs"
+ ],
+ "RENAME INDEX necesita MySQL 5.7 o MariaDB 10.5 en adelante; en versiones anteriores el servidor rechaza la sentencia.": [
+  "crates/drivers/mysql/src/rename.rs"
+ ],
+ "RENAME solo renombra objetos del propio esquema: para renombrar «{0}» el esquema actual tiene que ser el del usuario conectado.": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "RENAME solo renombra objetos del propio esquema: para renombrar «{0}» hay que conectarse como el usuario {1}.": [
+  "crates/drivers/oracle/src/rename.rs"
  ],
  "RESTRICTED deja las réplicas de las tablas regionales solo en su región.": [
   "crates/drivers/postgres/src/properties.rs"
@@ -16007,6 +16424,18 @@
  ],
  "Rendimiento compartido de la base": [
   "crates/drivers/cosmosdb/src/monitor.rs"
+ ],
+ "Renombra la clave con RENAMENX: si ya existe una clave con el nombre nuevo, falla sin pisarla. Conserva el valor y el TTL. El servidor no guarda nada que nombre la clave; lo que la use desde una aplicación hay que cambiarlo a mano.": [
+  "crates/drivers/redis/src/rename.rs"
+ ],
+ "Renombrar un campo reescribe cada documento de «{0}» que lo tiene (updateMany con $rename): en una colección grande tarda y carga el oplog. No es atómico: si se corta, volver a correrlo termina el trabajo.": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "Renombrar un campo reescribe cada documento de «{0}» que lo tiene: en una colección grande tarda. No es atómico: si se corta, volver a correrlo termina el trabajo.": [
+  "crates/drivers/couchbase/src/rename.rs"
+ ],
+ "Renombrar una columna necesita una tabla Delta con column mapping (delta.columnMapping.mode = 'name' o 'id'); si no lo tiene, Databricks rechaza la sentencia y el script se detiene antes de tocar nada. Se activa con ALTER TABLE … SET TBLPROPERTIES ('delta.columnMapping.mode' = 'name'), que puede afectar a quienes leen la tabla por streaming o con change data feed.": [
+  "crates/drivers/databricks/src/rename.rs"
  ],
  "Renombrarlo y empezar uno nuevo": [
   "crates/drivers/odbc/src/backup.rs"
@@ -16578,8 +17007,20 @@
  "Réplicas por shard (n)": [
   "crates/drivers/couchdb/src/monitor.rs"
  ],
+ "SAP HANA no actualiza las vistas, procedimientos y funciones que usan el nombre viejo: quedan inválidos hasta que se reponen con CREATE OR REPLACE. En una versión de HANA sin CREATE OR REPLACE ese paso falla y hay que borrarlos y crearlos a mano.": [
+  "crates/drivers/hana/src/rename.rs"
+ ],
  "SAP HANA no registra cuántas veces se usa cada índice: se listan los índices con sus columnas (y el tamaño de los de tablas row store), sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
   "crates/drivers/hana/src/index_usage.rs"
+ ],
+ "SAP HANA no renombra esquemas.": [
+  "crates/drivers/hana/src/rename.rs"
+ ],
+ "SAP HANA no renombra restricciones.": [
+  "crates/drivers/hana/src/rename.rs"
+ ],
+ "SAP HANA solo renombra tablas (RENAME TABLE): las vistas, procedimientos y funciones no se renombran.": [
+  "crates/drivers/hana/src/rename.rs"
  ],
  "SAP MaxDB no deshabilita la clave primaria: no es un índice aparte, es la clave de la tabla.": [
   "crates/drivers/odbc/src/index_usage.rs"
@@ -16656,6 +17097,9 @@
  "SQL Server no borra un esquema con su contenido: primero hay que borrar o mover sus objetos": [
   "crates/drivers/sqlserver/src/security.rs"
  ],
+ "SQL Server no deja renombrar «{0}» porque la usa la columna calculada {1}: hay que quitar la columna calculada, renombrar y volver a crearla": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
  "SQL Server no guarda la zona horaria de una hora.": [
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
@@ -16694,6 +17138,9 @@
  ],
  "SQLite aceptó los cambios pero no aplicó todos: {0}": [
   "crates/drivers/sqlite/src/lib.rs"
+ ],
+ "SQLite actualiza por sí solo las vistas, los triggers, los índices, los CHECK y las claves foráneas que usan la tabla o la columna. Si alguna vista de la base ya está rota (usa una tabla o una columna que no existe), SQLite rechaza el cambio: corregila o borrala antes. Las vistas, los triggers y los índices se renombran creándolos con el nombre nuevo y borrando los anteriores; lo que usa una vista renombrada no se actualiza solo: DBine lo reescribe.": [
+  "crates/drivers/sqlite/src/rename.rs"
  ],
  "SQLite es una base embebida en un archivo: no hay un servidor con sesiones de otros clientes que listar ni consultas ajenas que cancelar": [
   "crates/drivers/sqlite/src/lib.rs"
@@ -16906,6 +17353,12 @@
  "Se borran y se vuelven a crear las vistas que usan las tablas modificadas: {0}.": [
   "src-tauri/src/commands/compare.rs"
  ],
+ "Se borran y se vuelven a crear los índices {0}: OrientDB no los actualiza solo y se reconstruyen con todos los registros.": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
+ "Se borran y se vuelven a crear {0}: se pierden los permisos otorgados sobre ellos.": [
+  "src-tauri/src/commands/rename.rs"
+ ],
  "Se borran {0}: revisá que nada más dependa de ellos.": [
   "src-tauri/src/commands/compare.rs"
  ],
@@ -16987,6 +17440,18 @@
  ],
  "Se puede borrar (ALLOW_DROP)": [
   "crates/drivers/tdengine/src/properties.rs"
+ ],
+ "Se reescriben los registros de {0} (y de sus subclases): el valor pasa de «{1}» a «{2}».": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
+ "Se reescriben los vértices unidos por aristas de «{0}»: sus campos out_{1} / in_{2} pasan a out_{3} / in_{4}, para que los recorridos sigan encontrándolas.": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
+ "Se renombra con sp_rename, que solo renombra objetos del usuario conectado. El texto guardado de las vistas y procedimientos sigue con el nombre viejo: los que se reescriben se borran y se vuelven a crear.": [
+  "crates/drivers/odbc/src/rename.rs"
+ ],
+ "Se renombra con sp_rename. Las claves foráneas, los índices y las restricciones siguen al objeto solos; el texto de las vistas, procedimientos, funciones y triggers que lo nombran no cambia, así que se reescribe y se repone con CREATE OR ALTER, que conserva los permisos.": [
+  "crates/drivers/sqlserver/src/rename.rs"
  ],
  "Se restaura desde su backup completo, que incluye los incrementales": [
   "crates/drivers/postgres/src/backup.rs"
@@ -17386,6 +17851,15 @@
  "Si la base ya supera la nueva cuota, se rechazan las cargas e inserciones nuevas hasta liberar espacio.": [
   "crates/drivers/mysql/src/properties.rs"
  ],
+ "Si la clase tiene índices, OrientDB rechaza el cambio: borralos antes y volvé a crearlos después.": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
+ "Si la columna es parte de una restricción UNIQUE, Firebird rechaza el cambio.": [
+  "crates/drivers/firebird/src/rename.rs"
+ ],
+ "Si la restricción tiene un índice propio (clave primaria o única), el índice también cambia de nombre.": [
+  "crates/drivers/dsql/src/rename.rs"
+ ],
  "Si la retención nueva es más corta, se borran los datos más viejos que ella en la próxima pasada de retención.": [
   "crates/drivers/influxdb/src/properties.rs"
  ],
@@ -17454,6 +17928,18 @@
  ],
  "Si se indica, la tabla se convierte en hypertable (create_hypertable).": [
   "crates/drivers/postgres/src/design.rs"
+ ],
+ "Si un paso falla, «{0}» queda bloqueado para escritura; se desbloquea con PUT /{1}/_settings y el cuerpo {\"index.blocks.write\": false}.": [
+  "crates/drivers/elasticsearch/src/rename.rs"
+ ],
+ "Si un tópico usa el tag, el servidor rechaza el cambio: hay que borrarlo, renombrar y volver a crearlo con el nombre nuevo.": [
+  "crates/drivers/tdengine/src/rename.rs"
+ ],
+ "Si un tópico usa la columna, el servidor rechaza el cambio: hay que borrarlo, renombrar y volver a crearlo con el nombre nuevo.": [
+  "crates/drivers/tdengine/src/rename.rs"
+ ],
+ "Si una vista materializada usa la columna, el servidor rechaza el cambio: hay que borrar la vista, renombrar y volver a crearla.": [
+  "crates/drivers/cassandra/src/rename.rs"
  ],
  "Siempre el primero (default)": [
   "crates/drivers/orientdb/src/properties.rs"
@@ -17882,6 +18368,9 @@
  "Snowflake admite hasta 38 dígitos; el origen tiene {0}.": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
  ],
+ "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. No actualiza las vistas ni el código que nombran lo renombrado: DBine los vuelve a crear con CREATE OR REPLACE, que no conserva los permisos otorgados sobre ellos (no se agrega COPY GRANTS).": [
+  "crates/drivers/snowflake/src/rename.rs"
+ ],
  "Snowflake necesita un warehouse para listar las consultas en curso: la conexión no tiene uno": [
   "crates/drivers/snowflake/src/processes.rs"
  ],
@@ -17903,6 +18392,12 @@
  "Snowflake no lleva contadores de uso ni tamaño por índice: se listan los índices de la tabla híbrida sin lecturas ni escrituras.": [
   "crates/drivers/snowflake/src/index_usage.rs"
  ],
+ "Snowflake no renombra objetos de tipo «{0}» desde DBine.": [
+  "crates/drivers/snowflake/src/rename.rs"
+ ],
+ "Snowflake no renombra restricciones.": [
+  "crates/drivers/snowflake/src/rename.rs"
+ ],
  "Snowflake no tiene cadenas de bits: se guarda como binario.": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
  ],
@@ -17917,6 +18412,9 @@
  ],
  "Snowflake no tiene índices (usa micro-particiones y clustering).": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
+ ],
+ "Snowflake no tiene índices que se puedan renombrar.": [
+  "crates/drivers/snowflake/src/rename.rs"
  ],
  "Snowflake no tiene índices: se omite {0}.{1}.": [
   "crates/drivers/snowflake/src/sync.rs"
@@ -17990,6 +18488,9 @@
  "Solo en instancias multirregión: la región que recibe las escrituras. Vacío: la de la configuración.": [
   "crates/drivers/spanner/src/create_db.rs"
  ],
+ "Solo en modo standalone: el core se renombra con CoreAdmin RENAME y su carpeta en el disco conserva el nombre anterior. En SolrCloud las colecciones no se renombran.": [
+  "crates/drivers/solr/src/rename.rs"
+ ],
  "Solo estos dos quedan guardados en el archivo; TRUNCATE, PERSIST, MEMORY y OFF valen solo para la conexión que los pone.": [
   "crates/drivers/sqlite/src/properties.rs"
  ],
@@ -17998,6 +18499,9 @@
  ],
  "Solo hay puntos espaciales: la geometría queda como texto (WKT).": [
   "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "Solo las bases de datos con el motor Atomic se pueden renombrar; con otro motor, ClickHouse lo rechaza. También lo rechaza si un diccionario lee una de sus tablas.": [
+  "crates/drivers/clickhouse/src/rename.rs"
  ],
  "Solo las claves": [
   "crates/drivers/dynamodb/src/ddl.rs"
@@ -18058,6 +18562,9 @@
  ],
  "Solo registra la versión nueva: los índices sobre textos creados con la versión anterior pueden estar mal ordenados y conviene reconstruirlos (REINDEX) antes.": [
   "crates/drivers/postgres/src/properties.rs"
+ ],
+ "Solo se renombran índices y alias.": [
+  "crates/drivers/elasticsearch/src/rename.rs"
  ],
  "Solo se ven las conexiones del frontend al que está conectado DBine.": [
   "crates/drivers/mysql/src/profiler.rs"
@@ -18125,6 +18632,9 @@
  "Solr no lleva una lista de las consultas en curso ni de sesiones: su gestión de tareas (/tasks/list) solo ve, núcleo por núcleo, las consultas que se enviaron con canCancel=true": [
   "crates/drivers/solr/src/lib.rs"
  ],
+ "Solr no renombra campos: hay que agregar el campo nuevo al esquema y reindexar los documentos.": [
+  "crates/drivers/solr/src/rename.rs"
+ ],
  "Solr no tiene arreglos anidados: cada elemento queda como texto.": [
   "crates/dbine-schema/src/dialect/solr.rs"
  ],
@@ -18145,6 +18655,9 @@
  ],
  "Solr no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "Solr solo renombra cores (en modo standalone).": [
+  "crates/drivers/solr/src/rename.rs"
  ],
  "Solr {0}: hay que reescribir la lista entera. Hacelo desde la consola, partiendo de GET {1}": [
   "crates/drivers/solr/src/security.rs"
@@ -18169,7 +18682,7 @@
  "Sos un asistente de SQL Server. Esquema:\nclientes(id int PK, nombre nvarchar(120), ciudad nvarchar(80))\npedidos(id int PK, cliente_id int FK->clientes.id, fecha date, total decimal(14,2))\nRespondé con un bloque ```sql y una línea de explicación.": [
   "crates/dbine-ai/examples/ask.rs"
  ],
- "Sos un experto en rendimiento de {0}. Te paso una consulta ({1}), la estructura de las tablas que usa y un resumen de su plan de ejecución.\nProponé como máximo {2} reescrituras EQUIVALENTES que puedan ser más rápidas en {3}:\n- Equivalente quiere decir que devuelve exactamente las mismas filas y columnas, en el mismo orden de columnas, y en el mismo orden de filas si la original tiene ORDER BY. Cuidá los NULL, los duplicados y los tipos.\n- No agregues ni quites filtros, no cambies límites de filas, no uses tablas o columnas que no estén en la estructura.\n- No propongas crear índices ni cambiar la estructura: solo reescrituras de la consulta.\n- Si no ves ninguna mejora real, respondé solo NINGUNA.\nRespondé SOLO con este formato, sin texto antes ni después:\n<alternativa>\n<titulo>qué cambia, en pocas palabras</titulo>\n<explicacion>por qué puede ser más rápida, en una o dos oraciones</explicacion>\n<consulta>\nla consulta completa\n</consulta>\n</alternativa>\nEscribí el título y la explicación en español.": [
+ "Sos un experto en rendimiento de {0}. Te paso una consulta ({1}), la estructura de las tablas que usa y un resumen de su plan de ejecución.\nProponé como máximo {2} reescrituras EQUIVALENTES que puedan ser más rápidas en {3}:\n- Equivalente quiere decir que devuelve exactamente las mismas filas y columnas, en el mismo orden de columnas, y en el mismo orden de filas si la original tiene ORDER BY. Cuidá los NULL, los duplicados y los tipos.\n- No agregues ni quites filtros, no cambies límites de filas, no uses tablas o columnas que no estén en la estructura.\n- No propongas crear índices ni cambiar la estructura: solo reescrituras de la consulta.\n- Si no ves ninguna mejora real, respondé solo NINGUNA.\nRespondé SOLO con este formato, sin texto antes ni después:\n<alternativa>\n<titulo>qué cambia, en pocas palabras</titulo>\n<explicacion>por qué puede ser más rápida, en una o dos oraciones</explicacion>\n<consulta>\nla consulta completa\n</consulta>\n</alternativa>\nEscribí el título y la explicación en {4}.": [
   "src-tauri/src/optimizer/ai.rs"
  ],
  "Sosa": [
@@ -18182,7 +18695,8 @@
   "src-tauri/src/commands/datagen.rs"
  ],
  "Spanner": [
-  "crates/dbine-core/src/conn_import/mod.rs"
+  "crates/dbine-core/src/conn_import/mod.rs",
+  "crates/drivers/spanner/src/rename.rs"
  ],
  "Spanner devolvió filas sin sus columnas.": [
   "crates/drivers/spanner/src/transfer.rs"
@@ -18228,6 +18742,9 @@
  ],
  "Spanner no permite que un rol otorgue a otros sus permisos (no hay WITH GRANT OPTION)": [
   "crates/drivers/spanner/src/security.rs"
+ ],
+ "Spanner no renombra una tabla mientras una vista la use: DBine borra esas vistas antes del cambio y las vuelve a crear después. Índices, claves foráneas, tablas intercaladas y change streams siguen a la tabla solos. Cada sentencia DDL se aplica por separado: si una falla, las anteriores quedan aplicadas.": [
+  "crates/drivers/spanner/src/rename.rs"
  ],
  "Spanner no tiene arreglos de arreglos: se guarda como JSON.": [
   "crates/dbine-schema/src/dialect/spanner.rs"
@@ -18517,6 +19034,18 @@
  "TDengine no puede guardar {0} (NaN ni infinito) en FLOAT ni DOUBLE; guardarlo como NULL perdería el valor": [
   "crates/drivers/tdengine/src/transfer.rs"
  ],
+ "TDengine no renombra bases de datos.": [
+  "crates/drivers/tdengine/src/rename.rs"
+ ],
+ "TDengine no renombra tablas: hay que crear una con el nombre nuevo y copiar los datos.": [
+  "crates/drivers/tdengine/src/rename.rs"
+ ],
+ "TDengine no renombra vistas, streams ni tópicos: hay que crearlos con el nombre nuevo y borrar los anteriores.": [
+  "crates/drivers/tdengine/src/rename.rs"
+ ],
+ "TDengine no renombra índices: hay que borrarlo y crearlo con el nombre nuevo.": [
+  "crates/drivers/tdengine/src/rename.rs"
+ ],
  "TDengine no tiene arreglos ni mapas: se guarda como texto JSON.": [
   "crates/dbine-schema/src/dialect/tdengine.rs"
  ],
@@ -18535,6 +19064,9 @@
  "TDengine no tiene intervalos: queda como texto.": [
   "crates/dbine-schema/src/dialect/tdengine.rs"
  ],
+ "TDengine no tiene restricciones con nombre.": [
+  "crates/drivers/tdengine/src/rename.rs"
+ ],
  "TDengine no tiene roles: los permisos se otorgan a cada usuario": [
   "crates/drivers/tdengine/src/security.rs"
  ],
@@ -18549,6 +19081,9 @@
  ],
  "TDengine solo borra por rango de tiempo: con una clave compuesta el borrado se llevaría también las otras filas de esa marca de tiempo": [
   "crates/drivers/tdengine/src/ddl.rs"
+ ],
+ "TDengine solo renombra los tags de una supertabla; «{0}» es una columna. Las columnas se renombran solo en tablas comunes.": [
+  "crates/drivers/tdengine/src/rename.rs"
  ],
  "TIME de Phoenix guarda milisegundos.": [
   "crates/dbine-schema/src/dialect/phoenix.rs"
@@ -18992,6 +19527,9 @@
  "Teradata admite hasta 38 dígitos; el origen tiene {0}.": [
   "crates/dbine-schema/src/dialect/teradata.rs"
  ],
+ "Teradata no actualiza las vistas, macros ni procedimientos que usan el nombre viejo: los que se reescriben se borran y se vuelven a crear.": [
+  "crates/drivers/odbc/src/rename.rs"
+ ],
  "Teradata no tiene BOOLEAN: se usa BYTEINT (0/1).": [
   "crates/dbine-schema/src/dialect/teradata.rs"
  ],
@@ -19248,6 +19786,9 @@
  ],
  "Timeplus Proton no muestra las propiedades de una base": [
   "crates/drivers/clickhouse/src/properties.rs"
+ ],
+ "Timeplus Proton no renombra un stream ni sus columnas mientras haya vistas que lo usan: DBine las borra antes y las vuelve a crear después. Una vista materializada creada de nuevo pierde lo que guardaba y vuelve a leer desde el punto en que se crea. No se renombran columnas de la clave del stream.": [
+  "crates/drivers/clickhouse/src/rename.rs"
  ],
  "Timeplus Proton no tiene backups propios que se puedan restaurar": [
   "crates/drivers/clickhouse/src/lib.rs"
@@ -19574,6 +20115,12 @@
  "Trino admite hasta 38 dígitos; el origen tiene {0}.": [
   "crates/dbine-schema/src/dialect/trino.rs"
  ],
+ "Trino guarda los nombres en minúsculas: escribí el nombre nuevo como «{0}»": [
+  "crates/drivers/trino/src/rename.rs"
+ ],
+ "Trino no renombra restricciones": [
+  "crates/drivers/trino/src/rename.rs"
+ ],
  "Trino no tiene cadenas de bits: se guarda como binario.": [
   "crates/dbine-schema/src/dialect/trino.rs"
  ],
@@ -19591,6 +20138,9 @@
  ],
  "Trino no tiene versión de fila automática.": [
   "crates/dbine-schema/src/dialect/trino.rs"
+ ],
+ "Trino no tiene índices": [
+  "crates/drivers/trino/src/rename.rs"
  ],
  "True": [
   "crates/drivers/cosmosdb/src/lib.rs",
@@ -19776,6 +20326,12 @@
  "Un backup es un esquema nuevo del catálogo con una copia completa (DEEP CLONE) de cada tabla Delta del esquema: los datos quedan en el almacenamiento del catálogo. Las vistas, funciones y tablas que no son Delta no se copian. Los scripts usan SQL scripting (Databricks SQL o DBR 16.3 o posterior). Cada tabla también guarda sus versiones: DESCRIBE HISTORY y RESTORE TABLE … TO VERSION AS OF desde el editor.": [
   "crates/drivers/databricks/src/backup.rs"
  ],
+ "Un clúster no tiene bases de datos que renombrar.": [
+  "crates/drivers/elasticsearch/src/rename.rs"
+ ],
+ "Un data stream no se renombra: hay que crear uno nuevo y reindexar sus documentos.": [
+  "crates/drivers/elasticsearch/src/rename.rs"
+ ],
  "Un disco listado en backups.allowed_disk de la configuración del servidor.": [
   "crates/drivers/clickhouse/src/backup.rs"
  ],
@@ -19875,6 +20431,9 @@
  ],
  "Un índice inactivo no se usa ni se mantiene. Si ya no hace falta, borralo; si sí, activarlo lo reconstruye.": [
   "crates/drivers/firebird/src/health.rs"
+ ],
+ "Un índice no se renombra en el lugar: se bloquea su escritura, se clona con el nombre nuevo (_clone), se espera a que la copia esté activa y se borra el original, pasándole sus alias a la copia en el mismo paso. Un alias se quita y se vuelve a crear con el nombre nuevo en un solo paso atómico. Los campos no se renombran: hace falta reindexar en un índice nuevo.": [
+  "crates/drivers/elasticsearch/src/rename.rs"
  ],
  "Un índice que nunca se lee solo cuesta en cada escritura. Antes de borrarlo, tené en cuenta procesos de fin de mes o reportes ocasionales, y que en un grupo de disponibilidad cada réplica cuenta por separado.": [
   "crates/drivers/sqlserver/src/health.rs"
@@ -20796,6 +21355,9 @@
  ],
  "Vertica mide el texto en bytes: {0} caracteres pasan a {1} bytes (UTF-8).": [
   "crates/dbine-schema/src/dialect/vertica.rs"
+ ],
+ "Vertica no actualiza las vistas ni los procedimientos que usan el nombre viejo: se reponen con CREATE OR REPLACE. Cada cambio se confirma solo.": [
+  "crates/drivers/odbc/src/rename.rs"
  ],
  "Vertica no tiene cadenas de bits: se guardan como binario.": [
   "crates/dbine-schema/src/dialect/vertica.rs"
@@ -21778,6 +22340,9 @@
  "descripción": [
   "crates/drivers/elasticsearch/src/monitor.rs"
  ],
+ "desde DBine este motor solo renombra colecciones, vistas y campos": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
  "desde caché": [
   "crates/drivers/bigquery/src/profiler.rs"
  ],
@@ -22036,6 +22601,9 @@
  ],
  "el backup {0} es de {1}: DBine restaura cada backup en su propio tenant": [
   "crates/drivers/hana/src/backup.rs"
+ ],
+ "el campo _id no se puede renombrar": [
+  "crates/drivers/mongodb/src/rename.rs"
  ],
  "el campo «{0}» de la colección de destino no se guarda (stored=false y sin docValues): Solr aceptaría el valor y lo descartaría, así que después se leería como NULL. Cambiá el campo a stored=true o dejalo fuera de la carga.": [
   "crates/drivers/solr/src/transfer.rs"
@@ -22446,8 +23014,14 @@
  "el nombre no puede contener «$$»": [
   "crates/drivers/snowflake/src/security.rs"
  ],
+ "el nombre nuevo es igual al actual": [
+  "src-tauri/src/commands/rename.rs"
+ ],
  "el nombre nuevo es igual al de la tabla original": [
   "crates/dbine-transfer/src/clone_table.rs"
+ ],
+ "el nombre nuevo está vacío": [
+  "src-tauri/src/commands/rename.rs"
  ],
  "el nombre «{0}» es demasiado largo para {1}: admite hasta {2} bytes y tiene {3}{4}": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -23049,11 +23623,17 @@
  "en Oracle la contraseña no puede tener comillas dobles (\")": [
   "crates/drivers/oracle/src/security.rs"
  ],
+ "en OrientDB solo se renombran clases y propiedades": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
  "en Phoenix no se puede cambiar la clave primaria con UPSERT: crearía otra fila": [
   "crates/drivers/phoenix/src/ddl.rs"
  ],
  "en Phoenix un esquema no tiene dueño: otorgá permisos sobre él": [
   "crates/drivers/phoenix/src/ddl.rs"
+ ],
+ "en Redis solo se renombran claves": [
+  "crates/drivers/redis/src/rename.rs"
  ],
  "en Redshift el dueño de un esquema tiene que ser un usuario, no un grupo": [
   "crates/drivers/postgres/src/schemas.rs"
@@ -23151,6 +23731,9 @@
  "en un motor de grafos, los nodos de una etiqueta no se copian sin sus relaciones": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "en una colección de series temporales no se puede renombrar el campo de tiempo ni el de metadatos": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
  "en una supertabla el borrado alcanza a todas sus subtablas: la clave tiene que incluir tbname": [
   "crates/drivers/tdengine/src/ddl.rs"
  ],
@@ -23238,8 +23821,17 @@
  "es demasiado chico para {0} (se cargaría como 0)": [
   "crates/drivers/athena/src/transfer.rs"
  ],
+ "es la columna de partición": [
+  "crates/drivers/bigquery/src/rename.rs"
+ ],
+ "es parte de una clave primaria o foránea": [
+  "crates/drivers/bigquery/src/rename.rs"
+ ],
  "es una base de archivos sin servidor: no tiene sesiones que listar": [
   "crates/drivers/odbc/src/processes.rs"
+ ],
+ "es una columna de clustering": [
+  "crates/drivers/bigquery/src/rename.rs"
  ],
  "es una hypertable de TimescaleDB: el clon sería una tabla común, sin su partición por tiempo ni sus chunks": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
@@ -23259,6 +23851,9 @@
  "esa carpeta ya está vinculada como proyecto": [
   "crates/dbine-core/src/state.rs",
   "src-tauri/src/commands/projects.rs"
+ ],
+ "esa clase de objeto": [
+  "crates/drivers/odbc/src/rename.rs"
  ],
  "esa es la conexión con la que DBine está consultando: no se puede cancelar desde acá": [
   "crates/drivers/orientdb/src/processes.rs"
@@ -23377,14 +23972,23 @@
   "src-tauri/src/commands/export.rs",
   "src-tauri/src/tasks/steps.rs"
  ],
+ "ese índice es el de una restricción PRIMARY KEY o UNIQUE: {0} le pone el nombre y no se renombra": [
+  "crates/drivers/sqlite/src/rename.rs"
+ ],
  "espacio de nombres": [
   "crates/drivers/mongodb/src/monitor.rs"
+ ],
+ "español": [
+  "src-tauri/src/optimizer/ai.rs"
  ],
  "esperando un bloqueo": [
   "crates/drivers/mongodb/src/processes.rs"
  ],
  "esquema de URL no admitido: {0}://": [
   "crates/drivers/libsql/src/hrana.rs"
+ ],
+ "esquemas (no tiene ALTER SCHEMA)": [
+  "crates/drivers/dsql/src/rename.rs"
  ],
  "esta base no informa roles (el emulador de Spanner no tiene el control de acceso detallado): {0}": [
   "crates/drivers/spanner/src/security.rs"
@@ -23638,6 +24242,19 @@
  ],
  "este motor no permite ver las consultas de otros clientes": [
   "crates/dbine-driver/src/lib.rs"
+ ],
+ "este motor no renombra columnas desde DBine": [
+  "crates/drivers/mysql/src/rename.rs"
+ ],
+ "este motor no renombra objetos": [
+  "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/mysql/src/rename.rs"
+ ],
+ "este motor no renombra vistas: creá la vista con el nombre nuevo y borrá la anterior": [
+  "crates/drivers/mysql/src/rename.rs"
+ ],
+ "este motor no renombra índices desde DBine": [
+  "crates/drivers/mysql/src/rename.rs"
  ],
  "este motor no restaura backups por SQL": [
   "crates/drivers/odbc/src/backup.rs"
@@ -24027,6 +24644,9 @@
  "falta la ruta del archivo SQLite": [
   "crates/drivers/sqlite/src/lib.rs"
  ],
+ "falta la tabla del trigger para renombrarlo": [
+  "crates/drivers/postgres/src/rename.rs"
+ ],
  "falta un valor": [
   "crates/drivers/elasticsearch/src/transfer.rs"
  ],
@@ -24120,6 +24740,9 @@
  ],
  "fracción del rendimiento": [
   "crates/drivers/cosmosdb/src/monitor.rs"
+ ],
+ "francés": [
+  "src-tauri/src/optimizer/ai.rs"
  ],
  "frecuencia de checkpoint": [
   "crates/drivers/postgres/src/create_db.rs"
@@ -24330,6 +24953,9 @@
  ],
  "indicá las regiones actuales del keyspace y la nueva (al menos dos)": [
   "crates/drivers/cassandra/src/properties.rs"
+ ],
+ "inglés": [
+  "src-tauri/src/optimizer/ai.rs"
  ],
  "inprog (o enableProfiler sobre todas las bases: el profiling de «{0}» está apagado y su sampleRate está en {1})": [
   "crates/drivers/mongodb/src/permissions.rs"
@@ -24616,11 +25242,17 @@
  "la carpeta {0} no existe": [
   "crates/dbine-sync/src/folder.rs"
  ],
+ "la clase {0} no tiene la propiedad {1}": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
  "la clave de la cuenta de servicio no es un JSON válido: {0}": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
  "la clave de la cuenta no es base64 válido": [
   "crates/drivers/cosmosdb/src/lib.rs"
+ ],
+ "la clave del documento (META().id) no es un campo y no se puede renombrar": [
+  "crates/drivers/couchbase/src/rename.rs"
  ],
  "la clave del servidor SSH {0}:{1} no coincide con la de known_hosts: puede ser otro servidor haciéndose pasar por él. Si el servidor cambió de clave, actualizá tu known_hosts.": [
   "crates/dbine-tunnel/src/lib.rs"
@@ -24651,6 +25283,9 @@
   "crates/dbine-schema/src/dialect/mssql.rs",
   "crates/dbine-schema/src/dialect/oracle.rs",
   "crates/dbine-transfer/src/clone_table/oracle.rs"
+ ],
+ "la clave primaria de MySQL se llama siempre PRIMARY y no se renombra": [
+  "crates/drivers/mysql/src/rename.rs"
  ],
  "la clave primaria del original es de tipo {0}, que el clon no puede reproducir; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -24739,6 +25374,9 @@
  ],
  "la columna «{0}» es calculada de un tipo desconocido ({1})": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
+ ],
+ "la columna «{0}» es de un tipo compuesto ({1}) y CHANGE COLUMN necesita el tipo completo: renombrala con ALTER TABLE … CHANGE COLUMN escribiendo el tipo a mano": [
+  "crates/drivers/dremio/src/rename.rs"
  ],
  "la columna «{0}» es sql_variant, que no se puede transferir en bloque": [
   "crates/drivers/sqlserver/src/transfer.rs"
@@ -25264,6 +25902,14 @@
  "la tabla {0} no tiene la columna «{1}»": [
   "crates/drivers/dsql/src/transfer.rs"
  ],
+ "la tabla «{0}» no tiene el índice «{1}»": [
+  "crates/drivers/sqlite/src/rename.rs"
+ ],
+ "la tabla «{0}» no tiene la columna «{1}»": [
+  "crates/drivers/athena/src/rename.rs",
+  "crates/drivers/dremio/src/rename.rs",
+  "crates/drivers/mysql/src/rename.rs"
+ ],
  "la tanda en curso terminó mal: {0}": [
   "crates/drivers/redis/src/transfer.rs"
  ],
@@ -25360,6 +26006,9 @@
  "las bases de Denodo se crean desde Denodo": [
   "crates/drivers/postgres/src/create_db.rs",
   "crates/drivers/postgres/src/session.rs"
+ ],
+ "las clases base V y E no se renombran": [
+  "crates/drivers/orientdb/src/rename.rs"
  ],
  "las columnas": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -25461,6 +26110,9 @@
  "las vistas de CouchDB viven en documentos de diseño; se generan con la tabla _all_docs": [
   "crates/drivers/couchdb/src/ddl.rs"
  ],
+ "las vistas de esta conexión salen de los archivos de la carpeta: para cambiarle el nombre a una, renombrá el archivo": [
+  "crates/drivers/duckdb/src/rename.rs"
+ ],
  "le cambiaron los rollups o vistas materializadas": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
  ],
@@ -25525,6 +26177,9 @@
  "los archivos temporales": [
   "crates/drivers/duckdb/src/monitor.rs"
  ],
+ "los atributos de registro (@rid, @class…) no se renombran": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
  "los backups de Db2 for z/OS son utilidades (COPY) que se llaman con SYSPROC.DSNUTILU, cuyo código de retorno es un parámetro OUT que la ejecución de scripts no enlaza; se hacen desde un JCL o una herramienta del sistema": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -25543,6 +26198,9 @@
  ],
  "los bloqueos en espera": [
   "crates/drivers/sqlserver/src/babelfish.rs"
+ ],
+ "los campos de una vista salen de su pipeline: para renombrar uno hay que editar la vista": [
+  "crates/drivers/mongodb/src/rename.rs"
  ],
  "los contadores cubren al menos {0} días, desde el arranque del servidor": [
   "crates/drivers/postgres/src/health.rs"
@@ -26097,6 +26755,12 @@
  "no se encontraron credenciales de AWS": [
   "crates/drivers/neo4j/src/neptune.rs"
  ],
+ "no se encontró el encabezado CREATE de «{0}» en su definición": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "no se encontró el nombre en la definición de la vista «{0}»": [
+  "crates/drivers/spanner/src/rename.rs"
+ ],
  "no se encontró git en esta máquina: instalalo (git-scm.com) y volvé a intentar": [
   "src-tauri/src/commands/git_cli.rs"
  ],
@@ -26140,6 +26804,9 @@
  ],
  "no se leen filas de un objeto de tipo {0}": [
   "crates/drivers/neo4j/src/transfer.rs"
+ ],
+ "no se leyó la definición de la vista «{0}»": [
+  "crates/drivers/spanner/src/rename.rs"
  ],
  "no se pudieron agregar al CREATE las familias de columnas o la clave primaria con hash": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
@@ -26508,6 +27175,12 @@
  "no se pudo leer el contador del IDENTITY; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "no se pudo leer el encabezado CREATE TRIGGER de «{0}»": [
+  "crates/drivers/sqlite/src/rename.rs"
+ ],
+ "no se pudo leer el encabezado CREATE VIEW de «{0}»": [
+  "crates/drivers/sqlite/src/rename.rs"
+ ],
  "no se pudo leer el estado de las restricciones CHECK y claves foráneas; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -26547,11 +27220,31 @@
  "no se pudo leer la definición de la clave primaria; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "no se pudo leer la definición de la tabla «{0}» para renombrar el índice": [
+  "crates/drivers/sqlite/src/rename.rs"
+ ],
+ "no se pudo leer la definición de la tabla «{0}» para renombrar la columna": [
+  "crates/drivers/athena/src/rename.rs",
+  "crates/drivers/dremio/src/rename.rs",
+  "crates/drivers/mysql/src/rename.rs"
+ ],
+ "no se pudo leer la definición de la vista «{0}»": [
+  "crates/drivers/athena/src/rename.rs",
+  "crates/drivers/dremio/src/rename.rs",
+  "crates/drivers/drill/src/rename.rs",
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "no se pudo leer la definición de la vista «{0}» para renombrarla": [
+  "crates/drivers/sqlite/src/rename.rs"
+ ],
  "no se pudo leer la definición de las estadísticas extendidas «{0}» ({1})": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
  "no se pudo leer la definición de «{0}» (SHOW CREATE TABLE)": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
+ ],
+ "no se pudo leer la definición de «{0}» (¿está cifrada?): sp_rename no cambia el texto guardado, así que no se renombra desde DBine": [
+  "crates/drivers/sqlserver/src/rename.rs"
  ],
  "no se pudo leer la definición de «{0}» para comprobar el clon: {1}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
@@ -26561,6 +27254,9 @@
  ],
  "no se pudo leer la definición del clon «{0}»; no se clona": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
+ ],
+ "no se pudo leer la definición del trigger «{0}» para renombrarlo": [
+  "crates/drivers/sqlite/src/rename.rs"
  ],
  "no se pudo leer la expresión de la columna calculada «{0}»": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
@@ -26834,6 +27530,11 @@
  "no se puede tocar la carpeta .git": [
   "src-tauri/src/commands/project_paths.rs"
  ],
+ "no se reconoce el encabezado de la definición de la vista «{0}»": [
+  "crates/drivers/athena/src/rename.rs",
+  "crates/drivers/dremio/src/rename.rs",
+  "crates/drivers/drill/src/rename.rs"
+ ],
  "no se reconoce el tipo anidado «{0}» para copiarlo sin pérdida": [
   "crates/drivers/duckdb/src/transfer.rs"
  ],
@@ -26953,6 +27654,11 @@
  ],
  "objetos de la base {0}": [
   "src-tauri/src/commands/ai.rs"
+ ],
+ "objetos de tipo «{0}»": [
+  "crates/drivers/dsql/src/rename.rs",
+  "crates/drivers/postgres/src/rename.rs",
+  "crates/drivers/spanner/src/rename.rs"
  ],
  "objetos están": [
   "src-tauri/src/tasks/steps.rs"
@@ -27090,8 +27796,14 @@
  "para elegir shard o réplica, indicá también la ruta en Keeper": [
   "crates/drivers/clickhouse/src/create_db.rs"
  ],
+ "para renombrar una clase de aristas hace falta leer su definición (sus índices)": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
  "para renombrar una clave de etcd hace falta también su valor": [
   "crates/drivers/etcd/src/ddl.rs"
+ ],
+ "para renombrar una propiedad hace falta leer la estructura de la clase": [
+  "crates/drivers/orientdb/src/rename.rs"
  ],
  "para sincronizar por filas hace falta una clave": [
   "crates/dbine-transfer/src/delta.rs",
@@ -27175,6 +27887,9 @@
  ],
  "por lista automática (AUTOMATIC)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
+ ],
+ "portugués": [
+  "src-tauri/src/optimizer/ai.rs"
  ],
  "posesión": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -27867,6 +28582,9 @@
  "su definición está cifrada (WITH ENCRYPTION) o no se puede leer": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
+ "su dueño": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
  "su texto nombra al usuario «{0}», que en el origen ahora se llama «{1}»; actualizá el módulo en el origen para que nombre a «{2}» y volvé a clonar": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
@@ -28149,6 +28867,9 @@
  ],
  "un cambio de distribución, buckets o particiones (OPTIMIZE)": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
+ ],
+ "un campo no se puede renombrar a una ruta dentro de sí mismo, ni al revés": [
+  "crates/drivers/mongodb/src/rename.rs"
  ],
  "un decimal de más de {0} dígitos no se copia (sería enorme sin exponente)": [
   "crates/drivers/cassandra/src/transfer.rs"
@@ -29049,6 +29770,56 @@
  ],
  "{0} no registra cuántas veces se usa cada índice: se listan la clave primaria, los índices de salto y las proyecciones con su tamaño, sin contadores. Para ver cuántos gránulos descarta cada índice en una consulta, usá EXPLAIN indexes = 1.": [
   "crates/drivers/clickhouse/src/index_usage.rs"
+ ],
+ "{0} no renombra bases adjuntas": [
+  "crates/drivers/sqlite/src/rename.rs"
+ ],
+ "{0} no renombra columnas": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "{0} no renombra ese tipo de objeto": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "{0} no renombra eso desde DBine": [
+  "src-tauri/src/commands/rename.rs"
+ ],
+ "{0} no renombra esquemas: hay que crear el esquema nuevo y pasarle los objetos con ALTER SCHEMA … TRANSFER": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "{0} no renombra objetos de tipo «{1}»": [
+  "crates/drivers/sqlite/src/rename.rs"
+ ],
+ "{0} no renombra objetos de tipo «{1}» desde DBine": [
+  "crates/drivers/dsql/src/rename.rs",
+  "crates/drivers/postgres/src/rename.rs"
+ ],
+ "{0} no renombra objetos desde DBine": [
+  "crates/drivers/odbc/src/rename.rs",
+  "crates/drivers/postgres/src/rename.rs",
+  "src-tauri/src/commands/rename.rs"
+ ],
+ "{0} no renombra restricciones": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "{0} no renombra restricciones: hay que reconstruir la tabla con el nombre nuevo": [
+  "crates/drivers/sqlite/src/rename.rs"
+ ],
+ "{0} no renombra sinónimos: hay que borrarlo y crearlo con el nombre nuevo": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "{0} no renombra triggers": [
+  "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "{0} no renombra {1}": [
+  "crates/drivers/spanner/src/rename.rs"
+ ],
+ "{0} no renombra {1} desde DBine": [
+  "crates/drivers/dsql/src/rename.rs",
+  "crates/drivers/odbc/src/rename.rs",
+  "crates/drivers/postgres/src/rename.rs"
+ ],
+ "{0} no renombra índices": [
+  "crates/drivers/sqlserver/src/rename.rs"
  ],
  "{0} no respondió a {1}: {2}": [
   "crates/drivers/mongodb/src/monitor.rs"
@@ -30015,6 +30786,9 @@
  "«analysis» tiene que ser un objeto JSON (analyzer, tokenizer, filter…).": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
+ "«out» e «in» de una arista no se renombran: son sus extremos": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
  "«select into/bulkcopy/pllsort» está activo": [
   "crates/drivers/odbc/src/health.rs"
  ],
@@ -30072,6 +30846,9 @@
  "«{0}» es el índice de tiempo (TIME INDEX) de la tabla.": [
   "crates/dbine-schema/src/dialect/greptimedb.rs"
  ],
+ "«{0}» es parte de la clave primaria o de una clave foránea: Firebird no renombra una columna que usa una restricción.": [
+  "crates/drivers/firebird/src/rename.rs"
+ ],
  "«{0}» es un espacio o un origen: escribí el script con ON SPACE o ON SOURCE en el editor": [
   "crates/drivers/dremio/src/security.rs"
  ],
@@ -30080,6 +30857,9 @@
  ],
  "«{0}» es una carpeta": [
   "src-tauri/src/commands/projects.rs"
+ ],
+ "«{0}» es una subtabla: sus columnas y tags son los de su supertabla. Los tags se renombran en la supertabla.": [
+  "crates/drivers/tdengine/src/rename.rs"
  ],
  "«{0}» es una tabla Apache Hudi: Athena solo la lee, no puede insertar filas.": [
   "crates/drivers/athena/src/transfer.rs"
@@ -30337,6 +31117,12 @@
  "«{0}» no es un nombre de bucket válido: letras, números y _ - . % (hasta 100)": [
   "crates/drivers/couchbase/src/create_db.rs"
  ],
+ "«{0}» no es un nombre de campo válido: no puede empezar con $ ni tener partes vacías": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "«{0}» no es un nombre de colección válido: no puede tener $ ni empezar con «system.»": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
  "«{0}» no es un nombre de función válido": [
   "crates/drivers/dsql/src/security.rs"
  ],
@@ -30559,6 +31345,9 @@
  "«{0}» no es una tabla: la carga masiva solo escribe en tablas": [
   "crates/drivers/bigquery/src/transfer.rs"
  ],
+ "«{0}» no está declarada en el esquema: se mueve el valor en cada registro de {1} (y de sus subclases) que la tiene.": [
+  "crates/drivers/orientdb/src/rename.rs"
+ ],
  "«{0}» no está unida a las demás tablas: se combina con todas sus filas (CROSS JOIN)": [
   "src-tauri/src/commands/query_builder.rs"
  ],
@@ -30601,6 +31390,9 @@
  ],
  "«{0}» se otorga sobre una base entera, no sobre una etiqueta o un tipo de relación": [
   "crates/drivers/neo4j/src/security.rs"
+ ],
+ "«{0}» se usa en la restricción CHECK{1}: Firebird no renombra una columna que usa una restricción.": [
+  "crates/drivers/firebird/src/rename.rs"
  ],
  "«{0}» sirve como origen pero no como destino: {1}": [
   "crates/dbine-schema/src/convert.rs"
@@ -30667,6 +31459,11 @@
  ],
  "«{0}» tiene zona horaria y un TIME no la guarda": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "«{0}» tiene {1} sobrecargas: se renombran todas.": [
+  "crates/drivers/dsql/src/rename.rs",
+  "crates/drivers/postgres/src/rename.rs",
+  "crates/drivers/snowflake/src/rename.rs"
  ],
  "«{0}» y «{1}» difieren en {2}.": [
   "src-tauri/src/tasks/steps.rs"
@@ -30875,7 +31672,8 @@
  ],
  "índice": [
   "crates/drivers/dynamodb/src/monitor.rs",
-  "crates/drivers/elasticsearch/src/monitor.rs"
+  "crates/drivers/elasticsearch/src/monitor.rs",
+  "crates/drivers/mongodb/src/rename.rs"
  ],
  "índice {0}: TTL inválido «{1}»": [
   "crates/drivers/mongodb/src/ddl.rs"
@@ -30891,10 +31689,18 @@
  ],
  "índices": [
   "crates/drivers/mongodb/src/monitor.rs",
-  "crates/drivers/mysql/src/monitor.rs"
+  "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/odbc/src/rename.rs",
+  "crates/drivers/postgres/src/rename.rs"
  ],
  "índices (bytes)": [
   "crates/drivers/cosmosdb/src/monitor.rs"
+ ],
+ "índices (hay que borrarlos y crearlos con otro nombre)": [
+  "crates/drivers/spanner/src/rename.rs"
+ ],
+ "índices (no tiene ALTER INDEX)": [
+  "crates/drivers/dsql/src/rename.rs"
  ],
  "índices borrados": [
   "crates/drivers/neo4j/src/lib.rs"

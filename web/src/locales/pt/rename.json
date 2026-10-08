@@ -37,6 +37,7 @@
   "review": "revisar manualmente",
   "reviewHint": "Parte do texto não pôde ser decidida: se você marcar, essas linhas ficam como estão.",
   "schemabound": "com SCHEMABINDING: é removido antes e criado depois",
+  "carried": "Usado por {{names}}: apagados antes e recriados sem alterações depois.",
   "line": "linha {{line}}",
   "openDefinition": "Abrir definição",
   "manualReason": {
