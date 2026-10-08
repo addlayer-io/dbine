@@ -1,0 +1,21 @@
+{
+  "menu": {
+    "undo": "Annulla",
+    "redo": "Ripeti",
+    "cut": "Taglia",
+    "copy": "Copia",
+    "paste": "Incolla",
+    "selectAll": "Seleziona tutto",
+    "runSelection": "Esegui la selezione",
+    "runAll": "Esegui tutto",
+    "runStatement": "Esegui l’istruzione del cursore",
+    "planEstimated": "Piano stimato",
+    "planActual": "Esegui con piano reale",
+    "comment": "Commenta o rimuovi commento",
+    "format": "Formatta",
+    "find": "Trova e sostituisci",
+    "gotoLine": "Vai alla riga…",
+    "optimize": "Ottimizza query",
+    "problems": "Mostra problemi"
+  }
+}

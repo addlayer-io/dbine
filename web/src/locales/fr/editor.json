@@ -1,0 +1,21 @@
+{
+  "menu": {
+    "undo": "Annuler",
+    "redo": "Rétablir",
+    "cut": "Couper",
+    "copy": "Copier",
+    "paste": "Coller",
+    "selectAll": "Tout sélectionner",
+    "runSelection": "Exécuter la sélection",
+    "runAll": "Tout exécuter",
+    "runStatement": "Exécuter l’instruction du curseur",
+    "planEstimated": "Plan estimé",
+    "planActual": "Exécuter avec le plan réel",
+    "comment": "Commenter ou décommenter",
+    "format": "Formater",
+    "find": "Rechercher et remplacer",
+    "gotoLine": "Aller à la ligne…",
+    "optimize": "Optimiser la requête",
+    "problems": "Voir les problèmes"
+  }
+}

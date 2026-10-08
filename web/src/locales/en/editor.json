@@ -1,0 +1,21 @@
+{
+  "menu": {
+    "undo": "Undo",
+    "redo": "Redo",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "selectAll": "Select all",
+    "runSelection": "Run selection",
+    "runAll": "Run all",
+    "runStatement": "Run statement at cursor",
+    "planEstimated": "Estimated plan",
+    "planActual": "Run with actual plan",
+    "comment": "Toggle comment",
+    "format": "Format",
+    "find": "Find and replace",
+    "gotoLine": "Go to line…",
+    "optimize": "Optimize query",
+    "problems": "Show problems"
+  }
+}
