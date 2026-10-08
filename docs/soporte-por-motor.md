@@ -3125,9 +3125,10 @@ ofrece **Renombrar…** en ese motor.
 | Couchbase | pendiente | | | | |
 | CouchDB | pendiente | | | | |
 | ClickHouse | pendiente | | | | |
-| Cassandra, ScyllaDB, Amazon Keyspaces | pendiente | | | | |
-| Elasticsearch, OpenSearch | pendiente | | | | |
-| Apache Solr | pendiente | | | | |
+| Cassandra, ScyllaDB | sí | columnas de la clave primaria (`ALTER TABLE ks.t RENAME a TO b`) | — | — | no renombra columnas comunes, tablas, keyspaces, tipos ni funciones; el servidor rechaza una columna con índice secundario (DBine lo avisa antes) o usada por una vista materializada |
+| Amazon Keyspaces | no | — | — | — | su `ALTER TABLE` no tiene `RENAME` |
+| Elasticsearch, OpenSearch, Open Distro | sí | índice por copia (`PUT /old/_block/write` → `POST /old/_clone/new` → espera a la copia → `DELETE /old`, o `_aliases` con `remove_index`); alias (`_aliases` remove+add atómico) | alias del índice: pasan al nuevo en el mismo paso atómico | — | el clon copia los datos (tarda, ocupa disco) y el índice no acepta escrituras mientras dura; los campos no se renombran (exige reindexar); los data streams no se renombran |
+| Apache Solr | sí | core en modo standalone (CoreAdmin `RENAME`) | — | — | la carpeta del core conserva el nombre anterior; en SolrCloud no se renombra (`RENAME` solo agrega un alias) y el servidor lo rechaza |
 | Snowflake | pendiente | | | | |
 | BigQuery | pendiente | | | | |
 | Databricks | pendiente | | | | |

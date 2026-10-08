@@ -20,6 +20,7 @@ mod permissions;
 pub mod plan;
 mod processes;
 mod profiler;
+mod rename;
 mod security;
 mod stats;
 mod steps;
@@ -329,6 +330,15 @@ impl Driver for Es {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes, self.opensearch)
+    }
+
+    /// Indices by copy (`_clone`) and aliases (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::rename::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::rename::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
