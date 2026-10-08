@@ -1164,6 +1164,14 @@ impl Session for PgSession {
         self.create_database_choices_impl().await
     }
 
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
+    }
+
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
     }

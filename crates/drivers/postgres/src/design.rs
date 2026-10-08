@@ -170,6 +170,7 @@ pub fn capabilities(v: Variant) -> Capabilities {
         kill_session: supported,
         processes: true,
         cancel_query: crate::processes::cancel_supported(v),
+        database_properties: crate::properties::supported(v),
         ..engine_capabilities(v)
     }
 }
