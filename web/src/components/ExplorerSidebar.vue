@@ -38,7 +38,7 @@ import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '.
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
 import DropIndexDialog from './DropIndexDialog.vue';
 import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composables/dropIndex';
-import { renameItem, type RenameDialogTarget } from '../composables/rename';
+import { databaseRenameItem, renameItem, type RenameDialogTarget } from '../composables/rename';
 import RenameDialog from './RenameDialog.vue';
 
 // The explorer: user folders (clients, environments… nested at will) →
@@ -751,6 +751,11 @@ async function onContext(e: MouseEvent, n: TNode) {
       dbItems(cid!, db, items);
       items.push({ label: t('common:refresh'), divided: true, action: () => loadDatabase(cid!, db, true) });
       items.push({ label: t('explorer:menu.copyName'), action: () => copy(db) });
+      {
+        // Engines whose database is the schema rename it here.
+        const renameDb = databaseRenameItem(cid!, db, openRename);
+        if (renameDb) items.push(renameDb);
+      }
       if (conns.driverOf(cid!)?.capabilities.database_properties) {
         items.push({ label: t('dbProperties:menu'), divided: true, action: () => { dbProperties.value = { connectionId: cid!, database: db }; } });
       }

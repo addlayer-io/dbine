@@ -19,7 +19,7 @@ use dbine_driver::{kinds, CheckDef, ColumnDef, Error, ObjectRef, Result, SyncScr
 
 pub(crate) const NO_DDL_TRANSACTIONS: &str =
     "El DDL de MySQL no es transaccional: cada sentencia se confirma sola y, si una falla, las anteriores quedan hechas.";
-pub(crate) const NOTE_MYSQL: &str = "Las vistas, rutinas y triggers que se reescriben se borran y se vuelven a crear (MySQL no tiene CREATE OR REPLACE para rutinas ni triggers), así que pierden los permisos otorgados sobre ellos. Para crear uno cuyo DEFINER no es tu usuario hace falta el privilegio SET_USER_ID (SET_ANY_DEFINER desde MySQL 8.2) o SUPER.";
+pub(crate) const NOTE_MYSQL: &str = "Las vistas que se reescriben se reponen con CREATE OR REPLACE y conservan sus permisos; las rutinas y los triggers se borran y se vuelven a crear (MySQL no tiene CREATE OR REPLACE para ellos), así que pierden los permisos otorgados sobre ellos. Para crear uno cuyo DEFINER no es tu usuario hace falta el privilegio SET_USER_ID (SET_ANY_DEFINER desde MySQL 8.2) o SUPER.";
 pub(crate) const NOTE_MARIADB: &str = "Las vistas, rutinas y triggers que se reescriben se vuelven a crear con CREATE OR REPLACE (en las rutinas y los triggers equivale a borrarlos y crearlos). Para crear uno cuyo DEFINER no es tu usuario hace falta el privilegio SET USER o SUPER.";
 pub(crate) const NOTE_TIDB: &str = "Las vistas que se reescriben se vuelven a crear con CREATE OR REPLACE.";
 pub(crate) const NOTE_EMULATED: &str = "Este motor solo renombra tablas desde DBine. Las vistas que se reescriben se borran y se vuelven a crear.";
@@ -39,10 +39,16 @@ pub(crate) fn spec(v: Variant) -> Option<RenameSpec> {
         fold: Fold::None,
         transactional: false,
         note: Some(format!("{NO_DDL_TRANSACTIONS} {note}")),
+        ..Default::default()
     };
     let relations = [kinds::TABLE, kinds::VIEW];
     Some(match v.base() {
-        Variant::MySql => base(&relations, true, true, ReplaceStyle::DropCreate, NOTE_MYSQL),
+        // Views with CREATE OR REPLACE (they keep their grants); routines
+        // and triggers have none, so they're dropped and created.
+        Variant::MySql => RenameSpec {
+            replace_kinds: [(kinds::VIEW.to_string(), ReplaceStyle::CreateOrReplace)].into(),
+            ..base(&relations, true, true, ReplaceStyle::DropCreate, NOTE_MYSQL)
+        },
         Variant::MariaDb => base(&relations, true, true, ReplaceStyle::CreateOrReplace, NOTE_MARIADB),
         // No routines or triggers: only views to put back.
         Variant::TiDb => base(&relations, true, true, ReplaceStyle::CreateOrReplace, NOTE_TIDB),
@@ -266,6 +272,8 @@ mod tests {
         assert_eq!(my.replace, ReplaceStyle::DropCreate);
         assert!(my.note.as_deref().unwrap().contains("SET_USER_ID"));
         assert_eq!(spec(Variant::AuroraMySql).unwrap().replace, ReplaceStyle::DropCreate);
+        assert_eq!(spec(Variant::AuroraMySql).unwrap().replace_for(kinds::VIEW), ReplaceStyle::CreateOrReplace);
+        assert_eq!(spec(Variant::MySql).unwrap().replace_for(kinds::TRIGGER), ReplaceStyle::DropCreate);
         assert_eq!(spec(Variant::MariaDb).unwrap().replace, ReplaceStyle::CreateOrReplace);
         assert_eq!(spec(Variant::TiDb).unwrap().replace, ReplaceStyle::CreateOrReplace);
         for v in [Variant::OceanBase, Variant::SingleStore, Variant::StarRocks, Variant::Doris, Variant::VeloDb, Variant::Databend, Variant::GreptimeDb] {

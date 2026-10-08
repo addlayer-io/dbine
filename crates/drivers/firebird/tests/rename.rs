@@ -119,7 +119,7 @@ async fn plan(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, target: RenameTarge
             continue;
         }
         let def = s.definition(&ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() }).await.unwrap().unwrap();
-        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW };
+        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW, ..Default::default() };
         let r = rewrite_references(&def, &dialect, &rewrite_target, new, &spec, &opts);
         if r.edits.is_empty() || !r.unresolved.is_empty() {
             eprintln!("manual {}: {:?}", dep.name, r.unresolved);
@@ -220,16 +220,13 @@ async fn rename_column_with_impact_live() {
 
     // 5. The real run, statement by statement: the dependents dropped, the
     //    column renamed, the dependents created again with the new name.
-    //    The trigger names the column as NEW.PEPE, which the rewrite doesn't
-    //    resolve: it's the user's, who drops it first and creates it after.
-    assert_eq!(p.manual, ["RN_P_DIN", "RN_TRG"], "dynamic SQL and NEW.column are left to the user");
-    assert_eq!(p.rewritten, ["RN_P_USA", "RN_V"]);
-    run(&mut s, "DROP TRIGGER RN_TRG").await;
+    //    The trigger on the table names it as NEW.PEPE: rewritten too.
+    assert_eq!(p.manual, ["RN_P_DIN"], "dynamic SQL is left to the user");
+    assert_eq!(p.rewritten, ["RN_P_USA", "RN_TRG", "RN_V"]);
     for st in &p.statements {
         eprintln!("--\n{st}");
         run(&mut s, st).await;
     }
-    run(&mut s, "CREATE TRIGGER RN_TRG FOR RN_T BEFORE INSERT AS\nBEGIN\n  IF (NEW.NOMBRE IS NULL) THEN NEW.NOMBRE = 0;\nEND").await;
     let cols = columns(&mut s, "RN_T").await;
     assert!(cols.contains(&"NOMBRE".to_string()) && !cols.contains(&"PEPE".to_string()), "{cols:?}");
     // The view keeps its output column (`NOMBRE AS PEPE`).

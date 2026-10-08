@@ -28,8 +28,8 @@ pub fn spec() -> RenameSpec {
         note: Some(
             "Firebird solo renombra columnas, y rechaza el cambio mientras algo use la columna: una vista, un procedimiento, \
              una función, un trigger, un CHECK o una clave primaria, única o foránea. Por eso lo que se reescribe se borra \
-             antes y se vuelve a crear después con CREATE OR ALTER, y lo que quede sin reescribir (un trigger que usa NEW.columna, \
-             por ejemplo) hace fallar el cambio. El script no corre en una transacción: si el cambio falla, lo ya borrado \
+             antes y se vuelve a crear después con CREATE OR ALTER, y lo que quede sin reescribir (código que la nombra de \
+             una forma que DBine no reconoce) hace fallar el cambio. El script no corre en una transacción: si el cambio falla, lo ya borrado \
              queda borrado y se crea con el resto del script."
                 .into(),
         ),

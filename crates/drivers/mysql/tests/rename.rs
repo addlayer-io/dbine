@@ -108,7 +108,7 @@ async fn plan(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, mut req: RenameRequ
             continue;
         }
         let body = s.definition(&ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() }).await.unwrap().unwrap();
-        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW };
+        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW, ..Default::default() };
         let r = rewrite_references(&body, &dialect, &req.target.rewrite_target(), &req.new_name, &spec, &opts);
         eprintln!("{} -> {} (unresolved {:?})", dep.name, r.text, r.unresolved);
         if r.edits.is_empty() {
@@ -116,10 +116,11 @@ async fn plan(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, mut req: RenameRequ
             continue;
         }
         rewritten.push(dep.name.clone());
-        if spec.replace == ReplaceStyle::DropCreate {
+        let style = spec.replace_for(&dep.kind);
+        if style == ReplaceStyle::DropCreate {
             drops.push(drop_sql(&dep.kind, &dep.name));
         }
-        creates.push(with_create_style(&r.text, &dialect, spec.replace).trim().to_string());
+        creates.push(with_create_style(&r.text, &dialect, style).trim().to_string());
     }
     let middle = d.rename_script(&req).unwrap();
     eprintln!("warnings: {:?}", middle.warnings);
@@ -198,6 +199,10 @@ async fn rename_flow(id: &str, env: &str, routines: bool, checks: bool) {
         }
     }
     assert!(p.statements.iter().any(|x| x.contains("CHANGE COLUMN `pepe` nuevo")), "{:?}", p.statements);
+    // Views come back with CREATE OR REPLACE (they keep their grants), on MySQL too.
+    if spec.replace_for(kinds::VIEW) == ReplaceStyle::CreateOrReplace {
+        assert!(!p.statements.iter().any(|x| x.starts_with("DROP VIEW")) && p.statements.iter().any(|x| x.starts_with("CREATE OR REPLACE") && x.contains("VIEW")), "{:?}", p.statements);
+    }
     apply(&mut s, &p.statements).await;
     let after = column_shape(&mut s, "t", "nuevo").await;
     let normalize = |v: &[String]| v.iter().map(|x| x.replace("'x'", "x")).collect::<Vec<_>>();

@@ -47,6 +47,21 @@ export function renameItem(t0: RenameDialogTarget, open: (t: RenameDialogTarget)
   return { label: t('rename:menu'), divided, action: () => open(t0) };
 }
 
+/** A schema rename that is the database's: engines whose database is the
+ *  schema (ClickHouse), offered on the database node. */
+export function isDatabaseRename(d: RenameDialogTarget): boolean {
+  const driver = useConnectionsStore().driverOf(d.connectionId);
+  return d.target.what === 'schema' && !!driver && !driver.has_schemas;
+}
+
+/** "Renombrar…" on a database node, where the engine has no schema level
+ *  and renames its databases as schemas. */
+export function databaseRenameItem(connectionId: string, database: string, open: (t: RenameDialogTarget) => void): MenuItem | null {
+  const driver = useConnectionsStore().driverOf(connectionId);
+  if (!database || !driver || driver.has_schemas) return null;
+  return renameItem({ connectionId, database, target: { what: 'schema', database, schema: database } }, open, true);
+}
+
 export function oldName(target: RenameTarget): string {
   switch (target.what) {
     case 'object': return target.object.name;
@@ -111,6 +126,13 @@ async function afterRename(d: RenameDialogTarget, newName: string) {
   const conns = useConnectionsStore();
   const tabs = useTabsStore();
   const { connectionId: cid, database: db, target } = d;
+  if (isDatabaseRename(d)) {
+    // The database itself: its tabs follow it, the tree reads the list again.
+    for (const tab of tabs.tabs) if (tab.connectionId === cid && tab.database === db) tab.database = newName;
+    tabs.persist();
+    await conns.refreshDatabases(cid).catch(() => {});
+    return;
+  }
   await conns.loadObjects(cid, db, true).catch(() => {});
   switch (target.what) {
     case 'object':

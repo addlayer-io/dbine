@@ -680,6 +680,12 @@ export interface RenameSpec {
   fold: 'lower' | 'upper' | 'none';
   transactional: boolean;
   note: string | null;
+  /** `replace` for some kinds of dependent only. */
+  replace_kinds: Record<string, 'drop_create' | 'create_or_replace' | 'create_or_alter'>;
+  /** Kinds that may keep rows of their own (start unselected unless `TO`). */
+  holds_rows: string[];
+  /** Run after the whole script (`{schema}` = the target's schema). */
+  epilogue: string | null;
 }
 
 /** A rename to script (`dbine_driver::RenameRequest`). */
@@ -693,7 +699,7 @@ export interface RenameRequest {
 export interface RenameEdit { line: number; before: string; after: string }
 export type UnresolvedReason = 'in_string' | 'qualified' | 'other_schema' | 'case' | 'maybe_function' | 'ambiguous_column' | 'alias_named_like_schema';
 export interface RenameUnresolved { line: number; text: string; reason: UnresolvedReason }
-export type ManualReason = 'dynamic' | 'unreadable' | 'not_rewritten' | 'no_match';
+export type ManualReason = 'dynamic' | 'unreadable' | 'not_rewritten' | 'no_match' | 'shared_routine';
 
 /** What happens to a dependent (`commands::rename::Action`). */
 export type RenameAction =

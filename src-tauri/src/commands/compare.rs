@@ -391,7 +391,7 @@ pub(crate) fn plan_around(driver: &dyn Driver, middle: SyncScript, objects: &[Ob
         };
         let prereq = TABLE_PREREQS.contains(&o.kind.as_str());
         if drop && !(create && IN_PLACE.contains(&o.kind.as_str())) {
-            match drop_statements(driver, o, !create) {
+            match drop_statements(driver, o) {
                 // Only dropped: after the tables that may still use it.
                 Some(s) if prereq && !create => late.push((o, s)),
                 Some(s) => before.push((o, s)),
@@ -463,8 +463,7 @@ fn dropped_warning(dropped: &[&CodeObject]) -> String {
 /// The statements that drop `o`. Most engines name it and that's it;
 /// PostgreSQL drops a trigger `ON` its table, and same-named functions (or
 /// procedures) one signature at a time, since the bare name is ambiguous.
-/// `whole`: every overload goes (a plain drop, not a replace).
-fn drop_statements(driver: &dyn Driver, o: &CodeObject, whole: bool) -> Option<Vec<String>> {
+fn drop_statements(driver: &dyn Driver, o: &CodeObject) -> Option<Vec<String>> {
     let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
     let plain = crate::commands::scripts::drop_other(driver, &r, true)?;
     if driver.info().dialect != "postgres" {
@@ -491,7 +490,10 @@ fn drop_statements(driver: &dyn Driver, o: &CodeObject, whole: bool) -> Option<V
                     .collect(),
             )
         }
-        kinds::FUNCTION | kinds::PROCEDURE if whole => {
+        // Overloads (all of them in the definition) one by one, whether
+        // dropped for good or to be created again (CockroachDB refuses a
+        // bare name that has several).
+        kinds::FUNCTION | kinds::PROCEDURE => {
             let sigs = pg::signatures(&o.definition);
             if sigs.len() < 2 {
                 return Some(vec![plain]);
@@ -922,6 +924,10 @@ mod tests {
         let one = "CREATE OR REPLACE FUNCTION public.g(a integer)\n RETURNS int\nAS $$ select 1 $$";
         let s = plan(pg, &[], &[drop(obj("function", "g", one))]).unwrap();
         assert_eq!(s.statements, vec!["DROP FUNCTION IF EXISTS \"public\".\"g\";"]);
+        // Replaced (a rename's rewritten dependent): one by one too.
+        let s = plan(pg, &[], &[ObjectChange::Replace { object: obj("function", "f", def) }]).unwrap();
+        assert_eq!(&s.statements[..2], ["DROP FUNCTION IF EXISTS public.f(a integer);", "DROP FUNCTION IF EXISTS public.f(a text);"]);
+        assert_eq!(s.statements.len(), 3, "{:?}", s.statements);
     }
 
     #[test]

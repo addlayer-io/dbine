@@ -103,6 +103,7 @@ async fn plan(d: &dyn Driver, s: &mut Box<dyn Session>, target: RenameTarget, ne
             let opts = RewriteOptions {
                 dependent_schema: dep.schema.clone(),
                 keep_view_columns: dep.kind == kinds::VIEW || dep.kind == kinds::MATERIALIZED_VIEW,
+                ..Default::default()
             };
             let r = rewrite_references(&body, &dialect, &rewrite_target, new, &spec, &opts);
             if r.edits.is_empty() || !r.unresolved.is_empty() {

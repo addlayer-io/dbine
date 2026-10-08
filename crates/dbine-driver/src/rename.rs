@@ -17,6 +17,7 @@ use crate::model::ObjectRef;
 use crate::schema::TableSchema;
 use crate::sql::{code_tokens, quote_ident, Quote, ScriptDialect, TokenKind};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// What is renamed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,6 +176,19 @@ pub struct RenameSpec {
     pub transactional: bool,
     /// What the dialog tells the user first (Spanish).
     pub note: Option<String>,
+    /// `replace` for some kinds of dependent only (MySQL: views with
+    /// `CREATE OR REPLACE`, routines and triggers dropped and created).
+    pub replace_kinds: BTreeMap<String, ReplaceStyle>,
+    /// Kinds that may keep rows of their own (a ClickHouse materialized
+    /// view without `TO`): put back, they lose them, so a rewritten one
+    /// starts unselected unless it writes `TO` another table
+    /// ([`writes_to_table`]).
+    pub holds_rows: Vec<String>,
+    /// A statement the app runs after the whole script, rewritten
+    /// dependents included (Oracle recompiles the schema, so what depends
+    /// on them is valid again). `{schema}` stands for the target's schema
+    /// as a string literal; without one it isn't run.
+    pub epilogue: Option<String>,
 }
 
 impl RenameSpec {
@@ -187,6 +201,25 @@ impl RenameSpec {
             RenameTarget::Constraint { .. } => self.constraints,
             RenameTarget::Schema { .. } => self.schemas,
         }
+    }
+
+    /// How a rewritten dependent of that kind is put back.
+    pub fn replace_for(&self, kind: &str) -> ReplaceStyle {
+        self.replace_kinds.get(kind).copied().unwrap_or(self.replace)
+    }
+
+    /// [`RenameSpec::epilogue`] for that target.
+    pub fn epilogue_for(&self, target: &RenameTarget) -> Option<String> {
+        let e = self.epilogue.as_deref()?;
+        let schema = match target {
+            RenameTarget::Object { object, .. } => object.schema(),
+            RenameTarget::Schema { .. } => None,
+            _ => target.table().and_then(|t| t.schema()),
+        };
+        if !e.contains("{schema}") {
+            return Some(e.to_string());
+        }
+        Some(e.replace("{schema}", &format!("'{}'", schema?.replace('\'', "''"))))
     }
 }
 
@@ -209,6 +242,13 @@ pub struct RewriteOptions {
     /// It's a view and its output columns stay as they were: a renamed
     /// column in its select list becomes `nuevo AS viejo`.
     pub keep_view_columns: bool,
+    /// The database, on engines where it is the schema (ClickHouse writes
+    /// `db.t` in every stored definition): a name qualified with it is the
+    /// target's when the target carries no schema.
+    pub database: Option<String>,
+    /// It's a routine a trigger on the target's table runs (a PostgreSQL
+    /// trigger function): `NEW` and `OLD` are rows of that table.
+    pub row_table: bool,
 }
 
 /// One rewritten line.
@@ -469,7 +509,48 @@ pub fn with_create_style(definition: &str, dialect: &ScriptDialect, style: Repla
     let toks = tokens(definition, dialect);
     let Some(c) = toks.iter().position(|t| t.word("create")) else { return definition.to_string() };
     let end = if toks.get(c + 1).is_some_and(|t| t.word("or")) && toks.get(c + 2).is_some_and(|t| t.any(&["replace", "alter"])) { toks[c + 2].end } else { toks[c].end };
-    format!("{}{lead}{}", &definition[..toks[c].start], &definition[end..])
+    // The engine's own spacing (`CREATE      VIEW`) doesn't pile up.
+    format!("{}{lead} {}", &definition[..toks[c].start], definition[end..].trim_start())
+}
+
+/// The definition is a view that writes `TO` another table (a ClickHouse
+/// materialized view with `TO`): its rows live there, not in the view.
+pub fn writes_to_table(definition: &str, dialect: &ScriptDialect) -> bool {
+    let toks = tokens(definition, dialect);
+    header(&toks).is_some_and(|(_, _, last)| toks.get(last + 1).is_some_and(|t| t.word("to")))
+}
+
+/// The definition is a trigger on a table called `table` (any schema).
+pub fn trigger_on(definition: &str, dialect: &ScriptDialect, table: &str) -> bool {
+    let toks = tokens(definition, dialect);
+    let Some(("trigger", last)) = header(&toks).as_ref().map(|(k, _, l)| (k.as_str(), *l)) else { return false };
+    trigger_table(&toks, last).is_some_and(|mut n| {
+        while dotted_after(&toks, n) {
+            n += 2;
+        }
+        eq(&toks[n].value(), table)
+    })
+}
+
+/// The body names `word` as code (not in a string or a comment).
+pub fn names_in_code(body: &str, dialect: &ScriptDialect, word: &str) -> bool {
+    tokens(body, dialect).iter().any(|t| t.is_name() && eq(&t.value(), word))
+}
+
+/// The routine a trigger runs (`EXECUTE FUNCTION | PROCEDURE [s.]f(…)`,
+/// PostgreSQL and its family): its schema, if written, and its name.
+pub fn trigger_routine(definition: &str, dialect: &ScriptDialect) -> Option<(Option<String>, String)> {
+    let toks = tokens(definition, dialect);
+    let k = (0..toks.len()).find(|&k| toks[k].word("execute") && toks.get(k + 1).is_some_and(|t| t.any(&["function", "procedure"])))?;
+    let first = k + 2;
+    toks.get(first).filter(|t| t.is_name())?;
+    let mut last = first;
+    while dotted_after(&toks, last) {
+        last += 2;
+    }
+    toks.get(last + 1).filter(|t| t.punct("("))?;
+    let schema = (last > first).then(|| toks[last - 2].value());
+    Some((schema, toks[last].value()))
 }
 
 /// Collects the replacements and the mentions left out.
@@ -589,6 +670,7 @@ fn objects(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
         let q = qualifier(toks, i);
         match (q, object.schema()) {
             (Some(q), Some(s)) if !eq(&toks[q].value(), s) => continue,
+            (Some(q), None) if opts.database.as_deref().is_some_and(|db| eq(&toks[q].value(), db)) => {}
             (Some(_), None) => {
                 w.unsure(t.start, UnresolvedReason::Qualified);
                 continue;
@@ -728,7 +810,12 @@ fn relations(toks: &[Tok<'_>], a: usize, b: usize) -> Vec<Rel> {
                 }
                 // A subquery: skip to its `)`.
                 j = (j + 1..b).find(|&m| toks[m].punct(")") && toks[m].opener.is_none_or(|o| o < j) && toks[m].depth == n.depth).map_or(b, |m| m + 1);
-            } else if n.is_name() && !n.text.as_bytes()[0].is_ascii_digit() && !(n.quote.is_none() && n.any(NOT_ALIAS)) {
+            } else if let Some(last) = table_call(toks, j).filter(|_| !into) {
+                // `table(s)` (Proton): the stream read as a table.
+                rel.name = Some(last);
+                j = last + 2;
+            } else if n.is_name() && !n.text.as_bytes()[0].is_ascii_digit() && !(n.quote.is_none() && n.any(NOT_ALIAS) && !dotted_after(toks, j)) {
+                // A keyword before a dot is a qualifier (`default.t`).
                 let mut last = j;
                 while dotted_after(toks, last) {
                     last += 2;
@@ -768,6 +855,60 @@ fn relations(toks: &[Tok<'_>], a: usize, b: usize) -> Vec<Rel> {
     out
 }
 
+/// `table(name)` at `j`: the last part of the name.
+fn table_call(toks: &[Tok<'_>], j: usize) -> Option<usize> {
+    if !(toks[j].word("table") && toks.get(j + 1).is_some_and(|t| t.punct("(")) && toks.get(j + 2).is_some_and(|t| t.is_name())) {
+        return None;
+    }
+    let mut last = j + 2;
+    while dotted_after(toks, last) {
+        last += 2;
+    }
+    toks.get(last + 1).is_some_and(|t| t.punct(")")).then_some(last)
+}
+
+/// The table of a trigger whose name ends at `last`: after `ON` (most
+/// engines) or `FOR` (Firebird; not `FOR EACH ROW`), before its body. The
+/// index of the name's first part.
+fn trigger_table(toks: &[Tok<'_>], last: usize) -> Option<usize> {
+    for k in last + 1..toks.len() {
+        let t = &toks[k];
+        if t.depth > 0 {
+            continue;
+        }
+        if t.any(&["as", "begin", "declare", "is", "set", "execute", "call"]) {
+            return None;
+        }
+        let on = t.word("on") || (t.word("for") && !toks.get(k + 1).is_some_and(|n| n.any(&["each", "row", "statement"])));
+        if on && toks.get(k + 1).is_some_and(|n| n.is_name()) {
+            return Some(k + 1);
+        }
+    }
+    None
+}
+
+/// `REFERENCING NEW [ROW] AS n OLD AS o` (Oracle, Db2…): the row aliases.
+fn row_aliases(toks: &[Tok<'_>], last: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(r) = (last + 1..toks.len()).find(|&k| toks[k].depth == 0 && toks[k].word("referencing")) else { return out };
+    let mut k = r + 1;
+    while toks.get(k).is_some_and(|t| t.any(&["new", "old", "new_table", "old_table", "parent"])) {
+        k += 1;
+        if toks.get(k).is_some_and(|t| t.any(&["row", "table"])) {
+            k += 1;
+        }
+        if toks.get(k).is_some_and(|t| t.word("as")) {
+            k += 1;
+        }
+        match toks.get(k).filter(|t| t.is_name()) {
+            Some(t) => out.push(t.value()),
+            None => break,
+        }
+        k += 1;
+    }
+    out
+}
+
 /// The pseudo-tables of a trigger's own table.
 const ROW_TABLES: &[&str] = &["inserted", "deleted", "new", "old"];
 
@@ -780,18 +921,19 @@ fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
                 _ => true,
             }
     };
-    // A trigger on the table: NEW / OLD / inserted / deleted are its rows.
+    // A trigger on the table (or a routine one runs): NEW / OLD /
+    // inserted / deleted, and the names REFERENCING gives them, are its rows.
     let head = header(toks);
-    let on_table = head.as_ref().is_some_and(|(kind, _, last)| {
-        kind == "trigger"
-            && toks[last + 1..].iter().position(|t| t.word("on")).is_some_and(|p| {
-                let mut n = last + 2 + p;
-                while dotted_after(toks, n) {
-                    n += 2;
-                }
-                n < toks.len() && names_table(n)
-            })
-    });
+    let trigger = head.as_ref().filter(|(kind, _, _)| kind == "trigger").map(|(_, _, last)| *last);
+    let on_table = opts.row_table
+        || trigger.and_then(|last| trigger_table(toks, last)).is_some_and(|mut n| {
+            while dotted_after(toks, n) {
+                n += 2;
+            }
+            names_table(n)
+        });
+    let aliases = trigger.map(|last| row_aliases(toks, last)).unwrap_or_default();
+    let is_row = |t: &Tok<'_>| t.quote.is_none() && (t.any(ROW_TABLES) || aliases.iter().any(|a| eq(a, t.text)));
     let own = head.as_ref().map(|(_, _, last)| *last);
     let view_list = if opts.keep_view_columns { view_select_list(toks, head.as_ref()) } else { None };
     for (a, b) in segments(toks) {
@@ -801,7 +943,7 @@ fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
             .iter()
             .filter(|r| !(r.name.is_some_and(|n| qualifier(toks, n).is_none() && rels.iter().any(|o| o.alias.as_deref().is_some_and(|al| eq(al, &toks[n].value()))))))
             .collect();
-        let is_target = |r: &Rel| r.name.is_some_and(|n| names_table(n) || (on_table && toks[n].any(ROW_TABLES)));
+        let is_target = |r: &Rel| r.name.is_some_and(|n| names_table(n) || (on_table && is_row(&toks[n])));
         let targets = rels.iter().filter(|r| is_target(r)).count();
         let skip: Vec<usize> = rels.iter().flat_map(|r| r.name.into_iter().chain(r.alias_at)).collect();
         let column_lists: Vec<usize> = rels.iter().filter(|r| is_target(r)).filter_map(|r| r.columns).collect();
@@ -811,7 +953,7 @@ fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
             if let Some(r) = rels.iter().find(|r| r.alias.as_deref().is_some_and(|al| eq(al, &v))) {
                 return Some(is_target(r));
             }
-            if on_table && toks[q].quote.is_none() && toks[q].any(ROW_TABLES) {
+            if on_table && is_row(&toks[q]) {
                 return Some(true);
             }
             if names_table(q) {
@@ -876,14 +1018,22 @@ fn columns(w: &mut Writer<'_>, toks: &[Tok<'_>], d: &ScriptDialect, fold: Fold, 
 
 /// A view's top-level select list, as token ranges of its items: the ones
 /// without an alias may need one when their column is renamed. `None` when
-/// the view lists its column names itself (`CREATE VIEW v (a, b) AS`).
+/// the view lists its column names itself (`CREATE VIEW v (a, b) AS`): the
+/// output names come from the list, by position. A list with types
+/// (ClickHouse stores `v (`a` UInt64, …)`) is a structure the select is
+/// matched to by name, so the select keeps its names.
 fn view_select_list(toks: &[Tok<'_>], head: Option<&(String, usize, usize)>) -> Option<Vec<(usize, usize)>> {
     let (kind, _, last) = head?;
     if !kind.ends_with("view") && kind != "view" {
         return None;
     }
     if toks.get(last + 1).is_some_and(|t| t.punct("(")) {
-        return None;
+        let open = &toks[last + 1];
+        let close = (last + 2..toks.len()).find(|&k| toks[k].punct(")") && toks[k].depth == open.depth)?;
+        let names_only = toks[last + 2..close].split(|t| t.punct(",") && t.depth == open.depth + 1).all(|item| item.len() == 1 && item[0].is_name());
+        if names_only {
+            return None;
+        }
     }
     let select = (last + 1..toks.len()).find(|&k| toks[k].depth == 0 && toks[k].word("select"))?;
     let mut k = select + 1;
@@ -1210,6 +1360,120 @@ mod tests {
         assert!(r.text.starts_with("CREATE TRIGGER Clientes ON dbo.Nuevo"), "{}", r.text);
         let r = rw(body, &tsql(), &column("dbo", "Clientes", "Pepe"), "Nuevo");
         assert!(r.text.ends_with("SET Nuevo = i.Nuevo FROM dbo.Clientes c JOIN inserted i ON i.id = c.id"), "{}", r.text);
+    }
+
+    #[test]
+    fn view_column_lists_with_types_are_matched_by_name() {
+        let ch = ScriptDialect::generic();
+        let t = column("db", "t", "pepe");
+        // ClickHouse stores the structure: the select keeps its output names.
+        let body = "CREATE VIEW db.v (`id` UInt64, `pepe` String) AS SELECT id, pepe FROM db.t";
+        let r = view(body, &ch, &t, "nuevo");
+        assert_eq!(r.text, "CREATE VIEW db.v (`id` UInt64, `pepe` String) AS SELECT id, nuevo AS pepe FROM db.t");
+        // A list of names is positional: no alias needed.
+        let r = view("CREATE VIEW db.v (a, b) AS SELECT id, pepe FROM db.t", &ch, &t, "nuevo");
+        assert_eq!(r.text, "CREATE VIEW db.v (a, b) AS SELECT id, nuevo FROM db.t");
+        // A materialized view with TO: its list comes after the target table.
+        let body = "CREATE MATERIALIZED VIEW db.mv TO db.dest (`id` UInt64, `pepe` String) AS SELECT id, pepe FROM db.t";
+        assert!(view(body, &ch, &t, "nuevo").text.ends_with("SELECT id, nuevo AS pepe FROM db.t"));
+    }
+
+    #[test]
+    fn keyword_qualifiers_and_table_calls() {
+        let g = ScriptDialect::generic();
+        let t = column("default", "s", "pepe");
+        let r = view("CREATE VIEW default.v AS SELECT id, pepe FROM default.s", &g, &t, "nuevo");
+        assert_eq!(r.text, "CREATE VIEW default.v AS SELECT id, nuevo AS pepe FROM default.s");
+        // Proton's table(s): the stream read as a table.
+        let r = view("CREATE VIEW v AS SELECT id, pepe FROM table(default.s) AS x WHERE x.pepe > ''", &g, &t, "nuevo");
+        assert_eq!(r.text, "CREATE VIEW v AS SELECT id, nuevo AS pepe FROM table(default.s) AS x WHERE x.nuevo > ''");
+        let r = rw("SELECT * FROM table(default.s)", &g, &table("default", "s"), "s2");
+        assert_eq!(r.text, "SELECT * FROM table(default.s2)");
+    }
+
+    #[test]
+    fn the_database_qualifies_a_target_without_schema() {
+        let g = ScriptDialect::generic();
+        let opts = RewriteOptions { database: Some("db".into()), ..Default::default() };
+        let r = rewrite_references("SELECT * FROM db.t JOIN otra.t ON 1 = 1", &g, &table("", "t"), "n", &spec(Fold::None), &opts);
+        assert_eq!(r.text, "SELECT * FROM db.n JOIN otra.t ON 1 = 1");
+        assert_eq!(r.unresolved.len(), 1);
+        assert_eq!(r.unresolved[0].reason, UnresolvedReason::Qualified);
+    }
+
+    #[test]
+    fn trigger_rows() {
+        let up = spec(Fold::Upper);
+        let none = RewriteOptions::default();
+        // Firebird: FOR <table>.
+        let fb = ScriptDialect::generic();
+        let body = "CREATE TRIGGER RN_TRG FOR RN_T BEFORE INSERT AS\nBEGIN\n  IF (NEW.PEPE IS NULL) THEN NEW.PEPE = 0;\nEND";
+        let r = rewrite_references(body, &fb, &column("", "RN_T", "PEPE"), "NOMBRE", &up, &none);
+        assert_eq!(r.text, body.replace("PEPE", "NOMBRE"));
+        let body = "CREATE OR ALTER TRIGGER RN_TRG ACTIVE BEFORE INSERT ON RN_T AS BEGIN NEW.PEPE = OLD.PEPE; END";
+        assert_eq!(rewrite_references(body, &fb, &column("", "RN_T", "PEPE"), "NOMBRE", &up, &none).text, body.replace("PEPE", "NOMBRE"));
+        // Another table's trigger: left alone.
+        let body = "CREATE TRIGGER X FOR OTRA BEFORE INSERT AS BEGIN NEW.PEPE = 0; END";
+        assert!(rewrite_references(body, &fb, &column("", "RN_T", "PEPE"), "NOMBRE", &up, &none).edits.is_empty());
+        // Oracle: :NEW, and the names REFERENCING gives.
+        let ora = ScriptDialect::oracle();
+        let body = "CREATE OR REPLACE TRIGGER APP.TG BEFORE INSERT OR UPDATE OF PEPE ON APP.T REFERENCING NEW AS N OLD AS O FOR EACH ROW\nBEGIN\n  :N.PEPE := :O.PEPE;\n  :NEW.PEPE := 1;\nEND;";
+        let r = rewrite_references(body, &ora, &column("APP", "T", "PEPE"), "NOMBRE", &up, &none);
+        assert_eq!(r.text, body.replace("PEPE", "NOMBRE"));
+        // MySQL.
+        let my = ScriptDialect::mysql();
+        let body = "CREATE DEFINER=`root`@`%` TRIGGER `tg` BEFORE INSERT ON `t` FOR EACH ROW SET NEW.pepe = UPPER(NEW.pepe)";
+        assert_eq!(rw(body, &my, &column("", "t", "pepe"), "nuevo").text, body.replace("NEW.pepe", "NEW.nuevo"));
+        // A PostgreSQL trigger function: only when the app knows a trigger on the table runs it.
+        let pg = ScriptDialect::postgres();
+        let body = "CREATE OR REPLACE FUNCTION public.f() RETURNS trigger LANGUAGE plpgsql AS $$\nBEGIN\n  NEW.pepe := lower(NEW.pepe);\n  RETURN NEW;\nEND $$";
+        let lo = spec(Fold::Lower);
+        assert!(rewrite_references(body, &pg, &column("public", "t", "pepe"), "nuevo", &lo, &none).edits.is_empty());
+        let rows = RewriteOptions { row_table: true, ..Default::default() };
+        let r = rewrite_references(body, &pg, &column("public", "t", "pepe"), "nuevo", &lo, &rows);
+        assert!(r.text.contains("NEW.nuevo := lower(NEW.nuevo);"), "{}", r.text);
+    }
+
+    #[test]
+    fn triggers_and_their_routines() {
+        let pg = ScriptDialect::postgres();
+        let tg = "CREATE TRIGGER tg BEFORE INSERT ON public.t FOR EACH ROW EXECUTE FUNCTION audit.f()";
+        assert_eq!(trigger_routine(tg, &pg), Some((Some("audit".into()), "f".into())));
+        assert_eq!(trigger_routine("CREATE TRIGGER tg AFTER UPDATE OF a ON t FOR EACH ROW EXECUTE PROCEDURE g()", &pg), Some((None, "g".into())));
+        assert!(trigger_on(tg, &pg, "t") && !trigger_on(tg, &pg, "u"));
+        assert!(trigger_routine("CREATE VIEW v AS SELECT 1", &pg).is_none());
+        assert!(names_in_code("SELECT a FROM t -- pepe", &pg, "a") && !names_in_code("SELECT a FROM t -- pepe", &pg, "pepe"));
+        let g = ScriptDialect::generic();
+        assert!(writes_to_table("CREATE MATERIALIZED VIEW db.mv TO db.dest (`a` UInt8) AS SELECT 1 AS a", &g));
+        assert!(!writes_to_table("CREATE MATERIALIZED VIEW db.mv (`a` UInt8) ENGINE = MergeTree ORDER BY a AS SELECT 1 AS a", &g));
+    }
+
+    #[test]
+    fn create_style_collapses_spacing() {
+        let t = tsql();
+        assert_eq!(with_create_style("CREATE      VIEW dbo.v AS SELECT 1", &t, ReplaceStyle::CreateOrAlter), "CREATE OR ALTER VIEW dbo.v AS SELECT 1");
+        let once = with_create_style("CREATE   OR   ALTER\n  VIEW v AS SELECT 1", &t, ReplaceStyle::CreateOrAlter);
+        assert_eq!(once, "CREATE OR ALTER VIEW v AS SELECT 1");
+        assert_eq!(with_create_style(&once, &t, ReplaceStyle::CreateOrAlter), once);
+    }
+
+    #[test]
+    fn per_kind_styles_and_epilogues() {
+        let s = RenameSpec {
+            replace: ReplaceStyle::DropCreate,
+            replace_kinds: [("view".to_string(), ReplaceStyle::CreateOrReplace)].into(),
+            epilogue: Some("BEGIN DBMS_UTILITY.COMPILE_SCHEMA({schema}, FALSE); END;".into()),
+            ..Default::default()
+        };
+        assert_eq!(s.replace_for("view"), ReplaceStyle::CreateOrReplace);
+        assert_eq!(s.replace_for("procedure"), ReplaceStyle::DropCreate);
+        let col = RenameTarget::Column { table: obj(kinds::TABLE, "O'X", "t"), column: "c".into() };
+        assert_eq!(s.epilogue_for(&col).as_deref(), Some("BEGIN DBMS_UTILITY.COMPILE_SCHEMA('O''X', FALSE); END;"));
+        assert!(s.epilogue_for(&RenameTarget::Object { object: obj(kinds::TABLE, "", "t"), parent: None }).is_none());
+        assert!(RenameSpec::default().epilogue_for(&col).is_none());
+        // Older specs (a plugin host's manifest) read without the new fields.
+        let old: RenameSpec = serde_json::from_str(r#"{"kinds":["table"],"replace":"drop_create"}"#).unwrap();
+        assert!(old.replace_kinds.is_empty() && old.holds_rows.is_empty() && old.epilogue.is_none());
     }
 
     #[test]

@@ -6,7 +6,8 @@
     "column": "Columna {{name}}",
     "index": "Índice {{name}}",
     "constraint": "Restricción {{name}}",
-    "schema": "Esquema {{name}}"
+    "schema": "Esquema {{name}}",
+    "database": "Base de datos {{name}}"
   },
   "where": "en {{where}}",
   "newName": "Nuevo nombre",
@@ -42,7 +43,8 @@
     "dynamic": "SQL dinámico: el nombre aparece dentro de un texto",
     "unreadable": "no se pudo leer su definición",
     "not_rewritten": "este motor no reescribe esta clase de referencia",
-    "no_match": "el texto no lo nombra de una forma que DBine reconozca"
+    "no_match": "el texto no lo nombra de una forma que DBine reconozca",
+    "shared_routine": "la ejecutan también triggers de otras tablas: su NEW y OLD no son solo de esta tabla"
   },
   "reason": {
     "in_string": "dentro de un texto (SQL dinámico)",
