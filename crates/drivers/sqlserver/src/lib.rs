@@ -5,6 +5,7 @@ mod backup;
 mod clone;
 mod create_db;
 mod delta;
+mod health;
 mod dependencies;
 mod index_usage;
 mod monitor;
@@ -1022,6 +1023,10 @@ impl Session for SqlServerSession {
         }
         sent.map_err(err)?.into_results().await.map_err(err)?;
         Ok(())
+    }
+
+    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        self.health_checks_impl(database).await
     }
 
     async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {

@@ -135,6 +135,11 @@ export interface DependenciesTab extends TabBase {
   column: string | null;
 }
 
+/** "Salud · <base>": the database's health check. */
+export interface HealthTab extends TabBase {
+  kind: 'health';
+}
+
 /** "Buscar · <base>": object names and the text of views, routines, triggers… */
 export interface SearchTab extends TabBase {
   kind: 'search';
@@ -160,7 +165,7 @@ export interface FileDiffTab extends TabBase {
   path: string;
 }
 
-export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | ConnectionFormTab;
+export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ConnectionFormTab;
 
 /** Editor tabs that can't move to another database right now (running, or
  *  with an open transaction). QueryView keeps it up to date. */
@@ -467,6 +472,13 @@ export const useTabsStore = defineStore('tabs', {
       );
       if (open) return this.activate(open.id);
       this.place({ id: newId(), kind: 'dependencies', connectionId, database, object, column, preview: false });
+    },
+
+    /** A database's "Chequeo de salud" tab, one per database. */
+    openHealth(connectionId: string, database: string) {
+      const open = this.tabs.find((t) => t.kind === 'health' && t.connectionId === connectionId && t.database === database);
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'health', connectionId, database, preview: false });
     },
 
     /** A database's "Buscar" tab, one per database. */

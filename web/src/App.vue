@@ -48,6 +48,7 @@ import BackupsView from './views/BackupsView.vue';
 import IndexUsageView from './views/IndexUsageView.vue';
 import DependenciesView from './views/DependenciesView.vue';
 import SearchView from './views/SearchView.vue';
+import HealthView from './views/HealthView.vue';
 import SparklesIcon from './components/SparklesIcon.vue';
 import ConnectionView from './views/ConnectionView.vue';
 import MonitorView from './views/MonitorView.vue';
@@ -246,6 +247,7 @@ watch(
               <IndexUsageView v-else-if="t.kind === 'indexes'" :tab="t" />
               <DependenciesView v-else-if="t.kind === 'dependencies'" :tab="t" />
               <SearchView v-else-if="t.kind === 'search'" :tab="t" />
+              <HealthView v-else-if="t.kind === 'health'" :tab="t" />
               <ConnectionView v-else-if="t.kind === 'connection'" :tab="t" />
             </div>
           </template>

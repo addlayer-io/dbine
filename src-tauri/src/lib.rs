@@ -350,6 +350,7 @@ pub fn run() {
             commands::search::search_database,
             commands::datagen::datagen_preview,
             commands::datagen::datagen_run,
+            commands::db_health::database_health,
             commands::schema::drop_database,
             commands::schema::drop_objects,
             commands::schemas::schema_spec,
