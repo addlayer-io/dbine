@@ -21,9 +21,8 @@ const families = computed(() => {
 <template>
   <div class="wv nm-content">
     <div class="wv-hero">
-      <img src="/dbine.png" alt="" width="72" height="72" />
       <div>
-        <h1>DBine</h1>
+        <h1><img class="wv-logo" src="/brand/dbine-logo-horizontal-dark.svg" alt="DBine" /></h1>
         <p class="nm-muted">{{ $t('workbench:welcome.tagline') }} · AddLayer</p>
       </div>
     </div>
@@ -52,7 +51,8 @@ const families = computed(() => {
 <style scoped>
 .wv { max-width: 860px; margin: 0 auto; padding-top: 48px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .wv-hero { display: flex; align-items: center; gap: 16px; }
-.wv-hero h1 { margin: 0; font-size: 26px; }
+.wv-hero h1 { margin: 0; font-size: 26px; line-height: 0; }
+.wv-logo { height: 64px; width: auto; }
 .wv-hero p { margin: 4px 0 0; }
 .wv-tips ul { margin: 0; padding-left: 18px; line-height: 1.8; }
 .wv kbd { font-family: var(--nm-mono); font-size: 11px; padding: 0 4px; border: 1px solid var(--nm-border); border-radius: 3px; }
