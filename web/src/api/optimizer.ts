@@ -54,7 +54,8 @@ export interface Analysis {
   skipped: string[];
 }
 
-export interface AiAlternatives { candidates: Candidate[]; none: boolean; sent: string[] }
+/** `discarded`: alternatives left out because they didn't compile, even after the AI was asked to fix them. */
+export interface AiAlternatives { candidates: Candidate[]; none: boolean; sent: string[]; discarded: number }
 
 export interface Measure {
   id: string;
@@ -75,8 +76,8 @@ export interface Measure {
 export const optimizerApi = {
   analyze: (connectionId: string, database: string, sql: string, runId: string) =>
     invoke<Analysis>('optimizer_analyze', { args: { connection_id: connectionId, database, sql, run_id: runId } }),
-  ai: (connectionId: string, database: string, sql: string, runId: string, provider: AiProviderKind, model: string | null, plans: Plan[]) =>
-    invoke<AiAlternatives>('optimizer_ai', { args: { connection_id: connectionId, database, sql, run_id: runId, provider, model, plans } }),
+  ai: (connectionId: string, database: string, sql: string, runId: string, provider: AiProviderKind, model: string | null, plans: Plan[], uiLanguage: string) =>
+    invoke<AiAlternatives>('optimizer_ai', { args: { connection_id: connectionId, database, sql, run_id: runId, provider, model, plans, ui_language: uiLanguage } }),
   /** `versions`: the original first. Each measure also arrives as an `optimizer-progress` event. */
   compare: (connectionId: string, database: string, runId: string, versions: { id: string; sql: string }[], runs: number, maxRows: number) =>
     invoke<Measure[]>('optimizer_compare', { args: { connection_id: connectionId, database, run_id: runId, versions, runs, max_rows: maxRows } }),

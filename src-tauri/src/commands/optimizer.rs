@@ -178,6 +178,9 @@ pub struct AiArgs {
     /// The original's plans, summarized for the prompt.
     #[serde(default)]
     pub plans: Vec<Plan>,
+    /// The UI's language (`en`, `pt`…): the titles and explanations come in it.
+    #[serde(default)]
+    pub ui_language: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -187,6 +190,36 @@ pub struct AiOut {
     pub none: bool,
     /// What went with the query ("3 tablas · plan").
     pub sent: Vec<String>,
+    /// Alternatives left out because they didn't compile, even after the
+    /// AI was asked to fix them.
+    pub discarded: usize,
+}
+
+/// The engine's error for each candidate that doesn't compile: its estimated
+/// plan is asked for on a read-only session, so nothing runs. Engines without
+/// plans can't tell: their candidates pass, and Compare shows any error.
+async fn compile_errors(state: &AppState, driver: &dyn Driver, args: &AiArgs, cands: &[Candidate]) -> CommandResult<Vec<Option<String>>> {
+    if !driver.supports_explain() || cands.is_empty() {
+        return Ok(vec![None; cands.len()]);
+    }
+    let key = format!("optimize:{}", args.run_id);
+    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+    let mut errors = Vec::with_capacity(cands.len());
+    let mut cancelled = false;
+    for c in cands {
+        let mut out = QueryOutcome::default();
+        let mut s = entry.session.lock().await;
+        let r = tokio::select! {
+            r = s.explain(&c.sql, false, 1, &mut out) => r,
+            _ = entry.cancel.notified() => { cancelled = true; break; }
+        };
+        errors.push(r.err().map(|e| e.to_string()));
+    }
+    state.sessions.remove(&key);
+    if cancelled {
+        return Err(CommandError::Cancelled);
+    }
+    Ok(errors)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -229,16 +262,49 @@ pub async fn optimizer_ai(state: State<'_, AppState>, ai: State<'_, AiRuntime>, 
         let req = ChatRequest {
             kind: args.provider,
             model: args.model.clone(),
-            system: prompts::system_prompt(info.name, &language),
+            system: prompts::system_prompt(info.name, &language, prompts::answer_language(args.ui_language.as_deref().unwrap_or("es"))),
             messages: vec![ChatMessage { role: "user".into(), content: prompts::user_prompt(&args.sql, &structure_text, &plan) }],
         };
         let text = dbine_ai::chat(&req, &ai.endpoints, &|_| {}, &cancel).await?;
-        let mut candidates = prompts::parse(&text, &args.sql);
+        let first = prompts::parse(&text, &args.sql);
+        let none = first.is_empty() && text.to_uppercase().contains("NINGUNA");
+
+        // Only alternatives that compile reach the user; the others go back
+        // to the AI once, with the engine's error, to be fixed.
+        let errors = compile_errors(&state, driver.as_ref(), &args, &first).await?;
+        let (mut candidates, mut failed) = (Vec::new(), Vec::new());
+        for (c, e) in first.into_iter().zip(errors) {
+            match e {
+                None => candidates.push(c),
+                Some(e) => failed.push((c, e)),
+            }
+        }
+        let mut discarded = failed.len();
+        if !failed.is_empty() {
+            let mut req = req;
+            req.messages.push(ChatMessage { role: "assistant".into(), content: text });
+            req.messages.push(ChatMessage { role: "user".into(), content: prompts::repair_prompt(&failed) });
+            let fixed_text = dbine_ai::chat(&req, &ai.endpoints, &|_| {}, &cancel).await?;
+            let fixed: Vec<Candidate> = prompts::parse(&fixed_text, &args.sql)
+                .into_iter()
+                .filter(|f| !candidates.iter().chain(failed.iter().map(|(c, _)| c)).any(|c: &Candidate| c.sql.trim() == f.sql.trim()))
+                .take(failed.len())
+                .collect();
+            let errors = compile_errors(&state, driver.as_ref(), &args, &fixed).await?;
+            for (c, e) in fixed.into_iter().zip(errors) {
+                match e {
+                    None => {
+                        candidates.push(c);
+                        discarded -= 1;
+                    }
+                    Some(e) => tracing::debug!("optimizer: an AI alternative still doesn't compile: {e}"),
+                }
+            }
+        }
         for (i, c) in candidates.iter_mut().enumerate() {
             c.id = format!("ai-{}-{i}", args.run_id);
         }
-        let none = candidates.is_empty() && text.to_uppercase().contains("NINGUNA");
-        Ok(AiOut { candidates, none, sent })
+        Ok(AiOut { candidates, none, sent, discarded })
     }
     .await;
     ai_runs().remove(&args.run_id);

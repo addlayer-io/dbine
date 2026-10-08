@@ -30,6 +30,8 @@
   "openAssistant": "Ouvrir l'assistant",
   "aiNone": "L'IA n'a trouvé aucune amélioration pour cette requête.",
   "aiNothing": "La réponse de l'IA ne contenait pas d'alternatives dans le format demandé. Réessayez ou essayez avec un autre modèle.",
+  "aiDiscarded_one": "{{count}} alternative a été écartée car elle ne compile pas sur la base, même après avoir demandé à l'IA de la corriger.",
+  "aiDiscarded_other": "{{count}} alternatives ont été écartées car elles ne compilent pas sur la base, même après avoir demandé à l'IA de les corriger.",
   "aiSent": "La requête et {{what}} ont été envoyés à {{provider}}. Les lignes ne sont jamais envoyées.",
   "aiSentOnly": "Seule la requête a été envoyée à {{provider}}. Les lignes ne sont jamais envoyées.",
   "aiTables": "{{count}} tables",

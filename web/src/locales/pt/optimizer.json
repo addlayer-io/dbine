@@ -30,6 +30,8 @@
   "openAssistant": "Abrir o assistente",
   "aiNone": "A IA não encontrou melhorias para esta consulta.",
   "aiNothing": "A resposta da IA não trouxe alternativas no formato pedido. Tente novamente ou com outro modelo.",
+  "aiDiscarded_one": "{{count}} alternativa foi descartada porque não compila no banco, nem depois de pedir à IA que a corrigisse.",
+  "aiDiscarded_other": "{{count}} alternativas foram descartadas porque não compilam no banco, nem depois de pedir à IA que as corrigisse.",
   "aiSent": "Foram enviados a {{provider}} a consulta e {{what}}. Linhas nunca são enviadas.",
   "aiSentOnly": "Foi enviada a {{provider}} somente a consulta. Linhas nunca são enviadas.",
   "aiTables": "{{count}} tabelas",

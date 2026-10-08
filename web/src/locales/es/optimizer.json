@@ -30,6 +30,8 @@
   "openAssistant": "Abrir el asistente",
   "aiNone": "La IA no encontró mejoras para esta consulta.",
   "aiNothing": "La respuesta de la IA no trajo alternativas en el formato pedido. Probá de nuevo o con otro modelo.",
+  "aiDiscarded_one": "Se descartó {{count}} alternativa porque no compila en la base, ni siquiera después de pedirle a la IA que la corrigiera.",
+  "aiDiscarded_other": "Se descartaron {{count}} alternativas porque no compilan en la base, ni siquiera después de pedirle a la IA que las corrigiera.",
   "aiSent": "Se envió a {{provider}} la consulta y {{what}}. Nunca se envían filas.",
   "aiSentOnly": "Se envió a {{provider}} solo la consulta. Nunca se envían filas.",
   "aiTables": "{{count}} tablas",

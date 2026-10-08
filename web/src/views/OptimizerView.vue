@@ -6,7 +6,7 @@ import { useTranslation } from 'i18next-vue';
 import { errorKind, errorMessage } from '../api/client';
 import { optimizerApi, type Analysis, type Candidate, type IndexHint, type Measure, type OptimizerNote } from '../api/optimizer';
 import type { Plan } from '../api/types';
-import { locale } from '../i18n';
+import { language, locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
 import CodeEditor from '../components/CodeEditor.vue';
@@ -212,14 +212,17 @@ async function askAi() {
   aiRunning.value = true;
   aiId = newId('ai');
   try {
-    const r = await optimizerApi.ai(props.tab.connectionId, props.tab.database, props.tab.sql, aiId, p.kind, ai.model, analysis.value?.plans ?? []);
+    const r = await optimizerApi.ai(props.tab.connectionId, props.tab.database, props.tab.sql, aiId, p.kind, ai.model, analysis.value?.plans ?? [], language.value);
     const known = new Set(candidates.value.map((c) => c.sql.trim()));
     extra.value = [...extra.value, ...r.candidates.filter((c) => !known.has(c.sql.trim()))];
-    const what = r.sent.map((s) => (s === 'plan' ? t('optimizer:aiPlan') : t('optimizer:aiTables', { count: Number.parseInt(s, 10) || 0 }))).join(', ');
-    const sent = what ? t('optimizer:aiSent', { provider: p.label, what }) : t('optimizer:aiSentOnly', { provider: p.label });
+    const items = r.sent.map((s) => (s === 'plan' ? t('optimizer:aiPlan') : t('optimizer:aiTables', { count: Number.parseInt(s, 10) || 0 })));
+    const what = new Intl.ListFormat(language.value, { type: 'conjunction' }).format(items);
+    const provider = tb(p.label);
+    const sent = what ? t('optimizer:aiSent', { provider, what }) : t('optimizer:aiSentOnly', { provider });
+    const discarded = r.discarded ? ` ${t('optimizer:aiDiscarded', { count: r.discarded })}` : '';
     if (r.none) aiInfo.value = { kind: 'none', text: `${t('optimizer:aiNone')} ${sent}` };
-    else if (!r.candidates.length) aiInfo.value = { kind: 'nothing', text: t('optimizer:aiNothing') };
-    else aiInfo.value = { kind: 'sent', text: sent };
+    else if (!r.candidates.length) aiInfo.value = { kind: 'nothing', text: r.discarded ? t('optimizer:aiDiscarded', { count: r.discarded }) : t('optimizer:aiNothing') };
+    else aiInfo.value = { kind: 'sent', text: `${sent}${discarded}` };
   } catch (e) {
     if (errorKind(e) !== 'cancelled') ElMessage.error(errorMessage(e));
   } finally {
