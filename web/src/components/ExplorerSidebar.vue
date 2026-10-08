@@ -1253,7 +1253,9 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             :class="[n.type, n.status, {
               'drop-here': isDropOn(n, 'into'), 'drop-before': isDropOn(n, 'before'), 'drop-after': isDropOn(n, 'after'),
               picked: picked.has(n.id),
+              tinted: n.type === 'connection' && !!conns.colorOf(n.connectionId),
             }]"
+            :style="n.type === 'connection' && conns.colorOf(n.connectionId) ? { '--c': conns.colorOf(n.connectionId)! } : undefined"
             :draggable="n.type === 'group' || n.type === 'connection'"
             :data-dnd="n.type === 'group' || n.type === 'connection' ? '' : undefined"
             @dragstart.stop="onDragStart($event, n)"
@@ -1262,7 +1264,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             @drop="onRowDrop($event, n)"
           >
             <template v-if="n.type === 'connection'">
-              <span class="ex-conn-ic" :class="{ tinted: !!conns.colorOf(n.connectionId) }" :style="{ '--c': conns.colorOf(n.connectionId) || 'transparent' }">
+              <span class="ex-conn-ic">
                 <EngineIcon :id="conns.byId(n.connectionId)?.config.driver ?? ''" :name="n.hint ?? ''" :size="15" />
                 <span class="ex-conn-dot" :class="conns.live[n.connectionId]?.status ?? 'disconnected'" />
               </span>
@@ -1442,17 +1444,11 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ktype.json { background: #2f8f8f; }
 .ex-conn-ic { position: relative; display: inline-flex; flex-shrink: 0; }
 /* The connection's color: a frame around the engine logo (the dot is only status). */
-/* The connection's color: a bar on the logo's left. */
-.ex-conn-ic.tinted { margin-left: 6px; }
-/* A thick bar on the left and thin lines above and below: a "[" around the logo. */
-.ex-conn-ic.tinted::before {
-  content: ''; position: absolute; left: -6px; top: -1.5px; bottom: -1.5px; width: 6px;
-  border-radius: 2px 0 0 2px; background: var(--c);
-}
-.ex-conn-ic.tinted::after {
-  content: ''; position: absolute; left: -6px; right: 0; top: -1.5px; bottom: -1.5px;
-  border-top: 2px solid var(--c); border-bottom: 2px solid var(--c); border-radius: 2px 0 0 2px;
-  pointer-events: none;
+/* The connection's color: a stripe on the row's left edge fading into the name. */
+.ex-node.connection.tinted {
+  padding-left: 6px; border-radius: 2px;
+  box-shadow: inset 3px 0 0 0 var(--c);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 16%, transparent), transparent 60%);
 }
 /* Status dot on the logo's corner, ringed with the sidebar color:
  * green connected, red disconnected or failed. */
