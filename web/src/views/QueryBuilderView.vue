@@ -256,16 +256,30 @@ function onCardDown(e: PointerEvent, st: SpecTable) {
 }
 
 // Drop from the list.
-const DRAG_TYPE = 'application/x-dbine-table';
-function onListDrag(e: DragEvent, o: DbObject) {
-  e.dataTransfer?.setData(DRAG_TYPE, JSON.stringify({ kind: o.kind, schema: o.schema, name: o.name }));
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
-}
-function onDrop(e: DragEvent) {
-  const raw = e.dataTransfer?.getData(DRAG_TYPE);
-  if (!raw) return;
-  const p = toWorld(e.clientX, e.clientY);
-  addTable(JSON.parse(raw), { x: p.x - W / 2, y: p.y - HEAD / 2 });
+// Drag from the list onto the canvas, with pointer events: the webview's
+// native drag and drop doesn't reach the canvas on macOS. A label follows
+// the cursor; dropped over the canvas, the table lands there.
+const ghost = ref<{ name: string; x: number; y: number } | null>(null);
+function onItemDown(e: PointerEvent, o: DbObject) {
+  if (e.button !== 0) return;
+  const start = { x: e.clientX, y: e.clientY };
+  const move = (ev: PointerEvent) => {
+    if (!ghost.value && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 4) return;
+    ghost.value = { name: o.name, x: ev.clientX, y: ev.clientY };
+  };
+  const up = (ev: PointerEvent) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    const dragged = ghost.value;
+    ghost.value = null;
+    if (!dragged || !vp.value) return;
+    const r = vp.value.getBoundingClientRect();
+    if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) return;
+    const p = toWorld(ev.clientX, ev.clientY);
+    addTable({ kind: o.kind, schema: o.schema ?? null, name: o.name }, { x: p.x - W / 2, y: p.y - HEAD / 2 });
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
 }
 
 // Joins: drag a column onto another.
@@ -487,9 +501,8 @@ function onSplitDown(e: PointerEvent) {
               v-for="o in g.items"
               :key="`${o.kind}:${o.name}`"
               class="qb-item"
-              draggable="true"
               :title="`${o.schema ? o.schema + '.' : ''}${o.name} · ${kindLabel(o.kind)}\n${$t('queryBuilder:dragHint')}`"
-              @dragstart="onListDrag($event, o)"
+              @pointerdown="onItemDown($event, o)"
               @dblclick="addTable(o)"
             >
               <el-icon :size="13"><ei-view v-if="o.kind === 'view'" /><ei-grid v-else /></el-icon>
@@ -507,8 +520,6 @@ function onSplitDown(e: PointerEvent) {
         tabindex="0"
         @wheel="onWheel"
         @pointerdown="onPointerDown"
-        @dragover.prevent
-        @drop.prevent="onDrop"
       >
         <div class="qb-world" :style="{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }">
           <svg
@@ -714,6 +725,7 @@ function onSplitDown(e: PointerEvent) {
     </div>
 
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
+    <div v-if="ghost" class="qb-ghost" :style="{ left: `${ghost.x + 10}px`, top: `${ghost.y + 6}px` }"><el-icon :size="13"><ei-grid /></el-icon>{{ ghost.name }}</div>
   </div>
 </template>
 
@@ -736,7 +748,8 @@ function onSplitDown(e: PointerEvent) {
 .qb-list-body { flex: 1; overflow: auto; padding-bottom: 8px; }
 .qb-list-empty { display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--nm-text-dim); font-size: 12px; text-align: center; }
 .qb-schema { padding: 6px 10px 2px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--nm-text-dim); }
-.qb-item { display: flex; align-items: center; gap: 6px; padding: 2px 12px; font-size: 12.5px; color: var(--nm-text); cursor: grab; white-space: nowrap; }
+.qb-item { display: flex; align-items: center; gap: 6px; padding: 2px 12px; font-size: 12.5px; color: var(--nm-text); cursor: grab; white-space: nowrap; user-select: none; }
+.qb-ghost { position: fixed; z-index: 3000; pointer-events: none; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 4px; font-size: 12.5px; background: var(--ide-selection-focus, #04395e); color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); }
 .qb-item span { overflow: hidden; text-overflow: ellipsis; }
 .qb-item:hover { background: var(--ide-hover, rgba(255, 255, 255, 0.05)); }
 
