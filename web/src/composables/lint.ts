@@ -1,5 +1,5 @@
 import type { Diagnostic } from '@codemirror/lint';
-import { lintApi, type LintFinding } from '../api/lint';
+import { lintApi, type LintFinding, type LintRule } from '../api/lint';
 import { t } from '../i18n';
 import { useSettingsStore } from '../stores/settings';
 
@@ -10,6 +10,13 @@ import { useSettingsStore } from '../stores/settings';
 /** State settings: the linter on/off, and the rules turned off. */
 export const LINT_ENABLED = 'lint.enabled';
 export const LINT_DISABLED = 'lint.disabled';
+
+/** Rules checked in the editor itself, against the explorer's objects
+ *  (composables/nameRefs.ts): listed in Configuración with the backend's. */
+export const LOCAL_LINT_RULES: LintRule[] = [
+  { id: 'unknown-table', severity: 'warning', groups: ['sql', 'cql'] },
+  { id: 'unknown-column', severity: 'warning', groups: ['sql', 'cql'] },
+];
 
 /** A finding with its message, for the "Ver problemas" list. */
 export interface LintProblem extends LintFinding {
@@ -48,10 +55,12 @@ function render(f: LintFinding, message: string): () => Node {
 }
 
 /** The editor's lint source for a connection, or null when it's off.
- *  `onProblems` gets every run's result (for "Ver problemas"). */
+ *  `onProblems` gets every run's result (for "Ver problemas"); `local` adds
+ *  the editor's own findings (unknown names). */
 export function lintSourceFor(
   connectionId: string,
   onProblems: (p: LintProblem[]) => void,
+  local?: ((doc: string) => LintFinding[]) | null,
 ): ((doc: string) => Promise<Diagnostic[]>) | null {
   const settings = useSettingsStore();
   if (!connectionId || !settings.get<boolean>(LINT_ENABLED, true)) {
@@ -67,6 +76,7 @@ export function lintSourceFor(
       // A connection whose driver isn't installed, a deleted one…: no marks.
       found = [];
     }
+    if (local) found = [...found, ...local(doc)].sort((a, b) => a.start - b.start);
     const problems = found.filter((f) => !off.has(f.rule)).map((f) => ({ ...f, message: lintMessage(f) }));
     onProblems(problems);
     return problems.map((f) => {

@@ -26,6 +26,12 @@ import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
 import { confirmMultiDb, multiDbOutcome, rememberSelection, runSummary, startMultiDbRun, type MultiDbLive } from '../composables/multiDb';
 import { useTasksStore } from '../stores/tasks';
 import { lintSourceFor, type LintProblem } from '../composables/lint';
+import { nameAt, unknownNames, type NameIndex } from '../composables/nameRefs';
+import {
+  fillParams, findParams, guessType, hasNull, paramItems, paramMarkers, type ParamItem, type ParamTarget, type ParamValue,
+} from '../composables/queryParams';
+import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
+import QueryParamsDialog from '../components/QueryParamsDialog.vue';
 
 // A saved query, or a project's file, open in the editor. A query's text is
 // saved as you type (to the state store, under its database in the
@@ -210,14 +216,69 @@ const editor = ref<InstanceType<typeof CodeEditor> | null>(null);
 const problemsOpen = ref(false);
 function editorMenu(): MenuItem[] {
   const items: MenuItem[] = [];
-  if (runnable.value && !unbound.value) items.push({ label: t('editor:menu.optimize'), action: optimize });
+  if (!unbound.value) {
+    const at = editor.value?.cursor() ?? 0;
+    const known = !!(nameIndex.value && nameAt(nameIndex.value, text.value, at));
+    items.push({ label: t('editor:menu.goToDefinition'), shortcut: `${navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl+'}${t('editor:menu.click')}`, disabled: !known, action: () => openNameAt(text.value, at, false) });
+    items.push({ label: t('editor:menu.revealInExplorer'), disabled: !known, action: () => openNameAt(text.value, at, true) });
+  }
+  if (runnable.value && !unbound.value) items.push({ label: t('editor:menu.optimize'), divided: true, action: optimize });
   if (lintSource.value) items.push({ label: t('editor:menu.problems'), action: () => { problemsOpen.value = true; } });
+  if (runnable.value && paramTarget.value && paramMarkers(paramTarget.value)) {
+    items.push({ label: t('editor:menu.detectParams'), checked: !props.tab.paramsOff, divided: true, action: () => tabs.setQueryOptions(props.tab.id, { paramsOff: !props.tab.paramsOff }) });
+  }
   return items;
 }
 
+// -- names: ⌘/Ctrl+click, "Ir a la definición", "Mostrar en el explorador", unknown names ----
+/** The tab's database as the explorer knows it (its cache first): empty
+ *  objects while not loaded, so nothing is resolved nor marked. */
+const nameIndex = computed<NameIndex | null>(() => {
+  const d = driver.value;
+  if (!d || unbound.value) return null;
+  const { connectionId, database } = props.tab;
+  const k = dbKey(connectionId, database);
+  const loaded = conns.objects[k];
+  const objects = loaded && (loaded.status === 'ready' || loaded.status === 'stale') ? loaded.items : [];
+  return {
+    language: d.language, dialect: d.dialect, database, objects, kinds: d.object_kinds,
+    schemas: (conns.schemas[k] ?? []).map((s) => s.name),
+    columns: (o) => {
+      const c = conns.columns[objKey(connectionId, database, o.schema, o.name)];
+      return c && (c.status === 'ready' || c.status === 'stale') ? c.items.map((x) => x.name) : null;
+    },
+  };
+});
+function linkAt(doc: string, pos: number) {
+  const hit = nameIndex.value ? nameAt(nameIndex.value, doc, pos) : null;
+  return hit ? { from: hit.from, to: hit.to } : null;
+}
+/** Open the object named at `pos` (its structure, data or code), or show it
+ *  in the explorer. */
+function openNameAt(doc: string, pos: number, reveal: boolean) {
+  const idx = nameIndex.value;
+  const hit = idx ? nameAt(idx, doc, pos) : null;
+  if (!hit) {
+    ElMessage.info({ message: t(idx?.objects.length ? 'editor:nav.notFound' : 'editor:nav.notLoaded'), duration: 2500 });
+    return;
+  }
+  const { connectionId, database } = props.tab;
+  const ref = { kind: hit.object.kind, schema: hit.object.schema, name: hit.object.name };
+  if (reveal) ui.revealInExplorer({ connectionId, database, object: ref });
+  else tabs.openObject(connectionId, database, ref, hit.view, false);
+}
+
+// -- snippets (Configuración › Snippets adds the user's) -----------------------------------
+const snippets = computed(() => snippetsFor(driver.value, settings.get<UserSnippet[]>(SNIPPETS_SETTING, [])));
+
 // -- Calidad de código: marks while typing, and "Ver problemas" ----------------------------
 const problems = ref<LintProblem[]>([]);
-const lintSource = computed(() => lintSourceFor(props.tab.connectionId, (p) => { problems.value = p; }));
+const lintSource = computed(() => {
+  // Rebuilt (and the text checked again) when objects or columns arrive.
+  void schema.value;
+  const idx = nameIndex.value;
+  return lintSourceFor(props.tab.connectionId, (p) => { problems.value = p; }, idx?.objects.length ? (doc) => unknownNames(idx, doc) : null);
+});
 watch(lintSource, (s) => { if (!s) problems.value = []; });
 /** The worst severity found, for the button's color. */
 const worstProblem = computed(() => (['error', 'warning', 'info'] as const).find((s) => problems.value.some((p) => p.severity === s)) ?? '');
@@ -439,13 +500,41 @@ async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
   const base = picked.from + (picked.text.length - picked.text.trimStart().length);
   if (!runnable.value) return;
   if (unbound.value) { ElMessage.info({ message: t('projects:file.pickBase'), duration: 3000 }); return; }
+  const filled = await withParams(script);
+  if (filled === null) return;
   if (!(await confirmEnvironment())) return;
   if (!(await conns.ensureConnected(props.tab.connectionId))) return;
   if (doc.autosave && saveState.value === 'dirty') save();
   runBase.value = base;
   lineOffset.value = (editor.value?.lineAt(base) ?? 1) - 1;
-  await execute(script, plan, false);
+  await execute(filled, plan, false);
 }
+
+// -- parameters (`:name`, `?`, `@name`): asked before every kind of run ------------------------
+const paramTarget = computed<ParamTarget | null>(() => (driver.value ? { language: driver.value.language, dialect: driver.value.dialect, driverId: driver.value.id } : null));
+const paramAsk = ref<{ items: ParamItem[]; values: Record<string, ParamValue>; resolve: (v: Record<string, ParamValue> | 'off' | null) => void } | null>(null);
+
+/** `script` with its parameters' values, after asking for them; the text as
+ *  it is when it has none (or the tab doesn't look for them); null: cancelled. */
+async function withParams(script: string): Promise<string | null> {
+  const target = paramTarget.value;
+  if (!target || props.tab.paramsOff) return script;
+  const spots = findParams(script, target);
+  if (!spots.length) return script;
+  const items = paramItems(spots);
+  const last = props.tab.params ?? {};
+  const values = Object.fromEntries(items.map((i) => [i.key, last[i.key] ? { ...last[i.key] } : { type: guessType(i.key), value: '' }]));
+  const answer = await new Promise<Record<string, ParamValue> | 'off' | null>((resolve) => { paramAsk.value = { items, values, resolve }; });
+  paramAsk.value = null;
+  if (answer === null) return null;
+  if (answer === 'off') {
+    tabs.setQueryOptions(props.tab.id, { paramsOff: true });
+    return script;
+  }
+  tabs.setQueryOptions(props.tab.id, { params: { ...last, ...answer } });
+  return fillParams(script, spots, answer, target);
+}
+onBeforeUnmount(() => paramAsk.value?.resolve(null));
 
 async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean) {
   running.value = true;
@@ -602,8 +691,11 @@ async function openMultiDb() {
 
 async function runMultiDb(databases: string[]) {
   const picked = editor.value?.runnable() ?? { text: text.value, from: 0 };
-  const script = picked.text.trim();
+  let script = picked.text.trim();
   if (!script) { ElMessage.info({ message: t('multiDb:dialog.empty'), duration: 2000 }); return; }
+  const filled = await withParams(script);
+  if (filled === null) return;
+  script = filled;
   const connectionId = props.tab.connectionId;
   try {
     if (!(await confirmMultiDb({ connectionId, databases, sql: script }))) return;
@@ -824,6 +916,9 @@ function drag(e: PointerEvent) {
           @need-columns="loadColumnsFor"
           run-actions
           :menu-items="editorMenu"
+          :snippets="snippets"
+          :link-at="linkAt"
+          @navigate="(d: string, pos: number) => openNameAt(d, pos, false)"
         />
       </div>
       <div class="qv-sash" @pointerdown="drag" />
@@ -862,6 +957,17 @@ function drag(e: PointerEvent) {
       <span class="qv-st" :title="$t('query:status.elapsed')">{{ clockText }}</span>
       <span class="qv-st" :title="$t('query:status.rowsTip')">{{ $t('results:messages.rows', { count: totalRows, rows: totalRows.toLocaleString(locale()) }) }}</span>
     </div>
+
+    <QueryParamsDialog
+      v-if="paramAsk && paramTarget"
+      :items="paramAsk.items"
+      :values="paramAsk.values"
+      :target="paramTarget"
+      :allow-null="hasNull(paramTarget)"
+      @submit="(v: Record<string, ParamValue>) => paramAsk?.resolve(v)"
+      @cancel="paramAsk?.resolve(null)"
+      @disable="paramAsk?.resolve('off')"
+    />
 
     <MultiDbRunDialog
       v-if="multiOpen"

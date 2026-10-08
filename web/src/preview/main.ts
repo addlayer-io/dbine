@@ -3,6 +3,7 @@
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|dependencies
 // |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
 // |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
+// |query[&sample=editor] (⌘-click, unknown names, parameters, snippets: preview/editor-samples.ts)
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 // |timeline[&tab=tq|tf|to] (the history sidebar's "Esta pestaña" next to a stand-in editor: preview/timeline-samples.ts)
 import './lang';
@@ -62,6 +63,7 @@ import { installProjectsPreview } from './projects-samples';
 import { installTimelinePreview, TimelinePreview } from './timeline-samples';
 import { multiDbOutcome, runSummary } from '../composables/multiDb';
 import { sampleLive, sampleMultiDbResponse, sampleTenantDatabases } from './multidb-samples';
+import { EDITOR_SAMPLE_SQL, installEditorSample } from './editor-samples';
 
 document.documentElement.classList.add('dark');
 const params = new URLSearchParams(location.search);
@@ -213,8 +215,8 @@ const app = createApp({
       view === 'connection' ? connectionTab() : view === 'monitor'
         ? h(MonitorView, { tab: { id: 'm', kind: 'monitor', connectionId: 'c1', database: '', preview: false }, active: true }) :
       // view=query&w=<px>: the query editor's toolbar at a given width.
-      view === 'query' ? h('div', { style: `width: ${params.get('w') ?? 1300}px; height: 260px; display: flex; flex-direction: column; background: var(--ide-editor)` }, [
-        h(QueryView, { tab: { id: 'q', kind: 'query', connectionId: 'c1', database: 'tenant-ventas', queryId: 'q1', preview: false, continueOnError: true } }),
+      view === 'query' ? h('div', { style: `width: ${params.get('w') ?? 1300}px; height: ${params.get('h') ?? 260}px; display: flex; flex-direction: column; background: var(--ide-editor)` }, [
+        h(QueryView, { tab: (useTabsStore().tabs.find((x) => x.id === 'q') ?? { id: 'q', kind: 'query', connectionId: 'c1', database: 'tenant-ventas', queryId: 'q1', preview: false, continueOnError: true }) as never }),
       ]) :
       view === 'support' ? h(SupportReminder) :
       view === 'multidb' ? multiDbView() :
@@ -284,7 +286,8 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
       if (cmd === 'get_dependents' && view !== 'compare') return sampleDependents;
       if (cmd === 'test_connection') return { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
       if (view === 'query') {
-        if (cmd === 'get_query') return { id: 'q1', name: 'Query', sql: 'select top 10 * from ventas.clientes', connection_id: 'c1', database: null, folder: null, updated_at: '' };
+        if (cmd === 'get_query') return { id: 'q1', name: 'Query', sql: params.get('sample') === 'editor' ? EDITOR_SAMPLE_SQL : 'select top 10 * from ventas.clientes', connection_id: 'c1', database: null, folder: null, updated_at: '' };
+        if (params.get('sample') === 'editor') return installEditorSample.invoke(cmd, a?.args);
         return null;
       }
       const cmp = compareMock(cmd, a);
@@ -293,6 +296,8 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
     },
   };
   if (view === 'profiler') profilerAutostart.add('p');
+  // view=query&sample=editor: objects and columns for ⌘-click, unknown names, parameters and snippets.
+  if (view === 'query' && params.get('sample') === 'editor') installEditorSample();
   if (view === 'connection') {
     const ui = useUiStore();
     const engine = params.get('engine');

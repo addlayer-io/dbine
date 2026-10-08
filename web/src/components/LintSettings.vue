@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { lintApi, type LintGroup, type LintRule } from '../api/lint';
-import { LINT_DISABLED, LINT_ENABLED } from '../composables/lint';
+import { LINT_DISABLED, LINT_ENABLED, LOCAL_LINT_RULES } from '../composables/lint';
 import { useSettingsStore } from '../stores/settings';
 
 // Configuración › Calidad de código: the linter on/off and each rule.
@@ -12,8 +12,9 @@ const failed = ref(false);
 
 onMounted(async () => {
   try {
-    rules.value = await lintApi.rules();
+    rules.value = [...(await lintApi.rules()), ...LOCAL_LINT_RULES];
   } catch {
+    rules.value = [...LOCAL_LINT_RULES];
     failed.value = true;
   }
 });

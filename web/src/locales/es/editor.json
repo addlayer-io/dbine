@@ -16,6 +16,14 @@
     "find": "Buscar y reemplazar",
     "gotoLine": "Ir a la línea…",
     "optimize": "Optimizar consulta",
-    "problems": "Ver problemas"
+    "problems": "Ver problemas",
+    "goToDefinition": "Ir a la definición",
+    "revealInExplorer": "Mostrar en el explorador",
+    "detectParams": "Pedir los parámetros al ejecutar",
+    "click": "clic"
+  },
+  "nav": {
+    "notFound": "No hay una tabla, vista o rutina con ese nombre en la base de la pestaña.",
+    "notLoaded": "Los objetos de la base todavía no se cargaron: conectate para ir a la definición."
   }
 }

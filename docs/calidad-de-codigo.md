@@ -165,3 +165,14 @@ que ya existían, para elegir el analizador y las reglas.
   hallazgos con posiciones en índices UTF-16 y la línea) y `lint_rules` (la
   lista de reglas para la configuración). Ver
   [`api-comandos.md`](api-comandos.md).
+
+### Nombres desconocidos (todos los motores SQL y CQL)
+
+Estas dos reglas no las analiza el backend: el editor compara el texto con los
+objetos de la base que conoce el explorador. Detalle y casos que no se marcan
+en [Editor de consultas](editor-de-consultas.md#nombres-desconocidos).
+
+| Regla | Severidad | Detecta |
+|---|---|---|
+| `unknown-table` | Advertencia | Una tabla del `FROM`, `JOIN`, `UPDATE` o `INSERT INTO` que no existe en la base de la pestaña. |
+| `unknown-column` | Advertencia | Una columna calificada o de la lista de un `INSERT` que la tabla no tiene (solo con las columnas ya cargadas). |
