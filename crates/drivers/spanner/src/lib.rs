@@ -13,6 +13,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod script;
 mod security;
 mod backup;
@@ -222,6 +223,16 @@ impl Driver for SpannerDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
+    }
+
+    /// Tables (`ALTER TABLE … RENAME TO`) and views (created again with the
+    /// new name); see `rename`.
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     /// Fine-grained access control: database roles (users are IAM's).
@@ -875,12 +886,18 @@ impl Session for SpannerSession {
         if obj.kind == kinds::VIEW {
             let rows = self
                 .text_rows(
-                    "SELECT view_definition FROM INFORMATION_SCHEMA.VIEWS WHERE table_schema = @p0 AND table_name = @p1",
+                    "SELECT view_definition, security_type FROM INFORMATION_SCHEMA.VIEWS WHERE table_schema = @p0 AND table_name = @p1",
                     &[schema, &obj.name],
                 )
                 .await?;
             let q = qualified(obj);
-            return Ok(rows.into_iter().next().and_then(|r| r.into_iter().next().flatten()).map(|b| format!("CREATE VIEW {q} SQL SECURITY INVOKER AS\n{b}")));
+            return Ok(rows.into_iter().next().and_then(|r| {
+                let mut r = r.into_iter();
+                let body = r.next().flatten()?;
+                // DEFINER views stay DEFINER when created again (rename, sync).
+                let security = r.next().flatten().filter(|s| s.eq_ignore_ascii_case("DEFINER")).map_or("INVOKER", |_| "DEFINER");
+                Some(format!("CREATE VIEW {q} SQL SECURITY {security} AS\n{body}"))
+            }));
         }
         // The database DDL has every CREATE TABLE and CREATE SEQUENCE; pick this one's.
         let ddl = self.api.get(&format!("{}/ddl", self.database)).await?;

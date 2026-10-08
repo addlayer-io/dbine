@@ -3106,7 +3106,7 @@ ofrece **Renombrar…** en ese motor.
 | CrateDB | sí | tabla, vista (`ALTER TABLE … RENAME TO`), columna (5.5+) | — | vistas: `CREATE OR REPLACE` | sin esquemas, índices ni restricciones; sin transacción |
 | H2 (servidor PostgreSQL) | sí | tabla, vista, columna, índice, restricción, esquema | — | vistas: `CREATE OR REPLACE` | sin transacción |
 | Denodo | no | — | — | — | no modifica objetos por SQL: las vistas se definen en Denodo |
-| Aurora DSQL | pendiente | | | | |
+| Amazon Aurora DSQL | sí (sin prueba en vivo) | tablas, vistas y secuencias (`ALTER TABLE\|VIEW\|SEQUENCE … RENAME TO`), funciones (`ALTER FUNCTION f(args) RENAME TO`, cada sobrecarga), columnas de tablas y vistas (`RENAME COLUMN`) y restricciones (`RENAME CONSTRAINT`) | vistas | `CREATE OR REPLACE` (funciones SQL) | no renombra índices, esquemas ni dominios (no tiene `ALTER INDEX`, `ALTER SCHEMA` ni `ALTER DOMAIN`); cada sentencia DDL va en su propia transacción: no es atómico |
 | SQL Server, Azure SQL | sí | tabla, vista, procedimiento, función, trigger, columna, índice, restricción (`sp_rename`; un módulo se renombra con `sp_rename` y luego `CREATE OR ALTER` con el encabezado nuevo, porque `sp_rename` no cambia el texto guardado) | claves foráneas, índices y restricciones del objeto renombrado | `CREATE OR ALTER` (mantiene permisos); las vistas con SCHEMABINDING se borran antes y se crean después; en una transacción | sin esquemas ni sinónimos; una columna que usan restricciones CHECK o índices filtrados se renombra borrándolos y creándolos de nuevo en el mismo lote; si la usa una columna calculada, no se renombra |
 | Microsoft Fabric Data Warehouse | sí (sin prueba en vivo) | tabla, columna (`sp_rename`) | — | `CREATE OR ALTER`; sin transacción | sin vistas, rutinas, índices ni restricciones |
 | Babelfish for PostgreSQL | sí | tabla, vista, procedimiento, función, columna (`sp_rename`; procedimientos y funciones se borran y se crean con el nombre nuevo) | restricciones CHECK y columnas calculadas al renombrar una columna | se borran antes y se crean después (pierden los permisos); en una transacción | sin triggers, restricciones, índices, esquemas ni sinónimos |
@@ -3140,8 +3140,8 @@ ofrece **Renombrar…** en ese motor.
 | Amazon Athena | pendiente | | | | |
 | Dremio | pendiente | | | | |
 | Apache Drill | pendiente | | | | |
-| Flight SQL | pendiente | | | | |
-| Spanner | pendiente | | | | |
+| Apache Arrow Flight SQL | no | — | — | — | protocolo genérico: el DDL depende del backend y no hay uno portable |
+| Google Cloud Spanner | sí | tablas (`ALTER TABLE … RENAME TO`) y vistas (se crean con el nombre nuevo y se borra la anterior) | índices, claves foráneas, tablas intercaladas y change streams | se borran antes del cambio y se vuelven a crear después (Spanner no renombra una tabla que usa una vista) | no renombra columnas, índices, secuencias, restricciones ni esquemas; no es atómico; las claves foráneas no se probaron en vivo (el emulador no renombra tablas con claves foráneas) |
 | SAP HANA | sí (sin prueba en vivo) | tabla, columna, índice (`RENAME TABLE s.t TO n`, `RENAME COLUMN s.t.c TO n`, `RENAME INDEX s.ix TO n`) | índices y claves foráneas (verificar) | `CREATE OR REPLACE` (vistas, procedimientos, funciones) | sin vistas, rutinas, restricciones ni esquemas; DDL sin transacción; en versiones sin `CREATE OR REPLACE` ese paso falla |
 | Firebird | sí | columna (`ALTER TABLE t ALTER COLUMN a TO b`) | índices comunes | se borran antes y se crean después con `CREATE OR ALTER`; sin transacción (el borrado recién vale al confirmar) | rechaza si la columna está en una vista, rutina, trigger, CHECK o clave primaria/única/foránea; los triggers con `NEW.columna` quedan manuales |
 | ODBC: Db2 (LUW) | sí (sin prueba en vivo) | tabla, columna, índice (`RENAME TABLE\|INDEX`, `ALTER TABLE … RENAME COLUMN`) | índices | `CREATE OR REPLACE`; en una transacción | rechaza tablas con triggers o en claves foráneas |
@@ -3153,7 +3153,7 @@ ofrece **Renombrar…** en ese motor.
 | ODBC: Vertica | sí (sin prueba en vivo) | tabla, vista, columna, esquema (`ALTER TABLE\|VIEW\|SCHEMA … RENAME TO`, `RENAME COLUMN`) | — | `CREATE OR REPLACE` | DDL sin transacción |
 | ODBC: Exasol | sí (sin prueba en vivo) | tabla, vista, columna, esquema (`RENAME TABLE\|VIEW\|SCHEMA`, `ALTER TABLE … RENAME COLUMN`) | — | `CREATE OR REPLACE` | — |
 | ODBC: resto de los presets | no | — | — | — | sintaxis sin confirmar |
-| Apache Phoenix | pendiente | | | | |
+| Apache Phoenix | no | — | — | — | Phoenix no tiene `RENAME` de tablas ni de columnas |
 | ksqlDB | no | — | — | — | no renombra streams, tablas ni columnas (`ALTER STREAM/TABLE` solo agrega columnas) |
 | Redis, Valkey, Dragonfly | sí | claves (`RENAMENX` dentro de un `EVAL`: si la clave nueva ya existe, falla sin pisarla) | — | — (el servidor no guarda nada que nombre una clave) | conserva valor y TTL; en Redis Cluster las dos claves tienen que caer en el mismo hash slot (se avisa si no; usar la misma etiqueta `{…}`) |
 | etcd | no | — | — | — | el lenguaje de scripts (etcdctl) no tiene `txn`: no hay forma atómica de poner la clave nueva y borrar la vieja sin pisar una existente |
