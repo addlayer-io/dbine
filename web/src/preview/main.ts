@@ -2,6 +2,7 @@
 // sample data in a plain browser, to look at them without Tauri or a
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|dependencies
 // |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
+// |docs (documents with nested fields: the JSON tree view)
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
@@ -127,6 +128,21 @@ function diagram() {
   });
 }
 
+// view=docs: MongoDB-like documents (nested fields arrive as JSON text,
+// as the driver sends them), one with a 250-item array (chunked in the tree).
+const sampleDocuments = {
+  columns: [
+    { name: '_id', type_name: 'objectId' }, { name: 'cliente', type_name: 'object' }, { name: 'items', type_name: 'array' },
+    { name: 'total', type_name: 'double' }, { name: 'pagado', type_name: 'bool' }, { name: 'fecha', type_name: 'date' }, { name: 'nota', type_name: 'string|null' },
+  ],
+  rows: Array.from({ length: 40 }, (_, i) => [
+    `65a1b2c3d4e5f6071829${(0x3a00 + i).toString(16)}`,
+    JSON.stringify({ nombre: `Cliente ${i + 1}`, ciudad: ['Norte', 'Sur', 'Centro'][i % 3], contacto: { email: `cliente${i + 1}@ejemplo.com`, telefonos: ['555-0100', '555-0101'] } }),
+    JSON.stringify(Array.from({ length: i === 3 ? 250 : (i % 4) + 1 }, (_, k) => ({ sku: `P-${100 + k}`, cantidad: (k % 5) + 1, precio: 9.5 + k }))),
+    120.5 + i, i % 2 === 0, `2024-0${(i % 9) + 1}-1${i % 10} 10:3${i % 6}:00`, i % 5 === 0 ? null : `Entrega ${i % 3 === 0 ? 'urgente' : 'normal'}`,
+  ]),
+};
+
 // view=filters: the column filter row, filtering the sample locally.
 const pvFilters = ref<Record<string, FilterState>>({});
 function filtersView() {
@@ -183,6 +199,11 @@ const app = createApp({
       view === 'settings' ? h(SettingsDialog) : view.startsWith('diagram') ? diagram() : ['script', 'import', 'run'].includes(view) ? dialogView() : view === 'designer' ? designer() : view === 'chart'
         ? h(ChartView, { columns: sampleResult.columns, rows: sampleResult.rows })
         : view === 'filters' ? filtersView()
+        : view === 'docs'
+          ? h(ResultsPane, {
+            running: false, title: 'pedidos',
+            outcome: { results: [{ ...sampleDocuments, total_rows: sampleDocuments.rows.length, truncated: false, rows_affected: null }], messages: [], error: null, elapsed_ms: 12, plans: [] },
+          })
         : view === 'results'
           ? h(ResultsPane, {
             running: false, title: 'Ventas', dialect: 'mssql',

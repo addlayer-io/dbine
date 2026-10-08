@@ -11,6 +11,7 @@ import type { Cell, Message, MessageLevel, ObjectRef, QueryOutcome, StatementRes
 import { buildChanges, buildInserts, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits } from '../composables/gridEdit';
 import ResultGrid from './ResultGrid.vue';
 import AddDocumentDialog from './AddDocumentDialog.vue';
+import JsonTreeView from './JsonTreeView.vue';
 import PlanView from './PlanView.vue';
 import ChartView from './ChartView.vue';
 import ExportDialog from './ExportDialog.vue';
@@ -66,8 +67,23 @@ const { t } = useTranslation();
 
 const sets = computed(() => (props.outcome?.results ?? []).map((r, i) => ({ ...r, i })).filter((r) => r.columns.length));
 const active = ref<number | 'messages' | 'plan'>(0);
-/** How the current result set is shown. */
-const show = ref<'table' | 'chart'>('table');
+/** How the current result set is shown. Document engines remember table or
+ *  JSON tree between results (a per-viewer preference). */
+type View = 'table' | 'chart' | 'tree';
+const VIEW_KEY = 'dbine.resultsView.json';
+const documents = computed(() => props.editSource?.language === 'json');
+function savedView(): View {
+  try { return documents.value && localStorage.getItem(VIEW_KEY) === 'tree' ? 'tree' : 'table'; } catch { return 'table'; }
+}
+const show = ref<View>(savedView());
+// A query tab knows its engine once a script ran: the saved view applies then.
+watch(documents, (d) => { if (d && show.value === 'table') show.value = savedView(); });
+function setView(v: View) {
+  show.value = v;
+  if (documents.value && v !== 'chart') {
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage off */ }
+  }
+}
 /** The user picked a sub-tab during this outcome. */
 const picked = ref(false);
 function pick(v: number | 'messages' | 'plan') {
@@ -560,7 +576,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 async function saveShortcut(e: KeyboardEvent) {
   if (inCodeEditor(e)) return;
   e.preventDefault();
-  if (applyOpen.value || modalOpen() || show.value !== 'table' || !current.value || !root.value?.offsetParent) return;
+  if (applyOpen.value || modalOpen() || show.value === 'chart' || !current.value || !root.value?.offsetParent) return;
   // A cell being edited commits on the key (ResultGrid); its code is
   // generated now instead of after the debounce.
   await nextTick();
@@ -703,8 +719,9 @@ const statusText = computed(() => {
         </template>
       </el-dropdown>
       <div v-if="current" class="rp-mode" role="group" :aria-label="$t('results:view.label')">
-        <button :class="{ on: show === 'table' }" :title="$t('results:view.table')" @click="show = 'table'"><el-icon><ei-grid /></el-icon></button>
-        <button :class="{ on: show === 'chart' }" :title="$t('results:view.chart')" @click="show = 'chart'"><el-icon><ei-histogram /></el-icon></button>
+        <button :class="{ on: show === 'table' }" :title="$t('results:view.table')" @click="setView('table')"><el-icon><ei-grid /></el-icon></button>
+        <button :class="{ on: show === 'tree' }" :title="$t('results:view.tree')" @click="setView('tree')"><span class="rp-json">{ }</span></button>
+        <button :class="{ on: show === 'chart' }" :title="$t('results:view.chart')" @click="setView('chart')"><el-icon><ei-histogram /></el-icon></button>
       </div>
       <template v-if="!hideStatus">
         <span v-if="running" class="rp-status"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('results:running') }}</span>
@@ -712,7 +729,7 @@ const statusText = computed(() => {
       </template>
     </div>
 
-    <div v-if="pending && (show === 'table' || !current)" class="rp-edits">
+    <div v-if="pending && (show !== 'chart' || !current)" class="rp-edits">
       <div class="rp-edits-bar">
         <el-icon><ei-edit /></el-icon>
         <span>{{ summary }}</span>
@@ -738,6 +755,16 @@ const statusText = computed(() => {
         {{ $t('results:truncated', { shown: current.rows.length.toLocaleString(locale()), total: current.total_rows.toLocaleString(locale()) }) }}
       </div>
       <ChartView v-if="show === 'chart'" :key="active" :columns="current.columns" :rows="current.rows" />
+      <JsonTreeView
+        v-else-if="show === 'tree'"
+        :columns="current.columns"
+        :rows="gridRows"
+        :edits="gridEdits"
+        :deleted="currentDeletes"
+        :added="currentAdded.length"
+        :filterable="filterable"
+        @filter="(c, st) => emit('filter', c, st)"
+      />
       <template v-else>
       <ResultGrid
         ref="grid"
@@ -837,6 +864,7 @@ const statusText = computed(() => {
 .rp-mode { display: inline-flex; margin: 0 6px; border: 1px solid var(--nm-border); border-radius: 3px; overflow: hidden; align-self: center; }
 .rp-mode button { display: inline-flex; align-items: center; padding: 2px 7px; border: none; background: transparent; color: var(--nm-text-dim); cursor: pointer; }
 .rp-mode button.on { background: var(--ide-selection); color: var(--nm-text-strong); }
+.rp-json { font-family: var(--nm-mono); font-size: 11px; font-weight: 600; line-height: 1; }
 .rp-mode button:hover { color: var(--nm-text-strong); }
 .rp-status { display: inline-flex; align-items: center; gap: 4px; padding: 0 10px; font-size: 11.5px; color: var(--nm-text-dim); }
 .rp-empty { padding: 16px; }

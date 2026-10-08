@@ -12,7 +12,8 @@
   "view": {
     "label": "Result view",
     "table": "Table",
-    "chart": "Chart"
+    "chart": "Chart",
+    "tree": "JSON (tree)"
   },
   "export": {
     "title": "Export the result",
@@ -252,5 +253,28 @@
     "invalidJson": "The JSON is not valid: {{error}}",
     "notObject": "It must be an object, or a list of objects.",
     "empty": "The document is empty: add at least one field."
+  },
+  "tree": {
+    "document": "Document",
+    "search": "Search keys and values",
+    "matches": "{{at}} of {{count}}",
+    "noMatches": "No matches",
+    "prevMatch": "Previous match (⇧↵)",
+    "nextMatch": "Next match (↵)",
+    "expand": "Expand:",
+    "levels_one": "Expand {{count}} level",
+    "levels_many": "Expand {{count}} levels",
+    "levels_other": "Expand {{count}} levels",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "capped": "The first nodes were expanded: the rest stay closed so no more than {{count}} nodes are visible.",
+    "copyValue": "Copy value",
+    "copyPath": "Copy path",
+    "copyDocument": "Copy document (JSON)",
+    "viewValue": "View value",
+    "expandBelow": "Expand everything below",
+    "collapse": "Collapse",
+    "filterBy": "Filter by this “{{name}}” value",
+    "empty": "No rows."
   }
 }

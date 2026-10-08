@@ -519,6 +519,34 @@ el motivo):
 | Apache Drill | No tiene INSERT: las tablas solo se recrean con CTAS |
 | InfluxDB 1 / 2 / 3 | Los puntos se escriben con line protocol, y ningún lenguaje de consulta del motor lo expresa |
 
+## Vista JSON en árbol
+
+El botón «{ }» de la barra de resultados, junto a tabla y gráfico, muestra el
+resultado como árbol: un nodo por fila (un documento), con sus campos debajo y
+los objetos y arrays anidados hasta el último nivel. Está en todos los motores:
+en los de documentos los campos anidados llegan como JSON y se despliegan, y en
+los SQL se despliegan las columnas `json` / `jsonb` (y cualquier texto que sea
+un objeto o un array JSON). En los motores de documentos DBine recuerda la
+última vista elegida, tabla o árbol.
+
+- **Grandes resultados:** solo se dibujan los nodos visibles y los hijos de un
+  nodo se arman al abrirlo. Los arrays de más de 100 elementos se abren por
+  grupos (`[0 … 99]`, `[100 … 199]`…). «Expandir todo» se detiene en 20.000
+  nodos visibles y avisa.
+- **Tipos:** cada campo muestra su tipo (String, Int, Double, Boolean, Null,
+  Object, Array, ObjectId, Date). En el primer nivel sale del tipo de la
+  columna; en los niveles anidados, de la forma del valor.
+- **Búsqueda** en claves y valores: quedan solo los documentos con
+  coincidencias, abiertos hasta cada una y resaltados; Enter y ⇧Enter recorren
+  las coincidencias.
+- **Teclado:** flechas para moverse, → abre y ← cierra o sube al padre,
+  ⌘C copia el valor.
+- **Menú contextual:** copiar el valor, la ruta (`cliente.contacto.email`) o el
+  documento entero en JSON, ver el valor completo, expandir todo debajo y,
+  en los campos de primer nivel, filtrar los datos por ese valor.
+- **Solo lectura:** las ediciones, los borrados y las filas nuevas de la grilla
+  se ven en el árbol, pero se hacen en la vista de tabla.
+
 ## Asistente de IA
 
 Funciona con **todos los motores**. El prompt le indica el lenguaje de consulta

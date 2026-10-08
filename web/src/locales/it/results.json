@@ -12,7 +12,8 @@
   "view": {
     "label": "Vista del risultato",
     "table": "Tabella",
-    "chart": "Grafico"
+    "chart": "Grafico",
+    "tree": "JSON (albero)"
   },
   "export": {
     "title": "Esporta il risultato",
@@ -252,5 +253,28 @@
     "invalidJson": "Il JSON non è valido: {{error}}",
     "notObject": "Deve essere un oggetto o un elenco di oggetti.",
     "empty": "Il documento è vuoto: aggiungi almeno un campo."
+  },
+  "tree": {
+    "document": "Documento",
+    "search": "Cerca in chiavi e valori",
+    "matches": "{{at}} di {{count}}",
+    "noMatches": "Nessuna corrispondenza",
+    "prevMatch": "Corrispondenza precedente (⇧↵)",
+    "nextMatch": "Corrispondenza successiva (↵)",
+    "expand": "Espandi:",
+    "levels_one": "Espandi {{count}} livello",
+    "levels_many": "Espandi {{count}} livelli",
+    "levels_other": "Espandi {{count}} livelli",
+    "expandAll": "Espandi tutto",
+    "collapseAll": "Comprimi tutto",
+    "capped": "Sono stati espansi i primi nodi: il resto resta chiuso per non superare {{count}} nodi visibili.",
+    "copyValue": "Copia valore",
+    "copyPath": "Copia percorso",
+    "copyDocument": "Copia documento (JSON)",
+    "viewValue": "Vedi valore",
+    "expandBelow": "Espandi tutto sotto",
+    "collapse": "Comprimi",
+    "filterBy": "Filtra per questo valore di «{{name}}»",
+    "empty": "Nessuna riga."
   }
 }
