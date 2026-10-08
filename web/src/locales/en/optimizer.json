@@ -30,6 +30,8 @@
   "openAssistant": "Open the assistant",
   "aiNone": "The AI found no improvements for this query.",
   "aiNothing": "The AI's response had no alternatives in the requested format. Try again or with another model.",
+  "aiDiscarded_one": "{{count}} alternative was left out because it doesn't compile on the database, even after the AI was asked to fix it.",
+  "aiDiscarded_other": "{{count}} alternatives were left out because they don't compile on the database, even after the AI was asked to fix them.",
   "aiSent": "The query and {{what}} were sent to {{provider}}. Rows are never sent.",
   "aiSentOnly": "Only the query was sent to {{provider}}. Rows are never sent.",
   "aiTables": "{{count}} tables",

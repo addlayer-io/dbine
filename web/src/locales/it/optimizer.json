@@ -30,6 +30,8 @@
   "openAssistant": "Apri l'assistente",
   "aiNone": "L'IA non ha trovato miglioramenti per questa query.",
   "aiNothing": "La risposta dell'IA non conteneva alternative nel formato richiesto. Riprova o usa un altro modello.",
+  "aiDiscarded_one": "{{count}} alternativa è stata scartata perché non compila sul database, nemmeno dopo aver chiesto all'IA di correggerla.",
+  "aiDiscarded_other": "{{count}} alternative sono state scartate perché non compilano sul database, nemmeno dopo aver chiesto all'IA di correggerle.",
   "aiSent": "A {{provider}} sono stati inviati la query e {{what}}. Le righe non vengono mai inviate.",
   "aiSentOnly": "A {{provider}} è stata inviata solo la query. Le righe non vengono mai inviate.",
   "aiTables": "{{count}} tabelle",

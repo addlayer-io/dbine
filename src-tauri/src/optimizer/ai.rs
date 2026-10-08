@@ -10,7 +10,18 @@ use dbine_driver::TableSchema;
 /// At most this many alternatives are taken from an answer.
 pub const MAX: usize = 3;
 
-pub fn system_prompt(engine: &str, language: &str) -> String {
+/// The UI language's name, for "write the title and explanation in …".
+pub fn answer_language(code: &str) -> &'static str {
+    match code.split(['-', '_']).next().unwrap_or("") {
+        "en" => "inglés",
+        "pt" => "portugués",
+        "fr" => "francés",
+        "it" => "italiano",
+        _ => "español",
+    }
+}
+
+pub fn system_prompt(engine: &str, language: &str, answer: &str) -> String {
     format!(
         "Sos un experto en rendimiento de {engine}. Te paso una consulta ({language}), la estructura de las tablas que usa y un resumen de su plan de ejecución.\n\
          Proponé como máximo {MAX} reescrituras EQUIVALENTES que puedan ser más rápidas en {engine}:\n\
@@ -21,7 +32,7 @@ pub fn system_prompt(engine: &str, language: &str) -> String {
          - Si no ves ninguna mejora real, respondé solo NINGUNA.\n\
          Respondé SOLO con este formato, sin texto antes ni después:\n\
          <alternativa>\n<titulo>qué cambia, en pocas palabras</titulo>\n<explicacion>por qué puede ser más rápida, en una o dos oraciones</explicacion>\n<consulta>\nla consulta completa\n</consulta>\n</alternativa>\n\
-         Escribí el título y la explicación en español."
+         Escribí el título y la explicación en {answer}."
     )
 }
 
@@ -97,6 +108,19 @@ fn tag<'a>(text: &'a str, name: &str) -> Option<&'a str> {
     let a = text.find(&open)? + open.len();
     let b = text[a..].find(&close).map_or(text.len(), |b| a + b);
     Some(text[a..b].trim())
+}
+
+/// The follow-up when some alternatives don't compile: each one with the
+/// engine's error, to be fixed in the same format or left out.
+pub fn repair_prompt(failed: &[(Candidate, String)]) -> String {
+    let mut s = String::from(
+        "Estas alternativas fallan al compilarlas en la base (sin ejecutarlas). Corregilas para que sean válidas y sigan siendo EQUIVALENTES a la original; \
+         una que no puedas corregir, omitila. Respondé SOLO con el mismo formato, solo con las corregidas, o NINGUNA.\n",
+    );
+    for (c, error) in failed {
+        s.push_str(&format!("\n<fallida>\n<consulta>\n{}\n</consulta>\n<error>{}</error>\n</fallida>\n", c.sql.trim(), error.trim()));
+    }
+    s
 }
 
 /// Code fences the model wrapped the query in.
@@ -182,6 +206,11 @@ mod tests {
         let u = user_prompt("SELECT 1", "t(a int)\n", "Seq Scan on t");
         assert!(u.contains("<consulta_original>\nSELECT 1\n</consulta_original>") && u.contains("<estructura>") && u.contains("<plan>\nSeq Scan on t"));
         assert!(!user_prompt("SELECT 1", "", "").contains("<plan>"));
-        assert!(system_prompt("PostgreSQL", "SQL").contains("como máximo 3"));
+        let sys = system_prompt("PostgreSQL", "SQL", answer_language("en-US"));
+        assert!(sys.contains("como máximo 3") && sys.contains("en inglés."));
+        assert_eq!(answer_language("xx"), "español");
+        let c = parse("<alternativa><consulta>SELECT b FROM t</consulta></alternativa>", "SELECT a FROM t");
+        let r = repair_prompt(&[(c[0].clone(), "Invalid column name 'b'.".into())]);
+        assert!(r.contains("<consulta>\nSELECT b FROM t\n</consulta>\n<error>Invalid column name 'b'.</error>"));
     }
 }
