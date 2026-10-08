@@ -668,6 +668,34 @@ export const useTabsStore = defineStore('tabs', {
       this.persist();
     },
 
+    /** After "Renombrar…": the tabs of `from` (data, structure, definition,
+     *  Índices, Dependencias…) follow it to `to`. Query tabs aren't edited. */
+    renameObject(connectionId: string, database: string, from: ObjectRef, to: ObjectRef) {
+      for (const t of this.tabs) {
+        if (t.connectionId !== connectionId || t.database !== database || !('object' in t) || !t.object) continue;
+        const o = t.object;
+        if (o.name === from.name && (o.schema ?? null) === (from.schema ?? null) && (o.kind === from.kind || t.kind !== 'object')) t.object = { ...o, name: to.name, schema: to.schema };
+      }
+      this.persist();
+    },
+
+    /** After a schema rename: the tabs of its objects follow it. */
+    renameSchema(connectionId: string, database: string, from: string, to: string) {
+      for (const t of this.tabs) {
+        if (t.connectionId === connectionId && t.database === database && 'object' in t && t.object?.schema === from) t.object = { ...t.object, schema: to };
+      }
+      this.persist();
+    },
+
+    /** After a column rename: its "Dependencias" tab follows it. */
+    renameColumn(connectionId: string, database: string, table: ObjectRef, from: string, to: string) {
+      for (const t of this.tabs) {
+        if (t.kind === 'dependencies' && t.connectionId === connectionId && t.database === database && t.column === from
+          && t.object.name === table.name && (t.object.schema ?? null) === (table.schema ?? null)) t.column = to;
+      }
+      this.persist();
+    },
+
     /** Tabs of a query / connection that no longer exists. */
     closeWhere(pred: (t: Tab) => boolean) {
       for (const t of this.tabs.filter(pred)) this.close(t.id, true);

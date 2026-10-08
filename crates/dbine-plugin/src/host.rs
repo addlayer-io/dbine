@@ -427,6 +427,7 @@ impl State {
             }
             Call::SyncScript { driver, changes } => Reply::Sync(self.driver(&driver)?.sync_script(&changes)?),
             Call::IndexToggleScript { driver, table, index, enable } => Reply::Sync(self.driver(&driver)?.index_toggle_script(&table, &index, enable)?),
+            Call::RenameScript { driver, request } => Reply::Sync(self.driver(&driver)?.rename_script(&request)?),
             Call::TableDdl { driver, table, parts } => Reply::Text(self.driver(&driver)?.table_ddl(&table, parts)?),
             Call::InsertScript { driver, target, columns, rows } => Reply::Text(self.driver(&driver)?.insert_script(&target, &columns, &rows)?),
             Call::FilteredBrowse { driver, browse, filters } => Reply::Text(self.driver(&driver)?.filtered_browse(&browse, &filters)?),

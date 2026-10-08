@@ -361,13 +361,22 @@ fn dependent_views(tables: &[TableChange], objects: &[ObjectChange], views: &[Co
 }
 
 fn plan(driver: &dyn Driver, tables: &[TableChange], objects: &[ObjectChange]) -> CommandResult<SyncScript> {
-    let mut script = if tables.is_empty() {
+    let tables_part = if tables.is_empty() {
         SyncScript::default()
     } else if driver.supports_schema_sync() {
         driver.sync_script(tables)?
     } else {
         return Err(CommandError::BadRequest(format!("{} no aplica cambios de esquema desde DBine", driver.info().name)));
     };
+    Ok(plan_around(driver, tables_part, objects))
+}
+
+/// The code objects' drops and creates around `middle` (the tables' changes,
+/// a rename…): drops first (dependents before what they use), then the
+/// prerequisites, `middle`, the creates (what's used first), and the
+/// prerequisites only dropped. `middle`'s warnings are kept.
+pub(crate) fn plan_around(driver: &dyn Driver, middle: SyncScript, objects: &[ObjectChange]) -> SyncScript {
+    let mut script = middle;
     // Drops as (object, statements): ordered once all are known.
     let mut before: Vec<(&CodeObject, Vec<String>)> = Vec::new();
     let mut early = Vec::new();
@@ -418,7 +427,7 @@ fn plan(driver: &dyn Driver, tables: &[TableChange], objects: &[ObjectChange]) -
         .into_iter()
         .map(|i| after[i].definition.trim().to_string());
     script.statements = drops(before).into_iter().chain(early).chain(tables_part).chain(creates).chain(drops(late)).collect();
-    Ok(script)
+    script
 }
 
 /// What goes in Spanish, for the warning.
@@ -677,6 +686,12 @@ pub struct RunArgs {
     pub statements: Vec<String>,
     /// For `cancel_query` (`sync:<run_id>`).
     pub run_id: String,
+    /// All or nothing: in one transaction, rolled back on an error or a
+    /// cancel, where the engine runs DDL inside one ("Renombrar…": manual
+    /// transactions and `RenameSpec::transactional`). Otherwise statement
+    /// by statement, as always.
+    #[serde(default)]
+    pub atomic: bool,
 }
 
 #[derive(Serialize)]
@@ -685,6 +700,8 @@ pub struct RunResult {
     pub done: usize,
     /// The one that failed, and why (the rest didn't run).
     pub failed: Option<(usize, String)>,
+    /// An atomic run that failed was rolled back: nothing changed.
+    pub rolled_back: bool,
 }
 
 /// `schema-sync-progress`: statements run so far in `run_id`. The first one
@@ -708,8 +725,18 @@ pub async fn schema_sync_run(app: AppHandle, state: State<'_, AppState>, args: R
     if conn.config.read_only {
         return Err(CommandError::BadRequest(format!("«{}» es de solo lectura: no se pueden aplicar cambios", conn.name)));
     }
+    let atomic = args.atomic && {
+        let driver = crate::commands::schema::driver_of(&state, &args.connection_id)?;
+        driver.supports_manual_transactions() && driver.rename_spec().is_some_and(|s| s.transactional)
+    };
     let key = format!("sync:{}", args.run_id);
     let entry = state.dedicated_session(&key, &args.connection_id, &args.database, false).await?;
+    if atomic {
+        if let Err(e) = entry.session.lock().await.set_autocommit(false).await {
+            state.sessions.remove(&key);
+            return Err(e.into());
+        }
+    }
     let total = args.statements.len();
     let emit = |done| {
         let _ = app.emit("schema-sync-progress", SyncProgress { run_id: &args.run_id, done, total });
@@ -741,9 +768,21 @@ pub async fn schema_sync_run(app: AppHandle, state: State<'_, AppState>, args: R
             }
         }
     }
+    let mut rolled_back = false;
+    if atomic {
+        let mut s = entry.session.lock().await;
+        if failed.is_none() {
+            if let Err(e) = s.commit().await {
+                failed = Some((total, e.to_string()));
+            }
+        }
+        if failed.is_some() {
+            rolled_back = s.rollback().await.is_ok();
+        }
+    }
     state.sessions.remove(&key);
     emit(done);
-    Ok(RunResult { done, failed })
+    Ok(RunResult { done, failed, rolled_back })
 }
 
 #[cfg(test)]

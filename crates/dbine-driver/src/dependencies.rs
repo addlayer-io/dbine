@@ -18,7 +18,7 @@
 use crate::info::DriverInfo;
 use crate::model::ObjectRef;
 use crate::schema::TableSchema;
-use crate::sql::{name_tokens, NameToken, ScriptDialect, TokenKind};
+use crate::sql::{code_tokens, NameToken, ScriptDialect, TokenKind};
 use crate::{kinds, Result, Session};
 use serde::{Deserialize, Serialize};
 
@@ -123,6 +123,12 @@ pub const LINE_CHARS: usize = 200;
 /// Kinds whose source is code that can use other objects. Tables, keys,
 /// indexes, sequences and types also have a definition, but it's their own
 /// shape: reading every key of a Redis database to find a name makes no sense.
+/// The kind of a [`DependencyTarget`] that is a schema (what a schema
+/// rename looks for: `ventas.` qualifiers).
+pub const SCHEMA: &str = "schema";
+/// The kind of a [`DependencyTarget`] that is a table's constraint.
+pub const CONSTRAINT: &str = "constraint";
+
 pub const CODE_KINDS: &[&str] = &[
     kinds::VIEW,
     kinds::MATERIALIZED_VIEW,
@@ -193,6 +199,11 @@ pub async fn scan<S: Session + ?Sized>(s: &mut S, target: &DependencyTarget, ctx
 /// target table's indexes and checks on the column.
 pub fn schema_dependents(tables: &[TableSchema], target: &DependencyTarget) -> Vec<Dependent> {
     let t = &target.object;
+    // A schema, index or constraint (a rename's target) holds no foreign keys
+    // of its own: a table that happens to share its name isn't it.
+    if matches!(t.kind.as_str(), SCHEMA | kinds::INDEX | CONSTRAINT) {
+        return Vec::new();
+    }
     let col = target.column.as_deref();
     let mut out = Vec::new();
     for table in tables {
@@ -243,14 +254,16 @@ pub fn schema_dependents(tables: &[TableSchema], target: &DependencyTarget) -> V
 /// column called `id` is in every routine). A name qualified with another
 /// schema (`ventas.Clientes` for `dbo.Clientes`) doesn't count.
 pub fn find_mentions(body: &str, dialect: &ScriptDialect, target: &DependencyTarget) -> Option<(Confidence, Vec<Mention>)> {
-    let toks = name_tokens(body, dialect);
+    let toks = code_tokens(body, dialect);
     let t = &target.object;
+    // A schema counts only as a qualifier (`ventas.x`), not a column called that.
+    let schema = t.kind == SCHEMA;
     let mut table_code = false;
     let mut table_string = false;
     let mut hits: Vec<(usize, bool)> = Vec::new();
     for (i, tok) in toks.iter().enumerate() {
         match tok.kind {
-            TokenKind::Name if eq(field(tok.text), &t.name) && qualifier_ok(&toks, i, t.schema()) => {
+            TokenKind::Name if eq(field(tok.text), &t.name) && qualifier_ok(&toks, i, t.schema()) && (!schema || qualifies_next(&toks, i)) => {
                 table_code = true;
                 if target.column.is_none() {
                     hits.push((tok.start, false));
@@ -303,9 +316,14 @@ fn mentions(body: &str, hits: &[(usize, bool)]) -> Vec<Mention> {
     out
 }
 
+/// `x.` follows the name at `i`, then a name.
+fn qualifies_next(toks: &[NameToken<'_>], i: usize) -> bool {
+    toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".") && toks.get(i + 2).is_some_and(|t| t.kind == TokenKind::Name)
+}
+
 /// The name at `i` is qualified (`x.name`) with a schema other than
 /// `schema`. Only judged when the target has a schema.
-fn qualifier_ok(toks: &[NameToken<'_>], i: usize, schema: Option<&str>) -> bool {
+pub(crate) fn qualifier_ok(toks: &[NameToken<'_>], i: usize, schema: Option<&str>) -> bool {
     let Some(schema) = schema else { return true };
     match (i.checked_sub(2).map(|k| &toks[k]), i.checked_sub(1).map(|k| &toks[k])) {
         (Some(q), Some(dot)) if dot.kind == TokenKind::Punct && dot.text == "." && q.kind == TokenKind::Name => eq(q.text, schema),
@@ -315,7 +333,7 @@ fn qualifier_ok(toks: &[NameToken<'_>], i: usize, schema: Option<&str>) -> bool 
 
 /// The name at `i` isn't a column: it qualifies the next one
 /// (`alias.col`), or it's an alias (`AS x`, `Clientes x`).
-fn qualifies(toks: &[NameToken<'_>], i: usize, table: &str) -> bool {
+pub(crate) fn qualifies(toks: &[NameToken<'_>], i: usize, table: &str) -> bool {
     let dot_after = toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".") && toks.get(i + 2).is_some_and(|t| t.kind == TokenKind::Name);
     let alias = i.checked_sub(1).map(|k| &toks[k]).is_some_and(|p| p.kind == TokenKind::Name && (eq(p.text, "as") || eq(p.text, table)));
     dot_after || alias
@@ -323,7 +341,7 @@ fn qualifies(toks: &[NameToken<'_>], i: usize, table: &str) -> bool {
 
 /// `word` shows in `text` as a whole word (an identifier inside a string or
 /// an expression), ignoring case.
-fn names_word(text: &str, word: &str) -> bool {
+pub(crate) fn names_word(text: &str, word: &str) -> bool {
     let (t, w) = (text.to_lowercase(), word.to_lowercase());
     let ident = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '@' || c == '#' || c == '$');
     t.match_indices(&w).any(|(p, _)| !ident(t[..p].chars().next_back()) && !ident(t[p + w.len()..].chars().next()))
@@ -348,7 +366,7 @@ fn same_object(a: &ObjectRef, b: &ObjectRef) -> bool {
     a.kind == b.kind && names_table(a.schema(), &a.name, b)
 }
 
-fn eq(a: &str, b: &str) -> bool {
+pub(crate) fn eq(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b) || a.to_lowercase() == b.to_lowercase()
 }
 
@@ -434,11 +452,27 @@ mod tests {
     }
 
     #[test]
-    fn postgres_dollar_bodies_are_strings() {
+    fn postgres_routine_bodies_are_code() {
         let pg = ScriptDialect::for_hint("postgres");
         let body = "CREATE FUNCTION f() RETURNS int AS $$ SELECT count(*) FROM public.clientes $$ LANGUAGE sql";
         let (conf, _) = find_mentions(body, &pg, &table("public", "clientes")).unwrap();
+        assert_eq!(conf, Confidence::Probable);
+        // Dynamic SQL inside plpgsql is still a string.
+        let dynamic = "CREATE FUNCTION g() RETURNS void LANGUAGE plpgsql AS $$ BEGIN EXECUTE 'DELETE FROM public.clientes'; END $$";
+        let (conf, m) = find_mentions(dynamic, &pg, &table("public", "clientes")).unwrap();
         assert_eq!(conf, Confidence::Review);
+        assert!(m[0].dynamic);
+        // A dollar string that isn't a routine body stays a string.
+        let (conf, _) = find_mentions("SELECT $$ public.clientes $$", &pg, &table("public", "clientes")).unwrap();
+        assert_eq!(conf, Confidence::Review);
+    }
+
+    #[test]
+    fn a_schema_counts_only_as_a_qualifier() {
+        let target = DependencyTarget { object: ObjectRef { kind: SCHEMA.into(), schema: None, name: "ventas".into() }, column: None };
+        assert!(find_mentions("SELECT ventas FROM dbo.t", &tsql(), &target).is_none());
+        assert!(find_mentions("SELECT x FROM ventas.t", &tsql(), &target).is_some());
+        assert!(schema_dependents(&schema(), &DependencyTarget { object: ObjectRef { kind: SCHEMA.into(), schema: None, name: "Clientes".into() }, column: None }).is_empty());
     }
 
     #[test]

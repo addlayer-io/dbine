@@ -22,6 +22,8 @@ pub struct DriverDescriptor {
     supports_dependencies: bool,
     /// "Deshabilitar / Habilitar índice" (`Driver::index_toggle_script`).
     supports_index_toggle: bool,
+    /// "Renombrar…" (`Driver::rename_spec`); `None`: not offered.
+    rename: Option<dbine_driver::RenameSpec>,
     /// Databases of keys, searched on the server (Redis, etcd).
     key_search: Option<dbine_driver::KeySearch>,
     capabilities: dbine_driver::Capabilities,
@@ -57,6 +59,7 @@ pub async fn list_drivers() -> CommandResult<Vec<DriverDescriptor>> {
             supports_index_usage: d.supports_index_usage(),
             supports_dependencies: d.supports_dependencies(),
             supports_index_toggle: d.supports_index_toggle(),
+            rename: d.rename_spec(),
             key_search: d.key_search(),
             capabilities: d.capabilities(),
             designer: d.designer(),

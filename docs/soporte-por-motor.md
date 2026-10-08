@@ -3086,3 +3086,57 @@ Sin la función:
 | Apache Drill, DynamoDB, Aurora DSQL, Elasticsearch, OpenSearch, etcd, Flight SQL, ksqlDB, Phoenix, Solr, Trino | Todo | Pendiente explícito: no tienen `properties.rs`, y el código no registra si el motor tiene propiedades por base. |
 
 **Probado:** no encontré pruebas de esta función contra servidores reales en los `properties.rs` revisados, salvo las unitarias que traen algunos drivers; lo implementado a partir de la documentación del fabricante no se distingue en el código.
+
+## Renombrar con impacto
+
+**Renombrar…** ([`renombrar.md`](renombrar.md)) cambia el nombre de un objeto
+y vuelve a crear el código que lo nombra, en un solo script. El contrato está
+en `crates/dbine-driver/src/rename.rs` (`Driver::rename_spec` y
+`Driver::rename_script`); la búsqueda y la reescritura de los dependientes son
+comunes a todos los motores. Cada driver completa su fila cuando implementa la
+función y la prueba contra un servidor real; hasta entonces el explorador no
+ofrece **Renombrar…** en ese motor.
+
+| Motor | Estado | Qué renombra | Dependientes que el motor actualiza solo | Cómo se reponen los reescritos | Límites |
+|---|---|---|---|---|---|
+| PostgreSQL (y Aurora, AlloyDB, Cloud SQL, Timescale, Yugabyte, Greenplum, EDB…) | pendiente | | | | |
+| CockroachDB, Redshift, Materialize, RisingWave, CrateDB | pendiente | | | | |
+| Denodo | pendiente | | | | |
+| Aurora DSQL | pendiente | | | | |
+| SQL Server, Azure SQL, Fabric, Babelfish | pendiente | | | | |
+| MySQL, MariaDB, TiDB, SingleStore, Doris, StarRocks, OceanBase… | pendiente | | | | |
+| Oracle | pendiente | | | | |
+| SQLite | pendiente | | | | |
+| libSQL | pendiente | | | | |
+| DuckDB | pendiente | | | | |
+| MongoDB, DocumentDB, FerretDB | pendiente | | | | |
+| Azure Cosmos DB | pendiente | | | | |
+| Couchbase | pendiente | | | | |
+| CouchDB | pendiente | | | | |
+| ClickHouse | pendiente | | | | |
+| Cassandra, ScyllaDB, Amazon Keyspaces | pendiente | | | | |
+| Elasticsearch, OpenSearch | pendiente | | | | |
+| Apache Solr | pendiente | | | | |
+| Snowflake | pendiente | | | | |
+| BigQuery | pendiente | | | | |
+| Databricks | pendiente | | | | |
+| Trino, Presto | pendiente | | | | |
+| Amazon Athena | pendiente | | | | |
+| Dremio | pendiente | | | | |
+| Apache Drill | pendiente | | | | |
+| Flight SQL | pendiente | | | | |
+| Spanner | pendiente | | | | |
+| SAP HANA | pendiente | | | | |
+| Firebird | pendiente | | | | |
+| Presets ODBC (Db2, Sybase, Informix, Teradata, Vertica, Exasol…) | pendiente | | | | |
+| Apache Phoenix | pendiente | | | | |
+| ksqlDB | pendiente | | | | |
+| Redis, Valkey, Dragonfly | pendiente | | | | |
+| etcd | pendiente | | | | |
+| Amazon DynamoDB | pendiente | | | | |
+| InfluxDB | pendiente | | | | |
+| Apache IoTDB, TimechoDB | pendiente | | | | |
+| TDengine | pendiente | | | | |
+| OrientDB | pendiente | | | | |
+| Neo4j, Memgraph, Amazon Neptune | no se ofrece | — | — | — | Una etiqueta o un tipo de relación no se renombra: cambiarlo es `SET n:Nueva REMOVE n:Vieja` sobre cada nodo (o recrear cada relación), que reescribe los datos, puede tardar horas en un grafo grande, no es atómico fuera de una transacción del tamaño del grafo y obliga a recrear los índices y las restricciones de la etiqueta. Las consultas guardadas fuera de la base tampoco se ven. |
+

@@ -135,7 +135,7 @@ Cómo funciona desde la UI: `docs/comparacion-de-esquemas.md`.
 | `schema_compare` | `{ left: DbModel, right: DbModel, options: { ignore_case, ignore_schema, ignore_comments } }` | `{ tables: TableDiff[], objects: ObjectDiff[] }` |
 | `schema_compare_convert` | `{ from_driver, to_driver, tables, target_schema }` | `{ tables, warnings }` |
 | `schema_sync_script` | `{ connection_id, tables: TableChange[], objects: ObjectChange[], views: CodeObject[] }` | `{ statements, warnings }` |
-| `schema_sync_run` | `{ connection_id, database, statements, run_id }` | `{ done, failed: [índice, error] \| null }` |
+| `schema_sync_run` | `{ connection_id, database, statements, run_id, atomic? }` | `{ done, failed: [índice, error] \| null, rolled_back }` |
 
 Los tipos:
 
@@ -173,6 +173,48 @@ SQL usan el planificador común `dbine_driver::alter::sync_script` con su
 - Rechaza las conexiones de solo lectura.
 - Usa una sesión propia (`sync:<run_id>`), que `cancel_query` puede cortar.
 - Ejecuta cada sentencia por separado y se detiene en la primera que falla.
+- Con `atomic: true`, si el driver tiene transacciones manuales y su
+  `RenameSpec` dice `transactional`, corre todo en una transacción: confirma
+  al final y deshace ante un error o una cancelación (`rolled_back: true`).
+  En los demás casos `atomic` no cambia nada.
+
+## Renombrar con impacto
+
+Cómo funciona desde la UI: [`renombrar.md`](renombrar.md). Qué ofrece cada
+driver llega en `list_drivers` como `rename` (un `RenameSpec` o `null`).
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `rename_impact` | `{ connection_id, database, target: RenameTarget, new_name, keep_view_columns? }` | `RenameImpact` |
+| `rename_script` | `{ connection_id, database, request: RenameRequest, rewrites: { object: CodeObject, schemabound }[] }` | `{ statements, warnings }` |
+
+El script corre con `schema_sync_run` y `atomic: true`.
+
+- `RenameTarget` es uno de `{ what: "object", object, parent? }`,
+  `{ what: "column", table, column }`, `{ what: "index", table, index }`,
+  `{ what: "constraint", table, constraint }` o
+  `{ what: "schema", database?, schema }`.
+- `RenameRequest` es `{ target, new_name, table?, definition? }`; `table` y
+  `definition` vienen de `RenameImpact`.
+- `RenameImpact` tiene `items` (`{ dependent, action, original }`),
+  `scanned`, `unreadable`, `note`, `spec_note`, `collides`, `quoted_name`,
+  `atomic`, `definition` y `table`.
+- `action` es uno de:
+  - `{ kind: "engine" }`: una clave, un índice o un check;
+  - `{ kind: "tracked" }`: un objeto que el motor sigue solo;
+  - `{ kind: "manual", reason, unresolved? }`, con `reason` `dynamic`,
+    `unreadable`, `not_rewritten` o `no_match`;
+  - `{ kind: "rewrite", object, edits, unresolved, schemabound, default_selected }`.
+- `edits` son `{ line, before, after }`; `unresolved` son
+  `{ line, text, reason }`, con `reason` `in_string`, `qualified`,
+  `other_schema`, `case`, `maybe_function`, `ambiguous_column` o
+  `alias_named_like_schema`.
+- `rename_impact` rechaza un nombre vacío o igual al actual, y los motores o
+  los objetos que el driver no renombra.
+- `rename_script` es puro: no toca el servidor. Pone el renombre del driver en
+  el medio, antes los dependientes que se borran (`drop_create` y los de
+  SCHEMABINDING) y después los demás, ordenados para que cada uno se cree
+  después de lo que usa.
 
 ## Bases de datos
 
