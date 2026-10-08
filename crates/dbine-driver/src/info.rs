@@ -92,6 +92,10 @@ pub struct Field {
     /// the fields of one authentication method, of one way to connect…
     #[serde(default)]
     pub when: Option<FieldWhen>,
+    /// The group it's shown under in a long form ("Archivos", "Opciones"…):
+    /// the create-database dialog makes a tab of each. Empty: the first.
+    #[serde(default, deserialize_with = "crate::serde_static::str")]
+    pub group: &'static str,
 }
 
 /// Tabs of the connection form (besides the SSH tunnel's, which the app adds
@@ -134,7 +138,19 @@ pub enum FieldKind {
 
 impl Field {
     pub fn new(key: &'static str, label: &'static str, kind: FieldKind) -> Self {
-        Self { key, label, kind, required: false, secret: false, placeholder: "", default: "", help: "", section: FieldSection::General, when: None }
+        Self {
+            key,
+            label,
+            kind,
+            required: false,
+            secret: false,
+            placeholder: "",
+            default: "",
+            help: "",
+            section: FieldSection::General,
+            when: None,
+            group: "",
+        }
     }
     pub fn required(mut self) -> Self {
         self.required = true;
@@ -154,6 +170,11 @@ impl Field {
     }
     pub fn help(mut self, h: &'static str) -> Self {
         self.help = h;
+        self
+    }
+    /// Under this group (a tab of the create-database dialog).
+    pub fn group(mut self, g: &'static str) -> Self {
+        self.group = g;
         self
     }
     /// In the SSL tab.

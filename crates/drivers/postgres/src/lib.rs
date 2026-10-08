@@ -498,7 +498,7 @@ impl Driver for PgDriver {
     }
 
     fn create_database_fields(&self) -> Vec<Field> {
-        create_db::fields(self.variant)
+        create_db::fields(self.variant).into_iter().map(create_db::grouped).collect()
     }
 
     fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {

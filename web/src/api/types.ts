@@ -27,6 +27,8 @@ export interface Field {
   section?: 'general' | 'ssl' | 'advanced';
   /** Shown (and saved) only when field `key` has one of `values`. */
   when?: { key: string; values: string[] } | null;
+  /** Its group in a long form (a tab of "Nueva base de datos"); '' : the first. */
+  group?: string;
 }
 
 /** A server's suggestions for a field (its collations, default paths…). */

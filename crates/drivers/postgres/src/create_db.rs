@@ -553,6 +553,17 @@ impl PgSession {
     }
 }
 
+/// The dialog's tab of each field: the locale settings and CockroachDB's
+/// regions apart from the rest.
+pub(crate) fn grouped(f: Field) -> Field {
+    let g = match f.key {
+        "encoding" | "locale_provider" | "lc_collate" | "lc_ctype" | "icu_locale" | "builtin_locale" | "collation" => "Idioma y codificación",
+        "primary_region" | "regions" | "survive" => "Regiones",
+        _ => "General",
+    };
+    f.group(g)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

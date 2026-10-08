@@ -25,7 +25,18 @@ const name = ref('');
 const values = ref<Record<string, string>>({});
 const fields = computed<Field[]>(() => conns.driverOf(props.connectionId)?.create_database_fields ?? []);
 const choices = ref<Record<string, FieldChoices>>({});
-const advanced = ref<string[]>([]);
+/** The first tab: the name and the fields without a group of their own. */
+const GENERAL = 'General';
+const tabOf = (f: Field) => f.group || GENERAL;
+/** General, then the engine's groups in order. */
+const tabs = computed(() => {
+  const out = [GENERAL];
+  for (const f of fields.value) if (!out.includes(tabOf(f))) out.push(tabOf(f));
+  return out;
+});
+const tab = ref(GENERAL);
+/** The chosen tab's fields. */
+const shown = computed(() => fields.value.filter((f) => visible(f) && tabOf(f) === tab.value));
 const script = ref<string | null>(null);
 const busy = ref(false);
 const nameInput = ref<{ focus: () => void } | null>(null);
@@ -95,54 +106,57 @@ function close() {
 </script>
 
 <template>
-  <el-dialog :model-value="open" :title="$t('core:actions.createDatabase.title')" width="560px" append-to-body @close="close">
+  <el-dialog :model-value="open" :title="$t('core:actions.createDatabase.title')" width="660px" append-to-body @close="close">
     <el-form label-position="top" @submit.prevent="create">
-      <el-form-item :label="$t('createDatabase:name')" required>
-        <el-input ref="nameInput" v-model="name" @input="script = null" @keydown.enter.prevent="create" />
-      </el-form-item>
-
-      <el-collapse v-if="fields.length" v-model="advanced" class="cd-adv">
-        <el-collapse-item name="adv" :title="$t('createDatabase:advanced')">
-          <template v-for="f in fields" :key="f.key">
-            <el-form-item v-if="visible(f)" :label="tb(f.label)">
-              <el-select
-                v-if="f.kind.type === 'select'"
-                v-model="values[f.key]"
-                clearable
-                :placeholder="placeholder(f)"
-                @change="script = null"
-              >
-                <el-option v-for="[v, l] in f.kind.options" :key="v" :label="tb(l)" :value="v" />
-              </el-select>
-              <el-checkbox
-                v-else-if="f.kind.type === 'bool'"
-                :model-value="values[f.key] === 'true'"
-                @update:model-value="(on: string | number | boolean) => { values[f.key] = on ? 'true' : ''; script = null; }"
-              />
-              <el-select
-                v-else-if="choices[f.key]?.values.length"
-                v-model="values[f.key]"
-                filterable
-                allow-create
-                default-first-option
-                clearable
-                :placeholder="placeholder(f)"
-                @change="script = null"
-              >
-                <el-option v-for="v in choices[f.key].values" :key="v" :label="v" :value="v" />
-              </el-select>
-              <el-input
-                v-else
-                v-model="values[f.key]"
-                :type="f.kind.type === 'number' ? 'number' : f.kind.type === 'textarea' ? 'textarea' : 'text'"
-                :placeholder="placeholder(f)"
-                @input="script = null"
-              />
-              <div v-if="f.help" class="cd-help">{{ tb(f.help) }}</div>
-            </el-form-item>
+      <el-tabs v-if="tabs.length > 1" v-model="tab" class="cd-tabs">
+        <el-tab-pane v-for="g in tabs" :key="g" :label="tb(g)" :name="g" />
+      </el-tabs>
+      <div class="cd-grid">
+        <el-form-item v-if="tab === GENERAL" :label="$t('createDatabase:name')" required class="wide">
+          <el-input ref="nameInput" v-model="name" @input="script = null" @keydown.enter.prevent="create" />
+        </el-form-item>
+        <el-form-item v-for="f in shown" :key="f.key" :class="{ wide: f.kind.type === 'textarea' }">
+          <template #label>
+            <span class="cd-label">{{ tb(f.label) }}</span>
+            <el-tooltip v-if="f.help" :content="tb(f.help)" placement="top" :show-after="200">
+              <el-icon class="cd-info"><ei-info-filled /></el-icon>
+            </el-tooltip>
           </template>
-        </el-collapse-item>
-      </el-collapse>
+          <el-select
+            v-if="f.kind.type === 'select'"
+            v-model="values[f.key]"
+            clearable
+            :placeholder="placeholder(f)"
+            @change="script = null"
+          >
+            <el-option v-for="[v, l] in f.kind.options" :key="v" :label="tb(l)" :value="v" />
+          </el-select>
+          <el-checkbox
+            v-else-if="f.kind.type === 'bool'"
+            :model-value="values[f.key] === 'true'"
+            @update:model-value="(on: string | number | boolean) => { values[f.key] = on ? 'true' : ''; script = null; }"
+          />
+          <el-select
+            v-else-if="choices[f.key]?.values.length"
+            v-model="values[f.key]"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            :placeholder="placeholder(f)"
+            @change="script = null"
+          >
+            <el-option v-for="v in choices[f.key].values" :key="v" :label="v" :value="v" />
+          </el-select>
+          <el-input
+            v-else
+            v-model="values[f.key]"
+            :type="f.kind.type === 'number' ? 'number' : f.kind.type === 'textarea' ? 'textarea' : 'text'"
+            :placeholder="placeholder(f)"
+            @input="script = null"
+          />
+        </el-form-item>
+      </div>
 
       <div v-if="script !== null" class="cd-script">
         <div class="cd-script-head">
@@ -161,10 +175,15 @@ function close() {
 </template>
 
 <style scoped>
-.cd-adv { margin-top: 4px; border-top: 0; }
-.cd-adv :deep(.el-collapse-item__header) { font-size: 12.5px; }
-.cd-adv :deep(.el-select) { width: 100%; }
-.cd-help { font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.4; margin-top: 2px; }
+.cd-grid :deep(.el-select) { width: 100%; }
+.cd-tabs { margin-top: -6px; }
+.cd-tabs :deep(.el-tabs__content) { display: none; }
+.cd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.cd-grid .wide { grid-column: 1 / -1; }
+.cd-grid :deep(.el-form-item) { margin-bottom: 12px; }
+.cd-grid :deep(.el-form-item__label) { display: flex; align-items: center; gap: 4px; line-height: 1.3; margin-bottom: 4px; }
+.cd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-info { color: var(--nm-text-dim); cursor: help; flex-shrink: 0; }
 .cd-script { margin-top: 12px; border: 1px solid var(--nm-border-soft); border-radius: 4px; }
 .cd-script-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 4px 10px; border-bottom: 1px solid var(--nm-border-soft); font-size: 12px; }
 .cd-script pre {

@@ -173,6 +173,16 @@ impl CbSession {
     }
 }
 
+/// The dialog's tab of each field: the bucket itself, then how it stores
+/// and keeps data.
+pub(crate) fn grouped(f: Field) -> Field {
+    let g = match f.key {
+        "bucket_type" | "ram_quota" | "replicas" | "flush" => "General",
+        _ => "Almacenamiento",
+    };
+    f.group(g)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
