@@ -3099,9 +3099,13 @@ ofrece **Renombrar…** en ese motor.
 
 | Motor | Estado | Qué renombra | Dependientes que el motor actualiza solo | Cómo se reponen los reescritos | Límites |
 |---|---|---|---|---|---|
-| PostgreSQL (y Aurora, AlloyDB, Cloud SQL, Timescale, Yugabyte, Greenplum, EDB…) | pendiente | | | | |
-| CockroachDB, Redshift, Materialize, RisingWave, CrateDB | pendiente | | | | |
-| Denodo | pendiente | | | | |
+| PostgreSQL (y Aurora, AlloyDB, Cloud SQL, Timescale, Yugabyte, Greenplum, Cloudberry, Greengage, EDB, KingbaseES, Fujitsu, openGauss) | sí | tabla, vista, vista materializada, secuencia, tipo, dominio, función, procedimiento, trigger, columna, índice, restricción, esquema (`ALTER … RENAME TO`, `RENAME COLUMN`, `RENAME CONSTRAINT`, `ALTER FUNCTION f(args) RENAME TO` una vez por sobrecarga, `ALTER TRIGGER t ON tabla RENAME TO`) | vistas, vistas materializadas, triggers, claves foráneas, índices, funciones `BEGIN ATOMIC` | funciones y procedimientos plpgsql/sql: `CREATE OR REPLACE`; en una transacción (YugabyteDB: sin transacción) | el `EXECUTE` dinámico queda manual; los índices, restricciones y secuencias propios de la tabla conservan su nombre; los `search_path` que nombran el esquema no se actualizan |
+| CockroachDB | sí | lo mismo que PostgreSQL (índice: `ALTER INDEX tabla@índice`) | claves foráneas e índices | vistas y funciones que usan el objeto: se borran antes y se crean después (pierden los permisos) | el DDL se confirma sentencia por sentencia (`autocommit_before_ddl`): sin transacción; una función de trigger que nombra la tabla impide renombrarla |
+| Amazon Redshift, Yellowbrick | sí (sin prueba en vivo) | tabla, vista (Redshift: con `ALTER TABLE`), columna, esquema | claves foráneas | vistas: `CREATE OR REPLACE` | sin índices, restricciones ni rutinas; sin transacción |
+| Materialize, RisingWave | sí | tabla, vista, vista materializada, source, sink, índice, esquema | vistas, vistas materializadas y sinks | — | sin columnas; sin transacción |
+| CrateDB | sí | tabla, vista (`ALTER TABLE … RENAME TO`), columna (5.5+) | — | vistas: `CREATE OR REPLACE` | sin esquemas, índices ni restricciones; sin transacción |
+| H2 (servidor PostgreSQL) | sí | tabla, vista, columna, índice, restricción, esquema | — | vistas: `CREATE OR REPLACE` | sin transacción |
+| Denodo | no | — | — | — | no modifica objetos por SQL: las vistas se definen en Denodo |
 | Aurora DSQL | pendiente | | | | |
 | SQL Server, Azure SQL | sí | tabla, vista, procedimiento, función, trigger, columna, índice, restricción (`sp_rename`; un módulo se renombra con `sp_rename` y luego `CREATE OR ALTER` con el encabezado nuevo, porque `sp_rename` no cambia el texto guardado) | claves foráneas, índices y restricciones del objeto renombrado | `CREATE OR ALTER` (mantiene permisos); las vistas con SCHEMABINDING se borran antes y se crean después; en una transacción | sin esquemas ni sinónimos; una columna que usan restricciones CHECK o índices filtrados se renombra borrándolos y creándolos de nuevo en el mismo lote; si la usa una columna calculada, no se renombra |
 | Microsoft Fabric Data Warehouse | sí (sin prueba en vivo) | tabla, columna (`sp_rename`) | — | `CREATE OR ALTER`; sin transacción | sin vistas, rutinas, índices ni restricciones |

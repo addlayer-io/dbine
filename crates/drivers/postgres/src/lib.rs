@@ -31,6 +31,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod schemas;
 mod script;
 mod search;
@@ -468,6 +469,15 @@ impl Driver for PgDriver {
 
     fn index_toggle_script(&self, table: &ObjectRef, index: &dbine_driver::IndexUsage, enable: bool) -> Result<dbine_driver::SyncScript> {
         index_usage::toggle_script(self.variant, table, index, enable)
+    }
+
+    /// Every variant but Denodo (see `rename`).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        rename::spec(self.variant)
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(self.variant, req)
     }
 
     fn capabilities(&self) -> Capabilities {
