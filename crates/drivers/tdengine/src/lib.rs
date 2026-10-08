@@ -17,6 +17,7 @@ mod permissions;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod script;
 mod security;
 mod sync;
@@ -156,6 +157,15 @@ impl Driver for TdDriver {
 
     fn supports_schema_sync(&self) -> bool {
         true
+    }
+
+    /// Normal-table columns and supertable tags (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
