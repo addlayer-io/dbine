@@ -3120,10 +3120,12 @@ ofrece **Renombrar…** en ese motor.
 | SQLite | pendiente | | | | |
 | libSQL | pendiente | | | | |
 | DuckDB | pendiente | | | | |
-| MongoDB, DocumentDB, FerretDB | pendiente | | | | |
-| Azure Cosmos DB | pendiente | | | | |
-| Couchbase | pendiente | | | | |
-| CouchDB | pendiente | | | | |
+| MongoDB | sí | colecciones (`renameCollection`), vistas (se borran y se crean con `db.createView`), campos (`updateMany` con `$rename`) | — | vistas que dependen: se reescriben `viewOn`, `$lookup.from`, `$graphLookup.from`, `$unionWith.coll`, `$out` y `$merge`, y se borran y se crean (no guardan datos); al renombrar un campo, los índices que lo usan se borran y se crean con el campo nuevo y el validador se cambia con `collMod` | no es transaccional; renombrar un campo reescribe cada documento que lo tiene; no se renombran `_id`, las colecciones de series temporales ni su campo de tiempo o de metadatos; los campos que usan las vistas se listan y no se reescriben; los roles con privilegios sobre el nombre viejo no se actualizan |
+| FerretDB | sí | colecciones (`renameCollection`), campos (`updateMany` con `$rename`) | — | al renombrar un campo, los índices que lo usan se borran y se crean con el campo nuevo | no tiene vistas; no guarda validadores; no es transaccional; renombrar un campo reescribe cada documento que lo tiene |
+| Amazon DocumentDB | sí (sin prueba en vivo) | colecciones (`renameCollection`), campos (`updateMany` con `$rename`) | — | al renombrar un campo, los índices que lo usan se borran y se crean con el campo nuevo; el validador se cambia con `collMod` | no tiene vistas; no es transaccional; renombrar un campo reescribe cada documento que lo tiene |
+| Azure Cosmos DB | no | — | — | — | no renombra bases ni contenedores; un campo no se puede renombrar del lado del servidor (el `UPDATE` va documento por documento, por `id`, y no borra campos) |
+| Couchbase | sí | campos (`UPDATE ks SET b = a UNSET a WHERE a IS NOT MISSING`) | — | los índices GSI que usan el campo se borran después del `UPDATE` y se crean con el campo nuevo; las funciones SQL++ se listan y no se reescriben | no renombra buckets, scopes ni colecciones; hace falta un índice que sirva al `WHERE` (el del campo o el primario); no es atómico |
+| CouchDB | no | — | — | — | no renombra bases; un campo solo se podría renombrar reescribiendo desde el cliente cada documento con su `_rev` |
 | ClickHouse | pendiente | | | | |
 | Cassandra, ScyllaDB | sí | columnas de la clave primaria (`ALTER TABLE ks.t RENAME a TO b`) | — | — | no renombra columnas comunes, tablas, keyspaces, tipos ni funciones; el servidor rechaza una columna con índice secundario (DBine lo avisa antes) o usada por una vista materializada |
 | Amazon Keyspaces | no | — | — | — | su `ALTER TABLE` no tiene `RENAME` |
