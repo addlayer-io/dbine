@@ -123,6 +123,9 @@ de cada base.
 - **Buscar en la base:** un texto en los nombres de los objetos, los nombres
   de columna y el código de vistas, rutinas y triggers, con resultados a
   medida que avanza. Detalle: [`docs/busqueda.md`](docs/busqueda.md).
+- **Ejecutar en varias bases:** el código del editor en varias bases de una
+  conexión a la vez, con los resultados juntos en una grilla con la columna
+  `base`. Detalle: [`docs/ejecutar-en-varias-bases.md`](docs/ejecutar-en-varias-bases.md).
 - **Calidad de código:** el editor marca consultas lentas, resultados que
   probablemente no son los esperados y cambios que afectan más filas de las
   previstas, con las reglas de cada familia de motores, sin consultar la base.
