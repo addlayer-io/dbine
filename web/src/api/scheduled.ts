@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { defaultDocOptions } from './dbDocs';
 
 // Scheduled tasks (docs/tareas-programadas.md). Mirrors dbine_core::tasks
 // and src-tauri/src/commands/scheduled.rs.
@@ -11,7 +12,9 @@ export type Schedule =
 
 export type Notify = 'never' | 'failure' | 'always';
 export type OnError = 'stop' | 'continue';
-export type StepKind = 'run_script' | 'export' | 'compare_schemas' | 'backup';
+export type StepKind = 'run_script' | 'export' | 'compare_schemas' | 'backup' | 'send_mail' | 'document';
+/** A step's "Solo si…" (`config.when`): the runner skips it otherwise. */
+export type StepWhen = 'always' | 'alert' | 'errors';
 export type RunStatus = 'running' | 'ok' | 'partial' | 'failed';
 
 export interface Step {
@@ -106,6 +109,8 @@ export function newStep(kind: StepKind): Step {
       options: { ignore_case: false, ignore_schema: false, ignore_comments: true }, include_drops: false, folder: '', file_name: '{task}-{datetime}',
     },
     backup: { connection_id: '', database: '', mode: 'native', options: {}, folder: '', file_name: '{task}-{datetime}', data: true },
+    document: { connection_id: '', database: '', folder: '', file_name: '{task}-{date}', options: defaultDocOptions() },
+    send_mail: { to: '', cc: '', subject: '{task}: {date}', body: '', attachments: [], when: 'always' },
   }[kind];
   return { id: '', kind, name: '', config, on_error: 'stop' };
 }

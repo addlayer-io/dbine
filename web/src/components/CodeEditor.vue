@@ -12,6 +12,7 @@ import {
 } from '@codemirror/lang-sql';
 import { json } from '@codemirror/lang-json';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
 import type { Language } from '../api/types';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
@@ -28,7 +29,10 @@ const props = withDefaults(defineProps<{
    *  under its schema. */
   schema?: Record<string, string[]>;
   placeholder?: string;
-}>(), { language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '' });
+  /** "Calidad de código": the problems of a text (QueryView asks the
+   *  backend). Null: no marks. */
+  lint?: ((doc: string) => Promise<Diagnostic[]>) | null;
+}>(), { language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '', lint: null });
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
@@ -51,6 +55,13 @@ let view: EditorView | null = null;
 const lang = new Compartment();
 const ro = new Compartment();
 const ph = new Compartment();
+const lintC = new Compartment();
+
+/** Gutter marks and squiggles, a moment after typing stops. */
+function lintExt(): Extension {
+  const source = props.lint;
+  return source ? [linter((v) => source(v.state.doc.toString()), { delay: 600 }), lintGutter()] : [];
+}
 
 const DIALECTS: Record<string, SQLDialect> = {
   postgres: PostgreSQL, mysql: MySQL, mariadb: MariaSQL, mssql: MSSQL, sybase: MSSQL,
@@ -252,6 +263,7 @@ onMounted(() => {
         lang.of(languageExt()),
         ro.of(EditorState.readOnly.of(props.readOnly)),
         ph.of(cmPlaceholder(props.placeholder)),
+        lintC.of(lintExt()),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) emit('update:modelValue', u.state.doc.toString());
         }),
@@ -280,6 +292,8 @@ watch(() => [props.language, props.dialect, props.schema], () => {
 watch(() => props.readOnly, (r) => view?.dispatch({ effects: ro.reconfigure(EditorState.readOnly.of(r)) }));
 // The placeholder follows a language switch.
 watch(() => props.placeholder, (p) => view?.dispatch({ effects: ph.reconfigure(cmPlaceholder(p)) }));
+// Another connection or other rules: lint again with them.
+watch(() => props.lint, () => view?.dispatch({ effects: lintC.reconfigure(lintExt()) }));
 
 /** Add `text` at the end, on lines of its own, and show it selected. */
 function appendText(text: string) {

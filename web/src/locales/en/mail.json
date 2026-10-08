@@ -1,0 +1,30 @@
+{
+  "nav": "Mail",
+  "title": "Mail",
+  "intro": "The server scheduled tasks use to send emails. It is saved only on this computer, because the tasks run here. The password goes to the system keychain.",
+  "host": "SMTP server",
+  "port": "Port",
+  "security": "Security",
+  "securities": {
+    "starttls": "STARTTLS (port 587)",
+    "tls": "SSL/TLS (port 465)",
+    "none": "Unencrypted"
+  },
+  "noneWarning": "Unencrypted, the user, the password and the emails travel readable over the network. Use it only with a server on your local network.",
+  "user": "User",
+  "userPlaceholder": "Empty if the server doesn't require signing in",
+  "password": "Password",
+  "passwordSaved": "Saved (leave empty to keep it)",
+  "passwordHelp": "If you leave the password empty, the saved one is kept. Without a user, none is saved.",
+  "fromAddress": "Sender address",
+  "fromName": "Sender name",
+  "save": "Save",
+  "saved": "Mail settings saved.",
+  "notConfigured": "No server has been saved yet.",
+  "test": "Send a test email",
+  "testPrompt": "Which address should we send it to?",
+  "testSend": "Send",
+  "testInvalid": "Enter an email address",
+  "testOk": "Done. {{summary}}",
+  "testFailed": "Could not send: {{error}}"
+}

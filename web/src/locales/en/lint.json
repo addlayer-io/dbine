@@ -1,0 +1,235 @@
+{
+  "nav": "Code quality",
+  "settings": {
+    "help": "While you type, the editor flags what usually causes problems: slow queries, unexpected results, or changes that affect more rows than you think. The analysis is done on the text, without querying the database. Turn off the rules that don't help you.",
+    "enabled": "Check the code as I write",
+    "enabledHelp": "Marks the problems in the margin and underlines them; hover to see why and how to fix them.",
+    "rules": "Rules",
+    "engines": "Applies to",
+    "allOn": "Turn all on",
+    "loadError": "Could not load the list of rules."
+  },
+  "severity": {
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Suggestion"
+  },
+  "groups": {
+    "sql": "All SQL engines",
+    "tsql": "SQL Server, Azure SQL, Fabric and Sybase",
+    "postgres": "PostgreSQL family",
+    "mysql": "MySQL family",
+    "oracle": "Oracle",
+    "influxql": "InfluxDB (InfluxQL and SQL)",
+    "cql": "Cassandra, ScyllaDB and Amazon Keyspaces",
+    "mongodb": "MongoDB, FerretDB and DocumentDB",
+    "couchdb": "CouchDB",
+    "search": "Elasticsearch, OpenSearch and Solr",
+    "redis": "Redis, Valkey and Dragonfly",
+    "etcd": "etcd",
+    "cypher": "Neo4j, Memgraph and Neptune"
+  },
+  "problems": {
+    "button": "View problems",
+    "count_one": "1 problem",
+    "count_many": "{{count}} problems",
+    "count_other": "{{count}} problems",
+    "none": "No problems",
+    "title": "Script problems",
+    "line": "Line {{line}}",
+    "settings": "Configure rules…"
+  },
+  "ruleId": "Rule: {{id}}",
+  "rules": {
+    "select-star": {
+      "title": "SELECT *",
+      "message": "SELECT * fetches all columns",
+      "why": "It fetches columns you don't use, prevents an index from covering the query, and changes shape when someone adds a column. List only the columns you need."
+    },
+    "dml-without-where": {
+      "title": "UPDATE or DELETE without WHERE",
+      "message": "{{keyword}} without WHERE: affects all rows of the table",
+      "why": "Without a condition, the statement changes or deletes the whole table. If that is what you want, use TRUNCATE to empty it; otherwise, add the WHERE that limits the rows."
+    },
+    "not-in-subquery": {
+      "title": "NOT IN with a subquery",
+      "message": "NOT IN (subquery): if it returns a NULL, no rows come out",
+      "why": "A single NULL in the subquery is enough for the condition to never be true and the query to return nothing. Use NOT EXISTS, or filter out the NULLs inside the subquery."
+    },
+    "leading-wildcard": {
+      "title": "Leading wildcard",
+      "message": "The pattern {{pattern}} starts with a wildcard: it can't use an index",
+      "why": "A pattern that starts with % (or * / ?) forces a check of every value. If you can, anchor the start of the text ('abc%') or use a full-text search."
+    },
+    "function-on-column": {
+      "title": "Function on a column in the WHERE",
+      "message": "{{fn}}(…) on the column prevents using its index",
+      "why": "By wrapping the column in a function, the engine has to compute it row by row. Move the transformation to the other side of the comparison (for example, a date range instead of YEAR(col) = 2024) or create an index on the expression."
+    },
+    "equals-null": {
+      "title": "= NULL or <> NULL",
+      "message": "Comparing with NULL using = or <> is never true",
+      "why": "NULL is neither equal nor different to anything, not even another NULL: the condition evaluates to unknown and lets no rows through. Use IS NULL or IS NOT NULL."
+    },
+    "order-by-ordinal": {
+      "title": "ORDER BY by position",
+      "message": "ORDER BY {{n}} sorts by the column's position",
+      "why": "If someone changes the order of the SELECT columns, the result is sorted by another one without warning. Write the column name or its alias."
+    },
+    "order-by-random": {
+      "title": "Random order",
+      "message": "{{call}} sorts the whole table to pick random rows",
+      "why": "It computes a random value for each row and sorts them all, even if you then ask for just one. On large tables use the engine's sampling (TABLESAMPLE, SAMPLE) or pick from a random key range."
+    },
+    "implicit-cross-join": {
+      "title": "Implicit join without a condition",
+      "message": "\"{{table}}\" is joined with a comma and no condition: Cartesian product",
+      "why": "A table in the FROM separated by a comma, with no WHERE condition relating it to the others, combines each row with all the others. Use JOIN … ON with the condition; if the product is intentional, write CROSS JOIN."
+    },
+    "insert-without-columns": {
+      "title": "INSERT without a column list",
+      "message": "INSERT without a column list",
+      "why": "Values are assigned by the position of the table's columns: if someone adds or reorders columns, the INSERT fails or stores data in the wrong column. Name the columns."
+    },
+    "distinct-group-by": {
+      "title": "DISTINCT together with GROUP BY",
+      "message": "DISTINCT is redundant: GROUP BY already returns unique rows",
+      "why": "Grouping already leaves one row per group; DISTINCT adds work without changing the result (unless the SELECT doesn't include all the grouped columns). Remove one of the two."
+    },
+    "union-distinct": {
+      "title": "UNION instead of UNION ALL",
+      "message": "UNION removes duplicates; if there can't be any, UNION ALL is faster",
+      "why": "UNION sorts or builds a hash of the whole result to eliminate repeated rows. If the parts don't overlap or duplicates don't matter, use UNION ALL."
+    },
+    "nolock": {
+      "title": "NOLOCK / READ UNCOMMITTED",
+      "message": "{{hint}} reads uncommitted data",
+      "why": "It can return rows that are later rolled back, duplicated rows, or missing rows if the table is reorganized during the read. If what you want is for reads not to wait, use snapshot isolation (READ_COMMITTED_SNAPSHOT)."
+    },
+    "cursor": {
+      "title": "Cursors",
+      "message": "Cursor: processes rows one at a time",
+      "why": "A cursor walks row by row through what a set-based statement (UPDATE … FROM, MERGE, a subquery) resolves at once. If you need one, declare it LOCAL FAST_FORWARD."
+    },
+    "set-rowcount": {
+      "title": "SET ROWCOUNT",
+      "message": "SET ROWCOUNT stays active in the session and is deprecated for INSERT, UPDATE and DELETE",
+      "why": "It affects all following statements in the session, including triggers, until someone sets it back to 0. Use TOP (n) in the statement."
+    },
+    "global-identity": {
+      "title": "@@IDENTITY",
+      "message": "@@IDENTITY may return the identity generated by a trigger",
+      "why": "It returns the last identity value of the session in any table, even one inserted by a trigger. Use SCOPE_IDENTITY() or the OUTPUT clause."
+    },
+    "sp-prefix": {
+      "title": "Procedures with the sp_ prefix",
+      "message": "\"{{name}}\": the sp_ prefix is for system procedures",
+      "why": "SQL Server looks for sp_ procedures in master first, which costs an extra lookup on every call and may run a system one with the same name. Use another prefix (usp_) or none."
+    },
+    "set-nocount": {
+      "title": "Procedure without SET NOCOUNT ON",
+      "message": "\"{{name}}\" has no SET NOCOUNT ON",
+      "why": "Without it, each statement sends the client an \"N rows affected\" message: extra traffic and, for some clients, unexpected results. Add SET NOCOUNT ON at the start of the body."
+    },
+    "for-update-wait": {
+      "title": "FOR UPDATE that waits for the lock",
+      "message": "{{clause}} waits for the lock to be released",
+      "why": "If another transaction holds the row, the query waits. For work queues use SKIP LOCKED; to fail right away, NOWAIT (in Oracle also WAIT n)."
+    },
+    "serial-identity": {
+      "title": "serial instead of IDENTITY",
+      "message": "{{type}}: prefer GENERATED … AS IDENTITY",
+      "why": "serial creates a separate sequence that doesn't travel with the permissions or with copies of the table and lets you insert values by hand without control. IDENTITY columns are the SQL standard and the sequence stays bound to the column."
+    },
+    "group-by-nonaggregated": {
+      "title": "Columns outside the GROUP BY",
+      "message": "\"{{column}}\" is neither grouped nor inside an aggregate function",
+      "why": "MySQL without ONLY_FULL_GROUP_BY returns the value of an arbitrary row of the group, and with that mode the query fails. Add the column to the GROUP BY or use an aggregate function (MAX, ANY_VALUE…)."
+    },
+    "rownum-order-by": {
+      "title": "ROWNUM with ORDER BY",
+      "message": "ROWNUM is applied before ORDER BY",
+      "why": "In the same block, Oracle numbers and cuts the rows before sorting them: it doesn't return \"the first N\" according to the order. Sort in a subquery and filter ROWNUM outside, or use FETCH FIRST n ROWS ONLY."
+    },
+    "outer-join-plus": {
+      "title": "(+) outer join syntax",
+      "message": "(+) is the old outer join syntax",
+      "why": "It has restrictions that LEFT/RIGHT JOIN doesn't (it doesn't allow OR or FULL OUTER) and it is easy to forget in one of the conditions. Use LEFT JOIN … ON."
+    },
+    "delete-without-time": {
+      "title": "DELETE without a time range",
+      "message": "DELETE without a condition on time: deletes the whole history of the series",
+      "why": "Without a time range, it deletes all the points that meet the condition from the beginning. Add time >= … AND time < … to limit it."
+    },
+    "drop-series": {
+      "title": "DROP SERIES / MEASUREMENT",
+      "message": "DROP {{what}} deletes the whole history, with no time range",
+      "why": "It doesn't accept a time range: it removes all the points and the series index. If you want to delete a period, use DELETE with a condition on time."
+    },
+    "allow-filtering": {
+      "title": "ALLOW FILTERING",
+      "message": "ALLOW FILTERING scans partitions to filter",
+      "why": "The coordinator reads data from many partitions and discards what doesn't meet the condition: the cost grows with the table. Model a table for that query or filter by the partition key."
+    },
+    "no-partition-key": {
+      "title": "SELECT without a partition key",
+      "message": "SELECT on {{table}} without WHERE: reads all partitions",
+      "why": "Without restricting the partition key, the query scans the whole cluster. Filter by the partition key or paginate with token()."
+    },
+    "batch-partitions": {
+      "title": "BATCH across partitions",
+      "message": "The BATCH writes to several tables or partitions",
+      "why": "A batch spanning several partitions is not faster: it loads the coordinator and, if LOGGED, also writes the batch log. Use it for atomicity within a partition; to load data, send the statements separately."
+    },
+    "write-all": {
+      "title": "Write without a filter",
+      "message": "{{call}} has no filter: it affects everything",
+      "why": "Without a filter, the operation changes or deletes all documents or keys. If that is what you want, write the explicit filter or use the engine's truncate operation; otherwise, add the condition."
+    },
+    "where-operator": {
+      "title": "$where",
+      "message": "$where runs JavaScript for each document",
+      "why": "It doesn't use indexes, is slow and is disabled on many servers. Replace it with query operators or with $expr."
+    },
+    "unanchored-regex": {
+      "title": "Unanchored regular expression",
+      "message": "The expression {{pattern}} doesn't start with ^: it scans the whole index",
+      "why": "Only an expression anchored at the start (^abc) and case-sensitive makes good use of an index. If you are searching for loose text, use a text index."
+    },
+    "read-all": {
+      "title": "Read without a filter",
+      "message": "{{call}} without a filter reads everything",
+      "why": "It fetches all documents or keys. Add a filter, a projection and a limit to fetch only what you need."
+    },
+    "keys-command": {
+      "title": "KEYS",
+      "message": "KEYS {{pattern}} scans all keys and blocks the server",
+      "why": "Redis serves one command at a time: while KEYS scans the database, it answers no one. Use SCAN with MATCH and COUNT, which advances in parts."
+    },
+    "flush": {
+      "title": "FLUSHALL / FLUSHDB",
+      "message": "{{command}} deletes all keys",
+      "why": "FLUSHDB empties the current database and FLUSHALL all the databases on the server, with no way back. Make sure you are connected to the right server."
+    },
+    "big-read": {
+      "title": "Full read of a key",
+      "message": "{{command}} reads the entire key",
+      "why": "With large keys, the response takes long and blocks the server while it is built. Use HSCAN / SSCAN, or ask for a bounded range."
+    },
+    "match-without-label": {
+      "title": "MATCH without a label",
+      "message": "This pattern has no label or properties: it scans all nodes",
+      "why": "Without a label (:Person) or a property filter, the engine has to check every node in the database. Add the label so it can use its indexes."
+    },
+    "cartesian-product": {
+      "title": "Disconnected patterns",
+      "message": "This pattern shares no nodes with the rest: Cartesian product",
+      "why": "Two patterns separated by a comma with no variables in common combine each result of one with all those of the other. Relate them in the same pattern or with a WHERE."
+    },
+    "detach-delete-all": {
+      "title": "DETACH DELETE without WHERE",
+      "message": "DETACH DELETE without WHERE deletes all the nodes the MATCH finds",
+      "why": "It deletes the nodes and all their relationships. Without a WHERE or a property filter, it takes all the nodes of the pattern with it. Review the MATCH; to delete many, do it in batches (CALL { … } IN TRANSACTIONS)."
+    }
+  }
+}

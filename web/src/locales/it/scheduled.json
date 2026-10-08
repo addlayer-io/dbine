@@ -64,7 +64,9 @@
     "run_script": "Esegui uno script",
     "export": "Esporta in un file",
     "compare_schemas": "Confronta schemi",
-    "backup": "Backup"
+    "backup": "Backup",
+    "document": "Documenta il database",
+    "send_mail": "Invia un'email"
   },
   "step": {
     "namePlaceholder": "Nome (facoltativo)",
@@ -96,6 +98,27 @@
     "folder": "Cartella",
     "pickFolder": "Cartella di destinazione",
     "fileName": "Nome del file"
+  },
+  "mail": {
+    "to": "A",
+    "toPlaceholder": "ana@example.com, beto@example.com",
+    "cc": "Cc",
+    "subject": "Oggetto",
+    "body": "Testo",
+    "attachments": "Allegati",
+    "addAttachment": "Aggiungi allegato",
+    "pickFile": "Scegli file",
+    "removeAttachment": "Rimuovi l'allegato",
+    "attachmentsHint": "Percorsi di file, con variabili: {steps.1.file} è il file del passo 1. Se un allegato non esiste, il passo fallisce. Gli allegati possono arrivare a 20 MB in totale.",
+    "when": "Solo se…",
+    "whenOptions": {
+      "always": "Sempre",
+      "alert": "Un passo precedente ha avuto un avviso",
+      "errors": "Un passo precedente è fallito"
+    },
+    "errorsHint": "Perché l'email parta quando un passo fallisce, quel passo deve essere impostato su «Se fallisce, continua con il successivo».",
+    "noServer": "Il server di posta non è ancora configurato.",
+    "configure": "Configura la posta"
   },
   "formats": {
     "csv": "CSV",

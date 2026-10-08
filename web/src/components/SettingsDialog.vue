@@ -26,6 +26,8 @@ import { useSyncStore } from '../stores/sync';
 import { useUiStore } from '../stores/ui';
 import { runTask, type TaskHandle } from '../stores/tasks';
 import DriversSettings from './DriversSettings.vue';
+import LintSettings from './LintSettings.vue';
+import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 
@@ -347,6 +349,8 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <button :class="{ on: section === 'general' }" @click="section = 'general'"><el-icon><ei-setting /></el-icon>{{ $t('settings:nav.general') }}</button>
         <button :class="{ on: section === 'sync' }" @click="section = 'sync'"><el-icon><ei-upload-filled /></el-icon>{{ $t('settings:nav.sync') }}</button>
         <button :class="{ on: section === 'mcp' }" @click="section = 'mcp'"><el-icon><ei-cpu /></el-icon>{{ $t('mcp:nav') }}</button>
+        <button :class="{ on: section === 'lint' }" @click="section = 'lint'"><el-icon><ei-circle-check /></el-icon>{{ $t('lint:nav') }}</button>
+        <button :class="{ on: section === 'mail' }" @click="section = 'mail'"><el-icon><ei-message /></el-icon>{{ $t('mail:nav') }}</button>
         <button v-if="driverPackages" :class="{ on: section === 'drivers' }" @click="section = 'drivers'"><el-icon><ei-connection /></el-icon>{{ $t('settings:nav.drivers') }}</button>
         <!-- Voluntary support: opens GitHub Sponsors in the browser. -->
         <button class="st-support" :title="$t('settings:nav.supportHint')" @click="openSupport">
@@ -393,6 +397,16 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <!-- The local MCP server (docs/mcp.md) -->
       <section v-else-if="section === 'mcp'" class="st-body">
         <McpSettings />
+      </section>
+
+      <!-- The mail server of the scheduled tasks -->
+      <section v-else-if="section === 'mail'" class="st-body">
+        <MailSettings />
+      </section>
+
+      <!-- The query editor's linter -->
+      <section v-else-if="section === 'lint'" class="st-body">
+        <LintSettings />
       </section>
 
       <!-- Downloadable drivers -->

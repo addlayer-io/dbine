@@ -1,0 +1,235 @@
+{
+  "nav": "Qualité du code",
+  "settings": {
+    "help": "Pendant que vous écrivez, l'éditeur signale ce qui pose souvent problème : requêtes lentes, résultats inattendus ou modifications qui touchent plus de lignes que prévu. L'analyse porte sur le texte, sans interroger la base. Désactivez les règles qui ne vous servent pas.",
+    "enabled": "Vérifier le code pendant que j'écris",
+    "enabledHelp": "Signale les problèmes dans la marge et les souligne ; survolez pour voir pourquoi et comment les corriger.",
+    "rules": "Règles",
+    "engines": "S'applique à",
+    "allOn": "Tout activer",
+    "loadError": "Impossible de charger la liste des règles."
+  },
+  "severity": {
+    "error": "Erreur",
+    "warning": "Avertissement",
+    "info": "Suggestion"
+  },
+  "groups": {
+    "sql": "Tous les moteurs SQL",
+    "tsql": "SQL Server, Azure SQL, Fabric et Sybase",
+    "postgres": "Famille PostgreSQL",
+    "mysql": "Famille MySQL",
+    "oracle": "Oracle",
+    "influxql": "InfluxDB (InfluxQL et SQL)",
+    "cql": "Cassandra, ScyllaDB et Amazon Keyspaces",
+    "mongodb": "MongoDB, FerretDB et DocumentDB",
+    "couchdb": "CouchDB",
+    "search": "Elasticsearch, OpenSearch et Solr",
+    "redis": "Redis, Valkey et Dragonfly",
+    "etcd": "etcd",
+    "cypher": "Neo4j, Memgraph et Neptune"
+  },
+  "problems": {
+    "button": "Voir les problèmes",
+    "count_one": "1 problème",
+    "count_many": "{{count}} problèmes",
+    "count_other": "{{count}} problèmes",
+    "none": "Aucun problème",
+    "title": "Problèmes du script",
+    "line": "Ligne {{line}}",
+    "settings": "Configurer les règles…"
+  },
+  "ruleId": "Règle : {{id}}",
+  "rules": {
+    "select-star": {
+      "title": "SELECT *",
+      "message": "SELECT * ramène toutes les colonnes",
+      "why": "Il ramène des colonnes que vous n'utilisez pas, empêche un index de couvrir la requête et change de forme quand quelqu'un ajoute une colonne. Listez uniquement les colonnes dont vous avez besoin."
+    },
+    "dml-without-where": {
+      "title": "UPDATE ou DELETE sans WHERE",
+      "message": "{{keyword}} sans WHERE : touche toutes les lignes de la table",
+      "why": "Sans condition, l'instruction modifie ou supprime la table entière. Si c'est ce que vous voulez, utilisez TRUNCATE pour la vider ; sinon, ajoutez le WHERE qui limite les lignes."
+    },
+    "not-in-subquery": {
+      "title": "NOT IN avec sous-requête",
+      "message": "NOT IN (sous-requête) : si elle renvoie un NULL, aucune ligne n'est renvoyée",
+      "why": "Un seul NULL dans la sous-requête suffit pour que la condition ne soit jamais vraie et que la requête ne renvoie rien. Utilisez NOT EXISTS, ou filtrez les NULL dans la sous-requête."
+    },
+    "leading-wildcard": {
+      "title": "Caractère générique au début",
+      "message": "Le motif {{pattern}} commence par un caractère générique : il ne peut pas utiliser d'index",
+      "why": "Un motif qui commence par % (ou * / ?) oblige à examiner toutes les valeurs. Si possible, ancrez le début du texte ('abc%') ou utilisez une recherche en texte intégral."
+    },
+    "function-on-column": {
+      "title": "Fonction sur une colonne dans le WHERE",
+      "message": "{{fn}}(…) sur la colonne empêche d'utiliser son index",
+      "why": "En enveloppant la colonne dans une fonction, le moteur doit la calculer ligne par ligne. Déplacez la transformation de l'autre côté de la comparaison (par exemple, une plage de dates au lieu de YEAR(col) = 2024) ou créez un index sur l'expression."
+    },
+    "equals-null": {
+      "title": "= NULL ou <> NULL",
+      "message": "Comparer avec NULL en utilisant = ou <> n'est jamais vrai",
+      "why": "NULL n'est ni égal ni différent de quoi que ce soit, pas même d'un autre NULL : la condition vaut inconnu et ne laisse passer aucune ligne. Utilisez IS NULL ou IS NOT NULL."
+    },
+    "order-by-ordinal": {
+      "title": "ORDER BY par position",
+      "message": "ORDER BY {{n}} trie selon la position de la colonne",
+      "why": "Si quelqu'un change l'ordre des colonnes du SELECT, le résultat est trié selon une autre sans avertissement. Écrivez le nom de la colonne ou son alias."
+    },
+    "order-by-random": {
+      "title": "Ordre aléatoire",
+      "message": "{{call}} trie toute la table pour choisir des lignes au hasard",
+      "why": "Il calcule une valeur aléatoire pour chaque ligne et les trie toutes, même si vous n'en demandez ensuite qu'une. Sur de grandes tables, utilisez l'échantillonnage du moteur (TABLESAMPLE, SAMPLE) ou choisissez dans une plage de clés aléatoire."
+    },
+    "implicit-cross-join": {
+      "title": "Jointure implicite sans condition",
+      "message": "« {{table}} » est jointe par une virgule et sans condition : produit cartésien",
+      "why": "Une table dans le FROM séparée par une virgule, sans condition dans le WHERE qui la relie aux autres, combine chaque ligne avec toutes les autres. Utilisez JOIN … ON avec la condition ; si le produit est voulu, écrivez CROSS JOIN."
+    },
+    "insert-without-columns": {
+      "title": "INSERT sans liste de colonnes",
+      "message": "INSERT sans liste de colonnes",
+      "why": "Les valeurs sont affectées selon la position des colonnes de la table : si quelqu'un ajoute ou réordonne des colonnes, l'INSERT échoue ou enregistre des données dans la mauvaise colonne. Nommez les colonnes."
+    },
+    "distinct-group-by": {
+      "title": "DISTINCT avec GROUP BY",
+      "message": "DISTINCT est superflu : GROUP BY renvoie déjà des lignes uniques",
+      "why": "Le regroupement laisse déjà une ligne par groupe ; le DISTINCT ajoute du travail sans changer le résultat (sauf si le SELECT n'inclut pas toutes les colonnes regroupées). Retirez l'un des deux."
+    },
+    "union-distinct": {
+      "title": "UNION au lieu de UNION ALL",
+      "message": "UNION supprime les doublons ; s'il ne peut y en avoir, UNION ALL est plus rapide",
+      "why": "UNION trie ou construit un hash de tout le résultat pour éliminer les lignes répétées. Si les parties ne se chevauchent pas ou si les doublons ne gênent pas, utilisez UNION ALL."
+    },
+    "nolock": {
+      "title": "NOLOCK / READ UNCOMMITTED",
+      "message": "{{hint}} lit des données non validées",
+      "why": "Peut renvoyer des lignes qui seront annulées ensuite, des lignes en double ou des lignes manquantes si la table est réorganisée pendant la lecture. Si vous voulez que les lectures n'attendent pas, utilisez l'isolation par instantané (READ_COMMITTED_SNAPSHOT)."
+    },
+    "cursor": {
+      "title": "Curseurs",
+      "message": "Curseur : traite les lignes une par une",
+      "why": "Un curseur parcourt ligne par ligne ce qu'une instruction ensembliste (UPDATE … FROM, MERGE, une sous-requête) résout d'un coup. Si vous en avez besoin, déclarez-le LOCAL FAST_FORWARD."
+    },
+    "set-rowcount": {
+      "title": "SET ROWCOUNT",
+      "message": "SET ROWCOUNT reste actif dans la session et est obsolète pour INSERT, UPDATE et DELETE",
+      "why": "Il affecte toutes les instructions suivantes de la session, y compris les déclencheurs, jusqu'à ce que quelqu'un le remette à 0. Utilisez TOP (n) dans l'instruction."
+    },
+    "global-identity": {
+      "title": "@@IDENTITY",
+      "message": "@@IDENTITY peut renvoyer l'identité générée par un déclencheur",
+      "why": "Renvoie la dernière valeur d'identité de la session dans n'importe quelle table, même une valeur insérée par un déclencheur. Utilisez SCOPE_IDENTITY() ou la clause OUTPUT."
+    },
+    "sp-prefix": {
+      "title": "Procédures avec préfixe sp_",
+      "message": "« {{name}} » : le préfixe sp_ est réservé aux procédures système",
+      "why": "SQL Server cherche d'abord les sp_ dans master, ce qui coûte une recherche supplémentaire à chaque appel et peut exécuter une procédure système du même nom. Utilisez un autre préfixe (usp_) ou aucun."
+    },
+    "set-nocount": {
+      "title": "Procédure sans SET NOCOUNT ON",
+      "message": "« {{name}} » n'a pas de SET NOCOUNT ON",
+      "why": "Sans lui, chaque instruction envoie au client un message « N lignes affectées » : trafic superflu et, pour certains clients, résultats inattendus. Ajoutez SET NOCOUNT ON au début du corps."
+    },
+    "for-update-wait": {
+      "title": "FOR UPDATE qui attend le verrou",
+      "message": "{{clause}} attend la libération du verrou",
+      "why": "Si une autre transaction détient la ligne, la requête attend. Pour les files de travail, utilisez SKIP LOCKED ; pour échouer tout de suite, NOWAIT (sous Oracle aussi WAIT n)."
+    },
+    "serial-identity": {
+      "title": "serial au lieu de IDENTITY",
+      "message": "{{type}} : préférez GENERATED … AS IDENTITY",
+      "why": "serial crée une séquence distincte qui ne suit ni les droits ni les copies de la table et permet d'insérer des valeurs à la main sans contrôle. Les colonnes IDENTITY sont le standard SQL et la séquence reste liée à la colonne."
+    },
+    "group-by-nonaggregated": {
+      "title": "Colonnes hors du GROUP BY",
+      "message": "« {{column}} » n'est ni regroupée ni dans une fonction d'agrégation",
+      "why": "MySQL sans ONLY_FULL_GROUP_BY renvoie la valeur d'une ligne quelconque du groupe, et avec ce mode la requête échoue. Ajoutez la colonne au GROUP BY ou utilisez une fonction d'agrégation (MAX, ANY_VALUE…)."
+    },
+    "rownum-order-by": {
+      "title": "ROWNUM avec ORDER BY",
+      "message": "ROWNUM s'applique avant l'ORDER BY",
+      "why": "Dans le même bloc, Oracle numérote et coupe les lignes avant de les trier : il ne renvoie pas « les N premières » selon l'ordre. Triez dans une sous-requête et filtrez ROWNUM à l'extérieur, ou utilisez FETCH FIRST n ROWS ONLY."
+    },
+    "outer-join-plus": {
+      "title": "Syntaxe (+) de jointure externe",
+      "message": "(+) est l'ancienne syntaxe de jointure externe",
+      "why": "Elle a des restrictions que LEFT/RIGHT JOIN n'a pas (elle n'accepte ni OR ni FULL OUTER) et il est facile de l'oublier dans l'une des conditions. Utilisez LEFT JOIN … ON."
+    },
+    "delete-without-time": {
+      "title": "DELETE sans plage de temps",
+      "message": "DELETE sans condition sur time : supprime tout l'historique de la série",
+      "why": "Sans plage de time, il supprime tous les points qui remplissent la condition depuis le début. Ajoutez time >= … AND time < … pour le limiter."
+    },
+    "drop-series": {
+      "title": "DROP SERIES / MEASUREMENT",
+      "message": "DROP {{what}} supprime tout l'historique, sans plage de temps",
+      "why": "N'accepte pas de plage de time : il supprime tous les points et l'index des séries. Pour supprimer une période, utilisez DELETE avec une condition sur time."
+    },
+    "allow-filtering": {
+      "title": "ALLOW FILTERING",
+      "message": "ALLOW FILTERING parcourt les partitions pour filtrer",
+      "why": "Le coordinateur lit des données de nombreuses partitions et écarte celles qui ne remplissent pas la condition : le coût augmente avec la table. Modélisez une table pour cette requête ou filtrez par la clé de partition."
+    },
+    "no-partition-key": {
+      "title": "SELECT sans clé de partition",
+      "message": "SELECT sur {{table}} sans WHERE : lit toutes les partitions",
+      "why": "Sans restreindre la clé de partition, la requête parcourt tout le cluster. Filtrez par la clé de partition ou paginez avec token()."
+    },
+    "batch-partitions": {
+      "title": "BATCH entre partitions",
+      "message": "Le BATCH écrit dans plusieurs tables ou partitions",
+      "why": "Un batch sur plusieurs partitions n'est pas plus rapide : il charge le coordinateur et, s'il est LOGGED, écrit en plus le journal du batch. Utilisez-le pour l'atomicité au sein d'une partition ; pour charger des données, envoyez les instructions séparément."
+    },
+    "write-all": {
+      "title": "Écriture sans filtre",
+      "message": "{{call}} n'a pas de filtre : touche tout",
+      "why": "Sans filtre, l'opération modifie ou supprime tous les documents ou clés. Si c'est ce que vous voulez, écrivez le filtre explicite ou utilisez l'opération de vidage du moteur ; sinon, ajoutez la condition."
+    },
+    "where-operator": {
+      "title": "$where",
+      "message": "$where exécute du JavaScript pour chaque document",
+      "why": "Il n'utilise pas d'index, est lent et est désactivé sur de nombreux serveurs. Remplacez-le par des opérateurs de requête ou par $expr."
+    },
+    "unanchored-regex": {
+      "title": "Expression régulière sans ancre",
+      "message": "L'expression {{pattern}} ne commence pas par ^ : elle parcourt tout l'index",
+      "why": "Seule une expression ancrée au début (^abc) et sensible à la casse tire bien parti d'un index. Si vous cherchez du texte libre, utilisez un index de texte."
+    },
+    "read-all": {
+      "title": "Lecture sans filtre",
+      "message": "{{call}} sans filtre lit tout",
+      "why": "Ramène tous les documents ou clés. Ajoutez un filtre, une projection et une limite pour ne ramener que ce dont vous avez besoin."
+    },
+    "keys-command": {
+      "title": "KEYS",
+      "message": "KEYS {{pattern}} parcourt toutes les clés et bloque le serveur",
+      "why": "Redis traite une commande à la fois : tant que KEYS parcourt la base, il ne répond à personne. Utilisez SCAN avec MATCH et COUNT, qui avance par morceaux."
+    },
+    "flush": {
+      "title": "FLUSHALL / FLUSHDB",
+      "message": "{{command}} supprime toutes les clés",
+      "why": "FLUSHDB vide la base courante et FLUSHALL toutes les bases du serveur, sans retour en arrière. Assurez-vous d'être connecté au bon serveur."
+    },
+    "big-read": {
+      "title": "Lecture complète d'une clé",
+      "message": "{{command}} lit la clé entière",
+      "why": "Avec de grosses clés, la réponse tarde et bloque le serveur pendant sa construction. Utilisez HSCAN / SSCAN, ou demandez une plage limitée."
+    },
+    "match-without-label": {
+      "title": "MATCH sans étiquette",
+      "message": "Ce motif n'a ni étiquette ni propriétés : il parcourt tous les nœuds",
+      "why": "Sans étiquette (:Personne) ni filtre sur une propriété, le moteur doit examiner tous les nœuds de la base. Ajoutez l'étiquette pour qu'il puisse utiliser ses index."
+    },
+    "cartesian-product": {
+      "title": "Motifs déconnectés",
+      "message": "Ce motif ne partage aucun nœud avec le reste : produit cartésien",
+      "why": "Deux motifs séparés par une virgule sans variable en commun combinent chaque résultat de l'un avec tous ceux de l'autre. Reliez-les dans le même motif ou avec un WHERE."
+    },
+    "detach-delete-all": {
+      "title": "DETACH DELETE sans WHERE",
+      "message": "DETACH DELETE sans WHERE supprime tous les nœuds trouvés par le MATCH",
+      "why": "Supprime les nœuds et toutes leurs relations. Sans WHERE ni filtre de propriétés, il emporte tous les nœuds du motif. Vérifiez le MATCH ; pour en supprimer beaucoup, faites-le par lots (CALL { … } IN TRANSACTIONS)."
+    }
+  }
+}

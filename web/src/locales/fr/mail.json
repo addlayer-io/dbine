@@ -1,0 +1,30 @@
+{
+  "nav": "Courrier",
+  "title": "Courrier",
+  "intro": "Le serveur que les tâches planifiées utilisent pour envoyer des e-mails. Il est enregistré uniquement sur cet ordinateur, car les tâches s'exécutent ici. Le mot de passe va dans le trousseau du système.",
+  "host": "Serveur SMTP",
+  "port": "Port",
+  "security": "Sécurité",
+  "securities": {
+    "starttls": "STARTTLS (port 587)",
+    "tls": "SSL/TLS (port 465)",
+    "none": "Non chiffré"
+  },
+  "noneWarning": "Sans chiffrement, l'utilisateur, le mot de passe et les e-mails circulent en clair sur le réseau. Utilisez-le uniquement avec un serveur de votre réseau local.",
+  "user": "Utilisateur",
+  "userPlaceholder": "Vide si le serveur n'exige pas de connexion",
+  "password": "Mot de passe",
+  "passwordSaved": "Enregistré (laissez vide pour ne pas le changer)",
+  "passwordHelp": "Si vous laissez le mot de passe vide, celui qui est enregistré est conservé. Sans utilisateur, aucun n'est enregistré.",
+  "fromAddress": "Adresse de l'expéditeur",
+  "fromName": "Nom de l'expéditeur",
+  "save": "Enregistrer",
+  "saved": "Configuration du courrier enregistrée.",
+  "notConfigured": "Aucun serveur n'est encore enregistré.",
+  "test": "Envoyer un e-mail de test",
+  "testPrompt": "À quelle adresse l'envoyer ?",
+  "testSend": "Envoyer",
+  "testInvalid": "Saisissez une adresse e-mail",
+  "testOk": "Terminé. {{summary}}",
+  "testFailed": "Envoi impossible : {{error}}"
+}

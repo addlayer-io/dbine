@@ -19,7 +19,7 @@ const { t } = useTranslation();
 const store = useScheduledStore();
 const tabs = useTabsStore();
 
-const KINDS: StepKind[] = ['run_script', 'export', 'compare_schemas', 'backup'];
+const KINDS: StepKind[] = ['run_script', 'export', 'compare_schemas', 'backup', 'document', 'send_mail'];
 const DAYS = [1, 2, 3, 4, 5, 6, 7];
 
 const task = ref<ScheduledTask>(newTask());

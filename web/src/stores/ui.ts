@@ -39,13 +39,13 @@ export const useUiStore = defineStore('ui', {
     /** The AI assistant's sidebar. */
     aiOpen: false,
     /** Configuración open, on this section. */
-    settingsSection: null as 'general' | 'sync' | 'drivers' | 'mcp' | null,
+    settingsSection: null as 'general' | 'sync' | 'drivers' | 'mcp' | 'mail' | 'lint' | null,
     /** Bumped when a cloud restore replaced the local state: views reload. */
     syncSeq: 0,
     dbDialog: null as { kind: 'script' | 'export' | 'import' | 'run'; connectionId: string; database: string } | null,
   }),
   actions: {
-    openSettings(section: 'general' | 'sync' | 'drivers' | 'mcp' = 'general') { this.settingsSection = section; },
+    openSettings(section: 'general' | 'sync' | 'drivers' | 'mcp' | 'mail' | 'lint' = 'general') { this.settingsSection = section; },
     closeSettings() { this.settingsSection = null; },
     // The connection form opens as an editor tab.
     newConnection(folderId: string | null = null) { useTabsStore().openConnectionForm({ folderId }); },

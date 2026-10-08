@@ -1,0 +1,143 @@
+{
+  "action": "Optimiser",
+  "actionTip": "Optimiser la requête : réécritures équivalentes, index suggérés et comparaison des temps (la sélection ou l'instruction au curseur)",
+  "tab": "Optimiser",
+  "title": "Optimiser la requête · {{name}}",
+  "queryName": "Optimisée : {{title}}",
+  "indexQueryName": "Index suggéré : {{table}}",
+  "noStatement": "Placez le curseur dans une requête ou sélectionnez-la.",
+  "reanalyze": "Analyser à nouveau",
+  "analyzing": "Analyse de la requête…",
+  "original": "Requête d'origine",
+  "writesNote": "Cette requête modifie des données : elle n'est jamais exécutée. « Comparer » compare uniquement ses plans estimés.",
+  "skipped": "Lecture impossible :",
+  "alternatives": "Alternatives",
+  "noAlternatives": "Les règles n'ont trouvé aucune réécriture sûre pour cette requête. Vous pouvez demander des alternatives à l'IA ou en ajouter une vous-même.",
+  "noRulesEngine": "Les règles de réécriture ne s'appliquent pas au langage de ce moteur. Vous pouvez demander des alternatives à l'IA ou en ajouter une vous-même.",
+  "source": {
+    "rule": "Règle",
+    "ai": "IA",
+    "user": "La vôtre",
+    "original": "Origine"
+  },
+  "verify": "L'équivalence n'est pas prouvée dans tous les cas : comparez-la avant de l'utiliser.",
+  "showSql": "Voir la requête",
+  "hideSql": "Masquer la requête",
+  "remove": "Retirer",
+  "askAi": "Demander des alternatives à l'IA",
+  "askingAi": "Consultation de l'IA…",
+  "aiMissing": "Aucun assistant IA n'est configuré. Ouvrez l'assistant pour en choisir un : le modèle intégré à DBine, Ollama ou LM Studio (ils s'exécutent sur cette machine), ou Claude Code ou Codex avec votre propre compte.",
+  "openAssistant": "Ouvrir l'assistant",
+  "aiNone": "L'IA n'a trouvé aucune amélioration pour cette requête.",
+  "aiNothing": "La réponse de l'IA ne contenait pas d'alternatives dans le format demandé. Réessayez ou essayez avec un autre modèle.",
+  "aiSent": "La requête et {{what}} ont été envoyés à {{provider}}. Les lignes ne sont jamais envoyées.",
+  "aiSentOnly": "Seule la requête a été envoyée à {{provider}}. Les lignes ne sont jamais envoyées.",
+  "aiTables": "{{count}} tables",
+  "aiPlan": "le plan",
+  "addOwn": "Ajouter une alternative",
+  "ownTitle": "Votre alternative",
+  "ownHint": "Écrivez une version équivalente de la requête : elle est comparée comme les autres.",
+  "ownName": "Alternative {{n}}",
+  "add": "Ajouter",
+  "compare": "Comparer",
+  "comparing": "Comparaison… {{done}} sur {{total}}",
+  "compareTip": "Exécute l'originale et chaque alternative dans une session en lecture seule (une fois pour chauffer, puis le nombre de fois indiqué) et compare les temps, les lignes et le résultat. Ce qui modifie des données n'est pas exécuté : on compare ses plans estimés.",
+  "runs": "Exécutions",
+  "runsTip": "Combien de fois chaque version est exécutée, après une exécution de chauffe",
+  "maxRows": "Lignes max.",
+  "maxRowsTip": "Lignes lues et comparées pour chaque version. Si l'une en renvoie davantage, son résultat n'est pas vérifié.",
+  "table": {
+    "version": "Version",
+    "min": "Min.",
+    "avg": "Moy.",
+    "rows": "Lignes",
+    "cost": "Coût",
+    "result": "Résultat",
+    "speed": "vs origine"
+  },
+  "result": {
+    "same": "Même résultat",
+    "different": "NON équivalente",
+    "unverified": "Non vérifiée",
+    "truncated": "Plus de {{count}} lignes : non comparée",
+    "error": "Erreur",
+    "planOnly": "Plan seulement",
+    "pending": "Non comparée"
+  },
+  "recommended": "Recommandée",
+  "faster": "{{x}}× plus rapide",
+  "slower": "{{x}}× plus lente",
+  "cheaper": "coût {{x}}× inférieur",
+  "viewPlan": "Voir le plan",
+  "use": "Utiliser cette version",
+  "useNew": "Ouvrir dans une nouvelle requête",
+  "useReplace": "Remplacer la requête dans son éditeur",
+  "replaceGone": "L'éditeur d'origine n'a plus cette requête (il a été fermé ou le texte a changé) : elle a été ouverte dans une nouvelle requête.",
+  "replaced": "La requête a été remplacée dans l'éditeur. Elle n'a pas été exécutée.",
+  "confirmUse": {
+    "title": "Utiliser cette version",
+    "different": "Cette version n'a PAS renvoyé le même résultat que l'originale. L'utiliser quand même ?",
+    "unverified": "Cette version n'a pas encore été vérifiée par rapport à l'originale. L'utiliser quand même ?",
+    "go": "Utiliser quand même"
+  },
+  "planTitle": "Plan · {{name}}",
+  "hints": "Index suggérés",
+  "hintsNone": "Le plan ne montre aucun parcours complet qu'un index pourrait éviter.",
+  "hintsNoPlan": "Ce moteur n'affiche pas de plans d'exécution, il n'y a donc aucune suggestion d'index.",
+  "hint": {
+    "missing_index": "Le moteur suggère un index sur {{table}} ({{columns}})",
+    "full_scan": "{{table}} est parcourue en entier ; un index sur ({{columns}}) peut l'éviter",
+    "scan": "{{table}} est parcourue en entier",
+    "impact": "impact estimé {{impact}} %",
+    "rows": "~{{rows}} lignes estimées"
+  },
+  "hintsNote": "Le script est seulement ouvert dans une requête : relisez-le et exécutez-le vous-même s'il vous convient. Un index accélère les lectures et ralentit les écritures.",
+  "openScript": "Ouvrir dans une requête",
+  "notes": "Observations",
+  "planWarnings": "Avertissements du plan",
+  "rules": {
+    "in_to_exists": {
+      "title": "IN (sous-requête) → EXISTS",
+      "explain": "{{column}} IN (sous-requête) devient EXISTS avec la condition à l'intérieur de la sous-requête : le moteur peut s'arrêter à la première correspondance au lieu de construire la liste complète."
+    },
+    "not_in_to_not_exists": {
+      "title": "NOT IN → NOT EXISTS",
+      "explain": "Comme {{column}} et la colonne de la sous-requête n'acceptent pas NULL, NOT EXISTS renvoie la même chose et se résout généralement en anti-jointure plus efficace."
+    },
+    "exists_to_in": {
+      "title": "EXISTS → IN",
+      "explain": "La sous-requête corrélée avec {{column}} devient une liste IN calculée une seule fois. Certains moteurs la résolvent mieux ainsi."
+    },
+    "scalar_to_join": {
+      "title": "Sous-requête par ligne → LEFT JOIN groupé",
+      "explain": "Les sous-requêtes du SELECT ({{count}}) s'exécutaient pour chaque ligne ; elles deviennent un LEFT JOIN avec une table groupée calculée une seule fois. Un COUNT sans ligne donne toujours 0."
+    },
+    "or_to_union": {
+      "title": "OR entre colonnes différentes → UNION ALL",
+      "explain": "Un OR sur {{columns}} empêche d'utiliser un index pour chaque colonne. Chaque branche de l'UNION ALL peut utiliser le sien, et chacune exclut les lignes déjà renvoyées par les précédentes, donc aucune n'est répétée."
+    },
+    "redundant_distinct": {
+      "title": "DISTINCT inutile",
+      "explain": "La liste inclut la clé de {{tables}} : les lignes sont déjà uniques et le DISTINCT ajoute seulement un tri ou un regroupement."
+    },
+    "function_to_range": {
+      "title": "Fonction sur une colonne indexée → plage",
+      "explain": "{{function}} applique une fonction à {{column}}, ce qui empêche d'utiliser son index. Une plage de dates équivalente peut l'utiliser."
+    },
+    "count_to_exists": {
+      "title": "COUNT(*) > 0 → EXISTS",
+      "explain": "Pour savoir s'il y a des lignes, inutile de toutes les compter : EXISTS s'arrête à la première."
+    },
+    "mongo_where": {
+      "title": "$where → opérateurs de requête",
+      "explain": "$where exécute du JavaScript sur chaque document et n'utilise pas d'index ; les opérateurs équivalents le font. Avec des champs qui sont des tableaux ou qui mélangent des types, le résultat peut changer : comparez avant d'utiliser."
+    }
+  },
+  "notesText": {
+    "select_star": "SELECT * ramène les {{count}} colonnes de {{table}}. Ne demander que celles que vous utilisez lit moins de données et peut tirer parti d'index couvrant la requête.",
+    "select_starOpen": "Ouvrir avec les colonnes",
+    "not_in_nullable": "NOT IN avec {{column}} : si la sous-requête renvoie un NULL, la requête ne renvoie aucune ligne. Si ce n'est pas ce que vous cherchez, utilisez NOT EXISTS.",
+    "text_vs_number": "{{column}} est {{type}} et est comparée au nombre {{value}} : le moteur convertit la colonne à chaque ligne et ne peut pas utiliser son index. Si les valeurs sont du texte, comparez avec '{{value}}' (vérifiez que le résultat est identique).",
+    "nvarchar_literal": "{{column}} est {{type}} et est comparée à un texte N'…' (Unicode) : SQL Server convertit la colonne et peut ne pas utiliser son index. Retirez le N si la valeur n'a pas de caractères hors de la page de codes de la colonne."
+  }
+}

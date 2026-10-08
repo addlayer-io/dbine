@@ -1,0 +1,30 @@
+{
+  "nav": "E-mail",
+  "title": "E-mail",
+  "intro": "O servidor que as tarefas agendadas usam para enviar e-mails. É salvo apenas neste computador, porque as tarefas rodam aqui. A senha vai para o chaveiro do sistema.",
+  "host": "Servidor SMTP",
+  "port": "Porta",
+  "security": "Segurança",
+  "securities": {
+    "starttls": "STARTTLS (porta 587)",
+    "tls": "SSL/TLS (porta 465)",
+    "none": "Sem criptografia"
+  },
+  "noneWarning": "Sem criptografia, o usuário, a senha e os e-mails trafegam legíveis pela rede. Use apenas com um servidor da sua rede local.",
+  "user": "Usuário",
+  "userPlaceholder": "Vazio se o servidor não exige login",
+  "password": "Senha",
+  "passwordSaved": "Salva (deixe vazio para não alterar)",
+  "passwordHelp": "Se você deixar a senha vazia, a salva é mantida. Sem usuário, nenhuma é salva.",
+  "fromAddress": "Endereço do remetente",
+  "fromName": "Nome do remetente",
+  "save": "Salvar",
+  "saved": "Configuração de e-mail salva.",
+  "notConfigured": "Ainda não há um servidor salvo.",
+  "test": "Enviar um e-mail de teste",
+  "testPrompt": "Para qual endereço devemos enviar?",
+  "testSend": "Enviar",
+  "testInvalid": "Digite um endereço de e-mail",
+  "testOk": "Pronto. {{summary}}",
+  "testFailed": "Não foi possível enviar: {{error}}"
+}

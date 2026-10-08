@@ -31,6 +31,8 @@ import SchemaDialog from './SchemaDialog.vue';
 import CreateDatabaseDialog from './CreateDatabaseDialog.vue';
 import DatabasePropertiesDialog from './DatabasePropertiesDialog.vue';
 import GenerateDataDialog from './GenerateDataDialog.vue';
+import DbDocsDialog from './DbDocsDialog.vue';
+import { openDbDocs } from '../composables/dbDocs';
 import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
@@ -623,6 +625,8 @@ function dbItems(cid: string, db: string, items: MenuItem[]) {
     items.push(guarded(cid, db, 'create_schema', { label: t('schemas:menuNew'), action: () => { schemaDialog.value = { connectionId: cid, database: db, mode: 'create' }; } }));
   }
   items.push({ label: t('explorer:menu.databaseDiagram'), divided: true, action: () => tabs.openDiagram(cid, db) });
+  if (d.language === 'sql' || d.language === 'cql') items.push({ label: t('queryBuilder:menu'), action: () => tabs.openQueryBuilder(cid, db) });
+  items.push({ label: t('dbDocs:menu'), action: () => openDbDocs(cid, db) });
   if (d.supports_profiler) items.push(guarded(cid, db, 'profiler', { label: t('explorer:menu.profiler'), action: () => tabs.openProfiler(cid, db) }));
   items.push({ label: t('explorer:menu.generateScript'), action: () => ui.openDbDialog('script', cid, db) });
   items.push({ label: t('explorer:menu.migrate'), action: () => newMigration(cid, db) });
@@ -816,6 +820,8 @@ async function onContext(e: MouseEvent, n: TNode) {
       if ((kind?.browsable ?? true) && (kind?.has_columns ?? true) && !conns.byId(cid!)?.config.read_only) {
         items.push({ label: t('dataGen:menu'), action: () => { generatingData.value = { connectionId: cid!, database: db, table: ref }; } });
       }
+      // Only reads here: the copy goes to another database.
+      if ((kind?.browsable ?? true) && (kind?.has_columns ?? true)) items.push({ label: t('subset:menu'), action: () => tabs.openSubset(cid!, db, ref) });
       if (kind?.browsable ?? true) {
         items.push({
           label: t('explorer:menu.newSelectQuery'), divided: true,
@@ -824,6 +830,10 @@ async function onContext(e: MouseEvent, n: TNode) {
             newQuery(cid!, db, await api.browseQuery(cid!, db, ref, 100), o.name);
           },
         });
+      }
+      const lang = conns.driverOf(cid!)?.language;
+      if ((kind?.browsable ?? true) && (kind?.has_columns ?? true) && (lang === 'sql' || lang === 'cql')) {
+        items.push({ label: t('queryBuilder:menu'), action: () => tabs.openQueryBuilder(cid!, db, ref) });
       }
       items.push({ label: t('explorer:menu.copyName'), divided: true, action: () => copy(o.schema ? `${o.schema}.${o.name}` : o.name) });
       if (indexesShown(cid!, o)) items.splice(kind?.has_columns ?? true ? 2 : 1, 0, { label: t('explorer:indexes.menu'), action: () => tabs.openIndexes(cid!, db, ref) });
@@ -1343,6 +1353,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <CloneTableDialog v-if="cloning" :connection-id="cloning.connectionId" :database="cloning.database" :object="cloning.object" @close="cloning = null" />
     <CreateDatabaseDialog v-if="creatingDatabase" :connection-id="creatingDatabase" @close="creatingDatabase = null" />
     <GenerateDataDialog v-if="generatingData" :connection-id="generatingData.connectionId" :database="generatingData.database" :table="generatingData.table" @close="generatingData = null" />
+    <DbDocsDialog />
     <DatabasePropertiesDialog v-if="dbProperties" :connection-id="dbProperties.connectionId" :database="dbProperties.database" @close="dbProperties = null" />
     <SchemaDialog
       v-if="schemaDialog" :connection-id="schemaDialog.connectionId" :database="schemaDialog.database" :mode="schemaDialog.mode" :schema="schemaDialog.schema"

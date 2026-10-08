@@ -64,7 +64,9 @@
     "run_script": "Exécuter un script",
     "export": "Exporter vers un fichier",
     "compare_schemas": "Comparer les schémas",
-    "backup": "Sauvegarde"
+    "backup": "Sauvegarde",
+    "document": "Documenter la base",
+    "send_mail": "Envoyer un e-mail"
   },
   "step": {
     "namePlaceholder": "Nom (facultatif)",
@@ -96,6 +98,27 @@
     "folder": "Dossier",
     "pickFolder": "Dossier de destination",
     "fileName": "Nom du fichier"
+  },
+  "mail": {
+    "to": "À",
+    "toPlaceholder": "ana@example.com, beto@example.com",
+    "cc": "Cc",
+    "subject": "Objet",
+    "body": "Texte",
+    "attachments": "Pièces jointes",
+    "addAttachment": "Ajouter une pièce jointe",
+    "pickFile": "Choisir un fichier",
+    "removeAttachment": "Retirer la pièce jointe",
+    "attachmentsHint": "Chemins de fichiers, avec variables : {steps.1.file} est le fichier de l'étape 1. Si une pièce jointe n'existe pas, l'étape échoue. Les pièces jointes peuvent totaliser jusqu'à 20 Mo.",
+    "when": "Seulement si…",
+    "whenOptions": {
+      "always": "Toujours",
+      "alert": "Une étape précédente a produit une alerte",
+      "errors": "Une étape précédente a échoué"
+    },
+    "errorsHint": "Pour que l'e-mail parte quand une étape échoue, cette étape doit être réglée sur « En cas d'échec, passer à la suivante ».",
+    "noServer": "Le serveur de courrier n'est pas encore configuré.",
+    "configure": "Configurer le courrier"
   },
   "formats": {
     "csv": "CSV",

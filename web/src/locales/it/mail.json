@@ -1,0 +1,30 @@
+{
+  "nav": "Posta",
+  "title": "Posta",
+  "intro": "Il server che le attività pianificate usano per inviare email. Viene salvato solo su questo computer, perché le attività vengono eseguite qui. La password va nel portachiavi di sistema.",
+  "host": "Server SMTP",
+  "port": "Porta",
+  "security": "Sicurezza",
+  "securities": {
+    "starttls": "STARTTLS (porta 587)",
+    "tls": "SSL/TLS (porta 465)",
+    "none": "Non cifrato"
+  },
+  "noneWarning": "Senza cifratura, utente, password ed email viaggiano in chiaro sulla rete. Usalo solo con un server della tua rete locale.",
+  "user": "Utente",
+  "userPlaceholder": "Vuoto se il server non richiede l'accesso",
+  "password": "Password",
+  "passwordSaved": "Salvata (lascia vuoto per non cambiarla)",
+  "passwordHelp": "Se lasci la password vuota, resta quella salvata. Senza utente non ne viene salvata nessuna.",
+  "fromAddress": "Indirizzo del mittente",
+  "fromName": "Nome del mittente",
+  "save": "Salva",
+  "saved": "Configurazione della posta salvata.",
+  "notConfigured": "Non c'è ancora nessun server salvato.",
+  "test": "Invia un'email di prova",
+  "testPrompt": "A quale indirizzo la inviamo?",
+  "testSend": "Invia",
+  "testInvalid": "Scrivi un indirizzo email",
+  "testOk": "Fatto. {{summary}}",
+  "testFailed": "Impossibile inviare: {{error}}"
+}

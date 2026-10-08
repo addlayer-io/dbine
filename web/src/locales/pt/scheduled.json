@@ -64,7 +64,9 @@
     "run_script": "Executar um script",
     "export": "Exportar para arquivo",
     "compare_schemas": "Comparar esquemas",
-    "backup": "Backup"
+    "backup": "Backup",
+    "document": "Documentar o banco de dados",
+    "send_mail": "Enviar um e-mail"
   },
   "step": {
     "namePlaceholder": "Nome (opcional)",
@@ -96,6 +98,27 @@
     "folder": "Pasta",
     "pickFolder": "Pasta de destino",
     "fileName": "Nome do arquivo"
+  },
+  "mail": {
+    "to": "Para",
+    "toPlaceholder": "ana@example.com, beto@example.com",
+    "cc": "Cc",
+    "subject": "Assunto",
+    "body": "Texto",
+    "attachments": "Anexos",
+    "addAttachment": "Adicionar anexo",
+    "pickFile": "Escolher arquivo",
+    "removeAttachment": "Remover o anexo",
+    "attachmentsHint": "Caminhos de arquivos, com variáveis: {steps.1.file} é o arquivo do passo 1. Se um anexo não existir, o passo falha. Os anexos podem somar até 20 MB.",
+    "when": "Somente se…",
+    "whenOptions": {
+      "always": "Sempre",
+      "alert": "Um passo anterior teve um alerta",
+      "errors": "Um passo anterior falhou"
+    },
+    "errorsHint": "Para que o e-mail seja enviado quando um passo falha, esse passo precisa estar em \"Se falhar, continuar com o próximo\".",
+    "noServer": "Falta configurar o servidor de e-mail.",
+    "configure": "Configurar o e-mail"
   },
   "formats": {
     "csv": "CSV",

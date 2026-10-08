@@ -2864,11 +2864,13 @@ simuladas.
 
 ## Tareas programadas
 
-Las tareas programadas ([`tareas-programadas.md`](tareas-programadas.md)) funcionan en **todos los motores**, con los cuatro tipos de paso: ejecutar un script, exportar a archivo, comparar esquemas y backup. No agregan nada al driver: cada paso usa lo que el motor ya ofrece para esa función.
+Las tareas programadas ([`tareas-programadas.md`](tareas-programadas.md)) funcionan en **todos los motores**, con los seis tipos de paso: ejecutar un script, exportar a archivo, comparar esquemas, backup, documentar la base y enviar un mail. No agregan nada al driver: cada paso usa lo que el motor ya ofrece para esa función.
 
 - **Ejecutar un script y Exportar:** hasta donde llega la ejecución de scripts y la exportación de cada motor. La exportación corre siempre en solo lectura.
 - **Comparar esquemas:** hasta donde llega la comparación de cada motor, que no cambia por ser una tarea (ver [Comparar esquemas](#comparar-esquemas)). El script de sincronización se guarda en un archivo y nunca se ejecuta.
 - **Backup:** el **Backup del motor** solo existe en los motores que tienen backups propios (ver [Backups](#backups)). Los demás ofrecen solo la **Copia de DBine**, así que todos los motores se pueden respaldar.
+- **Documentar la base:** hasta donde llega la función (ver [Documentar la base](#documentar-la-base)); corre en una sesión de solo lectura.
+- **Enviar un mail:** no usa el driver, así que no depende del motor: envía por SMTP con el servidor de **Configuración › Correo**.
 
 Probado: los pasos de las tareas tienen pruebas automáticas con bases SQLite (aprobación de cambios, exportación, comparación, copia de DBine, detener o seguir ante un error). Sobre los demás motores no hay pruebas propias de las tareas: cada paso usa el mismo código que la función equivalente de la app, con el soporte y las pruebas contra servidores que se listan en sus secciones.
 
@@ -2879,4 +2881,208 @@ El registro en el programador del sistema (LaunchAgent, Programador de tareas, s
 | Los de la lista "Qué falta y por qué" de [Backups](#backups) | Backup del motor | Sin backups propios por SQL o por el protocolo, el paso ofrece solo la **Copia de DBine**. Los motivos de cada motor están en esa sección. |
 | Los de la sección [Comparar esquemas](#comparar-esquemas) con límites | Lo que la comparación no cubre | La tarea compara lo mismo que la función; los límites y sus motivos están en esa sección. |
 | Conexiones que no guardan su contraseña | Correr sin atención | La tarea lee la contraseña del llavero del sistema; sin contraseña guardada no hay quién la escriba. |
+| Cualquiera | **Solo si…** en pasos que no sean **Enviar un mail** | El motor de tareas evalúa la condición en cualquier paso, pero la interfaz solo la ofrece en **Enviar un mail**. Pendiente explícito: ofrecerla en los demás tipos de paso. |
 | Linux sin systemd | Acceso al llavero desde cron | Una tarea registrada con `crontab` puede no ver el llavero del usuario; un timer de systemd de usuario sí. |
+
+## Calidad de código
+
+La calidad de código ([`calidad-de-codigo.md`](calidad-de-codigo.md)) marca problemas en el editor de **todos los motores** salvo InfluxDB 2, que usa Flux. Es análisis de texto: no consulta el servidor ni agrega nada al driver. Cada motor recibe el analizador léxico y las reglas de su familia, que salen de `DriverInfo` (`language`, `dialect`, `id`) en `src-tauri/src/lint/mod.rs`:
+
+| Familia de reglas | Motores |
+|---|---|
+| SQL (comunes) | Todos los de lenguaje SQL |
+| T-SQL (además de las comunes) | SQL Server, Azure SQL, Fabric, Babelfish y, por ODBC, Sybase ASE y SQL Anywhere (dialecto `mssql` o `sybase`) |
+| PostgreSQL | Los de dialecto `postgres`: PostgreSQL y su familia, y Aurora DSQL |
+| MySQL | Los de dialecto `mysql`: MySQL, MariaDB, TiDB, OceanBase y la familia |
+| Oracle | Oracle y Oracle Autonomous |
+| InfluxQL | InfluxDB 1 e InfluxDB 3 |
+| CQL (comunes de SQL que corresponden, más las de CQL) | Cassandra, ScyllaDB y Amazon Keyspaces |
+| MongoDB | MongoDB, FerretDB y Amazon DocumentDB |
+| CouchDB | CouchDB |
+| Consolas de búsqueda | Elasticsearch, OpenSearch y Solr |
+| Redis | Redis, Valkey y Dragonfly |
+| etcd | etcd |
+| Cypher | Neo4j, Memgraph y Amazon Neptune |
+
+**Probado:** las reglas de todas las familias y la asignación de motores a familias tienen pruebas automáticas sobre texto (`src-tauri/src/lint/tests.rs` y `src-tauri/src/commands/lint.rs`). Como el análisis no usa el servidor, no hay pruebas contra servidores reales ni hacen falta.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| InfluxDB 2 (Flux) | Todas las reglas | Pendiente explícito: falta un analizador léxico de Flux y reglas para él. El perfil de Flux no tiene reglas. |
+| Los motores SQL sin familia propia (SQLite, libSQL, DuckDB, ClickHouse, Snowflake, BigQuery, Databricks, Spanner, Trino, Athena, SAP HANA, Firebird, Db2, Teradata, Vertica y el resto de los presets ODBC) | Reglas propias del motor | Pendiente explícito: solo reciben las reglas comunes de SQL. Faltan las reglas de cada familia. |
+| Cosmos DB, DynamoDB (PartiQL), Couchbase (N1QL), OrientDB, ksqlDB, IoTDB, TDengine | Reglas propias del motor | Pendiente explícito: sus lenguajes parecen SQL y reciben las reglas comunes de SQL, pero no hay reglas propias de cada dialecto. |
+| Elasticsearch, OpenSearch, Solr | Reglas distintas de `leading-wildcard` y `write-all` | Pendiente explícito: faltan reglas para sus consolas (por ejemplo, lecturas sin filtro). |
+
+## Documentar la base
+
+**Documentar la base…** ([`documentar-la-base.md`](documentar-la-base.md)) y su paso de tarea programada funcionan en **todos los motores**: el documento se arma con lo que el motor informa por el contrato (`list_objects`, `database_schema`, `columns`, `definition`), así que cada motor sale con lo que tiene. No agrega métodos al driver. Corre en una sesión de solo lectura.
+
+**Probado:** una base SQLite de archivo, con claves, índice, `CHECK`, vista y trigger, documentada en HTML y en Markdown y como paso de una tarea (prueba automática); y PostgreSQL contra el contenedor `dbine-test-postgres` (prueba marcada como ignorada, que se ejecuta a mano). En los demás motores no hay pruebas propias del documento: cada parte usa las mismas llamadas que el explorador, con el soporte y las pruebas de sus secciones.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| Los que no tienen claves foráneas (`capabilities().foreign_keys` falso: por ejemplo Cassandra y ScyllaDB, MongoDB, CouchDB, Couchbase, Cosmos DB, Redis, Neo4j, ClickHouse, Athena, Dremio, InfluxDB, IoTDB y Aurora DSQL) | Claves foráneas y las líneas del diagrama | El motor no tiene claves foráneas; las tablas del diagrama quedan sin líneas. |
+| Los de [Motores sin dependencias](#motores-sin-dependencias) | **Usada por** | El motor no tiene claves foráneas ni objetos con código que dependan de otros; la opción sale deshabilitada. |
+| Los que no devuelven el código de un tipo de objeto (`has_definition` falso en ese tipo) | Código fuente de ese tipo | El motor no tiene un texto para devolver; el documento lo lista sin código. |
+| Cualquiera | Diagrama con más de 150 tablas por esquema | Límite del diagrama (`DIAGRAM_MAX`): con más tablas se arma un diagrama por esquema y el que supera el máximo queda sin diagrama, con un aviso. Pendiente explícito: un diagrama que se pueda recortar o paginar. |
+| Cualquiera | Diagrama en Markdown | El diagrama es un SVG dentro del HTML; Markdown no lo lleva. |
+
+## Constructor de consultas
+
+**Diseñar consulta…** ([`constructor-de-consultas.md`](constructor-de-consultas.md)) está en todos los motores de lenguaje **SQL y CQL**. Los demás lenguajes (documentos, clave-valor, grafos, Flux) no lo tienen, porque no hay un `SELECT` que armar. Los nombres de las tablas, las comillas y el límite de filas salen de la consulta **Ver datos** de cada driver (`Session::browse_query`); lo que ese texto no dice (uniones, agrupación, `HAVING`, operadores) está por dialecto en `features()` de `src-tauri/src/commands/query_builder.rs`. No agrega métodos al driver.
+
+**Probado:** las consultas generadas para SQL Server, PostgreSQL, Oracle, MySQL, MS Access, Cosmos DB, CQL y ksqlDB tienen pruebas automáticas sobre el texto del SQL, y una unión se ejecuta de punta a punta contra SQLite. No hay pruebas contra servidores reales de los demás motores.
+
+Qué ofrece cada motor (lo que no está en la tabla lo ofrece completo: `INNER`, `LEFT`, `RIGHT` y `FULL`, `GROUP BY`, `HAVING`, los seis agregados, `DISTINCT`, `ORDER BY`, límite, grupos `OR` y los trece operadores):
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| MySQL y su familia, MS Access | Unión `FULL OUTER JOIN` | El dialecto MySQL (MySQL, MariaDB y la familia) y Access no tienen `FULL OUTER JOIN`. Access además anida cada unión entre paréntesis. |
+| SQLite y libSQL anteriores a 3.39 | `RIGHT` y `FULL` | `RIGHT` y `FULL JOIN` llegaron a SQLite en la 3.39; el constructor lee la versión del servidor. |
+| Couchbase (N1QL), HeavyDB | `RIGHT` y `FULL` | Pendiente explícito: el constructor solo genera `INNER` y `LEFT`, pero el código no registra el motivo del motor; falta confirmarlo con la documentación del fabricante. |
+| Sybase ASE, CUBRID, Ignite, NuoDB, OpenEdge, Zen, Machbase, NetSuite (ODBC) | `FULL OUTER JOIN` | Pendiente explícito: el constructor solo genera `INNER`, `LEFT` y `RIGHT`, pero el código no registra el motivo del motor; falta confirmarlo con la documentación del fabricante. |
+| Cosmos DB, DynamoDB (PartiQL), InfluxDB 1, IoTDB, TDengine, ksqlDB, OrientDB | Uniones | Consultan un contenedor, una medida, un dispositivo, un stream o una clase por vez; el constructor deja una sola tabla en el lienzo. |
+| Cassandra, ScyllaDB, Amazon Keyspaces | Uniones, `GROUP BY`, `HAVING`, `DISTINCT`, grupos `OR`, `COUNT DISTINCT` y los operadores distintos de `=`, `<`, `<=`, `>`, `>=` e `IN` | El constructor genera CQL de una sola tabla. Un filtro fuera de la clave primaria agrega `ALLOW FILTERING`, con un aviso de que recorre la tabla. |
+| Cosmos DB | `HAVING`, `COUNT DISTINCT`, `IS NULL` e `IS NOT NULL` | Pendiente explícito: el código no registra el motivo del motor; falta confirmarlo con la documentación del fabricante. |
+| DynamoDB (PartiQL) | `GROUP BY`, `HAVING`, agregados, `DISTINCT`, `ORDER BY`, `LIKE` y `NOT LIKE`; el límite de filas | Pendiente explícito: el código no registra el motivo del motor. La consulta de **Ver datos** de DynamoDB no lleva límite de filas. |
+| InfluxDB 1 | `HAVING`, `DISTINCT` y los operadores distintos de las seis comparaciones; el orden solo por `time` | Pendiente explícito: el código no registra el motivo del motor. |
+| IoTDB | `GROUP BY`, `HAVING`, `DISTINCT` y `COUNT DISTINCT` | Pendiente explícito: el código no registra el motivo del motor. |
+| ksqlDB | `DISTINCT`, `ORDER BY` y `COUNT DISTINCT` | Pendiente explícito: el código no registra el motivo del motor. |
+| OrientDB | `HAVING` y `COUNT DISTINCT` | Pendiente explícito: el código no registra el motivo del motor. |
+| TDengine, MS Access | `COUNT DISTINCT` | Pendiente explícito: el código no registra el motivo del motor. |
+
+## Copiar un subconjunto
+
+**Copiar un subconjunto…** ([`subconjunto-de-datos.md`](subconjunto-de-datos.md)) está en el menú de las tablas de todos los motores (con objetos que tienen columnas y se pueden explorar). El origen y el destino pueden ser motores distintos: la estructura de las tablas que faltan se convierte con `dbine_schema`. No agrega métodos al driver: usa `database_schema`, `Driver::filtered_browse` (el filtro de claves `IN`), `table_ddl`, `insert_script` y `update_script`. El origen se lee en una sesión de solo lectura.
+
+**Probado:** SQLite a SQLite (pruebas automáticas): una tabla con hijas, padres y enmascaramiento, un ciclo de claves foráneas con una clave compuesta, y los rechazos (mismo origen y destino, destino de solo lectura, producción sin confirmar). PostgreSQL a PostgreSQL contra el contenedor `dbine-test-postgres` (prueba marcada como ignorada, que se ejecuta a mano). Los demás motores no tienen pruebas propias.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| Los sin claves foráneas (documentos, clave-valor, series de tiempo: ver la lista de [Documentar la base](#documentar-la-base)) | Padres e hijas | No hay claves foráneas que seguir: se copia la tabla o colección elegida, con su filtro y el enmascaramiento. |
+| Los que no filtran en el servidor (ver [Filtros por columna](#filtros-por-columna-en-los-datos-de-una-tabla)) | Filtro de la tabla de inicio, y buscar padres e hijas por clave | La copia pide los filtros al driver (`filtered_browse`); donde el driver no los aplica, la copia puede fallar con ese error. Redis y etcd son los casos que esa sección declara sin filtro en el servidor. |
+| Motores sin lenguaje de condiciones (los que no son SQL ni CQL) | **Condición** | Solo se ofrece el filtro **Por columna**, el de la grilla de datos. |
+| Cualquiera, con destino de otro motor | Tablas que no se pueden crear | Si la conversión de la estructura al motor del destino falla, la tabla queda marcada **no se puede copiar** con el error y bloquea la copia: hay que crearla antes en el destino. |
+| Cualquiera | Copiar más de 2.000.000 de filas, o más de 1.000.000 de la tabla de inicio; deshacer una copia parcial | Límites de la función: las filas se juntan en memoria antes de escribirlas, y no hay una transacción alrededor de la copia. Pendiente explícito: copiar por lotes sin juntar todo en memoria. |
+
+## Optimizar consulta
+
+**Optimizar consulta** ([`optimizar-consulta.md`](optimizar-consulta.md)) está en el editor de **todos los motores**. Tiene cuatro partes, que dependen del motor de maneras distintas: las **reglas** de reescritura (por lenguaje y dialecto), los **índices sugeridos** (del plan estimado), las **alternativas de la IA** (cualquier motor: se envía la consulta, la estructura y el plan, nunca filas) y **Comparar** (ejecuta con `Session::execute` y el receptor de filas de la exportación, en una sesión de solo lectura). No agrega métodos al driver: usa `explain`, `supports_explain`, `database_schema` y `table_ddl`.
+
+**Probado:** SQLite, con pruebas automáticas, las reglas, la comparación (también la que detecta una versión no equivalente) y los índices sugeridos. Contra los contenedores `dbine-test-*` hay pruebas marcadas como ignoradas, que se ejecutan a mano: PostgreSQL (índices sugeridos y comparación), SQL Server (el índice faltante que informa el motor) y MongoDB (`COLLSCAN` y `$where`). Los demás motores no tienen pruebas propias.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| Cosmos DB, DynamoDB (PartiQL), ksqlDB, IoTDB, TDengine, InfluxDB 1 (InfluxQL), OrientDB, Couchbase (N1QL) | Reglas de reescritura | Su lenguaje no tiene las construcciones que las reglas reescriben (subconsultas, `UNION`, uniones en su forma general) o trata los `NULL` a su manera. Quedan las alternativas de la IA y las propias. |
+| Los de lenguaje no SQL, salvo MongoDB (CQL, Cypher, Redis, etcd, Flux, Elasticsearch, OpenSearch, Solr, CouchDB) | Reglas de reescritura | Pendiente explícito: no hay reglas para esos lenguajes. Quedan las alternativas de la IA y las propias. |
+| MongoDB, FerretDB, Amazon DocumentDB | Todas las reglas salvo `mongo_where` | Pendiente explícito: solo se reescribe `$where`, y solo si son comparaciones de campos con constantes unidas por `&&`. |
+| Todos los SQL salvo PostgreSQL (y su familia), MySQL (y su familia), SQL Server y Oracle | Regla `function_to_range` | Pendiente explícito: falta escribir el literal de fecha de cada dialecto (`date_sql`). |
+| Los que no dan plan: Redis, Valkey, Dragonfly, etcd, IoTDB, FerretDB, InfluxDB 2 (Flux), y por ODBC Exasol, CUBRID, Informix, GBase 8s, Altibase, Db2 for i, Ingres, Mimer, Caché, Zen, Access, dBase, NetSuite y OpenEdge | Índices sugeridos, **Avisos del plan** y el costo en **Comparar** | El motor no tiene planes de ejecución o no los entrega por el protocolo disponible. El motivo de cada uno está en [Planes de ejecución](#planes-de-ejecución). **Comparar** sigue midiendo tiempos y resultado. |
+| Todos menos SQL Server | Índice sugerido por el propio motor | Solo SQL Server informa índices faltantes en su plan. En los demás, la sugerencia sale de un recorrido completo de una tabla que la consulta filtra o une por columnas con las que ningún índice empieza (en MongoDB, un `COLLSCAN`). |
+| Los que escriben datos (`INSERT`, `UPDATE`, `DELETE`, y todo lo no SQL que escribe) | Ejecución en **Comparar** | Una consulta que escribe nunca se ejecuta: se compara solo su plan estimado. En los lenguajes que no son SQL la sesión de solo lectura rechaza la escritura. |
+
+## Búsqueda
+
+**Buscar en la base…** ([`busqueda.md`](busqueda.md)) funciona en **todos los motores**. Los nombres salen de `list_objects` y las columnas de `database_schema` (si el motor no la da, la búsqueda sigue con nombres y código). El código se busca de dos maneras con el mismo resultado: por el catálogo del motor en pocas consultas (`Session::search_code`) o, donde el driver no la implementa, leyendo la definición de cada objeto con avance y resultados parciales. Corre en una sesión de solo lectura.
+
+Vía rápida por el catálogo, según cada `search.rs`:
+
+| Motor | Qué se lee del catálogo | Lo que queda para la lectura objeto por objeto |
+|---|---|---|
+| SQL Server, Azure SQL | `sys.sql_modules` (vistas, rutinas, triggers), filtrado en el servidor con `LIKE` | Secuencias, sinónimos, tipos y catálogos de texto, de a uno |
+| PostgreSQL y su familia | `pg_get_viewdef`, `pg_get_functiondef` y `pg_get_triggerdef`, una consulta por tipo, filtradas con `LIKE`/`ILIKE` | Secuencias, tipos y sinónimos (se arman con varios catálogos). CockroachDB, los motores de streaming, CrateDB, H2, Redshift y Denodo: todo, porque sus fuentes solo salen de a una (`SHOW CREATE`) |
+| Oracle | `DBMS_METADATA.GET_DDL` de vistas, rutinas, paquetes y triggers en una consulta, y de las tablas en otra, filtradas con `DBMS_LOB.INSTR`; tipos, secuencias y sinónimos de `ALL_SOURCE`, `ALL_SEQUENCES` y `ALL_SYNONYMS` | Todo, si una lectura en bloque falla (por ejemplo, sin privilegio sobre `DBMS_METADATA`) |
+| SAP HANA | `DEFINITION` de vistas, procedimientos, funciones y triggers, sin filtrar en el servidor (son NCLOB) | Tablas y secuencias (`GET_OBJECT_DEFINITION`, una llamada por objeto), sinónimos y tipos de tabla |
+| Firebird | `RDB$RELATIONS`, `RDB$PROCEDURES`, `RDB$FUNCTIONS`, `RDB$PACKAGES`, `RDB$TRIGGERS`, `RDB$GENERATORS` y `RDB$FIELDS`, sin filtrar en el servidor | — |
+| ClickHouse | `system.tables` (tablas, vistas, diccionarios, streams) y `system.functions`, filtradas en el servidor | — |
+| BigQuery | `INFORMATION_SCHEMA.TABLES` y `ROUTINES` (el `ddl`) | Los objetos sin `ddl` en `INFORMATION_SCHEMA`; en el emulador, todo |
+| Snowflake | `FUNCTIONS`, `PROCEDURES` y `SEQUENCES` de `INFORMATION_SCHEMA` | Tablas, vistas, streams y tareas (`GET_DDL`, una llamada por objeto) y las rutinas sobrecargadas |
+| Databricks | `routine_definition` de las funciones | Tablas, vistas y vistas materializadas (`SHOW CREATE TABLE`, una sentencia por objeto) |
+| Presets ODBC | Las consultas de definición de cada preset, ejecutadas una vez para todos los objetos | Los tipos cuya fuente no es una consulta (`SHOW …` en Hive, Impala, Spark y Teradata; `GET_DDL(?)`; Netezza) y el preset genérico, que adivina `INFORMATION_SCHEMA` |
+| Todos los demás (MySQL y familia, SQLite, libSQL, DuckDB, Trino, Athena, Spanner, Cassandra, MongoDB, etcétera) | — | Todo, objeto por objeto. Pendiente explícito: una vía por catálogo; los drivers que no la tienen leen cada definición por separado y tardan más en bases con miles de rutinas. |
+
+Sin definiciones que leer, solo se buscan nombres y columnas: los motores cuyos tipos de objeto no tienen código (clave-valor, series de tiempo, la mayoría de los de documentos).
+
+**Probado:** el código de las vías por catálogo afirma, en cada `search.rs`, que da los mismos resultados que la lectura objeto por objeto; no tengo registro de pruebas contra servidores reales de la búsqueda.
+
+## Chequeo de salud
+
+El **Chequeo de salud** ([`chequeo-de-salud.md`](chequeo-de-salud.md)) funciona en **todos los motores** con los chequeos comunes, que usan lo que DBine ya lee (Monitor, procesos y backups). Cada driver puede sumar los suyos con `Session::health_checks`; los motores sin chequeos propios muestran solo los comunes. Corre en una sesión de solo lectura y los scripts de corrección solo se abren en una consulta.
+
+| Chequeo común | Motores que no lo tienen | Motivo |
+|---|---|---|
+| Conexiones y aciertos de caché | Los sin Monitor (`capabilities().monitor` falso) | Sin Monitor no hay métricas de conexiones ni de caché. Ver [Monitor del servidor](#monitor-del-servidor). |
+| Consultas largas, bloqueos y transacciones abiertas | Los sin lista de procesos (`capabilities().processes` falso) | Sin procesos no hay qué medir. Ver [Procesos](#procesos). |
+| Último backup | Los sin backups propios (`Driver::backup()` vacío) | Sin backups del motor no hay historial que consultar. Ver [Backups](#backups). |
+
+Chequeos propios (un `health.rs` por driver):
+
+| Motor | Qué revisa | Qué no |
+|---|---|---|
+| SQL Server, Azure SQL | Configuración, estadísticas, índices sin uso, restricciones no confiables, claves foráneas sin índice, heaps, índices deshabilitados | Lo que exige `VIEW SERVER STATE` o no existe en Azure se saltea |
+| PostgreSQL y familia | Autovacuum, tuplas muertas, *wraparound*, índices sin uso, inválidos y duplicados, claves foráneas sin índice, tablas sin clave primaria, secuencias | Vacuum y tuplas muertas, en CockroachDB y YugabyteDB (su almacenamiento no tiene `VACUUM`) y en las variantes MPP (los contadores del coordinador no ven los segmentos); *wraparound* en openGauss (sus XID son de 64 bits). Específicos: CockroachDB (estadísticas automáticas), Redshift (estadísticas vencidas y filas sin ordenar) |
+| MySQL, MariaDB, TiDB, OceanBase | Tablas sin clave primaria, MyISAM, índices sin uso y redundantes, fragmentación, claves foráneas sin índice, collations mezcladas | Índices sin uso: sin contadores (`performance_schema` o `userstat` apagados) se saltea, y en OceanBase se saltea porque guarda los conteos sin fecha de inicio. Fragmentación: no en Aurora (su almacenamiento no informa ese espacio). Claves foráneas sin índice: no en OceanBase, InnoDB y TiDB crean uno solos |
+| Oracle | Inválidos, índices inutilizables, tablespaces, estadísticas, claves foráneas sin índice, tablas sin clave primaria, secuencias, papelera | Lo que necesita vistas `DBA_` sin acceso se saltea |
+| SAP HANA | Inválidos, fusión *delta*, tablas sin clave primaria, tablas virtuales sin estadísticas | Lo que necesita vistas de monitoreo sin acceso se saltea |
+| Firebird | Distancia entre transacciones, escrituras forzadas, estadísticas de índices, índices inactivos, tablas sin clave primaria | — |
+| ClickHouse | Particiones con demasiadas partes, partes desprendidas, réplicas, mutaciones, tablas sin TTL | Versiones viejas, Timeplus o sin acceso a `system`: se saltea cada chequeo que falla |
+| Snowflake | Time Travel, *clustering*, tablas borradas retenidas, *warehouses* que no se suspenden | Solo costo y mantenimiento, con `SHOW`: no se despierta ningún *warehouse* ni se leen datos |
+| BigQuery | Tablas grandes sin particionar, filtro de partición, vencimiento, modelo de cobro, *time travel* | Solo costo y mantenimiento, con la API REST (metadatos gratuitos, sin jobs) |
+| Databricks | Autoapagado, optimización predictiva, retención de archivos borrados, tablas que no son Delta | Tablas grandes sin *clustering*: el tamaño exige `DESCRIBE DETAIL` en un *warehouse*, y este chequeo no usa ninguno |
+| ODBC: Db2 LUW, Sybase ASE, Informix y GBase 8s | Ver [`chequeo-de-salud.md`](chequeo-de-salud.md) | Db2 for i y z/OS, Teradata, Vertica y los demás presets: sus catálogos no se leen todavía (pendiente explícito); el preset genérico no conoce el motor |
+| Todos los demás (Cassandra, MongoDB, Redis, Neo4j, DuckDB, SQLite, etcétera) | Solo los comunes | Pendiente explícito: no hay chequeos propios; falta definir qué conviene revisar en cada uno |
+
+Cada chequeo propio es una consulta aparte: si falla (versión vieja, permisos), se saltea y se lista en **No se pudieron revisar**.
+
+## Datos de prueba
+
+**Generar datos de prueba…** ([`datos-de-prueba.md`](datos-de-prueba.md)) funciona en los motores que **insertan desde DBine con `insert_script`**. Los generadores viven en DBine; el driver solo aporta el script de inserción, las columnas y, donde existen, las claves foráneas. Aparece en las tablas de conexiones que no son de solo lectura.
+
+Tienen `insert_script` propio: Athena, BigQuery, Cassandra, ClickHouse, Cosmos DB, Couchbase, CouchDB, Databricks, Dremio, DynamoDB, Elasticsearch, etcd, Firebird, SAP HANA, ksqlDB, MongoDB, MySQL y su familia, Neo4j, ODBC, Oracle, OrientDB, Phoenix, PostgreSQL y su familia, Redis, Solr, Snowflake, Spanner, SQL Server, TDengine y Trino. El resto usa el `INSERT` estándar de los motores SQL (SQLite, libSQL, DuckDB, Flight SQL, Aurora DSQL…).
+
+**Probado:** de punta a punta, solo SQL Server (`DBINE_TEST_SQLSERVER_URL`, prueba marcada como ignorada que se ejecuta a mano). Los demás motores no tienen pruebas propias de esta función.
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| Apache Drill | Todo | Drill no tiene `INSERT`: las tablas se crean con `CREATE TABLE AS SELECT`. |
+| InfluxDB 1, 2 y 3 | Todo | Flux no tiene lenguaje de inserción, InfluxQL no tiene `INSERT` por la API HTTP y el SQL de InfluxDB 3 es de solo lectura: los puntos se escriben con *line protocol*. Pendiente explícito: generar y enviar *line protocol*. |
+| ksqlDB | Insertar en topics | ksqlDB no inserta en topics: hay que hacerlo en un stream. |
+| IoTDB | Tablas sin columna `Time` | IoTDB necesita la marca de tiempo para insertar filas. |
+| CouchDB | Vistas | No se insertan documentos en una vista. |
+| Los sin claves foráneas | **De la tabla referenciada** y las claves foráneas automáticas | El motor no tiene claves foráneas que leer; las columnas se llenan con el generador por nombre o tipo. |
+| Cualquiera | Unicidad frente a las filas existentes y claves únicas distintas de la primaria | El generador solo verifica la clave primaria de una columna, y solo contra lo que generó él. Pendiente explícito: leer las restricciones `UNIQUE` y las filas existentes. |
+| Cualquiera | Deshacer una generación cortada | Se inserta de a 500 filas sin una transacción global: los lotes anteriores al error quedan. |
+
+## Propiedades de la base
+
+**Propiedades…** ([`propiedades-de-la-base.md`](propiedades-de-la-base.md)) aparece en los motores con la capacidad `database_properties`. Cada driver (`properties.rs`) informa lo suyo y solo ofrece lo que el servidor reporta, así que una opción de una versión más nueva sale solo si existe. Cambiar una propiedad genera el script del motor, que se revisa y se confirma con las advertencias antes de aplicarse; en conexiones de solo lectura solo se ven. Los campos con sugerencias del servidor (collations, ubicaciones…) son los mismos de **Nueva base de datos** (ver [Crear bases: opciones](#crear-bases-opciones)).
+
+Solo datos, sin nada para cambiar:
+
+| Motor | Motivo |
+|---|---|
+| DuckDB | No guarda ajustes por base: `SET` y `PRAGMA` son de la instancia o de la sesión, y cómo se adjunta una base lo fija el `ATTACH`. |
+| Redis, Valkey, Dragonfly | No guardan ajustes por base: `CONFIG SET` cambia todo el servidor. |
+| SAP HANA | La "base" es un esquema y HANA no tiene `ALTER SCHEMA`: el propietario se fija al crearlo y los demás ajustes viven en tablas, particiones y columnas. |
+| Informix y GBase 8s (ODBC) | El modo de registro se cambia con `ondblog`/`ontape` y un backup de nivel 0, no con SQL. |
+| Memgraph | El modo de almacenamiento y el aislamiento tienen sentencias propias fuera de este diálogo. Pendiente explícito: ofrecerlas. |
+| Neo4j Community | No tiene `ALTER DATABASE`. |
+| libSQL | Solo `user_version`: el servidor maneja el diario (siempre WAL), el tamaño de página y el vacuum, y rechaza esos `PRAGMA` y `VACUUM`. |
+| FerretDB, Amazon DocumentDB | FerretDB no tiene el comando `profile`; en DocumentDB el *profiler* se define en el grupo de parámetros del clúster y escribe en CloudWatch Logs. |
+| Dremio (espacios y hogares) | Solo tienen nombre; los orígenes sí tienen políticas de actualización. |
+| Spanner con dialecto PostgreSQL | Se muestran pero no se cambian: el driver habla GoogleSQL. |
+| Cosmos DB sin rendimiento propio | Con rendimiento por contenedor o *serverless* no hay oferta de la base que cambiar. |
+
+Con propiedades que no se ofrecen aunque se muestren: Firebird (solo lectura, escrituras forzadas e intervalo de *sweep* van por el API de servicios, que el cliente usado no tiene; el cifrado necesita un plugin y una clave que una conexión no ve), Athena (su DDL no cambia la descripción ni la ubicación, ni quita propiedades), Databricks (raíz de almacenamiento, aislamiento y tipo del catálogo no cambian por SQL), TDengine (`MAXROWS` y `KEEP_TIME_OFFSET`: 3.3 rechaza el primero y toma el segundo sin aplicarlo) y Couchbase (tipo, motor de almacenamiento y resolución de conflictos no se editan después de crear el *bucket*; la compactación automática y el cifrado en reposo quedan fuera).
+
+Sin la función:
+
+| Motor | Qué falta | Motivo |
+|---|---|---|
+| Amazon Neptune | Todo | Los ajustes viven en el grupo de parámetros del clúster (API de AWS), no detrás de openCypher. |
+| Databend | Todo | Su `ALTER DATABASE` solo renombra. |
+| Manticore | Todo | No tiene bases. |
+| Denodo, CrateDB, H2 | Todo | No tienen bases que DBine administre. |
+| Apache Drill, DynamoDB, Aurora DSQL, Elasticsearch, OpenSearch, etcd, Flight SQL, ksqlDB, Phoenix, Solr, Trino | Todo | Pendiente explícito: no tienen `properties.rs`, y el código no registra si el motor tiene propiedades por base. |
+
+**Probado:** no encontré pruebas de esta función contra servidores reales en los `properties.rs` revisados, salvo las unitarias que traen algunos drivers; lo implementado a partir de la documentación del fabricante no se distingue en el código.

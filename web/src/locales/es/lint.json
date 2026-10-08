@@ -1,0 +1,235 @@
+{
+  "nav": "Calidad de código",
+  "settings": {
+    "help": "Mientras escribís, el editor marca lo que suele traer problemas: consultas lentas, resultados que no son los esperados o cambios que afectan más filas de las que pensás. El análisis se hace sobre el texto, sin consultar la base. Apagá las reglas que no te sirvan.",
+    "enabled": "Revisar el código mientras escribo",
+    "enabledHelp": "Marca los problemas en el margen y los subraya; pasá el mouse para ver por qué y cómo corregirlos.",
+    "rules": "Reglas",
+    "engines": "Se aplica a",
+    "allOn": "Activar todas",
+    "loadError": "No se pudo cargar la lista de reglas."
+  },
+  "severity": {
+    "error": "Error",
+    "warning": "Advertencia",
+    "info": "Sugerencia"
+  },
+  "groups": {
+    "sql": "Todos los motores SQL",
+    "tsql": "SQL Server, Azure SQL, Fabric y Sybase",
+    "postgres": "Familia PostgreSQL",
+    "mysql": "Familia MySQL",
+    "oracle": "Oracle",
+    "influxql": "InfluxDB (InfluxQL y SQL)",
+    "cql": "Cassandra, ScyllaDB y Amazon Keyspaces",
+    "mongodb": "MongoDB, FerretDB y DocumentDB",
+    "couchdb": "CouchDB",
+    "search": "Elasticsearch, OpenSearch y Solr",
+    "redis": "Redis, Valkey y Dragonfly",
+    "etcd": "etcd",
+    "cypher": "Neo4j, Memgraph y Neptune"
+  },
+  "problems": {
+    "button": "Ver problemas",
+    "count_one": "1 problema",
+    "count_many": "{{count}} problemas",
+    "count_other": "{{count}} problemas",
+    "none": "Sin problemas",
+    "title": "Problemas del script",
+    "line": "Línea {{line}}",
+    "settings": "Configurar reglas…"
+  },
+  "ruleId": "Regla: {{id}}",
+  "rules": {
+    "select-star": {
+      "title": "SELECT *",
+      "message": "SELECT * trae todas las columnas",
+      "why": "Trae columnas que no usás, impide que un índice cubra la consulta y cambia de forma cuando alguien agrega una columna. Listá solo las columnas que necesitás."
+    },
+    "dml-without-where": {
+      "title": "UPDATE o DELETE sin WHERE",
+      "message": "{{keyword}} sin WHERE: afecta todas las filas de la tabla",
+      "why": "Sin condición, la sentencia cambia o borra la tabla entera. Si es lo que querés, para vaciarla usá TRUNCATE; si no, agregá el WHERE que limita las filas."
+    },
+    "not-in-subquery": {
+      "title": "NOT IN con subconsulta",
+      "message": "NOT IN (subconsulta): si devuelve un NULL, no sale ninguna fila",
+      "why": "Basta un NULL en la subconsulta para que la condición nunca sea verdadera y la consulta no devuelva nada. Usá NOT EXISTS, o filtrá los NULL dentro de la subconsulta."
+    },
+    "leading-wildcard": {
+      "title": "Comodín al principio",
+      "message": "El patrón {{pattern}} empieza con un comodín: no puede usar un índice",
+      "why": "Un patrón que empieza con % (o * / ?) obliga a revisar todos los valores. Si podés, anclá el comienzo del texto ('abc%') o usá una búsqueda de texto completo."
+    },
+    "function-on-column": {
+      "title": "Función sobre una columna en el WHERE",
+      "message": "{{fn}}(…) sobre la columna impide usar su índice",
+      "why": "Al envolver la columna en una función, el motor tiene que calcularla fila por fila. Pasá la transformación al otro lado de la comparación (por ejemplo, un rango de fechas en lugar de YEAR(col) = 2024) o creá un índice sobre la expresión."
+    },
+    "equals-null": {
+      "title": "= NULL o <> NULL",
+      "message": "Comparar con NULL usando = o <> nunca da verdadero",
+      "why": "NULL no es igual ni distinto de nada, ni siquiera de otro NULL: la condición da desconocido y no deja pasar filas. Usá IS NULL o IS NOT NULL."
+    },
+    "order-by-ordinal": {
+      "title": "ORDER BY por posición",
+      "message": "ORDER BY {{n}} ordena por la posición de la columna",
+      "why": "Si alguien cambia el orden de las columnas del SELECT, el resultado se ordena por otra sin aviso. Escribí el nombre de la columna o su alias."
+    },
+    "order-by-random": {
+      "title": "Orden aleatorio",
+      "message": "{{call}} ordena toda la tabla para elegir filas al azar",
+      "why": "Calcula un valor aleatorio para cada fila y las ordena todas, aunque después pidas una sola. En tablas grandes usá el muestreo del motor (TABLESAMPLE, SAMPLE) o elegí por un rango de claves al azar."
+    },
+    "implicit-cross-join": {
+      "title": "Join implícito sin condición",
+      "message": "«{{table}}» se une con coma y sin condición: producto cartesiano",
+      "why": "Una tabla en el FROM separada por coma, sin una condición en el WHERE que la relacione con las otras, combina cada fila con todas las demás. Usá JOIN … ON con la condición; si el producto es intencional, escribí CROSS JOIN."
+    },
+    "insert-without-columns": {
+      "title": "INSERT sin lista de columnas",
+      "message": "INSERT sin lista de columnas",
+      "why": "Los valores se asignan por la posición de las columnas de la tabla: si alguien agrega o reordena columnas, el INSERT falla o guarda datos en la columna equivocada. Nombrá las columnas."
+    },
+    "distinct-group-by": {
+      "title": "DISTINCT junto con GROUP BY",
+      "message": "DISTINCT sobra: GROUP BY ya devuelve filas únicas",
+      "why": "Agrupar ya deja una fila por grupo; el DISTINCT agrega trabajo sin cambiar el resultado (salvo que el SELECT no incluya todas las columnas agrupadas). Sacá uno de los dos."
+    },
+    "union-distinct": {
+      "title": "UNION en lugar de UNION ALL",
+      "message": "UNION quita duplicados; si no puede haberlos, UNION ALL es más rápido",
+      "why": "UNION ordena o arma un hash de todo el resultado para eliminar filas repetidas. Si las partes no se superponen o los duplicados no molestan, usá UNION ALL."
+    },
+    "nolock": {
+      "title": "NOLOCK / READ UNCOMMITTED",
+      "message": "{{hint}} lee datos sin confirmar",
+      "why": "Puede devolver filas que después se deshacen, filas repetidas o filas faltantes si la tabla se reorganiza durante la lectura. Si lo que buscás es que las lecturas no esperen, usá el aislamiento de instantánea (READ_COMMITTED_SNAPSHOT)."
+    },
+    "cursor": {
+      "title": "Cursores",
+      "message": "Cursor: procesa las filas de a una",
+      "why": "Un cursor recorre fila por fila lo que una sentencia basada en conjuntos (UPDATE … FROM, MERGE, una subconsulta) resuelve de una vez. Si lo necesitás, declaralo LOCAL FAST_FORWARD."
+    },
+    "set-rowcount": {
+      "title": "SET ROWCOUNT",
+      "message": "SET ROWCOUNT queda activo en la sesión y está obsoleto para INSERT, UPDATE y DELETE",
+      "why": "Afecta a todas las sentencias siguientes de la sesión, incluidos los triggers, hasta que alguien lo vuelva a 0. Usá TOP (n) en la sentencia."
+    },
+    "global-identity": {
+      "title": "@@IDENTITY",
+      "message": "@@IDENTITY puede devolver la identidad que generó un trigger",
+      "why": "Devuelve el último valor de identidad de la sesión en cualquier tabla, incluso uno que insertó un trigger. Usá SCOPE_IDENTITY() o la cláusula OUTPUT."
+    },
+    "sp-prefix": {
+      "title": "Procedimientos con prefijo sp_",
+      "message": "«{{name}}»: el prefijo sp_ es de los procedimientos del sistema",
+      "why": "SQL Server busca primero los sp_ en master, lo que cuesta una búsqueda extra en cada llamada y puede ejecutar uno del sistema con el mismo nombre. Usá otro prefijo (usp_) o ninguno."
+    },
+    "set-nocount": {
+      "title": "Procedimiento sin SET NOCOUNT ON",
+      "message": "«{{name}}» no tiene SET NOCOUNT ON",
+      "why": "Sin él, cada sentencia envía al cliente un mensaje «N filas afectadas»: tráfico de más y, para algunos clientes, resultados inesperados. Agregá SET NOCOUNT ON al principio del cuerpo."
+    },
+    "for-update-wait": {
+      "title": "FOR UPDATE que espera el bloqueo",
+      "message": "{{clause}} espera a que se libere el bloqueo",
+      "why": "Si otra transacción tiene la fila, la consulta queda esperando. Para colas de trabajo usá SKIP LOCKED; para fallar enseguida, NOWAIT (en Oracle también WAIT n)."
+    },
+    "serial-identity": {
+      "title": "serial en lugar de IDENTITY",
+      "message": "{{type}}: preferí GENERATED … AS IDENTITY",
+      "why": "serial crea una secuencia aparte que no viaja con los permisos ni con las copias de la tabla y deja insertar valores a mano sin control. Las columnas IDENTITY son el estándar SQL y la secuencia queda ligada a la columna."
+    },
+    "group-by-nonaggregated": {
+      "title": "Columnas fuera del GROUP BY",
+      "message": "«{{column}}» no está agrupada ni dentro de una función de agregación",
+      "why": "MySQL sin ONLY_FULL_GROUP_BY devuelve el valor de una fila cualquiera del grupo, y con ese modo la consulta falla. Agregá la columna al GROUP BY o usá una función de agregación (MAX, ANY_VALUE…)."
+    },
+    "rownum-order-by": {
+      "title": "ROWNUM con ORDER BY",
+      "message": "ROWNUM se aplica antes del ORDER BY",
+      "why": "En el mismo bloque, Oracle numera y corta las filas antes de ordenarlas: no devuelve «las primeras N» según el orden. Ordená en una subconsulta y filtrá ROWNUM afuera, o usá FETCH FIRST n ROWS ONLY."
+    },
+    "outer-join-plus": {
+      "title": "Sintaxis (+) de outer join",
+      "message": "(+) es la sintaxis antigua de outer join",
+      "why": "Tiene restricciones que LEFT/RIGHT JOIN no tiene (no admite OR ni FULL OUTER) y es fácil olvidarla en una de las condiciones. Usá LEFT JOIN … ON."
+    },
+    "delete-without-time": {
+      "title": "DELETE sin rango de tiempo",
+      "message": "DELETE sin condición sobre time: borra toda la historia de la serie",
+      "why": "Sin un rango de time, borra todos los puntos que cumplen la condición desde el principio. Agregá time >= … AND time < … para limitarlo."
+    },
+    "drop-series": {
+      "title": "DROP SERIES / MEASUREMENT",
+      "message": "DROP {{what}} borra toda la historia, sin rango de tiempo",
+      "why": "No admite un rango de time: elimina todos los puntos y el índice de las series. Si querés borrar un período, usá DELETE con una condición sobre time."
+    },
+    "allow-filtering": {
+      "title": "ALLOW FILTERING",
+      "message": "ALLOW FILTERING recorre las particiones para filtrar",
+      "why": "El coordinador lee datos de muchas particiones y descarta los que no cumplen la condición: el costo crece con la tabla. Modelá una tabla para esa consulta o filtrá por la clave de partición."
+    },
+    "no-partition-key": {
+      "title": "SELECT sin clave de partición",
+      "message": "SELECT sobre {{table}} sin WHERE: lee todas las particiones",
+      "why": "Sin restringir la clave de partición, la consulta recorre todo el cluster. Filtrá por la clave de partición o paginá con token()."
+    },
+    "batch-partitions": {
+      "title": "BATCH entre particiones",
+      "message": "El BATCH escribe en varias tablas o particiones",
+      "why": "Un batch con varias particiones no es más rápido: carga al coordinador y, si es LOGGED, escribe además el registro del batch. Usalo para atomicidad dentro de una partición; para cargar datos, enviá las sentencias por separado."
+    },
+    "write-all": {
+      "title": "Escritura sin filtro",
+      "message": "{{call}} no tiene filtro: afecta a todo",
+      "why": "Sin un filtro, la operación cambia o borra todos los documentos o claves. Si es lo que querés, escribí el filtro explícito o usá la operación de vaciado del motor; si no, agregá la condición."
+    },
+    "where-operator": {
+      "title": "$where",
+      "message": "$where ejecuta JavaScript para cada documento",
+      "why": "No usa índices, es lento y está deshabilitado en muchos servidores. Reemplazalo por operadores de consulta o por $expr."
+    },
+    "unanchored-regex": {
+      "title": "Expresión regular sin ancla",
+      "message": "La expresión {{pattern}} no empieza con ^: recorre todo el índice",
+      "why": "Solo una expresión anclada al principio (^abc) y sensible a mayúsculas aprovecha bien un índice. Si buscás texto suelto, usá un índice de texto."
+    },
+    "read-all": {
+      "title": "Lectura sin filtro",
+      "message": "{{call}} sin filtro lee todo",
+      "why": "Trae todos los documentos o claves. Agregá un filtro, una proyección y un límite para traer solo lo que necesitás."
+    },
+    "keys-command": {
+      "title": "KEYS",
+      "message": "KEYS {{pattern}} recorre todas las claves y bloquea el servidor",
+      "why": "Redis atiende un comando a la vez: mientras KEYS recorre la base, no responde a nadie. Usá SCAN con MATCH y COUNT, que avanza por partes."
+    },
+    "flush": {
+      "title": "FLUSHALL / FLUSHDB",
+      "message": "{{command}} borra todas las claves",
+      "why": "FLUSHDB vacía la base actual y FLUSHALL todas las bases del servidor, sin vuelta atrás. Asegurate de estar conectado al servidor correcto."
+    },
+    "big-read": {
+      "title": "Lectura completa de una clave",
+      "message": "{{command}} lee la clave entera",
+      "why": "Con claves grandes, la respuesta tarda y bloquea al servidor mientras la arma. Usá HSCAN / SSCAN, o pedí un rango acotado."
+    },
+    "match-without-label": {
+      "title": "MATCH sin etiqueta",
+      "message": "Este patrón no tiene etiqueta ni propiedades: recorre todos los nodos",
+      "why": "Sin una etiqueta (:Persona) o un filtro por propiedad, el motor tiene que revisar todos los nodos de la base. Agregá la etiqueta para que pueda usar sus índices."
+    },
+    "cartesian-product": {
+      "title": "Patrones desconectados",
+      "message": "Este patrón no comparte nodos con el resto: producto cartesiano",
+      "why": "Dos patrones separados por coma sin variables en común combinan cada resultado de uno con todos los del otro. Relacionalos en el mismo patrón o con un WHERE."
+    },
+    "detach-delete-all": {
+      "title": "DETACH DELETE sin WHERE",
+      "message": "DETACH DELETE sin WHERE borra todos los nodos que encuentra el MATCH",
+      "why": "Borra los nodos y todas sus relaciones. Sin un WHERE o un filtro de propiedades, se lleva todos los nodos del patrón. Revisá el MATCH; para borrar muchos, hacelo por lotes (CALL { … } IN TRANSACTIONS)."
+    }
+  }
+}

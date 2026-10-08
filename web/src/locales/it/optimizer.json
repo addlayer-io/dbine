@@ -1,0 +1,143 @@
+{
+  "action": "Ottimizza",
+  "actionTip": "Ottimizza query: riscritture equivalenti, indici suggeriti e confronto dei tempi (la selezione o l'istruzione al cursore)",
+  "tab": "Ottimizza",
+  "title": "Ottimizza query · {{name}}",
+  "queryName": "Ottimizzata: {{title}}",
+  "indexQueryName": "Indice suggerito: {{table}}",
+  "noStatement": "Posiziona il cursore in una query o selezionala.",
+  "reanalyze": "Analizza di nuovo",
+  "analyzing": "Analisi della query…",
+  "original": "Query originale",
+  "writesNote": "Questa query modifica dati: non viene mai eseguita. «Confronta» confronta solo i suoi piani stimati.",
+  "skipped": "Impossibile leggere:",
+  "alternatives": "Alternative",
+  "noAlternatives": "Le regole non hanno trovato riscritture sicure per questa query. Puoi chiedere alternative all'IA o aggiungerne una tua.",
+  "noRulesEngine": "Le regole di riscrittura non si applicano al linguaggio di questo motore. Puoi chiedere alternative all'IA o aggiungerne una tua.",
+  "source": {
+    "rule": "Regola",
+    "ai": "IA",
+    "user": "Tua",
+    "original": "Originale"
+  },
+  "verify": "Non è provato che sia equivalente in tutti i casi: confrontala prima di usarla.",
+  "showSql": "Mostra query",
+  "hideSql": "Nascondi query",
+  "remove": "Rimuovi",
+  "askAi": "Chiedi alternative all'IA",
+  "askingAi": "Consultazione dell'IA…",
+  "aiMissing": "Nessun assistente IA è configurato. Apri l'assistente per sceglierne uno: il modello integrato in DBine, Ollama o LM Studio (girano su questa macchina), oppure Claude Code o Codex con il tuo account.",
+  "openAssistant": "Apri l'assistente",
+  "aiNone": "L'IA non ha trovato miglioramenti per questa query.",
+  "aiNothing": "La risposta dell'IA non conteneva alternative nel formato richiesto. Riprova o usa un altro modello.",
+  "aiSent": "A {{provider}} sono stati inviati la query e {{what}}. Le righe non vengono mai inviate.",
+  "aiSentOnly": "A {{provider}} è stata inviata solo la query. Le righe non vengono mai inviate.",
+  "aiTables": "{{count}} tabelle",
+  "aiPlan": "il piano",
+  "addOwn": "Aggiungi un'alternativa",
+  "ownTitle": "La tua alternativa",
+  "ownHint": "Scrivi una versione equivalente della query: viene confrontata come le altre.",
+  "ownName": "Alternativa {{n}}",
+  "add": "Aggiungi",
+  "compare": "Confronta",
+  "comparing": "Confronto… {{done}} di {{total}}",
+  "compareTip": "Esegue l'originale e ogni alternativa in una sessione in sola lettura (una volta per riscaldare e poi il numero di volte indicato) e confronta tempi, righe e risultato. Ciò che modifica dati non viene eseguito: si confrontano i suoi piani stimati.",
+  "runs": "Esecuzioni",
+  "runsTip": "Quante volte viene eseguita ogni versione, dopo un'esecuzione di riscaldamento",
+  "maxRows": "Righe max.",
+  "maxRowsTip": "Righe lette e confrontate per ogni versione. Se una ne restituisce di più, il suo risultato non viene verificato.",
+  "table": {
+    "version": "Versione",
+    "min": "Min.",
+    "avg": "Media",
+    "rows": "Righe",
+    "cost": "Costo",
+    "result": "Risultato",
+    "speed": "vs originale"
+  },
+  "result": {
+    "same": "Stesso risultato",
+    "different": "NON equivalente",
+    "unverified": "Non verificata",
+    "truncated": "Più di {{count}} righe: non confrontata",
+    "error": "Errore",
+    "planOnly": "Solo piano",
+    "pending": "Non confrontata"
+  },
+  "recommended": "Consigliata",
+  "faster": "{{x}}× più veloce",
+  "slower": "{{x}}× più lenta",
+  "cheaper": "costo {{x}}× inferiore",
+  "viewPlan": "Vedi piano",
+  "use": "Usa questa versione",
+  "useNew": "Apri in una nuova query",
+  "useReplace": "Sostituisci la query nel suo editor",
+  "replaceGone": "L'editor di origine non ha più questa query (è stato chiuso o il testo è cambiato): è stata aperta in una nuova query.",
+  "replaced": "La query è stata sostituita nell'editor. Non è stata eseguita.",
+  "confirmUse": {
+    "title": "Usa questa versione",
+    "different": "Questa versione NON ha restituito lo stesso risultato dell'originale. Usarla comunque?",
+    "unverified": "Questa versione non è ancora stata verificata rispetto all'originale. Usarla comunque?",
+    "go": "Usa comunque"
+  },
+  "planTitle": "Piano · {{name}}",
+  "hints": "Indici suggeriti",
+  "hintsNone": "Il piano non mostra scansioni complete che un indice possa evitare.",
+  "hintsNoPlan": "Questo motore non mostra piani di esecuzione, quindi non ci sono suggerimenti di indici.",
+  "hint": {
+    "missing_index": "Il motore suggerisce un indice su {{table}} ({{columns}})",
+    "full_scan": "{{table}} viene scansionata per intero; un indice su ({{columns}}) può evitarlo",
+    "scan": "{{table}} viene scansionata per intero",
+    "impact": "impatto stimato {{impact}} %",
+    "rows": "~{{rows}} righe stimate"
+  },
+  "hintsNote": "Lo script viene solo aperto in una query: rivedilo ed eseguilo tu se ti serve. Un indice velocizza le letture e rallenta le scritture.",
+  "openScript": "Apri in una query",
+  "notes": "Osservazioni",
+  "planWarnings": "Avvisi del piano",
+  "rules": {
+    "in_to_exists": {
+      "title": "IN (sottoquery) → EXISTS",
+      "explain": "{{column}} IN (sottoquery) diventa EXISTS con la condizione dentro la sottoquery: il motore può fermarsi alla prima corrispondenza invece di costruire l'elenco completo."
+    },
+    "not_in_to_not_exists": {
+      "title": "NOT IN → NOT EXISTS",
+      "explain": "Poiché {{column}} e la colonna della sottoquery non ammettono NULL, NOT EXISTS restituisce lo stesso risultato e di solito si risolve come un anti-join più efficiente."
+    },
+    "exists_to_in": {
+      "title": "EXISTS → IN",
+      "explain": "La sottoquery correlata con {{column}} diventa un elenco IN calcolato una sola volta. Alcuni motori la risolvono meglio così."
+    },
+    "scalar_to_join": {
+      "title": "Sottoquery per riga → LEFT JOIN raggruppato",
+      "explain": "Le sottoquery del SELECT ({{count}}) venivano eseguite per ogni riga; diventano un LEFT JOIN con una tabella raggruppata calcolata una sola volta. Un COUNT senza righe continua a dare 0."
+    },
+    "or_to_union": {
+      "title": "OR tra colonne diverse → UNION ALL",
+      "explain": "Un OR su {{columns}} impedisce di usare un indice per ogni colonna. Ogni ramo dell'UNION ALL può usare il proprio, e ognuno esclude le righe già restituite dai precedenti, così nessuna si ripete."
+    },
+    "redundant_distinct": {
+      "title": "DISTINCT non necessario",
+      "explain": "L'elenco include la chiave di {{tables}}: le righe sono già univoche e il DISTINCT aggiunge solo un ordinamento o un raggruppamento."
+    },
+    "function_to_range": {
+      "title": "Funzione su una colonna indicizzata → intervallo",
+      "explain": "{{function}} applica una funzione a {{column}} e così non si può usare il suo indice. Un intervallo di date equivalente lo usa."
+    },
+    "count_to_exists": {
+      "title": "COUNT(*) > 0 → EXISTS",
+      "explain": "Per sapere se ci sono righe non serve contarle tutte: EXISTS si ferma alla prima."
+    },
+    "mongo_where": {
+      "title": "$where → operatori di query",
+      "explain": "$where esegue JavaScript su ogni documento e non usa indici; gli operatori equivalenti sì. Con campi che sono array o che mescolano tipi il risultato può cambiare: confrontala prima di usarla."
+    }
+  },
+  "notesText": {
+    "select_star": "SELECT * recupera tutte le {{count}} colonne di {{table}}. Chiedere solo quelle che usi legge meno dati e può sfruttare indici che coprono la query.",
+    "select_starOpen": "Apri con le colonne",
+    "not_in_nullable": "NOT IN con {{column}}: se la sottoquery restituisce qualche NULL, la query non restituisce nessuna riga. Se non è ciò che cerchi, usa NOT EXISTS.",
+    "text_vs_number": "{{column}} è {{type}} e viene confrontata con il numero {{value}}: il motore converte la colonna su ogni riga e non può usare il suo indice. Se i valori sono testo, confronta con '{{value}}' (verifica che dia lo stesso risultato).",
+    "nvarchar_literal": "{{column}} è {{type}} e viene confrontata con un testo N'…' (Unicode): SQL Server converte la colonna e potrebbe non usare il suo indice. Togli la N se il valore non ha caratteri fuori dalla tabella codici della colonna."
+  }
+}

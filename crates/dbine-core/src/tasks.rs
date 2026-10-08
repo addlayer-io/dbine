@@ -20,6 +20,8 @@ pub mod kinds {
     pub const EXPORT: &str = "export";
     pub const COMPARE_SCHEMAS: &str = "compare_schemas";
     pub const BACKUP: &str = "backup";
+    pub const DOCUMENT: &str = "document";
+    pub const SEND_MAIL: &str = "send_mail";
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

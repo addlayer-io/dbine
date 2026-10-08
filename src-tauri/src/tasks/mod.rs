@@ -7,6 +7,7 @@
 //! kind is one more arm there.
 
 pub mod headless;
+pub mod mail;
 pub mod notify;
 pub mod os;
 mod steps;
@@ -47,7 +48,7 @@ pub struct WriteScope {
 }
 
 /// Tags that mark a production connection.
-const PROD_TAGS: &[&str] = &["prod", "production", "produccion", "producción", "prd"];
+pub(crate) const PROD_TAGS: &[&str] = &["prod", "production", "produccion", "producción", "prd"];
 
 fn target(step: &Step) -> Target {
     serde_json::from_value(step.config.clone()).unwrap_or_default()
@@ -191,7 +192,10 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
     for (n, step) in task.steps.iter().enumerate() {
         let step_started = tasks::now_text();
         let label = if step.name.is_empty() { step.kind.clone() } else { step.name.clone() };
-        let result = steps::run(&ctx, step, &vars).await;
+        let result = match skipped(step, &run.steps) {
+            Some(why) => Ok(StepDone { summary: why.into(), ..Default::default() }),
+            None => steps::run(&ctx, step, &vars).await,
+        };
         let mut sr = StepRun { step_id: step.id.clone(), kind: step.kind.clone(), started_at: step_started, finished_at: tasks::now_text(), ..Default::default() };
         let stop = match result {
             Ok(done) => {
@@ -225,6 +229,17 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
         (true, _) => RunStatus::Failed,
     };
     finish(state, run, task)
+}
+
+/// Why a step doesn't run, from its "Solo si…" (`config.when`, any kind):
+/// `always` (or none), `alert` (an earlier step had an alert) or `errors`
+/// (an earlier step failed and the task went on).
+fn skipped(step: &Step, before: &[StepRun]) -> Option<&'static str> {
+    match text(&step.config, "when") {
+        "alert" if !before.iter().any(|s| s.alert.is_some()) => Some("No se ejecutó: ningún paso anterior tuvo alertas."),
+        "errors" if !before.iter().any(|s| s.status == RunStatus::Failed) => Some("No se ejecutó: ningún paso anterior falló."),
+        _ => None,
+    }
 }
 
 fn save(state: &AppState, run: &TaskRun) {
@@ -391,6 +406,26 @@ mod tests {
 
         let run = run_task(&w.state, None, &task(vec![bad(OnError::Continue), good]), "manual").await;
         assert_eq!((run.status, run.steps.len()), (RunStatus::Partial, 2));
+    }
+
+    #[tokio::test]
+    async fn only_if_conditions() {
+        let w = world("when");
+        let ok = step("ok", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT 1"}));
+        let bad = Step { on_error: OnError::Continue, ..step("bad", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT * FROM nowhere"})) };
+        let mail = |when: &str| step("m", kinds::SEND_MAIL, json!({"to": "a@example.com", "when": when}));
+
+        // Nothing to tell: the mail doesn't go (and the step is fine).
+        let run = run_task(&w.state, None, &task(vec![ok.clone(), mail("alert")]), "manual").await;
+        assert_eq!(run.status, RunStatus::Ok);
+        assert!(run.steps[1].summary.starts_with("No se ejecutó"), "{}", run.steps[1].summary);
+        let run = run_task(&w.state, None, &task(vec![ok, mail("errors")]), "manual").await;
+        assert!(run.steps[1].summary.starts_with("No se ejecutó"));
+
+        // An earlier failure: it runs (and fails here, with no server set).
+        let run = run_task(&w.state, None, &task(vec![bad, mail("errors")]), "manual").await;
+        assert_eq!(run.steps[1].status, RunStatus::Failed);
+        assert!(run.steps[1].summary.contains("Configuración › Correo"), "{}", run.steps[1].summary);
     }
 
     #[test]

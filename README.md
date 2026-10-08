@@ -120,6 +120,21 @@ de cada base.
   arrays grandes agrupados.
 - **Planes de ejecución gráficos**, al estilo de Management Studio: estimado,
   real o los dos, con zoom y desplazamiento.
+- **Buscar en la base:** un texto en los nombres de los objetos, los nombres
+  de columna y el código de vistas, rutinas y triggers, con resultados a
+  medida que avanza. Detalle: [`docs/busqueda.md`](docs/busqueda.md).
+- **Calidad de código:** el editor marca consultas lentas, resultados que
+  probablemente no son los esperados y cambios que afectan más filas de las
+  previstas, con las reglas de cada familia de motores, sin consultar la base.
+  Detalle: [`docs/calidad-de-codigo.md`](docs/calidad-de-codigo.md).
+- **Constructor de consultas:** arma un `SELECT` (o su equivalente en CQL)
+  sobre un lienzo con tablas, uniones, agregados, orden y filtros, con el
+  SQL del motor. Detalle:
+  [`docs/constructor-de-consultas.md`](docs/constructor-de-consultas.md).
+- **Optimizar consulta:** reescrituras equivalentes por reglas y por IA,
+  índices sugeridos a partir del plan y una comparación de tiempos y de
+  resultado en solo lectura. Detalle:
+  [`docs/optimizar-consulta.md`](docs/optimizar-consulta.md).
 
 ### Diseño y estructura
 
@@ -209,6 +224,16 @@ de cada base.
   con mapeo de columnas.
 - **Ejecutar un archivo de script** grande en partes, por ejemplo para
   restaurar un volcado.
+- **Datos de prueba:** llena una tabla con filas inventadas pero verosímiles,
+  respetando claves, largos y claves foráneas. Detalle:
+  [`docs/datos-de-prueba.md`](docs/datos-de-prueba.md).
+- **Documentar la base:** un diccionario de datos en HTML o Markdown, con
+  tablas, claves, índices, código de las rutinas, dependencias y diagrama
+  entidad-relación. Detalle:
+  [`docs/documentar-la-base.md`](docs/documentar-la-base.md).
+- **Subconjunto de datos:** copia algunas filas de una tabla a otra base, con
+  las filas padre que necesitan, y enmascara los datos personales. Detalle:
+  [`docs/subconjunto-de-datos.md`](docs/subconjunto-de-datos.md).
 
 ### Administración
 
@@ -239,10 +264,19 @@ de cada base.
     se revisa antes de ejecutarlo.
 
   Detalle: [`docs/backups.md`](docs/backups.md).
-- **Tareas programadas:** scripts, exportaciones, comparaciones de esquemas
-  y backups que corren solos con DBine cerrado, con aviso del sistema,
-  historial y aprobación previa de lo que cambia datos. Detalle:
+- **Tareas programadas:** scripts, exportaciones, comparaciones de esquemas,
+  backups, documentación de la base y mails que corren solos con DBine
+  cerrado, con aviso del sistema, historial y aprobación previa de lo que
+  cambia datos. Detalle:
   [`docs/tareas-programadas.md`](docs/tareas-programadas.md).
+
+- **Chequeo de salud:** revisa una base y lista lo que conviene atender por
+  gravedad, con los chequeos propios de cada motor y scripts de corrección
+  que se revisan antes de ejecutarlos. Detalle:
+  [`docs/chequeo-de-salud.md`](docs/chequeo-de-salud.md).
+- **Propiedades de la base:** muestra lo que el motor informa de una base y
+  cambia lo que permite, con el script y las advertencias a la vista. Detalle:
+  [`docs/propiedades-de-la-base.md`](docs/propiedades-de-la-base.md).
 
 ### Biblioteca de scripts
 

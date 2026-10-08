@@ -1,4 +1,5 @@
 mod commands;
+mod dbdocs;
 #[cfg(debug_assertions)]
 mod devtools;
 #[cfg(target_os = "macos")]
@@ -6,8 +7,10 @@ mod dock_macos;
 mod error;
 #[cfg(windows)]
 mod jumplist_windows;
+mod lint;
 mod mcp;
 mod menu;
+mod optimizer;
 mod state;
 mod sync;
 mod tasks;
@@ -360,9 +363,22 @@ pub fn run() {
             commands::schema::alter_database_script,
             commands::schema::alter_database,
             commands::search::search_database,
+            commands::optimizer::optimizer_analyze,
+            commands::optimizer::optimizer_ai,
+            commands::optimizer::optimizer_compare,
+            commands::optimizer::optimizer_cancel,
+            commands::lint::lint_script,
+            commands::lint::lint_rules,
+            commands::query_builder::build_query,
+            commands::query_builder::preview_built_query,
             commands::datagen::datagen_preview,
             commands::datagen::datagen_run,
+            commands::subset::subset_plan,
+            commands::subset::subset_run,
             commands::db_health::database_health,
+            commands::dbdocs::dbdocs_outline,
+            commands::dbdocs::dbdocs_generate,
+            commands::dbdocs::dbdocs_open,
             commands::scheduled::scheduled_tasks_list,
             commands::scheduled::scheduled_task_check,
             commands::scheduled::scheduled_task_save,
@@ -370,6 +386,9 @@ pub fn run() {
             commands::scheduled::scheduled_task_enable,
             commands::scheduled::scheduled_task_run_now,
             commands::scheduled::scheduled_task_runs,
+            commands::mail::mail_settings_get,
+            commands::mail::mail_settings_save,
+            commands::mail::mail_test,
             commands::schema::drop_database,
             commands::schema::drop_objects,
             commands::schemas::schema_spec,
