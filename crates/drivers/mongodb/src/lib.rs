@@ -15,7 +15,8 @@
 //!     `getIndexes()`, `stats()`.
 //!   - Writes: `insertOne`, `insertMany`, `updateOne`, `updateMany`,
 //!     `replaceOne`, `deleteOne`, `deleteMany`, `drop` (a missing
-//!     collection is not an error, as in mongosh).
+//!     collection is not an error, as in mongosh),
+//!     `renameCollection(new, dropTarget)` (in the session's database).
 //!   - Indexes: `createIndex(keys, options)` (the shell's default name when
 //!     `name` is missing), `createIndexes([keys…], options)`,
 //!     `dropIndex(name | keys)`, `dropIndexes()`, `hideIndex(name | keys)`,
@@ -74,6 +75,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod security;
 mod shell;
 mod stats;
@@ -448,6 +450,16 @@ impl Driver for MongoDriver {
         ddl::table_ddl(table, parts)
     }
 
+    /// Collections with `renameCollection`, views dropped and created,
+    /// fields with `$rename` (see `rename`).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec(self.flavor))
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(self.flavor, req)
+    }
+
     fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
         ddl::insert_script(target, columns, rows)
     }
@@ -590,6 +602,16 @@ impl MongoSession {
     async fn run(&self, stmt: Stmt, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let db = if stmt.admin { self.client.database("admin") } else { self.db.clone() };
         let mut cmd = stmt.cmd;
+        if stmt.shape == Shape::Rename {
+            // `renameCollection` takes namespaces: the session's database.
+            let here = self.db.name().to_string();
+            for k in ["renameCollection", "to"] {
+                if let Ok(name) = cmd.get_str(k) {
+                    let ns = format!("{here}.{name}");
+                    cmd.insert(k, ns);
+                }
+            }
+        }
         if stmt.shape == Shape::IfExists {
             if let Some(skip) = security::missing_principal(&db, &cmd).await? {
                 out.info(skip);
@@ -651,7 +673,7 @@ impl MongoSession {
                 };
                 out.push_affected(n);
             }
-            Shape::Reply | Shape::CreateIfMissing | Shape::IfExists => {
+            Shape::Reply | Shape::CreateIfMissing | Shape::IfExists | Shape::Rename => {
                 let first = cmd.keys().next().cloned().unwrap_or_default();
                 let mut r = match db.run_command(cmd).await {
                     Ok(r) => r,

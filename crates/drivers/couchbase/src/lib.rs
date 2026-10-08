@@ -19,6 +19,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod security;
 mod stats;
 mod steps;
@@ -183,6 +184,15 @@ impl Driver for CouchbaseDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(changes)
+    }
+
+    /// Fields only, with `UPDATE … SET … UNSET` (see `rename`).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {

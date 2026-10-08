@@ -32,6 +32,9 @@ pub enum Shape {
     CreateIfMissing,    /// A user/role command from `db.runCommand(cmd, options, { ifExists: true })`
     /// (a DBine extension): skipped when its user or role doesn't exist.
     IfExists,
+    /// `db.c.renameCollection(new)`: `renameCollection` runs on `admin`
+    /// with both names qualified with the session's database.
+    Rename,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -903,6 +906,15 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
             stmt(doc! { "delete": coll, "deletes": [{ "q": q, "limit": limit }] }, Shape::Write)
         }
         "drop" => stmt(doc! { "drop": coll }, Shape::Reply),
+        // db.c.renameCollection(new[, dropTarget]), in the same database.
+        "renameCollection" => {
+            let to = match a.next() {
+                Some(Value::String(s)) if !s.is_empty() => s,
+                _ => return Err("renameCollection necesita el nombre nuevo como texto".into()),
+            };
+            let drop_target = matches!(a.next(), Some(Value::Bool(true)));
+            Stmt { cmd: doc! { "renameCollection": coll, "to": to, "dropTarget": drop_target }, shape: Shape::Rename, admin: true }
+        }
         // db.c.createIndex(keys[, options]) / createIndexes([keys…][, options])
         "createIndex" | "ensureIndex" => {
             let keys = a.next().ok_or_else(|| format!("{method} necesita las claves del índice"))?;
