@@ -1446,7 +1446,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-conn-ic.tinted { margin-left: 6px; }
 /* A thick bar on the left and thin lines above and below: a "[" around the logo. */
 .ex-conn-ic.tinted::before {
-  content: ''; position: absolute; left: -6px; top: -1px; bottom: -1px; width: 4px;
+  content: ''; position: absolute; left: -6px; top: -1px; bottom: -1px; width: 6px;
   border-radius: 2px 0 0 2px; background: var(--c);
 }
 .ex-conn-ic.tinted::after {
