@@ -477,6 +477,48 @@ como única clave (y `tbname` en una supertabla); Solr, Elasticsearch,
 CouchDB, Cassandra, Cosmos DB y DynamoDB necesitan la clave o el id completo
 del documento.
 
+### Agregar filas y documentos
+
+El botón «Agregar fila» de la barra de resultados, o el ítem del mismo nombre
+en el menú contextual, suma una fila nueva al final de la grilla. Su número de
+fila muestra «+» y la fila se resalta. Las celdas que no se tocan muestran
+«(predeterminado)» y quedan fuera del INSERT, así que la columna toma su valor
+por defecto o lo genera el motor (identidad, auto-incremento, el `_id` de
+MongoDB). «Establecer NULL» pone un NULL explícito. «Quitar la fila nueva», o
+Supr con la fila seleccionada, la descarta sin más.
+
+Los motores de documentos (MongoDB y sus compatibles, como FerretDB, Amazon
+DocumentDB o Cosmos DB for MongoDB, además de CouchDB, Elasticsearch/OpenSearch
+y Solr) muestran «Agregar documento». Abre un editor JSON con los
+campos del resultado ya cargados: un objeto agrega un documento y un arreglo
+agrega varios. También sirve en una colección vacía, que no tiene columnas en
+la grilla. Cualquier motor cuyo resultado no tenga columnas recibe el mismo
+diálogo, titulado «Agregar fila».
+
+El código de las filas nuevas va junto con los cambios pendientes, en la misma
+barra que las ediciones y los borrados. «Guardar» muestra el script completo y
+lo ejecuta solo con ese clic; «Agregar a la query» lo manda a una query. Está
+en el lenguaje de inserción de cada motor, el mismo que usan copiar e
+importar: `INSERT` en los SQL, `insertMany`, `_bulk`, comandos de Redis,
+`CREATE` de Cypher, etc.
+
+- **Orden:** primero los DELETE, después los UPDATE y al final los INSERT.
+- **Lotes:** las filas que fijan las mismas columnas van en un solo INSERT.
+- **Identidad explícita:** si una fila nueva fija una columna de identidad, el
+  script de SQL Server la envuelve en `SET IDENTITY_INSERT … ON/OFF`, y
+  PostgreSQL mueve la secuencia más allá del valor insertado.
+- **IoTDB:** la fila nueva necesita la columna Time.
+- Se aplican las mismas reglas que para editar: las conexiones de solo lectura
+  se comportan igual que con la edición de celdas.
+
+Motores que no agregan filas (el botón aparece deshabilitado y el tooltip da
+el motivo):
+
+| Motor | Motivo |
+|---|---|
+| Apache Drill | No tiene INSERT: las tablas solo se recrean con CTAS |
+| InfluxDB 1 / 2 / 3 | Los puntos se escriben con line protocol, y ningún lenguaje de consulta del motor lo expresa |
+
 ## Asistente de IA
 
 Funciona con **todos los motores**. El prompt le indica el lenguaje de consulta

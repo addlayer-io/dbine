@@ -69,7 +69,15 @@
     "summaryBoth": "{{cells}} em {{rows}}, {{deletes}}, ainda não salvo.",
     "deletes_one": "{{count}} linha para excluir",
     "deletes_many": "{{count}} linhas para excluir",
-    "deletes_other": "{{count}} linhas para excluir"
+    "deletes_other": "{{count}} linhas para excluir",
+    "pending": "{{list}}, não salvo.",
+    "cellsInRows": "{{cells}} em {{rows}}",
+    "newRows_one": "{{count}} linha nova",
+    "newRows_many": "{{count}} linhas novas",
+    "newRows_other": "{{count}} linhas novas",
+    "newDocs_one": "{{count}} documento novo",
+    "newDocs_many": "{{count}} documentos novos",
+    "newDocs_other": "{{count}} documentos novos"
   },
   "exportDialog": {
     "title": "Exportar resultado",
@@ -184,7 +192,12 @@
     "restoreRows": "Restaurar {{count}} linhas",
     "cantDelete": "Não é possível excluir: {{reason}}",
     "rowDeleted": "A linha está marcada para exclusão: restaure-a para editá-la",
-    "markedDelete": "Marcada para exclusão"
+    "markedDelete": "Marcada para exclusão",
+    "addRow": "Adicionar linha",
+    "removeNewRow": "Remover a linha nova",
+    "removeNewRows": "Remover as {{count}} linhas novas",
+    "newRow": "Linha nova: é inserida ao salvar",
+    "defaultValue": "(padrão)"
   },
   "chart": {
     "kind": {
@@ -224,5 +237,20 @@
     "noNumeric": "Este resultado não tem colunas numéricas para o gráfico.",
     "pickValues": "Escolha pelo menos uma coluna em «Valores».",
     "tooMany": "Categorias demais ({{n}}): agrupe por outra coluna ou escolha uma agregação."
+  },
+  "insert": {
+    "addRow": "Adicionar linha",
+    "addDocument": "Adicionar documento",
+    "cant": "Não é possível adicionar linhas: {{reason}}"
+  },
+  "addDocument": {
+    "titleDocument": "Adicionar documento",
+    "titleRow": "Adicionar linha",
+    "hintDocument": "Escreva o documento em JSON. Um objeto adiciona um documento e uma lista de objetos adiciona vários. Se você não informar _id, o banco o gera.",
+    "hintRow": "Escreva a linha em JSON, com um campo por coluna. Um objeto adiciona uma linha e uma lista de objetos adiciona várias. As colunas que você não informar usam o valor padrão.",
+    "add": "Adicionar",
+    "invalidJson": "O JSON não é válido: {{error}}",
+    "notObject": "Deve ser um objeto ou uma lista de objetos.",
+    "empty": "O documento está vazio: adicione pelo menos um campo."
   }
 }

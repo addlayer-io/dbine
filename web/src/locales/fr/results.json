@@ -69,7 +69,15 @@
     "summaryBoth": "{{cells}} dans {{rows}}, {{deletes}}, pas encore enregistré.",
     "deletes_one": "{{count}} ligne à supprimer",
     "deletes_many": "{{count}} lignes à supprimer",
-    "deletes_other": "{{count}} lignes à supprimer"
+    "deletes_other": "{{count}} lignes à supprimer",
+    "pending": "{{list}}, non enregistré.",
+    "cellsInRows": "{{cells}} dans {{rows}}",
+    "newRows_one": "{{count}} nouvelle ligne",
+    "newRows_many": "{{count}} nouvelles lignes",
+    "newRows_other": "{{count}} nouvelles lignes",
+    "newDocs_one": "{{count}} nouveau document",
+    "newDocs_many": "{{count}} nouveaux documents",
+    "newDocs_other": "{{count}} nouveaux documents"
   },
   "exportDialog": {
     "title": "Exporter le résultat",
@@ -184,7 +192,12 @@
     "restoreRows": "Restaurer {{count}} lignes",
     "cantDelete": "Suppression impossible : {{reason}}",
     "rowDeleted": "La ligne est marquée pour suppression : restaurez-la pour la modifier",
-    "markedDelete": "Marquée pour suppression"
+    "markedDelete": "Marquée pour suppression",
+    "addRow": "Ajouter une ligne",
+    "removeNewRow": "Retirer la nouvelle ligne",
+    "removeNewRows": "Retirer les {{count}} nouvelles lignes",
+    "newRow": "Nouvelle ligne : insérée à l'enregistrement",
+    "defaultValue": "(par défaut)"
   },
   "chart": {
     "kind": {
@@ -224,5 +237,20 @@
     "noNumeric": "Ce résultat n'a pas de colonnes numériques à représenter.",
     "pickValues": "Choisissez au moins une colonne dans « Valeurs ».",
     "tooMany": "Trop de catégories ({{n}}) : regroupez par une autre colonne ou choisissez une agrégation."
+  },
+  "insert": {
+    "addRow": "Ajouter une ligne",
+    "addDocument": "Ajouter un document",
+    "cant": "Impossible d'ajouter des lignes : {{reason}}"
+  },
+  "addDocument": {
+    "titleDocument": "Ajouter un document",
+    "titleRow": "Ajouter une ligne",
+    "hintDocument": "Écrivez le document en JSON. Un objet ajoute un document et une liste d'objets en ajoute plusieurs. Si vous ne mettez pas _id, la base le génère.",
+    "hintRow": "Écrivez la ligne en JSON, avec un champ par colonne. Un objet ajoute une ligne et une liste d'objets en ajoute plusieurs. Les colonnes omises prennent leur valeur par défaut.",
+    "add": "Ajouter",
+    "invalidJson": "Le JSON n'est pas valide : {{error}}",
+    "notObject": "Ce doit être un objet, ou une liste d'objets.",
+    "empty": "Le document est vide : ajoutez au moins un champ."
   }
 }

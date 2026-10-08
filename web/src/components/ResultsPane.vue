@@ -8,8 +8,9 @@ import { tb } from '../i18n/backend';
 import { save } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
 import type { Cell, Message, MessageLevel, ObjectRef, QueryOutcome, StatementResult } from '../api/types';
-import { buildChanges, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits } from '../composables/gridEdit';
+import { buildChanges, buildInserts, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits } from '../composables/gridEdit';
 import ResultGrid from './ResultGrid.vue';
+import AddDocumentDialog from './AddDocumentDialog.vue';
 import PlanView from './PlanView.vue';
 import ChartView from './ChartView.vue';
 import ExportDialog from './ExportDialog.vue';
@@ -97,9 +98,16 @@ const current = computed(() => (typeof active.value === 'number' ? props.outcome
 const edits = reactive<Record<number, Edits>>({});
 /** Rows marked for deletion, per result set. */
 const deletes = reactive<Record<number, Set<number>>>({});
+/** New rows at the end of the grid, per result set: column index → value
+ *  (cells left out take the column's default). */
+const added = reactive<Record<number, Record<number, Cell>[]>>({});
+/** Documents (or rows) typed in "Agregar documento", pending. */
+const docs = ref<Record<string, unknown>[]>([]);
 watch(() => props.outcome, () => {
   for (const k of Object.keys(edits)) delete edits[Number(k)];
   for (const k of Object.keys(deletes)) delete deletes[Number(k)];
+  for (const k of Object.keys(added)) delete added[Number(k)];
+  docs.value = [];
 });
 const currentEdits = computed(() => (typeof active.value === 'number' ? edits[active.value] ?? {} : {}));
 const currentDeletes = computed(() => (typeof active.value === 'number' ? deletes[active.value] ?? new Set<number>() : new Set<number>()));
@@ -108,7 +116,28 @@ const liveEdits = computed(() => Object.entries(currentEdits.value).filter(([r])
 const editCount = computed(() => liveEdits.value.reduce((n, [, r]) => n + Object.keys(r).length, 0));
 const editRows = computed(() => liveEdits.value.length);
 const deleteCount = computed(() => currentDeletes.value.size);
-const pending = computed(() => editCount.value + deleteCount.value > 0);
+const currentAdded = computed(() => (typeof active.value === 'number' ? added[active.value] ?? [] : []));
+const newCount = computed(() => currentAdded.value.length + docs.value.length);
+const pending = computed(() => editCount.value + deleteCount.value + newCount.value > 0);
+/** The grid's rows: the result's, then the new ones (blank: the grid shows
+ *  their cells as the column default until set). */
+const gridRows = computed(() => {
+  const r = current.value;
+  if (!r) return [];
+  const n = currentAdded.value.length;
+  if (!n) return r.rows;
+  const blank: Cell[] = r.columns.map(() => null);
+  return r.rows.concat(Array.from({ length: n }, () => blank));
+});
+/** The edits the grid shows: the result rows' and the new rows' values. */
+const gridEdits = computed<Edits>(() => {
+  const n = currentAdded.value.length;
+  if (!n || !current.value) return currentEdits.value;
+  const base = current.value.rows.length;
+  const out: Edits = { ...currentEdits.value };
+  currentAdded.value.forEach((cells, k) => { out[base + k] = cells; });
+  return out;
+});
 
 /** How the current result can be edited, or why not. */
 const setup = ref<EditSetup | string | null>(null);
@@ -167,6 +196,58 @@ watch(
   { immediate: true },
 );
 const canDelete = computed(() => canEdit.value && !deleteReason.value);
+
+// -- new rows / documents (INSERT code: the driver's `insert_script`) --------------------
+/** Where new rows go: the edit setup's table, or the tab's own object (an
+ *  empty collection has no result columns, so no setup). */
+const insertTarget = computed<ObjectRef | null>(() => {
+  const s = setup.value;
+  if (s && typeof s === 'object') return s.target;
+  return props.editSource?.target ?? null;
+});
+/** Document engines add documents as JSON; a result with no columns too. */
+const addsDocuments = computed(() => props.editSource?.language === 'json' || !current.value);
+// Whether the engine writes INSERTs (InfluxDB doesn't): asked once per
+// table with no rows, the error is the reason.
+const insertReason = ref<string | null>(null);
+let insertSeq = 0;
+watch(
+  () => (insertTarget.value && props.editSource ? JSON.stringify([props.editSource.connectionId, insertTarget.value, current.value?.columns.map((c) => c.name) ?? []]) : ''),
+  async (k) => {
+    const seq = ++insertSeq;
+    insertReason.value = null;
+    const target = insertTarget.value;
+    const src = props.editSource;
+    if (!k || !target || !src) return;
+    try {
+      const columns = current.value?.columns.map((c) => c.name) ?? [];
+      await invoke<string>('update_script', { args: { connection_id: src.connectionId, target, changes: [], inserts: [], columns } });
+    } catch (e) {
+      if (seq === insertSeq) insertReason.value = errorMessage(e);
+    }
+  },
+  { immediate: true },
+);
+const canInsert = computed(() => !!insertTarget.value && !insertReason.value && !applying.value);
+const grid = ref<InstanceType<typeof ResultGrid> | null>(null);
+const docOpen = ref(false);
+/** "Agregar fila": a blank row at the end of the grid, its first cell in
+ *  edit; document engines (and results with no columns) open the JSON editor. */
+function addRow() {
+  if (!canInsert.value) {
+    if (insertReason.value) ElMessage.info({ message: t('results:insert.cant', { reason: insertReason.value }), duration: 3500 });
+    return;
+  }
+  if (addsDocuments.value || typeof active.value !== 'number' || !current.value) { docOpen.value = true; return; }
+  const list = (added[active.value] ??= []);
+  list.push({});
+  const r = current.value.rows.length + list.length - 1;
+  nextTick(() => grid.value?.editRow(r));
+}
+function addDocuments(list: Record<string, unknown>[]) {
+  docs.value = [...docs.value, ...list];
+  docOpen.value = false;
+}
 const noDeleteReason = computed(() => deleteReason.value ?? noEditReason.value);
 /** The edits bar's note: no primary key, and the columns left out of the WHERE. */
 const editNote = computed(() => {
@@ -181,6 +262,15 @@ const editNote = computed(() => {
 function onDelete(rows: number[], mark: boolean) {
   // Locked while a save runs: what it sends is fixed, and its rows go when it ends.
   if (typeof active.value !== 'number' || applying.value) return;
+  // New rows are dropped (from the last, so the indexes hold).
+  const base = current.value?.rows.length ?? 0;
+  const fresh = rows.filter((r) => r >= base).sort((a, b) => b - a);
+  if (fresh.length) {
+    const list = added[active.value] ?? [];
+    for (const r of fresh) list.splice(r - base, 1);
+    rows = rows.filter((r) => r < base);
+    if (!rows.length) return;
+  }
   const cur = deletes[active.value] ?? new Set<number>();
   const next = new Set(cur);
   for (const r of rows) {
@@ -193,6 +283,14 @@ function onDelete(rows: number[], mark: boolean) {
 
 function onEdit(r: number, c: number, value: Cell | undefined) {
   if (typeof active.value !== 'number' || applying.value) return;
+  const base = current.value?.rows.length ?? 0;
+  if (r >= base) {
+    const cells = added[active.value]?.[r - base];
+    if (!cells) return;
+    if (value === undefined) delete cells[c];
+    else cells[c] = value;
+    return;
+  }
   const set = (edits[active.value] ??= {});
   if (value === undefined) {
     if (set[r]) {
@@ -207,6 +305,8 @@ function discard() {
   if (typeof active.value !== 'number' || applying.value) return;
   delete edits[active.value];
   delete deletes[active.value];
+  delete added[active.value];
+  docs.value = [];
 }
 
 // The code, regenerated as the edits change. Not shown in the bar (it grows
@@ -215,7 +315,7 @@ const code = ref('');
 const codeError = ref<string | null>(null);
 let codeTimer: ReturnType<typeof setTimeout> | undefined;
 watch(
-  () => [currentEdits.value, currentDeletes.value, setup.value] as const,
+  () => [currentEdits.value, currentDeletes.value, currentAdded.value, docs.value, setup.value] as const,
   () => {
     clearTimeout(codeTimer);
     codeTimer = setTimeout(generate, 150);
@@ -226,14 +326,22 @@ async function generate() {
   const s = setup.value;
   const r = current.value;
   const src = props.editSource;
-  if (!pending.value || !s || typeof s === 'string' || !r || !src) { code.value = ''; codeError.value = null; return; }
+  const target = insertTarget.value;
+  if (!pending.value || !src || !target) { code.value = ''; codeError.value = null; return; }
   const dialect = props.dialect ?? '';
   try {
-    const changes = buildChanges(r.columns, r.rows, currentEdits.value, s, dialect, currentDeletes.value);
+    const editable = !!s && typeof s === 'object' && !!r;
+    const changes = editable ? buildChanges(r.columns, r.rows, currentEdits.value, s, dialect, currentDeletes.value) : [];
     // In row order, so the script reads like the grid.
-    const keys = [...currentDeletes.value].sort((a, b) => a - b).map((i) => rowKey(r.columns, r.rows[i], s, dialect));
-    // Without deletes the call stays as before (older behavior, same code).
-    const args = { connection_id: src.connectionId, target: s.target, changes, ...(keys.length ? { deletes: keys } : {}) };
+    const keys = editable ? [...currentDeletes.value].sort((a, b) => a - b).map((i) => rowKey(r.columns, r.rows[i], s, dialect)) : [];
+    const inserts = [...(r ? buildInserts(r.columns, currentAdded.value) : []), ...docs.value.map((d) => Object.entries(d))];
+    if (!changes.length && !keys.length && !inserts.length) { code.value = ''; codeError.value = null; return; }
+    // Without deletes / inserts the call stays as before (older behavior, same code).
+    const args = {
+      connection_id: src.connectionId, target, changes,
+      ...(keys.length ? { deletes: keys } : {}),
+      ...(inserts.length ? { inserts, identity: editable ? s.identity : [] } : {}),
+    };
     code.value = await invoke<string>('update_script', { args });
     codeError.value = null;
   } catch (e) {
@@ -243,6 +351,15 @@ async function generate() {
 }
 /** "2 celdas modificadas en 1 fila, 3 filas para eliminar": what's pending. */
 function pendingText(key: 'summary' | 'hint') {
+  if (newCount.value) {
+    const parts = [
+      editCount.value ? t('results:edit.cellsInRows', { cells: t('results:edit.cells', { count: editCount.value }), rows: t('results:edit.rows', { count: editRows.value }) }) : null,
+      deleteCount.value ? t('results:edit.deletes', { count: deleteCount.value }) : null,
+      currentAdded.value.length ? t('results:edit.newRows', { count: currentAdded.value.length }) : null,
+      docs.value.length ? t(props.editSource?.language === 'json' ? 'results:edit.newDocs' : 'results:edit.newRows', { count: docs.value.length }) : null,
+    ].filter(Boolean).join(', ');
+    return key === 'summary' ? t('results:edit.pending', { list: parts }) : t('applyEdits:hintInserts', { list: parts });
+  }
   const cells = t('results:edit.cells', { count: editCount.value });
   const rows = t('results:edit.rows', { count: editRows.value });
   const dels = t('results:edit.deletes', { count: deleteCount.value });
@@ -320,7 +437,7 @@ async function applyEdits() {
   const src = props.editSource;
   const r = current.value;
   const at = active.value;
-  if (!src || !r || !code.value || typeof at !== 'number' || applying.value) return;
+  if (!src || !code.value || applying.value) return;
   applying.value = true;
   applyError.value = null;
   const sql = applyingCode.value = code.value;
@@ -328,6 +445,8 @@ async function applyEdits() {
   const outcome = props.outcome;
   const edited = liveEdits.value.map(([row, cols]) => [row, { ...cols }] as const);
   const gone = [...currentDeletes.value].sort((a, b) => b - a);
+  const fresh = currentAdded.value.map((cells) => ({ ...cells }));
+  const inserted = fresh.length + docs.value.length;
   const target = setup.value && typeof setup.value === 'object' ? setup.value.target : null;
   const where = target ? (target.schema ? `${target.schema}.${target.name}` : target.name) : (props.title || src.database);
   const sessionId = `apply:${Date.now()}:${Math.random().toString(36).slice(2)}`;
@@ -348,20 +467,25 @@ async function applyEdits() {
       return;
     }
     const affected = o.results.reduce((n, x) => n + (x.rows_affected ?? 0), 0);
-    const done = !affected ? t('applyEdits:done') : gone.length ? t('applyEdits:doneAffected', { count: affected }) : t('applyEdits:doneRows', { count: affected });
+    const done = !affected ? t('applyEdits:done') : gone.length || inserted ? t('applyEdits:doneAffected', { count: affected }) : t('applyEdits:doneRows', { count: affected });
     task.finish(undefined, done);
     if (!alive) return;
     // The grid shows the saved values right away (a table's data also
     // reloads): edited cells take their values, deleted rows go.
-    if (props.outcome === outcome) {
+    // New rows join the grid with the values set (a default the server
+    // filled in shows when the table's data reloads).
+    if (props.outcome === outcome && r && typeof at === 'number') {
       for (const [row, cols] of edited) {
         for (const [col, value] of Object.entries(cols)) r.rows[Number(row)][Number(col)] = value as Cell;
       }
       for (const i of gone) r.rows.splice(i, 1);
-      r.total_rows = Math.max(0, r.total_rows - gone.length);
+      for (const cells of fresh) r.rows.push(r.columns.map((_, c) => (c in cells ? cells[c] : null)));
+      r.total_rows = Math.max(0, r.total_rows - gone.length + fresh.length);
       delete edits[at];
       delete deletes[at];
+      delete added[at];
     }
+    if (props.outcome === outcome) docs.value = [];
     const shown = applyOpen.value;
     applyOpen.value = false;
     if (shown) ElMessage.success(done);
@@ -555,6 +679,16 @@ const statusText = computed(() => {
         <el-icon v-if="outcome?.error" color="var(--nm-danger)"><ei-circle-close-filled /></el-icon>
       </button>
       <div class="nm-spacer" />
+      <button
+        v-if="insertTarget && outcome && !outcome.error && (current || !sets.length)"
+        class="rp-export"
+        :class="{ off: !canInsert }"
+        :aria-disabled="!canInsert"
+        :title="insertReason ? $t('results:insert.cant', { reason: insertReason }) : undefined"
+        @click="addRow"
+      >
+        <el-icon><ei-plus /></el-icon> {{ addsDocuments && editSource?.language === 'json' ? $t('results:insert.addDocument') : $t('results:insert.addRow') }}
+      </button>
       <el-dropdown v-if="current" trigger="click" @command="onExportCommand">
         <button class="rp-export" :title="$t('results:export.title')">
           <el-icon><ei-download /></el-icon> {{ $t('common:export') }} <el-icon><ei-arrow-down /></el-icon>
@@ -578,6 +712,23 @@ const statusText = computed(() => {
       </template>
     </div>
 
+    <div v-if="pending && (show === 'table' || !current)" class="rp-edits">
+      <div class="rp-edits-bar">
+        <el-icon><ei-edit /></el-icon>
+        <span>{{ summary }}</span>
+        <div class="nm-spacer" />
+        <!-- Not :loading: Element Plus disables a loading button, and this one reopens the running save. -->
+        <el-button v-if="applying" size="small" type="primary" @click="reviewApply">
+          <el-icon class="is-loading"><ei-loading /></el-icon>&nbsp;{{ $t('tasks:dialogs.saving') }}
+        </el-button>
+        <el-button v-else size="small" type="primary" :disabled="!code" @click="reviewApply">{{ $t('applyEdits:save') }}</el-button>
+        <el-button size="small" :disabled="!code || applying" @click="addToQuery">{{ $t('results:edit.addToQuery') }}</el-button>
+        <el-button size="small" :disabled="!code" @click="copyCode">{{ $t('common:copy') }}</el-button>
+        <el-button size="small" text :disabled="applying" @click="discard">{{ $t('results:edit.discard') }}</el-button>
+      </div>
+      <div v-if="editNote" class="rp-edits-note">{{ editNote }}</div>
+      <div v-if="codeError" class="rp-edits-note err">{{ codeError }}</div>
+    </div>
     <div v-if="!outcome && !running" class="rp-empty nm-muted">
       <i18next :translation="$t('results:empty')"><template #key><kbd>⌘↵</kbd></template></i18next>
     </div>
@@ -588,37 +739,24 @@ const statusText = computed(() => {
       </div>
       <ChartView v-if="show === 'chart'" :key="active" :columns="current.columns" :rows="current.rows" />
       <template v-else>
-      <div v-if="pending" class="rp-edits">
-        <div class="rp-edits-bar">
-          <el-icon><ei-edit /></el-icon>
-          <span>{{ summary }}</span>
-          <div class="nm-spacer" />
-          <!-- Not :loading: Element Plus disables a loading button, and this one reopens the running save. -->
-          <el-button v-if="applying" size="small" type="primary" @click="reviewApply">
-            <el-icon class="is-loading"><ei-loading /></el-icon>&nbsp;{{ $t('tasks:dialogs.saving') }}
-          </el-button>
-          <el-button v-else size="small" type="primary" :disabled="!code" @click="reviewApply">{{ $t('applyEdits:save') }}</el-button>
-          <el-button size="small" :disabled="!code || applying" @click="addToQuery">{{ $t('results:edit.addToQuery') }}</el-button>
-          <el-button size="small" :disabled="!code" @click="copyCode">{{ $t('common:copy') }}</el-button>
-          <el-button size="small" text :disabled="applying" @click="discard">{{ $t('results:edit.discard') }}</el-button>
-        </div>
-        <div v-if="editNote" class="rp-edits-note">{{ editNote }}</div>
-        <div v-if="codeError" class="rp-edits-note err">{{ codeError }}</div>
-      </div>
       <ResultGrid
+        ref="grid"
         :columns="current.columns"
-        :rows="current.rows"
+        :rows="gridRows"
         :copy-context="{ table: table ?? null, dialect: dialect ?? '', keyColumns }"
         :editable="canEdit && !applying"
         :no-edit-reason="noEditReason"
-        :edits="currentEdits"
+        :edits="gridEdits"
         :deleted="currentDeletes"
         :deletable="canDelete && !applying"
         :no-delete-reason="noDeleteReason"
         :filterable="filterable"
         :filters="filters"
+        :added="currentAdded.length"
+        :insertable="canInsert"
         @edit="onEdit"
         @delete="onDelete"
+        @add="addRow"
         @filter="(c, st) => emit('filter', c, st)"
       />
       </template>
@@ -637,6 +775,13 @@ const statusText = computed(() => {
       <div v-if="running" class="rp-msg rp-msg-status"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('results:running') }}</div>
       <div v-else-if="statusText" class="rp-msg rp-msg-status">{{ statusText }}</div>
     </div>
+    <AddDocumentDialog
+      :open="docOpen"
+      :documents="editSource?.language === 'json'"
+      :fields="current?.columns.map((c) => c.name) ?? []"
+      @close="docOpen = false"
+      @add="addDocuments"
+    />
     <ExportDialog
       v-if="exporting && current"
       :columns="current.columns"
@@ -685,7 +830,8 @@ const statusText = computed(() => {
   font: inherit; font-size: 11.5px; color: var(--nm-text); background: transparent;
   border: 1px solid var(--nm-border); border-radius: 3px; cursor: pointer;
 }
-.rp-export:hover { color: var(--nm-text-strong); border-color: #5a5a5a; }
+.rp-export.off { opacity: 0.5; cursor: default; }
+.rp-export:hover:not(.off) { color: var(--nm-text-strong); border-color: #5a5a5a; }
 .rp-menu-row { display: flex; justify-content: space-between; gap: 24px; width: 100%; }
 .rp-menu-row kbd { font-family: var(--nm-mono); font-size: 11px; color: var(--nm-text-dim); }
 .rp-mode { display: inline-flex; margin: 0 6px; border: 1px solid var(--nm-border); border-radius: 3px; overflow: hidden; align-self: center; }

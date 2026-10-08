@@ -11,5 +11,6 @@
   "hintBoth": "Ces instructions vont s’exécuter sur le serveur ({{deletes}} ; {{cells}} dans {{rows}}). Les lignes sont d’abord supprimées, puis les autres sont mises à jour. Vérifiez-les avant d’enregistrer.",
   "doneAffected_one": "Modifications enregistrées : 1 ligne affectée",
   "doneAffected_many": "Modifications enregistrées : {{count}} lignes affectées",
-  "doneAffected_other": "Modifications enregistrées : {{count}} lignes affectées"
+  "doneAffected_other": "Modifications enregistrées : {{count}} lignes affectées",
+  "hintInserts": "Ces instructions seront exécutées sur le serveur ({{list}}). Les lignes sont d'abord supprimées, puis mises à jour, et les nouvelles sont insérées en dernier. Vérifiez-les avant d'enregistrer."
 }

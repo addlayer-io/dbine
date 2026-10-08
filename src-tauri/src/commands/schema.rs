@@ -77,6 +77,18 @@ pub struct UpdateScriptArgs {
     /// their values. `None` (older callers): only the UPDATEs.
     #[serde(default)]
     pub deletes: Option<Vec<Vec<(String, Value)>>>,
+    /// New rows ("Agregar fila", "Agregar documento"): the values set, by
+    /// column / field. `None` (older callers): no INSERTs.
+    #[serde(default)]
+    pub inserts: Option<Vec<Vec<(String, Value)>>>,
+    /// The table's identity columns: new rows that set one get the
+    /// engine's wrap (SQL Server's IDENTITY_INSERT).
+    #[serde(default)]
+    pub identity: Vec<String>,
+    /// The result's columns: an empty `inserts` asks with them whether the
+    /// engine writes new rows there.
+    #[serde(default)]
+    pub columns: Vec<String>,
 }
 
 /// Cells edited (and rows marked for deletion) in the results grid as code
@@ -86,16 +98,24 @@ pub struct UpdateScriptArgs {
 /// dropped by the UI) and deleting first means no UPDATE can make a row
 /// match a DELETE's WHERE (by all columns when there's no key) or collide
 /// with a unique value that's about to go. An empty `deletes` still asks
-/// the driver: it's how the UI learns the engine can't delete rows.
+/// the driver: it's how the UI learns the engine can't delete rows. With
+/// `inserts`, the new rows' INSERTs go last (an empty list only asks
+/// whether the engine writes them, the same way).
 #[tauri::command(rename_all = "camelCase")]
 pub async fn update_script(state: State<'_, AppState>, args: UpdateScriptArgs) -> CommandResult<String> {
     let driver = driver_of(&state, &args.connection_id)?;
-    let Some(deletes) = args.deletes else {
+    if args.deletes.is_none() && args.inserts.is_none() {
         return Ok(driver.update_script(&args.target, &args.changes)?);
-    };
-    let mut parts = vec![driver.delete_script(&args.target, &deletes)?];
+    }
+    let mut parts = Vec::new();
+    if let Some(deletes) = &args.deletes {
+        parts.push(driver.delete_script(&args.target, deletes)?);
+    }
     if !args.changes.is_empty() {
         parts.push(driver.update_script(&args.target, &args.changes)?);
+    }
+    if let Some(inserts) = &args.inserts {
+        parts.extend(super::data_compare::new_rows_parts(driver.as_ref(), &args.target, inserts, &args.identity, &args.columns)?);
     }
     let sep = driver.script_separator();
     Ok(parts.into_iter().filter(|p| !p.trim().is_empty()).collect::<Vec<_>>().join(&format!("\n{sep}\n")))
