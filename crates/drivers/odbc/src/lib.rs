@@ -22,6 +22,7 @@ mod plan;
 mod presets;
 mod processes;
 mod properties;
+mod rename;
 mod schemas;
 mod search;
 mod security;
@@ -314,6 +315,15 @@ impl Driver for OdbcDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(self.preset, changes)
+    }
+
+    /// Per preset where the syntax is documented (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        rename::spec(self.preset)
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(self.preset, &self.script_dialect(), req)
     }
 
     fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {

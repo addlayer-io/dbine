@@ -3131,9 +3131,17 @@ ofrece **Renombrar…** en ese motor.
 | Apache Drill | pendiente | | | | |
 | Flight SQL | pendiente | | | | |
 | Spanner | pendiente | | | | |
-| SAP HANA | pendiente | | | | |
-| Firebird | pendiente | | | | |
-| Presets ODBC (Db2, Sybase, Informix, Teradata, Vertica, Exasol…) | pendiente | | | | |
+| SAP HANA | sí (sin prueba en vivo) | tabla, columna, índice (`RENAME TABLE s.t TO n`, `RENAME COLUMN s.t.c TO n`, `RENAME INDEX s.ix TO n`) | índices y claves foráneas (verificar) | `CREATE OR REPLACE` (vistas, procedimientos, funciones) | sin vistas, rutinas, restricciones ni esquemas; DDL sin transacción; en versiones sin `CREATE OR REPLACE` ese paso falla |
+| Firebird | sí | columna (`ALTER TABLE t ALTER COLUMN a TO b`) | índices comunes | se borran antes y se crean después con `CREATE OR ALTER`; sin transacción (el borrado recién vale al confirmar) | rechaza si la columna está en una vista, rutina, trigger, CHECK o clave primaria/única/foránea; los triggers con `NEW.columna` quedan manuales |
+| ODBC: Db2 (LUW) | sí (sin prueba en vivo) | tabla, columna, índice (`RENAME TABLE\|INDEX`, `ALTER TABLE … RENAME COLUMN`) | índices | `CREATE OR REPLACE`; en una transacción | rechaza tablas con triggers o en claves foráneas |
+| ODBC: Db2 for z/OS | sí (sin prueba en vivo) | tabla, columna, índice (`RENAME TABLE\|INDEX`, `ALTER TABLE … RENAME COLUMN`) | índices | borrar y crear | rechaza tablas con triggers o leídas por vistas no reescritas |
+| ODBC: Db2 for i | sí (sin prueba en vivo) | tabla, vista, índice (`RENAME TABLE\|INDEX`) | — | borrar y crear | sin columnas |
+| ODBC: Sybase ASE | sí (sin prueba en vivo) | tabla, vista, columna, índice (`sp_rename`) | claves e índices | borrar y crear | solo objetos del usuario conectado |
+| ODBC: Informix | sí (sin prueba en vivo) | tabla, columna, índice (`RENAME TABLE\|COLUMN\|INDEX`) | vistas | borrar y crear (triggers y SPL) | — |
+| ODBC: Teradata | sí (sin prueba en vivo) | tabla, vista (`RENAME TABLE\|VIEW db.x TO db.n`) | — | borrar y crear | sin columnas |
+| ODBC: Vertica | sí (sin prueba en vivo) | tabla, vista, columna, esquema (`ALTER TABLE\|VIEW\|SCHEMA … RENAME TO`, `RENAME COLUMN`) | — | `CREATE OR REPLACE` | DDL sin transacción |
+| ODBC: Exasol | sí (sin prueba en vivo) | tabla, vista, columna, esquema (`RENAME TABLE\|VIEW\|SCHEMA`, `ALTER TABLE … RENAME COLUMN`) | — | `CREATE OR REPLACE` | — |
+| ODBC: resto de los presets | no | — | — | — | sintaxis sin confirmar |
 | Apache Phoenix | pendiente | | | | |
 | ksqlDB | pendiente | | | | |
 | Redis, Valkey, Dragonfly | pendiente | | | | |

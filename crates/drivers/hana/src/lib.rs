@@ -15,6 +15,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod schema;
 mod script;
 mod search;
@@ -266,6 +267,15 @@ impl Driver for HanaDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         schema::sync_script(changes)
+    }
+
+    /// `RENAME TABLE`, `RENAME COLUMN`, `RENAME INDEX` (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req, &self.script_dialect())
     }
 
     fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
