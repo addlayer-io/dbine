@@ -76,6 +76,7 @@ mod profiler;
 mod properties;
 mod security;
 mod shell;
+mod stats;
 mod steps;
 mod sync;
 mod transfer;
@@ -876,6 +877,15 @@ impl Session for MongoSession {
             Err(e) if matches!(e.kind.as_ref(), ErrorKind::Command(_)) => Ok(vec![self.db.name().to_string()]),
             Err(e) => Err(err(e)),
         }
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    /// MongoDB keeps no comments on collections, views or indexes.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(Vec::new())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

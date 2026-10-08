@@ -20,6 +20,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod security;
+mod stats;
 mod steps;
 mod transfer;
 
@@ -755,6 +756,15 @@ impl Session for CbSession {
             Ok(v) => Ok(v.as_array().into_iter().flatten().filter_map(|b| b.get("name").map(text)).collect()),
             Err(_) => Ok(self.results("SELECT RAW name FROM system:buckets ORDER BY name").await?.iter().map(text).collect()),
         }
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    /// Couchbase keeps no comments.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(Vec::new())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

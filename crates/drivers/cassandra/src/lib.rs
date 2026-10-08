@@ -18,6 +18,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod security;
+mod stats;
 mod steps;
 mod sync;
 mod transfer;
@@ -861,6 +862,15 @@ impl DbSession for CassandraSession {
         let mut v: Vec<String> = rows.iter().map(|r| text(r, 0)).filter(|k| !is_system_keyspace(k)).collect();
         v.sort();
         Ok(v)
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.stats_rows().await
+    }
+
+    /// Materialized views' comments (tables' come with the schema).
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        self.stats_comments().await
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

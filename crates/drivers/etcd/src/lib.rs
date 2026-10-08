@@ -16,6 +16,7 @@ mod ddl;
 mod prom;
 mod security;
 mod permissions;
+mod stats;
 mod steps;
 mod transfer;
 
@@ -764,6 +765,15 @@ impl Session for EtcdSession {
 
     /// Keys have no columns of their own: no ER diagram or schema script.
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
+        Ok(Vec::new())
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    /// etcd keeps no comments.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
         Ok(Vec::new())
     }
 

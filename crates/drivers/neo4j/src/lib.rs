@@ -58,6 +58,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod security;
+mod stats;
 mod steps;
 mod sync;
 mod transfer;
@@ -1230,6 +1231,16 @@ impl Session for GraphSession {
             },
             Flavor::Neptune => Ok(vec!["default".into()]),
         }
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.stats_rows().await
+    }
+
+    /// Neo4j, Memgraph and Neptune keep no comments on labels, types,
+    /// indexes, constraints or procedures.
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        Ok(Vec::new())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
