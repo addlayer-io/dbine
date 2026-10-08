@@ -127,6 +127,7 @@
     "run_one": "Executar {{count}} comando",
     "run_other": "Executar {{count}} comandos",
     "noChanges": "Não há mudanças para aplicar.",
+    "nothingRuns": "O motor não consegue aplicar estas alterações: os avisos do script explicam o motivo. Nada é executado.",
     "warningsTitle": "Antes de aplicar",
     "runAnyway": "Executar mesmo assim",
     "rolledBack": "Tudo foi desfeito: a tabela ficou como estava.",
