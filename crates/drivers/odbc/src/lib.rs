@@ -25,6 +25,7 @@ mod properties;
 mod schemas;
 mod search;
 mod security;
+mod stats;
 mod steps;
 mod structure;
 mod sync;
@@ -1280,6 +1281,17 @@ impl Session for OdbcSession {
             return Err(Error::Unsupported(format!("{} no admite opciones al crear una base", self.preset.name)));
         }
         self.create_database_with_impl(name, options).await
+    }
+
+    /// Rows from the statistics each preset's catalog keeps (see `stats`).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.row_estimates_impl().await
+    }
+
+    /// Comments on views, routines, sequences… where the catalog keeps
+    /// them (see `stats`).
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        self.object_comments_impl().await
     }
 
     /// "Chequeo de salud" for the presets whose catalog answers it (see `health`).

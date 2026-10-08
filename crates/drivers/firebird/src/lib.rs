@@ -18,6 +18,7 @@ mod schema;
 mod script;
 mod search;
 mod security;
+mod stats;
 mod steps;
 mod transfer;
 
@@ -925,6 +926,17 @@ impl Session for FirebirdSession {
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         self.run(schema::database_schema).await
+    }
+
+    /// Rows from the unique indexes' selectivity (see `stats`).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.row_estimates_impl().await
+    }
+
+    /// RDB$DESCRIPTION of views, routines, packages, triggers, sequences
+    /// and domains (see `stats`).
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        self.object_comments_impl().await
     }
 
     /// "Chequeo de salud" of the database (see `health`).

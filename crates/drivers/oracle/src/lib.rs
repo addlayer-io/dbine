@@ -21,6 +21,7 @@ mod properties;
 mod script;
 mod search;
 mod security;
+mod stats;
 mod structure;
 mod transfer;
 
@@ -1150,6 +1151,16 @@ impl Session for OracleSession {
         let owner = self.owner(table);
         let name = table.name.clone();
         self.run(move |c| index_usage::report(c, &owner, &name).map(Some)).await
+    }
+
+    /// ALL_TABLES.NUM_ROWS, the optimizer statistics (see `stats`).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.row_estimates_impl().await
+    }
+
+    /// ALL_TAB_COMMENTS (views) and ALL_MVIEW_COMMENTS (see `stats`).
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        self.object_comments_impl().await
     }
 
     /// One query: SESSION_PRIVS and SESSION_ROLES (see `permissions`).
