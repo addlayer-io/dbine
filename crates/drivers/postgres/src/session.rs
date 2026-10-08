@@ -1367,13 +1367,18 @@ fn s_bool(r: &SimpleQueryRow, i: usize) -> bool {
 
 /// [`joined`] over text-protocol rows.
 fn joined_text(rows: Vec<SimpleQueryRow>) -> Option<String> {
-    let parts: Vec<String> = rows.iter().filter_map(|r| r.get(0).map(str::to_string)).collect();
-    (!parts.is_empty()).then(|| parts.join("\n\n"))
+    join_definitions(&rows.iter().filter_map(|r| r.get(0).map(str::to_string)).collect::<Vec<_>>())
 }
 
 fn joined(rows: Vec<tokio_postgres::Row>) -> Result<Option<String>> {
-    let parts: Vec<String> = rows.iter().filter_map(|r| r.try_get::<_, Option<String>>(0).ok().flatten()).collect();
-    Ok((!parts.is_empty()).then(|| parts.join("\n\n")))
+    Ok(join_definitions(&rows.iter().filter_map(|r| r.try_get::<_, Option<String>>(0).ok().flatten()).collect::<Vec<_>>()))
+}
+
+/// Several definitions of one name (overloads, a trigger on several
+/// tables) as one script that runs: `pg_get_functiondef` and
+/// `pg_get_triggerdef` end without `;`.
+pub(crate) fn join_definitions(parts: &[String]) -> Option<String> {
+    (!parts.is_empty()).then(|| parts.iter().map(|p| p.trim_end().trim_end_matches(';')).collect::<Vec<_>>().join(";\n\n"))
 }
 
 /// Materialize runs a multi-statement query as one implicit transaction,

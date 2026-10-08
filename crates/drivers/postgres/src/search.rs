@@ -117,7 +117,7 @@ impl PgSession {
                 _ => None,
             };
             let source = match group {
-                Some(g) => sources.get(&(g, schema, o.name.clone())).map(|parts| parts.join("\n\n")),
+                Some(g) => sources.get(&(g, schema, o.name.clone())).and_then(|parts| crate::session::join_definitions(parts)),
                 None if compare::KINDS.contains(&o.kind.as_str()) => {
                     let obj = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
                     match self.compare_definition(&obj).await {
