@@ -178,7 +178,7 @@ fn index_field(c: &str) -> String {
 
 /// ` ENGINE …` and ` METADATA {…}` of an index (its `ENGINE` and
 /// `METADATA` options).
-fn index_tail(ix: &IndexDef) -> String {
+pub(crate) fn index_tail(ix: &IndexDef) -> String {
     let mut s = String::new();
     if let Some(e) = ix.options.get("ENGINE").filter(|e| !e.trim().is_empty()) {
         s.push_str(&format!(" ENGINE {}", e.trim()));

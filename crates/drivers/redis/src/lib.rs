@@ -12,6 +12,7 @@ mod permissions;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod security;
 mod shape;
 mod stats;
@@ -155,6 +156,15 @@ impl Driver for RedisDriver {
     /// No schema to sync: keys are data, not tables.
     fn sync_script(&self, _changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         Err(Error::Unsupported("Redis no tiene esquema: las keys son datos (no tablas con columnas), así que no hay cambios de esquema que aplicar; para llevar keys de una base a otra usá la copia de datos o la exportación".into()))
+    }
+
+    /// Keys, with `RENAMENX` (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn designer(&self) -> Option<DesignerSpec> {

@@ -3151,12 +3151,12 @@ ofrece **Renombrar…** en ese motor.
 | ODBC: resto de los presets | no | — | — | — | sintaxis sin confirmar |
 | Apache Phoenix | pendiente | | | | |
 | ksqlDB | pendiente | | | | |
-| Redis, Valkey, Dragonfly | pendiente | | | | |
-| etcd | pendiente | | | | |
-| Amazon DynamoDB | pendiente | | | | |
+| Redis, Valkey, Dragonfly | sí | claves (`RENAMENX` dentro de un `EVAL`: si la clave nueva ya existe, falla sin pisarla) | — | — (el servidor no guarda nada que nombre una clave) | conserva valor y TTL; en Redis Cluster las dos claves tienen que caer en el mismo hash slot (se avisa si no; usar la misma etiqueta `{…}`) |
+| etcd | no | — | — | — | el lenguaje de scripts (etcdctl) no tiene `txn`: no hay forma atómica de poner la clave nueva y borrar la vieja sin pisar una existente |
+| Amazon DynamoDB | no | — | — | — | el servicio no renombra tablas |
 | InfluxDB | pendiente | | | | |
 | Apache IoTDB, TimechoDB | pendiente | | | | |
 | TDengine | pendiente | | | | |
-| OrientDB | pendiente | | | | |
+| OrientDB | sí | clases de vértices, aristas y documentos (`ALTER CLASS … NAME`, `UNSAFE` en aristas) y propiedades (`ALTER PROPERTY … NAME` + `UPDATE … SET nuevo = viejo REMOVE viejo`) | — | se listan, no se reescriben (funciones) | sus índices se borran y se recrean (conservan el nombre); en aristas se mueven los campos `out_`/`in_` de los vértices; no es atómico; no renombra índices, funciones ni secuencias, ni V/E, `out`/`in`, ni atributos `@`; una clase de documentos con índices la rechaza el motor si no llega su estructura |
 | Neo4j, Memgraph, Amazon Neptune | no se ofrece | — | — | — | Una etiqueta o un tipo de relación no se renombra: cambiarlo es `SET n:Nueva REMOVE n:Vieja` sobre cada nodo (o recrear cada relación), que reescribe los datos, puede tardar horas en un grafo grande, no es atómico fuera de una transacción del tamaño del grafo y obliga a recrear los índices y las restricciones de la etiqueta. Las consultas guardadas fuera de la base tampoco se ven. |
 
