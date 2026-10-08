@@ -15,6 +15,7 @@ mod profiler;
 mod properties;
 mod schema;
 mod script;
+mod search;
 mod security;
 mod steps;
 mod transfer;
@@ -925,6 +926,11 @@ impl Session for FirebirdSession {
         self.run(schema::database_schema).await
     }
 
+    /// "Buscar en la base" from the catalog (see `search`).
+    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        self.search_code_impl(query).await
+    }
+
     async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let tables = self.run(schema::database_schema).await?;
         Ok(Some(index_usage::report(tables.iter().find(|t| t.name == table.name))))
@@ -1358,131 +1364,114 @@ fn with_as(src: &str) -> String {
 }
 
 fn params_list(c: &mut Conn, sql: &str, name: &str) -> Result<Vec<(String, i64, String)>> {
-    Ok(c
-        .rows(sql, vec![SqlType::Text(name.into())])?
-        .iter()
-        .map(|r| {
-            let g = |i: usize| r.get(i).and_then(int);
-            (
-                r.first().and_then(text).unwrap_or_default(),
-                g(1).unwrap_or(0),
-                field_type(g(2), g(3), g(4), g(5), g(6), g(7)),
-            )
-        })
-        .collect())
+    Ok(c.rows(sql, vec![SqlType::Text(name.into())])?.iter().map(|r| param(r)).collect())
+}
+
+/// A [`PROCEDURE_PARAMS`] / [`FUNCTION_ARGS`] row: name, direction or
+/// position, type.
+fn param(r: &[Column]) -> (String, i64, String) {
+    let g = |i: usize| r.get(i).and_then(int);
+    (r.first().and_then(text).unwrap_or_default(), g(1).unwrap_or(0), field_type(g(2), g(3), g(4), g(5), g(6), g(7)))
 }
 
 fn one_row(c: &mut Conn, sql: &str, name: &str) -> Result<Option<Vec<Column>>> {
     Ok(c.rows(sql, vec![SqlType::Text(name.into())])?.into_iter().next())
 }
 
+const VIEW_SOURCE: &str = "SELECT RDB$VIEW_SOURCE FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?";
+const PROCEDURE_SOURCE: &str = "SELECT RDB$PROCEDURE_SOURCE FROM RDB$PROCEDURES WHERE RDB$PROCEDURE_NAME = ?";
+const FUNCTION_SOURCE: &str = "SELECT RDB$FUNCTION_SOURCE FROM RDB$FUNCTIONS WHERE RDB$FUNCTION_NAME = ?";
+const PACKAGE_SOURCE: &str =
+    "SELECT RDB$PACKAGE_HEADER_SOURCE, RDB$PACKAGE_BODY_SOURCE FROM RDB$PACKAGES WHERE RDB$PACKAGE_NAME = ?";
+const TRIGGER_SOURCE: &str = "SELECT RDB$TRIGGER_SOURCE, TRIM(RDB$RELATION_NAME), RDB$TRIGGER_TYPE, RDB$TRIGGER_SEQUENCE,
+        RDB$TRIGGER_INACTIVE
+   FROM RDB$TRIGGERS WHERE RDB$TRIGGER_NAME = ?";
+const SEQUENCE_SOURCE: &str =
+    "SELECT RDB$INITIAL_VALUE, RDB$GENERATOR_INCREMENT FROM RDB$GENERATORS WHERE RDB$GENERATOR_NAME = ?";
+
 fn definition(c: &mut Conn, kind: &str, name: &str) -> Result<Option<String>> {
-    let qn = q(name);
     match kind {
-        "view" => {
-            let Some(r) = one_row(c, "SELECT RDB$VIEW_SOURCE FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?", name)?
-            else {
-                return Ok(None);
-            };
-            Ok(r.first().and_then(text).map(|src| format!("CREATE OR ALTER VIEW {qn} AS\n{};", src.trim())))
-        }
+        "view" => Ok(one_row(c, VIEW_SOURCE, name)?.and_then(|r| view_sql(name, &r))),
         "procedure" => {
-            let Some(r) =
-                one_row(c, "SELECT RDB$PROCEDURE_SOURCE FROM RDB$PROCEDURES WHERE RDB$PROCEDURE_NAME = ?", name)?
-            else {
-                return Ok(None);
-            };
-            let Some(src) = r.first().and_then(text) else { return Ok(None) };
-            let params = params_list(c, PROCEDURE_PARAMS, name)?;
-            let list = |dir: i64| -> Vec<String> {
-                params.iter().filter(|p| p.1 == dir).map(|p| format!("    {} {}", q(&p.0), p.2)).collect()
-            };
-            let (ins, outs) = (list(0), list(1));
-            let mut s = format!("CREATE OR ALTER PROCEDURE {qn}");
-            if !ins.is_empty() {
-                s.push_str(&format!(" (\n{}\n)", ins.join(",\n")));
-            }
-            if !outs.is_empty() {
-                s.push_str(&format!("\nRETURNS (\n{}\n)", outs.join(",\n")));
-            }
-            Ok(Some(format!("{s}\n{};", with_as(&src))))
+            let Some(src) = one_row(c, PROCEDURE_SOURCE, name)?.and_then(|r| r.first().and_then(text)) else { return Ok(None) };
+            Ok(Some(procedure_sql(name, &src, &params_list(c, PROCEDURE_PARAMS, name)?)))
         }
         "function" => {
-            let Some(r) =
-                one_row(c, "SELECT RDB$FUNCTION_SOURCE FROM RDB$FUNCTIONS WHERE RDB$FUNCTION_NAME = ?", name)?
-            else {
-                return Ok(None);
-            };
             // Legacy UDFs and external functions have no PSQL source.
-            let Some(src) = r.first().and_then(text) else { return Ok(None) };
-            let args = params_list(c, FUNCTION_ARGS, name)?;
-            let ins: Vec<String> =
-                args.iter().filter(|a| a.1 > 0).map(|a| format!("    {} {}", q(&a.0), a.2)).collect();
-            let ret = args.iter().find(|a| a.1 == 0).map(|a| a.2.clone()).unwrap_or_default();
-            let mut s = format!("CREATE OR ALTER FUNCTION {qn}");
-            if !ins.is_empty() {
-                s.push_str(&format!(" (\n{}\n)", ins.join(",\n")));
-            }
-            Ok(Some(format!("{s}\nRETURNS {ret}\n{};", with_as(&src))))
+            let Some(src) = one_row(c, FUNCTION_SOURCE, name)?.and_then(|r| r.first().and_then(text)) else { return Ok(None) };
+            Ok(Some(function_sql(name, &src, &params_list(c, FUNCTION_ARGS, name)?)))
         }
-        PACKAGE => {
-            let Some(r) = one_row(
-                c,
-                "SELECT RDB$PACKAGE_HEADER_SOURCE, RDB$PACKAGE_BODY_SOURCE FROM RDB$PACKAGES WHERE RDB$PACKAGE_NAME = ?",
-                name,
-            )?
-            else {
-                return Ok(None);
-            };
-            let header = r.first().and_then(text).unwrap_or_default();
-            let mut s = format!("CREATE OR ALTER PACKAGE {qn}\nAS\n{};", header.trim());
-            if let Some(body) = r.get(1).and_then(text) {
-                s.push_str(&format!("\n\nRECREATE PACKAGE BODY {qn}\nAS\n{};", body.trim()));
-            }
-            Ok(Some(s))
-        }
-        "trigger" => {
-            let Some(r) = one_row(
-                c,
-                "SELECT RDB$TRIGGER_SOURCE, TRIM(RDB$RELATION_NAME), RDB$TRIGGER_TYPE, RDB$TRIGGER_SEQUENCE,
-                        RDB$TRIGGER_INACTIVE
-                   FROM RDB$TRIGGERS WHERE RDB$TRIGGER_NAME = ?",
-                name,
-            )?
-            else {
-                return Ok(None);
-            };
-            let Some(src) = r.first().and_then(text) else { return Ok(None) };
-            let table = r.get(1).and_then(text).filter(|t| !t.is_empty());
-            let event = trigger_event(r.get(2).and_then(int).unwrap_or(1));
-            let position = r.get(3).and_then(int).unwrap_or(0);
-            let active = if r.get(4).and_then(int).unwrap_or(0) == 1 { "INACTIVE" } else { "ACTIVE" };
-            let target = table.map(|t| format!(" FOR {}", q(&t))).unwrap_or_default();
-            Ok(Some(format!(
-                "CREATE OR ALTER TRIGGER {qn}{target}\n{active} {event} POSITION {position}\n{};",
-                with_as(&src)
-            )))
-        }
-        "sequence" => {
-            let Some(r) = one_row(
-                c,
-                "SELECT RDB$INITIAL_VALUE, RDB$GENERATOR_INCREMENT FROM RDB$GENERATORS WHERE RDB$GENERATOR_NAME = ?",
-                name,
-            )?
-            else {
-                return Ok(None);
-            };
-            let start = r.first().and_then(int).unwrap_or(0);
-            let step = r.get(1).and_then(int).unwrap_or(1);
-            // Not the current value: "Comparar esquemas" compares this text,
-            // and a sequence only used more on one side isn't a difference.
-            Ok(Some(format!("CREATE SEQUENCE {qn} START WITH {start} INCREMENT BY {step};")))
-        }
+        PACKAGE => Ok(one_row(c, PACKAGE_SOURCE, name)?.map(|r| package_sql(name, &r))),
+        "trigger" => Ok(one_row(c, TRIGGER_SOURCE, name)?.and_then(|r| trigger_sql(name, &r))),
+        "sequence" => Ok(one_row(c, SEQUENCE_SOURCE, name)?.map(|r| sequence_sql(name, &r))),
         "type" => Ok(one_row(c, DOMAIN, name)?.map(|r| domain_sql(name, &r))),
         // Firebird has no DDL extractor; the UI builds a CREATE TABLE from
         // the columns.
         _ => Ok(None),
     }
+}
+
+/// `CREATE OR ALTER VIEW` from a [`VIEW_SOURCE`] row.
+fn view_sql(name: &str, r: &[Column]) -> Option<String> {
+    r.first().and_then(text).map(|src| format!("CREATE OR ALTER VIEW {} AS\n{};", q(name), src.trim()))
+}
+
+/// `CREATE OR ALTER PROCEDURE` from its source and [`param`]s.
+fn procedure_sql(name: &str, src: &str, params: &[(String, i64, String)]) -> String {
+    let list = |dir: i64| -> Vec<String> {
+        params.iter().filter(|p| p.1 == dir).map(|p| format!("    {} {}", q(&p.0), p.2)).collect()
+    };
+    let (ins, outs) = (list(0), list(1));
+    let mut s = format!("CREATE OR ALTER PROCEDURE {}", q(name));
+    if !ins.is_empty() {
+        s.push_str(&format!(" (\n{}\n)", ins.join(",\n")));
+    }
+    if !outs.is_empty() {
+        s.push_str(&format!("\nRETURNS (\n{}\n)", outs.join(",\n")));
+    }
+    format!("{s}\n{};", with_as(src))
+}
+
+/// `CREATE OR ALTER FUNCTION` from its source and [`param`]s.
+fn function_sql(name: &str, src: &str, args: &[(String, i64, String)]) -> String {
+    let ins: Vec<String> = args.iter().filter(|a| a.1 > 0).map(|a| format!("    {} {}", q(&a.0), a.2)).collect();
+    let ret = args.iter().find(|a| a.1 == 0).map(|a| a.2.clone()).unwrap_or_default();
+    let mut s = format!("CREATE OR ALTER FUNCTION {}", q(name));
+    if !ins.is_empty() {
+        s.push_str(&format!(" (\n{}\n)", ins.join(",\n")));
+    }
+    format!("{s}\nRETURNS {ret}\n{};", with_as(src))
+}
+
+/// The package's header and body from a [`PACKAGE_SOURCE`] row.
+fn package_sql(name: &str, r: &[Column]) -> String {
+    let qn = q(name);
+    let header = r.first().and_then(text).unwrap_or_default();
+    let mut s = format!("CREATE OR ALTER PACKAGE {qn}\nAS\n{};", header.trim());
+    if let Some(body) = r.get(1).and_then(text) {
+        s.push_str(&format!("\n\nRECREATE PACKAGE BODY {qn}\nAS\n{};", body.trim()));
+    }
+    s
+}
+
+/// `CREATE OR ALTER TRIGGER` from a [`TRIGGER_SOURCE`] row.
+fn trigger_sql(name: &str, r: &[Column]) -> Option<String> {
+    let src = r.first().and_then(text)?;
+    let table = r.get(1).and_then(text).filter(|t| !t.is_empty());
+    let event = trigger_event(r.get(2).and_then(int).unwrap_or(1));
+    let position = r.get(3).and_then(int).unwrap_or(0);
+    let active = if r.get(4).and_then(int).unwrap_or(0) == 1 { "INACTIVE" } else { "ACTIVE" };
+    let target = table.map(|t| format!(" FOR {}", q(&t))).unwrap_or_default();
+    Some(format!("CREATE OR ALTER TRIGGER {}{target}\n{active} {event} POSITION {position}\n{};", q(name), with_as(&src)))
+}
+
+/// `CREATE SEQUENCE` from a [`SEQUENCE_SOURCE`] row. Not the current
+/// value: "Comparar esquemas" compares this text, and a sequence only used
+/// more on one side isn't a difference.
+fn sequence_sql(name: &str, r: &[Column]) -> String {
+    let start = r.first().and_then(int).unwrap_or(0);
+    let step = r.get(1).and_then(int).unwrap_or(1);
+    format!("CREATE SEQUENCE {} START WITH {start} INCREMENT BY {step};", q(name))
 }
 
 #[cfg(test)]

@@ -18,6 +18,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod script;
+mod search;
 mod security;
 mod structure;
 mod transfer;
@@ -1133,6 +1134,11 @@ impl Session for OracleSession {
         }))
     }
 
+    /// "Buscar en la base" from the dictionary (see `search`).
+    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        self.search_code_impl(query).await
+    }
+
     /// The dictionary plus DBA_INDEX_USAGE (see `index_usage`).
     async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
         let owner = self.owner(table);
@@ -1216,7 +1222,6 @@ fn definition_fallback(c: &Connection, kind: &str, owner: &str, name: &str) -> R
                 _ => "",
             };
             let ty = kind.to_uppercase();
-            let mut src = String::new();
             let rows = c
                 .query(
                     "SELECT line, text FROM all_source WHERE owner = :1 AND name = :2 AND type IN (:3, :4)
@@ -1224,21 +1229,30 @@ fn definition_fallback(c: &Connection, kind: &str, owner: &str, name: &str) -> R
                     &[&owner, &name, &ty, &body],
                 )
                 .map_err(err)?;
+            let mut lines = Vec::new();
             for row in rows {
                 let row = row.map_err(err)?;
-                let line: i64 = row.get(0).map_err(err)?;
-                if line == 1 {
-                    if !src.is_empty() {
-                        src.push_str("\n/\n\n");
-                    }
-                    src.push_str("CREATE OR REPLACE ");
-                }
-                src.push_str(&row.get::<Option<String>>(1).map_err(err)?.unwrap_or_default());
+                lines.push((row.get::<i64>(0).map_err(err)?, row.get::<Option<String>>(1).map_err(err)?.unwrap_or_default()));
             }
-            Ok((!src.is_empty()).then(|| format!("{}\n/", src.trim_end())))
+            Ok(plsql_source(&lines))
         }
         _ => Ok(None),
     }
+}
+
+/// A unit's CREATE from its ALL_SOURCE lines (spec first, then body).
+fn plsql_source(lines: &[(i64, String)]) -> Option<String> {
+    let mut src = String::new();
+    for (line, text) in lines {
+        if *line == 1 {
+            if !src.is_empty() {
+                src.push_str("\n/\n\n");
+            }
+            src.push_str("CREATE OR REPLACE ");
+        }
+        src.push_str(text);
+    }
+    (!src.is_empty()).then(|| format!("{}\n/", src.trim_end()))
 }
 
 // ------------------------------------------------------------- execution

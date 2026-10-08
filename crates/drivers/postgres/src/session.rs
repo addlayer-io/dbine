@@ -71,7 +71,7 @@ impl PgSession {
 
     /// `pg_proc` filter for plain functions and procedures (no aggregates
     /// or window functions); `prokind` only exists since PostgreSQL 11.
-    fn routine_filter(&self) -> &'static str {
+    pub(crate) fn routine_filter(&self) -> &'static str {
         if self.version >= 110000 {
             "p.prokind IN ('f', 'p')"
         } else {
@@ -1310,6 +1310,11 @@ impl Session for PgSession {
             return Ok(None);
         }
         self.index_usage_report(table).await.map(Some)
+    }
+
+    /// "Buscar en la base" from the catalog (see `search`).
+    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        self.search_code_impl(query).await
     }
 }
 

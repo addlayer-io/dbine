@@ -22,6 +22,7 @@ mod presets;
 mod processes;
 mod properties;
 mod schemas;
+mod search;
 mod security;
 mod steps;
 mod structure;
@@ -1278,6 +1279,10 @@ impl Session for OdbcSession {
             return Err(Error::Unsupported(format!("{} no admite opciones al crear una base", self.preset.name)));
         }
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        self.search_code_impl(query).await
     }
 
     async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {

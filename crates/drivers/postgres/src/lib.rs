@@ -32,6 +32,7 @@ mod profiler;
 mod properties;
 mod schemas;
 mod script;
+mod search;
 mod security;
 mod session;
 mod structure;

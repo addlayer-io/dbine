@@ -21,6 +21,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod script;
+mod search;
 mod security;
 mod sync;
 mod transfer;
@@ -885,6 +886,10 @@ impl Session for DatabricksSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        self.search_code_impl(query).await
     }
 
     async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
