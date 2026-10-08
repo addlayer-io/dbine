@@ -1312,6 +1312,14 @@ impl Session for MySqlSession {
         self.create_database_with_impl(name, options).await
     }
 
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
+    }
+
     async fn drop_database(&mut self, name: &str) -> Result<()> {
         if !crate::design::capabilities(self.variant).drop_database {
             return Err(Error::Unsupported("este motor no borra bases desde DBine".into()));

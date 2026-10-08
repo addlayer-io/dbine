@@ -16,6 +16,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod script;
 mod security;
 mod structure;
@@ -420,6 +421,10 @@ impl Driver for OracleDriver {
         create_db::script(name, options)
     }
 
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(database, changes)
+    }
+
     /// The "databases" are schemas: created as schema-only accounts
     /// (`CREATE USER … NO AUTHENTICATION`, 18c+), dropped with
     /// `DROP USER … CASCADE`. Both need the CREATE / DROP USER privilege.
@@ -436,7 +441,8 @@ impl Driver for OracleDriver {
             // V$SESSION, and ALTER SYSTEM CANCEL SQL (18c+).
             processes: true,
             cancel_query: true,
-            database_properties: false,
+            // DBA_USERS / DBA_TS_QUOTAS and ALTER USER (see `properties`).
+            database_properties: true,
         }
     }
 
@@ -880,6 +886,14 @@ impl Session for OracleSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     /// `DROP USER … CASCADE`: the schema and everything in it.

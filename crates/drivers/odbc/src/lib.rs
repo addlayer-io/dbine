@@ -20,6 +20,7 @@ mod permissions;
 mod plan;
 mod presets;
 mod processes;
+mod properties;
 mod schemas;
 mod security;
 mod steps;
@@ -270,6 +271,10 @@ impl Driver for OdbcDriver {
 
     fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
         create_db::script(self.preset, name, options)
+    }
+
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(self.preset, database, changes)
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -1273,6 +1278,14 @@ impl Session for OdbcSession {
             return Err(Error::Unsupported(format!("{} no admite opciones al crear una base", self.preset.name)));
         }
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

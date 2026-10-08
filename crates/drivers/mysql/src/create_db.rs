@@ -69,11 +69,11 @@ pub(crate) fn fields(v: Variant) -> Vec<Field> {
     }
 }
 
-fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+pub(crate) fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
     o.get(key).map(|v| v.trim()).filter(|v| !v.is_empty())
 }
 
-fn check(ok: bool, what: &str, v: &str) -> Result<()> {
+pub(crate) fn check(ok: bool, what: &str, v: &str) -> Result<()> {
     if ok {
         Ok(())
     } else {
@@ -81,17 +81,17 @@ fn check(ok: bool, what: &str, v: &str) -> Result<()> {
     }
 }
 
-fn word(v: &str) -> bool {
+pub(crate) fn word(v: &str) -> bool {
     !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-fn number(v: &str) -> bool {
+pub(crate) fn number(v: &str) -> bool {
     !v.is_empty() && v.len() <= 6 && v.chars().all(|c| c.is_ascii_digit()) && v.parse::<u32>().is_ok_and(|n| n > 0)
 }
 
 /// `"key" = "value"` pairs for `PROPERTIES`, the named field first, then one
 /// `key=value` per line of `properties`.
-fn properties(named: Option<(&str, String)>, o: &BTreeMap<String, String>) -> Result<String> {
+pub(crate) fn properties(named: Option<(&str, String)>, o: &BTreeMap<String, String>) -> Result<String> {
     let mut pairs: Vec<(String, String)> = named.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
     for line in opt(o, "properties").unwrap_or_default().lines().map(str::trim).filter(|l| !l.is_empty()) {
         let (k, v) = line
