@@ -61,6 +61,7 @@
   "scriptName": "Renommer {{name}}",
   "prodConfirm": "Il s’agit d’une connexion de production. Saisissez {{name}} pour confirmer.",
   "run": "Renommer",
+  "collect": "Utiliser dans le concepteur",
   "task": "Renommer {{name}} en {{to}}",
   "done": "{{name}} s’appelle désormais {{to}}",
   "rolledBack": "Rien n’a changé : tout le script a été annulé.",

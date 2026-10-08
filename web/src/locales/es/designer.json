@@ -131,6 +131,9 @@
     "runAnyway": "Ejecutar igual",
     "rolledBack": "Se deshizo todo: la tabla quedó como estaba.",
     "partial": "Las sentencias anteriores a esa ({{done}}) ya se aplicaron.",
-    "done": "Se aplicaron los cambios en {{name}}."
+    "done": "Se aplicaron los cambios en {{name}}.",
+    "prodConfirm": "Es una conexión de producción. Escribí «{{name}}» para aplicar los cambios.",
+    "prodTitle": "Producción",
+    "prodMismatch": "El nombre no coincide."
   }
 }

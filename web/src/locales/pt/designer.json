@@ -131,6 +131,9 @@
     "runAnyway": "Executar mesmo assim",
     "rolledBack": "Tudo foi desfeito: a tabela ficou como estava.",
     "partial": "Os comandos anteriores a esse ({{done}}) já foram aplicados.",
-    "done": "As mudanças em {{name}} foram aplicadas."
+    "done": "As mudanças em {{name}} foram aplicadas.",
+    "prodConfirm": "É uma conexão de produção. Digite «{{name}}» para aplicar as alterações.",
+    "prodTitle": "Produção",
+    "prodMismatch": "O nome não confere."
   }
 }

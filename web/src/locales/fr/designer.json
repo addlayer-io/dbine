@@ -131,6 +131,9 @@
     "runAnyway": "Exécuter quand même",
     "rolledBack": "Tout a été annulé : la table est restée comme avant.",
     "partial": "Les instructions précédant celle-ci ({{done}}) ont déjà été appliquées.",
-    "done": "Les changements ont été appliqués sur {{name}}."
+    "done": "Les changements ont été appliqués sur {{name}}.",
+    "prodConfirm": "C'est une connexion de production. Saisissez « {{name}} » pour appliquer les modifications.",
+    "prodTitle": "Production",
+    "prodMismatch": "Le nom ne correspond pas."
   }
 }

@@ -62,6 +62,7 @@
   "scriptName": "Renombrar {{name}}",
   "prodConfirm": "Es una conexión de producción. Escribí {{name}} para confirmar.",
   "run": "Renombrar",
+  "collect": "Usar en el diseñador",
   "task": "Renombrar {{name}} a {{to}}",
   "done": "{{name}} ahora se llama {{to}}",
   "rolledBack": "No cambió nada: se deshizo todo el script.",

@@ -61,6 +61,7 @@
   "scriptName": "Rinomina {{name}}",
   "prodConfirm": "È una connessione di produzione. Scrivi {{name}} per confermare.",
   "run": "Rinomina",
+  "collect": "Usa nel designer",
   "task": "Rinomina {{name}} in {{to}}",
   "done": "{{name}} ora si chiama {{to}}",
   "rolledBack": "Non è cambiato nulla: l’intero script è stato annullato.",

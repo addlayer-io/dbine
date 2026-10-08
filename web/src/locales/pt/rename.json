@@ -61,6 +61,7 @@
   "scriptName": "Renomear {{name}}",
   "prodConfirm": "É uma conexão de produção. Digite {{name}} para confirmar.",
   "run": "Renomear",
+  "collect": "Usar no designer",
   "task": "Renomear {{name}} para {{to}}",
   "done": "{{name}} agora se chama {{to}}",
   "rolledBack": "Nada mudou: todo o script foi desfeito.",

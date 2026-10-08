@@ -131,6 +131,9 @@
     "runAnyway": "Run anyway",
     "rolledBack": "Everything was rolled back: the table is as it was.",
     "partial": "The statements before that one ({{done}}) were already applied.",
-    "done": "The changes to {{name}} were applied."
+    "done": "The changes to {{name}} were applied.",
+    "prodConfirm": "This is a production connection. Type “{{name}}” to apply the changes.",
+    "prodTitle": "Production",
+    "prodMismatch": "The name doesn't match."
   }
 }

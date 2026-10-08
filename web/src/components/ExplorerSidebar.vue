@@ -825,6 +825,11 @@ async function onContext(e: MouseEvent, n: TNode) {
       const kind = conns.driverOf(cid!)?.object_kinds.find((k) => k.id === o.kind);
       if (kind?.browsable ?? true) items.push({ label: t('explorer:menu.viewData'), action: () => tabs.openObject(cid!, db, ref, 'data', false) });
       if (kind?.has_columns ?? true) items.push({ label: t('explorer:menu.structure'), action: () => tabs.openObject(cid!, db, ref, 'structure', false) });
+      // "Modificar…": the designer on this table, where the engine designs this kind and applies ALTERs.
+      const dz = conns.driverOf(cid!);
+      if (dz?.designer && dz.supports_schema_sync && dz.designer.kind === o.kind && !conns.byId(cid!)?.config.read_only) {
+        items.push({ label: t('designer:alter.menu'), action: () => tabs.openDesigner(cid!, db, o.schema ?? null, ref) });
+      }
       if (kind?.has_definition ?? true) items.push({ label: t('explorer:menu.definition'), action: () => tabs.openObject(cid!, db, ref, 'definition', false) });
       if (kind?.browsable ?? true) items.push({ label: t('dataCompare:menu'), action: () => tabs.openDataCompare(cid!, db, ref) });
       if (cloneable(conns.driverOf(cid!), kind, o.kind)) items.push({ label: t('cloneTable:menu'), action: () => { cloning.value = { connectionId: cid!, database: db, object: ref }; } });
