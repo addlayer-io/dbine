@@ -10,6 +10,7 @@ mod backup;
 mod blocking;
 mod create_db;
 mod ddl;
+mod health;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -1132,6 +1133,11 @@ impl Session for OracleSession {
                 }
             });
         }))
+    }
+
+    /// "Chequeo de salud" of the schema (see `health`).
+    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        self.health_checks_impl(database).await
     }
 
     /// "Buscar en la base" from the dictionary (see `search`).

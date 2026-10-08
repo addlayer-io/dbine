@@ -13,6 +13,7 @@ mod create_db;
 mod design;
 mod explain;
 mod ffi;
+mod health;
 mod index_usage;
 mod monitor;
 mod odbc;
@@ -1279,6 +1280,11 @@ impl Session for OdbcSession {
             return Err(Error::Unsupported(format!("{} no admite opciones al crear una base", self.preset.name)));
         }
         self.create_database_with_impl(name, options).await
+    }
+
+    /// "Chequeo de salud" for the presets whose catalog answers it (see `health`).
+    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        self.health_checks_impl(database).await
     }
 
     async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
