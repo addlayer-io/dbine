@@ -9,6 +9,11 @@ use std::path::Path;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, RwLock};
 
+use crate::tasks::{ScheduledTask, TaskRun};
+
+/// Runs kept per scheduled task.
+pub const RUNS_KEPT: u32 = 200;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedConnection {
     pub id: String,
@@ -266,6 +271,8 @@ impl StateStore {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA foreign_keys = ON;
+             -- A scheduled task (`dbine --run-task`) can write while the app is open.
+             PRAGMA busy_timeout = 5000;
              CREATE TABLE IF NOT EXISTS connections (
                  id            TEXT PRIMARY KEY,
                  name          TEXT NOT NULL,
@@ -347,6 +354,21 @@ impl StateStore {
                  created_at   TEXT NOT NULL,
                  updated_at   TEXT NOT NULL
              );
+             -- Scheduled tasks and their runs (tasks.rs): this machine's only,
+             -- not in the snapshot.
+             CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                 id         TEXT PRIMARY KEY,
+                 task_json  TEXT NOT NULL,
+                 updated_at TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS task_runs (
+                 id         TEXT PRIMARY KEY,
+                 task_id    TEXT NOT NULL,
+                 started_at TEXT NOT NULL,
+                 status     TEXT NOT NULL,
+                 run_json   TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS task_runs_by_task ON task_runs(task_id, started_at);
              CREATE TABLE IF NOT EXISTS settings (
                  key   TEXT PRIMARY KEY,
                  value TEXT NOT NULL
@@ -855,6 +877,89 @@ impl StateStore {
         self.lock()?.execute("DELETE FROM backups WHERE id = ?1", [id]).map_err(db_err)?;
         self.notify(StateChange::new("backup", Some(id)));
         Ok(())
+    }
+
+    // -- scheduled tasks --------------------------------------------------
+    // This machine's: they point at its connections and folders, so they
+    // aren't a change to sync (no bump).
+
+    pub fn list_tasks(&self) -> Result<Vec<ScheduledTask>> {
+        let c = self.lock()?;
+        let mut stmt = c.prepare("SELECT task_json FROM scheduled_tasks").map_err(db_err)?;
+        let rows: Vec<String> = stmt.query_map([], |r| r.get(0)).map_err(db_err)?.collect::<std::result::Result<_, _>>().map_err(db_err)?;
+        let mut tasks: Vec<ScheduledTask> = rows.iter().filter_map(|j| serde_json::from_str(j).ok()).collect();
+        tasks.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        Ok(tasks)
+    }
+
+    pub fn get_task(&self, id: &str) -> Result<Option<ScheduledTask>> {
+        let j: Option<String> = self
+            .lock()?
+            .query_row("SELECT task_json FROM scheduled_tasks WHERE id = ?1", [id], |r| r.get(0))
+            .optional()
+            .map_err(db_err)?;
+        Ok(j.and_then(|j| serde_json::from_str(&j).ok()))
+    }
+
+    pub fn save_task(&self, task: &ScheduledTask) -> Result<ScheduledTask> {
+        let mut t = task.clone();
+        let stamp = now();
+        if t.created_at.is_empty() {
+            t.created_at = stamp.clone();
+        }
+        t.updated_at = stamp;
+        self.lock()?
+            .execute(
+                "INSERT INTO scheduled_tasks (id, task_json, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(id) DO UPDATE SET task_json = ?2, updated_at = ?3",
+                params![t.id, serde_json::to_string(&t)?, t.updated_at],
+            )
+            .map_err(db_err)?;
+        self.notify(StateChange::new("scheduled_task", Some(&t.id)));
+        Ok(t)
+    }
+
+    pub fn delete_task(&self, id: &str) -> Result<()> {
+        let mut c = self.lock()?;
+        let tx = c.transaction().map_err(db_err)?;
+        tx.execute("DELETE FROM task_runs WHERE task_id = ?1", [id]).map_err(db_err)?;
+        tx.execute("DELETE FROM scheduled_tasks WHERE id = ?1", [id]).map_err(db_err)?;
+        tx.commit().map_err(db_err)?;
+        drop(c);
+        self.notify(StateChange::new("scheduled_task", Some(id)));
+        Ok(())
+    }
+
+    /// Writes a run (new or updated: the runner saves it as it goes). Keeps
+    /// the last [`RUNS_KEPT`] of each task.
+    pub fn save_task_run(&self, run: &TaskRun) -> Result<()> {
+        let c = self.lock()?;
+        c.execute(
+            "INSERT INTO task_runs (id, task_id, started_at, status, run_json) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET status = ?4, run_json = ?5",
+            params![run.id, run.task_id, run.started_at, serde_json::to_value(run.status)?.as_str().unwrap_or(""), serde_json::to_string(run)?],
+        )
+        .map_err(db_err)?;
+        c.execute(
+            "DELETE FROM task_runs WHERE task_id = ?1 AND id NOT IN
+               (SELECT id FROM task_runs WHERE task_id = ?1 ORDER BY started_at DESC LIMIT ?2)",
+            params![run.task_id, RUNS_KEPT],
+        )
+        .map_err(db_err)?;
+        drop(c);
+        self.notify(StateChange::new("task_run", Some(&run.task_id)));
+        Ok(())
+    }
+
+    /// A task's runs (all tasks' when `None`), newest first.
+    pub fn list_task_runs(&self, task_id: Option<&str>, limit: u32) -> Result<Vec<TaskRun>> {
+        let c = self.lock()?;
+        let mut stmt = c
+            .prepare("SELECT run_json FROM task_runs WHERE (?1 IS NULL OR task_id = ?1) ORDER BY started_at DESC LIMIT ?2")
+            .map_err(db_err)?;
+        let rows: Vec<String> =
+            stmt.query_map(params![task_id, limit], |r| r.get(0)).map_err(db_err)?.collect::<std::result::Result<_, _>>().map_err(db_err)?;
+        Ok(rows.iter().filter_map(|j| serde_json::from_str(j).ok()).collect())
     }
 
     // -- library --------------------------------------------------------
@@ -1708,4 +1813,27 @@ mod tests {
         s.save_project(&project("p4", "Analytics", "/repos/analytics")).unwrap();
     }
 
+    #[test]
+    fn scheduled_tasks_and_runs() {
+        use crate::tasks::{RunStatus, ScheduledTask, Step, TaskRun};
+        let s = StateStore::open_in_memory().unwrap();
+        let t = ScheduledTask { id: "t1".into(), name: "Reporte".into(), steps: vec![Step::default()], ..Default::default() };
+        let saved = s.save_task(&t).unwrap();
+        assert!(!saved.created_at.is_empty());
+        assert_eq!(s.get_task("t1").unwrap().unwrap().name, "Reporte");
+        // Not a change to sync.
+        assert_eq!(s.revision().unwrap(), 0);
+        for i in 0..(RUNS_KEPT + 5) {
+            let run = TaskRun { id: format!("r{i}"), task_id: "t1".into(), started_at: format!("2026-10-08 10:{i:04}"), status: RunStatus::Ok, ..Default::default() };
+            s.save_task_run(&run).unwrap();
+        }
+        let runs = s.list_task_runs(Some("t1"), 1000).unwrap();
+        assert_eq!(runs.len(), RUNS_KEPT as usize);
+        assert_eq!(runs[0].id, format!("r{}", RUNS_KEPT + 4));
+        // The snapshot doesn't carry them.
+        assert!(!serde_json::to_string(&s.snapshot().unwrap()).unwrap().contains("Reporte"));
+        s.delete_task("t1").unwrap();
+        assert!(s.list_tasks().unwrap().is_empty());
+        assert!(s.list_task_runs(None, 10).unwrap().is_empty());
+    }
 }

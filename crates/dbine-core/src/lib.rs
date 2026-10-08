@@ -7,6 +7,7 @@ pub mod export;
 pub mod import;
 pub mod secrets;
 pub mod state;
+pub mod tasks;
 
 pub use dbine_driver::{Error, Result};
 pub use cache::ExplorerCache;

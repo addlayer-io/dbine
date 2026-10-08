@@ -205,7 +205,7 @@ pub async fn generate_script(app: AppHandle, state: State<'_, AppState>, args: G
     let key = format!("script:{}", args.script_id);
     // Reading only: the script is written, never run here.
     let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
-    let res = generate(&app, driver, &entry, &args).await;
+    let res = generate(Some(&app), driver, &entry, &args).await;
     state.sessions.remove(&key);
     if res.is_err() {
         if let Some(p) = &args.path {
@@ -216,7 +216,8 @@ pub async fn generate_script(app: AppHandle, state: State<'_, AppState>, args: G
 }
 
 pub(crate) async fn generate(
-    app: &AppHandle,
+    // `None`: no window to tell the progress to (a scheduled task).
+    app: Option<&AppHandle>,
     driver: &'static Arc<dyn Driver>,
     entry: &Arc<SessionEntry>,
     args: &GenerateArgs,
@@ -331,7 +332,9 @@ pub(crate) async fn generate(
             return;
         }
         *last = Some(now);
-        let _ = app.emit("script-progress", ScriptProgress { id: args.script_id.clone(), done, total, current: current.to_string() });
+        if let Some(app) = app {
+            let _ = app.emit("script-progress", ScriptProgress { id: args.script_id.clone(), done, total, current: current.to_string() });
+        }
     };
     progress(0, "", true);
     let label = |obj: &ObjectRef| obj.schema().map_or(obj.name.clone(), |sc| format!("{sc}.{}", obj.name));

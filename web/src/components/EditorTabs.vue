@@ -6,6 +6,7 @@ import { editorBridge } from '../stores/ai';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 import { baseName, useTabsStore, type Tab } from '../stores/tabs';
 import { useProjectsStore } from '../stores/projects';
+import { useScheduledStore } from '../stores/scheduled';
 import { useUiStore } from '../stores/ui';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
@@ -19,6 +20,7 @@ const tabs = useTabsStore();
 const conns = useConnectionsStore();
 const ui = useUiStore();
 const projects = useProjectsStore();
+const scheduled = useScheduledStore();
 // Reactive t: tab titles follow a language switch.
 const { t: tr } = useTranslation();
 
@@ -32,6 +34,10 @@ function reveal(t: Tab) {
     : t.kind === 'object'
       ? { connectionId: t.connectionId, database: t.database, object: t.object }
       : { connectionId: t.connectionId, database: t.database });
+}
+
+function scheduledTitle(id: string | null): string {
+  return `${tr('scheduled:tab')} · ${scheduled.byId(id)?.name || tr('scheduled:newTask')}`;
 }
 
 function title(t: Tab): string {
@@ -48,6 +54,7 @@ function title(t: Tab): string {
   if (t.kind === 'compare') return `${tr('workbench:tabs.compare')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'indexes') return `${tr('explorer:indexes.tab')} · ${t.object.name}`;
   if (t.kind === 'health') return `${tr('health:tab')} · ${t.database}`;
+  if (t.kind === 'scheduledTask') return scheduledTitle(t.taskId);
   if (t.kind === 'search') return `${tr('search:tab')} · ${t.database}`;
   if (t.kind === 'dependencies') return `${tr('dependencies:tab')} · ${t.column ? `${t.object.name}.${t.column}` : t.object.name}`;
   if (t.kind === 'backups') return `${tr('backups:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
@@ -115,7 +122,7 @@ const rows = computed<Row[]>(() => {
         : titles[i],
       tooltip: tooltip(t),
       color: inGroup ? groupColor(t.connectionId) : conns.colorOf(t.connectionId),
-      icon: { query: 'document', file: 'document', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', health: 'first-aid-kit', connection: 'connection' }[t.kind],
+      icon: { query: 'document', file: 'document', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', health: 'first-aid-kit', scheduledTask: 'alarm-clock', connection: 'connection' }[t.kind],
     });
   });
   return out;

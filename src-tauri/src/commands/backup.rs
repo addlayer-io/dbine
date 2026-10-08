@@ -143,12 +143,18 @@ pub struct CopyArgs {
 /// its indexes and keys, and the rows) and keep it in the list.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn backup_copy(app: AppHandle, state: State<'_, AppState>, args: CopyArgs) -> CommandResult<BackupCopy> {
+    make_copy(&state, Some(&app), args).await
+}
+
+/// `backup_copy`'s work; `app` is `None` with no window to tell the
+/// progress to (a scheduled task).
+pub(crate) async fn make_copy(state: &AppState, app: Option<&AppHandle>, args: CopyArgs) -> CommandResult<BackupCopy> {
     let started = std::time::Instant::now();
     let created_at = chrono::Utc::now().to_rfc3339();
     if let Some(dir) = PathBuf::from(&args.path).parent() {
         std::fs::create_dir_all(dir).map_err(|e| CommandError::BadRequest(format!("no se pudo crear la carpeta {}: {e}", dir.display())))?;
     }
-    let driver = driver_of(&state, &args.connection_id)?;
+    let driver = driver_of(state, &args.connection_id)?;
     let gen = GenerateArgs {
         script_id: args.backup_id.clone(),
         connection_id: args.connection_id.clone(),
@@ -169,7 +175,7 @@ pub async fn backup_copy(app: AppHandle, state: State<'_, AppState>, args: CopyA
     };
     let key = format!("script:{}", args.backup_id);
     let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
-    let res = generate(&app, driver, &entry, &gen).await;
+    let res = generate(app, driver, &entry, &gen).await;
     state.sessions.remove(&key);
     let done = match res {
         Ok(r) => r,

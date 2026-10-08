@@ -19,7 +19,7 @@ export interface RevealRequest {
 let revealSeq = 0;
 
 /** The left sidebar's views (the activity bar's buttons). */
-export type SidebarView = 'explorer' | 'projects' | 'library' | 'history';
+export type SidebarView = 'explorer' | 'projects' | 'library' | 'history' | 'scheduled';
 
 export const useUiStore = defineStore('ui', {
   state: () => ({

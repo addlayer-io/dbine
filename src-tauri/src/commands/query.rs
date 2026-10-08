@@ -585,6 +585,58 @@ async fn run_script(session: &mut dyn Session, run: ScriptRun<'_>, out: &mut Que
     Ok(())
 }
 
+/// A script run with no editor behind it (scheduled tasks): split as the
+/// editor's Auto mode does, on a session of its own under `key` (so
+/// `cancel_query` stops it), committing each statement whatever the
+/// connection's autocommit option says. Failures end up in `out.errors`;
+/// the `Err` is for what kept it from starting (connecting, a password).
+pub(crate) async fn run_unattended(
+    state: &AppState,
+    key: &str,
+    connection_id: &str,
+    database: &str,
+    sql: &str,
+    continue_on_error: Option<bool>,
+    max_rows: usize,
+) -> CommandResult<QueryOutcome> {
+    let driver = crate::commands::schema::driver_of(state, connection_id)?;
+    let units = script_units(RunMode::Auto, driver.as_ref(), sql);
+    let continue_on_error = continue_on_error.unwrap_or_else(|| driver.script_defaults().continue_on_error);
+    let entry = state.dedicated_session(key, connection_id, database, false).await?;
+    let mut out = QueryOutcome::default();
+    let finished = {
+        let mut session = entry.session.lock().await;
+        let ready = if entry.autocommit.load(Ordering::SeqCst) { Ok(()) } else { session.set_autocommit(true).await };
+        let run = async {
+            ready?;
+            match &units {
+                Some(units) => {
+                    let script = ScriptRun { units, continue_on_error, max_rows, cancelled: &entry.cancelled, progress: &|_| {} };
+                    run_script(&mut **session, script, &mut out).await
+                }
+                None => {
+                    out.continue_on_error = Some(continue_on_error);
+                    session.execute(sql, max_rows, &mut out).await
+                }
+            }
+        };
+        tokio::select! {
+            r = run => Some(r),
+            _ = entry.cancel.notified() => None,
+        }
+    };
+    state.sessions.remove(key);
+    match finished {
+        Some(Ok(())) => {}
+        Some(Err(e)) if units.is_some() && !matches!(e, Error::Cancelled) => {}
+        Some(Err(e)) if recorded(&out.errors, &e) => {}
+        Some(Err(e)) => out.push_error(e.to_script_error()),
+        None => out.push_error(ScriptError::new("Ejecución cancelada.")),
+    }
+    out.current_statement = None;
+    Ok(out)
+}
+
 /// The driver already put this error in the outcome (`out.push_error`) and
 /// returned it only to say the call failed.
 fn recorded(errors: &[ScriptError], e: &Error) -> bool {

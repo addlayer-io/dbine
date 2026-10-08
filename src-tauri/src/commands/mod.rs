@@ -31,6 +31,7 @@ pub mod history;
 pub mod data_compare;
 pub mod datagen;
 pub mod db_health;
+pub mod scheduled;
 pub mod security;
 pub mod backup;
 pub mod telemetry;
