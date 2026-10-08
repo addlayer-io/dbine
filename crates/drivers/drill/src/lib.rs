@@ -16,6 +16,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod rename;
 mod stats;
 mod transfer;
 
@@ -77,6 +78,15 @@ pub struct DrillDriver {
 impl Driver for DrillDriver {
     fn info(&self) -> &DriverInfo {
         &self.info
+    }
+
+    /// Views only, created again with the new name (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        rename::spec()
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn script_dialect(&self) -> ScriptDialect {
