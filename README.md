@@ -114,6 +114,10 @@ de cada base.
   JSONL, SQL, XLSX y XML. La exportación vuelve a correr la query completa en
   streaming, así que no se limita a las filas en pantalla.
 - **Gráficos** de resultados con Apache ECharts.
+- **Vista JSON en árbol** de los resultados, pensada para las bases de
+  documentos y disponible en todos los motores: despliega los campos anidados
+  y las columnas JSON, con búsqueda en claves y valores, tipos por campo y
+  arrays grandes agrupados.
 - **Planes de ejecución gráficos**, al estilo de Management Studio: estimado,
   real o los dos, con zoom y desplazamiento.
 
