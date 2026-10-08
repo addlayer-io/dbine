@@ -37,7 +37,7 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
 }
 
 /// `7d`, `12h`, `500ms` or a bare number of milliseconds, in milliseconds.
-fn millis(v: &str, what: &str) -> Result<u64> {
+pub(crate) fn millis(v: &str, what: &str) -> Result<u64> {
     let s = v.to_ascii_lowercase();
     let digits = s.chars().take_while(char::is_ascii_digit).count();
     let unit = match &s[digits..] {
@@ -58,7 +58,7 @@ fn millis(v: &str, what: &str) -> Result<u64> {
         .ok_or_else(|| Error::Query(format!("{what}: «{v}» no es una duración válida (por ejemplo 7d, 12h o 3600000)")))
 }
 
-fn count(v: &str, what: &str) -> Result<u32> {
+pub(crate) fn count(v: &str, what: &str) -> Result<u32> {
     v.parse::<u32>().ok().filter(|n| (1..=10_000).contains(n)).ok_or_else(|| Error::Query(format!("{what}: «{v}» no es un valor válido")))
 }
 

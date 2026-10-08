@@ -52,6 +52,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod processes;
+mod properties;
 mod security;
 mod steps;
 mod transfer;
@@ -167,6 +168,11 @@ impl Driver for CouchDriver {
         create_db::script(name, options)
     }
 
+    /// "Propiedades" of a database (see [`properties`]).
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(database, changes)
+    }
+
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             create_database: true,
@@ -175,6 +181,7 @@ impl Driver for CouchDriver {
             monitor: true,
             processes: true,
             cancel_query: true,
+            database_properties: true,
             ..Default::default()
         }
     }
@@ -627,6 +634,14 @@ impl Session for CouchSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     /// `DELETE /{name}`.

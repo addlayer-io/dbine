@@ -37,9 +37,9 @@ pub fn info() -> DriverInfo {
 }
 
 pub struct FluxSession {
-    http: reqwest::Client,
-    base: String,
-    org: String,
+    pub(crate) http: reqwest::Client,
+    pub(crate) base: String,
+    pub(crate) org: String,
     token: String,
     bucket: Option<String>,
     read_only: bool,
@@ -145,20 +145,20 @@ pub fn keys_script(bucket: &str, measurements: &[String]) -> String {
 }
 
 impl FluxSession {
-    async fn send(&self, req: reqwest::RequestBuilder) -> Result<serde_json::Value> {
+    pub(crate) async fn send(&self, req: reqwest::RequestBuilder) -> Result<serde_json::Value> {
         let resp = req.header("Authorization", format!("Token {}", self.token)).send().await.map_err(send_err)?;
         let body = http::text(resp).await?;
         Ok(serde_json::from_str(&body).unwrap_or_default())
     }
 
-    fn check_writable(&self, what: &str) -> Result<()> {
+    pub(crate) fn check_writable(&self, what: &str) -> Result<()> {
         if self.read_only {
             return Err(Error::Query(format!("Conexión de solo lectura: no se pueden {what} buckets.")));
         }
         Ok(())
     }
 
-    async fn get(&self, path: &str, query: &[(&str, &str)]) -> Result<serde_json::Value> {
+    pub(crate) async fn get(&self, path: &str, query: &[(&str, &str)]) -> Result<serde_json::Value> {
         let resp = self
             .http
             .get(format!("{}{path}", self.base))
@@ -556,6 +556,15 @@ impl Session for FluxSession {
     }
 
     /// `write:buckets` from the visible authorizations (see `permissions`).
+    /// "Propiedades" (see [`crate::properties`]).
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
+    }
+
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         let list = self.get("/api/v2/authorizations", &[]).await;
         crate::permissions::v2(list, &self.org, database)

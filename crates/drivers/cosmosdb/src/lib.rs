@@ -46,6 +46,7 @@ mod index_usage;
 mod monitor;
 mod permissions;
 mod plan;
+mod properties;
 mod security;
 mod steps;
 mod transfer;
@@ -220,7 +221,19 @@ impl Driver for CosmosDriver {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: false, monitor: true, ..Default::default() }
+        Capabilities {
+            create_database: true,
+            drop_database: true,
+            foreign_keys: false,
+            monitor: true,
+            database_properties: true,
+            ..Default::default()
+        }
+    }
+
+    /// The offer requests (see [`properties`]).
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(database, changes)
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -1264,6 +1277,14 @@ impl Session for CosmosSession {
     /// With shared throughput (see [`create_db`]).
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

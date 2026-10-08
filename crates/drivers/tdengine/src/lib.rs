@@ -16,6 +16,7 @@ mod ddl;
 mod permissions;
 mod processes;
 mod profiler;
+mod properties;
 mod script;
 mod security;
 mod sync;
@@ -121,8 +122,15 @@ impl Driver for TdDriver {
             monitor: true,
             processes: true,
             cancel_query: true,
+            database_properties: true,
             ..Default::default()
         }
+    }
+
+    /// "Propiedades": the parameters `ALTER DATABASE` changes (see
+    /// [`properties`]).
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(database, changes)
     }
 
     fn supports_profiler(&self) -> bool {
@@ -958,6 +966,15 @@ impl Session for TdSession {
     }
 
     /// The user's own row of `SHOW USERS` (see `permissions`).
+    /// "Propiedades" (see [`properties`]).
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
+    }
+
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
     }

@@ -80,12 +80,18 @@ fn number(o: &BTreeMap<String, String>, key: &str, what: &str, range: std::ops::
     opt(o, key).map(|v| v.parse::<u64>().ok().filter(|n| range.contains(n)).ok_or_else(|| bad(what, v))).transpose()
 }
 
-/// The form fields of the create, in order.
-pub(crate) fn form(name: &str, o: &BTreeMap<String, String>) -> Result<Vec<(&'static str, String)>> {
+/// A bucket name, checked: letters, digits and `_ - . %`, up to 100.
+pub(crate) fn bucket_name(name: &str) -> Result<&str> {
     let n = name.trim();
     if n.is_empty() || n.len() > 100 || !n.chars().all(|c| c.is_ascii_alphanumeric() || "_-.%".contains(c)) {
         return Err(Error::Query(format!("«{name}» no es un nombre de bucket válido: letras, números y _ - . % (hasta 100)")));
     }
+    Ok(n)
+}
+
+/// The form fields of the create, in order.
+pub(crate) fn form(name: &str, o: &BTreeMap<String, String>) -> Result<Vec<(&'static str, String)>> {
+    let n = bucket_name(name)?;
     let kind = one_of(o, "bucket_type", "tipo de bucket", &["couchbase", "ephemeral"])?.unwrap_or("couchbase");
     let ram = number(o, "ram_quota", "memoria", 100..=1_048_576)?.unwrap_or(100);
     let flush = match opt(o, "flush") {
@@ -117,7 +123,7 @@ pub(crate) fn form(name: &str, o: &BTreeMap<String, String>) -> Result<Vec<(&'st
     Ok(out)
 }
 
-fn body(form: &[(&str, String)]) -> String {
+pub(crate) fn body(form: &[(&str, String)]) -> String {
     form.iter().map(|(k, v)| format!("{k}={}", encode(v))).collect::<Vec<_>>().join("&")
 }
 

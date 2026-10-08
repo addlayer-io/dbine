@@ -38,8 +38,8 @@ pub fn info() -> DriverInfo {
 }
 
 pub struct SqlSession {
-    http: reqwest::Client,
-    base: String,
+    pub(crate) http: reqwest::Client,
+    pub(crate) base: String,
     token: String,
     pub(crate) db: Option<String>,
     read_only: bool,
@@ -154,7 +154,7 @@ fn sql_str(s: &str) -> String {
 }
 
 impl SqlSession {
-    fn auth(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    pub(crate) fn auth(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         if self.token.is_empty() {
             req
         } else {
@@ -174,7 +174,7 @@ impl SqlSession {
     }
 
     /// A call to the database configuration API.
-    async fn configure(&self, req: reqwest::RequestBuilder, what: &str) -> Result<()> {
+    pub(crate) async fn configure(&self, req: reqwest::RequestBuilder, what: &str) -> Result<()> {
         if self.read_only {
             return Err(Error::Query(format!("Conexión de solo lectura: no se pueden {what} bases.")));
         }
@@ -489,6 +489,15 @@ impl Session for SqlSession {
 
     /// Admin token or not, from the admin-only `system.tokens` (see
     /// `permissions`).
+    /// "Propiedades" (see [`crate::properties`]).
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
+    }
+
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         let q = "SELECT name FROM system.tokens LIMIT 1";
         let req = self.http.post(format!("{}/api/v3/query_sql", self.base)).json(&json!({ "db": "_internal", "q": q, "format": "json" }));

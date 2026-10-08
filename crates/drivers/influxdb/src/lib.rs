@@ -13,6 +13,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod security;
 mod transfer;
 mod v1;
@@ -93,6 +94,12 @@ impl Driver for InfluxDriver {
         create_db::script(self.api, name, options)
     }
 
+    /// "Propiedades": retention policies (v1), the bucket's retention and
+    /// description (v2), the retention period (v3); see [`properties`].
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(self.api, database, changes)
+    }
+
     /// Buckets / databases are created and dropped through the HTTP API
     /// (v2, v3) or InfluxQL (v1). No foreign keys in InfluxDB. Running
     /// queries are listed on v1 and v3, and only v1 can stop one (see
@@ -105,6 +112,7 @@ impl Driver for InfluxDriver {
             monitor: true,
             processes: !matches!(self.api, Api::Flux),
             cancel_query: matches!(self.api, Api::InfluxQl),
+            database_properties: true,
             ..Default::default()
         }
     }

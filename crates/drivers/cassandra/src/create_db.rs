@@ -15,7 +15,7 @@ use dbine_driver::{Error, Field, FieldChoices, FieldKind, Result};
 use scylla::value::{CqlValue, Row};
 use std::collections::BTreeMap;
 
-const NTS: &str = "NetworkTopologyStrategy";
+pub(crate) const NTS: &str = "NetworkTopologyStrategy";
 
 pub(crate) fn fields(f: Flavor) -> Vec<Field> {
     let yes_no = || FieldKind::Select(vec![("true", "Sí"), ("false", "No")]);
@@ -67,16 +67,16 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
     o.get(key).map(|v| v.trim()).filter(|v| !v.is_empty())
 }
 
-fn bad(what: &str, v: &str) -> Error {
+pub(crate) fn bad(what: &str, v: &str) -> Error {
     Error::Query(format!("{what}: «{v}» no es un valor válido"))
 }
 
-fn factor(v: &str, what: &str) -> Result<u32> {
+pub(crate) fn factor(v: &str, what: &str) -> Result<u32> {
     v.parse::<u32>().ok().filter(|n| (1..=100).contains(n)).ok_or_else(|| bad(what, v))
 }
 
 /// A datacenter or region name, as a CQL string literal.
-fn dc_literal(v: &str) -> Result<String> {
+pub(crate) fn dc_literal(v: &str) -> Result<String> {
     if v.is_empty() || v.len() > 128 || !v.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ' ')) {
         return Err(bad("datacenter", v));
     }

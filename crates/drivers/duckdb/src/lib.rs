@@ -13,6 +13,7 @@ mod loader;
 mod monitor;
 mod permissions;
 mod plan;
+mod properties;
 mod schema;
 mod transfer;
 
@@ -132,7 +133,7 @@ impl Driver for DuckDbDriver {
     /// file next to the main one, dropping it detaches it and deletes the
     /// file.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ..Default::default() }
+        Capabilities { create_database: true, drop_database: true, foreign_keys: true, monitor: true, database_properties: true, ..Default::default() }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -595,6 +596,11 @@ impl Session for DuckDbSession {
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
         Err(Error::Unsupported(NO_PROCESSES.into()))
+    }
+
+    /// Facts only: DuckDB keeps no settings per database (see [`properties`]).
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {

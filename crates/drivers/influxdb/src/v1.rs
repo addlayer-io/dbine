@@ -102,7 +102,7 @@ pub struct InfluxQlSession {
     db: Option<String>,
     /// Retention policy set with `USE db.rp`.
     rp: Option<String>,
-    read_only: bool,
+    pub(crate) read_only: bool,
     /// The running profiler, if any.
     profiler: Option<profiler::V1State>,
 }
@@ -346,7 +346,7 @@ impl InfluxQlSession {
     }
 
     /// A statement that writes (by POST), failing on its error.
-    async fn write_statement(&self, q: &str) -> Result<()> {
+    pub(crate) async fn write_statement(&self, q: &str) -> Result<()> {
         let v = self.raw(q, true).await?;
         let results = v.get("results").and_then(|r| r.as_array()).cloned().unwrap_or_default();
         match results.iter().find_map(|r| r.get("error").and_then(|e| e.as_str())) {
@@ -721,6 +721,15 @@ impl Session for InfluxQlSession {
     }
 
     /// Admin or not, from `SHOW USERS` (see `permissions`).
+    /// "Propiedades" (see [`crate::properties`]).
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
+    }
+
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         crate::permissions::v1(self, database).await
     }

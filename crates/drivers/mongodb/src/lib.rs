@@ -73,6 +73,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod security;
 mod shell;
 mod steps;
@@ -416,8 +417,14 @@ impl Driver for MongoDriver {
             kill_session: locks,
             processes: true,
             cancel_query: locks,
+            database_properties: true,
             ..Default::default()
         }
+    }
+
+    /// The `profile` command, in mongosh form (see `properties`).
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(self.flavor, database, changes)
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -1037,6 +1044,14 @@ impl Session for MongoSession {
             return Err(Error::Query(format!("«{name}» es una base del sistema de MongoDB y no se borra")));
         }
         self.client.database(name).drop().await.map_err(err)
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

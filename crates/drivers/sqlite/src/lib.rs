@@ -8,6 +8,7 @@ pub mod index_usage;
 pub mod monitor;
 mod permissions;
 pub mod plan;
+pub mod properties;
 pub mod schema;
 pub mod transfer;
 
@@ -113,7 +114,11 @@ impl Driver for SqliteDriver {
     /// A database is a file: it's created by connecting to a new path and
     /// deleted from the file system, not by SQL.
     fn capabilities(&self) -> Capabilities {
-        Capabilities { create_database: false, drop_database: false, foreign_keys: true, monitor: true, ..Default::default() }
+        Capabilities { create_database: false, drop_database: false, foreign_keys: true, monitor: true, database_properties: true, ..Default::default() }
+    }
+
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(properties::Flavor::Sqlite, database, changes)
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
@@ -402,6 +407,34 @@ impl Session for SqliteSession {
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
         Err(Error::Unsupported(NO_PROCESSES.into()))
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        let database = database.to_string();
+        self.with(move |c| Ok(properties::read(&mut |sql| schema::query_rows(c, sql), &database, properties::Flavor::Sqlite))).await
+    }
+
+    /// One statement at a time; then the settings SQLite may have accepted
+    /// without applying (journal mode, page size, auto vacuum) are read back.
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        let statements = properties::alter(properties::Flavor::Sqlite, database, changes)?;
+        let (database, changes) = (database.to_string(), changes.clone());
+        self.with(move |c| {
+            for (i, sql) in statements.iter().enumerate() {
+                if let Err(e) = schema::query_rows(c, sql) {
+                    let e = err(e);
+                    return Err(if i == 0 { e } else { Error::Query(format!("se aplicaron {i} de {} cambios; falló: {sql}\n{e}", statements.len())) });
+                }
+            }
+            let now = properties::values(&mut |sql| schema::query_rows(c, sql), &database);
+            let left = properties::not_applied(&changes, &now);
+            if left.is_empty() {
+                Ok(())
+            } else {
+                Err(Error::Query(format!("SQLite aceptó los cambios pero no aplicó todos: {}", left.join("; "))))
+            }
+        })
+        .await
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
