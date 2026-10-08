@@ -137,6 +137,7 @@ pub fn spec(p: &Preset) -> Option<RenameSpec> {
         fold: e.fold,
         transactional: e.transactional,
         note: Some(e.note.into()),
+        ..Default::default()
     })
 }
 

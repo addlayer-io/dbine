@@ -7,7 +7,7 @@ import type { SyncScript } from '../api/compare';
 import type { RenameImpact, RenameImpactItem } from '../api/types';
 import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
-import { oldName, renameImpact, renameScript, renameSpec, runRename, targetLabel, type RenameDialogTarget } from '../composables/rename';
+import { isDatabaseRename, oldName, renameImpact, renameScript, renameSpec, runRename, targetLabel, type RenameDialogTarget } from '../composables/rename';
 import { isProdConnection } from '../composables/tags';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
@@ -34,6 +34,7 @@ const where = computed(() => `${conn.value?.name ?? ''}${props.target.database ?
 const what = computed(() => {
   const tg = props.target.target;
   if (tg.what === 'object') return t('rename:what.object', { kind: t(`dependencies:kind.${tg.object.kind}`, { defaultValue: tg.object.kind }), name: label.value });
+  if (isDatabaseRename(props.target)) return t('rename:what.database', { name: label.value });
   return t(`rename:what.${tg.what}`, { name: label.value });
 });
 /** Only a column rename touches the views' output columns. */

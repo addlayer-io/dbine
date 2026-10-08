@@ -97,20 +97,22 @@ async fn apply(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, target: RenameTarg
             continue;
         }
         let def = s.definition(&ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() }).await.unwrap().unwrap();
-        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW };
+        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW, ..Default::default() };
         let r = rewrite_references(&def, &dialect, &rewrite_target, new, &spec, &opts);
         if r.edits.is_empty() || !r.unresolved.is_empty() {
             eprintln!("manual {}: {:?}", dep.name, r.unresolved);
             manual.push(dep.name.clone());
         } else {
             rewritten.push(dep.name.clone());
-            creates.push(with_create_style(&r.text, &dialect, spec.replace));
+            creates.push(with_create_style(&r.text, &dialect, spec.replace_for(&dep.kind)));
         }
     }
     let definition = match &target {
         RenameTarget::Object { object, .. } if object.kind != kinds::TABLE => s.definition(object).await.unwrap(),
         _ => None,
     };
+    // After the rewritten dependents: the schema compiled again.
+    creates.extend(spec.epilogue_for(&target));
     let script = d.rename_script(&RenameRequest { target, new_name: new.into(), table: None, definition }).unwrap();
     for st in &script.statements {
         eprintln!("--\n{st}");

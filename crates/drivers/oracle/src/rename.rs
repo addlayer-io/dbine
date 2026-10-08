@@ -40,9 +40,13 @@ pub(crate) fn spec() -> RenameSpec {
         fold: FOLD,
         transactional: false,
         note: Some(
-            "Oracle confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. Las vistas y el código que nombran el objeto quedan inválidos hasta que se reponen. Los hints (/*+ … */) son comentarios y no se modifican."
+            "Oracle confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. Las vistas y el código que nombran el objeto quedan inválidos hasta que se reponen; al final, el script vuelve a compilar el esquema para que lo que depende de lo repuesto quede válido. Los hints (/*+ … */) son comentarios y no se modifican."
                 .into(),
         ),
+        // What depends on the rewritten dependents is compiled again, so it
+        // doesn't stay INVALID until it's used.
+        epilogue: Some("BEGIN DBMS_UTILITY.COMPILE_SCHEMA({schema}, FALSE); END;".into()),
+        ..Default::default()
     }
 }
 
@@ -131,7 +135,7 @@ fn recreate(req: &RenameRequest, object: &ObjectRef, d: &ScriptDialect) -> Resul
         .ok_or_else(|| Error::Unsupported(format!("No se pudo leer la definición de «{}»: sin ella no se puede crear con el nombre nuevo.", object.name)))?;
     let spec = spec();
     let target = RewriteTarget::Object { object: object.clone() };
-    let opts = RewriteOptions { dependent_schema: object.schema.clone(), keep_view_columns: false };
+    let opts = RewriteOptions { dependent_schema: object.schema.clone(), keep_view_columns: false, ..Default::default() };
     let mut statements = Vec::new();
     for unit in units(definition) {
         let body = rewrite_references(&unit, d, &target, &req.new_name, &spec, &opts).text;
@@ -194,6 +198,12 @@ mod tests {
 
     fn obj(kind: &str, schema: Option<&str>, name: &str) -> ObjectRef {
         ObjectRef { kind: kind.into(), schema: schema.map(Into::into), name: name.into() }
+    }
+
+    #[test]
+    fn the_schema_is_compiled_at_the_end() {
+        let t = RenameTarget::Object { object: obj(kinds::TABLE, Some("APP"), "T"), parent: None };
+        assert_eq!(spec().epilogue_for(&t).as_deref(), Some("BEGIN DBMS_UTILITY.COMPILE_SCHEMA('APP', FALSE); END;"));
     }
 
     fn req(target: RenameTarget, new: &str, definition: Option<&str>) -> RenameRequest {

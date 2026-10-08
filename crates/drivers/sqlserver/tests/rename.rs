@@ -84,14 +84,15 @@ async fn rename(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, target: RenameTar
         }
         let obj = ObjectRef { kind: dep.kind.clone(), schema: dep.schema.clone(), name: dep.name.clone() };
         let body = s.definition(&obj).await.unwrap().unwrap();
-        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW };
+        let opts = RewriteOptions { dependent_schema: dep.schema.clone(), keep_view_columns: dep.kind == kinds::VIEW, ..Default::default() };
         let r = rewrite_references(&body, &dialect, &target.rewrite_target(), new_name, &spec, &opts);
         if r.edits.is_empty() || !r.unresolved.is_empty() {
             applied.manual.push(dep.name.to_lowercase());
             continue;
         }
         let bound = body.to_ascii_lowercase().contains("schemabinding");
-        if spec.replace == ReplaceStyle::DropCreate || bound {
+        let style = spec.replace_for(&dep.kind);
+        if style == ReplaceStyle::DropCreate || bound {
             let kind = match dep.kind.as_str() {
                 kinds::PROCEDURE => "PROCEDURE",
                 kinds::FUNCTION => "FUNCTION",
@@ -100,7 +101,7 @@ async fn rename(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, target: RenameTar
             };
             before.push(format!("DROP {kind} IF EXISTS [{}].[{}];", dep.schema.as_deref().unwrap_or("dbo"), dep.name));
         }
-        after.push(with_create_style(&r.text, &dialect, spec.replace));
+        after.push(with_create_style(&r.text, &dialect, style));
         applied.rewritten.push(dep.name.to_lowercase());
     }
     let table = match target.table() {

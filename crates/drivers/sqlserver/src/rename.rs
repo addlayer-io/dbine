@@ -62,10 +62,13 @@ pub(crate) fn spec(v: Variant) -> RenameSpec {
             kinds: kinds(&[kinds::TABLE, kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION]),
             columns: true,
             replace: ReplaceStyle::DropCreate,
+            // Views do take CREATE OR ALTER, and keep their grants.
+            replace_kinds: [(kinds::VIEW.to_string(), ReplaceStyle::CreateOrAlter)].into(),
             transactional: true,
             note: Some(
-                "Babelfish renombra con sp_rename, pero no repone procedimientos ni funciones con CREATE OR ALTER: el código que nombra el objeto \
-                 se borra antes y se vuelve a crear después, y pierde los permisos otorgados. No renombra triggers, índices ni restricciones."
+                "Babelfish renombra con sp_rename. Las vistas que lo nombran se reponen con CREATE OR ALTER y conservan sus permisos, pero los \
+                 procedimientos y las funciones no: se borran antes y se vuelven a crear después, y pierden los permisos otorgados. No renombra \
+                 triggers, índices ni restricciones."
                     .into(),
             ),
             ..base
@@ -435,6 +438,8 @@ mod tests {
         assert_eq!((s.replace, s.fold, s.transactional, s.schemas), (ReplaceStyle::CreateOrAlter, Fold::None, true, false));
         assert!(s.tracked.is_empty());
         assert_eq!(spec(Variant::Babelfish).replace, ReplaceStyle::DropCreate);
+        assert_eq!(spec(Variant::Babelfish).replace_for(kinds::VIEW), ReplaceStyle::CreateOrAlter);
+        assert_eq!(spec(Variant::Babelfish).replace_for(kinds::PROCEDURE), ReplaceStyle::DropCreate);
         assert!(!spec(Variant::Fabric).transactional);
     }
 }

@@ -1376,9 +1376,14 @@ fn joined(rows: Vec<tokio_postgres::Row>) -> Result<Option<String>> {
 
 /// Several definitions of one name (overloads, a trigger on several
 /// tables) as one script that runs: `pg_get_functiondef` and
-/// `pg_get_triggerdef` end without `;`.
+/// `pg_get_triggerdef` end without `;`. A single one stays as the server
+/// wrote it (a view's ends with `;`), as the per-object scan reads it.
 pub(crate) fn join_definitions(parts: &[String]) -> Option<String> {
-    (!parts.is_empty()).then(|| parts.iter().map(|p| p.trim_end().trim_end_matches(';')).collect::<Vec<_>>().join(";\n\n"))
+    match parts {
+        [] => None,
+        [one] => Some(one.clone()),
+        _ => Some(parts.iter().map(|p| p.trim_end().trim_end_matches(';')).collect::<Vec<_>>().join(";\n\n")),
+    }
 }
 
 /// Materialize runs a multi-statement query as one implicit transaction,

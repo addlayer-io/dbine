@@ -107,6 +107,7 @@ pub(crate) fn spec(v: Variant) -> Option<RenameSpec> {
         // (`autocommit_before_ddl`, on by default since 25.1).
         transactional: level == Level::Full && v != Variant::Yugabyte && v.manual_transactions(),
         note,
+        ..Default::default()
     })
 }
 

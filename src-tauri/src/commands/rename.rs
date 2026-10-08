@@ -13,7 +13,7 @@ use crate::commands::compare::{plan_around, ObjectChange};
 use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
-use dbine_driver::rename::{quote_new, rewrite_references, with_create_style, Edit, RewriteOptions, Unresolved};
+use dbine_driver::rename::{names_in_code, quote_new, rewrite_references, trigger_routine, with_create_style, writes_to_table, Edit, RewriteOptions, Unresolved};
 use dbine_driver::{
     kinds, Confidence, DependencyReport, DependencyScan, Dependent, Driver, ObjectRef, ReferenceStyle, Relation, RenameRequest, RenameSpec,
     RenameTarget, ReplaceStyle, ScriptDialect, SyncScript, TableSchema,
@@ -104,6 +104,30 @@ pub enum ManualReason {
     NotRewritten,
     /// The text doesn't name it in a way the rewrite recognizes.
     NoMatch,
+    /// A trigger routine that triggers on other tables run too: its `NEW`
+    /// and `OLD` aren't only the renamed column's table.
+    SharedRoutine,
+}
+
+/// What [`classify`] knows besides the report.
+#[derive(Default)]
+pub(crate) struct Context {
+    /// The database, where it is the schema (ClickHouse, MySQL): a name
+    /// qualified with it is the target's ([`RewriteOptions::database`]).
+    pub database: Option<String>,
+    /// Items of the report that are routines run by triggers on the
+    /// renamed column's table (PostgreSQL trigger functions).
+    pub row_routines: Vec<usize>,
+    /// Those that triggers on other tables run too.
+    pub shared_routines: Vec<usize>,
+}
+
+/// A trigger routine found through the triggers on the column's table.
+struct RowRoutine {
+    schema: Option<String>,
+    name: String,
+    trigger: String,
+    shared: bool,
 }
 
 /// The rename, its impact on what depends on it, and what can be rewritten.
@@ -116,10 +140,50 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
     let scan = DependencyScan::new(driver.info(), dialect, driver.capabilities().foreign_keys);
     let target = args.target.clone();
     let tracked = spec.tracked.clone();
+    // Engines whose database is the schema: the explorer's objects carry no
+    // schema, while the catalog and the stored definitions name the database.
+    let database = (!driver.info().has_schemas && !args.database.is_empty()).then(|| args.database.clone());
+    let db = database.clone();
+    let dl = dialect;
     let read = state
         .meta_read(&args.connection_id, &args.database, IMPACT_LIMIT, move |s| {
             Box::pin(async move {
-                let report = s.dependents(&target.dependency_target(), &scan).await?;
+                let mut report = s.dependents(&target.dependency_target(), &scan).await?;
+                let objects = s.list_objects().await.unwrap_or_default();
+                let routines = match &target {
+                    RenameTarget::Column { table, .. } => row_routines(s.as_mut(), &dl, table, &objects).await,
+                    _ => Vec::new(),
+                };
+                // Routines the scan didn't find (they name no table) go in as code.
+                let mut found = Vec::new();
+                for r in routines {
+                    let same = |d: &Dependent| {
+                        matches!(d.kind.as_str(), kinds::FUNCTION | kinds::PROCEDURE) && d.name.eq_ignore_ascii_case(&r.name) && (r.schema.is_none() || d.schema == r.schema)
+                    };
+                    let (at, added) = match report.items.iter().position(same) {
+                        Some(at) => (at, false),
+                        None => {
+                            let kind = objects
+                                .iter()
+                                .find(|o| o.name.eq_ignore_ascii_case(&r.name) && (r.schema.is_none() || o.schema == r.schema) && o.kind == kinds::PROCEDURE)
+                                .map_or(kinds::FUNCTION, |_| kinds::PROCEDURE);
+                            report.items.push(Dependent {
+                                kind: kind.into(),
+                                schema: r.schema.clone(),
+                                name: r.name.clone(),
+                                parent: None,
+                                relation: Relation::Code,
+                                confidence: Confidence::Probable,
+                                detail: Some(format!("La ejecuta el trigger «{}»", r.trigger)),
+                                mentions: Vec::new(),
+                            });
+                            (report.items.len() - 1, true)
+                        }
+                    };
+                    // Read as code even if the scan judged it dynamic.
+                    report.items[at].confidence = Confidence::Probable;
+                    found.push((at, r.shared, added));
+                }
                 // Each dependent to rewrite, read again (the scan doesn't keep them).
                 let mut defs = Vec::with_capacity(report.items.len());
                 for d in &report.items {
@@ -131,17 +195,36 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
                     _ => None,
                 };
                 let table = match target.table() {
-                    Some(t) => s.database_schema().await?.into_iter().find(|x| x.name == t.name && x.schema.as_deref().filter(|s| !s.is_empty()) == t.schema()),
+                    Some(t) => s.database_schema().await?.into_iter().find(|x| x.name == t.name && same_schema(x.schema.as_deref(), t.schema(), db.as_deref())),
                     None => None,
                 };
-                let objects = s.list_objects().await.unwrap_or_default();
-                Ok((report, defs, definition, table, objects))
+                Ok((report, defs, definition, table, objects, found))
             })
         })
         .await?;
-    let (report, defs, definition, table, objects) = read;
+    let (report, defs, definition, table, objects, found) = read;
     let collides = collides(&args.target, &new_name, table.as_ref(), &objects);
-    let items = classify(&dialect, &spec, &args.target, &new_name, args.keep_view_columns, &report, defs);
+    let ctx = Context {
+        database,
+        row_routines: found.iter().map(|(at, _, _)| *at).collect(),
+        shared_routines: found.iter().filter(|(_, shared, _)| *shared).map(|(at, _, _)| *at).collect(),
+    };
+    // A routine added for its trigger that doesn't name the column isn't one.
+    let column = match &args.target {
+        RenameTarget::Column { column, .. } => column.as_str(),
+        _ => "",
+    };
+    let unrelated: Vec<usize> = found
+        .iter()
+        .filter(|(at, _, added)| *added && !defs.get(*at).and_then(|d| d.as_deref()).is_some_and(|d| names_in_code(d, &dialect, column)))
+        .map(|(at, _, _)| *at)
+        .collect();
+    let items = classify(&dialect, &spec, &args.target, &new_name, args.keep_view_columns, &report, defs, &ctx)
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !unrelated.contains(i))
+        .map(|(_, item)| item)
+        .collect();
     Ok(RenameImpact {
         items,
         scanned: report.scanned,
@@ -154,6 +237,59 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
         definition,
         table,
     })
+}
+
+/// A table's schema as the catalog reports it is the target's: equal, or,
+/// for a target without one, none or the database (engines where the
+/// database is the schema report it as such).
+fn same_schema(table: Option<&str>, target: Option<&str>, database: Option<&str>) -> bool {
+    let table = table.filter(|s| !s.is_empty());
+    match target {
+        Some(t) => table == Some(t),
+        None => table.is_none() || table.is_some_and(|s| database.is_some_and(|db| s == db)),
+    }
+}
+
+/// The routines the triggers on `table` run (`EXECUTE FUNCTION f()`), and
+/// whether a trigger on another table runs them too. Other triggers are
+/// read only when one is found.
+async fn row_routines(s: &mut dyn dbine_driver::Session, dialect: &ScriptDialect, table: &ObjectRef, objects: &[dbine_driver::DbObject]) -> Vec<RowRoutine> {
+    let triggers: Vec<&dbine_driver::DbObject> = objects.iter().filter(|o| o.kind == kinds::TRIGGER).collect();
+    let on_table = |o: &dbine_driver::DbObject| o.parent.as_deref() == Some(table.name.as_str()) && (table.schema().is_none() || o.schema.as_deref() == table.schema());
+    let mut out: Vec<RowRoutine> = Vec::new();
+    let read = |o: &dbine_driver::DbObject| ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+    for o in triggers.iter().filter(|o| on_table(o)) {
+        let Ok(Some(def)) = s.definition(&read(o)).await else { continue };
+        // Same-named triggers on several tables come in one definition.
+        for part in def.split(";\n\n") {
+            let Some((schema, name)) = trigger_routine(part, dialect) else { continue };
+            if !dbine_driver::rename::trigger_on(part, dialect, &table.name) {
+                continue;
+            }
+            let schema = schema.or_else(|| o.schema.clone());
+            if !out.iter().any(|r| r.name == name && r.schema == schema) {
+                out.push(RowRoutine { schema, name, trigger: o.name.clone(), shared: false });
+            }
+        }
+    }
+    if out.is_empty() {
+        return out;
+    }
+    for o in &triggers {
+        let Ok(Some(def)) = s.definition(&read(o)).await else { continue };
+        for part in def.split(";\n\n") {
+            if dbine_driver::rename::trigger_on(part, dialect, &table.name) {
+                continue;
+            }
+            if let Some((schema, name)) = trigger_routine(part, dialect) {
+                let schema = schema.or_else(|| o.schema.clone());
+                for r in out.iter_mut().filter(|r| r.name == name && r.schema == schema) {
+                    r.shared = true;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The driver's spec, if it renames that target.
@@ -193,6 +329,7 @@ fn collides(target: &RenameTarget, new_name: &str, table: Option<&TableSchema>, 
 
 /// Where each dependent goes. `defs` holds, per item of `report`, the
 /// definition read for rewriting (`None`: not read, or unreadable).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn classify(
     dialect: &ScriptDialect,
     spec: &RenameSpec,
@@ -201,6 +338,7 @@ pub(crate) fn classify(
     keep_view_columns: bool,
     report: &DependencyReport,
     defs: Vec<Option<String>>,
+    ctx: &Context,
 ) -> Vec<ImpactItem> {
     let rewrite_target = target.rewrite_target();
     let column = matches!(target, RenameTarget::Column { .. });
@@ -209,10 +347,13 @@ pub(crate) fn classify(
         .iter()
         .cloned()
         .zip(defs.into_iter().chain(std::iter::repeat(None)))
-        .map(|(d, def)| {
+        .enumerate()
+        .map(|(at, (d, def))| {
             let manual = |reason| Action::Manual { reason, unresolved: Vec::new() };
             let action = if d.relation != Relation::Code {
                 Action::Engine
+            } else if ctx.shared_routines.contains(&at) {
+                manual(ManualReason::SharedRoutine)
             } else if spec.tracked.contains(&d.kind) {
                 Action::Tracked
             } else if d.confidence == Confidence::Review {
@@ -223,12 +364,16 @@ pub(crate) fn classify(
                 let opts = RewriteOptions {
                     dependent_schema: d.schema.clone(),
                     keep_view_columns: keep_view_columns && (d.kind == kinds::VIEW || d.kind == kinds::MATERIALIZED_VIEW),
+                    database: ctx.database.clone(),
+                    row_table: ctx.row_routines.contains(&at),
                 };
                 let r = rewrite_references(body, dialect, &rewrite_target, new_name, spec, &opts);
                 if r.edits.is_empty() {
                     Action::Manual { reason: ManualReason::NoMatch, unresolved: r.unresolved }
                 } else {
-                    let clean = r.unresolved.is_empty();
+                    // Put back, a view holding its own rows loses them.
+                    let loses_rows = spec.holds_rows.contains(&d.kind) && !writes_to_table(body, dialect);
+                    let clean = r.unresolved.is_empty() && !loses_rows;
                     Action::Rewrite {
                         object: CodeObject { kind: d.kind.clone(), schema: d.schema.clone(), name: d.name.clone(), definition: r.text },
                         edits: r.edits,
@@ -289,8 +434,9 @@ pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &Ren
     let objects: Vec<ObjectChange> = rewrites
         .iter()
         .map(|r| {
-            let object = CodeObject { definition: with_create_style(&r.object.definition, &dialect, spec.replace), ..r.object.clone() };
-            if spec.replace == ReplaceStyle::DropCreate || r.schemabound {
+            let style = spec.replace_for(&r.object.kind);
+            let object = CodeObject { definition: with_create_style(&r.object.definition, &dialect, style), ..r.object.clone() };
+            if style == ReplaceStyle::DropCreate || r.schemabound {
                 lost.push(format!("«{}»", r.object.name));
                 ObjectChange::Replace { object }
             } else {
@@ -299,6 +445,7 @@ pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &Ren
         })
         .collect();
     let mut script = plan_around(driver, middle, &objects);
+    script.statements.extend(spec.epilogue_for(&request.target));
     if !lost.is_empty() {
         script.warnings.push(format!("Se borran y se vuelven a crear {}: se pierden los permisos otorgados sobre ellos.", lost.join(", ")));
     }
@@ -398,7 +545,7 @@ mod tests {
             None,
             Some("CREATE PROCEDURE dbo.p_none AS EXEC('SELECT 1 FROM Clientes')".into()),
         ];
-        let items = classify(&ScriptDialect::tsql(), &spec, &table_target(), "Nuevo", true, &r, defs);
+        let items = classify(&ScriptDialect::tsql(), &spec, &table_target(), "Nuevo", true, &r, defs, &Context::default());
         let kinds: Vec<String> = items
             .iter()
             .map(|i| match &i.action {
@@ -434,11 +581,11 @@ mod tests {
         let r = report(vec![dependent("view", "v", Relation::Code, Confidence::Probable)]);
         let defs = vec![Some("SELECT 1 FROM Clientes".into())];
         let none = RenameSpec { references: ReferenceStyle::None, ..fake(ReplaceStyle::DropCreate).spec };
-        let items = classify(&ScriptDialect::tsql(), &none, &table_target(), "Nuevo", true, &r, defs.clone());
+        let items = classify(&ScriptDialect::tsql(), &none, &table_target(), "Nuevo", true, &r, defs.clone(), &Context::default());
         assert_eq!(items[0].action, Action::Manual { reason: ManualReason::NotRewritten, unresolved: vec![] });
         let pipe = RenameSpec { references: ReferenceStyle::Pipeline, ..fake(ReplaceStyle::DropCreate).spec };
         let col = RenameTarget::Column { table: ObjectRef { kind: "collection".into(), schema: None, name: "c".into() }, column: "a".into() };
-        let items = classify(&ScriptDialect::generic(), &pipe, &col, "b", true, &r, defs);
+        let items = classify(&ScriptDialect::generic(), &pipe, &col, "b", true, &r, defs, &Context::default());
         assert_eq!(items[0].action, Action::Manual { reason: ManualReason::NotRewritten, unresolved: vec![] });
     }
 
@@ -494,6 +641,62 @@ mod tests {
         let s = build_script(&d, &d.spec, &request("Nuevo"), &[]).unwrap();
         assert_eq!(s.statements, vec!["EXEC sp_rename N'dbo.Clientes', N'Nuevo';"]);
         assert!(s.warnings.is_empty());
+    }
+
+    #[test]
+    fn per_kind_styles_and_the_epilogue() {
+        let mut d = fake(ReplaceStyle::DropCreate);
+        d.spec.replace_kinds = [("view".to_string(), ReplaceStyle::CreateOrReplace)].into();
+        d.spec.epilogue = Some("CALL recompile({schema});".into());
+        let mut p = choice("p", "CREATE PROCEDURE dbo.p AS SELECT a FROM dbo.Nuevo", false);
+        p.object.kind = "procedure".into();
+        let rewrites = vec![choice("v1", "CREATE      VIEW dbo.v1 AS SELECT a FROM dbo.Nuevo", false), p];
+        let s = build_script(&d, &d.spec, &request("Nuevo"), &rewrites).unwrap();
+        assert_eq!(
+            s.statements,
+            vec![
+                "DROP PROCEDURE IF EXISTS [dbo].[p];",
+                "EXEC sp_rename N'dbo.Clientes', N'Nuevo';",
+                "CREATE OR REPLACE VIEW dbo.v1 AS SELECT a FROM dbo.Nuevo",
+                "CREATE PROCEDURE dbo.p AS SELECT a FROM dbo.Nuevo",
+                "CALL recompile('dbo');",
+            ]
+        );
+        assert!(s.warnings[0].contains("«p»") && !s.warnings[0].contains("«v1»"), "{:?}", s.warnings);
+    }
+
+    #[test]
+    fn views_holding_rows_and_trigger_routines() {
+        let spec = RenameSpec { holds_rows: vec!["materialized_view".into()], ..fake(ReplaceStyle::CreateOrReplace).spec };
+        let r = report(vec![
+            dependent("materialized_view", "mv_to", Relation::Code, Confidence::Probable),
+            dependent("materialized_view", "mv_own", Relation::Code, Confidence::Probable),
+            dependent("function", "f_rows", Relation::Code, Confidence::Probable),
+            dependent("function", "f_shared", Relation::Code, Confidence::Probable),
+        ]);
+        let col = RenameTarget::Column { table: ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "t".into() }, column: "pepe".into() };
+        let defs = vec![
+            Some("CREATE MATERIALIZED VIEW dbo.mv_to TO dbo.d AS SELECT pepe FROM dbo.t".into()),
+            Some("CREATE MATERIALIZED VIEW dbo.mv_own ENGINE = Memory AS SELECT pepe FROM dbo.t".into()),
+            Some("CREATE FUNCTION dbo.f_rows() RETURNS trigger AS BEGIN NEW.pepe = 1; END".into()),
+            Some("CREATE FUNCTION dbo.f_shared() RETURNS trigger AS BEGIN NEW.pepe = 1; END".into()),
+        ];
+        let ctx = Context { row_routines: vec![2, 3], shared_routines: vec![3], ..Default::default() };
+        let items = classify(&ScriptDialect::generic(), &spec, &col, "nuevo", true, &r, defs, &ctx);
+        let selected: Vec<Option<bool>> = items.iter().map(|i| if let Action::Rewrite { default_selected, .. } = i.action { Some(default_selected) } else { None }).collect();
+        assert_eq!(selected, [Some(true), Some(false), Some(true), None]);
+        assert_eq!(items[3].action, Action::Manual { reason: ManualReason::SharedRoutine, unresolved: vec![] });
+        let Action::Rewrite { object, .. } = &items[2].action else { panic!() };
+        assert!(object.definition.contains("NEW.nuevo = 1"), "{}", object.definition);
+    }
+
+    #[test]
+    fn a_table_without_schema_is_the_databases() {
+        assert!(same_schema(Some("db"), None, Some("db")));
+        assert!(same_schema(None, None, Some("db")) && same_schema(Some(""), None, None));
+        assert!(!same_schema(Some("otra"), None, Some("db")));
+        assert!(!same_schema(Some("db"), None, None));
+        assert!(same_schema(Some("dbo"), Some("dbo"), None) && !same_schema(None, Some("dbo"), None));
     }
 
     #[test]

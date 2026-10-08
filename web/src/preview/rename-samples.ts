@@ -15,6 +15,7 @@ const spec: RenameSpec = {
   kinds: ['table', 'view', 'procedure', 'function', 'trigger'], columns: true, indexes: true, constraints: true, schemas: false,
   tracked: [], replace: 'create_or_alter', references: 'sql', fold: 'none', transactional: true,
   note: 'sp_rename no cambia el texto de los módulos: DBine los vuelve a crear con CREATE OR ALTER.',
+  replace_kinds: {}, holds_rows: [], epilogue: null,
 };
 
 const view = (name: string, definition: string): CodeObject => ({ kind: 'view', schema: 'dbo', name, definition });
