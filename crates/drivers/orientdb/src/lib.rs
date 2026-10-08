@@ -34,6 +34,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod properties;
+mod rename;
 mod security;
 mod stats;
 mod steps;
@@ -181,6 +182,15 @@ impl Driver for OrientDriver {
     /// `ALTER DATABASE …` statements (see [`properties`]).
     fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
         properties::script(database, changes)
+    }
+
+    /// Classes and properties, with their indexes moved (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(rename::spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
