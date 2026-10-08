@@ -15,6 +15,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod security;
+mod stats;
 mod structure;
 mod sync;
 mod transfer;
@@ -899,6 +900,14 @@ impl Session for DsqlSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         transfer::bulk_load(self, spec, source, progress).await
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        stats::object_comments(self).await
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {

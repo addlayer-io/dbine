@@ -20,6 +20,7 @@ mod profiler;
 mod properties;
 mod script;
 mod security;
+mod stats;
 mod sync;
 mod transfer;
 
@@ -840,6 +841,10 @@ impl Session for DremioSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel_running(id).await
+    }
+
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        stats::object_comments(self).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

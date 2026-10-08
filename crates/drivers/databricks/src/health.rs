@@ -28,7 +28,7 @@ const MAX_TABLES: usize = 5000;
 /// default is 7).
 const RETENTION_DAYS: f64 = 30.0;
 
-fn escape(s: &str) -> String {
+pub(crate) fn escape(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
@@ -71,7 +71,7 @@ pub(crate) fn auto_stop_severity(mins: i64) -> Severity {
 
 impl DatabricksSession {
     /// Every page of a Unity Catalog list.
-    async fn uc_list(&self, path: &str, key: &str, max: usize) -> Result<Vec<Json>> {
+    pub(crate) async fn uc_list(&self, path: &str, key: &str, max: usize) -> Result<Vec<Json>> {
         let mut out = Vec::new();
         let mut token: Option<String> = None;
         loop {

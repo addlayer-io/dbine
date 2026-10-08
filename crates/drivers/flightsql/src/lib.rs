@@ -17,6 +17,7 @@
 mod cells;
 mod index_usage;
 mod plan;
+mod stats;
 mod transfer;
 
 use arrow_array::RecordBatch;
@@ -1018,6 +1019,14 @@ impl Session for FlightSession {
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
         Err(Error::Unsupported(UNSUPPORTED_PROCESSES.into()))
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        stats::object_comments(self).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

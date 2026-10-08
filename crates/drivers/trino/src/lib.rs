@@ -13,6 +13,7 @@ mod processes;
 mod profiler;
 mod script;
 mod security;
+mod stats;
 mod sync;
 mod transfer;
 
@@ -923,6 +924,14 @@ impl Session for TrinoSession {
 
     async fn grants(&mut self, principal: &str) -> Result<Vec<dbine_driver::Grant>> {
         security::grants(self, principal).await
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        stats::object_comments(self).await
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
