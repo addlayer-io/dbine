@@ -415,7 +415,37 @@ function editRow(r: number) {
   const c = isHidden(0) ? step(0, 1) : 0;
   nextTick(() => startEdit(r, c));
 }
-defineExpose({ editRow });
+/** Count, sum, average, minimum and maximum of the selected cells (two or
+ *  more), as the status line shows them. Numbers only for sum/avg/min/max;
+ *  decimals that arrive as text ("15000.00") count as numbers. */
+const selectionStats = computed(() => {
+  const cells: [number, number][] = [];
+  if (rowSel.value) {
+    const shown = props.columns.map((_, c) => c).filter((c) => !isHidden(c));
+    for (const r of selectedRows()) for (const c of shown) cells.push([r, c]);
+  } else if (selection.value) {
+    const s = selection.value;
+    const blocks = [...cellExtra.value, ...(block.value ? [block.value] : cellExtra.value.length ? [{ r0: s.r, r1: s.r, c0: s.c, c1: s.c }] : [])];
+    const seen = new Set<string>();
+    for (const b of blocks) for (let r = b.r0; r <= b.r1; r++) for (let c = b.c0; c <= b.c1; c++) {
+      if (isHidden(c) || seen.has(`${r},${c}`)) continue;
+      seen.add(`${r},${c}`);
+      cells.push([r, c]);
+    }
+  }
+  if (cells.length < 2) return null;
+  let count = 0, n = 0, sum = 0, min = Infinity, max = -Infinity;
+  for (const [r, c] of cells) {
+    const v = valueAt(r, c);
+    if (v === null) continue;
+    count++;
+    const x = typeof v === 'number' ? v : typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : NaN;
+    if (Number.isFinite(x)) { n++; sum += x; if (x < min) min = x; if (x > max) max = x; }
+  }
+  return { cells: cells.length, count, numbers: n, sum, avg: n ? sum / n : 0, min, max };
+});
+
+defineExpose({ editRow, selectionStats });
 
 // -- deleting rows (marked here; the DELETE code comes with the UPDATEs) -----------------
 function selectedRows(): number[] {

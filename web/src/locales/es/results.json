@@ -198,7 +198,15 @@
     "removeNewRow": "Quitar la fila nueva",
     "removeNewRows": "Quitar las {{count}} filas nuevas",
     "newRow": "Fila nueva: se inserta al guardar",
-    "defaultValue": "(predeterminado)"
+    "defaultValue": "(predeterminado)",
+    "stats": {
+      "count": "Cantidad: {{n}}",
+      "sum": "Suma: {{v}}",
+      "avg": "Promedio: {{v}}",
+      "min": "Mín: {{v}}",
+      "max": "Máx: {{v}}",
+      "title": "{{cells}} celdas seleccionadas, {{numbers}} con números (los vacíos no cuentan)"
+    }
   },
   "chart": {
     "kind": {

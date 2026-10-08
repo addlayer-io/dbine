@@ -246,6 +246,17 @@ watch(
 );
 const canInsert = computed(() => !!insertTarget.value && !insertReason.value && !applying.value);
 const grid = ref<InstanceType<typeof ResultGrid> | null>(null);
+/** Totals of the cells selected in the grid (two or more). */
+const stats = computed(() => (show.value === 'table' ? grid.value?.selectionStats ?? null : null));
+const fmtNum = (x: number) => x.toLocaleString(locale(), { maximumFractionDigits: 4 });
+const statsText = computed(() => {
+  const s = stats.value;
+  if (!s) return '';
+  const parts = [t('results:grid.stats.count', { n: fmtNum(s.count) })];
+  if (s.numbers) parts.push(t('results:grid.stats.sum', { v: fmtNum(s.sum) }), t('results:grid.stats.avg', { v: fmtNum(s.avg) }), t('results:grid.stats.min', { v: fmtNum(s.min) }), t('results:grid.stats.max', { v: fmtNum(s.max) }));
+  return parts.join(' · ');
+});
+const statsTitle = computed(() => (stats.value ? t('results:grid.stats.title', { cells: fmtNum(stats.value.cells), numbers: fmtNum(stats.value.numbers) }) : ''));
 const docOpen = ref(false);
 /** "Agregar fila": a blank row at the end of the grid, its first cell in
  *  edit; document engines (and results with no columns) open the JSON editor. */
@@ -741,6 +752,7 @@ const statusText = computed(() => {
         <button :class="{ on: show === 'tree' }" :title="$t('results:view.tree')" @click="setView('tree')"><span class="rp-json">{ }</span></button>
         <button :class="{ on: show === 'chart' }" :title="$t('results:view.chart')" @click="setView('chart')"><el-icon><ei-histogram /></el-icon></button>
       </div>
+      <span v-if="stats" class="rp-status rp-stats" :title="statsTitle">{{ statsText }}</span>
       <template v-if="!hideStatus">
         <span v-if="running" class="rp-status"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('results:running') }}</span>
         <span v-else-if="outcome" class="rp-status">{{ outcome.elapsed_ms.toLocaleString(locale()) }} ms</span>
@@ -891,6 +903,7 @@ const statusText = computed(() => {
 .rp-mode button.on { background: var(--ide-selection); color: var(--nm-text-strong); }
 .rp-json { font-family: var(--nm-mono); font-size: 11px; font-weight: 600; line-height: 1; }
 .rp-mode button:hover { color: var(--nm-text-strong); }
+.rp-stats { color: var(--nm-text); font-variant-numeric: tabular-nums; }
 .rp-status { display: inline-flex; align-items: center; gap: 4px; padding: 0 10px; font-size: 11.5px; color: var(--nm-text-dim); }
 .rp-empty { padding: 16px; }
 .rp-empty kbd { font-family: var(--nm-mono); padding: 0 4px; border: 1px solid var(--nm-border); border-radius: 3px; }
