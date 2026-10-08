@@ -1444,9 +1444,11 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ktype.json { background: #2f8f8f; }
 .ex-conn-ic { position: relative; display: inline-flex; flex-shrink: 0; }
 /* The connection's color: a frame around the engine logo (the dot is only status). */
-/* The connection's color: a stripe on the row's left edge fading into the name. */
+/* The connection's color: a stripe on the row's left edge fading into the name.
+ * Every connection row keeps the stripe's room, so rows with and without a
+ * color line up. */
+.ex-node.connection { padding-left: 6px; border-radius: 2px; }
 .ex-node.connection.tinted {
-  padding-left: 6px; border-radius: 2px;
   box-shadow: inset 3px 0 0 0 var(--c);
   background: linear-gradient(90deg, color-mix(in srgb, var(--c) 16%, transparent), transparent 60%);
 }
