@@ -61,13 +61,13 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
 
 /// A label key or value: lowercase letters (any script), digits, `_` and
 /// `-`, at most 63 characters; a key starts with a letter.
-fn label_part(v: &str, key: bool) -> bool {
+pub(crate) fn label_part(v: &str, key: bool) -> bool {
     v.chars().count() <= 63
         && v.chars().all(|c| c.is_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
         && (!key || v.chars().next().is_some_and(char::is_lowercase))
 }
 
-fn labels(v: &str) -> Result<Map<String, Json>> {
+pub(crate) fn labels(v: &str) -> Result<Map<String, Json>> {
     let mut out = Map::new();
     for line in v.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let (k, val) = line.split_once('=').map_or((line, ""), |(k, v)| (k.trim(), v.trim()));

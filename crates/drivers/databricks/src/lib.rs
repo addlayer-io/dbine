@@ -19,6 +19,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod script;
 mod security;
 mod sync;
@@ -271,6 +272,11 @@ impl Driver for DatabricksDriver {
         create_db::script(name, options)
     }
 
+    /// "Propiedades" (see [`properties`]).
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(database, changes)
+    }
+
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
         script::dialect()
     }
@@ -293,6 +299,7 @@ impl Driver for DatabricksDriver {
     /// Catalogs are the databases: `CREATE CATALOG` / `DROP CATALOG … CASCADE`.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
+            database_properties: true,
             create_database: true,
             drop_database: true,
             foreign_keys: true,
@@ -878,6 +885,14 @@ impl Session for DatabricksSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
