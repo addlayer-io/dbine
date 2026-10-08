@@ -44,6 +44,16 @@ DBine. Las notas de lo que no se pudo leer van al registro de la tarea.
   autoincremental, comentario), clave primaria, claves foráneas con sus
   acciones al borrar y actualizar, índices, restricciones `CHECK` y los
   triggers.
+- **Filas (aproximadas):** debajo de cada tabla, la cantidad de filas que el
+  motor ya tiene anotada en sus **estadísticas**. Nunca se hace un `COUNT`:
+  no recorre la tabla ni la bloquea. El número puede estar desactualizado
+  hasta que el motor refresque sus estadísticas (`ANALYZE` y equivalentes,
+  según el motor). Si el motor no guarda estadísticas de esa tabla, la línea
+  no aparece. Qué fuente usa cada motor está en
+  [`soporte-por-motor.md`](soporte-por-motor.md#filas-aproximadas-y-comentarios).
+- **Comentarios de los objetos:** las vistas, procedimientos, funciones,
+  triggers, secuencias y tipos muestran el comentario que tengan en el motor
+  (los de tablas y columnas ya salían).
 - **Usada por:** quién depende de la tabla. Une las claves foráneas que lee
   el catálogo con las vistas, rutinas y triggers cuyo código nombra la
   tabla. Cuando el nombre aparece dentro de un texto y no se puede asegurar,
@@ -86,10 +96,10 @@ motor está en
 
 ## Contrato
 
-No agrega métodos a los drivers. Usa los que ya existen:
+Usa los métodos de sesión `row_estimates` y `object_comments` (por defecto devuelven vacío) y los que ya existían:
 `Session::list_objects`, `database_schema` (tablas, claves e índices),
 `columns` (lo que `database_schema` no trae, como vistas),
-`definition` (el código), `server_version`, `list_schemas`, y las capacidades
+`definition` (el código), `row_estimates` (filas aproximadas, solo de estadísticas del motor), `object_comments` (comentarios de objetos que no son tablas ni columnas), `server_version`, `list_schemas`, y las capacidades
 `capabilities().foreign_keys` y `supports_dependencies()`.
 
 Comandos: `dbdocs_outline`, `dbdocs_generate` (evento `dbdocs-progress`,
