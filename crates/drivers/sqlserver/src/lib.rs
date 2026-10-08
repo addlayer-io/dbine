@@ -18,6 +18,7 @@ mod schema;
 mod script;
 mod search;
 mod security;
+mod stats;
 mod structure;
 mod transfer;
 mod variant;
@@ -1027,6 +1028,16 @@ impl Session for SqlServerSession {
 
     async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
+    }
+
+    /// Partition statistics, never a count (see `stats`).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.row_estimates_impl().await
+    }
+
+    /// `MS_Description` of views, routines, triggers, sequences… (see `stats`).
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        self.object_comments_impl().await
     }
 
     async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {

@@ -36,6 +36,7 @@ mod script;
 mod search;
 mod security;
 mod session;
+mod stats;
 mod structure;
 mod transfer;
 

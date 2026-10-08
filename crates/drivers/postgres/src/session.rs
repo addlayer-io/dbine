@@ -79,7 +79,7 @@ impl PgSession {
         }
     }
 
-    fn routine_kind(&self) -> &'static str {
+    pub(crate) fn routine_kind(&self) -> &'static str {
         if self.version >= 110000 {
             "CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END"
         } else {
@@ -1315,6 +1315,16 @@ impl Session for PgSession {
     /// The engine's own "Chequeo de salud" findings (see `health`).
     async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
+    }
+
+    /// Planner statistics, never a count (see `stats`).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.row_estimates_impl().await
+    }
+
+    /// Comments on views, routines, triggers, sequences, types (see `stats`).
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        self.object_comments_impl().await
     }
 
     /// "Buscar en la base" from the catalog (see `search`).

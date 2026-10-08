@@ -19,6 +19,7 @@ mod schema;
 mod script;
 mod search;
 mod security;
+mod stats;
 mod steps;
 mod structure;
 mod transfer;
@@ -756,6 +757,16 @@ impl Session for HanaSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    /// M_TABLES.RECORD_COUNT (see `stats`).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.row_estimates_impl().await
+    }
+
+    /// SYS.VIEWS.COMMENTS (see `stats`).
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        self.object_comments_impl().await
     }
 
     /// "Chequeo de salud" of the schema (see `health`).
