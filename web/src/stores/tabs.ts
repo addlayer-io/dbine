@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ElMessage } from 'element-plus';
 import { api } from '../api/client';
 import type { ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
+import { emptySpec, type QuerySpec } from '../api/queryBuilder';
 import { t as tr } from '../i18n';
 import { readJson, writeJson } from './storage';
 import { initWindowRole, windowRole } from '../composables/windowRole';
@@ -140,6 +141,23 @@ export interface HealthTab extends TabBase {
   kind: 'health';
 }
 
+/** "Optimizar · <base>": a query's rewrites, index suggestions and comparison. */
+export interface OptimizerTab extends TabBase {
+  kind: 'optimizer';
+  /** The query, as it was when the tab opened. */
+  sql: string;
+  /** The editor it came from and where the query was in it ("Reemplazar la consulta en su editor"). */
+  sourceTabId: string | null;
+  from: number;
+  to: number;
+}
+
+/** "Subconjunto · <tabla>": copy some rows of a table, with what they need, masked. */
+export interface SubsetTab extends TabBase {
+  kind: 'subset';
+  object: ObjectRef;
+}
+
 /** A scheduled task's editor and history (docs/tareas-programadas.md).
  *  Not tied to a connection (`connectionId` ''); `taskId` null: a new one. */
 export interface ScheduledTaskTab extends TabBase {
@@ -172,7 +190,13 @@ export interface FileDiffTab extends TabBase {
   path: string;
 }
 
-export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ConnectionFormTab;
+/** "Diseñar consulta" (docs/constructor-de-consultas.md): the design is kept with the tab. */
+export interface QueryBuilderTab extends TabBase {
+  kind: 'queryBuilder';
+  spec: QuerySpec;
+}
+
+export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ConnectionFormTab | QueryBuilderTab | SubsetTab | OptimizerTab;
 
 /** Editor tabs that can't move to another database right now (running, or
  *  with an open transaction). QueryView keeps it up to date. */
@@ -488,6 +512,22 @@ export const useTabsStore = defineStore('tabs', {
       this.place({ id: newId(), kind: 'health', connectionId, database, preview: false });
     },
 
+    /** "Optimizar consulta" of `sql` (one tab per query and editor). */
+    openOptimizer(connectionId: string, database: string, sql: string, sourceTabId: string | null, from: number, to: number) {
+      const open = this.tabs.find((t) => t.kind === 'optimizer' && t.connectionId === connectionId && t.database === database && t.sql === sql && t.sourceTabId === sourceTabId);
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'optimizer', connectionId, database, sql, sourceTabId, from, to, preview: false });
+    },
+
+    /** A table's "Copiar un subconjunto" tab, one per table. */
+    openSubset(connectionId: string, database: string, object: ObjectRef) {
+      const open = this.tabs.find(
+        (t) => t.kind === 'subset' && t.connectionId === connectionId && t.database === database && t.object.schema === object.schema && t.object.name === object.name,
+      );
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'subset', connectionId, database, object, preview: false });
+    },
+
     /** A scheduled task's tab, one per task (`null`: a new one). */
     openScheduledTask(taskId: string | null) {
       const open = taskId && this.tabs.find((t) => t.kind === 'scheduledTask' && t.taskId === taskId);
@@ -500,6 +540,21 @@ export const useTabsStore = defineStore('tabs', {
       const open = this.tabs.find((t) => t.kind === 'search' && t.connectionId === connectionId && t.database === database);
       if (open) return this.activate(open.id);
       this.place({ id: newId(), kind: 'search', connectionId, database, preview: false });
+    },
+
+    /** A new "Diseñar consulta" tab, starting with `table` on the canvas when given. */
+    openQueryBuilder(connectionId: string, database: string, table: ObjectRef | null = null) {
+      const spec = emptySpec(database);
+      if (table) spec.tables.push({ id: newId(), kind: table.kind, schema: table.schema, name: table.name, alias: '', x: 40, y: 40 });
+      this.place({ id: newId(), kind: 'queryBuilder', connectionId, database, spec, preview: false });
+    },
+
+    /** A query builder tab's design, so reopening the app keeps it. */
+    setBuilderSpec(id: string, spec: QuerySpec) {
+      const t = this.tabs.find((x) => x.id === id);
+      if (t?.kind !== 'queryBuilder') return;
+      t.spec = spec;
+      this.persist();
     },
 
     openDataCompare(connectionId: string, database: string, object: ObjectRef | null) {

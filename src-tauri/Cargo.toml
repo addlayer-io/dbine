@@ -55,6 +55,9 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 sha2 = "0.10"
 getrandom = "0.3"
 rusqlite.workspace = true
+# Scheduled tasks' "Enviar un mail" (SMTP, tasks/mail.rs): rustls with ring
+# and the OS's certificates, the TLS stack the rest of the app uses.
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1-rustls", "ring", "rustls-platform-verifier"] }
 
 # The Dock menu's "Nueva ventana" (src/dock_macos.rs): the same versions tao
 # already uses, so nothing new is compiled in.

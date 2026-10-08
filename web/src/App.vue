@@ -41,6 +41,7 @@ import QueryView from './views/QueryView.vue';
 import FileDiffView from './views/FileDiffView.vue';
 import DesignerTabView from './views/DesignerTabView.vue';
 import DiagramTabView from './views/DiagramTabView.vue';
+import QueryBuilderView from './views/QueryBuilderView.vue';
 import MigrationView from './views/MigrationView.vue';
 import CompareView from './views/CompareView.vue';
 import DataCompareView from './views/DataCompareView.vue';
@@ -50,6 +51,8 @@ import IndexUsageView from './views/IndexUsageView.vue';
 import DependenciesView from './views/DependenciesView.vue';
 import SearchView from './views/SearchView.vue';
 import HealthView from './views/HealthView.vue';
+import OptimizerView from './views/OptimizerView.vue';
+import SubsetView from './views/SubsetView.vue';
 import ScheduledTaskView from './views/ScheduledTaskView.vue';
 import SparklesIcon from './components/SparklesIcon.vue';
 import ConnectionView from './views/ConnectionView.vue';
@@ -243,6 +246,7 @@ watch(
               <ObjectView v-else-if="t.kind === 'object'" :tab="t" />
               <DesignerTabView v-else-if="t.kind === 'designer'" :tab="t" />
               <DiagramTabView v-else-if="t.kind === 'diagram'" :tab="t" />
+              <QueryBuilderView v-else-if="t.kind === 'queryBuilder'" :tab="t" />
               <MonitorView v-else-if="t.kind === 'monitor'" :tab="t" :active="t.id === tabs.activeId" />
               <ProfilerView v-else-if="t.kind === 'profiler'" :tab="t" />
               <MigrationView v-else-if="t.kind === 'migration'" :tab="t" />
@@ -254,6 +258,8 @@ watch(
               <DependenciesView v-else-if="t.kind === 'dependencies'" :tab="t" />
               <SearchView v-else-if="t.kind === 'search'" :tab="t" />
               <HealthView v-else-if="t.kind === 'health'" :tab="t" />
+              <OptimizerView v-else-if="t.kind === 'optimizer'" :tab="t" />
+              <SubsetView v-else-if="t.kind === 'subset'" :tab="t" />
               <ScheduledTaskView v-else-if="t.kind === 'scheduledTask'" :tab="t" />
               <ConnectionView v-else-if="t.kind === 'connection'" :tab="t" />
             </div>

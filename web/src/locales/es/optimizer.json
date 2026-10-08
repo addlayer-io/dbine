@@ -1,0 +1,143 @@
+{
+  "action": "Optimizar",
+  "actionTip": "Optimizar consulta: reescrituras equivalentes, índices sugeridos y comparación de tiempos (la selección o la sentencia del cursor)",
+  "tab": "Optimizar",
+  "title": "Optimizar consulta · {{name}}",
+  "queryName": "Optimizada: {{title}}",
+  "indexQueryName": "Índice sugerido: {{table}}",
+  "noStatement": "Poné el cursor en una consulta o seleccionala.",
+  "reanalyze": "Volver a analizar",
+  "analyzing": "Analizando la consulta…",
+  "original": "Consulta original",
+  "writesNote": "Esta consulta modifica datos: nunca se ejecuta. «Comparar» compara solo sus planes estimados.",
+  "skipped": "No se pudo leer:",
+  "alternatives": "Alternativas",
+  "noAlternatives": "Las reglas no encontraron reescrituras seguras para esta consulta. Podés pedirle alternativas a la IA o agregar una propia.",
+  "noRulesEngine": "Las reglas de reescritura no se aplican al lenguaje de este motor. Podés pedirle alternativas a la IA o agregar una propia.",
+  "source": {
+    "rule": "Regla",
+    "ai": "IA",
+    "user": "Tuya",
+    "original": "Original"
+  },
+  "verify": "No está probado que sea equivalente en todos los casos: comparala antes de usarla.",
+  "showSql": "Ver consulta",
+  "hideSql": "Ocultar consulta",
+  "remove": "Quitar",
+  "askAi": "Pedir alternativas a la IA",
+  "askingAi": "Consultando a la IA…",
+  "aiMissing": "No hay ningún asistente de IA configurado. Abrí el asistente para elegir uno: el modelo integrado en DBine, Ollama o LM Studio (corren en esta máquina), o Claude Code o Codex con tu propia cuenta.",
+  "openAssistant": "Abrir el asistente",
+  "aiNone": "La IA no encontró mejoras para esta consulta.",
+  "aiNothing": "La respuesta de la IA no trajo alternativas en el formato pedido. Probá de nuevo o con otro modelo.",
+  "aiSent": "Se envió a {{provider}} la consulta y {{what}}. Nunca se envían filas.",
+  "aiSentOnly": "Se envió a {{provider}} solo la consulta. Nunca se envían filas.",
+  "aiTables": "{{count}} tablas",
+  "aiPlan": "el plan",
+  "addOwn": "Agregar una alternativa",
+  "ownTitle": "Tu alternativa",
+  "ownHint": "Escribí una versión equivalente de la consulta: se compara igual que las demás.",
+  "ownName": "Alternativa {{n}}",
+  "add": "Agregar",
+  "compare": "Comparar",
+  "comparing": "Comparando… {{done}} de {{total}}",
+  "compareTip": "Ejecuta la original y cada alternativa en una sesión de solo lectura (una vez para calentar y después las veces indicadas) y compara tiempos, filas y resultado. Lo que modifica datos no se ejecuta: se comparan sus planes estimados.",
+  "runs": "Ejecuciones",
+  "runsTip": "Cuántas veces se ejecuta cada versión, después de una ejecución de calentamiento",
+  "maxRows": "Filas máx.",
+  "maxRowsTip": "Filas que se leen y se comparan de cada versión. Si una devuelve más, su resultado no se verifica.",
+  "table": {
+    "version": "Versión",
+    "min": "Mín.",
+    "avg": "Prom.",
+    "rows": "Filas",
+    "cost": "Costo",
+    "result": "Resultado",
+    "speed": "vs. original"
+  },
+  "result": {
+    "same": "Mismo resultado",
+    "different": "NO equivalente",
+    "unverified": "Sin verificar",
+    "truncated": "Más de {{count}} filas: no se comparó",
+    "error": "Error",
+    "planOnly": "Solo plan",
+    "pending": "Sin comparar"
+  },
+  "recommended": "Recomendada",
+  "faster": "{{x}}× más rápida",
+  "slower": "{{x}}× más lenta",
+  "cheaper": "costo {{x}}× menor",
+  "viewPlan": "Ver plan",
+  "use": "Usar esta versión",
+  "useNew": "Abrir en una consulta nueva",
+  "useReplace": "Reemplazar la consulta en su editor",
+  "replaceGone": "El editor de origen ya no tiene esta consulta (se cerró o cambió el texto): se abrió en una consulta nueva.",
+  "replaced": "Se reemplazó la consulta en el editor. No se ejecutó.",
+  "confirmUse": {
+    "title": "Usar esta versión",
+    "different": "Esta versión NO devolvió el mismo resultado que la original. ¿Usarla igual?",
+    "unverified": "Esta versión todavía no se verificó contra la original. ¿Usarla igual?",
+    "go": "Usar igual"
+  },
+  "planTitle": "Plan · {{name}}",
+  "hints": "Índices sugeridos",
+  "hintsNone": "El plan no muestra recorridos completos que un índice pueda evitar.",
+  "hintsNoPlan": "Este motor no muestra planes de ejecución, así que no hay sugerencias de índices.",
+  "hint": {
+    "missing_index": "El motor sugiere un índice en {{table}} ({{columns}})",
+    "full_scan": "{{table}} se recorre completa; un índice en ({{columns}}) puede evitarlo",
+    "scan": "{{table}} se recorre completa",
+    "impact": "impacto estimado {{impact}} %",
+    "rows": "~{{rows}} filas estimadas"
+  },
+  "hintsNote": "El script solo se abre en una consulta: revisalo y ejecutalo vos si te sirve. Un índice acelera las lecturas y hace más lentas las escrituras.",
+  "openScript": "Abrir en una consulta",
+  "notes": "Observaciones",
+  "planWarnings": "Avisos del plan",
+  "rules": {
+    "in_to_exists": {
+      "title": "IN (subconsulta) → EXISTS",
+      "explain": "{{column}} IN (subconsulta) pasa a EXISTS con la condición dentro de la subconsulta: el motor puede cortar en la primera coincidencia en lugar de armar la lista completa."
+    },
+    "not_in_to_not_exists": {
+      "title": "NOT IN → NOT EXISTS",
+      "explain": "Como {{column}} y la columna de la subconsulta no admiten NULL, NOT EXISTS devuelve lo mismo y suele resolverse como un anti-join más eficiente."
+    },
+    "exists_to_in": {
+      "title": "EXISTS → IN",
+      "explain": "La subconsulta correlacionada con {{column}} pasa a una lista IN que se calcula una sola vez. Algunos motores la resuelven mejor así."
+    },
+    "scalar_to_join": {
+      "title": "Subconsulta por fila → LEFT JOIN agrupado",
+      "explain": "Las subconsultas del SELECT ({{count}}) se ejecutaban por cada fila; pasan a un LEFT JOIN con una tabla agrupada que se calcula una sola vez. Un COUNT sin filas sigue dando 0."
+    },
+    "or_to_union": {
+      "title": "OR entre columnas distintas → UNION ALL",
+      "explain": "Un OR sobre {{columns}} impide usar un índice por cada columna. Cada rama del UNION ALL puede usar el suyo, y cada una excluye las filas que ya devolvieron las anteriores, así ninguna se repite."
+    },
+    "redundant_distinct": {
+      "title": "DISTINCT innecesario",
+      "explain": "La lista incluye la clave de {{tables}}: las filas ya son únicas y el DISTINCT solo agrega un ordenamiento o una agrupación."
+    },
+    "function_to_range": {
+      "title": "Función sobre una columna indexada → rango",
+      "explain": "{{function}} aplica una función a {{column}} y así no se puede usar su índice. Un rango de fechas equivalente sí lo usa."
+    },
+    "count_to_exists": {
+      "title": "COUNT(*) > 0 → EXISTS",
+      "explain": "Para saber si hay filas no hace falta contarlas todas: EXISTS termina en la primera."
+    },
+    "mongo_where": {
+      "title": "$where → operadores de consulta",
+      "explain": "$where ejecuta JavaScript en cada documento y no usa índices; los operadores equivalentes sí. Con campos que son arrays o que mezclan tipos el resultado puede cambiar: comparala antes de usarla."
+    }
+  },
+  "notesText": {
+    "select_star": "SELECT * trae las {{count}} columnas de {{table}}. Pedir solo las que usás lee menos datos y puede aprovechar índices que cubren la consulta.",
+    "select_starOpen": "Abrir con las columnas",
+    "not_in_nullable": "NOT IN con {{column}}: si la subconsulta devuelve algún NULL, la consulta no devuelve ninguna fila. Si no es lo que buscás, usá NOT EXISTS.",
+    "text_vs_number": "{{column}} es {{type}} y se compara con el número {{value}}: el motor convierte la columna en cada fila y no puede usar su índice. Si los valores son texto, compará con '{{value}}' (revisá que dé lo mismo).",
+    "nvarchar_literal": "{{column}} es {{type}} y se compara con un texto N'…' (Unicode): SQL Server convierte la columna y puede no usar su índice. Sacá la N si el valor no tiene caracteres fuera de la página de códigos de la columna."
+  }
+}

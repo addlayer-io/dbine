@@ -9,6 +9,8 @@ import { useConnectionsStore } from '../stores/connections';
 import CodeEditor from './CodeEditor.vue';
 import OptionField from './OptionField.vue';
 import ProjectTargetPicker from './ProjectTargetPicker.vue';
+import ScheduledMailStep from './ScheduledMailStep.vue';
+import ScheduledDocStep from './ScheduledDocStep.vue';
 
 // One step of a scheduled task (docs/tareas-programadas.md): its database,
 // its script or query, and where its file goes. Edits `step.config` in place.
@@ -65,7 +67,7 @@ const label = computed(() => t(`scheduled:kinds.${props.step.kind}`));
 
     <el-form label-position="top" size="small" class="se-body">
       <!-- Ejecutar un script / Exportar a archivo / Backup: one database. -->
-      <template v-if="step.kind !== 'compare_schemas'">
+      <template v-if="step.kind !== 'compare_schemas' && step.kind !== 'send_mail'">
         <el-form-item :label="$t('scheduled:step.database')">
           <ProjectTargetPicker :model-value="targetOf(c as any)" class="se-target" @update:model-value="(v) => setTarget(c, v)" />
         </el-form-item>
@@ -129,8 +131,11 @@ const label = computed(() => t(`scheduled:kinds.${props.step.kind}`));
         <el-checkbox v-if="c.mode === 'copy'" v-model="c.data" @change="emit('change')">{{ $t('scheduled:step.withData') }}</el-checkbox>
       </template>
 
+      <ScheduledMailStep v-if="step.kind === 'send_mail'" :config="c" @change="emit('change')" />
+      <ScheduledDocStep v-if="step.kind === 'document'" :config="c" @change="emit('change')" />
+
       <!-- Where the file goes. -->
-      <div v-if="step.kind === 'export' || step.kind === 'compare_schemas' || (step.kind === 'backup' && c.mode === 'copy')" class="se-row">
+      <div v-if="step.kind === 'export' || step.kind === 'compare_schemas' || step.kind === 'document' || (step.kind === 'backup' && c.mode === 'copy')" class="se-row">
         <el-form-item :label="$t('scheduled:step.folder')" class="se-grow">
           <el-input v-model="c.folder" @input="emit('change')">
             <template #append><el-button @click="browse"><el-icon><ei-folder-opened /></el-icon></el-button></template>

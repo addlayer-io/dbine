@@ -24,6 +24,7 @@ import { formatCode, formatUnavailable } from '../composables/formatCode';
 import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
 import { confirmMultiDb, multiDbOutcome, rememberSelection, runSummary, startMultiDbRun, type MultiDbLive } from '../composables/multiDb';
 import { useTasksStore } from '../stores/tasks';
+import { lintSourceFor, type LintProblem } from '../composables/lint';
 
 // A saved query, or a project's file, open in the editor. A query's text is
 // saved as you type (to the state store, under its database in the
@@ -203,6 +204,13 @@ function appendScript(code: string) {
 
 // -- run ----------------------------------------------------------------------------
 const editor = ref<InstanceType<typeof CodeEditor> | null>(null);
+
+// -- Calidad de código: marks while typing, and "Ver problemas" ----------------------------
+const problems = ref<LintProblem[]>([]);
+const lintSource = computed(() => lintSourceFor(props.tab.connectionId, (p) => { problems.value = p; }));
+watch(lintSource, (s) => { if (!s) problems.value = []; });
+/** The worst severity found, for the button's color. */
+const worstProblem = computed(() => (['error', 'warning', 'info'] as const).find((s) => problems.value.some((p) => p.severity === s)) ?? '');
 
 // -- Formatear (⇧⌥F): the selection, or everything --------------------------------------
 const formatting = ref(false);
@@ -503,6 +511,30 @@ async function runStatement(doc: string, cursor: number) {
   await run(doc.slice(unit.start, unit.end), 'none', unit.start);
 }
 
+/** "Optimizar consulta" (OptimizerView): the selection, or the statement at the cursor. */
+async function optimize() {
+  if (!editor.value || unbound.value) return;
+  const doc = text.value;
+  let from = 0;
+  let to = 0;
+  if (editor.value.selectionText()) {
+    ({ from } = editor.value.runnable());
+    to = from + editor.value.selectionText().length;
+  } else {
+    const cursor = editor.value.cursor();
+    let units;
+    try { units = (await api.splitScript({ connectionId: props.tab.connectionId, sql: doc, statements: true })).filter((u) => u.kind !== 'client_command'); } catch (e) { ElMessage.error(errorMessage(e)); return; }
+    const unit = units.find((u) => cursor >= u.start && cursor <= u.end) ?? [...units].reverse().find((u) => u.start <= cursor) ?? units[0];
+    if (unit) ({ start: from, end: to } = unit);
+  }
+  // Without the spaces around it, so the editor still finds it where it was.
+  const raw = doc.slice(from, to);
+  from += raw.length - raw.trimStart().length;
+  to -= raw.length - raw.trimEnd().length;
+  if (to <= from) { ElMessage.info({ message: t('optimizer:noStatement'), duration: 2500 }); return; }
+  tabs.openOptimizer(props.tab.connectionId, props.tab.database, doc.slice(from, to), props.tab.id, from, to);
+}
+
 /** A message's line was clicked: the cursor goes there in the editor. */
 function goTo(at: { offset: number | null; line: number | null }) {
   editor.value?.goTo({
@@ -679,6 +711,11 @@ function drag(e: PointerEvent) {
           <el-icon v-if="!formatting"><ei-magic-stick /></el-icon><span class="qv-lbl">&nbsp;{{ $t('query:format') }}</span>
         </el-button>
       </el-tooltip>
+      <el-tooltip v-if="runnable" :content="$t('optimizer:actionTip')" placement="bottom" :show-after="400">
+        <el-button :disabled="unbound" :aria-label="$t('optimizer:action')" @click="optimize">
+          <el-icon><ei-trend-charts /></el-icon><span class="qv-lbl">&nbsp;{{ $t('optimizer:action') }}</span>
+        </el-button>
+      </el-tooltip>
       <el-select
         v-if="!unbound && driver?.databases_label !== ''"
         :model-value="tab.database"
@@ -696,6 +733,11 @@ function drag(e: PointerEvent) {
       <el-tooltip v-if="multiDbAvailable" :content="$t('multiDb:actionTip')" placement="bottom" :show-after="300">
         <el-button size="small" :aria-label="$t('multiDb:action')" @click="openMultiDb">
           <el-icon :class="{ 'is-loading': multiLive?.running }"><ei-loading v-if="multiLive?.running" /><ei-files v-else /></el-icon><span class="qv-lbl">&nbsp;{{ $t('multiDb:action') }}</span>
+        </el-button>
+      </el-tooltip>
+      <el-tooltip v-if="!unbound && (driver?.language === 'sql' || driver?.language === 'cql')" :content="$t('queryBuilder:toolbarTip')" placement="bottom" :show-after="300">
+        <el-button size="small" :aria-label="$t('queryBuilder:toolbar')" @click="tabs.openQueryBuilder(tab.connectionId, tab.database)">
+          <el-icon><ei-set-up /></el-icon><span class="qv-lbl">&nbsp;{{ $t('queryBuilder:toolbar') }}</span>
         </el-button>
       </el-tooltip>
       <el-tooltip v-if="perStatement" :content="$t('query:continueOnErrorTip')" placement="bottom" :show-after="400">
@@ -723,6 +765,25 @@ function drag(e: PointerEvent) {
       <el-tooltip :content="$t('query:saveToLibraryTip')" placement="bottom" :show-after="300">
         <el-button link :aria-label="$t('query:saveToLibrary')" @click="saveToLibrary"><el-icon :size="15"><ei-star /></el-icon></el-button>
       </el-tooltip>
+      <el-popover v-if="lintSource" placement="bottom-start" :width="480" trigger="click">
+        <template #reference>
+          <el-button link class="qv-problems" :class="worstProblem" :title="$t('lint:problems.button')" :aria-label="$t('lint:problems.button')">
+            <el-icon><ei-warning /></el-icon><span class="qv-lbl2">&nbsp;{{ problems.length ? $t('lint:problems.count', { count: problems.length }) : $t('lint:problems.none') }}</span>
+          </el-button>
+        </template>
+        <div class="qv-plist">
+          <div class="qv-plist-head">
+            <strong>{{ $t('lint:problems.title') }}</strong>
+            <el-button link size="small" @click="ui.openSettings('lint')">{{ $t('lint:problems.settings') }}</el-button>
+          </div>
+          <p v-if="!problems.length" class="nm-muted">{{ $t('lint:problems.none') }}</p>
+          <button v-for="(p, n) in problems" :key="n" class="qv-problem" :title="p.rule" @click="editor?.goTo({ pos: p.start })">
+            <span class="qv-sev" :class="p.severity" />
+            <span class="qv-pmsg">{{ p.message }}</span>
+            <span class="nm-muted">{{ $t('lint:problems.line', { line: p.line }) }}</span>
+          </button>
+        </div>
+      </el-popover>
       <div class="nm-spacer" />
       <el-popover v-if="driver?.query_help" placement="bottom-end" :width="520" trigger="click">
         <template #reference>
@@ -744,6 +805,7 @@ function drag(e: PointerEvent) {
           :dialect="driver?.dialect"
           :schema="schema"
           :placeholder="$t('query:editorPlaceholder')"
+          :lint="lintSource"
           @run="(t: string, from: number) => run(t, 'none', from)"
           @run-statement="runStatement"
           @plan="(t: string, actual: boolean, from: number) => run(t, actual ? 'actual' : 'estimated', from)"
@@ -855,6 +917,22 @@ function drag(e: PointerEvent) {
   border-bottom: 1px solid var(--nm-border-soft); background: color-mix(in srgb, var(--ide-focus, var(--nm-primary)) 8%, transparent);
 }
 .qv-check { margin: 0 4px; }
+/* "Ver problemas": the button takes the worst severity's color. */
+.qv-problems.error { color: var(--nm-danger); }
+.qv-problems.warning { color: var(--nm-warning); }
+.qv-problems.info { color: var(--nm-info); }
+.qv-plist { display: flex; flex-direction: column; max-height: 360px; overflow: auto; font-size: 12.5px; }
+.qv-plist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.qv-plist p { margin: 4px 0; }
+.qv-problem {
+  display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; border: 0; border-radius: 3px; background: none;
+  color: var(--nm-text); font: inherit; text-align: left; cursor: pointer;
+}
+.qv-problem:hover { background: var(--ide-hover); }
+.qv-pmsg { flex: 1; min-width: 0; }
+.qv-sev { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--nm-info); }
+.qv-sev.error { background: var(--nm-danger); }
+.qv-sev.warning { background: var(--nm-warning); }
 .qv-run-wrap { display: inline-flex; }
 /* A project file's header: project › path · environment, base. */
 .qv-file {

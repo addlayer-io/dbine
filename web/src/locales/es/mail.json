@@ -1,0 +1,30 @@
+{
+  "nav": "Correo",
+  "title": "Correo",
+  "intro": "El servidor con el que las tareas programadas envían mails. Se guarda solo en esta computadora: las tareas corren acá. La contraseña va al llavero.",
+  "host": "Servidor SMTP",
+  "port": "Puerto",
+  "security": "Seguridad",
+  "securities": {
+    "starttls": "STARTTLS (puerto 587)",
+    "tls": "SSL/TLS (puerto 465)",
+    "none": "Sin cifrar"
+  },
+  "noneWarning": "Sin cifrar, el usuario, la contraseña y los mails viajan legibles por la red. Usalo solo con un servidor de tu red local.",
+  "user": "Usuario",
+  "userPlaceholder": "Vacío si el servidor no pide iniciar sesión",
+  "password": "Contraseña",
+  "passwordSaved": "Guardada (dejala vacía para no cambiarla)",
+  "passwordHelp": "Si dejás la contraseña vacía, queda la guardada. Sin usuario no se guarda ninguna.",
+  "fromAddress": "Dirección del remitente",
+  "fromName": "Nombre del remitente",
+  "save": "Guardar",
+  "saved": "Configuración de correo guardada.",
+  "notConfigured": "Todavía no hay un servidor guardado.",
+  "test": "Enviar un mail de prueba",
+  "testPrompt": "¿A qué dirección lo mandamos?",
+  "testSend": "Enviar",
+  "testInvalid": "Escribí una dirección de correo",
+  "testOk": "Listo. {{summary}}",
+  "testFailed": "No se pudo enviar: {{error}}"
+}

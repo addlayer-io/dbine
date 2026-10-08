@@ -1,0 +1,143 @@
+{
+  "action": "Optimize",
+  "actionTip": "Optimize query: equivalent rewrites, suggested indexes and timing comparison (the selection or the statement at the cursor)",
+  "tab": "Optimize",
+  "title": "Optimize query · {{name}}",
+  "queryName": "Optimized: {{title}}",
+  "indexQueryName": "Suggested index: {{table}}",
+  "noStatement": "Place the cursor in a query or select it.",
+  "reanalyze": "Analyze again",
+  "analyzing": "Analyzing the query…",
+  "original": "Original query",
+  "writesNote": "This query modifies data: it is never run. \"Compare\" only compares their estimated plans.",
+  "skipped": "Could not be read:",
+  "alternatives": "Alternatives",
+  "noAlternatives": "The rules found no safe rewrites for this query. You can ask the AI for alternatives or add your own.",
+  "noRulesEngine": "The rewrite rules don't apply to this engine's language. You can ask the AI for alternatives or add your own.",
+  "source": {
+    "rule": "Rule",
+    "ai": "AI",
+    "user": "Yours",
+    "original": "Original"
+  },
+  "verify": "It is not proven to be equivalent in every case: compare it before using it.",
+  "showSql": "Show query",
+  "hideSql": "Hide query",
+  "remove": "Remove",
+  "askAi": "Ask the AI for alternatives",
+  "askingAi": "Asking the AI…",
+  "aiMissing": "No AI assistant is configured. Open the assistant to pick one: the model built into DBine, Ollama or LM Studio (they run on this machine), or Claude Code or Codex with your own account.",
+  "openAssistant": "Open the assistant",
+  "aiNone": "The AI found no improvements for this query.",
+  "aiNothing": "The AI's response had no alternatives in the requested format. Try again or with another model.",
+  "aiSent": "The query and {{what}} were sent to {{provider}}. Rows are never sent.",
+  "aiSentOnly": "Only the query was sent to {{provider}}. Rows are never sent.",
+  "aiTables": "{{count}} tables",
+  "aiPlan": "the plan",
+  "addOwn": "Add an alternative",
+  "ownTitle": "Your alternative",
+  "ownHint": "Write an equivalent version of the query: it is compared like the others.",
+  "ownName": "Alternative {{n}}",
+  "add": "Add",
+  "compare": "Compare",
+  "comparing": "Comparing… {{done}} of {{total}}",
+  "compareTip": "Runs the original and each alternative in a read-only session (once to warm up and then the indicated number of times) and compares times, rows and result. What modifies data is not run: their estimated plans are compared.",
+  "runs": "Runs",
+  "runsTip": "How many times each version is run, after a warm-up run",
+  "maxRows": "Max. rows",
+  "maxRowsTip": "Rows read and compared from each version. If one returns more, its result is not verified.",
+  "table": {
+    "version": "Version",
+    "min": "Min.",
+    "avg": "Avg.",
+    "rows": "Rows",
+    "cost": "Cost",
+    "result": "Result",
+    "speed": "vs. original"
+  },
+  "result": {
+    "same": "Same result",
+    "different": "NOT equivalent",
+    "unverified": "Unverified",
+    "truncated": "More than {{count}} rows: not compared",
+    "error": "Error",
+    "planOnly": "Plan only",
+    "pending": "Not compared"
+  },
+  "recommended": "Recommended",
+  "faster": "{{x}}× faster",
+  "slower": "{{x}}× slower",
+  "cheaper": "{{x}}× lower cost",
+  "viewPlan": "View plan",
+  "use": "Use this version",
+  "useNew": "Open in a new query",
+  "useReplace": "Replace the query in its editor",
+  "replaceGone": "The source editor no longer has this query (it was closed or the text changed): it was opened in a new query.",
+  "replaced": "The query was replaced in the editor. It was not run.",
+  "confirmUse": {
+    "title": "Use this version",
+    "different": "This version did NOT return the same result as the original. Use it anyway?",
+    "unverified": "This version has not been verified against the original yet. Use it anyway?",
+    "go": "Use anyway"
+  },
+  "planTitle": "Plan · {{name}}",
+  "hints": "Suggested indexes",
+  "hintsNone": "The plan shows no full scans that an index could avoid.",
+  "hintsNoPlan": "This engine doesn't show execution plans, so there are no index suggestions.",
+  "hint": {
+    "missing_index": "The engine suggests an index on {{table}} ({{columns}})",
+    "full_scan": "{{table}} is scanned in full; an index on ({{columns}}) can avoid it",
+    "scan": "{{table}} is scanned in full",
+    "impact": "estimated impact {{impact}} %",
+    "rows": "~{{rows}} estimated rows"
+  },
+  "hintsNote": "The script is only opened in a query: review it and run it yourself if it helps. An index speeds up reads and slows down writes.",
+  "openScript": "Open in a query",
+  "notes": "Observations",
+  "planWarnings": "Plan warnings",
+  "rules": {
+    "in_to_exists": {
+      "title": "IN (subquery) → EXISTS",
+      "explain": "{{column}} IN (subquery) becomes EXISTS with the condition inside the subquery: the engine can stop at the first match instead of building the full list."
+    },
+    "not_in_to_not_exists": {
+      "title": "NOT IN → NOT EXISTS",
+      "explain": "Since {{column}} and the subquery column don't allow NULL, NOT EXISTS returns the same and is usually resolved as a more efficient anti-join."
+    },
+    "exists_to_in": {
+      "title": "EXISTS → IN",
+      "explain": "The correlated subquery with {{column}} becomes an IN list that is computed only once. Some engines resolve it better this way."
+    },
+    "scalar_to_join": {
+      "title": "Per-row subquery → grouped LEFT JOIN",
+      "explain": "The SELECT subqueries ({{count}}) were run for every row; they become a LEFT JOIN with a grouped table that is computed only once. A COUNT with no rows still gives 0."
+    },
+    "or_to_union": {
+      "title": "OR across different columns → UNION ALL",
+      "explain": "An OR over {{columns}} prevents using an index for each column. Each branch of the UNION ALL can use its own, and each excludes the rows already returned by the previous ones, so none is repeated."
+    },
+    "redundant_distinct": {
+      "title": "Unnecessary DISTINCT",
+      "explain": "The list includes the key of {{tables}}: the rows are already unique and DISTINCT only adds a sort or a grouping."
+    },
+    "function_to_range": {
+      "title": "Function on an indexed column → range",
+      "explain": "{{function}} applies a function to {{column}}, so its index can't be used. An equivalent date range can use it."
+    },
+    "count_to_exists": {
+      "title": "COUNT(*) > 0 → EXISTS",
+      "explain": "To know whether there are rows you don't need to count them all: EXISTS stops at the first one."
+    },
+    "mongo_where": {
+      "title": "$where → query operators",
+      "explain": "$where runs JavaScript on every document and doesn't use indexes; the equivalent operators do. With fields that are arrays or mix types the result may change: compare it before using it."
+    }
+  },
+  "notesText": {
+    "select_star": "SELECT * fetches all {{count}} columns of {{table}}. Asking only for the ones you use reads less data and can take advantage of indexes that cover the query.",
+    "select_starOpen": "Open with the columns",
+    "not_in_nullable": "NOT IN with {{column}}: if the subquery returns any NULL, the query returns no rows. If that's not what you want, use NOT EXISTS.",
+    "text_vs_number": "{{column}} is {{type}} and is compared with the number {{value}}: the engine converts the column on every row and can't use its index. If the values are text, compare with '{{value}}' (check that it gives the same result).",
+    "nvarchar_literal": "{{column}} is {{type}} and is compared with an N'…' (Unicode) text: SQL Server converts the column and may not use its index. Drop the N if the value has no characters outside the column's code page."
+  }
+}

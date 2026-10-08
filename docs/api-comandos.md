@@ -405,3 +405,187 @@ Eventos:
 - `sync-status`, con `{ running, last_error, last_error_kind, last_action, last_run_at }`.
 - `sync-applied`, cuando una restauración reemplazó el estado local: la UI
   vuelve a cargar conexiones, queries y preferencias.
+
+## Calidad de código ([`calidad-de-codigo.md`](calidad-de-codigo.md))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `lint_script` | `{ connection_id, sql }` | `LintFinding[]` |
+| `lint_rules` | — | `Rule[]` |
+
+- `LintFinding`: `{ rule, severity, start, end, line, params }`. `start` y
+  `end` son índices de cadena de JS (UTF-16), `line` es la línea de `start`
+  (desde 1) y `params` trae los valores que muestra el mensaje.
+- `severity` es `error`, `warning` o `info`.
+- `Rule`: `{ id, severity, groups }`. `groups` son los grupos de motores a los
+  que se aplica (`sql`, `tsql`, `postgres`, `mysql`, `oracle`, `influxql`,
+  `cql`, `mongodb`, `couchdb`, `search`, `redis`, `etcd`, `cypher`).
+- Es solo análisis de texto: no consulta la base. Los textos de cada regla
+  están en la interfaz.
+
+## Documentar la base ([`documentar-la-base.md`](documentar-la-base.md))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `dbdocs_outline` | `{ connection_id, database }` | `{ schemas, kinds, foreign_keys, dependencies }` |
+| `dbdocs_generate` | `{ connection_id, database, run_id, path, options }` | `{ path, tables, objects, bytes, notes }` |
+| `dbdocs_open` | `{ path, reveal }` | `void` |
+
+- `dbdocs_outline`: lo que ofrece el diálogo. `kinds` es la cantidad de
+  objetos por tipo.
+- `options`: `{ format: "html" | "markdown", schemas, tables, views, routines,
+  triggers, others, source, indexes, foreign_keys, dependencies, diagram,
+  labels }`. `labels` son los textos del documento en el idioma de la
+  interfaz; sin ellos, español.
+- `dbdocs_generate` corre en una sesión de solo lectura. Agrega la extensión
+  del formato si el nombre no la tiene.
+- `dbdocs_open` abre el archivo (o lo muestra en su carpeta con
+  `reveal: true`) y solo acepta archivos que escribió esta ejecución de DBine.
+
+Evento: `dbdocs-progress`, con `{ run_id, done, total, phase }` (`phase` es
+`objects`, `schema`, `columns`, `source` o `writing`).
+Cancelar: `cancel_query` con `session_id: "docs:<run_id>"`.
+
+## Constructor de consultas ([`constructor-de-consultas.md`](constructor-de-consultas.md))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `build_query` | `{ connection_id, spec, session_id? }` | `{ sql, warnings, features }` |
+| `preview_built_query` | `{ connection_id, spec, session_id }` | `{ sql, columns, rows, truncated, elapsed_ms }` |
+
+- `spec`: `{ database, tables, joins, columns, distinct, limit }`.
+- `features` es lo que el motor ofrece (uniones, `GROUP BY`, `HAVING`,
+  agregados, `DISTINCT`, `ORDER BY`, límite, grupos `OR`, operadores); la
+  interfaz oculta el resto. `warnings` son avisos de lo que el motor no hace.
+- `preview_built_query` trae hasta 100 filas en una sesión de solo lectura.
+  Cancelar: `cancel_query` con `session_id: "qb-preview:<session_id>"`.
+
+## Subconjunto de datos ([`subconjunto-de-datos.md`](subconjunto-de-datos.md))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `subset_plan` | `SubsetArgs` | `SubsetPlan` |
+| `subset_run` | `SubsetArgs` + `{ masks, confirm, seed? }` | `SubsetReport` |
+
+- `SubsetArgs`: `{ run_id, connection_id, database, table, filter, children,
+  target_connection_id, target_database }`. `filter` es `{ expression,
+  columns, limit }`, con `limit` `{ kind: "all" }`, `{ kind: "rows", count }` o
+  `{ kind: "percent", percent }`. `children` es `{ depth, max_rows }` o
+  `null`.
+- `masks`: por tabla (`{ schema, name, columns }`), una regla por columna:
+  `keep`, `fake` (con `kind`), `shift_date` (`days`), `noise` (`percent`),
+  `fixed` (`value`), `null` o `hash`.
+- `subset_plan` solo lee (origen y destino). Devuelve las tablas en orden de
+  escritura, el total de filas, los ciclos cortados, las notas y
+  `confirm_label` (el texto a escribir si el destino es de producción).
+- `subset_run` rechaza un destino de solo lectura y, si es de producción,
+  una `confirm` distinta de `confirm_label`. Sin `seed`, usa una al azar por
+  corrida.
+- `SubsetReport`: `{ tables, notes, elapsed_ms, cancelled }`. Cada tabla trae
+  `status`: `done`, `error`, `cancelled` o `skipped`.
+
+Evento: `subset-progress`, con `{ runId, phase, table, rows, total }`
+(`phase`: `read`, `collect`, `create`, `insert`, `cycles`, `constraints`,
+`done`). Cancelar: `cancel_query` con `session_id: "subset:<run_id>:src"` y
+`"subset:<run_id>:tgt"`.
+
+## Optimizar consulta ([`optimizar-consulta.md`](optimizar-consulta.md))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `optimizer_analyze` | `{ connection_id, database, sql, run_id }` | `Analysis` |
+| `optimizer_ai` | `{ connection_id, database, sql, run_id, provider, model?, plans }` | `{ candidates, none, sent }` |
+| `optimizer_compare` | `{ connection_id, database, run_id, versions, runs?, max_rows? }` | `Measure[]` |
+| `optimizer_cancel` | `{ run_id }` | `void` |
+
+- `Analysis`: `{ language, dialect, engine, writes, supports_explain,
+  candidates, notes, hints, warnings, plans, cost, skipped }`.
+- `Candidate`: `{ id, source, rule, params, title, explanation, sql, verify }`
+  con `source` `rule`, `ai` o `user`.
+- `versions` de `optimizer_compare`: `[{ id, sql }]`, la original primero.
+  `runs` va de 1 a 20 (3 por defecto) y `max_rows` es 100000 por defecto.
+- `Measure`: `{ id, executed, error, runs_ms, min_ms, avg_ms, rows, truncated,
+  checksum, equivalent, cost, plans, plan_error }`. `equivalent` es `null`
+  cuando no se pudo verificar.
+- La consulta que escribe datos no se ejecuta: solo se mide su plan estimado.
+- `optimizer_ai` envía la consulta, la estructura de las tablas y un resumen
+  del plan; nunca filas.
+
+Evento: `optimizer-progress`, con `{ run_id, measure }`, uno por versión.
+Cancelar: `optimizer_cancel`, o `cancel_query` con
+`session_id: "optimize:<run_id>"`.
+
+## Correo de las tareas programadas ([`tareas-programadas.md`](tareas-programadas.md#configuración--correo))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `mail_settings_get` | — | `{ settings, password_saved }` |
+| `mail_settings_save` | `{ settings, password? }` | `{ settings, password_saved }` |
+| `mail_test` | `{ settings, password?, to }` | `string` |
+
+- `settings`: `{ host, port, security, user, from_address, from_name }` con
+  `security` `starttls`, `tls` o `none`. `settings` es `null` si todavía no
+  hay servidor guardado.
+- La contraseña va al llavero. Si `password` viene vacío, se conserva la
+  guardada; sin `user`, se borra.
+- `mail_test` usa el formulario tal cual, guardado o no, y devuelve el
+  resumen del envío.
+
+## Buscar en la base ([`busqueda.md`](busqueda.md))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `search_database` | `{ connection_id, database, search_id, query, names?, code? }` | `{ hits, scanned, unreadable, truncated, cancelled, from_catalog }` |
+
+- `query`: `{ text, case_sensitive, whole_word, kinds, max_hits }`. Sin
+  `kinds`, busca en todos los tipos con código; con `"column"`, en los
+  nombres de columna. Sin `max_hits`, corta en 2000.
+- Un hit es `{ kind, schema, name, parent, line, text }`. `line` 0 es una
+  coincidencia en el nombre; en una columna, `parent` es la tabla y `text`
+  su tipo.
+
+Evento: `code-search-progress`, con `{ search_id, done, total, hits }` (los
+hits nuevos). Cancelar: `cancel_query` con `session_id: "search:<search_id>"`.
+
+## Chequeo de salud ([`chequeo-de-salud.md`](chequeo-de-salud.md))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `database_health` | `{ connection_id, database, run_id }` | `{ checks, checked_at, skipped }` |
+
+- Un chequeo es `{ id, category, title, severity, detail, objects, fix }`, con
+  `severity` `ok`, `info`, `warning` o `critical`. Vienen ordenados del más
+  grave al menos grave.
+- `fix` es un script que la interfaz abre en una consulta; nunca se ejecuta
+  solo.
+- Cancelar: `cancel_query` con `session_id: "health:<run_id>"`.
+
+## Datos de prueba ([`datos-de-prueba.md`](datos-de-prueba.md))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `datagen_preview` | `DataGenArgs` | `{ table_columns, generators, columns, rows }` |
+| `datagen_run` | `DataGenArgs` | `{ rows, elapsed_ms }` |
+
+- `DataGenArgs`: `{ connection_id, database, table, columns, rows, seed?,
+  gen_id, batch }`. Cada elemento de `columns` es `{ name, generator, params,
+  null_percent }`; las columnas que no se nombran van en `auto`.
+- `datagen_preview` devuelve hasta 20 filas de muestra. `datagen_run` acepta de
+  1 a 10.000.000 filas, inserta de a `batch` (1 a 5000) y rechaza las
+  conexiones de solo lectura.
+
+Evento: `datagen-progress`, con `{ id, rows, total }`. Cancelar:
+`cancel_query` con `session_id: "datagen:<gen_id>"`.
+
+## Propiedades de la base ([`propiedades-de-la-base.md`](propiedades-de-la-base.md))
+
+| Comando | args | Devuelve |
+|---|---|---|
+| `database_properties` | `{ connection_id, database }` | `DatabaseProperties` |
+| `alter_database_script` | `{ connection_id, database, changes }` | `string` |
+| `alter_database` | `{ connection_id, database, changes }` | `void` |
+
+- `DatabaseProperties`: `{ fields, values, info, choices, warnings }`.
+- `changes` es campo → valor nuevo, solo lo que cambió. Sin cambios,
+  `alter_database` no hace nada. `alter_database_script` devuelve el script
+  que se muestra antes de aplicar.

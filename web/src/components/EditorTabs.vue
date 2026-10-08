@@ -54,6 +54,8 @@ function title(t: Tab): string {
   if (t.kind === 'compare') return `${tr('workbench:tabs.compare')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'indexes') return `${tr('explorer:indexes.tab')} · ${t.object.name}`;
   if (t.kind === 'health') return `${tr('health:tab')} · ${t.database}`;
+  if (t.kind === 'optimizer') return `${tr('optimizer:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
+  if (t.kind === 'subset') return `${tr('subset:tab')} · ${t.object.name}`;
   if (t.kind === 'scheduledTask') return scheduledTitle(t.taskId);
   if (t.kind === 'search') return `${tr('search:tab')} · ${t.database}`;
   if (t.kind === 'dependencies') return `${tr('dependencies:tab')} · ${t.column ? `${t.object.name}.${t.column}` : t.object.name}`;
@@ -65,6 +67,7 @@ function title(t: Tab): string {
     return `${tr('workbench:tabs.migrate')} · ${saved?.name || t.database || conns.byId(t.connectionId)?.name || ''}`;
   }
   if (t.kind === 'diagram') return `${tr('workbench:tabs.diagram')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
+  if (t.kind === 'queryBuilder') return `${tr('queryBuilder:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind !== 'query') return '';
   const q = conns.queries[dbKey(t.connectionId, t.database)]?.items.find((x) => x.id === t.queryId);
   return q?.name ?? tr('workbench:tabs.query');
@@ -122,7 +125,7 @@ const rows = computed<Row[]>(() => {
         : titles[i],
       tooltip: tooltip(t),
       color: inGroup ? groupColor(t.connectionId) : conns.colorOf(t.connectionId),
-      icon: { query: 'document', file: 'document', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', health: 'first-aid-kit', scheduledTask: 'alarm-clock', connection: 'connection' }[t.kind],
+      icon: { query: 'document', file: 'document', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', health: 'first-aid-kit', scheduledTask: 'alarm-clock', connection: 'connection', queryBuilder: 'set-up', subset: 'scissor', optimizer: 'trend-charts' }[t.kind],
     });
   });
   return out;

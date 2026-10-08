@@ -59,12 +59,14 @@
   },
   "steps": "Pasos",
   "addStep": "Agregar paso",
-  "varsHint": "En nombres de archivo y scripts se pueden usar:",
+  "varsHint": "En nombres de archivo, scripts y mails se pueden usar:",
   "kinds": {
     "run_script": "Ejecutar un script",
     "export": "Exportar a archivo",
     "compare_schemas": "Comparar esquemas",
-    "backup": "Backup"
+    "backup": "Backup",
+    "document": "Documentar la base",
+    "send_mail": "Enviar un mail"
   },
   "step": {
     "namePlaceholder": "Nombre (opcional)",
@@ -96,6 +98,27 @@
     "folder": "Carpeta",
     "pickFolder": "Carpeta de destino",
     "fileName": "Nombre del archivo"
+  },
+  "mail": {
+    "to": "Para",
+    "toPlaceholder": "ana@example.com, beto@example.com",
+    "cc": "CC",
+    "subject": "Asunto",
+    "body": "Texto",
+    "attachments": "Adjuntos",
+    "addAttachment": "Agregar adjunto",
+    "pickFile": "Elegir archivo",
+    "removeAttachment": "Quitar el adjunto",
+    "attachmentsHint": "Rutas de archivos, con variables: {steps.1.file} es el archivo del paso 1. Si un adjunto no existe, el paso falla. Los adjuntos pueden sumar hasta 20 MB.",
+    "when": "Solo si…",
+    "whenOptions": {
+      "always": "Siempre",
+      "alert": "Un paso anterior tuvo una alerta",
+      "errors": "Un paso anterior falló"
+    },
+    "errorsHint": "Para que el mail salga cuando un paso falla, ese paso tiene que estar en «Si falla, seguir con el próximo».",
+    "noServer": "Falta configurar el servidor de correo.",
+    "configure": "Configurar el correo"
   },
   "formats": {
     "csv": "CSV",

@@ -121,6 +121,16 @@ fn run_logged(task_id: &str, dir: &std::path::Path, data_dir: &std::path::Path) 
                 Err(_) => return Err(keychain_message("no respondió")),
             }
         }
+        // The mail server's password, the same way.
+        if task.steps.iter().any(|s| s.kind == dbine_core::tasks::kinds::SEND_MAIL) {
+            let read = tokio::task::spawn_blocking(|| dbine_core::secrets::get_raw(crate::tasks::mail::PASSWORD));
+            match tokio::time::timeout(SECRETS_LIMIT, read).await {
+                Ok(Ok(Ok(_))) => {}
+                Ok(Ok(Err(e))) => return Err(keychain_message(&e.to_string())),
+                Ok(Err(e)) => return Err(e.to_string()),
+                Err(_) => return Err(keychain_message("no respondió")),
+            }
+        }
         Ok(crate::tasks::run_task(&state, None, &task, "schedule").await)
     });
     let code = match run {

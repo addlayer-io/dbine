@@ -385,7 +385,7 @@ fn sqlplus_units(dialect: &sql::ScriptDialect) -> bool {
 /// Byte offsets of a script as JS string (UTF-16) indices. For non-ASCII
 /// text it keeps the UTF-16 index of every `STEP`-th byte, so each lookup
 /// encodes at most `STEP` bytes, whatever the script's size.
-struct Utf16<'a> {
+pub(crate) struct Utf16<'a> {
     s: &'a str,
     /// `marks[k]`: UTF-16 length of `s[..floor(k * STEP)]` (floored to a
     /// char boundary). Empty for ASCII text.
@@ -395,7 +395,7 @@ struct Utf16<'a> {
 impl<'a> Utf16<'a> {
     const STEP: usize = 256;
 
-    fn new(s: &'a str) -> Self {
+    pub(crate) fn new(s: &'a str) -> Self {
         let mut marks = Vec::new();
         if !s.is_ascii() {
             let (mut at, mut units) = (0, 0);
@@ -417,7 +417,7 @@ impl<'a> Utf16<'a> {
         b
     }
 
-    fn at(&self, byte: usize) -> usize {
+    pub(crate) fn at(&self, byte: usize) -> usize {
         let b = Self::floor(self.s, byte);
         if self.marks.is_empty() {
             return b;

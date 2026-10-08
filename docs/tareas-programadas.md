@@ -1,8 +1,8 @@
 # Tareas programadas
 
 Una tarea corre sola, a la hora que elijas, **con DBine cerrado**: ejecuta un
-script, exporta una consulta, compara dos esquemas o hace un backup, y avisa
-con una notificación del sistema.
+script, exporta una consulta, compara dos esquemas, hace un backup, documenta
+una base o envía un mail, y avisa con una notificación del sistema.
 
 ## Dónde está
 
@@ -50,6 +50,26 @@ La corrida termina en uno de tres estados:
 - **Falló**: la tarea se detuvo en un paso que falló, o no pudo empezar.
 
 Se pueden subir, bajar y quitar pasos.
+
+#### Solo si…
+
+El motor de tareas entiende, en la configuración de **cualquier** paso, una
+condición **Solo si…**:
+
+- **Siempre** (lo habitual).
+- **Un paso anterior tuvo una alerta:** el paso corre solo si algún paso
+  anterior levantó un aviso. Hoy lo levanta la **comparación de esquemas**
+  cuando encuentra diferencias.
+- **Un paso anterior falló:** el paso corre solo si algún paso anterior
+  falló y la tarea siguió.
+
+Cuando la condición no se cumple, el paso **no corre** y queda en el
+historial como **Bien**, con el resumen «No se ejecutó: ningún paso anterior
+tuvo alertas» (o «…falló»). Para que un paso corra después de un fallo, el
+paso que falla tiene que estar en **Si falla, seguir con el próximo**: si
+detiene la tarea, los que siguen no llegan a evaluarse.
+
+La interfaz ofrece hoy **Solo si…** en el paso **Enviar un mail**.
 
 ## Tipos de paso
 
@@ -113,6 +133,47 @@ estaba.
 
 La copia produce `file` y `rows`.
 
+### Documentar la base
+
+Escribe el diccionario de datos de una conexión › base en una **Carpeta**, con
+el **Nombre del archivo** que elijas (la extensión se agrega sola:
+`.html` o `.md`). Tiene las mismas opciones que **Documentar la base…** del
+explorador ([`documentar-la-base.md`](documentar-la-base.md)): el **Formato**
+(HTML o Markdown), los **Esquemas** (vacío, todos) y qué incluir (tablas,
+vistas, rutinas, triggers, otros objetos, código fuente, índices, claves
+foráneas, dependencias y diagrama).
+
+- Lee la base en una **sesión de solo lectura**, así que no pide aprobación.
+- Lo que el motor no tiene o no se puede leer no hace fallar el paso: queda
+  como nota en el documento y en el historial.
+- Produce `file` y `tables`.
+- Sin que la tarea mande sus textos, el documento sale en español.
+
+### Enviar un mail
+
+Manda un mail con el servidor que se configura en
+[**Configuración › Correo**](#configuración--correo).
+
+- **Para** y **CC**: direcciones separadas por coma, punto y coma o líneas.
+- **Asunto** y **Texto**.
+- **Adjuntos**: rutas de archivos. Con variables, `{steps.1.file}` adjunta el
+  archivo que produjo el paso 1 (la comparación de esquemas, una exportación,
+  un backup, la documentación). Si un adjunto no existe o no es un archivo,
+  el paso falla. **Los adjuntos pueden sumar hasta 20 MB.**
+- **Solo si…**: ver [arriba](#solo-si). Con **Un paso anterior falló**, el
+  paso que falla tiene que seguir con el próximo.
+
+Todos los campos admiten [variables](#variables). El paso falla, con el
+motivo en el historial, si no hay un servidor configurado, si una dirección no
+es válida o si el servidor rechaza el mail.
+
+**El historial no guarda el texto del mail**: solo los destinatarios y los
+nombres de los adjuntos. Produce `recipients` (la cantidad de destinatarios,
+con los de CC).
+
+Un mail no cambia la base, así que el paso no pide aprobación. Cuidado con
+lo que adjuntás: el archivo sale de esta máquina.
+
 ## Variables
 
 En los nombres de archivo, las carpetas y los scripts se pueden usar:
@@ -138,6 +199,8 @@ Lo que produce cada paso:
 | Exportar a archivo | `file`, `rows` |
 | Comparar esquemas | `differences`, `file` |
 | Copia de DBine | `file`, `rows` |
+| Documentar la base | `file`, `tables` |
+| Enviar un mail | `recipients` |
 
 Ejemplo: un paso 1 que exporta y un paso 2 que guarda una copia como
 `copia-{steps.1.rows}` genera `copia-1204.sql` si el paso 1 exportó 1204
@@ -175,8 +238,9 @@ corre sola, sin que nadie la mire. Por eso hay que aprobarla.
   no pide aprobar otra vez.
 - Una conexión de **solo lectura** sigue siendo de solo lectura en la tarea y
   no necesita aprobación.
-- Exportar, comparar y hacer backups no piden aprobación: no cambian la base
-  (la comparación escribe un script en un archivo, no lo ejecuta).
+- Exportar, comparar, hacer backups, documentar la base y enviar mails no
+  piden aprobación: no cambian la base (la comparación escribe un script en
+  un archivo, no lo ejecuta).
 
 ## Cómo corre con DBine cerrado
 
@@ -231,11 +295,34 @@ Cada tarea guarda sus **últimas 200 corridas**. De cada una se ve:
 
 **No se guardan** los resultados ni las filas de datos, ni las contraseñas.
 
+## Configuración › Correo
+
+El servidor que usan los pasos **Enviar un mail**. Está en **Configuración ›
+Correo** y se guarda **solo en esta máquina**: las tareas corren acá, así que
+no se sincroniza.
+
+- **Servidor SMTP** y **Puerto** (587 por defecto).
+- **Seguridad:** **STARTTLS (puerto 587)**, **SSL/TLS (puerto 465)** o
+  **Sin cifrar**. Sin cifrar, el usuario, la contraseña y los mails viajan
+  legibles por la red: usalo solo con un servidor de tu red local.
+- **Usuario** y **Contraseña**: vacíos si el servidor no pide iniciar sesión.
+  **La contraseña se guarda en el llavero del sistema**, nunca en el archivo
+  de estado ni en los logs. Si la dejás vacía, se conserva la guardada
+  (**Guardada**); sin usuario no se guarda ninguna.
+- **Dirección del remitente** (obligatoria) y **Nombre del remitente**.
+- **Enviar un mail de prueba:** manda un mail al destinatario que escribas,
+  con lo que hay en el formulario (esté guardado o no). Si falla, dice qué:
+  conexión rechazada o sin respuesta, falla de la conexión segura (la
+  seguridad no corresponde al puerto), usuario o contraseña rechazados, o el
+  rechazo del servidor.
+
+Cada comando SMTP espera hasta 30 segundos y el envío completo, 120.
+
 ## Solo en esta máquina
 
 Las tareas apuntan a las conexiones y las carpetas de esta máquina. **No
 forman parte del backup ni de la sincronización en la nube**, y restaurar un
-backup no las borra.
+backup no las borra. Lo mismo vale para el servidor de correo y su contraseña.
 
 Qué soporta cada motor está en
 [`soporte-por-motor.md`](soporte-por-motor.md#tareas-programadas).
@@ -251,6 +338,12 @@ existe.
 - **Comparar esquemas:** la carga del esquema y `Driver::sync_script`.
 - **Backup del motor:** `Driver::backup()` y `Driver::backup_script()`.
   **Copia de DBine:** `list_objects` y la generación de scripts.
+- **Documentar la base:** lo mismo que la función
+  ([`documentar-la-base.md`](documentar-la-base.md)), en una sesión de solo
+  lectura.
+- **Enviar un mail:** no usa el driver; envía por SMTP con el servidor de
+  **Configuración › Correo**. Comandos: `mail_settings_get`,
+  `mail_settings_save` y `mail_test`.
 
 El modelo (`ScheduledTask`, `Step`, `TaskRun`) está en
 `crates/dbine-core/src/tasks.rs`. Cada tipo de paso es una función en

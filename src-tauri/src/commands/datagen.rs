@@ -29,15 +29,16 @@ const MAX_ROWS: u64 = 10_000_000;
 
 // -- random numbers --------------------------------------------------------------------
 
-/// xorshift64*: fast, good enough for test data, no dependency.
-struct Rng(u64);
+/// xorshift64*: fast, good enough for test data, no dependency. Masking
+/// (`subset`) seeds it from each original value.
+pub(crate) struct Rng(u64);
 
 impl Rng {
-    fn new(seed: Option<u64>) -> Self {
+    pub(crate) fn new(seed: Option<u64>) -> Self {
         let s = seed.unwrap_or_else(|| uuid::Uuid::new_v4().as_u64_pair().0);
         Rng(s | 1)
     }
-    fn next(&mut self) -> u64 {
+    pub(crate) fn next(&mut self) -> u64 {
         let mut x = self.0;
         x ^= x >> 12;
         x ^= x << 25;
@@ -46,13 +47,13 @@ impl Rng {
         x.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
     /// In `[lo, hi]`.
-    fn range(&mut self, lo: i64, hi: i64) -> i64 {
+    pub(crate) fn range(&mut self, lo: i64, hi: i64) -> i64 {
         if hi <= lo {
             return lo;
         }
         lo + (self.next() % ((hi - lo) as u64 + 1)) as i64
     }
-    fn float(&mut self) -> f64 {
+    pub(crate) fn float(&mut self) -> f64 {
         (self.next() >> 11) as f64 / (1u64 << 53) as f64
     }
     fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
@@ -146,7 +147,7 @@ struct Meta {
 }
 
 /// The length in `varchar(40)` / `nvarchar(max)` (None for max or none).
-fn length(ty: &str) -> Option<usize> {
+pub(crate) fn length(ty: &str) -> Option<usize> {
     let open = ty.find('(')?;
     let inner = &ty[open + 1..ty[open..].find(')').map(|c| open + c)?];
     inner.split(',').next()?.trim().parse().ok()
@@ -388,6 +389,27 @@ fn value(g: &mut Gen, rng: &mut Rng, row: u64, len: Option<usize>) -> Value {
         Gen::List(v) => s(rng.pick(v).clone()),
         Gen::Pool(v) => rng.pick(v).clone(),
     }
+}
+
+/// A made-up value of one of the person / place generators (`first_name`,
+/// `last_name`, `full_name`, `email`, `phone`, `city`, `country`,
+/// `company`, `address`, `uuid`), exactly as that generator makes it;
+/// `None` for other ids. Masking (`subset`) uses it.
+pub(crate) fn fake(id: &str, rng: &mut Rng, row: u64, len: Option<usize>) -> Option<Value> {
+    let mut g = match id {
+        "first_name" => Gen::First,
+        "last_name" => Gen::Last,
+        "full_name" => Gen::Full,
+        "email" => Gen::Email,
+        "phone" => Gen::Phone,
+        "city" => Gen::City,
+        "country" => Gen::Country,
+        "company" => Gen::Company,
+        "address" => Gen::Address,
+        "uuid" => Gen::Uuid,
+        _ => return None,
+    };
+    Some(value(&mut g, rng, row, len))
 }
 
 /// Resolved generators, in column order, with the columns that go in the INSERT.

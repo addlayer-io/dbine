@@ -64,7 +64,9 @@
     "run_script": "Run a script",
     "export": "Export to file",
     "compare_schemas": "Compare schemas",
-    "backup": "Backup"
+    "backup": "Backup",
+    "document": "Document the database",
+    "send_mail": "Send an email"
   },
   "step": {
     "namePlaceholder": "Name (optional)",
@@ -96,6 +98,27 @@
     "folder": "Folder",
     "pickFolder": "Destination folder",
     "fileName": "File name"
+  },
+  "mail": {
+    "to": "To",
+    "toPlaceholder": "ana@example.com, beto@example.com",
+    "cc": "CC",
+    "subject": "Subject",
+    "body": "Body",
+    "attachments": "Attachments",
+    "addAttachment": "Add attachment",
+    "pickFile": "Choose file",
+    "removeAttachment": "Remove the attachment",
+    "attachmentsHint": "File paths, with variables: {steps.1.file} is the file from step 1. If an attachment doesn't exist, the step fails. Attachments can add up to 20 MB.",
+    "when": "Only if…",
+    "whenOptions": {
+      "always": "Always",
+      "alert": "A previous step raised an alert",
+      "errors": "A previous step failed"
+    },
+    "errorsHint": "For the email to go out when a step fails, that step must be set to \"If it fails, continue with the next one\".",
+    "noServer": "The mail server is not configured yet.",
+    "configure": "Configure mail"
   },
   "formats": {
     "csv": "CSV",

@@ -23,6 +23,8 @@ pub(super) async fn run(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResul
         kinds::EXPORT => export(ctx, step, vars).await,
         kinds::COMPARE_SCHEMAS => compare_schemas(ctx, step, vars).await,
         kinds::BACKUP => backup(ctx, step, vars).await,
+        kinds::DOCUMENT => document(ctx, step, vars).await,
+        kinds::SEND_MAIL => super::mail::step(ctx.state, step, vars).await,
         other => Err(CommandError::BadRequest(format!("esta versión de DBine no sabe ejecutar pasos «{other}»"))),
     }
 }
@@ -410,6 +412,37 @@ async fn backup(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
     };
     done.outputs.insert("file".into(), copy.path);
     done.outputs.insert("rows".into(), copy.rows.to_string());
+    Ok(done)
+}
+
+// -- document the database ---------------------------------------------------
+
+#[derive(Deserialize)]
+struct DocumentConfig {
+    #[serde(flatten)]
+    target: Target,
+    folder: String,
+    #[serde(default)]
+    file_name: String,
+    /// Format, schemas and parts, as the "Documentar la base" dialog has them.
+    #[serde(default)]
+    options: crate::dbdocs::DocOptions,
+}
+
+async fn document(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDone> {
+    let c: DocumentConfig = config(step)?;
+    need_connection(&c.target)?;
+    let path = out_path(&c.folder, &c.file_name, c.options.format.extension(), vars)?;
+    let key = format!("{}:{}", ctx.run_key, step.id);
+    let built = crate::commands::dbdocs::document(ctx.state, &key, &c.target.connection_id, &c.target.database, &c.options, &|_, _, _| {}).await?;
+    std::fs::write(&path, &built.text).map_err(|e| CommandError::Internal(format!("no se pudo escribir {}: {e}", path.display())))?;
+    let mut done = StepDone {
+        summary: format!("{} y {} documentados en {}", plural(built.tables as u64, "tabla", "tablas"), plural(built.objects as u64, "objeto", "objetos"), shown(&path)),
+        messages: built.notes,
+        ..Default::default()
+    };
+    done.outputs.insert("file".into(), shown(&path));
+    done.outputs.insert("tables".into(), built.tables.to_string());
     Ok(done)
 }
 
