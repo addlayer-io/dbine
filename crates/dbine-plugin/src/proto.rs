@@ -205,6 +205,9 @@ pub enum Call {
     /// "Buscar en la base" from the catalog. A host published before it
     /// answers `Unsupported`, and the app scans the definitions itself.
     SearchCode { session: u64, query: dbine_driver::search::CodeSearch },
+    /// "Chequeo de salud": the engine's own findings. A host published
+    /// before it answers `Unsupported` (none of its own).
+    HealthChecks { session: u64, database: String },
 }
 
 /// Host → app.
@@ -266,6 +269,7 @@ pub enum Reply {
     Choices(Vec<dbine_driver::FieldChoices>),
     DatabaseProperties(dbine_driver::DatabaseProperties),
     CodeSearch(Option<dbine_driver::search::CodeSearchReport>),
+    HealthChecks(Vec<dbine_driver::health::HealthCheck>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -635,6 +639,7 @@ mod tests {
             (19, Call::AlterDatabaseScript { driver: "sqlserver".into(), database: "v".into(), changes: Default::default() }, "AlterDatabaseScript"),
             (20, Call::AlterDatabase { session: 3, database: "v".into(), changes: Default::default() }, "AlterDatabase"),
             (21, Call::SearchCode { session: 3, query: Default::default() }, "SearchCode"),
+            (22, Call::HealthChecks { session: 3, database: "v".into() }, "HealthChecks"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

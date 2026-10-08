@@ -31,6 +31,7 @@ pub mod profiler;
 pub mod read_only;
 pub mod runtime;
 pub mod schema;
+pub mod health;
 pub mod search;
 pub mod serde_static;
 pub mod sql;
@@ -812,6 +813,14 @@ pub trait Session: Send {
     /// engine tracks dependencies override it with catalog queries.
     async fn dependents(&mut self, target: &DependencyTarget, scan: &DependencyScan) -> Result<DependencyReport> {
         dependencies::scan(self, target, scan).await
+    }
+
+    /// The engine's own "Chequeo de salud" findings for `database` (see
+    /// [`health`]): configuration, statistics, space, bloat… The app adds
+    /// the checks every engine shares. Empty: none of its own.
+    async fn health_checks(&mut self, database: &str) -> Result<Vec<health::HealthCheck>> {
+        let _ = database;
+        Ok(Vec::new())
     }
 
     /// "Buscar en la base" in one catalog query (see [`search`]). `None`:

@@ -47,6 +47,7 @@ function title(t: Tab): string {
   }
   if (t.kind === 'compare') return `${tr('workbench:tabs.compare')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'indexes') return `${tr('explorer:indexes.tab')} · ${t.object.name}`;
+  if (t.kind === 'health') return `${tr('health:tab')} · ${t.database}`;
   if (t.kind === 'search') return `${tr('search:tab')} · ${t.database}`;
   if (t.kind === 'dependencies') return `${tr('dependencies:tab')} · ${t.column ? `${t.object.name}.${t.column}` : t.object.name}`;
   if (t.kind === 'backups') return `${tr('backups:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
@@ -114,7 +115,7 @@ const rows = computed<Row[]>(() => {
         : titles[i],
       tooltip: tooltip(t),
       color: inGroup ? groupColor(t.connectionId) : conns.colorOf(t.connectionId),
-      icon: { query: 'document', file: 'document', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', connection: 'connection' }[t.kind],
+      icon: { query: 'document', file: 'document', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', health: 'first-aid-kit', connection: 'connection' }[t.kind],
     });
   });
   return out;

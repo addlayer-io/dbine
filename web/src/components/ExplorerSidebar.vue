@@ -739,6 +739,7 @@ async function onContext(e: MouseEvent, n: TNode) {
     case 'database':
       items.push({ label: t('explorer:menu.newQuery'), action: () => newQuery(cid!, db) });
       items.push({ label: t('search:menu'), action: () => tabs.openSearch(cid!, db) });
+      items.push({ label: t('health:menu'), action: () => tabs.openHealth(cid!, db) });
       dbItems(cid!, db, items);
       items.push({ label: t('common:refresh'), divided: true, action: () => loadDatabase(cid!, db, true) });
       items.push({ label: t('explorer:menu.copyName'), action: () => copy(db) });

@@ -1111,6 +1111,15 @@ impl Session for RemoteSession {
     async fn rollback(&mut self) -> Result<()> {
         self.host.call(Call::Rollback { session: self.id }).await.map(|_| ())
     }
+    async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        match self.host.call(Call::HealthChecks { session: self.id, database: database.to_string() }).await {
+            Ok(Reply::HealthChecks(v)) => Ok(v),
+            // A host built before the call: no checks of its own.
+            Err(Error::Unsupported(_)) => Ok(Vec::new()),
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
     async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         match self.host.call(Call::SearchCode { session: self.id, query: query.clone() }).await {
             Ok(Reply::CodeSearch(r)) => Ok(r),

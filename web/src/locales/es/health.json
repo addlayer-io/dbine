@@ -1,0 +1,20 @@
+{
+  "menu": "Chequeo de salud",
+  "tab": "Salud",
+  "title": "Chequeo de salud · {{name}}",
+  "checkedAt": "Revisado el {{at}}",
+  "run": "Volver a revisar",
+  "running": "Revisando la base…",
+  "showOk": "Mostrar lo que está bien",
+  "severity": {
+    "critical": "Críticos",
+    "warning": "Advertencias",
+    "info": "Información",
+    "ok": "Bien"
+  },
+  "openFix": "Abrir en una consulta",
+  "fixName": "Corrección: {{title}}",
+  "more": "y {{count}} más",
+  "allOk": "No se encontraron problemas.",
+  "skipped": "No se pudieron revisar:"
+}
