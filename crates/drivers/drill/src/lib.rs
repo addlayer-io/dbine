@@ -16,6 +16,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod stats;
 mod transfer;
 
 use base64::Engine as _;
@@ -826,6 +827,10 @@ impl Session for DrillSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel_running(id).await
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

@@ -16,6 +16,7 @@ mod profiler;
 mod properties;
 #[path = "../../trino/src/script.rs"]
 mod script;
+mod stats;
 mod sync;
 mod transfer;
 
@@ -613,6 +614,14 @@ impl Session for AthenaSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.run(&create_db::script(name, options)?, 1).await.map(|_| ())
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        stats::object_comments(self).await
     }
 
     async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {

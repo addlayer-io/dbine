@@ -24,6 +24,7 @@ mod properties;
 mod script;
 mod search;
 mod security;
+mod stats;
 mod sync;
 mod transfer;
 
@@ -892,6 +893,14 @@ impl Session for DatabricksSession {
     /// "Chequeo de salud": cost and maintenance from control-plane calls (see `health`).
     async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
+    }
+
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        stats::object_comments(self).await
     }
 
     async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {

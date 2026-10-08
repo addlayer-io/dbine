@@ -15,6 +15,7 @@ mod index_usage;
 mod monitor;
 mod plan;
 mod proto;
+mod stats;
 mod sync;
 mod transfer;
 
@@ -989,6 +990,10 @@ impl Session for PhoenixSession {
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
         Err(Error::Unsupported(UNSUPPORTED_PROCESSES.into()))
+    }
+
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        stats::row_estimates(self).await
     }
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
