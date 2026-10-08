@@ -544,8 +544,16 @@ un objeto o un array JSON). En los motores de documentos DBine recuerda la
 - **Menú contextual:** copiar el valor, la ruta (`cliente.contacto.email`) o el
   documento entero en JSON, ver el valor completo, expandir todo debajo y,
   en los campos de primer nivel, filtrar los datos por ese valor.
-- **Solo lectura:** las ediciones, los borrados y las filas nuevas de la grilla
-  se ven en el árbol, pero se hacen en la vista de tabla.
+- **Edición**, con las mismas reglas que la grilla y compartiendo sus cambios
+  pendientes: doble clic, Enter, F2 o empezar a escribir edita un valor, también
+  uno anidado; «Editar como JSON…» reemplaza un objeto o un array; «Quitar este
+  campo» saca un campo o un elemento anidado; Supr marca el documento para
+  eliminar. Un número sigue siendo número y un booleano, booleano. El `_id` no
+  se edita.
+- **Cómo se guarda un cambio anidado:** se reescribe el campo de primer nivel
+  entero (por ejemplo, `cliente` con su `contacto.email` nuevo), así el código
+  de actualización de cada motor lo aplica igual. En los motores de documentos
+  va como objeto, también cuando se edita el campo desde la tabla.
 
 ## Asistente de IA
 

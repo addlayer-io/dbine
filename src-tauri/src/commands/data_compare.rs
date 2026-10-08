@@ -601,6 +601,25 @@ mod tests {
         assert!(failed.is_empty(), "{failed:#?}");
     }
 
+    /// A nested field edited in the grid or the JSON tree reaches document
+    /// engines as an object (the UI parses its JSON text): the update code
+    /// writes it as a document, not as a quoted string.
+    #[test]
+    fn document_engines_write_an_edited_nested_field_as_an_object() {
+        let coll = ObjectRef { kind: "collection".into(), schema: None, name: "pedidos".into() };
+        let change = RowChange {
+            key: vec![("_id".into(), json!("65a1b2c3d4e5f60718293a4b"))],
+            set: vec![("cliente".into(), json!({"nombre": "Ana", "contacto": {"email": "ana@ejemplo.com"}}))],
+            row: vec![],
+        };
+        for id in ["mongodb", "couchdb", "elasticsearch"] {
+            let d = dbine_drivers::find(id).unwrap();
+            let script = d.update_script(&coll, std::slice::from_ref(&change)).unwrap();
+            assert!(script.contains("ana@ejemplo.com"), "{id}: {script}");
+            assert!(!script.contains("\\\"email\\\"") && !script.contains("\"{\\\""), "{id}: nested field went as a string: {script}");
+        }
+    }
+
     #[test]
     fn statement_count_is_the_sum_of_the_parts() {
         let target = ObjectRef { kind: "table".into(), schema: Some("s".into()), name: "t".into() };

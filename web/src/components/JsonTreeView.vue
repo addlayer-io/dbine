@@ -5,8 +5,10 @@ import { t } from '../i18n';
 import type { Cell, ResultColumn } from '../api/types';
 import type { Edits } from '../composables/gridEdit';
 import { columnKind, parseFilter, type FilterState } from '../composables/gridFilter';
+import { isSaveShortcut } from '../composables/shortcuts';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import CellViewer from './CellViewer.vue';
+import CodeEditor from './CodeEditor.vue';
 
 // The result as a tree: one node per row (a document), its fields under it,
 // nested objects and arrays as far down as they go. Virtualized like the
@@ -15,8 +17,11 @@ import CellViewer from './CellViewer.vue';
 // Arrays with many items open in groups of CHUNK ([0…99], [100…199]…).
 // Nested values that arrive as JSON text (document engines send nested
 // fields like that; SQL json/jsonb columns too) are parsed for the tree.
-// Read-only: the grid's edits show here (and deleted rows struck through),
-// editing happens in the table view.
+// Editing works as in the grid and shares its edits: a value (nested too)
+// is edited in place, a container as JSON, a nested field can be removed and
+// a document marked for deletion. A nested change becomes a new value of its
+// top-level field (the whole field, as JSON), so every engine's update code
+// applies it; the pane sends it as an object to document engines.
 
 const props = defineProps<{
   columns: ResultColumn[];
@@ -29,9 +34,22 @@ const props = defineProps<{
   added?: number;
   /** "Filtrar por este valor" on top-level fields. */
   filterable?: boolean;
+  /** The result's rows can be edited (as in the grid). */
+  editable?: boolean;
+  /** Why they can't, shown when trying. */
+  noEditReason?: string | null;
+  /** New rows can be added (their values edited here too). */
+  insertable?: boolean;
+  /** Rows can be marked for deletion. */
+  deletable?: boolean;
+  noDeleteReason?: string | null;
 }>();
 const emit = defineEmits<{
   filter: [column: string, state: FilterState | null];
+  /** A top-level field's new value (`undefined` reverts it), as the grid's. */
+  edit: [row: number, col: number, value: Cell | undefined];
+  /** Mark (`true`) or unmark rows for deletion (new rows are dropped). */
+  delete: [rows: number[], mark: boolean];
 }>();
 
 const ROW_H = 22;
@@ -77,7 +95,10 @@ function cellAt(r: number, c: number): Cell {
 }
 /** Parsed rows, built on first use (a row's object only when it's shown). */
 let cache = new Map<number, Record<string, unknown>>();
-watch(() => [props.rows, props.edits, props.columns], () => { cache = new Map(); version.value++; }, { deep: false });
+watch(() => [props.rows, props.columns], () => { cache = new Map(); original = new Map(); version.value++; });
+// Edits change in place (a cell set in the grid or here): deep.
+watch(() => props.edits, () => { cache = new Map(); version.value++; }, { deep: true });
+watch(() => props.deleted, () => { version.value++; }, { deep: true });
 /** Bumped when the parsed rows change, so the flat list recomputes. */
 const version = ref(0);
 function rowObject(r: number): Record<string, unknown> {
@@ -94,6 +115,31 @@ function rowObject(r: number): Record<string, unknown> {
   }
   return o;
 }
+/** A field's value as the server sent it (no edits), parsed, for "edited". */
+let original = new Map<string, unknown>();
+function originalField(r: number, c: number): unknown {
+  const k = `${r}:${c}`;
+  if (!original.has(k)) original.set(k, parseCell(props.rows[r]?.[c] ?? null));
+  return original.get(k);
+}
+function valueAtPath(v: unknown, path: Seg[]): unknown {
+  let cur = v;
+  for (const s of path) {
+    if (cur === null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[s as string];
+  }
+  return cur;
+}
+const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
+const colIndex = (name: Seg | undefined) => props.columns.findIndex((c) => c.name === name);
+/** The node's value differs from what the server sent (an edit here or in the grid). */
+function isEditedNode(n: TreeNode): boolean {
+  if (!n.path.length || n.kind === 'chunk' || n.row >= base.value) return false;
+  const c = colIndex(n.path[0]);
+  if (c < 0 || !(props.edits?.[n.row] && c in props.edits[n.row])) return false;
+  return !same(valueAtPath(originalField(n.row, c), n.path.slice(1)), n.value);
+}
+
 const columnType = computed(() => new Map(props.columns.map((c) => [c.name, (c.type_name ?? '').toLowerCase()])));
 const ISO = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
 function kindOf(v: unknown, key: Seg | null, depth: number): Kind {
@@ -270,6 +316,14 @@ function onKey(e: KeyboardEvent) {
   const mod = e.metaKey || e.ctrlKey;
   if (mod && e.key.toLowerCase() === 'c' && n) { e.preventDefault(); copyValue(n); return; }
   if (mod && e.key.toLowerCase() === 'f') { e.preventDefault(); searchInput.value?.focus(); return; }
+  if (n && !mod && !e.altKey) {
+    if (e.key === 'F2') { e.preventDefault(); startEdit(n); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && n.depth === 0) { e.preventDefault(); toggleDelete(n); return; }
+    if (!isContainer(n) && canEditNode(n)) {
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); startEdit(n, ''); return; }
+      if (e.key.length === 1 && e.key !== ' ') { e.preventDefault(); startEdit(n, e.key); return; }
+    }
+  }
   const moves: Record<string, () => void> = {
     ArrowDown: () => select(Math.min(flat.value.length - 1, i + 1)),
     ArrowUp: () => select(Math.max(0, i - 1)),
@@ -287,7 +341,7 @@ function onKey(e: KeyboardEvent) {
       if (isContainer(n) && isOpenNode(n) && expanded.value.has(n.id)) toggle(n, false);
       else { const p = parentIndex(i); if (p >= 0) select(p); }
     },
-    Enter: () => { if (n) { if (isContainer(n)) toggle(n); else openViewer(n); } },
+    Enter: () => { if (n) { if (isContainer(n)) toggle(n); else if (canEditNode(n)) startEdit(n); else openViewer(n); } },
     ' ': () => { if (n && isContainer(n)) toggle(n); },
   };
   const f = moves[e.key];
@@ -391,6 +445,130 @@ function typeLabel(n: TreeNode): string {
 }
 const rowState = (n: TreeNode) => (props.deleted?.has(n.row) ? 'deleted' : n.row >= base.value ? 'added' : '');
 
+// -- editing ----------------------------------------------------------------------------------
+const isDeletedRow = (r: number) => !!props.deleted?.has(r);
+/** A row's values can be edited: the result's when editable, new rows when
+ *  rows can be added. `_id` (the key) isn't edited here. */
+const canEditRow = (r: number) => (r >= base.value ? !!props.insertable : !!props.editable);
+function canEditNode(n: TreeNode) {
+  return n.path.length > 0 && n.kind !== 'chunk' && !(n.path.length === 1 && n.key === '_id') && canEditRow(n.row) && !isDeletedRow(n.row);
+}
+function explainNoEdit(n: TreeNode) {
+  if (isDeletedRow(n.row)) { ElMessage.info({ message: t('results:grid.rowDeleted'), duration: 3500 }); return; }
+  if (n.path.length === 1 && n.key === '_id') { ElMessage.info({ message: t('results:tree.idNotEditable'), duration: 3500 }); return; }
+  if (!canEditRow(n.row) && props.noEditReason) ElMessage.info({ message: t('results:grid.cantEdit', { reason: props.noEditReason }), duration: 3500 });
+}
+/** Sets (or removes) the value at the node's path: a top-level scalar goes as
+ *  is; anything else rewrites its top-level field as JSON text, the way the
+ *  driver sends nested values. Back to the server's value: the edit goes. */
+function change(n: TreeNode, op: { set: unknown } | { remove: true }) {
+  const [field, ...rest] = n.path;
+  const c = colIndex(field);
+  if (c < 0) return;
+  const r = n.row;
+  let next: unknown;
+  if (!rest.length) {
+    if ('remove' in op) return;
+    next = op.set;
+  } else {
+    const root = structuredClone(rowObject(r)[field as string]);
+    let parent = root as Record<string, unknown> | unknown[];
+    for (const s of rest.slice(0, -1)) parent = (parent as Record<string, unknown>)[s as string] as Record<string, unknown>;
+    const last = rest[rest.length - 1];
+    if ('remove' in op) {
+      if (Array.isArray(parent)) parent.splice(last as number, 1);
+      else delete (parent as Record<string, unknown>)[last as string];
+    } else (parent as Record<string, unknown>)[last as string] = op.set;
+    next = root;
+  }
+  const cell: Cell = next !== null && typeof next === 'object' ? JSON.stringify(next) : (next as Cell);
+  if (r < base.value && same(parseCell(cell), originalField(r, c))) { emit('edit', r, c, undefined); return; }
+  emit('edit', r, c, cell);
+}
+
+const editing = ref<{ id: string; text: string } | null>(null);
+const editInput = ref<HTMLInputElement[] | HTMLInputElement | null>(null);
+function startEdit(n: TreeNode, text?: string) {
+  if (!canEditNode(n)) { explainNoEdit(n); return; }
+  if (isContainer(n)) { openJson(n); return; }
+  selected.value = n.id;
+  editing.value = { id: n.id, text: text ?? (n.value === null || n.value === undefined ? '' : String(n.value)) };
+  nextTick(() => {
+    const el = Array.isArray(editInput.value) ? editInput.value[0] : editInput.value;
+    el?.focus();
+    if (text === undefined) el?.select();
+  });
+}
+/** The typed text as a value like the one it replaces: numbers stay numbers,
+ *  booleans booleans; a null field takes JSON (`12`, `true`, `{…}`) or text. */
+function typed(n: TreeNode, text: string): unknown {
+  const v = text.trim();
+  switch (n.kind) {
+    case 'number': return v === '' ? null : Number.isNaN(Number(v)) ? text : Number(v);
+    case 'bool':
+      if (/^(true|verdadero|1|sí|si)$/i.test(v)) return true;
+      if (/^(false|falso|0|no)$/i.test(v)) return false;
+      return v === '' ? null : text;
+    case 'null':
+      if (v === '') return null;
+      try { return JSON.parse(v); } catch { return text; }
+    default: return text;
+  }
+}
+function commitEdit(move = 0) {
+  const e = editing.value;
+  if (!e) return;
+  editing.value = null;
+  const i = flat.value.findIndex((x) => x.id === e.id);
+  const n = flat.value[i];
+  if (n) {
+    const v = typed(n, e.text);
+    if (!same(v, n.value)) change(n, { set: v });
+    if (move) nextTick(() => select(Math.max(0, Math.min(flat.value.length - 1, i + move))));
+  }
+  scroller.value?.focus();
+}
+function cancelEdit() {
+  editing.value = null;
+  scroller.value?.focus();
+}
+function onEditKey(ev: KeyboardEvent) {
+  if (ev.key === 'Enter') { ev.preventDefault(); commitEdit(1); }
+  else if (ev.key === 'Tab') { ev.preventDefault(); commitEdit(ev.shiftKey ? -1 : 1); }
+  else if (ev.key === 'Escape') { ev.preventDefault(); cancelEdit(); }
+  // ⌘S keeps the value and goes on to the pane, which saves.
+  else if (isSaveShortcut(ev)) { commitEdit(); return; }
+  ev.stopPropagation();
+}
+watch(() => props.rows, () => { editing.value = null; });
+
+/** "Editar como JSON…": an object or array (or any value) typed as JSON. */
+const jsonEdit = ref<{ node: TreeNode; text: string; error: string | null } | null>(null);
+function openJson(n: TreeNode) {
+  if (!canEditNode(n)) { explainNoEdit(n); return; }
+  jsonEdit.value = { node: n, text: JSON.stringify(n.value ?? null, null, 2), error: null };
+}
+function saveJson() {
+  const j = jsonEdit.value;
+  if (!j) return;
+  let v: unknown;
+  try { v = JSON.parse(j.text); } catch (e) {
+    j.error = t('results:addDocument.invalidJson', { error: e instanceof Error ? e.message : String(e) });
+    return;
+  }
+  jsonEdit.value = null;
+  if (!same(v, j.node.value)) change(j.node, { set: v });
+}
+function toggleDelete(n: TreeNode) {
+  if (n.row >= base.value) { emit('delete', [n.row], true); return; }
+  if (!props.deletable) {
+    const reason = props.noDeleteReason ?? props.noEditReason;
+    if (reason) ElMessage.info({ message: t('results:grid.cantDelete', { reason }), duration: 3500 });
+    return;
+  }
+  emit('delete', [n.row], !isDeletedRow(n.row));
+}
+
 // -- copy / viewer / menu --------------------------------------------------------------------
 async function copy(text: string) {
   await navigator.clipboard.writeText(text);
@@ -414,12 +592,33 @@ function onContext(e: MouseEvent, i: number) {
   e.preventDefault();
   const n = flat.value[i];
   selected.value = n.id;
-  const items: MenuItem[] = [
-    { label: t('results:tree.copyValue'), shortcut: '⌘C', action: () => copyValue(n) },
+  const editable = canEditNode(n);
+  const items: MenuItem[] = [];
+  if (n.depth === 0) {
+    const restore = isDeletedRow(n.row);
+    items.push({
+      label: n.row >= base.value ? t('results:grid.removeNewRow') : t(restore ? 'results:tree.restoreDocument' : 'results:tree.deleteDocument'),
+      danger: !restore && n.row < base.value && props.deletable, shortcut: '⌦',
+      disabled: n.row < base.value && !props.deletable,
+      hint: n.row < base.value && !props.deletable ? (props.noDeleteReason ?? props.noEditReason ?? undefined) : undefined,
+      action: () => toggleDelete(n),
+    });
+  } else if (n.kind !== 'chunk') {
+    if (!isContainer(n)) items.push({ label: t('results:tree.editValue'), shortcut: 'F2', disabled: !editable, action: () => startEdit(n) });
+    items.push({ label: t('results:tree.editJson'), disabled: !editable, action: () => openJson(n) });
+    items.push({ label: t('results:grid.setNull'), disabled: !editable || n.value === null, action: () => change(n, { set: null }) });
+    if (n.path.length > 1) items.push({ label: t('results:tree.removeField'), danger: editable, disabled: !editable, action: () => change(n, { remove: true }) });
+    if (isEditedNode(n)) {
+      items.push({ label: t('results:grid.undoChange'), action: () => change(n, { set: valueAtPath(originalField(n.row, colIndex(n.path[0])), n.path.slice(1)) ?? null }) });
+    }
+    if (!editable && props.noEditReason && !canEditRow(n.row)) items.push({ label: t('results:grid.notEditable', { reason: props.noEditReason }), disabled: true });
+  }
+  items.push(
+    { label: t('results:tree.copyValue'), shortcut: '⌘C', divided: items.length > 0, action: () => copyValue(n) },
     { label: t('results:tree.copyPath'), disabled: !n.path.length, action: () => copy(pathText(n)) },
     { label: t('results:tree.copyDocument'), action: () => copy(JSON.stringify(rowObject(n.row), null, 2)) },
     { label: t('results:tree.viewValue'), action: () => openViewer(n) },
-  ];
+  );
   if (isContainer(n) && n.size) {
     items.push({ label: t('results:tree.expandBelow'), divided: true, action: () => expandLevels(64, [n]) });
     items.push({ label: t('results:tree.collapse'), disabled: !expanded.value.has(n.id), action: () => toggle(n, false) });
@@ -472,7 +671,7 @@ function onContext(e: MouseEvent, i: number) {
           :aria-expanded="isContainer(n) ? isOpenNode(n) : undefined"
           @mousedown="selected = n.id"
           @click="isContainer(n) && ($event.target as HTMLElement).closest('.jt-twisty') ? toggle(n) : null"
-          @dblclick="isContainer(n) ? toggle(n) : openViewer(n)"
+          @dblclick="isContainer(n) ? toggle(n) : canEditNode(n) ? startEdit(n) : openViewer(n)"
           @contextmenu="onContext($event, i)"
         >
           <span class="jt-twisty" :class="{ open: isOpenNode(n), leaf: !isContainer(n) || !n.size }">
@@ -483,11 +682,22 @@ function onContext(e: MouseEvent, i: number) {
           </span>
           <template v-if="n.kind !== 'chunk'">
             <span class="jt-colon">:</span>
-            <span v-if="isContainer(n)" class="jt-preview">
+            <span v-if="isContainer(n)" class="jt-preview" :class="{ edited: isEditedNode(n) }">
               <template v-if="isOpenNode(n)">{{ n.kind === 'array' ? `[ ${n.size} ]` : `{ ${n.size} }` }}</template>
               <template v-else>{{ preview(n.value) }}</template>
             </span>
-            <span v-else class="jt-val" :class="'k-' + n.kind">
+            <input
+              v-else-if="editing?.id === n.id"
+              ref="editInput"
+              v-model="editing.text"
+              class="jt-editor"
+              spellcheck="false"
+              @keydown="onEditKey"
+              @blur="commitEdit()"
+              @mousedown.stop
+              @dblclick.stop
+            />
+            <span v-else class="jt-val" :class="['k-' + n.kind, { edited: isEditedNode(n) }]" :title="isEditedNode(n) ? $t('results:tree.edited') : undefined">
               <template v-for="(p, k) in parts(scalarText(n))" :key="k"><mark v-if="p.hit">{{ p.s }}</mark><template v-else>{{ p.s }}</template></template>
             </span>
           </template>
@@ -498,6 +708,22 @@ function onContext(e: MouseEvent, i: number) {
     </div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
     <CellViewer v-if="viewer" :title="viewer.title" :value="viewer.value" @close="viewer = null" />
+    <el-dialog
+      :model-value="!!jsonEdit"
+      :title="jsonEdit ? $t('results:tree.editJsonTitle', { path: pathText(jsonEdit.node) }) : ''"
+      width="620px"
+      append-to-body
+      @close="jsonEdit = null"
+    >
+      <div v-if="jsonEdit" class="jt-json">
+        <CodeEditor v-model="jsonEdit.text" language="json" @save="saveJson" />
+      </div>
+      <div v-if="jsonEdit?.error" class="jt-json-error" role="alert">{{ jsonEdit.error }}</div>
+      <template #footer>
+        <el-button @click="jsonEdit = null">{{ $t('common:cancel') }}</el-button>
+        <el-button type="primary" @click="saveJson">{{ $t('results:tree.apply') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -546,5 +772,13 @@ function onContext(e: MouseEvent, i: number) {
 .k-date { color: #d7ba7d; }
 .jt-type { margin-left: auto; padding-left: 12px; color: var(--nm-text-dim); font-family: var(--nm-font); font-size: 10.5px; flex-shrink: 0; }
 mark { background: color-mix(in srgb, var(--nm-warning) 45%, transparent); color: inherit; border-radius: 2px; }
+.jt-editor {
+  flex: 1; min-width: 120px; height: 18px; padding: 0 4px; font: inherit; color: var(--nm-text-strong);
+  background: var(--ide-input); border: 1px solid var(--ide-focus); border-radius: 2px; outline: none;
+}
+.edited { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); border-radius: 2px; }
+.jt-json { height: 320px; border: 1px solid var(--nm-border); border-radius: 3px; overflow: hidden; display: flex; }
+.jt-json > * { flex: 1; min-width: 0; }
+.jt-json-error { margin-top: 8px; color: var(--nm-danger); font-size: 12px; white-space: pre-wrap; }
 .jt-empty { padding: 16px; font-family: var(--nm-font); }
 </style>

@@ -7,7 +7,7 @@ import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { save } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
-import type { Cell, Message, MessageLevel, ObjectRef, QueryOutcome, StatementResult } from '../api/types';
+import type { Cell, Message, MessageLevel, ObjectRef, QueryOutcome, ResultColumn, StatementResult } from '../api/types';
 import { buildChanges, buildInserts, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits } from '../composables/gridEdit';
 import ResultGrid from './ResultGrid.vue';
 import AddDocumentDialog from './AddDocumentDialog.vue';
@@ -338,6 +338,23 @@ watch(
   },
   { deep: true },
 );
+/** Document engines get nested fields as objects, not their JSON text: the
+ *  driver sends them as text for the grid, and an edit (here or in the JSON
+ *  tree) writes the field back the same way. Only fields that are objects or
+ *  arrays (by their type, or their value when the engine gives no type). */
+function asDocValue(col: ResultColumn | undefined, v: unknown): unknown {
+  if (!documents.value || typeof v !== 'string') return v;
+  const t = v.trim();
+  if (!((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']')))) return v;
+  const ty = (col?.type_name ?? '').toLowerCase();
+  if (ty && !/object|array|document|nested|map|list|json/.test(ty)) return v;
+  try { return JSON.parse(t); } catch { return v; }
+}
+function asDocPairs(columns: ResultColumn[], pairs: [string, unknown][]): [string, unknown][] {
+  if (!documents.value) return pairs;
+  const byName = new Map(columns.map((c) => [c.name, c]));
+  return pairs.map(([k, v]) => [k, asDocValue(byName.get(k), v)]);
+}
 async function generate() {
   const s = setup.value;
   const r = current.value;
@@ -347,10 +364,11 @@ async function generate() {
   const dialect = props.dialect ?? '';
   try {
     const editable = !!s && typeof s === 'object' && !!r;
-    const changes = editable ? buildChanges(r.columns, r.rows, currentEdits.value, s, dialect, currentDeletes.value) : [];
+    const changes = (editable ? buildChanges(r.columns, r.rows, currentEdits.value, s, dialect, currentDeletes.value) : [])
+      .map((ch) => ({ ...ch, set: asDocPairs(r!.columns, ch.set), row: asDocPairs(r!.columns, ch.row) }));
     // In row order, so the script reads like the grid.
     const keys = editable ? [...currentDeletes.value].sort((a, b) => a - b).map((i) => rowKey(r.columns, r.rows[i], s, dialect)) : [];
-    const inserts = [...(r ? buildInserts(r.columns, currentAdded.value) : []), ...docs.value.map((d) => Object.entries(d))];
+    const inserts = [...(r ? buildInserts(r.columns, currentAdded.value).map((row) => asDocPairs(r.columns, row)) : []), ...docs.value.map((d) => Object.entries(d))];
     if (!changes.length && !keys.length && !inserts.length) { code.value = ''; codeError.value = null; return; }
     // Without deletes / inserts the call stays as before (older behavior, same code).
     const args = {
@@ -763,6 +781,13 @@ const statusText = computed(() => {
         :deleted="currentDeletes"
         :added="currentAdded.length"
         :filterable="filterable"
+        :editable="canEdit && !applying"
+        :no-edit-reason="noEditReason"
+        :insertable="canInsert"
+        :deletable="canDelete && !applying"
+        :no-delete-reason="noDeleteReason"
+        @edit="onEdit"
+        @delete="onDelete"
         @filter="(c, st) => emit('filter', c, st)"
       />
       <template v-else>

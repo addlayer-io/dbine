@@ -275,6 +275,15 @@
     "expandBelow": "Expandir tudo abaixo",
     "collapse": "Recolher",
     "filterBy": "Filtrar por este valor de “{{name}}”",
-    "empty": "Sem linhas."
+    "empty": "Sem linhas.",
+    "idNotEditable": "O _id identifica o documento: não pode ser editado.",
+    "deleteDocument": "Excluir documento",
+    "restoreDocument": "Restaurar documento",
+    "editValue": "Editar valor",
+    "editJson": "Editar como JSON…",
+    "editJsonTitle": "Editar {{path}}",
+    "removeField": "Remover este campo",
+    "edited": "Modificado: é salvo com «Salvar»",
+    "apply": "Aplicar"
   }
 }
