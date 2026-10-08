@@ -1,0 +1,22 @@
+{
+  "title": "Query parameters",
+  "intro": "The query has parameters. Each value is written into the text as an engine literal, with the right quotes; on the right you can see how it ends up.",
+  "type": "Type",
+  "types": {
+    "text": "Text",
+    "number": "Number",
+    "date": "Date",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "Value",
+    "number": "For example 42 or 3.5",
+    "date": "YYYY-MM-DD or YYYY-MM-DD hh:mm:ss"
+  },
+  "invalid": {
+    "number": "Not a number.",
+    "date": "Write the date as YYYY-MM-DD, with optional time (hh:mm or hh:mm:ss)."
+  },
+  "disable": "Don't ask for parameters in this tab",
+  "disableTip": "Runs the text as is and stops looking for parameters in this tab. It can be turned back on from the editor menu."
+}

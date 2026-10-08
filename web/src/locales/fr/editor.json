@@ -16,6 +16,14 @@
     "find": "Rechercher et remplacer",
     "gotoLine": "Aller à la ligne…",
     "optimize": "Optimiser la requête",
-    "problems": "Voir les problèmes"
+    "problems": "Voir les problèmes",
+    "goToDefinition": "Aller à la définition",
+    "revealInExplorer": "Afficher dans l'explorateur",
+    "detectParams": "Demander les paramètres à l'exécution",
+    "click": "clic"
+  },
+  "nav": {
+    "notFound": "Il n'y a aucune table, vue ou routine de ce nom dans la base de l'onglet.",
+    "notLoaded": "Les objets de la base ne sont pas encore chargés : connectez-vous pour aller à la définition."
   }
 }

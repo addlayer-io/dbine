@@ -22159,6 +22159,9 @@
  "el clon usaría los mismos archivos que el original ({0} = {1}): lo que se escribiera en uno aparecería en el otro": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
  ],
+ "el commit no es válido": [
+  "src-tauri/src/commands/projects_git.rs"
+ ],
  "el constructor de consultas es para motores SQL y CQL": [
   "src-tauri/src/commands/query_builder.rs"
  ],
@@ -23293,6 +23296,9 @@
  ],
  "esa solicitud ya no está pendiente: se respondió o venció": [
   "src-tauri/src/mcp/approvals.rs"
+ ],
+ "esa versión ya no existe": [
+  "src-tauri/src/commands/queries.rs"
  ],
  "escribí a quién mandar el mail de prueba": [
   "src-tauri/src/commands/mail.rs"
