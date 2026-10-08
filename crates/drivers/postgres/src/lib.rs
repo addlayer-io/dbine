@@ -29,6 +29,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod schemas;
 mod script;
 mod security;
@@ -503,6 +504,10 @@ impl Driver for PgDriver {
 
     fn create_database_script(&self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<String> {
         create_db::script(self.variant, name, options)
+    }
+
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(self.variant, database, changes)
     }
 
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {

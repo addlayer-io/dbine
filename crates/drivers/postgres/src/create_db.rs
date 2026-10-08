@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 
 /// The PostgreSQL-like variants whose base has `LOCALE_PROVIDER` /
 /// `ICU_LOCALE` (PostgreSQL 15+, checked against the server's version).
-fn has_locale_provider(v: Variant) -> bool {
+pub(crate) fn has_locale_provider(v: Variant) -> bool {
     matches!(
         v,
         Variant::Postgres | Variant::Timescale | Variant::AlloyDb | Variant::CloudSql | Variant::Aurora | Variant::Edb | Variant::Fujitsu
@@ -44,7 +44,7 @@ fn has_locale_provider(v: Variant) -> bool {
 
 /// The variants with PostgreSQL's `CREATE DATABASE` (some clauses more or
 /// less).
-fn pg_like(v: Variant) -> bool {
+pub(crate) fn pg_like(v: Variant) -> bool {
     has_locale_provider(v) || v.mpp() || matches!(v, Variant::Kingbase | Variant::Yugabyte | Variant::OpenGauss)
 }
 
@@ -171,7 +171,7 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
     o.get(key).map(|v| v.trim()).filter(|v| !v.is_empty())
 }
 
-fn check(ok: bool, what: &str, v: &str) -> Result<()> {
+pub(crate) fn check(ok: bool, what: &str, v: &str) -> Result<()> {
     if ok {
         Ok(())
     } else {
@@ -180,7 +180,7 @@ fn check(ok: bool, what: &str, v: &str) -> Result<()> {
 }
 
 /// A name for an identifier: anything printable (it's quoted).
-fn name_ok(v: &str) -> bool {
+pub(crate) fn name_ok(v: &str) -> bool {
     v.len() <= 128 && !v.chars().any(char::is_control)
 }
 
@@ -194,11 +194,11 @@ fn locale_ok(v: &str) -> bool {
     v.len() <= 128 && v.chars().all(|c| c.is_ascii_alphanumeric() || " _.-@=;".contains(c))
 }
 
-fn int(v: &str, min: i64) -> Option<i64> {
+pub(crate) fn int(v: &str, min: i64) -> Option<i64> {
     v.parse::<i64>().ok().filter(|n| *n >= min)
 }
 
-fn ident(what: &str, v: &str) -> Result<String> {
+pub(crate) fn ident(what: &str, v: &str) -> Result<String> {
     check(name_ok(v), what, v)?;
     Ok(quote_ident(Quote::Double, v))
 }
