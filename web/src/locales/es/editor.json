@@ -1,0 +1,21 @@
+{
+  "menu": {
+    "undo": "Deshacer",
+    "redo": "Rehacer",
+    "cut": "Cortar",
+    "copy": "Copiar",
+    "paste": "Pegar",
+    "selectAll": "Seleccionar todo",
+    "runSelection": "Ejecutar la selección",
+    "runAll": "Ejecutar todo",
+    "runStatement": "Ejecutar la sentencia del cursor",
+    "planEstimated": "Plan estimado",
+    "planActual": "Ejecutar con plan real",
+    "comment": "Comentar o descomentar",
+    "format": "Formatear",
+    "find": "Buscar y reemplazar",
+    "gotoLine": "Ir a la línea…",
+    "optimize": "Optimizar consulta",
+    "problems": "Ver problemas"
+  }
+}

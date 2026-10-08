@@ -4,7 +4,8 @@ import { EditorState, Compartment, type Extension } from '@codemirror/state';
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { startCompletion, type Completion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
-import { indentWithTab } from '@codemirror/commands';
+import { indentWithTab, redo, selectAll, toggleComment, undo } from '@codemirror/commands';
+import { gotoLine, openSearchPanel } from '@codemirror/search';
 import { syntaxTree } from '@codemirror/language';
 import {
   PostgreSQL, MySQL, MariaSQL, MSSQL, SQLite, StandardSQL, PLSQL, Cassandra, type SQLDialect,
@@ -14,6 +15,8 @@ import { json } from '@codemirror/lang-json';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
 import type { Language } from '../api/types';
+import { useTranslation } from 'i18next-vue';
+import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
 // (`language` + `dialect`), `schema` feeds table/column completion.
@@ -32,7 +35,12 @@ const props = withDefaults(defineProps<{
   /** "Calidad de código": the problems of a text (QueryView asks the
    *  backend). Null: no marks. */
   lint?: ((doc: string) => Promise<Diagnostic[]>) | null;
-}>(), { language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '', lint: null });
+  /** The right-click menu offers running, the plans and formatting (the
+   *  parent handles `run`, `runStatement`, `plan` and `format`). */
+  runActions?: boolean;
+  /** More entries for the right-click menu, after the editor's own. */
+  menuItems?: (() => MenuItem[]) | null;
+}>(), { language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '', lint: null, runActions: false, menuItems: null });
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
@@ -295,6 +303,65 @@ watch(() => props.placeholder, (p) => view?.dispatch({ effects: ph.reconfigure(c
 // Another connection or other rules: lint again with them.
 watch(() => props.lint, () => view?.dispatch({ effects: lintC.reconfigure(lintExt()) }));
 
+// -- right-click menu ------------------------------------------------------------------------
+const { t } = useTranslation();
+const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
+const isMac = navigator.platform.toLowerCase().includes('mac');
+const key = (k: string) => (isMac ? k : k.replace(/⌘/g, 'Ctrl+').replace(/⇧/g, 'Shift+').replace(/⌥/g, 'Alt+'));
+
+async function copySelection(cut: boolean) {
+  if (!view) return;
+  const r = view.state.selection.main;
+  if (r.empty) return;
+  try { await navigator.clipboard.writeText(view.state.sliceDoc(r.from, r.to)); } catch { return; }
+  if (cut && !props.readOnly) view.dispatch(view.state.replaceSelection(''));
+  view.focus();
+}
+async function paste() {
+  if (!view || props.readOnly) return;
+  let text = '';
+  try { text = await navigator.clipboard.readText(); } catch { return; }
+  if (text) view.dispatch(view.state.replaceSelection(text));
+  view.focus();
+}
+function act(fn: (v: EditorView) => boolean | void) {
+  return () => { if (view) { fn(view); view.focus(); } };
+}
+
+function openMenu(e: MouseEvent) {
+  if (!view) return;
+  // Right-click outside the selection moves the cursor there, as editors do.
+  const at = view.posAtCoords({ x: e.clientX, y: e.clientY });
+  const sel = view.state.selection.main;
+  if (at !== null && (sel.empty || at < sel.from || at > sel.to)) view.dispatch({ selection: { anchor: at } });
+  const empty = view.state.selection.main.empty;
+  const rw = !props.readOnly;
+  const items: MenuItem[] = [];
+  if (rw) {
+    items.push({ label: t('editor:menu.undo'), shortcut: key('⌘Z'), action: act(undo) });
+    items.push({ label: t('editor:menu.redo'), shortcut: key('⇧⌘Z'), action: act(redo) });
+    items.push({ label: t('editor:menu.cut'), shortcut: key('⌘X'), disabled: empty, divided: true, action: () => copySelection(true) });
+  }
+  items.push({ label: t('editor:menu.copy'), shortcut: key('⌘C'), disabled: empty, divided: !rw, action: () => copySelection(false) });
+  if (rw) items.push({ label: t('editor:menu.paste'), shortcut: key('⌘V'), action: paste });
+  items.push({ label: t('editor:menu.selectAll'), shortcut: key('⌘A'), action: act(selectAll) });
+  if (props.runActions) {
+    items.push({ label: t(empty ? 'editor:menu.runAll' : 'editor:menu.runSelection'), shortcut: key('⌘↵'), divided: true, action: () => { const r = runnable(view!); emit('run', r.text, r.from); } });
+    items.push({ label: t('editor:menu.runStatement'), shortcut: key('⇧⌘↵'), action: () => emit('runStatement', view!.state.doc.toString(), view!.state.selection.main.head) });
+    items.push({ label: t('editor:menu.planEstimated'), shortcut: key('⌘L'), action: () => { const r = runnable(view!); emit('plan', r.text, false, r.from); } });
+    items.push({ label: t('editor:menu.planActual'), shortcut: key('⇧⌘L'), action: () => { const r = runnable(view!); emit('plan', r.text, true, r.from); } });
+  }
+  if (rw) {
+    items.push({ label: t('editor:menu.comment'), shortcut: key('⌘/'), divided: true, action: act(toggleComment) });
+    if (props.runActions) items.push({ label: t('editor:menu.format'), shortcut: key('⇧⌥F'), action: () => emit('format') });
+  }
+  items.push({ label: t('editor:menu.find'), shortcut: key('⌘F'), divided: !rw, action: act(openSearchPanel) });
+  items.push({ label: t('editor:menu.gotoLine'), shortcut: key('⌘⌥G'), action: act(gotoLine) });
+  const extra = props.menuItems?.() ?? [];
+  if (extra.length) items.push({ ...extra[0], divided: true }, ...extra.slice(1));
+  menu.value = { x: e.clientX, y: e.clientY, items };
+}
+
 /** Add `text` at the end, on lines of its own, and show it selected. */
 function appendText(text: string) {
   if (!view) return;
@@ -360,7 +427,8 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="host" class="ce" />
+  <div ref="host" class="ce" @contextmenu.prevent="openMenu" />
+  <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
 </template>
 
 <style scoped>

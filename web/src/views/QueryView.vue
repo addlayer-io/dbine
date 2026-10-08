@@ -7,6 +7,7 @@ import { locale, t } from '../i18n';
 import { tb } from '../i18n/backend';
 import type { QueryMessage, QueryOutcome, QueryProgress, TxState, UnsafeDml } from '../api/types';
 import CodeEditor from '../components/CodeEditor.vue';
+import type { MenuItem } from '../components/ContextMenu.vue';
 import ResultsPane from '../components/ResultsPane.vue';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
@@ -204,6 +205,15 @@ function appendScript(code: string) {
 
 // -- run ----------------------------------------------------------------------------
 const editor = ref<InstanceType<typeof CodeEditor> | null>(null);
+
+// -- the editor's right-click menu: what this view adds to the editor's own --------------------
+const problemsOpen = ref(false);
+function editorMenu(): MenuItem[] {
+  const items: MenuItem[] = [];
+  if (runnable.value && !unbound.value) items.push({ label: t('editor:menu.optimize'), action: optimize });
+  if (lintSource.value) items.push({ label: t('editor:menu.problems'), action: () => { problemsOpen.value = true; } });
+  return items;
+}
 
 // -- Calidad de código: marks while typing, and "Ver problemas" ----------------------------
 const problems = ref<LintProblem[]>([]);
@@ -765,7 +775,7 @@ function drag(e: PointerEvent) {
       <el-tooltip :content="$t('query:saveToLibraryTip')" placement="bottom" :show-after="300">
         <el-button link :aria-label="$t('query:saveToLibrary')" @click="saveToLibrary"><el-icon :size="15"><ei-star /></el-icon></el-button>
       </el-tooltip>
-      <el-popover v-if="lintSource" placement="bottom-start" :width="480" trigger="click">
+      <el-popover v-if="lintSource" v-model:visible="problemsOpen" placement="bottom-start" :width="480" trigger="click">
         <template #reference>
           <el-button link class="qv-problems" :class="worstProblem" :title="$t('lint:problems.button')" :aria-label="$t('lint:problems.button')">
             <el-icon><ei-warning /></el-icon><span class="qv-lbl2">&nbsp;{{ problems.length ? $t('lint:problems.count', { count: problems.length }) : $t('lint:problems.none') }}</span>
@@ -812,6 +822,8 @@ function drag(e: PointerEvent) {
           @save="save"
           @format="formatQuery"
           @need-columns="loadColumnsFor"
+          run-actions
+          :menu-items="editorMenu"
         />
       </div>
       <div class="qv-sash" @pointerdown="drag" />
