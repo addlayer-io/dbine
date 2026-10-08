@@ -316,7 +316,7 @@ pub fn needs_quotes(name: &str, fold: Fold) -> bool {
 fn preferred_quote(d: &ScriptDialect) -> Quote {
     if d.bracket_idents {
         Quote::Bracket
-    } else if d.backslash_escapes {
+    } else if d.backtick_idents && d.backslash_escapes {
         Quote::Backtick
     } else {
         Quote::Double
