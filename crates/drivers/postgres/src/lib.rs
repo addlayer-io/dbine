@@ -23,6 +23,7 @@ mod compare;
 mod create_db;
 mod delta;
 mod design;
+mod health;
 mod index_usage;
 mod monitor;
 mod permissions;
