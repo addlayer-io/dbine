@@ -20,6 +20,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod search;
 mod security;
 mod sync;
 mod transfer;
@@ -935,40 +936,17 @@ impl Session for SnowflakeSession {
         // Sequences from the catalog: GET_DDL leaves the schema out, so the
         // sync would make them in the session's schema. GET_DDL if it fails.
         if o.kind == kinds::SEQUENCE {
-            let sql = format!(
-                "SELECT start_value, increment, ordered, comment FROM {is}.SEQUENCES
-                 WHERE sequence_schema = ? AND sequence_name = ?"
-            );
+            let sql = format!("SELECT {} FROM {is}.SEQUENCES WHERE sequence_schema = ? AND sequence_name = ?", search::SEQUENCE_COLS);
             match self.text_rows(&sql, &[schema, &o.name]).await {
-                Ok(rows) => {
-                    let keys = ["start_value", "increment", "ordered", "comment"];
-                    return Ok(rows.first().map(|r| {
-                        let row: ddl::Row = keys.iter().zip(r).filter_map(|(k, v)| Some((k.to_string(), v.clone()?))).collect();
-                        ddl::sequence_sql(Some(schema), &o.name, &row)
-                    }));
-                }
+                Ok(rows) => return Ok(rows.first().map(|r| search::sequence_ddl(schema, &o.name, r))),
                 Err(e) => tracing::debug!("snowflake: sequence {} not read from INFORMATION_SCHEMA: {e}", o.name),
             }
         }
         let rows = match o.kind.as_str() {
-            kinds::FUNCTION => {
+            k @ (kinds::FUNCTION | kinds::PROCEDURE) => {
+                let r = search::routine_source(k);
                 self.text_rows(
-                    &format!(
-                        "SELECT 'CREATE OR REPLACE FUNCTION ' || function_name || argument_signature || ' RETURNS ' || data_type
-                                || ' LANGUAGE ' || function_language || ' AS $$' || function_definition || '$$;'
-                         FROM {is}.FUNCTIONS WHERE function_schema = ? AND function_name = ?"
-                    ),
-                    &[schema, &o.name],
-                )
-                .await?
-            }
-            kinds::PROCEDURE => {
-                self.text_rows(
-                    &format!(
-                        "SELECT 'CREATE OR REPLACE PROCEDURE ' || procedure_name || argument_signature || ' RETURNS ' || data_type
-                                || ' LANGUAGE ' || procedure_language || ' AS $$' || procedure_definition || '$$;'
-                         FROM {is}.PROCEDURES WHERE procedure_schema = ? AND procedure_name = ?"
-                    ),
+                    &format!("SELECT {} FROM {is}.{} WHERE {} = ? AND {} = ?", r.expr, r.view, r.schema_col, r.name_col),
                     &[schema, &o.name],
                 )
                 .await?
@@ -1027,6 +1005,10 @@ impl Session for SnowflakeSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        self.search_code_impl(query).await
     }
 
     async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {

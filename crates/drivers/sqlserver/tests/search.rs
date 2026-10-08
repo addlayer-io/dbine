@@ -50,15 +50,20 @@ async fn catalog_equals_scan() {
     run(&mut s, "CREATE VIEW dbo.v_ventas AS\nSELECT id, total\nFROM dbo.Ventas").await;
     run(&mut s, "CREATE PROCEDURE dbo.p_total AS\nBEGIN\n  SELECT SUM(total) FROM dbo.Ventas;\n  SELECT 1 FROM dbo.VentasHist;\nEND").await;
     run(&mut s, "CREATE FUNCTION dbo.f_uno() RETURNS int AS BEGIN RETURN 1 END").await;
+    run(&mut s, "CREATE SYNONYM dbo.s_ventas FOR dbo.Ventas").await;
+    run(&mut s, "CREATE SEQUENCE dbo.seq_ventas START WITH 100").await;
     run(&mut s, "CREATE TRIGGER dbo.t_ventas ON dbo.Ventas AFTER INSERT AS\nUPDATE dbo.Ventas SET total = 0 WHERE 1 = 0").await;
 
     for (text, word, case) in [("ventas", true, false), ("Ventas", false, true), ("SUM(", false, false), ("100%_x", false, false)] {
-        let q = CodeSearch { text: text.into(), whole_word: word, case_sensitive: case, ..Default::default() };
+        let kinds: Vec<String> = d.info().object_kinds.iter().filter(|k| k.has_definition && k.id != "table").map(|k| k.id.to_string()).collect();
+        let q = CodeSearch { text: text.into(), whole_word: word, case_sensitive: case, kinds, ..Default::default() };
         let mut fast = s.search_code(&q).await.unwrap().expect("SQL Server answers from its catalog").hits;
         // The app's scan, as commands/search.rs does it.
         let mut scan = Vec::new();
         for o in s.list_objects().await.unwrap() {
-            if !["view", "procedure", "function", "trigger"].contains(&o.kind.as_str()) {
+            // As the app resolves "Código" without a kind filter: every kind
+            // with a definition but tables.
+            if !d.info().object_kinds.iter().any(|k| k.id == o.kind && k.has_definition) || o.kind == "table" {
                 continue;
             }
             let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };

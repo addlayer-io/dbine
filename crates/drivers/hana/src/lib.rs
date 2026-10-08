@@ -16,6 +16,7 @@ mod profiler;
 mod properties;
 mod schema;
 mod script;
+mod search;
 mod security;
 mod steps;
 mod structure;
@@ -341,6 +342,11 @@ fn quote(name: &str) -> String {
     dbine_driver::sql::quote_ident(Quote::Double, name)
 }
 
+/// A view's definition: its CREATE around the catalog's `DEFINITION`.
+fn view_ddl(owner: &str, name: &str, body: &str) -> String {
+    format!("CREATE VIEW {}.{} AS\n{}", quote(owner), quote(name), body.trim())
+}
+
 /// First column of the first row, as text.
 async fn single_text(conn: &Connection, sql: &str) -> Result<Option<String>> {
     let rows = conn.query(sql).await.map_err(err)?.into_rows().await.map_err(err)?;
@@ -555,7 +561,7 @@ impl Session for HanaSession {
                 let rows = self
                     .rows("SELECT DEFINITION FROM SYS.VIEWS WHERE SCHEMA_NAME = ? AND VIEW_NAME = ?", &[&owner, name])
                     .await?;
-                Ok(one(rows).map(|d| format!("CREATE VIEW {qualified} AS\n{}", d.trim())))
+                Ok(one(rows).map(|d| view_ddl(&owner, name, &d)))
             }
             "procedure" => Ok(one(self
                 .rows("SELECT DEFINITION FROM SYS.PROCEDURES WHERE SCHEMA_NAME = ? AND PROCEDURE_NAME = ?", &[
@@ -749,6 +755,10 @@ impl Session for HanaSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        self.search_code_impl(query).await
     }
 
     async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
