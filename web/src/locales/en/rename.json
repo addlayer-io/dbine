@@ -61,6 +61,7 @@
   "scriptName": "Rename {{name}}",
   "prodConfirm": "This is a production connection. Type {{name}} to confirm.",
   "run": "Rename",
+  "collect": "Use in the designer",
   "task": "Rename {{name}} to {{to}}",
   "done": "{{name}} is now called {{to}}",
   "rolledBack": "Nothing changed: the whole script was rolled back.",

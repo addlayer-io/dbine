@@ -9,6 +9,8 @@ import type { SyncScript } from '../api/compare';
 import CodeEditor from '../components/CodeEditor.vue';
 import { useTranslation } from 'i18next-vue';
 import { tb } from '../i18n/backend';
+import { isProdConnection } from '../composables/tags';
+import { useConnectionsStore } from '../stores/connections';
 
 // Designer for a new table / collection / index / key… in any engine. What
 // it offers comes entirely from the driver's DesignerSpec; it builds a
@@ -669,6 +671,15 @@ async function applyReviewed() {
   if (sc.warnings.length) {
     const ok = await ElMessageBox.confirm(sc.warnings.map((w) => `• ${tb(w)}`).join('\n'), t('designer:alter.warningsTitle'), {
       type: 'warning', confirmButtonText: t('designer:alter.runAnyway'), cancelButtonText: t('common:cancel'),
+    }).then(() => true, () => false);
+    if (!ok) return;
+  }
+  // On a production connection the table's name is typed again first.
+  if (isProdConnection(useConnectionsStore().byId(props.connectionId), props.database)) {
+    const want = table.value.name;
+    const ok = await ElMessageBox.prompt(t('designer:alter.prodConfirm', { name: want }), t('designer:alter.prodTitle'), {
+      type: 'warning', inputPlaceholder: want, confirmButtonText: t('designer:alter.runAnyway'), cancelButtonText: t('common:cancel'),
+      inputValidator: (v: string) => v.trim() === want || t('designer:alter.prodMismatch'),
     }).then(() => true, () => false);
     if (!ok) return;
   }

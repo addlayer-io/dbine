@@ -20,8 +20,14 @@ import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 // (`sync:<runId>`), like "Eliminar índice…". On a production connection the
 // new name has to be typed again first.
 
-const props = defineProps<{ target: RenameDialogTarget }>();
-const emit = defineEmits<{ close: [] }>();
+const props = defineProps<{
+  target: RenameDialogTarget;
+  /** The table designer's edit mode: the new name comes from it, and the
+   *  reviewed script goes back to it (`collected`) instead of running here. */
+  collect?: boolean;
+  initialName?: string;
+}>();
+const emit = defineEmits<{ close: []; collected: [script: SyncScript] }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
 const tabs = useTabsStore();
@@ -40,7 +46,7 @@ const what = computed(() => {
 /** Only a column rename touches the views' output columns. */
 const isColumn = computed(() => props.target.target.what === 'column');
 
-const name = ref(old.value);
+const name = ref(props.initialName ?? old.value);
 const trimmed = computed(() => name.value.trim());
 const nameProblem = computed(() => (!trimmed.value ? t('rename:empty') : trimmed.value === old.value ? t('rename:same') : null));
 const keepViewColumns = ref(true);
@@ -58,6 +64,7 @@ watch([trimmed, keepViewColumns], () => {
   if (nameProblem.value) { impact.value = null; script.value = null; return; }
   timer = setTimeout(loadImpact, 400);
 }, { immediate: false });
+if (props.initialName && !nameProblem.value) loadImpact();
 
 async function loadImpact() {
   const n = trimmed.value;
@@ -151,6 +158,14 @@ onBeforeUnmount(() => {
   if (running.value) task?.background();
 });
 
+/** Collect mode: the designer asks for the production confirmation when it runs. */
+const canCollect = computed(() => !!script.value && !scriptError.value && !loading.value && !nameProblem.value && impactFor.value === trimmed.value && !impact.value?.collides);
+function collectScript() {
+  if (!canCollect.value || !script.value) return;
+  emit('collected', script.value);
+  emit('close');
+}
+
 const canRun = computed(() => !!text.value && !scriptError.value && !loading.value && !nameProblem.value && impactFor.value === trimmed.value && confirmed.value);
 
 async function run() {
@@ -217,7 +232,7 @@ defineExpose({ name, loadImpact });
 
     <div class="rn-name">
       <label class="rn-label" for="rn-new">{{ $t('rename:newName') }}</label>
-      <el-input id="rn-new" v-model="name" :disabled="running" autofocus class="nm-selectable" />
+      <el-input id="rn-new" v-model="name" :disabled="running || collect" autofocus class="nm-selectable" />
     </div>
     <div v-if="nameProblem && name !== old" class="rn-hint">{{ nameProblem }}</div>
     <div v-else-if="impact && impact.quoted_name !== impactFor" class="rn-hint">{{ $t('rename:quotedHint', { quoted: impact.quoted_name }) }}</div>
@@ -305,7 +320,7 @@ defineExpose({ name, loadImpact });
       <div v-if="scriptError" class="rn-error">{{ scriptError }}</div>
       <pre v-else v-loading="!script" class="rn-script nm-selectable">{{ text }}</pre>
 
-      <div v-if="prod" class="rn-prod">
+      <div v-if="prod && !collect" class="rn-prod">
         <label for="rn-confirm">{{ $t('rename:prodConfirm', { name: impactFor }) }}</label>
         <el-input id="rn-confirm" v-model="confirmText" :disabled="running" :placeholder="impactFor" />
       </div>
@@ -315,11 +330,12 @@ defineExpose({ name, loadImpact });
     <template #footer>
       <div class="rn-foot">
         <el-button :disabled="!text" @click="copyScript">{{ $t('common:copy') }}</el-button>
-        <el-button :disabled="!text || running" @click="openInQuery">{{ $t('rename:openInQuery') }}</el-button>
+        <el-button v-if="!collect" :disabled="!text || running" @click="openInQuery">{{ $t('rename:openInQuery') }}</el-button>
         <span style="flex: 1" />
         <el-button v-if="running" @click="task?.background(); emit('close')">{{ $t('tasks:panel.background') }}</el-button>
         <el-button :disabled="cancelling" @click="cancel">{{ $t('common:cancel') }}</el-button>
-        <el-button type="danger" :loading="running" :disabled="!canRun" @click="run">{{ $t('rename:run') }}</el-button>
+        <el-button v-if="collect" type="primary" :disabled="!canCollect" @click="collectScript">{{ $t('rename:collect') }}</el-button>
+        <el-button v-else type="danger" :loading="running" :disabled="!canRun" @click="run">{{ $t('rename:run') }}</el-button>
       </div>
     </template>
   </el-dialog>
