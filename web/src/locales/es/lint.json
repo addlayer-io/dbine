@@ -230,6 +230,16 @@
       "title": "DETACH DELETE sin WHERE",
       "message": "DETACH DELETE sin WHERE borra todos los nodos que encuentra el MATCH",
       "why": "Borra los nodos y todas sus relaciones. Sin un WHERE o un filtro de propiedades, se lleva todos los nodos del patrón. Revisá el MATCH; para borrar muchos, hacelo por lotes (CALL { … } IN TRANSACTIONS)."
+    },
+    "unknown-table": {
+      "title": "Tabla desconocida",
+      "message": "«{{name}}» no existe en esta base",
+      "why": "El nombre no está entre los objetos de la base de la pestaña (según el explorador). Puede ser un error de tipeo, un objeto de otra base o uno que todavía no existe. Las tablas temporales, las CTE, los alias y los objetos que el mismo script crea no se marcan."
+    },
+    "unknown-column": {
+      "title": "Columna desconocida",
+      "message": "«{{table}}» no tiene una columna «{{column}}»",
+      "why": "La columna no está entre las columnas cargadas de la tabla. Solo se revisan columnas calificadas (alias.columna) o de la lista de un INSERT, y solo cuando la tabla existe y sus columnas ya se cargaron."
     }
   }
 }

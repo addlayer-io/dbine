@@ -1,0 +1,22 @@
+{
+  "title": "Parámetros de la consulta",
+  "intro": "La consulta tiene parámetros. Cada valor se escribe en el texto como un literal del motor, con las comillas que corresponden; a la derecha se ve cómo queda.",
+  "type": "Tipo",
+  "types": {
+    "text": "Texto",
+    "number": "Número",
+    "date": "Fecha",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "Valor",
+    "number": "Por ejemplo 42 o 3.5",
+    "date": "AAAA-MM-DD o AAAA-MM-DD hh:mm:ss"
+  },
+  "invalid": {
+    "number": "No es un número.",
+    "date": "Escribí la fecha como AAAA-MM-DD, con la hora opcional (hh:mm o hh:mm:ss)."
+  },
+  "disable": "No pedir parámetros en esta pestaña",
+  "disableTip": "Ejecuta el texto tal como está y deja de buscar parámetros en esta pestaña. Se vuelve a activar desde el menú del editor."
+}

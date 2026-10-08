@@ -8,6 +8,7 @@ import { emptySpec, type QuerySpec } from '../api/queryBuilder';
 import { t as tr } from '../i18n';
 import { readJson, writeJson } from './storage';
 import { initWindowRole, windowRole } from '../composables/windowRole';
+import type { ParamValue } from '../composables/queryParams';
 
 // Editor tabs. A query tab points at a saved query (its text lives in the
 // state store, not here), so reopening a query focuses its tab instead of
@@ -33,6 +34,10 @@ export interface QueryTab extends TabBase {
   continueOnError?: boolean;
   /** Manual transactions (autocommit off), on drivers that offer it. */
   manualTx?: boolean;
+  /** Parameters (`:name`…) are not looked for before a run. */
+  paramsOff?: boolean;
+  /** The last values given to the parameters, by name. */
+  params?: Record<string, ParamValue>;
 }
 
 /** Tabs that must ask before closing (a query tab with an open
@@ -181,6 +186,8 @@ export interface FileTab extends TabBase {
   pinnedTarget?: boolean;
   continueOnError?: boolean;
   manualTx?: boolean;
+  paramsOff?: boolean;
+  params?: Record<string, ParamValue>;
 }
 
 /** A project file's changes against the last commit (side by side). */
@@ -334,7 +341,7 @@ export const useTabsStore = defineStore('tabs', {
     },
 
     /** A query or file tab's run options ("Seguir si hay un error", transactions). */
-    setQueryOptions(id: string, patch: Pick<QueryTab, 'continueOnError' | 'manualTx'>) {
+    setQueryOptions(id: string, patch: Partial<Pick<QueryTab, 'continueOnError' | 'manualTx' | 'paramsOff' | 'params'>>) {
       const t = this.tabs.find((x) => x.id === id);
       if (t?.kind !== 'query' && t?.kind !== 'file') return;
       Object.assign(t, patch);

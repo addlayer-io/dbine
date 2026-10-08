@@ -27,6 +27,7 @@ import { useUiStore } from '../stores/ui';
 import { runTask, type TaskHandle } from '../stores/tasks';
 import DriversSettings from './DriversSettings.vue';
 import LintSettings from './LintSettings.vue';
+import SnippetSettings from './SnippetSettings.vue';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
@@ -350,6 +351,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <button :class="{ on: section === 'sync' }" @click="section = 'sync'"><el-icon><ei-upload-filled /></el-icon>{{ $t('settings:nav.sync') }}</button>
         <button :class="{ on: section === 'mcp' }" @click="section = 'mcp'"><el-icon><ei-cpu /></el-icon>{{ $t('mcp:nav') }}</button>
         <button :class="{ on: section === 'lint' }" @click="section = 'lint'"><el-icon><ei-circle-check /></el-icon>{{ $t('lint:nav') }}</button>
+        <button :class="{ on: section === 'snippets' }" @click="section = 'snippets'"><el-icon><ei-document-copy /></el-icon>{{ $t('snippets:nav') }}</button>
         <button :class="{ on: section === 'mail' }" @click="section = 'mail'"><el-icon><ei-message /></el-icon>{{ $t('mail:nav') }}</button>
         <button v-if="driverPackages" :class="{ on: section === 'drivers' }" @click="section = 'drivers'"><el-icon><ei-connection /></el-icon>{{ $t('settings:nav.drivers') }}</button>
         <!-- Voluntary support: opens GitHub Sponsors in the browser. -->
@@ -407,6 +409,11 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <!-- The query editor's linter -->
       <section v-else-if="section === 'lint'" class="st-body">
         <LintSettings />
+      </section>
+
+      <!-- The query editor's snippets -->
+      <section v-else-if="section === 'snippets'" class="st-body">
+        <SnippetSettings />
       </section>
 
       <!-- Downloadable drivers -->

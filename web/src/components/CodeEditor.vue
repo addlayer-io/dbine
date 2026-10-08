@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { EditorState, Compartment, type Extension } from '@codemirror/state';
-import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view';
+import { EditorState, Compartment, StateEffect, StateField, type Extension } from '@codemirror/state';
+import { Decoration, EditorView, keymap, placeholder as cmPlaceholder, type DecorationSet } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
-import { startCompletion, type Completion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
+import {
+  closeCompletion, snippet, snippetCompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult,
+} from '@codemirror/autocomplete';
 import { indentWithTab, redo, selectAll, toggleComment, undo } from '@codemirror/commands';
 import { gotoLine, openSearchPanel } from '@codemirror/search';
 import { syntaxTree } from '@codemirror/language';
@@ -17,6 +19,7 @@ import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
 import type { Language } from '../api/types';
 import { useTranslation } from 'i18next-vue';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
+import type { Snippet } from '../composables/snippets';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
 // (`language` + `dialect`), `schema` feeds table/column completion.
@@ -40,7 +43,12 @@ const props = withDefaults(defineProps<{
   runActions?: boolean;
   /** More entries for the right-click menu, after the editor's own. */
   menuItems?: (() => MenuItem[]) | null;
-}>(), { language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '', lint: null, runActions: false, menuItems: null });
+  /** Snippets: abbreviation + Tab expands them; also offered by completion. */
+  snippets?: Snippet[];
+  /** The name at a position that ⌘/Ctrl+click opens (underlined while the
+   *  key is down), or null. The parent handles `navigate`. */
+  linkAt?: ((doc: string, pos: number) => { from: number; to: number } | null) | null;
+}>(), { language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null });
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
@@ -56,6 +64,8 @@ const emit = defineEmits<{
   /** Completion reached a table whose columns aren't loaded: `[schema, table]`
    *  or `[table]`. The list reopens when `schema` brings them. */
   needColumns: [path: string[]];
+  /** ⌘/Ctrl+click on a name `linkAt` knows. */
+  navigate: [doc: string, pos: number];
 }>();
 
 const host = ref<HTMLDivElement | null>(null);
@@ -151,9 +161,14 @@ function parentsBefore(text: string): string[] {
 /** alias (lower case) → the path it stands for. */
 function aliasesIn(doc: string): Map<string, string[]> {
   const out = new Map<string, string[]>();
-  for (const m of doc.matchAll(ALIAS)) {
+  const re = new RegExp(ALIAS);
+  for (let m = re.exec(doc); m; m = re.exec(doc)) {
     const alias = unquote(m[2]);
-    if (NOT_ALIAS.has(alias.toLowerCase())) continue;
+    if (NOT_ALIAS.has(alias.toLowerCase())) {
+      // `…, p.total FROM t x`: the keyword starts the next match.
+      re.lastIndex = m.index + m[0].length - m[2].length;
+      continue;
+    }
     out.set(alias.toLowerCase(), m[1].split(/\s*\.\s*/).map(unquote));
   }
   return out;
@@ -240,6 +255,93 @@ const openTableList = EditorView.updateListener.of((u) => {
   if (TABLE_SLOT.test(u.state.sliceDoc(line.from, pos))) queueMicrotask(() => startCompletion(u.view));
 });
 
+// -- snippets ----------------------------------------------------------------------------------
+/** The word before the cursor, when it can be an abbreviation (not after a
+ *  dot or inside a longer name). */
+function abbreviationBefore(state: EditorState, pos: number): { from: number; text: string } | null {
+  const line = state.doc.lineAt(pos);
+  const m = /[\w]+$/.exec(state.sliceDoc(line.from, pos));
+  if (!m) return null;
+  const from = pos - m[0].length;
+  if (from > line.from && /[.\w$#@:]/.test(state.sliceDoc(from - 1, from))) return null;
+  return { from, text: m[0] };
+}
+
+function inStringOrComment(state: EditorState, pos: number): boolean {
+  return /String|Comment/.test(syntaxTree(state).resolveInner(pos, -1).name);
+}
+
+/** Tab after an abbreviation: the snippet replaces it, with its tab stops. */
+function expandSnippet(v: EditorView): boolean {
+  if (props.readOnly || !props.snippets.length) return false;
+  const sel = v.state.selection.main;
+  if (!sel.empty || inStringOrComment(v.state, sel.head)) return false;
+  const word = abbreviationBefore(v.state, sel.head);
+  if (!word) return false;
+  const s = props.snippets.find((x) => x.abbr === word.text) ?? props.snippets.find((x) => x.abbr.toLowerCase() === word.text.toLowerCase());
+  if (!s) return false;
+  closeCompletion(v);
+  snippet(s.body)(v, null, word.from, sel.head);
+  return true;
+}
+
+/** The snippets as completion entries too (any language: not tied to one). */
+const snippetSource = (ctx: CompletionContext): CompletionResult | null => {
+  if (!props.snippets.length || props.readOnly || inStringOrComment(ctx.state, ctx.pos)) return null;
+  const word = abbreviationBefore(ctx.state, ctx.pos);
+  if (!word && !ctx.explicit) return null;
+  return {
+    from: word?.from ?? ctx.pos,
+    options: props.snippets.map((s) => snippetCompletion(s.body, { label: s.abbr, detail: s.detail, type: 'snippet', boost: -1 })),
+    validFor: /^\w*$/,
+  };
+};
+
+// -- ⌘/Ctrl+click on a name ---------------------------------------------------------------------
+const setLink = StateEffect.define<{ from: number; to: number } | null>();
+const linkMark = Decoration.mark({ class: 'cm-dbine-link' });
+const linkField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    for (const e of tr.effects) if (e.is(setLink)) return e.value ? Decoration.set([linkMark.range(e.value.from, e.value.to)]) : Decoration.none;
+    return tr.docChanged ? Decoration.none : deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+const linkKey = (e: MouseEvent | KeyboardEvent) => (navigator.platform.toLowerCase().includes('mac') ? e.metaKey : e.ctrlKey);
+let linkShown: { from: number; to: number } | null = null;
+function showLink(v: EditorView, r: { from: number; to: number } | null) {
+  if (r?.from === linkShown?.from && r?.to === linkShown?.to) return;
+  linkShown = r;
+  v.dispatch({ effects: setLink.of(r) });
+}
+const links = [
+  linkField,
+  EditorView.domEventHandlers({
+    mousemove(e, v) {
+      if (!props.linkAt || !linkKey(e)) { if (linkShown) showLink(v, null); return false; }
+      const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
+      showLink(v, pos === null ? null : props.linkAt(v.state.doc.toString(), pos));
+      return false;
+    },
+    mousedown(e, v) {
+      if (!props.linkAt || e.button !== 0 || !linkKey(e)) return false;
+      const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
+      if (pos === null || !props.linkAt(v.state.doc.toString(), pos)) return false;
+      e.preventDefault();
+      showLink(v, null);
+      emit('navigate', v.state.doc.toString(), pos);
+      return true;
+    },
+    keyup(_e, v) { if (linkShown) showLink(v, null); return false; },
+    mouseleave(_e, v) { if (linkShown) showLink(v, null); return false; },
+  }),
+  EditorView.baseTheme({
+    '.cm-dbine-link': { textDecoration: 'underline', cursor: 'pointer', color: '#4fc1ff' },
+    '.cm-completionIcon-snippet:after': { content: "'⧉'" },
+  }),
+];
+
 /** The selection, or the whole text when nothing is selected. */
 function runnableText(v: EditorView): string {
   return runnable(v).text;
@@ -264,6 +366,7 @@ onMounted(() => {
           { key: 'Mod-l', preventDefault: true, run: (v) => { const r = runnable(v); emit('plan', r.text, false, r.from); return true; } },
           { key: 'Shift-Mod-l', preventDefault: true, run: (v) => { const r = runnable(v); emit('plan', r.text, true, r.from); return true; } },
           { key: 'Mod-s', preventDefault: true, run: () => { emit('save'); return true; } },
+          { key: 'Tab', run: expandSnippet },
           indentWithTab,
         ]),
         basicSetup,
@@ -276,6 +379,8 @@ onMounted(() => {
           if (u.docChanged) emit('update:modelValue', u.state.doc.toString());
         }),
         openTableList,
+        EditorState.languageData.of(() => [{ autocomplete: snippetSource }]),
+        links,
       ],
     }),
   });
