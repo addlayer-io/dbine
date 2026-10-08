@@ -18,6 +18,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod rename;
 mod script;
 mod security;
 mod stats;
@@ -87,6 +88,16 @@ impl Driver for DremioDriver {
     /// `USE` stays in the session (the jobs' context).
     fn script_mode(&self) -> dbine_driver::ScriptMode {
         dbine_driver::ScriptMode::PerStatement
+    }
+
+    /// Views (created again with the new name) and Iceberg columns; no
+    /// `RENAME` for anything else (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        rename::spec()
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {

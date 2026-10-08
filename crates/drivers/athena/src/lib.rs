@@ -16,6 +16,7 @@ mod profiler;
 mod properties;
 #[path = "../../trino/src/script.rs"]
 mod script;
+mod rename;
 mod stats;
 mod sync;
 mod transfer;
@@ -154,6 +155,16 @@ impl Driver for AthenaDriver {
     /// Multi-row `INSERT … VALUES` up to Athena's query length (see `transfer`).
     fn supports_bulk_load(&self) -> bool {
         true
+    }
+
+    /// Iceberg tables and columns, and views created again with the new
+    /// name (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        rename::spec()
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(req)
     }
 
     fn supports_schema_sync(&self) -> bool {

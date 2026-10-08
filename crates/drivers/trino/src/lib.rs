@@ -11,6 +11,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod rename;
 mod script;
 mod security;
 mod stats;
@@ -151,6 +152,16 @@ impl Driver for TrinoDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync::sync_script(self.flavor, changes)
+    }
+
+    /// Tables, views, materialized views (not Presto), columns and schemas;
+    /// the connector decides what it takes (see [`rename`]).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        rename::spec(self.flavor)
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(self.flavor, req)
     }
 
     fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]) -> Result<String> {
