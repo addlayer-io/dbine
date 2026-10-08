@@ -8,7 +8,6 @@
 //! ```
 
 use dbine_driver::{ConnectionConfig, QueryOutcome, Session};
-use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
@@ -26,15 +25,6 @@ fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
         trust_server_certificate: true,
         ..Default::default()
     })
-}
-
-async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
-    let mut out = QueryOutcome::default();
-    s.execute(sql, 10, &mut out).await.unwrap();
-    match &out.results.last().unwrap().rows[0][0] {
-        Value::String(v) => v.clone(),
-        v => v.to_string(),
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -135,6 +135,11 @@ export interface DependenciesTab extends TabBase {
   column: string | null;
 }
 
+/** "Buscar · <base>": object names and the text of views, routines, triggers… */
+export interface SearchTab extends TabBase {
+  kind: 'search';
+}
+
 /** A file of a linked project (docs/proyectos.md), in the query editor.
  *  `connectionId`/`database` hold the target in use, or '' when unbound. */
 export interface FileTab extends TabBase {
@@ -155,7 +160,7 @@ export interface FileDiffTab extends TabBase {
   path: string;
 }
 
-export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | ConnectionFormTab;
+export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | ConnectionFormTab;
 
 /** Editor tabs that can't move to another database right now (running, or
  *  with an open transaction). QueryView keeps it up to date. */
@@ -462,6 +467,13 @@ export const useTabsStore = defineStore('tabs', {
       );
       if (open) return this.activate(open.id);
       this.place({ id: newId(), kind: 'dependencies', connectionId, database, object, column, preview: false });
+    },
+
+    /** A database's "Buscar" tab, one per database. */
+    openSearch(connectionId: string, database: string) {
+      const open = this.tabs.find((t) => t.kind === 'search' && t.connectionId === connectionId && t.database === database);
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'search', connectionId, database, preview: false });
     },
 
     openDataCompare(connectionId: string, database: string, object: ObjectRef | null) {

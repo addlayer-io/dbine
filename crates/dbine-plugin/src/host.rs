@@ -320,7 +320,8 @@ impl Call {
             | BulkLoad { session, .. } | KeyRange { session, .. } | DeltaSummary { session, .. } | DeltaApply { session, .. }
             | Permissions { session, .. } | ListSchemas { session } | IndexUsage { session, .. } | Dependents { session, .. }
             | Processes { session } | CancelQuery { session, .. } | CreateDatabaseChoices { session }
-            | CreateDatabaseWith { session, .. } | DatabaseProperties { session, .. } | AlterDatabase { session, .. } => Some(*session),
+            | CreateDatabaseWith { session, .. } | DatabaseProperties { session, .. } | AlterDatabase { session, .. }
+            | SearchCode { session, .. } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
             CopyNative { from, .. } => Some(*from),
@@ -602,6 +603,7 @@ impl State {
             Call::Dependents { session, target, scan } => Reply::Dependents(self.slot(session)?.session.lock().await.dependents(&target, &scan).await?),
             Call::Processes { session } => Reply::Processes(self.slot(session)?.session.lock().await.processes().await?),
             Call::CreateDatabaseChoices { session } => Reply::Choices(self.slot(session)?.session.lock().await.create_database_choices().await?),
+            Call::SearchCode { session, query } => Reply::CodeSearch(self.slot(session)?.session.lock().await.search_code(&query).await?),
             Call::DatabaseProperties { session, database } => {
                 Reply::DatabaseProperties(self.slot(session)?.session.lock().await.database_properties(&database).await?)
             }

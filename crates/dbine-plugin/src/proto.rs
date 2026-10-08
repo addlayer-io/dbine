@@ -202,6 +202,9 @@ pub enum Call {
     DatabaseProperties { session: u64, database: String },
     AlterDatabaseScript { driver: String, database: String, changes: std::collections::BTreeMap<String, String> },
     AlterDatabase { session: u64, database: String, changes: std::collections::BTreeMap<String, String> },
+    /// "Buscar en la base" from the catalog. A host published before it
+    /// answers `Unsupported`, and the app scans the definitions itself.
+    SearchCode { session: u64, query: dbine_driver::search::CodeSearch },
 }
 
 /// Host → app.
@@ -262,6 +265,7 @@ pub enum Reply {
     Processes(Vec<dbine_driver::ServerProcess>),
     Choices(Vec<dbine_driver::FieldChoices>),
     DatabaseProperties(dbine_driver::DatabaseProperties),
+    CodeSearch(Option<dbine_driver::search::CodeSearchReport>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -630,6 +634,7 @@ mod tests {
             (18, Call::DatabaseProperties { session: 3, database: "v".into() }, "DatabaseProperties"),
             (19, Call::AlterDatabaseScript { driver: "sqlserver".into(), database: "v".into(), changes: Default::default() }, "AlterDatabaseScript"),
             (20, Call::AlterDatabase { session: 3, database: "v".into(), changes: Default::default() }, "AlterDatabase"),
+            (21, Call::SearchCode { session: 3, query: Default::default() }, "SearchCode"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

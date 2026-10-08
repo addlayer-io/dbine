@@ -47,6 +47,7 @@ import SecurityView from './views/SecurityView.vue';
 import BackupsView from './views/BackupsView.vue';
 import IndexUsageView from './views/IndexUsageView.vue';
 import DependenciesView from './views/DependenciesView.vue';
+import SearchView from './views/SearchView.vue';
 import SparklesIcon from './components/SparklesIcon.vue';
 import ConnectionView from './views/ConnectionView.vue';
 import MonitorView from './views/MonitorView.vue';
@@ -244,6 +245,7 @@ watch(
               <BackupsView v-else-if="t.kind === 'backups'" :tab="t" />
               <IndexUsageView v-else-if="t.kind === 'indexes'" :tab="t" />
               <DependenciesView v-else-if="t.kind === 'dependencies'" :tab="t" />
+              <SearchView v-else-if="t.kind === 'search'" :tab="t" />
               <ConnectionView v-else-if="t.kind === 'connection'" :tab="t" />
             </div>
           </template>
