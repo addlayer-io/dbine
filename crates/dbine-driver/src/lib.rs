@@ -31,6 +31,7 @@ pub mod profiler;
 pub mod read_only;
 pub mod runtime;
 pub mod schema;
+pub mod search;
 pub mod serde_static;
 pub mod sql;
 pub mod transfer;
@@ -811,6 +812,13 @@ pub trait Session: Send {
     /// engine tracks dependencies override it with catalog queries.
     async fn dependents(&mut self, target: &DependencyTarget, scan: &DependencyScan) -> Result<DependencyReport> {
         dependencies::scan(self, target, scan).await
+    }
+
+    /// "Buscar en la base" in one catalog query (see [`search`]). `None`:
+    /// the app scans each object's definition itself, with progress.
+    async fn search_code(&mut self, query: &search::CodeSearch) -> Result<Option<search::CodeSearchReport>> {
+        let _ = query;
+        Ok(None)
     }
 
     /// `table`'s indexes and how they're used (see [`index_usage`]). `None`:

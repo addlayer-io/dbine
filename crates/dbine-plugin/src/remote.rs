@@ -1111,6 +1111,15 @@ impl Session for RemoteSession {
     async fn rollback(&mut self) -> Result<()> {
         self.host.call(Call::Rollback { session: self.id }).await.map(|_| ())
     }
+    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        match self.host.call(Call::SearchCode { session: self.id, query: query.clone() }).await {
+            Ok(Reply::CodeSearch(r)) => Ok(r),
+            // A host built before the call: the app scans the definitions.
+            Err(Error::Unsupported(_)) => Ok(None),
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
     async fn index_usage(&mut self, table: &ObjectRef) -> Result<Option<dbine_driver::IndexUsageReport>> {
         match self.host.call(Call::IndexUsage { session: self.id, table: table.clone() }).await {
             Ok(Reply::IndexUsage(r)) => Ok(r),

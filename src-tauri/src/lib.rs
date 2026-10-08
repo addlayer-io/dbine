@@ -347,6 +347,7 @@ pub fn run() {
             commands::schema::database_properties,
             commands::schema::alter_database_script,
             commands::schema::alter_database,
+            commands::search::search_database,
             commands::schema::drop_database,
             commands::schema::drop_objects,
             commands::schemas::schema_spec,

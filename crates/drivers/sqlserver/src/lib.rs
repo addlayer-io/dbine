@@ -15,6 +15,7 @@ mod properties;
 mod profiler;
 mod schema;
 mod script;
+mod search;
 mod security;
 mod structure;
 mod transfer;
@@ -1021,6 +1022,10 @@ impl Session for SqlServerSession {
         }
         sent.map_err(err)?.into_results().await.map_err(err)?;
         Ok(())
+    }
+
+    async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
+        self.search_code_impl(query).await
     }
 
     async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {

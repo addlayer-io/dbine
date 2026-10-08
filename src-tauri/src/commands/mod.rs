@@ -12,6 +12,7 @@ pub mod saved_migrations;
 pub mod query;
 pub mod schema;
 pub mod schemas;
+pub mod search;
 pub mod scripts;
 pub mod settings;
 pub mod sync;
