@@ -3,7 +3,7 @@
 //! reader's choice), and a print layout (the index hides, code opens).
 //! Every text from the database goes through [`esc`].
 
-use super::{diagram, key_marks, qualified, Anchors, Doc, Labels, ObjectDoc, TableDoc, DIAGRAM_MAX};
+use super::{diagram, key_marks, qualified, thousands, Anchors, Doc, Labels, ObjectDoc, TableDoc, DIAGRAM_MAX};
 use dbine_driver::{ColumnDef, TableSchema};
 use std::fmt::Write;
 
@@ -328,6 +328,9 @@ fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labe
     if let Some(c) = t.comment.as_deref().filter(|c| !c.trim().is_empty()) {
         let _ = write!(out, "<p class=\"comment\">{}</p>", esc(c));
     }
+    if let Some(rows) = td.rows {
+        let _ = write!(out, "<p class=\"dim\">{}: {}</p>", esc(l.get("rows")), thousands(rows));
+    }
     let _ = write!(out, "<h5>{}</h5>", esc(l.get("columns")));
     columns_table(out, &t.columns, Some(t), anchors, l);
 
@@ -418,6 +421,9 @@ fn object(out: &mut String, doc: &Doc, o: &ObjectDoc, id: &str, l: &Labels) {
     let _ = write!(out, "<section class=\"obj\" id=\"{}\" data-s=\"{}\"><h4>{}</h4>", esc(id), object_search(o), esc(&qualified(o.schema.as_deref(), &o.name)));
     if let Some(p) = &o.parent {
         let _ = write!(out, "<p class=\"dim\">{}: {}</p>", esc(l.get("parent")), esc(p));
+    }
+    if let Some(c) = o.comment.as_deref() {
+        let _ = write!(out, "<p class=\"comment\">{}</p>", esc(c));
     }
     if !o.columns.is_empty() {
         let _ = write!(out, "<h5>{}</h5>", esc(l.get("columns")));

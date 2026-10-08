@@ -185,6 +185,8 @@ pub struct TableDoc {
     pub used_by: Vec<UsedBy>,
     /// Its triggers' names.
     pub triggers: Vec<String>,
+    /// Approximate rows, from the engine's statistics (never counted).
+    pub rows: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -213,6 +215,20 @@ pub struct ObjectDoc {
     pub parent: Option<String>,
     pub columns: Vec<ColumnDef>,
     pub source: Option<String>,
+    pub comment: Option<String>,
+}
+
+/// `1234567` as `1.234.567` (the document's numbers read the same in every language it's written in).
+pub(crate) fn thousands(n: u64) -> String {
+    let d = n.to_string();
+    let mut out = String::new();
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i) % 3 == 0 {
+            out.push('.');
+        }
+        out.push(c);
+    }
+    out
 }
 
 // -- reading -----------------------------------------------------------------
@@ -476,9 +492,26 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
             t.triggers.push(o.name.clone());
         }
     }
+    // Rows from the engine's statistics: no count, so no scan and no lock.
+    let estimates: HashMap<(String, String), u64> =
+        s.row_estimates().await.unwrap_or_default().into_iter().map(|e| (key(e.object.schema.as_deref(), &e.object.name), e.rows)).collect();
+    for t in &mut table_docs {
+        t.rows = estimates.get(&key(t.table.schema.as_deref(), &t.table.name)).copied();
+    }
     if !opts.tables {
         table_docs.clear();
     }
+    let comments: HashMap<(String, String, String), String> = s
+        .object_comments()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| !c.comment.trim().is_empty())
+        .map(|c| {
+            let (sc, n) = key(c.object.schema.as_deref(), &c.object.name);
+            ((c.object.kind, sc, n), c.comment)
+        })
+        .collect();
 
     // Everything else, grouped by kind in the driver's order.
     let order: HashMap<&str, usize> = info.object_kinds.iter().enumerate().map(|(i, k)| (k.id, i)).collect();
@@ -504,7 +537,8 @@ pub async fn collect(s: &mut dyn Session, driver: &dyn Driver, opts: &DocOptions
             name: o.name.clone(),
             parent: o.parent.clone(),
             columns: view_columns.get(&(sc.clone(), n.clone())).cloned().unwrap_or_default(),
-            source: if opts.source { sources.get(&(o.kind.clone(), sc, n)).cloned() } else { None },
+            source: if opts.source { sources.get(&(o.kind.clone(), sc.clone(), n.clone())).cloned() } else { None },
+            comment: comments.get(&(o.kind.clone(), sc, n)).cloned(),
         };
         let groups = &mut by_schema.get_mut(&k).unwrap().groups;
         match groups.iter_mut().find(|g| g.kind == o.kind) {
@@ -647,6 +681,7 @@ pub(crate) mod tests {
                         kind_label: "Tablas".into(),
                         used_by: vec![UsedBy { kind_label: "Tablas".into(), schema: Some("app".into()), name: "orders".into(), how: "fk_orders_users (user_id) → app.users<script> (id)".into(), table: true }],
                         triggers: vec![],
+                        rows: Some(1234567),
                     },
                 ],
                 groups: vec![ObjectGroup {

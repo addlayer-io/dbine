@@ -1120,6 +1120,23 @@ impl Session for RemoteSession {
             Ok(_) => Err(unexpected()),
         }
     }
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        match self.host.call(Call::RowEstimates { session: self.id }).await {
+            Ok(Reply::RowEstimates(v)) => Ok(v),
+            // A host built before the call: none known.
+            Err(Error::Unsupported(_)) => Ok(Vec::new()),
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        match self.host.call(Call::ObjectComments { session: self.id }).await {
+            Ok(Reply::ObjectComments(v)) => Ok(v),
+            Err(Error::Unsupported(_)) => Ok(Vec::new()),
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
     async fn search_code(&mut self, query: &dbine_driver::search::CodeSearch) -> Result<Option<dbine_driver::search::CodeSearchReport>> {
         match self.host.call(Call::SearchCode { session: self.id, query: query.clone() }).await {
             Ok(Reply::CodeSearch(r)) => Ok(r),

@@ -208,6 +208,11 @@ pub enum Call {
     /// "Chequeo de salud": the engine's own findings. A host published
     /// before it answers `Unsupported` (none of its own).
     HealthChecks { session: u64, database: String },
+    /// "Documentar la base": rows from statistics and comments on views,
+    /// routines… A host published before them answers `Unsupported`
+    /// (none known).
+    RowEstimates { session: u64 },
+    ObjectComments { session: u64 },
 }
 
 /// Host → app.
@@ -270,6 +275,8 @@ pub enum Reply {
     DatabaseProperties(dbine_driver::DatabaseProperties),
     CodeSearch(Option<dbine_driver::search::CodeSearchReport>),
     HealthChecks(Vec<dbine_driver::health::HealthCheck>),
+    RowEstimates(Vec<dbine_driver::stats::RowEstimate>),
+    ObjectComments(Vec<dbine_driver::stats::ObjectComment>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -640,6 +647,8 @@ mod tests {
             (20, Call::AlterDatabase { session: 3, database: "v".into(), changes: Default::default() }, "AlterDatabase"),
             (21, Call::SearchCode { session: 3, query: Default::default() }, "SearchCode"),
             (22, Call::HealthChecks { session: 3, database: "v".into() }, "HealthChecks"),
+            (23, Call::RowEstimates { session: 3 }, "RowEstimates"),
+            (24, Call::ObjectComments { session: 3 }, "ObjectComments"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
