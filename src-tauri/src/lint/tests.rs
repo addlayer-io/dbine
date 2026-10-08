@@ -390,11 +390,13 @@ fn big_scripts_are_fast() {
         let started = std::time::Instant::now();
         let found = lint(&script, p);
         let took = started.elapsed();
+        eprintln!("lint 5000 lines {p:?}: {took:?}");
         assert!(!found.is_empty());
         assert!(took.as_millis() < limit, "{p:?}: {took:?}");
     }
     let mongo = "db.users.find({ name: /abc/ }).limit(5)\n".repeat(5000);
     let started = std::time::Instant::now();
     lint(&mongo, Profile::Mongodb);
+    eprintln!("lint 5000 lines Mongodb: {:?}", started.elapsed());
     assert!(started.elapsed().as_millis() < limit);
 }
