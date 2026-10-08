@@ -1,0 +1,20 @@
+{
+  "menu": "Contrôle de santé",
+  "tab": "Santé",
+  "title": "Contrôle de santé · {{name}}",
+  "checkedAt": "Vérifié le {{at}}",
+  "run": "Revérifier",
+  "running": "Analyse de la base en cours…",
+  "showOk": "Afficher ce qui est correct",
+  "severity": {
+    "critical": "Critiques",
+    "warning": "Avertissements",
+    "info": "Informations",
+    "ok": "OK"
+  },
+  "openFix": "Ouvrir dans une requête",
+  "fixName": "Correction : {{title}}",
+  "more": "et {{count}} de plus",
+  "allOk": "Aucun problème détecté.",
+  "skipped": "Impossible à vérifier :"
+}

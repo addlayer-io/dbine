@@ -1,0 +1,129 @@
+{
+  "title": "Tarefas agendadas",
+  "tab": "Tarefa",
+  "newTask": "Nova tarefa",
+  "namePlaceholder": "Nome da tarefa",
+  "empty": "Não há tarefas agendadas. Uma tarefa roda sozinha, com o DBine fechado: um script, uma exportação, uma comparação de esquemas ou um backup.",
+  "enabled": "Ativa",
+  "disabled": "Desativada",
+  "enable": "Ativar",
+  "disable": "Desativar",
+  "open": "Abrir",
+  "save": "Salvar",
+  "saved": "Tarefa salva.",
+  "saveFirst": "Salve as alterações antes de executá-la",
+  "runNow": "Executar agora",
+  "started": "“{{name}}” está sendo executada.",
+  "delete": "Excluir",
+  "deleteConfirm": "Excluir a tarefa “{{name}}”? Ela deixa de ser executada e seu histórico é apagado.",
+  "notScheduled": "A tarefa foi salva, mas o sistema não a agendou: {{error}}",
+  "notRegistered": "Não está agendada no sistema",
+  "needsApproval": "Há alterações não aprovadas",
+  "prodHint": "Altera dados em uma conexão de produção",
+  "nextRun": "Próxima execução",
+  "nextRunAt": "Próxima: {{at}}.",
+  "neverRan": "Ainda não foi executada",
+  "when": {
+    "title": "Quando",
+    "types": {
+      "daily": "Todos os dias",
+      "weekly": "Alguns dias",
+      "monthly": "Uma vez por mês",
+      "interval": "A cada tantos minutos"
+    },
+    "at": "às",
+    "onDay": "no dia",
+    "every": "a cada",
+    "minutes": "minutos",
+    "daily": "Todos os dias às {{time}}",
+    "weekly": "{{days}} às {{time}}",
+    "monthly": "No dia {{day}} às {{time}}",
+    "interval_one": "A cada {{count}} minuto",
+    "interval_other": "A cada {{count}} minutos",
+    "hint": "Roda com o DBine fechado, enquanto o seu usuário estiver com a sessão iniciada. Se o computador estava desligado, roda quando for ligado novamente."
+  },
+  "days": {
+    "1": "Seg",
+    "2": "Ter",
+    "3": "Qua",
+    "4": "Qui",
+    "5": "Sex",
+    "6": "Sáb",
+    "7": "Dom"
+  },
+  "notify": {
+    "title": "Avisar",
+    "failure": "Se falhar ou encontrar diferenças",
+    "always": "Sempre",
+    "never": "Nunca"
+  },
+  "steps": "Passos",
+  "addStep": "Adicionar passo",
+  "varsHint": "Em nomes de arquivo e scripts você pode usar:",
+  "kinds": {
+    "run_script": "Executar um script",
+    "export": "Exportar para arquivo",
+    "compare_schemas": "Comparar esquemas",
+    "backup": "Backup"
+  },
+  "step": {
+    "namePlaceholder": "Nome (opcional)",
+    "onError": {
+      "stop": "Se falhar, interromper a tarefa",
+      "continue": "Se falhar, continuar com o próximo"
+    },
+    "up": "Subir",
+    "down": "Descer",
+    "remove": "Remover o passo",
+    "database": "Banco de dados",
+    "script": "Script",
+    "query": "Consulta",
+    "continueOnError": "Continuar com a próxima instrução se uma falhar",
+    "format": "Formato",
+    "header": "Nomes das colunas na primeira linha",
+    "source": "Banco de referência",
+    "target": "Banco a comparar",
+    "ignoreCase": "Ignorar maiúsculas e minúsculas",
+    "ignoreSchema": "Emparelhar sem o esquema",
+    "ignoreComments": "Ignorar comentários",
+    "includeDrops": "Incluir exclusões",
+    "compareHint": "Se os bancos forem diferentes, salva o script que leva o banco a comparar para o de referência e avisa. O script não é executado.",
+    "native": "Backup do motor",
+    "copy": "Cópia do DBine",
+    "noNative": "Este motor não tem backups próprios: a tarefa faz uma cópia do DBine (estrutura e dados em um script).",
+    "secretKept": "Guardado à parte, no chaveiro",
+    "withData": "Com os dados",
+    "folder": "Pasta",
+    "pickFolder": "Pasta de destino",
+    "fileName": "Nome do arquivo"
+  },
+  "formats": {
+    "csv": "CSV",
+    "csv_semicolon": "CSV com ponto e vírgula",
+    "csv_excel": "CSV para Excel",
+    "tsv": "TSV",
+    "xlsx": "Excel (.xlsx)",
+    "json": "JSON",
+    "json_lines": "JSON Lines",
+    "xml": "XML",
+    "sql": "SQL (INSERT)"
+  },
+  "history": "Histórico",
+  "noRuns": "Ainda não foi executada.",
+  "status": {
+    "running": "Em andamento",
+    "ok": "OK",
+    "partial": "Com erros",
+    "failed": "Falhou"
+  },
+  "trigger": {
+    "schedule": "agendada",
+    "manual": "manual"
+  },
+  "approve": {
+    "title": "Esta tarefa altera dados ou estrutura",
+    "text": "Estes passos serão executados sozinhos, sem que ninguém os revise antes. Confira para qual banco eles apontam:",
+    "production": "Há passos em conexões de produção.",
+    "ok": "Aprovar e salvar"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "menu": "Controllo di integrità",
+  "tab": "Integrità",
+  "title": "Controllo di integrità · {{name}}",
+  "checkedAt": "Controllato il {{at}}",
+  "run": "Controlla di nuovo",
+  "running": "Controllo del database…",
+  "showOk": "Mostra ciò che è a posto",
+  "severity": {
+    "critical": "Critici",
+    "warning": "Avvisi",
+    "info": "Informazioni",
+    "ok": "OK"
+  },
+  "openFix": "Apri in una query",
+  "fixName": "Correzione: {{title}}",
+  "more": "e altri {{count}}",
+  "allOk": "Nessun problema trovato.",
+  "skipped": "Non è stato possibile controllare:"
+}

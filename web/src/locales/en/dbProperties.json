@@ -1,0 +1,12 @@
+{
+  "menu": "Properties…",
+  "title": "Properties of “{{name}}”",
+  "apply": "Apply",
+  "confirmTitle": "Apply changes to “{{name}}”",
+  "warningsTitle": "Warning:",
+  "applied": "Properties of “{{name}}” updated",
+  "scriptName": "Properties of {{name}}",
+  "nothing": "This engine has nothing to show or change in this tab.",
+  "readOnly": "Read-only connection: properties can be seen but not changed.",
+  "noChanges": "(no changes)"
+}

@@ -1,0 +1,129 @@
+{
+  "title": "Tâches planifiées",
+  "tab": "Tâche",
+  "newTask": "Nouvelle tâche",
+  "namePlaceholder": "Nom de la tâche",
+  "empty": "Aucune tâche planifiée. Une tâche s'exécute toute seule, DBine fermé : un script, un export, une comparaison de schémas ou une sauvegarde.",
+  "enabled": "Active",
+  "disabled": "Désactivée",
+  "enable": "Activer",
+  "disable": "Désactiver",
+  "open": "Ouvrir",
+  "save": "Enregistrer",
+  "saved": "Tâche enregistrée.",
+  "saveFirst": "Enregistrez vos modifications avant de l'exécuter",
+  "runNow": "Exécuter maintenant",
+  "started": "« {{name}} » est en cours d'exécution.",
+  "delete": "Supprimer",
+  "deleteConfirm": "Supprimer la tâche « {{name}} » ? Elle cesse de s'exécuter et son historique est effacé.",
+  "notScheduled": "La tâche a été enregistrée, mais le système ne l'a pas planifiée : {{error}}",
+  "notRegistered": "Non planifiée dans le système",
+  "needsApproval": "Des modifications ne sont pas approuvées",
+  "prodHint": "Modifie des données sur une connexion de production",
+  "nextRun": "Prochaine exécution",
+  "nextRunAt": "Prochaine : {{at}}.",
+  "neverRan": "Pas encore exécutée",
+  "when": {
+    "title": "Quand",
+    "types": {
+      "daily": "Tous les jours",
+      "weekly": "Certains jours",
+      "monthly": "Une fois par mois",
+      "interval": "Toutes les X minutes"
+    },
+    "at": "à",
+    "onDay": "le jour",
+    "every": "toutes les",
+    "minutes": "minutes",
+    "daily": "Tous les jours à {{time}}",
+    "weekly": "{{days}} à {{time}}",
+    "monthly": "Le {{day}} du mois à {{time}}",
+    "interval_one": "Toutes les {{count}} minute",
+    "interval_other": "Toutes les {{count}} minutes",
+    "hint": "S'exécute DBine fermé, tant que votre utilisateur est connecté. Si l'ordinateur était éteint, elle s'exécute au redémarrage."
+  },
+  "days": {
+    "1": "Lun",
+    "2": "Mar",
+    "3": "Mer",
+    "4": "Jeu",
+    "5": "Ven",
+    "6": "Sam",
+    "7": "Dim"
+  },
+  "notify": {
+    "title": "Notifier",
+    "failure": "En cas d'échec ou de différences",
+    "always": "Toujours",
+    "never": "Jamais"
+  },
+  "steps": "Étapes",
+  "addStep": "Ajouter une étape",
+  "varsHint": "Dans les noms de fichier et les scripts, vous pouvez utiliser :",
+  "kinds": {
+    "run_script": "Exécuter un script",
+    "export": "Exporter vers un fichier",
+    "compare_schemas": "Comparer les schémas",
+    "backup": "Sauvegarde"
+  },
+  "step": {
+    "namePlaceholder": "Nom (facultatif)",
+    "onError": {
+      "stop": "En cas d'échec, arrêter la tâche",
+      "continue": "En cas d'échec, passer au suivant"
+    },
+    "up": "Monter",
+    "down": "Descendre",
+    "remove": "Retirer l'étape",
+    "database": "Base de données",
+    "script": "Script",
+    "query": "Requête",
+    "continueOnError": "Passer à l'instruction suivante si une échoue",
+    "format": "Format",
+    "header": "Noms des colonnes sur la première ligne",
+    "source": "Base de référence",
+    "target": "Base à comparer",
+    "ignoreCase": "Ignorer la casse",
+    "ignoreSchema": "Associer sans le schéma",
+    "ignoreComments": "Ignorer les commentaires",
+    "includeDrops": "Inclure les suppressions",
+    "compareHint": "Si les bases diffèrent, elle enregistre le script qui amène la base à comparer à celle de référence et notifie. Le script n'est pas exécuté.",
+    "native": "Sauvegarde du moteur",
+    "copy": "Copie de DBine",
+    "noNative": "Ce moteur n'a pas de sauvegardes propres : la tâche fait une copie de DBine (structure et données dans un script).",
+    "secretKept": "Conservé à part, dans le trousseau",
+    "withData": "Avec les données",
+    "folder": "Dossier",
+    "pickFolder": "Dossier de destination",
+    "fileName": "Nom du fichier"
+  },
+  "formats": {
+    "csv": "CSV",
+    "csv_semicolon": "CSV avec point-virgule",
+    "csv_excel": "CSV pour Excel",
+    "tsv": "TSV",
+    "xlsx": "Excel (.xlsx)",
+    "json": "JSON",
+    "json_lines": "JSON Lines",
+    "xml": "XML",
+    "sql": "SQL (INSERT)"
+  },
+  "history": "Historique",
+  "noRuns": "Pas encore exécutée.",
+  "status": {
+    "running": "En cours",
+    "ok": "OK",
+    "partial": "Avec erreurs",
+    "failed": "Échec"
+  },
+  "trigger": {
+    "schedule": "planifiée",
+    "manual": "manuelle"
+  },
+  "approve": {
+    "title": "Cette tâche modifie des données ou la structure",
+    "text": "Ces étapes vont s'exécuter toutes seules, sans que personne ne les vérifie avant. Vérifiez quelle base elles ciblent :",
+    "production": "Certaines étapes portent sur des connexions de production.",
+    "ok": "Approuver et enregistrer"
+  }
+}
