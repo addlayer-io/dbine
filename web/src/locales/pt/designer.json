@@ -109,5 +109,28 @@
     "optionRequired": "Falta preencher: {{option}}.",
     "columnOptionMissing": "{{column}}: falta {{option}}.",
     "unnamed": "(sem nome)"
+  },
+  "alter": {
+    "menu": "Modificar…",
+    "tab": "Modificar {{name}}",
+    "title": "Modificar {{object}}",
+    "loading": "Lendo a estrutura de {{name}}…",
+    "notFound": "{{name}} não foi encontrada no banco: pode ter sido apagada ou renomeada. Atualize o explorador.",
+    "unsupported": "Este motor não aplica mudanças de estrutura pelo DBine: escreva o ALTER em uma query.",
+    "tableNameFixed": "Para mudar o nome da tabela, use «Renomear…» no explorador: ele mostra o que depende dela antes de alterar.",
+    "renameHint": "Mude o nome e confirme (Enter ou saia do campo): o DBine mostra o que usa a coluna e o script da mudança.",
+    "renamedFrom": "Antes se chamava «{{name}}»: a mudança de nome roda primeiro.",
+    "noColumnRename": "Este motor não renomeia colunas pelo DBine.",
+    "confirmName": "Confirme o novo nome de «{{name}}» (Enter ou saia do campo) para revisar o que ele afeta.",
+    "review": "Revisar mudanças…",
+    "reviewText": "Revise o script: ele roda nesta ordem, e nada é aplicado até que você o execute.",
+    "run_one": "Executar {{count}} comando",
+    "run_other": "Executar {{count}} comandos",
+    "noChanges": "Não há mudanças para aplicar.",
+    "warningsTitle": "Antes de aplicar",
+    "runAnyway": "Executar mesmo assim",
+    "rolledBack": "Tudo foi desfeito: a tabela ficou como estava.",
+    "partial": "Os comandos anteriores a esse ({{done}}) já foram aplicados.",
+    "done": "As mudanças em {{name}} foram aplicadas."
   }
 }

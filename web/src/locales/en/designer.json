@@ -109,5 +109,28 @@
     "optionRequired": "Required: {{option}}.",
     "columnOptionMissing": "{{column}}: {{option}} is missing.",
     "unnamed": "(unnamed)"
+  },
+  "alter": {
+    "menu": "Modify…",
+    "tab": "Modify {{name}}",
+    "title": "Modify {{object}}",
+    "loading": "Reading the structure of {{name}}…",
+    "notFound": "{{name}} was not found in the database: it may have been dropped or renamed. Refresh the explorer.",
+    "unsupported": "This engine does not apply structure changes from DBine: write the ALTER in a query.",
+    "tableNameFixed": "To change the table name use “Rename…” in the explorer: it shows what depends on it before changing it.",
+    "renameHint": "Change the name and confirm (Enter or leave the field): DBine shows what the column is used by and the script for the change.",
+    "renamedFrom": "It used to be called “{{name}}”: the rename runs first.",
+    "noColumnRename": "This engine does not rename columns from DBine.",
+    "confirmName": "Confirm the new name of “{{name}}” (Enter or leave the field) to review what it affects.",
+    "review": "Review changes…",
+    "reviewText": "Review the script: it runs in this order, and nothing is applied until you run it.",
+    "run_one": "Run {{count}} statement",
+    "run_other": "Run {{count}} statements",
+    "noChanges": "There are no changes to apply.",
+    "warningsTitle": "Before applying",
+    "runAnyway": "Run anyway",
+    "rolledBack": "Everything was rolled back: the table is as it was.",
+    "partial": "The statements before that one ({{done}}) were already applied.",
+    "done": "The changes to {{name}} were applied."
   }
 }

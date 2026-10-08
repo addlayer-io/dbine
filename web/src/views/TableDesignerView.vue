@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
 import { errorMessage } from '../api/client';
 import type { Field, Language, QueryOutcome } from '../api/types';
 import type { DdlParts, DesignerSpec, ForeignKeyDef, IndexDef, TableSchema } from '../api/schema-types';
+import type { SyncScript } from '../api/compare';
 import CodeEditor from '../components/CodeEditor.vue';
 import { useTranslation } from 'i18next-vue';
 import { tb } from '../i18n/backend';
@@ -13,6 +14,12 @@ import { tb } from '../i18n/backend';
 // it offers comes entirely from the driver's DesignerSpec; it builds a
 // TableSchema and the driver turns it into DDL in its own language
 // (`table_ddl`), which is previewed live and run with `execute_query`.
+//
+// With `alter`, it edits the existing table `initial` ("Modificar tabla…"):
+// the script is the engine's ALTER from the table as loaded to the one being
+// designed (`schema_sync_script`, as "Comparar esquemas"), reviewed before
+// it runs. A column renamed in the grid goes through `resolveRename` (the
+// "Renombrar" impact and script); those scripts run first, then the ALTER.
 
 export type DesignerSection = 'columns' | 'indexes' | 'foreign_keys' | 'options' | 'script';
 
@@ -29,13 +36,24 @@ const props = withDefaults(defineProps<{
   dialect?: string;
   /** Sub-tab shown first. */
   initialSection?: DesignerSection;
+  /** Edit `initial` in place instead of creating a new table. */
+  alter?: boolean;
+  /** Edit mode: the rename script for an existing column (the user reviewed
+   *  its impact), or null when the user cancelled. Absent: names are fixed. */
+  resolveRename?: ((from: string, to: string) => Promise<SyncScript | null>) | null;
+  /** Edit mode: why existing columns can't be renamed here, if they can't. */
+  renameBlocked?: string | null;
+  /** Edit mode: run the script all or nothing (engines with DDL in transactions). */
+  atomic?: boolean;
 }>(), {
   schemas: () => [], existingTables: () => [], initial: undefined,
   language: 'sql', dialect: '', initialSection: 'columns',
+  alter: false, resolveRename: null, renameBlocked: null, atomic: false,
 });
 
 const emit = defineEmits<{
   created: [table: TableSchema];
+  altered: [table: TableSchema];
   close: [];
   'open-script': [ddl: string];
 }>();
@@ -58,6 +76,10 @@ interface ColRow {
   auto_increment: boolean;
   comment: string;
   options: OptValues;
+  /** Edit mode: the column's name in the database (null: a new column). */
+  orig: string | null;
+  /** Edit mode: the name last confirmed (a rename reviewed, or the original). */
+  confirmed: string;
 }
 interface IdxRow { key: number; name: string; columns: string[]; unique: boolean; kind: string; filter: string }
 interface FkRow {
@@ -109,7 +131,7 @@ function defaultIdType(): string {
 function newCol(o: Partial<ColRow> = {}): ColRow {
   return {
     key: nextKey(), name: '', data_type: '', nullable: true, default_value: '', pk: false,
-    auto_increment: false, comment: '', options: optsIn(props.spec.column_options, undefined), ...o,
+    auto_increment: false, comment: '', options: optsIn(props.spec.column_options, undefined), orig: null, confirmed: '', ...o,
   };
 }
 
@@ -126,6 +148,7 @@ function load() {
       name: c.name, data_type: c.data_type, nullable: c.nullable, default_value: c.default_value ?? '',
       pk: pkCols.has(c.name), auto_increment: c.auto_increment, comment: c.comment ?? '',
       options: optsIn(spec.column_options, c.options),
+      orig: props.alter ? c.name : null, confirmed: c.name,
     }));
   } else if (spec.primary_key) {
     cols.value = [newCol({ name: 'id', data_type: defaultIdType(), nullable: false, pk: true, auto_increment: spec.auto_increment })];
@@ -142,9 +165,13 @@ function load() {
   tableComment.value = t?.comment ?? '';
   for (const k of Object.keys(tableOpts)) delete tableOpts[k];
   Object.assign(tableOpts, optsIn(spec.table_options, t?.options));
+  renames.clear();
 }
+/** Edit mode: reviewed renames, by the column's name in the database. */
+const renames = reactive(new Map<string, { to: string; script: SyncScript }>());
+let baseline: TableSchema | null = null;
 load();
-watch(() => [props.spec, props.initial], load);
+watch(() => [props.spec, props.initial], () => { load(); takeBaseline(); });
 
 // -- sections ------------------------------------------------------------------------
 /** SQL tables have columns; documents and the like, fields. */
@@ -229,6 +256,11 @@ const issues = computed(() => {
     }
   }
   for (const d of dupNames.value) err('columns', t('designer:issues.duplicateName', { name: d }));
+  if (props.alter) {
+    for (const c of cols.value) {
+      if (c.orig && c.name.trim() && c.name.trim() !== c.confirmed) err('columns', t('designer:alter.confirmName', { name: c.confirmed }));
+    }
+  }
   if (spec.auto_increment && cols.value.filter((c) => c.auto_increment).length > 1) {
     warn('columns', t('designer:issues.multipleAutoInc'));
   }
@@ -305,6 +337,7 @@ function removeCol(c: ColRow) {
   const i = cols.value.indexOf(c);
   if (i < 0) return;
   cols.value.splice(i, 1);
+  if (c.orig) renames.delete(c.orig);
   const n = c.name.trim();
   if (n) {
     for (const x of idxs.value) x.columns = x.columns.filter((y) => y !== n);
@@ -334,6 +367,37 @@ function renameCol(c: ColRow, v: string) {
   const swap = (a: string[]) => a.map((x) => (x === old ? now : x)).filter(Boolean);
   for (const x of idxs.value) x.columns = swap(x.columns);
   for (const f of fks.value) f.columns = swap(f.columns);
+}
+
+/** Edit mode: an existing column's new name, once typed (Enter or leaving
+ *  the field), goes through the rename's impact review; cancelled, the name
+ *  goes back. */
+const renaming = ref(false);
+async function confirmName(c: ColRow) {
+  if (!props.alter || !c.orig || renaming.value) return;
+  const now = c.name.trim();
+  if (now === c.confirmed || !now || dupNames.value.includes(now.toLowerCase())) return;
+  if (now === c.orig) {
+    renames.delete(c.orig);
+    c.confirmed = now;
+    return;
+  }
+  if (!props.resolveRename) { renameCol(c, c.confirmed); return; }
+  renaming.value = true;
+  try {
+    const script = await props.resolveRename(c.orig, now);
+    if (script) {
+      renames.set(c.orig, { to: now, script });
+      c.confirmed = now;
+    } else {
+      renameCol(c, c.confirmed);
+    }
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+    renameCol(c, c.confirmed);
+  } finally {
+    renaming.value = false;
+  }
 }
 
 function setPk(c: ColRow, v: boolean) {
@@ -462,7 +526,46 @@ let ddlSeq = 0;
 let ddlTimer: ReturnType<typeof setTimeout> | null = null;
 
 function fetchDdl(t: TableSchema): Promise<string> {
+  if (props.alter) return alterScript().then(scriptText);
   return invoke<string>('table_ddl', { args: { connection_id: props.connectionId, database: props.database, table: t, parts: PARTS } });
+}
+
+/** Edit mode: the table as loaded, with the reviewed renames applied (they
+ *  run first, so the ALTER starts from there). */
+function renamedBaseline(): TableSchema {
+  const b = JSON.parse(JSON.stringify(baseline)) as TableSchema;
+  const to = new Map([...renames].map(([from, r]) => [from, r.to]));
+  const f = (n: string) => to.get(n) ?? n;
+  for (const c of b.columns) c.name = f(c.name);
+  if (b.primary_key) b.primary_key.columns = b.primary_key.columns.map(f);
+  for (const i of b.indexes) i.columns = i.columns.map(f);
+  for (const k of b.foreign_keys) {
+    k.columns = k.columns.map(f);
+    if (k.ref_table === b.name && (k.ref_schema ?? null) === (b.schema ?? null)) k.ref_columns = k.ref_columns.map(f);
+  }
+  return b;
+}
+
+/** Edit mode: the rename scripts, then the engine's ALTER for the rest. */
+const review = ref<SyncScript | null>(null);
+async function alterScript(): Promise<SyncScript> {
+  const rest = await invoke<SyncScript>('schema_sync_script', {
+    args: { connection_id: props.connectionId, tables: [{ op: 'alter', old: renamedBaseline(), new: table.value }], objects: [], views: [] },
+  });
+  const pre = [...renames.values()].map((r) => r.script);
+  const out = {
+    statements: [...pre.flatMap((x) => x.statements), ...rest.statements],
+    warnings: [...pre.flatMap((x) => x.warnings), ...rest.warnings],
+  };
+  review.value = out;
+  return out;
+}
+
+function scriptText(sc: SyncScript): string {
+  const c = props.language === 'sql' ? '--' : '//';
+  if (!sc.statements.length) return `${c} ${t('designer:alter.noChanges')}`;
+  const warn = sc.warnings.map((w) => `${c} ⚠ ${tb(w)}`).join('\n');
+  return `${warn ? `${warn}\n\n` : ''}${sc.statements.join('\n\n')}`;
 }
 
 async function refreshDdl() {
@@ -542,6 +645,53 @@ async function create() {
   }
 }
 
+/** Edit mode, step 1: the script, in the SQL tab, for review. */
+const reviewing = ref(false);
+async function startReview() {
+  if (errors.value.length) {
+    ElMessage.warning(errors.value[0].text);
+    section.value = errors.value[0].section;
+    return;
+  }
+  runError.value = null;
+  const text = await freshDdl();
+  if (text === null) return;
+  if (!review.value?.statements.length) { ElMessage.info(t('designer:alter.noChanges')); return; }
+  section.value = 'script';
+  reviewing.value = true;
+}
+watch(table, () => { reviewing.value = false; }, { deep: true });
+
+/** Edit mode, step 2: run what was reviewed. */
+async function applyReviewed() {
+  const sc = review.value;
+  if (!sc?.statements.length) return;
+  if (sc.warnings.length) {
+    const ok = await ElMessageBox.confirm(sc.warnings.map((w) => `• ${tb(w)}`).join('\n'), t('designer:alter.warningsTitle'), {
+      type: 'warning', confirmButtonText: t('designer:alter.runAnyway'), cancelButtonText: t('common:cancel'),
+    }).then(() => true, () => false);
+    if (!ok) return;
+  }
+  creating.value = true;
+  runError.value = null;
+  try {
+    const r = await invoke<{ done: number; failed: [number, string] | null; rolled_back?: boolean }>('schema_sync_run', {
+      args: { connection_id: props.connectionId, database: props.database, statements: sc.statements, run_id: sessionId, atomic: props.atomic },
+    });
+    if (r.failed) {
+      runError.value = `${tb(r.failed[1])} ${r.rolled_back ? t('designer:alter.rolledBack') : t('designer:alter.partial', { done: r.done })}`;
+      return;
+    }
+    reviewing.value = false;
+    ElMessage.success(t('designer:alter.done', { name: table.value.name }));
+    emit('altered', table.value);
+  } catch (e) {
+    runError.value = errorMessage(e);
+  } finally {
+    creating.value = false;
+  }
+}
+
 async function openScript() {
   if (!table.value.name) { ElMessage.warning(t('designer:issues.nameMissing')); return; }
   const text = await freshDdl();
@@ -556,16 +706,24 @@ onBeforeUnmount(() => {
 const nameInput = ref<{ focus: () => void } | null>(null);
 nextTick(() => nameInput.value?.focus());
 
+/** The table as loaded, through the same normalization as the edited one:
+ *  what the designer doesn't show never turns into a change. */
+function takeBaseline() {
+  baseline = props.alter ? JSON.parse(JSON.stringify(table.value)) as TableSchema : null;
+}
+takeBaseline();
+
 defineExpose({ table });
 </script>
 
 <template>
   <div class="dz">
     <div class="nm-toolbar">
-      <span class="dz-title"><el-icon><ei-grid /></el-icon>{{ tb(spec.label) }}</span>
+      <span class="dz-title"><el-icon><ei-grid /></el-icon>{{ alter ? $t('designer:alter.title', { object: objectNoun(tb(spec.label)) }) : tb(spec.label) }}</span>
       <el-select
         v-if="spec.schemas"
         v-model="schema"
+        :disabled="alter"
         class="dz-schema"
         filterable
         allow-create
@@ -579,6 +737,8 @@ defineExpose({ table });
       <el-input
         ref="nameInput"
         v-model="name"
+        :disabled="alter"
+        :title="alter ? $t('designer:alter.tableNameFixed') : undefined"
         class="dz-name-input"
         :class="{ invalid: !name.trim() }"
         :placeholder="$t('designer:namePlaceholder')"
@@ -606,7 +766,10 @@ defineExpose({ table });
         <el-icon><ei-document-add /></el-icon>&nbsp;{{ $t('designer:toolbar.openAsQuery') }}
       </el-button>
       <el-button @click="emit('close')">{{ $t('common:cancel') }}</el-button>
-      <el-button type="primary" :loading="creating" :disabled="!!errors.length" @click="create">
+      <el-button v-if="alter" type="primary" :disabled="!!errors.length || renaming" @click="startReview">
+        <el-icon><ei-view /></el-icon>&nbsp;{{ $t('designer:alter.review') }}
+      </el-button>
+      <el-button v-else type="primary" :loading="creating" :disabled="!!errors.length" @click="create">
         <el-icon v-if="!creating"><ei-check /></el-icon>&nbsp;{{ $t('designer:toolbar.create') }}
       </el-button>
     </div>
@@ -665,7 +828,7 @@ defineExpose({ table });
               <td class="dz-handle">
                 <span
                   class="dz-grip"
-                  draggable="true"
+                  :draggable="!alter"
                   :title="$t('designer:columns.dragTitle')"
                   @dragstart="onDragStart($event, c)"
                   @dragend="onDragEnd"
@@ -677,10 +840,13 @@ defineExpose({ table });
               <td class="dz-name">
                 <el-input
                   :model-value="c.name"
-                  :class="{ invalid: nameInvalid(c) }"
+                  :class="{ invalid: nameInvalid(c), renamed: !!c.orig && c.confirmed !== c.orig }"
                   :placeholder="$t('designer:namePlaceholder')"
+                  :disabled="alter && !!c.orig && (!resolveRename || renaming)"
+                  :title="alter && c.orig ? (!resolveRename ? renameBlocked ?? '' : c.confirmed !== c.orig ? $t('designer:alter.renamedFrom', { name: c.orig }) : $t('designer:alter.renameHint')) : undefined"
                   spellcheck="false"
                   @update:model-value="renameCol(c, $event)"
+                  @change="confirmName(c)"
                 />
               </td>
               <td class="dz-type">
@@ -728,8 +894,10 @@ defineExpose({ table });
                 <el-input v-model="c.comment" placeholder="—" />
               </td>
               <td class="dz-actions">
-                <button class="ide-icon-btn" :title="$t('designer:columns.moveUp')" :disabled="i === 0" @click="moveCol(c, -1)"><el-icon><ei-arrow-up /></el-icon></button>
-                <button class="ide-icon-btn" :title="$t('designer:columns.moveDown')" :disabled="i === cols.length - 1" @click="moveCol(c, 1)"><el-icon><ei-arrow-down /></el-icon></button>
+                <template v-if="!alter">
+                  <button class="ide-icon-btn" :title="$t('designer:columns.moveUp')" :disabled="i === 0" @click="moveCol(c, -1)"><el-icon><ei-arrow-up /></el-icon></button>
+                  <button class="ide-icon-btn" :title="$t('designer:columns.moveDown')" :disabled="i === cols.length - 1" @click="moveCol(c, 1)"><el-icon><ei-arrow-down /></el-icon></button>
+                </template>
                 <button class="ide-icon-btn dz-del" :title="$t('designer:columns.removeTitle')" @click="removeCol(c)"><el-icon><ei-close /></el-icon></button>
               </td>
             </tr>
@@ -897,6 +1065,14 @@ defineExpose({ table });
     <!-- script -->
     <div v-if="section === 'script'" class="dz-body">
       <el-alert v-if="ddlError" type="error" :title="ddlError" :closable="false" class="dz-run-error nm-selectable" show-icon />
+      <div v-else-if="alter && reviewing && review?.statements.length" class="dz-review">
+        <span>{{ $t('designer:alter.reviewText') }}</span>
+        <div class="nm-spacer" />
+        <el-button size="small" @click="reviewing = false">{{ $t('common:cancel') }}</el-button>
+        <el-button size="small" type="primary" :loading="creating" @click="applyReviewed">
+          {{ $t('designer:alter.run', { count: review.statements.length }) }}
+        </el-button>
+      </div>
       <div v-else-if="inTauri && !table.name" class="nm-content nm-muted">{{ $t('designer:script.typeName') }}</div>
       <div class="dz-script" :class="{ stale: ddlLoading }">
         <CodeEditor :model-value="previewText" :language="inTauri ? language : 'sql'" :dialect="dialect" read-only />
@@ -912,6 +1088,8 @@ defineExpose({ table });
 .nm-toolbar .dz-schema { width: 120px; }
 .dz-dot { color: var(--nm-text-dim); margin: 0 -2px; }
 .dz-name-input { width: 220px; }
+.dz-review { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--nm-border-soft); background: var(--nm-bg-elev); }
+.renamed :deep(.el-input__wrapper) { box-shadow: 0 0 0 1px var(--nm-accent) inset; }
 .dz-name-input :deep(input) { font-family: var(--nm-mono); font-size: 12.5px; }
 .dz-db { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; white-space: nowrap; }
 .invalid :deep(.el-input__wrapper), .invalid :deep(.el-select__wrapper),
