@@ -88,7 +88,7 @@ impl MySqlSession {
         }
     }
 
-    async fn current_database(&mut self) -> Option<String> {
+    pub(crate) async fn current_database(&mut self) -> Option<String> {
         match self.rows("SELECT DATABASE()").await {
             Ok(rows) => rows.first().and_then(|r| at(r, 0)).or_else(|| self.database.clone()),
             Err(_) => self.database.clone(),
@@ -1385,6 +1385,16 @@ impl Session for MySqlSession {
     }
 
     /// The engine's own "Chequeo de salud" findings (see `health`).
+    /// Storage-engine statistics, never a count (see `stats`).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        self.row_estimates_impl().await
+    }
+
+    /// Routine, view and sequence comments (see `stats`).
+    async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
+        self.object_comments_impl().await
+    }
+
     async fn health_checks(&mut self, database: &str) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         self.health_checks_impl(database).await
     }

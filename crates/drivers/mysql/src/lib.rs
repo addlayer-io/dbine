@@ -20,6 +20,7 @@ mod profiler;
 mod properties;
 mod security;
 mod session;
+mod stats;
 mod structure;
 mod transfer;
 
