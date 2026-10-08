@@ -348,6 +348,8 @@ pub fn run() {
             commands::schema::alter_database_script,
             commands::schema::alter_database,
             commands::search::search_database,
+            commands::datagen::datagen_preview,
+            commands::datagen::datagen_run,
             commands::schema::drop_database,
             commands::schema::drop_objects,
             commands::schemas::schema_spec,

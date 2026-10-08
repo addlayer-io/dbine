@@ -30,6 +30,7 @@ import CloneTableDialog from './CloneTableDialog.vue';
 import SchemaDialog from './SchemaDialog.vue';
 import CreateDatabaseDialog from './CreateDatabaseDialog.vue';
 import DatabasePropertiesDialog from './DatabasePropertiesDialog.vue';
+import GenerateDataDialog from './GenerateDataDialog.vue';
 import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
@@ -560,6 +561,8 @@ const cloning = ref<{ connectionId: string; database: string; object: { kind: st
 /** "Eliminar índice…": the index being dropped. */
 const droppingIndex = ref<DropIndexTarget | null>(null);
 /** "Nuevo esquema…" / "Borrar esquema…": the dialog open. */
+/** The table "Generar datos de prueba" is open for. */
+const generatingData = ref<{ connectionId: string; database: string; table: { kind: string; schema: string | null; name: string } } | null>(null);
 /** The database "Propiedades" is open for. */
 const dbProperties = ref<{ connectionId: string; database: string } | null>(null);
 const schemaDialog = ref<{ connectionId: string; database: string; mode: 'create' | 'drop'; schema?: string } | null>(null);
@@ -809,6 +812,9 @@ async function onContext(e: MouseEvent, n: TNode) {
       if (kind?.has_definition ?? true) items.push({ label: t('explorer:menu.definition'), action: () => tabs.openObject(cid!, db, ref, 'definition', false) });
       if (kind?.browsable ?? true) items.push({ label: t('dataCompare:menu'), action: () => tabs.openDataCompare(cid!, db, ref) });
       if (cloneable(conns.driverOf(cid!), kind, o.kind)) items.push({ label: t('cloneTable:menu'), action: () => { cloning.value = { connectionId: cid!, database: db, object: ref }; } });
+      if ((kind?.browsable ?? true) && (kind?.has_columns ?? true) && !conns.byId(cid!)?.config.read_only) {
+        items.push({ label: t('dataGen:menu'), action: () => { generatingData.value = { connectionId: cid!, database: db, table: ref }; } });
+      }
       if (kind?.browsable ?? true) {
         items.push({
           label: t('explorer:menu.newSelectQuery'), divided: true,
@@ -1335,6 +1341,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <DropIndexDialog v-if="droppingIndex" :target="droppingIndex" @close="droppingIndex = null" />
     <CloneTableDialog v-if="cloning" :connection-id="cloning.connectionId" :database="cloning.database" :object="cloning.object" @close="cloning = null" />
     <CreateDatabaseDialog v-if="creatingDatabase" :connection-id="creatingDatabase" @close="creatingDatabase = null" />
+    <GenerateDataDialog v-if="generatingData" :connection-id="generatingData.connectionId" :database="generatingData.database" :table="generatingData.table" @close="generatingData = null" />
     <DatabasePropertiesDialog v-if="dbProperties" :connection-id="dbProperties.connectionId" :database="dbProperties.database" @close="dbProperties = null" />
     <SchemaDialog
       v-if="schemaDialog" :connection-id="schemaDialog.connectionId" :database="schemaDialog.database" :mode="schemaDialog.mode" :schema="schemaDialog.schema"
