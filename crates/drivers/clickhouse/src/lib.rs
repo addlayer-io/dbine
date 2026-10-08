@@ -15,6 +15,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 mod schema;
 mod security;
 mod sync;
@@ -137,6 +138,11 @@ impl Driver for ClickHouseDriver {
         create_db::script(self.flavor, name, options)
     }
 
+    /// "Propiedades" (see [`properties`]).
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(self.flavor, database, changes)
+    }
+
     fn supports_explain(&self) -> bool {
         true
     }
@@ -167,6 +173,7 @@ impl Driver for ClickHouseDriver {
             monitor: true,
             processes: true,
             cancel_query: true,
+            database_properties: self.flavor == Flavor::ClickHouse,
             ..Default::default()
         }
     }
@@ -1159,6 +1166,14 @@ impl Session for ClickHouseSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.create_database_with_impl(name, options).await
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

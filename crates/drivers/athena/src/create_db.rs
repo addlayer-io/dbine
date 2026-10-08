@@ -25,7 +25,7 @@ fn opt<'a>(o: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
 }
 
 /// `clave=valor` lines; keys are letters, digits and `_ . : -`.
-fn properties(v: &str) -> Result<Vec<(String, String)>> {
+pub(crate) fn properties(v: &str) -> Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for line in v.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let (k, val) = line.split_once('=').ok_or_else(|| Error::Query(format!("propiedades: «{line}» no tiene la forma clave=valor")))?;

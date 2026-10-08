@@ -13,6 +13,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod profiler;
+mod properties;
 #[path = "../../trino/src/script.rs"]
 mod script;
 mod sync;
@@ -109,6 +110,11 @@ impl Driver for AthenaDriver {
         create_db::script(name, options)
     }
 
+    /// "Propiedades" (see [`properties`]).
+    fn alter_database_script(&self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<String> {
+        properties::script(database, changes)
+    }
+
     fn supports_explain(&self) -> bool {
         true
     }
@@ -121,6 +127,7 @@ impl Driver for AthenaDriver {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
+            database_properties: true,
             create_database: true,
             drop_database: true,
             foreign_keys: false,
@@ -606,6 +613,14 @@ impl Session for AthenaSession {
 
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         self.run(&create_db::script(name, options)?, 1).await.map(|_| ())
+    }
+
+    async fn database_properties(&mut self, database: &str) -> Result<dbine_driver::DatabaseProperties> {
+        self.properties(database).await
+    }
+
+    async fn alter_database(&mut self, database: &str, changes: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        self.alter_database_impl(database, changes).await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {

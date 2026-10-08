@@ -49,7 +49,7 @@ fn bad(what: &str, v: &str) -> Error {
 }
 
 /// A ClickHouse string literal (backslash escapes, as the server reads it).
-fn literal(s: &str) -> String {
+pub(crate) fn literal(s: &str) -> String {
     format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
