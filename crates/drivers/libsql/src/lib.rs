@@ -142,6 +142,16 @@ impl Driver for LibsqlDriver {
         sync_script(changes)
     }
 
+    /// SQLite's, without `PRAGMA legacy_alter_table` (the server refuses it;
+    /// it is off there).
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(dbine_driver_sqlite::rename::spec(Flavor::Libsql))
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        dbine_driver_sqlite::rename::script(Flavor::Libsql, req)
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
         let token = cfg.option("auth_token").or(cfg.password.as_deref().filter(|p| !p.is_empty())).map(str::to_string);
         let mut client = Client::new(&cfg.host, token)?;

@@ -14,6 +14,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod properties;
+mod rename;
 mod schema;
 mod stats;
 mod transfer;
@@ -174,6 +175,16 @@ impl Driver for DuckDbDriver {
 
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         schema::sync_script(changes)
+    }
+
+    /// Tables, views and columns; views and macros that use them are
+    /// rewritten by the app (see [`rename`]). Not on the files preset.
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        rename::spec(self.files)
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        rename::script(self.files, req)
     }
 
     /// Schemas of the attached catalog the session `USE`s. DuckDB has no
