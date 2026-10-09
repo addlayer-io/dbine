@@ -151,7 +151,8 @@ impl Updater {
             on_change: OnceLock::new(),
         };
         if up.fixed_dir.is_none() {
-            let seq = up.inner.get_mut().unwrap().state.seq;
+            let seen = up.inner.get_mut().unwrap().state.seq;
+            let seq = up.min_seq(seen);
             let index = up.load_cached(seq);
             up.inner.get_mut().unwrap().index = index;
         }
@@ -167,6 +168,12 @@ impl Updater {
         if let Some(f) = self.on_change.get() {
             f();
         }
+    }
+
+    /// The oldest index `seq` accepted: the last one accepted here (`seen`)
+    /// or the one the app was released with, whichever is newer.
+    fn min_seq(&self, seen: u64) -> u64 {
+        seen.max(self.catalog.min_index_seq)
     }
 
     fn cache_paths(&self) -> (PathBuf, PathBuf) {
@@ -514,7 +521,7 @@ impl Updater {
         };
         let (bytes, sig) = tokio::try_join!(get(url.clone()), get(format!("{url}.sig")))?;
         let sig = String::from_utf8_lossy(&sig).to_string();
-        let seq = self.inner.lock().unwrap().state.seq;
+        let seq = self.min_seq(self.inner.lock().unwrap().state.seq);
         let index = index::verify(&bytes, &sig, &self.pubkey, seq).map_err(|e| e.to_string())?;
         if index.target != self.catalog.target {
             return Err(format!("el índice de drivers es de {}, no de {}", index.target, self.catalog.target));
@@ -624,7 +631,7 @@ mod tests {
 
     fn catalog() -> Catalog {
         let asset = HostAsset { version: FLOOR.into(), file: "dbine-driver-pg-1.0.0+p1.e3-t.gz".into(), size: 10, sha256: "00".into() };
-        Catalog { target: "t".into(), base_url: "https://x/drivers".into(), hosts: HashMap::from([("pg".to_string(), asset)]) }
+        Catalog { target: "t".into(), base_url: "https://x/drivers".into(), hosts: HashMap::from([("pg".to_string(), asset)]), min_index_seq: 0 }
     }
 
     fn entry(file: &str, min_app: Option<&str>) -> IndexEntry {
@@ -644,7 +651,7 @@ mod tests {
     }
 
     fn with_index(up: &Updater, entries: &[(&str, IndexEntry)]) {
-        let mut i = Index { target: "t".into(), schema: 2, seq: 1, drivers: BTreeMap::new() };
+        let mut i = Index { target: "t".into(), schema: 2, seq: 1, expires: None, drivers: BTreeMap::new() };
         i.drivers.insert("pg".into(), entries.iter().map(|(k, e)| (k.to_string(), e.clone())).collect());
         up.inner.lock().unwrap().index = Some(i);
     }
@@ -834,6 +841,7 @@ mod tests {
             target: "t".into(),
             base_url: format!("{base}/floor"),
             hosts: HashMap::from([("pg".to_string(), HostAsset { version: FLOOR.into(), file: "floor.gz".into(), size: floor_gz.len() as u64, sha256: sha.clone() })]),
+            min_index_seq: 0,
         };
         let app = semver::Version::new(0, 2, 0);
         let up = Updater::with(catalog(), vec![], dir.path().to_path_buf(), app.clone(), TEST_PK.into(), Some(format!("{base}/d/index-t.json")), None);
@@ -881,6 +889,20 @@ mod tests {
         let err = replay.check().await.unwrap_err();
         assert!(err.contains("más viejo"), "{err}");
         assert_eq!(replay.info("pg").unwrap().available, "1.0.1");
+
+        // A fresh install (no state, no cache) released after seq 150 was
+        // published refuses the older signed index too, and keeps its floor.
+        let fresh = tempfile::tempdir().unwrap();
+        let shipped = Catalog { min_index_seq: 150, ..catalog() };
+        let replay = Updater::with(shipped, vec![], fresh.path().to_path_buf(), semver::Version::new(0, 2, 0), TEST_PK.into(), Some(format!("{old_server}/d/index-t.json")), None);
+        let err = replay.check().await.unwrap_err();
+        assert!(err.contains("100 < 150"), "{err}");
+        assert_eq!(replay.info("pg").unwrap().available, "1.0.0");
+        // Released at that same seq: past the seq check (that fixture is
+        // for another target, the next check).
+        let at = Updater::with(Catalog { min_index_seq: 100, ..catalog() }, vec![], fresh.path().to_path_buf(), semver::Version::new(0, 2, 0), TEST_PK.into(), Some(format!("{old_server}/d/index-t.json")), None);
+        let err = at.check().await.unwrap_err();
+        assert!(err.contains("es de test"), "{err}");
 
         // A cached index that no longer verifies (another key) is ignored.
         let other_key = Updater::with(catalog(), vec![], dir.path().to_path_buf(), semver::Version::new(0, 2, 0), index::UPDATER_PUBKEY.into(), None, None);

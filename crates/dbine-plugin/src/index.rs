@@ -60,6 +60,12 @@ pub struct Index {
     /// Grows with every publish (unix time): an older index is a replay.
     #[serde(default)]
     pub seq: u64,
+    /// Unix time after which the index is stale and refused (past
+    /// [`EXPIRY_GRACE`]): signed with the rest, so a mirror can't serve an
+    /// old index forever. None (indexes published before it existed) =
+    /// never expires; those are only protected by `seq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<u64>,
     /// Driver crate → driver id → its published host.
     #[serde(default)]
     pub drivers: BTreeMap<String, BTreeMap<String, IndexEntry>>,
@@ -91,8 +97,11 @@ pub enum VerifyError {
     Signature(String),
     /// Signed, but not an index.
     Parse(String),
-    /// Older than the one already accepted.
+    /// Older than the one already accepted, or than the one the app was
+    /// released with.
     OldSeq { got: u64, have: u64 },
+    /// Past its `expires` (and the grace): a replayed or frozen index.
+    Expired { expires: u64, now: u64 },
 }
 
 impl fmt::Display for VerifyError {
@@ -101,6 +110,7 @@ impl fmt::Display for VerifyError {
             VerifyError::Signature(e) => write!(f, "la firma del índice de drivers no es válida: {e}"),
             VerifyError::Parse(e) => write!(f, "el índice de drivers no se pudo leer: {e}"),
             VerifyError::OldSeq { got, have } => write!(f, "el índice de drivers es más viejo que el que ya se tenía ({got} < {have})"),
+            VerifyError::Expired { expires, now } => write!(f, "el índice de drivers venció ({expires} < {now}): el servidor de drivers no publicó uno nuevo"),
         }
     }
 }
@@ -115,8 +125,21 @@ fn b64_text(s: &str) -> Result<String, VerifyError> {
 /// the minisign signature file, in base64) with `pubkey` (base64 of the
 /// minisign public key file, as in tauri.conf.json), the same way the
 /// updater plugin checks the app's updates; then parse it and refuse it if
-/// its `seq` is lower than `min_seq`.
+/// its `seq` is lower than `min_seq` or it has expired.
+///
+/// `min_seq` is the highest of the last index accepted here and the one the
+/// app was released with ([`crate::install::Catalog::min_index_seq`]), so a
+/// fresh install can't be handed an index older than its own release.
 pub fn verify(bytes: &[u8], sig: &str, pubkey: &str, min_seq: u64) -> Result<Index, VerifyError> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    verify_at(bytes, sig, pubkey, min_seq, now)
+}
+
+/// Clocks that are off by this much still accept an index about to expire.
+pub const EXPIRY_GRACE: u64 = 7 * 24 * 3600;
+
+/// [`verify`] at the unix time `now`.
+pub fn verify_at(bytes: &[u8], sig: &str, pubkey: &str, min_seq: u64, now: u64) -> Result<Index, VerifyError> {
     let pk = minisign_verify::PublicKey::decode(&b64_text(pubkey)?).map_err(|e| VerifyError::Signature(e.to_string()))?;
     let signature = minisign_verify::Signature::decode(&b64_text(sig)?).map_err(|e| VerifyError::Signature(e.to_string()))?;
     pk.verify(bytes, &signature, true).map_err(|e| VerifyError::Signature(e.to_string()))?;
@@ -124,7 +147,16 @@ pub fn verify(bytes: &[u8], sig: &str, pubkey: &str, min_seq: u64) -> Result<Ind
     if index.seq < min_seq {
         return Err(VerifyError::OldSeq { got: index.seq, have: min_seq });
     }
+    check_fresh(&index, now)?;
     Ok(index)
+}
+
+/// Refuse an index past its `expires` (plus [`EXPIRY_GRACE`]) at `now`.
+pub fn check_fresh(index: &Index, now: u64) -> Result<(), VerifyError> {
+    match index.expires {
+        Some(expires) if now > expires.saturating_add(EXPIRY_GRACE) => Err(VerifyError::Expired { expires, now }),
+        _ => Ok(()),
+    }
 }
 
 /// What a driver crate should run.
@@ -281,6 +313,35 @@ mod tests {
         assert!(matches!(verify(IDX100, SIG100, UPDATER_PUBKEY, 0), Err(VerifyError::Signature(_))));
         assert!(matches!(verify(IDX100, "no", PK, 0), Err(VerifyError::Signature(_))));
         assert!(matches!(verify(IDX100, "", PK, 0), Err(VerifyError::Signature(_))));
+    }
+
+    #[test]
+    fn the_shipped_seq_is_a_floor() {
+        // A fresh install (nothing accepted yet) released when seq 100 was
+        // published: an older signed index (a replay, a rolled-back mirror)
+        // is refused; the same or newer is taken.
+        assert_eq!(verify(IDX50, SIG50, PK, 0u64.max(100)).unwrap_err(), VerifyError::OldSeq { got: 50, have: 100 });
+        assert_eq!(verify(IDX100, SIG100, PK, 0u64.max(100)).unwrap().seq, 100);
+        assert_eq!(verify(IDX100, SIG100, PK, 0u64.max(101)).unwrap_err(), VerifyError::OldSeq { got: 100, have: 101 });
+    }
+
+    #[test]
+    fn an_expired_index_is_refused() {
+        let i = |expires| Index { target: "t".into(), schema: 2, seq: 1, expires, drivers: BTreeMap::new() };
+        let day = 24 * 3600;
+        // No `expires` (older indexes): never stale.
+        assert!(check_fresh(&i(None), u64::MAX).is_ok());
+        // Before it, and within the grace for a clock that runs ahead.
+        assert!(check_fresh(&i(Some(1000 * day)), 999 * day).is_ok());
+        assert!(check_fresh(&i(Some(1000 * day)), 1000 * day + EXPIRY_GRACE).is_ok());
+        assert_eq!(
+            check_fresh(&i(Some(1000 * day)), 1000 * day + EXPIRY_GRACE + 1),
+            Err(VerifyError::Expired { expires: 1000 * day, now: 1000 * day + EXPIRY_GRACE + 1 })
+        );
+        // It's parsed from the signed bytes; the fixtures have none.
+        let parsed: Index = serde_json::from_str(r#"{"target":"t","seq":5,"expires":42,"drivers":{}}"#).unwrap();
+        assert_eq!(parsed.expires, Some(42));
+        assert_eq!(verify_at(IDX100, SIG100, PK, 0, u64::MAX).unwrap().expires, None);
     }
 
     #[test]
