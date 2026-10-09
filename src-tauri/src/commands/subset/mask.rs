@@ -2,9 +2,12 @@
 //! target. Each column of the plan has a rule; the PII ones come
 //! pre-selected by name and type ([`suggest`]).
 //!
-//! A rule's output depends only on the run's seed, the rule (with its
+//! A rule's output depends only on the run's key, the rule (with its
 //! settings) and the original value: the same customer email masked in two
-//! tables comes out the same, so joins on masked columns still match.
+//! tables comes out the same, so joins on masked columns still match. The
+//! key is 256 random bits drawn for each run and never leaves it, and the
+//! masks are HMAC-SHA256 under it: without the key, a mask can't be checked
+//! against a guessed original.
 //! NULLs stay NULL whatever the rule.
 
 use crate::commands::datagen::{self, Rng};
@@ -129,28 +132,38 @@ fn clip(s: String, len: Option<usize>) -> String {
     }
 }
 
-/// Applies rules with one run's seed.
+/// Applies rules with one run's secret key.
 pub struct Masker {
-    seed: u64,
+    key: [u8; 32],
 }
 
 impl Masker {
-    pub fn new(seed: u64) -> Self {
-        Masker { seed }
+    /// A masker with a fresh random 256-bit key (one per run).
+    pub fn random() -> Result<Self, getrandom::Error> {
+        let mut key = [0u8; 32];
+        getrandom::fill(&mut key)?;
+        Ok(Masker { key })
     }
 
+    /// A masker with a fixed key, for tests that need repeatable masks.
+    #[cfg(test)]
+    pub fn with_seed(seed: u64) -> Self {
+        let mut key = [0u8; 32];
+        key[..8].copy_from_slice(&seed.to_le_bytes());
+        Masker { key }
+    }
+
+    /// HMAC-SHA256(key, tag || 0x00 || value).
     fn digest(&self, rule: &MaskRule, v: &Value) -> [u8; 32] {
-        let mut h = Sha256::new();
-        h.update(self.seed.to_le_bytes());
-        h.update(rule.tag().as_bytes());
-        h.update([0u8]);
-        h.update(canonical(v).as_bytes());
-        h.finalize().into()
+        hmac_sha256(&self.key, &[rule.tag().as_bytes(), &[0u8], canonical(v).as_bytes()])
     }
 
+    /// The value's generator, seeded from the whole HMAC (its four 64-bit
+    /// words folded together).
     fn rng(&self, rule: &MaskRule, v: &Value) -> Rng {
         let d = self.digest(rule, v);
-        Rng::new(Some(u64::from_le_bytes(d[..8].try_into().unwrap_or_default())))
+        let seed = d.chunks_exact(8).fold(0u64, |acc, w| acc ^ u64::from_le_bytes(w.try_into().unwrap_or_default()));
+        Rng::new(Some(seed))
     }
 
     pub fn apply(&self, rule: &MaskRule, v: &Value, shape: Shape) -> Value {
@@ -194,6 +207,27 @@ impl Masker {
             }
         }
     }
+}
+
+/// HMAC-SHA256 (RFC 2104) of the concatenation of `parts`, on the `sha2`
+/// crate the app already uses.
+fn hmac_sha256(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+    const BLOCK: usize = 64;
+    let mut k = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        k[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        k[..key.len()].copy_from_slice(key);
+    }
+    let mut inner = Sha256::new();
+    inner.update(k.map(|b| b ^ 0x36));
+    for p in parts {
+        inner.update(p);
+    }
+    let mut outer = Sha256::new();
+    outer.update(k.map(|b| b ^ 0x5c));
+    outer.update(inner.finalize());
+    outer.finalize().into()
 }
 
 /// Every digit replaced, the rest kept (`20-12345678-9` → `27-48291034-1`).
@@ -363,9 +397,36 @@ mod tests {
         Shape { len: Some(len), numeric: false }
     }
 
+    fn hex(d: [u8; 32]) -> String {
+        d.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn hmac_matches_rfc_4231() {
+        // Test case 1.
+        assert_eq!(hex(hmac_sha256(&[0x0b; 20], &[b"Hi There"])), "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+        // Test case 2, the message split in parts.
+        assert_eq!(hex(hmac_sha256(b"Jefe", &[b"what do ya want ", b"for nothing?"])), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+        // Test case 6: a key longer than the block is hashed first.
+        assert_eq!(
+            hex(hmac_sha256(&[0xaa; 131], &[b"Test Using Larger Than Block-Size Key - Hash Key First"])),
+            "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
+        );
+    }
+
+    #[test]
+    fn random_keys_differ_per_run() {
+        let rule = MaskRule::Hash;
+        let (a, b) = (Masker::random().unwrap(), Masker::random().unwrap());
+        assert_ne!(a.key, b.key);
+        let v = json!("ana@empresa.com");
+        assert_eq!(a.apply(&rule, &v, text(100)), a.apply(&rule, &v, text(100)), "one run masks the same way");
+        assert_ne!(a.apply(&rule, &v, text(100)), b.apply(&rule, &v, text(100)));
+    }
+
     #[test]
     fn same_value_same_mask_within_a_run() {
-        let m = Masker::new(42);
+        let m = Masker::with_seed(42);
         let rule = MaskRule::Fake { kind: FakeKind::Email };
         let a = m.apply(&rule, &json!("ana@empresa.com"), text(100));
         let b = m.apply(&rule, &json!("ana@empresa.com"), text(100));
@@ -374,7 +435,7 @@ mod tests {
         assert_ne!(a, c);
         assert!(a.as_str().unwrap().contains('@'));
         // Another run, another mask.
-        assert_ne!(Masker::new(43).apply(&rule, &json!("ana@empresa.com"), text(100)), a);
+        assert_ne!(Masker::with_seed(43).apply(&rule, &json!("ana@empresa.com"), text(100)), a);
         // `12` and `"12"` are the same value (a key read as text on one side).
         let h = MaskRule::Hash;
         assert_eq!(m.apply(&h, &json!(12), Shape { len: None, numeric: true }), m.apply(&h, &json!("12"), Shape { len: None, numeric: true }));
@@ -382,7 +443,7 @@ mod tests {
 
     #[test]
     fn rules_keep_types_and_shapes() {
-        let m = Masker::new(7);
+        let m = Masker::with_seed(7);
         let doc = m.apply(&MaskRule::Fake { kind: FakeKind::Document }, &json!("20-12345678-9"), text(20));
         let s = doc.as_str().unwrap();
         assert_eq!(s.len(), 13);

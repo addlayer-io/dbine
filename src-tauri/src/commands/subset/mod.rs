@@ -130,7 +130,9 @@ pub struct RunArgs {
     /// The target database's name, typed by the user (production targets).
     #[serde(default)]
     pub confirm: String,
-    /// The masking seed (tests); a random one per run otherwise.
+    /// A fixed masking key, for tests only: in the app every run draws a
+    /// random 256-bit key, and the IPC arguments can't pin it.
+    #[cfg(test)]
     #[serde(default)]
     pub seed: Option<u64>,
 }
@@ -1193,7 +1195,13 @@ pub async fn run(state: &AppState, args: &RunArgs, emit: Emit) -> CommandResult<
     let res = async {
         notes.extend(p.cycles());
         notes.extend(check_masks(&p, &args.masks)?);
-        let masker = Masker::new(args.seed.unwrap_or_else(|| uuid::Uuid::new_v4().as_u64_pair().0));
+        #[cfg(test)]
+        let masker = match args.seed {
+            Some(seed) => Masker::with_seed(seed),
+            None => Masker::random().map_err(|e| CommandError::Internal(e.to_string()))?,
+        };
+        #[cfg(not(test))]
+        let masker = Masker::random().map_err(|e| CommandError::Internal(e.to_string()))?;
         let progress = |phase: &str, table: &str, rows: u64, total: u64| emit(json!({ "phase": phase, "table": table, "rows": rows, "total": total }));
         let mut tgt = tgt_entry.session.lock().await;
         Ok::<_, CommandError>(write(&mut tgt, &tgt_entry, &p, &data, &args.masks, &masker, &progress).await)

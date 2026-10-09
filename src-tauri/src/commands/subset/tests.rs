@@ -208,7 +208,7 @@ async fn sqlite_cycle_composite_key_and_consistent_masks() {
     assert_eq!(one(&state, "tgt", None, "SELECT COUNT(*) FROM employees").await, 3);
     assert_eq!(one(&state, "tgt", None, "SELECT manager_id FROM departments WHERE id = 2").await, 11, "the cut column is set afterwards");
     let masked = sql(&state, "tgt", None, "SELECT email FROM employees WHERE id = 10").await.results[0].rows[0][0].clone();
-    assert_eq!(masked, Masker::new(5).apply(&email, &json!("c5@real.com"), Shape::default()), "deterministic per value");
+    assert_eq!(masked, Masker::with_seed(5).apply(&email, &json!("c5@real.com"), Shape::default()), "deterministic per value");
 
     // A composite foreign key (item_notes → order_items) fetched by its
     // most varied column and matched whole.
