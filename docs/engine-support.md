@@ -3110,8 +3110,8 @@ not offer **Rename…** in that engine.
 | SQL Server, Azure SQL | yes | table, view, procedure, function, trigger, column, index, constraint (`sp_rename`; a module is renamed with `sp_rename` and then `CREATE OR ALTER` with the new header, because `sp_rename` does not change the stored text) | foreign keys, indexes and constraints of the renamed object | `CREATE OR ALTER` (keeps permissions); views with SCHEMABINDING are dropped before and created after; in a transaction | no schemas or synonyms; a column used by CHECK constraints or filtered indexes is renamed by dropping and recreating them in the same batch; if a computed column uses it, it is not renamed |
 | Microsoft Fabric Data Warehouse | yes (no live test) | table, column (`sp_rename`) | — | `CREATE OR ALTER`; no transaction | no views, routines, indexes or constraints |
 | Babelfish for PostgreSQL | yes | table, view, procedure, function, column (`sp_rename`; procedures and functions are dropped and created with the new name) | CHECK constraints and computed columns when renaming a column | dropped before and created after (they lose permissions); in a transaction | no triggers, constraints, indexes, schemas or synonyms |
-| MySQL, Aurora MySQL, Cloud SQL para MySQL | yes | table and view (`RENAME TABLE`), column (`CHANGE COLUMN` with the full definition: it works in all versions), index (`RENAME INDEX`, MySQL 5.7+) | foreign keys and indexes; checks on the column are dropped and added again with the new name in the same `ALTER TABLE` | views, routines and triggers: they are dropped and created again (they lose permissions) | no databases or constraints; DDL without a transaction; a foreign `DEFINER` requires `SET_USER_ID` (`SET_ANY_DEFINER` since 8.2) or `SUPER`; a text column's own collation has to be added by hand |
-| MariaDB | yes | table and view (`RENAME TABLE`), column (`CHANGE COLUMN` with the full definition), index (`RENAME INDEX`, 10.5+) | foreign keys, indexes and checks | views, routines and triggers: `CREATE OR REPLACE` | no databases or constraints; DDL without a transaction; a foreign `DEFINER` requires `SET USER` or `SUPER`; a text column's own collation has to be added by hand |
+| MySQL, Aurora MySQL, Cloud SQL para MySQL | yes | table and view (`RENAME TABLE`), column (`CHANGE COLUMN` with the full definition: it works in all versions), index (`RENAME INDEX`, MySQL 5.7+) | foreign keys and indexes; checks on the column are dropped and added again with the new name in the same `ALTER TABLE` | views, routines and triggers: they are dropped and created again (they lose permissions) | no constraints (databases: see [Renaming a database](#renaming-a-database)); DDL without a transaction; a foreign `DEFINER` requires `SET_USER_ID` (`SET_ANY_DEFINER` since 8.2) or `SUPER`; a text column's own collation has to be added by hand |
+| MariaDB | yes | table and view (`RENAME TABLE`), column (`CHANGE COLUMN` with the full definition), index (`RENAME INDEX`, 10.5+) | foreign keys, indexes and checks | views, routines and triggers: `CREATE OR REPLACE` | no constraints (databases: see [Renaming a database](#renaming-a-database)); DDL without a transaction; a foreign `DEFINER` requires `SET USER` or `SUPER`; a text column's own collation has to be added by hand |
 | TiDB | yes | table and view (`RENAME TABLE`), column (`CHANGE COLUMN`), index (`RENAME INDEX`) | foreign keys and indexes; checks on the column are dropped and added again | views: `CREATE OR REPLACE` | no databases or constraints; DDL without a transaction |
 | StarRocks, Apache Doris, VeloDB, GreptimeDB | yes | table (`ALTER TABLE … RENAME`) | — | views: dropped and created again | no views, columns or indexes |
 | SingleStore, Databend, OceanBase (MySQL) | yes (no live test) | table (SingleStore: `ALTER TABLE … RENAME TO`; Databend and OceanBase: `RENAME TABLE`) | — | views and routines: dropped and created again | no views, columns or indexes |
@@ -3133,7 +3133,7 @@ not offer **Rename…** in that engine.
 | Amazon Keyspaces | no | — | — | — | its `ALTER TABLE` has no `RENAME` |
 | Elasticsearch, OpenSearch, Open Distro | yes | index by copy (`PUT /old/_block/write` → `POST /old/_clone/new` → wait for the copy → `DELETE /old`, or `_aliases` with `remove_index`); alias (`_aliases` atomic remove+add) | the index's aliases: they move to the new one in the same atomic step | — | the clone copies the data (it takes time, uses disk) and the index does not accept writes while it lasts; fields are not renamed (it requires reindexing); data streams are not renamed |
 | Apache Solr | yes | core in standalone mode (CoreAdmin `RENAME`) | — | — | the core's folder keeps the previous name; in SolrCloud it is not renamed (`RENAME` only adds an alias) and the server rejects it |
-| Snowflake | yes (no live test) | tables, views, materialized views, sequences (`ALTER … RENAME TO`), functions and procedures (`ALTER FUNCTION\|PROCEDURE f(types) RENAME TO`, each overload), columns (`ALTER TABLE … RENAME COLUMN`), schemas (`ALTER SCHEMA … RENAME TO`) | foreign keys | `CREATE OR REPLACE` (loses permissions: `COPY GRANTS` is not added) | no indexes or constraints; databases are not renamed yet (pending: the explorer does not offer renaming the database in engines with schemas); DDL is committed statement by statement |
+| Snowflake | yes (no live test) | tables, views, materialized views, sequences (`ALTER … RENAME TO`), functions and procedures (`ALTER FUNCTION\|PROCEDURE f(types) RENAME TO`, each overload), columns (`ALTER TABLE … RENAME COLUMN`), schemas (`ALTER SCHEMA … RENAME TO`) | foreign keys | `CREATE OR REPLACE` (loses permissions: `COPY GRANTS` is not added) | no indexes or constraints; databases: see [Renaming a database](#renaming-a-database); DDL is committed statement by statement |
 | BigQuery | yes (no live test) | tables (`ALTER TABLE … RENAME TO`), columns (`ALTER TABLE … RENAME COLUMN`) | — | `CREATE OR REPLACE` | no views, routines or datasets; it does not rename partition, clustering or key columns or STRUCT fields; search and vector indexes are lost; it cannot be done with streaming active; references written as `project.dataset.table` inside a single pair of backticks are not detected |
 | Databricks | yes (no live test) | tables (`ALTER TABLE … RENAME TO`), views (`ALTER VIEW … RENAME TO`), columns (`ALTER TABLE … RENAME COLUMN`, with column mapping) | — | `CREATE OR REPLACE` | columns only in Delta tables with `delta.columnMapping.mode` = `name` or `id`; no schemas, functions or materialized views; with AWS Glue as metastore there is no `RENAME` |
 | Trino, Starburst | yes | tables, views and materialized views (`ALTER TABLE\|VIEW\|MATERIALIZED VIEW … RENAME TO`), columns (`ALTER TABLE … RENAME COLUMN`) and schemas (`ALTER SCHEMA … RENAME TO`) | — | `CREATE OR REPLACE`, after a `USE` of the object's schema | what is accepted is decided by the connector (memory and Iceberg rename everything; Hive does not rename some things); names are stored in lowercase, so uppercase is rejected; it is not transactional; when renaming a schema, views inside that name tables unqualified stop working (a warning is given) |
@@ -3164,6 +3164,41 @@ not offer **Rename…** in that engine.
 | TDengine | yes | ordinary table columns (`ALTER TABLE … RENAME COLUMN a b`, the timestamp one included) and supertable tags (`ALTER STABLE … RENAME TAG a b`) | the tag's index | streams that use the name are dropped before and created again after, rewritten, over the same output table (a tag used by a stream goes the same way) | it does not rename tables, supertables, supertable columns, subtables, views, streams, topics or databases; the server rejects a column or tag used by a topic; what arrives while the stream is dropped is not processed |
 | OrientDB | yes | vertex, edge and document classes (`ALTER CLASS … NAME`, `UNSAFE` on edges) and properties (`ALTER PROPERTY … NAME` + `UPDATE … SET new = old REMOVE old`) | — | they are listed, not rewritten (functions) | their indexes are dropped and recreated (they keep the name), read from the class structure; on edges the vertices' `out_`/`in_` fields are moved; it is not atomic; it does not rename indexes, functions or sequences, nor V/E, `out`/`in`, or `@` attributes |
 | Neo4j, Memgraph, Amazon Neptune | not offered | — | — | — | A label or relationship type is not renamed: changing it is `SET n:New REMOVE n:Old` on every node (or recreating each relationship), which rewrites the data, can take hours on a large graph, is not atomic outside a transaction the size of the graph and forces recreating the label's indexes and constraints. Queries saved outside the database are not seen either. |
+
+### Renaming a database
+
+**Rename…** on a database node is offered in SQL Server (also Azure SQL
+Database and Babelfish), the PostgreSQL family (PostgreSQL, Aurora, AlloyDB,
+Cloud SQL, Timescale, YugabyteDB, Greenplum, Cloudberry, Greengage, EDB,
+KingbaseES, Fujitsu, openGauss, CockroachDB, RisingWave, Redshift,
+Yellowbrick), MySQL, MariaDB, Aurora MySQL, Cloud SQL for MySQL, Snowflake and
+MongoDB. Details of each are in [`rename.md`](rename.md#renaming-a-database).
+
+Tested against real servers: SQL Server, Babelfish, PostgreSQL, CockroachDB,
+MySQL, MariaDB and MongoDB (SQL Server, PostgreSQL and CockroachDB
+included the sessions-open case). YugabyteDB, openGauss, Greengage and
+RisingWave were checked by hand. Azure SQL Database, Redshift, Yellowbrick,
+Snowflake (unit tests only) and the rest follow the vendor's documentation.
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| Microsoft Fabric | Rename a warehouse | Warehouses are renamed in the Fabric portal, not from T-SQL |
+| SQL Server, Azure SQL, Babelfish | System databases | Refused on purpose |
+| Materialize | Rename a database | Its `ALTER DATABASE` has no `RENAME` |
+| CrateDB | Rename a database | Its databases are schemas; schemas are renamed from their own node |
+| H2 | Rename a database | One database per file and no SQL to rename it: rename the file and edit the connection |
+| Denodo | Rename a database | It changes nothing through SQL; databases are managed in Denodo |
+| TiDB | Rename a database | `RENAME TABLE` across databases leaves the foreign keys pointing at the old database, so they would break when it is dropped |
+| SingleStore, StarRocks, Apache Doris, VeloDB, Databend, GreptimeDB | Rename a database | A table can't be moved to another database with a rename, so the emulation used for MySQL isn't possible |
+| Manticore Search | Rename a database | One namespace: there are no databases |
+| OceanBase | Rename a database | Pending: the MySQL emulation was not verified against it |
+| FerretDB, Amazon DocumentDB | Rename a database | Pending: `renameCollection` across databases was not verified on them |
+| SQLite, DuckDB, libSQL / Turso | Rename a database | The file is the database and the connection: rename the file and edit the connection |
+| Oracle | Rename a database | Changing the name of a database is an offline DBA operation (`nid`), not SQL |
+| BigQuery | Rename a dataset | The driver has no rename for datasets (its rename spec does not offer databases) |
+| Cassandra, ScyllaDB | Rename a keyspace | The driver's rename spec does not offer keyspaces |
+| Redis, Valkey, Dragonfly | Rename a database | Databases are numbered, they have no name |
+| InfluxDB, Neo4j, CouchDB, Firebird, SAP HANA, Databricks (catalogs), Elasticsearch, Amazon DynamoDB and the rest | Rename a database | Their rename spec does not offer database renaming: the engine or its client has no rename for it, or the "database" is another concept (an index, a table, a file) |
 
 ## Approximate rows and comments
 
