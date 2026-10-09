@@ -2770,7 +2770,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-odbc"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "dbine-driver",
  "libloading 0.8.9",
