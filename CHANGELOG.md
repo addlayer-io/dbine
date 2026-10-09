@@ -2,24 +2,11 @@
 
 ## [Unreleased]
 
-### New
-- **Rename a database:** **Rename…** on a database in the explorer. The dialog shows the other sessions open on it (which the rename ends), whether the new name exists, how many objects move and the full script. Afterwards the connection's default database, open tabs, saved queries, migrations, project targets and scheduled task steps follow the new name; tasks that change data in it ask for approval again. Available in SQL Server, Azure SQL, Babelfish, the PostgreSQL family, MySQL, MariaDB, Snowflake and MongoDB; where the engine can't rename (or move) a database, it isn't offered.
-
-### Fixes
-- **Task notifications on Windows:** a database error message can no longer run commands through the notification. Notifications on macOS and Linux get the text as separate arguments too.
-- **SSH tunnels:** a server whose key you accepted in DBine and that now presents a different one is refused, instead of asking you again. The connection's SSH section lists the accepted servers, each with **Forget**.
-- **SQL against PostgreSQL:** string values are written as `E'…'` with backslashes escaped, so a value can't end the string early on a server with `standard_conforming_strings` off. This covers the PostgreSQL family, CockroachDB and similar engines.
-- **Snowflake scripts:** a backslash inside a `"quoted name"` no longer changes where a statement ends.
-- **CSV and TSV export:** text cells and column names that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a `'` in front, so spreadsheets don't run them as formulas. Numbers are never changed. An option in the export dialog turns it off.
-- **Discarding changes in Projects:** a file named like a pattern (`*`) only discards that file.
-- **Copy a subset:** masking uses a new random 256-bit key on every run.
-- **Driver updates:** the app never accepts a driver index older than the one it was released with, even on a new installation, nor one that has stopped being renewed. Installed drivers keep working either way.
-- Connection import, the linter and the health check no longer stop on accented or other multi-byte characters.
-
 ## [0.1.10] - 2026-10-09
 
 ### New
 - **Drivers update on their own, apart from the app:** DBine looks in a signed index for the newest driver compatible with your version, downloads it in the background and goes back to the previous one if something fails. In Settings › Drivers there is a **Check for updates** button, the status of each driver and **Roll back**. A driver can be released on its own, without a new app version.
+- **Rename a database:** **Rename…** on a database in the explorer. The dialog shows the other sessions open on it (which the rename ends), whether the new name exists, how many objects move and the full script. Afterwards the connection's default database, open tabs, saved queries, migrations, project targets and scheduled task steps follow the new name; tasks that change data in it ask for approval again. Available in SQL Server, Azure SQL, Babelfish, the PostgreSQL family, MySQL, MariaDB, Snowflake and MongoDB; where the engine can't rename (or move) a database, it isn't offered.
 
 ### Improvements
 - **What each version brings:** the new-version notice shows its changes and those of the versions in between, starting from the one you have installed, in the app's language.
@@ -39,6 +26,15 @@
 - **Cloud backup:** a backup file someone else modified can no longer weaken the encryption of your next upload.
 - **libSQL / Turso:** an `authToken` in a pasted URL is kept in the system keychain, not in the connection's address, name or history. Connections saved before are cleaned up when DBine starts.
 - **Document the database:** column names can't inject HTML into the Markdown data dictionary.
+- **Task notifications on Windows:** a database error message can no longer run commands through the notification. Notifications on macOS and Linux get the text as separate arguments too.
+- **SSH tunnels:** a server whose key you accepted in DBine and that now presents a different one is refused, instead of asking you again. The connection's SSH section lists the accepted servers, each with **Forget**.
+- **SQL against PostgreSQL:** string values are written as `E'…'` with backslashes escaped, so a value can't end the string early on a server with `standard_conforming_strings` off. This covers the PostgreSQL family, CockroachDB and similar engines.
+- **Snowflake scripts:** a backslash inside a `"quoted name"` no longer changes where a statement ends.
+- **CSV and TSV export:** text cells and column names that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a `'` in front, so spreadsheets don't run them as formulas. Numbers are never changed. An option in the export dialog turns it off.
+- **Discarding changes in Projects:** a file named like a pattern (`*`) only discards that file.
+- **Copy a subset:** masking uses a new random 256-bit key on every run.
+- **Driver updates:** the app never accepts a driver index older than the one it was released with, even on a new installation, nor one that has stopped being renewed. Installed drivers keep working either way.
+- Connection import, the linter and the health check no longer stop on accented or other multi-byte characters.
 
 ## [0.1.9] - 2026-10-09
 

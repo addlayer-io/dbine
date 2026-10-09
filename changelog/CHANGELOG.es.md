@@ -4,6 +4,7 @@
 
 ### Nuevo
 - **Los drivers se actualizan solos, aparte de la app:** DBine busca en un índice firmado el driver más nuevo compatible con tu versión, lo descarga en segundo plano y vuelve al anterior si algo falla. En Configuración › Drivers hay un botón **Buscar actualizaciones**, el estado de cada driver y **Volver a la anterior**. Un driver puede publicarse solo, sin una versión nueva de la app.
+- **Renombrar una base:** **Renombrar…** sobre una base en el explorador. El diálogo muestra las otras sesiones abiertas sobre ella (que el renombrado cierra), si el nombre nuevo ya existe, cuántos objetos se mueven y el script completo. Después, la base predeterminada de la conexión, las pestañas abiertas, las consultas guardadas, las migraciones, los destinos de proyectos y los pasos de tareas programadas siguen el nombre nuevo; las tareas que modifican datos en ella piden aprobación de nuevo. Disponible en SQL Server, Azure SQL, Babelfish, la familia PostgreSQL, MySQL, MariaDB, Snowflake y MongoDB; donde el motor no puede renombrar (o mover) una base, no se ofrece.
 
 ### Mejoras
 - **Qué trae cada versión:** el aviso de versión nueva muestra sus cambios y los de las versiones intermedias, a partir de la que tenés instalada, en el idioma de la app.
@@ -23,6 +24,15 @@
 - **Backup en la nube:** un archivo de backup modificado por otra persona ya no puede debilitar el cifrado de tu próxima subida.
 - **libSQL / Turso:** un `authToken` en una URL pegada se guarda en el llavero del sistema, no en la dirección, el nombre ni el historial de la conexión. Las conexiones guardadas antes se limpian al iniciar DBine.
 - **Documentar la base:** los nombres de columna no pueden inyectar HTML en el diccionario de datos en Markdown.
+- **Notificaciones de tareas en Windows:** un mensaje de error de la base ya no puede ejecutar comandos a través de la notificación. Las notificaciones en macOS y Linux también reciben el texto como argumentos separados.
+- **Túneles SSH:** un servidor cuya clave aceptaste en DBine y que ahora presenta otra distinta se rechaza, en lugar de preguntarte de nuevo. La sección SSH de la conexión lista los servidores aceptados, cada uno con **Olvidar**.
+- **SQL contra PostgreSQL:** los valores de texto se escriben como `E'…'` con las barras invertidas escapadas, así que un valor no puede cerrar la cadena antes de tiempo en un servidor con `standard_conforming_strings` apagado. Esto cubre la familia PostgreSQL, CockroachDB y motores similares.
+- **Scripts de Snowflake:** una barra invertida dentro de un `"nombre entre comillas"` ya no cambia dónde termina una sentencia.
+- **Exportación CSV y TSV:** las celdas de texto y los nombres de columna que empiezan con `=`, `+`, `-`, `@`, un tabulador o un retorno de carro llevan un `'` adelante, para que las planillas no los ejecuten como fórmulas. Los números nunca se modifican. Una opción del diálogo de exportación lo desactiva.
+- **Descartar cambios en Proyectos:** un archivo con nombre de patrón (`*`) descarta solo ese archivo.
+- **Copiar un subconjunto:** el enmascarado usa una clave aleatoria nueva de 256 bits en cada ejecución.
+- **Actualización de drivers:** la app nunca acepta un índice de drivers más viejo que el de su versión, ni siquiera en una instalación nueva, ni uno que dejó de renovarse. Los drivers instalados siguen funcionando en ambos casos.
+- La importación de conexiones, el linter y el chequeo de salud ya no se detienen con caracteres acentuados u otros de varios bytes.
 
 ## [0.1.9] - 2026-10-09
 
