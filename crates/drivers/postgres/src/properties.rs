@@ -211,9 +211,9 @@ fn setting(v: Variant, db: &str, name: &str, value: &str) -> Result<String> {
             "off".to_string()
         }
         Kind::Pick(options) => {
-            let v = value.to_ascii_lowercase();
-            check(options.iter().any(|o| o.0 == v), name, value)?;
-            lit(Variant::Postgres, &v)
+            let picked = value.to_ascii_lowercase();
+            check(options.iter().any(|o| o.0 == picked), name, value)?;
+            lit(v, &picked)
         }
         Kind::Text => lit(v, value),
     };
@@ -1023,8 +1023,8 @@ ALTER DATABASE \"ventas\" CONNECTION LIMIT 20;
 ALTER DATABASE \"ventas\" IS_TEMPLATE true;
 ALTER DATABASE \"ventas\" OWNER TO \"app\";
 ALTER DATABASE \"ventas\" RESET statement_timeout;
-ALTER DATABASE \"ventas\" SET work_mem = '64MB';
-COMMENT ON DATABASE \"ventas\" IS 'La base de o''ventas';
+ALTER DATABASE \"ventas\" SET work_mem = E'64MB';
+COMMENT ON DATABASE \"ventas\" IS E'La base de o''ventas';
 ALTER DATABASE \"ventas\" REFRESH COLLATION VERSION;
 ALTER DATABASE \"ventas\" SET TABLESPACE \"rápido\""
         );
@@ -1039,11 +1039,11 @@ ALTER DATABASE \"ventas\" SET TABLESPACE \"rápido\""
     #[test]
     fn settings_are_quoted_by_kind() {
         let s = |k: &str, v: &str| script(Variant::Postgres, "v", &c(&[(k, v)]));
-        assert_eq!(s("set:search_path", "\"$user\", public, \"a, b\"").unwrap(), "ALTER DATABASE \"v\" SET search_path = '$user', 'public', 'a, b'");
-        assert_eq!(s("set:timezone", "America/Argentina/Buenos_Aires").unwrap(), "ALTER DATABASE \"v\" SET timezone = 'America/Argentina/Buenos_Aires'");
+        assert_eq!(s("set:search_path", "\"$user\", public, \"a, b\"").unwrap(), "ALTER DATABASE \"v\" SET search_path = E'$user', E'public', E'a, b'");
+        assert_eq!(s("set:timezone", "America/Argentina/Buenos_Aires").unwrap(), "ALTER DATABASE \"v\" SET timezone = E'America/Argentina/Buenos_Aires'");
         assert_eq!(s("set:default_transaction_read_only", "on").unwrap(), "ALTER DATABASE \"v\" SET default_transaction_read_only = on");
-        assert_eq!(s("set:default_transaction_isolation", "SERIALIZABLE").unwrap(), "ALTER DATABASE \"v\" SET default_transaction_isolation = 'serializable'");
-        assert_eq!(s("set:app.tenant", "it's").unwrap(), "ALTER DATABASE \"v\" SET app.tenant = 'it''s'");
+        assert_eq!(s("set:default_transaction_isolation", "SERIALIZABLE").unwrap(), "ALTER DATABASE \"v\" SET default_transaction_isolation = E'serializable'");
+        assert_eq!(s("set:app.tenant", "it's").unwrap(), "ALTER DATABASE \"v\" SET app.tenant = E'it''s'");
         for bad in [
             ("set:work_mem; DROP", "1"),
             ("set:", "1"),
@@ -1083,7 +1083,7 @@ ALTER DATABASE \"ventas\" SET TABLESPACE \"rápido\""
         assert!(script(Variant::OpenGauss, "v", &c(&[("allow_connections", "true")])).is_err());
         assert!(script(Variant::Yugabyte, "v", &c(&[("tablespace", "t")])).is_err());
         assert!(script(Variant::Yugabyte, "v", &c(&[("is_template", "")])).is_err());
-        assert_eq!(script(Variant::Greenplum, "v", &c(&[("set:search_path", "s")])).unwrap(), "ALTER DATABASE \"v\" SET search_path = 's'");
+        assert_eq!(script(Variant::Greenplum, "v", &c(&[("set:search_path", "s")])).unwrap(), "ALTER DATABASE \"v\" SET search_path = E's'");
         // Materialize: owner and comment only.
         assert_eq!(
             script(Variant::Materialize, "v", &c(&[("owner", "r"), ("comment", "x")])).unwrap(),

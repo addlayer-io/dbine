@@ -85,11 +85,31 @@ pub fn system_schema(v: Variant, name: &str) -> bool {
 /// A string literal for a text-protocol query. Redshift treats backslashes
 /// in literals as escapes, so they are doubled there.
 pub fn lit(v: Variant, s: &str) -> String {
-    let mut s = s.replace('\'', "''");
-    if v == Variant::Redshift {
-        s = s.replace('\\', "\\\\");
+    let quoted = s.replace('\'', "''");
+    match v {
+        // Its strings always read backslash escapes.
+        Variant::Redshift => format!("'{}'", quoted.replace('\\', "\\\\")),
+        // Engines where `standard_conforming_strings` can be off (a server,
+        // database or role setting): an `E'…'` string reads backslashes the
+        // same way whatever it says.
+        Variant::Postgres
+        | Variant::Cockroach
+        | Variant::Greenplum
+        | Variant::Yugabyte
+        | Variant::Timescale
+        | Variant::Kingbase
+        | Variant::AlloyDb
+        | Variant::CloudSql
+        | Variant::Aurora
+        | Variant::Edb
+        | Variant::Fujitsu
+        | Variant::OpenGauss
+        | Variant::Cloudberry
+        | Variant::Greengage
+        | Variant::Yellowbrick => format!("E'{}'", quoted.replace('\\', "\\\\")),
+        // Standard strings only: a backslash is a plain character.
+        _ => format!("'{quoted}'"),
     }
-    format!("'{s}'")
 }
 
 /// The rows of a text-protocol result.
@@ -135,9 +155,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn literals_escape_quotes_and_redshift_backslashes() {
-        assert_eq!(lit(Variant::Postgres, "o'k\\"), "'o''k\\'");
+    fn literals_escape_quotes_and_backslashes() {
+        // E'…' reads the same with standard_conforming_strings on or off.
+        assert_eq!(lit(Variant::Postgres, "o'k\\"), "E'o''k\\\\'");
+        assert_eq!(lit(Variant::Postgres, "x\\'; drop table t; --"), "E'x\\\\''; drop table t; --'");
         assert_eq!(lit(Variant::Redshift, "o'k\\"), "'o''k\\\\'");
+        assert_eq!(lit(Variant::Materialize, "o'k\\"), "'o''k\\'");
     }
 
     #[test]

@@ -397,6 +397,11 @@ async fn pg_info(s: &PgSession, edges: &[Edge]) -> Result<HashMap<String, Info>>
 }
 
 /// Every session id in the edges, once.
+/// CockroachDB session ids as a list of string literals.
+fn id_list(ids: &[String]) -> String {
+    ids.iter().map(|i| crate::catalog::lit(Variant::Cockroach, i)).collect::<Vec<_>>().join(",")
+}
+
 fn ids(edges: &[Edge]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for e in edges {
@@ -450,7 +455,7 @@ async fn cockroach(s: &PgSession) -> Result<Vec<BlockedSession>> {
     if edges.is_empty() {
         return Ok(Vec::new());
     }
-    let list = ids(&edges).iter().map(|i| format!("'{}'", i.replace('\'', "''"))).collect::<Vec<_>>().join(",");
+    let list = id_list(&ids(&edges));
     let rows = s
         .text_within(
             &format!(
@@ -821,6 +826,11 @@ fn ended(r: Option<String>, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_ids_stay_inside_their_literals() {
+        assert_eq!(id_list(&["ab".into(), "x\\'; drop table t; --".into()]), "E'ab',E'x\\\\''; drop table t; --'");
+    }
 
     fn edge(w: &str, b: &str) -> Edge {
         Edge { waiter: w.into(), blocker: b.into(), wait: Some("Lock: transactionid".into()), ..Default::default() }

@@ -434,7 +434,7 @@ fn pg_inspect(ta: &BTreeMap<String, TableSchema>, oa: &Objects) {
     let get = |k: &str, n: &str| oa.get(&(k.to_string(), Some("app".to_string()), n.to_string())).cloned().unwrap_or_else(|| panic!("{k} {n}"));
     assert!(get("sequence", "folio").contains("AS integer INCREMENT BY 5 MINVALUE 1 MAXVALUE 2147483647 START WITH 100 CACHE 10 NO CYCLE"));
     assert!(get("sequence", "suelta").contains("OWNED BY \"app\".\"docs\".\"sala\""));
-    assert_eq!(get("type", "mood"), "CREATE TYPE \"app\".\"mood\" AS ENUM ('bien', 'mal', 'así así');");
+    assert_eq!(get("type", "mood"), "CREATE TYPE \"app\".\"mood\" AS ENUM (E'bien', E'mal', E'así así');");
     assert!(get("type", "positivo").contains("DEFAULT 1 NOT NULL\n    CONSTRAINT positivo_ck CHECK ((VALUE > 0))"));
     assert_eq!(get("type", "punto"), "CREATE TYPE \"app\".\"punto\" AS (\n    x double precision,\n    y double precision\n);");
     assert!(get("type", "rango_fl").contains("SUBTYPE = double precision"));
@@ -494,7 +494,7 @@ async fn cockroach() {
         assert_eq!(docs.checks.len(), 1);
         let get = |k: &str, n: &str| oa.get(&(k.to_string(), Some("app".to_string()), n.to_string())).cloned().unwrap_or_else(|| panic!("{k} {n}"));
         assert!(get("sequence", "folio").contains("INCREMENT BY 5") && get("sequence", "folio").contains("START WITH 100"));
-        assert_eq!(get("type", "mood"), "CREATE TYPE \"app\".\"mood\" AS ENUM ('bien', 'mal', 'así así');");
+        assert_eq!(get("type", "mood"), "CREATE TYPE \"app\".\"mood\" AS ENUM (E'bien', E'mal', E'así así');");
         assert!(get("type", "punto").contains("x FLOAT8") || get("type", "punto").contains("x double precision"), "{}", get("type", "punto"));
     })
     .await;

@@ -1468,7 +1468,7 @@ mod tests {
     fn parameters_are_inlined_as_literals() {
         assert_eq!(
             inline(Variant::Postgres, "WHERE n = $1::text AND r = $2::text OR $1::text = ''", &["pub'lic", "t"]),
-            "WHERE n = 'pub''lic'::text AND r = 't'::text OR 'pub''lic'::text = ''"
+            "WHERE n = E'pub''lic'::text AND r = E't'::text OR E'pub''lic'::text = ''"
         );
         // `$10` is not `$1` followed by 0, and unknown or dollar-quoted text stays.
         assert_eq!(inline(Variant::Postgres, "$10 $3 $$x$$", &["a"]), "$10 $3 $$x$$");

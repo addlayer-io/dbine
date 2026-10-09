@@ -614,14 +614,14 @@ mod tests {
             assert!(!toggle_supported(*v) && toggle_script(*v, &t, &ix, false).is_err(), "{v:?}");
         }
         let sql = cockroach_invisible_sql(Variant::Cockroach, Some("s"), "t");
-        assert!(sql.contains("is_visible = 'NO'") && sql.contains("table_schema = 's'") && sql.contains("table_name = 't'"), "{sql}");
+        assert!(sql.contains("is_visible = 'NO'") && sql.contains("table_schema = E's'") && sql.contains("table_name = E't'"), "{sql}");
         assert!(cockroach_invisible_sql(Variant::Cockroach, None, "t").contains("current_schema()"));
     }
 
     #[test]
     fn the_table_is_found_by_schema_or_search_path() {
         let r = rel(Variant::Postgres, Some("ven'tas"), "t");
-        assert!(r.contains("c.relname = 't'") && r.contains("n.nspname = 'ven''tas'"), "{r}");
+        assert!(r.contains("c.relname = E't'") && r.contains("n.nspname = E'ven''tas'"), "{r}");
         assert!(rel(Variant::Postgres, None, "t").contains("pg_table_is_visible(c.oid)"));
         assert!(rel(Variant::Postgres, Some(""), "t").contains("pg_table_is_visible(c.oid)"));
     }

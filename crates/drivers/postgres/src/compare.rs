@@ -359,9 +359,9 @@ pub(crate) struct UserType {
 }
 
 impl UserType {
-    pub(crate) fn create(&self) -> Option<String> {
+    pub(crate) fn create(&self, v: Variant) -> Option<String> {
         let name = format!("{}.{}", quote_ident(Quote::Double, &self.schema), quote_ident(Quote::Double, &self.name));
-        let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
+        let lit = |s: &str| crate::catalog::lit(v, s);
         Some(match self.kind.as_str() {
             "e" => format!("CREATE TYPE {name} AS ENUM ({});", self.labels.iter().map(|l| lit(l)).collect::<Vec<_>>().join(", ")),
             "c" => format!("CREATE TYPE {name} AS (\n    {}\n);", self.attributes.join(",\n    ")),
@@ -491,7 +491,7 @@ impl PgSession {
                     format!("{};", d.trim_end_matches(';'))
                 }))
             }
-            kinds::TYPE => Ok(self.user_type(schema, &o.name).await?.and_then(|t| t.create())),
+            kinds::TYPE => Ok(self.user_type(schema, &o.name).await?.and_then(|t| t.create(self.variant))),
             DOMAIN => self.h2_domain(schema, &o.name).await,
             kinds::SYNONYM => Ok(self.synonym_rows(Some((schema, &o.name))).await?.into_iter().next().map(|(s, n, target)| {
                 format!("CREATE SYNONYM {}.{} FOR {target};", quote_ident(Quote::Double, &s), quote_ident(Quote::Double, &n))
@@ -1001,7 +1001,7 @@ pub(crate) fn parse_crate_table(ddl: &str) -> (Vec<IndexDef>, Vec<CheckDef>) {
 /// FULLTEXT` lines, and `INDEX USING FULLTEXT` / `INDEX OFF` on columns.
 pub(crate) fn crate_create_indexes(create: &str, indexes: &[IndexDef]) -> String {
     let q = |s: &str| quote_ident(Quote::Double, s);
-    let with = |ix: &IndexDef| ix.options.get("analyzer").map(|a| format!(" WITH (analyzer = '{}')", a.replace('\'', "''"))).unwrap_or_default();
+    let with = |ix: &IndexDef| ix.options.get("analyzer").map(|a| format!(" WITH (analyzer = {})", crate::catalog::lit(Variant::CrateDb, a))).unwrap_or_default();
     let mut out = create.to_string();
     let mut lines = Vec::new();
     for ix in indexes {
@@ -1278,7 +1278,10 @@ mod tests {
         assert!(d.starts_with("CREATE SEQUENCE \"app\".\"folio\" AS integer INCREMENT BY 5 MINVALUE 1 MAXVALUE 2147483647 START WITH 100 CACHE 10 CYCLE;"), "{d}");
         assert!(d.contains("ALTER SEQUENCE \"app\".\"folio\" OWNED BY \"app\".\"t\".\"c\";"));
         let e = UserType { schema: "app".into(), name: "mood".into(), kind: "e".into(), labels: vec!["a".into(), "it's".into()], ..Default::default() };
-        assert_eq!(e.create().unwrap(), "CREATE TYPE \"app\".\"mood\" AS ENUM ('a', 'it''s');");
+        assert_eq!(e.create(Variant::Postgres).unwrap(), "CREATE TYPE \"app\".\"mood\" AS ENUM (E'a', E'it''s');");
+        // A backslash before the quote can't end the label early.
+        let x = UserType { schema: "app".into(), name: "x".into(), kind: "e".into(), labels: vec!["x\\'; drop table t; --".into()], ..Default::default() };
+        assert_eq!(x.create(Variant::Postgres).unwrap(), "CREATE TYPE \"app\".\"x\" AS ENUM (E'x\\\\''; drop table t; --');");
         let d = UserType {
             schema: "app".into(),
             name: "pos".into(),
@@ -1289,11 +1292,11 @@ mod tests {
             checks: vec!["CONSTRAINT p CHECK ((VALUE > 0))".into()],
             ..Default::default()
         };
-        assert_eq!(d.create().unwrap(), "CREATE DOMAIN \"app\".\"pos\" AS integer DEFAULT 1 NOT NULL\n    CONSTRAINT p CHECK ((VALUE > 0));");
+        assert_eq!(d.create(Variant::Postgres).unwrap(), "CREATE DOMAIN \"app\".\"pos\" AS integer DEFAULT 1 NOT NULL\n    CONSTRAINT p CHECK ((VALUE > 0));");
         let c = UserType { schema: "app".into(), name: "pt".into(), kind: "c".into(), attributes: vec!["x integer".into(), "y text".into()], ..Default::default() };
-        assert_eq!(c.create().unwrap(), "CREATE TYPE \"app\".\"pt\" AS (\n    x integer,\n    y text\n);");
+        assert_eq!(c.create(Variant::Postgres).unwrap(), "CREATE TYPE \"app\".\"pt\" AS (\n    x integer,\n    y text\n);");
         let r = UserType { schema: "app".into(), name: "fr".into(), kind: "r".into(), range: Some("SUBTYPE = double precision".into()), ..Default::default() };
-        assert_eq!(r.create().unwrap(), "CREATE TYPE \"app\".\"fr\" AS RANGE (SUBTYPE = double precision);");
+        assert_eq!(r.create(Variant::Postgres).unwrap(), "CREATE TYPE \"app\".\"fr\" AS RANGE (SUBTYPE = double precision);");
     }
 
     const CRATE: &str = r#"CREATE TABLE IF NOT EXISTS "doc"."zz_t" (

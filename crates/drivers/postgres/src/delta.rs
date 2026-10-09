@@ -487,7 +487,8 @@ fn resync(table: &str, cols: &[ColMeta]) -> Vec<String> {
     cols.iter()
         .filter_map(|c| {
             let seq = c.sequence.as_deref()?;
-            let lit = format!("'{}'", seq.replace('\'', "''"));
+            // Every capable variant reads `E'…'`.
+            let lit = crate::catalog::lit(Variant::Postgres, seq);
             Some(format!(
                 "SELECT setval({lit}, m) FROM (SELECT max({}) AS m FROM {table}) x, {seq} q \
                  WHERE x.m IS NOT NULL AND (x.m > q.last_value OR NOT q.is_called)",
@@ -593,11 +594,19 @@ mod tests {
     }
 
     #[test]
+    fn resync_sequence_name_stays_inside_its_literal() {
+        let mut cols = vec![col("id", "int8", false)];
+        cols[0].sequence = Some("x\\'; drop table t; --".into());
+        let r = resync("\"public\".\"t\"", &cols);
+        assert!(r[0].starts_with("SELECT setval(E'x\\\\''; drop table t; --', m)"), "{}", r[0]);
+    }
+
+    #[test]
     fn resync_moves_sequences_forward_only() {
         let mut cols = vec![col("id", "int8", false)];
         cols[0].sequence = Some("public.t_id_seq".into());
         let r = resync("\"public\".\"t\"", &cols);
         assert_eq!(r.len(), 1);
-        assert!(r[0].starts_with("SELECT setval('public.t_id_seq', m) FROM (SELECT max(\"id\") AS m FROM \"public\".\"t\") x"), "{}", r[0]);
+        assert!(r[0].starts_with("SELECT setval(E'public.t_id_seq', m) FROM (SELECT max(\"id\") AS m FROM \"public\".\"t\") x"), "{}", r[0]);
     }
 }

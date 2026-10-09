@@ -612,17 +612,17 @@ mod tests {
             "CREATE DATABASE \"ventas\"
     WITH OWNER = \"app\"
     TEMPLATE = \"template0\"
-    ENCODING = 'UTF8'
+    ENCODING = E'UTF8'
     LOCALE_PROVIDER = icu
-    LC_COLLATE = 'en_US.utf8'
-    LC_CTYPE = 'en_US.utf8'
-    ICU_LOCALE = 'es-AR'
+    LC_COLLATE = E'en_US.utf8'
+    LC_CTYPE = E'en_US.utf8'
+    ICU_LOCALE = E'es-AR'
     TABLESPACE = \"rápido\"
     CONNECTION LIMIT 20
     IS_TEMPLATE = true"
         );
         let b = script(Variant::Postgres, "v", &o(&[("locale_provider", "builtin"), ("builtin_locale", "C.UTF-8")])).unwrap();
-        assert_eq!(b, "CREATE DATABASE \"v\"\n    WITH LOCALE_PROVIDER = builtin\n    BUILTIN_LOCALE = 'C.UTF-8'");
+        assert_eq!(b, "CREATE DATABASE \"v\"\n    WITH LOCALE_PROVIDER = builtin\n    BUILTIN_LOCALE = E'C.UTF-8'");
     }
 
     #[test]
@@ -630,10 +630,10 @@ mod tests {
         let yb = script(Variant::Yugabyte, "v", &o(&[("colocation", "true"), ("tablespace", "t"), ("locale_provider", "icu")])).unwrap();
         assert_eq!(yb, "CREATE DATABASE \"v\"\n    WITH COLOCATION = true");
         let og = script(Variant::OpenGauss, "v", &o(&[("dbcompatibility", "B"), ("is_template", "true"), ("encoding", "GBK")])).unwrap();
-        assert_eq!(og, "CREATE DATABASE \"v\"\n    WITH ENCODING = 'GBK'\n    DBCOMPATIBILITY = 'B'");
+        assert_eq!(og, "CREATE DATABASE \"v\"\n    WITH ENCODING = E'GBK'\n    DBCOMPATIBILITY = 'B'");
         // Greenplum: no locale provider.
         let gp = script(Variant::Greenplum, "v", &o(&[("locale_provider", "icu"), ("lc_collate", "C")])).unwrap();
-        assert_eq!(gp, "CREATE DATABASE \"v\"\n    WITH LC_COLLATE = 'C'");
+        assert_eq!(gp, "CREATE DATABASE \"v\"\n    WITH LC_COLLATE = E'C'");
         assert!(!fields(Variant::Greenplum).iter().any(|f| f.key == "locale_provider"));
         assert!(fields(Variant::Aurora).iter().any(|f| f.key == "locale_provider"));
         assert!(fields(Variant::Materialize).is_empty() && fields(Variant::H2).is_empty());

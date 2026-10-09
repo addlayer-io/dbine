@@ -366,9 +366,9 @@ impl Driver for PgDriver {
             .filter(|c| c.auto_increment)
             .map(|c| {
                 format!(
-                    "SELECT setval(pg_get_serial_sequence('{}', '{}'), COALESCE((SELECT max({}) FROM {name}), 0) + 1, false);",
-                    name.replace('\'', "''"),
-                    c.name.replace('\'', "''"),
+                    "SELECT setval(pg_get_serial_sequence({}, {}), COALESCE((SELECT max({}) FROM {name}), 0) + 1, false);",
+                    catalog::lit(v, &name),
+                    catalog::lit(v, &c.name),
                     q(&c.name)
                 )
             })

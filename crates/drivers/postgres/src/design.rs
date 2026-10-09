@@ -486,7 +486,7 @@ pub fn table_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> String {
                         }
                     }
                     if let Some(r) = opt(t, "number_of_replicas") {
-                        tail.push_str(&format!(" WITH (number_of_replicas = {})", ddl::sql_literal(&f, &Value::String(r.to_string()))));
+                        tail.push_str(&format!(" WITH (number_of_replicas = {})", crate::catalog::lit(v, r)));
                     }
                 }
                 Variant::RisingWave if opt(t, "append_only") == Some("true") => tail.push_str(" APPEND ONLY"),
@@ -508,8 +508,8 @@ pub fn table_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> String {
             if let Some(c) = opt(t, "hypertable_time_column") {
                 out.push(format!(
                     "SELECT create_hypertable({}, {}{});",
-                    ddl::sql_literal(&f, &Value::String(name.clone())),
-                    ddl::sql_literal(&f, &Value::String(c.to_string())),
+                    crate::catalog::lit(v, &name),
+                    crate::catalog::lit(v, c),
                     if parts.if_exists { ", if_not_exists => TRUE" } else { "" }
                 ));
             }
@@ -561,17 +561,12 @@ fn serial_columns(s: &str) -> String {
     out.replace(IDENTITY, "")
 }
 
-/// INSERTs: Redshift reads backslashes in literals as escapes.
+/// INSERTs, with the variant's string literals ([`crate::catalog::lit`]):
+/// a backslash can't end a string whatever `standard_conforming_strings`
+/// says.
 pub fn insert_script(v: Variant, schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
     let f = flavor(v);
-    if v != Variant::Redshift {
-        return ddl::insert_script(&f, schema, table, columns, rows, 100);
-    }
-    let escaped: Vec<Vec<Value>> = rows
-        .iter()
-        .map(|r| r.iter().map(|c| match c { Value::String(s) => Value::String(s.replace('\\', "\\\\")), o => o.clone() }).collect())
-        .collect();
-    ddl::insert_script(&f, schema, table, columns, &escaped, 100)
+    ddl::insert_script_with(&f, schema, table, columns, rows, 100, &|c| literal(v, &f, c))
 }
 
 /// `UPDATE … WHERE <key>` per changed row, with the same literals (and
@@ -588,10 +583,13 @@ pub fn delete_script(v: Variant, schema: Option<&str>, table: &str, keys: &[Vec<
     ddl::delete_script_with(f.quote, schema, table, keys, &|c| literal(v, &f, c))
 }
 
-/// A value as a literal of the variant (Redshift reads backslashes as escapes).
+/// A value as a literal of the variant: text goes through
+/// [`crate::catalog::lit`] (backslashes can be escapes); NULL, booleans and
+/// numbers as [`ddl::sql_literal`] writes them.
 fn literal(v: Variant, f: &ddl::SqlFlavor, c: &Value) -> String {
     match c {
-        Value::String(s) if v == Variant::Redshift => ddl::sql_literal(f, &Value::String(s.replace('\\', "\\\\"))),
+        Value::String(s) => crate::catalog::lit(v, s),
+        Value::Array(_) | Value::Object(_) => crate::catalog::lit(v, &c.to_string()),
         o => ddl::sql_literal(f, o),
     }
 }
@@ -727,6 +725,10 @@ mod tests {
         };
         assert_eq!(
             update_script(Variant::Postgres, Some("public"), "clientes", std::slice::from_ref(&c)),
+            "UPDATE \"public\".\"clientes\" SET \"nombre\" = E'O''Brien\\\\x', \"baja\" = NULL WHERE \"id\" = 7 AND \"region\" IS NULL;"
+        );
+        assert_eq!(
+            update_script(Variant::Materialize, Some("public"), "clientes", std::slice::from_ref(&c)),
             "UPDATE \"public\".\"clientes\" SET \"nombre\" = 'O''Brien\\x', \"baja\" = NULL WHERE \"id\" = 7 AND \"region\" IS NULL;"
         );
         assert_eq!(
@@ -743,7 +745,7 @@ mod tests {
         ];
         assert_eq!(
             delete_script(Variant::Postgres, Some("public"), "clientes", &keys),
-            "DELETE FROM \"public\".\"clientes\" WHERE \"nombre\" = 'O''Brien\\x' AND \"region\" IS NULL;"
+            "DELETE FROM \"public\".\"clientes\" WHERE \"nombre\" = E'O''Brien\\\\x' AND \"region\" IS NULL;"
         );
         assert_eq!(
             delete_script(Variant::Redshift, Some("public"), "clientes", &keys),
@@ -874,7 +876,7 @@ mod tests {
         let mut t = sample();
         t.options.insert("hypertable_time_column".into(), "creado".into());
         let s = table_ddl(Variant::Timescale, &t, DdlParts { create: true, ..Default::default() });
-        assert!(s.contains("SELECT create_hypertable('\"app\".\"pedidos\"', 'creado');"), "{s}");
+        assert!(s.contains("SELECT create_hypertable(E'\"app\".\"pedidos\"', E'creado');"), "{s}");
     }
 
     #[test]
@@ -899,10 +901,36 @@ mod tests {
     }
 
     #[test]
+    fn data_scripts_keep_backslash_quotes_inside_literals() {
+        let bad = json!("x\\'; drop table t; --");
+        let cols = ["a".to_string()];
+        assert_eq!(
+            insert_script(Variant::Postgres, None, "t", &cols, &[vec![bad.clone()]]),
+            "INSERT INTO \"t\" (\"a\") VALUES\n  (E'x\\\\''; drop table t; --');"
+        );
+        let c = RowChange { key: vec![("id".into(), bad.clone())], set: vec![("a".into(), bad.clone())], ..Default::default() };
+        assert_eq!(
+            update_script(Variant::Cockroach, None, "t", &[c]),
+            "UPDATE \"t\" SET \"a\" = E'x\\\\''; drop table t; --' WHERE \"id\" = E'x\\\\''; drop table t; --';"
+        );
+        assert_eq!(
+            delete_script(Variant::Greenplum, None, "t", &[vec![("id".into(), bad)]]),
+            "DELETE FROM \"t\" WHERE \"id\" = E'x\\\\''; drop table t; --';"
+        );
+        // JSON values are text too; numbers, booleans and NULL are unchanged.
+        let other = vec![vec![json!({"k": "a\\b"}), json!(2.5), json!(false), Value::Null]];
+        let cols = ["j".to_string(), "n".into(), "b".into(), "z".into()];
+        assert_eq!(
+            insert_script(Variant::Postgres, None, "t", &cols, &other),
+            "INSERT INTO \"t\" (\"j\", \"n\", \"b\", \"z\") VALUES\n  (E'{\"k\":\"a\\\\\\\\b\"}', 2.5, FALSE, NULL);"
+        );
+    }
+
+    #[test]
     fn inserts() {
         let rows = vec![vec![json!(1), json!("a\\b"), json!(true)]];
         let cols = ["a".to_string(), "b".into(), "c".into()];
-        assert_eq!(insert_script(Variant::Postgres, Some("s"), "t", &cols, &rows), "INSERT INTO \"s\".\"t\" (\"a\", \"b\", \"c\") VALUES\n  (1, 'a\\b', TRUE);");
+        assert_eq!(insert_script(Variant::Postgres, Some("s"), "t", &cols, &rows), "INSERT INTO \"s\".\"t\" (\"a\", \"b\", \"c\") VALUES\n  (1, E'a\\\\b', TRUE);");
         assert!(insert_script(Variant::Redshift, None, "t", &cols, &rows).contains("'a\\\\b'"));
     }
 
