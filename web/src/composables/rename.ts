@@ -36,6 +36,7 @@ export function renameAllowed(spec: RenameSpec | null, target: RenameTarget): bo
     case 'index': return spec.indexes;
     case 'constraint': return spec.constraints;
     case 'schema': return spec.schemas;
+    case 'database': return !!spec.databases;
   }
 }
 
@@ -50,6 +51,7 @@ export function renameItem(t0: RenameDialogTarget, open: (t: RenameDialogTarget)
 /** A schema rename that is the database's: engines whose database is the
  *  schema (ClickHouse), offered on the database node. */
 export function isDatabaseRename(d: RenameDialogTarget): boolean {
+  if (d.target.what === 'database') return true;
   const driver = useConnectionsStore().driverOf(d.connectionId);
   return d.target.what === 'schema' && !!driver && !driver.has_schemas;
 }
@@ -58,7 +60,10 @@ export function isDatabaseRename(d: RenameDialogTarget): boolean {
  *  and renames its databases as schemas. */
 export function databaseRenameItem(connectionId: string, database: string, open: (t: RenameDialogTarget) => void): MenuItem | null {
   const driver = useConnectionsStore().driverOf(connectionId);
-  if (!database || !driver || driver.has_schemas) return null;
+  if (!database || !driver) return null;
+  // Engines that rename their databases as such (the script runs elsewhere).
+  if (driver.rename?.databases) return renameItem({ connectionId, database, target: { what: 'database', database } }, open, true);
+  if (driver.has_schemas) return null;
   return renameItem({ connectionId, database, target: { what: 'schema', database, schema: database } }, open, true);
 }
 
@@ -69,6 +74,7 @@ export function oldName(target: RenameTarget): string {
     case 'index': return target.index;
     case 'constraint': return target.constraint;
     case 'schema': return target.schema;
+    case 'database': return target.database;
   }
 }
 
@@ -79,11 +85,15 @@ export function targetLabel(target: RenameTarget): string {
   switch (target.what) {
     case 'object': return qualified(target.object);
     case 'schema': return target.schema;
+    case 'database': return target.database;
     default: return `${qualified(target.table)}.${oldName(target)}`;
   }
 }
 
 export function renameImpact(d: RenameDialogTarget, newName: string, keepViewColumns: boolean): Promise<RenameImpact> {
+  if (d.target.what === 'database') {
+    return invoke<RenameImpact>('rename_database_impact', { args: { connection_id: d.connectionId, database: d.target.database, new_name: newName } });
+  }
   return invoke<RenameImpact>('rename_impact', {
     args: { connection_id: d.connectionId, database: d.database, target: d.target, new_name: newName, keep_view_columns: keepViewColumns },
   });
@@ -91,6 +101,11 @@ export function renameImpact(d: RenameDialogTarget, newName: string, keepViewCol
 
 /** The script for the dependents the user kept. */
 export function renameScript(d: RenameDialogTarget, newName: string, impact: RenameImpact, rewrites: { object: CodeObject; schemabound: boolean; carried: CodeObject[] }[]): Promise<SyncScript> {
+  if (d.target.what === 'database') {
+    return invoke<SyncScript>('rename_database_script', {
+      args: { connection_id: d.connectionId, database: d.target.database, new_name: newName, objects: impact.objects ?? [] },
+    });
+  }
   return invoke<SyncScript>('rename_script', {
     args: {
       connection_id: d.connectionId, database: d.database,
@@ -109,10 +124,13 @@ export interface RenameRun {
 
 /** Run the script (`cancel_query` on `sync:<runId>` stops it), then refresh
  *  the tree and retarget the tabs of what was renamed. */
-export async function runRename(d: RenameDialogTarget, newName: string, statements: string[], atomic: boolean, runId: string): Promise<RenameRun> {
+export async function runRename(d: RenameDialogTarget, newName: string, statements: string[], atomic: boolean, runId: string, runOn?: string | null): Promise<RenameRun> {
+  // A database rename runs elsewhere, with DBine's own sessions on it closed first.
+  const db = d.target.what === 'database' ? (runOn ?? '') : d.database;
+  const closeDatabase = d.target.what === 'database' ? d.target.database : null;
   try {
     const r = await invoke<{ done: number; failed: [number, string] | null; rolled_back?: boolean }>('schema_sync_run', {
-      args: { connection_id: d.connectionId, database: d.database, statements, run_id: runId, atomic },
+      args: { connection_id: d.connectionId, database: db, statements, run_id: runId, atomic, close_database: closeDatabase },
     });
     if (r.failed) return { error: tb(r.failed[1]), rolledBack: !!r.rolled_back };
   } catch (e) {
@@ -131,6 +149,18 @@ async function afterRename(d: RenameDialogTarget, newName: string) {
     for (const tab of tabs.tabs) if (tab.connectionId === cid && tab.database === db) tab.database = newName;
     tabs.persist();
     await conns.refreshDatabases(cid).catch(() => {});
+    // What DBine keeps that named it: the connection's default database,
+    // saved queries, migrations, project targets and scheduled task steps.
+    try {
+      const f = await invoke<{ connections: number; queries: number; migrations: number; projects: number; tasks: number; tasks_to_approve: number }>(
+        'rename_database_follow', { args: { connection_id: cid, database: db, new_name: newName } },
+      );
+      const total = f.connections + f.queries + f.migrations + f.projects + f.tasks;
+      if (total) ElMessage.info({ message: t('rename:followed', { count: total, name: newName }), duration: 6000 });
+      if (f.tasks_to_approve) ElMessage.warning({ message: t('rename:tasksToApprove', { count: f.tasks_to_approve }), duration: 8000 });
+    } catch (e) {
+      ElMessage.error(errorMessage(e));
+    }
     return;
   }
   await conns.loadObjects(cid, db, true).catch(() => {});
@@ -141,6 +171,8 @@ async function afterRename(d: RenameDialogTarget, newName: string) {
     case 'schema':
       tabs.renameSchema(cid, db, target.schema, newName);
       break;
+    case 'database':
+      break; // handled above
     default: {
       const ref = target.table;
       conns.loadColumns(cid, db, { kind: ref.kind, schema: ref.schema, name: ref.name, parent: null }, true);

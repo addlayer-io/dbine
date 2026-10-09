@@ -8,6 +8,7 @@
 //!   definition (`list_objects` lists a name once, whatever its overloads).
 //! - Columns: `ALTER TABLE s.t RENAME COLUMN c TO new`.
 //! - Schemas: `ALTER SCHEMA [db.]s RENAME TO [db.]new`.
+//! - Databases: `ALTER DATABASE "old" RENAME TO "new"` ([`database_script`]).
 //!
 //! The new name is always qualified like the old one: an unqualified one
 //! would land in the session's current schema (a rename can move objects).
@@ -43,8 +44,32 @@ pub(crate) fn spec() -> RenameSpec {
              que no conserva los permisos otorgados sobre ellos (no se agrega COPY GRANTS)."
                 .into(),
         ),
+        databases: true,
+        // Both names are written out: any database can be current.
+        database_from: None,
+        database_note: Some(
+            "Snowflake renombra la base con ALTER DATABASE … RENAME TO: sus esquemas, objetos y datos quedan en ella, \
+             y los permisos otorgados siguen al objeto. No se actualiza lo que nombra la base anterior por su nombre: \
+             el código de vistas, funciones y procedimientos, las tareas, los stages, los shares ni las aplicaciones \
+             que la usen; hay que revisarlos y corregirlos a mano."
+                .into(),
+        ),
+        database_moves: false,
         ..Default::default()
     }
+}
+
+/// `ALTER DATABASE "old" RENAME TO "new"`: names exactly as given.
+pub(crate) fn database_script(database: &str, new_name: &str) -> Result<SyncScript> {
+    if database.is_empty() || new_name.is_empty() {
+        return Err(Error::Unsupported("Falta el nombre de la base.".into()));
+    }
+    Ok(SyncScript {
+        statements: vec![format!("ALTER DATABASE {} RENAME TO {};", q(database), q(new_name))],
+        warnings: vec![format!(
+            "Lo que nombra «{database}» por su nombre (código, tareas, stages, shares y aplicaciones) no se actualiza."
+        )],
+    })
 }
 
 /// The dialect the new name is quoted in: Snowflake's, with `"…"` (its
@@ -231,6 +256,18 @@ mod tests {
 
     fn object(kind: &str, new: &str) -> RenameRequest {
         req(RenameTarget::Object { object: obj(kind, "APP", "CLIENTES"), parent: None }, new, None)
+    }
+
+    #[test]
+    fn databases_rename_natively_with_quoted_names() {
+        let s = spec();
+        assert!(s.databases && !s.database_moves && s.database_from.is_none());
+        assert!(s.database_note.as_deref().is_some_and(|n| n.contains("shares")));
+        let out = database_script("Sales", "sales_2024").unwrap();
+        assert_eq!(out.statements, vec![r#"ALTER DATABASE "Sales" RENAME TO "sales_2024";"#]);
+        assert_eq!(out.warnings.len(), 1);
+        assert_eq!(database_script("A\"b", "C").unwrap().statements, vec![r#"ALTER DATABASE "A""b" RENAME TO "C";"#]);
+        assert!(database_script("", "x").is_err());
     }
 
     #[test]

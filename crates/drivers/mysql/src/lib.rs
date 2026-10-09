@@ -19,6 +19,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod rename_db;
 mod security;
 mod session;
 mod stats;
@@ -320,6 +321,12 @@ impl Driver for MySqlDriver {
 
     fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
         rename::script(self.variant, req)
+    }
+
+    /// MySQL and MariaDB: a new database, the tables moved with
+    /// `RENAME TABLE` and the code created again (see `rename_db`).
+    fn rename_database_script(&self, database: &str, new_name: &str, objects: &[dbine_driver::rename::DatabaseObject]) -> Result<dbine_driver::SyncScript> {
+        rename_db::script(self.variant, database, new_name, objects)
     }
 
     fn script_dialect(&self) -> ScriptDialect {

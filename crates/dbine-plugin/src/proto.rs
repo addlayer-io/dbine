@@ -216,6 +216,9 @@ pub enum Call {
     /// "Renombrar…": the statements that rename an object. A host published
     /// before it answers `Unsupported` (and its manifest doesn't offer it).
     RenameScript { driver: String, request: dbine_driver::RenameRequest },
+    /// "Renombrar…" on a database. A host published before it answers
+    /// `Unsupported` (and its manifest doesn't offer it).
+    RenameDatabaseScript { driver: String, database: String, new_name: String, objects: Vec<dbine_driver::rename::DatabaseObject> },
 }
 
 /// Host → app.
@@ -687,6 +690,7 @@ mod tests {
             (23, Call::RowEstimates { session: 3 }, "RowEstimates"),
             (24, Call::ObjectComments { session: 3 }, "ObjectComments"),
             (25, Call::RenameScript { driver: "postgres".into(), request: rename_request() }, "RenameScript"),
+            (26, Call::RenameDatabaseScript { driver: "postgres".into(), database: "v".into(), new_name: "w".into(), objects: Vec::new() }, "RenameDatabaseScript"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

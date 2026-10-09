@@ -14,7 +14,7 @@ use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_driver::rename::{
-    carried_dependents, names_in_code, quote_new, rewrite_references, trigger_routine, with_create_style, writes_to_table, Edit, RewriteOptions, Unresolved,
+    carried_dependents, DatabaseObject, names_in_code, quote_new, rewrite_references, trigger_routine, with_create_style, writes_to_table, Edit, RewriteOptions, Unresolved,
 };
 use dbine_driver::{
     kinds, Confidence, DependencyReport, DependencyScan, Dependent, Driver, ObjectRef, ReferenceStyle, Relation, RenameRequest, RenameSpec,
@@ -65,6 +65,18 @@ pub struct RenameImpact {
     /// What `rename_script` needs back: the target's definition and table.
     pub definition: Option<String>,
     pub table: Option<TableSchema>,
+    /// A database rename: the other sessions on it, which the rename ends
+    /// (DBine's own there are closed before it runs).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sessions: Vec<dbine_driver::monitor::ServerProcess>,
+    /// A database rename that moves its contents: what it holds, back to
+    /// `rename_script` ([`RenameSpec::database_moves`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub objects: Vec<DatabaseObject>,
+    /// A database rename: the database the script runs in
+    /// ([`RenameSpec::database_from`]; empty: none).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_on: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -282,6 +294,119 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
         atomic: spec.transactional && driver.supports_manual_transactions(),
         definition,
         table,
+        sessions: Vec::new(),
+        objects: Vec::new(),
+        run_on: None,
+    })
+}
+
+/// Code kinds a database that moves its contents puts back in the new one.
+const MOVED_CODE: &[&str] = &[kinds::VIEW, kinds::MATERIALIZED_VIEW, kinds::PROCEDURE, kinds::FUNCTION, kinds::TRIGGER, "event"];
+
+#[derive(Deserialize)]
+pub struct DatabaseImpactArgs {
+    pub connection_id: String,
+    pub database: String,
+    pub new_name: String,
+}
+
+/// The driver's spec when it renames databases.
+fn database_spec(driver: &dyn Driver) -> CommandResult<RenameSpec> {
+    driver
+        .rename_spec()
+        .filter(|s| s.databases)
+        .ok_or_else(|| CommandError::BadRequest(format!("{} no renombra bases de datos desde DBine", driver.info().name)))
+}
+
+/// The new name of a database: trimmed, not empty, not the old one, and
+/// without characters that no engine takes in one (a path, a quote).
+fn database_name(old: &str, new_name: &str) -> CommandResult<String> {
+    let name = new_name.trim();
+    if name.is_empty() {
+        return Err(CommandError::BadRequest("el nombre nuevo está vacío".into()));
+    }
+    if name == old {
+        return Err(CommandError::BadRequest("el nombre nuevo es igual al actual".into()));
+    }
+    if name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | '"' | '\'' | '`' | '[' | ']' | ';')) {
+        return Err(CommandError::BadRequest(format!("«{name}» no sirve como nombre de base: tiene caracteres que los motores no aceptan en uno")));
+    }
+    Ok(name.to_string())
+}
+
+/// "Renombrar…" on a database: no code is rewritten (other databases' code
+/// that names it is the user's), the sessions it ends, whether the new name
+/// is taken, and what it holds where the engine moves it piece by piece.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn rename_database_impact(state: State<'_, AppState>, args: DatabaseImpactArgs) -> CommandResult<RenameImpact> {
+    let driver = driver_of(&state, &args.connection_id)?;
+    let spec = database_spec(driver.as_ref())?;
+    let new_name = database_name(&args.database, &args.new_name)?;
+    let (connection_id, database) = (args.connection_id.as_str(), args.database.as_str());
+    let from = spec.database_from.clone().unwrap_or_default();
+    let (names, processes) = state
+        .meta_read(connection_id, &from, IMPACT_LIMIT, |s| {
+            Box::pin(async move {
+                let names = s.list_databases().await?;
+                let processes = s.processes().await.unwrap_or_default();
+                Ok((names, processes))
+            })
+        })
+        .await?;
+    if !names.iter().any(|n| n == database) {
+        return Err(CommandError::BadRequest(format!("no se encontró la base «{database}»")));
+    }
+    let collides = names.iter().any(|n| n.eq_ignore_ascii_case(&new_name));
+    let sessions = processes.into_iter().filter(|p| !p.system && !p.own && p.database.as_deref() == Some(database)).collect();
+    let mut unreadable = Vec::new();
+    let objects = if spec.database_moves {
+        let (objects, missing) = state
+            .meta_read(connection_id, database, IMPACT_LIMIT, |s| {
+                Box::pin(async move {
+                    let mut out = Vec::new();
+                    let mut missing = Vec::new();
+                    for o in s.list_objects().await? {
+                        let code = MOVED_CODE.contains(&o.kind.as_str());
+                        if !code && o.kind != kinds::TABLE && o.kind != kinds::COLLECTION {
+                            continue;
+                        }
+                        let definition = if code {
+                            let r = ObjectRef { kind: o.kind.clone(), schema: o.schema.clone(), name: o.name.clone() };
+                            match s.definition(&r).await {
+                                Ok(Some(d)) => Some(d),
+                                _ => {
+                                    missing.push(o.name.clone());
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        };
+                        out.push(DatabaseObject { kind: o.kind, schema: o.schema, name: o.name, definition });
+                    }
+                    Ok((out, missing))
+                })
+            })
+            .await?;
+        unreadable = missing;
+        objects
+    } else {
+        Vec::new()
+    };
+    Ok(RenameImpact {
+        items: Vec::new(),
+        scanned: objects.len() as u32,
+        unreadable,
+        note: None,
+        spec_note: spec.database_note.clone(),
+        collides,
+        quoted_name: quote_new(&new_name, &driver.script_dialect(), spec.fold, false),
+        atomic: false,
+        definition: None,
+        table: None,
+        sessions,
+        objects,
+        run_on: Some(from),
     })
 }
 
@@ -483,6 +608,126 @@ pub async fn rename_script(state: State<'_, AppState>, args: ScriptArgs) -> Comm
     build_script(driver.as_ref(), &spec, &request, &args.rewrites)
 }
 
+#[derive(Deserialize)]
+pub struct DatabaseScriptArgs {
+    pub connection_id: String,
+    pub database: String,
+    pub new_name: String,
+    /// `RenameImpact::objects` (engines that move what the database holds).
+    #[serde(default)]
+    pub objects: Vec<DatabaseObject>,
+}
+
+/// A database rename's script: the driver's, whole (nothing is rewritten
+/// around it). Pure, like `rename_script`.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn rename_database_script(state: State<'_, AppState>, args: DatabaseScriptArgs) -> CommandResult<SyncScript> {
+    let driver = driver_of(&state, &args.connection_id)?;
+    database_spec(driver.as_ref())?;
+    let new_name = database_name(&args.database, &args.new_name)?;
+    Ok(driver.rename_database_script(&args.database, &new_name, &args.objects)?)
+}
+
+#[derive(Deserialize)]
+pub struct FollowArgs {
+    pub connection_id: String,
+    pub database: String,
+    pub new_name: String,
+}
+
+/// What of DBine's own followed a renamed database.
+#[derive(Serialize, Default)]
+pub struct Followed {
+    pub connections: u32,
+    pub queries: u32,
+    pub migrations: u32,
+    pub projects: u32,
+    pub tasks: u32,
+    /// Tasks with steps that change data: their approval named the old
+    /// database, so they wait for the user's approval again.
+    pub tasks_to_approve: u32,
+}
+
+/// After a database rename ran: the connection's default database, saved
+/// queries, migrations, project targets and scheduled task steps that named
+/// it on that connection now name the new one.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn rename_database_follow(state: State<'_, AppState>, args: FollowArgs) -> CommandResult<Followed> {
+    let store = &state.store;
+    let (cid, old, new) = (args.connection_id.as_str(), args.database.as_str(), args.new_name.as_str());
+    let mut out = Followed::default();
+    if let Some(mut c) = store.get_connection(cid)? {
+        if c.config.database == old {
+            c.config.database = new.to_string();
+            store.save_connection(&c)?;
+            out.connections += 1;
+        }
+    }
+    for mut q in store.list_queries(cid, old)? {
+        q.database = new.to_string();
+        store.save_query(&q)?;
+        out.queries += 1;
+    }
+    for mut m in store.list_migrations(cid, old)? {
+        m.database = new.to_string();
+        store.save_migration(&m)?;
+        out.migrations += 1;
+    }
+    for p in store.list_projects()? {
+        let mut b = p.binding.clone();
+        let mut hit = false;
+        for t in b.direct.iter_mut().chain(b.environments.values_mut()) {
+            if t.connection_id == cid && t.database == old {
+                t.database = new.to_string();
+                hit = true;
+            }
+        }
+        if hit {
+            store.set_project_binding(&p.id, &b)?;
+            out.projects += 1;
+        }
+    }
+    for mut t in store.list_tasks()? {
+        let mut hit = false;
+        for step in &mut t.steps {
+            hit |= follow_json(&mut step.config, cid, old, new);
+        }
+        if hit {
+            if t.approved_writes.is_some() {
+                out.tasks_to_approve += 1;
+            }
+            store.save_task(&t)?;
+            out.tasks += 1;
+        }
+    }
+    Ok(out)
+}
+
+/// Every object in `v` that names `connection_id` and `database` = `old`
+/// gets `new` (a task step's source, target…).
+fn follow_json(v: &mut serde_json::Value, cid: &str, old: &str, new: &str) -> bool {
+    let mut hit = false;
+    match v {
+        serde_json::Value::Object(map) => {
+            let names_it = map.get("connection_id").and_then(|c| c.as_str()) == Some(cid) && map.get("database").and_then(|d| d.as_str()) == Some(old);
+            if names_it {
+                map.insert("database".into(), serde_json::Value::String(new.to_string()));
+                hit = true;
+            }
+            for x in map.values_mut() {
+                hit |= follow_json(x, cid, old, new);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for x in items {
+                hit |= follow_json(x, cid, old, new);
+            }
+        }
+        _ => {}
+    }
+    hit
+}
+
 pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &RenameRequest, rewrites: &[RewriteChoice]) -> CommandResult<SyncScript> {
     let middle = driver.rename_script(request)?;
     let dialect = driver.script_dialect();
@@ -520,6 +765,26 @@ pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &Ren
         script.warnings.push(format!("Se borran y se vuelven a crear {}: se pierden los permisos otorgados sobre ellos.", lost.join(", ")));
     }
     Ok(script)
+}
+
+#[cfg(test)]
+mod follow_tests {
+    use super::follow_json;
+
+    #[test]
+    fn task_steps_follow_the_database_on_that_connection_only() {
+        let mut v = serde_json::json!({
+            "source": { "connection_id": "c1", "database": "ventas" },
+            "target": { "connection_id": "c2", "database": "ventas" },
+            "list": [{ "connection_id": "c1", "database": "otra" }, { "connection_id": "c1", "database": "ventas", "sql": "x" }]
+        });
+        assert!(follow_json(&mut v, "c1", "ventas", "ventas2"));
+        assert_eq!(v["source"]["database"], "ventas2");
+        assert_eq!(v["target"]["database"], "ventas");
+        assert_eq!(v["list"][0]["database"], "otra");
+        assert_eq!(v["list"][1]["database"], "ventas2");
+        assert!(!follow_json(&mut v, "c9", "ventas", "x"));
+    }
 }
 
 #[cfg(test)]

@@ -460,6 +460,12 @@ impl Driver for MongoDriver {
         rename::script(self.flavor, req)
     }
 
+    /// Collections moved with `renameCollection`, views created again (see
+    /// `rename::database_script`).
+    fn rename_database_script(&self, database: &str, new_name: &str, objects: &[dbine_driver::rename::DatabaseObject]) -> Result<dbine_driver::SyncScript> {
+        rename::database_script(self.flavor, database, new_name, objects)
+    }
+
     fn insert_script(&self, target: &ObjectRef, columns: &[String], rows: &[Vec<serde_json::Value>]) -> Result<String> {
         ddl::insert_script(target, columns, rows)
     }

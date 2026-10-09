@@ -4,8 +4,9 @@
 //! TABLE`, columns with `CHANGE COLUMN` and the whole column (it works on
 //! every version, unlike `RENAME COLUMN`), and indexes with `RENAME INDEX`.
 //! The engines that only emulate MySQL rename tables with their own
-//! `ALTER TABLE` and nothing else. None of them renames databases or
-//! constraints, and their DDL commits by itself.
+//! `ALTER TABLE` and nothing else. None of them renames constraints, and
+//! their DDL commits by itself. MySQL and MariaDB rename databases by moving
+//! what they hold (`rename_db`).
 //!
 //! MySQL refuses to rename a column a `CHECK` uses, and TiDB drops the
 //! `CHECK` silently: the checks on the column are dropped and added back
@@ -42,7 +43,7 @@ pub(crate) fn spec(v: Variant) -> Option<RenameSpec> {
         ..Default::default()
     };
     let relations = [kinds::TABLE, kinds::VIEW];
-    Some(match v.base() {
+    let spec = match v.base() {
         // Views with CREATE OR REPLACE (they keep their grants); routines
         // and triggers have none, so they're dropped and created.
         Variant::MySql => RenameSpec {
@@ -57,6 +58,11 @@ pub(crate) fn spec(v: Variant) -> Option<RenameSpec> {
         }
         Variant::Manticore => return None,
         _ => unreachable!("managed variants map to their base"),
+    };
+    Some(if crate::rename_db::supported(v) {
+        RenameSpec { databases: true, database_moves: true, database_note: Some(crate::rename_db::NOTE.into()), ..spec }
+    } else {
+        spec
     })
 }
 
@@ -282,6 +288,14 @@ mod tests {
             assert!(!s.columns && !s.indexes, "{v:?}");
         }
         assert!(spec(Variant::Manticore).is_none());
+        for v in [Variant::MySql, Variant::AuroraMySql, Variant::CloudSqlMySql, Variant::MariaDb] {
+            let s = spec(v).unwrap();
+            assert!(s.databases && s.database_moves && s.database_from.is_none(), "{v:?}");
+            assert!(s.database_note.as_deref().unwrap().contains("No es atómico"), "{v:?}");
+        }
+        for v in [Variant::TiDb, Variant::OceanBase, Variant::SingleStore, Variant::StarRocks, Variant::Doris, Variant::Databend, Variant::GreptimeDb] {
+            assert!(!spec(v).unwrap().databases, "{v:?}");
+        }
     }
 
     #[test]
