@@ -127,12 +127,15 @@ const pending = ref<PendingChange[]>([]);
 const pendingOpen = ref(true);
 let pendingSeq = 0;
 /** Write a change's script and queue it; an error shows and queues nothing. */
-async function queue(label: string, load: () => Promise<{ script: string; shown: string }>, action: SecurityAction | null, creates: string | null) {
+/** Whether it was queued (its script came back). */
+async function queue(label: string, load: () => Promise<{ script: string; shown: string }>, action: SecurityAction | null, creates: string | null): Promise<boolean> {
   try {
     const s = await load();
     pending.value.push({ id: ++pendingSeq, label, script: s.script, shown: s.shown, action, creates });
+    return true;
   } catch (e) {
     ElMessage.error(errorMessage(e));
+    return false;
   }
 }
 function objectLabel(o: ObjectRef | null): string {
@@ -381,9 +384,14 @@ const grantObject = computed<ObjectRef | null>(() => {
   const o = objects.value.find((x) => `${x.schema ?? ''}\u0001${x.name}` === grant.object);
   return o ? { kind: o.kind, schema: o.schema, name: o.name } : null;
 });
-function submitGrant() {
+async function submitGrant() {
   if (!current.value || !grant.privileges.length || (grant.scope && !grantObject.value)) return;
-  propose({ action: 'grant', privileges: grant.privileges, object: grantObject.value, to: current.value.name, grantable: grant.grantable });
+  const queued = await propose({ action: 'grant', privileges: [...grant.privileges], object: grantObject.value, to: current.value.name, grantable: grant.grantable });
+  // Ready for the next one; the scope and object stay (several grants on one object).
+  if (queued) {
+    grant.privileges = [];
+    grant.grantable = false;
+  }
 }
 /** A direct grant's object as an ObjectRef, to revoke it. */
 function objectOf(g: Grant): ObjectRef | null {
