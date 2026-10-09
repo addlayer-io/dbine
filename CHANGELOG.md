@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Read-only is stricter:** the queries of MCP clients at the Read level, the AI assistant and read-only connections are checked word by word, not only by their first word. They now refuse:
+  - a write hidden after a read in a SQL Server batch;
+  - a data-modifying `WITH`;
+  - `SELECT … INTO`, `EXEC` and `SET`;
+  - functions that act outside the query, such as `set_config`, `dblink_exec` and `xp_cmdshell`.
+
+  An estimated plan refuses scripts that would turn plan mode off, so AI alternatives in **Optimize query** can't run anything. Scheduled tasks whose scripts now count as writing ask to be approved again.
+- **Library with git:** a shared repository can no longer make DBine read, write or delete files outside the Library's folder.
+- **SQL export:** string values are escaped the way the source engine reads them, so a stored value can't add statements to an `INSERT` script for MySQL, ClickHouse, BigQuery, Hive, Spark or Databricks.
+- **SSH tunnels:** each server's host key is checked on its own. A key accepted for a jump host no longer counts for the next server, `known_hosts` is checked first and a changed key is always refused. Servers you accepted before are asked once more. The tunnel's local port only serves your own user's programs.
+- **Cloud backup:** a backup file someone else modified can no longer weaken the encryption of your next upload.
+- **libSQL / Turso:** an `authToken` in a pasted URL is kept in the system keychain, not in the connection's address, name or history. Connections saved before are cleaned up when DBine starts.
+- **Document the database:** column names can't inject HTML into the Markdown data dictionary.
+
 ## [0.1.10] - 2026-10-09
 
 ### New
