@@ -20,9 +20,9 @@ pub const VARIABLES_QUERY: &str = "SHOW VARIABLES";
 const MAX_ALTERS: usize = 64;
 
 /// snowsql's reading of a script: backslash escapes in '…', `$$ … $$`
-/// bodies, `"ident"`.
+/// bodies, `"ident"` (escaped only by doubling `""`).
 pub fn dialect() -> ScriptDialect {
-    ScriptDialect { backslash_escapes: true, dollar_quotes: true, backtick_idents: false, ..ScriptDialect::generic() }
+    ScriptDialect { backslash_escapes: true, dquote_idents: true, dollar_quotes: true, backtick_idents: false, ..ScriptDialect::generic() }
 }
 
 /// The statements as Snowflake runs them: anonymous blocks (`BEGIN … END`,
