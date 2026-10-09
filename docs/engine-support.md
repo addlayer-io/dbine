@@ -2745,7 +2745,7 @@ Sign in with the domain account instead of a database user
 | Engine | Reason |
 |---|---|
 | SQL Server from macOS and Linux, with domain username and password | Pending. The client (tiberius) does NTLM outside Windows with `sspi-rs`, whose version pins a preliminary version of `crypto-bigint` incompatible with the SSH client's (russh). It is solved with a patch to DBine's copy of tiberius (`vendor/tiberius`) that uses its own NTLMv2 client, in Rust, on all platforms. In the meantime: **Windows: current user** with `kinit`. |
-| Azure SQL Database, Microsoft Fabric | They have no Windows logins (local Active Directory): they use Microsoft Entra ID. Integrated Entra ID is not available yet. |
+| Azure SQL Database, Microsoft Fabric | They have no Windows logins (local Active Directory): they use Microsoft Entra ID, including its integrated method (see [`integrated-authentication.md`](integrated-authentication.md#microsoft-entra-id-sql-server-azure-sql-database-microsoft-fabric)). |
 | Babelfish for PostgreSQL | It has no Windows logins. |
 | Oracle, Oracle Autonomous | The client is Oracle's thin client in Rust (`oracledb`), which only does the password login (O5LOGON). External authentication (`/`, wallet with credentials, Kerberos, operating system user) belongs to the client with Instant Client, which DBine does not use. The operating system user over the network (`REMOTE_OS_AUTHENT`) no longer exists since Oracle 21c anyway. |
 | PostgreSQL and compatibles (TimescaleDB, AlloyDB, Cloud SQL, Aurora, EDB, YugabyteDB, CockroachDB, Greenplum…), Amazon Aurora DSQL | The client (tokio-postgres) rejects the server's GSSAPI and SSPI methods; there is no way to add them without rewriting its login. |

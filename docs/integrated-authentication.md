@@ -90,3 +90,30 @@ you have installed):
 
 With the generic ODBC connection, the DSN or the connection string can
 already carry `Trusted_Connection=yes` or the attribute the driver asks for.
+
+## Microsoft Entra ID (SQL Server, Azure SQL Database, Microsoft Fabric)
+
+The **Authentication** field offers the same Microsoft Entra ID methods as
+SQL Server Management Studio. Every one ends in an access token for
+`https://database.windows.net/`; DBine keeps it in memory while it runs and
+asks for a new one shortly before it expires (with the refresh token where
+there is one), so the browser or the CLI isn't called on every connection.
+Tokens are never written to the state file or the logs.
+
+| Option | Asks for | How it gets the token |
+|---|---|---|
+| **Microsoft Entra ID: username and password** | `user@domain` and password | The password grant. Accounts with MFA can't use it. |
+| **Microsoft Entra ID: interactive (MFA)** | Optionally the account, as a hint | The system browser opens Microsoft's sign-in page (MFA included); the answer comes back to a port on `127.0.0.1` (authorization code with PKCE). The sign-in waits up to 5 minutes. |
+| **Microsoft Entra ID: integrated (Windows)** | `user@domain` | The account signed in to the computer, through the organization's federated ADFS (WS-Trust with HTTP Negotiate). macOS and Linux use the session's Kerberos ticket (`kinit`). A tenant that isn't federated can't use it: use interactive or default. |
+| **Microsoft Entra ID: service principal** | Tenant, application (client) ID and secret | Client credentials. |
+| **Microsoft Entra ID: managed identity** | Optionally the client ID of a user-assigned identity | The Azure instance metadata service, or App Service's identity endpoint. Only works when DBine runs on an Azure VM or service. |
+| **Microsoft Entra ID: default** | Optionally the tenant | In order: the `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` variables, managed identity, Azure CLI (`az login`) and Azure Developer CLI (`azd auth login`). If none works, the error lists what was tried. |
+| **Microsoft Entra ID: access token** | A token | Used as is; it expires in about an hour. |
+
+Verified against Microsoft Entra ID: the default method with Azure CLI
+returns a token for Azure SQL. Not verified against real services: the
+interactive sign-in in a browser, managed identity on an Azure VM, and the
+integrated method (it needs a federated ADFS). On Windows the integrated
+method negotiates NTLM with ADFS (the SSPI client DBine uses doesn't do
+Kerberos); ADFS accepts it when Windows authentication allows NTLM.
+
