@@ -2707,7 +2707,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-libsql"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",

@@ -249,3 +249,57 @@ async fn script_statements_errors_and_transactions() {
     assert_eq!(out.results[0].rows[0][0], serde_json::json!("2"));
     run(&mut s, "DROP TABLE tx_t").await;
 }
+
+#[tokio::test]
+#[ignore]
+async fn run_read_only_reads_and_refuses_the_rest() {
+    let Some(cfg) = config() else {
+        eprintln!("DBINE_TEST_LIBSQL_URL not set; skipping");
+        return;
+    };
+    let d = driver();
+    let mut s = d.connect(&cfg, None).await.expect("connect");
+    run(&mut s, "DROP TABLE IF EXISTS ro_t; CREATE TABLE ro_t (id INTEGER PRIMARY KEY, n TEXT); INSERT INTO ro_t (n) VALUES ('a'), ('b'), ('c')").await;
+
+    let mut out = QueryOutcome::default();
+    s.run_read_only("SELECT id, n FROM ro_t ORDER BY id", 2, &mut out).await.expect("a read");
+    let r = &out.results[0];
+    assert_eq!(r.rows, vec![vec![serde_json::json!(1), serde_json::json!("a")], vec![serde_json::json!(2), serde_json::json!("b")]]);
+    assert_eq!((r.total_rows, r.truncated), (3, true));
+
+    for bad in [
+        "INSERT INTO ro_t (n) VALUES ('x')",
+        "UPDATE ro_t SET n = 'x'",
+        "DELETE FROM ro_t",
+        "CREATE TABLE ro_u (a)",
+        "DROP TABLE ro_t",
+        "ATTACH DATABASE '/tmp/dbine-ro.db' AS x",
+        "PRAGMA writable_schema = 1",
+        "PRAGMA query_only = OFF",
+        "SELECT load_extension('nothing')",
+        "VACUUM INTO '/tmp/dbine-ro.db'",
+        "SELECT 1; DELETE FROM ro_t",
+        "WITH x AS (SELECT 1) DELETE FROM ro_t",
+        "COMMIT",
+    ] {
+        let mut out = QueryOutcome::default();
+        let e = s.run_read_only(bad, 100, &mut out).await;
+        eprintln!("{bad}: {e:?}");
+        assert!(e.is_err(), "{bad} should be refused");
+        assert!(out.results.is_empty(), "{bad} produced results");
+    }
+
+    // The session goes on: its manual transaction isn't touched by the
+    // reads, and nothing above changed the table.
+    s.set_autocommit(false).await.expect("manual");
+    run(&mut s, "INSERT INTO ro_t (n) VALUES ('d')").await;
+    let mut out = QueryOutcome::default();
+    s.run_read_only("SELECT count(*) FROM ro_t", 100, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(3), "the read doesn't see the open transaction");
+    assert_eq!(s.transaction_state().await.unwrap(), Some(dbine_driver::TxState::Open));
+    s.commit().await.unwrap();
+    s.set_autocommit(true).await.unwrap();
+    let out = run(&mut s, "SELECT count(*) FROM ro_t").await;
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(4));
+    run(&mut s, "DROP TABLE ro_t").await;
+}

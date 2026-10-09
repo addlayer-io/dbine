@@ -419,6 +419,31 @@ impl Session for LibsqlSession {
         }
     }
 
+    /// One statement, checked by the server (`describe`) to be a read and
+    /// run between `BEGIN` and `ROLLBACK` on a stream of its own (see
+    /// `hrana::Client::run_read_only`). Transaction control, ATTACH,
+    /// DETACH and VACUUM are refused here first: they would leave or
+    /// outlive that transaction.
+    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let stmts = split_script(statement);
+        match stmts.len() {
+            0 => return Err(Error::Query("No hay ninguna sentencia que ejecutar.".into())),
+            1 => {}
+            _ => return Err(Error::Query("Una lectura admite una sola sentencia.".into())),
+        }
+        const OUTSIDE: &[&str] = &["begin", "commit", "end", "rollback", "savepoint", "release", "attach", "detach", "vacuum"];
+        if let Some(kw) = leading_keyword(&stmts[0], &ScriptDialect::generic()).filter(|k| OUTSIDE.contains(&k.as_str())) {
+            return Err(Error::Query(format!("Una lectura no admite {}.", kw.to_uppercase())));
+        }
+        match self.client.run_read_only(statement).await? {
+            Ok(r) => {
+                push_result(r, max_rows, out);
+                Ok(())
+            }
+            Err(e) => Err(step_error(e, true)),
+        }
+    }
+
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
         Ok(self.client.autocommit.map(|on| if on { TxState::Idle } else { TxState::Open }))
     }

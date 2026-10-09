@@ -408,6 +408,83 @@ impl Client {
         }
     }
 
+    /// One statement as a read the server enforces, on streams of its own
+    /// (the session's stream, its open transaction and its PRAGMAs aren't
+    /// involved, and each stream is closed at the end of its request):
+    /// first `describe`, the server's `sqlite3_stmt_readonly`; only when it
+    /// doesn't write, the statement between `BEGIN` and `ROLLBACK` in one
+    /// batch, so whatever it could change is undone by the server even if
+    /// this client goes away. The server refuses a second statement
+    /// (`SQL_MANY_STATEMENTS`); sqld also refuses ATTACH, `VACUUM INTO`,
+    /// the PRAGMAs that set something and `load_extension`. `Ok(Err(_))`:
+    /// the statement itself failed.
+    pub async fn run_read_only(&self, sql: &str) -> Result<std::result::Result<StmtResult, StepError>> {
+        let described = self.once(vec![json!({ "type": "describe", "sql": sql })]).await?;
+        let readonly = match described.into_iter().next() {
+            Some(Ok(resp)) => resp.pointer("/result/is_readonly").and_then(Value::as_bool),
+            Some(Err(e)) => return Ok(Err(e)),
+            None => None,
+        };
+        match readonly {
+            Some(true) => {}
+            Some(false) => return Err(Error::Query("La sentencia escribe en la base: una lectura no la admite.".into())),
+            None => return Err(Error::Query("el servidor no dijo si la sentencia es de solo lectura".into())),
+        }
+        let steps = [
+            json!({ "stmt": { "sql": "BEGIN" } }),
+            json!({ "stmt": stmt(sql), "condition": { "type": "ok", "step": 0 } }),
+            json!({ "stmt": { "sql": "ROLLBACK" } }),
+        ];
+        let resp = match self.once(vec![json!({ "type": "batch", "batch": { "steps": steps } })]).await?.into_iter().next() {
+            Some(Ok(resp)) => resp,
+            // The whole batch refused (sqld parses every step first): nothing ran.
+            Some(Err(e)) => return Ok(Err(e)),
+            None => return Err(Error::Query("el servidor no respondió el lote".into())),
+        };
+        let step = |key: &str, i: usize| resp.pointer(&format!("/result/{key}/{i}")).filter(|v| !v.is_null()).cloned();
+        if let Some(e) = step("step_errors", 0) {
+            return Err(Error::Query(format!("no se pudo abrir la transacción de lectura: {}", error_message(&e))));
+        }
+        if let Some(e) = step("step_errors", 1) {
+            return Ok(Err(StepError::from_value(&e)));
+        }
+        match step("step_results", 1) {
+            Some(r) => Ok(Ok(stmt_result(&r))),
+            None => Err(Error::Query("el servidor no respondió la sentencia".into())),
+        }
+    }
+
+    /// `requests` on a new stream, closed in the same request; each one's
+    /// response or error.
+    async fn once(&self, mut requests: Vec<Value>) -> Result<Vec<std::result::Result<Value, StepError>>> {
+        let n = requests.len();
+        requests.push(json!({ "type": "close" }));
+        let version = if self.v3 { 3 } else { 2 };
+        let mut req = self.http.post(format!("{}/v{version}/pipeline", self.base)).json(&json!({ "baton": null, "requests": requests }));
+        if let Some(t) = &self.token {
+            req = req.bearer_auth(t);
+        }
+        let resp = req.send().await.map_err(|e| Error::Connect(format!("no se pudo llegar al servidor: {e}")))?;
+        let status = resp.status();
+        let text = resp.text().await.map_err(|e| Error::Connect(e.to_string()))?;
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(Error::AuthFailed(format!("el servidor rechazó el token ({status}): {}", text.trim())));
+        }
+        if !status.is_success() {
+            return Err(Error::Query(format!("HTTP {status}: {}", text.trim())));
+        }
+        let v: Value = serde_json::from_str(&text).map_err(|e| Error::Query(format!("respuesta inválida: {e}")))?;
+        let results = v.get("results").and_then(Value::as_array).cloned().unwrap_or_default();
+        Ok(results
+            .into_iter()
+            .take(n)
+            .map(|r| match r.get("type").and_then(Value::as_str) {
+                Some("ok") => Ok(r.get("response").cloned().unwrap_or(Value::Null)),
+                _ => Err(r.get("error").map(StepError::from_value).unwrap_or_else(|| StepError { message: "error del servidor".into(), code: None })),
+            })
+            .collect())
+    }
+
     /// Server version from `GET /version` (sqld), if it answers.
     pub async fn version(&self) -> Option<String> {
         let mut req = self.http.get(format!("{}/version", self.base)).timeout(Duration::from_secs(5));
