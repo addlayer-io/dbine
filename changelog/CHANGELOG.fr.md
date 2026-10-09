@@ -3,7 +3,7 @@
 ## [0.1.9] - 2026-10-09
 
 ### Nouveautés
-- **Renommer avec impact :** **Renommer…** dans l'explorateur change le nom d'une table, vue, routine, colonne, index ou schéma et, dans le même script, réécrit les vues, procédures, fonctions et déclencheurs qui l'utilisent. Avant d'exécuter, il montre ce que le moteur met à jour seul, ce qui est réécrit et ce qu'il faut vérifier à la main (SQL dynamique, code illisible), avec le script complet. Il s'exécute dans une transaction lorsque le moteur le permet. Il est disponible dans tous les moteurs qui peuvent renommer quelque chose ; les limites de chacun figurent dans `docs/soporte-por-motor.md`.
+- **Renommer avec impact :** **Renommer…** dans l'explorateur change le nom d'une table, vue, routine, colonne, index ou schéma et, dans le même script, réécrit les vues, procédures, fonctions et déclencheurs qui l'utilisent. Avant d'exécuter, il montre ce que le moteur met à jour seul, ce qui est réécrit et ce qu'il faut vérifier à la main (SQL dynamique, code illisible), avec le script complet. Il s'exécute dans une transaction lorsque le moteur le permet. Il est disponible dans tous les moteurs qui peuvent renommer quelque chose ; les limites de chacun figurent dans `docs/engine-support.md`.
 - **Modifier une table :** **Modifier…** ouvre le concepteur sur une table existante et construit l'`ALTER` du moteur. Il conserve ce que le concepteur n'affiche pas (CHECK, options d'index, ordre des colonnes de la clé) et recrée les vues et déclencheurs qui dépendent de la table. Renommer une colonne à cet endroit passe par la revue d'impact ; sur les connexions de production, il demande de saisir le nom de la table avant d'exécuter.
 - **Historique par requête :** la barre **Historique** suit l'onglet actif, comme une chronologie : versions de la requête enregistrée avec différences et restauration, ses exécutions et, dans les fichiers d'un projet, ses commits git.
 - **Navigation dans l'éditeur :** Cmd/Ctrl+clic sur une table, une vue ou une routine ouvre sa structure ou sa définition, et **Afficher dans l'explorateur** la localise dans l'arborescence. Les tables et colonnes qui n'existent pas sont signalées avant l'exécution.
@@ -34,7 +34,7 @@
 - L'éditeur ne signale plus comme inconnues les colonnes d'une sous-requête avec alias.
 
 ### Déjà disponible
-- **Exécuter une requête sur plusieurs bases à la fois :** on choisit une ou plusieurs bases d'une connexion, et les résultats sont réunis avec une colonne indiquant la base de chaque ligne. Arrivé dans la 0.1.4. Voir `docs/ejecutar-en-varias-bases.md`.
+- **Exécuter une requête sur plusieurs bases à la fois :** on choisit une ou plusieurs bases d'une connexion, et les résultats sont réunis avec une colonne indiquant la base de chaque ligne. Arrivé dans la 0.1.4. Voir `docs/multi-database-queries.md`.
 
 ## [0.1.8] - 2026-10-06
 

@@ -5,7 +5,7 @@ model: sonnet
 tools: Read, Bash, Grep, Glob, Write, Edit
 ---
 
-You run DBine's release procedure. First read `docs/drivers-bajo-demanda.md`
+You run DBine's release procedure. First read `docs/on-demand-drivers.md`
 (the "Versiones de los drivers" and "Release" sections) and
 `.github/workflows/release.yml`. They are the reference, and this file
 summarizes them.

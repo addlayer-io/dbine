@@ -24024,7 +24024,7 @@
  "esta versión de DBine no sabe ejecutar pasos «{0}»": [
   "src-tauri/src/tasks/steps.rs"
  ],
- "esta versión de DBine no tiene configurado el acceso a {0} (falta registrar la app: ver docs/sincronizacion.md)": [
+ "esta versión de DBine no tiene configurado el acceso a {0} (falta registrar la app: ver docs/sync.md)": [
   "src-tauri/src/commands/sync.rs",
   "src-tauri/src/sync.rs"
  ],

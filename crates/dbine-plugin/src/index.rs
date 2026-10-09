@@ -1,7 +1,7 @@
 //! The drivers index: every host published for a target, signed with the
 //! app updater's key. Drivers are released apart from the app; the app
 //! reads the index to pick, per driver crate, the newest version it can run
-//! (docs/drivers-bajo-demanda.md).
+//! (docs/on-demand-drivers.md).
 //!
 //! A driver's id is `<version>+p<protocol>.e<epoch>`: the crate's own
 //! version, the protocol the app and the host speak (`proto::PROTOCOL`) and

@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) through
+//! Users, roles and permissions (docs/users-and-permissions.md) through
 //! ClickHouse's SQL access control (`system.users`, `system.roles`,
 //! `system.role_grants`, `system.grants`), which Timeplus Proton shares.
 //!

@@ -1,7 +1,7 @@
 //! "Nuevo esquema…" / "Borrar esquema…" (`Driver::schema_spec`) for the
 //! presets where a schema is a plain object the SQL creates and drops.
 //!
-//! Left out, with the reason in docs/soporte-por-motor.md: the generic ODBC
+//! Left out, with the reason in docs/engine-support.md: the generic ODBC
 //! preset (unknown engine); engines where a schema is the owner user
 //! (SAP ASE, SQL Anywhere, Informix, GBase 8s, Altibase, Ingres, OpenEdge,
 //! Machbase), a database with its own space (Teradata), an implicit

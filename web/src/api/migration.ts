@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 // Migration between engines (src-tauri/src/commands/migration.rs,
-// docs/migracion.md): the plan (report + script), and the run, whose data
+// docs/migration.md): the plan (report + script), and the run, whose data
 // goes through the bulk transfer engine (tables in parallel, resumable).
 
 export interface ModeSupport { available: boolean; reason: string | null }

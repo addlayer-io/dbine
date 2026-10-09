@@ -1,7 +1,7 @@
 //! The run: tables in parallel (the limit changes live), a live queue,
 //! retries, cancellation and resume.
 //!
-//! Per table, in this order (see `docs/transferencia-masiva.md`, 2.6):
+//! Per table, in this order (see `docs/bulk-transfer.md`, 2.6):
 //! 1. one worker per table, checked before anything else;
 //! 2. a table already copied is never emptied: only its `post` runs;
 //! 3. the target's columns are checked against the expected ones;

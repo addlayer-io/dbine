@@ -1,4 +1,4 @@
-//! AI assistant commands (docs/asistente-ia.md): detect the providers,
+//! AI assistant commands (docs/ai-assistant.md): detect the providers,
 //! chat with streamed answers, and the built-in model's downloads. The
 //! context sent with each question is built here: engine, database, its
 //! structure (compact, trimmed to what fits), the editor's text and the last

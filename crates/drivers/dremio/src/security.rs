@@ -1,4 +1,4 @@
-//! Users, roles and privileges of Dremio (docs/usuarios-y-permisos.md).
+//! Users, roles and privileges of Dremio (docs/users-and-permissions.md).
 //!
 //! Enterprise (Software and Cloud) has role-based access: `sys.users`,
 //! `sys.roles`, `sys.membership` (role, member, USER|ROLE) and

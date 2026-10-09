@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Cell, ResultColumn } from './types';
 
-// "Diseñar consulta" (docs/constructor-de-consultas.md). Mirrors
+// "Diseñar consulta" (docs/query-builder.md). Mirrors
 // src-tauri/src/commands/query_builder.rs. The spec is what the builder tab
 // keeps; the backend turns it into the engine's SQL.
 

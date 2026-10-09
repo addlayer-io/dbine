@@ -1,5 +1,5 @@
 //! Users, roles and permissions of Apache IoTDB / TimechoDB 1.x and 2.x
-//! (tree model; docs/usuarios-y-permisos.md).
+//! (tree model; docs/users-and-permissions.md).
 //!
 //! `LIST USER` / `LIST ROLE` name them, `LIST USER OF ROLE` gives the
 //! members, and `LIST PRIVILEGES OF USER|ROLE` the privileges with their

@@ -1,96 +1,93 @@
-# Servidor MCP
+# MCP server
 
-DBine puede actuar como servidor MCP (Model Context Protocol) local. Con él,
-asistentes como Claude Code o Codex pueden ver tus conexiones, recorrer la
-estructura de las bases y, donde lo habilites, hacer consultas de solo
-lectura o, aprobando cada uno, cambios. Funciona solo mientras DBine está
-abierto.
+DBine can act as a local MCP (Model Context Protocol) server. With it,
+assistants such as Claude Code or Codex can see your connections, browse the
+structure of the databases and, where you enable it, run read-only queries
+or, approving each one, changes. It only works while DBine is open.
 
-## Cómo se activa
+## How to turn it on
 
-1. Abrí **Configuración › MCP** y prendé **Servidor MCP**. Viene apagado.
-2. Revisá el **puerto** (por defecto `27517`). Si otro programa lo usa, DBine
-   lo avisa ahí mismo: elegí otro y guardalo. DBine no cambia de puerto por su
-   cuenta.
-3. En **Clientes**, creá uno por asistente ("Claude Code", "Codex"…). DBine
-   muestra su token **una sola vez**, junto con la configuración lista para
-   pegar.
+1. Open **Settings › MCP** and turn on **MCP server**. It comes off.
+2. Check the **port** (`27517` by default). If another program is using it,
+   DBine warns you right there: pick another one and save it. DBine doesn't
+   change the port on its own.
+3. Under **Clients**, create one per assistant ("Claude Code", "Codex"…).
+   DBine shows its token **only once**, together with the configuration ready
+   to paste.
 
-## Niveles de acceso
+## Access levels
 
-Cada conexión tiene un nivel, que decide qué puede hacer un cliente con ella:
+Each connection has a level, which decides what a client can do with it:
 
-| Nivel | Qué permite |
+| Level | What it allows |
 |---|---|
-| Deshabilitado | Nada: los clientes no ven la conexión. |
-| Esquema | Listar bases y objetos, y ver columnas, claves, índices y claves foráneas. Ningún dato. |
-| Lectura | Además: filas de muestra (hasta 100), consultas de solo lectura (hasta 500 filas, 30 s por defecto) y planes de ejecución estimados. |
-| Escritura | Además: cambios en datos y estructura con `execute`. Cada uno se aprueba en DBine antes de ejecutarse (ver [Aprobaciones](#aprobaciones)). |
+| Disabled | Nothing: clients don't see the connection. |
+| Schema | List databases and objects, and see columns, keys, indexes and foreign keys. No data. |
+| Read | Also: sample rows (up to 100), read-only queries (up to 500 rows, 30 s by default) and estimated execution plans. |
+| Write | Also: changes to data and structure with `execute`. Each one is approved in DBine before it runs (see [Approvals](#approvals)). |
 
-El **nivel predeterminado** se elige en Configuración › MCP y vale para las
-conexiones sin nivel propio. De fábrica es **Esquema**. En el formulario de
-cada conexión, **Acceso por MCP** permite usar el predeterminado o fijar otro.
+The **default level** is chosen in Settings › MCP and applies to connections
+without their own level. Out of the box it's **Schema**. In each connection's
+form, **MCP access** lets you use the default or set another one.
 
-Dos topes se aplican siempre, sea cual sea el nivel elegido:
+Two caps always apply, whatever level is chosen:
 
-- una conexión con la etiqueta `prod` (en mayúsculas o minúsculas) nunca pasa
-  de **Lectura**;
-- una conexión configurada como de solo lectura nunca pasa de **Lectura**.
+- a connection tagged `prod` (upper or lower case) never goes beyond **Read**;
+- a connection configured as read-only never goes beyond **Read**.
 
-## Herramientas
+## Tools
 
-| Herramienta | Nivel | Qué hace |
+| Tool | Level | What it does |
 |---|---|---|
-| `list_connections` | Esquema | Nombre, motor y nivel de cada conexión visible. Nunca muestra hosts, usuarios ni contraseñas. |
-| `list_databases` | Esquema | Las bases de una conexión. |
-| `list_objects` | Esquema | Tablas, vistas, colecciones y demás objetos de una base. |
-| `describe_object` | Esquema | Columnas, clave primaria, claves foráneas e índices. |
-| `index_usage` | Esquema | Los índices de una tabla y cuánto se usan: lecturas, escrituras, porcentaje de las lecturas, sin uso y deshabilitados. |
-| `sample_rows` | Lectura | Las primeras filas de una tabla o colección. |
-| `run_query` | Lectura | Una consulta de solo lectura en el lenguaje del motor. |
-| `explain` | Lectura | El plan estimado de una consulta, en los motores que tienen planes. |
-| `execute` | Escritura | Código que cambia datos o estructura, en el lenguaje del motor. Espera la aprobación del usuario. |
+| `list_connections` | Schema | Name, engine and level of each visible connection. Never shows hosts, users or passwords. |
+| `list_databases` | Schema | A connection's databases. |
+| `list_objects` | Schema | Tables, views, collections and other objects of a database. |
+| `describe_object` | Schema | Columns, primary key, foreign keys and indexes. |
+| `index_usage` | Schema | A table's indexes and how much they're used: reads, writes, percentage of reads, unused and disabled. |
+| `sample_rows` | Read | The first rows of a table or collection. |
+| `run_query` | Read | A read-only query in the engine's language. |
+| `explain` | Read | A query's estimated plan, in the engines that have plans. |
+| `execute` | Write | Code that changes data or structure, in the engine's language. Waits for the user's approval. |
 
-Las consultas corren siempre en una sesión de solo lectura propia del
-servidor MCP. En los motores SQL, una sentencia que modifica datos o
-estructura se rechaza antes de llegar al servidor; los demás motores usan su
-propio modo de solo lectura. Eso vale también en las conexiones con nivel
-**Escritura**: para cambiar algo, el asistente tiene que usar `execute`.
+Queries always run in the MCP server's own read-only session. In SQL engines,
+a statement that modifies data or structure is rejected before reaching the
+server; the other engines use their own read-only mode. That also applies to
+connections with the **Write** level: to change anything, the assistant has to
+use `execute`.
 
-## Aprobaciones
+## Approvals
 
-Cada vez que un asistente pide `execute`, DBine abre una ventana (aunque
-esté minimizado u oculto) con el cliente, la conexión, la base y el código
-exacto, y no ejecuta nada hasta que respondas:
+Every time an assistant asks for `execute`, DBine opens a window (even if
+minimized or hidden) with the client, the connection, the database and the
+exact code, and doesn't run anything until you answer:
 
-- **Aprobar**: se ejecuta solo ese pedido, en una sesión propia del servidor
-  MCP y con el mismo límite de tiempo que las consultas (30 s por defecto).
-  El asistente recibe «aprobado y ejecutado» con las filas afectadas o las
-  que devolvió.
-- **Rechazar**: no se ejecuta; el asistente recibe «rechazado por el
-  usuario».
-- **Aprobar todo**: se ejecuta este pedido y los siguientes de ese cliente,
-  sin preguntar, hasta que cierres DBine, lo quites o revoques el cliente. El
-  riesgo es tuyo. Mientras está activo, Configuración › MCP lo muestra junto
-  al cliente («Aprueba todo hasta cerrar DBine») con el botón **Quitar**.
+- **Approve**: only that request runs, in the MCP server's own session and
+  with the same time limit as queries (30 s by default). The assistant
+  receives "approved and executed" with the affected rows or the ones it
+  returned.
+- **Reject**: it doesn't run; the assistant receives "rejected by the user".
+- **Approve all**: this request and the following ones from that client run
+  without asking, until you close DBine, remove it or revoke the client. The
+  risk is yours. While active, Settings › MCP shows it next to the client
+  ("Approving everything until DBine is closed") with the **Remove** button.
 
-Si no respondés en **2 minutos**, el pedido se rechaza y el asistente recibe
-«sin respuesta: rechazado». Si llegan varios a la vez, se muestran de a uno,
-con la cantidad que queda esperando. Cada pedido y su resultado (aprobado,
-rechazado o sin respuesta) quedan en la actividad.
+If you don't answer within **2 minutes**, the request is rejected and the
+assistant receives "no response: rejected". If several arrive at once, they're
+shown one at a time, with the number still waiting. Each request and its
+result (approved, rejected or no response) are recorded in the activity.
 
-## Conectar Claude Code
+## Connect Claude Code
 
-Con `--scope user` queda disponible en todos los proyectos, no solo en la
-carpeta desde donde se corre el comando.
+With `--scope user` it's available in all projects, not just the folder where
+the command is run.
 
 ```sh
 claude mcp add --scope user --transport http dbine http://127.0.0.1:27517/mcp --header "Authorization: Bearer <token>"
 ```
 
-## Conectar Codex
+## Connect Codex
 
-En `~/.codex/config.toml`:
+In `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.dbine]
@@ -100,7 +97,7 @@ http_headers = { "Authorization" = "Bearer <token>" }
 
 ## Cursor
 
-En `~/.cursor/mcp.json` (o `.cursor/mcp.json` dentro de un proyecto):
+In `~/.cursor/mcp.json` (or `.cursor/mcp.json` inside a project):
 
 ```json
 {
@@ -115,9 +112,9 @@ En `~/.cursor/mcp.json` (o `.cursor/mcp.json` dentro de un proyecto):
 
 ## Claude Desktop
 
-Claude Desktop solo arranca servidores locales por comando, así que usa
-`mcp-remote` como puente (necesita Node). En
-`~/Library/Application Support/Claude/claude_desktop_config.json` (en Windows,
+Claude Desktop only starts local servers by command, so it uses `mcp-remote`
+as a bridge (it needs Node). In
+`~/Library/Application Support/Claude/claude_desktop_config.json` (on Windows,
 `%APPDATA%\Claude\claude_desktop_config.json`):
 
 ```json
@@ -132,7 +129,7 @@ Claude Desktop solo arranca servidores locales por comando, así que usa
 }
 ```
 
-Después, reiniciar Claude Desktop.
+Then restart Claude Desktop.
 
 ## VS Code (Copilot)
 
@@ -142,7 +139,7 @@ code --add-mcp '{"name":"dbine","type":"http","url":"http://127.0.0.1:27517/mcp"
 
 ## Windsurf
 
-En `~/.codeium/windsurf/mcp_config.json`:
+In `~/.codeium/windsurf/mcp_config.json`:
 
 ```json
 {
@@ -157,16 +154,15 @@ En `~/.codeium/windsurf/mcp_config.json`:
 
 ## ChatGPT
 
-No se puede conectar. ChatGPT llama a los servidores MCP desde los servidores
-de OpenAI, así que necesita una URL pública con HTTPS, y el de DBine escucha
-solo en esta máquina (`127.0.0.1`) a propósito. Exponerlo a internet con un
-túnel dejaría las bases al alcance de cualquiera que tenga la URL y el token:
-no lo recomendamos. Para usar un modelo de OpenAI con DBine, usar Codex
-(arriba).
+It can't be connected. ChatGPT calls MCP servers from OpenAI's servers, so it
+needs a public HTTPS URL, and DBine's listens only on this machine
+(`127.0.0.1`) on purpose. Exposing it to the internet through a tunnel would
+leave the databases within reach of anyone who has the URL and the token: we
+don't recommend it. To use an OpenAI model with DBine, use Codex (above).
 
-## Otros clientes
+## Other clients
 
-Los que aceptan un bloque `mcpServers` con servidores HTTP:
+Those that accept an `mcpServers` block with HTTP servers:
 
 ```json
 {
@@ -180,33 +176,32 @@ Los que aceptan un bloque `mcpServers` con servidores HTTP:
 }
 ```
 
-En todos los casos, `<token>` es el que DBine muestra una sola vez al crear el
-cliente, y el puerto es el que figura en Configuración → Servidor MCP.
+In every case, `<token>` is the one DBine shows once when the client is
+created, and the port is the one listed in Settings → MCP server.
 
-## Actividad
+## Activity
 
-Cada llamada queda registrada en esta máquina con la hora, el cliente, la
-conexión, la herramienta, un resumen (la consulta, recortada) y el resultado
-con la cantidad de filas. Se guardan las últimas 10.000 y se ven en
-Configuración › MCP, filtrando por cliente o por conexión.
+Every call is recorded on this machine with the time, the client, the
+connection, the tool, a summary (the query, trimmed) and the result with the
+number of rows. The last 10,000 are kept and shown in Settings › MCP,
+filterable by client or by connection.
 
-## Seguridad
+## Security
 
-- **Solo local.** El servidor escucha en `127.0.0.1`, nunca en la red. Rechaza
-  los pedidos que vienen de una página del navegador (encabezado `Origin`) y
-  los que llegan con otro nombre de host.
-- **Token por cliente.** Cada pedido lleva `Authorization: Bearer <token>`.
-  Cada cliente se revoca por separado y deja de funcionar en el acto.
-- **Solo la huella.** DBine guarda el SHA-256 del token, nunca el token. Si lo
-  perdés, revocá el cliente y creá otro.
-- **Topes.** Las conexiones `prod` y las de solo lectura nunca pasan de
-  Lectura, y cada escritura necesita tu aprobación en DBine.
-- **Sin credenciales.** Ninguna respuesta ni el registro de actividad
-  incluyen contraseñas, tokens ni otros secretos, y `list_connections` no
-  muestra hosts ni usuarios.
-- **Los resultados de las consultas le llegan al modelo.** Lo que devuelven
-  `sample_rows` y `run_query` se envía al asistente y, según cómo funcione, al
-  proveedor del modelo. Habilitá **Lectura** solo donde eso esté bien.
-- Todo esto es de esta máquina: la configuración del servidor, los clientes y
-  la actividad no viajan en la copia en la nube. El nivel de cada conexión sí,
-  con el resto de la conexión.
+- **Local only.** The server listens on `127.0.0.1`, never on the network. It
+  rejects requests coming from a browser page (`Origin` header) and those
+  arriving with a different host name.
+- **Token per client.** Every request carries `Authorization: Bearer <token>`.
+  Each client is revoked separately and stops working immediately.
+- **Fingerprint only.** DBine stores the token's SHA-256, never the token. If
+  you lose it, revoke the client and create another.
+- **Caps.** `prod` connections and read-only ones never go beyond Read, and
+  every write needs your approval in DBine.
+- **No credentials.** No response or the activity log includes passwords,
+  tokens or other secrets, and `list_connections` doesn't show hosts or users.
+- **Query results reach the model.** What `sample_rows` and `run_query`
+  return is sent to the assistant and, depending on how it works, to the
+  model's provider. Enable **Read** only where that's acceptable.
+- All of this is local to this machine: the server configuration, the clients
+  and the activity don't travel in the cloud backup. Each connection's level
+  does, with the rest of the connection.

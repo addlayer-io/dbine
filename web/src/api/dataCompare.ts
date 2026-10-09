@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Cell, ObjectRef } from './types';
 
-// Data compare (docs/comparacion-de-datos.md).
+// Data compare (docs/data-compare.md).
 
 export interface DataSide { connection_id: string; database: string; object: ObjectRef }
 

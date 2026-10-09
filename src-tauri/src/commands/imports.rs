@@ -1,4 +1,4 @@
-//! Importing data files into a table / collection (docs/api-comandos.md).
+//! Importing data files into a table / collection (docs/api-commands.md).
 //! The rows become the driver's own insert script (SQL INSERTs,
 //! `insertMany`, `_bulk`…) run in batches, so every engine imports the same way.
 

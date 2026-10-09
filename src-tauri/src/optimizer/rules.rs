@@ -1,4 +1,4 @@
-//! Rule-based rewrites (docs/optimizar-consulta.md). Each rule offers a
+//! Rule-based rewrites (docs/query-optimizer.md). Each rule offers a
 //! candidate only when it's certainly equivalent: what it can't prove
 //! (with the query's own text, or with the structure of the tables) it
 //! leaves alone, or reports as a note without rewriting. The text the user

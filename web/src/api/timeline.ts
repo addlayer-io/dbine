@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { HistoryEntry } from './history';
 
-// A tab's timeline in the history sidebar (docs/historial.md): a saved
+// A tab's timeline in the history sidebar (docs/history.md): a saved
 // query's versions, the runs of the query or project file, and a project
 // file's commits.
 

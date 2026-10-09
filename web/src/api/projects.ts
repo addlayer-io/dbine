@@ -5,7 +5,7 @@ import type {
 } from './types';
 
 // Proyectos: folders (git repos) of scripts linked on this machine
-// (src-tauri/src/commands/projects.rs and projects_git.rs, docs/proyectos.md).
+// (src-tauri/src/commands/projects.rs and projects_git.rs, docs/projects.md).
 // Every file operation goes through the backend, which keeps paths inside
 // the project's folder. Paths are relative to the repo root, with '/'.
 

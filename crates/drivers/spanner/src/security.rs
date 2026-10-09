@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md): Spanner's
+//! Users, roles and permissions (docs/users-and-permissions.md): Spanner's
 //! fine-grained access control. Users are IAM principals, managed in IAM,
 //! not in the database: DBine lists and manages the database roles
 //! (`CREATE ROLE`, `GRANT … ON TABLE … TO ROLE`, `GRANT ROLE … TO ROLE`),

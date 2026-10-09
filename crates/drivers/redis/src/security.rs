@@ -1,5 +1,5 @@
 //! Users and permissions through ACLs (Redis 6+, Valkey, Dragonfly;
-//! docs/usuarios-y-permisos.md). Redis has users only, no roles: a user's
+//! docs/users-and-permissions.md). Redis has users only, no roles: a user's
 //! permissions are ACL rules — command rules (`+@read`, `-@dangerous`,
 //! `+get`), key patterns (`~app:*`, `%R~ro:*`) and channel patterns
 //! (`&news:*`). A privilege here is one such rule, sign included, so that

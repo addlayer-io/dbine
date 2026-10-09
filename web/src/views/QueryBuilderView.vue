@@ -20,7 +20,7 @@ import CodeEditor from '../components/CodeEditor.vue';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import ResultGrid from '../components/ResultGrid.vue';
 
-// "Diseñar consulta" (docs/constructor-de-consultas.md). Tables dragged
+// "Diseñar consulta" (docs/query-builder.md). Tables dragged
 // from the list onto a canvas (same pan/zoom and SVG lines as the ER
 // diagram), joins from foreign keys or by dragging a column onto another,
 // and a grid with one row per column (alias, aggregate, sorting, filters in

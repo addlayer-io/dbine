@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md). Cassandra
+//! Users, roles and permissions (docs/users-and-permissions.md). Cassandra
 //! and ScyllaDB have roles only: a role that can log in is a user. Roles
 //! are server-wide and hold other roles; permissions apply to all keyspaces,
 //! a keyspace, a table, roles, functions or MBeans. It needs

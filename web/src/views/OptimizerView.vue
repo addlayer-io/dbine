@@ -16,7 +16,7 @@ import { editorBridge, useAiStore } from '../stores/ai';
 import { useTabsStore, type OptimizerTab } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 
-// "Optimizar consulta" (docs/optimizar-consulta.md): the rules' rewrites,
+// "Optimizar consulta" (docs/query-optimizer.md): the rules' rewrites,
 // the AI's and the user's own alternatives, all verified the same way by
 // "Comparar" (on a read-only session, only when the user clicks it); and
 // index suggestions from the plan. Nothing here changes the database:

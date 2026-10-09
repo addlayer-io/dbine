@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { defaultDocOptions } from './dbDocs';
 
-// Scheduled tasks (docs/tareas-programadas.md). Mirrors dbine_core::tasks
+// Scheduled tasks (docs/scheduled-tasks.md). Mirrors dbine_core::tasks
 // and src-tauri/src/commands/scheduled.rs.
 
 export type Schedule =

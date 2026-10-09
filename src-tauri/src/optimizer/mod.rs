@@ -1,4 +1,4 @@
-//! "Optimizar consulta" (docs/optimizar-consulta.md): candidates that may
+//! "Optimizar consulta" (docs/query-optimizer.md): candidates that may
 //! run faster than a query, from the rules (rewrites known to be
 //! equivalent), from the AI and from the user, all verified the same way by
 //! "Comparar"; and index suggestions from the execution plan. Nothing here

@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) for Snowflake.
+//! Users, roles and permissions (docs/users-and-permissions.md) for Snowflake.
 //!
 //! Snowflake's access control is role based: privileges on objects go to
 //! roles, and users hold roles (`GRANT ROLE … TO USER`). A user has no

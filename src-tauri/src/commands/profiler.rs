@@ -1,4 +1,4 @@
-//! The profiler (docs/soporte-por-motor.md): every statement run against a
+//! The profiler (docs/engine-support.md): every statement run against a
 //! database, live. Each open profiler tab has its own session (key
 //! `profiler:<id>`), started once and then polled by the tab; stopping it
 //! puts back any server setting the driver switched on.

@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-redis"
-version = "0.1.6"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+version = "0.1.6"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 description = "DBine driver for Redis and its drop-in servers (Valkey, Dragonfly)"

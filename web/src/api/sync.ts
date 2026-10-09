@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 // Cloud backup and user preferences (src-tauri/src/commands/{sync,settings}.rs,
-// docs/sincronizacion.md). Field names are snake_case, as in Rust.
+// docs/sync.md). Field names are snake_case, as in Rust.
 
 export type ProviderKind = 'google_drive' | 'onedrive' | 'folder';
 

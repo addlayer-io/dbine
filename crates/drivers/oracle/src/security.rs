@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md). Oracle's
+//! Users, roles and permissions (docs/users-and-permissions.md). Oracle's
 //! users are also its schemas; privileges are system privileges (`CREATE
 //! TABLE`, `SELECT ANY TABLE`…) or object privileges on one object.
 //!

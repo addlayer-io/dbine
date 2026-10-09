@@ -10,7 +10,7 @@ import { dbKey, useConnectionsStore } from '../stores/connections';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import type { SecurityTab } from '../stores/tabs';
 
-// Users and permissions (docs/usuarios-y-permisos.md): the server's (or the
+// Users and permissions (docs/users-and-permissions.md): the server's (or the
 // database's) users and roles, what each can do, and changes as scripts in
 // the engine's language — shown (password hidden) and run only on the
 // user's click, never kept in the history.

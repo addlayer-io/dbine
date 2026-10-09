@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ObjectRef } from './types';
 
-// Users and permissions (docs/usuarios-y-permisos.md).
+// Users and permissions (docs/users-and-permissions.md).
 
 export interface Principal {
   name: string;

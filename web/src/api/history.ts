@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-// The query history (docs/historial.md): what was run from the editor, on
+// The query history (docs/history.md): what was run from the editor, on
 // this machine only.
 
 export interface HistoryEntry {

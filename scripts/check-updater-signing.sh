@@ -6,7 +6,7 @@
 #   absolute path to a readable file, or the key's content;
 # - TAURI_SIGNING_PRIVATE_KEY_PASSWORD is set (empty is fine): without it
 #   the Tauri CLI asks for it interactively and the build hangs.
-# docs/actualizaciones.md.
+# docs/updates.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

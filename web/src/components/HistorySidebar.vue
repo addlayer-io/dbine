@@ -15,7 +15,7 @@ import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
 import HistoryTimeline from './HistoryTimeline.vue';
 
-// The query history (the 🕘 in the activity bar; docs/historial.md). "Esta
+// The query history (the 🕘 in the activity bar; docs/history.md). "Esta
 // pestaña": the active tab's timeline (HistoryTimeline). "Todas las
 // ejecuciones": what was run from the editor, grouped by the server it ran
 // on, newest first.

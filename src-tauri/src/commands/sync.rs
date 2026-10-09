@@ -1,4 +1,4 @@
-//! Cloud backup commands (docs/sincronizacion.md, docs/api-comandos.md).
+//! Cloud backup commands (docs/sync.md, docs/api-commands.md).
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
@@ -83,7 +83,7 @@ pub async fn sync_connect(app: AppHandle, state: State<'_, AppState>, args: Conn
     let m = mgr(&state)?;
     if !m.available(args.provider) {
         return Err(CommandError::BadRequest(format!(
-            "esta versión de DBine no tiene configurado el acceso a {} (falta registrar la app: ver docs/sincronizacion.md)",
+            "esta versión de DBine no tiene configurado el acceso a {} (falta registrar la app: ver docs/sync.md)",
             args.provider.label()
         )));
     }

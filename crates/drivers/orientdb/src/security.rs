@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) for OrientDB:
+//! Users, roles and permissions (docs/users-and-permissions.md) for OrientDB:
 //! the database's `OUser` and `ORole` records. Users hold roles (`roles`),
 //! a role may inherit another (`inheritedRole`), and permissions are the
 //! roles' rules: a resource (`database.class.Cliente`, `database.schema`,

@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) for Aurora
+//! Users, roles and permissions (docs/users-and-permissions.md) for Aurora
 //! DSQL: PostgreSQL roles, signed in through IAM. A role with `LOGIN` is a
 //! user; the IAM roles that may sign in as it are its mappings
 //! (`AWS IAM GRANT <role> TO '<arn>'`, listed in `sys.iam_pg_role_mappings`).

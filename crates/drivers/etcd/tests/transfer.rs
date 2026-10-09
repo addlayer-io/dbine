@@ -424,7 +424,7 @@ impl BatchSink for Discard {
     }
 }
 
-/// A table's memory budget (docs/transferencia-masiva.md).
+/// A table's memory budget (docs/bulk-transfer.md).
 const BUDGET: u64 = 32 << 20;
 
 /// Loading and reading wide values stays within a table's memory budget.

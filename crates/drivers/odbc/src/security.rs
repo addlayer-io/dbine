@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) for the ODBC
+//! Users, roles and permissions (docs/users-and-permissions.md) for the ODBC
 //! presets whose SQL has them and whose catalog DBine knows:
 //!
 //! - **Hive** (and Cloudera CDP's Hive), with SQL standard based

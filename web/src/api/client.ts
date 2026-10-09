@@ -38,7 +38,7 @@ export const api = {
   saveConnection: (connection: SavedConnection) =>
     invoke<SavedConnection>('save_connection', { args: { connection } }),
   deleteConnection: (id: string) => invoke<void>('delete_connection', { args: { id } }),
-  /** Trust an SSH tunnel server's key for a saved connection (docs/tuneles-ssh.md). */
+  /** Trust an SSH tunnel server's key for a saved connection (docs/ssh-tunnels.md). */
   trustSshHost: (connectionId: string, fingerprint: string) =>
     invoke<void>('trust_ssh_host', { args: { connection_id: connectionId, fingerprint } }),
   testConnection: (config: ConnectionConfig, connectionId: string | null) =>

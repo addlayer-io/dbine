@@ -1,4 +1,4 @@
-//! Configuración › Correo (docs/tareas-programadas.md): the SMTP server the
+//! Configuración › Correo (docs/scheduled-tasks.md): the SMTP server the
 //! "Enviar un mail" steps use, and "Enviar un mail de prueba".
 
 use crate::error::{CommandError, CommandResult};

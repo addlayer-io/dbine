@@ -3,7 +3,7 @@ import { errorKind } from '../api/client';
 import { t } from '../i18n';
 
 // An SSH tunnel reached a server it doesn't know (`ssh_unknown_host`): show
-// the key's fingerprint and let the user trust it (docs/tuneles-ssh.md).
+// the key's fingerprint and let the user trust it (docs/ssh-tunnels.md).
 
 /** The server and fingerprint of an `ssh_unknown_host` error, else null. */
 export function unknownSshHost(e: unknown): { host: string; fingerprint: string } | null {

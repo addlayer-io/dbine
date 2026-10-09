@@ -1,4 +1,4 @@
-//! "Chequeo de salud" of a database (docs/chequeo-de-salud.md): the
+//! "Chequeo de salud" of a database (docs/health-check.md): the
 //! driver's own findings (`Session::health_checks`) plus the ones every
 //! engine can answer from what DBine already reads: connections against
 //! their limit, the cache, long queries, blocking, transactions left open,

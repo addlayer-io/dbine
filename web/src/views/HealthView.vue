@@ -8,7 +8,7 @@ import { newQuery } from '../composables/actions';
 import { useConnectionsStore } from '../stores/connections';
 import type { HealthTab } from '../stores/tabs';
 
-// "Chequeo de salud" of a database (docs/chequeo-de-salud.md): findings by
+// "Chequeo de salud" of a database (docs/health-check.md): findings by
 // severity and category, each with what it means, the objects involved and
 // a fix script that only opens in a query (never runs by itself).
 

@@ -1,4 +1,4 @@
-//! Cloud backup in the app (docs/sincronizacion.md): which provider and
+//! Cloud backup in the app (docs/sync.md): which provider and
 //! account, the passphrase and tokens in the keychain, and the background
 //! task that syncs after local changes (debounced) and every few minutes
 //! (to pick up other machines' changes).
@@ -357,7 +357,7 @@ impl SyncManager {
 
 fn not_configured(kind: ProviderKind) -> CommandError {
     CommandError::BadRequest(format!(
-        "esta versión de DBine no tiene configurado el acceso a {} (falta registrar la app: ver docs/sincronizacion.md)",
+        "esta versión de DBine no tiene configurado el acceso a {} (falta registrar la app: ver docs/sync.md)",
         kind.label()
     ))
 }

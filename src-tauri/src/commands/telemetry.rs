@@ -9,7 +9,7 @@
 //! the OS name and version and the UI language. There is no install or user
 //! id: Aptabase groups events by a random session that lives while the app is
 //! used. The country is derived by Aptabase from the request; the IP isn't
-//! stored. What's sent is documented in docs/telemetria.md.
+//! stored. What's sent is documented in docs/telemetry.md.
 
 use crate::error::CommandResult;
 use serde::Deserialize;

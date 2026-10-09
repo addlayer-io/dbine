@@ -8,7 +8,7 @@ import { useSettingsStore } from '../stores/settings';
 import { requestUpdateRestart } from './quitGuard';
 import { initWindowRole, startupClaim } from './windowRole';
 
-// Updates (docs/actualizaciones.md). The dialog is UpdateNotice.vue. Two
+// Updates (docs/updates.md). The dialog is UpdateNotice.vue. Two
 // ways in:
 // - in the background, once per run, a few seconds after start: silent on
 //   errors and quiet about a version the user chose to skip; with several

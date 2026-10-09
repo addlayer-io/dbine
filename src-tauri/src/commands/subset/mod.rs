@@ -1,4 +1,4 @@
-//! "Copiar un subconjunto…" on a table (docs/subconjunto-de-datos.md): some
+//! "Copiar un subconjunto…" on a table (docs/data-subset.md): some
 //! rows of a table, every parent row they need (recursively) and,
 //! optionally, the rows that hang from them, copied to another database
 //! (same engine or not) with the personal data masked on the way.

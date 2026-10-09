@@ -1,4 +1,4 @@
-//! "Tareas programadas" (docs/tareas-programadas.md): the list, editing,
+//! "Tareas programadas" (docs/scheduled-tasks.md): the list, editing,
 //! the OS scheduler entry of each task, "Ejecutar ahora" and the history.
 
 use crate::error::{CommandError, CommandResult};

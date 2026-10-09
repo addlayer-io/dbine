@@ -14,7 +14,7 @@
 //!   `CREATE DATABASE` may also be granted to a login, which no simple read
 //!   shows: allowed with sa_role, unknown otherwise.
 //!
-//! The other presets stay unknown (docs/soporte-por-motor.md). A failed
+//! The other presets stay unknown (docs/engine-support.md). A failed
 //! read leaves its fields unknown: an ODBC error doesn't tell a dead
 //! connection from a missing view.
 

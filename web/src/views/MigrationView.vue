@@ -24,7 +24,7 @@ import { trackFeature } from '../composables/telemetry';
 // engine (and, optionally, a saved connection of it), the tables and the
 // options; DBine converts the tables (types, defaults, keys, indexes, names),
 // reports every change and writes the target's script. Nothing runs by
-// itself: the script opens in a query of the target (docs/migracion.md).
+// itself: the script opens in a query of the target (docs/migration.md).
 // Between the same engine there are two more modes: clone (the driver's own
 // script leaves the target identical) and sync (only the rows that changed,
 // into tables that already exist).

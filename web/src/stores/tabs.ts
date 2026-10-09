@@ -111,14 +111,14 @@ export interface CompareTab extends TabBase {
 }
 
 /** "Comparar datos": a table's rows (left) against another table's
- *  (docs/comparacion-de-datos.md). */
+ *  (docs/data-compare.md). */
 export interface DataCompareTab extends TabBase {
   kind: 'dataCompare';
   object: ObjectRef | null;
   picks?: ComparePicks;
 }
 
-/** "Usuarios y permisos" (docs/usuarios-y-permisos.md). */
+/** "Usuarios y permisos" (docs/users-and-permissions.md). */
 export interface SecurityTab extends TabBase {
   kind: 'security';
 }
@@ -165,7 +165,7 @@ export interface SubsetTab extends TabBase {
   object: ObjectRef;
 }
 
-/** A scheduled task's editor and history (docs/tareas-programadas.md).
+/** A scheduled task's editor and history (docs/scheduled-tasks.md).
  *  Not tied to a connection (`connectionId` ''); `taskId` null: a new one. */
 export interface ScheduledTaskTab extends TabBase {
   kind: 'scheduledTask';
@@ -177,7 +177,7 @@ export interface SearchTab extends TabBase {
   kind: 'search';
 }
 
-/** A file of a linked project (docs/proyectos.md), in the query editor.
+/** A file of a linked project (docs/projects.md), in the query editor.
  *  `connectionId`/`database` hold the target in use, or '' when unbound. */
 export interface FileTab extends TabBase {
   kind: 'file';
@@ -199,7 +199,7 @@ export interface FileDiffTab extends TabBase {
   path: string;
 }
 
-/** "Diseñar consulta" (docs/constructor-de-consultas.md): the design is kept with the tab. */
+/** "Diseñar consulta" (docs/query-builder.md): the design is kept with the tab. */
 export interface QueryBuilderTab extends TabBase {
   kind: 'queryBuilder';
   spec: QuerySpec;

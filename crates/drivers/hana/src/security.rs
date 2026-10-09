@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) for SAP HANA.
+//! Users, roles and permissions (docs/users-and-permissions.md) for SAP HANA.
 //!
 //! Read from the SYS catalog: USERS, ROLES, GRANTED_ROLES and
 //! GRANTED_PRIVILEGES (which lists only the direct grants of each grantee;

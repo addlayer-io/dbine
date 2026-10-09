@@ -1,4 +1,4 @@
-//! Projects ("Proyectos", docs/proyectos.md): git working copies of the
+//! Projects ("Proyectos", docs/projects.md): git working copies of the
 //! user's SQL files, linked to DBine. A project is a folder and a local row
 //! (`dbine_core::Project`); it never owns connections and isn't synced. The
 //! repo may carry a `.dbine.json` naming its environments (never

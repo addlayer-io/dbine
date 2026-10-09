@@ -11,8 +11,8 @@ given support; never invent a capability, a test result or a reason.
 
 ## Language and tone
 
-- Docs are in **Spanish (rioplatense, voseo)**, short and direct, for people
-  who use or develop DBine. Code, identifiers, SQL and commands go in
+- Docs are in **English**, plain and concise, for people who use or develop
+  DBine. Code, identifiers, SQL and commands go in
   backticks, unchanged.
 - The brand is "AddLayer".
 - **No third-party references:** never name DbGate, DBeaver, Liquibase or
@@ -28,26 +28,26 @@ given support; never invent a capability, a test result or a reason.
 - `docs/<feature>.md`: one page per feature, covering what the user sees,
   what it does, the per-engine particularities and the contract (driver
   methods) at the end. Use the existing pages as the model:
-  `usuarios-y-permisos.md`, `backups.md`, `bloqueos.md`.
-- `docs/soporte-por-motor.md`: one `## <Feature>` section per feature. Each
+  `users-and-permissions.md`, `backups.md`, `locks.md`.
+- `docs/engine-support.md`: one `## <Feature>` section per feature. Each
   has:
   1. a paragraph listing the engines that have the feature;
   2. which ones were tested against real servers, and which only follow the
      vendor's documentation;
-  3. a `| Motor | Qué falta | Motivo |` table.
+  3. a `| Engine | What is missing | Reason |` table.
 
   The rules for that table:
-  - "No hubo tiempo" or "Pendiente" is never a valid reason. If there's no
+  - "No time" or "Pending" is never a valid reason. If there's no
     engine limitation, it's an explicit pending item, and you must say what
     is missing.
   - Reasons are concrete: which tool, API or edition does it, and why SQL (or
     the driver's language) can't.
-- `docs/api-comandos.md`: Tauri commands, with args, what they return, their
+- `docs/api-commands.md`: Tauri commands, with args, what they return, their
   events and how to cancel them, in the format the file already uses.
 
 ## Working with other sessions
 
-Several sessions share the tree. Shared docs such as `soporte-por-motor.md`
+Several sessions share the tree. Shared docs such as `engine-support.md`
 may be edited by others:
 
 - Re-read a file right before editing it.

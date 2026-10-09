@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 // Blocking chains, the process list and ending sessions or their
-// statements (docs/bloqueos.md, docs/procesos.md).
+// statements (docs/locks.md, docs/processes.md).
 
 /** A session in a blocking chain: waiting on `blocked_by`, or holding
  *  what others wait for (`blocked_by` null). */

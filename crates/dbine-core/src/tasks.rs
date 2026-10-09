@@ -1,4 +1,4 @@
-//! Scheduled tasks (docs/tareas-programadas.md): the model the app edits,
+//! Scheduled tasks (docs/scheduled-tasks.md): the model the app edits,
 //! the OS scheduler runs (`dbine --run-task <id>`) and the run history
 //! records. Kept in this machine's state only: they point at this
 //! machine's connections and folders, so they don't sync.

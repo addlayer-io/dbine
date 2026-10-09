@@ -8,7 +8,7 @@ import { newQuery } from '../composables/actions';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 
-// The Monitor's process list (docs/procesos.md): the server's sessions and
+// The Monitor's process list (docs/processes.md): the server's sessions and
 // running requests, polled on their own while the tab shows them. Filters,
 // sorting, blockers highlighted, and per row: the whole statement, open it
 // in a query, cancel the statement or end the session.

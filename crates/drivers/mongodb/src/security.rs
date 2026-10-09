@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md).
+//! Users, roles and permissions (docs/users-and-permissions.md).
 //!
 //! MongoDB's users and roles live in a database (the session's). A user
 //! holds roles (`readWrite@ventas`, `root@admin`, or custom ones); a custom

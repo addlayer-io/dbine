@@ -3,7 +3,7 @@
 ## [0.1.9] - 2026-10-09
 
 ### Novità
-- **Rinominare con impatto:** **Rinomina…** nell'esplora risorse cambia il nome di una tabella, vista, routine, colonna, indice o schema e, nello stesso script, riscrive le viste, procedure, funzioni e trigger che lo usano. Prima di eseguire mostra cosa aggiorna da solo il motore, cosa viene riscritto e cosa va controllato a mano (SQL dinamico, codice illeggibile), insieme allo script completo. Viene eseguito in una transazione dove il motore lo consente. È disponibile in tutti i motori che possono rinominare qualcosa; i limiti di ciascuno sono in `docs/soporte-por-motor.md`.
+- **Rinominare con impatto:** **Rinomina…** nell'esplora risorse cambia il nome di una tabella, vista, routine, colonna, indice o schema e, nello stesso script, riscrive le viste, procedure, funzioni e trigger che lo usano. Prima di eseguire mostra cosa aggiorna da solo il motore, cosa viene riscritto e cosa va controllato a mano (SQL dinamico, codice illeggibile), insieme allo script completo. Viene eseguito in una transazione dove il motore lo consente. È disponibile in tutti i motori che possono rinominare qualcosa; i limiti di ciascuno sono in `docs/engine-support.md`.
 - **Modificare una tabella:** **Modifica…** apre il designer su una tabella esistente e costruisce l'`ALTER` del motore. Conserva ciò che il designer non mostra (CHECK, opzioni degli indici, ordine delle colonne della chiave) e ricrea le viste e i trigger che dipendono dalla tabella. Rinominare una colonna lì passa dalla revisione dell'impatto; sulle connessioni di produzione chiede di digitare il nome della tabella prima di eseguire.
 - **Cronologia per query:** la barra **Cronologia** segue la scheda attiva, come una linea temporale: versioni della query salvata con differenze e ripristino, le sue esecuzioni e, nei file di un progetto, i suoi commit git.
 - **Navigazione nell'editor:** Cmd/Ctrl+clic su una tabella, vista o routine ne apre la struttura o la definizione, e **Mostra in esplora risorse** la individua nell'albero. Le tabelle e le colonne che non esistono vengono segnalate prima di eseguire.
@@ -34,7 +34,7 @@
 - L'editor non segnala più come sconosciute le colonne di una sottoquery con alias.
 
 ### Già disponibile
-- **Eseguire una query su più database contemporaneamente:** si scelgono uno o più database di una connessione, e i risultati vengono uniti con una colonna che indica il database di ogni riga. È arrivato nella 0.1.4. Vedi `docs/ejecutar-en-varias-bases.md`.
+- **Eseguire una query su più database contemporaneamente:** si scelgono uno o più database di una connessione, e i risultati vengono uniti con una colonna che indica il database di ogni riga. È arrivato nella 0.1.4. Vedi `docs/multi-database-queries.md`.
 
 ## [0.1.8] - 2026-10-06
 

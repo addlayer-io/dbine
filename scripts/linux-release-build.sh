@@ -10,7 +10,7 @@
 #
 # The key's password and the cloud client IDs come from /src/.env (never
 # printed). Output: linux-out/ (installers, the AppImage and its .sig).
-# docs/actualizaciones.md, .claude/agents/release.md.
+# docs/updates.md, .claude/agents/release.md.
 set -euo pipefail
 cd /src
 # Kerberos (GSSAPI) headers for SQL Server's and MongoDB's Windows / Kerberos

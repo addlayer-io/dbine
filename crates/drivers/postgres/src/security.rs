@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md). Roles are
+//! Users, roles and permissions (docs/users-and-permissions.md). Roles are
 //! the server's (or the cluster's), not a database's; privileges are read
 //! for the session's database.
 //!

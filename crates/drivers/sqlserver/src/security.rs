@@ -1,5 +1,5 @@
 //! Users, roles and permissions of the current database
-//! (docs/usuarios-y-permisos.md). SQL Server's users live in a database and
+//! (docs/users-and-permissions.md). SQL Server's users live in a database and
 //! (outside Azure SQL's contained users) sign in through a server login.
 
 use crate::variant::Variant;

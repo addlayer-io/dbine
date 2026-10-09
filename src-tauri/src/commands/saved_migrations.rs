@@ -1,4 +1,4 @@
-//! Saved migrations: the "Migraciones" node of a database in the explorer (docs/migracion.md).
+//! Saved migrations: the "Migraciones" node of a database in the explorer (docs/migration.md).
 //! Each entry keeps the Migrate screen's configuration and the ids of the runs started from it;
 //! the runs themselves are the migration records (`migration_runs`).
 

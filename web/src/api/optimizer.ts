@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Plan } from './types';
 import type { AiProviderKind } from './ai';
 
-// "Optimizar consulta" (docs/optimizar-consulta.md): mirrors of
+// "Optimizar consulta" (docs/query-optimizer.md): mirrors of
 // src-tauri/src/optimizer and commands/optimizer.rs (snake_case fields).
 
 export type CandidateSource = 'rule' | 'ai' | 'user';

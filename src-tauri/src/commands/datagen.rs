@@ -1,4 +1,4 @@
-//! "Generar datos de prueba…" on a table (docs/datos-de-prueba.md): rows of
+//! "Generar datos de prueba…" on a table (docs/test-data.md): rows of
 //! made-up but plausible values, inserted in batches through the driver's
 //! `insert_script` on a session of its own, like an import. Works on every
 //! engine that inserts from DBine; the generators live here, not in the

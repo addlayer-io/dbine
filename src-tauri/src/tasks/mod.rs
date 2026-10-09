@@ -1,4 +1,4 @@
-//! Scheduled tasks (docs/tareas-programadas.md): running one, in the app
+//! Scheduled tasks (docs/scheduled-tasks.md): running one, in the app
 //! ("Ejecutar ahora") or by itself (`dbine --run-task <id>`, started by the
 //! OS scheduler), and keeping the OS scheduler in step with the list.
 //!

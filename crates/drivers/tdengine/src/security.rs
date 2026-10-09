@@ -1,4 +1,4 @@
-//! Users and permissions of TDengine 3.x (docs/usuarios-y-permisos.md).
+//! Users and permissions of TDengine 3.x (docs/users-and-permissions.md).
 //!
 //! TDengine has users but no roles: `SHOW USERS` lists them (super,
 //! enabled, sysinfo, createdb) and `information_schema.ins_user_privileges`

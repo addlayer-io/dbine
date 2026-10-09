@@ -1,5 +1,5 @@
 //! Users, roles and permissions (the "Usuarios y permisos" tab,
-//! docs/usuarios-y-permisos.md): what a server has (`Session::principals`,
+//! docs/users-and-permissions.md): what a server has (`Session::principals`,
 //! `Session::grants`) and the code that changes it
 //! (`Driver::security_script`), which DBine shows and runs only when the user
 //! says so.
