@@ -7,6 +7,9 @@
 //!    or the first statement fails before anything changes. Events (the
 //!    explorer doesn't list them), MariaDB sequences, what the login can't
 //!    read and what changed since the app read it would be left half-moved.
+//!    Right after it, each routine's, trigger's and event's own `sql_mode`
+//!    and `collation_connection` (information_schema) go into user
+//!    variables, before anything is dropped.
 //! 1. `CREATE DATABASE` with the old one's charset and collation (read from
 //!    `information_schema.SCHEMATA` and run as a prepared statement).
 //! 2. The triggers are dropped: `RENAME TABLE` refuses to move a table that
@@ -18,14 +21,25 @@
 //!    functions it calls, and in dependency order), triggers and events are
 //!    created in the new database from their definitions, with `old.`
 //!    qualifiers rewritten to `new.`, the name qualified with it and the new
-//!    database as the default one (bare names resolve there). The
-//!    `DEFINER` is kept, as in an object rename.
+//!    database as the default one (a `USE` of its own: bare names resolve
+//!    there). The `DEFINER` is kept, as in an object rename. Like
+//!    mysqldump, each routine, trigger and event is created under the
+//!    `sql_mode` and `collation_connection` it was created with, and the
+//!    session's are put back after it: its body was parsed under that mode
+//!    (`NO_BACKSLASH_ESCAPES`, `ANSI_QUOTES`…), and under another one the
+//!    same text could end early and run what follows as statements of
+//!    their own, with the privileges of whoever renames. Every `CREATE`
+//!    goes in a request of its own, and a definition that isn't exactly one
+//!    statement (with backslash escapes and without) is refused.
 //! 5. The views, routines and events left in the old one are dropped, and
 //!    the old database last, only if nothing is left in it (a prepared
 //!    statement that otherwise fails on purpose).
 //!
-//! Every statement names its database, so it runs from any connection; the
-//! code is created after a `USE` of the new one in the same request.
+//! Every statement names its database, so it runs from any connection. The
+//! statements share session state (the captured modes, the `USE`): they run
+//! one after the other on one session, as the app does; on another, the
+//! mode variables are NULL and `SET sql_mode = NULL` fails before the
+//! `CREATE`.
 //! MySQL (Aurora, Cloud SQL) and MariaDB. The others don't offer it:
 //! TiDB moves the tables, but their foreign keys keep naming the old
 //! database (`REFERENCES old.t`, checked on 8.5), so they'd break when it's
@@ -36,7 +50,7 @@
 use crate::rename::spec;
 use crate::Variant;
 use dbine_driver::rename::{names_in_code, rewrite_references, DatabaseObject, RewriteOptions, RewriteTarget, UnresolvedReason};
-use dbine_driver::sql::{code_tokens, quote_ident, NameToken, Quote, TokenKind};
+use dbine_driver::sql::{code_tokens, quote_ident, split_script, NameToken, Quote, ScriptDialect, TokenKind};
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
 const EVENT: &str = "event";
@@ -135,6 +149,34 @@ pub(crate) fn script(v: Variant, database: &str, new_name: &str, objects: &[Data
         return Err(Error::Unsupported(format!("la base tiene «{}» ({}), que DBine no mueve a otra base: no se renombra", o.name, o.kind)));
     }
 
+    // The code as it's created again, checked before anything is written.
+    let mut texts: Vec<(&DatabaseObject, String)> = Vec::new();
+    for o in objects.iter().filter(|o| code_kinds.contains(&o.kind.as_str())) {
+        let def = o.definition.as_deref().unwrap_or_default();
+        let rw = rewrite_references(def, &dialect, &RewriteTarget::Schema { schema: database.to_string() }, new_name, &spec, &RewriteOptions::default());
+        for u in &rw.unresolved {
+            warnings.push(format!(
+                "{} «{}», línea {}: «{}» nombra la base vieja {} y no se cambió; revisalo en el script antes de ejecutarlo.",
+                kind_label(&o.kind),
+                o.name,
+                u.line,
+                u.text,
+                reason(u.reason)
+            ));
+        }
+        let text = qualify(&rw.text, &dialect, &o.kind, &new);
+        let text = text.trim_end().trim_end_matches(';').trim_end().to_string();
+        if !one_statement(def, &dialect) || !one_statement(&text, &dialect) {
+            return Err(Error::Query(format!(
+                "la definición de {} «{}» no se lee como una sola sentencia (con y sin escapes de barra invertida): no se vuelve a crear, así que la base no se renombra; revisala a mano",
+                kind_label(&o.kind),
+                o.name
+            )));
+        }
+        texts.push((o, text));
+    }
+    let text_of = |o: &DatabaseObject| texts.iter().find(|(x, _)| std::ptr::eq(*x, o)).map(|(_, t)| t.clone()).unwrap_or_default();
+
     // 0. The guard: exactly what was read is there, or nothing changes.
     let l = lit(database);
     let n = |kind: &'static str| of(kind).count();
@@ -155,6 +197,24 @@ pub(crate) fn script(v: Variant, database: &str, new_name: &str, objects: &[Data
     )));
     warnings.push(GUARD.to_string());
 
+    // Each body's own mode, read while the old objects are still there.
+    let routines: Vec<&DatabaseObject> = objects.iter().filter(|o| matches!(o.kind.as_str(), kinds::FUNCTION | kinds::PROCEDURE)).collect();
+    let triggers: Vec<&DatabaseObject> = of(kinds::TRIGGER).collect();
+    let events: Vec<&DatabaseObject> = of(EVENT).collect();
+    let moded: Vec<&DatabaseObject> = routines.iter().chain(&triggers).chain(&events).copied().collect();
+    for (i, o) in moded.iter().enumerate() {
+        let name = lit(&o.name);
+        let (from, filter) = match o.kind.as_str() {
+            kinds::TRIGGER => ("TRIGGERS", format!("TRIGGER_SCHEMA = {l} AND TRIGGER_NAME = {name}")),
+            EVENT => ("EVENTS", format!("EVENT_SCHEMA = {l} AND EVENT_NAME = {name}")),
+            k => ("ROUTINES", format!("ROUTINE_SCHEMA = {l} AND ROUTINE_NAME = {name} AND ROUTINE_TYPE = '{}'", if k == kinds::PROCEDURE { "PROCEDURE" } else { "FUNCTION" })),
+        };
+        let n = i + 1;
+        statements.push(format!(
+            "SET @dbine_m{n} = (SELECT SQL_MODE FROM information_schema.{from} WHERE {filter}), @dbine_c{n} = (SELECT COLLATION_CONNECTION FROM information_schema.{from} WHERE {filter});"
+        ));
+    }
+
     // 1. The new database, with the old one's defaults.
     statements.push(prepared(&format!(
         "COALESCE((SELECT CONCAT({}, DEFAULT_CHARACTER_SET_NAME, ' COLLATE ', DEFAULT_COLLATION_NAME) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = {}), {})",
@@ -164,7 +224,7 @@ pub(crate) fn script(v: Variant, database: &str, new_name: &str, objects: &[Data
     )));
 
     // 2. Triggers: RENAME TABLE won't move a table that has them.
-    statements.extend(of(kinds::TRIGGER).map(|t| format!("DROP TRIGGER {old}.{};", q(&t.name))));
+    statements.extend(triggers.iter().map(|t| format!("DROP TRIGGER {old}.{};", q(&t.name))));
 
     // 3. The tables, all at once.
     let moves: Vec<String> = of(kinds::TABLE).map(|t| format!("{old}.{n} TO {new}.{n}", n = q(&t.name))).collect();
@@ -172,41 +232,35 @@ pub(crate) fn script(v: Variant, database: &str, new_name: &str, objects: &[Data
         statements.push(format!("RENAME TABLE {};", moves.join(",\n  ")));
     }
 
-    // 4. The code, in the new database.
-    let recreate = |o: &DatabaseObject, statements: &mut Vec<String>, warnings: &mut Vec<String>| {
-        let def = o.definition.as_deref().unwrap_or_default();
-        let rw = rewrite_references(def, &dialect, &RewriteTarget::Schema { schema: database.to_string() }, new_name, &spec, &RewriteOptions::default());
-        for u in &rw.unresolved {
-            warnings.push(format!(
-                "{} «{}», línea {}: «{}» nombra la base vieja {} y no se cambió; revisalo en el script antes de ejecutarlo.",
-                kind_label(&o.kind),
-                o.name,
-                u.line,
-                u.text,
-                reason(u.reason)
-            ));
-        }
-        let text = qualify(&rw.text, &dialect, &o.kind, &new);
-        // `USE` in the same request: SHOW CREATE VIEW leaves out the database
-        // of the tables in the session's own (the app reads the definitions
-        // from a session on the old database), and routine and trigger
-        // bodies name tables bare.
-        statements.push(format!("USE {new};\n{};", text.trim_end().trim_end_matches(';').trim_end()));
-    };
-    let routines: Vec<&DatabaseObject> = objects.iter().filter(|o| matches!(o.kind.as_str(), kinds::FUNCTION | kinds::PROCEDURE)).collect();
-    for o in &routines {
-        recreate(o, &mut statements, &mut warnings);
-    }
+    // 4. The code, in the new database: SHOW CREATE VIEW leaves out the
+    // database of the tables in the session's own (the app reads the
+    // definitions from a session on the old one), and routine and trigger
+    // bodies name tables bare.
     let views = view_order(of(kinds::VIEW).collect(), &dialect);
+    if !texts.is_empty() {
+        statements.push(format!("USE {new};"));
+    }
+    if !moded.is_empty() {
+        statements.push("SET @dbine_saved_m = @@SESSION.sql_mode, @dbine_saved_c = @@SESSION.collation_connection;".to_string());
+    }
+    // Under its own mode, then the session's back. The client character set
+    // stays the session's: the text is sent in it (utf8mb4), and declaring
+    // another one (GBK, SJIS…) would make the server read these bytes as
+    // that charset, where a 0x5C inside a character is a backslash.
+    let under_own_mode = |o: &DatabaseObject, statements: &mut Vec<String>| {
+        let n = moded.iter().position(|x| std::ptr::eq(*x, o)).expect("moded") + 1;
+        statements.push(format!("SET SESSION sql_mode = @dbine_m{n}, SESSION collation_connection = @dbine_c{n};"));
+        statements.push(format!("{};", text_of(o)));
+        statements.push("SET SESSION sql_mode = @dbine_saved_m, SESSION collation_connection = @dbine_saved_c;".to_string());
+    };
+    for o in &routines {
+        under_own_mode(o, &mut statements);
+    }
     for o in &views {
-        recreate(o, &mut statements, &mut warnings);
+        statements.push(format!("{};", text_of(o)));
     }
-    for o in of(kinds::TRIGGER) {
-        recreate(o, &mut statements, &mut warnings);
-    }
-    let events: Vec<&DatabaseObject> = of(EVENT).collect();
-    for o in &events {
-        recreate(o, &mut statements, &mut warnings);
+    for o in triggers.iter().chain(&events) {
+        under_own_mode(o, &mut statements);
     }
 
     // 5. What's left of the old one, then the database if it's empty.
@@ -223,6 +277,16 @@ pub(crate) fn script(v: Variant, database: &str, new_name: &str, objects: &[Data
         warnings.push(DEFINER.to_string());
     }
     Ok(SyncScript { statements, warnings })
+}
+
+/// The server reads `text` as one statement, whether backslashes escape
+/// quotes or not (`NO_BACKSLASH_ESCAPES`): the client's `DELIMITER` means
+/// nothing to it.
+fn one_statement(text: &str, d: &ScriptDialect) -> bool {
+    [true, false].into_iter().all(|backslash_escapes| {
+        let d = ScriptDialect { backslash_escapes, delimiter_command: false, ..*d };
+        split_script(text, &d).iter().filter(|s| !s.text.trim().is_empty()).count() == 1
+    })
 }
 
 fn reason(r: UnresolvedReason) -> &'static str {
@@ -330,23 +394,41 @@ mod tests {
         let st = &s.statements;
         // The guard first: 2 tables, 2 views, 2 routines, 1 trigger, 1 event.
         assert!(st[0].contains("TABLE_TYPE <> 'VIEW') = 2 AND (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = 'tienda' AND TABLE_TYPE = 'VIEW') = 2 AND (SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = 'tienda') = 2 AND (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = 'tienda') = 1 AND (SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = 'tienda') = 1, 'DO 0'"), "{}", st[0]);
-        assert!(st[1].starts_with("SET @dbine_sql = COALESCE((SELECT CONCAT('CREATE DATABASE `negocio` CHARACTER SET ', DEFAULT_CHARACTER_SET_NAME"), "{}", st[1]);
-        assert!(st[1].contains("WHERE SCHEMA_NAME = 'tienda'), 'CREATE DATABASE `negocio`');\nPREPARE dbine_rename FROM @dbine_sql;\nEXECUTE dbine_rename;"));
-        assert_eq!(st[2], "DROP TRIGGER `tienda`.`tr_pedidos`;");
-        assert_eq!(st[3], "RENAME TABLE `tienda`.`clientes` TO `negocio`.`clientes`,\n  `tienda`.`pedidos` TO `negocio`.`pedidos`;");
-        // Routines first (views check the functions they call), qualified.
-        assert_eq!(st[4], "USE `negocio`;\nCREATE DEFINER=`root`@`%` PROCEDURE `negocio`.`p_total`()\nBEGIN\n  SELECT COUNT(*) FROM negocio.pedidos;\n  SELECT 'tienda.pedidos';\nEND;");
-        assert!(st[5].starts_with("USE `negocio`;\nCREATE DEFINER=`root`@`%` FUNCTION `negocio`.`f_doble`(x INT)"));
-        // v_cli before v_top, which reads it.
-        assert_eq!(st[6], "USE `negocio`;\nCREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER VIEW `negocio`.`v_cli` AS select `negocio`.`clientes`.`id` AS `id` from `negocio`.`clientes`;");
-        assert!(st[7].contains("VIEW `negocio`.`v_top` AS select `v_cli`.`id` AS `id` from `negocio`.`v_cli`;"));
-        assert_eq!(st[8], "USE `negocio`;\nCREATE DEFINER=`root`@`%` TRIGGER `negocio`.tr_pedidos BEFORE INSERT ON `negocio`.pedidos FOR EACH ROW SET NEW.total = f_doble(NEW.total);");
-        assert_eq!(st[9], "USE `negocio`;\nCREATE DEFINER=`root`@`%` EVENT `negocio`.`ev_limpia` ON SCHEDULE EVERY 1 DAY DO DELETE FROM `negocio`.`pedidos` WHERE total < 0;");
-        assert_eq!(&st[10..14], ["DROP VIEW `tienda`.`v_top`;", "DROP VIEW `tienda`.`v_cli`;", "DROP PROCEDURE `tienda`.`p_total`;", "DROP FUNCTION `tienda`.`f_doble`;"]);
-        assert_eq!(st[14], "DROP EVENT `tienda`.`ev_limpia`;");
+        // Each body's own mode, before anything is dropped.
+        assert_eq!(st[1], "SET @dbine_m1 = (SELECT SQL_MODE FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = 'tienda' AND ROUTINE_NAME = 'p_total' AND ROUTINE_TYPE = 'PROCEDURE'), @dbine_c1 = (SELECT COLLATION_CONNECTION FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = 'tienda' AND ROUTINE_NAME = 'p_total' AND ROUTINE_TYPE = 'PROCEDURE');");
+        assert!(st[2].contains("ROUTINE_NAME = 'f_doble' AND ROUTINE_TYPE = 'FUNCTION'") && st[2].starts_with("SET @dbine_m2 = "));
+        assert_eq!(st[3], "SET @dbine_m3 = (SELECT SQL_MODE FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = 'tienda' AND TRIGGER_NAME = 'tr_pedidos'), @dbine_c3 = (SELECT COLLATION_CONNECTION FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = 'tienda' AND TRIGGER_NAME = 'tr_pedidos');");
+        assert!(st[4].starts_with("SET @dbine_m4 = (SELECT SQL_MODE FROM information_schema.EVENTS WHERE EVENT_SCHEMA = 'tienda' AND EVENT_NAME = 'ev_limpia')"));
+        assert!(st[5].starts_with("SET @dbine_sql = COALESCE((SELECT CONCAT('CREATE DATABASE `negocio` CHARACTER SET ', DEFAULT_CHARACTER_SET_NAME"), "{}", st[5]);
+        assert!(st[5].contains("WHERE SCHEMA_NAME = 'tienda'), 'CREATE DATABASE `negocio`');\nPREPARE dbine_rename FROM @dbine_sql;\nEXECUTE dbine_rename;"));
+        assert_eq!(st[6], "DROP TRIGGER `tienda`.`tr_pedidos`;");
+        assert_eq!(st[7], "RENAME TABLE `tienda`.`clientes` TO `negocio`.`clientes`,\n  `tienda`.`pedidos` TO `negocio`.`pedidos`;");
+        assert_eq!(st[8], "USE `negocio`;");
+        assert_eq!(st[9], "SET @dbine_saved_m = @@SESSION.sql_mode, @dbine_saved_c = @@SESSION.collation_connection;");
+        // Routines first (views check the functions they call), each one
+        // under its own mode, in a request of its own.
+        let own = |n: u32| format!("SET SESSION sql_mode = @dbine_m{n}, SESSION collation_connection = @dbine_c{n};");
+        let back = "SET SESSION sql_mode = @dbine_saved_m, SESSION collation_connection = @dbine_saved_c;";
+        assert_eq!(st[10], own(1));
+        assert_eq!(st[11], "CREATE DEFINER=`root`@`%` PROCEDURE `negocio`.`p_total`()\nBEGIN\n  SELECT COUNT(*) FROM negocio.pedidos;\n  SELECT 'tienda.pedidos';\nEND;");
+        assert_eq!(st[12], back);
+        assert_eq!(st[13], own(2));
+        assert!(st[14].starts_with("CREATE DEFINER=`root`@`%` FUNCTION `negocio`.`f_doble`(x INT)"));
+        assert_eq!(st[15], back);
+        // Views under the session's mode; v_cli before v_top, which reads it.
+        assert_eq!(st[16], "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER VIEW `negocio`.`v_cli` AS select `negocio`.`clientes`.`id` AS `id` from `negocio`.`clientes`;");
+        assert!(st[17].contains("VIEW `negocio`.`v_top` AS select `v_cli`.`id` AS `id` from `negocio`.`v_cli`;"));
+        assert_eq!(st[18..21], [own(3), "CREATE DEFINER=`root`@`%` TRIGGER `negocio`.tr_pedidos BEFORE INSERT ON `negocio`.pedidos FOR EACH ROW SET NEW.total = f_doble(NEW.total);".into(), back.into()]);
+        assert_eq!(st[21..24], [own(4), "CREATE DEFINER=`root`@`%` EVENT `negocio`.`ev_limpia` ON SCHEDULE EVERY 1 DAY DO DELETE FROM `negocio`.`pedidos` WHERE total < 0;".into(), back.into()]);
+        assert_eq!(&st[24..28], ["DROP VIEW `tienda`.`v_top`;", "DROP VIEW `tienda`.`v_cli`;", "DROP PROCEDURE `tienda`.`p_total`;", "DROP FUNCTION `tienda`.`f_doble`;"]);
+        assert_eq!(st[28], "DROP EVENT `tienda`.`ev_limpia`;");
         let last = st.last().unwrap();
         assert!(last.contains("information_schema.EVENTS WHERE EVENT_SCHEMA = 'tienda') = 0, 'DROP DATABASE `tienda`', 'SELECT * FROM `tienda`.`DBine: la base no quedó vacía y no se borra`')"), "{last}");
-        assert_eq!(st.len(), 16);
+        assert_eq!(st.len(), 30);
+        // No request holds a CREATE and anything else.
+        for x in st.iter().filter(|x| x.contains("CREATE DEFINER") || x.contains("CREATE ALGORITHM")) {
+            assert!(!x.contains("USE ") && !x.contains("SET SESSION"), "{x}");
+        }
         // The dynamic SQL in p_total is left to the user.
         assert!(s.warnings.iter().any(|w| w.contains("p_total") && w.contains("línea 4") && w.contains("SQL dinámico")), "{:?}", s.warnings);
         assert!(s.warnings[0].contains("No es atómico"));
@@ -354,6 +436,34 @@ mod tests {
         assert!(s.warnings[2].contains("otras bases"));
         assert!(s.warnings.iter().any(|w| w.contains("SET_USER_ID")));
         assert!(s.warnings.iter().any(|w| w.contains("quedó vacía")));
+    }
+
+    /// A body stored under NO_BACKSLASH_ESCAPES that ends early with
+    /// backslash escapes (or the other way round) and runs what follows.
+    #[test]
+    fn bodies_that_split_are_refused() {
+        let attack = r"CREATE DEFINER=`u`@`%` PROCEDURE `p`() BEGIN SELECT 'a\'; SELECT '; END; DROP DATABASE victima; SELECT '; END";
+        let o = [obj("table", "t", None), obj("procedure", "p", Some(attack))];
+        match script(Variant::MySql, "a", "b", &o) {
+            Err(Error::Query(m)) => assert!(m.contains("«p»") && m.contains("una sola sentencia"), "{m}"),
+            other => panic!("{other:?}"),
+        }
+        // The same the other way round: one statement only with escapes.
+        let reverse = r"CREATE TRIGGER t BEFORE INSERT ON x FOR EACH ROW SET @a = 'x\'; DROP DATABASE victima; -- '";
+        assert!(matches!(script(Variant::MariaDb, "a", "b", &[obj("table", "x", None), obj("trigger", "t", Some(reverse))]), Err(Error::Query(_))));
+        // Two statements outright.
+        let two = "CREATE FUNCTION f() RETURNS INT RETURN 1; DROP DATABASE victima";
+        assert!(matches!(script(Variant::MySql, "a", "b", &[obj("function", "f", Some(two))]), Err(Error::Query(_))));
+    }
+
+    /// Backslashes and quotes that read as one statement either way are fine.
+    #[test]
+    fn backslashes_in_one_statement() {
+        let nbe = r"CREATE DEFINER=`root`@`%` PROCEDURE `p_nbe`()
+SELECT 'C:\tmp\' AS ruta, 'it''s' AS cita";
+        let s = script(Variant::MySql, "a", "b", &[obj("procedure", "p_nbe", Some(nbe))]).unwrap();
+        assert!(s.statements.contains(&"CREATE DEFINER=`root`@`%` PROCEDURE `b`.`p_nbe`()\nSELECT 'C:\\tmp\\' AS ruta, 'it''s' AS cita;".to_string()), "{:?}", s.statements);
+        assert!(one_statement("CREATE PROCEDURE p() BEGIN IF 1 THEN SELECT 1; END IF; SELECT 'x;y'; END", &crate::script_dialect(Variant::MySql)));
     }
 
     #[test]
@@ -395,8 +505,8 @@ DEALLOCATE PREPARE dbine_rename;"
     fn qualified_headers_stay() {
         let o = [obj("view", "v", Some("CREATE VIEW `old`.`v` AS SELECT 1")), obj("trigger", "t", Some("CREATE TRIGGER old.t AFTER UPDATE ON old.x FOR EACH ROW SET @a = 1"))];
         let s = script(Variant::MySql, "old", "new", &o).unwrap();
-        assert!(s.statements.contains(&"USE `new`;\nCREATE VIEW `new`.`v` AS SELECT 1;".to_string()), "{:?}", s.statements);
-        assert!(s.statements.contains(&"USE `new`;\nCREATE TRIGGER new.t AFTER UPDATE ON new.x FOR EACH ROW SET @a = 1;".to_string()), "{:?}", s.statements);
+        assert!(s.statements.contains(&"CREATE VIEW `new`.`v` AS SELECT 1;".to_string()), "{:?}", s.statements);
+        assert!(s.statements.contains(&"CREATE TRIGGER new.t AFTER UPDATE ON new.x FOR EACH ROW SET @a = 1;".to_string()), "{:?}", s.statements);
     }
 
     #[test]

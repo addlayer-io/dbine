@@ -222,6 +222,79 @@ async fn refused(id: &str, env: &str, extra: &str) {
 
 const EVENT_SQL: &str = "CREATE EVENT {OLD}.ev_limpia ON SCHEDULE EVERY 1 DAY DISABLE DO DELETE FROM {OLD}.pedidos WHERE total < 0";
 
+const SENTINEL: &str = "dbine_dbren_centinela";
+
+/// A routine stored under `NO_BACKSLASH_ESCAPES`: one whose body splits
+/// into more statements under the default mode is refused when the script
+/// is built, and one that's the same under both is created again under its
+/// own mode and answers the same after the rename. The sentinel database
+/// shows nothing else ran.
+async fn sql_mode_flow(id: &str, env: &str) {
+    let Ok(url) = std::env::var(env) else {
+        eprintln!("{env} not set; skipped");
+        return;
+    };
+    let d = driver(id);
+    let cfg = parse_url(id, &url);
+    let mut root = d.connect(&cfg, None).await.unwrap();
+    setup(&mut root, true).await;
+    ok(&mut root, &format!("DROP DATABASE IF EXISTS {SENTINEL}")).await;
+    ok(&mut root, &format!("CREATE DATABASE {SENTINEL}")).await;
+    ok(&mut root, "SET @dbine_test_mode = @@SESSION.sql_mode").await;
+    ok(&mut root, "SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES')").await;
+    // Under the default mode, `'a\'; SELECT '` is one string, the body ends
+    // at the first END and DROP DATABASE runs on its own.
+    ok(&mut root, &format!(r"CREATE PROCEDURE {OLD}.p_ataque() BEGIN SELECT 'a\'; SELECT '; END; DROP DATABASE {SENTINEL}; SELECT '; END")).await;
+    ok(&mut root, &format!(r#"CREATE PROCEDURE {OLD}.p_nbe() SELECT 'C:\tmp\' AS ruta, 'it''s' AS cita, CONCAT('\', '''') AS par"#)).await;
+    ok(&mut root, "SET SESSION sql_mode = @dbine_test_mode").await;
+    let call = |db: &str| format!("CALL {db}.p_nbe()");
+    let row = |o: &QueryOutcome| -> Vec<String> {
+        o.results.iter().find(|r| !r.columns.is_empty()).unwrap().rows[0].iter().map(|c| c.as_str().unwrap_or_default().to_string()).collect()
+    };
+    let before = ok(&mut root, &call(OLD)).await;
+    assert_eq!(row(&before), [r"C:\tmp\", "it's", r"\'"]);
+
+    let objects_now = objects(&d, &cfg).await;
+    match d.rename_database_script(OLD, NEW, &objects_now) {
+        Err(e) => assert!(e.to_string().contains("p_ataque"), "{e}"),
+        Ok(s) => panic!("the split body went through: {:?}", s.statements),
+    }
+    ok(&mut root, &format!("DROP PROCEDURE {OLD}.p_ataque")).await;
+
+    let objects_now = objects(&d, &cfg).await;
+    let script = d.rename_database_script(OLD, NEW, &objects_now).unwrap();
+    let mut runner = d.connect(&cfg, None).await.unwrap();
+    let mode = one(&mut runner, "SELECT @@SESSION.sql_mode").await;
+    for st in &script.statements {
+        eprintln!("> {st}");
+        ok(&mut runner, st).await;
+    }
+    // The session's mode is back; the procedure kept its own.
+    assert_eq!(one(&mut runner, "SELECT @@SESSION.sql_mode").await, mode);
+    let own = one(&mut root, &format!("SELECT SQL_MODE FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = '{NEW}' AND ROUTINE_NAME = 'p_nbe'")).await;
+    assert!(own.contains("NO_BACKSLASH_ESCAPES"), "{own}");
+    let after = ok(&mut root, &call(NEW)).await;
+    assert_eq!(row(&after), row(&before));
+    // Everything else moved too, and nothing extra ran.
+    assert_eq!(one(&mut root, &format!("SELECT {NEW}.f_doble(21)")).await, "42");
+    let dbs = col(&mut root, "SHOW DATABASES").await;
+    assert!(dbs.iter().any(|x| x == SENTINEL) && dbs.iter().any(|x| x == NEW) && !dbs.iter().any(|x| x == OLD), "{dbs:?}");
+    clean(&mut root).await;
+    ok(&mut root, &format!("DROP DATABASE IF EXISTS {SENTINEL}")).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn mysql_rename_database_keeps_each_sql_mode() {
+    sql_mode_flow("mysql", "DBINE_TEST_MYSQL_URL").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn mariadb_rename_database_keeps_each_sql_mode() {
+    sql_mode_flow("mariadb", "DBINE_TEST_MARIADB_URL").await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn mysql_rename_database() {
