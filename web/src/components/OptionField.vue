@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Field, FieldChoices } from '../api/types';
 import { tb } from '../i18n/backend';
+import { isMaskedField as masked } from '../composables/secretFields';
 
 // One option of a database form ("Nueva base de datos", "Propiedades"): a
 // driver Field with its label and help, the server's suggestions as a
@@ -8,6 +9,8 @@ import { tb } from '../i18n/backend';
 
 defineProps<{ f: Field; modelValue: string | undefined; choices?: FieldChoices; placeholder: string; disabled?: boolean }>();
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
+
+// Credentials (S3 secret keys, cloud tokens…) never show in clear.
 </script>
 
 <template>
@@ -35,7 +38,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
       @update:model-value="(on: string | number | boolean) => emit('update:modelValue', on ? 'true' : '')"
     />
     <el-select
-      v-else-if="choices?.values.length"
+      v-else-if="choices?.values.length && !masked(f)"
       :model-value="modelValue"
       filterable
       allow-create
@@ -47,6 +50,16 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
     >
       <el-option v-for="v in choices.values" :key="v" :label="v" :value="v" />
     </el-select>
+    <el-input
+      v-else-if="masked(f)"
+      :model-value="modelValue"
+      type="password"
+      show-password
+      autocomplete="new-password"
+      :disabled="disabled"
+      :placeholder="placeholder"
+      @update:model-value="(v: string) => emit('update:modelValue', v)"
+    />
     <el-input
       v-else
       :model-value="modelValue"
