@@ -18,9 +18,14 @@ use std::sync::Arc;
 
 const READ_KEYWORDS: &[&str] = &["select", "with", "show", "explain", "describe", "desc", "values", "table", "pragma", "use", "list", "count", "print", "match", "traverse"];
 
-/// Statements that can't hold another one: their words aren't looked into
-/// (`SHOW CREATE TABLE t` is a read).
-const OPAQUE_READS: &[&str] = &["show", "describe", "desc"];
+/// Leads whose second word is part of the read, not a write: `SHOW CREATE
+/// TABLE t` (MySQL). Every other word is still checked: a T-SQL batch needs
+/// no `;`, so whatever follows the lead runs too.
+const SHOW_CREATE: &[&str] = &["show"];
+
+/// T-SQL's reads. Any other word that starts a batch runs as a procedure
+/// call (`SHOW`, `DESC`… aren't statements there).
+const TSQL_READS: &[&str] = &["select", "with", "use", "print"];
 
 /// Words that write, change structure or run other code wherever they
 /// appear in a statement.
@@ -133,11 +138,11 @@ fn statement_write(stmt: &str, dialect: &ScriptDialect) -> Option<String> {
         Leading::Other(c) => return Some(c.to_string()),
         Leading::Word(kw) => kw,
     };
-    if !READ_KEYWORDS.contains(&kw.as_str()) {
+    if dialect.tsql_blocks && !TSQL_READS.contains(&kw.as_str()) {
         return Some(kw.to_uppercase());
     }
-    if OPAQUE_READS.contains(&kw.as_str()) {
-        return None;
+    if !READ_KEYWORDS.contains(&kw.as_str()) {
+        return Some(kw.to_uppercase());
     }
     hidden_write(stmt, &kw, dialect)
 }
@@ -159,13 +164,18 @@ fn hidden_write(stmt: &str, first: &str, dialect: &ScriptDialect) -> Option<Stri
         let name = lower(i);
         let assigns = toks.iter().any(|t| t.kind == TokenKind::Punct && t.text == "=");
         let with_arg = is_call(i) && !READ_PRAGMAS.contains(&name.as_str());
-        return (assigns || with_arg || WRITE_PRAGMAS.contains(&name.as_str())).then(|| "PRAGMA".into());
+        if assigns || with_arg || WRITE_PRAGMAS.contains(&name.as_str()) {
+            return Some("PRAGMA".into());
+        }
     }
     for i in 0..toks.len() {
         if toks[i].kind != TokenKind::Name {
             continue;
         }
         let w = lower(i);
+        if i == 1 && w == "create" && SHOW_CREATE.contains(&first) {
+            continue;
+        }
         // PostgreSQL's `U&"…"` names spell a function with escapes
         // (`U&"\0073et_config"`): what it names can't be checked here.
         if bare(i) && w == "u" && toks.get(i + 1).is_some_and(|t| t.text == "&" && t.start == toks[i].end) {
@@ -501,7 +511,9 @@ mod tests {
             assert_eq!(super::first_write_in("select replace(name, 'a', 'b'), update_date, sp_id, deleted from t where note = 'delete me'", &d), None, "{d:?}");
             assert_eq!(super::first_write_in("with x as (select 1 as a) select * from x order by a desc", &d), None, "{d:?}");
             assert_eq!(super::first_write_in("select \"update\" from t", &d), None, "{d:?}");
-            assert_eq!(super::first_write_in("show create table t", &d), None, "{d:?}");
+            if !d.tsql_blocks {
+                assert_eq!(super::first_write_in("show create table t", &d), None, "{d:?}");
+            }
         }
         assert_eq!(super::first_write_in("select cast(x as char character set utf8mb4) from t", &ScriptDialect::mysql()), None);
         assert_eq!(super::first_write_in("select dbms_metadata.get_ddl('TABLE', 'T') from dual", &ScriptDialect::oracle()), None);
@@ -604,6 +616,24 @@ mod tests {
         let mut ro = super::ReadOnlySession::with_dialect(Box::new(Recorder(log.clone())), ScriptDialect::postgres());
         ready(ro.execute("SELECT 1", 10, &mut Default::default())).unwrap();
         assert_eq!(*log.lock().unwrap(), ["execute SELECT 1"]);
+    }
+
+    #[test]
+    fn read_leads_dont_exempt_what_follows() {
+        use crate::sql::ScriptDialect;
+        let t = ScriptDialect::tsql();
+        // In T-SQL these leads would run as procedure calls.
+        for sql in ["SHOW x DELETE FROM t COMMIT", "DESCRIBE t", "DESC t UPDATE t SET a = 1", "PRAGMA x", "VALUES (1)"] {
+            assert!(super::first_write_in(sql, &t).is_some(), "{sql}");
+        }
+        assert_eq!(super::first_write_in("SELECT 1; USE db; PRINT 'x'", &t), None);
+        // Elsewhere they read, but what follows is still checked.
+        let g = ScriptDialect::generic();
+        assert_eq!(super::first_write("SHOW x DELETE FROM t").as_deref(), Some("DELETE"));
+        assert_eq!(super::first_write("DESCRIBE t COMMIT").as_deref(), Some("COMMIT"));
+        assert_eq!(super::first_write_in("pragma table_info(t) delete from t", &g).as_deref(), Some("DELETE"));
+        assert_eq!(super::first_write_in("show create table t", &ScriptDialect::mysql()), None);
+        assert_eq!(super::first_write_in("describe t", &ScriptDialect::mysql()), None);
     }
 
     #[test]
