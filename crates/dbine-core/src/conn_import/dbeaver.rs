@@ -204,7 +204,8 @@ fn map(id: &str, v: &Value, cred: Option<&Value>) -> Candidate {
                 cfg.options.insert("connect_by".into(), if sid { "sid" } else { "service_name" }.into());
             }
             if cfg.host.is_empty() && !url.is_empty() {
-                cfg.options.insert("connect_descriptor".into(), url.trim_start_matches("jdbc:oracle:thin:@").to_string());
+                // Without the `user/password@` a thin URL may carry.
+                cfg.options.insert("connect_descriptor".into(), super::oracle_target(url));
             }
         }
         "snowflake" => {
@@ -339,5 +340,14 @@ mod tests {
         let one = read(&general.join("data-sources.json")).unwrap();
         assert_eq!(one.candidates.len(), 6);
         assert!(one.candidates.iter().all(|c| c.folder.first().map(String::as_str) != Some("General")));
+    }
+
+    #[test]
+    fn an_oracle_descriptor_leaves_the_login_out() {
+        let v = serde_json::json!({ "provider": "oracle", "driver": "oracle_thin", "name": "TNS",
+            "configuration": { "url": "jdbc:oracle:thin:scott/s3cret@(DESCRIPTION=(ADDRESS=(HOST=ora)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=XE)))" } });
+        let c = map("o", &v, None);
+        assert_eq!(c.config.options.get("connect_descriptor").map(String::as_str), Some("(DESCRIPTION=(ADDRESS=(HOST=ora)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=XE)))"));
+        assert!(!c.config.host.contains("s3cret") && !c.name.contains("s3cret"));
     }
 }

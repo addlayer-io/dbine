@@ -22,10 +22,33 @@ pub fn md(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '&' => out.push_str("&amp;"),
             '\r' => {}
-            '\n' => out.push(' '),
+            c if c.is_control() => out.push(' '),
             _ => out.push(c),
         }
     }
+    out
+}
+
+/// A name as an inline code span inside a table cell: on one line (no line
+/// break or control character can end the cell or the span), no backtick to
+/// close it early, `|` escaped for the table, and `<`, `>`, `&` as entities
+/// like [`md`] (no HTML gets through, whatever the renderer does with spans).
+fn code(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('`');
+    for c in s.chars() {
+        match c {
+            '`' => out.push('\''),
+            '|' => out.push_str("\\|"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '&' => out.push_str("&amp;"),
+            '\r' => {}
+            c if c.is_control() => out.push(' '),
+            _ => out.push(c),
+        }
+    }
+    out.push('`');
     out
 }
 
@@ -158,7 +181,7 @@ fn columns(out: &mut String, cols: &[ColumnDef], t: Option<&TableSchema>, anchor
         if c.auto_increment {
             let _ = write!(ty, " ({})", md(l.get("autoIncrement")));
         }
-        let mut cells = vec![format!("`{}`", c.name.replace('`', "'").replace('|', "\\|")), ty, yes_no(l, c.nullable), md(c.default_value.as_deref().unwrap_or(""))];
+        let mut cells = vec![code(&c.name), ty, yes_no(l, c.nullable), md(c.default_value.as_deref().unwrap_or(""))];
         if let Some(t) = t {
             let mut cell = String::new();
             if key_marks(t, &c.name).starts_with("PK") {
@@ -284,6 +307,7 @@ mod tests {
     #[test]
     fn escapes_inline_text() {
         assert_eq!(md("a|b *c* <x> [l](u)\nz"), r"a\|b \*c\* &lt;x&gt; \[l\]\(u\) z");
+        assert_eq!(md("a\tb\u{0b}c\u{1b}d"), "a b c d");
         assert_eq!(fence("no ticks"), "```");
         assert_eq!(fence("a ``` b ```` c"), "`````");
     }
@@ -297,5 +321,18 @@ mod tests {
         // The view's code can't close its fence.
         assert!(text.contains("````sql\nSELECT * FROM orders WHERE x < 1 -- ``` </pre>\n````"));
         assert!(text.contains("<a id=\"t1\"></a>") && text.contains("<a id=\"o1\"></a>"));
+    }
+
+    #[test]
+    fn column_names_stay_inside_their_cell() {
+        assert_eq!(code("a`b|c"), r"`a'b\|c`");
+        assert_eq!(code("x\r\n<script>alert(1)</script>&"), "`x &lt;script&gt;alert(1)&lt;/script&gt;&amp;`");
+        let mut doc = sample();
+        let t = &mut doc.schemas[0].tables[0].table;
+        t.columns[0].name = "id\n\n<script>alert(1)</script>\r\n| x | y |".into();
+        let text = render(&doc, &Labels::new(&BTreeMap::new()));
+        assert!(!text.contains("<script>"), "{text}");
+        let line = text.lines().find(|l| l.contains("alert(1)")).unwrap();
+        assert!(line.starts_with("| `id  &lt;script&gt;alert(1)&lt;/script&gt; \\| x \\| y \\|` |"), "{line}");
     }
 }

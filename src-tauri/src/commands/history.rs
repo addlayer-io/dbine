@@ -44,11 +44,13 @@ pub fn record(state: &AppState, connection_id: &str, database: &str, sql: &str, 
     }
 }
 
-/// The server's host (without scheme, user or path); a file's name for
+/// The server's host (without scheme, user, path or query string: a login
+/// or a token in a URL never reaches the history); a file's name for
 /// embedded engines.
 fn host_label(host: &str) -> String {
     let h = host.trim();
     let h = h.split_once("://").map(|(_, r)| r).unwrap_or(h);
+    let h = h.split(['?', '#']).next().unwrap_or(h);
     let h = h.rsplit_once('@').map(|(_, r)| r).unwrap_or(h);
     if h.contains(['/', '\\']) && !h.starts_with("//") {
         let file = h.rsplit(['/', '\\']).find(|p| !p.is_empty()).unwrap_or(h);
@@ -108,5 +110,9 @@ mod tests {
         assert_eq!(host_label("https://u:p@es.interno:9200/idx"), "es.interno:9200");
         assert_eq!(host_label("/Users/ana/datos/ventas.sqlite"), "ventas.sqlite");
         assert_eq!(host_label("C:\\datos\\ventas.duckdb"), "ventas.duckdb");
+        assert_eq!(host_label("libsql://app-org.turso.io?authToken=eyJ.a.b"), "app-org.turso.io");
+        assert_eq!(host_label("libsql://app-org.turso.io/?authToken=x@y"), "app-org.turso.io");
+        assert_eq!(host_label("https://u:p@es.interno:9200?token=s#f"), "es.interno:9200");
+        assert_eq!(host_label("/datos/x.sqlite?mode=ro"), "x.sqlite");
     }
 }

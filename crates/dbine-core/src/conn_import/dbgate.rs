@@ -3,7 +3,7 @@
 //! HMAC-SHA256, key = SHA-256 of the key text) under the key stored in
 //! `~/.dbgate/.key`, itself encrypted with DbGate's built-in key.
 
-use super::{color_of, home, parse_url, port_of, Candidate, Found};
+use super::{color_of, home, libsql_url, oracle_target, parse_url, port_of, redact_url, Candidate, Found};
 use aes::cipher::{block_padding::Pkcs7, BlockModeDecrypt, KeyIvInit};
 use base64::Engine;
 use dbine_driver::{Error, Result};
@@ -106,7 +106,9 @@ fn b(v: &Value, k: &str) -> bool {
 fn map(v: &Value, password: Option<String>) -> Candidate {
     let engine = s(v, "engine");
     let kind = engine.split('@').next().unwrap_or("");
-    let name = [s(v, "displayName"), s(v, "server"), s(v, "databaseFile"), s(v, "databaseUrl")]
+    // The URL may carry a login or a token: never in the name.
+    let url_name = redact_url(s(v, "databaseUrl"));
+    let name = [s(v, "displayName"), s(v, "server"), s(v, "databaseFile"), url_name.as_str()]
         .into_iter()
         .find(|x| !x.is_empty())
         .unwrap_or(kind)
@@ -175,9 +177,11 @@ fn map(v: &Value, password: Option<String>) -> Candidate {
             kind
         }
         "libsql" => {
-            c.config.host = if url.is_empty() { s(v, "databaseFile").to_string() } else { url.to_string() };
-            if let Some(t) = Some(s(v, "authToken")).filter(|t| !t.is_empty()) {
-                c.config.options.insert("auth_token".into(), t.to_string());
+            // `?authToken=…` in the URL goes to the secret option, not the host.
+            let (base, url_token) = if url.is_empty() { (s(v, "databaseFile").to_string(), None) } else { libsql_url(url) };
+            c.config.host = base;
+            if let Some(t) = Some(s(v, "authToken")).filter(|t| !t.is_empty()).map(String::from).or(url_token) {
+                c.config.options.insert("auth_token".into(), t);
             }
             "libsql"
         }
@@ -202,7 +206,7 @@ fn map(v: &Value, password: Option<String>) -> Candidate {
         "oracle" => {
             let service = s(v, "serviceName");
             if use_url {
-                c.config.options.insert("connect_descriptor".into(), url.to_string());
+                c.config.options.insert("connect_descriptor".into(), oracle_target(url));
             } else if !service.is_empty() {
                 c.config.options.insert("service".into(), service.to_string());
                 c.config.options.insert("connect_by".into(), if s(v, "serviceNameType") == "sid" { "sid" } else { "service_name" }.into());
@@ -308,5 +312,27 @@ mod tests {
         assert_eq!(c[3].config.password, None);
         assert!(c[4].unsupported.is_some());
         assert_eq!(found.warnings.len(), 1, "{:?}", found.warnings);
+    }
+
+    #[test]
+    fn urls_with_secrets_stay_out_of_host_and_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let lines = [
+            serde_json::json!({ "_id": "t", "engine": "libsql@dbgate-plugin-sqlite", "databaseUrl": "libsql://app-org.turso.io?authToken=eyJtok" }),
+            serde_json::json!({ "_id": "u", "engine": "libsql@dbgate-plugin-sqlite", "databaseUrl": "libsql://b.turso.io?authToken=fromurl", "authToken": "field" }),
+            serde_json::json!({ "_id": "p", "engine": "postgres@dbgate-plugin-postgres", "useDatabaseUrl": true, "databaseUrl": "postgres://ana:s3cret@pg:5433/app?sslmode=require" }),
+            serde_json::json!({ "_id": "o", "engine": "oracle@dbgate-plugin-oracle", "useDatabaseUrl": true, "databaseUrl": "scott/s3cret@//ora:1521/XE" }),
+        ];
+        std::fs::write(dir.path().join("connections.jsonl"), lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n")).unwrap();
+        let c = read(dir.path()).unwrap().candidates;
+        assert_eq!((c[0].config.host.as_str(), c[0].name.as_str()), ("libsql://app-org.turso.io", "libsql://app-org.turso.io"));
+        assert_eq!(c[0].config.options.get("auth_token").map(String::as_str), Some("eyJtok"));
+        assert_eq!(c[1].config.options.get("auth_token").map(String::as_str), Some("field"));
+        assert_eq!((c[2].name.as_str(), c[2].config.password.as_deref()), ("postgres://pg:5433/app", Some("s3cret")));
+        assert_eq!(c[3].config.options.get("connect_descriptor").map(String::as_str), Some("//ora:1521/XE"));
+        for c in &c {
+            let json = serde_json::to_string(&(&c.name, &c.config.host, c.config.options.get("connect_descriptor"))).unwrap();
+            assert!(!json.contains("eyJtok") && !json.contains("fromurl") && !json.contains("s3cret"), "{json}");
+        }
     }
 }
