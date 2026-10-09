@@ -30,14 +30,21 @@ on those that use a local file (SQLite, DuckDB, etc.).
 The first time DBine connects to an SSH server it shows the fingerprint of
 its key (`SHA256:…`) and asks whether to trust it. It must be compared with
 the one the server administrator gives. The accepted fingerprint is saved in
-the connection, and the form shows "N verified SSH servers", with the option
-to forget them.
+the connection together with the server it was accepted for
+(`[host]:port SHA256:…`), and the form shows "N verified SSH servers", with
+the option to forget them.
 
-- A server that is already in `~/.ssh/known_hosts` is accepted without
-  asking.
+- `~/.ssh/known_hosts` is checked first. A server that is already there is
+  accepted without asking.
 - If a server's key doesn't match the one in `known_hosts`, the connection is
-  rejected: it may be another server impersonating it.
-- With jump hosts, each server is verified separately.
+  rejected, even if that key was accepted in DBine: it may be another server
+  impersonating it.
+- With jump hosts, each server is verified separately: a key accepted for one
+  server (a bastion) is never accepted for another one (the next hop).
+- Accepting a new key for a server replaces the one accepted before for it.
+- Fingerprints saved by older versions (0.1.10 and before) don't say which
+  server they were for, so they are no longer accepted: DBine asks once more
+  for each server, and the old ones are dropped when a key is accepted.
 
 ## What is stored and where
 
@@ -55,6 +62,12 @@ to forget them.
 
 - DBine opens a local port (on `127.0.0.1`, chosen by the system) and forwards
   it over SSH to the database server (`crates/dbine-tunnel`, with `russh`).
+- Only processes of the user running DBine (DBine and its driver hosts) can
+  use that port: every connection to it is checked against the system's
+  socket tables (`/proc/net/tcp` on Linux, the processes' open sockets on
+  macOS, the TCP table on Windows) and closed if it comes from another user
+  or can't be attributed. Other accounts on the same machine can't reach the
+  database with the user's SSH identity.
 - The driver connects to that local port as if it were the server, so any
   engine that connects over the network works with a tunnel without knowing
   anything about SSH. There are no changes in the drivers.

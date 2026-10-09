@@ -6,7 +6,7 @@
 //! - PostgreSQL reachable from them at host.docker.internal:25010.
 //! The key's passphrase is `frase123`.
 
-use dbine_tunnel::{open, Auth, Error, Hop, Spec};
+use dbine_tunnel::{open, trusted_entry, Auth, Error, Hop, Spec};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn hop(host: &str, port: u16) -> Hop {
@@ -39,8 +39,15 @@ async fn reaches_postgres(port: u16) {
 #[ignore]
 async fn tunnels_through_ssh_to_postgres() {
     let key = std::env::var("DBINE_TEST_SSH_KEY").expect("DBINE_TEST_SSH_KEY");
-    let server = fingerprint(hop("127.0.0.1", 25022)).await;
-    assert!(server.starts_with("SHA256:"), "{server}");
+    let fp = fingerprint(hop("127.0.0.1", 25022)).await;
+    assert!(fp.starts_with("SHA256:"), "{fp}");
+    let server = trusted_entry("127.0.0.1", 25022, &fp);
+
+    // A bare fingerprint (older versions) or one bound to another server isn't enough.
+    for t in [fp.clone(), trusted_entry("127.0.0.1", 25023, &fp)] {
+        let e = open(&spec(vec![hop("127.0.0.1", 25022)], Auth::Password("pw".into()), vec![t])).await.err().unwrap();
+        assert!(matches!(e, Error::UnknownHost { .. }), "{e}");
+    }
 
     // Password.
     let t = open(&spec(vec![hop("127.0.0.1", 25022)], Auth::Password("pw".into()), vec![server.clone()])).await.unwrap();
@@ -63,9 +70,11 @@ async fn tunnels_through_ssh_to_postgres() {
     assert!(matches!(e, Error::Key { .. }), "{e}");
 
     // Through the bastion: each server's key is checked on its own.
-    let bastion = fingerprint(hop("127.0.0.1", 25023)).await;
+    let bastion = trusted_entry("127.0.0.1", 25023, &fingerprint(hop("127.0.0.1", 25023)).await);
     let chain = vec![hop("127.0.0.1", 25023), hop("dbine-test-ssh", 22)];
-    let inner = match open(&spec(chain.clone(), Auth::Password("pw".into()), vec![bastion.clone()])).await {
+    // Only the bastion is trusted: the next hop is asked about, even with
+    // the same key trusted for the bastion's address.
+    let inner = match open(&spec(chain.clone(), Auth::Password("pw".into()), vec![bastion.clone(), trusted_entry("127.0.0.1", 25023, &fp)])).await {
         Err(Error::UnknownHost { host, fingerprint, .. }) => {
             assert_eq!(host, "dbine-test-ssh");
             fingerprint
@@ -73,8 +82,8 @@ async fn tunnels_through_ssh_to_postgres() {
         Err(e) => panic!("{e}"),
         Ok(_) => panic!("the second server's key wasn't checked"),
     };
-    assert_eq!(inner, server, "same container, same key");
-    let t = open(&spec(chain, with(Some("frase123")), vec![bastion, inner])).await.unwrap();
+    assert_eq!(inner, fp, "same container, same key");
+    let t = open(&spec(chain, with(Some("frase123")), vec![bastion, trusted_entry("dbine-test-ssh", 22, &inner)])).await.unwrap();
     reaches_postgres(t.local_port()).await;
 
     // A database that isn't there is an error when opening, not later.

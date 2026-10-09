@@ -11,7 +11,7 @@ import { useTabsStore, type ConnectionFormTab } from '../stores/tabs';
 import EngineIcon from '../components/EngineIcon.vue';
 import FolderPicker from '../components/FolderPicker.vue';
 import SshTunnelSection, { type SshValues } from '../components/SshTunnelSection.vue';
-import { askTrustSshHost } from '../composables/sshTrust';
+import { addTrusted, askTrustSshHost } from '../composables/sshTrust';
 import { TAG_SUGGESTIONS, tagColor, tagsInUse } from '../composables/tags';
 import { mcpApi, type McpLevel } from '../api/mcp';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
@@ -264,9 +264,9 @@ async function test() {
     testResult.value = { ...r, message: tb(r.message) };
   } catch (e) {
     // The tunnel's SSH server isn't known yet: trust it and test again.
-    const fingerprint = await askTrustSshHost(e);
-    if (fingerprint) {
-      ssh.value.trusted = [ssh.value.trusted, fingerprint].filter(Boolean).join(',');
+    const entry = await askTrustSshHost(e);
+    if (entry) {
+      ssh.value.trusted = addTrusted(ssh.value.trusted, entry);
       testing.value = false;
       return test();
     }

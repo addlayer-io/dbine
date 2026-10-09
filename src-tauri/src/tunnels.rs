@@ -106,6 +106,22 @@ fn spec(cfg: &ConnectionConfig) -> CommandResult<(Spec, Target)> {
     let bad = |m: &str| CommandError::BadRequest(format!("túnel SSH: {m}"));
     let (target_host, target_port, target) = server(cfg, info.default_port).map_err(|m| bad(&m))?;
 
+    let hops = hops(cfg)?;
+    let auth = match cfg.option("ssh.auth").unwrap_or("password") {
+        "agent" => Auth::Agent,
+        "key" => {
+            let path = cfg.option("ssh.key_path").ok_or_else(|| bad("falta el archivo de la clave privada"))?;
+            Auth::Key { path: expand_home(path), passphrase: cfg.option("ssh.passphrase").map(String::from) }
+        }
+        _ => Auth::Password(cfg.option("ssh.password").unwrap_or("").to_string()),
+    };
+    Ok((Spec { hops, auth, target_host, target_port, trusted: trusted(cfg) }, target))
+}
+
+/// The SSH servers of a connection's tunnel, in order: the jump hosts, then
+/// the one that reaches the database.
+pub fn hops(cfg: &ConnectionConfig) -> CommandResult<Vec<Hop>> {
+    let bad = |m: &str| CommandError::BadRequest(format!("túnel SSH: {m}"));
     let user = cfg.option("ssh.user").ok_or_else(|| bad("falta el usuario SSH"))?.to_string();
     let host = cfg.option("ssh.host").ok_or_else(|| bad("falta el servidor SSH"))?.to_string();
     let port = match cfg.option("ssh.port") {
@@ -121,17 +137,23 @@ fn spec(cfg: &ConnectionConfig) -> CommandResult<(Spec, Target)> {
         .map(|s| parse_hop(s, &user).ok_or_else(|| bad(&format!("no se entiende el bastión «{s}» (usuario@servidor:puerto)"))))
         .collect::<CommandResult<_>>()?;
     hops.push(Hop { host, port, user });
+    Ok(hops)
+}
 
-    let auth = match cfg.option("ssh.auth").unwrap_or("password") {
-        "agent" => Auth::Agent,
-        "key" => {
-            let path = cfg.option("ssh.key_path").ok_or_else(|| bad("falta el archivo de la clave privada"))?;
-            Auth::Key { path: expand_home(path), passphrase: cfg.option("ssh.passphrase").map(String::from) }
-        }
-        _ => Auth::Password(cfg.option("ssh.password").unwrap_or("").to_string()),
-    };
-    let trusted = cfg.option("ssh.trusted").unwrap_or("").split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
-    Ok((Spec { hops, auth, target_host, target_port, trusted }, target))
+/// `ssh.trusted`: the accepted server keys, `[host]:port SHA256:…` each
+/// (dbine_tunnel::trusted_entry), comma-separated.
+pub fn trusted(cfg: &ConnectionConfig) -> Vec<String> {
+    cfg.option("ssh.trusted").unwrap_or("").split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect()
+}
+
+/// `trusted` with `entry` added: it replaces any key accepted before for the
+/// same server (the server changed its key) and drops the bare fingerprints
+/// older versions saved, which no server matches any more.
+pub fn add_trusted(mut trusted: Vec<String>, entry: &str) -> Vec<String> {
+    let Some((host, port, _)) = dbine_tunnel::parse_trusted(entry) else { return trusted };
+    trusted.retain(|t| matches!(dbine_tunnel::parse_trusted(t), Some((h, p, _)) if !(p == port && h.eq_ignore_ascii_case(host))));
+    trusted.push(entry.trim().to_string());
+    trusted
 }
 
 /// `user@host:port`, `host:port` or `host` (the tunnel's user, port 22).
@@ -217,6 +239,16 @@ mod tests {
         assert_eq!(t("db:7000", 0), ("db".into(), 7000, "127.0.0.1".into(), 40000));
         assert_eq!(t("https://es.interno:9200/base?x=1", 0), ("es.interno".into(), 9200, "https://127.0.0.1:40000/base?x=1".into(), 0));
         assert_eq!(t("http://u:p@api.local/v1", 0), ("api.local".into(), 80, "http://u:p@127.0.0.1:40000/v1".into(), 0));
+    }
+
+    #[test]
+    fn trusting_a_key_replaces_the_servers_old_one_only() {
+        let fp = |c: char| format!("SHA256:{}", c.to_string().repeat(43));
+        let old = vec![dbine_tunnel::trusted_entry("jump", 22, &fp('a')), dbine_tunnel::trusted_entry("db", 22, &fp('b')), fp('c')];
+        let new = dbine_tunnel::trusted_entry("DB", 22, &fp('d'));
+        assert_eq!(add_trusted(old.clone(), &new), vec![old[0].clone(), new.clone()]);
+        // Not an entry bound to a server: nothing changes.
+        assert_eq!(add_trusted(old.clone(), &fp('d')), old);
     }
 
     #[test]

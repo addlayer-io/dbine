@@ -138,25 +138,28 @@ pub async fn save_connection(state: State<'_, AppState>, args: SaveConnectionArg
 #[derive(Deserialize)]
 pub struct TrustSshHostArgs {
     pub connection_id: String,
-    /// `SHA256:…`, as the `ssh_unknown_host` error gave it.
+    /// The key bound to the server it was accepted for, `[host]:port SHA256:…`,
+    /// with the host, port and fingerprint the `ssh_unknown_host` error gave
+    /// (web/src/composables/sshTrust.ts). A bare fingerprint is refused: it
+    /// would say nothing about which server it is for.
     pub fingerprint: String,
 }
 
 /// Trust an SSH server's key for a saved connection's tunnel (the user
-/// checked the fingerprint): it's added to `ssh.trusted`.
+/// checked the fingerprint): it's added to `ssh.trusted`, for that server
+/// only, which has to be one of the tunnel's.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn trust_ssh_host(state: State<'_, AppState>, args: TrustSshHostArgs) -> CommandResult<()> {
-    if !args.fingerprint.starts_with("SHA256:") {
-        return Err(CommandError::BadRequest("huella SSH inválida".into()));
-    }
+    let invalid = || CommandError::BadRequest("huella SSH inválida".into());
+    let (host, port, _) = dbine_tunnel::parse_trusted(&args.fingerprint).ok_or_else(invalid)?;
     let mut conn = state
         .store
         .get_connection(&args.connection_id)?
         .ok_or_else(|| CommandError::NotFound(format!("no existe la conexión '{}'", args.connection_id)))?;
-    let mut trusted: Vec<String> = conn.config.option("ssh.trusted").unwrap_or("").split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
-    if !trusted.contains(&args.fingerprint) {
-        trusted.push(args.fingerprint);
+    if !crate::tunnels::hops(&conn.config)?.iter().any(|h| h.port == port && h.host.eq_ignore_ascii_case(host)) {
+        return Err(invalid());
     }
+    let trusted = crate::tunnels::add_trusted(crate::tunnels::trusted(&conn.config), &args.fingerprint);
     conn.config.options.insert("ssh.trusted".into(), trusted.join(","));
     state.store.save_connection(&conn)?;
     Ok(())
