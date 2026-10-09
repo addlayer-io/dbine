@@ -38,7 +38,16 @@ impl Tok<'_> {
     /// A string's content, without its quotes (escapes left as written).
     pub fn body(&self) -> &str {
         let t = self.text;
-        if t.len() >= 2 && matches!(self.k, C::Str | C::Name) { &t[1..t.len() - 1] } else { t }
+        if !matches!(self.k, C::Str | C::Name) {
+            return t;
+        }
+        // An unterminated string can end in a multi-byte character: only cut
+        // the closing quote when it is there.
+        let inner = t.get(1..).unwrap_or("");
+        match t.as_bytes()[0] {
+            q if t.len() >= 2 && t.as_bytes()[t.len() - 1] == q => &inner[..inner.len() - 1],
+            _ => inner,
+        }
     }
 }
 

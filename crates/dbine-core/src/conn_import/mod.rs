@@ -371,9 +371,11 @@ fn pct_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
+        // Decode the two hex digits from the bytes: slicing the &str at byte
+        // offsets would panic when a multi-byte character follows the `%`.
         if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
+            if let (Some(hi), Some(lo)) = (hex_val(b[i + 1]), hex_val(b[i + 2])) {
+                out.push(hi << 4 | lo);
                 i += 3;
                 continue;
             }
@@ -382,6 +384,15 @@ fn pct_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_val(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn truthy(v: &str) -> bool {
@@ -473,7 +484,8 @@ fn apply_ado(c: &mut Candidate, s: &str) {
     for part in split_ado(s) {
         let Some((k, v)) = part.split_once('=') else { continue };
         let v = v.trim();
-        let v = if (v.starts_with('{') && v.ends_with('}')) || (v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')) {
+        // `len() >= 2`: a lone `"` both starts and ends with a quote.
+        let v = if v.len() >= 2 && (v.starts_with('{') && v.ends_with('}')) || (v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')) {
             v[1..v.len() - 1].to_string()
         } else {
             v.to_string()
@@ -587,6 +599,21 @@ mod tests {
         assert_eq!(oracle_target("jdbc:oracle:thin:scott/tiger@//ora:1521/XE"), "//ora:1521/XE");
         assert_eq!(oracle_target("jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS=(HOST=h)))"), "(DESCRIPTION=(ADDRESS=(HOST=h)))");
         assert_eq!(oracle_target("ora:1521/XE"), "ora:1521/XE");
+    }
+
+    #[test]
+    fn multibyte_input_does_not_panic() {
+        // A `%` followed by a multi-byte character used to slice the &str
+        // inside that character.
+        assert_eq!(pct_decode("%a€"), "%a€");
+        assert_eq!(pct_decode("%€"), "%€");
+        assert_eq!(pct_decode("x%€y%4"), "x%€y%4");
+        assert_eq!(pct_decode("caf%C3%A9 %41ñ"), "café Añ");
+        assert!(parse_url("postgres://%€:%a€@h/%€db").is_some());
+        let mut c = cand("sqlserver");
+        apply_ado(&mut c, "Server=h;Password=\";User ID=€");
+        apply_ado(&mut c, "Password=';Initial Catalog={");
+        read_text("postgres://ü%€:p%a€@h:5432/d%€");
     }
 
     fn cand(driver: &str) -> Candidate {
