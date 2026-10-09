@@ -33,16 +33,18 @@ jobs:
       notes: ${{ steps.notes.outputs.notes }}
     steps:
       - uses: actions/checkout@v4
-      # What's new, from CHANGELOG.md: this version and the four before it,
-      # each under "## Versión x.y.z". It becomes latest.json's notes, and
-      # the update dialog keeps the versions newer than the installed app.
-      # A tag without its section in the changelog doesn't publish.
+      # What's new, from CHANGELOG.md (English, the source): this version
+      # and the four before it, each under "## Version x.y.z". It becomes
+      # latest.json's notes, and the update dialog keeps the versions newer
+      # than the installed app (in another UI language it reads
+      # changelog/CHANGELOG.<lang>.md at this tag instead, falling back to
+      # these). A tag without its section in the changelog doesn't publish.
       - id: notes
         shell: bash
         run: |
           notes=""
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            notes="$(python3 scripts/changelog.py recent "${GITHUB_REF_NAME#v}" --count 5)"
+            notes="$(python3 scripts/changelog.py recent "${GITHUB_REF_NAME#v}" --count 5 --lang en)"
           fi
           {
             echo "notes<<DBINE_NOTES_EOF"
@@ -257,8 +259,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: python3 scripts/prune-driver-assets.py --keep 5
 
-  # The release page: this version's changelog, then how to download and
-  # open the unsigned builds. latest.json keeps the changelog alone.
+  # The release page: this version's changelog (English), then how to
+  # download and open the unsigned builds. latest.json keeps the changelog alone.
   release-page:
     needs: [route, build]
     if: needs.route.outputs.publish == 'true'
@@ -271,24 +273,24 @@ jobs:
         shell: bash
         run: |
           {
-            echo "Instaladores de DBine ${GITHUB_REF_NAME}."
+            echo "DBine ${GITHUB_REF_NAME} installers."
             echo
-            python3 scripts/changelog.py notes "${GITHUB_REF_NAME#v}"
+            python3 scripts/changelog.py notes "${GITHUB_REF_NAME#v}" --lang en
             cat <<'EOF'
 
-          ### Descargas
+          ### Downloads
 
-          - **Windows**: `-setup.exe` (requiere WebView2, incluido en Windows 10/11).
-          - **macOS**: `.dmg`; `aarch64` para Apple Silicon, `x64` para Intel.
-          - **Linux**: `.AppImage` (portable), `.deb` o `.rpm`.
+          - **Windows**: `-setup.exe` (requires WebView2, included in Windows 10/11).
+          - **macOS**: `.dmg`; `aarch64` for Apple Silicon, `x64` for Intel.
+          - **Linux**: `.AppImage` (portable), `.deb` or `.rpm`.
 
-          Quienes tienen la 0.1.4 o posterior la reciben por actualización automática.
+          Version 0.1.4 and later receive it through the automatic update.
 
-          Los binarios no están firmados por Apple ni por Microsoft:
+          The binaries aren't signed by Apple or Microsoft:
 
-          - **macOS**: la primera vez avisa que no puede verificar al desarrollador. Abrí Configuración del Sistema › Privacidad y seguridad › «Abrir igualmente», o en la terminal: `xattr -dr com.apple.quarantine /Applications/DBine.app`.
-          - **Windows**: SmartScreen puede pedir "Más información" › "Ejecutar de todas formas".
-          - Los drivers de cada motor (salvo SQLite) se descargan la primera vez que te conectás.
+          - **macOS**: the first time, it warns that it can't verify the developer. Open System Settings › Privacy & Security › "Open Anyway", or run in the terminal: `xattr -dr com.apple.quarantine /Applications/DBine.app`.
+          - **Windows**: SmartScreen may ask for "More info" › "Run anyway".
+          - Each engine's driver (except SQLite) is downloaded the first time you connect.
           EOF
           } > notes.md
           gh release edit "$GITHUB_REF_NAME" --notes-file notes.md

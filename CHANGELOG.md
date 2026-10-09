@@ -1,154 +1,154 @@
-# Cambios
+# Changelog
 
-## [Sin publicar]
+## [Unreleased]
 
-### Nuevo
-- **Los drivers se actualizan solos, aparte de la app:** DBine busca en un índice firmado el driver más nuevo compatible con tu versión, lo descarga en segundo plano y vuelve al anterior si algo falla. En Configuración › Drivers hay un botón «Buscar actualizaciones», el estado de cada driver y «Volver a la anterior». Un driver se puede publicar solo, sin sacar una versión nueva de la app.
+### New
+- **Drivers update on their own, apart from the app:** DBine looks in a signed index for the newest driver compatible with your version, downloads it in the background and goes back to the previous one if something fails. In Settings › Drivers there is a **Check for updates** button, the status of each driver and **Roll back**. A driver can be released on its own, without a new app version.
 
-### Mejoras
-- **Qué trae cada versión:** el aviso de una versión nueva muestra sus novedades y las de las versiones intermedias desde la que tenés instalada.
-- **Versiones viejas de la app:** de ahora en más, una app más vieja que las últimas cinco versiones tiene que actualizarse para poder descargar drivers nuevos. Los drivers que ya tiene instalados siguen funcionando.
+### Improvements
+- **What each version brings:** the new-version notice shows its changes and those of the versions in between, starting from the one you have installed.
+- **Old app versions:** from now on, an app older than the last five versions has to update in order to download new drivers. The drivers it already has installed keep working.
 
 ## [0.1.9] - 2026-10-09
 
-### Nuevo
-- **Renombrar con impacto:** «Renombrar…» en el explorador cambia el nombre de una tabla, vista, rutina, columna, índice o esquema y, en el mismo script, reescribe las vistas, procedimientos, funciones y triggers que lo usan. Antes de ejecutar muestra qué actualiza el motor solo, qué se reescribe y qué hay que revisar a mano (SQL dinámico, código ilegible), junto con el script completo. Corre en una transacción donde el motor lo permite. Está en todos los motores que pueden renombrar algo; los límites de cada uno están en `docs/soporte-por-motor.md`.
-- **Modificar una tabla:** «Modificar…» abre el diseñador sobre una tabla existente y arma el `ALTER` del motor. Conserva lo que el diseñador no muestra (CHECKs, opciones de índices, orden de las columnas de la clave) y recrea las vistas y triggers que dependen de la tabla. Renombrar una columna ahí pasa por la revisión de impacto; en conexiones de producción pide escribir el nombre de la tabla antes de ejecutar.
-- **Historial por consulta:** la barra de Historial sigue a la pestaña activa, como una línea de tiempo: versiones de la consulta guardada con diferencias y restauración, sus ejecuciones y, en archivos de un proyecto, sus commits de git.
-- **Navegación en el editor:** Cmd/Ctrl+clic sobre una tabla, vista o rutina abre su estructura o definición, y «Mostrar en el explorador» la ubica en el árbol. Las tablas y columnas que no existen se marcan antes de ejecutar.
-- **Parámetros en las consultas:** `:nombre` y `?` se piden al ejecutar y recuerdan el último valor.
-- **Fragmentos de código** por motor (por ejemplo, `sel` + Tab) y menú del botón derecho en el editor.
-- **Totales de la selección:** al seleccionar celdas de la grilla se muestran cantidad, suma, promedio, mínimo y máximo.
-- **Tareas programadas:** scripts, exportaciones, comparación de esquemas, backups, «Documentar la base» y «Enviar un mail» (SMTP) que corren con DBine cerrado, a través del programador del sistema. Con notificaciones por tarea e historial de ejecuciones. Lo que cambia datos se aprueba explícitamente.
-- **Calidad de código:** reglas por motor en el editor y «Ver problemas».
-- **Documentar la base:** diccionario de datos en HTML o Markdown, con diagrama, filas estimadas y comentarios de vistas y rutinas. Las filas estimadas y los comentarios salen de la metadata del motor, sin leer tablas ni consumir cuota en los motores en la nube.
-- **Constructor visual de consultas.**
-- **Copiar un subconjunto de datos**, con enmascarado.
-- **Optimizar consulta:** reescrituras, índices sugeridos, alternativas de la IA y comparación medida. Las alternativas de la IA se validan contra el plan estimado de la base antes de mostrarse.
-- **Chequeo de salud** de una base, en todos los motores, con revisiones propias en SQL Server, la familia PostgreSQL, la familia MySQL, Oracle, SAP HANA, Firebird, ClickHouse, Snowflake, BigQuery, Databricks y los perfiles ODBC.
-- **Buscar en la base:** nombres de objetos, código de vistas y rutinas, y nombres de columnas (con su tabla y tipo).
-- **Generar datos de prueba** para una tabla.
-- **Propiedades de la base** y opciones avanzadas al crear una base, en pestañas y por motor, con vista previa del script.
-- **Vista JSON en árbol** de los resultados, con edición, y «Agregar fila» / «Agregar documento» en la pestaña Datos y en la grilla.
-- **Nueva marca:** el logotipo con el halo.
+### New
+- **Rename with impact:** **Rename…** in the explorer changes the name of a table, view, routine, column, index or schema and, in the same script, rewrites the views, procedures, functions and triggers that use it. Before running, it shows what the engine updates by itself, what gets rewritten and what needs a manual check (dynamic SQL, unreadable code), together with the full script. It runs in a transaction where the engine allows it. It is available in every engine that can rename something; each one's limits are in `docs/soporte-por-motor.md`.
+- **Modify a table:** **Modify…** opens the designer on an existing table and builds the engine's `ALTER`. It keeps what the designer doesn't show (CHECKs, index options, the order of the key columns) and recreates the views and triggers that depend on the table. Renaming a column there goes through the impact review; on production connections it asks you to type the table name before running.
+- **Per-query history:** the **History** bar follows the active tab, like a timeline: versions of the saved query with differences and restore, its runs and, in project files, its git commits.
+- **Navigation in the editor:** Cmd/Ctrl+click on a table, view or routine opens its structure or definition, and **Show in explorer** locates it in the tree. Tables and columns that don't exist are flagged before running.
+- **Query parameters:** `:name` and `?` are asked for when running, and the last value is remembered.
+- **Snippets** per engine (for example, `sel` + Tab) and a right-click menu in the editor.
+- **Selection totals:** selecting cells in the grid shows count, sum, average, minimum and maximum.
+- **Scheduled tasks:** scripts, exports, schema comparison, backups, **Document the database** and **Send an email** (SMTP) that run with DBine closed, through the system scheduler. With notifications per task and a run history. Anything that changes data is approved explicitly.
+- **Code quality:** per-engine rules in the editor and **View problems**.
+- **Document the database:** a data dictionary in HTML or Markdown, with a diagram, estimated rows and comments on views and routines. Estimated rows and comments come from the engine's metadata, without reading tables or using quota on cloud engines.
+- **Design query:** a visual query builder.
+- **Copy a subset** of data, with masking.
+- **Optimize query:** rewrites, suggested indexes, AI alternatives and a measured comparison. AI alternatives are validated against the database's estimated plan before they are shown.
+- **Health check** of a database, in every engine, with its own checks in SQL Server, the PostgreSQL family, the MySQL family, Oracle, SAP HANA, Firebird, ClickHouse, Snowflake, BigQuery, Databricks and ODBC profiles.
+- **Search in database:** object names, view and routine code, and column names (with their table and type).
+- **Generate test data** for a table.
+- **Database properties** and advanced options when creating a database, in tabs and per engine, with a script preview.
+- **JSON tree view** of results, with editing, and **Add row** / **Add document** in the Data tab and in the grid.
+- **New brand:** the logotype with the halo.
 
-### Mejoras
-- El color de la conexión se ve como una franja en el borde de la fila, y el punto solo indica el estado (verde conectada, rojo desconectada).
+### Improvements
+- The connection color shows as a stripe on the edge of the row, and the dot only indicates the state (green connected, red disconnected).
 
-### Correcciones
-- La comparación de esquemas ya no se cancela por lecturas del explorador, y SQL Server se reconecta.
-- Las filas de conexión sin color quedan alineadas con las que tienen.
-- Arrastrar tablas al constructor de consultas funciona en macOS.
-- Propiedades de SQL Server: los nombres de archivo largos no desbordan el diálogo, y la pestaña «Opciones ANSI y de seguridad» está traducida.
-- El editor ya no marca como desconocidas las columnas de una subconsulta con alias.
+### Fixes
+- Schema comparison is no longer cancelled by explorer reads, and SQL Server reconnects.
+- Connection rows without a color line up with those that have one.
+- Dragging tables into the query builder works on macOS.
+- SQL Server properties: long file names no longer overflow the dialog, and the "ANSI and security options" tab is translated.
+- The editor no longer flags the columns of an aliased subquery as unknown.
 
-### Ya disponible
-- **Ejecutar una consulta en varias bases a la vez:** se elige una o varias bases de una conexión, y los resultados se unen con una columna que indica la base de cada fila. Llegó en la 0.1.4. Ver `docs/ejecutar-en-varias-bases.md`.
+### Already available
+- **Run a query on several databases at once:** you pick one or more databases of a connection, and the results are joined with a column that shows each row's database. It arrived in 0.1.4. See `docs/ejecutar-en-varias-bases.md`.
 
 ## [0.1.8] - 2026-10-06
 
-### Nuevo
-- **PostgreSQL detrás de gateways que solo aceptan el protocolo simple:** la conexión tiene una opción nueva, «Protocolo de consultas»: Automático o Solo protocolo simple. Sirve para los gateways que rechazan el protocolo extendido con el error 0A000. En ese modo, lo que necesita el protocolo extendido avisa con un mensaje claro en lugar de fallar.
+### New
+- **PostgreSQL behind gateways that only accept the simple protocol:** the connection has a new option, **Query protocol**: Automatic or Simple protocol only. It is meant for gateways that reject the extended protocol with error 0A000. In that mode, anything that needs the extended protocol shows a clear message instead of failing.
 
-### Correcciones
-- **«Nueva query» con la pestaña «Nueva conexión» abierta** fallaba con «FOREIGN KEY constraint failed». Ahora la query se abre en la última conexión que tenías abierta, o te pide elegir una base en el explorador.
+### Fixes
+- **New query with the New connection tab open** failed with "FOREIGN KEY constraint failed". Now the query opens on the last connection you had open, or asks you to pick a database in the explorer.
 
 ## [0.1.7] - 2026-10-05
 
-### Correcciones
-- **Comparar datos con columnas identity:** sincronizar filas hacia una tabla de SQL Server con una columna `IDENTITY` fallaba con «Cannot insert explicit value for identity column». Ahora DBine activa `IDENTITY_INSERT` solo mientras inserta esas filas.
-- En PostgreSQL, después de copiar filas con sus ids, la secuencia avanza para que el próximo insert no choque con un id copiado.
+### Fixes
+- **Compare data with identity columns:** syncing rows into a SQL Server table with an `IDENTITY` column failed with "Cannot insert explicit value for identity column". Now DBine turns on `IDENTITY_INSERT` only while it inserts those rows.
+- In PostgreSQL, after copying rows with their ids, the sequence advances so the next insert doesn't collide with a copied id.
 
 ## [0.1.6] - 2026-10-04
 
-### Nuevo
-- **Procesos en el Monitor:** junto al panel, la pestaña «Procesos» lista las sesiones y las consultas en curso del servidor, con filtros. Desde ahí se cancela una consulta o se termina una sesión. Disponible en todos los motores que lo exponen: SQL Server, PostgreSQL, MySQL, Oracle, MongoDB, Redis y la mayoría de los demás.
-- **Autenticación de Windows en SQL Server:** con el usuario actual (SSPI en Windows, Kerberos en macOS y Linux) o con usuario y contraseña de dominio, también desde Mac y Linux.
-- **Kerberos en MongoDB.**
+### New
+- **Processes in the Monitor:** next to the dashboard, the **Processes** tab lists the server's sessions and running queries, with filters. From there you can cancel a query or end a session. Available in every engine that exposes it: SQL Server, PostgreSQL, MySQL, Oracle, MongoDB, Redis and most of the others.
+- **Windows authentication in SQL Server:** with the current user (SSPI on Windows, Kerberos on macOS and Linux) or with a domain user and password, also from Mac and Linux.
+- **Kerberos in MongoDB.**
 
-### Mejoras
-- En ODBC, los atributos extra de la conexión reemplazan a los de la plantilla.
-- El asistente de IA tiene su propio ícono y ya no se confunde con «Formatear».
-- Las consultas que hace el asistente se muestran traducidas en todos los idiomas.
-- La telemetría anónima cuenta también el uso del asistente, el servidor MCP, las sincronizaciones, las migraciones y las consultas en varias bases. Nunca nombres, consultas ni datos; se desactiva en Configuración › General.
+### Improvements
+- In ODBC, the connection's extra attributes replace those of the template.
+- The AI assistant has its own icon and is no longer confused with **Format**.
+- The queries the assistant makes are shown translated in every language.
+- Anonymous telemetry also counts the use of the assistant, the MCP server, syncs, migrations and multi-database queries. Never names, queries or data; it is turned off in Settings › General.
 
 ## [0.1.5] - 2026-10-03
 
-### Nuevo
-- **El asistente de IA lee tu base, con tu aprobación:** con un modelo local puede consultar la estructura y el uso de índices de la conexión (por ejemplo, «analizá los índices y decime cuál sobra»). Antes de leer filas o ejecutar una consulta te muestra el SQL exacto y la base, con Aprobar o Rechazar. Nunca modifica datos ni estructura.
+### New
+- **The AI assistant reads your database, with your approval:** with a local model it can query the structure and index usage of the connection (for example, "analyze the indexes and tell me which one is redundant"). Before reading rows or running a query it shows you the exact SQL and the database, with Approve or Reject. It never changes data or structure.
 
-### Mejoras
-- «Detener» corta la respuesta del asistente en cualquier momento y «Nueva conversación» siempre está disponible.
-- La opción «estructura» del chat ya no hace falta: el asistente pide los detalles cuando los necesita.
-- El cursor de texto aparece donde se puede seleccionar o escribir.
+### Improvements
+- **Stop** cuts the assistant's answer at any time and **New conversation** is always available.
+- The chat's "structure" option is no longer needed: the assistant asks for the details when it needs them.
+- The text cursor appears where you can select or type.
 
 ## [0.1.4] - 2026-10-03
 
-### Nuevo
-- **Proyectos:** repositorios Git de SQL vinculados a tus conexiones, desde el segundo ícono de la barra lateral. Árbol de archivos, base activa o entornos (dev/qa/prod) sin credenciales en el repo, cambios con diff, commit, pull y push. Cada base muestra en el Explorador los proyectos vinculados.
-- **Ejecutar una consulta en varias bases a la vez:** la misma consulta en varias bases de una conexión, con los resultados juntos y una columna que indica la base.
-- **DBine se actualiza solo:** descarga la versión nueva, verifica su firma y se reinicia (pregunta antes si hay tareas en segundo plano). La 0.1.4 se instala a mano por última vez. En Linux funciona con la AppImage; con .deb/.rpm sigue ofreciendo la descarga.
-- **Deshabilitar y habilitar índices** desde el explorador y la pestaña Índices, en los motores que lo permiten (SQL Server, MySQL, MariaDB, TiDB, Oracle, Firebird, CockroachDB, MongoDB…).
-- **Selección de celdas en la grilla:** un bloque (arrastrando, Shift+clic o Shift+flechas) para copiarlo, o celdas y filas salteadas con Cmd/Ctrl+clic.
-- **Comparación de esquemas:** puede eliminar un elemento a la izquierda, a la derecha o en ambos lados, y antes de ejecutar muestra qué depende de él.
+### New
+- **Projects:** Git repositories of SQL linked to your connections, from the second icon in the sidebar. File tree, active database or environments (dev/qa/prod) without credentials in the repo, changes with diff, commit, pull and push. Each database shows its linked projects in the Explorer.
+- **Run a query on several databases at once:** the same query on several databases of a connection, with the results together and a column that shows the database.
+- **DBine updates itself:** it downloads the new version, verifies its signature and restarts (it asks first if there are background tasks). 0.1.4 is installed by hand for the last time. On Linux it works with the AppImage; with .deb/.rpm it still offers the download.
+- **Disable and enable indexes** from the explorer and the Indexes tab, in the engines that allow it (SQL Server, MySQL, MariaDB, TiDB, Oracle, Firebird, CockroachDB, MongoDB…).
+- **Cell selection in the grid:** a block (by dragging, Shift+click or Shift+arrows) to copy it, or skipped cells and rows with Cmd/Ctrl+click.
+- **Schema comparison:** it can drop an element on the left, on the right or on both sides, and before running it shows what depends on it.
 
-### Mejoras
-- **Asistente de IA:** recomienda un modelo integrado más grande según la memoria de tu equipo, conoce las particularidades de cada dialecto, reintenta si se niega a responder y guarda el historial de conversaciones en un panel.
-- El panel de Tareas tiene «Quitar terminadas» arriba y se cierra con Escape o con un clic afuera.
-- Azure SQL Database (también Hyperscale): conectado a master, lista todas las bases del servidor.
-- CockroachDB: los índices se ven como BTREE y GIN, igual que en PostgreSQL.
-- El texto del chat de IA se puede seleccionar y copiar.
+### Improvements
+- **AI assistant:** recommends a larger built-in model according to your computer's memory, knows the particularities of each dialect, retries if it refuses to answer and keeps the conversation history in a panel.
+- The Tasks panel has **Remove finished** at the top and closes with Escape or a click outside.
+- Azure SQL Database (also Hyperscale): connected to master, it lists all the server's databases.
+- CockroachDB: indexes show as BTREE and GIN, as in PostgreSQL.
+- The AI chat text can be selected and copied.
 
-### Correcciones
-- La barra de la consulta ya no se desarma al abrir el panel de IA.
-- La sincronización de esquemas de libSQL ya no falla por una sentencia `PRAGMA` que el servidor rechaza.
+### Fixes
+- The query bar no longer falls apart when the AI panel opens.
+- libSQL schema sync no longer fails because of a `PRAGMA` statement the server rejects.
 
 ## [0.1.3] - 2026-10-02
 
-### Nuevo
-- **Varias ventanas** en la misma instancia: «Nueva ventana» desde el Dock, la barra de tareas, Archivo › Nueva ventana o Cmd/Ctrl+Shift+N. Conexiones, consultas guardadas y configuración se comparten entre ventanas.
-- **Tareas en segundo plano:** las operaciones largas (sincronizar esquemas o datos, backups, generar scripts, importar, exportar, clonar tablas, eliminar objetos) pueden seguir en segundo plano. El panel de Tareas muestra progreso, tiempo transcurrido, tiempo restante estimado y Cancelar, y avisa al terminar. Al cerrar la aplicación con tareas en curso, pide confirmación antes de cancelarlas.
-- **Uso de índices** en todos los motores que lo informan: claves PK y FK en las columnas, carpeta Índices, porcentaje de lecturas por índice con color según seeks y scans, y eliminar un índice desde el explorador.
-- **«Ver dependencias…»:** qué depende de una tabla, columna, vista o rutina.
+### New
+- **Several windows** in the same instance: **New window** from the Dock, the taskbar, File › New window or Cmd/Ctrl+Shift+N. Connections, saved queries and settings are shared between windows.
+- **Background tasks:** long operations (syncing schemas or data, backups, generating scripts, importing, exporting, cloning tables, dropping objects) can keep running in the background. The Tasks panel shows progress, elapsed time, estimated remaining time and Cancel, and notifies you when done. When closing the application with tasks running, it asks for confirmation before cancelling them.
+- **Index usage** in every engine that reports it: PK and FK keys on the columns, an Indexes folder, percentage of reads per index with a color according to seeks and scans, and dropping an index from the explorer.
+- **View dependencies…:** what depends on a table, column, view or routine.
 
-### Mejoras
-- La sincronización de datos aplica cada lado en una sola transacción.
-- Autocompletado de SQL después de «esquema.» y «tabla.».
-- La comparación de esquemas sincroniza comentarios, tiene flechas reversibles y lista redimensionable.
+### Improvements
+- Data sync applies each side in a single transaction.
+- SQL autocompletion after "schema." and "table.".
+- Schema comparison syncs comments, has reversible arrows and a resizable list.
 
-### Correcciones
-- La sincronización de esquemas elimina las claves foráneas duplicadas una por una, y en SQL Server cambia el índice clustered de una tabla de forma segura.
+### Fixes
+- Schema sync drops duplicate foreign keys one by one, and in SQL Server it safely changes a table's clustered index.
 
 ## [0.1.2] - 2026-10-01
 
-### Nuevo
-- **Ejecución de scripts como en la herramienta de cada motor:** sentencia por sentencia, con `GO` / `GO N`, `DELIMITER`, `/` y `SET TERM`. Opción «Seguir si hay un error», mensajes en vivo ordenados, errores con código y línea, y ejecución de la sentencia en el cursor.
-- **Transacciones Auto/Manual** con Confirmar y Deshacer, y confirmación antes de un UPDATE o DELETE sin WHERE.
-- **Esquemas:** crear y eliminar esquemas con propietario y permisos; los esquemas vacíos aparecen en el explorador.
-- **Aviso de versión nueva:** DBine avisa cuando hay una versión nueva, al abrir y desde Ayuda › Buscar actualizaciones….
-- Reordenar conexiones y carpetas arrastrando.
-- Eliminar filas desde la grilla de datos y guardar los cambios con Cmd/Ctrl+S.
+### New
+- **Script execution like each engine's own tool:** statement by statement, with `GO` / `GO N`, `DELIMITER`, `/` and `SET TERM`. A **Continue on error** option, live ordered messages, errors with code and line, and running the statement at the cursor.
+- **Auto/Manual transactions** with Commit and Roll back, and confirmation before an UPDATE or DELETE without WHERE.
+- **Schemas:** create and drop schemas with owner and permissions; empty schemas show up in the explorer.
+- **New version notice:** DBine tells you when there is a new version, on startup and from Help › Check for updates….
+- Reorder connections and folders by dragging.
+- Delete rows from the data grid and save the changes with Cmd/Ctrl+S.
 
-### Mejoras
-- Cancelar una consulta mantiene la sesión.
+### Improvements
+- Cancelling a query keeps the session.
 
-### Correcciones
-- El driver de Solr se republicó (comparte código con el de Elasticsearch).
+### Fixes
+- The Solr driver was republished (it shares code with the Elasticsearch one).
 
 ## [0.1.1] - 2026-09-30
 
-### Nuevo
-- **Telemetría anónima**, activada por defecto, con un aviso la primera vez. Se desactiva en Configuración o con `DO_NOT_TRACK` / `DBINE_TELEMETRY=0`.
-- PostgreSQL: opciones de identidad (columnas identity) al diseñar tablas.
+### New
+- **Anonymous telemetry**, on by default, with a notice the first time. It is turned off in Settings or with `DO_NOT_TRACK` / `DBINE_TELEMETRY=0`.
+- PostgreSQL: identity options (identity columns) when designing tables.
 
-### Mejoras
-- Oracle: las definiciones incluyen los índices.
-- Pestaña de definición completa, con mensajes de error de migración más claros.
-- La comparación de esquemas conserva las filas y sincroniza con un solo paso.
-- La pestaña de comparación de datos recuerda tus selecciones.
-- Drivers de PostgreSQL y Oracle actualizados a 0.1.2.
+### Improvements
+- Oracle: definitions include indexes.
+- Full definition tab, with clearer migration error messages.
+- Schema comparison keeps the rows and syncs in a single step.
+- The data comparison tab remembers your selections.
+- PostgreSQL and Oracle drivers updated to 0.1.2.
 
 ## [0.1.0] - 2026-09-30
 
-### Nuevo
-- Primera versión de DBine, con instaladores para Windows, macOS (Apple Silicon e Intel) y Linux. Los drivers de cada motor, salvo SQLite, se descargan la primera vez que te conectás.
+### New
+- First version of DBine, with installers for Windows, macOS (Apple Silicon and Intel) and Linux. Each engine's drivers, except SQLite, are downloaded the first time you connect.

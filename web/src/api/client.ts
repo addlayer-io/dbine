@@ -146,8 +146,9 @@ export const api = {
   profilerPoll: (profilerId: string) => invoke<ProfiledStatement[]>('profiler_poll', { args: { profiler_id: profilerId } }),
   profilerStop: (profilerId: string) => invoke<void>('profiler_stop', { args: { profiler_id: profilerId } }),
   /** Look for a newer release (the updater manifest, else GitHub's latest
-   *  release). The calling window becomes the update's owner. */
-  checkForUpdate: (manual = false) => invoke<UpdateInfo>('check_for_update', { args: { manual } }),
+   *  release). The calling window becomes the update's owner. `lang` is the
+   *  UI language: outside English the notes come translated when they can. */
+  checkForUpdate: (manual = false, lang?: string) => invoke<UpdateInfo>('check_for_update', { args: { manual, lang } }),
   /** Download and verify the update found; progress comes as `update-progress`. */
   updateDownload: () => invoke<void>('update_download', { args: {} }),
   /** Stop a running download (the download answers `cancelled`). */

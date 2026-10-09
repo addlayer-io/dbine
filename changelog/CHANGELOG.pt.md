@@ -1,0 +1,145 @@
+# Alterações
+
+## [0.1.9] - 2026-10-09
+
+### Novidades
+- **Renomear com impacto:** **Renomear…** no explorador altera o nome de uma tabela, view, rotina, coluna, índice ou esquema e, no mesmo script, reescreve as views, procedimentos, funções e triggers que o usam. Antes de executar, mostra o que o motor atualiza sozinho, o que é reescrito e o que precisa ser revisado manualmente (SQL dinâmico, código ilegível), junto com o script completo. Roda em uma transação onde o motor permite. Está em todos os motores que podem renomear algo; os limites de cada um estão em `docs/soporte-por-motor.md`.
+- **Modificar uma tabela:** **Modificar…** abre o designer sobre uma tabela existente e monta o `ALTER` do motor. Mantém o que o designer não mostra (CHECKs, opções de índices, ordem das colunas da chave) e recria as views e triggers que dependem da tabela. Renomear uma coluna ali passa pela revisão de impacto; em conexões de produção, pede para digitar o nome da tabela antes de executar.
+- **Histórico por consulta:** a barra de **Histórico** acompanha a aba ativa, como uma linha do tempo: versões da consulta salva com diferenças e restauração, suas execuções e, em arquivos de um projeto, seus commits do git.
+- **Navegação no editor:** Cmd/Ctrl+clique em uma tabela, view ou rotina abre sua estrutura ou definição, e **Mostrar no explorador** a localiza na árvore. Tabelas e colunas que não existem são marcadas antes de executar.
+- **Parâmetros nas consultas:** `:nome` e `?` são solicitados ao executar, e o último valor é lembrado.
+- **Snippets** por motor (por exemplo, `sel` + Tab) e menu do botão direito no editor.
+- **Totais da seleção:** ao selecionar células da grade, são exibidos quantidade, soma, média, mínimo e máximo.
+- **Tarefas agendadas:** scripts, exportações, comparação de esquemas, backups, **Documentar o banco de dados** e **Enviar um e-mail** (SMTP) que rodam com o DBine fechado, por meio do agendador do sistema. Com notificações por tarefa e histórico de execuções. O que altera dados é aprovado explicitamente.
+- **Qualidade de código:** regras por motor no editor e **Ver problemas**.
+- **Documentar o banco de dados:** dicionário de dados em HTML ou Markdown, com diagrama, linhas estimadas e comentários de views e rotinas. As linhas estimadas e os comentários vêm dos metadados do motor, sem ler tabelas nem consumir cota nos motores em nuvem.
+- **Projetar consulta:** construtor visual de consultas.
+- **Copiar um subconjunto** de dados, com mascaramento.
+- **Otimizar consulta:** reescritas, índices sugeridos, alternativas da IA e comparação medida. As alternativas da IA são validadas contra o plano estimado do banco antes de serem exibidas.
+- **Verificação de integridade** de um banco, em todos os motores, com verificações próprias no SQL Server, na família PostgreSQL, na família MySQL, no Oracle, SAP HANA, Firebird, ClickHouse, Snowflake, BigQuery, Databricks e nos perfis ODBC.
+- **Buscar no banco:** nomes de objetos, código de views e rotinas, e nomes de colunas (com sua tabela e tipo).
+- **Gerar dados de teste** para uma tabela.
+- **Propriedades do banco** e opções avançadas ao criar um banco, em abas e por motor, com pré-visualização do script.
+- **Visualização JSON em árvore** dos resultados, com edição, e **Adicionar linha** / **Adicionar documento** na aba Dados e na grade.
+- **Nova marca:** o logotipo com o halo.
+
+### Melhorias
+- A cor da conexão aparece como uma faixa na borda da linha, e o ponto indica apenas o estado (verde conectada, vermelho desconectada).
+
+### Correções
+- A comparação de esquemas não é mais cancelada por leituras do explorador, e o SQL Server se reconecta.
+- As linhas de conexão sem cor ficam alinhadas com as que têm cor.
+- Arrastar tabelas para o construtor de consultas funciona no macOS.
+- Propriedades do SQL Server: nomes de arquivo longos não transbordam o diálogo, e a aba "Opções ANSI e de segurança" está traduzida.
+- O editor não marca mais como desconhecidas as colunas de uma subconsulta com alias.
+
+### Já disponível
+- **Executar uma consulta em vários bancos ao mesmo tempo:** escolhe-se um ou vários bancos de uma conexão, e os resultados são unidos com uma coluna que indica o banco de cada linha. Chegou na 0.1.4. Veja `docs/ejecutar-en-varias-bases.md`.
+
+## [0.1.8] - 2026-10-06
+
+### Novidades
+- **PostgreSQL atrás de gateways que só aceitam o protocolo simples:** a conexão tem uma nova opção, **Protocolo de consultas**: Automático ou Somente protocolo simples. Serve para gateways que rejeitam o protocolo estendido com o erro 0A000. Nesse modo, o que precisa do protocolo estendido avisa com uma mensagem clara em vez de falhar.
+
+### Correções
+- **Nova consulta com a aba Nova conexão aberta** falhava com "FOREIGN KEY constraint failed". Agora a consulta abre na última conexão que você tinha aberta, ou pede para escolher um banco no explorador.
+
+## [0.1.7] - 2026-10-05
+
+### Correções
+- **Comparar dados com colunas identity:** sincronizar linhas para uma tabela do SQL Server com uma coluna `IDENTITY` falhava com "Cannot insert explicit value for identity column". Agora o DBine ativa `IDENTITY_INSERT` apenas enquanto insere essas linhas.
+- No PostgreSQL, depois de copiar linhas com seus ids, a sequência avança para que o próximo insert não colida com um id copiado.
+
+## [0.1.6] - 2026-10-04
+
+### Novidades
+- **Processos no Monitor:** ao lado do painel, a aba **Processos** lista as sessões e as consultas em andamento do servidor, com filtros. De lá é possível cancelar uma consulta ou encerrar uma sessão. Disponível em todos os motores que expõem isso: SQL Server, PostgreSQL, MySQL, Oracle, MongoDB, Redis e a maioria dos demais.
+- **Autenticação do Windows no SQL Server:** com o usuário atual (SSPI no Windows, Kerberos no macOS e Linux) ou com usuário e senha de domínio, também a partir de Mac e Linux.
+- **Kerberos no MongoDB.**
+
+### Melhorias
+- No ODBC, os atributos extras da conexão substituem os do modelo.
+- O assistente de IA tem seu próprio ícone e não se confunde mais com **Formatar**.
+- As consultas feitas pelo assistente são exibidas traduzidas em todos os idiomas.
+- A telemetria anônima também conta o uso do assistente, do servidor MCP, das sincronizações, das migrações e das consultas em vários bancos. Nunca nomes, consultas nem dados; é desativada em Configurações › Geral.
+
+## [0.1.5] - 2026-10-03
+
+### Novidades
+- **O assistente de IA lê o seu banco, com a sua aprovação:** com um modelo local, pode consultar a estrutura e o uso de índices da conexão (por exemplo, "analise os índices e me diga qual está sobrando"). Antes de ler linhas ou executar uma consulta, mostra o SQL exato e o banco, com Aprovar ou Rejeitar. Nunca altera dados nem estrutura.
+
+### Melhorias
+- **Parar** interrompe a resposta do assistente a qualquer momento e **Nova conversa** está sempre disponível.
+- A opção "estrutura" do chat não é mais necessária: o assistente pede os detalhes quando precisa deles.
+- O cursor de texto aparece onde é possível selecionar ou digitar.
+
+## [0.1.4] - 2026-10-03
+
+### Novidades
+- **Projetos:** repositórios Git de SQL vinculados às suas conexões, a partir do segundo ícone da barra lateral. Árvore de arquivos, banco ativo ou ambientes (dev/qa/prod) sem credenciais no repositório, alterações com diff, commit, pull e push. Cada banco mostra no Explorador os projetos vinculados.
+- **Executar uma consulta em vários bancos ao mesmo tempo:** a mesma consulta em vários bancos de uma conexão, com os resultados juntos e uma coluna que indica o banco.
+- **O DBine se atualiza sozinho:** baixa a nova versão, verifica sua assinatura e reinicia (pergunta antes se houver tarefas em segundo plano). A 0.1.4 é instalada manualmente pela última vez. No Linux funciona com o AppImage; com .deb/.rpm continua oferecendo o download.
+- **Desabilitar e habilitar índices** a partir do explorador e da aba Índices, nos motores que permitem (SQL Server, MySQL, MariaDB, TiDB, Oracle, Firebird, CockroachDB, MongoDB…).
+- **Seleção de células na grade:** um bloco (arrastando, Shift+clique ou Shift+setas) para copiá-lo, ou células e linhas alternadas com Cmd/Ctrl+clique.
+- **Comparação de esquemas:** pode excluir um elemento à esquerda, à direita ou em ambos os lados e, antes de executar, mostra o que depende dele.
+
+### Melhorias
+- **Assistente de IA:** recomenda um modelo integrado maior conforme a memória do seu computador, conhece as particularidades de cada dialeto, tenta de novo se se recusar a responder e guarda o histórico de conversas em um painel.
+- O painel de Tarefas tem **Remover concluídas** no topo e fecha com Escape ou com um clique fora.
+- Azure SQL Database (também Hyperscale): conectado ao master, lista todos os bancos do servidor.
+- CockroachDB: os índices aparecem como BTREE e GIN, igual ao PostgreSQL.
+- O texto do chat de IA pode ser selecionado e copiado.
+
+### Correções
+- A barra da consulta não se desmonta mais ao abrir o painel de IA.
+- A sincronização de esquemas do libSQL não falha mais por causa de uma instrução `PRAGMA` que o servidor rejeita.
+
+## [0.1.3] - 2026-10-02
+
+### Novidades
+- **Várias janelas** na mesma instância: **Nova janela** a partir do Dock, da barra de tarefas, Arquivo › Nova janela ou Cmd/Ctrl+Shift+N. Conexões, consultas salvas e configurações são compartilhadas entre as janelas.
+- **Tarefas em segundo plano:** as operações longas (sincronizar esquemas ou dados, backups, gerar scripts, importar, exportar, clonar tabelas, excluir objetos) podem continuar em segundo plano. O painel de Tarefas mostra progresso, tempo decorrido, tempo restante estimado e Cancelar, e avisa ao terminar. Ao fechar o aplicativo com tarefas em andamento, pede confirmação antes de cancelá-las.
+- **Uso de índices** em todos os motores que o informam: chaves PK e FK nas colunas, pasta Índices, porcentagem de leituras por índice com cor conforme seeks e scans, e exclusão de um índice a partir do explorador.
+- **Ver dependências…:** o que depende de uma tabela, coluna, view ou rotina.
+
+### Melhorias
+- A sincronização de dados aplica cada lado em uma única transação.
+- Autocompletar de SQL depois de "esquema." e "tabela.".
+- A comparação de esquemas sincroniza comentários, tem setas reversíveis e lista redimensionável.
+
+### Correções
+- A sincronização de esquemas exclui as chaves estrangeiras duplicadas uma a uma e, no SQL Server, altera com segurança o índice clustered de uma tabela.
+
+## [0.1.2] - 2026-10-01
+
+### Novidades
+- **Execução de scripts como na ferramenta de cada motor:** instrução por instrução, com `GO` / `GO N`, `DELIMITER`, `/` e `SET TERM`. Opção **Continuar em caso de erro**, mensagens ao vivo em ordem, erros com código e linha, e execução da instrução no cursor.
+- **Transações Auto/Manual** com Confirmar e Desfazer, e confirmação antes de um UPDATE ou DELETE sem WHERE.
+- **Esquemas:** criar e excluir esquemas com proprietário e permissões; os esquemas vazios aparecem no explorador.
+- **Aviso de nova versão:** o DBine avisa quando há uma nova versão, ao abrir e em Ajuda › Verificar atualizações….
+- Reordenar conexões e pastas arrastando.
+- Excluir linhas na grade de dados e salvar as alterações com Cmd/Ctrl+S.
+
+### Melhorias
+- Cancelar uma consulta mantém a sessão.
+
+### Correções
+- O driver do Solr foi republicado (compartilha código com o do Elasticsearch).
+
+## [0.1.1] - 2026-09-30
+
+### Novidades
+- **Telemetria anônima**, ativada por padrão, com um aviso na primeira vez. É desativada em Configurações ou com `DO_NOT_TRACK` / `DBINE_TELEMETRY=0`.
+- PostgreSQL: opções de identidade (colunas identity) ao projetar tabelas.
+
+### Melhorias
+- Oracle: as definições incluem os índices.
+- Aba de definição completa, com mensagens de erro de migração mais claras.
+- A comparação de esquemas mantém as linhas e sincroniza em um único passo.
+- A aba de comparação de dados lembra suas seleções.
+- Drivers do PostgreSQL e do Oracle atualizados para a 0.1.2.
+
+## [0.1.0] - 2026-09-30
+
+### Novidades
+- Primeira versão do DBine, com instaladores para Windows, macOS (Apple Silicon e Intel) e Linux. Os drivers de cada motor, exceto o SQLite, são baixados na primeira vez que você se conecta.

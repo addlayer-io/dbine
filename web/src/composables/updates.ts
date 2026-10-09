@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { api, errorKind, errorMessage } from '../api/client';
 import type { UpdateInfo, UpdateProgress } from '../api/types';
-import { locale, t } from '../i18n';
+import { language, locale, t } from '../i18n';
 import { useSettingsStore } from '../stores/settings';
 import { requestUpdateRestart } from './quitGuard';
 import { initWindowRole, startupClaim } from './windowRole';
@@ -52,7 +52,7 @@ export async function checkForUpdateInBackground() {
   backgroundDone = true;
   if (!(await startupClaim())) return;
   try {
-    const info = await api.checkForUpdate(false);
+    const info = await api.checkForUpdate(false, language.value);
     const skipped = useSettingsStore().get<string | null>(UPDATES_SKIPPED, null);
     if (info.available && info.latest !== skipped && !updateOffer.value) show(info);
   } catch {
@@ -71,7 +71,7 @@ export async function checkForUpdateNow() {
   if (checkingForUpdate.value) return;
   checkingForUpdate.value = true;
   try {
-    const info = await api.checkForUpdate(true);
+    const info = await api.checkForUpdate(true, language.value);
     const { label } = await initWindowRole();
     if (!info.available) {
       ElMessage.success(t('updates:upToDate', { version: info.current }));
