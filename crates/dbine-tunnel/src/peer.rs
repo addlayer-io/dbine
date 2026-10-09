@@ -39,7 +39,12 @@ fn proc_net_tcp_uid(table: &str, local: SocketAddr, remote: SocketAddr) -> Optio
             return None;
         }
         let (l, r) = (proc_addr(f[1])?, proc_addr(f[2])?);
-        (canonical(l) == local && canonical(r) == remote).then(|| f[7].parse().ok()).flatten()
+        if canonical(l) != local || canonical(r) != remote {
+            return None;
+        }
+        // Only a live connection says who owns it: a closed one the kernel
+        // keeps (TIME_WAIT and the like) is listed with uid 0.
+        (f[3] == "01").then(|| f[7].parse().ok()).flatten()
     })
 }
 
@@ -358,6 +363,7 @@ mod tests {
    0: 0100007F:A1B2 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 11111 1 0000000000000000 100 0 0 10 0
    1: 0100007F:D431 0100007F:A1B2 01 00000000:00000000 00:00000000 00000000  1001        0 22222 1 0000000000000000 20 4 30 10 -1
    2: 0100007F:C350 0100007F:A1B2 01 00000000:00000000 00:00000000 00000000  1000        0 33333 1 0000000000000000 20 4 30 10 -1
+   3: 0100007F:EA60 0100007F:A1B2 06 00000000:00000000 03:00000F9E 00000000     0        0 0 3 0000000000000000
 ";
     const TCP6: &str = "  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 0000000000000000FFFF00000100007F:E290 0000000000000000FFFF00000100007F:A1B2 01 00000000:00000000 00:00000000 00000000  1000        0 44444 1 0000000000000000 20 4 30 10 -1
@@ -396,6 +402,9 @@ mod tests {
         assert_eq!(proc_net_tcp_uid(TCP6, a("127.0.0.1:58000"), listener), Some(1000));
         assert_eq!(proc_net_tcp_uid(TCP6, a("[::1]:58001"), a("[::1]:8080")), Some(1002));
         assert_eq!(proc_net_tcp_uid("", a("127.0.0.1:1"), listener), None);
+        // A client that already closed (TIME_WAIT, listed as uid 0) has no
+        // owner, even for a DBine running as root.
+        assert_eq!(proc_net_tcp_uid(TCP, a("127.0.0.1:60000"), listener), None);
     }
 
     /// Our own connection is ours; one that doesn't exist isn't anyone's.
