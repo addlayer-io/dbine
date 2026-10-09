@@ -22385,6 +22385,12 @@
   "crates/drivers/tdengine/src/transfer.rs",
   "crates/drivers/trino/src/transfer.rs"
  ],
+ "dice ser la versión 0.9.0+p1.e3": [
+  "crates/dbine-plugin/src/remote.rs"
+ ],
+ "dice ser la versión {0} y se esperaba la {1}": [
+  "crates/dbine-plugin/src/remote.rs"
+ ],
  "dirección": [
   "crates/drivers/cassandra/src/monitor.rs",
   "crates/drivers/elasticsearch/src/monitor.rs",
@@ -22444,6 +22450,12 @@
  ],
  "double de 64 bits": [
   "crates/drivers/solr/src/transfer.rs"
+ ],
+ "driver «{0}» {1} descargado: lo usan las conexiones nuevas": [
+  "crates/dbine-plugin/src/updater.rs"
+ ],
+ "driver «{0}» {1}: {2}; se usa {3}": [
+  "crates/dbine-plugin/src/updater.rs"
  ],
  "dsql: {0} has no primary key; read in one statement": [
   "crates/drivers/dsql/src/transfer.rs"
@@ -22795,13 +22807,26 @@
  "el driver de {0}": [
   "crates/dbine-plugin/src/install.rs"
  ],
+ "el driver de {0} no está descargado": [
+  "crates/dbine-plugin/src/updater.rs"
+ ],
+ "el driver de {0} no se publica para esta plataforma": [
+  "crates/dbine-plugin/src/updater.rs"
+ ],
  "el driver de {0} no se publica para esta plataforma ({1})": [
-  "crates/dbine-plugin/src/install.rs"
+  "crates/dbine-plugin/src/install.rs",
+  "crates/dbine-plugin/src/updater.rs"
+ ],
+ "el driver de {0} ya está en la versión que trae la app": [
+  "crates/dbine-plugin/src/updater.rs"
  ],
  "el driver no entregó las filas para compararlas": [
   "src-tauri/src/optimizer/compare.rs"
  ],
  "el driver «{0}» ({1}) habla el protocolo {2} y esta versión de DBine el {3}": [
+  "crates/dbine-plugin/src/remote.rs"
+ ],
+ "el driver «{0}» no arrancó bien ({1}); el detalle está en el log de DBine": [
   "crates/dbine-plugin/src/remote.rs"
  ],
  "el driver «{0}» no está en esta versión de DBine": [
@@ -23405,6 +23430,15 @@
  ],
  "el índice agregado «{0}» no tiene consulta": [
   "crates/drivers/mysql/src/design.rs"
+ ],
+ "el índice de drivers es de {0}, no de {1}": [
+  "crates/dbine-plugin/src/updater.rs"
+ ],
+ "el índice de drivers es más viejo que el que ya se tenía ({0} < {1})": [
+  "crates/dbine-plugin/src/index.rs"
+ ],
+ "el índice de drivers no se pudo leer: {0}": [
+  "crates/dbine-plugin/src/index.rs"
  ],
  "el índice de texto completo del original usa como clave un índice que el clon no tiene; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -24797,6 +24831,9 @@
  "guardar el archivo": [
   "src-tauri/src/commands/projects.rs"
  ],
+ "habla el protocolo {0} y esta versión de DBine el {1}": [
+  "crates/dbine-plugin/src/remote.rs"
+ ],
  "hace menos de 1 h": [
   "crates/drivers/clickhouse/src/health.rs"
  ],
@@ -25533,6 +25570,9 @@
  ],
  "la firma de la actualización no es válida": [
   "src-tauri/src/commands/updates.rs"
+ ],
+ "la firma del índice de drivers no es válida: {0}": [
+  "crates/dbine-plugin/src/index.rs"
  ],
  "la fracción de segundo no es válida": [
   "crates/drivers/hana/src/transfer.rs"
@@ -26456,6 +26496,9 @@
  "no acepta ninguna clave del agente": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
+ "no arrancó: {0}": [
+  "crates/dbine-plugin/src/remote.rs"
+ ],
  "no candidate for {0}": [
   "src-tauri/src/optimizer/live_tests.rs"
  ],
@@ -26513,7 +26556,8 @@
   "crates/drivers/hana/src/profiler.rs"
  ],
  "no está el driver de {0} en DBINE_DRIVERS_DIR ({1})": [
-  "crates/dbine-plugin/src/install.rs"
+  "crates/dbine-plugin/src/install.rs",
+  "crates/dbine-plugin/src/updater.rs"
  ],
  "no está en": [
   "crates/drivers/cassandra/src/ddl.rs"
@@ -26635,6 +26679,9 @@
  "no hay cómo vaciarla": [
   "crates/dbine-transfer/src/engine.rs"
  ],
+ "no hay de dónde buscar actualizaciones de drivers": [
+  "crates/dbine-plugin/src/updater.rs"
+ ],
  "no hay driver '{0}'": [
   "crates/dbine-drivers/src/lib.rs",
   "src-tauri/src/commands/data_compare.rs",
@@ -26660,9 +26707,6 @@
  ],
  "no hay un driver descargable '{0}'": [
   "src-tauri/src/commands/drivers.rs"
- ],
- "no hay un driver «{0}»": [
-  "crates/dbine-plugin/src/install.rs"
  ],
  "no hay un usuario ni un rol «{0}» en «{1}»": [
   "crates/drivers/mongodb/src/security.rs"
@@ -26712,6 +26756,9 @@
  ],
  "no respondió en 20 s": [
   "crates/dbine-tunnel/src/lib.rs"
+ ],
+ "no respondió en {0} s": [
+  "crates/dbine-plugin/src/remote.rs"
  ],
  "no result": [
   "src-tauri/src/commands/grid_new_rows_live_tests.rs"
@@ -26799,6 +26846,9 @@
  "no se pudieron borrar en el destino:\n{0}": [
   "src-tauri/src/commands/migration.rs"
  ],
+ "no se pudieron buscar actualizaciones de drivers: {0}": [
+  "crates/dbine-plugin/src/updater.rs"
+ ],
  "no se pudieron cifrar las credenciales": [
   "crates/dbine-core/src/secrets.rs"
  ],
@@ -26842,6 +26892,9 @@
  ],
  "no se pudo abrir {0}: {1}": [
   "src-tauri/src/commands/scripts.rs"
+ ],
+ "no se pudo actualizar el driver «{0}» a {1}: {2}": [
+  "crates/dbine-plugin/src/updater.rs"
  ],
  "no se pudo agregar el filtro a la consulta de este objeto": [
   "crates/dbine-driver/src/lib.rs",
@@ -27090,6 +27143,12 @@
  ],
  "no se pudo guardar el driver de {0} en {1}: {2}": [
   "crates/dbine-plugin/src/install.rs"
+ ],
+ "no se pudo guardar el estado de los drivers: {0}": [
+  "crates/dbine-plugin/src/updater.rs"
+ ],
+ "no se pudo guardar el índice de drivers: {0}": [
+  "crates/dbine-plugin/src/updater.rs"
  ],
  "no se pudo guardar {0}: {1}": [
   "crates/dbine-ai/src/embedded.rs"
@@ -28225,6 +28284,12 @@
  "se cargaron las filas pero no se pudo mover la secuencia de «{0}» más allá del máximo cargado: {1}": [
   "crates/drivers/dsql/src/transfer.rs"
  ],
+ "se cerró antes de estar listo": [
+  "crates/dbine-plugin/src/remote.rs"
+ ],
+ "se cerró antes de estar listo{0}": [
+  "crates/dbine-plugin/src/remote.rs"
+ ],
  "se cerró la conexión con el servidor": [
   "crates/drivers/dsql/src/lib.rs",
   "crates/drivers/postgres/src/lib.rs",
@@ -28370,6 +28435,9 @@
  "sin carpeta de usuario": [
   "src-tauri/src/tasks/os.rs"
  ],
+ "sin catálogo": [
+  "crates/dbine-plugin/src/updater.rs"
+ ],
  "sin cliente de Neptune": [
   "crates/drivers/neo4j/src/profiler.rs"
  ],
@@ -28390,6 +28458,9 @@
  ],
  "sin detalle": [
   "crates/dbine-transfer/src/lib.rs"
+ ],
+ "sin entrada o salida": [
+  "crates/dbine-plugin/src/remote.rs"
  ],
  "sin estadísticas": [
   "crates/drivers/oracle/src/health.rs"
@@ -31460,7 +31531,8 @@
   "crates/drivers/redis/src/monitor.rs"
  ],
  "¿hay conexión a internet? ({0})": [
-  "crates/dbine-plugin/src/install.rs"
+  "crates/dbine-plugin/src/install.rs",
+  "crates/dbine-plugin/src/updater.rs"
  ],
  "Álvarez": [
   "src-tauri/src/commands/datagen.rs"
@@ -31653,6 +31725,12 @@
   "crates/drivers/dynamodb/src/monitor.rs",
   "crates/drivers/elasticsearch/src/monitor.rs",
   "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "índice de drivers en caché de otra plataforma ({0})": [
+  "crates/dbine-plugin/src/updater.rs"
+ ],
+ "índice de drivers en caché descartado: {0}": [
+  "crates/dbine-plugin/src/updater.rs"
  ],
  "índice {0}: TTL inválido «{1}»": [
   "crates/drivers/mongodb/src/ddl.rs"

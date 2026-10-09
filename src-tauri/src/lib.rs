@@ -209,6 +209,9 @@ pub fn run() {
                 use tauri::Emitter;
                 let _ = handle.emit("component-download", p);
             });
+            // Downloadable drivers: newer versions published apart from
+            // the app (`drivers-changed` refreshes Configuración → Drivers).
+            commands::drivers::start_updater(app.handle().clone());
 
             #[cfg(debug_assertions)]
             devtools::start(app.handle().clone());
@@ -448,6 +451,8 @@ pub fn run() {
             commands::drivers::drivers_packages,
             commands::drivers::drivers_install,
             commands::drivers::drivers_remove,
+            commands::drivers::drivers_check_updates,
+            commands::drivers::drivers_rollback,
             commands::sync::sync_status,
             commands::sync::sync_connect,
             commands::sync::sync_cancel_connect,

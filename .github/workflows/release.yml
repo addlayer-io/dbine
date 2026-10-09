@@ -68,24 +68,17 @@ jobs:
             target: x86_64-unknown-linux-gnu
 
     steps:
+      # The app tags and their history: each new driver's min_app is the
+      # oldest recent app with the same app <-> host code
+      # (scripts/driver_index.py).
       - uses: actions/checkout@v4
-
-      - name: Linux system dependencies (WebKitGTK)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libssl-dev libxdo-dev \
-            libkrb5-dev  # Kerberos (GSSAPI) for Windows authentication: SQL Server, MongoDB
-
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          fetch-depth: 0
 
-      - uses: Swatinem/rust-cache@v2
+      # Linux libraries, Rust toolchain and cache, the same for drivers.yml.
+      - uses: ./.github/actions/driver-hosts
         with:
-          workspaces: ". -> target"
-          key: ${{ matrix.target }}
+          target: ${{ matrix.target }}
 
       - uses: actions/setup-node@v4
         with:
@@ -137,18 +130,26 @@ jobs:
 
       # Before the app: a published app never points to a driver that isn't
       # there. A driver file is never replaced (its id is its version);
-      # the index is.
+      # the index is: the new hosts are merged into the one published now
+      # (a driver release may have changed it since), signed with the
+      # updater key and uploaded with its .sig.
       - name: Publish new driver versions
         if: needs.route.outputs.publish == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          cd driver-hosts
-          if [ -s new-files.txt ]; then
-            tr -d '\r' < new-files.txt | xargs gh release upload drivers
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::Missing secret TAURI_SIGNING_PRIVATE_KEY: the driver index can't be signed."
+            exit 1
           fi
-          gh release upload drivers "index-${{ matrix.target }}.json" --clobber
+          if [ -s driver-hosts/new-files.txt ]; then
+            (cd driver-hosts && tr -d '\r' < new-files.txt | xargs gh release upload drivers)
+          fi
+          PY=$(command -v python3 || command -v python)
+          "$PY" scripts/driver_index.py publish ${{ matrix.target }} driver-hosts
 
       # The app updates itself from latest.json (docs/actualizaciones.md):
       # every installer it points at must be signed with the updater key.
@@ -231,11 +232,19 @@ jobs:
     needs: [route, build]
     if: needs.route.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    # One prune at a time (drivers.yml prunes too).
+    concurrency:
+      group: drivers-prune
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # It also keeps the newest host of each driver and the ones those apps
+      # switch to on their own, and signs the indexes it rewrites.
       - name: Delete driver hosts older than the last five versions
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: python3 scripts/prune-driver-assets.py --keep 5

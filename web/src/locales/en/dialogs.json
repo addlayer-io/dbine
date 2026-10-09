@@ -31,7 +31,19 @@
     "downloadAll": "Download all ({{size}} MB)",
     "downloading": "Downloading",
     "download": "Download",
-    "remove": "Delete"
+    "remove": "Delete",
+    "checkUpdates": "Check for updates",
+    "checking": "Checking…",
+    "upToDateAll": "Drivers are up to date.",
+    "rollback": "Roll back",
+    "rollbackTitle": "Drop version {{version}} and go back to {{previous}}",
+    "rollbackConfirm": "Go back to version {{previous}} of the {{label}} driver? Version {{version}} won't be used again. Open connections keep the current version until you close them.",
+    "statusDownloading": "Downloading version {{available}}…",
+    "statusReady": "Version {{version}} is used from the next connection",
+    "statusNeedsApp": "A newer version needs DBine {{minApp}} or later",
+    "statusRolledBack": "Version {{from}} failed and it went back to {{version}}",
+    "statusRolledBackUser": "Went back to version {{version}}; {{from}} won't be used",
+    "statusRestart": "Restart DBine to see this driver's new options"
   },
   "support": {
     "title": "Support DBine",

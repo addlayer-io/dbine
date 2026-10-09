@@ -3,13 +3,14 @@ import { ref as moduleRef } from 'vue';
 
 // Kept outside the component: Configuración is destroy-on-close and a
 // download (a task) outlives it. Reopening shows it still going.
-const busy = moduleRef<Record<string, 'install' | 'remove'>>({});
+const busy = moduleRef<Record<string, 'install' | 'remove' | 'rollback'>>({});
 const all = moduleRef(false);
 </script>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { driversApi, type DriverPackage } from '../api/drivers';
@@ -23,6 +24,10 @@ import { runTask, type TaskHandle } from '../stores/tasks';
 // is a task (stores/tasks.ts): it shows in Tareas with its progress, goes on
 // if Configuración closes, and then notifies when it ends. The download has
 // no cancel path, so the task offers no Cancelar.
+//
+// Drivers have versions of their own: a downloaded driver updates by itself
+// in the background (the next connection uses the new version) and each row
+// says how that goes. "Volver a la anterior" drops the version in use.
 
 const props = defineProps<{ packages: DriverPackage[] }>();
 const emit = defineEmits<{ changed: [] }>();
@@ -51,10 +56,71 @@ function progress(p: DriverPackage): string | null {
   return d && d.total ? `${Math.floor((d.done / d.total) * 100)} %` : null;
 }
 
+/** The row's version note, if there's anything to say. */
+function statusText(p: DriverPackage): string | null {
+  const s = p.status;
+  switch (s.kind) {
+    case 'downloading':
+      return t('dialogs:drivers.statusDownloading', { available: p.available });
+    case 'ready_next_connection':
+      return t('dialogs:drivers.statusReady', { version: p.version });
+    case 'needs_app':
+      return t('dialogs:drivers.statusNeedsApp', { minApp: s.min_app });
+    case 'rolled_back':
+      return s.reason === 'user'
+        ? t('dialogs:drivers.statusRolledBackUser', { version: p.version, from: s.from })
+        : t('dialogs:drivers.statusRolledBack', { version: p.version, from: s.from });
+    case 'restart_for_new_options':
+      return t('dialogs:drivers.statusRestart');
+    default:
+      return null;
+  }
+}
+
+const checking = ref(false);
+async function checkUpdates() {
+  checking.value = true;
+  try {
+    await driversApi.checkUpdates();
+    emit('changed');
+    const now = await driversApi.packages();
+    if (!now.packages.some((p) => p.installed != null && p.available !== p.version)) {
+      ElMessage.success(t('dialogs:drivers.upToDateAll'));
+    }
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  } finally {
+    checking.value = false;
+  }
+}
+
+async function rollback(p: DriverPackage) {
+  try {
+    await ElMessageBox.confirm(
+      t('dialogs:drivers.rollbackConfirm', { label: p.label, version: p.version, previous: p.previous }),
+      t('dialogs:drivers.rollback'),
+      { confirmButtonText: t('dialogs:drivers.rollback'), cancelButtonText: t('common:cancel'), type: 'warning' },
+    );
+  } catch {
+    return;
+  }
+  busy.value[p.package] = 'rollback';
+  try {
+    await driversApi.rollback(p.package);
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  } finally {
+    delete busy.value[p.package];
+    emit('changed');
+  }
+}
+
 let alive = true;
+let unlisten: UnlistenFn | null = null;
 const live = new Set<TaskHandle>();
 onBeforeUnmount(() => {
   alive = false;
+  unlisten?.();
   // Configuración closed mid-download: it goes on and notifies at the end.
   live.forEach((x) => x.background());
 });
@@ -115,7 +181,13 @@ async function installAll() {
   }
 }
 
-onMounted(() => conns.listenDownloads());
+onMounted(async () => {
+  conns.listenDownloads();
+  // Background updates, rollbacks: the list is read again.
+  const off = await listen('drivers-changed', () => emit('changed'));
+  if (alive) unlisten = off;
+  else off();
+});
 </script>
 
 <template>
@@ -126,6 +198,9 @@ onMounted(() => conns.listenDownloads());
     <div class="dv-bar">
       <el-input v-model="filter" :placeholder="$t('dialogs:drivers.search')" clearable size="small" style="width: 220px" />
       <span class="dv-sum" :title="$t('dialogs:drivers.diskTitle')">{{ $t('dialogs:drivers.summary', { installed: installed.length, total: packages.length, size: mb(onDisk) }) }}</span>
+      <el-button size="small" :loading="checking" @click="checkUpdates">
+        {{ checking ? $t('dialogs:drivers.checking') : $t('dialogs:drivers.checkUpdates') }}
+      </el-button>
       <el-button size="small" :disabled="!missing.length" :loading="all" @click="installAll">
         {{ $t('dialogs:drivers.downloadAll', { size: mb(toDownload) }) }}
       </el-button>
@@ -135,7 +210,17 @@ onMounted(() => conns.listenDownloads());
         <div class="dv-name">
           <strong>{{ p.label }} <span class="dv-ver">{{ p.version }}</span></strong>
           <span v-if="p.drivers.length > 1" :title="p.drivers.join(', ')">{{ p.drivers.join(', ') }}</span>
+          <span v-if="statusText(p)" class="dv-status" :class="'dv-' + p.status.kind" :title="statusText(p) ?? ''">{{ statusText(p) }}</span>
         </div>
+        <el-button
+          v-if="p.installed != null && p.previous"
+          size="small"
+          text
+          class="dv-back"
+          :title="$t('dialogs:drivers.rollbackTitle', { version: p.version, previous: p.previous })"
+          :loading="busy[p.package] === 'rollback'"
+          @click="rollback(p)"
+        >{{ $t('dialogs:drivers.rollback') }}</el-button>
         <span class="dv-size">
           <template v-if="p.installed != null"><el-icon class="dv-ok"><ei-circle-check /></el-icon>{{ mb(p.installed) }} MB</template>
           <template v-else>{{ mb(p.size) }} MB</template>
@@ -162,4 +247,7 @@ onMounted(() => conns.listenDownloads());
 .dv-ok { color: var(--nm-success); }
 .dv-name .dv-ver { font-size: 11px; font-weight: 400; color: var(--nm-text-dim); margin-left: 4px; }
 .dv-row :deep(.el-button) { width: 104px; }
+.dv-row :deep(.el-button.dv-back) { width: auto; }
+.dv-name .dv-status { color: var(--nm-text-dim); }
+.dv-name .dv-needs_app, .dv-name .dv-rolled_back, .dv-name .dv-restart_for_new_options { color: var(--nm-warning); }
 </style>

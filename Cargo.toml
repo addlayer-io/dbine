@@ -25,6 +25,8 @@ async-trait = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "gzip", "stream", "query", "form", "http2"] }
 base64 = "0.22"
+semver = "1.0.28"
+minisign-verify = "0.2.5"
 
 # Release builds: whole-program optimization, small executable. A panic's
 # backtrace has no function names.

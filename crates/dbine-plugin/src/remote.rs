@@ -11,10 +11,8 @@ use dbine_driver::{
     MessageSinkRef, ProgressSinkRef, QueryOutcome, Result, RowChange, RowSinkRef, Session, SyncScript, TableChange, TableSchema,
 };
 use std::collections::HashMap;
-use std::future::Future;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -72,6 +70,8 @@ enum Event {
 /// A running driver host.
 pub struct Host {
     package: String,
+    /// What the host said it is (`Ready.version`: its driver id).
+    version: String,
     stdin: Mutex<BufWriter<ChildStdin>>,
     pending: Mutex<HashMap<u64, Pending>>,
     next: AtomicU64,
@@ -92,10 +92,38 @@ fn dead(package: &str) -> Error {
     Error::Connect(format!("el driver «{package}» se cerró inesperadamente (el detalle está en el log de DBine); volvé a conectar"))
 }
 
+/// How long a host may take to say it's ready.
+const HANDSHAKE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Why a host didn't start.
+enum SpawnError {
+    /// The host itself is broken (it exits or stays silent before greeting,
+    /// speaks another protocol or says it's another version): another
+    /// version of the driver may work. The reason, for the log and the
+    /// settings page, and the error for the user.
+    Bad(String, Error),
+    /// It couldn't be started (permissions, the antivirus): another version
+    /// would fare the same.
+    Other(Error),
+}
+
+impl SpawnError {
+    fn into_error(self) -> Error {
+        match self {
+            SpawnError::Bad(_, e) | SpawnError::Other(e) => e,
+        }
+    }
+}
+
 impl Host {
     /// Start `exe` (the host of `package`) and greet it. Blocking: call it
     /// off the async runtime.
     pub fn spawn(package: &str, exe: &std::path::Path, args: &[String], components_dir: Option<PathBuf>) -> Result<Arc<Host>> {
+        Host::launch(package, exe, args, components_dir, None).map_err(SpawnError::into_error)
+    }
+
+    /// [`Host::spawn`], refusing a host that doesn't say it's `expect`.
+    fn launch(package: &str, exe: &std::path::Path, args: &[String], components_dir: Option<PathBuf>, expect: Option<&str>) -> std::result::Result<Arc<Host>, SpawnError> {
         let mut cmd = Command::new(exe);
         cmd.args(args);
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -107,17 +135,22 @@ impl Host {
         }
         let mut child = cmd.spawn().map_err(|e| {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
-                Error::Connect(format!(
+                SpawnError::Other(Error::Connect(format!(
                     "no se pudo iniciar el driver «{package}»: el sistema o el antivirus lo bloqueó ({e}). Permití {} y volvé a conectar.",
                     exe.display()
-                ))
+                )))
             } else {
-                Error::Connect(format!("no se pudo iniciar el driver «{package}»: {e}"))
+                SpawnError::Bad(format!("no arrancó: {e}"), Error::Connect(format!("no se pudo iniciar el driver «{package}»: {e}")))
             }
         })?;
-        let stdin = child.stdin.take().ok_or_else(|| dead(package))?;
-        let stdout = child.stdout.take().ok_or_else(|| dead(package))?;
-        let stderr = child.stderr.take().ok_or_else(|| dead(package))?;
+        let fail = |child: &mut Child, reason: String| {
+            let _ = child.kill();
+            let _ = child.wait();
+            SpawnError::Bad(reason.clone(), Error::Connect(format!("el driver «{package}» no arrancó bien ({reason}); el detalle está en el log de DBine")))
+        };
+        let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
+            return Err(fail(&mut child, "sin entrada o salida".into()));
+        };
 
         let log_pkg = package.to_string();
         std::thread::spawn(move || {
@@ -133,26 +166,49 @@ impl Host {
             version: env!("CARGO_PKG_VERSION").into(),
             components_dir: components_dir.map(|d| d.display().to_string()),
         };
-        write_frame(&mut writer, &hello).map_err(|_| dead(package))?;
-        let mut reader = BufReader::new(stdout);
-        let ready: Ready = read_frame(&mut reader).ok().flatten().ok_or_else(|| dead(package))?;
-        // The file's name and SHA-256 already pin the driver's version; what
-        // must match is how they talk.
+        if write_frame(&mut writer, &hello).is_err() {
+            return Err(fail(&mut child, "se cerró antes de estar listo".into()));
+        }
+        // The greeting on a thread of its own, so a host that never answers
+        // doesn't hang the connection.
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            let ready: Option<Ready> = read_frame(&mut reader).ok().flatten();
+            let _ = tx.send((reader, ready));
+        });
+        let (reader, ready) = match rx.recv_timeout(HANDSHAKE) {
+            Ok((reader, Some(ready))) => (reader, ready),
+            Ok((_, None)) => {
+                let status = child.try_wait().ok().flatten().map(|s| format!(" ({s})")).unwrap_or_default();
+                return Err(fail(&mut child, format!("se cerró antes de estar listo{status}")));
+            }
+            Err(_) => return Err(fail(&mut child, format!("no respondió en {} s", HANDSHAKE.as_secs()))),
+        };
         if ready.protocol != PROTOCOL {
+            let reason = format!("habla el protocolo {} y esta versión de DBine el {PROTOCOL}", ready.protocol);
             let _ = child.kill();
-            return Err(Error::Connect(format!(
-                "el driver «{package}» ({}) habla el protocolo {} y esta versión de DBine el {PROTOCOL}",
-                ready.version, ready.protocol
-            )));
+            let _ = child.wait();
+            return Err(SpawnError::Bad(
+                reason,
+                Error::Connect(format!(
+                    "el driver «{package}» ({}) habla el protocolo {} y esta versión de DBine el {PROTOCOL}",
+                    ready.version, ready.protocol
+                )),
+            ));
+        }
+        if let Some(expect) = expect.filter(|e| *e != ready.version) {
+            return Err(fail(&mut child, format!("dice ser la versión {} y se esperaba la {expect}", ready.version)));
         }
         tracing::info!(target: "dbine_plugin", "driver «{package}» {} listo", ready.version);
-        Ok(Host::attach(package, writer, reader, child))
+        Ok(Host::attach(package, &ready.version, writer, reader, child))
     }
 
     /// A greeted host: `stdin` takes the calls, `reader` gives its frames.
-    fn attach(package: &str, stdin: BufWriter<ChildStdin>, mut reader: impl std::io::Read + Send + 'static, child: Child) -> Arc<Host> {
+    fn attach(package: &str, version: &str, stdin: BufWriter<ChildStdin>, mut reader: impl std::io::Read + Send + 'static, child: Child) -> Arc<Host> {
         let host = Arc::new(Host {
             package: package.to_string(),
+            version: version.to_string(),
             stdin: Mutex::new(stdin),
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
@@ -174,6 +230,11 @@ impl Host {
             }
         });
         host
+    }
+
+    /// What the host said it is: its driver id.
+    pub fn version(&self) -> &str {
+        &self.version
     }
 
     pub fn is_alive(&self) -> bool {
@@ -401,13 +462,45 @@ fn unexpected() -> Error {
     Error::State("respuesta inesperada del driver".into())
 }
 
-type Resolve = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<PathBuf>> + Send>> + Send + Sync>;
+/// Which host a new connection should use.
+#[derive(Debug, Clone)]
+pub struct Target {
+    pub exe: PathBuf,
+    /// Its driver id: a running host of another id is left to its sessions
+    /// and a new one starts. None: whatever runs will do.
+    pub id: Option<String>,
+    /// Refuse the host if it says it's another version than `id`.
+    pub check_version: bool,
+}
+
+/// Where a [`Launcher`] gets its hosts from.
+#[async_trait]
+pub trait HostSource: Send + Sync {
+    /// The host new connections should use (downloading it if needed).
+    async fn resolve(&self) -> Result<Target>;
+    /// The host of `id` is broken (`reason`): don't give it again.
+    fn bad(&self, id: &str, reason: &str) {
+        let _ = (id, reason);
+    }
+}
+
+/// A fixed executable.
+struct Fixed(PathBuf);
+
+#[async_trait]
+impl HostSource for Fixed {
+    async fn resolve(&self) -> Result<Target> {
+        Ok(Target { exe: self.0.clone(), id: None, check_version: false })
+    }
+}
 
 /// A driver crate's host, started on first use and again after it dies.
-/// `resolve` gives the executable (downloading it if needed).
+/// Each connection asks the source which host to use: when that changes
+/// (a driver update), new connections get a new host and the sessions on
+/// the old one keep it until they close.
 pub struct Launcher {
     package: String,
-    resolve: Resolve,
+    source: Arc<dyn HostSource>,
     args: Vec<String>,
     components_dir: Option<PathBuf>,
     host: tokio::sync::Mutex<Option<Arc<Host>>>,
@@ -415,32 +508,67 @@ pub struct Launcher {
 }
 
 impl Launcher {
-    pub fn new(package: &str, components_dir: Option<PathBuf>, resolve: Resolve) -> Arc<Self> {
-        Arc::new(Launcher { package: package.to_string(), resolve, args: Vec::new(), components_dir, host: tokio::sync::Mutex::new(None), current: Mutex::new(None) })
+    pub fn new(package: &str, components_dir: Option<PathBuf>, source: Arc<dyn HostSource>) -> Arc<Self> {
+        Launcher::with_args(package, source, Vec::new(), components_dir)
     }
 
     /// A fixed executable (tests, `DBINE_DRIVERS_DIR`).
     pub fn at(package: &str, exe: PathBuf, args: Vec<String>, components_dir: Option<PathBuf>) -> Arc<Self> {
-        let resolve: Resolve = Arc::new(move || {
-            let exe = exe.clone();
-            Box::pin(async move { Ok(exe) })
-        });
-        Arc::new(Launcher { package: package.to_string(), resolve, args, components_dir, host: tokio::sync::Mutex::new(None), current: Mutex::new(None) })
+        Launcher::with_args(package, Arc::new(Fixed(exe)), args, components_dir)
+    }
+
+    pub fn with_args(package: &str, source: Arc<dyn HostSource>, args: Vec<String>, components_dir: Option<PathBuf>) -> Arc<Self> {
+        Arc::new(Launcher { package: package.to_string(), source, args, components_dir, host: tokio::sync::Mutex::new(None), current: Mutex::new(None) })
+    }
+
+    async fn start(&self, t: &Target) -> std::result::Result<Arc<Host>, SpawnError> {
+        let (pkg, args, dir, exe) = (self.package.clone(), self.args.clone(), self.components_dir.clone(), t.exe.clone());
+        let expect = t.id.clone().filter(|_| t.check_version);
+        tokio::task::spawn_blocking(move || Host::launch(&pkg, &exe, &args, dir, expect.as_deref()))
+            .await
+            .map_err(|e| SpawnError::Other(Error::State(e.to_string())))?
     }
 
     pub async fn get(&self) -> Result<Arc<Host>> {
         let mut slot = self.host.lock().await;
-        if let Some(h) = slot.as_ref().filter(|h| h.is_alive()) {
+        let target = self.source.resolve().await?;
+        if let Some(h) = slot.as_ref().filter(|h| h.is_alive() && target.id.as_deref().is_none_or(|id| h.version() == id)) {
             return Ok(h.clone());
         }
-        let exe = (self.resolve)().await?;
-        let (pkg, args, dir) = (self.package.clone(), self.args.clone(), self.components_dir.clone());
-        let host = tokio::task::spawn_blocking(move || Host::spawn(&pkg, &exe, &args, dir))
-            .await
-            .map_err(|e| Error::State(e.to_string()))??;
+        let host = match self.start(&target).await {
+            Ok(h) => h,
+            // A broken version: drop it and try once with what the source
+            // gives instead (the previous one, or the app's own).
+            Err(SpawnError::Bad(reason, err)) => {
+                let Some(id) = target.id.as_deref() else { return Err(err) };
+                tracing::warn!(target: "dbine_plugin", "driver «{}» {id} descartado: {reason}", self.package);
+                self.source.bad(id, &reason);
+                let retry = self.source.resolve().await?;
+                if retry.id == target.id {
+                    return Err(err);
+                }
+                match self.start(&retry).await {
+                    Ok(h) => h,
+                    Err(SpawnError::Bad(reason, err)) => {
+                        if let Some(id) = retry.id.as_deref() {
+                            tracing::warn!(target: "dbine_plugin", "driver «{}» {id} descartado: {reason}", self.package);
+                            self.source.bad(id, &reason);
+                        }
+                        return Err(err);
+                    }
+                    Err(SpawnError::Other(e)) => return Err(e),
+                }
+            }
+            Err(SpawnError::Other(e)) => return Err(e),
+        };
         *slot = Some(host.clone());
         *self.current.lock().unwrap() = Some(host.clone());
         Ok(host)
+    }
+
+    /// The driver id of the host new calls go to, if one is running.
+    pub fn running_version(&self) -> Option<String> {
+        self.current.lock().unwrap().as_ref().filter(|h| h.is_alive()).map(|h| h.version.clone())
     }
 
     /// The running host's process id, if one is running.
@@ -1236,7 +1364,7 @@ mod tests {
                 }
             }
         });
-        Host::attach("viejo", stdin, BufReader::new(theirs), child)
+        Host::attach("viejo", "", stdin, BufReader::new(theirs), child)
     }
 
     /// A sink that holds its first batch until the test lets it go, the way
@@ -1304,5 +1432,156 @@ mod tests {
         assert!(matches!(answered, Ok(Ok(ref v)) if v == "1"), "the other call got no reply: {answered:?}");
         assert_eq!(read.await.unwrap().unwrap(), rows);
         assert_eq!(held.lock().unwrap().rows as u64, rows);
+    }
+
+    /// A fake host: a script that greets as `version` and answers its k-th
+    /// call with `replies[k-1]`. Python reads the frames (it doesn't need
+    /// to understand them); the frames are made here.
+    fn fake_host(dir: &std::path::Path, name: &str, version: &str, replies: &[Reply]) -> PathBuf {
+        let data = dir.join(name);
+        std::fs::create_dir_all(&data).unwrap();
+        let frame = |m: &dyn Fn(&mut Vec<u8>)| {
+            let mut v = Vec::new();
+            m(&mut v);
+            v
+        };
+        std::fs::write(data.join("ready.bin"), frame(&|v| write_frame(v, &Ready { protocol: PROTOCOL, version: version.into(), drivers: vec![] }).unwrap())).unwrap();
+        for (i, r) in replies.iter().enumerate() {
+            let id = i as u64 + 1;
+            let bytes = match r {
+                Reply::Session { id: s, interruptible } => {
+                    frame(&|v| write_frame(v, &FromHost::Reply { id, result: Ok(Reply::Session { id: *s, interruptible: *interruptible }) }).unwrap())
+                }
+                Reply::Text(t) => frame(&|v| write_frame(v, &FromHost::Reply { id, result: Ok(Reply::Text(t.clone())) }).unwrap()),
+                _ => unreachable!(),
+            };
+            std::fs::write(data.join(format!("reply-{id}.bin")), bytes).unwrap();
+        }
+        let py = dir.join("fake_host.py");
+        std::fs::write(
+            &py,
+            "import os, struct, sys\n\
+             d = sys.argv[1]\n\
+             i, o = sys.stdin.buffer, sys.stdout.buffer\n\
+             def frame():\n    h = i.read(4)\n    if len(h) < 4: return None\n    return i.read(struct.unpack('<I', h)[0])\n\
+             frame()\n\
+             o.write(open(os.path.join(d, 'ready.bin'), 'rb').read()); o.flush()\n\
+             k = 0\n\
+             while frame() is not None:\n    k += 1\n    p = os.path.join(d, 'reply-%d.bin' % k)\n    if os.path.exists(p):\n        o.write(open(p, 'rb').read()); o.flush()\n",
+        )
+        .unwrap();
+        script(dir, name, &format!("exec python3 {} {}", py.display(), data.display()))
+    }
+
+    fn script(dir: &std::path::Path, name: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let exe = dir.join(format!("{name}.sh"));
+        std::fs::write(&exe, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        exe
+    }
+
+    fn target(exe: &std::path::Path, id: &str) -> Target {
+        Target { exe: exe.to_path_buf(), id: Some(id.into()), check_version: true }
+    }
+
+    /// The test's source: gives `now`; a bad host switches it to `fallback`.
+    struct Src {
+        now: Mutex<Target>,
+        fallback: Option<Target>,
+        bad: Mutex<Vec<(String, String)>>,
+    }
+
+    #[async_trait]
+    impl HostSource for Src {
+        async fn resolve(&self) -> Result<Target> {
+            Ok(self.now.lock().unwrap().clone())
+        }
+        fn bad(&self, id: &str, reason: &str) {
+            self.bad.lock().unwrap().push((id.into(), reason.into()));
+            if let Some(f) = &self.fallback {
+                *self.now.lock().unwrap() = f.clone();
+            }
+        }
+    }
+
+    fn src(now: Target, fallback: Option<Target>) -> Arc<Src> {
+        Arc::new(Src { now: Mutex::new(now), fallback, bad: Mutex::new(Vec::new()) })
+    }
+
+    fn text(r: Result<Reply>) -> String {
+        match r {
+            Ok(Reply::Text(t)) => t,
+            Ok(Reply::Session { id, .. }) => format!("session {id}"),
+            other => format!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_new_version_serves_new_connections_and_the_old_one_keeps_its_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let replies = |t: &str| [Reply::Session { id: 1, interruptible: false }, Reply::Text(t.into())];
+        let a = fake_host(dir.path(), "a", "1.0.0+p1.e3", &replies("A"));
+        let b = fake_host(dir.path(), "b", "1.0.1+p1.e3", &replies("B"));
+        let source = src(target(&a, "1.0.0+p1.e3"), None);
+        let launcher = Launcher::new("fake", None, source.clone());
+
+        let old = launcher.get().await.unwrap();
+        assert_eq!(old.version(), "1.0.0+p1.e3");
+        assert_eq!(text(old.call(Call::Manifest).await), "session 1");
+        assert!(Arc::ptr_eq(&old, &launcher.get().await.unwrap()), "same version: same host");
+
+        // The update: the next connection gets B.
+        *source.now.lock().unwrap() = target(&b, "1.0.1+p1.e3");
+        let new = launcher.get().await.unwrap();
+        assert_eq!(new.version(), "1.0.1+p1.e3");
+        assert!(!Arc::ptr_eq(&old, &new));
+        assert_eq!(launcher.running_version().as_deref(), Some("1.0.1+p1.e3"));
+        assert!(Arc::ptr_eq(&new, &launcher.get().await.unwrap()));
+
+        // The old session's host still answers.
+        assert!(old.is_alive());
+        assert_eq!(text(old.call(Call::Manifest).await), "A");
+        assert_eq!(text(new.call(Call::Manifest).await), "session 1");
+        assert_eq!(text(new.call(Call::Manifest).await), "B");
+        assert!(source.bad.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_host_that_exits_before_greeting_is_bad_and_the_previous_one_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let broken = script(dir.path(), "broken", "exit 3");
+        let prev = fake_host(dir.path(), "prev", "1.0.0+p1.e3", &[]);
+        let source = src(target(&broken, "1.0.1+p1.e3"), Some(target(&prev, "1.0.0+p1.e3")));
+        let launcher = Launcher::new("fake", None, source.clone());
+        let h = launcher.get().await.unwrap();
+        assert_eq!(h.version(), "1.0.0+p1.e3");
+        let bad = source.bad.lock().unwrap().clone();
+        assert_eq!(bad.len(), 1);
+        assert_eq!(bad[0].0, "1.0.1+p1.e3");
+        assert!(bad[0].1.contains("se cerró antes de estar listo"), "{}", bad[0].1);
+    }
+
+    #[tokio::test]
+    async fn a_host_that_says_another_version_is_bad() {
+        let dir = tempfile::tempdir().unwrap();
+        let liar = fake_host(dir.path(), "liar", "0.9.0+p1.e3", &[]);
+        let prev = fake_host(dir.path(), "prev", "1.0.0+p1.e3", &[]);
+        let source = src(target(&liar, "1.0.1+p1.e3"), Some(target(&prev, "1.0.0+p1.e3")));
+        let launcher = Launcher::new("fake", None, source.clone());
+        assert_eq!(launcher.get().await.unwrap().version(), "1.0.0+p1.e3");
+        let bad = source.bad.lock().unwrap().clone();
+        assert_eq!(bad.len(), 1);
+        assert!(bad[0].1.contains("dice ser la versión 0.9.0+p1.e3"), "{}", bad[0].1);
+
+        // Without anything else to go to, the error reaches the connection.
+        let source = src(target(&liar, "1.0.1+p1.e3"), None);
+        let launcher = Launcher::new("fake", None, source.clone());
+        assert!(matches!(launcher.get().await, Err(Error::Connect(_))));
+        assert_eq!(source.bad.lock().unwrap().len(), 1);
+
+        // Unchecked (the app's own version): taken as it is.
+        let source = src(Target { check_version: false, ..target(&liar, "1.0.1+p1.e3") }, None);
+        assert_eq!(Launcher::new("fake", None, source).get().await.unwrap().version(), "0.9.0+p1.e3");
     }
 }

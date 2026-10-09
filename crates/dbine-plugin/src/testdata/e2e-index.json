@@ -1,0 +1,35 @@
+{
+ "target": "t",
+ "schema": 2,
+ "seq": 200,
+ "drivers": {
+  "pg": {
+   "1.0.1+p1.e3": {
+    "file": "e2e-v101.gz",
+    "size": 286,
+    "sha256": "d61cf71c24b271827fd3c125efb405d940898eef7b2e98647369139e81a4e933",
+    "manifest": [],
+    "min_app": "0.1.0",
+    "yanked": null,
+    "published_at": "2026-10-09T00:00:00Z"
+   },
+   "1.0.2+p1.e3": {
+    "file": "e2e-v102.gz",
+    "size": 1,
+    "sha256": "00",
+    "manifest": [],
+    "min_app": "9.0.0",
+    "yanked": null,
+    "published_at": "2026-10-09T00:00:00Z"
+   },
+   "1.0.3+p1.e3": {
+    "file": "e2e-v103.gz",
+    "size": 1,
+    "sha256": "00",
+    "manifest": [],
+    "yanked": "broken",
+    "published_at": "2026-10-09T00:00:00Z"
+   }
+  }
+ }
+}

@@ -89,11 +89,15 @@ pub fn all() -> &'static [Arc<dyn Driver>] {
 }
 
 /// Drivers downloaded on first use (release builds, feature `plugins`).
+/// The catalog the app carries gives each driver crate's floor version; the
+/// updater (`dbine_plugin::updater`) moves installed drivers to newer
+/// versions published apart from the app.
 #[cfg(feature = "plugins")]
 pub mod plugins {
     use dbine_driver::Driver;
-    use dbine_plugin::install::{self, Catalog};
-    use dbine_plugin::{DriverMeta, Launcher, RemoteDriver};
+    use dbine_plugin::install::Catalog;
+    use dbine_plugin::updater::{PkgStatus, Updater};
+    use dbine_plugin::RemoteDriver;
     use serde::Deserialize;
     use std::sync::{Arc, OnceLock};
 
@@ -101,7 +105,8 @@ pub mod plugins {
     struct File {
         #[serde(flatten)]
         catalog: Catalog,
-        drivers: Vec<DriverMeta>,
+        /// The drivers' manifests, as published (`DriverMeta`s).
+        drivers: Vec<serde_json::Value>,
     }
 
     /// The catalog built in. The release checks it parses
@@ -117,9 +122,15 @@ pub mod plugins {
         })
     }
 
-    /// Where the downloadable drivers come from.
+    /// Where the downloadable drivers come from (their floor versions).
     pub fn catalog() -> &'static Catalog {
         &file().catalog
+    }
+
+    /// Picks, downloads and updates the drivers' hosts.
+    pub fn updater() -> &'static Arc<Updater> {
+        static UPDATER: OnceLock<Arc<Updater>> = OnceLock::new();
+        UPDATER.get_or_init(|| Updater::new(file().catalog.clone(), file().drivers.clone()))
     }
 
     /// A downloadable driver crate, for the settings page.
@@ -128,78 +139,99 @@ pub mod plugins {
         pub package: String,
         /// The engine it's named after ("SQL Server").
         pub label: String,
-        /// The driver's own version ("1.2.0"), apart from the app's.
+        /// The driver's own version in use ("1.2.0"), apart from the app's;
+        /// when it isn't downloaded, the one a download would get.
         pub version: String,
         /// Its drivers' names (SQL Server, Azure SQL, Fabric…).
         pub drivers: Vec<String>,
-        /// Download size.
+        /// Download size (of `available`).
         pub size: u64,
         /// Bytes on disk, when installed.
         pub installed: Option<u64>,
-    }
-
-    fn label(package: &str) -> String {
-        let metas: Vec<&DriverMeta> = file().drivers.iter().filter(|m| m.package == package).collect();
-        metas.iter().find(|m| m.info.id == package).or(metas.first()).map(|m| m.info.name.to_string()).unwrap_or_else(|| package.to_string())
+        /// The newest version this app can run.
+        pub available: String,
+        /// The version "Volver a la anterior" goes back to.
+        pub previous: Option<String>,
+        pub status: PkgStatus,
+        /// A newer version needs this app version.
+        pub min_app_needed: Option<String>,
     }
 
     pub fn packages() -> Vec<Package> {
-        let installed = install::installed(catalog());
-        let mut names: Vec<&str> = file().drivers.iter().map(|m| m.package.as_str()).collect();
+        let up = updater();
+        let pkg_of = |m: &serde_json::Value| m.get("package").and_then(|p| p.as_str()).map(str::to_string);
+        let mut names: Vec<String> = file().drivers.iter().filter_map(pkg_of).collect();
         names.sort();
         names.dedup();
         names
             .into_iter()
-            .map(|p| Package {
-                package: p.to_string(),
-                label: label(p),
-                version: catalog().hosts.get(p).map(|h| h.version.split('+').next().unwrap_or_default().to_string()).unwrap_or_default(),
-                drivers: file().drivers.iter().filter(|m| m.package == p).map(|m| m.info.name.to_string()).collect(),
-                size: catalog().hosts.get(p).map(|h| h.size).unwrap_or(0),
-                installed: installed.iter().find(|(q, _)| q == p).map(|(_, n)| *n),
+            .map(|p| {
+                let info = up.info(&p);
+                Package {
+                    label: up.label(&p),
+                    drivers: file()
+                        .drivers
+                        .iter()
+                        .filter(|m| pkg_of(m).as_deref() == Some(p.as_str()))
+                        .filter_map(|m| m.get("info").and_then(|i| i.get("name")).and_then(|n| n.as_str()).map(str::to_string))
+                        .collect(),
+                    version: info.as_ref().map(|i| i.version.clone()).unwrap_or_default(),
+                    size: info.as_ref().map(|i| i.size).unwrap_or(0),
+                    installed: info.as_ref().and_then(|i| i.installed),
+                    available: info.as_ref().map(|i| i.available.clone()).unwrap_or_default(),
+                    previous: info.as_ref().and_then(|i| i.previous.clone()),
+                    status: info.as_ref().map(|i| i.status.clone()).unwrap_or(PkgStatus::UpToDate),
+                    min_app_needed: info.and_then(|i| i.min_app_needed),
+                    package: p,
+                }
             })
             .collect()
     }
 
     /// Download a driver now (the settings page's "descargar").
     pub async fn install(package: &str) -> dbine_driver::Result<()> {
-        let ids = file().drivers.iter().filter(|m| m.package == package).map(|m| m.info.id.to_string()).collect();
-        install::ensure(catalog(), package, &label(package), ids).await.map(|_| ())
+        updater().install(package).await
     }
 
     pub fn remove(package: &str) -> std::io::Result<()> {
-        install::remove(catalog(), package)
+        updater().remove(package)
     }
 
-    /// A RemoteDriver per downloadable driver not built in.
+    /// "Buscar actualizaciones": fetch the index now; newer versions of
+    /// installed drivers download in the background.
+    pub async fn check_updates() -> Result<(), String> {
+        updater().check().await
+    }
+
+    /// "Volver a la anterior": drop the version in use for the one before.
+    pub fn rollback(package: &str) -> Result<(), String> {
+        updater().rollback(package)
+    }
+
+    /// Called whenever the drivers' versions or statuses change.
+    pub fn on_change(f: impl Fn() + Send + Sync + 'static) {
+        updater().set_on_change(f);
+    }
+
+    /// The periodic update check (run it on the app's async runtime).
+    pub async fn run_updater() {
+        updater().clone().run().await
+    }
+
+    /// A RemoteDriver per downloadable driver not built in, described by
+    /// the version each will run.
     pub(crate) fn drivers(built_in: &[&str]) -> Vec<Arc<dyn Driver>> {
-        let f = file();
-        if f.catalog.hosts.is_empty() {
+        if file().catalog.hosts.is_empty() {
             return Vec::new();
         }
-        install::remove_stale(&f.catalog);
-        let mut launchers: std::collections::HashMap<String, Arc<Launcher>> = Default::default();
-        f.drivers
-            .iter()
+        let up = updater();
+        up.gc();
+        up.startup_metas()
+            .into_iter()
             .filter(|m| !built_in.contains(&m.package.as_str()))
             .map(|m| {
-                let launcher = launchers
-                    .entry(m.package.clone())
-                    .or_insert_with(|| {
-                        let package = m.package.clone();
-                        let ids: Vec<String> = f.drivers.iter().filter(|x| x.package == package).map(|x| x.info.id.to_string()).collect();
-                        let name = label(&package);
-                        Launcher::new(
-                            &package.clone(),
-                            Some(dbine_driver::runtime::components_dir()),
-                            Arc::new(move || {
-                                let (package, ids, name) = (package.clone(), ids.clone(), name.clone());
-                                Box::pin(async move { install::ensure(catalog(), &package, &name, ids).await })
-                            }),
-                        )
-                    })
-                    .clone();
-                Arc::new(RemoteDriver::new(m.clone(), launcher)) as Arc<dyn Driver>
+                let launcher = up.launcher(&m.package);
+                Arc::new(RemoteDriver::new(m, launcher)) as Arc<dyn Driver>
             })
             .collect()
     }
