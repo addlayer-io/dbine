@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Task notifications on Windows:** a database error message can no longer run commands through the notification. Notifications on macOS and Linux get the text as separate arguments too.
+- **SSH tunnels:** a server whose key you accepted in DBine and that now presents a different one is refused, instead of asking you again. The connection's SSH section lists the accepted servers, each with **Forget**.
+- **SQL against PostgreSQL:** string values are written as `E'…'` with backslashes escaped, so a value can't end the string early on a server with `standard_conforming_strings` off. This covers the PostgreSQL family, CockroachDB and similar engines.
+- **Snowflake scripts:** a backslash inside a `"quoted name"` no longer changes where a statement ends.
+- **CSV and TSV export:** text cells and column names that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a `'` in front, so spreadsheets don't run them as formulas. Numbers are never changed. An option in the export dialog turns it off.
+- **Discarding changes in Projects:** a file named like a pattern (`*`) only discards that file.
+- **Copy a subset:** masking uses a new random 256-bit key on every run.
+- **Driver updates:** the app never accepts a driver index older than the one it was released with, even on a new installation.
+- Connection import, the linter and the health check no longer stop on accented or other multi-byte characters.
+
 ## [0.1.10] - 2026-10-09
 
 ### New
