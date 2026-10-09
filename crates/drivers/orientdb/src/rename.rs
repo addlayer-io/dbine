@@ -39,13 +39,19 @@ pub fn spec() -> RenameSpec {
 }
 
 /// A name as the script writes it: between backticks when it isn't a
-/// plain identifier or is a reserved word (`select`).
-fn q(name: &str) -> String {
-    if needs_quotes(name, Fold::None) {
-        format!("`{}`", name.replace('`', "\\`"))
-    } else {
-        name.to_string()
-    }
+/// plain identifier or is a reserved word (`select`). A name holding a
+/// backtick, a backslash, a `;` or a control character is refused
+/// ([`crate::script_ident`]): the server reads `\`` inside backticks as an
+/// escape and the script splitter as the end of the name.
+fn q(name: &str) -> Result<String> {
+    crate::script_ident(name)?;
+    Ok(if needs_quotes(name, Fold::None) { format!("`{name}`") } else { name.to_string() })
+}
+
+/// An index name from the server, checked like [`q`].
+fn index_name(name: &str) -> Result<String> {
+    crate::script_ident(name)?;
+    Ok(ident_index(name))
 }
 
 /// An index to drop before the rename and create after it.
@@ -57,7 +63,7 @@ struct Index {
 
 /// `CREATE INDEX` for `ix` on `class`, with `old` among its fields
 /// written as `new`.
-fn create_index(ix: &IndexDef, class: &str, rename: Option<(&str, &str)>) -> String {
+fn create_index(ix: &IndexDef, class: &str, rename: Option<(&str, &str)>) -> Result<String> {
     let ty = ix.kind.clone().filter(|k| !k.is_empty()).unwrap_or_else(|| if ix.unique { "UNIQUE".into() } else { "NOTUNIQUE".into() });
     let fields: Vec<String> = ix
         .columns
@@ -68,10 +74,10 @@ fn create_index(ix: &IndexDef, class: &str, rename: Option<(&str, &str)>) -> Str
                 Some((old, new)) if f == old => new,
                 _ => f,
             };
-            format!("{}{}", q(f), collate.map(|c| format!(" COLLATE {c}")).unwrap_or_default())
+            Ok(format!("{}{}", q(f)?, collate.map(|c| format!(" COLLATE {c}")).unwrap_or_default()))
         })
-        .collect();
-    format!("CREATE INDEX {} ON {} ({}) {ty}{};", ident_index(&ix.name), q(class), fields.join(", "), index_tail(ix))
+        .collect::<Result<_>>()?;
+    Ok(format!("CREATE INDEX {} ON {} ({}) {ty}{};", index_name(&ix.name)?, q(class)?, fields.join(", "), index_tail(ix)))
 }
 
 /// `name COLLATE ci` → (`name`, `ci`).
@@ -84,9 +90,11 @@ fn split_collate(c: &str) -> (&str, Option<&str>) {
 
 /// The `CREATE INDEX` lines of a class definition (as `definition` writes
 /// it: `CREATE INDEX name ON Class (…) TYPE;`), moved to the new class.
-fn indexes_in(def: &str, old: &str, new: &str) -> Vec<Index> {
+fn indexes_in(def: &str, old: &str, new: &str) -> Result<Vec<Index>> {
+    let new_q = q(new)?;
     let on = format!(" ON {} (", ident(old));
-    def.lines()
+    Ok(def
+        .lines()
         .map(str::trim)
         .filter(|l| l.starts_with("CREATE INDEX "))
         .filter_map(|l| {
@@ -109,11 +117,11 @@ fn indexes_in(def: &str, old: &str, new: &str) -> Vec<Index> {
                 rest.split_whitespace().next()?
             };
             let at = l.find(&on)?;
-            let create = format!("{} ON {} ({}", &l[..at], q(new), &l[at + on.len()..]);
+            let create = format!("{} ON {} ({}", &l[..at], new_q, &l[at + on.len()..]);
             let create = if create.ends_with(';') { create } else { format!("{create};") };
             Some(Index { name: name.to_string(), create })
         })
-        .collect()
+        .collect())
 }
 
 pub fn script(req: &RenameRequest) -> Result<SyncScript> {
@@ -130,8 +138,13 @@ fn class_script(old: &str, edge: bool, req: &RenameRequest) -> Result<SyncScript
         return Err(Error::Unsupported("las clases base V y E no se renombran".into()));
     }
     let indexes: Option<Vec<Index>> = match (req.table.as_ref().filter(|t| t.name == old), req.definition.as_deref()) {
-        (Some(t), _) => Some(t.indexes.iter().map(|ix| Index { name: ident_index(&ix.name), create: create_index(ix, new, None) }).collect()),
-        (None, Some(def)) => Some(indexes_in(def, old, new)),
+        (Some(t), _) => Some(
+            t.indexes
+                .iter()
+                .map(|ix| Ok(Index { name: index_name(&ix.name)?, create: create_index(ix, new, None)? }))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        (None, Some(def)) => Some(indexes_in(def, old, new)?),
         (None, None) => None,
     };
     // `UNSAFE` skips the engine's check for indexes: without knowing them,
@@ -143,10 +156,10 @@ fn class_script(old: &str, edge: bool, req: &RenameRequest) -> Result<SyncScript
     let mut statements: Vec<String> = Vec::new();
     let ixs = indexes.as_deref().unwrap_or_default();
     statements.extend(ixs.iter().map(|ix| format!("DROP INDEX {};", ix.name)));
-    statements.push(format!("ALTER CLASS {} NAME {}{};", q(old), q(new), if edge { " UNSAFE" } else { "" }));
+    statements.push(format!("ALTER CLASS {} NAME {}{};", q(old)?, q(new)?, if edge { " UNSAFE" } else { "" }));
     if edge {
         for dir in ["out", "in"] {
-            let (o, n) = (q(&format!("{dir}_{old}")), q(&format!("{dir}_{new}")));
+            let (o, n) = (q(&format!("{dir}_{old}"))?, q(&format!("{dir}_{new}"))?);
             statements.push(format!("UPDATE V SET {n} = {o} REMOVE {o} WHERE {o} IS DEFINED;"));
         }
         warnings.push(format!(
@@ -160,6 +173,7 @@ fn class_script(old: &str, edge: bool, req: &RenameRequest) -> Result<SyncScript
     if indexes.is_none() {
         warnings.push("Si la clase tiene índices, OrientDB rechaza el cambio: borralos antes y volvé a crearlos después.".into());
     }
+    crate::one_unit_each(&statements)?;
     Ok(SyncScript { statements, warnings })
 }
 
@@ -181,10 +195,11 @@ fn property_script(column: &str, req: &RenameRequest) -> Result<SyncScript> {
         return Err(Error::Unsupported(format!("OrientDB no admite «{c}» en el nombre de una propiedad")));
     }
     let col = t.columns.iter().find(|c| c.name == column).ok_or_else(|| Error::Query(format!("la clase {} no tiene la propiedad {column}", t.name)))?;
-    let class = q(&t.name);
-    let (o, n) = (q(column), q(new));
+    let class = q(&t.name)?;
+    let (o, n) = (q(column)?, q(new)?);
     let move_values = format!("UPDATE {class} SET {n} = {o} REMOVE {o} WHERE {o} IS DEFINED;");
     if truthy(opt(col, "inferred")) {
+        crate::one_unit_each(&[&move_values])?;
         return Ok(SyncScript {
             statements: vec![move_values],
             warnings: vec![format!("«{column}» no está declarada en el esquema: se mueve el valor en cada registro de {} (y de sus subclases) que la tiene.", t.name)],
@@ -194,8 +209,8 @@ fn property_script(column: &str, req: &RenameRequest) -> Result<SyncScript> {
         .indexes
         .iter()
         .filter(|ix| ix.columns.iter().any(|c| split_collate(c).0 == column))
-        .map(|ix| Index { name: ident_index(&ix.name), create: create_index(ix, &t.name, Some((column, new))) })
-        .collect();
+        .map(|ix| Ok(Index { name: index_name(&ix.name)?, create: create_index(ix, &t.name, Some((column, new)))? }))
+        .collect::<Result<_>>()?;
     let mut statements: Vec<String> = ixs.iter().map(|ix| format!("DROP INDEX {};", ix.name)).collect();
     statements.push(format!("ALTER PROPERTY {class}.{o} NAME {n};"));
     statements.push(move_values);
@@ -204,6 +219,7 @@ fn property_script(column: &str, req: &RenameRequest) -> Result<SyncScript> {
     if !ixs.is_empty() {
         warnings.push(index_warning(&ixs));
     }
+    crate::one_unit_each(&statements)?;
     Ok(SyncScript { statements, warnings })
 }
 
@@ -279,7 +295,7 @@ mod tests {
                 "CREATE INDEX T.pepe ON `Mi clase` (pepe COLLATE ci, id) NOTUNIQUE;",
             ]
         );
-        let quoted = indexes_in("CREATE INDEX `ix a` ON `my class` (a) UNIQUE;", "my class", "Otra");
+        let quoted = indexes_in("CREATE INDEX `ix a` ON `my class` (a) UNIQUE;", "my class", "Otra").unwrap();
         assert_eq!(quoted[0].name, "`ix a`");
         assert_eq!(quoted[0].create, "CREATE INDEX `ix a` ON Otra (a) UNIQUE;");
     }
@@ -351,5 +367,28 @@ mod tests {
         assert!(matches!(script(&class_req(kinds::FUNCTION, "f", "g", None, None)), Err(Error::Unsupported(_))));
         let s = spec();
         assert!(s.columns && !s.indexes && !s.constraints && !s.schemas && !s.transactional);
+    }
+
+    /// The server reads `\`` inside backticks as an escape, the splitter as
+    /// the end of the name: such names are refused, not written.
+    #[test]
+    fn names_the_splitter_would_read_differently_are_refused() {
+        let evil = "x\\`; DROP CLASS Persona UNSAFE; --";
+        assert!(matches!(script(&class_req(VERTEX, "T", evil, None, None)), Err(Error::Unsupported(_))));
+        assert!(matches!(script(&class_req(VERTEX, evil, "T2", None, None)), Err(Error::Unsupported(_))));
+        for bad in ["a`b", "a\\b", "a;b", "a\nb"] {
+            assert!(script(&class_req(kinds::TABLE, "Doc", bad, None, None)).is_err(), "{bad:?}");
+            assert!(script(&col_req(&person(), "pepe", bad)).is_err(), "{bad:?}");
+        }
+        // A property of the server with one of them can't be renamed either.
+        let mut p = person();
+        p.columns[1].name = "pe`pe".into();
+        assert!(script(&col_req(&p, "pe`pe", "juan")).is_err());
+        // Index names too.
+        let mut p = person();
+        p.indexes = vec![IndexDef { name: "T.x`;DROP CLASS T;".into(), columns: vec!["pepe".into()], unique: true, ..Default::default() }];
+        assert!(script(&col_req(&p, "pepe", "juan")).is_err());
+        // Spaces and reserved words still go between backticks.
+        assert!(script(&class_req(kinds::TABLE, "Doc", "mi clase", None, None)).is_ok());
     }
 }
