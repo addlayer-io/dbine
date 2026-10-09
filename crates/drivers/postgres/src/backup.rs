@@ -76,9 +76,9 @@ fn q(name: &str) -> String {
     quote_ident(Quote::Double, name)
 }
 
-/// A string literal (none of these engines treats backslashes as escapes).
-fn s(text: &str) -> String {
-    lit(Variant::Postgres, text)
+/// A string literal of the engine ([`lit`]).
+fn s(v: Variant, text: &str) -> String {
+    lit(v, text)
 }
 
 fn opt<'a>(options: &'a BTreeMap<String, String>, key: &str) -> &'a str {
@@ -172,10 +172,10 @@ fn cockroach_script(action: &BackupAction) -> Result<String> {
                 "full" | "" => "INTO ",
                 other => return Err(Error::Query(format!("'{other}' no es un tipo de backup"))),
             };
-            let mut sql = format!("BACKUP{what} {into}{}", s(collection));
+            let mut sql = format!("BACKUP{what} {into}{}", s(Variant::Cockroach, collection));
             let as_of = opt(options, "as_of");
             if !as_of.is_empty() {
-                sql.push_str(&format!(" AS OF SYSTEM TIME {}", s(as_of)));
+                sql.push_str(&format!(" AS OF SYSTEM TIME {}", s(Variant::Cockroach, as_of)));
             }
             let with: Vec<&str> = [("revision_history", "revision_history"), ("detached", "detached")]
                 .into_iter()
@@ -198,13 +198,13 @@ fn cockroach_script(action: &BackupAction) -> Result<String> {
                 return Err(Error::Query("falta la base a restaurar".into()));
             };
             let from_where = match &subdir {
-                Some(sub) => s(sub),
+                Some(sub) => s(Variant::Cockroach, sub),
                 None => "LATEST".into(),
             };
-            let mut sql = format!("RESTORE DATABASE {} FROM {from_where} IN {}", q(from), s(&collection));
+            let mut sql = format!("RESTORE DATABASE {} FROM {from_where} IN {}", q(from), s(Variant::Cockroach, &collection));
             let mut with = Vec::new();
             if let Some(t) = target.filter(|t| *t != from) {
-                with.push(format!("new_db_name = {}", s(t)));
+                with.push(format!("new_db_name = {}", s(Variant::Cockroach, t)));
             }
             if flag(options, "detached", false) {
                 with.push("detached".into());
@@ -485,8 +485,8 @@ async fn cockroach_history(s: &PgSession, database: Option<&str>) -> Result<Vec<
         let (collection, Some(subdir)) = split_source(&e.id) else { continue };
         let sql = format!(
             "SELECT sum(size_bytes)::STRING AS size FROM [SHOW BACKUP FROM {} IN {}]",
-            lit(Variant::Postgres, &subdir),
-            lit(Variant::Postgres, &collection)
+            lit(Variant::Cockroach, &subdir),
+            lit(Variant::Cockroach, &collection)
         );
         if let Ok(rows) = s.text_within(&sql, Duration::from_secs(10)).await {
             e.size = rows.first().and_then(|r| cell(r, "size")).and_then(|v| v.parse().ok());
@@ -624,7 +624,7 @@ fn crate_script(action: &BackupAction) -> Result<String> {
                 if location.is_empty() {
                     return Err(Error::Query("falta la carpeta del repositorio a crear".into()));
                 }
-                sql.push_str(&format!("CREATE REPOSITORY {} TYPE fs WITH (location = {});\n", q(repo), s(location)));
+                sql.push_str(&format!("CREATE REPOSITORY {} TYPE fs WITH (location = {});\n", q(repo), s(Variant::CrateDb, location)));
             }
             let tables = table_list(opt(options, "tables"))?;
             let what = if tables.is_empty() { "ALL".to_string() } else { format!("TABLE {}", tables.join(", ")) };
@@ -752,10 +752,10 @@ fn h2_script(action: &BackupAction) -> Result<String> {
                 return Err(Error::Query("falta el archivo donde guardar el backup".into()));
             }
             match opt(options, "format") {
-                "zip" => Ok(format!("BACKUP TO {}", s(file))),
+                "zip" => Ok(format!("BACKUP TO {}", s(Variant::H2, file))),
                 "script" | "" => {
                     let drop = if flag(options, "drop", true) { " DROP" } else { "" };
-                    Ok(format!("SCRIPT{drop} TO {}", s(file)))
+                    Ok(format!("SCRIPT{drop} TO {}", s(Variant::H2, file)))
                 }
                 other => Err(Error::Query(format!("'{other}' no es un formato de backup de H2"))),
             }
@@ -765,7 +765,7 @@ fn h2_script(action: &BackupAction) -> Result<String> {
             if file.is_empty() {
                 return Err(Error::Query("falta el archivo del backup (un script hecho con SCRIPT)".into()));
             }
-            Ok(format!("RUNSCRIPT FROM {}", s(file)))
+            Ok(format!("RUNSCRIPT FROM {}", s(Variant::H2, file)))
         }
         BackupAction::Delete { .. } => {
             Err(Error::Unsupported("H2 no borra archivos con SQL: el backup está en el disco del servidor".into()))
@@ -806,7 +806,7 @@ mod tests {
         let c = Variant::Cockroach;
         assert_eq!(
             backup(c, Some("ven\"tas"), &[("collection", "nodelocal://1/b'k")]).unwrap(),
-            "BACKUP DATABASE \"ven\"\"tas\" INTO 'nodelocal://1/b''k'"
+            "BACKUP DATABASE \"ven\"\"tas\" INTO E'nodelocal://1/b''k'"
         );
         assert_eq!(
             backup(
@@ -821,11 +821,11 @@ mod tests {
                 ]
             )
             .unwrap(),
-            "BACKUP DATABASE \"app\" INTO LATEST IN 's3://bk/x?AUTH=implicit' AS OF SYSTEM TIME '-10s' WITH revision_history, detached"
+            "BACKUP DATABASE \"app\" INTO LATEST IN E's3://bk/x?AUTH=implicit' AS OF SYSTEM TIME E'-10s' WITH revision_history, detached"
         );
         assert_eq!(
             backup(c, Some("app"), &[("collection", "nodelocal://1/b"), ("scope", "cluster")]).unwrap(),
-            "BACKUP INTO 'nodelocal://1/b'"
+            "BACKUP INTO E'nodelocal://1/b'"
         );
         assert!(backup(c, Some("app"), &[]).is_err());
         assert!(backup(c, None, &[("collection", "nodelocal://1/b")]).is_err());
@@ -837,16 +837,16 @@ mod tests {
         let c = Variant::Cockroach;
         assert_eq!(
             restore(c, "nodelocal://1/b/2026/09/29-124346.56", Some("app"), &[]).unwrap(),
-            "RESTORE DATABASE \"app\" FROM '/2026/09/29-124346.56' IN 'nodelocal://1/b'"
+            "RESTORE DATABASE \"app\" FROM E'/2026/09/29-124346.56' IN E'nodelocal://1/b'"
         );
         assert_eq!(
             restore(c, "s3://bk/x/2026/09/29-124346.56?AUTH=implicit", Some("app_copia"), &[("from_database", "app"), ("detached", "true")])
                 .unwrap(),
-            "RESTORE DATABASE \"app\" FROM '/2026/09/29-124346.56' IN 's3://bk/x?AUTH=implicit' WITH new_db_name = 'app_copia', detached"
+            "RESTORE DATABASE \"app\" FROM E'/2026/09/29-124346.56' IN E's3://bk/x?AUTH=implicit' WITH new_db_name = E'app_copia', detached"
         );
         assert_eq!(
             restore(c, "nodelocal://1/b", None, &[("from_database", "app")]).unwrap(),
-            "RESTORE DATABASE \"app\" FROM LATEST IN 'nodelocal://1/b'"
+            "RESTORE DATABASE \"app\" FROM LATEST IN E'nodelocal://1/b'"
         );
         assert!(restore(c, "nodelocal://1/b", None, &[]).is_err());
         assert!(matches!(script(c, &BackupAction::Delete { source: "x".into() }), Err(Error::Unsupported(_))));

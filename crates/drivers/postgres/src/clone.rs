@@ -68,8 +68,10 @@ fn qn(schema: &str, name: &str) -> String {
     format!("{}.{}", qi(schema), qi(name))
 }
 
+/// A string literal for the target: every [`capable`] variant reads `E'…'`,
+/// so a backslash can't end it whatever `standard_conforming_strings` says.
 fn lit(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
+    crate::catalog::lit(Variant::Postgres, s)
 }
 
 /// `stmt` in a `DO` block that ignores "already exists" (constraints,
@@ -1551,6 +1553,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn literals_keep_backslash_quotes_inside() {
+        assert_eq!(lit("x\\'; drop table t; --"), "E'x\\\\''; drop table t; --'");
+    }
+
+    #[test]
     fn statements_are_idempotent() {
         assert_eq!(
             index_if_not_exists("CREATE INDEX t_a ON ONLY public.t USING btree (a) INCLUDE (b) WHERE (a > 0)"),
@@ -1612,7 +1619,7 @@ mod tests {
             comment: None,
             deps: vec![],
         };
-        assert!(base.create().unwrap().contains("CREATE TYPE \"app\".\"mood\" AS ENUM ('sad', 'it''s ok')"));
+        assert!(base.create().unwrap().contains("CREATE TYPE \"app\".\"mood\" AS ENUM (E'sad', E'it''s ok')"));
         let d = UserType {
             kind: "d".into(),
             base: Some("integer".into()),
@@ -1640,7 +1647,7 @@ mod tests {
         };
         assert_eq!(
             c.create().unwrap(),
-            "CREATE COLLATION IF NOT EXISTS \"app\".\"ci\" (provider = icu, locale = 'und-u-ks-level2', deterministic = false)"
+            "CREATE COLLATION IF NOT EXISTS \"app\".\"ci\" (provider = icu, locale = E'und-u-ks-level2', deterministic = false)"
         );
     }
 }

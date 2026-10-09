@@ -820,12 +820,12 @@ mod tests {
         let s = |a| script(Variant::Postgres, &a).unwrap();
         assert_eq!(
             s(SecurityAction::CreateUser { name: "ana\"x".into(), password: Some("p'w\\".into()) }),
-            "CREATE ROLE \"ana\"\"x\" WITH LOGIN PASSWORD 'p''w\\';"
+            "CREATE ROLE \"ana\"\"x\" WITH LOGIN PASSWORD E'p''w\\\\';"
         );
         assert_eq!(s(SecurityAction::CreateUser { name: "ana".into(), password: None }), "CREATE ROLE \"ana\" WITH LOGIN;");
         assert_eq!(s(SecurityAction::CreateRole { name: "lectores".into() }), "CREATE ROLE \"lectores\";");
         assert!(s(SecurityAction::Drop { name: "ana".into(), kind: PrincipalKind::User }).ends_with("\nDROP ROLE \"ana\";"));
-        assert_eq!(s(SecurityAction::SetPassword { name: "ana".into(), password: "x'y".into() }), "ALTER ROLE \"ana\" WITH PASSWORD 'x''y';");
+        assert_eq!(s(SecurityAction::SetPassword { name: "ana".into(), password: "x'y".into() }), "ALTER ROLE \"ana\" WITH PASSWORD E'x''y';");
         assert_eq!(s(SecurityAction::SetLogin { name: "ana".into(), enabled: false }), "ALTER ROLE \"ana\" WITH NOLOGIN;");
         assert_eq!(
             s(SecurityAction::Grant { privileges: vec!["select".into(), " update ".into()], object: table(), to: "ana".into(), grantable: true }),
@@ -860,7 +860,7 @@ mod tests {
         )
         .unwrap();
         assert!(s.ends_with(
-            "DO $dbine$ BEGIN EXECUTE format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO %I', current_database(), 'o''k'); END $dbine$;"
+            "DO $dbine$ BEGIN EXECUTE format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO %I', current_database(), E'o''k'); END $dbine$;"
         ));
         // A name that holds the dollar-quote tag gets another tag.
         let s = script(Variant::Postgres, &SecurityAction::Revoke { privileges: vec!["CONNECT".into()], object: None, from: "$dbine$".into() }).unwrap();
@@ -890,7 +890,7 @@ mod tests {
         let s = |a| script(Variant::OpenGauss, &a).unwrap();
         assert_eq!(s(SecurityAction::CreateRole { name: "r".into() }), "CREATE ROLE \"r\" PASSWORD DISABLE;");
         assert_eq!(s(SecurityAction::CreateUser { name: "u".into(), password: None }), "CREATE ROLE \"u\" WITH LOGIN PASSWORD DISABLE;");
-        assert_eq!(s(SecurityAction::CreateUser { name: "u".into(), password: Some("x".into()) }), "CREATE ROLE \"u\" WITH LOGIN PASSWORD 'x';");
+        assert_eq!(s(SecurityAction::CreateUser { name: "u".into(), password: Some("x".into()) }), "CREATE ROLE \"u\" WITH LOGIN PASSWORD E'x';");
     }
 
     #[test]

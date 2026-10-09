@@ -318,14 +318,14 @@ fn sample(v: Variant, r: &SimpleQueryRow) -> Sample {
 /// Finished statements after `after` (inclusive: ties are filtered by id),
 /// oldest first.
 fn history_sql(v: Variant, after: &str) -> String {
-    let after = after.replace('\'', "''");
+    let after = crate::catalog::lit(v, after);
     match v {
         Variant::Redshift => format!(
             "SELECT query_id::text AS id, {} AS time, query_text AS text, (elapsed_time / 1000.0)::text AS ms, \
                     database_name AS db, (SELECT usename FROM pg_user WHERE usesysid = user_id) AS usr, NULL AS client, \
                     returned_rows::text AS rows, error_message AS error \
              FROM sys_query_history \
-             WHERE start_time >= '{after}'::timestamp AND database_name = current_database() \
+             WHERE start_time >= {after}::timestamp AND database_name = current_database() \
                AND session_id <> pg_backend_pid() AND status IN ('success', 'failed', 'canceled') \
              ORDER BY start_time LIMIT {BATCH}",
             utc("start_time")
@@ -335,7 +335,7 @@ fn history_sql(v: Variant, after: &str) -> String {
                     database_name AS db, username AS usr, application_name AS app, NULL AS client, \
                     rows_returned::text AS rows, error_message AS error \
              FROM sys.log_query \
-             WHERE submit_time >= '{after}'::timestamp AND database_name = current_database() \
+             WHERE submit_time >= {after}::timestamp AND database_name = current_database() \
                AND session_id <> pg_backend_pid() \
              ORDER BY submit_time LIMIT {BATCH}",
             utc("submit_time")
@@ -345,7 +345,7 @@ fn history_sql(v: Variant, after: &str) -> String {
                     (ended::BIGINT - started::BIGINT)::TEXT AS ms, NULL AS db, username AS usr, node['name'] AS client, \
                     NULL AS rows, error \
              FROM sys.jobs_log \
-             WHERE started >= '{after}'::TIMESTAMP AND stmt NOT LIKE '%sys.jobs_log%' \
+             WHERE started >= {after}::TIMESTAMP AND stmt NOT LIKE '%sys.jobs_log%' \
              ORDER BY started LIMIT {BATCH}"
         ),
         Variant::Materialize => format!(
@@ -354,7 +354,7 @@ fn history_sql(v: Variant, after: &str) -> String {
                     database_name AS db, authenticated_user AS usr, application_name AS app, NULL AS client, \
                     rows_returned::text AS rows, error_message AS error \
              FROM mz_internal.mz_recent_activity_log \
-             WHERE began_at >= '{after}'::timestamp AND finished_at IS NOT NULL \
+             WHERE began_at >= {after}::timestamp AND finished_at IS NOT NULL \
                AND session_id <> (SELECT id FROM mz_internal.mz_sessions WHERE connection_id = pg_backend_pid()) \
              ORDER BY began_at LIMIT {BATCH}",
             utc("began_at")
@@ -374,6 +374,14 @@ fn trim_micros(t: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_cursor_stays_inside_its_literal() {
+        let bad = "x\\'; drop table t; --";
+        assert!(history_sql(Variant::Yellowbrick, bad).contains("submit_time >= E'x\\\\''; drop table t; --'::timestamp"));
+        assert!(history_sql(Variant::Redshift, bad).contains("start_time >= 'x\\\\''; drop table t; --'::timestamp"));
+        assert!(history_sql(Variant::Materialize, "2024-01-01 00:00:00").contains("began_at >= '2024-01-01 00:00:00'::timestamp"));
+    }
 
     #[test]
     fn times_keep_milliseconds() {

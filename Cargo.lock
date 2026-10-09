@@ -2821,7 +2821,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-postgres"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "dbine-driver",
  "futures",
@@ -2847,7 +2847,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-snowflake"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
