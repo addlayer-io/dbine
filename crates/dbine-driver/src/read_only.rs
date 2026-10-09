@@ -259,10 +259,12 @@ enum Leading {
 fn leading(stmt: &str, dialect: &ScriptDialect) -> Leading {
     let s = strip_comments(stmt, dialect, false);
     let s = s.trim_start_matches(|c: char| c.is_whitespace() || c == '(');
-    let word: String = s.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    // The whole first word: `print_x` or `select1` is a procedure's name
+    // (T-SQL runs it), not PRINT or SELECT.
+    let word: String = s.chars().take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '#' | '@')).collect();
     match s.chars().next() {
         None => Leading::Nothing,
-        Some(_) if !word.is_empty() => Leading::Word(word.to_ascii_lowercase()),
+        Some(c) if c.is_ascii_alphabetic() => Leading::Word(word.to_lowercase()),
         Some(c) => Leading::Other(c),
     }
 }
@@ -616,6 +618,22 @@ mod tests {
         let mut ro = super::ReadOnlySession::with_dialect(Box::new(Recorder(log.clone())), ScriptDialect::postgres());
         ready(ro.execute("SELECT 1", 10, &mut Default::default())).unwrap();
         assert_eq!(*log.lock().unwrap(), ["execute SELECT 1"]);
+    }
+
+    #[test]
+    fn a_lead_is_the_whole_word_and_comments_end_at_cr() {
+        use crate::sql::ScriptDialect;
+        let t = ScriptDialect::tsql();
+        for sql in ["print_cleanup", "select1", "with_x @a = 1", "usedb"] {
+            assert!(super::first_write_in(sql, &t).is_some(), "{sql}");
+            assert!(super::first_write(sql).is_some(), "{sql}");
+        }
+        // PostgreSQL ends a `--` comment at a lone CR: what follows is checked.
+        let pg = ScriptDialect::postgres();
+        assert_eq!(super::first_write_in("SELECT 1 --x\r, set_config('a','b',false)", &pg).as_deref(), Some("SET_CONFIG"));
+        assert_eq!(super::first_write("select 1 -- c\rdelete from t").as_deref(), Some("DELETE"));
+        // CRLF scripts read as before.
+        assert_eq!(super::first_write_in("select 1 -- note\r\nfrom t", &pg), None);
     }
 
     #[test]
