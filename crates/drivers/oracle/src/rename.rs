@@ -19,6 +19,7 @@ use dbine_driver::rename::{
     quote_new, rename_header, rewrite_references, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle,
     RewriteOptions, RewriteTarget,
 };
+use dbine_driver::sql::{name_tokens, split_script, NameToken, TokenKind};
 use dbine_driver::{kinds, Error, ObjectRef, Result, ScriptDialect, SyncScript};
 
 const FOLD: Fold = Fold::Upper;
@@ -137,7 +138,7 @@ fn recreate(req: &RenameRequest, object: &ObjectRef, d: &ScriptDialect) -> Resul
     let target = RewriteTarget::Object { object: object.clone() };
     let opts = RewriteOptions { dependent_schema: object.schema.clone(), keep_view_columns: false, ..Default::default() };
     let mut statements = Vec::new();
-    for unit in units(definition) {
+    for unit in units(definition, object, d)? {
         let body = rewrite_references(&unit, d, &target, &req.new_name, &spec, &opts).text;
         let renamed = rename_header(&body, d, FOLD, &req.new_name)
             .ok_or_else(|| Error::Unsupported(format!("No se reconoce el encabezado CREATE de «{}».", object.name)))?;
@@ -156,29 +157,95 @@ fn recreate(req: &RenameRequest, object: &ObjectRef, d: &ScriptDialect) -> Resul
     })
 }
 
-/// The `CREATE` units of a definition: SQL*Plus `/` lines cut them (a
-/// package is its spec and its body), and anything else (`ALTER … ENABLE`)
-/// is left out.
-fn units(definition: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut flush = |cur: &mut String| {
-        let unit = cur.trim();
-        if unit.get(..6).is_some_and(|w| w.eq_ignore_ascii_case("create")) {
-            out.push(unit.to_string());
-        }
-        cur.clear();
-    };
-    for line in definition.lines() {
-        if line.trim() == "/" {
-            flush(&mut cur);
-        } else {
-            cur.push_str(line);
-            cur.push('\n');
+/// The `CREATE` units of a definition, cut as SQL*Plus does: at `/` lines
+/// outside comments and literals (q-quotes included), a package being its
+/// spec and its body. `ALTER …` statements (`ALTER … ENABLE`) are left out.
+///
+/// The definition comes from the server, and its owner may not be the user
+/// who renames it: the units have to be exactly the object's (one, or a
+/// spec and its body), each naming it, or nothing is run. Anything else
+/// would run a stranger's DDL with the renaming user's privileges.
+fn units(definition: &str, object: &ObjectRef, d: &ScriptDialect) -> Result<Vec<String>> {
+    let refuse = |why: String| Error::Unsupported(format!("La definición de «{}» no es solo la de ese objeto ({why}): no se renombra.", object.name));
+    let mut out: Vec<(Header, String)> = Vec::new();
+    for st in split_script(definition, d) {
+        let toks = name_tokens(&st.text, d);
+        let lead = toks.first().filter(|t| unquoted(&st.text, t)).map(|t| t.text.to_ascii_lowercase());
+        match lead.as_deref() {
+            Some("create") => {
+                let h = header(&st.text, &toks).ok_or_else(|| refuse(format!("un CREATE en la línea {} sin encabezado reconocible", st.line)))?;
+                out.push((h, st.text));
+            }
+            Some("alter") => {}
+            _ => return Err(refuse(format!("una sentencia que no es CREATE en la línea {}", st.line))),
         }
     }
-    flush(&mut cur);
-    out
+    let kind = object.kind.to_ascii_lowercase();
+    let with_body = matches!(kind.as_str(), PACKAGE | kinds::TYPE);
+    let max = if with_body { 2 } else { 1 };
+    if out.len() > max {
+        return Err(refuse(format!("tiene {} unidades CREATE y se esperaba {}", out.len(), if with_body { "la especificación y el cuerpo" } else { "una sola" })));
+    }
+    for (i, (h, _)) in out.iter().enumerate() {
+        // The spec first, then (packages and types) its body.
+        let body = i == 1;
+        let label = format!("{}{}", h.kind.to_uppercase(), if h.body { " BODY" } else { "" });
+        if h.kind != kind || h.body != body {
+            return Err(refuse(format!("un CREATE {label} donde se esperaba {}{}", kind.to_uppercase(), if body { " BODY" } else { "" })));
+        }
+        let schema_ok = match (&h.schema, object.schema()) {
+            (Some(s), Some(o)) => s == o,
+            _ => true,
+        };
+        if h.name != object.name || !schema_ok {
+            let named = h.schema.as_ref().map_or_else(|| h.name.clone(), |s| format!("{s}.{}", h.name));
+            return Err(refuse(format!("un CREATE {label} de «{named}»")));
+        }
+    }
+    Ok(out.into_iter().map(|(_, text)| text).collect())
+}
+
+/// What a `CREATE` unit's header creates: the kind (`package`, with `body`
+/// for PACKAGE BODY), and its schema and name as Oracle stores them.
+#[derive(Debug, PartialEq)]
+struct Header {
+    kind: String,
+    body: bool,
+    schema: Option<String>,
+    name: String,
+}
+
+fn unquoted(text: &str, t: &NameToken<'_>) -> bool {
+    t.kind == TokenKind::Name && text.as_bytes().get(t.start) != Some(&b'"')
+}
+
+/// `CREATE [OR REPLACE] [EDITIONABLE | NONEDITIONABLE | EDITIONING]
+/// [[NO] FORCE] kind [BODY] [IF NOT EXISTS] [schema.]name`.
+fn header(text: &str, toks: &[NameToken<'_>]) -> Option<Header> {
+    const KINDS: &[&str] = &["procedure", "function", "package", "type", "trigger", "view"];
+    const SKIP: &[&str] = &["or", "replace", "editionable", "noneditionable", "editioning", "no", "force"];
+    let word = |k: usize| toks.get(k).filter(|t| unquoted(text, t)).map(|t| t.text.to_ascii_lowercase());
+    let mut i = 1;
+    while word(i).is_some_and(|w| SKIP.contains(&w.as_str())) {
+        i += 1;
+    }
+    let kind = word(i).filter(|w| KINDS.contains(&w.as_str()))?;
+    i += 1;
+    let body = matches!(kind.as_str(), "package" | "type") && word(i).as_deref() == Some("body");
+    if body {
+        i += 1;
+    }
+    if word(i).as_deref() == Some("if") && word(i + 1).as_deref() == Some("not") && word(i + 2).as_deref() == Some("exists") {
+        i += 3;
+    }
+    // A name as Oracle stores it: quoted as written, unquoted in upper case.
+    let ident = |k: usize| {
+        toks.get(k).filter(|t| t.kind == TokenKind::Name).map(|t| if unquoted(text, t) { t.text.to_uppercase() } else { t.text.replace("\"\"", "\"") })
+    };
+    let first = ident(i)?;
+    let dot = toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".");
+    let (schema, name) = if dot { (Some(first), ident(i + 2)?) } else { (None, first) };
+    Some(Header { kind, body, schema, name })
 }
 
 /// `CREATE OR REPLACE …` as `CREATE …`: the new name mustn't replace an
@@ -335,6 +402,68 @@ mod tests {
                 "DROP PACKAGE \"APP\".\"PK\"",
             ]
         );
+    }
+
+    fn rename_with(kind: &str, name: &str, def: &str) -> Result<SyncScript> {
+        script(&req(RenameTarget::Object { object: obj(kind, Some("APP"), name), parent: None }, "NUEVO", Some(def)))
+    }
+
+    #[test]
+    fn slash_lines_inside_comments_and_literals_do_not_split() {
+        let cases = [
+            // Block comment.
+            "CREATE OR REPLACE PROCEDURE \"APP\".\"P\" AS\nBEGIN\n  /* uno\n/\nCREATE OR REPLACE PROCEDURE APP.X AS BEGIN NULL; END;\n*/\n  NULL;\nEND p;\n/",
+            // Line comment (the `/` line is its own line, still in the body).
+            "CREATE OR REPLACE PROCEDURE \"APP\".\"P\" AS\nBEGIN\n  NULL; -- a\n  -- /\n  NULL;\nEND p;\n/",
+            // Normal string.
+            "CREATE OR REPLACE PROCEDURE \"APP\".\"P\" AS\n  s VARCHAR2(200) := 'a\n/\nCREATE OR REPLACE PROCEDURE APP.X AS BEGIN NULL; END;\n';\nBEGIN\n  NULL;\nEND p;\n/",
+            // q-quote, with a quote inside that would end a normal string.
+            "CREATE OR REPLACE PROCEDURE \"APP\".\"P\" AS\n  s VARCHAR2(200) := q'[it's\n/\nCREATE OR REPLACE PROCEDURE APP.X AS BEGIN NULL; END;\n]';\nBEGIN\n  NULL;\nEND p;\n/",
+        ];
+        for def in cases {
+            let s = rename_with("procedure", "P", def).unwrap_or_else(|e| panic!("{e}: {def}"));
+            assert_eq!(s.statements.len(), 2, "{def}");
+            assert!(s.statements[0].starts_with("CREATE PROCEDURE \"APP\".\"NUEVO\" AS"), "{}", s.statements[0]);
+            assert!(s.statements[0].ends_with("END NUEVO;"), "{}", s.statements[0]);
+            assert_eq!(s.statements[1], "DROP PROCEDURE \"APP\".\"P\"");
+        }
+    }
+
+    #[test]
+    fn a_definition_with_another_unit_is_refused() {
+        let refused = |kind: &str, name: &str, def: &str| match rename_with(kind, name, def) {
+            Err(Error::Unsupported(m)) => assert!(m.contains(&format!("«{name}»")) && m.contains("no se renombra"), "{m}"),
+            other => panic!("{other:?}: {def}"),
+        };
+        // A second unit after a real `/` line (the comment before it closed).
+        refused("procedure", "P", "CREATE OR REPLACE PROCEDURE \"APP\".\"P\" AS\nBEGIN\n  NULL; /* x */\nEND p;\n/\nCREATE OR REPLACE PROCEDURE \"APP\".\"P2\" AS BEGIN EXECUTE IMMEDIATE 'GRANT DBA TO pepe'; END;\n/");
+        // Even another unit of the same name: a procedure is one unit.
+        refused("procedure", "P", "CREATE PROCEDURE APP.P AS BEGIN NULL; END;\n/\nCREATE PROCEDURE APP.P AS BEGIN NULL; END;\n/");
+        // A unit of another kind, or of the same name in another schema.
+        refused("function", "F", "CREATE OR REPLACE PROCEDURE \"APP\".\"F\" AS BEGIN NULL; END;\n/");
+        refused("procedure", "P", "CREATE OR REPLACE PROCEDURE \"SYS\".\"P\" AS BEGIN NULL; END;\n/");
+        refused("procedure", "P", "CREATE OR REPLACE PROCEDURE \"APP\".\"p\" AS BEGIN NULL; END;\n/");
+        // Something that isn't a CREATE after the unit.
+        refused("procedure", "P", "CREATE OR REPLACE PROCEDURE \"APP\".\"P\" AS BEGIN NULL; END;\n/\nGRANT DBA TO pepe;");
+        // A package: its spec and body only, in that order.
+        let spec = "CREATE OR REPLACE PACKAGE \"APP\".\"PK\" AS PROCEDURE x; END pk;\n/\n";
+        let body = "CREATE OR REPLACE PACKAGE BODY \"APP\".\"PK\" AS PROCEDURE x IS BEGIN NULL; END x; END pk;\n/\n";
+        refused("package", "PK", &format!("{spec}{body}CREATE OR REPLACE PROCEDURE APP.X AS BEGIN NULL; END;\n/"));
+        refused("package", "PK", &format!("{spec}{spec}"));
+        refused("package", "PK", body);
+        refused("package", "PK", &format!("{spec}CREATE OR REPLACE PACKAGE BODY \"APP\".\"OTRO\" AS END;\n/"));
+    }
+
+    #[test]
+    fn package_spec_alone_and_unquoted_source_still_work() {
+        let s = rename_with("package", "PK", "CREATE OR REPLACE PACKAGE \"APP\".\"PK\" AS\n  PROCEDURE x;\nEND pk;\n/").unwrap();
+        assert_eq!(s.statements, ["CREATE PACKAGE \"APP\".\"NUEVO\" AS\n  PROCEDURE x;\nEND NUEVO;", "DROP PACKAGE \"APP\".\"PK\""]);
+        // ALL_SOURCE's text (the fallback): the name as the user wrote it.
+        let s = rename_with("procedure", "P", "CREATE OR REPLACE procedure p as\nbegin\n  null;\nend;\n/").unwrap();
+        assert_eq!(s.statements[0], "CREATE procedure NUEVO as\nbegin\n  null;\nend;");
+        // A trailing ALTER (as GET_DDL writes for some kinds) is left out.
+        let s = rename_with("procedure", "P", "CREATE OR REPLACE PROCEDURE \"APP\".\"P\" AS BEGIN NULL; END;\n/\nALTER PROCEDURE \"APP\".\"P\" COMPILE;").unwrap();
+        assert_eq!(s.statements.len(), 2);
     }
 
     #[test]
