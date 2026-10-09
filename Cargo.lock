@@ -2722,7 +2722,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-mongodb"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2736,7 +2736,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-mysql"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "dbine-driver",
  "futures",
@@ -2821,7 +2821,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-postgres"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "dbine-driver",
  "futures",
@@ -2847,7 +2847,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-snowflake"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
@@ -2899,7 +2899,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlserver"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "dbine-driver",
