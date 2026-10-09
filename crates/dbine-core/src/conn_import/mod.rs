@@ -332,6 +332,40 @@ fn parse_url(url: &str) -> Option<Url> {
     })
 }
 
+/// `url` without its login (`user:pass@`), query string and fragment: what
+/// can be shown or kept as a name or a host without carrying a secret.
+pub(crate) fn redact_url(url: &str) -> String {
+    let (scheme, rest) = match url.split_once("://") {
+        Some((s, r)) => (Some(s), r),
+        None => (None, url),
+    };
+    let rest = rest.split(['?', '#']).next().unwrap_or("");
+    let rest = rest.rsplit_once('@').map(|(_, r)| r).unwrap_or(rest);
+    match scheme {
+        Some(s) => format!("{s}://{rest}"),
+        None => rest.to_string(),
+    }
+}
+
+/// A libSQL / Turso URL split into the base the driver connects to and the
+/// auth token some tools append (`?authToken=…`). Other query parameters
+/// are dropped: the driver ignores them.
+pub(crate) fn libsql_url(url: &str) -> (String, Option<String>) {
+    let url = url.trim();
+    let token = parse_url(url)
+        .and_then(|u| u.params.into_iter().find(|(k, _)| k == "authtoken" || k == "auth_token").map(|(_, v)| v))
+        .filter(|t| !t.is_empty());
+    let base = url.split(['?', '#']).next().unwrap_or("").to_string();
+    (base, token)
+}
+
+/// What follows the `@` of an Oracle JDBC/EZConnect URL, without the
+/// `user/password@` some carry before it.
+fn oracle_target(url: &str) -> String {
+    let rest = url.trim().strip_prefix("jdbc:oracle:thin:").unwrap_or(url.trim());
+    rest.split_once('@').map(|(_, t)| t).unwrap_or(rest).to_string()
+}
+
 fn pct_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -539,6 +573,20 @@ mod tests {
         let u = parse_url("redis://:secreto@127.0.0.1:6380/2").unwrap();
         assert_eq!((u.password.as_deref(), u.port, u.path.as_str()), (Some("secreto"), 6380, "2"));
         assert!(parse_url("host:1521/XE").is_none());
+    }
+
+    #[test]
+    fn urls_lose_their_secrets() {
+        assert_eq!(redact_url("postgres://ana:pw@pg:5433/app?sslmode=require"), "postgres://pg:5433/app");
+        assert_eq!(redact_url("libsql://app-org.turso.io?authToken=eyJ.x.y"), "libsql://app-org.turso.io");
+        assert_eq!(redact_url("https://u:p@h/x#frag"), "https://h/x");
+        assert_eq!(redact_url("h:1521/XE"), "h:1521/XE");
+        assert_eq!(libsql_url("libsql://app-org.turso.io?authToken=eyJ%2Ex&tls=1"), ("libsql://app-org.turso.io".to_string(), Some("eyJ.x".to_string())));
+        assert_eq!(libsql_url("http://localhost:8080?auth_token=t"), ("http://localhost:8080".to_string(), Some("t".to_string())));
+        assert_eq!(libsql_url("libsql://db.turso.io"), ("libsql://db.turso.io".to_string(), None));
+        assert_eq!(oracle_target("jdbc:oracle:thin:scott/tiger@//ora:1521/XE"), "//ora:1521/XE");
+        assert_eq!(oracle_target("jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS=(HOST=h)))"), "(DESCRIPTION=(ADDRESS=(HOST=h)))");
+        assert_eq!(oracle_target("ora:1521/XE"), "ora:1521/XE");
     }
 
     fn cand(driver: &str) -> Candidate {

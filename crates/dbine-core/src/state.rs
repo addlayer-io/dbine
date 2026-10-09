@@ -465,7 +465,72 @@ impl StateStore {
              DELETE FROM query_versions WHERE query_id NOT IN (SELECT id FROM queries);",
         )
         .map_err(db_err)?;
-        Ok(Self { conn: Mutex::new(conn), hook: RwLock::new(None) })
+        let store = Self { conn: Mutex::new(conn), hook: RwLock::new(None) };
+        store.scrub_url_tokens(|id, token| {
+            let mut kept = crate::secrets::get(id)?;
+            kept.entry("auth_token".into()).or_insert_with(|| token.to_string());
+            crate::secrets::set(id, &kept)
+        })?;
+        Ok(store)
+    }
+
+    /// Older versions kept a pasted libSQL / Turso URL whole as the host
+    /// (and the name), `?authToken=…` included, in plain text. The token
+    /// goes to the secrets through `keep(connection_id, token)` and the
+    /// host and name lose the query string; a connection whose token can't
+    /// be kept (the keychain refused) stays as it was until the next start.
+    /// The history drops query strings from hosts and names either way.
+    fn scrub_url_tokens(&self, mut keep: impl FnMut(&str, &str) -> Result<()>) -> Result<()> {
+        let c = self.lock()?;
+        let has_token = |s: &str| {
+            let s = s.to_ascii_lowercase();
+            s.contains("authtoken=") || s.contains("auth_token=")
+        };
+        let rows: Vec<(String, String, String)> = {
+            let mut st = c.prepare("SELECT id, name, config_json FROM connections WHERE lower(config_json) LIKE '%token=%'").map_err(db_err)?;
+            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(db_err)?;
+            rows.collect::<rusqlite::Result<_>>().map_err(db_err)?
+        };
+        let mut changed = false;
+        for (id, name, json) in rows {
+            let Ok(mut cfg) = serde_json::from_str::<ConnectionConfig>(&json) else { continue };
+            if cfg.driver != "libsql" || !has_token(&cfg.host) {
+                continue;
+            }
+            let (base, token) = crate::conn_import::libsql_url(&cfg.host);
+            let Some(token) = token else { continue };
+            if keep(&id, &token).is_err() {
+                continue;
+            }
+            cfg.host = base.clone();
+            let new_name = if has_token(&name) {
+                Some(crate::conn_import::redact_url(&name)).filter(|n| !n.trim().is_empty()).unwrap_or(base)
+            } else {
+                name.clone()
+            };
+            c.execute(
+                "UPDATE connections SET name = ?2, config_json = ?3, save_password = 1 WHERE id = ?1",
+                params![id, new_name, serde_json::to_string(&cfg)?],
+            )
+            .map_err(db_err)?;
+            c.execute("UPDATE query_history SET connection_name = ?2 WHERE connection_id = ?1 AND connection_name = ?3", params![id, new_name, name])
+                .map_err(db_err)?;
+            changed = true;
+        }
+        for col in ["host", "connection_name"] {
+            c.execute(
+                &format!(
+                    "UPDATE query_history SET {col} = substr({col}, 1, instr({col}, '?') - 1)
+                      WHERE instr({col}, '?') > 0 AND (lower({col}) LIKE '%authtoken=%' OR lower({col}) LIKE '%auth\\_token=%' ESCAPE '\\')"
+                ),
+                [],
+            )
+            .map_err(db_err)?;
+        }
+        if changed {
+            bump(&c)?;
+        }
+        Ok(())
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
@@ -1905,6 +1970,63 @@ mod tests {
         assert_eq!(other.list_library().unwrap()[0].text, script.text);
         other.delete_library_script("l1").unwrap();
         assert!(other.list_library().unwrap().is_empty());
+    }
+
+    #[test]
+    fn libsql_tokens_leave_the_host_name_and_history() {
+        let s = StateStore::open_in_memory().unwrap();
+        let url = "libsql://app-org.turso.io?authToken=eyJtok.en";
+        let mut turso = conn("t1");
+        turso.name = url.into();
+        turso.save_password = false;
+        turso.config = ConnectionConfig { driver: "libsql".into(), host: url.into(), port: 0, database: String::new(), username: None, password: None, encrypt: false, trust_server_certificate: false, read_only: false, options: Default::default() };
+        s.save_connection(&turso).unwrap();
+        let mut refused = conn("t2");
+        refused.config = ConnectionConfig { host: "libsql://b.turso.io?authToken=keepme".into(), ..turso.config.clone() };
+        s.save_connection(&refused).unwrap();
+        s.save_connection(&conn("c1")).unwrap();
+        let entry = |id: &str, name: &str, host: &str| HistoryEntry {
+            id: 0,
+            connection_id: id.into(),
+            connection_name: name.into(),
+            driver: "libsql".into(),
+            host: host.into(),
+            database: String::new(),
+            sql: "SELECT 1".into(),
+            started_at: now(),
+            duration_ms: 1,
+            rows: None,
+            error: None,
+            query_id: None,
+            project_id: None,
+            file_path: None,
+        };
+        s.add_history(&entry("t1", url, "app-org.turso.io?authToken=eyJtok.en")).unwrap();
+        s.add_history(&entry("gone", "x", "old.turso.io?auth_token=eyJtok.en")).unwrap();
+        let before = s.revision().unwrap();
+
+        let mut kept = Vec::new();
+        s.scrub_url_tokens(|id, token| {
+            if id == "t2" {
+                return Err(Error::Query("keychain refused".into()));
+            }
+            kept.push((id.to_string(), token.to_string()));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(kept, vec![("t1".to_string(), "eyJtok.en".to_string())]);
+        let t1 = s.get_connection("t1").unwrap().unwrap();
+        assert_eq!((t1.name.as_str(), t1.config.host.as_str(), t1.save_password), ("libsql://app-org.turso.io", "libsql://app-org.turso.io", true));
+        assert!(t1.config.options.get("auth_token").is_none());
+        // Its token couldn't be kept: untouched, tried again next time.
+        assert_eq!(s.get_connection("t2").unwrap().unwrap().config.host, "libsql://b.turso.io?authToken=keepme");
+        assert_eq!(s.get_connection("c1").unwrap().unwrap().config.host, conn("c1").config.host);
+        let history = serde_json::to_string(&s.list_history(None, None, 10).unwrap()).unwrap();
+        assert!(!history.contains("eyJtok"), "{history}");
+        assert!(history.contains("libsql://app-org.turso.io") && history.contains("old.turso.io"));
+        assert!(s.revision().unwrap() > before);
+        // Nothing left to do.
+        s.scrub_url_tokens(|id, _| if id == "t1" { panic!("again") } else { Ok(()) }).unwrap();
     }
 
     #[test]
