@@ -141,6 +141,14 @@ closed.
 
 ## Publishing the manifest
 
+In CI (`.github/workflows/release.yml`) the release is a **draft** until
+the four platforms are built: each job adds its installers and its part of
+`latest.json` to the draft, and the final `release-page` job writes the notes
+and publishes it as the latest release. Installed apps read
+`releases/latest/download/latest.json`, so they never see a release with
+only some platforms in it. If a build fails, the release stays a draft; a
+new run of the same tag fills that draft again.
+
 `scripts/make-latest-json.py` builds `latest.json`:
 
 ```

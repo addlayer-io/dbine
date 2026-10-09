@@ -58,7 +58,9 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
-          elif gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          # A draft left by an earlier run of this tag is CI's own: it gets
+          # filled in again. Only a published release means a local one.
+          elif [[ "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft 2>/dev/null)" == "false" ]]; then
             echo "::notice::Release $GITHUB_REF_NAME already exists (published locally): building without publishing."
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
@@ -209,7 +211,11 @@ jobs:
           # update dialog shows. The release page gets the downloads and the
           # signing notes added afterwards (release-page).
           releaseBody: ${{ needs.route.outputs.notes }}
-          releaseDraft: false
+          # A draft until every platform is up (release-page publishes it):
+          # installed apps read releases/latest/latest.json, and a release
+          # published by its first finished job would offer the update to
+          # platforms that aren't in it yet.
+          releaseDraft: true
           prerelease: false
           # latest.json for the in-app updater, merged across the four
           # jobs; Windows updates through the NSIS installer.
@@ -293,4 +299,4 @@ jobs:
           - Each engine's driver (except SQLite) is downloaded the first time you connect.
           EOF
           } > notes.md
-          gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+          gh release edit "$GITHUB_REF_NAME" --notes-file notes.md --draft=false --latest
