@@ -147,20 +147,16 @@ pub struct TrustSshHostArgs {
 
 /// Trust an SSH server's key for a saved connection's tunnel (the user
 /// checked the fingerprint): it's added to `ssh.trusted`, for that server
-/// only, which has to be one of the tunnel's.
+/// only, which has to be one of the tunnel's and have no other key accepted
+/// (a changed key is forgotten in the connection's form first, never
+/// replaced from the first-connection prompt).
 #[tauri::command(rename_all = "camelCase")]
 pub async fn trust_ssh_host(state: State<'_, AppState>, args: TrustSshHostArgs) -> CommandResult<()> {
-    let invalid = || CommandError::BadRequest("huella SSH inválida".into());
-    let (host, port, _) = dbine_tunnel::parse_trusted(&args.fingerprint).ok_or_else(invalid)?;
     let mut conn = state
         .store
         .get_connection(&args.connection_id)?
         .ok_or_else(|| CommandError::NotFound(format!("no existe la conexión '{}'", args.connection_id)))?;
-    if !crate::tunnels::hops(&conn.config)?.iter().any(|h| h.port == port && h.host.eq_ignore_ascii_case(host)) {
-        return Err(invalid());
-    }
-    let trusted = crate::tunnels::add_trusted(crate::tunnels::trusted(&conn.config), &args.fingerprint);
-    conn.config.options.insert("ssh.trusted".into(), trusted.join(","));
+    crate::tunnels::trust(&mut conn.config, &args.fingerprint)?;
     state.store.save_connection(&conn)?;
     Ok(())
 }

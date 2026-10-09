@@ -23218,6 +23218,9 @@
  "el servidor SSH {0}:{1} no es conocido. Verificá que su huella sea {2} y aceptala para conectarte.": [
   "src-tauri/src/error.rs"
  ],
+ "el servidor SSH {0}:{1} ya tiene otra clave aceptada: para aceptar una nueva, olvidá la anterior en los servidores SSH verificados de la conexión (Túnel SSH)": [
+  "src-tauri/src/tunnels.rs"
+ ],
  "el servidor cortó la lectura antes de terminar": [
   "crates/drivers/libsql/src/transfer.rs"
  ],
@@ -25272,6 +25275,9 @@
  ],
  "la clave del documento (META().id) no es un campo y no se puede renombrar": [
   "crates/drivers/couchbase/src/rename.rs"
+ ],
+ "la clave del servidor SSH {0}:{1} cambió: ahora presenta la huella {2} y la aceptada en DBine es {3}. Puede ser otro servidor haciéndose pasar por él. Si el servidor cambió de clave, olvidalo en los servidores SSH verificados de la conexión (Túnel SSH) y volvé a conectarte para verificar la huella nueva.": [
+  "crates/dbine-tunnel/src/lib.rs"
  ],
  "la clave del servidor SSH {0}:{1} no coincide con la de known_hosts: puede ser otro servidor haciéndose pasar por él. Si el servidor cambió de clave, actualizá tu known_hosts.": [
   "crates/dbine-tunnel/src/lib.rs"

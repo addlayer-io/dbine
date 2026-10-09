@@ -76,6 +76,7 @@ fn strip(cfg: &mut ConnectionConfig) {
 fn error(e: dbine_tunnel::Error) -> CommandError {
     match e {
         dbine_tunnel::Error::UnknownHost { host, port, fingerprint } => CommandError::SshUnknownHost { host, port, fingerprint },
+        // HostKeyChanged and TrustedKeyChanged too: refused, never asked.
         e => CommandError::Connect(e.to_string()),
     }
 }
@@ -146,14 +147,40 @@ pub fn trusted(cfg: &ConnectionConfig) -> Vec<String> {
     cfg.option("ssh.trusted").unwrap_or("").split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect()
 }
 
-/// `trusted` with `entry` added: it replaces any key accepted before for the
-/// same server (the server changed its key) and drops the bare fingerprints
-/// older versions saved, which no server matches any more.
-pub fn add_trusted(mut trusted: Vec<String>, entry: &str) -> Vec<String> {
-    let Some((host, port, _)) = dbine_tunnel::parse_trusted(entry) else { return trusted };
-    trusted.retain(|t| matches!(dbine_tunnel::parse_trusted(t), Some((h, p, _)) if !(p == port && h.eq_ignore_ascii_case(host))));
-    trusted.push(entry.trim().to_string());
-    trusted
+/// `trusted` with `entry` added, dropping the bare fingerprints older
+/// versions saved (no server matches them any more). None if another key is
+/// already accepted for the same server: a changed key is never swapped in
+/// by accepting it, the user forgets the old one first (in the connection's
+/// form), knowingly.
+pub fn add_trusted(mut trusted: Vec<String>, entry: &str) -> Option<Vec<String>> {
+    let (host, port, fingerprint) = dbine_tunnel::parse_trusted(entry)?;
+    let accepted = dbine_tunnel::trusted_for(&trusted, host, port);
+    if accepted.iter().any(|f| f != fingerprint) {
+        return None;
+    }
+    trusted.retain(|t| dbine_tunnel::parse_trusted(t).is_some());
+    if accepted.is_empty() {
+        trusted.push(entry.trim().to_string());
+    }
+    Some(trusted)
+}
+
+/// Trust `entry` (`[host]:port SHA256:…`, from an `ssh_unknown_host` error)
+/// in a connection's `ssh.trusted`: the server has to be one of its tunnel's
+/// and have no other key accepted (see [`add_trusted`]).
+pub fn trust(cfg: &mut ConnectionConfig, entry: &str) -> CommandResult<()> {
+    let invalid = || CommandError::BadRequest("huella SSH inválida".into());
+    let (host, port, _) = dbine_tunnel::parse_trusted(entry).ok_or_else(invalid)?;
+    if !hops(cfg)?.iter().any(|h| h.port == port && h.host.eq_ignore_ascii_case(host)) {
+        return Err(invalid());
+    }
+    let trusted = add_trusted(trusted(cfg), entry).ok_or_else(|| {
+        CommandError::BadRequest(format!(
+            "el servidor SSH {host}:{port} ya tiene otra clave aceptada: para aceptar una nueva, olvidá la anterior en los servidores SSH verificados de la conexión (Túnel SSH)"
+        ))
+    })?;
+    cfg.options.insert("ssh.trusted".into(), trusted.join(","));
+    Ok(())
 }
 
 /// `user@host:port`, `host:port` or `host` (the tunnel's user, port 22).
@@ -241,14 +268,46 @@ mod tests {
         assert_eq!(t("http://u:p@api.local/v1", 0), ("api.local".into(), 80, "http://u:p@127.0.0.1:40000/v1".into(), 0));
     }
 
+    fn fp(c: char) -> String {
+        format!("SHA256:{}", c.to_string().repeat(43))
+    }
+
     #[test]
-    fn trusting_a_key_replaces_the_servers_old_one_only() {
-        let fp = |c: char| format!("SHA256:{}", c.to_string().repeat(43));
+    fn trusting_a_key_never_replaces_the_servers_accepted_one() {
         let old = vec![dbine_tunnel::trusted_entry("jump", 22, &fp('a')), dbine_tunnel::trusted_entry("db", 22, &fp('b')), fp('c')];
-        let new = dbine_tunnel::trusted_entry("DB", 22, &fp('d'));
-        assert_eq!(add_trusted(old.clone(), &new), vec![old[0].clone(), new.clone()]);
-        // Not an entry bound to a server: nothing changes.
-        assert_eq!(add_trusted(old.clone(), &fp('d')), old);
+        // Another key for a server that has one: refused.
+        assert_eq!(add_trusted(old.clone(), &dbine_tunnel::trusted_entry("DB", 22, &fp('d'))), None);
+        // The same key again: kept once (the legacy bare one dropped).
+        assert_eq!(add_trusted(old.clone(), &dbine_tunnel::trusted_entry("db", 22, &fp('b'))), Some(old[..2].to_vec()));
+        // A server with nothing accepted (same host, other port).
+        let new = dbine_tunnel::trusted_entry("db", 2222, &fp('d'));
+        assert_eq!(add_trusted(old.clone(), &new), Some(vec![old[0].clone(), old[1].clone(), new]));
+        // Not an entry bound to a server.
+        assert_eq!(add_trusted(old.clone(), &fp('d')), None);
+    }
+
+    #[test]
+    fn trust_ssh_host_refuses_to_replace_a_pin() {
+        let mut c = cfg("db.interno", 5432);
+        for (k, v) in [("ssh.enabled", "true"), ("ssh.host", "bastion"), ("ssh.user", "ops"), ("ssh.jump", "jump:2200")] {
+            c.options.insert(k.into(), v.into());
+        }
+        c.options.insert("ssh.trusted".into(), dbine_tunnel::trusted_entry("bastion", 22, &fp('a')));
+        let before = c.options.clone();
+        // A changed key for the pinned server: refused, the pin untouched.
+        assert!(matches!(trust(&mut c, &dbine_tunnel::trusted_entry("bastion", 22, &fp('b'))), Err(CommandError::BadRequest(_))));
+        assert_eq!(c.options, before);
+        // A server that isn't one of the tunnel's, or a bare fingerprint.
+        assert!(trust(&mut c, &dbine_tunnel::trusted_entry("elsewhere", 22, &fp('b'))).is_err());
+        assert!(trust(&mut c, &fp('b')).is_err());
+        assert_eq!(c.options, before);
+        // The jump host has nothing accepted: trusted.
+        trust(&mut c, &dbine_tunnel::trusted_entry("jump", 2200, &fp('b'))).unwrap();
+        assert_eq!(trusted(&c), vec![dbine_tunnel::trusted_entry("bastion", 22, &fp('a')), dbine_tunnel::trusted_entry("jump", 2200, &fp('b'))]);
+        // Forgotten in the form (the pin removed and saved): asked and trusted again.
+        c.options.insert("ssh.trusted".into(), dbine_tunnel::trusted_entry("jump", 2200, &fp('b')));
+        trust(&mut c, &dbine_tunnel::trusted_entry("bastion", 22, &fp('c'))).unwrap();
+        assert!(trusted(&c).contains(&dbine_tunnel::trusted_entry("bastion", 22, &fp('c'))));
     }
 
     #[test]
