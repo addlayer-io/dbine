@@ -52,7 +52,7 @@ impl Tok<'_> {
     /// The name without its quotes, lowercase.
     pub fn ident(&self) -> String {
         let t = self.text;
-        let t = if self.k == K::Name && t.len() >= 2 { &t[1..t.len() - 1] } else { t };
+        let t = if self.k == K::Name && t.len() >= 2 { t.get(1..t.len() - 1).unwrap_or(t) } else { t };
         t.to_lowercase()
     }
 }

@@ -151,7 +151,7 @@ pub async fn database_health(state: State<'_, AppState>, args: HealthArgs) -> Co
                         .filter(|b| b.database.as_deref().is_none_or(|d| d.eq_ignore_ascii_case(&args.database)))
                         .filter_map(|b| b.finished.clone().or(b.started.clone()))
                         .filter_map(|t| chrono::DateTime::parse_from_rfc3339(&t).ok().map(|d| d.with_timezone(&chrono::Utc)).or_else(|| {
-                            chrono::NaiveDateTime::parse_from_str(&t.replace('T', " ")[..19.min(t.len())], "%Y-%m-%d %H:%M:%S").ok().map(|n| n.and_utc())
+                            chrono::NaiveDateTime::parse_from_str(t.replace('T', " ").get(..19.min(t.len()))?, "%Y-%m-%d %H:%M:%S").ok().map(|n| n.and_utc())
                         }))
                         .max();
                     let (title, sev) = match last {
