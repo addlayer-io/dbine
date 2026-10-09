@@ -371,6 +371,10 @@ impl Driver for SnowflakeDriver {
         rename::script(req)
     }
 
+    fn rename_database_script(&self, database: &str, new_name: &str, _objects: &[dbine_driver::rename::DatabaseObject]) -> Result<dbine_driver::SyncScript> {
+        rename::database_script(database, new_name)
+    }
+
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
         Ok(ddl::table_ddl(table, parts))
     }

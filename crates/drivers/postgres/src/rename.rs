@@ -9,6 +9,14 @@
 //! CockroachDB refuses to rename what a view, function or trigger uses:
 //! those are dropped before the rename and created after it. Its DDL
 //! commits as it goes (`autocommit_before_ddl`), so that isn't atomic. The other engines rename less (see [`spec`]).
+//!
+//! Databases ([`database_script`]) are renamed with `ALTER DATABASE …
+//! RENAME TO`, run from another database ([`database_rename`]):
+//! PostgreSQL and the engines that keep its rule (no other session may be
+//! connected) end those sessions first with `pg_terminate_backend`;
+//! CockroachDB and RisingWave rename with them open. Materialize has no
+//! rename for databases, CrateDB and H2 have no databases to rename, and
+//! Denodo renames nothing.
 
 use crate::{Variant, SINK, SOURCE};
 use dbine_driver::rename::{quote_new, Fold, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
@@ -107,8 +115,141 @@ pub(crate) fn spec(v: Variant) -> Option<RenameSpec> {
         // (`autocommit_before_ddl`, on by default since 25.1).
         transactional: level == Level::Full && v != Variant::Yugabyte && v.manual_transactions(),
         note,
+        databases: database_rename(v).is_some(),
+        database_from: database_rename(v).map(|r| r.from.to_string()),
+        database_note: database_rename(v).map(|r| database_note(v, r)),
+        database_moves: false,
         ..Default::default()
     })
+}
+
+/// What an engine does with the other sessions of a database it renames.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Sessions {
+    /// It refuses while there are any: they're ended first with
+    /// `pg_terminate_backend`, reading the backends from `pg_stat_activity`
+    /// (the column is the backend's id: `pid`, Redshift's `procpid`).
+    Terminate(&'static str),
+    /// It renames with them open (CockroachDB, RisingWave).
+    Kept,
+    /// It may refuse while there are any, and there's no SQL here to end
+    /// them (Yellowbrick): the user closes them.
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DatabaseRename {
+    /// The database the script runs in.
+    from: &'static str,
+    sessions: Sessions,
+}
+
+/// How a variant renames a database; `None`: it doesn't.
+fn database_rename(v: Variant) -> Option<DatabaseRename> {
+    let (from, sessions) = match v {
+        // Its database is a namespace; ALTER DATABASE only changes the owner.
+        Variant::Materialize => return None,
+        // One database per connection (CrateDB's are schemas, H2's a file),
+        // and Denodo renames nothing.
+        Variant::CrateDb | Variant::H2 | Variant::Denodo => return None,
+        // `system` takes CONNECT from admins only; `defaultdb` from everyone.
+        Variant::Cockroach => ("defaultdb", Sessions::Kept),
+        Variant::RisingWave => ("dev", Sessions::Kept),
+        Variant::Redshift => ("dev", Sessions::Terminate("procpid")),
+        Variant::Yellowbrick => ("yellowbrick", Sessions::Closed),
+        Variant::Yugabyte => ("yugabyte", Sessions::Terminate("pid")),
+        Variant::Kingbase => ("kingbase", Sessions::Terminate("pid")),
+        // PostgreSQL and the engines that keep its initdb (EDB creates
+        // `postgres` next to `edb`).
+        _ => ("postgres", Sessions::Terminate("pid")),
+    };
+    Some(DatabaseRename { from, sessions })
+}
+
+/// Databases a variant never renames from DBine, besides the one the
+/// script runs in.
+fn kept_databases(v: Variant) -> &'static [&'static str] {
+    match v {
+        Variant::Cockroach => &["system"],
+        Variant::Redshift => &["padb_harvest", "template0", "template1"],
+        Variant::RisingWave => &[],
+        _ => &["template0", "template1"],
+    }
+}
+
+fn database_note(v: Variant, r: DatabaseRename) -> String {
+    let engine = v.info().name;
+    let elsewhere = "El código, las aplicaciones y las cadenas de conexión que la nombran en otro lado no se actualizan.";
+    let mut note = match r.sessions {
+        Sessions::Terminate(_) => format!(
+            "{engine} no renombra una base con otras sesiones conectadas: DBine las cierra antes (pg_terminate_backend), así que se cortan sus transacciones en curso. {elsewhere} No es atómico: si el cambio de nombre falla, las sesiones ya quedaron cerradas."
+        ),
+        Sessions::Kept if v == Variant::Cockroach => format!(
+            "CockroachDB renombra la base con las sesiones abiertas y no las cierra, pero las que la tenían como base actual quedan apuntando a un nombre que ya no existe: los nombres sin calificar les fallan hasta que se reconecten. {elsewhere}"
+        ),
+        Sessions::Kept => format!(
+            "{engine} renombra la base con las sesiones abiertas, pero las que estaban conectadas a ella dejan de funcionar y tienen que reconectarse con el nombre nuevo. {elsewhere}"
+        ),
+        Sessions::Closed => format!(
+            "Cerrá antes las demás sesiones conectadas a la base: con alguna abierta, {engine} puede rechazar el cambio. {elsewhere}"
+        ),
+    };
+    note.push(' ');
+    note.push_str(match v {
+        Variant::Cockroach => "Hace falta ser admin, o el dueño de la base con CREATEDB.",
+        Variant::Redshift => "Hace falta ser superusuario, o el dueño de la base con CREATEDB.",
+        _ if matches!(r.sessions, Sessions::Terminate(_)) => {
+            "Hace falta ser el dueño de la base (con CREATEDB) o superusuario; para cerrar sesiones de otros usuarios, superusuario o pg_signal_backend."
+        }
+        _ => "Hace falta ser el dueño de la base o superusuario.",
+    });
+    if v == Variant::Yugabyte {
+        note.push_str(" En un clúster de varios nodos, pg_terminate_backend solo alcanza las sesiones del nodo al que está conectado DBine.");
+    }
+    note.push_str(&format!(" No se renombra «{}»: desde ahí se ejecuta el cambio.", r.from));
+    note
+}
+
+/// The statements that rename `database` to `new_name`, run in
+/// [`DatabaseRename::from`].
+pub(crate) fn database_script(v: Variant, database: &str, new_name: &str) -> Result<SyncScript> {
+    let engine = v.info().name;
+    let Some(r) = database_rename(v) else {
+        return Err(Error::Unsupported(match v {
+            Variant::Materialize => "Materialize no renombra bases de datos: ALTER DATABASE solo cambia el dueño".into(),
+            _ => format!("{engine} no renombra bases de datos desde DBine"),
+        }));
+    };
+    if database.is_empty() || new_name.is_empty() {
+        return Err(Error::Unsupported("Falta el nombre de la base.".into()));
+    }
+    if database == r.from {
+        return Err(Error::Unsupported(format!(
+            "«{database}» no se renombra desde DBine: es la base desde la que {engine} ejecuta el cambio de nombre"
+        )));
+    }
+    if kept_databases(v).contains(&database) {
+        return Err(Error::Unsupported(format!("«{database}» es una base del sistema de {engine}: no se renombra")));
+    }
+    let mut statements = Vec::new();
+    let mut warnings = Vec::new();
+    match r.sessions {
+        Sessions::Terminate(pid) => {
+            statements.push(format!(
+                "SELECT pg_terminate_backend({pid}) FROM pg_stat_activity WHERE datname = {} AND {pid} <> pg_backend_pid();",
+                crate::catalog::lit(v, database)
+            ));
+            warnings.push(format!("Se cierran las demás sesiones conectadas a «{database}»."));
+        }
+        Sessions::Kept if v == Variant::Cockroach => {
+            warnings.push(format!("Las sesiones conectadas a «{database}» siguen abiertas, pero su base actual deja de existir."))
+        }
+        Sessions::Kept => warnings.push(format!("Las sesiones conectadas a «{database}» dejan de funcionar: tienen que reconectarse.")),
+        Sessions::Closed => warnings.push(format!("Si quedan sesiones conectadas a «{database}», {engine} puede rechazar el cambio.")),
+    }
+    statements.push(format!("ALTER DATABASE {} RENAME TO {};", q(database), q(new_name)));
+    warnings.push(format!("Lo que nombra «{database}» (código, aplicaciones, cadenas de conexión) no se actualiza."));
+    Ok(SyncScript { statements, warnings })
 }
 
 fn q(name: &str) -> String {
@@ -375,5 +516,112 @@ mod tests {
         assert_eq!(h2.kinds, ["table", "view"]);
         assert!(h2.columns && h2.indexes && h2.constraints && h2.schemas && !h2.transactional && h2.tracked.is_empty());
         assert_eq!(spec(Variant::Yellowbrick).unwrap().kinds, ["table", "view"]);
+    }
+
+    fn db(v: Variant, database: &str, new: &str) -> SyncScript {
+        database_script(v, database, new).unwrap_or_else(|e| panic!("{v:?}: {e}"))
+    }
+
+    #[test]
+    fn postgres_database_rename_ends_sessions_then_renames() {
+        for v in [Variant::Postgres, Variant::Timescale, Variant::AlloyDb, Variant::CloudSql, Variant::Aurora, Variant::Edb, Variant::Fujitsu, Variant::OpenGauss, Variant::Greenplum, Variant::Cloudberry, Variant::Greengage] {
+            let s = spec(v).unwrap();
+            assert!(s.databases && !s.database_moves, "{v:?}");
+            assert_eq!(s.database_from.as_deref(), Some("postgres"), "{v:?}");
+            let note = s.database_note.unwrap();
+            for part in ["cierra", "no se actualizan", "No es atómico", "dueño", "superusuario"] {
+                assert!(note.contains(part), "{v:?}: {note}");
+            }
+            assert_eq!(
+                db(v, "Ventas", "ventas 2024").statements,
+                [
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'Ventas' AND pid <> pg_backend_pid();",
+                    "ALTER DATABASE \"Ventas\" RENAME TO \"ventas 2024\";",
+                ],
+                "{v:?}"
+            );
+        }
+        // Quotes in names are escaped, in the literal and in the identifiers.
+        assert_eq!(
+            db(Variant::Postgres, "o'brien\"x", "n\"y").statements,
+            [
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'o''brien\"x' AND pid <> pg_backend_pid();",
+                "ALTER DATABASE \"o'brien\"\"x\" RENAME TO \"n\"\"y\";",
+            ]
+        );
+        let w = db(Variant::Postgres, "a", "b").warnings;
+        assert!(w.iter().any(|w| w.contains("Se cierran")) && w.iter().any(|w| w.contains("no se actualiza")), "{w:?}");
+        assert_eq!(spec(Variant::Kingbase).unwrap().database_from.as_deref(), Some("kingbase"));
+    }
+
+    #[test]
+    fn yugabyte_and_redshift_database_rename() {
+        let yb = spec(Variant::Yugabyte).unwrap();
+        assert!(yb.databases && yb.database_note.as_deref().unwrap().contains("varios nodos"));
+        assert_eq!(yb.database_from.as_deref(), Some("yugabyte"));
+        assert_eq!(db(Variant::Yugabyte, "app", "app2").statements.len(), 2);
+        // Yugabyte's own `postgres` database can be renamed; it doesn't run from it.
+        assert!(database_script(Variant::Yugabyte, "postgres", "pg").is_ok());
+
+        let rs = spec(Variant::Redshift).unwrap();
+        assert!(rs.databases && !rs.database_moves);
+        assert_eq!(rs.database_from.as_deref(), Some("dev"));
+        assert_eq!(
+            db(Variant::Redshift, "ventas\\x", "ventas2").statements,
+            [
+                "SELECT pg_terminate_backend(procpid) FROM pg_stat_activity WHERE datname = 'ventas\\\\x' AND procpid <> pg_backend_pid();",
+                "ALTER DATABASE \"ventas\\x\" RENAME TO \"ventas2\";",
+            ]
+        );
+        assert!(database_script(Variant::Redshift, "padb_harvest", "x").is_err());
+    }
+
+    #[test]
+    fn cockroach_and_risingwave_rename_with_sessions_open() {
+        let c = spec(Variant::Cockroach).unwrap();
+        assert!(c.databases && !c.database_moves);
+        assert_eq!(c.database_from.as_deref(), Some("defaultdb"));
+        assert!(c.database_note.as_deref().unwrap().contains("no las cierra"));
+        let s = db(Variant::Cockroach, "app", "App");
+        assert_eq!(s.statements, ["ALTER DATABASE \"app\" RENAME TO \"App\";"]);
+        assert!(s.warnings[0].contains("siguen abiertas"));
+        assert!(matches!(database_script(Variant::Cockroach, "system", "x"), Err(Error::Unsupported(_))));
+        // Its `postgres` database is an ordinary one.
+        assert!(database_script(Variant::Cockroach, "postgres", "pg").is_ok());
+
+        let rw = spec(Variant::RisingWave).unwrap();
+        assert_eq!(rw.database_from.as_deref(), Some("dev"));
+        assert_eq!(db(Variant::RisingWave, "a", "b").statements, ["ALTER DATABASE \"a\" RENAME TO \"b\";"]);
+        assert!(rw.database_note.as_deref().unwrap().contains("reconectarse"));
+
+        let yb = spec(Variant::Yellowbrick).unwrap();
+        assert_eq!(yb.database_from.as_deref(), Some("yellowbrick"));
+        assert_eq!(db(Variant::Yellowbrick, "a", "b").statements, ["ALTER DATABASE \"a\" RENAME TO \"b\";"]);
+        assert!(yb.database_note.as_deref().unwrap().contains("Cerrá antes"));
+    }
+
+    #[test]
+    fn database_rename_refusals() {
+        for v in Variant::ALL {
+            let Some(s) = spec(v) else { continue };
+            if !s.databases {
+                assert!(matches!(database_script(v, "a", "b"), Err(Error::Unsupported(_))), "{v:?}");
+                continue;
+            }
+            let from = s.database_from.clone().expect("a database rename runs from somewhere");
+            let e = database_script(v, &from, "x").unwrap_err().to_string();
+            assert!(e.contains(&from) && e.contains("desde la que"), "{v:?}: {e}");
+            assert!(s.database_note.as_deref().unwrap().contains(&format!("«{from}»")), "{v:?}");
+            if v != Variant::Cockroach && v != Variant::RisingWave {
+                for t in ["template0", "template1"] {
+                    assert!(database_script(v, t, "x").unwrap_err().to_string().contains("sistema"), "{v:?} {t}");
+                }
+            }
+            assert!(database_script(v, "", "x").is_err() && database_script(v, "a", "").is_err());
+        }
+        for v in [Variant::Materialize, Variant::CrateDb, Variant::H2, Variant::Denodo] {
+            assert!(spec(v).is_none_or(|s| !s.databases && s.database_from.is_none()), "{v:?}");
+            assert!(matches!(database_script(v, "a", "b"), Err(Error::Unsupported(_))), "{v:?}");
+        }
     }
 }

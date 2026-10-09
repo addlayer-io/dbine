@@ -456,3 +456,76 @@ async fn cratedb_rename() {
 async fn h2_rename() {
     views_rewritten("h2", "DBINE_TEST_H2_URL", "public").await;
 }
+
+/// A connection to `database` on the server of `cfg`.
+fn on(cfg: &ConnectionConfig, database: &str) -> ConnectionConfig {
+    ConnectionConfig { database: database.into(), ..cfg.clone() }
+}
+
+/// "Renombrar…" on a database, the way the app runs it: a database with a
+/// table and a row, a second session connected to it, then the driver's
+/// statements one by one (not atomically) from `database_from`.
+async fn database_rename(id: &str, env: &str, create_table: &str) {
+    let Some(base) = cfg(id, env) else {
+        eprintln!("{env} not set; skipping");
+        return;
+    };
+    let d = driver(id);
+    let spec = d.rename_spec().unwrap();
+    assert!(spec.databases && !spec.database_moves, "{id}");
+    let from = spec.database_from.clone().unwrap();
+    let (old, new) = ("rn_db_live", "Rn Db Nuevo");
+    let mut admin = d.connect(&on(&base, &from), None).await.expect("connect to database_from");
+    for db in [old, new] {
+        run(&mut admin, &format!("DROP DATABASE IF EXISTS \"{db}\"")).await;
+    }
+    run(&mut admin, &format!("CREATE DATABASE {old}")).await;
+
+    // 1. A table and a row, and a second session left open on it.
+    let mut other = d.connect(&on(&base, old), None).await.expect("connect to the database");
+    run(&mut other, create_table).await;
+    run(&mut other, "INSERT INTO rn_t (id, name) VALUES (1, 'uno')").await;
+    assert_eq!(one(&mut other, "SELECT current_database()").await, old);
+    let pid = if id == "postgres" { Some(one(&mut other, "SELECT pg_backend_pid()::text").await) } else { None };
+
+    // 2. The script, from database_from.
+    let script = d.rename_database_script(old, new, &[]).expect("script");
+    for sql in &script.statements {
+        run(&mut admin, sql).await;
+    }
+
+    // 3. Renamed, with its row.
+    let names = admin.list_databases().await.unwrap();
+    assert!(names.iter().any(|n| n == new) && !names.iter().any(|n| n == old), "{names:?}");
+    let mut renamed = d.connect(&on(&base, new), None).await.expect("connect to the renamed database");
+    assert_eq!(one(&mut renamed, "SELECT name FROM rn_t WHERE id = 1").await, "uno");
+    drop(renamed);
+
+    // 4. The other session: ended on PostgreSQL; on CockroachDB it stays
+    // open, but its current database no longer exists.
+    if let Some(pid) = pid {
+        assert_eq!(one(&mut admin, &format!("SELECT count(*)::text FROM pg_stat_activity WHERE pid = {pid}")).await, "0");
+        assert!(try_run(&mut other, "SELECT 1").await.is_err(), "the other session should have ended");
+    } else {
+        assert_eq!(one(&mut other, "SELECT 1::STRING").await, "1", "the other session should stay open");
+        let r = try_run(&mut other, "SELECT name FROM rn_t").await;
+        assert!(r.is_err(), "unqualified names should fail in the other session: {r:?}");
+    }
+    drop(other);
+
+    // 5. Clean up; renaming database_from itself is refused.
+    run(&mut admin, &format!("DROP DATABASE \"{new}\"")).await;
+    assert!(d.rename_database_script(&from, "x", &[]).is_err());
+}
+
+#[tokio::test]
+#[ignore]
+async fn postgres_database_rename() {
+    database_rename("postgres", "DBINE_TEST_POSTGRES_URL", "CREATE TABLE rn_t (id int PRIMARY KEY, name text)").await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn cockroach_database_rename() {
+    database_rename("cockroachdb", "DBINE_TEST_COCKROACH_URL", "CREATE TABLE rn_t (id INT PRIMARY KEY, name STRING)").await;
+}

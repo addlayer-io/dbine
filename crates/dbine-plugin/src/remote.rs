@@ -761,6 +761,13 @@ impl Driver for RemoteDriver {
             _ => Err(unexpected()),
         }
     }
+    fn rename_database_script(&self, database: &str, new_name: &str, objects: &[dbine_driver::rename::DatabaseObject]) -> Result<SyncScript> {
+        let call = Call::RenameDatabaseScript { driver: self.id(), database: database.into(), new_name: new_name.into(), objects: objects.to_vec() };
+        match self.blocking(call)? {
+            Reply::Sync(s) => Ok(s),
+            _ => Err(unexpected()),
+        }
+    }
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
         text(self.blocking(Call::TableDdl { driver: self.id(), table: table.clone(), parts })?)
     }

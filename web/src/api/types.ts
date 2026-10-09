@@ -664,7 +664,8 @@ export type RenameTarget =
   | { what: 'column'; table: ObjectRef; column: string }
   | { what: 'index'; table: ObjectRef; index: string }
   | { what: 'constraint'; table: ObjectRef; constraint: string }
-  | { what: 'schema'; database?: string | null; schema: string };
+  | { what: 'schema'; database?: string | null; schema: string }
+  | { what: 'database'; database: string };
 
 /** What a driver renames and how (`dbine_driver::RenameSpec`). */
 export interface RenameSpec {
@@ -692,7 +693,18 @@ export interface RenameSpec {
   grants_on_objects?: boolean;
   /** The app reads an object rename's table (`RenameRequest::table`). */
   wants_table?: boolean;
+  /** It renames databases (`RenameTarget::Database`). */
+  databases?: boolean;
+  /** The database a database rename runs in (null: none). */
+  database_from?: string | null;
+  /** What the dialog says first about a database rename. */
+  database_note?: string | null;
+  /** A database rename moves its contents one by one. */
+  database_moves?: boolean;
 }
+
+/** One object of a database being renamed (`rename::DatabaseObject`). */
+export interface DatabaseObject { kind: string; schema: string | null; name: string; definition: string | null }
 
 /** A rename to script (`dbine_driver::RenameRequest`). */
 export interface RenameRequest {
@@ -736,6 +748,12 @@ export interface RenameImpact {
   atomic: boolean;
   definition: string | null;
   table: import('./schema-types').TableSchema | null;
+  /** A database rename: the other sessions on it, which the rename ends. */
+  sessions?: import('./locks').ServerProcess[];
+  /** A database rename that moves its contents: back to `rename_script`. */
+  objects?: DatabaseObject[];
+  /** A database rename: the database the script runs in ('' : none). */
+  run_on?: string | null;
 }
 
 /** The calling window (`windows::WindowRole`). */

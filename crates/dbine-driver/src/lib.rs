@@ -139,6 +139,17 @@ pub trait Driver: Send + Sync {
         Err(Error::Unsupported("este motor no renombra objetos".into()))
     }
 
+    /// The statements that rename `database` to `new_name` (offered where
+    /// [`rename::RenameSpec::databases`]). They run in
+    /// [`rename::RenameSpec::database_from`], never in the database itself,
+    /// and not atomically. `objects`: what the database holds, for engines
+    /// that move it piece by piece (empty for a native rename). Warnings:
+    /// the sessions it ends, what isn't moved, that it isn't atomic.
+    fn rename_database_script(&self, database: &str, new_name: &str, objects: &[rename::DatabaseObject]) -> Result<SyncScript> {
+        let _ = (database, new_name, objects);
+        Err(Error::Unsupported("este motor no renombra bases de datos".into()))
+    }
+
     /// Its sessions implement [`Session::index_usage`]: the explorer lists a
     /// table's indexes with their usage, and "Índices…" opens the details.
     fn supports_index_usage(&self) -> bool {

@@ -694,6 +694,11 @@ pub struct RunArgs {
     /// by statement, as always.
     #[serde(default)]
     pub atomic: bool,
+    /// A database rename: DBine's own sessions on that database (tabs,
+    /// explorer, metadata) are closed first, or they hold it open (and the
+    /// engine refuses or ends them anyway).
+    #[serde(default)]
+    pub close_database: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -731,6 +736,9 @@ pub async fn schema_sync_run(app: AppHandle, state: State<'_, AppState>, args: R
         let driver = crate::commands::schema::driver_of(&state, &args.connection_id)?;
         driver.supports_manual_transactions() && driver.rename_spec().is_some_and(|s| s.transactional)
     };
+    if let Some(db) = args.close_database.as_deref().filter(|d| !d.is_empty()) {
+        state.sessions.retain(|_, e| !(e.connection_id == args.connection_id && e.database == db));
+    }
     let key = format!("sync:{}", args.run_id);
     let entry = state.dedicated_session(&key, &args.connection_id, &args.database, false).await?;
     if atomic {

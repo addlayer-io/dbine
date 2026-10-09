@@ -67,5 +67,16 @@
   "done": "{{name}} ahora se llama {{to}}",
   "rolledBack": "No cambió nada: se deshizo todo el script.",
   "queryTabs_one": "Hay {{count}} pestaña de consulta abierta que nombra «{{name}}»: no se modificó.",
-  "queryTabs_other": "Hay {{count}} pestañas de consulta abiertas que nombran «{{name}}»: no se modificaron."
+  "queryTabs_other": "Hay {{count}} pestañas de consulta abiertas que nombran «{{name}}»: no se modificaron.",
+  "followed_one": "DBine actualizó {{count}} referencia propia a la base (conexión, consultas guardadas, migraciones, proyectos o tareas): ahora apunta a «{{name}}».",
+  "followed_other": "DBine actualizó {{count}} referencias propias a la base (conexión, consultas guardadas, migraciones, proyectos o tareas): ahora apuntan a «{{name}}».",
+  "tasksToApprove_one": "{{count}} tarea programada cambia datos en esa base: no corre hasta que la apruebes de nuevo.",
+  "tasksToApprove_other": "{{count}} tareas programadas cambian datos en esa base: no corren hasta que las apruebes de nuevo.",
+  "dbSessions_one": "Hay {{count}} sesión abierta en la base: el cambio de nombre la corta.",
+  "dbSessions_other": "Hay {{count}} sesiones abiertas en la base: el cambio de nombre las corta.",
+  "dbNoSessions": "No hay otras sesiones abiertas en la base.",
+  "dbMoves_one": "Se mueve {{count}} objeto a la base nueva, uno por uno.",
+  "dbMoves_other": "Se mueven {{count}} objetos a la base nueva, uno por uno.",
+  "dbOwnClosed": "Las pestañas y el explorador de DBine sobre esta base se desconectan antes y siguen el nombre nuevo.",
+  "dbOutside": "El código de otras bases, los jobs, las aplicaciones y las cadenas de conexión que usan el nombre viejo no se cambian."
 }

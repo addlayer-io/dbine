@@ -480,6 +480,10 @@ impl Driver for PgDriver {
         rename::script(self.variant, req)
     }
 
+    fn rename_database_script(&self, database: &str, new_name: &str, _objects: &[dbine_driver::rename::DatabaseObject]) -> Result<dbine_driver::SyncScript> {
+        rename::database_script(self.variant, database, new_name)
+    }
+
     fn capabilities(&self) -> Capabilities {
         design::capabilities(self.variant)
     }

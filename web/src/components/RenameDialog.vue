@@ -5,6 +5,7 @@ import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
 import type { CodeObject, SyncScript } from '../api/compare';
 import type { RenameImpact, RenameImpactItem } from '../api/types';
+import type { ServerProcess } from '../api/locks';
 import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
 import { isDatabaseRename, oldName, renameImpact, renameScript, renameSpec, runRename, targetLabel, type RenameDialogTarget } from '../composables/rename';
@@ -45,6 +46,10 @@ const what = computed(() => {
   if (isDatabaseRename(props.target)) return t('rename:what.database', { name: label.value });
   return t(`rename:what.${tg.what}`, { name: label.value });
 });
+/** A database: no code rewritten here, the sessions it ends instead. */
+const isDatabase = computed(() => props.target.target.what === 'database');
+const specNote = computed(() => (isDatabase.value ? spec.value?.database_note : spec.value?.note) ?? null);
+const sessionLabel = (p: ServerProcess) => [p.user, p.host, p.program].filter(Boolean).join(' · ') || `#${p.id}`;
 /** Only a column rename touches the views' output columns. */
 const isColumn = computed(() => props.target.target.what === 'column');
 
@@ -180,6 +185,7 @@ async function run() {
   const to = impactFor.value;
   const statements = script.value.statements;
   const atomic = impact.value.atomic;
+  const runOn = impact.value.run_on ?? null;
   const runId = crypto.randomUUID();
   let ready = false;
   let settled = false;
@@ -208,7 +214,7 @@ async function run() {
       current.progress({ done: payload.done });
     });
   } catch { /* no live progress: the run still goes */ }
-  const r = await runRename(target, to, statements, atomic, runId);
+  const r = await runRename(target, to, statements, atomic, runId, runOn);
   settled = true;
   running.value = false;
   if (r.error) {
@@ -232,7 +238,7 @@ defineExpose({ name, loadImpact });
     :close-on-click-modal="false" :close-on-press-escape="!running" :show-close="!running" @close="emit('close')"
   >
     <p class="rn-p"><b>{{ what }}</b> <span class="rn-dim">{{ $t('rename:where', { where }) }}</span></p>
-    <el-alert v-if="spec?.note" type="info" :title="tb(spec.note)" :closable="false" show-icon class="rn-warn" />
+    <el-alert v-if="specNote" type="info" :title="tb(specNote)" :closable="false" show-icon class="rn-warn" />
 
     <div class="rn-name">
       <label class="rn-label" for="rn-new">{{ $t('rename:newName') }}</label>
@@ -247,7 +253,18 @@ defineExpose({ name, loadImpact });
 
     <template v-if="impact && !loading">
       <el-alert v-if="impact.collides" type="error" :title="$t('rename:collides', { name: impactFor })" :closable="false" show-icon class="rn-warn" />
-      <p class="rn-dim rn-small">
+      <template v-if="isDatabase">
+        <el-alert
+          v-if="impact.sessions?.length" type="warning" :closable="false" show-icon class="rn-warn"
+          :title="$t('rename:dbSessions', { count: impact.sessions.length })"
+        >
+          <ul class="rn-sessions"><li v-for="p in impact.sessions" :key="p.id">{{ sessionLabel(p) }}</li></ul>
+        </el-alert>
+        <p v-else class="rn-dim rn-small">{{ $t('rename:dbNoSessions') }}</p>
+        <p v-if="impact.objects?.length" class="rn-dim rn-small">{{ $t('rename:dbMoves', { count: impact.objects.length }) }}</p>
+        <p class="rn-dim rn-small">{{ $t('rename:dbOwnClosed') }}</p>
+      </template>
+      <p v-else class="rn-dim rn-small">
         {{ impact.items.length
           ? $t('rename:summary', { rewrite: rewrites.length, engine: engine.length, manual: manual.length + impact.unreadable.length, scanned: impact.scanned })
           : $t('rename:nothing') }}
@@ -255,7 +272,7 @@ defineExpose({ name, loadImpact });
       <el-alert v-if="impact.note" type="warning" :title="tb(impact.note)" :closable="false" show-icon class="rn-warn" />
       <el-alert v-if="impact.unreadable.length" type="warning" :title="$t('rename:unreadable', { names: impact.unreadable.join(', ') })" :closable="false" show-icon class="rn-warn" />
 
-      <div class="rn-groups">
+      <div v-if="!isDatabase" class="rn-groups">
         <section v-if="rewrites.length" class="rn-group">
           <h4>{{ $t('rename:group.rewrite') }} <span class="rn-count">{{ rewrites.length }}</span></h4>
           <p class="rn-dim rn-small">{{ $t('rename:groupHint.rewrite') }}</p>
@@ -316,7 +333,7 @@ defineExpose({ name, loadImpact });
         </section>
       </div>
 
-      <p class="rn-dim rn-small">{{ $t('rename:outside') }}</p>
+      <p class="rn-dim rn-small">{{ $t(isDatabase ? 'rename:dbOutside' : 'rename:outside') }}</p>
       <p class="rn-dim rn-small">{{ $t(impact.atomic ? 'rename:atomic' : 'rename:notAtomic') }}</p>
 
       <el-alert v-for="w in script?.warnings ?? []" :key="w" type="warning" :title="tb(w)" :closable="false" show-icon class="rn-warn" />
@@ -347,6 +364,7 @@ defineExpose({ name, loadImpact });
 
 <style scoped lang="scss">
 .rn-p { margin: 0 0 8px; }
+.rn-sessions { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
 .rn-dim { color: var(--nm-text-dim); }
 .rn-small { font-size: 12px; margin: 6px 0; }
 .rn-warn { margin: 6px 0; }

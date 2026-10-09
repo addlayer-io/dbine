@@ -67,5 +67,16 @@
   "done": "{{name}} ora si chiama {{to}}",
   "rolledBack": "Non è cambiato nulla: l’intero script è stato annullato.",
   "queryTabs_one": "C'è {{count}} scheda di query aperta che nomina «{{name}}»: non è stata modificata.",
-  "queryTabs_other": "Ci sono {{count}} schede di query aperte che nominano «{{name}}»: non sono state modificate."
+  "queryTabs_other": "Ci sono {{count}} schede di query aperte che nominano «{{name}}»: non sono state modificate.",
+  "followed_one": "DBine ha aggiornato {{count}} suo riferimento al database (connessione, query salvate, migrazioni, progetti o attività): ora punta a «{{name}}».",
+  "followed_other": "DBine ha aggiornato {{count}} suoi riferimenti al database (connessione, query salvate, migrazioni, progetti o attività): ora puntano a «{{name}}».",
+  "tasksToApprove_one": "{{count}} attività pianificata modifica dati in quel database: non viene eseguita finché non la approvi di nuovo.",
+  "tasksToApprove_other": "{{count}} attività pianificate modificano dati in quel database: non vengono eseguite finché non le approvi di nuovo.",
+  "dbSessions_one": "C'è {{count}} sessione aperta sul database: la rinomina la chiude.",
+  "dbSessions_other": "Ci sono {{count}} sessioni aperte sul database: la rinomina le chiude.",
+  "dbNoSessions": "Non ci sono altre sessioni aperte sul database.",
+  "dbMoves_one": "{{count}} oggetto viene spostato nel nuovo database, uno per uno.",
+  "dbMoves_other": "{{count}} oggetti vengono spostati nel nuovo database, uno per uno.",
+  "dbOwnClosed": "Le schede e l'esploratore di DBine su questo database si disconnettono prima e seguono il nuovo nome.",
+  "dbOutside": "Il codice di altri database, i job, le applicazioni e le stringhe di connessione che usano il vecchio nome non vengono modificati."
 }

@@ -67,5 +67,16 @@
   "done": "{{name}} agora se chama {{to}}",
   "rolledBack": "Nada mudou: todo o script foi desfeito.",
   "queryTabs_one": "Há {{count}} aba de consulta aberta que cita “{{name}}”: não foi modificada.",
-  "queryTabs_other": "Há {{count}} abas de consulta abertas que citam “{{name}}”: não foram modificadas."
+  "queryTabs_other": "Há {{count}} abas de consulta abertas que citam “{{name}}”: não foram modificadas.",
+  "followed_one": "O DBine atualizou {{count}} referência própria ao banco (conexão, consultas salvas, migrações, projetos ou tarefas): agora aponta para «{{name}}».",
+  "followed_other": "O DBine atualizou {{count}} referências próprias ao banco (conexão, consultas salvas, migrações, projetos ou tarefas): agora apontam para «{{name}}».",
+  "tasksToApprove_one": "{{count}} tarefa agendada altera dados nesse banco: não roda até que você a aprove de novo.",
+  "tasksToApprove_other": "{{count}} tarefas agendadas alteram dados nesse banco: não rodam até que você as aprove de novo.",
+  "dbSessions_one": "Há {{count}} sessão aberta no banco: a renomeação a encerra.",
+  "dbSessions_other": "Há {{count}} sessões abertas no banco: a renomeação as encerra.",
+  "dbNoSessions": "Não há outras sessões abertas no banco.",
+  "dbMoves_one": "{{count}} objeto é movido para o banco novo, um por um.",
+  "dbMoves_other": "{{count}} objetos são movidos para o banco novo, um por um.",
+  "dbOwnClosed": "As abas e o explorador do DBine neste banco se desconectam antes e seguem o nome novo.",
+  "dbOutside": "Código de outros bancos, jobs, aplicações e strings de conexão que usam o nome antigo não são alterados."
 }

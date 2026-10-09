@@ -17,6 +17,9 @@
 //!   PostgreSQL underneath follows a renamed column in CHECKs and computed
 //!   columns by itself.
 //! - Fabric (not verified on a live warehouse): tables and columns only.
+//!
+//! A database is renamed with `ALTER DATABASE … MODIFY NAME`, run from
+//! `master` (see [`database_script`]).
 
 use crate::variant::{self, Variant};
 use dbine_driver::rename::{rename_header, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
@@ -26,7 +29,12 @@ use dbine_driver::{kinds, Error, IndexDef, ObjectRef, Result, SyncScript, TableS
 const MODULES: [&str; 4] = [kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION, kinds::TRIGGER];
 
 pub(crate) fn spec(v: Variant) -> RenameSpec {
+    let note = database_note(v);
     let base = RenameSpec {
+        databases: note.is_some(),
+        database_from: note.is_some().then(|| "master".to_string()),
+        database_note: note.map(str::to_string),
+        database_moves: false,
         replace: ReplaceStyle::CreateOrAlter,
         references: ReferenceStyle::Sql,
         fold: Fold::None,
@@ -288,6 +296,96 @@ END CATCH;",
     Ok(SyncScript { statements: vec![batch], warnings })
 }
 
+/// The system databases, never renamed (Babelfish has no `model`).
+const SYSTEM_DATABASES: [&str; 4] = ["master", "model", "msdb", "tempdb"];
+
+/// What the dialog says first about renaming a database; `None` where it
+/// isn't offered (a Fabric warehouse is renamed in the Fabric portal).
+fn database_note(v: Variant) -> Option<&'static str> {
+    match v {
+        Variant::SqlServer => Some(
+            "Se renombra con ALTER DATABASE … MODIFY NAME, desde master. Antes la base pasa a SINGLE_USER WITH ROLLBACK IMMEDIATE, que deshace \
+             las transacciones abiertas y corta todas las demás sesiones conectadas a ella, y al final vuelve a MULTI_USER. El código de otras \
+             bases, los jobs del Agente, los servidores vinculados, los sinónimos y las cadenas de conexión que usan el nombre viejo no cambian. \
+             No es atómico: si una sentencia falla, lo anterior queda hecho.",
+        ),
+        Variant::AzureSql => Some(
+            "Se renombra con ALTER DATABASE … MODIFY NAME, desde master. Azure SQL Database no admite SINGLE_USER: las demás sesiones \
+             conectadas a la base se cortan al renombrarla, sin aviso previo. El código de otras bases, las consultas elásticas, las \
+             reglas de firewall de la base y las cadenas de conexión que usan el nombre viejo no cambian. No es atómico: si una sentencia \
+             falla, lo anterior queda hecho.",
+        ),
+        Variant::Babelfish => Some(
+            "Se renombra con ALTER DATABASE … MODIFY NAME, desde master. Babelfish no admite SINGLE_USER ni corta las demás sesiones: \
+             mientras haya otra conectada a la base, se niega («The database could not be exclusively locked»), así que hay que cerrarlas \
+             antes. El código de otras bases y las cadenas de conexión que usan el nombre viejo no cambian. No es atómico: si una sentencia \
+             falla, lo anterior queda hecho.",
+        ),
+        Variant::Fabric => None,
+    }
+}
+
+/// Renaming `database` to `new_name`, run from `master`:
+///
+/// - SQL Server: `SET SINGLE_USER WITH ROLLBACK IMMEDIATE` (as SSMS's
+///   "close existing connections"), `MODIFY NAME`, then `SET MULTI_USER`
+///   on the new name.
+/// - Azure SQL Database and Babelfish: `MODIFY NAME` alone; neither takes
+///   `SINGLE_USER`. Babelfish 5.4 answers "'ALTER DATABASE' is not
+///   currently supported" to it, and refuses `MODIFY NAME` while another
+///   session is connected to the database ("could not be exclusively
+///   locked").
+pub(crate) fn database_script(v: Variant, database: &str, new_name: &str) -> Result<SyncScript> {
+    let engine = variant::info(v).name;
+    if database_note(v).is_none() {
+        return Err(Error::Unsupported(format!("{engine} no renombra bases desde T-SQL: un warehouse se renombra desde el portal de Fabric")));
+    }
+    let new = new_name.trim();
+    if database.trim().is_empty() || new.is_empty() {
+        return Err(Error::Query("falta el nombre de la base".into()));
+    }
+    if new.chars().count() > 128 {
+        return Err(Error::Query("el nombre de una base no puede pasar de 128 caracteres".into()));
+    }
+    if new == database {
+        return Err(Error::Query("el nombre nuevo es igual al actual".into()));
+    }
+    for name in [database, new] {
+        if SYSTEM_DATABASES.iter().any(|s| s.eq_ignore_ascii_case(name)) {
+            return Err(Error::Unsupported(format!("«{name}» es una base del sistema: no se renombra ni se usa como nombre nuevo")));
+        }
+    }
+    let (old_q, new_q) = (q(database), q(new));
+    let rename = format!("ALTER DATABASE {old_q} MODIFY NAME = {new_q}");
+    let mut warnings = Vec::new();
+    let statements = if v == Variant::SqlServer {
+        warnings.push(format!(
+            "SINGLE_USER WITH ROLLBACK IMMEDIATE deshace las transacciones abiertas en «{database}» y corta todas las demás sesiones conectadas a ella."
+        ));
+        warnings.push(format!(
+            "Si el cambio de nombre falla (por ejemplo, otra sesión ocupó el único lugar de SINGLE_USER, o la base está en un grupo de \
+             disponibilidad o en un mirroring), «{database}» queda en SINGLE_USER: se vuelve con ALTER DATABASE {old_q} SET MULTI_USER."
+        ));
+        warnings.push("Al final la base queda en MULTI_USER, aunque antes estuviera en RESTRICTED_USER.".into());
+        vec![format!("ALTER DATABASE {old_q} SET SINGLE_USER WITH ROLLBACK IMMEDIATE"), rename, format!("ALTER DATABASE {new_q} SET MULTI_USER")]
+    } else {
+        warnings.push(match v {
+            Variant::AzureSql => format!("Azure SQL Database corta las demás sesiones conectadas a «{database}» al renombrarla."),
+            _ => format!("Babelfish no corta las demás sesiones: si queda alguna conectada a «{database}», el cambio de nombre se niega."),
+        });
+        vec![rename]
+    };
+    if v == Variant::SqlServer {
+        warnings.push("Los nombres lógicos de los archivos y los archivos de datos y de log conservan el nombre viejo.".into());
+        warnings.push(format!(
+            "El código de otras bases, los jobs del Agente, los servidores vinculados, los sinónimos y las cadenas de conexión que nombran «{database}» no cambian."
+        ));
+    } else {
+        warnings.push(format!("El código de otras bases y las cadenas de conexión que nombran «{database}» no cambian."));
+    }
+    Ok(SyncScript { statements, warnings })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,5 +539,66 @@ mod tests {
         assert_eq!(spec(Variant::Babelfish).replace_for(kinds::VIEW), ReplaceStyle::CreateOrAlter);
         assert_eq!(spec(Variant::Babelfish).replace_for(kinds::PROCEDURE), ReplaceStyle::DropCreate);
         assert!(!spec(Variant::Fabric).transactional);
+    }
+
+    #[test]
+    fn database_rename_brackets_and_closes_sessions_on_sql_server() {
+        let s = database_script(Variant::SqlServer, "Ventas", "Ventas 2024").unwrap();
+        assert_eq!(
+            s.statements,
+            [
+                "ALTER DATABASE [Ventas] SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
+                "ALTER DATABASE [Ventas] MODIFY NAME = [Ventas 2024]",
+                "ALTER DATABASE [Ventas 2024] SET MULTI_USER",
+            ]
+        );
+        assert!(s.warnings.iter().any(|w| w.contains("SET MULTI_USER")));
+        assert!(s.warnings.iter().any(|w| w.contains("jobs del Agente")));
+        // `]` is doubled in both names.
+        let s = database_script(Variant::SqlServer, "a]b", "c]]d").unwrap();
+        assert_eq!(s.statements[1], "ALTER DATABASE [a]]b] MODIFY NAME = [c]]]]d]");
+        assert_eq!(s.statements[2], "ALTER DATABASE [c]]]]d] SET MULTI_USER");
+    }
+
+    #[test]
+    fn database_rename_on_azure_and_babelfish_is_modify_name_alone() {
+        for v in [Variant::AzureSql, Variant::Babelfish] {
+            let s = database_script(v, "app", "app_old").unwrap();
+            assert_eq!(s.statements, ["ALTER DATABASE [app] MODIFY NAME = [app_old]"], "{v:?}");
+            assert!(!s.warnings.iter().any(|w| w.contains("SINGLE_USER")), "{v:?}");
+        }
+        assert!(database_script(Variant::AzureSql, "app", "x").unwrap().warnings[0].contains("corta"));
+        assert!(database_script(Variant::Babelfish, "app", "x").unwrap().warnings[0].contains("se niega"));
+    }
+
+    #[test]
+    fn database_rename_refusals() {
+        for v in [Variant::SqlServer, Variant::AzureSql, Variant::Babelfish] {
+            for sys in ["master", "MODEL", "msdb", "TempDB"] {
+                assert!(matches!(database_script(v, sys, "x"), Err(Error::Unsupported(m)) if m.contains("del sistema")), "{v:?} {sys}");
+                assert!(matches!(database_script(v, "app", sys), Err(Error::Unsupported(_))), "{v:?} {sys}");
+            }
+            assert!(database_script(v, "app", "app").is_err());
+            assert!(database_script(v, "app", "  ").is_err());
+            assert!(database_script(v, "app", &"x".repeat(129)).is_err());
+            assert!(database_script(v, "app", &"x".repeat(128)).is_ok());
+        }
+        assert!(matches!(database_script(Variant::Fabric, "wh", "x"), Err(Error::Unsupported(m)) if m.contains("portal")));
+    }
+
+    #[test]
+    fn database_rename_spec() {
+        for v in [Variant::SqlServer, Variant::AzureSql, Variant::Babelfish] {
+            let s = spec(v);
+            assert!(s.databases && !s.database_moves, "{v:?}");
+            assert_eq!(s.database_from.as_deref(), Some("master"), "{v:?}");
+            let note = s.database_note.unwrap();
+            assert!(note.contains("No es atómico") && note.contains("no cambian"), "{v:?}");
+        }
+        let note = spec(Variant::SqlServer).database_note.unwrap();
+        assert!(note.contains("SINGLE_USER WITH ROLLBACK IMMEDIATE") && note.contains("MULTI_USER"));
+        assert!(spec(Variant::AzureSql).database_note.unwrap().contains("no admite SINGLE_USER"));
+        let f = spec(Variant::Fabric);
+        assert!(!f.databases && f.database_from.is_none() && f.database_note.is_none());
     }
 }

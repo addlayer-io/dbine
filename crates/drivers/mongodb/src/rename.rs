@@ -16,11 +16,17 @@
 //! Views that read a renamed collection or view name it in their pipeline:
 //! the app rewrites them (`ReferenceStyle::Pipeline`) and creates them
 //! again around this script. Nothing here is transactional.
+//!
+//! A database has no rename ([`database_script`]): each collection moves
+//! with `renameCollection` to the new database (as an admin command, which
+//! takes namespaces and copies across databases, indexes included), each
+//! view is created again there and dropped in the old one, and the old
+//! database's empty `system.views` goes last, so nothing keeps it alive.
 
 use crate::ddl::{index_parts, q, validator_check};
 use crate::shell::{parse_units, Item};
 use crate::Flavor;
-use dbine_driver::rename::{Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
+use dbine_driver::rename::{DatabaseObject, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
 use dbine_driver::{kinds, Error, IndexDef, ObjectRef, Result, SyncScript, TableSchema};
 use mongodb::bson::{Bson, Document};
 use serde_json::{Map, Value};
@@ -51,8 +57,89 @@ pub(crate) fn spec(flavor: Flavor) -> RenameSpec {
         // Roles grant on a collection's name, not on the object: a view
         // created again under the same name keeps them.
         grants_on_objects: false,
+        // Collections move across databases with `renameCollection`, which
+        // FerretDB and DocumentDB don't do (see `database_script`).
+        databases: views,
+        database_from: views.then(|| "admin".to_string()),
+        database_note: views.then(|| DATABASE_NOTE.to_string()),
+        database_moves: views,
         ..Default::default()
     }
+}
+
+pub(crate) const DATABASE_NOTE: &str = "MongoDB no puede renombrar una base de datos: DBine mueve cada colección a la base nueva con renameCollection (documentos, índices y opciones), crea las vistas en la base nueva y las borra de la anterior. No es atómico: si se detiene a mitad de camino, las colecciones ya movidas quedan en la base nueva y el resto en la anterior. Mover una colección a otra base copia y reescribe sus datos, así que en colecciones grandes puede tardar bastante. Los usuarios y roles definidos en la base anterior no se mueven, y los privilegios que nombran la base anterior no se actualizan.";
+
+const RESERVED_DATABASES: [&str; 3] = ["admin", "local", "config"];
+
+fn check_database_name(name: &str) -> Result<()> {
+    if RESERVED_DATABASES.iter().any(|r| r.eq_ignore_ascii_case(name)) {
+        return Err(Error::Unsupported(format!("«{name}» es una base del sistema: DBine no la renombra ni la usa como destino")));
+    }
+    if name.is_empty() || name.len() >= 64 || name.contains(['/', '\\', '.', ' ', '"', '$', '*', '<', '>', ':', '|', '?', '\0']) {
+        return Err(Error::Query(format!("«{name}» no es un nombre de base válido en MongoDB")));
+    }
+    Ok(())
+}
+
+/// The statements that move `database`'s collections and views to
+/// `new_name` (run from `admin`, one by one):
+///
+/// ```text
+/// db.adminCommand({"renameCollection": "old.c", "to": "new.c"})
+/// use new
+/// db.createView("v", "c", [...])
+/// use old
+/// db.getCollection("v").drop()
+/// db.getCollection("system.views").drop()
+/// ```
+pub(crate) fn database_script(flavor: Flavor, database: &str, new_name: &str, objects: &[DatabaseObject]) -> Result<SyncScript> {
+    if flavor != Flavor::Mongo {
+        return Err(Error::Unsupported("este motor no mueve colecciones entre bases (renameCollection entre bases), así que no renombra bases de datos".into()));
+    }
+    check_database_name(database)?;
+    check_database_name(new_name)?;
+    if database == new_name {
+        return Err(Error::Query("el nombre nuevo es igual al actual".into()));
+    }
+    let mut statements = Vec::new();
+    let mut views = Vec::new();
+    let mut skipped = Vec::new();
+    for o in objects {
+        if o.name.starts_with("system.") {
+            skipped.push(o.name.clone());
+            continue;
+        }
+        match o.kind.as_str() {
+            kinds::COLLECTION => {
+                let mut cmd = Document::new();
+                cmd.insert("renameCollection", format!("{database}.{}", o.name));
+                cmd.insert("to", format!("{new_name}.{}", o.name));
+                statements.push(format!("db.adminCommand({})", Bson::Document(cmd).into_relaxed_extjson()));
+            }
+            kinds::VIEW => {
+                let obj = ObjectRef { kind: o.kind.clone(), schema: None, name: o.name.clone() };
+                views.push((o.name.as_str(), view_options(&obj, o.definition.as_deref())?));
+            }
+            k => return Err(Error::Unsupported(format!("«{}» es de tipo «{k}»: MongoDB solo mueve colecciones y vistas", o.name))),
+        }
+    }
+    if !views.is_empty() {
+        statements.push(format!("use {new_name}"));
+        statements.extend(views.iter().map(|(name, options)| crate::ddl::view_definition(name, Some(options))));
+    }
+    statements.push(format!("use {database}"));
+    statements.extend(views.iter().map(|(name, _)| format!("{}.drop()", coll(name))));
+    // What's left of the views' catalog: without it the old database is gone.
+    statements.push(format!("{}.drop()", coll("system.views")));
+    let mut warnings = vec![
+        format!("No es atómico: si se detiene a mitad de camino, las colecciones ya movidas quedan en «{new_name}» y el resto en «{database}»."),
+        "Mover una colección a otra base copia y reescribe sus datos: en colecciones grandes puede tardar bastante.".to_string(),
+        format!("Los usuarios y roles definidos en «{database}» no se mueven."),
+    ];
+    if !skipped.is_empty() {
+        warnings.push(format!("Las colecciones del sistema no se mueven y quedan en «{database}»: {}.", skipped.join(", ")));
+    }
+    Ok(SyncScript { statements, warnings })
 }
 
 /// The statements that rename the target.
@@ -89,6 +176,16 @@ fn check_collection_name(name: &str) -> Result<()> {
 /// A view: dropped and created with the new name, from its definition
 /// (`db.createView(name, source, pipeline[, options])`).
 fn view(object: &ObjectRef, definition: Option<&str>, new: &str) -> Result<SyncScript> {
+    let options = view_options(object, definition)?;
+    Ok(SyncScript {
+        statements: vec![format!("{}.drop()", coll(&object.name)), crate::ddl::view_definition(new, Some(&options))],
+        warnings: Vec::new(),
+    })
+}
+
+/// A view's `listCollections` options (source, pipeline, collation) read
+/// back from its definition.
+fn view_options(object: &ObjectRef, definition: Option<&str>) -> Result<Document> {
     let unreadable = || Error::Query(format!("no se pudo leer la definición de la vista «{}»", object.name));
     let def = definition.ok_or_else(unreadable)?;
     let units = parse_units(def).map_err(|_| unreadable())?;
@@ -100,10 +197,7 @@ fn view(object: &ObjectRef, definition: Option<&str>, new: &str) -> Result<SyncS
     if let Some(c) = stmt.cmd.get("collation") {
         options.insert("collation", c.clone());
     }
-    Ok(SyncScript {
-        statements: vec![format!("{}.drop()", coll(&object.name)), crate::ddl::view_definition(new, Some(&options))],
-        warnings: Vec::new(),
-    })
+    Ok(options)
 }
 
 /// `path` with the field `old` (or a path inside it) renamed to `new`.
@@ -337,6 +431,67 @@ mod tests {
             assert!(s.columns);
             assert_eq!(s.note.as_deref(), Some(NOTE_NO_VIEWS));
         }
+    }
+
+    fn dbo(kind: &str, name: &str, definition: Option<&str>) -> DatabaseObject {
+        DatabaseObject { kind: kind.into(), schema: None, name: name.into(), definition: definition.map(String::from) }
+    }
+
+    #[test]
+    fn database_spec_only_on_mongodb() {
+        let m = spec(Flavor::Mongo);
+        assert!(m.databases && m.database_moves);
+        assert_eq!(m.database_from.as_deref(), Some("admin"));
+        assert_eq!(m.database_note.as_deref(), Some(DATABASE_NOTE));
+        for f in [Flavor::Ferret, Flavor::DocumentDb] {
+            let s = spec(f);
+            assert!(!s.databases && !s.database_moves && s.database_from.is_none());
+            assert!(database_script(f, "a", "b", &[]).is_err());
+        }
+    }
+
+    #[test]
+    fn database_moves_collections_and_views() {
+        let objects = [
+            dbo("collection", "clientes", None),
+            dbo("collection", "a\"b", None),
+            dbo("view", "v_activos", Some(r#"db.createView("v_activos", "clientes", [{"$match":{"activo":true}}], {"collation": {"locale":"es"}})"#)),
+            dbo("collection", "system.js", None),
+        ];
+        let s = database_script(Flavor::Mongo, "ventas", "ventas_2024", &objects).unwrap();
+        assert_eq!(
+            s.statements,
+            [
+                r#"db.adminCommand({"renameCollection":"ventas.clientes","to":"ventas_2024.clientes"})"#,
+                r#"db.adminCommand({"renameCollection":"ventas.a\"b","to":"ventas_2024.a\"b"})"#,
+                "use ventas_2024",
+                r#"db.createView("v_activos", "clientes", [{"$match":{"activo":true}}], {"collation": {"locale":"es"}})"#,
+                "use ventas",
+                r#"db.getCollection("v_activos").drop()"#,
+                r#"db.getCollection("system.views").drop()"#,
+            ]
+        );
+        assert_eq!(s.warnings.len(), 4, "{:?}", s.warnings);
+        assert!(s.warnings[0].contains("atómico") && s.warnings[2].contains("usuarios y roles") && s.warnings[3].contains("system.js"));
+        // Admin commands with whole namespaces, nothing added by the session.
+        let st = parsed(&s.statements[0]);
+        assert_eq!(st[0].cmd, mongodb::bson::doc! { "renameCollection": "ventas.clientes", "to": "ventas_2024.clientes" });
+        assert!(st[0].admin);
+        assert_ne!(st[0].shape, Shape::Rename);
+        assert!(matches!(&parse_units(&s.statements[2]).unwrap()[0].item, Item::Use(d) if d == "ventas_2024"));
+        // Without views: collections, then the old database's leftovers.
+        let s = database_script(Flavor::Mongo, "a", "b", &[dbo("collection", "c", None)]).unwrap();
+        assert_eq!(s.statements.len(), 3);
+        assert_eq!(s.statements[1], "use a");
+    }
+
+    #[test]
+    fn database_rename_refuses_system_and_bad_names() {
+        for (old, new) in [("admin", "x"), ("x", "local"), ("Config", "x"), ("a", "a"), ("a", "b.c"), ("a", "b c"), ("a", "b$"), ("a", "")] {
+            assert!(database_script(Flavor::Mongo, old, new, &[]).is_err(), "{old} -> {new}");
+        }
+        assert!(database_script(Flavor::Mongo, "a", "b", &[dbo("view", "v", None)]).is_err());
+        assert!(database_script(Flavor::Mongo, "a", "b", &[dbo("function", "f", None)]).is_err());
     }
 
     #[test]

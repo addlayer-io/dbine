@@ -67,5 +67,16 @@
   "done": "{{name}} is now called {{to}}",
   "rolledBack": "Nothing changed: the whole script was rolled back.",
   "queryTabs_one": "There is {{count}} open query tab that names “{{name}}”: it was not modified.",
-  "queryTabs_other": "There are {{count}} open query tabs that name “{{name}}”: they were not modified."
+  "queryTabs_other": "There are {{count}} open query tabs that name “{{name}}”: they were not modified.",
+  "followed_one": "DBine updated {{count}} of its own references to the database (connection, saved queries, migrations, projects or tasks): it now points to “{{name}}”.",
+  "followed_other": "DBine updated {{count}} of its own references to the database (connection, saved queries, migrations, projects or tasks): they now point to “{{name}}”.",
+  "tasksToApprove_one": "{{count}} scheduled task changes data in that database: it won't run until you approve it again.",
+  "tasksToApprove_other": "{{count}} scheduled tasks change data in that database: they won't run until you approve them again.",
+  "dbSessions_one": "There is {{count}} open session on the database: the rename ends it.",
+  "dbSessions_other": "There are {{count}} open sessions on the database: the rename ends them.",
+  "dbNoSessions": "There are no other open sessions on the database.",
+  "dbMoves_one": "{{count}} object is moved to the new database, one by one.",
+  "dbMoves_other": "{{count}} objects are moved to the new database, one by one.",
+  "dbOwnClosed": "DBine's tabs and explorer on this database disconnect first and follow the new name.",
+  "dbOutside": "Code in other databases, jobs, applications and connection strings that use the old name are not changed."
 }

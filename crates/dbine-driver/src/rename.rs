@@ -116,6 +116,21 @@ pub struct RenameRequest {
     pub definition: Option<String>,
 }
 
+/// One object of a database being renamed, for engines that rename one by
+/// moving what it holds ([`crate::Driver::rename_database_script`]: MySQL's
+/// tables, then its views, routines, triggers and events created again in
+/// the new one; MongoDB's collections).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DatabaseObject {
+    pub kind: String,
+    #[serde(default)]
+    pub schema: Option<String>,
+    pub name: String,
+    /// Its definition, for code objects created again (none for tables).
+    #[serde(default)]
+    pub definition: Option<String>,
+}
+
 /// How a rewritten dependent is put back.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -210,6 +225,18 @@ pub struct RenameSpec {
     /// (the app says so). `false` where there are none to lose (a MongoDB
     /// view's access goes by the database's roles).
     pub grants_on_objects: bool,
+    /// It renames databases ([`crate::Driver::rename_database_script`]).
+    pub databases: bool,
+    /// The database a database rename runs in (PostgreSQL `postgres`, SQL
+    /// Server `master`); `None`: the connection's own, without one.
+    pub database_from: Option<String>,
+    /// What the dialog tells the user first about a database rename
+    /// (Spanish): the sessions it ends, that it isn't atomic…
+    pub database_note: Option<String>,
+    /// A database rename moves what the database holds one by one: the app
+    /// reads its objects (and code definitions) for
+    /// [`crate::Driver::rename_database_script`].
+    pub database_moves: bool,
     /// The app reads the table of an object rename (`RenameRequest::table`)
     /// when the target is a table: OrientDB names its indexes after it.
     pub wants_table: bool,
@@ -235,6 +262,10 @@ impl Default for RenameSpec {
             tracked_for: BTreeMap::new(),
             grants_on_objects: true,
             wants_table: false,
+            databases: false,
+            database_from: None,
+            database_note: None,
+            database_moves: false,
         }
     }
 }

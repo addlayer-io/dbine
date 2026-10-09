@@ -67,5 +67,16 @@
   "done": "{{name}} s’appelle désormais {{to}}",
   "rolledBack": "Rien n’a changé : tout le script a été annulé.",
   "queryTabs_one": "{{count}} onglet de requête ouvert nomme « {{name}} » : il n’a pas été modifié.",
-  "queryTabs_other": "{{count}} onglets de requête ouverts nomment « {{name}} » : ils n’ont pas été modifiés."
+  "queryTabs_other": "{{count}} onglets de requête ouverts nomment « {{name}} » : ils n’ont pas été modifiés.",
+  "followed_one": "DBine a mis à jour {{count}} de ses propres références à la base (connexion, requêtes enregistrées, migrations, projets ou tâches) : elle pointe désormais vers « {{name}} ».",
+  "followed_other": "DBine a mis à jour {{count}} de ses propres références à la base (connexion, requêtes enregistrées, migrations, projets ou tâches) : elles pointent désormais vers « {{name}} ».",
+  "tasksToApprove_one": "{{count}} tâche planifiée modifie des données dans cette base : elle ne s'exécute pas tant que vous ne l'approuvez pas à nouveau.",
+  "tasksToApprove_other": "{{count}} tâches planifiées modifient des données dans cette base : elles ne s'exécutent pas tant que vous ne les approuvez pas à nouveau.",
+  "dbSessions_one": "Il y a {{count}} session ouverte sur la base : le renommage y met fin.",
+  "dbSessions_other": "Il y a {{count}} sessions ouvertes sur la base : le renommage y met fin.",
+  "dbNoSessions": "Aucune autre session n'est ouverte sur la base.",
+  "dbMoves_one": "{{count}} objet est déplacé vers la nouvelle base, un par un.",
+  "dbMoves_other": "{{count}} objets sont déplacés vers la nouvelle base, un par un.",
+  "dbOwnClosed": "Les onglets et l'explorateur de DBine sur cette base se déconnectent d'abord et suivent le nouveau nom.",
+  "dbOutside": "Le code des autres bases, les jobs, les applications et les chaînes de connexion qui utilisent l'ancien nom ne sont pas modifiés."
 }
