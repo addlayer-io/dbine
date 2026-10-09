@@ -18,6 +18,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod read_only;
 mod rename;
 mod rename_db;
 mod security;

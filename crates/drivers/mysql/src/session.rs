@@ -14,7 +14,8 @@ use mysql_async::consts::StatusFlags;
 use std::collections::{BTreeMap, HashMap};
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Opts, Row};
-use std::sync::atomic::{AtomicBool, Ordering};
+use mysql_async::QueryResult;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 pub struct MySqlSession {
@@ -34,6 +35,14 @@ pub struct MySqlSession {
     profiler: Option<crate::profiler::State>,
     /// The first process-list query this server answered (see `processes`).
     pub(crate) processes_query: usize,
+    /// The connection id KILL QUERY targets (it changes on a reconnect).
+    conn_id: Arc<AtomicU32>,
+    /// Whether this server runs protected reads (`run_read_only`), once asked.
+    protected_reads: Option<bool>,
+    /// A protected read in flight: the session's access mode before it
+    /// (READ ONLY?), to give back. Still set when the call was dropped
+    /// half-way; the next call settles it first.
+    read_only_pending: Option<bool>,
 }
 
 /// A string literal for a text-protocol query. Doubling `'` is safe with
@@ -70,7 +79,21 @@ pub(crate) fn named(r: &Row, names: &[&str]) -> Option<String> {
 
 impl MySqlSession {
     pub(crate) fn new(conn: Conn, opts: Opts, product: Variant, database: Option<String>) -> Self {
-        Self { conn, opts, variant: product.base(), product, sizes: None, database, cancelled: Arc::default(), profiler: None, processes_query: 0 }
+        let conn_id = Arc::new(AtomicU32::new(conn.id()));
+        Self {
+            conn,
+            opts,
+            variant: product.base(),
+            product,
+            sizes: None,
+            database,
+            cancelled: Arc::default(),
+            profiler: None,
+            processes_query: 0,
+            conn_id,
+            protected_reads: None,
+            read_only_pending: None,
+        }
     }
 
     pub(crate) async fn rows(&mut self, sql: &str) -> Result<Vec<Row>> {
@@ -200,7 +223,162 @@ impl MySqlSession {
     }
 
     async fn run(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let mut result = self.conn.query_iter(sql).await.map_err(|e| stmt_err(sql, e))?;
+        let result = self.conn.query_iter(sql).await.map_err(|e| stmt_err(sql, e))?;
+        let warned = read_results(result, sql, max_rows, out).await?;
+        self.report_warnings(warned, out).await;
+        Ok(())
+    }
+
+    /// The warnings of a run: SHOW WARNINGS lists the last statement's
+    /// (their text for it), the count for earlier statements of a
+    /// multi-statement text.
+    async fn report_warnings(&mut self, mut warned: Vec<u16>, out: &mut QueryOutcome) {
+        let last = warned.pop().unwrap_or(0);
+        for n in warned {
+            if let Some(note) = warnings_note(n) {
+                out.warning(note);
+            }
+        }
+        if last > 0 {
+            match self.show_warnings().await {
+                Some(list) if !list.is_empty() => {
+                    for m in list {
+                        out.message(m);
+                    }
+                }
+                _ => out.warning(warnings_note(last).unwrap_or_default()),
+            }
+        }
+    }
+
+    /// Whether this server runs protected reads (see `read_only.rs`).
+    async fn protected_reads(&mut self) -> bool {
+        if let Some(yes) = self.protected_reads {
+            return yes;
+        }
+        let yes = match self.variant {
+            Variant::MySql | Variant::MariaDb => match self.rows("SELECT VERSION()").await {
+                Ok(rows) => {
+                    let text = rows.first().and_then(|r| at(r, 0)).unwrap_or_default();
+                    crate::read_only::supported(self.variant, self.conn.server_version(), &text)
+                }
+                // Not cached: the connection may come back.
+                Err(_) => return false,
+            },
+            _ => false,
+        };
+        self.protected_reads = Some(yes);
+        yes
+    }
+
+    /// The session's transaction access mode: READ ONLY?
+    async fn session_read_only(&mut self) -> Result<bool> {
+        // `transaction_read_only` since MySQL 5.7.20 / MariaDB 11.1, before
+        // that `tx_read_only`.
+        let rows = match self.rows("SELECT @@session.transaction_read_only").await {
+            Ok(rows) => rows,
+            Err(_) => self.rows("SELECT @@session.tx_read_only").await?,
+        };
+        Ok(rows.first().and_then(|r| at(r, 0)).is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("on")))
+    }
+
+    /// A protected read dropped half-way (a timeout): the connection may
+    /// be mid-reply, out of step with the next command, so it's replaced
+    /// (the old one is killed; the server rolls its transaction back).
+    async fn settle_dropped_read(&mut self) -> Result<()> {
+        let Some(was_read_only) = self.read_only_pending else { return Ok(()) };
+        let old = self.conn.id();
+        self.reconnect(was_read_only).await?;
+        if let Err(e) = self.conn.query_drop(format!("KILL {old}")).await {
+            tracing::debug!("mysql: killing a dropped read's connection: {e}");
+        }
+        self.read_only_pending = None;
+        Ok(())
+    }
+
+    /// Ends a protected read: rolls its transaction back and gives the
+    /// session its access mode back; a connection that can't is replaced
+    /// (the server rolls back the transaction of a closed one).
+    async fn settle_read_only(&mut self) -> Result<()> {
+        let Some(was_read_only) = self.read_only_pending else { return Ok(()) };
+        // The mode is set back either way: what ran may have changed it.
+        let mode = if was_read_only { "SET SESSION TRANSACTION READ ONLY" } else { "SET SESSION TRANSACTION READ WRITE" };
+        let done = self.conn.query_drop("ROLLBACK").await.is_ok() && self.conn.query_drop(mode).await.is_ok();
+        if !done {
+            self.reconnect(was_read_only).await?;
+        }
+        self.read_only_pending = None;
+        Ok(())
+    }
+
+    /// A new connection in place of this one, with its database, charset
+    /// and access mode.
+    async fn reconnect(&mut self, read_only: bool) -> Result<()> {
+        let conn = tokio::time::timeout(std::time::Duration::from_secs(20), Conn::new(self.opts.clone()))
+            .await
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(err)?;
+        // Dropping the old one closes it.
+        drop(std::mem::replace(&mut self.conn, conn));
+        self.conn_id.store(self.conn.id(), Ordering::SeqCst);
+        let mut setup = vec!["SET NAMES utf8mb4".to_string()];
+        if let Some(db) = self.database.as_deref().filter(|_| !self.variant.single_namespace()) {
+            setup.push(format!("USE {}", quote_ident(dbine_driver::sql::Quote::Backtick, db)));
+        }
+        if read_only {
+            setup.push("SET SESSION TRANSACTION READ ONLY".into());
+        }
+        for s in setup {
+            self.conn.query_drop(s).await.map_err(err)?;
+        }
+        Ok(())
+    }
+
+    /// `statement` with only the server's protection: no text checks
+    /// (`read_only::refusal`), always rolled back and the session's access
+    /// mode given back.
+    pub(crate) async fn server_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let was_read_only = self.session_read_only().await?;
+        self.read_only_pending = Some(was_read_only);
+        let res = self.read_in_read_only_transaction(statement, max_rows, out).await;
+        let settled = self.settle_read_only().await;
+        res.and(settled)
+    }
+
+    /// `statement` as a prepared statement (exactly one statement) inside
+    /// a read-only transaction, with the session's access mode READ ONLY
+    /// too, so a DDL's implicit commit or a COMMIT only opens another
+    /// read-only transaction. The caller rolls back (`settle_read_only`).
+    async fn read_in_read_only_transaction(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        self.conn.query_drop("SET SESSION TRANSACTION READ ONLY").await.map_err(err)?;
+        self.conn.query_drop("START TRANSACTION READ ONLY").await.map_err(err)?;
+        // The server says so in the OK packet; an emulation that accepts
+        // the words and ignores them doesn't.
+        let flags = self.conn.last_ok_packet().map(|ok| ok.status_flags());
+        if !flags.is_some_and(|f| f.contains(StatusFlags::SERVER_STATUS_IN_TRANS) && f.contains(StatusFlags::SERVER_STATUS_IN_TRANS_READONLY)) {
+            self.protected_reads = Some(false);
+            return Err(Error::Unsupported("el servidor no confirmó la transacción de solo lectura".into()));
+        }
+        let stmt = self.conn.prep(statement).await.map_err(|e| stmt_err(statement, e))?;
+        let read = match self.conn.exec_iter(&stmt, ()).await {
+            Ok(result) => read_results(result, statement, max_rows, out).await,
+            Err(e) => Err(stmt_err(statement, e)),
+        };
+        // Out of mysql_async's statement cache: AI reads aren't reused.
+        if let Err(e) = self.conn.close(stmt).await {
+            tracing::debug!("mysql: closing a prepared statement: {e}");
+        }
+        let warned = read?;
+        // Before the rollback, which clears them.
+        self.report_warnings(warned, out).await;
+        Ok(())
+    }
+}
+
+/// The result sets of a run into `out` (text or binary protocol): rows,
+/// affected counts, info. Returns each set's warning count, in order.
+async fn read_results<P: mysql_async::prelude::Protocol>(mut result: QueryResult<'_, 'static, P>, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<Vec<u16>> {
+    {
         // Warning counts of the result sets, in order.
         let mut warned: Vec<u16> = Vec::new();
         // One pass per result set; `next` returns None at each set's end
@@ -233,27 +411,11 @@ impl MySqlSession {
         // `columns()` reads an error in a later statement as "no more
         // results"; this surfaces it (and clears it from the connection).
         result.drop_result().await.map_err(|e| stmt_err(sql, e))?;
-        // SHOW WARNINGS lists the last statement's: their text for it, the
-        // count for earlier statements of a multi-statement text.
-        let last = warned.pop().unwrap_or(0);
-        for n in warned {
-            if let Some(note) = warnings_note(n) {
-                out.warning(note);
-            }
-        }
-        if last > 0 {
-            match self.show_warnings().await {
-                Some(list) if !list.is_empty() => {
-                    for m in list {
-                        out.message(m);
-                    }
-                }
-                _ => out.warning(warnings_note(last).unwrap_or_default()),
-            }
-        }
-        Ok(())
+        Ok(warned)
     }
+}
 
+impl MySqlSession {
     /// `SHOW WARNINGS` as messages (Note as info); `None` when the engine
     /// refuses it.
     async fn show_warnings(&mut self) -> Option<Vec<Message>> {
@@ -1116,6 +1278,8 @@ impl Session for MySqlSession {
     }
 
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        // A protected read dropped half-way left the session read-only.
+        self.settle_dropped_read().await?;
         self.cancelled.store(false, Ordering::SeqCst);
         let res = if self.variant == Variant::Manticore || has_delimiter_command(sql) {
             // One statement per request: Manticore takes no more, and a
@@ -1160,6 +1324,31 @@ impl Session for MySqlSession {
                     }
                 }
             }
+        }
+        res
+    }
+
+    /// One statement as a read the server enforces (see `read_only.rs`):
+    /// MySQL 5.6.5+ and MariaDB 10.0+; the other engines answer
+    /// Unsupported and the app asks for approval instead.
+    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        if !self.protected_reads().await {
+            return Err(Error::Unsupported("este motor no asegura lecturas de solo lectura en el servidor".into()));
+        }
+        if let Some(word) = crate::read_only::refusal(statement, self.variant) {
+            return Err(Error::Query(format!(
+                "Lectura protegida: se bloqueó {word}. Solo se permite una lectura (SELECT, WITH, SHOW, EXPLAIN…), sin INTO OUTFILE ni bloqueos."
+            )));
+        }
+        self.settle_dropped_read().await?;
+        // START TRANSACTION would commit the user's open transaction.
+        if self.transaction_state().await? == Some(TxState::Open) {
+            return Err(Error::Query("Hay una transacción abierta en esta sesión: confirmala o deshacela antes de una lectura protegida.".into()));
+        }
+        self.cancelled.store(false, Ordering::SeqCst);
+        let res = self.server_read_only(statement, max_rows, out).await;
+        if self.cancelled.swap(false, Ordering::SeqCst) {
+            return Err(Error::Cancelled);
         }
         res
     }
@@ -1356,11 +1545,11 @@ impl Session for MySqlSession {
         }
         // Dropping the connection leaves the statement running on the
         // server; KILL QUERY from a second connection stops it.
-        let (opts, id, flag) = (self.opts.clone(), self.conn.id(), self.cancelled.clone());
+        let (opts, conn_id, flag) = (self.opts.clone(), self.conn_id.clone(), self.cancelled.clone());
         let kill = if self.variant == Variant::TiDb { "KILL TIDB QUERY" } else { "KILL QUERY" };
         let rt = tokio::runtime::Handle::try_current().ok()?;
         Some(Arc::new(move || {
-            let (opts, flag) = (opts.clone(), flag.clone());
+            let (opts, flag, id) = (opts.clone(), flag.clone(), conn_id.load(Ordering::SeqCst));
             rt.spawn(async move {
                 flag.store(true, Ordering::SeqCst);
                 match mysql_async::Conn::new(opts).await {
