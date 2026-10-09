@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### New
+- **Rename a database:** **Rename…** on a database in the explorer. The dialog shows the other sessions open on it (which the rename ends), whether the new name exists, how many objects move and the full script. Afterwards the connection's default database, open tabs, saved queries, migrations, project targets and scheduled task steps follow the new name; tasks that change data in it ask for approval again. Available in SQL Server, Azure SQL, Babelfish, the PostgreSQL family, MySQL, MariaDB, Snowflake and MongoDB; where the engine can't rename (or move) a database, it isn't offered.
+
 ### Fixes
 - **Task notifications on Windows:** a database error message can no longer run commands through the notification. Notifications on macOS and Linux get the text as separate arguments too.
 - **SSH tunnels:** a server whose key you accepted in DBine and that now presents a different one is refused, instead of asking you again. The connection's SSH section lists the accepted servers, each with **Forget**.

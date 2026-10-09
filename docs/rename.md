@@ -46,6 +46,73 @@ When it finishes, the explorer refreshes and the object's open tabs (data,
 structure, definition, indexes, dependencies) are renamed to the new object.
 Query tabs aren't touched: if any names the old name, DBine says how many.
 
+## Renaming a database
+
+Right-click a database in the explorer › **Rename…**. It appears on engines
+whose driver says it renames databases (`RenameSpec.databases`), when the
+connection is not read-only. ClickHouse keeps its older path: there the
+database is the schema, and it is renamed from the schema's node. Which
+engines rename databases, and which don't and why, is in
+[Engine support](engine-support.md#renaming-a-database).
+
+The dialog shows:
+
+- the engine's note: how it renames and what it cuts;
+- the other sessions open on that database, which the rename ends (user,
+  host and program);
+- whether the new name already exists;
+- for engines that move the contents (MySQL, MariaDB, MongoDB), how many
+  objects move;
+- that code in other databases, jobs, applications and connection strings
+  that use the old name is not changed;
+- the full script.
+
+On **Rename**:
+
+1. DBine closes its own sessions on that database.
+2. The script runs from another database (`database_from` in the spec: `master`
+   in SQL Server, `postgres` in PostgreSQL, `admin` in MongoDB). Snowflake
+   needs none.
+3. It is not atomic: if a statement fails, what was already done stays done.
+   The dialog says so before running.
+
+On a production connection the database name must be typed again to enable
+**Rename**.
+
+Afterwards DBine's own references follow the new name: the connection's
+default database, open tabs, saved queries, migrations, project targets and
+scheduled task steps. A scheduled task with steps that change data in that
+database has to be approved again.
+
+Per engine:
+
+- **SQL Server:** `ALTER DATABASE … SET SINGLE_USER WITH ROLLBACK IMMEDIATE`
+  (it rolls back open transactions and cuts the other sessions), then
+  `MODIFY NAME`, then `MULTI_USER`. The data and log file names keep the old
+  name. Azure SQL Database and Babelfish run only `MODIFY NAME`. Azure SQL
+  Database cuts the other sessions by itself (not tested live); Babelfish
+  refuses while another session is connected (tested), so close them first.
+  System databases are refused.
+- **PostgreSQL family:** `pg_terminate_backend` on the other sessions, then
+  `ALTER DATABASE … RENAME TO`, from `postgres` (YugabyteDB: `yugabyte`;
+  KingbaseES: `kingbase`; Redshift: `dev`, using `procpid`). CockroachDB and
+  RisingWave rename with sessions open and don't close them; sessions that
+  had the database as current must reconnect (in RisingWave all of them).
+  Yellowbrick doesn't close sessions: DBine asks you to close them first.
+- **MySQL, MariaDB, Aurora MySQL, Cloud SQL for MySQL:** there is no
+  `RENAME DATABASE`, so DBine emulates it. A guard comes first: if the
+  database holds events, MariaDB sequences or objects DBine didn't read, the
+  first statement fails on purpose and nothing changes. Then: `CREATE DATABASE`
+  with the same charset and collation, drop the triggers, `RENAME TABLE`
+  across databases, recreate routines, views and triggers (references to the
+  old name rewritten), drop the old objects, and `DROP DATABASE` only if it is
+  empty. Grants are not copied and `DEFINER` is kept.
+- **Snowflake:** `ALTER DATABASE … RENAME TO`. Granted privileges follow.
+- **MongoDB:** `renameCollection` from `admin`, one collection at a time;
+  views are recreated in the new database and `system.views` of the old one
+  is dropped. Users and roles are not moved, and time series collections
+  stop the rename.
+
 ## What is rewritten and what isn't
 
 DBine only changes what it is sure is the object:
@@ -92,6 +159,10 @@ scripts) isn't checked: anything using the old name stops working.
   (`rewrite_references`, `rename_header`, `quote_new`) is common to all
   engines and lives next to the dependency search, so both classify a name the
   same way.
+- A database rename uses `Driver::rename_database_script`, plus
+  `RenameSpec.database_from`, `database_note` and `database_moves` (the app
+  reads the database's objects, `DatabaseObject`, for engines that move
+  them).
 - The app (`src-tauri/src/commands/rename.rs`) searches for what depends on
   the object, reads the definitions, classifies and builds the script around
   the rename with the same planner as **Compare schemas**. The commands are
