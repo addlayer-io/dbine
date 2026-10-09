@@ -37,8 +37,13 @@ pub async fn export_rows_to_file(state: State<'_, AppState>, args: ExportRowsArg
     let started = std::time::Instant::now();
     let path = PathBuf::from(&args.path);
     let mut options = args.options;
-    options.backslash_escapes =
-        args.connection_id.as_deref().is_some_and(|id| driver_of(&state, id).is_ok_and(|d| d.script_dialect().backslash_escapes));
+    // An unknown source (a multi-database grid, a connection gone) gets the
+    // form that reads the same on every engine: doubled quotes and escaped
+    // backslashes.
+    options.backslash_escapes = match args.connection_id.as_deref().map(|id| driver_of(&state, id)) {
+        Some(Ok(d)) => d.script_dialect().backslash_escapes,
+        _ => true,
+    };
     let rows = tokio::task::spawn_blocking(move || export_rows(&path, options, &args.columns, &args.rows))
         .await
         .map_err(|e| CommandError::Internal(e.to_string()))?
