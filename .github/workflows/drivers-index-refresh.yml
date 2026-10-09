@@ -1,0 +1,49 @@
+name: drivers-index-refresh
+
+# Every week, re-sign each published drivers index with a new `seq` and
+# `expires` and nothing else changed. A signed index is trusted for 30 days
+# (plus a week of grace in the app), so a mirror can't keep serving an old
+# one forever; this job keeps the real one from running out
+# (scripts/driver_index.py refresh). If it stops, installed drivers keep
+# working; only new driver versions wait for a fresh index.
+# A manual run (Actions → drivers-index-refresh → Run workflow) does the same.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    name: refresh ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+          - x86_64-unknown-linux-gnu
+    # The same writer group as the driver releases' publish step.
+    concurrency:
+      group: drivers-index-${{ matrix.target }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Re-sign the index
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::Missing secret TAURI_SIGNING_PRIVATE_KEY: the driver index can't be signed."
+            exit 1
+          fi
+          python3 scripts/driver_index.py refresh ${{ matrix.target }}

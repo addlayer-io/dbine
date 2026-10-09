@@ -147,10 +147,17 @@ needs DBine X or later": the app has to be updated.
    updates" in Settings › Drivers. It verifies the signature (minisign) with
    the app updater's public key (`src-tauri/tauri.conf.json`) and stores it
    in `components/drivers/`. A connection never waits for this check.
-2. **No replaying the old.** If the index `seq` is lower than the last
-   accepted one, it is rejected (a replayed old index does not make you go
-   back). Without internet, the cached index is used if its signature
-   verifies; otherwise, the floor.
+2. **No replaying the old, no freezing.** The index is rejected in two cases:
+   - its `seq` is lower than the last accepted one, or than the `seq` the app
+     was released with (`min_index_seq` in `plugins.json`), so a replayed old
+     index does not make you go back, not even on a new installation;
+   - it is more than a week past its `expires` (30 days after it was
+     signed), so a mirror can't keep serving an old one forever.
+
+   The `drivers-index-refresh` workflow re-signs every index weekly. Without
+   internet, the cached index is used if it still verifies; otherwise, the
+   floor. Installed drivers keep working with no valid index: only new
+   versions wait.
 3. **Background download.** Only for drivers that are already installed: it
    downloads the file (with resume, SHA-256 and atomic rename), and when done
    it leaves it as the active version and keeps the previous one. A driver
@@ -192,7 +199,7 @@ floor, the active one or the previous one are deleted.
 `index-<target>.json`:
 
 ```json
-{ "target": "aarch64-apple-darwin", "schema": 2, "seq": 1760000000,
+{ "target": "aarch64-apple-darwin", "schema": 2, "seq": 1760000000, "expires": 1762592000,
   "drivers": { "postgres": { "0.1.10+p1.e3": {
       "file": "…gz", "size": 0, "sha256": "…", "own_hash": "…",
       "shared_hash": "…", "manifest": [],
@@ -202,7 +209,8 @@ floor, the active one or the previous one are deleted.
 | Field | What it is |
 |---|---|
 | `schema` | Version of the index format. Today `2`. |
-| `seq` | A number that grows with each publication (Unix time). The app rejects an index with a `seq` lower than the last accepted one. |
+| `seq` | A number that grows with each publication (Unix time). The app rejects an index with a `seq` lower than the last accepted one or than the one it was released with. |
+| `expires` | Unix time, 30 days after signing. The app rejects the index a week after it. Without the field (indexes from before 0.1.10), it doesn't expire. |
 | `min_app` | The oldest app that runs that host. Without the field, any app. |
 | `yanked` | The reason that version was withdrawn; `null` if not. A withdrawn version is not chosen. Without the field, it is not withdrawn. |
 | `published_at` | When it was published (UTC). |
