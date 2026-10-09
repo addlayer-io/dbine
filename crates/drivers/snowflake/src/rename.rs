@@ -5,7 +5,10 @@
 //!   `ALTER <kind> s.x RENAME TO s.new`.
 //! - Functions and procedures: `ALTER FUNCTION|PROCEDURE s.f(<types>) RENAME
 //!   TO s.new`, one per overload. The argument types come from the
-//!   definition (`list_objects` lists a name once, whatever its overloads).
+//!   definition (`list_objects` lists a name once, whatever its overloads),
+//!   which is built from the catalog's `argument_signature`; a definition
+//!   whose `$$` structure is ambiguous, or a type that isn't a plain
+//!   Snowflake type, is refused ([`signatures`]).
 //! - Columns: `ALTER TABLE s.t RENAME COLUMN c TO new`.
 //! - Schemas: `ALTER SCHEMA [db.]s RENAME TO [db.]new`.
 //! - Databases: `ALTER DATABASE "old" RENAME TO "new"` ([`database_script`]).
@@ -141,7 +144,7 @@ fn routine(req: &RenameRequest, object: &ObjectRef, to: &str) -> Result<SyncScri
             object.name
         ))
     })?;
-    let sigs = signatures(definition, word, &object.name);
+    let sigs = signatures(definition, word, &object.name)?;
     if sigs.is_empty() {
         return Err(Error::Unsupported(format!("No se reconocen los argumentos de «{}» en su definición.", object.name)));
     }
@@ -156,26 +159,181 @@ fn routine(req: &RenameRequest, object: &ObjectRef, to: &str) -> Result<SyncScri
     Ok(SyncScript { statements, warnings })
 }
 
-/// The argument types of each `CREATE OR REPLACE <word> <name>(…)` in the
-/// definition (`definition` builds them from INFORMATION_SCHEMA's
-/// `argument_signature`, one per overload, the name unquoted).
-pub(crate) fn signatures(definition: &str, word: &str, name: &str) -> Vec<Vec<String>> {
+/// The argument types of each `CREATE OR REPLACE <word> <name>(…) RETURNS
+/// … AS $$<body>$$` in the definition (`definition` builds them from
+/// INFORMATION_SCHEMA's `argument_signature`, one per overload, the name
+/// unquoted).
+///
+/// The body is wrapped in `$$` without escaping, so a body that holds `$$`
+/// (one written with `AS '…'`) can fake units of its own. Every unit has to
+/// be one of these CREATEs with exactly its two `$$`, and every type has to
+/// be a plain Snowflake type ([`valid_type`]): anything else is refused, so
+/// no text from a body reaches the `ALTER`.
+pub(crate) fn signatures(definition: &str, word: &str, name: &str) -> Result<Vec<Vec<String>>> {
+    let ambiguous = || {
+        Error::Unsupported(format!(
+            "La definición de «{name}» no se puede leer sin ambigüedad (su cuerpo tiene $$ o texto fuera de un CREATE): \
+             DBine no la renombra (hacelo desde Snowsight o SnowSQL)."
+        ))
+    };
     let mut out = Vec::new();
     for unit in script::units(definition) {
-        let text = unit.text.trim_start();
-        let Some(rest) = strip_words(text, &["CREATE", "OR", "REPLACE", word]) else { continue };
-        let rest = rest.trim_start();
+        let text = unit.text.trim().trim_end_matches(';').trim_end();
+        if text.is_empty() {
+            continue;
+        }
+        let rest = strip_words(text, &["CREATE", "OR", "REPLACE", word]).ok_or_else(ambiguous)?.trim_start();
         let after = if rest.len() >= name.len() && rest.is_char_boundary(name.len()) && rest[..name.len()].eq_ignore_ascii_case(name) {
             &rest[name.len()..]
         } else if let Some(r) = rest.strip_prefix(&q(name)) {
             r
         } else {
-            continue;
+            return Err(ambiguous());
         };
-        let Some(args) = arguments(after.trim_start()) else { continue };
-        out.push(args.iter().filter_map(|a| arg_type(a)).collect());
+        let (args, tail) = arguments(after.trim_start()).ok_or_else(ambiguous)?;
+        // `RETURNS … AS $$<body>$$`, with no other `$$` in the unit.
+        let tail = tail.trim_start();
+        let returns = tail.len() >= 8 && tail.is_char_boundary(8) && tail[..8].eq_ignore_ascii_case("RETURNS ");
+        let open = tail.find("$$").ok_or_else(ambiguous)?;
+        let header = tail[..open].trim_end();
+        let as_kw = header.len() >= 3 && header.is_char_boundary(header.len() - 3) && header[header.len() - 3..].eq_ignore_ascii_case(" AS");
+        if !returns || !as_kw || tail.matches("$$").count() != 2 || !tail.ends_with("$$") || tail.len() < open + 4 {
+            return Err(ambiguous());
+        }
+        let mut types = Vec::with_capacity(args.len());
+        for a in &args {
+            let ty = arg_type(a).ok_or_else(ambiguous)?;
+            if !valid_type(&ty) {
+                return Err(Error::Unsupported(format!(
+                    "«{name}» tiene un argumento de un tipo que DBine no reconoce («{}»): no se renombra (hacelo desde Snowsight o SnowSQL).",
+                    ty.chars().take(60).collect::<String>()
+                )));
+            }
+            types.push(ty);
+        }
+        out.push(types);
     }
-    out
+    Ok(out)
+}
+
+/// Snowflake's type names (and their synonyms), as words separated by one
+/// space.
+const TYPE_NAMES: &[&str] = &[
+    "NUMBER", "DECIMAL", "DEC", "NUMERIC", "INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "BYTEINT",
+    "FLOAT", "FLOAT4", "FLOAT8", "DOUBLE", "DOUBLE PRECISION", "REAL",
+    "VARCHAR", "CHAR", "CHARACTER", "CHAR VARYING", "CHARACTER VARYING", "NCHAR", "NCHAR VARYING", "NVARCHAR", "NVARCHAR2",
+    "STRING", "TEXT", "BINARY", "VARBINARY", "BOOLEAN",
+    "DATE", "DATETIME", "TIME", "TIMESTAMP", "TIMESTAMP_LTZ", "TIMESTAMP_NTZ", "TIMESTAMP_TZ",
+    "TIMESTAMPLTZ", "TIMESTAMPNTZ", "TIMESTAMPTZ",
+    "TIMESTAMP WITH LOCAL TIME ZONE", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITHOUT TIME ZONE",
+    "VARIANT", "OBJECT", "ARRAY", "MAP", "VECTOR", "GEOGRAPHY", "GEOMETRY", "FILE",
+];
+
+#[derive(Debug, PartialEq)]
+enum Tok<'a> {
+    Word(&'a str),
+    Num,
+    Open,
+    Close,
+    Comma,
+}
+
+/// `ty` is a Snowflake type and nothing else: a known type name, with an
+/// optional `(…)` of precisions (`NUMBER(38,0)`), element types
+/// (`ARRAY(NUMBER)`, `MAP(VARCHAR, NUMBER)`, `VECTOR(INT, 3)`) or fields
+/// (`OBJECT(a NUMBER, b VARCHAR)`). Only ASCII letters, digits, `_`, single
+/// spaces, parentheses and commas: no quotes, `;`, `$`, comments or line
+/// breaks.
+fn valid_type(ty: &str) -> bool {
+    if ty.is_empty() || !ty.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ' ' | '(' | ')' | ',')) {
+        return false;
+    }
+    let mut toks = Vec::new();
+    let b = ty.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b' ' => i += 1,
+            b'(' | b')' | b',' => {
+                toks.push(match b[i] {
+                    b'(' => Tok::Open,
+                    b')' => Tok::Close,
+                    _ => Tok::Comma,
+                });
+                i += 1;
+            }
+            c if c.is_ascii_digit() => {
+                while i < b.len() && b[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i < b.len() && (b[i].is_ascii_alphabetic() || b[i] == b'_') {
+                    return false;
+                }
+                toks.push(Tok::Num);
+            }
+            _ => {
+                let s = i;
+                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+                    i += 1;
+                }
+                toks.push(Tok::Word(&ty[s..i]));
+            }
+        }
+    }
+    let mut pos = 0;
+    parse_type(&toks, &mut pos, 0) && pos == toks.len()
+}
+
+/// `type := NAME [ '(' item (',' item)* ')' ]`, `item := NUM | type | WORD type`.
+fn parse_type(toks: &[Tok], pos: &mut usize, depth: usize) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    // The longest known name made of the next words.
+    let mut words = Vec::new();
+    let mut best = None;
+    while let Some(Tok::Word(w)) = toks.get(*pos + words.len()) {
+        words.push(w.to_ascii_uppercase());
+        if TYPE_NAMES.contains(&words.join(" ").as_str()) {
+            best = Some(words.len());
+        }
+    }
+    let Some(n) = best else { return false };
+    *pos += n;
+    if toks.get(*pos) != Some(&Tok::Open) {
+        return true;
+    }
+    *pos += 1;
+    loop {
+        match toks.get(*pos) {
+            Some(Tok::Num) => *pos += 1,
+            Some(Tok::Word(_)) => {
+                let save = *pos;
+                if !parse_type(toks, pos, depth + 1) {
+                    // An OBJECT field: its name, then its type.
+                    *pos = save + 1;
+                    if !parse_type(toks, pos, depth + 1) {
+                        return false;
+                    }
+                } else if matches!(toks.get(*pos), Some(Tok::Word(_))) {
+                    // A field whose name is also a type name (`date DATE`).
+                    *pos = save + 1;
+                    if !parse_type(toks, pos, depth + 1) {
+                        return false;
+                    }
+                }
+            }
+            _ => return false,
+        }
+        match toks.get(*pos) {
+            Some(Tok::Comma) => *pos += 1,
+            Some(Tok::Close) => {
+                *pos += 1;
+                return true;
+            }
+            _ => return false,
+        }
+    }
 }
 
 /// `text` after the given words, any case, separated by whitespace.
@@ -195,19 +353,23 @@ fn strip_words<'a>(text: &'a str, words: &[&str]) -> Option<&'a str> {
 }
 
 /// The arguments between the parentheses `text` starts with, split at the
-/// top-level commas (types like `NUMBER(38,0)` stay whole).
-fn arguments(text: &str) -> Option<Vec<String>> {
+/// top-level commas (types like `NUMBER(38,0)` stay whole), and the text
+/// after the closing parenthesis.
+fn arguments(text: &str) -> Option<(Vec<String>, &str)> {
     let body = text.strip_prefix('(')?;
     let (mut depth, mut quoted, mut cur, mut out) = (0usize, false, String::new(), Vec::new());
-    for c in body.chars() {
+    for (i, c) in body.char_indices() {
         match c {
             '"' => quoted = !quoted,
             '(' if !quoted => depth += 1,
             ')' if !quoted && depth == 0 => {
                 if !cur.trim().is_empty() {
                     out.push(cur.trim().to_string());
+                } else if !out.is_empty() {
+                    // `(A NUMBER, )`: an empty argument.
+                    return None;
                 }
-                return Some(out);
+                return Some((out, &body[i + 1..]));
             }
             ')' if !quoted => depth -= 1,
             ',' if !quoted && depth == 0 => {
@@ -344,6 +506,71 @@ mod tests {
         // Without a definition there are no types to name it by.
         let r = req(RenameTarget::Object { object: obj(kinds::PROCEDURE, "APP", "CARGA"), parent: None }, "X", None);
         assert!(matches!(script(&r), Err(Error::Unsupported(_))));
+    }
+
+    fn routine_req(kind: &str, def: &str) -> RenameRequest {
+        req(RenameTarget::Object { object: obj(kind, "APP", "TOTAL"), parent: None }, "SUMA", Some(def))
+    }
+
+    #[test]
+    fn a_body_with_dollar_quotes_faking_another_unit_is_refused() {
+        // A body written with AS '…' holds `$$`: wrapped in `$$…$$` it closes
+        // early and the rest reads as a second CREATE carrying SQL in its types.
+        let fake = "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;\n\
+                    CREATE OR REPLACE FUNCTION TOTAL(A NUMBER) RENAME TO APP.X; DROP TABLE APP.T; ALTER FUNCTION APP.Y(NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 2 $$;";
+        assert!(matches!(script(&routine_req(kinds::FUNCTION, fake)), Err(Error::Unsupported(_))));
+        // A stray `$$` left in the body.
+        let odd = "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ select '$$' $$;";
+        assert!(script(&routine_req(kinds::FUNCTION, odd)).is_err());
+        // Text that isn't one of the routine's CREATEs.
+        let extra = "CREATE OR REPLACE PROCEDURE TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;\nDROP TABLE APP.T;";
+        assert!(script(&routine_req(kinds::PROCEDURE, extra)).is_err());
+        // A unit of another routine's name.
+        let other = "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;\n\
+                     CREATE OR REPLACE FUNCTION OTRA(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;";
+        assert!(script(&routine_req(kinds::FUNCTION, other)).is_err());
+    }
+
+    #[test]
+    fn types_carrying_sql_are_refused() {
+        for args in [
+            "(X NUMBER); DROP TABLE APP.T; --)",
+            "(X NUMBER(38,0)) RENAME TO APP.Z; DROP TABLE T; SELECT (1)",
+            "(X VARCHAR 'a')",
+            "(X \"VARCHAR\")",
+            "(X NUMBER /* c */)",
+            "(X NUMBER -- c\n)",
+            "(X NUMBER$)",
+            "(X NOTATYPE)",
+            "(X NUMBER(38,0) RENAME)",
+            "(X ARRAY(NUMBER) RENAME TO Y)",
+            "(X NUMBER, )",
+        ] {
+            let def = format!("CREATE OR REPLACE FUNCTION TOTAL{args} RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;");
+            assert!(script(&routine_req(kinds::FUNCTION, &def)).is_err(), "{args}");
+        }
+        assert!(!valid_type("NUMBER;"));
+        assert!(!valid_type("VARCHAR'"));
+        assert!(!valid_type("NUMBER(38,0"));
+        assert!(!valid_type("NUMBER)"));
+        assert!(!valid_type("NUMBER\n"));
+    }
+
+    #[test]
+    fn plain_types_still_rename() {
+        let def = "CREATE OR REPLACE FUNCTION TOTAL(A NUMBER(38,0), B VARCHAR, C ARRAY, D OBJECT, E VARIANT, F TIMESTAMP_NTZ(9)) \
+                   RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;\n\n\
+                   CREATE OR REPLACE FUNCTION TOTAL(G VECTOR(FLOAT, 256), H ARRAY(NUMBER), I MAP(VARCHAR, NUMBER), J OBJECT(a NUMBER, date DATE), K DOUBLE PRECISION) \
+                   RETURNS NUMBER LANGUAGE SQL AS $$ 2 $$;";
+        assert_eq!(
+            stmts(&routine_req(kinds::FUNCTION, def)),
+            [
+                "ALTER FUNCTION \"APP\".\"TOTAL\"(NUMBER(38,0), VARCHAR, ARRAY, OBJECT, VARIANT, TIMESTAMP_NTZ(9)) RENAME TO \"APP\".SUMA;",
+                "ALTER FUNCTION \"APP\".\"TOTAL\"(VECTOR(FLOAT, 256), ARRAY(NUMBER), MAP(VARCHAR, NUMBER), OBJECT(a NUMBER, date DATE), DOUBLE PRECISION) RENAME TO \"APP\".SUMA;",
+            ]
+        );
+        let def = "CREATE OR REPLACE PROCEDURE TOTAL(N NUMBER(38,0), [M TIMESTAMP_TZ(9)]) RETURNS VARCHAR LANGUAGE JAVASCRIPT AS $$ return 'a;b'; $$;";
+        assert_eq!(stmts(&routine_req(kinds::PROCEDURE, def)), ["ALTER PROCEDURE \"APP\".\"TOTAL\"(NUMBER(38,0), TIMESTAMP_TZ(9)) RENAME TO \"APP\".SUMA;"]);
     }
 
     #[test]
