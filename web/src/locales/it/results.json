@@ -94,6 +94,7 @@
     "nullText": "Testo per NULL",
     "empty": "(vuoto)",
     "quoteAll": "Racchiudi tutti i campi tra virgolette",
+    "formulaSafe": "Proteggi dalle formule del foglio di calcolo (aggiunge ' ai testi che iniziano con =, +, -, @)",
     "bom": "BOM UTF-8 (accenti in Excel)",
     "crlf": "Fine riga di Windows (CRLF)",
     "pretty": "Con rientro (leggibile)",

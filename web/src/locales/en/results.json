@@ -94,6 +94,7 @@
     "nullText": "Text for NULL",
     "empty": "(empty)",
     "quoteAll": "Quote all fields",
+    "formulaSafe": "Protect against spreadsheet formulas (adds ' to text starting with =, +, -, @)",
     "bom": "UTF-8 BOM (accents in Excel)",
     "crlf": "Windows line endings (CRLF)",
     "pretty": "Indented (readable)",
