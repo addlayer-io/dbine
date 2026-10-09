@@ -9,6 +9,7 @@ import type { CodeObject, SyncScript } from '../api/compare';
 import CodeEditor from '../components/CodeEditor.vue';
 import { useTranslation } from 'i18next-vue';
 import { tb } from '../i18n/backend';
+import { lineComment } from '../composables/scriptComment';
 import { isProdConnection } from '../composables/tags';
 import { useConnectionsStore } from '../stores/connections';
 
@@ -602,7 +603,8 @@ async function alterScript(): Promise<SyncScript> {
 
 function scriptText(sc: SyncScript): string {
   const c = props.language === 'sql' ? '--' : '//';
-  const warn = sc.warnings.map((w) => `${c} ⚠ ${tb(w)}`).join('\n');
+  // Warnings carry server text (names, CHECK expressions): one line each.
+  const warn = sc.warnings.map((w) => lineComment(c, `⚠ ${tb(w)}`)).join('\n');
   if (!sc.statements.length) return `${warn ? `${warn}\n\n` : ''}${c} ${t(sc.warnings.length ? 'designer:alter.nothingRuns' : 'designer:alter.noChanges')}`;
   return `${warn ? `${warn}\n\n` : ''}${sc.statements.join('\n\n')}`;
 }
