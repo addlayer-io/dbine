@@ -26,3 +26,15 @@ futures.workspace = true
 roxmltree = "0.21.1"
 # Microsoft Entra ID tokens (OAuth 2.0 token endpoint) for Azure SQL / Fabric.
 reqwest.workspace = true
+# Entra ID browser sign-in (PKCE) and ADFS: random values, SHA-256, base64.
+base64.workspace = true
+sha2 = "0.10"
+getrandom = "0.2"
+
+# Entra ID integrated sign-in: HTTP Negotiate to ADFS as the current user,
+# with the same libraries tiberius links for TDS integrated auth.
+[target.'cfg(unix)'.dependencies]
+libgssapi = { version = "0.11", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+winauth = "0.0.5"

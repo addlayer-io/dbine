@@ -2901,16 +2901,21 @@ dependencies = [
 name = "dbine-driver-sqlserver"
 version = "0.1.8"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "dbine-driver",
  "futures",
+ "getrandom 0.2.17",
+ "libgssapi 0.11.0",
  "reqwest",
  "roxmltree",
  "serde_json",
+ "sha2 0.10.9",
  "tiberius",
  "tokio",
  "tokio-util",
  "tracing",
+ "winauth",
 ]
 
 [[package]]

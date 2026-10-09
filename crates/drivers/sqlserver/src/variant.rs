@@ -5,6 +5,7 @@
 //! catalog views and, for Babelfish, the plans and the monitor (it's
 //! PostgreSQL underneath).
 
+use crate::entra;
 use dbine_driver::{ConnectionConfig, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, Result};
 use std::time::Duration;
 
@@ -62,6 +63,17 @@ pub const WINDOWS_NTLM: &str = "windows_ntlm";
 /// tiberius uses winauth's pure-Rust NTLMv2 off Windows too (PATCHES.md).
 pub const NTLM_SUPPORTED: bool = true;
 
+/// What the auth select explains about the Entra ID methods.
+macro_rules! entra_help {
+    () => {
+        "Entra ID interactivo abre el navegador y admite MFA; con usuario y contraseña no hay MFA. La integrada \
+         usa la sesión de Windows (o el ticket de Kerberos) con el ADFS de la organización. La identidad \
+         administrada solo funciona si DBine corre en Azure. La predeterminada prueba, en orden, las variables \
+         AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, la identidad administrada, Azure CLI (az login) y \
+         Azure Developer CLI (azd auth login)."
+    };
+}
+
 fn auth_options(v: Variant) -> Vec<(&'static str, &'static str)> {
     let mut options = vec![];
     if v != Variant::Fabric {
@@ -73,37 +85,55 @@ fn auth_options(v: Variant) -> Vec<(&'static str, &'static str)> {
             options.push((WINDOWS_NTLM, "Windows: usuario y contraseña de dominio"));
         }
     }
-    options.extend([
-        ("entra_password", "Microsoft Entra ID: usuario y contraseña"),
-        ("entra_sp", "Microsoft Entra ID: entidad de servicio"),
-        ("entra_token", "Microsoft Entra ID: token de acceso"),
-    ]);
+    if v.entra() {
+        options.extend([
+            (entra::MFA, "Microsoft Entra ID: interactivo (MFA)"),
+            ("entra_password", "Microsoft Entra ID: usuario y contraseña"),
+            (entra::INTEGRATED, "Microsoft Entra ID: integrada (Windows)"),
+            ("entra_sp", "Microsoft Entra ID: entidad de servicio"),
+            (entra::MSI, "Microsoft Entra ID: identidad administrada"),
+            (entra::DEFAULT, "Microsoft Entra ID: predeterminada"),
+            ("entra_token", "Microsoft Entra ID: token de acceso"),
+        ]);
+    }
     options
 }
 
 fn auth_field(v: Variant) -> Field {
     let help = if v.windows() {
-        "Windows: usuario actual entra con la sesión de Windows o, en macOS y Linux, con el ticket de Kerberos \
-         (kinit usuario@DOMINIO). Entra ID con usuario y contraseña no admite cuentas con MFA: usá una entidad \
-         de servicio o un token."
+        concat!(
+            "Windows: usuario actual entra con la sesión de Windows o, en macOS y Linux, con el ticket de Kerberos \
+             (kinit usuario@DOMINIO). ",
+            entra_help!()
+        )
     } else {
-        "Entra ID con usuario y contraseña no admite cuentas con MFA: usá una entidad de servicio o un token."
+        entra_help!()
     };
     Field::new("auth", "Autenticación", FieldKind::Select(auth_options(v))).default_value(v.default_auth()).help(help)
 }
 
 /// The auth methods that sign in with a user and a password.
 const USER_AUTH: &[&str] = &["sql", "entra_password", WINDOWS_NTLM];
+/// The auth methods that take a user: those with a password, the browser
+/// sign-in (a hint, optional) and the integrated one (the UPN, required).
+const ACCOUNT_AUTH: &[&str] = &["sql", "entra_password", WINDOWS_NTLM, entra::MFA, entra::INTEGRATED];
 
 fn entra_fields() -> Vec<Field> {
     vec![
         Field::new("tenant_id", "Inquilino (tenant ID)", FieldKind::Text)
             .placeholder("00000000-0000-0000-0000-000000000000 o contoso.onmicrosoft.com")
-            .help("Obligatorio para la entidad de servicio; opcional con usuario y contraseña.")
-            .when("auth", &["entra_password", "entra_sp"]),
+            .help(
+                "Obligatorio para la entidad de servicio. Con los demás métodos, opcional: sin él vale el \
+                 inquilino de la cuenta.",
+            )
+            .when("auth", &["entra_password", "entra_sp", entra::MFA, entra::INTEGRATED, entra::DEFAULT]),
         Field::new("client_id", "ID de la aplicación (client ID)", FieldKind::Text)
-            .help("Entidad de servicio: el ID de la aplicación registrada. Con usuario y contraseña, opcional.")
-            .when("auth", &["entra_password", "entra_sp"]),
+            .help(
+                "Entidad de servicio: el ID de la aplicación registrada. Identidad administrada (también en la \
+                 predeterminada): el client ID de una identidad asignada por el usuario; vacío, la del sistema. \
+                 En los demás casos, opcional.",
+            )
+            .when("auth", &["entra_password", "entra_sp", entra::MFA, entra::INTEGRATED, entra::MSI, entra::DEFAULT]),
         Field::new("client_secret", "Secreto de la aplicación", FieldKind::Password).secret().when("auth", &["entra_sp"]),
         Field::new("access_token", "Token de acceso", FieldKind::Textarea)
             .secret()
@@ -127,8 +157,11 @@ pub fn info(v: Variant) -> DriverInfo {
             let mut f = vec![Field::host(), Field::port(), Field::database(), auth_field(v)];
             f.push(
                 Field::username()
-                    .help("Con Entra ID, la cuenta (usuario@dominio). Con Windows, DOMINIO\\usuario.")
-                    .when("auth", USER_AUTH),
+                    .help(
+                        "Con Entra ID, la cuenta (usuario@dominio): obligatoria con la integrada, opcional con la \
+                         interactiva. Con Windows, DOMINIO\\usuario.",
+                    )
+                    .when("auth", ACCOUNT_AUTH),
             );
             f.push(Field::password().when("auth", USER_AUTH));
             f.extend(entra_fields());
@@ -141,7 +174,9 @@ pub fn info(v: Variant) -> DriverInfo {
                 Field::port().placeholder("1433"),
                 Field::database().required().placeholder("mibase").help("Azure SQL no permite cambiar de base en la misma conexión."),
                 auth_field(v),
-                Field::username().help("Con Entra ID, la cuenta (usuario@dominio).").when("auth", USER_AUTH),
+                Field::username()
+                    .help("Con Entra ID, la cuenta (usuario@dominio): obligatoria con la integrada, opcional con la interactiva.")
+                    .when("auth", ACCOUNT_AUTH),
                 Field::password().when("auth", USER_AUTH),
             ];
             f.extend(entra_fields());
@@ -156,7 +191,9 @@ pub fn info(v: Variant) -> DriverInfo {
                 Field::port().placeholder("1433"),
                 Field::database().required().placeholder("MiAlmacen").help("El nombre del almacén o del punto de conexión SQL."),
                 auth_field(v),
-                Field::username().help("La cuenta de Entra ID (usuario@dominio).").when("auth", USER_AUTH),
+                Field::username()
+                    .help("La cuenta de Entra ID (usuario@dominio): obligatoria con la integrada, opcional con la interactiva.")
+                    .when("auth", ACCOUNT_AUTH),
                 Field::password().when("auth", USER_AUTH),
             ];
             f.extend(entra_fields());
@@ -187,9 +224,9 @@ pub fn info(v: Variant) -> DriverInfo {
 // ------------------------------------------------------ Microsoft Entra ID
 
 /// Resource every Azure SQL / Fabric SQL endpoint accepts tokens for.
-const SQL_SCOPE: &str = "https://database.windows.net/.default";
+pub(crate) const SQL_SCOPE: &str = "https://database.windows.net/.default";
 /// Public client Microsoft.Data.SqlClient uses for `ActiveDirectoryPassword`.
-const SQL_CLIENT_APP: &str = "2fd908ad-0664-4344-b9be-cd3e8b574c38";
+pub(crate) const SQL_CLIENT_APP: &str = "2fd908ad-0664-4344-b9be-cd3e8b574c38";
 
 /// How to log in, resolved from the form.
 pub enum Login {
@@ -240,6 +277,13 @@ pub async fn login(cfg: &ConnectionConfig, v: Variant) -> Result<Login> {
             let form = [("grant_type", "client_credentials"), ("client_id", client), ("client_secret", secret), ("scope", SQL_SCOPE)];
             Ok(Login::Token(token(tenant, &form).await?))
         }
+        entra::MFA => Ok(Login::Token(entra::interactive(option(cfg, "tenant_id"), option(cfg, "client_id"), user).await?)),
+        entra::INTEGRATED => {
+            let user = user.ok_or_else(|| Error::AuthFailed("falta la cuenta de Entra ID (usuario@dominio)".into()))?;
+            Ok(Login::Token(entra::integrated(user, option(cfg, "tenant_id"), option(cfg, "client_id")).await?))
+        }
+        entra::MSI => Ok(Login::Token(entra::managed_identity(option(cfg, "client_id")).await?)),
+        entra::DEFAULT => Ok(Login::Token(entra::default_chain(option(cfg, "tenant_id"), option(cfg, "client_id")).await?)),
         "entra_password" => {
             let user = user.ok_or_else(|| Error::AuthFailed("falta la cuenta de Entra ID (usuario@dominio)".into()))?;
             let tenant = cfg.option("tenant_id").unwrap_or("organizations");
@@ -257,12 +301,29 @@ pub async fn login(cfg: &ConnectionConfig, v: Variant) -> Result<Login> {
     }
 }
 
+/// A form option, trimmed; `None` when empty.
+fn option<'a>(cfg: &'a ConnectionConfig, key: &str) -> Option<&'a str> {
+    cfg.option(key).map(str::trim).filter(|v| !v.is_empty())
+}
+
+/// A tenant ID or domain, safe to put in a URL path.
+pub(crate) fn valid_tenant(tenant: &str) -> Result<()> {
+    if tenant.is_empty() || !tenant.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_')) {
+        return Err(Error::AuthFailed("el inquilino (tenant ID) no es válido".into()));
+    }
+    Ok(())
+}
+
 /// An access token from the Microsoft identity platform (OAuth 2.0 token
 /// endpoint, v2).
 async fn token(tenant: &str, form: &[(&str, &str)]) -> Result<String> {
-    if !tenant.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_')) {
-        return Err(Error::AuthFailed("el inquilino (tenant ID) no es válido".into()));
-    }
+    token_from(&token_body(tenant, form).await?)
+}
+
+/// The token endpoint's whole answer (the token, its expiry, a refresh
+/// token…), or the error to show.
+pub(crate) async fn token_body(tenant: &str, form: &[(&str, &str)]) -> Result<serde_json::Value> {
+    valid_tenant(tenant)?;
     let url = format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token");
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -275,10 +336,11 @@ async fn token(tenant: &str, form: &[(&str, &str)]) -> Result<String> {
         .await
         .map_err(|e| Error::Connect(format!("no se pudo llegar a Microsoft Entra ID: {e}")))?;
     let body: serde_json::Value = resp.json().await.map_err(|e| Error::Connect(e.to_string()))?;
-    token_from(&body)
+    token_from(&body)?;
+    Ok(body)
 }
 
-fn token_from(body: &serde_json::Value) -> Result<String> {
+pub(crate) fn token_from(body: &serde_json::Value) -> Result<String> {
     if let Some(t) = body.get("access_token").and_then(|t| t.as_str()) {
         return Ok(t.to_string());
     }
@@ -376,6 +438,48 @@ mod tests {
             assert!(matches!(login(&cfg, Variant::SqlServer).await, Ok(Login::Windows { user, .. }) if user == "CONTOSO\\ana"));
         } else {
             assert!(matches!(login(&cfg, Variant::SqlServer).await, Err(Error::AuthFailed(m)) if m.contains("solo está disponible en Windows")));
+        }
+    }
+
+    #[test]
+    fn entra_methods_match_ssms() {
+        for v in [Variant::SqlServer, Variant::AzureSql, Variant::Fabric] {
+            let keys = auth_keys(v);
+            for k in [entra::MFA, "entra_password", entra::INTEGRATED, "entra_sp", entra::MSI, entra::DEFAULT, "entra_token"] {
+                assert!(keys.contains(&k), "{v:?} {k}");
+            }
+        }
+        assert!(auth_keys(Variant::Babelfish).iter().all(|k| !k.starts_with("entra")));
+    }
+
+    #[test]
+    fn entra_methods_show_their_fields() {
+        for v in [Variant::SqlServer, Variant::AzureSql, Variant::Fabric] {
+            let mfa = shown(v, entra::MFA);
+            assert!(mfa.contains(&"username") && mfa.contains(&"tenant_id") && mfa.contains(&"client_id"), "{mfa:?}");
+            assert!(!mfa.contains(&"password") && !mfa.contains(&"client_secret") && !mfa.contains(&"access_token"));
+            let integrated = shown(v, entra::INTEGRATED);
+            assert!(integrated.contains(&"username") && integrated.contains(&"tenant_id") && !integrated.contains(&"password"));
+            let msi = shown(v, entra::MSI);
+            assert!(msi.contains(&"client_id") && !msi.contains(&"tenant_id") && !msi.contains(&"username"), "{msi:?}");
+            let default = shown(v, entra::DEFAULT);
+            assert!(default.contains(&"tenant_id") && default.contains(&"client_id") && !default.contains(&"username"));
+            assert!(!default.contains(&"password") && !default.contains(&"client_secret"));
+        }
+    }
+
+    #[tokio::test]
+    async fn entra_logins_check_their_fields_first() {
+        let mut cfg = ConnectionConfig::default();
+        cfg.options.insert("auth".into(), entra::INTEGRATED.into());
+        assert!(matches!(login(&cfg, Variant::AzureSql).await, Err(Error::AuthFailed(m)) if m.contains("usuario@dominio")));
+        cfg.username = Some("sin-dominio".into());
+        assert!(matches!(login(&cfg, Variant::AzureSql).await, Err(Error::AuthFailed(m)) if m.contains("usuario@dominio")));
+        for auth in [entra::MFA, entra::INTEGRATED, entra::DEFAULT] {
+            cfg.options.insert("auth".into(), auth.into());
+            cfg.options.insert("tenant_id".into(), "contoso/../x".into());
+            assert!(matches!(login(&cfg, Variant::Fabric).await, Err(Error::AuthFailed(m)) if m.contains("inquilino")), "{auth}");
+            assert!(matches!(login(&cfg, Variant::Babelfish).await, Err(Error::AuthFailed(_))), "{auth}");
         }
     }
 
