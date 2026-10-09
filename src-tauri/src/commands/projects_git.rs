@@ -1207,6 +1207,34 @@ mod tests {
         assert!(!root.join("loose.sql").exists() && !root.join("added.sql").exists() && !root.join("new.sql").exists());
     }
 
+    /// A file named like a glob (`*`, `:(glob)**`) is a path, not a pattern:
+    /// discarding it restores that file only, never the whole tree.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn discard_takes_paths_literally() {
+        let Some(w) = World::new().await else { return };
+        let (id, root) = w.clone("literal").await;
+        for f in ["*", "a.sql", "b.sql"] {
+            std::fs::write(root.join(f), "v1\n").unwrap();
+        }
+        w.commit(&id, "uno").await;
+        for f in ["*", "a.sql", "b.sql"] {
+            std::fs::write(root.join(f), "v2\n").unwrap();
+        }
+        discard(&w.store, &w.ev, DiscardArgs { id: id.clone(), paths: vec!["*".into()] }).await.unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("*")).unwrap(), "v1\n");
+        assert_eq!(std::fs::read_to_string(root.join("a.sql")).unwrap(), "v2\n", "a.sql kept its change");
+        assert_eq!(std::fs::read_to_string(root.join("b.sql")).unwrap(), "v2\n", "b.sql kept its change");
+        assert_eq!(marks(&w.status(&id).await), vec![('M', "a.sql".to_string()), ('M', "b.sql".to_string())]);
+
+        // Pathspec magic is literal too.
+        std::fs::write(root.join(":(glob)**"), "v1\n").unwrap();
+        g(&root, &["add", "--", ":(glob)**"]).await;
+        discard(&w.store, &w.ev, DiscardArgs { id: id.clone(), paths: vec![":(glob)**".into()] }).await.unwrap();
+        assert!(!root.join(":(glob)**").exists());
+        assert_eq!(std::fs::read_to_string(root.join("a.sql")).unwrap(), "v2\n");
+    }
+
     #[tokio::test]
     async fn push_pull_sync_and_conflicts() {
         let Some(w) = World::new().await else { return };

@@ -2,8 +2,8 @@
 //! (`library_git.rs`) and by projects (`projects.rs`, `projects_git.rs`):
 //! the user's own credentials (credential helper, SSH agent), never a prompt
 //! (`GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`), paths as they are
-//! (`core.quotePath=false`), the child killed when the call is dropped, and a
-//! time limit.
+//! (`core.quotePath=false`), pathspecs taken literally (`GIT_LITERAL_PATHSPECS`),
+//! the child killed when the call is dropped, and a time limit.
 
 use crate::error::{CommandError, CommandResult};
 use std::path::{Path, PathBuf};
@@ -34,6 +34,8 @@ pub struct RunOpts<'a> {
     pub limit: Duration,
     /// Notified to stop the command (its process is killed).
     pub cancel: Option<Arc<Notify>>,
+    /// Set after the defaults, so a caller that really wants glob or magic
+    /// pathspecs can opt out with `("GIT_LITERAL_PATHSPECS", "0")`.
     pub env: &'a [(&'a str, &'a str)],
     /// Each line git writes to stderr (split on `\r` and `\n`), for `--progress`.
     pub progress: Option<&'a (dyn Fn(&str) + Send + Sync)>,
@@ -73,6 +75,10 @@ pub async fn output(dir: &Path, args: &[&str], o: RunOpts<'_>) -> CommandResult<
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "never")
+        // Paths come from the repository (a file may be named `*` or
+        // `:(glob)**`): as a pathspec they must match only that file, never
+        // expand to every file of the tree (a Discard would wipe them all).
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .stdin(if o.input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
