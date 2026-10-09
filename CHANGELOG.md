@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Read-only:** a `--` comment ends at a carriage return too, as PostgreSQL reads it, so nothing that runs can hide in a comment. On SQL Server, a procedure whose name starts like `print_` or `select1` is no longer taken for a read.
+- **Import connections:** an Oracle password containing `@` is kept whole in the system keychain.
+- **SSH tunnels on Linux:** the tunnel's local port only trusts open connections from your own user.
+
 ## [0.1.10] - 2026-10-09
 
 ### New
