@@ -148,7 +148,9 @@ fn hidden_write(stmt: &str, first: &str, dialect: &ScriptDialect) -> Option<Stri
             continue;
         }
         let w = lower(i);
-        if bare(i) && WRITE_WORDS.contains(&w.as_str()) && !(READ_FUNCTIONS.contains(&w.as_str()) && is_call(i)) {
+        // MySQL's `SELECT … INTO @var` only sets a session variable.
+        let into_variable = w == "into" && toks.get(i + 1).is_some_and(|t| t.text == "@");
+        if bare(i) && WRITE_WORDS.contains(&w.as_str()) && !(READ_FUNCTIONS.contains(&w.as_str()) && is_call(i)) && !into_variable {
             return Some(w.to_uppercase());
         }
         // `SET` outside `CHARACTER SET` changes the session (T-SQL batches).
@@ -435,6 +437,11 @@ mod tests {
         }
         assert_eq!(super::first_write_in("select cast(x as char character set utf8mb4) from t", &ScriptDialect::mysql()), None);
         assert_eq!(super::first_write_in("select dbms_metadata.get_ddl('TABLE', 'T') from dual", &ScriptDialect::oracle()), None);
+        assert_eq!(super::first_write_in("select * from t order by dbms_random.value", &ScriptDialect::oracle()), None);
+        assert_eq!(super::first_write_in("select t.\"set\", \"call\" as \"exec\" from t", &ScriptDialect::oracle()), None);
+        assert_eq!(super::first_write_in("select [into], [set] from dbo.t", &ScriptDialect::tsql()), None);
+        assert_eq!(super::first_write_in("select * from sys.dm_exec_sessions", &ScriptDialect::tsql()), None);
+        assert_eq!(super::first_write_in("select count(*) into @n from t", &ScriptDialect::mysql()), None);
         let lite = ScriptDialect::generic();
         assert_eq!(super::first_write_in("pragma table_info(t)", &lite), None);
         assert_eq!(super::first_write_in("pragma main.table_info(t)", &lite), None);
