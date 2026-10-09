@@ -2,11 +2,13 @@
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-10-09
+
 ### New
 - **Drivers update on their own, apart from the app:** DBine looks in a signed index for the newest driver compatible with your version, downloads it in the background and goes back to the previous one if something fails. In Settings › Drivers there is a **Check for updates** button, the status of each driver and **Roll back**. A driver can be released on its own, without a new app version.
 
 ### Improvements
-- **What each version brings:** the new-version notice shows its changes and those of the versions in between, starting from the one you have installed.
+- **What each version brings:** the new-version notice shows its changes and those of the versions in between, starting from the one you have installed, in the app's language.
 - **Old app versions:** from now on, an app older than the last five versions has to update in order to download new drivers. The drivers it already has installed keep working.
 
 ## [0.1.9] - 2026-10-09

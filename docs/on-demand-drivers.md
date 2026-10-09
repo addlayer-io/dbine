@@ -255,8 +255,11 @@ step's `env:`. If the first one is missing, publishing fails.
 ### How `min_app` is computed
 
 A new host only runs with apps that speak the same way over the pipe. That is
-summarized in the `wire_hash`: a hash of the code in `crates/dbine-plugin/src`
-and `crates/dbine-driver/src` (without `tests` or `testdata`).
+summarized in the `wire_hash`: a hash of the protocol and how the host answers
+it (`crates/dbine-plugin/src/proto.rs` and `host.rs`) and of the driver
+contract (`crates/dbine-driver/src`, without `tests` or `testdata`). App-side
+code (launcher, installer, updater) isn't part of it, so changing it doesn't
+force a new app before a driver-only release.
 `scripts/driver_index.py` computes it for the current code and for each tag
 of the last five app versions (`vX.Y.Z`).
 

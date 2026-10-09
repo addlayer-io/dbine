@@ -85,7 +85,7 @@ why:
 | Apache Calcite Avatica | It has no DDL of its own: it depends on the engine behind it. |
 | InfluxDB 1, 2 and 3 | Measurements are created when data is written. |
 | NetSuite | It's read-only. |
-| CSV / Parquet / JSON files | Each file is a read-only view. |
+| Archivos CSV / Parquet / JSON | Each file is a read-only view. |
 
 **Not applicable:**
 

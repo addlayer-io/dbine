@@ -11,3 +11,4 @@
 
 # Local build secrets (cloud client IDs): see docs/sync.md
 .env
+__pycache__/

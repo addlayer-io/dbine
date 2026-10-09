@@ -1,5 +1,14 @@
 # Modifiche
 
+## [0.1.10] - 2026-10-09
+
+### Novità
+- **I driver si aggiornano da soli, separatamente dall'app:** DBine cerca in un indice firmato il driver più recente compatibile con la tua versione, lo scarica in background e torna al precedente se qualcosa va storto. In Impostazioni › Driver c'è un pulsante **Cerca aggiornamenti**, lo stato di ogni driver e **Torna alla precedente**. Un driver può essere pubblicato da solo, senza una nuova versione dell'app.
+
+### Miglioramenti
+- **Cosa porta ogni versione:** l'avviso di nuova versione mostra le sue modifiche e quelle delle versioni intermedie, a partire da quella che hai installato, nella lingua dell'app.
+- **Versioni vecchie dell'app:** d'ora in poi, un'app più vecchia delle ultime cinque versioni deve aggiornarsi per scaricare nuovi driver. I driver che ha già installati continuano a funzionare.
+
 ## [0.1.9] - 2026-10-09
 
 ### Novità
