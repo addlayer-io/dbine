@@ -62,7 +62,7 @@ async fn downloads_resumes_checks_and_runs_a_host() {
     let (base_url, ranges) = serve(gz.clone());
     let file = "dbine-driver-sqlite-1.2.0+p1.e1-test.gz".to_string();
     let version = "1.2.0+p1.e1".to_string();
-    let mut catalog = Catalog { target: "test".into(), base_url, hosts: Default::default() };
+    let mut catalog = Catalog { target: "test".into(), base_url, ..Default::default() };
     catalog.hosts.insert("sqlite".into(), HostAsset { version: version.clone(), file: file.clone(), size: gz.len() as u64, sha256: sha.clone() });
 
     // What an update leaves behind: another version of the driver, a folder

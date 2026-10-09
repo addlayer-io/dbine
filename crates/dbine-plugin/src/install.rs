@@ -27,6 +27,12 @@ pub struct Catalog {
     pub base_url: String,
     /// Driver crate → its published host.
     pub hosts: HashMap<String, HostAsset>,
+    /// The drivers index's `seq` when the app was released: an index older
+    /// than this is refused even on a fresh install (no state yet), so a
+    /// mirror can't roll a new app back to hosts yanked before its release.
+    /// 0 in catalogs written before it existed.
+    #[serde(default)]
+    pub min_index_seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

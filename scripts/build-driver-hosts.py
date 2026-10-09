@@ -349,7 +349,10 @@ def main():
             hosts[pkg] = {"version": driver_id, "file": e["file"], "size": e["size"], "sha256": e["sha256"]}
             drivers.extend(e["manifest"])
         catalog = out / "plugins.json"
-        catalog.write_text(json.dumps({"target": target, "base_url": base_url, "hosts": hosts, "drivers": drivers}, ensure_ascii=False, separators=(",", ":")), "utf-8")
+        # min_index_seq: the published index's seq. The app refuses an older
+        # signed index even on a fresh install (a replayed or rolled-back one).
+        min_index_seq = int(index.get("seq") or 0)
+        catalog.write_text(json.dumps({"target": target, "base_url": base_url, "hosts": hosts, "drivers": drivers, "min_index_seq": min_index_seq}, ensure_ascii=False, separators=(",", ":")), "utf-8")
         # This code must read what older drivers said about themselves.
         run([str(native_dir / f"dbine-plugin-host{'.exe' if os.name == 'nt' else ''}"), "--check-catalog", str(catalog)])
 
