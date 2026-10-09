@@ -117,19 +117,46 @@ impl SyncEngine {
         Kdf::generate()
     }
 
+    fn policy(&self) -> crypto::KdfPolicy {
+        #[cfg(test)]
+        if self.fast_kdf {
+            return crypto::FAST_POLICY;
+        }
+        crypto::POLICY
+    }
+
     /// Run `f` with the key for `passphrase` and `kdf` (`None`: the cached
     /// parameters if the passphrase matches, or fresh ones).
+    ///
+    /// Parameters passed in come from a file's header, which is untrusted
+    /// until it decrypts: they must pass the policy, and the key is cached
+    /// only when `f` (the decryption) succeeds with it. Any failure clears
+    /// the cache, so a forged header can never become the parameters the
+    /// next upload is encrypted with.
     fn with_key<T>(&self, passphrase: &str, kdf: Option<&Kdf>, f: impl FnOnce(&Kdf, &Key) -> Result<T>) -> Result<T> {
         let pass: [u8; 32] = Sha256::digest(passphrase.as_bytes()).into();
+        let policy = self.policy();
         let mut cache = self.key.lock().map_err(|_| SyncError::Local("clave en uso".into()))?;
-        let reusable = cache.as_ref().is_some_and(|c| c.pass == pass && kdf.is_none_or(|k| *k == c.kdf));
-        if !reusable {
+        let reusable = cache
+            .as_ref()
+            .is_some_and(|c| c.pass == pass && kdf.is_none_or(|k| *k == c.kdf) && c.kdf.check(&policy).is_ok());
+        let out = if reusable {
+            let c = cache.as_ref().expect("checked above");
+            f(&c.kdf, &c.key)
+        } else {
+            *cache = None;
             let kdf = kdf.cloned().unwrap_or_else(|| self.new_kdf());
-            let key = crypto::derive(passphrase, &kdf)?;
-            *cache = Some(CachedKey { pass, kdf, key });
+            let key = crypto::derive_with(passphrase, &kdf, &policy)?;
+            let out = f(&kdf, &key);
+            if out.is_ok() {
+                *cache = Some(CachedKey { pass, kdf, key });
+            }
+            out
+        };
+        if out.is_err() {
+            *cache = None;
         }
-        let c = cache.as_ref().expect("key just cached");
-        f(&c.kdf, &c.key)
+        out
     }
 
     /// Forget the cached key (passphrase changed or sync turned off).
@@ -520,5 +547,75 @@ mod tests {
         let b = machine("b");
         assert!(b.engine.verify(&cloud, "vieja").await.is_err());
         assert!(b.engine.verify(&cloud, "nueva").await.is_ok());
+    }
+
+    /// A backup whose header someone else wrote: valid JSON, the given KDF
+    /// parameters, and a ciphertext no passphrase opens.
+    fn forged(kdf: Kdf) -> Vec<u8> {
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD;
+        serde_json::to_vec(&serde_json::json!({
+            "format": crypto::FORMAT, "version": crypto::VERSION, "updated_at": now(), "device": "evil",
+            "app_version": "0.1.0", "kdf": kdf, "cipher": "xchacha20poly1305",
+            "nonce": b64.encode([0u8; 24]), "data": b64.encode([0u8; 64]),
+        }))
+        .unwrap()
+    }
+
+    fn cached_kdf(e: &SyncEngine) -> Option<Kdf> {
+        e.key.lock().unwrap().as_ref().map(|c| c.kdf.clone())
+    }
+
+    #[tokio::test]
+    async fn a_forged_header_never_becomes_the_upload_key() {
+        use base64::Engine;
+        let cloud_dir = tempfile::tempdir().unwrap();
+        let cloud = FolderStore::new(cloud_dir.path());
+        let a = machine("a");
+        a.engine.store.save_connection(&conn("c1")).unwrap();
+        a.secrets.write("c1", &pw("hunter2")).unwrap();
+        a.engine.push(&cloud, "p", false).await.unwrap();
+        let good = cached_kdf(&a.engine).unwrap();
+
+        // Parameters that pass the policy, attacker's salt: the key derives
+        // but the file doesn't open, and the cache is cleared.
+        let evil_salt = base64::engine::general_purpose::STANDARD.encode([0xEEu8; 16]);
+        let plausible = Kdf { salt: evil_salt.clone(), ..Kdf::fast() };
+        std::fs::write(cloud_dir.path().join(BACKUP_FILE), forged(plausible.clone())).unwrap();
+        assert!(matches!(a.engine.pull(&cloud, "p").await, Err(SyncError::WrongPassphrase)));
+        assert_eq!(cached_kdf(&a.engine), None, "a failed open must not leave a key cached");
+
+        // Below the floor (8 KiB, t=1): refused before deriving anything.
+        let weak = Kdf { m_cost: 8, t_cost: 1, salt: evil_salt.clone(), ..Kdf::fast() };
+        std::fs::write(cloud_dir.path().join(BACKUP_FILE), forged(weak.clone())).unwrap();
+        assert!(matches!(a.engine.verify(&cloud, "p").await, Err(SyncError::Format(_))));
+        assert_eq!(cached_kdf(&a.engine), None);
+
+        // The next upload uses fresh, policy-compliant parameters.
+        a.engine.store.save_query(&query("q1", "c1", "select 1")).unwrap();
+        a.engine.push(&cloud, "p", false).await.unwrap();
+        let used = a.engine.remote_header(&cloud).await.unwrap().unwrap().kdf;
+        assert_ne!(used.salt, evil_salt);
+        assert_ne!(used, plausible);
+        assert_ne!(used, weak);
+        assert_ne!(used.salt, good.salt, "the cache was cleared: a fresh salt");
+        used.check(&crypto::FAST_POLICY).unwrap();
+        // And it opens with the passphrase on another machine.
+        let b = machine("b");
+        b.engine.pull(&cloud, "p").await.unwrap();
+        assert_eq!(b.secrets.read("c1").unwrap(), pw("hunter2"));
+    }
+
+    #[test]
+    fn the_real_engine_rejects_a_weak_header() {
+        // Without the test-only fast policy: the production floor applies.
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(StateStore::open(&dir.path().join("state.db")).unwrap());
+        let e = SyncEngine::new(store, Arc::new(MemSecrets::default()), "x".into(), "0.1.0".into(), dir.path().join("b"));
+        let weak = Kdf { m_cost: 8, t_cost: 1, ..Kdf::generate() };
+        assert!(matches!(e.open("p", &forged(weak)), Err(SyncError::Format(_))));
+        let huge = Kdf { m_cost: 4 * 1024 * 1024, ..Kdf::generate() };
+        assert!(matches!(e.open("p", &forged(huge)), Err(SyncError::Format(_))));
+        assert_eq!(cached_kdf(&e), None);
     }
 }
