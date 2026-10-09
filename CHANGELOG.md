@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Read-only:** a statement that doesn't start with a word, such as a bracketed name that runs a procedure on SQL Server, is refused. The words inside parenthesized reads are checked too.
+- **SQL export:** from MySQL, ClickHouse and other engines that read backslashes, quotes are written as `''`, so the script reads the same on any target.
+- **Modify table:** the warnings in the script you open as a query stay on their comment line.
+- **Passwords and secret options** are masked wherever they're edited, including backup steps in scheduled tasks.
+- **View dependencies and Rename** no longer stop on routines with unusual quoted names.
+
 ## [0.1.10] - 2026-10-09
 
 ### New
