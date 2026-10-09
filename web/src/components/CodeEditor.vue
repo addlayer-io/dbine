@@ -360,7 +360,8 @@ const insertHints = StateField.define<InsertHint>({
 });
 const insertTheme = EditorView.theme({
   '.cm-insert-col': { backgroundColor: 'color-mix(in srgb, var(--nm-accent) 28%, transparent)', borderRadius: '2px' },
-  '.cm-insert-col-tip': { padding: '2px 8px', fontSize: '12px', fontFamily: 'var(--nm-mono)', color: 'var(--nm-text)' },
+  // Clicks go through it to the text it covers (the line above the cursor).
+  '.cm-insert-col-tip': { padding: '2px 8px', fontSize: '12px', fontFamily: 'var(--nm-mono)', color: 'var(--nm-text)', pointerEvents: 'none' },
 });
 
 const links = [
