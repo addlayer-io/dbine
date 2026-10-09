@@ -2,19 +2,13 @@
 
 ## [Unreleased]
 
-### Fixes
-- **Read-only:** a statement that doesn't start with a word, such as a bracketed name that runs a procedure on SQL Server, is refused. The words inside parenthesized reads are checked too.
-- **SQL export:** from MySQL, ClickHouse and other engines that read backslashes, quotes are written as `''`, so the script reads the same on any target.
-- **Modify table:** the warnings in the script you open as a query stay on their comment line.
-- **Passwords and secret options** are masked wherever they're edited, including backup steps in scheduled tasks.
-- **View dependencies and Rename** no longer stop on routines with unusual quoted names.
-
 ## [0.1.10] - 2026-10-09
 
 ### New
 - **Drivers update on their own, apart from the app:** DBine looks in a signed index for the newest driver compatible with your version, downloads it in the background and goes back to the previous one if something fails. In Settings › Drivers there is a **Check for updates** button, the status of each driver and **Roll back**. A driver can be released on its own, without a new app version.
 - **Rename a database:** **Rename…** on a database in the explorer. The dialog shows the other sessions open on it (which the rename ends), whether the new name exists, how many objects move and the full script. Afterwards the connection's default database, open tabs, saved queries, migrations, project targets and scheduled task steps follow the new name; tasks that change data in it ask for approval again. Available in SQL Server, Azure SQL, Babelfish, the PostgreSQL family, MySQL, MariaDB, Snowflake and MongoDB; where the engine can't rename (or move) a database, it isn't offered.
 - **Which column is this value?** In an `INSERT … VALUES`, placing the cursor on a value shows a tooltip with its column (for example "Column 14 of 48: Name") and highlights that column in the list. Without a column list, it uses the table's columns in order. Works on every SQL and CQL engine.
+- **More ways to sign in to SQL Server with Microsoft Entra ID:** interactive with MFA (in the browser), integrated (the Windows account, through the organization's federated ADFS), managed identity and default (environment variables, managed identity, Azure CLI or Azure Developer CLI). The token is kept while DBine runs and renewed before it expires.
 
 ### Improvements
 - **What each version brings:** the new-version notice shows its changes and those of the versions in between, starting from the one you have installed, in the app's language.
@@ -47,6 +41,11 @@
 - **Read-only on PostgreSQL:** names written with Unicode escapes (`U&"…"`) are refused, so a forbidden function can't be called under another spelling.
 - **CSV and TSV export:** the formula protection also applies to text stored in columns declared as numbers, which SQLite allows.
 - **Generated scripts:** object names from the server can't end a comment and run as code. This covers the fixes suggested by **Health check**, and the users, backup and structure scripts. ClickHouse names with a backslash are quoted correctly.
+- **Read-only:** a statement that doesn't start with a word, such as a bracketed name that runs a procedure on SQL Server, is refused. The words inside parenthesized reads are checked too.
+- **SQL export:** from MySQL, ClickHouse and other engines that read backslashes, quotes are written as `''`, so the script reads the same on any target.
+- **Modify table:** the warnings in the script you open as a query stay on their comment line.
+- **Passwords and secret options** are masked wherever they're edited, including backup steps in scheduled tasks.
+- **View dependencies and Rename** no longer stop on routines with unusual quoted names.
 
 ## [0.1.9] - 2026-10-09
 

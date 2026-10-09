@@ -6,6 +6,7 @@
 - **Os drivers se atualizam sozinhos, separados do app:** o DBine procura em um índice assinado o driver mais novo compatível com a sua versão, baixa em segundo plano e volta ao anterior se algo falhar. Em Configurações › Drivers há um botão **Buscar atualizações**, o estado de cada driver e **Voltar à anterior**. Um driver pode ser publicado sozinho, sem uma nova versão do app.
 - **Renomear um banco de dados:** **Renomear…** em um banco de dados no explorador. O diálogo mostra as outras sessões abertas nele (que a renomeação encerra), se o novo nome já existe, quantos objetos são movidos e o script completo. Depois, o banco padrão da conexão, as abas abertas, as consultas salvas, as migrações, os destinos de projetos e as etapas de tarefas agendadas passam a usar o novo nome; as tarefas que alteram dados nele pedem aprovação de novo. Disponível no SQL Server, Azure SQL, Babelfish, na família PostgreSQL, no MySQL, MariaDB, Snowflake e MongoDB; onde o motor não consegue renomear (ou mover) um banco de dados, a opção não é oferecida.
 - **A qual coluna corresponde este valor?** Em um `INSERT … VALUES`, ao colocar o cursor sobre um valor aparece um tooltip com a sua coluna (por exemplo "Coluna 14 de 48: Name") e essa coluna é destacada na lista. Sem lista de colunas, usa as colunas da tabela em ordem. Funciona em todos os motores SQL e CQL.
+- **Mais formas de entrar no SQL Server com o Microsoft Entra ID:** interativa com MFA (no navegador), integrada (a conta do Windows, pelo ADFS federado da organização), identidade gerenciada e padrão (variáveis de ambiente, identidade gerenciada, Azure CLI ou Azure Developer CLI). O token é mantido enquanto o DBine está aberto e renovado antes de expirar.
 
 ### Melhorias
 - **O que cada versão traz:** o aviso de nova versão mostra as mudanças dela e das versões intermediárias, a partir da que você tem instalada, no idioma do app.
@@ -38,6 +39,11 @@
 - **Somente leitura no PostgreSQL:** nomes escritos com escapes Unicode (`U&"…"`) são recusados, para que uma função proibida não possa ser chamada com outra grafia.
 - **Exportação CSV e TSV:** a proteção contra fórmulas também vale para texto guardado em colunas declaradas como numéricas, o que o SQLite permite.
 - **Scripts gerados:** nomes de objetos vindos do servidor não podem encerrar um comentário e rodar como código. Isso cobre as correções sugeridas pela **Verificação de integridade** e os scripts de usuários, backups e estrutura. Nomes do ClickHouse com barra invertida são colocados entre aspas corretamente.
+- **Somente leitura:** uma instrução que não começa com uma palavra, como um nome entre colchetes que executa um procedimento no SQL Server, é recusada. As palavras dentro de leituras entre parênteses também são verificadas.
+- **Exportação SQL:** a partir do MySQL, ClickHouse e outros motores que interpretam barras invertidas, as aspas são escritas como `''`, de modo que o script é lido igual em qualquer destino.
+- **Modificar tabela:** os avisos do script que você abre como consulta ficam na própria linha de comentário.
+- **Senhas e opções secretas** são mascaradas em todos os lugares onde são editadas, inclusive nas etapas de backup das tarefas agendadas.
+- **Ver dependências e Renomear** não travam mais em rotinas com nomes entre aspas incomuns.
 
 ## [0.1.9] - 2026-10-09
 
