@@ -736,6 +736,19 @@ fn follow_json(v: &mut serde_json::Value, cid: &str, old: &str, new: &str) -> bo
 pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &RenameRequest, rewrites: &[RewriteChoice]) -> CommandResult<SyncScript> {
     let middle = driver.rename_script(request)?;
     let dialect = driver.script_dialect();
+    // Engines that cut scripts only at batch lines (T-SQL's `GO`): a
+    // dependent put back must be one batch, or a `GO` line stored in it
+    // would run what follows on its own.
+    if !dialect.semicolons {
+        for o in rewrites.iter().flat_map(|r| std::iter::once(&r.object).chain(r.carried.iter())) {
+            if dbine_driver::sql::split_script(&o.definition, &dialect).len() > 1 {
+                return Err(CommandError::BadRequest(format!(
+                    "la definición de «{}» tiene una línea que dice solo GO: al volver a crearla se partiría en varios lotes; quitala de la lista o corregila antes",
+                    o.name
+                )));
+            }
+        }
+    }
     let mut lost = Vec::new();
     let mut objects: Vec<ObjectChange> = rewrites
         .iter()

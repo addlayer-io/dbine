@@ -296,7 +296,8 @@ pub(crate) fn check_index_name(name: &str) -> Result<()> {
     if name.chars().any(|c| c.is_uppercase()) {
         return Err(Error::Query(format!("El nombre del índice «{name}» debe ir en minúsculas.")));
     }
-    if name.starts_with(['-', '_', '+']) || name.contains(BAD_NAME_CHARS) {
+    // Control characters too: a line break would start another console request.
+    if name.starts_with(['-', '_', '+']) || name.contains(BAD_NAME_CHARS) || name.chars().any(char::is_control) {
         return Err(Error::Query(format!(
             "El nombre del índice «{name}» no es válido: no puede empezar con -, _ o + ni tener espacios, comas ni \\ / * ? \" < > | # :"
         )));
@@ -477,7 +478,8 @@ pub fn index_ddl(t: &TableSchema, parts: DdlParts, opensearch: bool) -> Result<S
     check_index_name(name)?;
     let mut out = Vec::new();
     if parts.drop {
-        out.push(if parts.if_exists { format!("DELETE /{name}?ignore_unavailable=true") } else { format!("DELETE /{name}") });
+        let seg = path_segment(name);
+        out.push(if parts.if_exists { format!("DELETE /{seg}?ignore_unavailable=true") } else { format!("DELETE /{seg}") });
     }
     if parts.create {
         let body = index_body(t, opensearch)?;
@@ -485,7 +487,7 @@ pub fn index_ddl(t: &TableSchema, parts: DdlParts, opensearch: bool) -> Result<S
         if parts.if_exists && !parts.drop {
             s.push_str("# No hay «si no existe» para índices: si ya existe, la petición falla.\n");
         }
-        s.push_str(&format!("PUT /{name}"));
+        s.push_str(&format!("PUT /{}", path_segment(name)));
         if !body.is_empty() {
             s.push('\n');
             s.push_str(&J::Obj(body).pretty());
