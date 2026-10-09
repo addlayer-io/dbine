@@ -228,3 +228,74 @@ async fn monitor() {
     drop(s);
     let _ = std::fs::remove_file(&path);
 }
+
+#[tokio::test]
+async fn run_read_only_reads_and_refuses_the_rest() {
+    let path = temp_db("ro");
+    let mut s = open(&path, false).await;
+    let mut out = QueryOutcome::default();
+    s.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, n TEXT); INSERT INTO t (n) VALUES ('a'), ('b'), ('c');", 100, &mut out).await.unwrap();
+
+    let mut out = QueryOutcome::default();
+    s.run_read_only("SELECT id, n FROM t ORDER BY id", 2, &mut out).await.unwrap();
+    let r = &out.results[0];
+    assert_eq!(r.rows, vec![vec![serde_json::json!(1), "a".into()], vec![serde_json::json!(2), "b".into()]]);
+    assert_eq!((r.total_rows, r.truncated), (3, true));
+
+    let other = temp_db("ro-attached");
+    for bad in [
+        "INSERT INTO t (n) VALUES ('x')".to_string(),
+        "UPDATE t SET n = 'x'".into(),
+        "DELETE FROM t".into(),
+        "CREATE TABLE u (a)".into(),
+        "DROP TABLE t".into(),
+        format!("ATTACH DATABASE '{}' AS x", other.display()),
+        "PRAGMA writable_schema = 1".into(),
+        "PRAGMA query_only = OFF".into(),
+        "SELECT load_extension('nothing')".into(),
+        format!("VACUUM INTO '{}'", other.display()),
+        "SELECT 1; DELETE FROM t".into(),
+        "WITH x AS (SELECT 1) DELETE FROM t".into(),
+    ] {
+        let mut out = QueryOutcome::default();
+        let e = s.run_read_only(&bad, 100, &mut out).await;
+        assert!(e.is_err(), "{bad} should be refused");
+        assert!(out.results.is_empty(), "{bad} produced results");
+    }
+    assert!(!other.exists(), "nothing was written next to the database");
+
+    // The session goes on as before: its own reads and writes work, and
+    // nothing above changed the table.
+    let mut out = QueryOutcome::default();
+    s.execute("INSERT INTO t (n) VALUES ('d'); SELECT count(*) FROM t", 100, &mut out).await.unwrap();
+    assert_eq!(out.results[1].rows[0][0], serde_json::json!(4));
+    let mut out = QueryOutcome::default();
+    s.run_read_only("SELECT count(*) FROM t", 100, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(4));
+    drop(s);
+
+    // A read-only connection reads too.
+    let mut s = open(&path, true).await;
+    let mut out = QueryOutcome::default();
+    s.run_read_only("SELECT max(id) FROM t", 100, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(4));
+    drop(s);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn run_read_only_in_memory_keeps_the_session_writable() {
+    let d = dbine_driver_sqlite::drivers().pop().unwrap();
+    let cfg = ConnectionConfig { driver: "sqlite".into(), host: ":memory:".into(), ..Default::default() };
+    let mut s = d.connect(&cfg, None).await.unwrap();
+    let mut out = QueryOutcome::default();
+    s.execute("CREATE TABLE t (a); INSERT INTO t VALUES (1)", 100, &mut out).await.unwrap();
+    for bad in ["DELETE FROM t", "PRAGMA query_only = OFF", "SELECT 1; DELETE FROM t"] {
+        assert!(s.run_read_only(bad, 100, &mut QueryOutcome::default()).await.is_err(), "{bad}");
+    }
+    let mut out = QueryOutcome::default();
+    s.run_read_only("SELECT count(*) FROM t", 100, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(1));
+    // query_only was put back: the session still writes.
+    s.execute("INSERT INTO t VALUES (2)", 100, &mut QueryOutcome::default()).await.unwrap();
+}

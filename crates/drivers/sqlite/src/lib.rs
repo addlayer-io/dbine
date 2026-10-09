@@ -8,6 +8,7 @@ pub mod index_usage;
 pub mod monitor;
 mod permissions;
 pub mod plan;
+mod read_only;
 pub mod properties;
 pub mod rename;
 pub mod schema;
@@ -53,6 +54,10 @@ pub struct SqliteSession {
     interrupt: Arc<InterruptHandle>,
     /// Manual transactions: the first statement that writes opens one.
     manual: bool,
+    /// `run_read_only`'s connection to the same file, opened read-only on
+    /// first use, and its interrupt handle (see [`read_only`]).
+    ro: Arc<Mutex<Option<Connection>>>,
+    ro_interrupt: Arc<Mutex<Option<InterruptHandle>>>,
 }
 
 /// An interrupted statement reads as a cancellation; anything else is the
@@ -210,7 +215,13 @@ impl Driver for SqliteDriver {
         })
         .await?;
         let interrupt = Arc::new(conn.get_interrupt_handle());
-        Ok(Box::new(SqliteSession { conn: Arc::new(Mutex::new(conn)), interrupt, manual: false }))
+        Ok(Box::new(SqliteSession {
+            conn: Arc::new(Mutex::new(conn)),
+            interrupt,
+            manual: false,
+            ro: Arc::new(Mutex::new(None)),
+            ro_interrupt: Arc::new(Mutex::new(None)),
+        }))
     }
 }
 
@@ -362,6 +373,22 @@ impl Session for SqliteSession {
         res
     }
 
+    /// One statement on a connection that can't write, under an authorizer
+    /// that only lets it read (see [`read_only`]).
+    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let sql = statement.to_string();
+        let (main, ro, ro_interrupt) = (self.conn.clone(), self.ro.clone(), self.ro_interrupt.clone());
+        let fork = out.fork();
+        let (local, res) = blocking(move || {
+            let mut local = fork;
+            let res = read_only::run(&main, &ro, &ro_interrupt, &sql, max_rows, &mut local);
+            Ok((local, res))
+        })
+        .await?;
+        out.merge(local);
+        res
+    }
+
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
         self.with(|c| Ok(Some(if c.is_autocommit() { TxState::Idle } else { TxState::Open }))).await
     }
@@ -465,8 +492,13 @@ impl Session for SqliteSession {
     }
 
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
-        let h = self.interrupt.clone();
-        Some(Arc::new(move || h.interrupt()))
+        let (h, ro) = (self.interrupt.clone(), self.ro_interrupt.clone());
+        Some(Arc::new(move || {
+            h.interrupt();
+            if let Some(r) = ro.lock().ok().as_deref().and_then(Option::as_ref) {
+                r.interrupt();
+            }
+        }))
     }
 
     /// Typed cells straight from SQLite's values, blobs whole (see [`transfer`]).
