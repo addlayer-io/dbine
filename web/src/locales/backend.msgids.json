@@ -582,6 +582,30 @@
  "ADC usa GOOGLE_APPLICATION_CREDENTIALS, `gcloud auth application-default login` o el servidor de metadatos.": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
+ "ADFS devolvió un token que no es SAML 1.1 ni 2.0": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "ADFS no aceptó las credenciales de Windows. En Windows, iniciá sesión con una cuenta del dominio; en macOS y Linux, sacá un ticket de Kerberos (kinit usuario@DOMINIO).": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "ADFS no devolvió una aserción SAML": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "ADFS no ofrece autenticación de Windows (HTTP {0})": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "ADFS no publica un punto de autenticación de Windows (windowstransport)": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "ADFS rechazó la autenticación de Windows: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "ADFS respondió HTTP {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "ADFS respondió algo que no es XML válido": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "ADMINISTRACIÓN (máscara {0})": [
   "crates/drivers/odbc/src/security/netezza.rs"
  ],
@@ -896,6 +920,9 @@
  ],
  "Actualizarlas en segundo plano (AUTO_UPDATE_STATISTICS_ASYNC)": [
   "crates/drivers/sqlserver/src/properties.rs"
+ ],
+ "Address": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Además, DBA_INDEX_USAGE se llena por muestreo (salvo con _iut_stat_collection_type = ALL): un índice que se usa poco puede verse sin uso.": [
   "crates/drivers/oracle/src/index_usage.rs"
@@ -1420,6 +1447,9 @@
   "src-tauri/src/mcp/tests.rs",
   "src-tauri/src/mcp/tools.rs"
  ],
+ "Assertion": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "Asserts": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
@@ -1556,7 +1586,8 @@
   "crates/drivers/snowflake/src/lib.rs",
   "crates/drivers/snowflake/src/transfer.rs",
   "crates/drivers/spanner/src/lib.rs",
-  "crates/drivers/spanner/src/transfer.rs"
+  "crates/drivers/spanner/src/transfer.rs",
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Auto vacuum": [
   "crates/drivers/sqlite/src/monitor.rs",
@@ -1606,11 +1637,29 @@
  "Avro": [
   "crates/drivers/odbc/src/design.rs"
  ],
+ "Azure CLI devolvió algo que no es JSON": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "Azure CLI no devolvió un token": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "Azure CLI no dijo cuándo vence el token": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "Azure Cosmos DB es un servicio HTTP sin estado: no expone sesiones ni consultas en curso que listar o cancelar": [
   "crates/drivers/cosmosdb/src/lib.rs"
  ],
  "Azure Data Studio guarda las contraseñas en su propio almacén: se piden al conectar la primera vez.": [
   "crates/dbine-core/src/conn_import/ads.rs"
+ ],
+ "Azure Developer CLI devolvió algo que no es JSON": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "Azure Developer CLI no devolvió un token": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "Azure Developer CLI no dijo cuándo vence el token": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Azure SQL Database corta las demás sesiones conectadas a «{0}» al renombrarla.": [
   "crates/drivers/sqlserver/src/rename.rs"
@@ -3955,10 +4004,10 @@
  "Con DISTSTYLE KEY.": [
   "crates/drivers/postgres/src/design.rs"
  ],
- "Con Entra ID, la cuenta (usuario@dominio).": [
+ "Con Entra ID, la cuenta (usuario@dominio): obligatoria con la integrada, opcional con la interactiva.": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
- "Con Entra ID, la cuenta (usuario@dominio). Con Windows, DOMINIO\\usuario.": [
+ "Con Entra ID, la cuenta (usuario@dominio): obligatoria con la integrada, opcional con la interactiva. Con Windows, DOMINIO\\usuario.": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Con Kerberos, el principal (usuario@DOMINIO).": [
@@ -7837,7 +7886,7 @@
  "Entero sin signo grande como double: pierde precisión pasados los 15 dígitos.": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs"
  ],
- "Entidad de servicio: el ID de la aplicación registrada. Con usuario y contraseña, opcional.": [
+ "Entidad de servicio: el ID de la aplicación registrada. Identidad administrada (también en la predeterminada): el client ID de una identidad asignada por el usuario; vacío, la del sistema. En los demás casos, opcional.": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Entorno": [
@@ -7846,7 +7895,7 @@
  "Entra ID con MFA no está en DBine: usá usuario y contraseña, una entidad de servicio o un token.": [
   "crates/dbine-core/src/conn_import/ads.rs"
  ],
- "Entra ID con usuario y contraseña no admite cuentas con MFA: usá una entidad de servicio o un token.": [
+ "Entra ID interactivo abre el navegador y admite MFA; con usuario y contraseña no hay MFA. La integrada usa la sesión de Windows (o el ticket de Kerberos) con el ADFS de la organización. La identidad administrada solo funciona si DBine corre en Azure. La predeterminada prueba, en orden, las variables AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, la identidad administrada, Azure CLI (az login) y Azure Developer CLI (azd auth login).": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Entradas en caché": [
@@ -8320,6 +8369,9 @@
  ],
  "Esta compilación de SQLite no trae la tabla dbstat: no se ve el espacio por tabla.": [
   "crates/drivers/sqlite/src/monitor.rs"
+ ],
+ "Esta respuesta no corresponde al inicio de sesión de DBine.": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Esta versión de Neo4j no cuenta el uso de los índices (readCount llega en Neo4j 5): se listan sin contadores.": [
   "crates/drivers/neo4j/src/index_usage.rs"
@@ -8912,6 +8964,9 @@
  ],
  "Fase": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Fault": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "February": [
   "src-tauri/src/tasks/os.rs"
@@ -9919,6 +9974,9 @@
  ],
  "IDENTITY en índices no únicos (identity in nonunique index)": [
   "crates/drivers/odbc/src/properties.rs"
+ ],
+ "IDENTITY_ENDPOINT no es una dirección válida": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "IN en la clave de partición: una consulta por valor": [
   "crates/drivers/dynamodb/src/plan.rs"
@@ -11090,7 +11148,7 @@
   "crates/drivers/etcd/src/security.rs",
   "crates/drivers/redis/src/security.rs"
  ],
- "La cuenta de Entra ID (usuario@dominio).": [
+ "La cuenta de Entra ID (usuario@dominio): obligatoria con la integrada, opcional con la interactiva.": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "La de las columnas de texto que se creen sin una.": [
@@ -11797,6 +11855,9 @@
  ],
  "Listening": [
   "crates/drivers/orientdb/src/monitor.rs"
+ ],
+ "Listo": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Listá los clientes con más de 5 pedidos en 2025.": [
   "crates/dbine-ai/examples/ask.rs"
@@ -12812,6 +12873,9 @@
  "Metacomando de psql ignorado: {0} (DBine ejecuta solo SQL)": [
   "crates/drivers/postgres/src/session.rs"
  ],
+ "Metadata": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "Metadatos": [
   "crates/drivers/dremio/src/properties.rs"
  ],
@@ -12821,7 +12885,11 @@
  "Microsegundos (us)": [
   "crates/drivers/tdengine/src/create_db.rs"
  ],
+ "Microsoft Entra ID no reconoce la cuenta {0}: revisá el usuario (usuario@dominio)": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "Microsoft Entra ID rechazó el inicio de sesión: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs",
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Microsoft Entra ID: entidad de servicio": [
@@ -13450,6 +13518,12 @@
  ],
  "Necesita superusuario. Vacío: RESET.": [
   "crates/drivers/postgres/src/properties.rs"
+ ],
+ "Negotiate": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "Negotiate {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Neo4j Community no tiene roles ni permisos: todo usuario puede hacer todo. Los permisos son de Enterprise.": [
   "crates/drivers/neo4j/src/security.rs"
@@ -14156,6 +14230,9 @@
  ],
  "No se pudo estimar «{0}»: {1}": [
   "crates/drivers/bigquery/src/lib.rs"
+ ],
+ "No se pudo iniciar sesión": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "No se pudo leer ({0}).": [
   "crates/drivers/mongodb/src/properties.rs"
@@ -15362,7 +15439,7 @@
  "Obligatorio en SAP HANA Cloud.": [
   "crates/drivers/hana/src/lib.rs"
  ],
- "Obligatorio para la entidad de servicio; opcional con usuario y contraseña.": [
+ "Obligatorio para la entidad de servicio. Con los demás métodos, opcional: sin él vale el inquilino de la cuenta.": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Obligatorio para scaled_float (p. ej. 100).": [
@@ -16235,6 +16312,9 @@
  "Point": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
+ "Policy": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "Polygon": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
@@ -16822,6 +16902,9 @@
  "Read ": [
   "crates/drivers/postgres/src/plan.rs"
  ],
+ "Reason": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "Rebinds estimados": [
   "crates/drivers/sqlserver/src/plan.rs"
  ],
@@ -17283,6 +17366,9 @@
  ],
  "Resolución de conflictos (conflictResolutionType)": [
   "crates/drivers/couchbase/src/properties.rs"
+ ],
+ "Respuesta inesperada": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Respuesta inesperada de CouchDB: JSON inválido cerca del byte {0}": [
   "crates/drivers/couchdb/src/transfer.rs"
@@ -20449,6 +20535,9 @@
  "Terminó con errores. {0}": [
   "src-tauri/src/tasks/mod.rs"
  ],
+ "Text": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "Texto": [
   "crates/drivers/odbc/src/design.rs",
   "crates/drivers/postgres/src/monitor.rs"
@@ -20860,7 +20949,8 @@
   "crates/drivers/flightsql/src/lib.rs",
   "crates/drivers/influxdb/src/v2.rs",
   "crates/drivers/influxdb/src/v3.rs",
-  "crates/drivers/libsql/src/lib.rs"
+  "crates/drivers/libsql/src/lib.rs",
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Token bearer en lugar de usuario y contraseña (InfluxDB 3, Dremio PAT…).": [
   "crates/drivers/flightsql/src/lib.rs"
@@ -22470,7 +22560,7 @@
  "Windows trae el administrador ODBC (odbc32.dll); instalá el driver ODBC del fabricante.": [
   "crates/drivers/odbc/src/ffi.rs"
  ],
- "Windows: usuario actual entra con la sesión de Windows o, en macOS y Linux, con el ticket de Kerberos (kinit usuario@DOMINIO). Entra ID con usuario y contraseña no admite cuentas con MFA: usá una entidad de servicio o un token.": [
+ "Windows: usuario actual entra con la sesión de Windows o, en macOS y Linux, con el ticket de Kerberos (kinit usuario@DOMINIO). ": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Windows: usuario y contraseña de dominio": [
@@ -22544,6 +22634,9 @@
  ],
  "Ya hay una transacción abierta: confirmala (COMMIT) o deshacela (ROLLBACK) antes.": [
   "crates/drivers/spanner/src/lib.rs"
+ ],
+ "Ya iniciaste sesión: podés cerrar esta ventana y volver a DBine.": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Yellowbrick": [
   "crates/drivers/postgres/src/lib.rs",
@@ -22745,6 +22838,9 @@
   "crates/drivers/mongodb/src/monitor.rs",
   "crates/drivers/neo4j/src/monitor.rs",
   "crates/drivers/tdengine/src/lib.rs"
+ ],
+ "argumentos no válidos": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "arreglo de {0}": [
   "crates/dbine-schema/src/logical.rs"
@@ -23437,8 +23533,14 @@
  "dirección MAC": [
   "crates/dbine-schema/src/logical.rs"
  ],
+ "dirección de ADFS no válida": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "dirección de descarga inválida": [
   "src-tauri/src/commands/updates.rs"
+ ],
+ "dirección de inicio de sesión inesperada": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "dirección de subida inválida: {0}": [
   "crates/drivers/bigquery/src/transfer.rs"
@@ -24982,6 +25084,9 @@
  "error leyendo el archivo: {0}": [
   "src-tauri/src/commands/imports.rs"
  ],
+ "error sin detalle": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "es demasiado chico para {0} (se cargaría como 0)": [
   "crates/drivers/athena/src/transfer.rs"
  ],
@@ -26311,6 +26416,12 @@
  "la autenticación básica de Solr no permite deshabilitar un usuario: cambiale la contraseña o borralo": [
   "crates/drivers/solr/src/security.rs"
  ],
+ "la autenticación integrada necesita la cuenta como usuario@dominio": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "la autenticación integrada no está disponible en este sistema": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "la base": [
   "src-tauri/src/commands/migration.rs",
   "src-tauri/src/commands/scripts.rs"
@@ -26764,6 +26875,12 @@
  "la copia no informó la tabla": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "la cuenta es federada pero ADFS no publica sus metadatos (MEX)": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "la cuenta {0} no es federada (no inicia sesión con ADFS), así que la autenticación integrada no está disponible. Usá «Microsoft Entra ID: interactivo (MFA)» o «Microsoft Entra ID: predeterminada».": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "la definición de {0} «{1}» no se lee como una sola sentencia (con y sin escapes de barra invertida): no se vuelve a crear, así que la base no se renombra; revisala a mano": [
   "crates/drivers/mysql/src/rename_db.rs"
  ],
@@ -26849,6 +26966,9 @@
  ],
  "la hora {0}:{1}:{2} no existe": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "la identidad administrada no dio un token: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "la identidad de «{0}» no quedó como la del original ({1} en el original, {2} en el clon); no se clona": [
   "crates/dbine-transfer/src/clone_table/embedded.rs"
@@ -27526,6 +27646,9 @@
  "los documentos tienen campos «_id» y «meta_id» propios, y la clave no tiene con qué nombre ir: pedí las columnas a copiar": [
   "crates/drivers/couchbase/src/transfer.rs"
  ],
+ "los metadatos de ADFS (MEX) no son XML válido": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "los nombres": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
@@ -27877,6 +28000,12 @@
  "no está en": [
   "crates/drivers/cassandra/src/ddl.rs"
  ],
+ "no está instalada": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "no existe el archivo adjunto {0}": [
   "src-tauri/src/tasks/mail.rs"
  ],
@@ -28017,6 +28146,9 @@
  "no hay ningún backup guardado": [
   "crates/dbine-sync/src/engine.rs"
  ],
+ "no hay números aleatorios del sistema: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "no hay propiedades para identificar el elemento": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
@@ -28089,7 +28221,8 @@
   "crates/dbine-tunnel/src/lib.rs"
  ],
  "no respondió en {0} s": [
-  "crates/dbine-plugin/src/remote.rs"
+  "crates/dbine-plugin/src/remote.rs",
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no result": [
   "src-tauri/src/commands/grid_new_rows_live_tests.rs"
@@ -28145,6 +28278,9 @@
  ],
  "no se encontró la tabla «{0}»: puede que la hayan borrado o renombrado; actualizá el explorador y volvé a intentar": [
   "crates/dbine-transfer/src/clone_table.rs"
+ ],
+ "no se encontró una identidad administrada: esta opción solo funciona si DBine corre en una VM o servicio de Azure": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se encontró «{0}» o no tiene columnas": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -28224,6 +28360,9 @@
  ],
  "no se pudo abrir el catálogo «{0}»: {1}": [
   "crates/drivers/flightsql/src/lib.rs"
+ ],
+ "no se pudo abrir el navegador para iniciar sesión: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo abrir el navegador: {0}": [
   "src-tauri/src/commands/settings.rs",
@@ -28478,6 +28617,9 @@
  "no se pudo ejecutar {0}: {1}": [
   "crates/dbine-ai/src/cli.rs"
  ],
+ "no se pudo ejecutar: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "no se pudo elegir un nombre libre para la tabla de historial del clon (la tabla es temporal, con SYSTEM_VERSIONING); elegí otro nombre para la tabla": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -28495,6 +28637,9 @@
   "src-tauri/src/commands/dbdocs.rs",
   "src-tauri/src/commands/health.rs",
   "src-tauri/src/tasks/steps.rs"
+ ],
+ "no se pudo esperar la respuesta del navegador: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo firmar el token de IAM: {0}": [
   "crates/drivers/dsql/src/lib.rs"
@@ -28690,6 +28835,9 @@
  "no se pudo leer la versión Delta actual de la tabla en DESCRIBE HISTORY": [
   "crates/drivers/databricks/src/transfer.rs"
  ],
+ "no se pudo leer los metadatos de ADFS: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "no se pudo leer si la tabla tiene columnas dispersas (SPARSE) o versiones del sistema (tabla temporal); no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -28705,7 +28853,11 @@
   "crates/dbine-core/src/conn_import/dbgate.rs",
   "crates/dbine-core/src/conn_import/ssms.rs"
  ],
+ "no se pudo llegar a ADFS: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "no se pudo llegar a Microsoft Entra ID: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs",
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "no se pudo llegar a Neptune: {0}": [
@@ -28714,6 +28866,9 @@
  "no se pudo llegar a OrientDB: {0}": [
   "crates/drivers/orientdb/src/lib.rs",
   "crates/drivers/orientdb/src/transfer.rs"
+ ],
+ "no se pudo llegar a la identidad administrada: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo llegar al controlador de dominio (KDC)": [
   "crates/drivers/sqlserver/src/lib.rs"
@@ -28724,6 +28879,9 @@
  ],
  "no se pudo mover el IDENTITY del clon después de las filas copiadas; no se clona": [
   "crates/dbine-transfer/src/clone_table.rs"
+ ],
+ "no se pudo obtener un token de Microsoft Entra ID con la autenticación predeterminada. Se probó:\n{0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo pausar la consulta {0}: {1}": [
   "crates/drivers/ksqldb/src/processes.rs"
@@ -28782,8 +28940,14 @@
  "no se pudo usar el agente SSH: {0}": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
+ "no se pudo usar el ticket de Kerberos para ADFS ({0}); sacá uno con kinit usuario@DOMINIO": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "no se pudo usar la clave {0}: {1}": [
   "crates/dbine-tunnel/src/lib.rs"
+ ],
+ "no se pudo usar la sesión de Windows: {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo volver a poner la restricción {0} en el clon: {1}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
@@ -29260,6 +29424,9 @@
  "pasarla a UTC cambia el día, y antes de 1582-10-15 los calendarios no coinciden": [
   "crates/drivers/hana/src/transfer.rs"
  ],
+ "pasaron 5 minutos sin completar el inicio de sesión en el navegador; volvé a conectar": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "pausándose": [
   "crates/drivers/postgres/src/backup.rs"
  ],
@@ -29584,8 +29751,14 @@
  "ruta de dispositivo inesperada: {0}": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
  ],
+ "ruta del programa no válida": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "ruta en Keeper": [
   "crates/drivers/clickhouse/src/create_db.rs"
+ ],
+ "ruta o argumentos del programa no válidos": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "rápido": [
   "src-tauri/src/commands/datagen.rs"
@@ -29642,6 +29815,9 @@
  ],
  "sal inválida": [
   "crates/dbine-sync/src/crypto.rs"
+ ],
+ "salida no válida": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "sampleRate = 1 (estaba en {0})": [
   "crates/drivers/mongodb/src/profiler.rs"
@@ -30183,6 +30359,9 @@
  "tamaño primario": [
   "crates/drivers/elasticsearch/src/monitor.rs"
  ],
+ "terminó con {0}": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "texto de hasta {0}": [
   "crates/dbine-schema/src/logical.rs"
  ],
@@ -30710,6 +30889,9 @@
  "varchar({0}) supera los 4000 bytes de VARCHAR2: se usa CLOB.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
+ "variables de entorno": [
+  "crates/drivers/sqlserver/src/entra.rs"
+ ],
  "vencimiento de las particiones": [
   "crates/drivers/bigquery/src/properties.rs"
  ],
@@ -30909,6 +31091,9 @@
  ],
  "{0} (¿está corriendo? SSH_AUTH_SOCK)": [
   "crates/dbine-tunnel/src/lib.rs"
+ ],
+ "{0} (¿falta {1}?)": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "{0} = 1 (estaba en {1})": [
   "crates/drivers/postgres/src/profiler.rs"
@@ -31880,6 +32065,9 @@
  ],
  "{0}. OpenSearch no puede agregar a una lista vacía: cargá la primera entrada desde la consola, con PATCH {1} y [{\"op\": \"add\", \"path\": \"/{2}\", \"value\": [ … ]}]": [
   "crates/drivers/elasticsearch/src/security.rs"
+ ],
+ "{0}. Podés cerrar esta ventana.": [
+  "crates/drivers/sqlserver/src/entra.rs"
  ],
  "{0}.{1} ({2} % sin ordenar)": [
   "crates/drivers/postgres/src/health.rs"
