@@ -130,9 +130,7 @@ fn name_of(c: &Candidate, line: &str) -> String {
 /// The pasted line without the secrets it may carry: a URL's login and
 /// query string, a connection string's password.
 fn safe_line(line: &str) -> String {
-    if line.contains("://") {
-        return redact_url(line);
-    }
+    let line = if line.contains("://") { redact_url(line) } else { line.to_string() };
     // `jdbc:oracle:thin:user/password@…` and EZConnect `user/password@…`.
     if let Some((head, target)) = line.rsplit_once('@') {
         if head.contains('/') || head.to_ascii_lowercase().starts_with("jdbc:oracle") {
@@ -210,6 +208,11 @@ mod tests {
             assert_eq!(c.config.password.as_deref(), Some("S3cretPw"));
         }
         assert_eq!(f.candidates[0].name, "ora / XE");
+        // A JDBC URL with no host before its `;` properties.
+        let f = read("jdbc:sqlserver://;user=sa;password=Pr0dPw;serverName=sql1\nsqlserver://;pwd=Pr0dPw;server=h");
+        for c in &f.candidates {
+            assert!(!c.name.contains("Pr0dPw"), "{}", c.name);
+        }
         // A password with `@`, quoted or not, stays whole and out of the target.
         let f = read("jdbc:oracle:thin:scott/\"Pa@ssw0rd\"@//ora:1521/XE\njdbc:oracle:thin:scott/Pa@ss@(DESCRIPTION=(ADDRESS=(HOST=ora))(CONNECT_DATA=(SID=X)))");
         assert_eq!(f.candidates[0].config.password.as_deref(), Some("Pa@ssw0rd"));
