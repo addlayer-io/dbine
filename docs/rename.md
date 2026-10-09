@@ -106,12 +106,19 @@ Per engine:
   with the same charset and collation, drop the triggers, `RENAME TABLE`
   across databases, recreate routines, views and triggers (references to the
   old name rewritten), drop the old objects, and `DROP DATABASE` only if it is
-  empty. Grants are not copied and `DEFINER` is kept.
+  empty. Grants are not copied and `DEFINER` is kept. Each routine, trigger
+  and event is created again under the `sql_mode` and collation it was
+  created with, one statement per request. A definition that would not read
+  as exactly one statement under every quoting mode is refused, and the
+  script stops before creating anything if an object uses MariaDB's
+  `ORACLE` or `MSSQL` mode or is gone.
 - **Snowflake:** `ALTER DATABASE … RENAME TO`. Granted privileges follow.
+  Names with a backslash are not renamed from DBine.
 - **MongoDB:** `renameCollection` from `admin`, one collection at a time;
   views are recreated in the new database and `system.views` of the old one
   is dropped. Users and roles are not moved, and time series collections
-  stop the rename.
+  stop the rename. Only databases named with letters, digits, `_` and `-`
+  are renamed from DBine.
 
 ## What is rewritten and what isn't
 
