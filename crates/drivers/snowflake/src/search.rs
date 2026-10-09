@@ -25,22 +25,32 @@ pub(crate) struct RoutineSource {
     pub expr: &'static str,
 }
 
+/// The body after `AS` is wrapped in `$$`, unless it holds `$$` itself (one
+/// written with `AS '…'`): then it goes as a '…' literal with `\` and `'`
+/// escaped, so the body can't close the quoting early and leave text that
+/// reads as more statements (the rename puts definitions back as scripts).
 pub(crate) fn routine_source(kind: &str) -> RoutineSource {
     if kind == kinds::PROCEDURE {
         RoutineSource {
             view: "PROCEDURES",
             schema_col: "procedure_schema",
             name_col: "procedure_name",
-            expr: "'CREATE OR REPLACE PROCEDURE ' || procedure_name || argument_signature || ' RETURNS ' || data_type
-                   || ' LANGUAGE ' || procedure_language || ' AS $$' || procedure_definition || '$$;'",
+            expr: r"'CREATE OR REPLACE PROCEDURE ' || procedure_name || argument_signature || ' RETURNS ' || data_type
+                   || ' LANGUAGE ' || procedure_language || ' AS '
+                   || CASE WHEN CONTAINS(procedure_definition, '$$')
+                      THEN '''' || REPLACE(REPLACE(procedure_definition, '\\', '\\\\'), '''', '''''') || ''''
+                      ELSE '$$' || procedure_definition || '$$' END || ';'",
         }
     } else {
         RoutineSource {
             view: "FUNCTIONS",
             schema_col: "function_schema",
             name_col: "function_name",
-            expr: "'CREATE OR REPLACE FUNCTION ' || function_name || argument_signature || ' RETURNS ' || data_type
-                   || ' LANGUAGE ' || function_language || ' AS $$' || function_definition || '$$;'",
+            expr: r"'CREATE OR REPLACE FUNCTION ' || function_name || argument_signature || ' RETURNS ' || data_type
+                   || ' LANGUAGE ' || function_language || ' AS '
+                   || CASE WHEN CONTAINS(function_definition, '$$')
+                      THEN '''' || REPLACE(REPLACE(function_definition, '\\', '\\\\'), '''', '''''') || ''''
+                      ELSE '$$' || function_definition || '$$' END || ';'",
         }
     }
 }
@@ -160,6 +170,16 @@ impl SnowflakeSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bodies_holding_dollar_quotes_are_quoted_as_literals() {
+        for k in [kinds::FUNCTION, kinds::PROCEDURE] {
+            let e = routine_source(k).expr;
+            assert!(e.contains("CASE WHEN CONTAINS("), "{e}");
+            assert!(e.contains(r"'\\', '\\\\'"), "{e}");
+            assert!(e.contains("'''', ''''''"), "{e}");
+        }
+    }
 
     fn q(text: &str, case: bool, kinds: &[&str]) -> CodeSearch {
         CodeSearch { text: text.into(), case_sensitive: case, kinds: kinds.iter().map(|k| k.to_string()).collect(), ..Default::default() }

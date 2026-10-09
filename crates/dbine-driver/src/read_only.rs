@@ -34,7 +34,15 @@ const WRITE_WORDS: &[&str] = &[
     "exec", "execute", "call", "dbcc", "reconfigure", "shutdown", "kill", "bulk", "openrowset", "opendatasource", "openquery", "setuser", "revert",
     // T-SQL statements that change state after a read in the same batch.
     "backup", "restore", "dump", "writetext", "updatetext", "receive", "commit", "rollback", "checkpoint",
+    // Holds the session (and the locks a read-only batch took) for as long as it says.
+    "waitfor",
 ];
+
+/// T-SQL / Sybase table hints that take or keep locks other sessions wait
+/// on (`WITH (UPDLOCK)`, `FROM t HOLDLOCK`): the read-only wrapper runs
+/// the batch in a transaction, which would hold them until it ends.
+const LOCK_HINTS: &[&str] =
+    &["tablock", "tablockx", "xlock", "updlock", "holdlock", "serializable", "repeatableread", "paglock", "rowlock"];
 
 /// Write words only when the next word says so (`ENABLE TRIGGER`, `SEND ON
 /// CONVERSATION`, `SAVE TRANSACTION`), so columns named `enable` or `save`
@@ -69,6 +77,8 @@ const WRITE_FUNCTIONS: &[&str] = &[
     // Locks other sessions block on.
     "pg_advisory_lock", "pg_advisory_lock_shared", "pg_try_advisory_lock", "pg_try_advisory_lock_shared", "pg_advisory_xact_lock",
     "pg_advisory_xact_lock_shared", "pg_try_advisory_xact_lock", "pg_try_advisory_xact_lock_shared", "get_lock", "sp_getapplock",
+    // Sequences advanced from a read (Firebird's generators).
+    "gen_id",
 ];
 
 /// Prefixes of procedures and packages that act outside the query: SQL
@@ -119,9 +129,12 @@ impl ReadOnlySession {
     }
 }
 
-/// The first statement that isn't a read, if any (`;` and `GO` lines).
+/// The first statement that isn't a read, if any (`;` and `GO` lines),
+/// for any engine: also read with `//` as a line comment (Snowflake), so a
+/// quote or `;` hidden in one can't hide a statement either way.
 pub fn first_write(sql: &str) -> Option<String> {
-    first_write_in(sql, &ScriptDialect { batch: BatchLine::Go, ..ScriptDialect::generic() })
+    let generic = ScriptDialect { batch: BatchLine::Go, ..ScriptDialect::generic() };
+    first_write_in(sql, &generic).or_else(|| first_write_in(sql, &ScriptDialect { slash_comments: true, ..generic }))
 }
 
 /// The first statement of `sql` (split as `dialect` says) that isn't a read.
@@ -228,6 +241,20 @@ fn hidden_write(stmt: &str, first: &str, dialect: &ScriptDialect) -> Option<Stri
         let into_variable = w == "into" && toks.get(i + 1).is_some_and(|t| t.text == "@");
         if bare(i) && WRITE_WORDS.contains(&w.as_str()) && !(READ_FUNCTIONS.contains(&w.as_str()) && is_call(i)) && !into_variable {
             return Some(w.to_uppercase());
+        }
+        // Lock hints, as bare words (`[rowlock]` is a column).
+        if bare(i) && LOCK_HINTS.contains(&w.as_str()) {
+            return Some(w.to_uppercase());
+        }
+        // Sequences advanced without a call: `NEXT VALUE FOR s` (SQL Server,
+        // DB2, Firebird, HANA, H2), `s.NEXTVAL` (Oracle, HANA) and `NEXTVAL
+        // FOR s` (DB2).
+        let next_is = |k: usize, word: &str| toks.get(i + k).is_some_and(|t| t.kind == TokenKind::Name && t.text.eq_ignore_ascii_case(word));
+        if bare(i) && w == "next" && next_is(1, "value") && next_is(2, "for") {
+            return Some("NEXT VALUE FOR".into());
+        }
+        if bare(i) && w == "nextval" && ((i > 0 && toks[i - 1].text == ".") || next_is(1, "for")) {
+            return Some("NEXTVAL".into());
         }
         // `SET` outside `CHARACTER SET` changes the session (T-SQL batches).
         if bare(i) && w == "set" && !(i > 0 && matches!(lower(i - 1).as_str(), "character" | "char")) {
@@ -341,7 +368,10 @@ impl Session for ReadOnlySession {
         if !self.roll_back {
             return self.inner.execute(sql, max_rows, out).await;
         }
-        // Implicit transactions: whatever the batch changes is undone.
+        // Implicit transactions: whatever the batch changes is undone. The
+        // lock hints that would keep locks for the whole batch and WAITFOR
+        // are refused above; no `SET LOCK_TIMEOUT` is sent first, since it
+        // would stay on the user's session after the batch.
         match self.inner.set_autocommit(false).await {
             Ok(()) => {}
             Err(Error::Unsupported(_)) => return self.inner.execute(sql, max_rows, out).await,
@@ -674,6 +704,7 @@ mod tests {
     fn every_reported_bypass_stays_closed() {
         use crate::sql::ScriptDialect;
         let (t, pg, my, ora) = (ScriptDialect::tsql(), ScriptDialect::postgres(), ScriptDialect::mysql(), ScriptDialect::oracle());
+        let sf = ScriptDialect { backslash_escapes: true, dquote_idents: true, dollar_quotes: true, slash_comments: true, ..ScriptDialect::generic() };
         let cases: &[(&str, &ScriptDialect)] = &[
             // First scan: first-keyword filter.
             ("SELECT 1 DELETE FROM dbo.t", &t),
@@ -723,6 +754,26 @@ mod tests {
             ("select get_lock('x', 10)", &my),
             ("select 1 from t lock in share mode", &my),
             ("select * from t for share", &pg),
+            // Release gate: Snowflake's `//` comments hid a quote or a `;`.
+            ("SELECT 1 // it's\nDELETE FROM t", &sf),
+            ("SELECT 1 // '\n; DELETE FROM t; -- '", &sf),
+            // T-SQL lock hints the read-only transaction would hold, and WAITFOR.
+            ("SELECT * FROM dbo.t WITH (UPDLOCK)", &t),
+            ("SELECT * FROM dbo.t WITH (TABLOCKX, HOLDLOCK)", &t),
+            ("SELECT * FROM dbo.t WITH (XLOCK, ROWLOCK)", &t),
+            ("SELECT * FROM dbo.t WITH (SERIALIZABLE)", &t),
+            ("SELECT * FROM dbo.t (REPEATABLEREAD)", &t),
+            ("SELECT * FROM dbo.t WITH (PAGLOCK) WHERE a = 1", &t),
+            ("SELECT * FROM t HOLDLOCK", &t),
+            ("SELECT * FROM dbo.t WITH (TABLOCK)", &t),
+            ("SELECT 1 WAITFOR DELAY '01:00:00'", &t),
+            // Sequences advanced without a call.
+            ("SELECT NEXT VALUE FOR dbo.seq", &t),
+            ("select next value for seq from rdb$database", &ScriptDialect::firebird()),
+            ("select seq.nextval from dual", &ora),
+            ("SELECT \"S\".NEXTVAL FROM DUMMY", &ScriptDialect::generic()),
+            ("values nextval for seq", &ScriptDialect::db2()),
+            ("select gen_id(g, 1) from rdb$database", &ScriptDialect::firebird()),
         ];
         for (sql, d) in cases {
             assert!(super::first_write_in(sql, d).is_some(), "{sql:?} in {d:?}");
@@ -730,6 +781,29 @@ mod tests {
         }
         // Estimated plans: SHOWPLAN turned off by a later batch.
         assert!(super::unsafe_to_plan("SELECT 1\nGO\nSET SHOWPLAN_XML OFF\nGO\nDROP TABLE dbo.orders", &t).is_some());
+    }
+
+    #[test]
+    fn lock_hints_sequences_and_slash_comments_leave_plain_reads_alone() {
+        use crate::sql::ScriptDialect;
+        let t = ScriptDialect::tsql();
+        let sf = ScriptDialect { backslash_escapes: true, dquote_idents: true, dollar_quotes: true, slash_comments: true, ..ScriptDialect::generic() };
+        for (sql, d) in [
+            ("SELECT * FROM dbo.t WITH (NOLOCK)", &t),
+            ("SELECT [rowlock], [updlock] FROM dbo.t", &t),
+            ("SELECT next_value, value FROM dbo.t", &t),
+            ("select s.currval from dual", &ScriptDialect::oracle()),
+            ("SELECT 1 // a comment with it's quote\nFROM t", &sf),
+            ("SELECT '//', \"a//b\" FROM t", &sf),
+        ] {
+            assert_eq!(super::first_write_in(sql, d), None, "{sql}");
+        }
+        // The MCP pre-check reads `//` both ways: DuckDB's integer division
+        // still reads, a statement hidden behind it doesn't.
+        assert_eq!(super::first_write("SELECT 7 // 2"), None);
+        assert_eq!(super::first_write("SELECT 1 // it's\nDELETE FROM t").as_deref(), Some("DELETE"));
+        assert_eq!(super::first_write_in("SELECT 1 WITH (UPDLOCK)", &t).as_deref(), Some("UPDLOCK"));
+        assert_eq!(super::first_write_in("SELECT NEXT VALUE FOR s", &t).as_deref(), Some("NEXT VALUE FOR"));
     }
 
     #[test]

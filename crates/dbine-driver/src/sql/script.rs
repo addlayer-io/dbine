@@ -97,6 +97,8 @@ pub struct ScriptDialect {
     pub nested_comments: bool,
     /// `#` starts a line comment (MySQL).
     pub hash_comments: bool,
+    /// `//` starts a line comment that ends at LF (Snowflake).
+    pub slash_comments: bool,
     /// Oracle's `q'[ … ]'` (any delimiter; brackets close with their pair).
     pub q_quotes: bool,
     /// `[name]` is an identifier (SQL Server, Sybase, Access).
@@ -147,6 +149,7 @@ impl ScriptDialect {
             dquote_idents: false,
             nested_comments: false,
             hash_comments: false,
+            slash_comments: false,
             q_quotes: false,
             bracket_idents: false,
             backtick_idents: true,
@@ -545,6 +548,7 @@ impl Scanner<'_> {
                 (Tok::LineComment, self.comment_end(i))
             }
             b'#' if self.d.hash_comments => (Tok::LineComment, self.comment_end(i)),
+            b'/' if n == b'/' && self.d.slash_comments => (Tok::LineComment, self.comment_end(i)),
             b'/' if n == b'*' => (Tok::BlockComment, self.block_comment_end(i)),
             b'\'' => (Tok::Quoted, self.quote_end(i + 1, b'\'', self.d.backslash_escapes)),
             b'"' => (Tok::Quoted, self.quote_end(i + 1, b'"', self.d.backslash_escapes && !self.d.dquote_idents)),
@@ -1815,6 +1819,31 @@ mod unterminated_name_tests {
         let body = "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$SELECT 1 FROM t \"é$$";
         assert!(code_tokens(body, &pg).iter().any(|t| t.kind == TokenKind::Name && t.text == "é"));
         assert!(name_tokens("SELECT \"a b\"", &pg).iter().any(|t| t.text == "a b"));
+    }
+}
+
+#[cfg(test)]
+mod slash_comment_tests {
+    use super::*;
+
+    #[test]
+    fn slash_comments_hide_quotes_and_semicolons_where_the_dialect_says() {
+        let sf = ScriptDialect { backslash_escapes: true, dquote_idents: true, dollar_quotes: true, slash_comments: true, ..ScriptDialect::generic() };
+        // A quote in a `//` comment opens nothing: the DELETE is its own statement.
+        let parts = split_script("SELECT 1 // it's\nDELETE FROM t; SELECT 2", &sf);
+        assert_eq!(parts.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(), vec!["SELECT 1 // it's\nDELETE FROM t", "SELECT 2"]);
+        let parts = split_script("SELECT 1 // '\n; DELETE FROM t; -- '", &sf);
+        assert_eq!(parts.len(), 2, "{parts:?}");
+        assert!(parts[1].text.starts_with("DELETE"), "{parts:?}");
+        // A `;` in a `//` comment doesn't end the statement; the comment ends at LF.
+        assert_eq!(split_script("SELECT 1 // a; b\n, 2; SELECT \"x\"\"//\"", &sf).len(), 2);
+        assert_eq!(strip_comments("SELECT 1 // x\nFROM t", &sf, false), "SELECT 1 \nFROM t");
+        // Inside quotes and `$$` bodies `//` is text; `a/ /b` isn't a comment.
+        assert_eq!(split_script("SELECT '//'; SELECT $$ // ; $$; SELECT 4 / 2", &sf).len(), 3);
+        // Without the flag `//` is two slashes (DuckDB's integer division).
+        let g = ScriptDialect::generic();
+        assert_eq!(split_script("SELECT 7 // 2; SELECT 'a;b'", &g).len(), 2);
+        assert_eq!(split_script("SELECT 1 // '\n; DELETE FROM t; -- '", &g).len(), 1);
     }
 }
 

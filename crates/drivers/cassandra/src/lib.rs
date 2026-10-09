@@ -162,7 +162,7 @@ impl Driver for CassandraDriver {
     /// END` blocks (a CQL batch ends with `APPLY BATCH`). Editor scripts
     /// are split by the driver itself, as cqlsh does.
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
-        dbine_driver::ScriptDialect { dollar_quotes: true, backtick_idents: false, compound_blocks: false, ..dbine_driver::ScriptDialect::generic() }
+        dbine_driver::ScriptDialect { dollar_quotes: true, backtick_idents: false, compound_blocks: false, slash_comments: true, ..dbine_driver::ScriptDialect::generic() }
     }
 
     /// As cqlsh -f: a failed statement doesn't stop the script (the tab's
