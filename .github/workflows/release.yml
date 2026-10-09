@@ -221,3 +221,21 @@ jobs:
           # Workspace build: installers land in <root>/target/<triple>/release/bundle.
           path: target/${{ matrix.target }}/release/bundle/
           if-no-files-found: error
+
+  # The `drivers` release holds at most 1000 assets and every release adds
+  # the hosts that changed. Once all four targets are published, keep only
+  # the hosts the last five app versions download (scripts/prune-driver-
+  # assets.py); it deletes nothing if the newest release's hosts aren't all
+  # there.
+  prune-drivers:
+    needs: [route, build]
+    if: needs.route.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete driver hosts older than the last five versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/prune-driver-assets.py --keep 5
