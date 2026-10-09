@@ -2444,7 +2444,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-cassandra"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "dbine-driver",

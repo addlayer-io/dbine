@@ -20,15 +20,23 @@ pub const VARIABLES_QUERY: &str = "SHOW VARIABLES";
 const MAX_ALTERS: usize = 64;
 
 /// snowsql's reading of a script: backslash escapes in '…', `$$ … $$`
-/// bodies, `"ident"` (escaped only by doubling `""`).
+/// bodies, `"ident"` (escaped only by doubling `""`), and `//` line
+/// comments next to `--` (a quote or `;` inside one is comment text).
 pub fn dialect() -> ScriptDialect {
-    ScriptDialect { backslash_escapes: true, dquote_idents: true, dollar_quotes: true, backtick_idents: false, ..ScriptDialect::generic() }
+    ScriptDialect {
+        backslash_escapes: true,
+        dquote_idents: true,
+        dollar_quotes: true,
+        slash_comments: true,
+        backtick_idents: false,
+        ..ScriptDialect::generic()
+    }
 }
 
 /// The statements as Snowflake runs them: anonymous blocks (`BEGIN … END`,
 /// `DECLARE … BEGIN … END`) whole.
 pub fn units(text: &str) -> Vec<ScriptStatement> {
-    let rules = blocks::Rules { declare_opens: true, ..Default::default() };
+    let rules = blocks::Rules { declare_opens: true, slash_comments: true, ..Default::default() };
     blocks::merge(text, split_script(text, &dialect()), rules)
 }
 
@@ -191,6 +199,20 @@ mod tests {
         // Transactions aren't blocks.
         assert_eq!(t("BEGIN; INSERT INTO t VALUES (1); COMMIT;").len(), 3);
         assert_eq!(t("BEGIN TRANSACTION; INSERT INTO t VALUES (1); COMMIT;").len(), 3);
+    }
+
+    #[test]
+    fn slash_comments_split_as_the_server_does() {
+        let t = |s: &str| units(s).into_iter().map(|u| u.text).collect::<Vec<_>>();
+        // A quote in a `//` comment opens no string: the DELETE is a statement.
+        assert_eq!(t("SELECT 1 // it's\nDELETE FROM t; SELECT 2"), vec!["SELECT 1 // it's\nDELETE FROM t", "SELECT 2"]);
+        assert_eq!(t("SELECT 1 // '\n; DELETE FROM t; -- '").len(), 2);
+        // A `;` in one doesn't end the statement.
+        assert_eq!(t("SELECT 1 // a; b\n, 2; SELECT 3"), vec!["SELECT 1 // a; b\n, 2", "SELECT 3"]);
+        // A `BEGIN` in one opens no block.
+        assert_eq!(t("SELECT 1 // BEGIN\n; SELECT 2").len(), 2);
+        // In strings and identifiers it's text.
+        assert_eq!(t("SELECT '//;'; SELECT \"a//b\"; SELECT 4 / 2").len(), 3);
     }
 
     #[test]

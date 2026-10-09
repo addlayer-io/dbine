@@ -272,6 +272,10 @@ pub struct SnowflakeSession {
     mon: monitor::Cache,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// A read-only connection: every request says how many statements it
+    /// holds (`MULTI_STATEMENT_COUNT`), so the server refuses a request it
+    /// splits differently from the guard instead of running the extra ones.
+    read_only: bool,
 }
 
 #[async_trait]
@@ -455,6 +459,7 @@ impl Driver for SnowflakeDriver {
             handle: Arc::new(Mutex::new(None)),
             mon: monitor::Cache::default(),
             profiler: None,
+            read_only: cfg.read_only,
         };
         tokio::time::timeout(Duration::from_secs(30), s.statement("SELECT 1", None, 1))
             .await
@@ -464,6 +469,17 @@ impl Driver for SnowflakeDriver {
                 other => other,
             })?;
         Ok(Box::new(s))
+    }
+}
+
+/// The `MULTI_STATEMENT_COUNT` of a request holding `count` statements:
+/// `0` (any number) for several on a read-write session, the exact number
+/// on a read-only one, the account's default for one on a read-write one.
+fn multi_statement_count(count: usize, read_only: bool) -> Option<String> {
+    match (count, read_only) {
+        (_, true) => Some(count.max(1).to_string()),
+        (0 | 1, false) => None,
+        (_, false) => Some("0".into()),
     }
 }
 
@@ -479,7 +495,11 @@ struct ResultSet {
 }
 
 impl SnowflakeSession {
-    fn body(&self, sql: &str, bindings: Option<Json>, multi: bool) -> Json {
+    /// A request for `sql`, which holds `count` statements. Read-write
+    /// sessions let the server count them (`MULTI_STATEMENT_COUNT=0` when
+    /// there are several); read-only ones give the exact number, also for
+    /// one, whatever the account's default is.
+    fn body(&self, sql: &str, bindings: Option<Json>, count: usize) -> Json {
         let mut b = json!({ "statement": sql, "timeout": 0 });
         let c = &self.ctx;
         for (k, v) in [("database", &c.database), ("schema", &c.schema), ("warehouse", &c.warehouse), ("role", &c.role)] {
@@ -490,8 +510,8 @@ impl SnowflakeSession {
         if let Some(bnd) = bindings {
             b["bindings"] = bnd;
         }
-        if multi {
-            b["parameters"] = json!({ "MULTI_STATEMENT_COUNT": "0" });
+        if let Some(n) = multi_statement_count(count, self.read_only) {
+            b["parameters"] = json!({ "MULTI_STATEMENT_COUNT": n });
         }
         b
     }
@@ -503,8 +523,8 @@ impl SnowflakeSession {
     }
 
     /// Submit and wait: the final (200) response of `sql`.
-    async fn submit(&self, sql: &str, bindings: Option<Json>, multi: bool) -> Result<Json> {
-        let (mut status, mut body) = self.api.post("/api/v2/statements", &self.body(sql, bindings, multi)).await?;
+    async fn submit(&self, sql: &str, bindings: Option<Json>, count: usize) -> Result<Json> {
+        let (mut status, mut body) = self.api.post("/api/v2/statements", &self.body(sql, bindings, count)).await?;
         let handle = body.get("statementHandle").and_then(Json::as_str).map(str::to_string);
         self.set_handle(handle.clone());
         let mut delay = Duration::from_millis(250);
@@ -581,7 +601,7 @@ impl SnowflakeSession {
 
     /// A single statement's rows (catalog queries).
     async fn statement(&self, sql: &str, bindings: Option<Json>, max_rows: usize) -> Result<ResultSet> {
-        let body = self.submit(sql, bindings, false).await?;
+        let body = self.submit(sql, bindings, 1).await?;
         self.collect(body, max_rows).await
     }
 
@@ -644,7 +664,7 @@ impl SnowflakeSession {
         let multi = all.len() > 1;
         // A statement may end in a `--` comment: the `;` goes on a line of
         // its own, or it would be read as part of the comment.
-        let body = self.submit(&all.join("\n;\n"), None, multi).await?;
+        let body = self.submit(&all.join("\n;\n"), None, all.len()).await?;
         let children: Vec<Json> = body
             .get("statementHandles")
             .and_then(Json::as_array)
@@ -771,7 +791,7 @@ impl SnowflakeSession {
     /// One statement with a QUERY_TAG (to tell DBine's own statements
     /// apart in the history), its rows as text by lowercase column name.
     async fn tagged_rows(&self, sql: &str, tag: &str) -> Result<monitor::Set> {
-        let mut body = self.body(sql, None, false);
+        let mut body = self.body(sql, None, 1);
         body["parameters"] = json!({ "QUERY_TAG": tag });
         let (status, mut first) = self.api.post("/api/v2/statements", &body).await?;
         if status == 202 {
@@ -1299,6 +1319,16 @@ fn timestamp_tz(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A read-only request always says how many statements it holds, so
+    /// the server refuses one it would split into more.
+    #[test]
+    fn read_only_requests_carry_their_exact_statement_count() {
+        assert_eq!(multi_statement_count(1, true).as_deref(), Some("1"));
+        assert_eq!(multi_statement_count(3, true).as_deref(), Some("3"));
+        assert_eq!(multi_statement_count(1, false), None);
+        assert_eq!(multi_statement_count(3, false).as_deref(), Some("0"));
+    }
 
     /// "Con opción de otorgar" is offered on the new schema's grants
     /// exactly where the engine writes them (`SchemaSpec::grant_option`).

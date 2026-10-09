@@ -16,6 +16,8 @@ pub(crate) struct Rules {
     pub declare_opens: bool,
     /// `#` starts a line comment (BigQuery).
     pub hash_comments: bool,
+    /// `//` starts a line comment (Snowflake).
+    pub slash_comments: bool,
 }
 
 /// `units` (from the dialect's split of `script`) with each anonymous
@@ -151,6 +153,11 @@ fn words(text: &str, rules: Rules) -> Vec<Word> {
                 }
             }
             b'#' if rules.hash_comments => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if rules.slash_comments && b.get(i + 1) == Some(&b'/') => {
                 while i < b.len() && b[i] != b'\n' {
                     i += 1;
                 }

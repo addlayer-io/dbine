@@ -191,13 +191,21 @@ pub(crate) fn signatures(definition: &str, word: &str, name: &str) -> Result<Vec
             return Err(ambiguous());
         };
         let (args, tail) = arguments(after.trim_start()).ok_or_else(ambiguous)?;
-        // `RETURNS … AS $$<body>$$`, with no other `$$` in the unit.
+        // `RETURNS … AS $$<body>$$`, with no other `$$` in the unit, or
+        // `RETURNS … AS '<body>'` (a body that holds `$$`), the literal
+        // running to the end of the unit.
         let tail = tail.trim_start();
         let returns = tail.len() >= 8 && tail.is_char_boundary(8) && tail[..8].eq_ignore_ascii_case("RETURNS ");
-        let open = tail.find("$$").ok_or_else(ambiguous)?;
+        let dollar = tail.find("$$");
+        let quote = tail.find('\'').filter(|q| dollar.is_none_or(|d| *q < d));
+        let open = quote.or(dollar).ok_or_else(ambiguous)?;
         let header = tail[..open].trim_end();
         let as_kw = header.len() >= 3 && header.is_char_boundary(header.len() - 3) && header[header.len() - 3..].eq_ignore_ascii_case(" AS");
-        if !returns || !as_kw || tail.matches("$$").count() != 2 || !tail.ends_with("$$") || tail.len() < open + 4 {
+        let body_ok = match quote {
+            Some(q) => literal_end(tail, q) == Some(tail.len()),
+            None => tail.matches("$$").count() == 2 && tail.ends_with("$$") && tail.len() >= open + 4,
+        };
+        if !returns || !as_kw || !body_ok {
             return Err(ambiguous());
         }
         let mut types = Vec::with_capacity(args.len());
@@ -214,6 +222,22 @@ pub(crate) fn signatures(definition: &str, word: &str, name: &str) -> Result<Vec
         out.push(types);
     }
     Ok(out)
+}
+
+/// Where the '…' literal opening at `open` ends (after its closing quote),
+/// as Snowflake reads it: `\\` escapes the next character, `''` is a quote.
+fn literal_end(text: &str, open: usize) -> Option<usize> {
+    let b = text.as_bytes();
+    let mut i = open + 1;
+    while i < b.len() {
+        match b[i] {
+            b'\\' => i += 2,
+            b'\'' if b.get(i + 1) == Some(&b'\'') => i += 2,
+            b'\'' => return Some(i + 1),
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 /// Snowflake's type names (and their synonyms), as words separated by one
@@ -529,6 +553,22 @@ mod tests {
         let other = "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;\n\
                      CREATE OR REPLACE FUNCTION OTRA(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;";
         assert!(script(&routine_req(kinds::FUNCTION, other)).is_err());
+    }
+
+    #[test]
+    fn a_body_holding_dollar_quotes_comes_as_one_quoted_literal() {
+        // What `definition` builds (search::routine_source) for a body that
+        // holds `$$`: a '…' literal with `\` and `'` escaped.
+        let body = "select '$$'; drop table app.t; -- \\' $$";
+        let lit = format!("'{}'", body.replace('\\', "\\\\").replace('\'', "''"));
+        let def = format!("CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS {lit};");
+        assert_eq!(script::units(&def).len(), 1, "{def}");
+        assert_eq!(stmts(&routine_req(kinds::FUNCTION, &def)), ["ALTER FUNCTION \"APP\".\"TOTAL\"(NUMBER) RENAME TO \"APP\".SUMA;"]);
+        // A literal that ends before the unit does is refused.
+        let early = "CREATE OR REPLACE FUNCTION TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS '1' || 'x';";
+        assert!(script(&routine_req(kinds::FUNCTION, early)).is_err());
+        assert_eq!(literal_end("'a\\'b''c' x", 0), Some(9));
+        assert_eq!(literal_end("'open", 0), None);
     }
 
     #[test]

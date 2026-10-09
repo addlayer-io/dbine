@@ -394,7 +394,7 @@ fn lock(sink: &BatchSinkRef) -> Result<std::sync::MutexGuard<'_, dyn dbine_drive
 }
 
 pub(crate) async fn read_batches(s: &SnowflakeSession, spec: &ReadSpec, sink: BatchSinkRef) -> Result<u64> {
-    let mut page = s.submit(&select_sql(spec), None, false).await?;
+    let mut page = s.submit(&select_sql(spec), None, 1).await?;
     let meta = page.get("resultSetMetaData").cloned().unwrap_or(Json::Null);
     let row_type = meta.get("rowType").and_then(Json::as_array).cloned().unwrap_or_default();
     let kinds: Vec<Read> = row_type.iter().map(read_kind).collect();
@@ -1089,7 +1089,7 @@ async fn drop_leftovers(s: &SnowflakeSession, is: &str, schema: &str, table: &st
         }
     };
     for name in rows.into_iter().filter_map(|r| r.into_iter().next().flatten()).filter(|n| is_staging_of(table, n)) {
-        let mut b = s.body(&format!("DROP TABLE IF EXISTS {}", full(&name)), None, false);
+        let mut b = s.body(&format!("DROP TABLE IF EXISTS {}", full(&name)), None, 1);
         b["parameters"] = load_parameters();
         if let Err(e) = s.api.post("/api/v2/statements", &b).await {
             tracing::debug!("snowflake: no se pudo borrar la tabla de carga vieja {name}: {e}");
@@ -1143,7 +1143,7 @@ pub(crate) async fn bulk_load(s: &SnowflakeSession, spec: &LoadSpec, source: &mu
     let names = targets.iter().map(|t| qualified_name(Quote::Double, None, &t.name)).collect::<Vec<_>>().join(", ");
 
     let rest = |sql: String| -> Json {
-        let mut b = s.body("", None, false);
+        let mut b = s.body("", None, 1);
         b["statement"] = Json::String(sql);
         b["parameters"] = load_parameters();
         b
@@ -1782,6 +1782,7 @@ mod tests {
             handle: Arc::new(Mutex::new(None)),
             mon: Default::default(),
             profiler: None,
+            read_only: false,
         }
     }
 
