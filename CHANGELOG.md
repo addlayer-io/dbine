@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Read-only:** a query with a lone carriage return or an unusual Unicode space is refused, because engines disagree on where a comment or a statement ends there. Functions with side effects are refused too: `load_extension` in SQLite, `pg_notify` and logical replication reads in PostgreSQL, and session or query cancellation in Snowflake.
+- **SQL export** of a multi-database grid escapes strings so the script reads the same on any engine.
+- **Import connections:** a SQL Server URL with no host no longer puts its password in the connection's name.
+- **Users and permissions:** the preview hides PostgreSQL passwords in every form.
+
 ## [0.1.10] - 2026-10-10
 
 ### New
