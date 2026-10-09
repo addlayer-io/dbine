@@ -6,6 +6,7 @@
 - **Les pilotes se mettent à jour tout seuls, séparément de l'application :** DBine cherche dans un index signé le pilote le plus récent compatible avec votre version, le télécharge en arrière-plan et revient au précédent en cas d'échec. Dans Paramètres › Pilotes, il y a un bouton **Rechercher des mises à jour**, l'état de chaque pilote et **Revenir à la précédente**. Un pilote peut être publié seul, sans nouvelle version de l'application.
 - **Renommer une base de données :** **Renommer…** sur une base dans l'explorateur. La boîte de dialogue affiche les autres sessions ouvertes dessus (que le renommage termine), si le nouveau nom existe déjà, combien d'objets sont déplacés et le script complet. Ensuite, la base par défaut de la connexion, les onglets ouverts, les requêtes enregistrées, les migrations, les cibles de projets et les étapes de tâches planifiées suivent le nouveau nom ; les tâches qui modifient des données dedans demandent à nouveau une approbation. Disponible dans SQL Server, Azure SQL, Babelfish, la famille PostgreSQL, MySQL, MariaDB, Snowflake et MongoDB ; lorsque le moteur ne peut pas renommer (ou déplacer) une base, l'option n'est pas proposée.
 - **À quelle colonne correspond cette valeur ?** Dans un `INSERT … VALUES`, placer le curseur sur une valeur affiche une infobulle avec sa colonne (par exemple « Colonne 14 sur 48 : Name ») et met cette colonne en évidence dans la liste. Sans liste de colonnes, elle utilise celles de la table dans l'ordre. Fonctionne sur tous les moteurs SQL et CQL.
+- **Plus de façons de se connecter à SQL Server avec Microsoft Entra ID :** interactive avec MFA (dans le navigateur), intégrée (le compte Windows, via l'ADFS fédéré de l'organisation), identité managée et par défaut (variables d'environnement, identité managée, Azure CLI ou Azure Developer CLI). Le jeton est conservé tant que DBine est ouvert et renouvelé avant son expiration.
 
 ### Améliorations
 - **Ce qu'apporte chaque version :** l'avis de nouvelle version affiche ses changements et ceux des versions intermédiaires, à partir de celle que vous avez installée, dans la langue de l'application.
@@ -38,6 +39,11 @@
 - **Lecture seule sur PostgreSQL :** les noms écrits avec des échappements Unicode (`U&"…"`) sont refusés, afin qu'une fonction interdite ne puisse pas être appelée sous une autre graphie.
 - **Export CSV et TSV :** la protection contre les formules s'applique aussi au texte stocké dans des colonnes déclarées numériques, ce que SQLite autorise.
 - **Scripts générés :** les noms d'objets provenant du serveur ne peuvent plus terminer un commentaire et s'exécuter comme du code. Cela couvre les correctifs proposés par le **Contrôle de santé** ainsi que les scripts d'utilisateurs, de sauvegardes et de structure. Les noms ClickHouse contenant une barre oblique inverse sont correctement entre guillemets.
+- **Lecture seule :** une instruction qui ne commence pas par un mot, comme un nom entre crochets qui exécute une procédure sur SQL Server, est refusée. Les mots à l'intérieur des lectures entre parenthèses sont eux aussi vérifiés.
+- **Export SQL :** depuis MySQL, ClickHouse et d'autres moteurs qui interprètent les barres obliques inverses, les guillemets simples sont écrits `''`, de sorte que le script se lit de la même façon sur n'importe quelle cible.
+- **Modifier la table :** les avertissements du script que vous ouvrez comme requête restent sur leur ligne de commentaire.
+- **Les mots de passe et les options secrètes** sont masqués partout où ils sont modifiés, y compris dans les étapes de sauvegarde des tâches planifiées.
+- **Voir les dépendances et Renommer** ne s'arrêtent plus sur les routines dont les noms entre guillemets sont inhabituels.
 
 ## [0.1.9] - 2026-10-09
 

@@ -6,6 +6,7 @@
 - **Los drivers se actualizan solos, aparte de la app:** DBine busca en un índice firmado el driver más nuevo compatible con tu versión, lo descarga en segundo plano y vuelve al anterior si algo falla. En Configuración › Drivers hay un botón **Buscar actualizaciones**, el estado de cada driver y **Volver a la anterior**. Un driver puede publicarse solo, sin una versión nueva de la app.
 - **Renombrar una base:** **Renombrar…** sobre una base en el explorador. El diálogo muestra las otras sesiones abiertas sobre ella (que el renombrado cierra), si el nombre nuevo ya existe, cuántos objetos se mueven y el script completo. Después, la base predeterminada de la conexión, las pestañas abiertas, las consultas guardadas, las migraciones, los destinos de proyectos y los pasos de tareas programadas siguen el nombre nuevo; las tareas que modifican datos en ella piden aprobación de nuevo. Disponible en SQL Server, Azure SQL, Babelfish, la familia PostgreSQL, MySQL, MariaDB, Snowflake y MongoDB; donde el motor no puede renombrar (o mover) una base, no se ofrece.
 - **¿A qué columna corresponde este valor?** En un `INSERT … VALUES`, al poner el cursor sobre un valor aparece un tooltip con su columna (por ejemplo "Columna 14 de 48: Name") y se resalta esa columna en la lista. Sin lista de columnas, usa las de la tabla en orden. Funciona en todos los motores SQL y CQL.
+- **Más formas de entrar a SQL Server con Microsoft Entra ID:** interactiva con MFA (en el navegador), integrada (la cuenta de Windows, a través del ADFS federado de la organización), identidad administrada y predeterminada (variables de entorno, identidad administrada, Azure CLI o Azure Developer CLI). El token se conserva mientras DBine está abierto y se renueva antes de que venza.
 
 ### Mejoras
 - **Qué trae cada versión:** el aviso de versión nueva muestra sus cambios y los de las versiones intermedias, a partir de la que tenés instalada, en el idioma de la app.
@@ -38,6 +39,11 @@
 - **Solo lectura en PostgreSQL:** se rechazan los nombres escritos con escapes Unicode (`U&"…"`), así que una función prohibida no puede llamarse con otra grafía.
 - **Exportación CSV y TSV:** la protección contra fórmulas también se aplica al texto guardado en columnas declaradas como numéricas, algo que SQLite permite.
 - **Scripts generados:** los nombres de objetos que vienen del servidor no pueden cerrar un comentario y ejecutarse como código. Esto cubre las correcciones sugeridas por el **Chequeo de salud** y los scripts de usuarios, backups y estructura. Los nombres de ClickHouse con una barra invertida se entrecomillan correctamente.
+- **Solo lectura:** se rechaza una sentencia que no empieza con una palabra, como un nombre entre corchetes que ejecuta un procedimiento en SQL Server. También se revisan las palabras dentro de lecturas entre paréntesis.
+- **Exportación SQL:** desde MySQL, ClickHouse y otros motores que leen las barras invertidas, las comillas se escriben como `''`, así que el script se lee igual en cualquier destino.
+- **Modificar tabla:** las advertencias del script que abrís como query quedan en su línea de comentario.
+- **Las contraseñas y las opciones secretas** se enmascaran en todos los lugares donde se editan, incluidos los pasos de backup de las tareas programadas.
+- **Ver dependencias y Renombrar** ya no se detienen en rutinas con nombres entre comillas poco comunes.
 
 ## [0.1.9] - 2026-10-09
 

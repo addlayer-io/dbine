@@ -6,6 +6,7 @@
 - **I driver si aggiornano da soli, separatamente dall'app:** DBine cerca in un indice firmato il driver più recente compatibile con la tua versione, lo scarica in background e torna al precedente se qualcosa va storto. In Impostazioni › Driver c'è un pulsante **Cerca aggiornamenti**, lo stato di ogni driver e **Torna alla precedente**. Un driver può essere pubblicato da solo, senza una nuova versione dell'app.
 - **Rinominare un database:** **Rinomina…** su un database nell'esplora risorse. La finestra mostra le altre sessioni aperte su di esso (che la ridenominazione termina), se il nuovo nome esiste già, quanti oggetti vengono spostati e lo script completo. Dopo, il database predefinito della connessione, le schede aperte, le query salvate, le migrazioni, le destinazioni dei progetti e i passaggi delle attività pianificate seguono il nuovo nome; le attività che modificano dati al suo interno chiedono di nuovo l'approvazione. Disponibile in SQL Server, Azure SQL, Babelfish, nella famiglia PostgreSQL, in MySQL, MariaDB, Snowflake e MongoDB; dove il motore non può rinominare (o spostare) un database, non viene offerto.
 - **A quale colonna corrisponde questo valore?** In un `INSERT … VALUES`, posizionando il cursore su un valore compare un tooltip con la sua colonna (ad esempio "Colonna 14 di 48: Name") e quella colonna viene evidenziata nell'elenco. Senza elenco di colonne, usa quelle della tabella in ordine. Funziona su tutti i motori SQL e CQL.
+- **Più modi per accedere a SQL Server con Microsoft Entra ID:** interattiva con MFA (nel browser), integrata (l'account Windows, tramite l'ADFS federato dell'organizzazione), identità gestita e predefinita (variabili d'ambiente, identità gestita, Azure CLI o Azure Developer CLI). Il token viene conservato finché DBine è aperto e rinnovato prima della scadenza.
 
 ### Miglioramenti
 - **Cosa porta ogni versione:** l'avviso di nuova versione mostra le sue modifiche e quelle delle versioni intermedie, a partire da quella che hai installato, nella lingua dell'app.
@@ -38,6 +39,11 @@
 - **Sola lettura su PostgreSQL:** i nomi scritti con escape Unicode (`U&"…"`) vengono rifiutati, così una funzione vietata non può essere chiamata con un'altra grafia.
 - **Esportazione CSV e TSV:** la protezione dalle formule vale anche per il testo salvato in colonne dichiarate numeriche, cosa che SQLite consente.
 - **Script generati:** i nomi di oggetti provenienti dal server non possono chiudere un commento ed essere eseguiti come codice. Questo copre le correzioni suggerite dal **Controllo di integrità** e gli script di utenti, backup e struttura. I nomi ClickHouse con un backslash vengono racchiusi correttamente tra virgolette.
+- **Sola lettura:** un'istruzione che non inizia con una parola, come un nome tra parentesi quadre che esegue una procedura su SQL Server, viene rifiutata. Vengono controllate anche le parole all'interno delle letture tra parentesi.
+- **Esportazione SQL:** da MySQL, ClickHouse e altri motori che interpretano i backslash, gli apici vengono scritti come `''`, così lo script si legge allo stesso modo su qualsiasi destinazione.
+- **Modifica tabella:** gli avvisi dello script che apri come query restano sulla propria riga di commento.
+- **Le password e le opzioni segrete** vengono mascherate ovunque si modifichino, compresi i passaggi di backup delle attività pianificate.
+- **Mostra dipendenze e Rinomina** non si fermano più sulle routine con nomi tra virgolette insoliti.
 
 ## [0.1.9] - 2026-10-09
 
