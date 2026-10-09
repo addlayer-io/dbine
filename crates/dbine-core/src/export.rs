@@ -467,13 +467,27 @@ fn sql_literal(v: &Value, numeric_col: bool, backslash: bool) -> String {
     }
 }
 
-/// `'…'` for the engine. Standard SQL only doubles the quote. Engines that
-/// read backslash escapes (MySQL, ClickHouse, BigQuery, Hive, Spark…) would
-/// take a stored `\'` as an escaped quote and let the rest of the value run
-/// as SQL, so there every backslash and quote is escaped with a backslash
-/// (`\'` is the form all of them accept; BigQuery and Spark don't read
-/// `''`), and so are the bytes that cut a script in a client: NUL, line
-/// breaks and Ctrl-Z (mysql on Windows reads it as the end of the file).
+/// `'…'` for the engine. Standard SQL only doubles the quote.
+///
+/// Engines that read backslash escapes (MySQL, ClickHouse, Hive…) would take
+/// a stored `\'` as an escaped quote and let the rest of the value run as
+/// SQL, so in that mode every backslash is doubled. The script may still be
+/// run on another engine than the source's (the user picks the quoting), so
+/// the literal has to end in the same place under both reading rules:
+/// - the quote is always doubled (`''`), never `\'`: a standard engine
+///   (PostgreSQL, SQL Server, Oracle, MySQL with NO_BACKSLASH_ESCAPES) reads
+///   `\'` as a backslash plus the closing quote, which would let the value
+///   inject SQL. `''` is a quote for standard engines, for MySQL in both
+///   modes and for ClickHouse.
+/// - `\\`, `\0`, `\n`, `\r` and `\Z` are plain text under the standard rule
+///   and the escaped byte under the backslash rule; none of them contains a
+///   quote, so neither rule can end the literal there. The raw bytes are
+///   escaped because they cut a script in a client (NUL, line breaks, and
+///   Ctrl-Z, which mysql on Windows reads as the end of the file).
+///
+/// BigQuery and Spark don't read `''` as a quote: there the statement fails
+/// or concatenates two literals, which never runs the value as SQL. Safety
+/// beats exactness here: a standard engine keeps the doubled backslashes.
 fn string_literal(s: &str, backslash: bool) -> String {
     if !backslash {
         return format!("'{}'", s.replace('\'', "''"));
@@ -483,7 +497,7 @@ fn string_literal(s: &str, backslash: bool) -> String {
     for c in s.chars() {
         match c {
             '\\' => out.push_str("\\\\"),
-            '\'' => out.push_str("\\'"),
+            '\'' => out.push_str("''"),
             '\0' => out.push_str("\\0"),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
@@ -664,10 +678,11 @@ mod tests {
         let v = json!(EXPLOIT);
         // Standard SQL: a backslash is just a character, the quote doubles.
         assert_eq!(sql_literal(&v, false, false), "'x\\'');DROP TABLE users;#'");
-        // Backslash engines: `\'` must not close the string.
-        assert_eq!(sql_literal(&v, false, true), "'x\\\\\\');DROP TABLE users;#'");
+        // Backslash engines: the backslash doubles and the quote too, never
+        // `\'` (a standard engine would read it as the closing quote).
+        assert_eq!(sql_literal(&v, false, true), "'x\\\\'');DROP TABLE users;#'");
         assert_eq!(sql_literal(&json!("a\0b\nc\rd\u{1a}e"), false, true), "'a\\0b\\nc\\rd\\Ze'");
-        assert_eq!(sql_literal(&json!({"k": "it's"}), false, true), "'{\"k\":\"it\\'s\"}'");
+        assert_eq!(sql_literal(&json!({"k": "it's"}), false, true), "'{\"k\":\"it''s\"}'");
         assert_eq!(sql_literal(&json!("NaN"), true, false), "'NaN'");
         assert_eq!(sql_literal(&json!(" 1e3 "), true, false), "1e3");
     }
@@ -689,25 +704,48 @@ mod tests {
 
     #[test]
     fn sql_export_cannot_be_escaped_by_a_value() {
-        let one = |tweak: fn(&mut ExportOptions)| {
+        let one = |quote: &str, flag: bool, value: &str| {
             let dir = tempfile::tempdir().unwrap();
             let p = dir.path().join("out.sql");
-            let mut o = ExportOptions { format: Format::Sql, table: "t".into(), ..Default::default() };
-            tweak(&mut o);
+            let o = ExportOptions {
+                format: Format::Sql,
+                table: "t".into(),
+                quote: quote.into(),
+                backslash_escapes: flag,
+                ..Default::default()
+            };
             let cols = [ResultColumn { name: "v".into(), type_name: "varchar".into() }];
-            export_rows(&p, o, &cols, &[vec![json!(EXPLOIT)]]).unwrap();
+            export_rows(&p, o, &cols, &[vec![json!(value)]]).unwrap();
             std::fs::read_to_string(&p).unwrap()
         };
-        // From the source connection's driver, from the backtick quoting,
-        // and the standard escaping.
-        for (script, backslash) in [
-            (one(|o| o.backslash_escapes = true), true),
-            (one(|o| o.quote = "backtick".into()), true),
-            (one(|_| {}), false),
-        ] {
-            let start = script.find('\'').unwrap();
-            let end = literal_end(&script, start, backslash);
-            assert_eq!(&script[end + 1..], ");\n", "the value ends where it should: {script}");
+        for quote in ["backtick", "double", "bracket"] {
+            for flag in [false, true] {
+                // Backslash mode: from the source connection's driver, or
+                // from the backtick quoting.
+                let backslash_mode = flag || quote == "backtick";
+                for value in [EXPLOIT, "x'); DROP TABLE users; --"] {
+                    let script = one(quote, flag, value);
+                    let start = script.find('\'').unwrap();
+                    // The script may run on a standard engine or on one that
+                    // reads backslash escapes: in backslash mode the literal
+                    // must end in the same place under both rules. The
+                    // standard escaping is exact for standard engines only,
+                    // so there the backslash rule is checked only on a value
+                    // without backslashes.
+                    let mut rules = vec![false];
+                    if backslash_mode || !value.contains('\\') {
+                        rules.push(true);
+                    }
+                    for rule in rules {
+                        let end = literal_end(&script, start, rule);
+                        assert_eq!(
+                            &script[end + 1..],
+                            ");\n",
+                            "quote={quote} flag={flag} backslash rule={rule}: the value ends where it should: {script}"
+                        );
+                    }
+                }
+            }
         }
     }
 
