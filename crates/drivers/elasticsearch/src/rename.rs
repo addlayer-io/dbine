@@ -6,7 +6,7 @@
 //! on every index it points to, with its filter, routing and write flag.
 //! Fields can't be renamed without a reindex; data streams aren't renamed.
 
-use crate::ddl::check_index_name;
+use crate::ddl::{check_index_name, path_segment};
 use crate::json::{Obj, J};
 use crate::KIND_ALIAS;
 use dbine_driver::rename::{Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle};
@@ -76,16 +76,19 @@ Mientras dura, «{old}» no acepta escrituras."
             Vec::new()
         }
     };
+    // Both names percent-encoded in the paths: one is the listed index's, and
+    // a line break in it would start another console request.
+    let (po, pn) = (path_segment(old), path_segment(new));
     let mut statements = vec![
-        format!("PUT /{old}/_block/write"),
+        format!("PUT /{po}/_block/write"),
         // The copy inherits the block: it's taken off in the same call.
-        format!("POST /{old}/_clone/{new}\n{}", obj(vec![("settings", obj(vec![("index.blocks.write", J::Null)]))]).pretty()),
+        format!("POST /{po}/_clone/{pn}\n{}", obj(vec![("settings", obj(vec![("index.blocks.write", J::Null)]))]).pretty()),
         // The clone may answer before its primaries are active; the old
         // index isn't deleted until they are (a timeout stops the script).
-        format!("GET /_cluster/health/{new}?wait_for_status=yellow&timeout=120s"),
+        format!("GET /_cluster/health/{pn}?wait_for_status=yellow&timeout=120s"),
     ];
     if aliases.is_empty() {
-        statements.push(format!("DELETE /{old}"));
+        statements.push(format!("DELETE /{po}"));
     } else {
         let names: Vec<String> = aliases.iter().map(|(a, _)| format!("«{a}»")).collect();
         warnings.push(format!("Los alias de «{old}» ({}) pasan a «{new}» en el mismo paso que borra el original.", names.join(", ")));
@@ -214,5 +217,13 @@ mod tests {
         let sp = spec();
         assert_eq!(sp.kinds, vec![kinds::INDEX.to_string(), KIND_ALIAS.to_string()]);
         assert!(!sp.columns);
+    }
+
+    #[test]
+    fn index_names_go_encoded_into_the_request_lines() {
+        let s = index_script("x\ndelete\tvictim", "nuevo", None).unwrap();
+        assert!(s.statements.iter().all(|st| !st.lines().next().unwrap_or("").contains('\t')));
+        assert!(s.statements[0].starts_with("PUT /x%0Adelete%09victim/_block/write"));
+        assert!(check_index_name("a\nb").is_err());
     }
 }

@@ -23,7 +23,7 @@
 
 use crate::variant::{self, Variant};
 use dbine_driver::rename::{rename_header, Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
-use dbine_driver::sql::{name_tokens, qualified_name, quote_ident, Quote, ScriptDialect, TokenKind};
+use dbine_driver::sql::{name_tokens, qualified_name, quote_ident, split_script, Quote, ScriptDialect, TokenKind};
 use dbine_driver::{kinds, Error, IndexDef, ObjectRef, Result, SyncScript, TableSchema};
 
 const MODULES: [&str; 4] = [kinds::VIEW, kinds::PROCEDURE, kinds::FUNCTION, kinds::TRIGGER];
@@ -161,14 +161,26 @@ fn module(v: Variant, object: &ObjectRef, req: &RenameRequest) -> Result<SyncScr
     if v == Variant::Babelfish && object.kind != kinds::VIEW {
         let kind = if object.kind == kinds::PROCEDURE { "PROCEDURE" } else { "FUNCTION" };
         return Ok(SyncScript {
-            statements: vec![format!("DROP {kind} {old};"), create_as(&renamed, &d, false)],
+            statements: vec![format!("DROP {kind} {old};"), one_batch(create_as(&renamed, &d, false), &object.name, &d)?],
             warnings: vec![format!(
                 "Babelfish no repone procedimientos ni funciones con CREATE OR ALTER: «{}» se borra y se crea con el nombre nuevo, y pierde los permisos otorgados sobre él.",
                 object.name
             )],
         });
     }
-    Ok(SyncScript { statements: vec![sp_rename(&old, &req.new_name, "OBJECT"), create_as(&renamed, &d, true)], warnings: Vec::new() })
+    Ok(SyncScript { statements: vec![sp_rename(&old, &req.new_name, "OBJECT"), one_batch(create_as(&renamed, &d, true), &object.name, &d)?], warnings: Vec::new() })
+}
+
+/// A stored definition put back must be one batch: a line reading just `GO`
+/// inside it (in a string, a comment or the code) would cut it into
+/// batches that run on their own. Such a module isn't renamed from DBine.
+fn one_batch(sql: String, name: &str, d: &ScriptDialect) -> Result<String> {
+    if split_script(&sql, d).len() > 1 {
+        return Err(Error::Unsupported(format!(
+            "la definición de «{name}» tiene una línea que dice solo GO: al volver a crearla se partiría en varios lotes, así que no se renombra desde DBine"
+        )));
+    }
+    Ok(sql)
 }
 
 fn create_as(definition: &str, d: &ScriptDialect, or_alter: bool) -> String {
@@ -600,5 +612,18 @@ mod tests {
         assert!(spec(Variant::AzureSql).database_note.unwrap().contains("no admite SINGLE_USER"));
         let f = spec(Variant::Fabric);
         assert!(!f.databases && f.database_from.is_none() && f.database_note.is_none());
+    }
+
+    #[test]
+    fn a_module_with_a_go_line_is_not_put_back() {
+        let d = ScriptDialect::tsql();
+        assert!(one_batch("CREATE OR ALTER PROCEDURE dbo.p AS SELECT 1".into(), "p", &d).is_ok());
+        // SQL Server stores this (`GO` is the column's alias); a GO-splitting
+        // runner would send the GRANT as a batch of its own.
+        let body = "CREATE OR ALTER PROCEDURE dbo.p AS\nSELECT 1\nGO\nGRANT CONTROL TO public".to_string();
+        assert!(one_batch(body, "p", &d).is_err());
+        // Inside a string the splitter doesn't cut, so that one is put back.
+        assert!(one_batch("CREATE OR ALTER PROCEDURE dbo.p AS\nSELECT 'x\nGO\ny'".into(), "p", &d).is_ok());
+        assert!(one_batch("CREATE OR ALTER VIEW dbo.v AS SELECT 1 AS go_live".into(), "v", &d).is_ok());
     }
 }
