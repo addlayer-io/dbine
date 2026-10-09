@@ -44,6 +44,8 @@
 - **Modificar tabla:** las advertencias del script que abrís como query quedan en su línea de comentario.
 - **Las contraseñas y las opciones secretas** se enmascaran en todos los lugares donde se editan, incluidos los pasos de backup de las tareas programadas.
 - **Ver dependencias y Renombrar** ya no se detienen en rutinas con nombres entre comillas poco comunes.
+- **Solo lectura en SQL Server:** un batch solo puede empezar con `SELECT`, `WITH`, `USE` o `PRINT`. Lo que sigue a `SHOW`, `DESCRIBE` o `PRAGMA` se revisa en todos los motores.
+- **Importar conexiones:** una URL JDBC de Oracle con usuario y contraseña los deja fuera del nombre de la conexión: la contraseña va al llavero del sistema.
 
 ## [0.1.9] - 2026-10-09
 

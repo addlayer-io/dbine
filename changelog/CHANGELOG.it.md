@@ -44,6 +44,8 @@
 - **Modifica tabella:** gli avvisi dello script che apri come query restano sulla propria riga di commento.
 - **Le password e le opzioni segrete** vengono mascherate ovunque si modifichino, compresi i passaggi di backup delle attività pianificate.
 - **Mostra dipendenze e Rinomina** non si fermano più sulle routine con nomi tra virgolette insoliti.
+- **Sola lettura su SQL Server:** un batch può iniziare solo con `SELECT`, `WITH`, `USE` o `PRINT`. Ciò che segue `SHOW`, `DESCRIBE` o `PRAGMA` viene controllato su tutti i motori.
+- **Importa connessioni:** un URL JDBC di Oracle con utente e password li tiene fuori dal nome della connessione: la password va nel portachiavi di sistema.
 
 ## [0.1.9] - 2026-10-09
 
