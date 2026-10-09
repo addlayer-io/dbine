@@ -62,12 +62,19 @@ Para cumplirlo:
 ## Changelog
 
 `CHANGELOG.md` cuenta, para quien usa DBine, qué trae cada versión: es lo que
-muestra el aviso de actualización y las notas del release. Cada cambio que el
-usuario nota suma una línea en `## [Sin publicar]`, en el mismo commit o en
-uno propio, con el formato del agente `changelog`
-(`.claude/agents/changelog.md`). Al preparar un release,
-`python3 scripts/changelog.py release <versión>` convierte «Sin publicar» en
-la versión nueva; el workflow de release falla si el tag no tiene su sección.
+muestra el aviso de actualización y las notas del release. Está en **inglés**
+y es la fuente. Cada cambio que el usuario nota suma una línea en
+`## [Unreleased]`, en el mismo commit o en uno propio, con el formato del
+agente `changelog` (`.claude/agents/changelog.md`).
+
+Las traducciones están en `changelog/CHANGELOG.{es,pt,fr,it}.md`: las mismas
+versiones publicadas, sin sección `Unreleased`. Al preparar un release,
+`python3 scripts/changelog.py release <versión>` convierte `Unreleased` en la
+versión nueva en el archivo en inglés; después el agente `translator` agrega
+esa versión a cada traducción y `python3 scripts/changelog.py check` tiene que
+pasar (falla si a una traducción le falta una versión). El workflow de
+release falla si el tag no tiene su sección. La app muestra las notas en el
+idioma de la interfaz leyendo la traducción del tag, y en inglés si no puede.
 
 ## Archivos compartidos
 
@@ -78,8 +85,9 @@ avisar y esperar confirmación.
 - `crates/dbine-driver/src/*` (el contrato)
 - `src-tauri/src/lib.rs`, `src-tauri/capabilities/`, `src-tauri/tauri.conf.json`
 - `web/package.json`, `web/src/main.ts`, `web/src/App.vue`, `web/src/api/*`
-- `CHANGELOG.md` (cada sesión agrega sus líneas a «Sin publicar»; releer el
-  archivo justo antes de editarlo)
+- `CHANGELOG.md` (cada sesión agrega sus líneas, en inglés, a `Unreleased`;
+  releer el archivo justo antes de editarlo) y `changelog/*` (solo al
+  publicar, lo escribe el agente `translator`)
 
 Cada driver es dueño exclusivo de su carpeta `crates/drivers/<motor>/`.
 

@@ -23,6 +23,16 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::sync::Notify;
 
 const LATEST_URL: &str = "https://api.github.com/repos/addlayer-io/dbine/releases/latest";
+/// The changelog translations, read at the release's tag:
+/// `{TRANSLATION_PREFIX}v<version>/changelog/CHANGELOG.<lang>.md`.
+const TRANSLATION_PREFIX: &str = "https://raw.githubusercontent.com/addlayer-io/dbine/";
+/// The UI languages with a changelog translation (English is the source,
+/// and it's what latest.json and the GitHub release carry).
+const TRANSLATED: [&str; 4] = ["es", "pt", "fr", "it"];
+/// How long the translation may take before the English notes are used.
+const TRANSLATION_TIMEOUT: Duration = Duration::from_secs(5);
+/// Versions shown at most, like the English notes (changelog.py recent --count 5).
+const RECENT_MAX: usize = 5;
 /// The only pages `open_release_page` opens.
 const RELEASES_PREFIX: &str = "https://github.com/addlayer-io/dbine/releases/";
 /// Release notes past this many characters are cut (the dialog shows a summary).
@@ -39,6 +49,10 @@ pub struct CheckForUpdateArgs {
     /// Asked by the user (Ayuda › Buscar actualizaciones…), not the startup check.
     #[serde(default)]
     pub manual: bool,
+    /// The UI language (`es`, `en`…): outside English, the notes come from
+    /// that language's changelog when it can be read.
+    #[serde(default)]
+    pub lang: Option<String>,
 }
 
 /// What `check_for_update` answers.
@@ -121,10 +135,22 @@ fn live_owner(app: &AppHandle, p: &Pending) -> Option<String> {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn check_for_update(window: WebviewWindow, args: CheckForUpdateArgs) -> CommandResult<UpdateInfo> {
+    let mut info = check(window, args.manual).await?;
+    if info.available {
+        if let Some(lang) = translated_lang(args.lang.as_deref()) {
+            if let Some(notes) = translated_notes(lang, &info.latest, &info.current).await {
+                info.notes = truncate(&notes, NOTES_MAX);
+            }
+        }
+    }
+    Ok(info)
+}
+
+async fn check(window: WebviewWindow, manual: bool) -> CommandResult<UpdateInfo> {
     let app = window.app_handle().clone();
     let me = window.label().to_string();
     let current = app.package_info().version.to_string();
-    tracing::info!(manual = args.manual, window = %me, "checking for updates");
+    tracing::info!(manual, window = %me, "checking for updates");
 
     // A download running or done: answer with it instead of checking again.
     {
@@ -635,16 +661,16 @@ fn compare_pre(a: &str, b: &str) -> Ordering {
 }
 
 /// The notes of the versions newer than `current`. A release carries the
-/// changelog of its last few versions, each under `## Versión x.y.z`
+/// changelog of its last few versions, each under `## Version x.y.z`
 /// (scripts/changelog.py recent), so someone several versions behind reads
-/// all they're getting. Notes without those headings come back whole.
+/// all they're getting. Notes without version headings come back whole.
 fn notes_since(body: &str, current: &str) -> String {
     let mut out = String::new();
     let (mut found, mut keep) = (false, true);
     for line in body.lines() {
-        if let Some(v) = line.trim().strip_prefix("## Versión ") {
+        if let Some(v) = heading_version(line) {
             found = true;
-            keep = compare_versions(v.trim(), current) == Some(Ordering::Greater);
+            keep = compare_versions(v, current) == Some(Ordering::Greater);
         }
         if keep {
             out.push_str(line);
@@ -652,6 +678,81 @@ fn notes_since(body: &str, current: &str) -> String {
         }
     }
     if found { out.trim().to_string() } else { body.trim().to_string() }
+}
+
+/// The version a changelog heading names: `## Version x.y.z` (release
+/// notes) or `## [x.y.z] - date` (CHANGELOG files; `[Unreleased]` comes back
+/// as is and isn't a version).
+fn heading_version(line: &str) -> Option<&str> {
+    let rest = line.trim().strip_prefix("## ")?;
+    if let Some(v) = rest.strip_prefix("Version ") {
+        return Some(v.trim());
+    }
+    Some(rest.strip_prefix('[')?.split_once(']')?.0.trim())
+}
+
+/// `lang` when the changelog has a translation to it (`pt-BR` counts as `pt`).
+fn translated_lang(lang: Option<&str>) -> Option<&'static str> {
+    let code = lang?.split(['-', '_']).next()?.to_ascii_lowercase();
+    TRANSLATED.into_iter().find(|l| *l == code)
+}
+
+/// The notes in `lang`, from `changelog/CHANGELOG.<lang>.md` at `latest`'s
+/// tag. `None` on any failure (offline, no such file, a file without
+/// `latest`): the caller keeps the English notes.
+async fn translated_notes(lang: &str, latest: &str, current: &str) -> Option<String> {
+    // A version, not a path: it goes into the URL.
+    parse_version(latest)?;
+    if !latest.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+')) {
+        return None;
+    }
+    let url = format!("{TRANSLATION_PREFIX}v{latest}/changelog/CHANGELOG.{lang}.md");
+    let fetched = async {
+        let resp = client().get(&url).timeout(TRANSLATION_TIMEOUT).send().await?.error_for_status()?;
+        resp.text().await
+    };
+    match fetched.await {
+        Ok(md) => {
+            let notes = localized_notes(&md, latest, current);
+            if notes.is_none() {
+                tracing::info!(lang, latest, "changelog translation without this version, using English notes");
+            }
+            notes
+        }
+        Err(e) => {
+            tracing::info!(lang, "changelog translation unavailable, using English notes: {}", chain(&e));
+            None
+        }
+    }
+}
+
+/// From a translated CHANGELOG, the versions after `current` up to
+/// `latest` (at most `RECENT_MAX`, newest first), each under
+/// `## Version x.y.z` like the English notes. `None` when `latest` isn't in it.
+fn localized_notes(md: &str, latest: &str, current: &str) -> Option<String> {
+    let mut sections: Vec<(&str, String)> = Vec::new();
+    for line in md.lines() {
+        if let Some(v) = heading_version(line) {
+            sections.push((v, String::new()));
+        } else if let Some((_, body)) = sections.last_mut() {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    if !sections.iter().any(|(v, _)| compare_versions(v, latest) == Some(Ordering::Equal)) {
+        return None;
+    }
+    let kept: Vec<String> = sections
+        .iter()
+        .filter(|(v, body)| {
+            !body.trim().is_empty()
+                && compare_versions(v, current) == Some(Ordering::Greater)
+                && compare_versions(v, latest).is_some_and(|o| o != Ordering::Greater)
+        })
+        .take(RECENT_MAX)
+        .map(|(v, body)| format!("## Version {v}\n\n{}", body.trim()))
+        .collect();
+    if kept.is_empty() { None } else { Some(kept.join("\n\n")) }
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -748,10 +849,51 @@ mod tests {
 
     #[test]
     fn keeps_the_notes_of_newer_versions() {
-        let body = "## Versión 0.1.10\n\n### Nuevo\n- a\n\n## Versión 0.1.9\n\n- b\n\n## Versión 0.1.8\n\n- c";
-        assert_eq!(notes_since(body, "0.1.8"), "## Versión 0.1.10\n\n### Nuevo\n- a\n\n## Versión 0.1.9\n\n- b");
-        assert_eq!(notes_since(body, "0.1.9"), "## Versión 0.1.10\n\n### Nuevo\n- a");
-        assert_eq!(notes_since("Instaladores.\n- x", "0.1.8"), "Instaladores.\n- x");
+        let body = "## Version 0.1.10\n\n### New\n- a\n\n## Version 0.1.9\n\n- b\n\n## Version 0.1.8\n\n- c";
+        assert_eq!(notes_since(body, "0.1.8"), "## Version 0.1.10\n\n### New\n- a\n\n## Version 0.1.9\n\n- b");
+        assert_eq!(notes_since(body, "0.1.9"), "## Version 0.1.10\n\n### New\n- a");
+        assert_eq!(notes_since("Installers.\n- x", "0.1.8"), "Installers.\n- x");
+        // CHANGELOG headings too; Unreleased isn't a version.
+        let file = "## [Unreleased]\n\n- u\n\n## [0.1.10] - 2026-10-10\n\n- a\n\n## [0.1.9] - 2026-10-09\n\n- b";
+        assert_eq!(notes_since(file, "0.1.9"), "## [0.1.10] - 2026-10-10\n\n- a");
+    }
+
+    #[test]
+    fn reads_changelog_headings() {
+        assert_eq!(heading_version("## Version 0.1.10"), Some("0.1.10"));
+        assert_eq!(heading_version("## [0.1.10] - 2026-10-10"), Some("0.1.10"));
+        assert_eq!(heading_version("## [Unreleased]"), Some("Unreleased"));
+        assert_eq!(heading_version("### Nuevo"), None);
+        assert_eq!(heading_version("# Cambios"), None);
+    }
+
+    #[test]
+    fn only_translated_languages_fetch_notes() {
+        assert_eq!(translated_lang(Some("es")), Some("es"));
+        assert_eq!(translated_lang(Some("pt-BR")), Some("pt"));
+        assert_eq!(translated_lang(Some("FR")), Some("fr"));
+        assert_eq!(translated_lang(Some("en")), None);
+        assert_eq!(translated_lang(Some("../x")), None);
+        assert_eq!(translated_lang(None), None);
+    }
+
+    #[test]
+    fn localizes_the_versions_since_the_installed_one() {
+        let md = "# Cambios\n\n## [0.1.11] - 2026-10-20\n\n- futura\n\n## [0.1.10] - 2026-10-10\n\n### Nuevo\n- a\n\n\
+                  ## [0.1.9] - 2026-10-09\n\n### Correcciones\n- b\n\n## [0.1.8] - 2026-10-01\n\n- c\n";
+        assert_eq!(
+            localized_notes(md, "0.1.10", "0.1.8").as_deref(),
+            Some("## Version 0.1.10\n\n### Nuevo\n- a\n\n## Version 0.1.9\n\n### Correcciones\n- b")
+        );
+        assert_eq!(localized_notes(md, "0.1.10", "0.1.9").as_deref(), Some("## Version 0.1.10\n\n### Nuevo\n- a"));
+        // The translation doesn't have the offered version: English notes.
+        assert_eq!(localized_notes(md, "0.1.12", "0.1.9"), None);
+        assert_eq!(localized_notes("<html>404</html>", "0.1.10", "0.1.9"), None);
+        // At most RECENT_MAX versions.
+        let many: String = (1..=8).rev().map(|n| format!("## [0.2.{n}] - 2026-01-0{n}\n\n- v{n}\n\n")).collect();
+        let notes = localized_notes(&many, "0.2.8", "0.1.0").unwrap();
+        assert_eq!(notes.matches("## Version ").count(), RECENT_MAX);
+        assert!(notes.starts_with("## Version 0.2.8") && notes.contains("## Version 0.2.4") && !notes.contains("0.2.3"));
     }
 
     #[test]
