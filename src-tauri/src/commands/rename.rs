@@ -736,18 +736,12 @@ fn follow_json(v: &mut serde_json::Value, cid: &str, old: &str, new: &str) -> bo
 pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &RenameRequest, rewrites: &[RewriteChoice]) -> CommandResult<SyncScript> {
     let middle = driver.rename_script(request)?;
     let dialect = driver.script_dialect();
-    // Engines that cut scripts only at batch lines (T-SQL's `GO`): a
-    // dependent put back must be one batch, or a `GO` line stored in it
-    // would run what follows on its own.
-    if !dialect.semicolons {
-        for o in rewrites.iter().flat_map(|r| std::iter::once(&r.object).chain(r.carried.iter())) {
-            if dbine_driver::sql::split_script(&o.definition, &dialect).len() > 1 {
-                return Err(CommandError::BadRequest(format!(
-                    "la definición de «{}» tiene una línea que dice solo GO: al volver a crearla se partiría en varios lotes; quitala de la lista o corregila antes",
-                    o.name
-                )));
-            }
-        }
+    // A dependent put back must be one unit as the driver cuts scripts:
+    // a `GO` line stored in a T-SQL module, or a body whose quoting closes
+    // early (a `$$` in a body wrapped in `$$`), would run what follows as
+    // statements of their own.
+    for o in rewrites.iter().flat_map(|r| std::iter::once(&r.object).chain(r.carried.iter())) {
+        check_one_unit(driver, o)?;
     }
     let mut lost = Vec::new();
     let mut objects: Vec<ObjectChange> = rewrites
@@ -783,6 +777,26 @@ pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &Ren
         script.warnings.push(format!("Se borran y se vuelven a crear {}: se pierden los permisos otorgados sobre ellos.", lost.join(", ")));
     }
     Ok(script)
+}
+
+/// `o`'s definition is a single unit as `driver` splits scripts (client
+/// commands aside), or the rename refuses to put it back.
+fn check_one_unit(driver: &dyn Driver, o: &CodeObject) -> CommandResult<()> {
+    let units = driver.split_script(&o.definition).into_iter().filter(|u| u.kind != dbine_driver::StatementKind::ClientCommand).count();
+    if units <= 1 {
+        return Ok(());
+    }
+    Err(CommandError::BadRequest(if driver.script_dialect().semicolons {
+        format!(
+            "la definición de «{}» se parte en {units} sentencias al volver a crearla: DBine no la vuelve a ejecutar así; quitala de la lista o recreala a mano",
+            o.name
+        )
+    } else {
+        format!(
+            "la definición de «{}» tiene una línea que dice solo GO: al volver a crearla se partiría en varios lotes; quitala de la lista o corregila antes",
+            o.name
+        )
+    }))
 }
 
 #[cfg(test)]
@@ -1045,6 +1059,26 @@ mod tests {
         let s = build_script(&d, &d.spec, &request("Nuevo"), &[choice("v1", "CREATE VIEW dbo.v1 AS SELECT a FROM dbo.Nuevo", false)]).unwrap();
         assert_eq!(s.statements.len(), 3);
         assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+    }
+
+    #[test]
+    fn a_dependent_put_back_must_be_one_unit_on_every_engine() {
+        // T-SQL: a GO line splits a batch.
+        let d = fake(ReplaceStyle::CreateOrAlter);
+        let go = choice("v1", "CREATE VIEW dbo.v1 AS SELECT a FROM dbo.Nuevo\nGO\nDROP TABLE dbo.t", false);
+        assert!(matches!(build_script(&d, &d.spec, &request("Nuevo"), &[go]), Err(CommandError::BadRequest(m)) if m.contains("GO")));
+        // Engines that split at `;`: a definition whose quoting closes early.
+        let mut d = fake(ReplaceStyle::CreateOrReplace);
+        d.info.dialect = "postgres";
+        let two = choice("f", "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql; DROP TABLE t", false);
+        assert!(matches!(build_script(&d, &d.spec, &request("Nuevo"), std::slice::from_ref(&two)), Err(CommandError::BadRequest(m)) if m.contains("2 sentencias")));
+        // Carried ones too.
+        let mut v = choice("v1", "CREATE VIEW v1 AS SELECT a FROM Nuevo", false);
+        v.carried = vec![two.object.clone()];
+        assert!(build_script(&d, &d.spec, &request("Nuevo"), &[v]).is_err());
+        // One unit (a `;` inside the body, a trailing `;`) is fine.
+        let one = choice("f", "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;", false);
+        assert!(build_script(&d, &d.spec, &request("Nuevo"), &[one]).is_ok());
     }
 
     #[test]

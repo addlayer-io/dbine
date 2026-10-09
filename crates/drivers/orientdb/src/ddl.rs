@@ -165,6 +165,7 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
             }
         }
     }
+    crate::one_unit_each(&out)?;
     Ok(out.into_iter().map(|s| format!("{s};")).collect::<Vec<_>>().join("\n"))
 }
 
@@ -330,6 +331,7 @@ pub fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Value>]
         out.push_str(&stmt);
         out.push('\n');
     }
+    crate::one_unit_per_line(&out)?;
     Ok(out)
 }
 
@@ -373,6 +375,7 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
         let sets: Vec<String> = ch.set.iter().map(|(c, v)| format!("{} = {}", ident(c), sql_value(v))).collect();
         out.push_str(&format!("UPDATE {class} SET {} WHERE {cond};\n", sets.join(", ")));
     }
+    crate::one_unit_per_line(&out)?;
     Ok(out)
 }
 
@@ -391,6 +394,7 @@ pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Resul
     for key in keys {
         out.push_str(&format!("{verb} {class} WHERE {};\n", key_cond(key)?));
     }
+    crate::one_unit_per_line(&out)?;
     Ok(out)
 }
 

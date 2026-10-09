@@ -68,7 +68,8 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
             TableChange::Alter { old, new } => alter(old, new, &mut p)?,
         }
     }
-    let statements = [p.drops, p.pre, p.creates, p.columns, p.post].into_iter().flatten().collect();
+    let statements: Vec<String> = [p.drops, p.pre, p.creates, p.columns, p.post].into_iter().flatten().collect();
+    crate::one_unit_each(&statements)?;
     Ok(SyncScript { statements, warnings: p.warnings })
 }
 

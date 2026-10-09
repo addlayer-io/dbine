@@ -651,6 +651,50 @@ fn as_text(v: &Value) -> String {
     }
 }
 
+/// A name for a generated script, refused when it holds what the server
+/// and the script splitter read differently inside backticks (the server
+/// takes `\`` as an escape, the splitter ends the name there), a `;`, or a
+/// control character.
+pub(crate) fn script_ident(name: &str) -> Result<String> {
+    if name.contains(['`', '\\', ';']) || name.chars().any(char::is_control) {
+        return Err(Error::Unsupported(format!(
+            "«{}» tiene caracteres (`, \\, ; o de control) que DBine no escribe en un script de OrientDB: hacelo desde la consola del servidor",
+            name.escape_debug()
+        )));
+    }
+    Ok(ident(name))
+}
+
+/// Statements of a generated script, each one unit as the app splits
+/// scripts (`dialect`), and all of them together as many units as there
+/// are statements: a name from the server can't cut one in two or join
+/// two (the server reads `\`` inside backticks as an escape, the splitter
+/// as the end of the name).
+pub(crate) fn one_unit_each<S: AsRef<str>>(stmts: &[S]) -> Result<()> {
+    let units = |s: &str| {
+        dbine_driver::sql::split_script(s, &dialect()).into_iter().filter(|u| u.kind != dbine_driver::StatementKind::ClientCommand).count()
+    };
+    let joined: String = stmts
+        .iter()
+        .map(|s| {
+            let s = s.as_ref().trim_end();
+            if s.ends_with(';') { format!("{s}\n") } else { format!("{s};\n") }
+        })
+        .collect();
+    if stmts.iter().all(|s| units(s.as_ref()) == 1) && units(&joined) == stmts.len() {
+        return Ok(());
+    }
+    Err(Error::Unsupported(
+        "un nombre de la base tiene caracteres (`, \\ o ;) que harían que el script se parta distinto de como lo lee OrientDB: DBine no lo genera".into(),
+    ))
+}
+
+/// A script of one statement per line ([`one_unit_each`]).
+pub(crate) fn one_unit_per_line(script: &str) -> Result<()> {
+    let lines: Vec<&str> = script.lines().filter(|l| !l.trim().is_empty()).collect();
+    one_unit_each(&lines)
+}
+
 /// A class or property name, between backticks when it isn't plain.
 pub fn ident(name: &str) -> String {
     let plain = !name.is_empty()
@@ -1199,6 +1243,14 @@ mod tests {
         assert_eq!(strip_plan_prefix("profile SELECT 1"), "SELECT 1");
         assert!(is_read("  select from X") && is_read("MATCH {as: a} RETURN a") && !is_read("UPDATE X SET a = 1"));
         assert_eq!(ident("a b"), "`a b`");
+        // Scripts: names that would split differently are refused.
+        assert!(script_ident("a b").is_ok());
+        for bad in ["a`b", "a\\b", "a;b", "a\nb", "a\u{7f}"] {
+            assert!(script_ident(bad).is_err(), "{bad:?}");
+        }
+        assert!(one_unit_each(&["SELECT 1", "SELECT `a;b`"]).is_ok());
+        assert!(one_unit_each(&[format!("DROP CLASS {}", ident("x\\`; DELETE VERTEX V; --"))]).is_err());
+        assert!(one_unit_per_line(&format!("UPDATE {} SET a = 1;\n", ident("x\\`;\nDELETE VERTEX V;"))).is_err());
     }
 
     #[test]
