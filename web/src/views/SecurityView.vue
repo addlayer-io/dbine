@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
 import { securityApi, type Grant, type Principal, type SecurityAction } from '../api/security';
@@ -8,7 +8,7 @@ import type { ObjectRef } from '../api/types';
 import { tb } from '../i18n/backend';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
-import type { SecurityTab } from '../stores/tabs';
+import { closeGuards, type SecurityTab } from '../stores/tabs';
 
 // Users and permissions (docs/users-and-permissions.md): the server's (or the
 // database's) users and roles, what each can do, and changes as scripts in
@@ -101,26 +101,122 @@ onBeforeUnmount(() => {
   }
 });
 const review = reactive<{
-  open: boolean; action: SecurityAction | null;
-  /** The user "Asignar login…" creates, selected once it runs. */
-  mapped: string | null;
+  open: boolean;
+  /** The pending changes this review runs (their ids), in order. */
+  ids: number[];
   script: string; shown: string; error: string | null; running: boolean; cancelling: boolean;
 }>({
-  open: false, action: null, mapped: null, script: '', shown: '', error: null, running: false, cancelling: false,
+  open: false, ids: [], script: '', shown: '', error: null, running: false, cancelling: false,
 });
-/** Show a change's script for review (`load` writes it). */
-async function showScript(load: () => Promise<{ script: string; shown: string }>, action: SecurityAction | null, mapped: string | null) {
-  // A change still running owns the dialog: show it instead of replacing it.
-  if (review.running) { review.open = true; return; }
+
+// -- pending changes -----------------------------------------------------------
+// Each change is queued with its script (written right away, so a mistake
+// shows at once) and applied with the others in one reviewed run.
+interface PendingChange {
+  id: number;
+  /** What it does, in words ("Otorgar SELECT sobre dbo.t a ana"). */
+  label: string;
+  script: string;
+  /** The script with the password hidden. */
+  shown: string;
+  action: SecurityAction | null;
+  /** The user or role it creates, selected once applied. */
+  creates: string | null;
+}
+const pending = ref<PendingChange[]>([]);
+const pendingOpen = ref(true);
+let pendingSeq = 0;
+/** Write a change's script and queue it; an error shows and queues nothing. */
+async function queue(label: string, load: () => Promise<{ script: string; shown: string }>, action: SecurityAction | null, creates: string | null) {
   try {
     const s = await load();
-    Object.assign(review, { open: true, action, mapped, script: s.script, shown: s.shown, error: null, running: false, cancelling: false });
+    pending.value.push({ id: ++pendingSeq, label, script: s.script, shown: s.shown, action, creates });
   } catch (e) {
     ElMessage.error(errorMessage(e));
   }
 }
+function objectLabel(o: ObjectRef | null): string {
+  if (!o) return t('security:everything');
+  return o.schema ? `${o.schema}.${o.name}` : o.name;
+}
+function labelOf(a: SecurityAction): string {
+  switch (a.action) {
+    case 'create_user': return t('security:change.createUser', { name: a.name });
+    case 'create_role': return t('security:change.createRole', { name: a.name });
+    case 'drop': return t('security:change.drop', { name: a.name });
+    case 'set_password': return t('security:change.setPassword', { name: a.name });
+    case 'set_login': return t(a.enabled ? 'security:change.enable' : 'security:change.disable', { name: a.name });
+    case 'grant': return t('security:change.grant', { privileges: a.privileges.join(', '), object: objectLabel(a.object), name: a.to });
+    case 'revoke': return t('security:change.revoke', { privileges: a.privileges.join(', '), object: objectLabel(a.object), name: a.from });
+    case 'add_member': return t('security:change.addMember', { member: a.member, role: a.role });
+    case 'remove_member': return t('security:change.removeMember', { member: a.member, role: a.role });
+  }
+}
 function propose(action: SecurityAction) {
-  return showScript(() => securityApi.script(props.tab.connectionId, action), action, null);
+  const creates = action.action === 'create_user' || action.action === 'create_role' ? action.name : null;
+  return queue(labelOf(action), () => securityApi.script(props.tab.connectionId, action), action, creates);
+}
+function unqueue(id: number) {
+  pending.value = pending.value.filter((p) => p.id !== id);
+}
+async function discardPending() {
+  if (pending.value.length > 1) {
+    try {
+      await ElMessageBox.confirm(t('security:pending.discardConfirm', { count: pending.value.length }), t('security:pending.discard'), {
+        type: 'warning', confirmButtonText: t('security:pending.discard'), cancelButtonText: t('common:cancel'),
+      });
+    } catch { return; }
+  }
+  pending.value = [];
+}
+/** "Aplicar…": every pending change in one script, reviewed before it runs. */
+function applyPending() {
+  // A run still going owns the dialog: show it instead of replacing it.
+  if (review.running) { review.open = true; return; }
+  if (!pending.value.length) return;
+  Object.assign(review, {
+    open: true,
+    ids: pending.value.map((p) => p.id),
+    script: pending.value.map((p) => p.script).join('\n\n'),
+    shown: pending.value.map((p) => p.shown).join('\n\n'),
+    error: null, running: false, cancelling: false,
+  });
+}
+// Closing the tab with changes not applied asks first.
+async function guardClose(): Promise<boolean> {
+  try {
+    await ElMessageBox.confirm(t('security:pending.closeConfirm', { count: pending.value.length }), t('security:pending.title', { count: pending.value.length }), {
+      type: 'warning', confirmButtonText: t('security:pending.closeAnyway'), cancelButtonText: t('common:cancel'),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+watch(() => pending.value.length > 0, (on) => {
+  if (on) closeGuards.set(props.tab.id, guardClose);
+  else closeGuards.delete(props.tab.id);
+}, { immediate: true });
+onBeforeUnmount(() => closeGuards.delete(props.tab.id));
+
+/** Same privilege on the same object (a pending revoke of a listed grant). */
+function sameObject(a: ObjectRef | null, b: ObjectRef | null): boolean {
+  if (!a || !b) return !a && !b;
+  return a.name === b.name && (a.schema ?? null) === (b.schema ?? null);
+}
+/** Pending grants to the selected principal (shown muted in its table). */
+const pendingGrants = computed(() => pending.value.flatMap((p) =>
+  p.action?.action === 'grant' && p.action.to === current.value?.name ? [{ id: p.id, privileges: p.action.privileges.join(', '), object: objectLabel(p.action.object) }] : []));
+function revoking(g: Grant): boolean {
+  const name = current.value?.name;
+  return pending.value.some((p) => p.action?.action === 'revoke' && p.action.from === name
+    && p.action.privileges.includes(g.privilege) && sameObject(p.action.object, objectOf(g)));
+}
+/** Roles the selected principal is pending to join / leave. */
+const joining = computed(() => pending.value.flatMap((p) =>
+  p.action?.action === 'add_member' && p.action.member === current.value?.name ? [p.action.role] : []));
+function leaving(role: string): boolean {
+  return pending.value.some((p) => p.action?.action === 'remove_member' && p.action.member === current.value?.name && p.action.role === role);
 }
 async function copyScript() {
   // The copy never carries the password.
@@ -155,27 +251,68 @@ async function run() {
     reopen: () => { review.open = true; },
   });
   runTask = task;
-  const a = review.action;
-  const mapped = review.mapped;
+  // One change at a time, in order, on the same session: each leaves the
+  // list as soon as it ran, so a re-run after an error starts at the one
+  // that failed instead of repeating what already went through.
+  const entries = pending.value.filter((p) => review.ids.includes(p.id));
+  const total = entries.length;
+  const unit = t('security:pending.unit');
+  const done: PendingChange[] = [];
+  /** The error to show, or null when every change ran. */
+  let failure: string | null = null;
+  let cancelled = false;
+  task.progress({ done: 0, total, unit });
   try {
-    const o = await api.executeQuery({ sessionId, connectionId, database, sql: review.script, maxRows: 10, record: false });
-    if (o.error) {
-      review.error = tb(o.error);
-      if (task.isCancelling) task.cancelled(); else task.fail(review.error);
-      return;
+    for (const entry of entries) {
+      // Cancelling between changes: stop before the next one.
+      if (task.isCancelling) { cancelled = true; break; }
+      task.progress({ phase: entry.label });
+      let err: string | null = null;
+      try {
+        const o = await api.executeQuery({ sessionId, connectionId, database, sql: entry.script, maxRows: 10, record: false });
+        if (o.error) err = tb(o.error);
+      } catch (e) {
+        err = errorMessage(e);
+      }
+      if (err !== null) {
+        if (task.isCancelling) { cancelled = true; break; }
+        failure = `${t('security:pending.failed', { label: entry.label, applied: done.length, total })}\n\n${err}`;
+        break;
+      }
+      done.push(entry);
+      pending.value = pending.value.filter((p) => p.id !== entry.id);
+      task.progress({ done: done.length, total, unit });
     }
-    task.finish();
-    const quiet = !!tasks.byId(task.id)?.background;
-    review.open = false;
-    if (!quiet) ElMessage.success(t('security:done'));
+    if (cancelled) {
+      failure = t('security:pending.cancelled', { applied: done.length, total });
+      task.cancelled(failure);
+    } else if (failure !== null) {
+      task.fail(failure);
+    } else {
+      task.finish(undefined, t('security:pending.summary', { applied: done.length }));
+    }
+    if (failure === null) {
+      review.open = false;
+      if (!tasks.byId(task.id)?.background) ElMessage.success(t('security:done'));
+    } else {
+      // The dialog now offers what's left: the failed change and the ones after it.
+      const left = entries.filter((e) => !done.includes(e) && pending.value.some((p) => p.id === e.id));
+      Object.assign(review, {
+        error: failure,
+        ids: left.map((e) => e.id),
+        script: left.map((e) => e.script).join('\n\n'),
+        shown: left.map((e) => e.shown).join('\n\n'),
+      });
+    }
     if (!alive) return;
-    if (a && (a.action === 'create_user' || a.action === 'create_role')) selected.value = a.name;
-    if (mapped) selected.value = mapped;
-    if (a && a.action === 'drop') selected.value = null;
+    // Select the last user or role that was created; a dropped selection clears.
+    let next: string | null | undefined;
+    for (const p of done) {
+      if (p.creates) next = p.creates;
+      else if (p.action?.action === 'drop' && p.action.name === (next ?? selected.value)) next = null;
+    }
+    if (next !== undefined) selected.value = next;
     await load();
-  } catch (e) {
-    review.error = errorMessage(e);
-    if (task.isCancelling) task.cancelled(); else task.fail(e);
   } finally {
     review.running = false;
     review.cancelling = false;
@@ -229,7 +366,7 @@ function submitMapLogin() {
   if (!login || !user) return;
   mapLogin.open = false;
   const schema = (mapSchemas.value && mapLogin.schema.trim()) || null;
-  showScript(() => securityApi.mapLoginScript(props.tab.connectionId, login, user, schema), null, user);
+  queue(t('security:change.mapLogin', { login, user }), () => securityApi.mapLoginScript(props.tab.connectionId, login, user, schema), null, user);
 }
 const password = reactive({ open: false, value: '' });
 function submitPassword() {
@@ -271,6 +408,24 @@ function submitAddRole() {
 </script>
 
 <template>
+  <div class="sv-root">
+  <div v-if="pending.length" class="sv-pending">
+    <div class="sv-pending-head">
+      <button class="sv-pending-toggle" @click="pendingOpen = !pendingOpen">
+        <el-icon class="sv-caret" :class="{ open: pendingOpen }"><ei-arrow-right /></el-icon>
+        {{ $t('security:pending.title', { count: pending.length }) }}
+      </button>
+      <span style="flex: 1" />
+      <el-button size="small" :disabled="review.running" @click="discardPending">{{ $t('security:pending.discard') }}</el-button>
+      <el-button size="small" type="primary" :disabled="!canEdit" @click="applyPending">{{ $t('security:pending.apply') }}</el-button>
+    </div>
+    <ol v-if="pendingOpen" class="sv-pending-list">
+      <li v-for="p in pending" :key="p.id">
+        <span>{{ p.label }}</span>
+        <button :title="$t('security:pending.remove')" :disabled="review.running && review.ids.includes(p.id)" @click="unqueue(p.id)">×</button>
+      </li>
+    </ol>
+  </div>
   <div class="sv">
     <aside class="sv-list">
       <div class="sv-list-head">
@@ -321,14 +476,16 @@ function submitAddRole() {
 
         <h3 v-if="spec?.membership">{{ $t('security:memberOf') }}</h3>
         <div v-if="spec?.membership" class="sv-roles">
-          <span v-for="r in current.member_of" :key="r" class="sv-chip">
+          <span v-for="r in current.member_of" :key="r" class="sv-chip" :class="{ queued: leaving(r) }">
             {{ r }}
-            <button v-if="canEdit" :title="$t('security:removeFromRole')" @click="propose({ action: 'remove_member', role: r, member: current.name })">×</button>
+            <span v-if="leaving(r)" class="sv-dim">· {{ $t('security:pending.leaving') }}</span>
+            <button v-else-if="canEdit" :title="$t('security:removeFromRole')" @click="propose({ action: 'remove_member', role: r, member: current.name })">×</button>
           </span>
+          <span v-for="r in joining" :key="`+${r}`" class="sv-chip queued">{{ r }} <span class="sv-dim">· {{ $t('security:pending.mark') }}</span></span>
           <span v-if="!current.member_of.length" class="sv-dim">{{ $t('security:noRoles') }}</span>
           <template v-if="canEdit">
             <el-select v-model="addRole" size="small" filterable :placeholder="$t('security:addToRole')" style="width: 200px">
-              <el-option v-for="r in roleNames.filter((x) => !current!.member_of.includes(x))" :key="r" :label="r" :value="r" />
+              <el-option v-for="r in roleNames.filter((x) => !current!.member_of.includes(x) && !joining.includes(x))" :key="r" :label="r" :value="r" />
             </el-select>
             <el-button size="small" :disabled="!addRole" @click="submitAddRole">{{ $t('security:add') }}</el-button>
           </template>
@@ -343,9 +500,18 @@ function submitAddRole() {
               <td>{{ g.privilege }}<span v-if="g.denied" class="sv-badge">DENY</span><span v-if="g.grantable" class="sv-badge">{{ $t('security:grantable') }}</span></td>
               <td>{{ g.object ?? $t('security:everything') }}<span v-if="g.object_kind" class="sv-dim"> · {{ g.object_kind }}</span></td>
               <td>{{ g.via ?? $t('security:direct') }}</td>
-              <td class="sv-act"><el-button v-if="!g.via && canEdit" size="small" text type="danger" @click="revoke(g)">{{ $t('security:revoke') }}</el-button></td>
+              <td class="sv-act">
+                <span v-if="revoking(g)" class="sv-dim">{{ $t('security:pending.revoking') }}</span>
+                <el-button v-else-if="!g.via && canEdit" size="small" text type="danger" @click="revoke(g)">{{ $t('security:revoke') }}</el-button>
+              </td>
             </tr>
-            <tr v-if="!grants.length"><td colspan="4" class="sv-dim">{{ $t('security:noPermissions') }}</td></tr>
+            <tr v-for="p in pendingGrants" :key="`p${p.id}`" class="queued">
+              <td>{{ p.privileges }}</td>
+              <td>{{ p.object }}</td>
+              <td>{{ $t('security:direct') }}</td>
+              <td class="sv-act sv-dim">{{ $t('security:pending.mark') }}</td>
+            </tr>
+            <tr v-if="!grants.length && !pendingGrants.length"><td colspan="4" class="sv-dim">{{ $t('security:noPermissions') }}</td></tr>
           </tbody>
         </table>
 
@@ -378,7 +544,7 @@ function submitAddRole() {
       </el-form>
       <template #footer>
         <el-button @click="create.open = false">{{ $t('common:cancel') }}</el-button>
-        <el-button type="primary" :disabled="!create.name.trim()" @click="submitCreate">{{ $t('security:seeScript') }}</el-button>
+        <el-button type="primary" :disabled="!create.name.trim()" @click="submitCreate">{{ $t('security:pending.add') }}</el-button>
       </template>
     </el-dialog>
     <el-dialog v-model="mapLogin.open" :title="$t('security:mapLoginTitle')" width="440px" append-to-body>
@@ -406,14 +572,14 @@ function submitAddRole() {
       </el-form>
       <template #footer>
         <el-button @click="mapLogin.open = false">{{ $t('common:cancel') }}</el-button>
-        <el-button type="primary" :disabled="!mapLogin.login.trim() || !mapLogin.user.trim()" @click="submitMapLogin">{{ $t('security:seeScript') }}</el-button>
+        <el-button type="primary" :disabled="!mapLogin.login.trim() || !mapLogin.user.trim()" @click="submitMapLogin">{{ $t('security:pending.add') }}</el-button>
       </template>
     </el-dialog>
     <el-dialog v-model="password.open" :title="$t('security:setPassword')" width="420px" append-to-body>
       <el-input v-model="password.value" type="password" show-password autofocus @keyup.enter="submitPassword" />
       <template #footer>
         <el-button @click="password.open = false">{{ $t('common:cancel') }}</el-button>
-        <el-button type="primary" :disabled="!password.value" @click="submitPassword">{{ $t('security:seeScript') }}</el-button>
+        <el-button type="primary" :disabled="!password.value" @click="submitPassword">{{ $t('security:pending.add') }}</el-button>
       </template>
     </el-dialog>
     <el-dialog v-model="review.open" :title="$t('security:reviewTitle')" width="680px" append-to-body :close-on-click-modal="!review.running" :show-close="!review.running" @close="review.running && sendToBackground()">
@@ -429,15 +595,30 @@ function submitAddRole() {
             <el-button @click="sendToBackground(() => (review.open = false))">{{ $t('tasks:panel.background') }}</el-button>
           </template>
           <el-button v-else @click="review.open = false">{{ $t('common:cancel') }}</el-button>
-          <el-button type="primary" :loading="review.running" @click="run">{{ $t('security:run') }}</el-button>
+          <el-button type="primary" :loading="review.running" :disabled="!review.ids.length" @click="run">{{ $t('security:run') }}</el-button>
         </div>
       </template>
     </el-dialog>
   </div>
+  </div>
 </template>
 
 <style scoped>
-.sv { display: flex; height: 100%; min-height: 0; background: var(--ide-editor); }
+.sv-root { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--ide-editor); }
+.sv { display: flex; flex: 1; min-height: 0; background: var(--ide-editor); }
+.sv-pending { flex: none; padding: 6px 12px; border-bottom: 1px solid var(--nm-border); background: color-mix(in srgb, var(--nm-warning) 8%, var(--ide-editor)); font-size: 12.5px; }
+.sv-pending-head { display: flex; align-items: center; gap: 8px; }
+.sv-pending-head .el-button { margin: 0; }
+.sv-pending-toggle { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--nm-text-strong); cursor: pointer; }
+.sv-caret { transition: transform .15s; }
+.sv-caret.open { transform: rotate(90deg); }
+.sv-pending-list { margin: 6px 0 2px; padding-left: 22px; max-height: 160px; overflow: auto; }
+.sv-pending-list li { padding: 1px 0; color: var(--nm-text); }
+.sv-pending-list li > * { vertical-align: middle; }
+.sv-pending-list button { margin-left: 8px; border: 0; background: none; color: var(--nm-text-dim); cursor: pointer; padding: 0 2px; }
+.sv-pending-list button:disabled { cursor: default; opacity: .4; }
+.sv-chip.queued { background: none; border: 1px dashed var(--nm-border); color: var(--nm-text-dim); }
+.sv-table tr.queued td { color: var(--nm-text-dim); font-style: italic; }
 .sv-list { width: 280px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--nm-border); }
 .sv-list-head { display: flex; gap: 4px; padding: 10px 10px 6px; }
 .sv-list-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 8px; }
