@@ -273,15 +273,15 @@ impl Exporter {
             Format::Csv | Format::CsvSemicolon | Format::CsvExcel | Format::Tsv => {
                 let null = self.opts.null_text.clone();
                 // Only text is neutralized: numbers and booleans can't be
-                // formulas, and a negative number must stay a number.
+                // formulas. Every text cell goes through the guard, whatever
+                // the column's declared type (SQLite keeps any text in an
+                // INTEGER column); a number written as text stays as is.
                 let safe = self.opts.formula_safe;
-                let numeric = &self.numeric;
                 let rec: Vec<String> = row
                     .iter()
-                    .enumerate()
-                    .map(|(i, v)| match (text(v), v) {
+                    .map(|v| match (text(v), v) {
                         (None, _) => null.clone(),
-                        (Some(t), Value::String(_)) if safe && !numeric.get(i).copied().unwrap_or(false) => formula_safe(t),
+                        (Some(t), Value::String(_)) if safe => formula_safe(t),
                         (Some(t), _) => t,
                     })
                     .collect();
@@ -616,6 +616,16 @@ mod tests {
         let raw = out(Format::Csv, Some(false));
         assert!(raw.starts_with("\"=HYPERLINK(\"\"x\"\")\",n,amount\n=1+1,-5,-12.50\n"), "{raw}");
         assert!(!raw.contains("'=") && !raw.contains("'@") && raw.contains("\n+cmd"), "{raw}");
+        // The column's declared type doesn't exempt text: SQLite keeps any
+        // text in an INTEGER column.
+        let typed = vec![ResultColumn { name: "id".into(), type_name: "INTEGER".into() }];
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("typed.csv");
+        let o = ExportOptions { format: Format::Csv, ..Default::default() };
+        export_rows(&p, o, &typed, &[vec![json!("=HYPERLINK(\"http://x\")")], vec![json!("-5")], vec![json!(-7)]]).unwrap();
+        let s = std::fs::read_to_string(&p).unwrap();
+        assert!(s.contains("'=HYPERLINK"), "{s}");
+        assert!(s.contains("\n-5\n") && !s.contains("'-5") && s.ends_with("-7\n"), "{s}");
         // Scheduled tasks send the options as JSON, often without the field.
         let o: ExportOptions = serde_json::from_value(json!({ "format": "csv" })).unwrap();
         assert!(o.formula_safe);
