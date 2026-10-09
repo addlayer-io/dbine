@@ -31,7 +31,19 @@
     "downloadAll": "Baixar todos ({{size}} MB)",
     "downloading": "Baixando",
     "download": "Baixar",
-    "remove": "Apagar"
+    "remove": "Apagar",
+    "checkUpdates": "Buscar atualizações",
+    "checking": "Buscando…",
+    "upToDateAll": "Os drivers estão atualizados.",
+    "rollback": "Voltar à anterior",
+    "rollbackTitle": "Deixar a versão {{version}} e voltar à {{previous}}",
+    "rollbackConfirm": "Voltar à versão {{previous}} do driver de {{label}}? A {{version}} não será mais usada. As conexões abertas continuam com a versão atual até você fechá-las.",
+    "statusDownloading": "Baixando a versão {{available}}…",
+    "statusReady": "A versão {{version}} é usada a partir da próxima conexão",
+    "statusNeedsApp": "Há uma versão mais nova que precisa do DBine {{minApp}} ou posterior",
+    "statusRolledBack": "A versão {{from}} falhou e voltou-se à {{version}}",
+    "statusRolledBackUser": "Voltou-se à versão {{version}}; a {{from}} não será usada",
+    "statusRestart": "Reinicie o DBine para ver as novas opções deste driver"
   },
   "support": {
     "title": "Apoie o DBine",

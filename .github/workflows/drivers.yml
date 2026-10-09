@@ -1,0 +1,210 @@
+name: drivers
+
+# Push a tag like `driver-postgres-v0.1.10` to build one driver for Windows,
+# macOS (Apple Silicon + Intel) and Linux and publish it in the permanent
+# `drivers` release, without an app release (docs/drivers-bajo-demanda.md).
+# Installed apps that can run it (its min_app) switch to it on their own.
+# The tag's version must be the one in the driver's Cargo.toml.
+# A manual run (Actions → drivers → Run workflow) builds the driver of the
+# selected branch; with dry_run (the default) it keeps the hosts as workflow
+# artifacts and publishes nothing.
+
+on:
+  push:
+    tags: ["driver-*-v*"]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Driver (the host feature: postgres, mysql, odbc…)"
+        required: true
+        type: string
+      dry_run:
+        description: "Only build; keep the hosts as artifacts"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: drivers-${{ github.ref }}-${{ inputs.package }}
+  cancel-in-progress: false
+
+jobs:
+  # Which driver and version, and whether this run publishes.
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.route.outputs.package }}
+      version: ${{ steps.route.outputs.version }}
+      publish: ${{ steps.route.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: route
+        shell: bash
+        env:
+          INPUT_PACKAGE: ${{ inputs.package }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            if [[ ! "$GITHUB_REF_NAME" =~ ^driver-([a-z0-9_]+)-v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME isn't driver-<package>-v<version>."
+              exit 1
+            fi
+            PACKAGE="${BASH_REMATCH[1]}"
+            TAG_VERSION="${BASH_REMATCH[2]}"
+            PUBLISH=true
+          else
+            PACKAGE="$INPUT_PACKAGE"
+            TAG_VERSION=""
+            if [ "$INPUT_DRY_RUN" = "false" ]; then PUBLISH=true; else PUBLISH=false; fi
+          fi
+          if [[ ! "$PACKAGE" =~ ^[a-z0-9_]+$ ]]; then
+            echo "::error::Invalid driver name: $PACKAGE"
+            exit 1
+          fi
+          TOML=$(grep -l "^name = \"dbine-driver-$PACKAGE\"" crates/drivers/*/Cargo.toml | head -n 1 || true)
+          if [ -z "$TOML" ]; then
+            echo "::error::No driver crate dbine-driver-$PACKAGE in crates/drivers."
+            exit 1
+          fi
+          VERSION=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$TOML" | head -n 1)
+          if [ -n "$TAG_VERSION" ] && [ "$TAG_VERSION" != "$VERSION" ]; then
+            echo "::error::The tag says $TAG_VERSION but $TOML says $VERSION."
+            exit 1
+          fi
+          {
+            echo "package=$PACKAGE"
+            echo "version=$VERSION"
+            echo "publish=$PUBLISH"
+          } >> "$GITHUB_OUTPUT"
+          echo "Driver $PACKAGE $VERSION (publish: $PUBLISH)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Same runner images and setup as release.yml: a driver released on its
+  # own is built like the ones of an app release.
+  build:
+    needs: route
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          # A native Intel runner (no cross-compiling of native deps).
+          - name: macos-x64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+
+    steps:
+      # The app tags and their history: min_app is the oldest recent app
+      # with the same app <-> host code (scripts/driver_index.py).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/driver-hosts
+        with:
+          target: ${{ matrix.target }}
+
+      # Fails before building if the version isn't above the published ones,
+      # drops an engine the previous version had, or no released app can
+      # run it (release the app first). Other drivers' issues only warn.
+      - name: Build the driver
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ needs.route.outputs.package }}
+        run: |
+          gh release download drivers -p "index-${{ matrix.target }}.json" -D driver-index 2>/dev/null \
+            || echo "No published index for ${{ matrix.target }} yet."
+          PY=$(command -v python3 || command -v python)
+          "$PY" scripts/build-driver-hosts.py ${{ matrix.target }} driver-hosts \
+            "https://github.com/${{ github.repository }}/releases/download/drivers" \
+            "driver-index/index-${{ matrix.target }}.json" \
+            --only "$PACKAGE" --no-catalog
+          cat driver-hosts/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: driver-${{ needs.route.outputs.package }}-${{ matrix.name }}
+          path: driver-hosts/
+          if-no-files-found: error
+
+  # Only once every target built: a driver goes out everywhere or nowhere.
+  # The host files first, then the index (merged into the one published
+  # now, signed with the updater key, with its .sig).
+  publish:
+    needs: [route, build]
+    if: needs.route.outputs.publish == 'true'
+    name: publish ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            name: windows-x64
+          - target: aarch64-apple-darwin
+            name: macos-arm64
+          - target: x86_64-apple-darwin
+            name: macos-x64
+          - target: x86_64-unknown-linux-gnu
+            name: linux-x64
+    # One writer of each index at a time among driver releases (an app
+    # release that writes it at the same time is caught by
+    # driver_index.py, which reads it back and merges again).
+    concurrency:
+      group: drivers-index-${{ matrix.target }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: driver-${{ needs.route.outputs.package }}-${{ matrix.name }}
+          path: driver-hosts
+
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::Missing secret TAURI_SIGNING_PRIVATE_KEY: the driver index can't be signed."
+            exit 1
+          fi
+          if [ -s driver-hosts/new-files.txt ]; then
+            (cd driver-hosts && tr -d '\r' < new-files.txt | xargs gh release upload drivers)
+          fi
+          python3 scripts/driver_index.py publish ${{ matrix.target }} driver-hosts
+
+  # Keep the `drivers` release under GitHub's 1000 assets
+  # (scripts/prune-driver-assets.py), as after an app release.
+  prune:
+    needs: [route, publish]
+    if: needs.route.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: drivers-prune
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete driver hosts no supported app uses
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: python3 scripts/prune-driver-assets.py --keep 5

@@ -387,9 +387,11 @@ Ver [`drivers-bajo-demanda.md`](drivers-bajo-demanda.md).
 
 | Comando | args | Devuelve |
 |---|---|---|
-| `drivers_packages` | — | `{ on_demand, packages: [{ package, label, drivers, size, installed }] }` |
+| `drivers_packages` | — | `{ on_demand, packages: [{ package, label, version, drivers, size, installed, available, previous, status: { kind, … }, min_app_needed }] }` |
 | `drivers_install` | `{ package }` | `void` (el progreso llega por `component-download`) |
 | `drivers_remove` | `{ package }` | `void` |
+| `drivers_check_updates` | — | `void` (busca el índice ya; las versiones nuevas de los drivers instalados se bajan en segundo plano y avisan por `drivers-changed`) |
+| `drivers_rollback` | `{ package }` | `void` (descarta la versión en uso y las conexiones nuevas usan la anterior) |
 
 - `on_demand` es `false` en los builds que traen todos los drivers adentro
   (desarrollo). En ese caso la lista viene vacía.

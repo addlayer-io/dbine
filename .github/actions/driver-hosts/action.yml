@@ -1,0 +1,33 @@
+name: Driver hosts setup
+description: >-
+  What a job needs to build DBine and its driver hosts for one target: the
+  Linux system libraries, the Rust toolchain and its cache. Shared by
+  release.yml (app + drivers) and drivers.yml (one driver), so a driver
+  released on its own is built exactly like the ones of an app release
+  (same runner images, same libraries).
+
+inputs:
+  target:
+    description: Rust target triple (also the cache key).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Linux system dependencies (WebKitGTK)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+          librsvg2-dev patchelf libssl-dev libxdo-dev \
+          libkrb5-dev  # Kerberos (GSSAPI) for Windows authentication: SQL Server, MongoDB
+
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ inputs.target }}
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ". -> target"
+        key: ${{ inputs.target }}

@@ -1,0 +1,1 @@
+{"target":"test","schema":2,"seq":100,"drivers":{"postgres":{"0.1.10+p1.e3":{"file":"p.gz","size":3,"sha256":"00","min_app":"0.1.9","yanked":null,"published_at":"2026-10-09T00:00:00Z","manifest":[]}}}}

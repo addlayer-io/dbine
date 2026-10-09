@@ -2993,12 +2993,15 @@ name = "dbine-plugin"
 version = "0.1.9"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "dbine-driver",
  "flate2",
  "futures-util",
  "libc",
+ "minisign-verify",
  "reqwest",
  "rmp-serde",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",

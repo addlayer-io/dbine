@@ -50,23 +50,18 @@ pub fn hosts_dir() -> PathBuf {
     components_dir().join("drivers")
 }
 
-/// The (driver crate, version) of an installed host's file name.
-fn parse_exe(name: &str) -> Option<(String, String)> {
-    let rest = name.strip_prefix("dbine-driver-")?;
-    let rest = rest.strip_suffix(std::env::consts::EXE_SUFFIX).unwrap_or(rest);
-    if rest.ends_with(".part") || rest.ends_with(".tmp") || rest.ends_with(".gz") {
-        return None;
+impl HostAsset {
+    /// A host from the drivers index (`id` is its key there).
+    pub fn from_entry(id: &str, e: &crate::index::IndexEntry) -> HostAsset {
+        HostAsset { version: id.to_string(), file: e.file.clone(), size: e.size, sha256: e.sha256.clone() }
     }
-    let (package, version) = rest.rsplit_once('-')?;
-    Some((package.to_string(), version.to_string()))
 }
 
-/// Remove what the catalog no longer uses: hosts of other versions (after
-/// an update; their processes belonged to the previous run of the app),
-/// cut downloads of other files, and the per-app-version folders of
-/// DBine 0.1.x.
-pub fn remove_stale(catalog: &Catalog) {
-    let Ok(rd) = std::fs::read_dir(hosts_dir()) else { return };
+/// Remove every host file but `keep` (executable or `.part` names), and
+/// the per-app-version folders of DBine 0.1.x. Other files (the state, the
+/// cached index) stay. A file in use (Windows) stays until next time.
+pub fn gc(dir: &Path, keep: &std::collections::HashSet<String>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let path = e.path();
         if path.is_dir() {
@@ -74,34 +69,56 @@ pub fn remove_stale(catalog: &Catalog) {
             continue;
         }
         let name = e.file_name().to_string_lossy().to_string();
-        let keep = match parse_exe(&name) {
-            Some((package, version)) => catalog.hosts.get(&package).is_some_and(|h| h.version == version),
-            None => catalog.hosts.values().any(|h| name == format!("{}.part", h.file)),
-        };
-        if !keep {
+        if name.starts_with("dbine-driver-") && !keep.contains(&name) {
             let _ = std::fs::remove_file(&path);
         }
     }
 }
 
-/// Installed hosts the catalog uses: (driver crate, bytes on disk).
+/// Remove everything but the catalog's versions (and their cut
+/// downloads). The app keeps more (the updater's [`gc`] keeps the active
+/// and previous versions too); this is the floor-only cleanup.
+pub fn remove_stale(catalog: &Catalog) {
+    let keep = catalog.hosts.iter().flat_map(|(p, h)| [exe_name(p, &h.version), format!("{}.part", h.file)]).collect();
+    gc(&hosts_dir(), &keep)
+}
+
+/// Installed hosts of the catalog's versions: (driver crate, bytes on disk).
 pub fn installed(catalog: &Catalog) -> Vec<(String, u64)> {
-    let mut out: Vec<(String, u64)> = catalog
-        .hosts
-        .iter()
-        .filter_map(|(package, h)| {
-            let meta = std::fs::metadata(hosts_dir().join(exe_name(package, &h.version))).ok()?;
-            meta.is_file().then(|| (package.clone(), meta.len()))
-        })
-        .collect();
+    let dir = hosts_dir();
+    let mut out: Vec<(String, u64)> = catalog.hosts.iter().filter_map(|(p, h)| installed_size(&dir, p, &h.version).map(|n| (p.clone(), n))).collect();
     out.sort();
     out
 }
 
-/// Remove an installed host (it's downloaded again when needed).
-pub fn remove(catalog: &Catalog, package: &str) -> std::io::Result<()> {
-    let h = catalog.hosts.get(package).ok_or_else(|| std::io::Error::other(format!("no hay un driver «{package}»")))?;
-    std::fs::remove_file(hosts_dir().join(exe_name(package, &h.version)))
+/// Bytes on disk of a driver crate's host version, when it's there.
+pub fn installed_size(dir: &Path, package: &str, id: &str) -> Option<u64> {
+    let meta = std::fs::metadata(dir.join(exe_name(package, id))).ok()?;
+    meta.is_file().then_some(meta.len())
+}
+
+/// Whether `name` is one of `package`'s host files (any version, partial
+/// downloads included).
+fn is_package_file(name: &str, package: &str) -> bool {
+    name.strip_prefix("dbine-driver-")
+        .and_then(|r| r.strip_prefix(package))
+        .and_then(|r| r.strip_prefix('-'))
+        .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+/// Remove every version of a driver crate's host (it's downloaded again
+/// when needed).
+pub fn remove(dir: &Path, package: &str) -> std::io::Result<()> {
+    let mut first_err = None;
+    let Ok(rd) = std::fs::read_dir(dir) else { return Ok(()) };
+    for e in rd.flatten() {
+        if is_package_file(&e.file_name().to_string_lossy(), package) {
+            if let Err(err) = std::fs::remove_file(e.path()) {
+                first_err.get_or_insert(err);
+            }
+        }
+    }
+    first_err.map_or(Ok(()), Err)
 }
 
 fn install_lock(package: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
@@ -125,7 +142,13 @@ pub async fn ensure(catalog: &Catalog, package: &str, label: &str, drivers: Vec<
             Err(Error::Connect(format!("no está el driver de {label} en DBINE_DRIVERS_DIR ({})", exe.display())))
         };
     }
-    let dir = hosts_dir();
+    ensure_asset(&hosts_dir(), &catalog.base_url, package, asset, label, drivers).await
+}
+
+/// The host `asset` of `package` (published under `base_url`) in `dir`, downloading
+/// it if it isn't on disk: resumable, checked against its SHA-256, unpacked
+/// beside its final name, one download per driver crate at a time.
+pub async fn ensure_asset(dir: &Path, base_url: &str, package: &str, asset: &HostAsset, label: &str, drivers: Vec<String>) -> Result<PathBuf> {
     let exe = dir.join(exe_name(package, &asset.version));
     if exe.is_file() {
         return Ok(exe);
@@ -138,7 +161,7 @@ pub async fn ensure(catalog: &Catalog, package: &str, label: &str, drivers: Vec<
     }
     let io = |e: std::io::Error| Error::Connect(format!("no se pudo guardar el driver de {label} en {}: {e}", dir.display()));
     tokio::fs::create_dir_all(&dir).await.map_err(io)?;
-    let url = format!("{}/{}", catalog.base_url.trim_end_matches('/'), asset.file);
+    let url = format!("{}/{}", base_url.trim_end_matches('/'), asset.file);
     let part = dir.join(format!("{}.part", asset.file));
     download(&url, &part, asset, label, &drivers).await?;
     let (part2, exe2) = (part.clone(), exe.clone());
@@ -234,12 +257,56 @@ mod tests {
     use std::io::Write;
 
     #[test]
-    fn parses_host_file_names() {
-        let exe = |s: &str| format!("{s}{}", std::env::consts::EXE_SUFFIX);
-        assert_eq!(parse_exe(&exe("dbine-driver-sqlserver-1.4.0")), Some(("sqlserver".into(), "1.4.0".into())));
-        assert_eq!(parse_exe(&exe("dbine-driver-my_sql-0.1.0")), Some(("my_sql".into(), "0.1.0".into())));
-        assert_eq!(parse_exe("dbine-driver-sqlserver-1.4.0-p1-x86_64-pc-windows-msvc.gz.part"), None);
-        assert_eq!(parse_exe("otro"), None);
+    fn gc_keeps_what_it_is_told() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = [
+            "dbine-driver-postgres-1.0.0+p1.e3",
+            "dbine-driver-postgres-1.0.1+p1.e3",
+            "dbine-driver-postgres-1.0.2+p1.e3",
+            "dbine-driver-postgres-1.0.3+p1.e3",
+            "dbine-driver-postgres-1.0.3+p1.e3-x86_64-apple-darwin.gz.part",
+            "dbine-driver-mysql-2.0.0+p1.e3-x86_64-apple-darwin.gz.part",
+            "state.json",
+            "index-x86_64-apple-darwin.json",
+            "index-x86_64-apple-darwin.json.sig",
+        ];
+        for n in names {
+            std::fs::write(dir.path().join(n), b"x").unwrap();
+        }
+        std::fs::create_dir(dir.path().join("0.1.4")).unwrap();
+        let keep: std::collections::HashSet<String> = [
+            "dbine-driver-postgres-1.0.0+p1.e3",
+            "dbine-driver-postgres-1.0.2+p1.e3",
+            "dbine-driver-postgres-1.0.3+p1.e3",
+            "dbine-driver-postgres-1.0.3+p1.e3-x86_64-apple-darwin.gz.part",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        gc(dir.path(), &keep);
+        let mut left: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "dbine-driver-postgres-1.0.0+p1.e3",
+                "dbine-driver-postgres-1.0.2+p1.e3",
+                "dbine-driver-postgres-1.0.3+p1.e3",
+                "dbine-driver-postgres-1.0.3+p1.e3-x86_64-apple-darwin.gz.part",
+                "index-x86_64-apple-darwin.json",
+                "index-x86_64-apple-darwin.json.sig",
+                "state.json",
+            ]
+        );
+    }
+
+    #[test]
+    fn package_files_by_name() {
+        assert!(is_package_file("dbine-driver-postgres-1.0.0+p1.e3", "postgres"));
+        assert!(is_package_file("dbine-driver-postgres-1.0.0+p1.e3-x.gz.part", "postgres"));
+        assert!(!is_package_file("dbine-driver-postgres-1.0.0+p1.e3", "postgre"));
+        assert!(!is_package_file("dbine-driver-my_sql-1.0.0+p1.e3", "my"));
+        assert!(!is_package_file("state.json", "postgres"));
     }
 
     #[test]
