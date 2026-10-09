@@ -200,6 +200,39 @@ impl Variant {
         )
     }
 
+    /// [`dbine_driver::Session::run_read_only`]: the engine has read-only
+    /// transactions the server enforces (`START TRANSACTION READ ONLY`,
+    /// `transaction_read_only`) and refuses a second statement in a Parse
+    /// message. Before each read the session also checks that the
+    /// transaction it opened is read-only; when the engine can't say so,
+    /// the read answers `Unsupported` (the app asks for approval).
+    ///
+    /// Left out:
+    /// - EDB, KingbaseES and openGauss: their Oracle-compatible
+    ///   autonomous transactions (`PRAGMA AUTONOMOUS_TRANSACTION`) commit
+    ///   on their own, outside the read-only transaction, so a function
+    ///   the statement calls could write.
+    /// - Denodo, RisingWave, Materialize, CrateDB and H2: no read-only
+    ///   transaction mode the server enforces (or none at all).
+    pub(crate) fn enforces_read_only(self) -> bool {
+        matches!(
+            self,
+            Variant::Postgres
+                | Variant::Cockroach
+                | Variant::Redshift
+                | Variant::Greenplum
+                | Variant::Yugabyte
+                | Variant::Timescale
+                | Variant::AlloyDb
+                | Variant::CloudSql
+                | Variant::Aurora
+                | Variant::Fujitsu
+                | Variant::Cloudberry
+                | Variant::Greengage
+                | Variant::Yellowbrick
+        )
+    }
+
     /// `EXPLAIN ANALYZE` (actual figures) on a query.
     pub(crate) fn can_analyze(self) -> bool {
         !matches!(
