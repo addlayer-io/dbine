@@ -2,10 +2,6 @@
 
 ## [Unreleased]
 
-### Fixes
-- **Read-only on SQL Server:** a batch can only start with `SELECT`, `WITH`, `USE` or `PRINT`. What follows `SHOW`, `DESCRIBE` or `PRAGMA` is checked on every engine.
-- **Import connections:** an Oracle JDBC URL with a user and password keeps them out of the connection's name: the password goes to the system keychain.
-
 ## [0.1.10] - 2026-10-09
 
 ### New
@@ -50,6 +46,8 @@
 - **Modify table:** the warnings in the script you open as a query stay on their comment line.
 - **Passwords and secret options** are masked wherever they're edited, including backup steps in scheduled tasks.
 - **View dependencies and Rename** no longer stop on routines with unusual quoted names.
+- **Read-only on SQL Server:** a batch can only start with `SELECT`, `WITH`, `USE` or `PRINT`. What follows `SHOW`, `DESCRIBE` or `PRAGMA` is checked on every engine.
+- **Import connections:** an Oracle JDBC URL with a user and password keeps them out of the connection's name: the password goes to the system keychain.
 
 ## [0.1.9] - 2026-10-09
 

@@ -44,6 +44,8 @@
 - **Modificar tabela:** os avisos do script que você abre como consulta ficam na própria linha de comentário.
 - **Senhas e opções secretas** são mascaradas em todos os lugares onde são editadas, inclusive nas etapas de backup das tarefas agendadas.
 - **Ver dependências e Renomear** não travam mais em rotinas com nomes entre aspas incomuns.
+- **Somente leitura no SQL Server:** um lote só pode começar com `SELECT`, `WITH`, `USE` ou `PRINT`. O que vem depois de `SHOW`, `DESCRIBE` ou `PRAGMA` é verificado em todos os motores.
+- **Importar conexões:** uma URL JDBC do Oracle com usuário e senha mantém esses dados fora do nome da conexão: a senha vai para o chaveiro do sistema.
 
 ## [0.1.9] - 2026-10-09
 

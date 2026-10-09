@@ -44,6 +44,8 @@
 - **Modifier la table :** les avertissements du script que vous ouvrez comme requête restent sur leur ligne de commentaire.
 - **Les mots de passe et les options secrètes** sont masqués partout où ils sont modifiés, y compris dans les étapes de sauvegarde des tâches planifiées.
 - **Voir les dépendances et Renommer** ne s'arrêtent plus sur les routines dont les noms entre guillemets sont inhabituels.
+- **Lecture seule sur SQL Server :** un lot ne peut commencer que par `SELECT`, `WITH`, `USE` ou `PRINT`. Ce qui suit `SHOW`, `DESCRIBE` ou `PRAGMA` est vérifié sur tous les moteurs.
+- **Importer des connexions :** une URL JDBC Oracle avec utilisateur et mot de passe les garde hors du nom de la connexion : le mot de passe va dans le trousseau du système.
 
 ## [0.1.9] - 2026-10-09
 
