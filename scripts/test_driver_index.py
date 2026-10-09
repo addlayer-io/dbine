@@ -179,8 +179,19 @@ class Merge(unittest.TestCase):
         self.assertEqual(di.stamp({"target": "t", "drivers": {}}, now=100)["seq"], 100)
         self.assertEqual(di.stamp({"target": "t", "seq": 500, "drivers": {}}, now=100)["seq"], 501)
         s = di.stamp({"target": "t", "seq": 1, "drivers": {"a": {}}, "extra": 1}, now=100)
-        self.assertEqual(list(s), ["target", "schema", "seq", "drivers", "extra"])
+        self.assertEqual(list(s), ["target", "schema", "seq", "expires", "drivers", "extra"])
         self.assertEqual(s["schema"], 2)
+
+    def test_stamp_sets_a_new_expiry_and_refresh_finds_stale_ones(self):
+        day = 86400
+        s = di.stamp({"target": "t", "seq": 1, "expires": 5, "drivers": {}}, now=1000)
+        self.assertEqual(s["expires"], 1000 + di.EXPIRES_DAYS * day)
+        self.assertEqual(di.stale(s, now=1000), 0)
+        # The weekly job re-signs an index a week old, not one from yesterday.
+        self.assertEqual(di.stale(s, now=1000 + 1 * day), 0)
+        self.assertEqual(di.stale(s, now=1000 + 7 * day), 1)
+        # An index published before expiries existed is refreshed.
+        self.assertEqual(di.stale({"target": "t", "seq": 1, "drivers": {}}, now=1000), 1)
 
 
 FAKE_SIGNER = textwrap.dedent(

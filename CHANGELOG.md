@@ -10,7 +10,7 @@
 - **CSV and TSV export:** text cells and column names that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a `'` in front, so spreadsheets don't run them as formulas. Numbers are never changed. An option in the export dialog turns it off.
 - **Discarding changes in Projects:** a file named like a pattern (`*`) only discards that file.
 - **Copy a subset:** masking uses a new random 256-bit key on every run.
-- **Driver updates:** the app never accepts a driver index older than the one it was released with, even on a new installation.
+- **Driver updates:** the app never accepts a driver index older than the one it was released with, even on a new installation, nor one that has stopped being renewed. Installed drivers keep working either way.
 - Connection import, the linter and the health check no longer stop on accented or other multi-byte characters.
 
 ## [0.1.10] - 2026-10-09

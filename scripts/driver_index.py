@@ -50,6 +50,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RELEASE = "drivers"
+# A signed index is trusted for this long (plus the app's grace, a week):
+# a mirror can't keep serving one forever. The `drivers-index-refresh`
+# workflow re-signs every index weekly, well before it runs out.
+EXPIRES_DAYS = 30
+# `refresh` re-signs an index with fewer days than this left.
+REFRESH_BELOW_DAYS = 25
 DEFAULT_CONF = ROOT / "src-tauri" / "tauri.conf.json"
 DEFAULT_SIGNER = "npx --yes @tauri-apps/cli@^2 signer sign"
 # The code both sides of the app <-> host pipe are built from: a host built
@@ -240,13 +246,22 @@ def dump(index):
 
 
 def stamp(index, now=None):
-    """Schema 2 and a `seq` above the published one: the app refuses an index
-    older than the one it has (a replayed old index)."""
+    """Schema 2, a `seq` above the published one and a new `expires`: the app
+    refuses an index older than the one it has (a replayed old index) and
+    one past its expiry (a frozen one)."""
     now = int(time.time() if now is None else now)
     seq = max(now, int(index.get("seq") or 0) + 1)
-    out = {"target": index["target"], "schema": 2, "seq": seq}
+    out = {"target": index["target"], "schema": 2, "seq": seq, "expires": now + EXPIRES_DAYS * 86400}
     out.update({k: v for k, v in index.items() if k not in out})
     return out
+
+
+def stale(index, now=None, below_days=REFRESH_BELOW_DAYS):
+    """1 when the index expires in fewer than `below_days` days (or has no
+    expiry): what `refresh` re-signs."""
+    now = int(time.time() if now is None else now)
+    expires = index.get("expires")
+    return 1 if expires is None or int(expires) - now < below_days * 86400 else 0
 
 
 def merge(current, local, files):
@@ -402,12 +417,25 @@ def cmd_publish(args):
         update_published(args.target, lambda index: merge(index, local, files), tmp, args.dry_run, conf=args.conf, settle=args.settle)
 
 
+def cmd_refresh(args):
+    """Re-sign the published index with a new `seq` and `expires`, nothing
+    else changed (the weekly job keeps it from expiring)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        update_published(args.target, lambda index: stale(index, below_days=args.below_days), tmp, args.dry_run, conf=args.conf, settle=args.settle, must_exist=True)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="El índice de drivers publicado.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("publish")
     p.add_argument("target")
     p.add_argument("build_dir")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--conf", default=str(DEFAULT_CONF))
+    p.add_argument("--settle", type=int, default=45, help="segundos antes de releer el índice subido")
+    p = sub.add_parser("refresh")
+    p.add_argument("target")
+    p.add_argument("--below-days", type=int, default=REFRESH_BELOW_DAYS)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--conf", default=str(DEFAULT_CONF))
     p.add_argument("--settle", type=int, default=45, help="segundos antes de releer el índice subido")
@@ -426,6 +454,8 @@ def main(argv=None):
     try:
         if args.cmd == "publish":
             cmd_publish(args)
+        elif args.cmd == "refresh":
+            cmd_refresh(args)
         elif args.cmd == "sign":
             sign(args.file, conf=args.conf)
             print(f"{args.file}.sig: firma verificada")
