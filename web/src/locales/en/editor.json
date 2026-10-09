@@ -25,5 +25,7 @@
   "nav": {
     "notFound": "There is no table, view or routine with that name in the tab's database.",
     "notLoaded": "The database objects haven't loaded yet: connect to go to the definition."
-  }
+  },
+  "insertColumn": "Column {{n}} of {{total}}: {{name}}",
+  "insertExtra": "Value {{n}}: the list has {{total}} columns"
 }

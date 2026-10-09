@@ -25,5 +25,7 @@
   "nav": {
     "notFound": "No hay una tabla, vista o rutina con ese nombre en la base de la pestaña.",
     "notLoaded": "Los objetos de la base todavía no se cargaron: conectate para ir a la definición."
-  }
+  },
+  "insertColumn": "Columna {{n}} de {{total}}: {{name}}",
+  "insertExtra": "Valor {{n}}: la lista tiene {{total}} columnas"
 }

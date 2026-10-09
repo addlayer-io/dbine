@@ -25,5 +25,7 @@
   "nav": {
     "notFound": "Não há tabela, view ou rotina com esse nome no banco da aba.",
     "notLoaded": "Os objetos do banco ainda não foram carregados: conecte-se para ir à definição."
-  }
+  },
+  "insertColumn": "Coluna {{n}} de {{total}}: {{name}}",
+  "insertExtra": "Valor {{n}}: a lista tem {{total}} colunas"
 }
