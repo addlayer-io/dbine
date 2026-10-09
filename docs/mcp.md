@@ -51,7 +51,19 @@ Two caps always apply, whatever level is chosen:
 
 Queries always run in the MCP server's own read-only session. In SQL engines,
 a statement that modifies data or structure is rejected before reaching the
-server; the other engines use their own read-only mode. That also applies to
+server. Every word of the statement is checked, not only the first one, so
+these are rejected too:
+
+- a write hidden after a read in a T-SQL batch;
+- a data-modifying CTE;
+- `SELECT … INTO`;
+- `EXEC`;
+- `SET`;
+- functions with side effects (`set_config`, `dblink_exec`, `xp_cmdshell`…).
+
+Where the engine has a server-side read-only mode (PostgreSQL, MySQL), the
+session also runs in it, and the statements that would switch it off are
+rejected. The other engines use their own read-only mode. That also applies to
 connections with the **Write** level: to change anything, the assistant has to
 use `execute`.
 
