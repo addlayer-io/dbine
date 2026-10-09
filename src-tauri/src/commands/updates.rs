@@ -26,7 +26,7 @@ const LATEST_URL: &str = "https://api.github.com/repos/addlayer-io/dbine/release
 /// The only pages `open_release_page` opens.
 const RELEASES_PREFIX: &str = "https://github.com/addlayer-io/dbine/releases/";
 /// Release notes past this many characters are cut (the dialog shows a summary).
-const NOTES_MAX: usize = 2000;
+const NOTES_MAX: usize = 8000;
 /// The `pubkey` a build carries until the real one is set: it can't verify
 /// anything, so such a build never tries to install.
 const PUBKEY_PLACEHOLDER: &str = "DBINE_UPDATER_PUBKEY_PLACEHOLDER";
@@ -210,7 +210,7 @@ fn offer_info(current: &str, u: &Update, phase: Phase, owner: Option<String>) ->
         latest: u.version.clone(),
         available: true,
         url: tag_url(&u.version),
-        notes: truncate(u.body.as_deref().unwrap_or("").trim(), NOTES_MAX),
+        notes: truncate(&notes_since(u.body.as_deref().unwrap_or(""), current), NOTES_MAX),
         published_at: u.raw_json.get("pub_date").and_then(|d| d.as_str()).map(str::to_string),
         installable: true,
         reason: None,
@@ -559,7 +559,7 @@ fn evaluate(current: &str, release: Release) -> CommandResult<UpdateInfo> {
         available: newer == Ordering::Greater,
         latest,
         url: release.html_url,
-        notes: truncate(release.body.as_deref().unwrap_or("").trim(), NOTES_MAX),
+        notes: truncate(&notes_since(release.body.as_deref().unwrap_or(""), current), NOTES_MAX),
         published_at: release.published_at,
         installable: false,
         reason: None,
@@ -632,6 +632,26 @@ fn compare_pre(a: &str, b: &str) -> Ordering {
             }
         }
     }
+}
+
+/// The notes of the versions newer than `current`. A release carries the
+/// changelog of its last few versions, each under `## Versión x.y.z`
+/// (scripts/changelog.py recent), so someone several versions behind reads
+/// all they're getting. Notes without those headings come back whole.
+fn notes_since(body: &str, current: &str) -> String {
+    let mut out = String::new();
+    let (mut found, mut keep) = (false, true);
+    for line in body.lines() {
+        if let Some(v) = line.trim().strip_prefix("## Versión ") {
+            found = true;
+            keep = compare_versions(v.trim(), current) == Some(Ordering::Greater);
+        }
+        if keep {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if found { out.trim().to_string() } else { body.trim().to_string() }
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -727,10 +747,18 @@ mod tests {
     }
 
     #[test]
+    fn keeps_the_notes_of_newer_versions() {
+        let body = "## Versión 0.1.10\n\n### Nuevo\n- a\n\n## Versión 0.1.9\n\n- b\n\n## Versión 0.1.8\n\n- c";
+        assert_eq!(notes_since(body, "0.1.8"), "## Versión 0.1.10\n\n### Nuevo\n- a\n\n## Versión 0.1.9\n\n- b");
+        assert_eq!(notes_since(body, "0.1.9"), "## Versión 0.1.10\n\n### Nuevo\n- a");
+        assert_eq!(notes_since("Instaladores.\n- x", "0.1.8"), "Instaladores.\n- x");
+    }
+
+    #[test]
     fn truncates_long_notes_on_a_char_boundary() {
         assert_eq!(truncate("ñandú", 10), "ñandú");
         assert_eq!(truncate("ñandú ñandú", 6), "ñandú…");
-        assert_eq!(truncate(&"á".repeat(3000), NOTES_MAX).chars().count(), NOTES_MAX + 1);
+        assert_eq!(truncate(&"á".repeat(NOTES_MAX + 1000), NOTES_MAX).chars().count(), NOTES_MAX + 1);
     }
 
     #[test]

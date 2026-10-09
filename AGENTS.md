@@ -59,6 +59,16 @@ Para cumplirlo:
 - Las contraseñas y los campos secretos nunca van al archivo de estado ni a
   los logs.
 
+## Changelog
+
+`CHANGELOG.md` cuenta, para quien usa DBine, qué trae cada versión: es lo que
+muestra el aviso de actualización y las notas del release. Cada cambio que el
+usuario nota suma una línea en `## [Sin publicar]`, en el mismo commit o en
+uno propio, con el formato del agente `changelog`
+(`.claude/agents/changelog.md`). Al preparar un release,
+`python3 scripts/changelog.py release <versión>` convierte «Sin publicar» en
+la versión nueva; el workflow de release falla si el tag no tiene su sección.
+
 ## Archivos compartidos
 
 Para modificar estos archivos hay que coordinar con las otras sesiones:
@@ -68,6 +78,8 @@ avisar y esperar confirmación.
 - `crates/dbine-driver/src/*` (el contrato)
 - `src-tauri/src/lib.rs`, `src-tauri/capabilities/`, `src-tauri/tauri.conf.json`
 - `web/package.json`, `web/src/main.ts`, `web/src/App.vue`, `web/src/api/*`
+- `CHANGELOG.md` (cada sesión agrega sus líneas a «Sin publicar»; releer el
+  archivo justo antes de editarlo)
 
 Cada driver es dueño exclusivo de su carpeta `crates/drivers/<motor>/`.
 

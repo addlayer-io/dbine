@@ -30,7 +30,25 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.route.outputs.publish }}
+      notes: ${{ steps.notes.outputs.notes }}
     steps:
+      - uses: actions/checkout@v4
+      # What's new, from CHANGELOG.md: this version and the four before it,
+      # each under "## Versión x.y.z". It becomes latest.json's notes, and
+      # the update dialog keeps the versions newer than the installed app.
+      # A tag without its section in the changelog doesn't publish.
+      - id: notes
+        shell: bash
+        run: |
+          notes=""
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            notes="$(python3 scripts/changelog.py recent "${GITHUB_REF_NAME#v}" --count 5)"
+          fi
+          {
+            echo "notes<<DBINE_NOTES_EOF"
+            echo "$notes"
+            echo "DBINE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
       - id: route
         shell: bash
         env:
@@ -185,20 +203,10 @@ jobs:
           args: --target ${{ matrix.target }} --features plugins --config src-tauri/tauri.updater.conf.json
           tagName: ${{ needs.route.outputs.publish == 'true' && github.ref_name || '' }}
           releaseName: DBine ${{ github.ref_name }}
-          releaseBody: |
-            Instaladores de DBine ${{ github.ref_name }}.
-
-            - **Windows**: `.msi` o `-setup.exe` (requiere WebView2, incluido en Windows 10/11).
-            - **macOS**: `.dmg` — `aarch64` para Apple Silicon, `x64` para Intel.
-            - **Linux**: `.AppImage` (portable), `.deb` o `.rpm`.
-
-            Los binarios no están firmados por Apple ni por Microsoft:
-
-            - **macOS**: la primera vez avisa que no puede verificar al desarrollador. Abrí
-              Configuración del Sistema › Privacidad y seguridad › «Abrir igualmente», o
-              en la terminal: `xattr -dr com.apple.quarantine /Applications/DBine.app`.
-            - **Windows**: SmartScreen puede pedir "Más información" › "Ejecutar de todas formas".
-            - Los drivers de cada motor (salvo SQLite) se descargan la primera vez que te conectás.
+          # The changelog only: it's also latest.json's notes, which the
+          # update dialog shows. The release page gets the downloads and the
+          # signing notes added afterwards (release-page).
+          releaseBody: ${{ needs.route.outputs.notes }}
           releaseDraft: false
           prerelease: false
           # latest.json for the in-app updater, merged across the four
@@ -248,3 +256,39 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: python3 scripts/prune-driver-assets.py --keep 5
+
+  # The release page: this version's changelog, then how to download and
+  # open the unsigned builds. latest.json keeps the changelog alone.
+  release-page:
+    needs: [route, build]
+    if: needs.route.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          {
+            echo "Instaladores de DBine ${GITHUB_REF_NAME}."
+            echo
+            python3 scripts/changelog.py notes "${GITHUB_REF_NAME#v}"
+            cat <<'EOF'
+
+          ### Descargas
+
+          - **Windows**: `-setup.exe` (requiere WebView2, incluido en Windows 10/11).
+          - **macOS**: `.dmg`; `aarch64` para Apple Silicon, `x64` para Intel.
+          - **Linux**: `.AppImage` (portable), `.deb` o `.rpm`.
+
+          Quienes tienen la 0.1.4 o posterior la reciben por actualización automática.
+
+          Los binarios no están firmados por Apple ni por Microsoft:
+
+          - **macOS**: la primera vez avisa que no puede verificar al desarrollador. Abrí Configuración del Sistema › Privacidad y seguridad › «Abrir igualmente», o en la terminal: `xattr -dr com.apple.quarantine /Applications/DBine.app`.
+          - **Windows**: SmartScreen puede pedir "Más información" › "Ejecutar de todas formas".
+          - Los drivers de cada motor (salvo SQLite) se descargan la primera vez que te conectás.
+          EOF
+          } > notes.md
+          gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
