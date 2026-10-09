@@ -14,8 +14,12 @@
 //!   never prompts (`GIT_TERMINAL_PROMPT=0`): a missing credential is an error.
 //! - The working copy lives in the app's data folder (`library-git/`); the
 //!   remote and branch are a local setting (not synced to the cloud).
+//! - The repo is untrusted (anyone with push access writes it): every path,
+//!   the manifest's included, goes through `project_paths` and has to stay
+//!   inside the working copy, symlinks followed, and out of `.git`.
 
 use super::git_cli::{identity, run as git};
+use super::project_paths::{canonical_root, resolve_entry, resolve_existing, resolve_new};
 use crate::commands::library::safe_name;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
@@ -81,16 +85,40 @@ fn configured(state: &AppState, app: &AppHandle) -> CommandResult<(Config, PathB
 // -- Library <-> working copy --------------------------------------------------------
 
 fn read_manifest(dir: &Path) -> Manifest {
-    std::fs::read_to_string(dir.join(MANIFEST)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    canonical_root(dir)
+        .ok()
+        .and_then(|root| existing_file(&root, MANIFEST))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
 }
 
 fn io(e: std::io::Error) -> CommandError {
     CommandError::Internal(format!("no se pudo escribir la copia del repositorio: {e}"))
 }
 
+/// A file in the working copy, to read: `rel` is checked like a project path
+/// (relative, no `..`, out of `.git`) and must resolve, symlinks followed, to
+/// a file inside `root` (canonical). `None` for anything else.
+fn existing_file(root: &Path, rel: &str) -> Option<PathBuf> {
+    resolve_existing(root, rel).ok().filter(|p| p.is_file())
+}
+
+/// Where a file of the working copy is written: its folders resolved or
+/// created inside `root` (canonical), and a symlink in its place removed, so
+/// the write can't go through it to somewhere else.
+fn new_file(root: &Path, rel: &str) -> CommandResult<PathBuf> {
+    let full = resolve_new(root, rel)?;
+    if std::fs::symlink_metadata(&full).is_ok_and(|m| m.file_type().is_symlink()) {
+        std::fs::remove_file(&full).map_err(io)?;
+    }
+    Ok(full)
+}
+
 /// Write the Library into the working copy: one file per script, the
 /// manifest, and the files of scripts that are gone deleted.
 fn write_library(dir: &Path, scripts: &[LibraryScript], folders: &[String]) -> CommandResult<()> {
+    let dir = &canonical_root(dir)?;
     let old = read_manifest(dir);
     let mut taken = HashSet::new();
     let mut entries = Vec::new();
@@ -107,10 +135,7 @@ fn write_library(dir: &Path, scripts: &[LibraryScript], folders: &[String]) -> C
         base.push(file);
         let rel = base.join("/");
         taken.insert(rel.to_lowercase());
-        let full = dir.join(&rel);
-        if let Some(parent) = full.parent() {
-            std::fs::create_dir_all(parent).map_err(io)?;
-        }
+        let full = new_file(dir, &rel)?;
         // Only when it changed: git sees no change otherwise anyway, but the
         // file's times stay put.
         if std::fs::read_to_string(&full).ok().as_deref() != Some(s.text.as_str()) {
@@ -125,29 +150,36 @@ fn write_library(dir: &Path, scripts: &[LibraryScript], folders: &[String]) -> C
             engines: s.engines.clone(),
         });
     }
-    // Files of scripts that were in the repo and aren't in the Library.
+    // Files of scripts that were in the repo and aren't in the Library. The
+    // old manifest came from the repo: a path that doesn't resolve inside the
+    // working copy is skipped, not deleted. A symlink goes itself, never what
+    // it points to.
     for e in &old.scripts {
-        if !taken.contains(&e.path.to_lowercase()) {
-            let _ = std::fs::remove_file(dir.join(&e.path));
-            remove_empty_parents(dir, &dir.join(&e.path));
+        if taken.contains(&e.path.to_lowercase()) {
+            continue;
+        }
+        let Ok(full) = resolve_entry(dir, &e.path) else { continue };
+        if std::fs::symlink_metadata(&full).is_ok_and(|m| !m.is_dir()) && std::fs::remove_file(&full).is_ok() {
+            remove_empty_parents(dir, &full);
         }
     }
     let mut all_folders: BTreeSet<String> = folders.iter().filter(|f| !f.is_empty()).cloned().collect();
     all_folders.extend(scripts.iter().map(|s| s.folder.clone()).filter(|f| !f.is_empty()));
     let manifest = Manifest { version: 1, folders: all_folders.into_iter().collect(), scripts: entries };
-    std::fs::create_dir_all(dir.join(".dbine")).map_err(io)?;
     let json = serde_json::to_string_pretty(&manifest).map_err(|e| CommandError::Internal(e.to_string()))?;
-    std::fs::write(dir.join(MANIFEST), json + "\n").map_err(io)
+    std::fs::write(new_file(dir, MANIFEST)?, json + "\n").map_err(io)
 }
 
 fn path_of(base: &[String], file: &str) -> String {
     base.iter().cloned().chain(std::iter::once(file.to_string())).collect::<Vec<_>>().join("/")
 }
 
+/// Empty folders left by a deleted file, up to `root` (never `root` itself
+/// nor anything outside it).
 fn remove_empty_parents(root: &Path, file: &Path) {
     let mut p = file.parent();
     while let Some(d) = p {
-        if d == root || std::fs::remove_dir(d).is_err() {
+        if d == root || !d.starts_with(root) || std::fs::remove_dir(d).is_err() {
             break;
         }
         p = d.parent();
@@ -155,6 +187,7 @@ fn remove_empty_parents(root: &Path, file: &Path) {
 }
 
 /// Script files in the repo that the manifest doesn't know (added by hand).
+/// Symlinked folders aren't walked: they could lead out of the working copy.
 fn loose_files(dir: &Path, known: &HashSet<String>) -> Vec<String> {
     let mut out = Vec::new();
     let mut stack = vec![(dir.to_path_buf(), String::new(), 0)];
@@ -167,8 +200,11 @@ fn loose_files(dir: &Path, known: &HashSet<String>) -> Vec<String> {
             }
             let r = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
             let p = e.path();
-            if p.is_dir() && depth < 12 {
-                stack.push((p, r, depth + 1));
+            let Ok(kind) = e.file_type() else { continue };
+            if kind.is_dir() {
+                if depth < 12 {
+                    stack.push((p, r, depth + 1));
+                }
             } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| crate::commands::library::SCRIPT_EXTS.contains(&x.to_ascii_lowercase().as_str()))
                 && !known.contains(&r.to_lowercase())
             {
@@ -192,12 +228,15 @@ pub struct Applied {
 /// have are deleted (after a pull); otherwise only added and updated (when
 /// linking a repo that already has scripts).
 fn read_into_library(state: &AppState, dir: &Path, mirror: bool) -> CommandResult<Applied> {
+    let dir = &canonical_root(dir)?;
     let manifest = read_manifest(dir);
     let current: HashMap<String, LibraryScript> = state.store.list_library()?.into_iter().map(|s| (s.id.clone(), s)).collect();
     let mut applied = Applied::default();
     let mut seen = HashSet::new();
     for e in &manifest.scripts {
-        let Ok(bytes) = std::fs::read(dir.join(&e.path)) else { continue };
+        // A path that leaves the working copy (absolute, `..`, `.git`, a
+        // symlink out) is skipped like a missing file.
+        let Some(bytes) = existing_file(dir, &e.path).and_then(|p| std::fs::read(p).ok()) else { continue };
         let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
         seen.insert(e.id.clone());
         let script = LibraryScript {
@@ -229,7 +268,7 @@ fn read_into_library(state: &AppState, dir: &Path, mirror: bool) -> CommandResul
     // Hand-added files: new scripts for any SQL engine.
     let known: HashSet<String> = manifest.scripts.iter().map(|e| e.path.to_lowercase()).collect();
     for rel in loose_files(dir, &known) {
-        let Ok(bytes) = std::fs::read(dir.join(&rel)) else { continue };
+        let Some(bytes) = existing_file(dir, &rel).and_then(|p| std::fs::read(p).ok()) else { continue };
         let (folder, file) = rel.rsplit_once('/').unwrap_or(("", rel.as_str()));
         let name = Path::new(file).file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let id = uuid::Uuid::new_v4().to_string();
@@ -245,7 +284,7 @@ fn read_into_library(state: &AppState, dir: &Path, mirror: bool) -> CommandResul
         })?;
         applied.added += 1;
     }
-    if mirror && dir.join(MANIFEST).is_file() {
+    if mirror && existing_file(dir, MANIFEST).is_some() {
         for id in current.keys().filter(|id| !seen.contains(*id)) {
             state.store.delete_library_script(id)?;
             applied.deleted += 1;
@@ -621,6 +660,106 @@ mod tests {
         let known: HashSet<String> = read_manifest(&d).scripts.iter().map(|e| e.path.to_lowercase()).collect();
         assert_eq!(loose_files(&d, &known), vec!["nuevo.sql".to_string()]);
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    fn tmp() -> PathBuf {
+        let d = std::env::temp_dir().join(format!("dbine-libgit-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&d).unwrap();
+        canonical_root(&d).unwrap()
+    }
+
+    fn hostile_manifest(d: &Path, paths: &[String]) {
+        let scripts = paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| Entry {
+                id: format!("e{i}"),
+                path: p.clone(),
+                name: format!("e{i}"),
+                folder: String::new(),
+                description: String::new(),
+                engines: vec!["postgres".into()],
+            })
+            .collect();
+        std::fs::create_dir_all(d.join(".dbine")).unwrap();
+        std::fs::write(d.join(MANIFEST), serde_json::to_string(&Manifest { version: 1, folders: vec![], scripts }).unwrap()).unwrap();
+    }
+
+    /// A manifest from the repo can't make DBine read or delete files outside
+    /// the working copy: absolute paths, `..`, `.git` and symlinks out are
+    /// skipped.
+    #[test]
+    fn manifest_paths_stay_inside_the_working_copy() {
+        let (d, outside) = (tmp(), tmp());
+        std::fs::write(outside.join("victim.sql"), "secret").unwrap();
+        std::fs::create_dir_all(d.join(".git")).unwrap();
+        std::fs::write(d.join(".git/config"), "[core]").unwrap();
+        std::fs::write(d.join("ok.sql"), "SELECT 1").unwrap();
+        let out_name = outside.file_name().unwrap().to_string_lossy().to_string();
+        let mut paths = vec![
+            outside.join("victim.sql").to_string_lossy().to_string(),
+            format!("../{out_name}/victim.sql"),
+            format!("sub/../../{out_name}/victim.sql"),
+            ".git/config".to_string(),
+            "ok.sql".to_string(),
+        ];
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, d.join("link")).unwrap();
+            std::os::unix::fs::symlink(outside.join("victim.sql"), d.join("alias.sql")).unwrap();
+            paths.push("link/victim.sql".into());
+            paths.push("alias.sql".into());
+        }
+        for p in &paths[..4] {
+            assert!(existing_file(&d, p).is_none(), "{p:?} must not be read");
+        }
+        #[cfg(unix)]
+        for p in ["link/victim.sql", "alias.sql"] {
+            assert!(existing_file(&d, p).is_none(), "{p:?} must not be read");
+        }
+        assert_eq!(existing_file(&d, "ok.sql"), Some(d.join("ok.sql")));
+
+        // Reading: only the file inside comes in.
+        hostile_manifest(&d, &paths);
+        let state = AppState::new(dbine_core::StateStore::open_in_memory().unwrap());
+        let applied = read_into_library(&state, &d, false).unwrap();
+        let texts: Vec<String> = state.store.list_library().unwrap().into_iter().map(|s| s.text).collect();
+        assert_eq!(applied.added, 1);
+        assert_eq!(texts, vec!["SELECT 1".to_string()]);
+
+        // Deleting the old manifest's files: nothing outside goes, nor `.git`;
+        // a symlink inside goes itself, its target stays.
+        hostile_manifest(&d, &paths);
+        write_library(&d, &[], &[]).unwrap();
+        assert_eq!(std::fs::read_to_string(outside.join("victim.sql")).unwrap(), "secret");
+        assert!(d.join(".git/config").is_file());
+        assert!(!d.join("ok.sql").exists());
+        #[cfg(unix)]
+        {
+            assert!(std::fs::symlink_metadata(d.join("alias.sql")).is_err(), "the link itself is removed");
+            assert!(std::fs::symlink_metadata(d.join("link")).is_ok(), "a folder link isn't removed");
+            // Writing a script into a folder that links out is refused.
+            let s = script("1", "link", "x", &["postgres"], "SELECT 2");
+            assert!(write_library(&d, &[s], &[]).is_err());
+            assert!(!outside.join("x.sql").exists());
+        }
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn empty_parents_stop_at_the_root() {
+        let d = tmp();
+        std::fs::create_dir_all(d.join("a/b")).unwrap();
+        remove_empty_parents(&d, &d.join("a/b/x.sql"));
+        assert!(!d.join("a").exists() && d.is_dir());
+        // A path outside the root: nothing is removed.
+        let outside = tmp();
+        std::fs::create_dir_all(outside.join("e")).unwrap();
+        remove_empty_parents(&d, &outside.join("e/x.sql"));
+        assert!(outside.join("e").is_dir());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 
     /// Two machines, one repo: link, sync edits and deletions both ways, and
