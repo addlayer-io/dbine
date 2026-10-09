@@ -1,4 +1,4 @@
-//! SSH tunnels of connections (docs/tuneles-ssh.md). A connection with
+//! SSH tunnels of connections (docs/ssh-tunnels.md). A connection with
 //! `ssh.enabled` reaches its server through a local port forwarded over SSH
 //! (crates/dbine-tunnel): the driver gets 127.0.0.1 and that port instead of
 //! the server, so every engine that connects over the network works through

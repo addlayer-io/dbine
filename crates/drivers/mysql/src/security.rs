@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) for MySQL 8
+//! Users, roles and permissions (docs/users-and-permissions.md) for MySQL 8
 //! (and Aurora / Cloud SQL), MariaDB and TiDB.
 //!
 //! Accounts are `'user'@'host'`; DBine names a user `user@host` and a role

@@ -10,7 +10,7 @@ import { useScheduledStore } from '../stores/scheduled';
 import { useTabsStore } from '../stores/tabs';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 
-// "Tareas programadas" (the ⏰ in the activity bar; docs/tareas-programadas.md):
+// "Tareas programadas" (the ⏰ in the activity bar; docs/scheduled-tasks.md):
 // each task with its schedule, its last run and the next one.
 
 const { t } = useTranslation();

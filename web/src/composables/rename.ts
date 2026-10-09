@@ -11,7 +11,7 @@ import { useTabsStore } from '../stores/tabs';
 import { loadIndexUsage } from './indexUsage';
 
 // "Renombrar…" (explorer tree): the engine's rename plus the code that names
-// the object, rewritten, in one reviewed script (docs/renombrar.md). The
+// the object, rewritten, in one reviewed script (docs/rename.md). The
 // impact and the script come from the backend (`rename_impact`,
 // `rename_script`); the run is a schema sync (`schema_sync_run`), atomic
 // where the engine allows it.

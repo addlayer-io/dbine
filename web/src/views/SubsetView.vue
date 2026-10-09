@@ -13,7 +13,7 @@ import { objKey, useConnectionsStore } from '../stores/connections';
 import type { SubsetTab } from '../stores/tabs';
 import { runTask } from '../stores/tasks';
 
-// "Copiar un subconjunto" of a table (docs/subconjunto-de-datos.md): which
+// "Copiar un subconjunto" of a table (docs/data-subset.md): which
 // rows, how far to follow the foreign keys, where they go; then a plan
 // (tables, rows, order, what's created) with a masking rule per column,
 // and the copy, confirmed, in the background. The source is only read.

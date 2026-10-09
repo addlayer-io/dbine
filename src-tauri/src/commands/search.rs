@@ -1,4 +1,4 @@
-//! "Buscar en la base" (docs/busqueda.md): object names and the text of
+//! "Buscar en la base" (docs/search.md): object names and the text of
 //! views, routines, triggers…, and column names. On a session of its own (the explorer's
 //! stays free), read-only, cancellable with `cancel_query` on
 //! `search:<id>`. Names come from `list_objects`; the text from the

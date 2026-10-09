@@ -52,7 +52,7 @@ pub async fn save_query(state: State<'_, AppState>, args: SaveArgs) -> CommandRe
     Ok(saved)
 }
 
-// -- versions (the query tab's timeline, docs/historial.md) ------------------------------
+// -- versions (the query tab's timeline, docs/history.md) ------------------------------
 
 #[derive(Deserialize)]
 pub struct VersionsArgs {

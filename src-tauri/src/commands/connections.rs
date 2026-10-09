@@ -29,7 +29,7 @@ pub struct DriverDescriptor {
     capabilities: dbine_driver::Capabilities,
     designer: Option<dbine_driver::DesignerSpec>,
     create_templates: Vec<dbine_driver::CreateTemplate>,
-    /// Users and permissions (docs/usuarios-y-permisos.md).
+    /// Users and permissions (docs/users-and-permissions.md).
     security: Option<dbine_driver::SecuritySpec>,
     /// The engine's own backups (docs/backups.md).
     backup: Option<dbine_driver::BackupSpec>,

@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import i18next from 'i18next';
 import { t } from '../i18n';
 
-// "Documentar la base…" (docs/documentar-la-base.md). Mirrors
+// "Documentar la base…" (docs/database-docs.md). Mirrors
 // src-tauri/src/commands/dbdocs.rs and dbdocs::DocOptions.
 
 export type DocFormat = 'html' | 'markdown';

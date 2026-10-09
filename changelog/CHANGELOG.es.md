@@ -3,7 +3,7 @@
 ## [0.1.9] - 2026-10-09
 
 ### Nuevo
-- **Renombrar con impacto:** «Renombrar…» en el explorador cambia el nombre de una tabla, vista, rutina, columna, índice o esquema y, en el mismo script, reescribe las vistas, procedimientos, funciones y triggers que lo usan. Antes de ejecutar muestra qué actualiza el motor solo, qué se reescribe y qué hay que revisar a mano (SQL dinámico, código ilegible), junto con el script completo. Corre en una transacción donde el motor lo permite. Está en todos los motores que pueden renombrar algo; los límites de cada uno están en `docs/soporte-por-motor.md`.
+- **Renombrar con impacto:** «Renombrar…» en el explorador cambia el nombre de una tabla, vista, rutina, columna, índice o esquema y, en el mismo script, reescribe las vistas, procedimientos, funciones y triggers que lo usan. Antes de ejecutar muestra qué actualiza el motor solo, qué se reescribe y qué hay que revisar a mano (SQL dinámico, código ilegible), junto con el script completo. Corre en una transacción donde el motor lo permite. Está en todos los motores que pueden renombrar algo; los límites de cada uno están en `docs/engine-support.md`.
 - **Modificar una tabla:** «Modificar…» abre el diseñador sobre una tabla existente y arma el `ALTER` del motor. Conserva lo que el diseñador no muestra (CHECKs, opciones de índices, orden de las columnas de la clave) y recrea las vistas y triggers que dependen de la tabla. Renombrar una columna ahí pasa por la revisión de impacto; en conexiones de producción pide escribir el nombre de la tabla antes de ejecutar.
 - **Historial por consulta:** la barra de Historial sigue a la pestaña activa, como una línea de tiempo: versiones de la consulta guardada con diferencias y restauración, sus ejecuciones y, en archivos de un proyecto, sus commits de git.
 - **Navegación en el editor:** Cmd/Ctrl+clic sobre una tabla, vista o rutina abre su estructura o definición, y «Mostrar en el explorador» la ubica en el árbol. Las tablas y columnas que no existen se marcan antes de ejecutar.
@@ -34,7 +34,7 @@
 - El editor ya no marca como desconocidas las columnas de una subconsulta con alias.
 
 ### Ya disponible
-- **Ejecutar una consulta en varias bases a la vez:** se elige una o varias bases de una conexión, y los resultados se unen con una columna que indica la base de cada fila. Llegó en la 0.1.4. Ver `docs/ejecutar-en-varias-bases.md`.
+- **Ejecutar una consulta en varias bases a la vez:** se elige una o varias bases de una conexión, y los resultados se unen con una columna que indica la base de cada fila. Llegó en la 0.1.4. Ver `docs/multi-database-queries.md`.
 
 ## [0.1.8] - 2026-10-06
 

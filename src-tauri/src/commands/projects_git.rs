@@ -1,4 +1,4 @@
-//! Git for projects (docs/proyectos.md): status, diff, commit, pull, push,
+//! Git for projects (docs/projects.md): status, diff, commit, pull, push,
 //! sync, conflicts and cancel, on the user's own working copy.
 //!
 //! Unlike the Library's git, these are the user's files: a pull that stops on
@@ -415,7 +415,7 @@ pub async fn diff(store: &StateStore, args: DiffArgs) -> CommandResult<FileDiff>
     Ok(FileDiff { path: args.path, orig_path: orig, mark, before: flat(before), after: flat(after), binary, too_large })
 }
 
-// -- a file's commits (its tab's timeline, docs/historial.md) ----------------------------
+// -- a file's commits (its tab's timeline, docs/history.md) ----------------------------
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct FileCommit {

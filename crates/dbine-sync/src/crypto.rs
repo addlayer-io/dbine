@@ -1,5 +1,5 @@
 //! The backup file: end-to-end encrypted with a key derived from the user's
-//! passphrase, which never leaves the machine (docs/sincronizacion.md).
+//! passphrase, which never leaves the machine (docs/sync.md).
 //!
 //! - Key: Argon2id(passphrase, random 16-byte salt) → 32 bytes.
 //! - Cipher: XChaCha20-Poly1305 with a random 24-byte nonce per write.

@@ -1,214 +1,213 @@
-# Cómo se escribe un driver de DBine
+# How to write a DBine driver
 
-Cada motor vive en su propio crate, en `crates/drivers/<nombre>`, y cumple el
-contrato de `crates/dbine-driver` (traits `Driver` y `Session`). Un crate puede
-servir a varios motores que comparten el protocolo: el de PostgreSQL también
-sirve a CockroachDB y a Redshift, y el de MySQL a MariaDB y a StarRocks.
-`crates/dbine-drivers` los registra, con una feature de cargo por crate.
+Each engine lives in its own crate, in `crates/drivers/<name>`, and fulfils
+the contract of `crates/dbine-driver` (`Driver` and `Session` traits). A crate
+can serve several engines that share the protocol: the PostgreSQL one also
+serves CockroachDB and Redshift, and the MySQL one MariaDB and StarRocks.
+`crates/dbine-drivers` registers them, with one cargo feature per crate.
 
-La UI se arma a partir de lo que declara cada driver en `DriverInfo`:
+The UI is built from what each driver declares in `DriverInfo`:
 
-- el formulario de conexión, a partir de `fields`;
-- las carpetas del explorador, a partir de `object_kinds`;
-- el lenguaje del editor, a partir de `language` y `dialect`.
+- the connection form, from `fields`;
+- the explorer folders, from `object_kinds`;
+- the editor language, from `language` and `dialect`.
 
-Por eso sumar un motor no toca el frontend.
+That's why adding an engine doesn't touch the frontend.
 
-## Estructura del crate
+## Crate structure
 
 ```
-crates/drivers/<nombre>/
-  Cargo.toml     # name = "dbine-driver-<nombre>"; depende de dbine-driver (path = "../../dbine-driver")
+crates/drivers/<name>/
+  Cargo.toml     # name = "dbine-driver-<name>"; depends on dbine-driver (path = "../../dbine-driver")
   src/lib.rs     # pub fn drivers() -> Vec<Arc<dyn Driver>>
-  src/...        # los módulos que haga falta
+  src/...        # whatever modules are needed
 ```
 
-- **`drivers()` es la única API pública obligatoria.** Devuelve un `Arc` por
-  motor que sirve el crate. El id de cada motor (`DriverInfo::id`) es estable,
-  en minúsculas y sin espacios: `postgres`, `cockroachdb`, `mongodb`…
-- **Dependencias.** Usá `workspace = true` para las que ya están en
+- **`drivers()` is the only mandatory public API.** It returns one `Arc` per
+  engine the crate serves. Each engine's id (`DriverInfo::id`) is stable,
+  lowercase and without spaces: `postgres`, `cockroachdb`, `mongodb`…
+- **Dependencies.** Use `workspace = true` for those already in
   `[workspace.dependencies]` (tokio, serde, serde_json, futures, async-trait,
-  chrono, tracing, uuid, rusqlite, reqwest). Cualquier otra se declara con su
-  versión en el `Cargo.toml` del crate.
-- **Errores.** `dbine_driver::Error` no puede tener `impl From<ErrorDelCliente>`,
-  por la regla de huérfanos. Cada crate mapea sus errores con una función
-  propia (`fn err(e: X) -> Error`) y `.map_err(err)?`:
-  - `Error::AuthFailed`: login rechazado.
-  - `Error::Connect`: no se llega al servidor.
-  - `Error::Query`: el servidor rechazó la sentencia.
-  - `Error::Unsupported`: lo que el motor no ofrece.
+  chrono, tracing, uuid, rusqlite, reqwest). Any other is declared with its
+  version in the crate's `Cargo.toml`.
+- **Errors.** `dbine_driver::Error` can't have `impl From<ClientError>`,
+  because of the orphan rule. Each crate maps its errors with its own function
+  (`fn err(e: X) -> Error`) and `.map_err(err)?`:
+  - `Error::AuthFailed`: login rejected.
+  - `Error::Connect`: the server can't be reached.
+  - `Error::Query`: the server rejected the statement.
+  - `Error::Unsupported`: what the engine doesn't offer.
 
-  Los mensajes que ve el usuario van en español; si vienen del servidor, se
-  pasan tal cual.
+  Messages the user sees are written in Spanish; if they come from the
+  server, they're passed through as they are.
 
-## Qué implementar
+## What to implement
 
-| Método | Qué devuelve |
+| Method | What it returns |
 |---|---|
-| `info()` | `DriverInfo`: nombre, familia, lenguaje, puerto, campos del formulario, tipos de objeto. |
-| `connect(cfg, database)` | Una `Session`: **una** conexión viva a esa base (keyspace, dataset, índice…). Sin pools. Con timeout de conexión (15–20 s). |
-| `server_version()` | Producto y versión en una línea. |
-| `list_databases()` | El nivel debajo de la conexión. Si el motor tiene un solo espacio, un único elemento (`["main"]`, `["default"]`) y `databases_label: ""`. |
-| `list_objects()` | `DbObject`s con `kind` = uno de los `ObjectKindInfo::id` declarados. Excluir objetos del sistema. |
-| `columns(obj)` | Columnas o campos. Si el motor no tiene esquema, se infieren de una muestra (p. ej. 100 documentos): `data_type` es el tipo observado y `nullable` es `true` si no aparece en todos. |
-| `definition(obj)` | El código fuente, un mapping o la definición en JSON; `None` si no hay nada que mostrar. |
-| `browse_query(obj, limit)` | El texto, **en el lenguaje del driver**, que muestra las primeras filas o documentos del objeto. La UI lo ejecuta con `execute`. |
-| `filtered_browse(browse, filters)` | (en `Driver`, con implementación por defecto) La consulta de `browse_query` con los filtros de columna aplicados: un `WHERE` en SQL/CQL con las comillas y literales del dialecto, o el filtro nativo del motor. `Error::Unsupported` con el motivo si no se puede; la UI filtra entonces las filas cargadas. |
-| `execute(text, max_rows, out)` | Ejecuta el script completo (ver el formato de resultados abajo). |
-| `interrupter()` | Una función para cancelar desde otro hilo cuando soltar la sesión no alcanza. Ejemplos: `KILL QUERY`, un cancel request, `DELETE` del job por HTTP, o el interrupt de un hilo bloqueante. |
+| `info()` | `DriverInfo`: name, family, language, port, form fields, object kinds. |
+| `connect(cfg, database)` | A `Session`: **one** live connection to that database (keyspace, dataset, index…). No pools. With a connection timeout (15–20 s). |
+| `server_version()` | Product and version in one line. |
+| `list_databases()` | The level below the connection. If the engine has a single space, a single element (`["main"]`, `["default"]`) and `databases_label: ""`. |
+| `list_objects()` | `DbObject`s with `kind` = one of the declared `ObjectKindInfo::id`. Exclude system objects. |
+| `columns(obj)` | Columns or fields. If the engine has no schema, they're inferred from a sample (e.g. 100 documents): `data_type` is the observed type and `nullable` is `true` if it doesn't appear in all of them. |
+| `definition(obj)` | The source code, a mapping or the definition in JSON; `None` if there's nothing to show. |
+| `browse_query(obj, limit)` | The text, **in the driver's language**, that shows the object's first rows or documents. The UI runs it with `execute`. |
+| `filtered_browse(browse, filters)` | (in `Driver`, with a default implementation) The `browse_query` query with the column filters applied: a `WHERE` in SQL/CQL with the dialect's quotes and literals, or the engine's native filter. `Error::Unsupported` with the reason if it can't be done; the UI then filters the loaded rows. |
+| `execute(text, max_rows, out)` | Runs the whole script (see the result format below). |
+| `interrupter()` | A function to cancel from another thread when dropping the session isn't enough. Examples: `KILL QUERY`, a cancel request, an HTTP `DELETE` of the job, or the interrupt of a blocking thread. |
 
-### Resultados
+### Results
 
-Todos los resultados son tabulares (`QueryOutcome`):
+All results are tabular (`QueryOutcome`):
 
-- **Formato de celdas.** Usá `out.begin_result(columnas)`, `out.push_row(celdas, max_rows)`
-  y `out.push_affected(n)`. `push_row` ya limita la memoria: se sigue
-  consumiendo el stream, pero solo se guardan `max_rows` filas.
-- **Tipos de celda.** Las celdas son JSON:
-  - `null`, `bool`, números con `json_i64`/`json_u64`/`json_f64` (los enteros
-    más allá de 2^53 pasan a string);
-  - decimales y fechas como string (fechas en formato ISO: `2024-01-31 13:45:00`);
-  - binarios con `json_bytes`;
-  - objetos o arrays anidados como string JSON compacto.
-- **Documentos** (Mongo, CouchDB, Cosmos, DynamoDB, Elastic, Solr):
-  - una fila por documento;
-  - las columnas son la unión de las claves de primer nivel, en orden de
-    aparición;
-  - los valores anidados van como string JSON.
-- **Clave-valor** (Redis): columnas según el comando. `GET` devuelve `value`;
-  `HGETALL` devuelve `field, value`; un escalar va en una columna `result`.
-- **Mensajes y avisos** del servidor van con `out.info(texto)` y
-  `out.warning(texto)` apenas llegan: quedan en orden en `out.log` y la UI
-  los muestra en vivo. `out.messages.push` sigue funcionando (cuenta como
+- **Cell format.** Use `out.begin_result(columns)`, `out.push_row(cells, max_rows)`
+  and `out.push_affected(n)`. `push_row` already bounds memory: the stream
+  keeps being consumed, but only `max_rows` rows are stored.
+- **Cell types.** Cells are JSON:
+  - `null`, `bool`, numbers with `json_i64`/`json_u64`/`json_f64` (integers
+    beyond 2^53 become strings);
+  - decimals and dates as strings (dates in ISO format: `2024-01-31 13:45:00`);
+  - binaries with `json_bytes`;
+  - nested objects or arrays as compact JSON strings.
+- **Documents** (Mongo, CouchDB, Cosmos, DynamoDB, Elastic, Solr):
+  - one row per document;
+  - the columns are the union of the top-level keys, in order of appearance;
+  - nested values go as JSON strings.
+- **Key-value** (Redis): columns depend on the command. `GET` returns
+  `value`; `HGETALL` returns `field, value`; a scalar goes in a `result`
+  column.
+- **Server messages and warnings** go through `out.info(text)` and
+  `out.warning(text)` as soon as they arrive: they stay in order in `out.log`
+  and the UI shows them live. `out.messages.push` still works (it counts as
   `info`).
-- **Errores y scripts.** Si una sentencia falla, `execute` devuelve `Err`; lo
-  que se ejecutó antes queda en `out`. Si el motor da código, SQLSTATE o
-  posición, devolvé `Error::Statement` (`ScriptError::new(msg).with_code(…)
-  .with_sqlstate(…).at_offset(…)` o `.at_line(…)`, relativos al texto
-  recibido; `.fatal()` si el script no puede seguir).
-- **Cómo se parte un script.** Declará el dialecto en
+- **Errors and scripts.** If a statement fails, `execute` returns `Err`; what
+  ran before stays in `out`. If the engine gives a code, SQLSTATE or position,
+  return `Error::Statement` (`ScriptError::new(msg).with_code(…)
+  .with_sqlstate(…).at_offset(…)` or `.at_line(…)`, relative to the received
+  text; `.fatal()` if the script can't continue).
+- **How a script is split.** Declare the dialect in
   `Driver::script_dialect()` (`ScriptDialect::postgres()`, `mysql()`,
-  `tsql()`, `oracle()`, `firebird()`, `db2()` o `generic()` con cambios):
-  comillas, comentarios, bloques, `GO [N]`, `/`, `DELIMITER`, `SET TERM`.
-  Si no lo declarás, se usa el preset del `dialect` de `DriverInfo`
+  `tsql()`, `oracle()`, `firebird()`, `db2()` or `generic()` with changes):
+  quotes, comments, blocks, `GO [N]`, `/`, `DELIMITER`, `SET TERM`.
+  If you don't declare it, the preset for `DriverInfo`'s `dialect` is used
   (`ScriptDialect::for_hint`: `postgres`, `mysql`, `mssql`/`sybase`,
-  `oracle`, `db2`; el resto, `generic()`). Con eso, `Driver::script_mode()` en `PerStatement` (o `Batches` para T-SQL)
-  hace que la app ejecute sentencia por sentencia, informe cada una y siga
-  o se detenga ante un error según la pestaña (`script_defaults()` da el
-  comportamiento por defecto de la herramienta del motor). `Whole` (el valor
-  por defecto) le pasa el script entero a `execute`: para motores que lo
-  necesitan en un solo pedido. Si el servidor acepta una sola sentencia por
-  pedido y el driver sigue en `Whole`, partí el script con
-  `dbine_driver::sql::split_statements` (SQL) o por líneas o documentos.
-  Un driver `Whole` que parte el script él mismo tiene que portarse como
-  la app en el editor: en las ejecuciones del editor la app le pone
-  `out.continue_on_error` (`Some(true)`: seguir después de un error, como
-  la consola del motor; `None`: cortar en el primero, que es lo que reciben
-  Usuarios y permisos, Backups y el resto) y `out.progress_sink` (cada
-  sentencia que termina, con sus resultados, mensajes y errores, en vivo).
-  El patrón de `steps.rs` de los drivers no SQL (mongodb, neo4j,
-  cassandra, redis…) lo resuelve: `Step::start` antes de cada sentencia y
-  `step.end(out, r)?` después. Cuando una sentencia cambia la base de la
-  sesión (`use db`, `:use`, `USE keyspace`), poné `out.database`: la
-  pestaña la sigue.
-- **Transacciones manuales.** `Session::transaction_state()`,
-  `set_autocommit(bool)`, `commit()`, `rollback()` y
+  `oracle`, `db2`; the rest, `generic()`). With that, `Driver::script_mode()`
+  set to `PerStatement` (or `Batches` for T-SQL) makes the app run statement
+  by statement, report each one and continue or stop on an error depending on
+  the tab (`script_defaults()` gives the default behavior of the engine's
+  tool). `Whole` (the default) passes the entire script to `execute`: for
+  engines that need it in a single request. If the server accepts a single
+  statement per request and the driver stays on `Whole`, split the script with
+  `dbine_driver::sql::split_statements` (SQL) or by lines or documents.
+  A `Whole` driver that splits the script itself has to behave like the app
+  in the editor: in editor runs the app sets `out.continue_on_error`
+  (`Some(true)`: continue after an error, like the engine's console; `None`:
+  stop at the first one, which is what Users and permissions, Backups and the
+  rest receive) and `out.progress_sink` (each statement that finishes, with
+  its results, messages and errors, live). The `steps.rs` pattern of the
+  non-SQL drivers (mongodb, neo4j, cassandra, redis…) solves it:
+  `Step::start` before each statement and `step.end(out, r)?` after. When a
+  statement changes the session's database (`use db`, `:use`,
+  `USE keyspace`), set `out.database`: the tab follows it.
+- **Manual transactions.** `Session::transaction_state()`,
+  `set_autocommit(bool)`, `commit()`, `rollback()` and
   `Driver::supports_manual_transactions()`.
 
-### Solo lectura
+### Read-only
 
 `cfg.read_only`:
 
-- **Drivers SQL:** el registro ya los envuelve en `ReadOnlySession`. Si el
-  motor lo soporta, reforzalo además del lado del servidor, por ejemplo con
-  `SET SESSION TRANSACTION READ ONLY`.
-- **Resto de los drivers:** lo aplican ellos. Rechazan con `Error::Query` los
-  comandos que escriben (lista blanca de comandos de lectura).
+- **SQL drivers:** the registry already wraps them in `ReadOnlySession`. If
+  the engine supports it, also enforce it on the server side, for example
+  with `SET SESSION TRANSACTION READ ONLY`.
+- **The rest of the drivers:** they enforce it themselves. They reject with
+  `Error::Query` the commands that write (an allowlist of read commands).
 
-### Seguridad
+### Security
 
-- Nada de concatenar strings del usuario en consultas de catálogo: usá
-  parámetros, o el helper de quoting de identificadores del dialecto
-  (`dbine_driver::sql`).
-- Los secretos (`password` y los campos con `.secret()`) llegan en `cfg`; no se
-  loguean nunca.
+- Never concatenate user strings into catalog queries: use parameters, or the
+  dialect's identifier quoting helper (`dbine_driver::sql`).
+- Secrets (`password` and fields with `.secret()`) arrive in `cfg`; they're
+  never logged.
 
-## Campos de conexión
+## Connection fields
 
-Los atajos `Field::host()`, `port()`, `database()`, `username()`, `password()`,
-`encrypt()`, `trust_cert()` y `read_only()` se guardan en los campos tipados de
-`ConnectionConfig`. `Field::server_set()` es el juego completo.
+The shortcuts `Field::host()`, `port()`, `database()`, `username()`,
+`password()`, `encrypt()`, `trust_cert()` and `read_only()` are stored in the
+typed fields of `ConnectionConfig`. `Field::server_set()` is the full set.
 
-Cualquier otra clave (`region`, `project_id`, `auth_mode`, `api_key`,
-`service_account_json`…) va a `cfg.options` y se lee con `cfg.option("clave")`.
-Si es un secreto, lleva `.secret()`: la UI la guarda en el llavero.
+Any other key (`region`, `project_id`, `auth_mode`, `api_key`,
+`service_account_json`…) goes to `cfg.options` and is read with
+`cfg.option("key")`. If it's a secret, it carries `.secret()`: the UI stores
+it in the keychain.
 
-## Pruebas
+## Tests
 
-- **Tests unitarios** para los helpers puros: conversión de valores, armado de
-  consultas, parseo de respuestas.
-- **Test de integración contra un servidor real, si hay imagen de Docker.**
-  - Ponelo en `tests/integration.rs`, marcado `#[ignore]`, y que lea la URL de
-    una variable de entorno `DBINE_TEST_<MOTOR>_URL`.
-  - Contenedores: nombre `dbine-test-<motor>`, puerto del host alto y libre, y
-    borrarlo al terminar (`docker rm -f dbine-test-<motor>`).
-  - **Nunca** tocar contenedores que no empiecen con `dbine-test-`: son de
-    otros proyectos.
-- Para validar el crate:
-  - `cargo check -p dbine-driver-<nombre>`
-  - `cargo test -p dbine-driver-<nombre>`
-  - `cargo clippy -p dbine-driver-<nombre>`
+- **Unit tests** for the pure helpers: value conversion, query building,
+  response parsing.
+- **Integration test against a real server, if there's a Docker image.**
+  - Put it in `tests/integration.rs`, marked `#[ignore]`, and have it read the
+    URL from a `DBINE_TEST_<ENGINE>_URL` environment variable.
+  - Containers: name `dbine-test-<engine>`, a high free host port, and remove
+    it when done (`docker rm -f dbine-test-<engine>`).
+  - **Never** touch containers that don't start with `dbine-test-`: they
+    belong to other projects.
+- To validate the crate:
+  - `cargo check -p dbine-driver-<name>`
+  - `cargo test -p dbine-driver-<name>`
+  - `cargo clippy -p dbine-driver-<name>`
 
-## Motores sin cliente nativo en Rust
+## Engines without a native Rust client
 
-Para los motores que solo tienen driver JDBC u ODBC del fabricante (DB2,
-Sybase, Informix, Teradata, Hive, Vertica…) se usa el crate `odbc`. Se apoya en
-el driver manager (unixODBC en macOS y Linux, el nativo en Windows) y en el
-driver ODBC que instale el usuario. En esos casos el formulario pide el nombre
-del driver ODBC o un DSN.
+For engines that only have the vendor's JDBC or ODBC driver (DB2, Sybase,
+Informix, Teradata, Hive, Vertica…), the `odbc` crate is used. It relies on
+the driver manager (unixODBC on macOS and Linux, the native one on Windows)
+and on the ODBC driver the user installs. In those cases the form asks for
+the ODBC driver name or a DSN.
 
-## Librerías nativas de terceros: se descargan al usarlas
+## Third-party native libraries: downloaded on use
 
-Un driver que se apoya en una librería nativa grande de un tercero (C o C++)
-no la mete dentro de la app: la descarga la primera vez que alguien la usa y la
-carga en tiempo de ejecución. Quien no usa ese motor no paga su peso. Es la
-misma estrategia que el modelo de IA integrado.
+A driver that relies on a large third-party native library (C or C++) doesn't
+bundle it inside the app: it downloads it the first time someone uses it and
+loads it at runtime. Whoever doesn't use that engine doesn't pay for its
+weight. It's the same strategy as the built-in AI model.
 
-Hoy aplica a DuckDB (`crates/drivers/duckdb/src/loader.rs`, unos 31 MB menos
-en el ejecutable):
+Today it applies to DuckDB (`crates/drivers/duckdb/src/loader.rs`, about
+31 MB less in the executable):
 
-- **Qué se baja:** el build oficial de DuckDB para la plataforma
-  (`libduckdb-<plataforma>.zip` de sus releases de GitHub), con la versión y el
-  SHA-256 fijos en el código. Trae `parquet`, `json` e `icu` incluidos, así que
-  el preset de archivos funciona sin más descargas.
-- **Cuándo:** en el primer `connect`. La descarga se retoma si se corta, se
-  verifica el SHA-256 y queda en `<datos de la app>/components/duckdb-<versión>/`.
-  En macOS se guarda solo la arquitectura de la máquina.
-- **Cómo lo ve el usuario:** el nodo de la conexión muestra
-  «Descargando DuckDB, solo esta vez… 45 %» en lugar de «Conectando…». El
-  progreso llega por el evento `component-download`
-  (`dbine_driver::runtime::report_progress`).
-- **Cómo se carga:** el crate `duckdb` se compila con `loadable-extension`, que
-  hace pasar cada llamada a la API C por una tabla de funciones;
-  `loader` la llena desde la librería con `libloading`
-  (`src/api_table.rs`). El resto del driver usa el crate como siempre.
-- **Sin internet:** la variable `DBINE_DUCKDB_LIB` apunta a una librería ya
-  descargada.
-- **Al actualizar DuckDB:** subir el crate `duckdb`, cambiar `VERSION` y los
-  tamaños y SHA-256 de `ASSET` en `loader.rs`, y regenerar `api_table.rs` si no
-  compila (el comando está en su encabezado).
-- **macOS firmado:** si la app se firma con hardened runtime, necesita el
-  entitlement `com.apple.security.cs.disable-library-validation` para cargar una
-  librería firmada por otro equipo.
+- **What is downloaded:** the official DuckDB build for the platform
+  (`libduckdb-<platform>.zip` from its GitHub releases), with the version and
+  SHA-256 fixed in the code. It includes `parquet`, `json` and `icu`, so the
+  files preset works without further downloads.
+- **When:** on the first `connect`. The download resumes if it's cut off, the
+  SHA-256 is verified and it ends up in
+  `<app data>/components/duckdb-<version>/`. On macOS only the machine's
+  architecture is stored.
+- **How the user sees it:** the connection node shows "Downloading DuckDB,
+  this one time only… 45%" instead of "Connecting…". Progress arrives through
+  the `component-download` event (`dbine_driver::runtime::report_progress`).
+- **How it's loaded:** the `duckdb` crate is compiled with
+  `loadable-extension`, which routes every C API call through a function
+  table; `loader` fills it from the library with `libloading`
+  (`src/api_table.rs`). The rest of the driver uses the crate as usual.
+- **Without internet:** the `DBINE_DUCKDB_LIB` variable points to an
+  already-downloaded library.
+- **When updating DuckDB:** bump the `duckdb` crate, change `VERSION` and the
+  sizes and SHA-256 of `ASSET` in `loader.rs`, and regenerate `api_table.rs`
+  if it doesn't compile (the command is in its header).
+- **Signed macOS:** if the app is signed with the hardened runtime, it needs
+  the `com.apple.security.cs.disable-library-validation` entitlement to load a
+  library signed by another team.
 
-Un motor nuevo que dependa de una librería nativa de terceros sigue el mismo
-camino: la carpeta y el progreso salen de `dbine_driver::runtime`.
+A new engine that depends on a third-party native library follows the same
+path: the folder and the progress come from `dbine_driver::runtime`.
 
-## Drivers descargables
+## Downloadable drivers
 
-En los builds de release, cada crate de driver (salvo los de
-`dbine_drivers::BUILT_IN`) se compila como un programa aparte que la app
-descarga al usarlo. Un crate nuevo necesita su feature también en
-`crates/dbine-plugin-host/Cargo.toml`, y un método nuevo del contrato necesita
-su reenvío en `crates/dbine-plugin`. Detalles:
-[`drivers-bajo-demanda.md`](drivers-bajo-demanda.md).
+In release builds, each driver crate (except those in
+`dbine_drivers::BUILT_IN`) is compiled as a separate program that the app
+downloads on use. A new crate needs its feature in
+`crates/dbine-plugin-host/Cargo.toml` too, and a new contract method needs
+its forwarding in `crates/dbine-plugin`. Details:
+[`on-demand-drivers.md`](on-demand-drivers.md).

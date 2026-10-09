@@ -10,7 +10,7 @@ import { newQuery } from '../composables/actions';
 import { useConnectionsStore } from '../stores/connections';
 import OptionField from './OptionField.vue';
 
-// "Propiedades" of a database (docs/propiedades-de-la-base.md): what the
+// "Propiedades" of a database (docs/database-properties.md): what the
 // engine lets change, in tabs (General, then each group), with read-only
 // facts on top of each tab. "Aplicar" shows the script of what changed and
 // the warnings of disruptive changes, and runs it only after confirmation.

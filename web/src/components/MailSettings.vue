@@ -7,7 +7,7 @@ import { MAIL_PORTS, mailApi, newMailSettings, type MailSecurity, type MailSetti
 import { tb } from '../i18n/backend';
 
 // Configuración › Correo: the SMTP server of the "Enviar un mail" steps
-// (docs/tareas-programadas.md). Machine-local; the password goes to the vault.
+// (docs/scheduled-tasks.md). Machine-local; the password goes to the vault.
 
 const { t } = useTranslation();
 

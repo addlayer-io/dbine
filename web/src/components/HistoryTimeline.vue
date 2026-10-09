@@ -16,7 +16,7 @@ import { useUiStore } from '../stores/ui';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import TimelineDiffDialog from './TimelineDiffDialog.vue';
 
-// The history sidebar's "Esta pestaña" (docs/historial.md): the active tab's
+// The history sidebar's "Esta pestaña" (docs/history.md): the active tab's
 // timeline, newest first, as VS Code's Timeline. It follows the active tab:
 // switching tabs reloads it. A saved query lists its versions (kept as it's
 // saved) and its runs; a project file, its runs and its git commits.

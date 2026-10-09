@@ -1,4 +1,4 @@
-//! "Optimizar consulta" (docs/optimizar-consulta.md): analyze a query
+//! "Optimizar consulta" (docs/query-optimizer.md): analyze a query
 //! (rule rewrites, notes, index suggestions from its estimated plan), ask
 //! the configured AI for alternatives, and compare the versions on a
 //! read-only session of their own (`cancel_query` / `optimizer_cancel` on

@@ -1,4 +1,4 @@
-//! "Documentar la base" (docs/documentar-la-base.md): a data dictionary of
+//! "Documentar la base" (docs/database-docs.md): a data dictionary of
 //! a database in one file, HTML (inline CSS, index, search, light/dark,
 //! printable) or Markdown. [`collect`] reads what the engine reports through
 //! the driver contract (`database_schema`, `list_objects`, `columns`,

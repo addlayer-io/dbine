@@ -32,7 +32,7 @@ import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 
-// Configuración (⌘,): preferences and the cloud backup (docs/sincronizacion.md).
+// Configuración (⌘,): preferences and the cloud backup (docs/sync.md).
 
 const ui = useUiStore();
 const { t } = useTranslation();

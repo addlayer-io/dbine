@@ -14,7 +14,7 @@ import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 // Import a data file into a table: file + format options, a preview with the
 // inferred types, the target (an existing table or a new one) with the column
 // mapping, and the run with progress. Backend: `preview_import_file` and
-// `import_file` (docs/api-comandos.md). The run is a task (stores/tasks.ts):
+// `import_file` (docs/api-commands.md). The run is a task (stores/tasks.ts):
 // "Seguir en segundo plano" closes the dialog and the import goes on, with
 // its progress in the Tareas panel.
 

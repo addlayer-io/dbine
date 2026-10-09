@@ -1,4 +1,4 @@
-//! Users, groups and permissions (docs/usuarios-y-permisos.md) for
+//! Users, groups and permissions (docs/users-and-permissions.md) for
 //! Databricks with Unity Catalog.
 //!
 //! Users, service principals and groups are managed in the account or the

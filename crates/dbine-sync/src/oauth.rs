@@ -17,7 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-/// The app registrations (docs/sincronizacion.md explains how to create
+/// The app registrations (docs/sync.md explains how to create
 /// them). Build-time env vars, overridable by a JSON file at runtime.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ClientIds {

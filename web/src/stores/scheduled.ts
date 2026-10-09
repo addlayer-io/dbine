@@ -2,7 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia';
 import { listen } from '@tauri-apps/api/event';
 import { scheduledApi, type TaskItem } from '../api/scheduled';
 
-// The scheduled tasks list (docs/tareas-programadas.md), shared by the
+// The scheduled tasks list (docs/scheduled-tasks.md), shared by the
 // sidebar and the tasks' tabs. It reloads when a run or an edit changes it
 // (`state-changed`), and every minute while something looks at it: a run
 // the OS started writes to the state from another process.

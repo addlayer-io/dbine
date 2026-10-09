@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md). Users live in
+//! Users, roles and permissions (docs/users-and-permissions.md). Users live in
 //! the security database (`SEC$USERS`, Firebird 3+); roles and privileges in
 //! this database (`RDB$ROLES`, `RDB$USER_PRIVILEGES`). Without admin rights
 //! `SEC$USERS` shows only the session's own user; the ones that only appear

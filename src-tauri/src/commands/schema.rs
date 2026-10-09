@@ -1,5 +1,5 @@
 //! Database structure, DDL, and database-level operations
-//! (docs/api-comandos.md).
+//! (docs/api-commands.md).
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::{meta_key, AppState};

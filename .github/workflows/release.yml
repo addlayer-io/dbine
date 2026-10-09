@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # A release goes out by one path only (docs/actualizaciones.md): from CI
+  # A release goes out by one path only (docs/updates.md): from CI
   # or locally (`gh release create vX.Y.Z`, which also pushes the tag and
   # starts this workflow). When the release already exists, it's a local
   # one: CI only builds and keeps the installers as artifacts, so it never
@@ -130,7 +130,7 @@ jobs:
       # Every driver except the built-in ones is its own small program that
       # the app downloads the first time it's used. Drivers have their own
       # versions and live in the permanent `drivers` release: only the ones
-      # whose version isn't published yet are built (docs/drivers-bajo-demanda.md).
+      # whose version isn't published yet are built (docs/on-demand-drivers.md).
       - name: Build new driver versions
         shell: bash
         env:
@@ -171,7 +171,7 @@ jobs:
           PY=$(command -v python3 || command -v python)
           "$PY" scripts/driver_index.py publish ${{ matrix.target }} driver-hosts
 
-      # The app updates itself from latest.json (docs/actualizaciones.md):
+      # The app updates itself from latest.json (docs/updates.md):
       # every installer it points at must be signed with the updater key.
       # Without the key, stop instead of publishing unsigned updates.
       - name: Updater signing key present
@@ -194,7 +194,7 @@ jobs:
           # their .sig files; the public key is in tauri.conf.json.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Cloud sync app registrations (docs/sincronizacion.md); empty
+          # Cloud sync app registrations (docs/sync.md); empty
           # when the secrets aren't set: the providers show as unavailable.
           DBINE_GOOGLE_CLIENT_ID: ${{ secrets.DBINE_GOOGLE_CLIENT_ID }}
           DBINE_GOOGLE_CLIENT_SECRET: ${{ secrets.DBINE_GOOGLE_CLIENT_SECRET }}

@@ -267,7 +267,7 @@ impl BatchSource for ThenStall {
     }
 }
 
-/// The rules of `docs/transferencia-masiva.md` 2.5–2.6 (review round 1).
+/// The rules of `docs/bulk-transfer.md` 2.5–2.6 (review round 1).
 async fn rules(id: &str, url: &str) {
     let mut s = open(id, url).await;
     let mut other = open(id, url).await;

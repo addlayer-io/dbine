@@ -1,5 +1,5 @@
 //! Users, roles and permissions through etcd's Auth API
-//! (docs/usuarios-y-permisos.md): users belong to roles and roles hold
+//! (docs/users-and-permissions.md): users belong to roles and roles hold
 //! READ / WRITE / READWRITE on a key, a prefix or a range. `root` (user and
 //! role) can do everything. Users and roles exist whether or not auth is
 //! enabled; etcd only enforces them after `auth enable`.

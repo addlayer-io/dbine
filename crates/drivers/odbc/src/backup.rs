@@ -63,7 +63,7 @@ pub fn engine(p: &Preset) -> Option<Engine> {
     })
 }
 
-/// Why a preset has no native backups in DBine (docs/soporte-por-motor.md).
+/// Why a preset has no native backups in DBine (docs/engine-support.md).
 pub fn unsupported(p: &Preset) -> &'static str {
     match p.id {
         "odbc" => "el motor detrás de un ODBC genérico es desconocido: DBine no sabe si tiene backups propios ni cómo se piden",

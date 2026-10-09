@@ -8,7 +8,7 @@ import { dbDocsApi, defaultDocOptions, type DocFormat, type DocOptions, type Doc
 import { useConnectionsStore } from '../stores/connections';
 import { dbDocsTarget, runDbDocs } from '../composables/dbDocs';
 
-// "Documentar la base…" (docs/documentar-la-base.md): format, schemas, what
+// "Documentar la base…" (docs/database-docs.md): format, schemas, what
 // to include (only what the database has) and the file. The run goes on as
 // a background task (composables/dbDocs.ts) and the dialog closes.
 

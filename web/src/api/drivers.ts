@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-// Downloadable drivers (docs/drivers-bajo-demanda.md). A build that carries
+// Downloadable drivers (docs/on-demand-drivers.md). A build that carries
 // every driver inside answers `on_demand: false` and an empty list.
 
 /** Drivers have versions of their own, published apart from the app. */

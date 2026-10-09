@@ -1,4 +1,4 @@
-//! Users, roles and permissions of CouchDB (docs/usuarios-y-permisos.md):
+//! Users, roles and permissions of CouchDB (docs/users-and-permissions.md):
 //!
 //! - server admins (`/_node/_local/_config/admins`): every permission;
 //! - users: `org.couchdb.user:<name>` documents in `_users`, each with its

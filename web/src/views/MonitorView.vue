@@ -29,7 +29,7 @@ const driver = computed(() => conns.driverOf(props.tab.connectionId));
 
 const snap = ref<MonitorSnapshot | null>(null);
 const error = ref<string | null>(null);
-/** The locks panel: engines that report who blocks whom (docs/bloqueos.md). */
+/** The locks panel: engines that report who blocks whom (docs/locks.md). */
 const canBlocking = computed(() => !!driver.value?.capabilities.blocking);
 const canKill = computed(() => !!driver.value?.capabilities.kill_session && !conn.value?.config.read_only);
 /** Why the login can't end other sessions ('' when it can). */
@@ -48,7 +48,7 @@ async function pollBlocking() {
     blockingError.value = errorMessage(e);
   }
 }
-/** The process list (docs/procesos.md): the dashboard or the processes. */
+/** The process list (docs/processes.md): the dashboard or the processes. */
 const canProcesses = computed(() => !!driver.value?.capabilities.processes);
 const canCancel = computed(() => !!driver.value?.capabilities.cancel_query && !conn.value?.config.read_only);
 const view = ref<'dashboard' | 'processes'>('dashboard');

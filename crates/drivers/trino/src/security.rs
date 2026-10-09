@@ -1,4 +1,4 @@
-//! Roles and permissions (docs/usuarios-y-permisos.md) for Trino, Presto
+//! Roles and permissions (docs/users-and-permissions.md) for Trino, Presto
 //! and Starburst.
 //!
 //! What there is depends on the access control the server and each catalog

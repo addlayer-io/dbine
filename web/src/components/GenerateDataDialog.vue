@@ -8,7 +8,7 @@ import type { ObjectRef } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { runTask } from '../stores/tasks';
 
-// "Generar datos de prueba…" (docs/datos-de-prueba.md): one row per column
+// "Generar datos de prueba…" (docs/test-data.md): one row per column
 // with its generator ("auto" picks by name and type), its settings and the
 // share of NULLs; a sample from the backend, and the run as a background
 // task with progress and cancel.

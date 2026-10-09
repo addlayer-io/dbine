@@ -172,7 +172,7 @@ pub fn run() {
             }));
             let state = AppState::new(store);
             // 4c. The explorer's cache, next to the state (not part of it:
-            //     never synced, rebuilt if lost; docs/cache-del-explorador.md).
+            //     never synced, rebuilt if lost; docs/explorer-cache.md).
             match dbine_core::ExplorerCache::open(&dir.join("cache.db")) {
                 Ok(c) => {
                     let _ = state.cache.set(c);

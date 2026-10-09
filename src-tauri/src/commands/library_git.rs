@@ -1,4 +1,4 @@
-//! The Library in a git repository (docs/biblioteca.md): a backup that can be
+//! The Library in a git repository (docs/library.md): a backup that can be
 //! shared, with commit, pull, push and sync from the Library's git window.
 //!
 //! - The repo holds each script as a file (`<folder>/<name>.<ext>`, the

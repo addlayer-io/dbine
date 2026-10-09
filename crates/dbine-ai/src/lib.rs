@@ -1,4 +1,4 @@
-//! DBine's AI assistant backends (docs/asistente-ia.md). Nothing here talks
+//! DBine's AI assistant backends (docs/ai-assistant.md). Nothing here talks
 //! to an AI service of its own: it finds what the user already has on the
 //! machine and uses it.
 //!

@@ -5093,7 +5093,7 @@
   "espacio de nombres": "namespace",
   "esquema de URL no admitido: {0}://": "unsupported URL scheme: {0}://",
   "esta base no informa roles (el emulador de Spanner no tiene el control de acceso detallado): {0}": "this database does not report roles (the Spanner emulator has no fine-grained access control): {0}",
-  "esta versión de DBine no tiene configurado el acceso a {0} (falta registrar la app: ver docs/sincronizacion.md)": "this version of DBine doesn't have access to {0} configured (the app must be registered: see docs/sincronizacion.md)",
+  "esta versión de DBine no tiene configurado el acceso a {0} (falta registrar la app: ver docs/sync.md)": "this version of DBine doesn't have access to {0} configured (the app must be registered: see docs/sync.md)",
   "esta versión de ScyllaDB no tiene auditoría (llegó a la edición abierta en la 2025.1)": "this version of ScyllaDB has no auditing (it reached the open edition in 2025.1)",
   "esta versión del driver no tiene «{0}»": "this driver version doesn't have “{0}”",
   "esta versión no incluye el driver '{0}'": "this version doesn't include the '{0}' driver",

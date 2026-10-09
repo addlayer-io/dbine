@@ -7,7 +7,7 @@
 //! quit guard. Otherwise (no manifest yet, a deb/rpm install, the app run
 //! from the DMG, a build without the real key) it falls back to GitHub's
 //! latest release and the UI offers the release page, which
-//! `open_release_page` opens in the system browser. docs/actualizaciones.md.
+//! `open_release_page` opens in the system browser. docs/updates.md.
 //!
 //! Only one window drives an update: the one whose check found it (the
 //! owner). Progress events go to it alone; another window that checks while
@@ -271,7 +271,7 @@ fn build_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, tauri
             crate::exit_cleanup(&cleanup);
             cleanup.cleanup_before_exit();
         });
-    // Tests only: a local manifest and a test key (docs/actualizaciones.md).
+    // Tests only: a local manifest and a test key (docs/updates.md).
     #[cfg(debug_assertions)]
     {
         if let Some(url) = debug_env("DBINE_UPDATE_ENDPOINT") {

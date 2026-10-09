@@ -14,7 +14,7 @@ import { runTask, type TaskHandle } from './tasks';
 import { useUiStore } from './ui';
 import { fileDocs } from '../composables/tabDocument';
 
-// Proyectos (docs/proyectos.md): git repos of scripts linked on this
+// Proyectos (docs/projects.md): git repos of scripts linked on this
 // machine. The list, each one's git status, the folders shown in the
 // sidebar's file tree, and the git operations (as background tasks).
 // A project never owns connections: its "base activa" points at one of the

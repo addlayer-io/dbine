@@ -83,7 +83,7 @@ export interface DriverInfo {
   supports_explain: boolean;
   /** "Comparar esquemas" can apply changes to it. */
   supports_schema_sync: boolean;
-  /** Users and permissions (docs/usuarios-y-permisos.md); null: not offered. */
+  /** Users and permissions (docs/users-and-permissions.md); null: not offered. */
   security?: SecuritySpec | null;
   /** The engine's own backups (docs/backups.md); null: only DBine's copies. */
   backup?: BackupSpec | null;
@@ -816,7 +816,7 @@ export interface MultiDbProgress {
 }
 
 // -- Proyectos: git repos of scripts linked to this machine --------------------
-// (src-tauri/src/commands/projects.rs, projects_git.rs; docs/proyectos.md)
+// (src-tauri/src/commands/projects.rs, projects_git.rs; docs/projects.md)
 
 export interface ProjectTarget { connection_id: string; database: string }
 export interface ProjectBinding {

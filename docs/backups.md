@@ -1,70 +1,69 @@
 # Backups
 
-Clic derecho sobre una base › **Backups…** abre una pestaña con todo lo de
-backups de esa base: el historial, hacer uno nuevo y restaurar. En los
-motores cuyos backups son de todo el servidor (Redis, los snapshots de
-Elasticsearch…), la opción también está en el menú de la conexión.
+Right-click a database › **Backups…** opens a tab with everything about that
+database's backups: the history, making a new one and restoring. On engines
+whose backups cover the whole server (Redis, Elasticsearch snapshots…), the
+option is also in the connection's menu.
 
-La pestaña tiene dos partes.
+The tab has two parts.
 
-## Copias de DBine
+## DBine copies
 
-Sirven para **todos los motores**. Una copia es un script con la estructura
-y, si se pide, los datos de la base, guardado en un archivo local.
+They work for **all engines**. A copy is a script with the database's
+structure and, if requested, its data, saved to a local file.
 
-- **Nueva copia:** se elige el archivo y si lleva los datos. Por defecto va a
-  `Documentos/DBine/Backups/<conexión>/<base>-<fecha>.sql`.
-  - El script borra y vuelve a crear cada objeto (`DROP … IF EXISTS` y
-    `CREATE`). Después vienen los datos (`INSERT` en lotes, en la sintaxis
-    del motor) y, al final, los índices y las claves foráneas.
-  - Es lo mismo que **Generar script…** con todos los objetos marcados.
-  - Se ve el avance y se puede cancelar. Si se cancela o falla, el archivo a
-    medio escribir se borra.
-- **Historial:** fecha, si tiene datos, cantidad de objetos y de filas,
-  tamaño y ruta del archivo. Queda en el estado local de esta máquina: no
-  viaja con la sincronización.
-- **Restaurar:** ejecuta el script en la base elegida, que puede ser la
-  misma u otra. Es lo mismo que **Ejecutar archivo…**.
-  - Pide confirmación, porque reemplaza los objetos de la copia que ya
-    existan en esa base.
-  - Se puede seguir aunque falle una sentencia; los errores se muestran al
-    final.
-- **Eliminar:** saca la copia de la lista y, si se elige, también borra el
-  archivo.
+- **New copy:** you choose the file and whether it includes the data. By
+  default it goes to `Documents/DBine/Backups/<connection>/<database>-<date>.sql`.
+  - The script drops and recreates each object (`DROP … IF EXISTS` and
+    `CREATE`). The data follows (`INSERT` in batches, in the engine's
+    syntax) and, at the end, the indexes and foreign keys.
+  - It is the same as **Generate script…** with all objects checked.
+  - Progress is shown and it can be cancelled. If it is cancelled or fails,
+    the half-written file is deleted.
+- **History:** date, whether it has data, number of objects and rows, size and
+  file path. It stays in this machine's local state: it doesn't travel with
+  sync.
+- **Restore:** runs the script on the chosen database, which can be the same
+  or another. It is the same as **Run file…**.
+  - It asks for confirmation, because it replaces the copy's objects that
+    already exist in that database.
+  - You can continue even if a statement fails; errors are shown at the end.
+- **Delete:** removes the copy from the list and, if chosen, also deletes the
+  file.
 
-## Backups del servidor
+## Server backups
 
-Son los que hace el propio motor (`BACKUP DATABASE` en SQL Server,
-`BACKUP … TO Disk(…)` en ClickHouse, los snapshots de Elasticsearch…),
-donde existen:
+These are made by the engine itself (`BACKUP DATABASE` in SQL Server,
+`BACKUP … TO Disk(…)` in ClickHouse, Elasticsearch snapshots…), where they
+exist:
 
-- **Historial:** lo que el servidor tiene registrado (fecha, tipo, base,
-  tamaño, ubicación y estado), en los motores que lo informan.
-- **Hacer backup, Restaurar y Eliminar:** cada motor pide sus opciones (tipo,
-  destino, compresión, repositorio…). Con esas opciones DBine arma el
-  **script en el lenguaje del motor**, lo muestra y lo ejecuta solo con el
-  clic en **Ejecutar**. El script se puede copiar para correrlo en otro lado.
-- Los archivos quedan donde los deja el servidor, no en esta máquina. La
-  pestaña avisa qué necesita cada motor (por ejemplo, un disco de backups
-  configurado en ClickHouse o un repositorio registrado en Elasticsearch).
-- Estos scripts no se guardan en el historial de consultas.
+- **History:** what the server has on record (date, type, database, size,
+  location and status), on engines that report it.
+- **Back up, Restore and Delete:** each engine asks for its options (type,
+  destination, compression, repository…). With those options DBine builds the
+  **script in the engine's language**, shows it and runs it only on clicking
+  **Run**. The script can be copied to run elsewhere.
+- The files stay where the server leaves them, not on this machine. The tab
+  says what each engine needs (for example, a configured backup disk in
+  ClickHouse or a registered repository in Elasticsearch).
+- These scripts aren't saved in the query history.
 
-Las conexiones de **solo lectura** muestran el historial, pero no ofrecen
-hacer backups ni restaurar.
+**Read-only** connections show the history, but don't offer making backups or
+restoring.
 
-Qué soporta cada motor está en
-[`soporte-por-motor.md`](soporte-por-motor.md#backups).
+What each engine supports is in
+[`engine-support.md`](engine-support.md#backups).
 
-## Contrato
+## Contract
 
-- `Driver::backup()` dice qué ofrece el motor (`BackupSpec`): las opciones de
-  un backup y de una restauración, y si puede restaurar, borrar y listar el
-  historial. También dice si los backups son de todo el servidor, en qué
-  base se ejecutan los scripts y una nota para la pestaña. `None`: solo las
-  copias de DBine.
-- `Session::backups(base)` lee el historial del servidor.
-- `Driver::backup_script(acción)` escribe el script de un backup, una
-  restauración o un borrado.
+- `Driver::backup()` says what the engine offers (`BackupSpec`): the options
+  of a backup and of a restore, and whether it can restore, delete and list
+  the history. It also says whether backups cover the whole server, which
+  database the scripts run on and a note for the tab. `None`: only DBine
+  copies.
+- `Session::backups(database)` reads the server's history.
+- `Driver::backup_script(action)` writes the script of a backup, a restore or
+  a delete.
 
-Las copias de DBine no pasan por el driver: usan la generación de scripts
-(`generate_script`) y la ejecución de archivos (`run_script_file`).
+DBine copies don't go through the driver: they use script generation
+(`generate_script`) and file execution (`run_script_file`).

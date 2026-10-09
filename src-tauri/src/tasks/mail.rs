@@ -1,4 +1,4 @@
-//! Sending mail (docs/tareas-programadas.md): the SMTP server of
+//! Sending mail (docs/scheduled-tasks.md): the SMTP server of
 //! Configuración › Correo and the "Enviar un mail" step.
 //!
 //! The server lives in this machine's state (`local.mail`): the tasks that

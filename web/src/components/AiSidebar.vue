@@ -14,7 +14,7 @@ import { locale } from '../i18n';
 
 // The AI assistant (right sidebar, ⌘I). It writes code; it never runs it:
 // its code goes into the open query (appended, or replacing it when it
-// corrects the editor) and the user runs it (docs/asistente-ia.md).
+// corrects the editor) and the user runs it (docs/ai-assistant.md).
 
 defineEmits<{ close: [] }>();
 

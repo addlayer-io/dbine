@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md).
+//! Users, roles and permissions (docs/users-and-permissions.md).
 //!
 //! - **Neo4j:** users and roles are server-wide, in the `system` database.
 //!   Privileges go to roles only (a user holds them through its roles); they

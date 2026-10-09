@@ -226,7 +226,7 @@ fn map(id: &str, v: &Value, cred: Option<&Value>) -> Candidate {
     } else if auth.contains("aws") || auth.contains("iam") {
         c.notes.push("La autenticación IAM no se importa: usá usuario y contraseña.".into());
     }
-    // SSH tunnel (docs/tuneles-ssh.md): its user and password are in the credentials.
+    // SSH tunnel (docs/ssh-tunnels.md): its user and password are in the credentials.
     if conf.pointer("/handlers/ssh_tunnel/enabled").and_then(Value::as_bool).unwrap_or(false) {
         let p = conf.pointer("/handlers/ssh_tunnel/properties").cloned().unwrap_or(Value::Null);
         let login = cred.and_then(|c| c.get("network/ssh_tunnel"));

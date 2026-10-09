@@ -1,6 +1,6 @@
 //! DBine's bulk transfer engine: copies tables between databases with the
 //! engines' native bulk loads, several tables at once, memory bounded, and
-//! resumable after a cut. See `docs/transferencia-masiva.md`.
+//! resumable after a cut. See `docs/bulk-transfer.md`.
 //!
 //! It knows nothing of any engine: the app describes each table as a
 //! [`TransferJob`], opens connections through [`Endpoints`] and runs an

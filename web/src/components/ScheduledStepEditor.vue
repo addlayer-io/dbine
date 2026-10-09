@@ -12,7 +12,7 @@ import ProjectTargetPicker from './ProjectTargetPicker.vue';
 import ScheduledMailStep from './ScheduledMailStep.vue';
 import ScheduledDocStep from './ScheduledDocStep.vue';
 
-// One step of a scheduled task (docs/tareas-programadas.md): its database,
+// One step of a scheduled task (docs/scheduled-tasks.md): its database,
 // its script or query, and where its file goes. Edits `step.config` in place.
 
 const props = defineProps<{ step: Step; index: number; count: number }>();

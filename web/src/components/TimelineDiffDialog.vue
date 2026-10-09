@@ -5,7 +5,7 @@ import { lineDiff } from '../composables/lineDiff';
 
 // An older text of the tab (a version, a commit, a run) against the text
 // in its editor now, side by side (left: then, right: now), with
-// "Restaurar esta versión" (docs/historial.md).
+// "Restaurar esta versión" (docs/history.md).
 
 const props = defineProps<{
   title: string;

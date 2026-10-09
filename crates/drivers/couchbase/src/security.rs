@@ -1,4 +1,4 @@
-//! Users, groups and roles of Couchbase Server (docs/usuarios-y-permisos.md).
+//! Users, groups and roles of Couchbase Server (docs/users-and-permissions.md).
 //!
 //! Couchbase's permissions are built-in roles (`data_reader`,
 //! `query_select`, `bucket_full_access`, `admin`…), each on the whole

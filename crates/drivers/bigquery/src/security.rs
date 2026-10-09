@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) for BigQuery.
+//! Users, roles and permissions (docs/users-and-permissions.md) for BigQuery.
 //! Identities are Google Cloud IAM principals (`user:…`, `group:…`,
 //! `serviceAccount:…`, `domain:…`, `specialGroup:…`), which BigQuery can't
 //! create; what it manages is who holds which IAM role on a dataset, table

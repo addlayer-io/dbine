@@ -1,10 +1,10 @@
-//! Migrating a database to another engine (docs/migracion.md): read the
+//! Migrating a database to another engine (docs/migration.md): read the
 //! source tables, convert them (`dbine-schema`), then — only when the user
 //! runs it — create them on the chosen target connection, copy the data and
 //! add the foreign keys. `migration_plan` previews (report + script);
 //! `migration_run` does it, the data through the bulk transfer engine
 //! (`dbine-transfer`): tables in parallel, native bulk loads, resumable
-//! after a cut (docs/transferencia-masiva.md).
+//! after a cut (docs/bulk-transfer.md).
 //!
 //! Three modes ([`MigrationMode`]): convert (the above, between any engines), clone (same
 //! engine: the driver's `CloneScript` leaves the target identical) and sync (same driver: only

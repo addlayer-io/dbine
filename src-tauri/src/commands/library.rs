@@ -1,4 +1,4 @@
-//! The script Library (docs/biblioteca.md): reusable scripts per engine,
+//! The script Library (docs/library.md): reusable scripts per engine,
 //! not tied to a database. Opening one copies it into a query; the Library
 //! keeps the original.
 

@@ -20,7 +20,7 @@ import { useLibraryStore } from '../stores/library';
 import { useSettingsStore } from '../stores/settings';
 import { runTask, type TaskHandle } from '../stores/tasks';
 
-// The Library in a git repo (docs/biblioteca.md): link a repo, then commit,
+// The Library in a git repo (docs/library.md): link a repo, then commit,
 // pull, push or sync. Git runs on this machine with the user's credentials.
 // Each operation is a task (stores/tasks.ts): it shows in Tareas, goes on if
 // the dialog closes ("Seguir en segundo plano") and then notifies when it

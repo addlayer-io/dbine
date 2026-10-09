@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) for Solr's
+//! Users, roles and permissions (docs/users-and-permissions.md) for Solr's
 //! security.json plugins: Basic authentication (`/admin/authentication`,
 //! the users and their passwords) and rule-based authorization
 //! (`/admin/authorization`: each user's roles and the permissions, each

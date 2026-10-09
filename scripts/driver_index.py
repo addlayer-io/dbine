@@ -2,7 +2,7 @@
 """The published driver index (`index-<target>.json` in the `drivers`
 release): reading, merging, signing and resolving it.
 
-Drivers version apart from the app (docs/drivers-bajo-demanda.md). Each
+Drivers version apart from the app (docs/on-demand-drivers.md). Each
 target's index lists every published host:
 
     {"target": "<triple>", "schema": 2, "seq": <unix time, always growing>,

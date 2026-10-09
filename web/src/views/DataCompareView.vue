@@ -13,7 +13,7 @@ import { useTabsStore, type DataCompareTab } from '../stores/tabs';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
 
-// Data compare (docs/comparacion-de-datos.md): a table's rows (left) against
+// Data compare (docs/data-compare.md): a table's rows (left) against
 // another table's (right), by key; then a script, in the target engine's
 // language, that makes one side like the other. Nothing runs without the
 // user's click.

@@ -1,4 +1,4 @@
-//! Users, roles and permissions (docs/usuarios-y-permisos.md) over the
+//! Users, roles and permissions (docs/users-and-permissions.md) over the
 //! security REST APIs, written in the console syntax the editor runs
 //! (see [`crate::console`]).
 //!

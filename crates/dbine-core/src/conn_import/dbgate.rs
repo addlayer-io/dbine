@@ -123,7 +123,7 @@ fn map(v: &Value, password: Option<String>) -> Candidate {
     cfg.read_only = b(v, "isReadOnly");
     cfg.encrypt = b(v, "useSsl");
     cfg.trust_server_certificate = b(v, "trustServerCertificate") || (cfg.encrypt && v.get("sslRejectUnauthorized").and_then(Value::as_bool) == Some(false));
-    // SSH tunnel (docs/tuneles-ssh.md); its secrets are added by the caller.
+    // SSH tunnel (docs/ssh-tunnels.md); its secrets are added by the caller.
     if b(v, "useSshTunnel") {
         let opts = &mut cfg.options;
         opts.insert("ssh.enabled".into(), "true".into());

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { open as openFile } from '@tauri-apps/plugin-dialog';
 
-// The SSH tunnel of a connection (docs/tuneles-ssh.md): its settings go to
+// The SSH tunnel of a connection (docs/ssh-tunnels.md): its settings go to
 // the connection's options as `ssh.*`; the password and the key's passphrase
 // are secrets (keychain), never read back.
 

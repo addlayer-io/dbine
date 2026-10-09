@@ -10,7 +10,7 @@ import { newQuery, runCreateDatabase } from '../composables/actions';
 import { useConnectionsStore } from '../stores/connections';
 import OptionField from './OptionField.vue';
 
-// "Nueva base de datos" (docs/crear-bases.md): the name and, folded under
+// "Nueva base de datos" (docs/create-databases.md): the name and, folded under
 // "Opciones avanzadas", the clauses the engine's CREATE DATABASE takes
 // (Driver::create_database_fields), with the server's suggestions
 // (collations, default paths, users…). An empty option is the server's

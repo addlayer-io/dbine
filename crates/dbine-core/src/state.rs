@@ -93,7 +93,7 @@ pub struct HistoryEntry {
 const HISTORY_MAX: i64 = 20_000;
 
 /// A saved query's text at one moment: its timeline in the history
-/// sidebar (docs/historial.md). Local to this machine, like the history.
+/// sidebar (docs/history.md). Local to this machine, like the history.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QueryVersion {
     pub id: i64,

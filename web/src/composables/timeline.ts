@@ -6,7 +6,7 @@ import { editorBridge } from '../stores/ai';
 import type { Tab } from '../stores/tabs';
 import { queryDocs } from './tabDocument';
 
-// The history sidebar's "Esta pestaña" view (docs/historial.md): the active
+// The history sidebar's "Esta pestaña" view (docs/history.md): the active
 // tab's timeline, as in VS Code. A saved query has local versions and runs;
 // a project file has runs and git commits.
 

@@ -1,5 +1,5 @@
 //! Users and permissions of InfluxDB 1.x in InfluxQL
-//! (docs/usuarios-y-permisos.md): users are server-wide, either admins
+//! (docs/users-and-permissions.md): users are server-wide, either admins
 //! (every privilege) or with READ / WRITE / ALL on each database. There are
 //! no roles and users can't be disabled.
 //!

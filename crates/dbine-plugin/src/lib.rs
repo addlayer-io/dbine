@@ -1,4 +1,4 @@
-//! Drivers as separate processes, downloaded on first use (docs/drivers-bajo-demanda.md).
+//! Drivers as separate processes, downloaded on first use (docs/on-demand-drivers.md).
 //!
 //! - [`proto`]: the messages and their framing.
 //! - [`host`]: a driver crate serving the app over stdin / stdout

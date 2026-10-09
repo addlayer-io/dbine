@@ -3,7 +3,7 @@
 ## [0.1.9] - 2026-10-09
 
 ### Novidades
-- **Renomear com impacto:** **Renomear…** no explorador altera o nome de uma tabela, view, rotina, coluna, índice ou esquema e, no mesmo script, reescreve as views, procedimentos, funções e triggers que o usam. Antes de executar, mostra o que o motor atualiza sozinho, o que é reescrito e o que precisa ser revisado manualmente (SQL dinâmico, código ilegível), junto com o script completo. Roda em uma transação onde o motor permite. Está em todos os motores que podem renomear algo; os limites de cada um estão em `docs/soporte-por-motor.md`.
+- **Renomear com impacto:** **Renomear…** no explorador altera o nome de uma tabela, view, rotina, coluna, índice ou esquema e, no mesmo script, reescreve as views, procedimentos, funções e triggers que o usam. Antes de executar, mostra o que o motor atualiza sozinho, o que é reescrito e o que precisa ser revisado manualmente (SQL dinâmico, código ilegível), junto com o script completo. Roda em uma transação onde o motor permite. Está em todos os motores que podem renomear algo; os limites de cada um estão em `docs/engine-support.md`.
 - **Modificar uma tabela:** **Modificar…** abre o designer sobre uma tabela existente e monta o `ALTER` do motor. Mantém o que o designer não mostra (CHECKs, opções de índices, ordem das colunas da chave) e recria as views e triggers que dependem da tabela. Renomear uma coluna ali passa pela revisão de impacto; em conexões de produção, pede para digitar o nome da tabela antes de executar.
 - **Histórico por consulta:** a barra de **Histórico** acompanha a aba ativa, como uma linha do tempo: versões da consulta salva com diferenças e restauração, suas execuções e, em arquivos de um projeto, seus commits do git.
 - **Navegação no editor:** Cmd/Ctrl+clique em uma tabela, view ou rotina abre sua estrutura ou definição, e **Mostrar no explorador** a localiza na árvore. Tabelas e colunas que não existem são marcadas antes de executar.
@@ -34,7 +34,7 @@
 - O editor não marca mais como desconhecidas as colunas de uma subconsulta com alias.
 
 ### Já disponível
-- **Executar uma consulta em vários bancos ao mesmo tempo:** escolhe-se um ou vários bancos de uma conexão, e os resultados são unidos com uma coluna que indica o banco de cada linha. Chegou na 0.1.4. Veja `docs/ejecutar-en-varias-bases.md`.
+- **Executar uma consulta em vários bancos ao mesmo tempo:** escolhe-se um ou vários bancos de uma conexão, e os resultados são unidos com uma coluna que indica o banco de cada linha. Chegou na 0.1.4. Veja `docs/multi-database-queries.md`.
 
 ## [0.1.8] - 2026-10-06
 

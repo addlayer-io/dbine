@@ -46,7 +46,7 @@ import { startTask, useTasksStore } from '../stores/tasks';
 // Run a script file against a database (restore a dump): the backend reads
 // it in chunks and splits statements the driver's way, so files of any size
 // work. Shows progress by bytes and lists the errors at the end.
-// Backend: `run_script_file` (docs/api-comandos.md). The run is a task
+// Backend: `run_script_file` (docs/api-commands.md). The run is a task
 // (stores/tasks.ts): "Seguir en segundo plano" closes the dialog and the run
 // goes on; "Ver detalle" in the Tareas panel shows this dialog again.
 

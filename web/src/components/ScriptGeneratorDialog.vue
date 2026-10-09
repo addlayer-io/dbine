@@ -15,7 +15,7 @@ import { newQuery } from '../composables/actions';
 
 // Script of a whole database (or part of it): pick the objects on the left,
 // what to emit on the right, then open it in an editor or stream it to a
-// file with progress. Backend: `generate_script` (docs/api-comandos.md).
+// file with progress. Backend: `generate_script` (docs/api-commands.md).
 // The run is a task (stores/tasks.ts): "Seguir en segundo plano" closes the
 // dialog and the generation goes on; a script meant for the editor opens
 // there when it ends.

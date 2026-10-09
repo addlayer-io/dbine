@@ -1,4 +1,4 @@
-//! DBine cloud backup (docs/sincronizacion.md): the whole IDE state
+//! DBine cloud backup (docs/sync.md): the whole IDE state
 //! (connections, folders, saved queries, preferences and, encrypted with
 //! the rest, the connections' passwords) as one end-to-end encrypted file in
 //! the user's own storage: Google Drive's or OneDrive's private app folder,

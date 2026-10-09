@@ -8,7 +8,7 @@ import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type SearchTab } from '../stores/tabs';
 
-// "Buscar en la base" (docs/busqueda.md): object names and the text of
+// "Buscar en la base" (docs/search.md): object names and the text of
 // views, routines, triggers… The scan runs on its own session in the
 // backend; hits arrive as it goes ("code-search-progress") and the search
 // can be cancelled. Clicking a hit opens the object's definition.

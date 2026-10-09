@@ -2,7 +2,7 @@
 """Build the in-app updater manifest (`latest.json`) of a DBine release.
 
 The app reads https://github.com/addlayer-io/dbine/releases/latest/download/latest.json
-(tauri-plugin-updater, docs/actualizaciones.md). For each platform it lists
+(tauri-plugin-updater, docs/updates.md). For each platform it lists
 the signed update package and its minisign signature (the `.sig` the
 `cargo tauri build --config src-tauri/tauri.updater.conf.json` build writes
 next to it).

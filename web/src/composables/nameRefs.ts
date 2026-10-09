@@ -7,7 +7,7 @@ import { lexRegions, lexSyntax, maskCode, regionAt } from './sqlLexer';
 // tab's database (stores/connections, filled from the explorer cache first):
 // ⌘/Ctrl+click and "Ir a la definición" open the object; "Mostrar en el
 // explorador" selects it; and names that don't exist get a soft warning
-// through "Calidad de código" (docs/editor-de-consultas.md).
+// through "Calidad de código" (docs/query-editor.md).
 
 /** What the editor knows of the tab's database. */
 export interface NameIndex {

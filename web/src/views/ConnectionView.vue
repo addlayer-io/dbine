@@ -58,7 +58,7 @@ const tagOptions = computed(() => {
   return all.filter((t, i) => all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i);
 });
 const values = reactive<Record<string, string | boolean>>({});
-/** The SSH tunnel (`ssh.*` options; docs/tuneles-ssh.md). */
+/** The SSH tunnel (`ssh.*` options; docs/ssh-tunnels.md). */
 const SSH_EMPTY: SshValues = { enabled: false, host: '', port: '', user: '', auth: 'password', password: '', key_path: '', passphrase: '', jump: '', trusted: '' };
 const ssh = ref<SshValues>({ ...SSH_EMPTY });
 /** Engines reached over the network (a server host, not a file): they can use a tunnel. */

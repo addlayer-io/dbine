@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-// The script Library (src-tauri/src/commands/library.rs, docs/biblioteca.md).
+// The script Library (src-tauri/src/commands/library.rs, docs/library.md).
 
 export interface LibraryScript {
   id: string;

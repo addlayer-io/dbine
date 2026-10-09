@@ -9,5 +9,5 @@
 # Local, per-user tool settings
 .claude/settings.local.json
 
-# Local build secrets (cloud client IDs): see docs/sincronizacion.md
+# Local build secrets (cloud client IDs): see docs/sync.md
 .env

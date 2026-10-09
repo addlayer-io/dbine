@@ -1,111 +1,112 @@
-# DBine: guía para agentes
+# DBine: guide for agents
 
-DBine es un gestor de bases de datos multimotor de escritorio: Tauri 2 con un
-core en Rust y una UI en Vue 3 + Element Plus.
+DBine is a desktop multi-engine database manager: Tauri 2 with a Rust core and
+a Vue 3 + Element Plus UI.
 
-## Estructura
+## Structure
 
-- `crates/dbine-driver`: el contrato de los drivers (traits `Driver` y
-  `Session`, `DriverInfo`, modelo de resultados, helpers SQL, `ReadOnlySession`).
-  Es liviano y no depende de ningún cliente de base.
-- `crates/drivers/<motor>`: un crate por motor o por familia de protocolo.
-  Cómo se escribe uno: `docs/drivers.md`.
-- `crates/dbine-drivers`: el registro de drivers, con una feature de cargo por
+- `crates/dbine-driver`: the driver contract (the `Driver` and `Session`
+  traits, `DriverInfo`, the result model, SQL helpers, `ReadOnlySession`). It
+  is lightweight and does not depend on any database client.
+- `crates/drivers/<engine>`: one crate per engine or protocol family. How to
+  write one: `docs/drivers.md`.
+- `crates/dbine-drivers`: the driver registry, with one cargo feature per
   crate.
-- `crates/dbine-core`: el estado local en SQLite (conexiones y queries
-  guardadas) y los secretos en el llavero del sistema.
-- `src-tauri`: los comandos Tauri. Cada uno recibe un solo `args` y usa
-  `rename_all = "camelCase"`. Los errores se devuelven como `CommandError`
+- `crates/dbine-core`: the local state in SQLite (connections and saved
+  queries) and the secrets in the system keychain.
+- `src-tauri`: the Tauri commands. Each one takes a single `args` and uses
+  `rename_all = "camelCase"`. Errors are returned as `CommandError`
   `{kind, message}`.
-- `web/`: Vue 3 + Pinia + Element Plus, con SCSS (sin Tailwind). El workbench
-  imita a VS Code y los tokens de estilo están en `web/src/styles/global.scss`.
+- `web/`: Vue 3 + Pinia + Element Plus, with SCSS (no Tailwind). The workbench
+  imitates VS Code and the style tokens are in `web/src/styles/global.scss`.
 
-## Regla principal: toda función es para todos los motores
+## Main rule: every feature is for every engine
 
-Una función nueva tiene que funcionar en **todos** los drivers: planes de
-ejecución, edición de datos, exportación, autocompletado, cancelación, solo
-lectura, etc. Hay dos únicas excepciones:
+A new feature has to work on **all** drivers: execution plans, data editing,
+export, autocompletion, cancellation, read-only mode, etc. There are only two
+exceptions:
 
-- **El motor no tiene la capacidad.** Por ejemplo, Redis no tiene planes de
-  ejecución.
-- **No hay forma razonable de ofrecerla** con el protocolo o cliente
-  disponible.
+- **The engine doesn't have the capability.** For example, Redis has no
+  execution plans.
+- **There is no reasonable way to offer it** with the available protocol or
+  client.
 
-Cada motor puede tener sus particularidades en cómo la implementa, pero no se
-entrega una función "solo para SQL Server" o "solo para los SQL".
+Each engine may have its own particularities in how it implements the feature,
+but a feature is not shipped "only for SQL Server" or "only for the SQL
+engines".
 
-Para cumplirlo:
+To comply:
 
-1. La función entra por el contrato (`crates/dbine-driver`) con un método por
-   defecto que devuelve `Error::Unsupported` y, si la UI lo necesita, una
-   capacidad en `Driver` (como `supports_explain`). La UI muestra la función
-   solo donde está soportada.
-2. Se implementa en **cada** crate de `crates/drivers/`, en la misma tanda de
-   trabajo.
-3. Los motores que quedan sin la función se listan en
-   `docs/soporte-por-motor.md`, con el motivo. "No hubo tiempo" no es un motivo
-   válido; queda como pendiente explícito.
-4. Se prueba contra servidores reales (contenedores `dbine-test-*`) en los
-   motores que tengan imagen de Docker o emulador.
+1. The feature enters through the contract (`crates/dbine-driver`) with a
+   default method that returns `Error::Unsupported` and, if the UI needs it, a
+   capability in `Driver` (like `supports_explain`). The UI shows the feature
+   only where it is supported.
+2. It is implemented in **every** crate under `crates/drivers/`, in the same
+   batch of work.
+3. The engines left without the feature are listed in
+   `docs/engine-support.md`, with the reason. "There was no time" is not a
+   valid reason; it stays as an explicit pending item.
+4. It is tested against real servers (`dbine-test-*` containers) on the
+   engines that have a Docker image or an emulator.
 
-## Convenciones
+## Conventions
 
-- Textos de UI y documentación en español; código, comentarios y commits en
-  inglés.
-- Commits con prefijo `feat:`, `fix:` o `perf:`.
-- Marca: "AddLayer".
-- Los tipos Rust se copian a mano en `web/src/api/types.ts`, con los campos en
-  snake_case.
-- Las contraseñas y los campos secretos nunca van al archivo de estado ni a
-  los logs.
+- UI texts in the five locales (Spanish is the source of the UI strings);
+  documentation, markdown, agent instructions and the changelog in English;
+  code, comments and commits in English.
+- Commits prefixed with `feat:`, `fix:` or `perf:`.
+- Brand: "AddLayer".
+- Rust types are copied by hand into `web/src/api/types.ts`, with the fields
+  in snake_case.
+- Passwords and secret fields never go into the state file or the logs.
 
 ## Changelog
 
-`CHANGELOG.md` cuenta, para quien usa DBine, qué trae cada versión: es lo que
-muestra el aviso de actualización y las notas del release. Está en **inglés**
-y es la fuente. Cada cambio que el usuario nota suma una línea en
-`## [Unreleased]`, en el mismo commit o en uno propio, con el formato del
-agente `changelog` (`.claude/agents/changelog.md`).
+`CHANGELOG.md` tells whoever uses DBine what each version brings: it is what
+the update notice and the release notes show. It is in **English** and is the
+source. Every change the user notices adds a line under `## [Unreleased]`, in
+the same commit or in its own, using the format of the `changelog` agent
+(`.claude/agents/changelog.md`).
 
-Las traducciones están en `changelog/CHANGELOG.{es,pt,fr,it}.md`: las mismas
-versiones publicadas, sin sección `Unreleased`. Al preparar un release,
-`python3 scripts/changelog.py release <versión>` convierte `Unreleased` en la
-versión nueva en el archivo en inglés; después el agente `translator` agrega
-esa versión a cada traducción y `python3 scripts/changelog.py check` tiene que
-pasar (falla si a una traducción le falta una versión). El workflow de
-release falla si el tag no tiene su sección. La app muestra las notas en el
-idioma de la interfaz leyendo la traducción del tag, y en inglés si no puede.
+The translations are in `changelog/CHANGELOG.{es,pt,fr,it}.md`: the same
+published versions, without an `Unreleased` section. When preparing a release,
+`python3 scripts/changelog.py release <version>` turns `Unreleased` into the
+new version in the English file; then the `translator` agent adds that version
+to each translation and `python3 scripts/changelog.py check` has to pass (it
+fails if a translation is missing a version). The release workflow fails if
+the tag has no section. The app shows the notes in the interface language by
+reading the tag's translation, and in English if it can't.
 
-## Archivos compartidos
+## Shared files
 
-Para modificar estos archivos hay que coordinar con las otras sesiones:
-avisar y esperar confirmación.
+To modify these files you have to coordinate with the other sessions: announce
+the change and wait for confirmation.
 
-- `Cargo.toml` (raíz), `Cargo.lock`, `crates/dbine-drivers/Cargo.toml` y `crates/dbine-drivers/src/lib.rs`
-- `crates/dbine-driver/src/*` (el contrato)
+- `Cargo.toml` (root), `Cargo.lock`, `crates/dbine-drivers/Cargo.toml` and `crates/dbine-drivers/src/lib.rs`
+- `crates/dbine-driver/src/*` (the contract)
 - `src-tauri/src/lib.rs`, `src-tauri/capabilities/`, `src-tauri/tauri.conf.json`
 - `web/package.json`, `web/src/main.ts`, `web/src/App.vue`, `web/src/api/*`
-- `CHANGELOG.md` (cada sesión agrega sus líneas, en inglés, a `Unreleased`;
-  releer el archivo justo antes de editarlo) y `changelog/*` (solo al
-  publicar, lo escribe el agente `translator`)
+- `CHANGELOG.md` (each session adds its lines, in English, to `Unreleased`;
+  re-read the file right before editing it) and `changelog/*` (only when
+  publishing, written by the `translator` agent)
 
-Cada driver es dueño exclusivo de su carpeta `crates/drivers/<motor>/`.
+Each driver exclusively owns its folder `crates/drivers/<engine>/`.
 
-## Git y Docker con sesiones en paralelo
+## Git and Docker with parallel sessions
 
-- Nunca usar `git checkout -- <ruta>`, `git reset --hard`, `git clean` ni `git stash`.
-- Contenedores de prueba: solo `dbine-test-*`. Los demás contenedores son de
-  otros proyectos y no se tocan.
+- Never use `git checkout -- <path>`, `git reset --hard`, `git clean` or `git stash`.
+- Test containers: only `dbine-test-*`. All other containers belong to other
+  projects and are not touched.
 
-## Vista previa de componentes (solo desarrollo)
+## Component preview (development only)
 
-`web/dev-preview.html?view=plan|chart|results|export` monta componentes con datos de ejemplo
-(`web/src/preview/samples.ts`) en un navegador común, sin Tauri ni base de
-datos. Sirve para verlos y sacar capturas con Chromium headless mientras la
-ventana de la app no está visible. No forma parte del build: `vite build`
-solo empaqueta `index.html`.
+`web/dev-preview.html?view=plan|chart|results|export` mounts components with sample data
+(`web/src/preview/samples.ts`) in a regular browser, without Tauri or a
+database. It is for viewing them and taking screenshots with headless
+Chromium while the app window is not visible. It is not part of the build:
+`vite build` only bundles `index.html`.
 
-## Comandos
+## Commands
 
 - Dev: `npm install --prefix web && cargo tauri dev`
 - Tests: `cargo test --workspace`

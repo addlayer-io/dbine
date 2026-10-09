@@ -11,7 +11,7 @@ import { useScheduledStore } from '../stores/scheduled';
 import { useTabsStore, type ScheduledTaskTab } from '../stores/tabs';
 import ScheduledStepEditor from '../components/ScheduledStepEditor.vue';
 
-// A scheduled task (docs/tareas-programadas.md): when it runs, its steps,
+// A scheduled task (docs/scheduled-tasks.md): when it runs, its steps,
 // when to notify, and its runs. The OS scheduler runs it with DBine closed.
 
 const props = defineProps<{ tab: ScheduledTaskTab }>();

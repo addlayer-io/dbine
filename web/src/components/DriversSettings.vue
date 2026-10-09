@@ -18,7 +18,7 @@ import { useConnectionsStore } from '../stores/connections';
 import { locale } from '../i18n';
 import { runTask, type TaskHandle } from '../stores/tasks';
 
-// Configuración → Drivers: the downloadable drivers (docs/drivers-bajo-demanda.md).
+// Configuración → Drivers: the downloadable drivers (docs/on-demand-drivers.md).
 // Each one downloads by itself on the first connection; here they can be
 // downloaded ahead (a machine that will go offline) or removed. A download
 // is a task (stores/tasks.ts): it shows in Tareas with its progress, goes on

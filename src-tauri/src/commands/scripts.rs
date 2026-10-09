@@ -1,6 +1,6 @@
 //! Database scripts: generate one from the database (structure, code and
 //! data, into the editor or a file) and run a script file (restore a dump).
-//! See docs/api-comandos.md.
+//! See docs/api-commands.md.
 
 use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};

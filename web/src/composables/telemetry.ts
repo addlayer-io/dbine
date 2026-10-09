@@ -6,7 +6,7 @@ import { startupClaim } from './windowRole';
 // Anonymous usage telemetry, on by default: TelemetryConsent tells what's
 // sent once, and Configuración › General turns it off. The backend decides
 // what can leave (src-tauri/src/commands/telemetry.rs); what's sent is listed
-// in docs/telemetria.md.
+// in docs/telemetry.md.
 
 /** `false` turns it off; `true` or unset (the default) shares. */
 export const TELEMETRY_CONSENT = 'telemetry.consent';

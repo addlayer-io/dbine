@@ -7,7 +7,7 @@ import { locksApi, type BlockedSession } from '../api/locks';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 
-// The Monitor's locks panel (docs/bloqueos.md): the blocking chains as a tree
+// The Monitor's locks panel (docs/locks.md): the blocking chains as a tree
 // (each head, then who waits for it), and ending a session.
 
 const props = defineProps<{ connectionId: string; sessions: BlockedSession[]; canKill: boolean; error: string | null; killDenied?: string }>();

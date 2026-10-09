@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-sqlserver"
-version = "0.1.6"  # the driver's own version: bump it when the driver changes (docs/drivers-bajo-demanda.md)
+version = "0.1.6"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 
@@ -18,7 +18,7 @@ tracing.workspace = true
 #   the system's GSS framework on macOS.
 # NTLM with a user and password on macOS/Linux would need tiberius'
 # `sspi-rs`, whose sspi 0.18 pins a crypto-bigint release candidate that
-# conflicts with russh's (docs/autenticacion-integrada.md).
+# conflicts with russh's (docs/integrated-authentication.md).
 tiberius = { version = "0.13.0", default-features = false, features = ["tds73", "chrono", "rust_decimal", "rustls", "sql-browser-tokio", "winauth", "integrated-auth-gssapi"] }
 tokio-util = { version = "0.7.19", features = ["compat"] }
 chrono.workspace = true

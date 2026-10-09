@@ -1,4 +1,4 @@
-//! Data compare (docs/comparacion-de-datos.md): the rows of two tables —
+//! Data compare (docs/data-compare.md): the rows of two tables —
 //! same or different connections, even different engines — matched by key:
 //! rows only on one side, only on the other, and rows whose values differ.
 //! The sync script is written by the target's driver (`insert_script`,

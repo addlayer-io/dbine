@@ -1,435 +1,425 @@
 # DBine
 
-**DBine** es un gestor de bases de datos multimotor de escritorio, de
-AddLayer. Con una sola app se trabaja con bases relacionales, analíticas, de
-documentos, clave-valor, grafos, series de tiempo y búsqueda. Corre en
-Windows, macOS y Linux.
+**DBine** is a desktop multi-engine database manager from AddLayer. One app
+works with relational, analytical, document, key-value, graph, time-series and
+search databases. It runs on Windows, macOS and Linux.
 
-Está hecho con **Tauri 2**, un core en **Rust** y una UI en **Vue 3 + Element
-Plus**. La interfaz es un workbench al estilo VS Code. Cada motor es un crate propio y las queries se organizan dentro
-de cada base.
+It is built with **Tauri 2**, a **Rust** core and a **Vue 3 + Element Plus**
+UI. The interface is a VS Code-style workbench. Each engine is its own crate
+and queries are organized inside each database.
 
-## Qué hace
+## What it does
 
-### Explorador y conexiones
+### Explorer and connections
 
-- **Árbol por conexión y por base.** El primer nodo de cada base es
-  **Queries**, con las queries guardadas de esa base. Así no se acumulan
-  pestañas sueltas. Debajo vienen los objetos propios del motor: tablas,
-  vistas, rutinas, colecciones, índices, keys, nodos…
-- **Caché del explorador.** Al abrir una conexión, las bases, los objetos y las
-  columnas aparecen al instante con lo de la última vez, y el servidor los
-  actualiza (gana siempre el servidor). Solo guarda nombres y estructura.
-  Detalle: [`docs/cache-del-explorador.md`](docs/cache-del-explorador.md).
-- **Carpetas y grupos**, por ejemplo por cliente o por ambiente. Se pueden
-  anidar y tener color, y los servidores se mueven entre ellas arrastrándolos.
-- **Importar conexiones** de DBeaver, DbGate, DataGrip / JetBrains, Azure Data
-  Studio y SSMS, o pegando URLs de conexión. DBine lee los archivos de esas
-  herramientas, muestra lo que encontró y guarda las que elijas. Las
-  contraseñas pasan directo al llavero del sistema, sin pasar por la interfaz.
-  Desde DBeaver y DbGate el túnel SSH viene con ellas.
-- **Túneles SSH:** cualquier conexión a un motor de red puede pasar por un
-  servidor SSH, e incluso por una cadena de bastiones, con contraseña, clave
-  privada o el agente SSH. La huella de cada servidor se verifica contra
-  `known_hosts` o se confirma la primera vez. La contraseña y la frase de la
-  clave nunca van al archivo de estado ni a los logs. Todo lo que se abre
-  sobre una conexión comparte un solo túnel, que se vuelve a abrir solo si se
-  cae. Detalle: [`docs/tuneles-ssh.md`](docs/tuneles-ssh.md).
-- **Menú contextual de la base:**
-  - nueva query, nueva tabla con diseñador (y modificar una existente), nuevos objetos desde plantillas;
-  - diagrama ER, generar script, exportar o importar la base, ejecutar un
-    archivo de script;
-  - comparar esquemas, migrar, clonar o sincronizar, y Profiler;
-  - crear o eliminar la base, copiar su nombre o el del servidor;
-  - **crear una base con las opciones avanzadas de cada motor** (intercalación,
-    archivos, réplicas, retención…), con el script a la vista. Detalle:
-    [`docs/crear-bases.md`](docs/crear-bases.md).
-- **Crear y borrar esquemas**, con su dueño y sus permisos en el mismo script,
-  que se revisa antes de ejecutarlo. Detalle:
-  [`docs/esquemas.md`](docs/esquemas.md).
-- **Conexiones de solo lectura**: DBine bloquea todo lo que no sea lectura.
+- **Tree per connection and per database.** The first node of each database is
+  **Queries**, with that database's saved queries. This way loose tabs don't
+  pile up. Below come the engine's own objects: tables, views, routines,
+  collections, indexes, keys, nodes…
+- **Explorer cache.** When a connection opens, databases, objects and columns
+  appear instantly with what was there last time, and the server updates them
+  (the server always wins). It only stores names and structure.
+  Details: [`docs/explorer-cache.md`](docs/explorer-cache.md).
+- **Folders and groups**, for example per client or per environment. They can
+  be nested and colored, and servers are moved between them by dragging.
+- **Import connections** from DBeaver, DbGate, DataGrip / JetBrains, Azure Data
+  Studio and SSMS, or by pasting connection URLs. DBine reads those tools'
+  files, shows what it found and saves the ones you pick. Passwords go
+  straight to the system keychain, without passing through the interface.
+  From DBeaver and DbGate the SSH tunnel comes along.
+- **SSH tunnels:** any connection to a network engine can go through an SSH
+  server, even through a chain of bastions, with a password, a private key or
+  the SSH agent. Each server's fingerprint is verified against `known_hosts`
+  or confirmed the first time. The password and the key passphrase never go
+  into the state file or the logs. Everything opened on a connection shares a
+  single tunnel, which reopens by itself if it drops. Details:
+  [`docs/ssh-tunnels.md`](docs/ssh-tunnels.md).
+- **Database context menu:**
+  - new query, new table with a designer (and modify an existing one), new objects from templates;
+  - ER diagram, generate script, export or import the database, run a script
+    file;
+  - compare schemas, migrate, clone or sync, and Profiler;
+  - create or delete the database, copy its name or the server's;
+  - **create a database with each engine's advanced options** (collation,
+    files, replicas, retention…), with the script in view. Details:
+    [`docs/create-databases.md`](docs/create-databases.md).
+- **Create and drop schemas**, with their owner and permissions in the same
+  script, which is reviewed before running it. Details:
+  [`docs/schemas.md`](docs/schemas.md).
+- **Read-only connections**: DBine blocks everything that isn't a read.
 
-### Monitor y Profiler
+### Monitor and Profiler
 
-- **Monitor del servidor**, con clic derecho sobre la conexión: CPU, memoria,
-  sesiones y actividad, en los motores que lo exponen.
-- **Procesos**, en el Monitor: la lista en vivo de sesiones y consultas en
-  curso, con filtros, bloqueos resaltados, y la opción de cancelar una
-  consulta o terminar una sesión. Detalle: [`docs/procesos.md`](docs/procesos.md).
-- **Profiler**, con clic derecho sobre una base: una pestaña con todas las
-  consultas que cualquier cliente ejecuta sobre esa base, en vivo, como el
-  Profiler de SQL Server. De cada una muestra la hora, la duración, el texto,
-  la base, el usuario, el cliente, las filas y el error, con filtros y la
-  opción de abrirla en una query.
-  - Si el motor registra cada consulta (Extended Events en SQL Server,
-    `system.profile` en MongoDB, historiales o logs de consultas), DBine lee
-    lo nuevo cada segundo. Si solo muestra lo que se está ejecutando, lo
-    muestrea cada 100 ms, y la pestaña avisa que las consultas más cortas
-    pueden no aparecer.
-  - Si el motor necesita activar algo para capturar, DBine lo activa al
-    iniciar, lo muestra en amarillo y lo restaura al detener o al cerrar. En
-    conexiones de solo lectura no cambia nada en el servidor.
-  - **CPU, lecturas y escrituras** de cada consulta, en los motores que
-    informan esas cifras y en su propia unidad (páginas, bloques, filas,
-    bytes, documentos o claves). Al agrupar las consultas iguales se ven el
-    promedio, el mínimo, el p95 y el máximo, y también sirven para filtrar.
-  - Detalle por motor: [`docs/soporte-por-motor.md`](docs/soporte-por-motor.md#profiler).
+- **Server monitor**, by right-clicking the connection: CPU, memory, sessions
+  and activity, on the engines that expose them.
+- **Processes**, in the Monitor: the live list of sessions and running
+  queries, with filters, highlighted locks, and the option to cancel a query
+  or terminate a session. Details: [`docs/processes.md`](docs/processes.md).
+- **Profiler**, by right-clicking a database: a tab with all the queries any
+  client runs on that database, live, like SQL Server's Profiler. For each one
+  it shows the time, the duration, the text, the database, the user, the
+  client, the rows and the error, with filters and the option to open it in a
+  query.
+  - If the engine records every query (Extended Events in SQL Server,
+    `system.profile` in MongoDB, query histories or logs), DBine reads what's
+    new every second. If it only shows what is currently running, it samples
+    every 100 ms, and the tab warns that shorter queries may not appear.
+  - If the engine needs something enabled to capture, DBine enables it on
+    start, shows it in yellow and restores it on stop or on close. On
+    read-only connections it changes nothing on the server.
+  - **CPU, reads and writes** of each query, on the engines that report those
+    figures and in their own unit (pages, blocks, rows, bytes, documents or
+    keys). When identical queries are grouped, the average, minimum, p95 and
+    maximum are shown, and they can also be used to filter.
+  - Per-engine details: [`docs/engine-support.md`](docs/engine-support.md#profiler).
 
-### Editor y resultados
+### Editor and results
 
-- **Queries guardadas.** Se guardan solas mientras escribís. Cada pestaña
-  tiene su propia sesión, así que los `SET`, las tablas temporales y las
-  transacciones se mantienen entre ejecuciones.
-- **Pestañas de vista previa**, como en VS Code. Doble clic en una pestaña
-  muestra su query u objeto en el árbol, y "Ir a la base" abre el menú de esa
-  base.
-- **Varias ventanas en la misma instancia,** desde el Dock, la barra de
-  tareas o el menú. Comparten conexiones, queries y configuración. Detalle:
-  [`docs/ventanas.md`](docs/ventanas.md).
-- **Editor CodeMirror 6**, con el dialecto de cada motor y autocompletado de
-  tablas y columnas. Ejecuta la selección o la sentencia bajo el cursor, y se
-  puede cancelar con el mecanismo nativo de cada motor.
-- **Ejecución de scripts** en todos los motores: el script se corta
-  sentencia por sentencia respetando los terminadores de cada motor, los
-  mensajes del servidor llegan en vivo y en orden, los errores traen su
-  código y su línea, hay transacciones manuales por pestaña donde el motor las
-  tiene, y cancelar conserva la sesión. Detalle:
-  [`docs/ejecucion-de-scripts.md`](docs/ejecucion-de-scripts.md).
-- **Edición de celdas:** al modificar una celda se genera el código de
-  actualización en el lenguaje del motor. DBine no lo ejecuta: lo agrega a la
-  query y vos decidís.
-- **Agregar filas y documentos:** las filas nuevas se suman a los cambios
-  pendientes junto con ediciones y borrados, y el código de inserción sale en
-  el lenguaje de cada motor (SQL, comandos de Redis, `insertMany`, Cypher…).
-  Los motores de documentos agregan uno o varios documentos desde un editor
-  JSON, también en colecciones vacías.
-- **Grilla virtualizada** con varios resultados por ejecución, mensajes y visor
-  de celdas (con JSON formateado).
-- **Filtros por columna** en los datos de una tabla (valores, rangos, nulos,
-  texto). Se aplican en el servidor, con el filtro propio de cada motor.
-- **Copiar resultados** en 10 formatos: con o sin encabezados, CSV, JSON, JSON
-  Lines, YAML, INSERT, UPDATE, inserts de Mongo… El formato por defecto de ⌘C
-  es configurable.
-- **Exportar resultados** a CSV (con `,`, con `;` o para Excel), TSV, JSON,
-  JSONL, SQL, XLSX y XML. La exportación vuelve a correr la query completa en
-  streaming, así que no se limita a las filas en pantalla.
-- **Gráficos** de resultados con Apache ECharts.
-- **Vista JSON en árbol** de los resultados, pensada para las bases de
-  documentos y disponible en todos los motores: despliega los campos anidados
-  y las columnas JSON, con búsqueda en claves y valores, tipos por campo y
-  arrays grandes agrupados.
-- **Planes de ejecución gráficos**, al estilo de Management Studio: estimado,
-  real o los dos, con zoom y desplazamiento.
-- **Buscar en la base:** un texto en los nombres de los objetos, los nombres
-  de columna y el código de vistas, rutinas y triggers, con resultados a
-  medida que avanza. Detalle: [`docs/busqueda.md`](docs/busqueda.md).
-- **Ejecutar en varias bases:** el código del editor en varias bases de una
-  conexión a la vez, con los resultados juntos en una grilla con la columna
-  `base`. Detalle: [`docs/ejecutar-en-varias-bases.md`](docs/ejecutar-en-varias-bases.md).
-- **Calidad de código:** el editor marca consultas lentas, resultados que
-  probablemente no son los esperados y cambios que afectan más filas de las
-  previstas, con las reglas de cada familia de motores, sin consultar la base.
-  Detalle: [`docs/calidad-de-codigo.md`](docs/calidad-de-codigo.md).
-- **Constructor de consultas:** arma un `SELECT` (o su equivalente en CQL)
-  sobre un lienzo con tablas, uniones, agregados, orden y filtros, con el
-  SQL del motor. Detalle:
-  [`docs/constructor-de-consultas.md`](docs/constructor-de-consultas.md).
-- **Optimizar consulta:** reescrituras equivalentes por reglas y por IA,
-  índices sugeridos a partir del plan y una comparación de tiempos y de
-  resultado en solo lectura. Detalle:
-  [`docs/optimizar-consulta.md`](docs/optimizar-consulta.md).
+- **Saved queries.** They save themselves as you type. Each tab has its own
+  session, so `SET`s, temporary tables and transactions persist between
+  runs.
+- **Preview tabs**, as in VS Code. Double-clicking a tab shows its query or
+  object in the tree, and "Go to database" opens that database's menu.
+- **Several windows in the same instance,** from the Dock, the taskbar or the
+  menu. They share connections, queries and settings. Details:
+  [`docs/windows.md`](docs/windows.md).
+- **CodeMirror 6 editor**, with each engine's dialect and table and column
+  autocompletion. It runs the selection or the statement under the cursor, and
+  it can be cancelled with each engine's native mechanism.
+- **Script execution** on every engine: the script is split statement by
+  statement respecting each engine's terminators, server messages arrive live
+  and in order, errors come with their code and line, there are manual
+  transactions per tab where the engine has them, and cancelling keeps the
+  session. Details: [`docs/script-execution.md`](docs/script-execution.md).
+- **Cell editing:** when a cell is modified, the update code is generated in
+  the engine's language. DBine doesn't run it: it appends it to the query and
+  you decide.
+- **Add rows and documents:** new rows are added to the pending changes
+  together with edits and deletions, and the insert code comes out in each
+  engine's language (SQL, Redis commands, `insertMany`, Cypher…). Document
+  engines add one or several documents from a JSON editor, also in empty
+  collections.
+- **Virtualized grid** with several results per run, messages and a cell
+  viewer (with formatted JSON).
+- **Column filters** on a table's data (values, ranges, nulls, text). They are
+  applied on the server, with each engine's own filter.
+- **Copy results** in 10 formats: with or without headers, CSV, JSON, JSON
+  Lines, YAML, INSERT, UPDATE, Mongo inserts… The default format for ⌘C is
+  configurable.
+- **Export results** to CSV (with `,`, with `;` or for Excel), TSV, JSON,
+  JSONL, SQL, XLSX and XML. The export reruns the full query in streaming, so
+  it isn't limited to the rows on screen.
+- **Charts** of results with Apache ECharts.
+- **JSON tree view** of results, designed for document databases and available
+  on every engine: it unfolds nested fields and JSON columns, with search in
+  keys and values, types per field and large arrays grouped.
+- **Graphical execution plans**, in the style of Management Studio: estimated,
+  actual or both, with zoom and panning.
+- **Search the database:** a text in object names, column names and the code
+  of views, routines and triggers, with results as it progresses. Details:
+  [`docs/search.md`](docs/search.md).
+- **Run on several databases:** the editor's code on several databases of a
+  connection at once, with the results together in one grid with a `base`
+  column. Details:
+  [`docs/multi-database-queries.md`](docs/multi-database-queries.md).
+- **Code quality:** the editor flags slow queries, results that are probably
+  not the expected ones and changes that affect more rows than intended, with
+  the rules of each engine family, without querying the database. Details:
+  [`docs/code-quality.md`](docs/code-quality.md).
+- **Query builder:** builds a `SELECT` (or its CQL equivalent) on a canvas with
+  tables, joins, aggregates, ordering and filters, with the engine's SQL.
+  Details: [`docs/query-builder.md`](docs/query-builder.md).
+- **Optimize query:** equivalent rewrites by rules and by AI, indexes suggested
+  from the plan and a read-only comparison of times and results. Details:
+  [`docs/query-optimizer.md`](docs/query-optimizer.md).
 
-### Diseño y estructura
+### Design and structure
 
-- **Diseñador de tablas** adaptado a cada motor. En Mongo diseña colecciones,
-  con validación; en cada motor usa sus tipos, identidades, índices y claves.
-- **Diagrama ER** de la base:
-  - con relaciones, búsqueda y filtro por uno o varios esquemas;
-  - con modo "solo claves", minimapa y exportación a SVG o PNG;
-  - con distribución automática que aguanta cientos de tablas.
-- **Generador de script** de la base, eligiendo qué incluir: DROP, CREATE,
-  índices, claves foráneas, vistas y rutinas, datos y triggers. Sale en el
-  orden correcto para restaurar, con los ajustes de cada motor (por ejemplo,
-  `IDENTITY_INSERT` en SQL Server o volver a sincronizar las secuencias en
-  PostgreSQL).
-- **Migrar, clonar y sincronizar bases:** "Migrar…" en el menú de una base
-  pasa sus tablas y sus datos a otra base, aunque sea de otro motor. Solo se
-  habilitan los modos que sirven para ese par de motores:
-  - **Migrar (convertir),** entre cualquier par de motores: convierte tipos,
-    valores por defecto, claves, índices y nombres, muestra un reporte de cada
-    cambio y copia los datos.
-  - **Clonar,** entre bases del mismo motor: deja el destino idéntico al
-    origen, con esquemas, tipos, particiones, índices, restricciones,
-    secuencias, vistas, rutinas y triggers. En SQL Server y Azure SQL, y en
-    PostgreSQL, TimescaleDB, KingbaseES, AlloyDB, Cloud SQL, Aurora, EDB y
-    Fujitsu.
-  - **Sincronizar,** sobre tablas que ya existen en el destino: compara por
-    clave e inserta, actualiza y borra solo las filas distintas, en una
-    transacción por tabla. En SQL Server y Azure SQL, y en PostgreSQL,
-    TimescaleDB, YugabyteDB, KingbaseES, AlloyDB, Cloud SQL, Aurora, EDB y
-    Fujitsu, con PostgreSQL 11 o posterior.
-  - La copia usa la carga masiva nativa de cada motor (INSERT BULK, COPY
-    binario, LOAD DATA, el Appender de DuckDB…) o INSERT por lotes donde no
-    la hay. Mueve varias tablas a la vez con memoria acotada y muestra el
-    progreso y las filas por segundo de cada una. El origen se abre en solo
-    lectura y los datos llegan sin pérdida.
-  - Si la app se cierra a mitad de camino, la corrida se retoma después sin
-    volver a copiar las tablas ya terminadas.
-  - **Migraciones guardadas:** cada base tiene un nodo "Migraciones" con las
-    que se iniciaron desde ella. La configuración se guarda sola y viaja con
-    la sincronización en la nube, y cada ejecución queda en su historial para
-    reabrirla, retomarla o repetirla.
+- **Table designer** adapted to each engine. In Mongo it designs collections,
+  with validation; in each engine it uses its own types, identities, indexes
+  and keys.
+- **ER diagram** of the database:
+  - with relationships, search and filtering by one or several schemas;
+  - with a "keys only" mode, minimap and export to SVG or PNG;
+  - with automatic layout that handles hundreds of tables.
+- **Script generator** for the database, choosing what to include: DROP,
+  CREATE, indexes, foreign keys, views and routines, data and triggers. It
+  comes out in the right order for restoring, with each engine's adjustments
+  (for example, `IDENTITY_INSERT` in SQL Server or resynchronizing sequences
+  in PostgreSQL).
+- **Migrate, clone and sync databases:** "Migrate…" in a database's menu moves
+  its tables and data to another database, even of another engine. Only the
+  modes that work for that pair of engines are enabled:
+  - **Migrate (convert),** between any pair of engines: converts types,
+    default values, keys, indexes and names, shows a report of every change and
+    copies the data.
+  - **Clone,** between databases of the same engine: leaves the target
+    identical to the source, with schemas, types, partitions, indexes,
+    constraints, sequences, views, routines and triggers. On SQL Server and
+    Azure SQL, and on PostgreSQL, TimescaleDB, KingbaseES, AlloyDB, Cloud SQL,
+    Aurora, EDB and Fujitsu.
+  - **Sync,** on tables that already exist in the target: compares by key and
+    inserts, updates and deletes only the rows that differ, in one transaction
+    per table. On SQL Server and Azure SQL, and on PostgreSQL, TimescaleDB,
+    YugabyteDB, KingbaseES, AlloyDB, Cloud SQL, Aurora, EDB and Fujitsu, with
+    PostgreSQL 11 or later.
+  - The copy uses each engine's native bulk load (INSERT BULK, binary COPY,
+    LOAD DATA, DuckDB's Appender…) or batched INSERT where there is none. It
+    moves several tables at once with bounded memory and shows the progress and
+    rows per second of each. The source is opened read-only and the data
+    arrives without loss.
+  - If the app closes midway, the run is resumed later without copying the
+    already finished tables again.
+  - **Saved migrations:** each database has a "Migrations" node with the ones
+    started from it. The configuration saves itself and travels with cloud
+    sync, and each run is kept in its history so it can be reopened, resumed
+    or repeated.
 
-  Detalle: [`docs/migracion.md`](docs/migracion.md).
-- **Comparar esquemas:** "Comparar esquemas…" en el menú de una base muestra
-  dos bases lado a lado, al estilo WinMerge. Pueden ser de distintas
-  conexiones, e incluso de distintos motores.
-  - Compara tablas, vistas, procedimientos, funciones y triggers. Resalta lo
-    que difiere en columnas, índices, claves foráneas y clave primaria, y las
-    líneas distintas del código.
-  - Con las flechas `→` y `←` se pasan los cambios de un lado al otro, por
-    objeto o por columna, con deshacer.
-  - También se puede eliminar un objeto de un lado sin pasarlo desde el otro,
-    y antes de ejecutar se ve qué depende de él.
-  - "Sincronizar" genera el script del motor de ese lado (`CREATE`, `ALTER`,
-    `DROP`) en el orden correcto, y avisa si algo puede perder datos o fallar.
-    Se abre como query o se ejecuta con confirmación.
+  Details: [`docs/migration.md`](docs/migration.md).
+- **Compare schemas:** "Compare schemas…" in a database's menu shows two
+  databases side by side, in the style of WinMerge. They can be on different
+  connections, and even on different engines.
+  - It compares tables, views, procedures, functions and triggers. It
+    highlights what differs in columns, indexes, foreign keys and the primary
+    key, and the lines of code that differ.
+  - With the `→` and `←` arrows, changes are passed from one side to the
+    other, per object or per column, with undo.
+  - An object can also be deleted from one side without passing it from the
+    other, and before running you see what depends on it.
+  - "Sync" generates the script of that side's engine (`CREATE`, `ALTER`,
+    `DROP`) in the right order, and warns if something may lose data or fail.
+    It opens as a query or runs with confirmation.
 
-  Detalle: [`docs/comparacion-de-esquemas.md`](docs/comparacion-de-esquemas.md).
-- **Comparar datos:** compara las filas de dos tablas o colecciones, de la
-  misma conexión, de conexiones distintas o de motores distintos. Las empareja
-  por la clave primaria, o por las columnas que elijas, y compara los valores
-  por lo que valen y no por cómo los devuelve cada motor.
-  - Muestra las filas distintas, con cada valor marcado, y las que están solo
-    de un lado. En cada fila elegís hacia qué lado va: actualizar, insertar o
-    borrar. Los borrados nunca se eligen solos.
-  - Genera un script por cada lado que cambia, en el lenguaje de su motor,
-    que se copia, se abre en una query o se ejecuta. Después vuelve a comparar.
-  - Avisa si las dos tablas no son la misma, si hay claves repetidas o si una
-    pasa de 200.000 filas. Las conexiones de solo lectura rechazan el script.
-  - Compara en todos los motores. Aplicar los cambios depende de lo que el
-    destino permite escribir: Drill, por ejemplo, no tiene INSERT, UPDATE ni
-    DELETE.
+  Details: [`docs/schema-compare.md`](docs/schema-compare.md).
+- **Compare data:** compares the rows of two tables or collections, on the same
+  connection, on different connections or on different engines. It pairs them
+  by the primary key, or by the columns you choose, and compares values by what
+  they are worth and not by how each engine returns them.
+  - It shows the rows that differ, with each value marked, and the ones that
+    are on one side only. For each row you choose which way it goes: update,
+    insert or delete. Deletions are never chosen automatically.
+  - It generates one script per side that changes, in its engine's language,
+    which can be copied, opened in a query or run. Then it compares again.
+  - It warns if the two tables aren't the same, if there are duplicate keys or
+    if one exceeds 200,000 rows. Read-only connections reject the script.
+  - It compares on every engine. Applying the changes depends on what the
+    target allows writing: Drill, for example, has no INSERT, UPDATE or DELETE.
 
-  Detalle: [`docs/comparacion-de-datos.md`](docs/comparacion-de-datos.md).
-- **Clonar tabla:** desde el explorador, una tabla, colección o índice se
-  clona al lado de la original, con un nombre con fecha y hora que se puede
-  cambiar.
-  - Copia columnas, clave primaria, restricciones, índices y claves foráneas,
-    y los datos con el motor de transferencia, conservando las identidades.
-    También se puede clonar solo la estructura.
-  - El clon queda exacto o no se crea: si algo no se puede copiar igual, o si
-    lo detenés, se borra lo creado. La tabla original nunca se toca.
-  - Está en todos los motores con tablas o colecciones con filas propias. No
-    en grafos, clave-valor, ksqlDB, CouchDB ni InfluxDB 2 y 3. Detalle:
-    [`docs/soporte-por-motor.md`](docs/soporte-por-motor.md#clonar-tabla).
-- **Importar** CSV, TSV, JSON, JSONL, XLSX y XML a una tabla nueva o existente,
-  con mapeo de columnas.
-- **Ejecutar un archivo de script** grande en partes, por ejemplo para
-  restaurar un volcado.
-- **Datos de prueba:** llena una tabla con filas inventadas pero verosímiles,
-  respetando claves, largos y claves foráneas. Detalle:
-  [`docs/datos-de-prueba.md`](docs/datos-de-prueba.md).
-- **Documentar la base:** un diccionario de datos en HTML o Markdown, con
-  tablas, claves, índices, código de las rutinas, dependencias y diagrama
-  entidad-relación. Detalle:
-  [`docs/documentar-la-base.md`](docs/documentar-la-base.md).
-- **Subconjunto de datos:** copia algunas filas de una tabla a otra base, con
-  las filas padre que necesitan, y enmascara los datos personales. Detalle:
-  [`docs/subconjunto-de-datos.md`](docs/subconjunto-de-datos.md).
+  Details: [`docs/data-compare.md`](docs/data-compare.md).
+- **Clone table:** from the explorer, a table, collection or index is cloned
+  next to the original, with a name carrying the date and time that can be
+  changed.
+  - It copies columns, primary key, constraints, indexes and foreign keys, and
+    the data with the transfer engine, preserving identities. It can also clone
+    the structure only.
+  - The clone comes out exact or it isn't created: if something can't be
+    copied identically, or if you stop it, what was created is deleted. The
+    original table is never touched.
+  - It is available on every engine with tables or collections that have rows
+    of their own. Not on graph or key-value engines, ksqlDB, CouchDB or
+    InfluxDB 2 and 3. Details:
+    [`docs/engine-support.md`](docs/engine-support.md#clone-table).
+- **Import** CSV, TSV, JSON, JSONL, XLSX and XML into a new or existing table,
+  with column mapping.
+- **Run a large script file** in parts, for example to restore a dump.
+- **Test data:** fills a table with made-up but plausible rows, respecting
+  keys, lengths and foreign keys. Details:
+  [`docs/test-data.md`](docs/test-data.md).
+- **Document the database:** a data dictionary in HTML or Markdown, with
+  tables, keys, indexes, routine code, dependencies and an entity-relationship
+  diagram. Details: [`docs/database-docs.md`](docs/database-docs.md).
+- **Data subset:** copies some rows of a table to another database, with the
+  parent rows they need, and masks personal data. Details:
+  [`docs/data-subset.md`](docs/data-subset.md).
 
-### Administración
+### Administration
 
-- **Usuarios y permisos:** una pestaña con los usuarios y roles del servidor
-  (o de la base, donde son por base). De cada uno muestra sus roles y sus
-  permisos, directos o heredados de un rol, incluidos los denegados.
-  - Se crean usuarios y roles, se cambian contraseñas, se habilita o
-    deshabilita el ingreso y se otorgan o revocan permisos sobre la base, un
-    esquema o un objeto.
-  - Cada cambio se convierte en un script del motor que se revisa antes de
-    ejecutarlo. La contraseña no aparece en la vista previa y estos scripts no
-    quedan en el historial.
-  - Está en la gran mayoría de los motores. No la tienen los que no manejan
-    usuarios propios, como SQLite, DuckDB o DynamoDB. Detalle:
-    [`docs/usuarios-y-permisos.md`](docs/usuarios-y-permisos.md).
-- **Acciones según los permisos del usuario:** antes de ofrecer backups,
-  restauraciones, el Profiler, terminar sesiones, crear o borrar bases o
-  administrar usuarios, DBine le pregunta al servidor si el usuario conectado
-  puede hacerlo. Si no puede, la acción aparece deshabilitada y dice qué
-  permiso falta. Si el motor no permite saberlo con certeza, queda habilitada.
-- **Backups**, en una pestaña por base:
-  - copias de DBine en todos los motores: un script local con la estructura
-    y, si querés, los datos, con su historial en esta máquina, que se
-    restaura en la misma base o en otra;
-  - backups del servidor donde el motor los tiene (SQL Server, Oracle, SAP
-    HANA, ClickHouse, Snowflake, BigQuery, Elasticsearch, Redis, entre otros),
-    con su historial y el script para hacer, restaurar o borrar un backup, que
-    se revisa antes de ejecutarlo.
+- **Users and permissions:** a tab with the server's users and roles (or the
+  database's, where they are per database). For each one it shows its roles and
+  its permissions, direct or inherited from a role, including denied ones.
+  - Users and roles are created, passwords are changed, login is enabled or
+    disabled, and permissions on the database, a schema or an object are
+    granted or revoked.
+  - Each change becomes an engine script that is reviewed before running it.
+    The password doesn't appear in the preview and these scripts are not kept
+    in the history.
+  - It is available on the vast majority of engines. The ones without their
+    own users don't have it, such as SQLite, DuckDB or DynamoDB. Details:
+    [`docs/users-and-permissions.md`](docs/users-and-permissions.md).
+- **Actions according to the user's permissions:** before offering backups,
+  restores, the Profiler, terminating sessions, creating or deleting databases
+  or managing users, DBine asks the server whether the connected user can do
+  it. If they can't, the action appears disabled and says which permission is
+  missing. If the engine doesn't allow knowing it for certain, it stays
+  enabled.
+- **Backups**, in one tab per database:
+  - DBine copies on every engine: a local script with the structure and, if you
+    want, the data, with its history on this machine, which is restored into
+    the same database or another one;
+  - server backups where the engine has them (SQL Server, Oracle, SAP HANA,
+    ClickHouse, Snowflake, BigQuery, Elasticsearch, Redis, among others), with
+    their history and the script to make, restore or delete a backup, which is
+    reviewed before running it.
 
-  Detalle: [`docs/backups.md`](docs/backups.md).
-- **Tareas programadas:** scripts, exportaciones, comparaciones de esquemas,
-  backups, documentación de la base y mails que corren solos con DBine
-  cerrado, con aviso del sistema, historial y aprobación previa de lo que
-  cambia datos. Detalle:
-  [`docs/tareas-programadas.md`](docs/tareas-programadas.md).
+  Details: [`docs/backups.md`](docs/backups.md).
+- **Scheduled tasks:** scripts, exports, schema comparisons, backups, database
+  documentation and emails that run by themselves with DBine closed, with a
+  system notification, history and prior approval of anything that changes
+  data. Details: [`docs/scheduled-tasks.md`](docs/scheduled-tasks.md).
 
-- **Chequeo de salud:** revisa una base y lista lo que conviene atender por
-  gravedad, con los chequeos propios de cada motor y scripts de corrección
-  que se revisan antes de ejecutarlos. Detalle:
-  [`docs/chequeo-de-salud.md`](docs/chequeo-de-salud.md).
-- **Propiedades de la base:** muestra lo que el motor informa de una base y
-  cambia lo que permite, con el script y las advertencias a la vista. Detalle:
-  [`docs/propiedades-de-la-base.md`](docs/propiedades-de-la-base.md).
+- **Health check:** reviews a database and lists what deserves attention by
+  severity, with each engine's own checks and fix scripts that are reviewed
+  before running them. Details: [`docs/health-check.md`](docs/health-check.md).
+- **Database properties:** shows what the engine reports about a database and
+  changes what it allows, with the script and the warnings in view. Details:
+  [`docs/database-properties.md`](docs/database-properties.md).
 
-### Biblioteca de scripts
+### Script library
 
-Los scripts reutilizables de un DBA ("Reindexar una tabla", "Sesiones
-bloqueantes"…) se guardan en su propia vista, con la ⭐:
+A DBA's reusable scripts ("Reindex a table", "Blocking sessions"…) are kept in
+their own view, with the ⭐:
 
-- **Por motor, no por base:** cada script es de uno o más motores, así un
-  script de MongoDB no se mezcla con uno de SQL Server.
-- **Al abrirlo,** se copia a una query de la base activa y pide sus
-  `{{parámetros}}`, con sugerencias de las tablas de esa base.
-- **Organización:** carpetas y búsqueda.
-- **Importar y exportar:** trae de una vez la carpeta de `.sql` que ya tenés, y
-  la exporta igual.
+- **Per engine, not per database:** each script belongs to one or more
+  engines, so a MongoDB script doesn't get mixed with a SQL Server one.
+- **On opening,** it is copied into a query of the active database and asks for
+  its `{{parameters}}`, with suggestions from that database's tables.
+- **Organization:** folders and search.
+- **Import and export:** brings in the folder of `.sql` files you already have
+  in one go, and exports it the same way.
 
-Detalle: [`docs/biblioteca.md`](docs/biblioteca.md).
+Details: [`docs/library.md`](docs/library.md).
 
-### Sincronización en la nube
+### Cloud sync
 
-Un backup de las conexiones, carpetas, queries, preferencias y contraseñas.
-Se guarda **cifrado de punta a punta** con una frase clave del usuario
-(XChaCha20-Poly1305 + Argon2id) y queda en **su propia cuenta**:
+A backup of connections, folders, queries, preferences and passwords. It is
+stored **end-to-end encrypted** with a passphrase chosen by the user
+(XChaCha20-Poly1305 + Argon2id) and stays in **their own account**:
 
-- Google Drive, en la carpeta privada de la app;
-- OneDrive, en la carpeta de la app;
-- o una carpeta cualquiera, como iCloud o Dropbox.
+- Google Drive, in the app's private folder;
+- OneDrive, in the app's folder;
+- or any folder, such as iCloud or Dropbox.
 
-Sincroniza sola, resuelve conflictos sin perder datos y permite recuperar
-todo en otra máquina. AddLayer no tiene servidores para esto y nunca ve los
-datos. Detalle: [`docs/sincronizacion.md`](docs/sincronizacion.md).
+It syncs by itself, resolves conflicts without losing data and allows
+recovering everything on another machine. AddLayer has no servers for this and
+never sees the data. Details: [`docs/sync.md`](docs/sync.md).
 
-### Asistente de IA
+### AI assistant
 
-Un chat en la barra lateral derecha (⌘I). Escribe queries, explica o corrige
-la del editor y responde sobre la estructura de la base.
+A chat in the right sidebar (⌘I). It writes queries, explains or fixes the
+editor's one and answers about the database's structure.
 
-- **Nunca ejecuta nada.** Su código se agrega a la query abierta, o la
-  reemplaza cuando la corrige, y el usuario decide si lo ejecuta.
-- **Usa lo que hay en la máquina:**
-  - el **modelo integrado** (llama.cpp con Qwen2.5-Coder 3B o 7B), que corre
-    local y se descarga una sola vez, la primera vez que se usa;
-  - Ollama o LM Studio;
-  - Claude Code o Codex con la cuenta del usuario, sin herramientas.
-- **Nunca manda filas de datos.** Como contexto recibe el motor, la estructura
-  y el editor.
+- **It never runs anything.** Its code is appended to the open query, or
+  replaces it when fixing it, and the user decides whether to run it.
+- **It uses what is on the machine:**
+  - the **built-in model** (llama.cpp with Qwen2.5-Coder 3B or 7B), which runs
+    locally and is downloaded only once, the first time it is used;
+  - Ollama or LM Studio;
+  - Claude Code or Codex with the user's account, without tools.
+- **It never sends data rows.** As context it receives the engine, the
+  structure and the editor.
 
-Detalle: [`docs/asistente-ia.md`](docs/asistente-ia.md).
+Details: [`docs/ai-assistant.md`](docs/ai-assistant.md).
 
-### Servidor MCP
+### MCP server
 
-DBine puede funcionar como servidor MCP local, así asistentes como Claude
-Code, Codex, Cursor, Claude Desktop, VS Code o Windsurf trabajan con tus
-conexiones mientras DBine está abierto. Viene apagado.
+DBine can work as a local MCP server, so assistants such as Claude Code,
+Codex, Cursor, Claude Desktop, VS Code or Windsurf work with your connections
+while DBine is open. It ships turned off.
 
-- **Cuatro niveles por conexión:** Deshabilitado (el asistente no la ve),
-  Esquema (solo la estructura, sin datos), Lectura (además filas de muestra,
-  consultas de solo lectura y planes estimados) y Escritura. El nivel
-  predeterminado es Esquema, y las conexiones con la etiqueta `prod` o de solo
-  lectura nunca pasan de Lectura.
-- **Cada escritura se aprueba:** DBine pasa al frente y muestra el cliente, la
-  conexión, la base y el código exacto para aprobarlo o rechazarlo. Si no
-  respondés en 2 minutos, se rechaza y no se ejecuta nada.
-- **Un token por cliente,** revocable por separado. DBine escucha solo en esta
-  máquina y rechaza los pedidos que vienen de páginas del navegador.
-- **Registro de actividad** local con las últimas 10.000 llamadas, filtrable
-  por cliente o por conexión. No guarda contraseñas ni secretos.
+- **Four levels per connection:** Disabled (the assistant doesn't see it),
+  Schema (structure only, no data), Read (also sample rows, read-only queries
+  and estimated plans) and Write. The default level is Schema, and connections
+  tagged `prod` or read-only never go beyond Read.
+- **Every write is approved:** DBine comes to the front and shows the client,
+  the connection, the database and the exact code to approve or reject it. If
+  you don't answer within 2 minutes, it is rejected and nothing runs.
+- **One token per client,** revocable separately. DBine listens only on this
+  machine and rejects requests that come from browser pages.
+- **Local activity log** with the last 10,000 calls, filterable by client or by
+  connection. It doesn't store passwords or secrets.
 
-Detalle: [`docs/mcp.md`](docs/mcp.md).
+Details: [`docs/mcp.md`](docs/mcp.md).
 
-### Seguridad
+### Security
 
-- Las contraseñas y demás secretos se guardan **cifrados** (XChaCha20-Poly1305)
-  en un archivo aparte, con una llave aleatoria que vive en el **llavero del
-  sistema** (Keychain, Credential Manager, Secret Service). Es un solo ítem
-  del llavero para toda la app: el sistema pide permiso una vez, no una por
-  conexión. Nunca van al archivo de estado ni a los logs.
-- El estado local es un SQLite en la carpeta de configuración de la app.
+- Passwords and other secrets are stored **encrypted** (XChaCha20-Poly1305) in
+  a separate file, with a random key that lives in the **system keychain**
+  (Keychain, Credential Manager, Secret Service). It is a single keychain item
+  for the whole app: the system asks for permission once, not once per
+  connection. They never go into the state file or the logs.
+- The local state is a SQLite file in the app's configuration folder.
 
-### Actualizaciones
+### Updates
 
-- **Se actualiza sola** en macOS, Windows y con la AppImage de Linux:
-  descarga la versión nueva, verifica su firma y se reinicia para terminar,
-  sin cortar las ejecuciones en segundo plano sin preguntar. Con los paquetes
-  `.deb` y `.rpm`, avisa y ofrece la página de la versión.
+- **It updates itself** on macOS, Windows and with the Linux AppImage: it
+  downloads the new version, verifies its signature and restarts to finish,
+  without cutting background runs without asking. With the `.deb` and `.rpm`
+  packages, it notifies and offers the release page.
 
-Detalle: [`docs/actualizaciones.md`](docs/actualizaciones.md).
+Details: [`docs/updates.md`](docs/updates.md).
 
-## Motores
+## Engines
 
-Cada motor es un crate en `crates/drivers/`. Toda función nueva tiene que
-funcionar en todos. Las excepciones, con su motivo, están en
-[`docs/soporte-por-motor.md`](docs/soporte-por-motor.md).
+Each engine is a crate in `crates/drivers/`. Every new feature has to work on
+all of them. The exceptions, with their reason, are in
+[`docs/engine-support.md`](docs/engine-support.md).
 
-| Familia | Motores |
+| Family | Engines |
 |---|---|
-| Relacionales | SQL Server · PostgreSQL · CockroachDB · YugabyteDB · TimescaleDB · Greenplum · KingbaseES · Denodo · MySQL · MariaDB · TiDB · OceanBase · SingleStore · SQLite · libSQL / Turso · Oracle · Oracle Autonomous · Firebird · SAP HANA · Aurora DSQL · Cloud Spanner · ODBC (Db2, Sybase ASE, SQL Anywhere, Informix y más) |
-| Analíticas | DuckDB · archivos CSV / Parquet / JSON · ClickHouse · Trino · Presto · Starburst · BigQuery · Athena · Snowflake · Databricks · Redshift · StarRocks · Doris · Databend · Hive · Impala · Drill · Dremio · Calcite Avatica · Flight SQL · Teradata · Vertica · Exasol · Netezza · Ocient |
-| Documentos | MongoDB · CouchDB · Couchbase · Azure Cosmos DB |
-| Clave-valor | Redis · Valkey · Dragonfly · DynamoDB · etcd |
-| Grafos | Neo4j · Memgraph · Amazon Neptune · OrientDB |
-| Columnares anchas | Cassandra · ScyllaDB · Amazon Keyspaces · Phoenix |
-| Series de tiempo | InfluxDB 1/2/3 · IoTDB · GreptimeDB · TDengine |
-| Búsqueda | Elasticsearch · OpenSearch · Solr · Manticore |
+| Relational | SQL Server · PostgreSQL · CockroachDB · YugabyteDB · TimescaleDB · Greenplum · KingbaseES · Denodo · MySQL · MariaDB · TiDB · OceanBase · SingleStore · SQLite · libSQL / Turso · Oracle · Oracle Autonomous · Firebird · SAP HANA · Aurora DSQL · Cloud Spanner · ODBC (Db2, Sybase ASE, SQL Anywhere, Informix and more) |
+| Analytical | DuckDB · CSV / Parquet / JSON files · ClickHouse · Trino · Presto · Starburst · BigQuery · Athena · Snowflake · Databricks · Redshift · StarRocks · Doris · Databend · Hive · Impala · Drill · Dremio · Calcite Avatica · Flight SQL · Teradata · Vertica · Exasol · Netezza · Ocient |
+| Document | MongoDB · CouchDB · Couchbase · Azure Cosmos DB |
+| Key-value | Redis · Valkey · Dragonfly · DynamoDB · etcd |
+| Graph | Neo4j · Memgraph · Amazon Neptune · OrientDB |
+| Wide-column | Cassandra · ScyllaDB · Amazon Keyspaces · Phoenix |
+| Time series | InfluxDB 1/2/3 · IoTDB · GreptimeDB · TDengine |
+| Search | Elasticsearch · OpenSearch · Solr · Manticore |
 | Streaming | ksqlDB · Timeplus |
 
-Ningún driver necesita librerías del fabricante para que la app arranque:
+No driver needs vendor libraries for the app to start:
 
-- Oracle usa un cliente en Rust puro.
-- ODBC carga el driver manager recién al usarlo.
-- Los presets ODBC sí necesitan el driver del fabricante instalado para
-  conectarse.
-- DuckDB no viene dentro de la app. La primera vez que te conectás, DBine
-  descarga la librería oficial, con la versión fijada y verificada por
-  sha256, y el explorador muestra el avance ("Descargando DuckDB…"). Lo mismo
-  pasa con el motor del asistente de IA. Así el ejecutable pesa bastante
-  menos.
+- Oracle uses a pure-Rust client.
+- ODBC loads the driver manager only when it is used.
+- The ODBC presets do need the vendor's driver installed in order to connect.
+- DuckDB is not bundled in the app. The first time you connect, DBine
+  downloads the official library, with the version pinned and verified by
+  sha256, and the explorer shows the progress ("Downloading DuckDB…"). The
+  same happens with the AI assistant's engine. This way the executable weighs
+  much less.
 
-## Apoyar el proyecto
+## Support the project
 
-DBine es gratis y lo va a seguir siendo. Si te sirve, podés apoyarlo con lo
-que quieras, una vez o todos los meses, desde
-[GitHub Sponsors](https://github.com/sponsors/addlayer-io). Es un apoyo, no
-una licencia: la app funciona igual.
+DBine is free and will stay that way. If it's useful to you, you can support it
+with whatever you like, once or every month, from
+[GitHub Sponsors](https://github.com/sponsors/addlayer-io). It is support, not
+a license: the app works the same.
 
-## Descargar
+## Download
 
-Los instaladores están en
+The installers are in
 [Releases](../../releases):
 
-- **Windows:** `.msi` o `-setup.exe`.
-- **macOS:** `.dmg`, en versión Apple Silicon o Intel.
-- **Linux:** `.AppImage`, `.deb` o `.rpm`.
+- **Windows:** `.msi` or `-setup.exe`.
+- **macOS:** `.dmg`, in Apple Silicon or Intel version.
+- **Linux:** `.AppImage`, `.deb` or `.rpm`.
 
-Los binarios todavía no están firmados por Apple ni por Microsoft:
+The binaries are not yet signed by Apple or Microsoft:
 
-- **macOS:** la primera vez avisa que no puede verificar al desarrollador.
-  Abrí Configuración del Sistema › Privacidad y seguridad y tocá «Abrir
-  igualmente». También se puede desde la terminal:
+- **macOS:** the first time it warns that it can't verify the developer. Open
+  System Settings › Privacy & Security and click "Open Anyway". It can also be
+  done from the terminal:
   `xattr -dr com.apple.quarantine /Applications/DBine.app`.
-- **Windows:** SmartScreen puede pedir "Más información" › "Ejecutar de todas
-  formas".
+- **Windows:** SmartScreen may ask for "More info" › "Run anyway".
 
-## Compilar
+## Build
 
-### Requisitos
+### Requirements
 
-- **Rust** estable y **Node.js** 20 o superior.
-- Un compilador de C (Xcode Command Line Tools en macOS, Visual Studio Build
-  Tools en Windows, `build-essential` en Linux). llama.cpp y DuckDB ya no se
-  compilan: se descargan la primera vez que se usan.
-- **Solo en Linux:**
+- **Rust** stable and **Node.js** 20 or later.
+- A C compiler (Xcode Command Line Tools on macOS, Visual Studio Build Tools
+  on Windows, `build-essential` on Linux). llama.cpp and DuckDB are no longer
+  compiled: they are downloaded the first time they are used.
+- **Linux only:**
   `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libxdo-dev`.
 
 ```bash
@@ -437,21 +427,21 @@ npm install --prefix web
 cargo install tauri-cli --version "^2"
 ```
 
-### Desarrollo
+### Development
 
 ```bash
-cargo tauri dev          # la app con recarga en caliente
-cargo test --workspace   # tests unitarios
+cargo tauri dev          # the app with hot reload
+cargo test --workspace   # unit tests
 ```
 
-**macOS: que el llavero no pida permiso en cada recompilación.** Las
-compilaciones de desarrollo se firman "ad hoc" y cambian de identidad en cada
-build, así que macOS vuelve a preguntar por cada contraseña guardada. Con un
-certificado de firma de código llamado `DBine Dev` en el llavero de inicio de
-sesión (autofirmado alcanza), `cargo run` / `cargo tauri dev` firman la app
-con una identidad fija (`scripts/dev-sign-run.sh`, configurado en
-`.cargo/config.toml`). Después del primer "Permitir siempre", no vuelve a
-preguntar. Para crear el certificado, una sola vez por máquina:
+**macOS: keeping the keychain from asking for permission on every
+rebuild.** Development builds are signed "ad hoc" and change identity on every
+build, so macOS asks again for each saved password. With a code-signing
+certificate named `DBine Dev` in the login keychain (self-signed is enough),
+`cargo run` / `cargo tauri dev` sign the app with a fixed identity
+(`scripts/dev-sign-run.sh`, configured in `.cargo/config.toml`). After the
+first "Always Allow", it doesn't ask again. To create the certificate, once per
+machine:
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 3650 -nodes -subj "/CN=DBine Dev" \
@@ -461,23 +451,23 @@ security import dev.p12 -k ~/Library/Keychains/login.keychain-db -P dbine-dev -T
 rm key.pem cert.pem dev.p12
 ```
 
-Sin el certificado, la app corre igual, solo que sin firma fija.
+Without the certificate, the app still runs, just without a fixed signature.
 
-### Instaladores
+### Installers
 
-Cada sistema compila sus propios instaladores:
+Each system builds its own installers:
 
-| Sistema | Comando | Resultado en `target/<target>/release/bundle/` |
+| System | Command | Output in `target/<target>/release/bundle/` |
 |---|---|---|
 | macOS Apple Silicon | `cargo tauri build --target aarch64-apple-darwin` | `.app`, `.dmg` |
 | macOS Intel | `cargo tauri build --target x86_64-apple-darwin` | `.app`, `.dmg` |
 | Windows | `cargo tauri build --target x86_64-pc-windows-msvc` | `.msi`, `-setup.exe` |
 | Linux | `cargo tauri build --target x86_64-unknown-linux-gnu` | `.AppImage`, `.deb`, `.rpm` |
 
-Sin `--target`, compila para la máquina actual y deja los archivos en
+Without `--target`, it builds for the current machine and leaves the files in
 `target/release/bundle/`.
 
-### Windows desde macOS (el `.exe`, sin instalador)
+### Windows from macOS (the `.exe`, without an installer)
 
 ```bash
 brew install llvm
@@ -488,89 +478,88 @@ rustup target add x86_64-pc-windows-msvc
 # → target/x86_64-pc-windows-msvc/release/dbine.exe
 ```
 
-El script corre
+The script runs
 `cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --no-bundle`
-con dos ajustes para compilar el C de las dependencias desde la Mac:
+with two adjustments to compile the dependencies' C code from the Mac:
 
-- usa el `clang-cl` de LLVM;
-- apunta el `lld-link` de cargo-xwin al `rust-lld` de rustup.
+- it uses LLVM's `clang-cl`;
+- it points cargo-xwin's `lld-link` at rustup's `rust-lld`.
 
-Acepta la licencia del SDK de Windows (`XWIN_ACCEPT_LICENSE=1`). Los
-instaladores `.msi` y `.exe` se arman en Windows o en CI.
+It accepts the Windows SDK license (`XWIN_ACCEPT_LICENSE=1`). The `.msi` and
+`.exe` installers are built on Windows or in CI.
 
 
-### Cuentas de nube
+### Cloud accounts
 
-Para que el login de Google Drive y OneDrive funcione, se compilan los IDs de
-la app registrada:
+For the Google Drive and OneDrive login to work, the registered app's IDs are
+compiled in:
 
 ```bash
 DBINE_GOOGLE_CLIENT_ID=… DBINE_GOOGLE_CLIENT_SECRET=… DBINE_MICROSOFT_CLIENT_ID=… cargo tauri build
 ```
 
-En local también pueden ir en un `.env` en la raíz del repo, que git ignora.
+Locally they can also go in a `.env` at the repo root, which git ignores.
 
-Cómo registrarla: [`docs/sincronizacion.md`](docs/sincronizacion.md).
+How to register it: [`docs/sync.md`](docs/sync.md).
 
-## Publicar una versión
+## Publish a release
 
-`.github/workflows/release.yml` compila las cuatro variantes en GitHub
-Actions: Windows x64, macOS Apple Silicon, macOS Intel y Linux x64. Después
-publica los instaladores en un release.
+`.github/workflows/release.yml` builds the four variants on GitHub Actions:
+Windows x64, macOS Apple Silicon, macOS Intel and Linux x64. Then it publishes
+the installers in a release.
 
 ```bash
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-- La versión de la app se toma del tag.
-- Si existen los secretos `DBINE_GOOGLE_CLIENT_ID`, `DBINE_GOOGLE_CLIENT_SECRET`
-  y `DBINE_MICROSOFT_CLIENT_ID`, el build los incluye.
-- **Prueba sin publicar:** Actions › release › Run workflow compila todo y
-  deja los instaladores como artefactos.
-- El instalador trae solo el driver de SQLite. Los demás se compilan aparte,
-  se suben al mismo release y la app los descarga la primera vez que se usan:
-  [`docs/drivers-bajo-demanda.md`](docs/drivers-bajo-demanda.md).
+- The app version is taken from the tag.
+- If the secrets `DBINE_GOOGLE_CLIENT_ID`, `DBINE_GOOGLE_CLIENT_SECRET` and
+  `DBINE_MICROSOFT_CLIENT_ID` exist, the build includes them.
+- **Dry run without publishing:** Actions › release › Run workflow builds
+  everything and leaves the installers as artifacts.
+- The installer ships only the SQLite driver. The others are built separately,
+  uploaded to the same release, and the app downloads them the first time they
+  are used: [`docs/on-demand-drivers.md`](docs/on-demand-drivers.md).
 
-## Estructura del repositorio
+## Repository structure
 
-| Ruta | Qué hay |
+| Path | What is there |
 |---|---|
-| `crates/dbine-driver` | El contrato de los drivers (traits `Driver` y `Session`) y los helpers |
-| `crates/drivers/<motor>` | Un crate por motor o familia de protocolo |
-| `crates/dbine-drivers` | El registro de drivers, con una feature por crate |
-| `crates/dbine-plugin`, `crates/dbine-plugin-host` | Los drivers como procesos aparte, descargados al usarlos |
-| `crates/dbine-core` | El estado local (SQLite), el llavero, la exportación y la importación |
-| `crates/dbine-schema` | La conversión de esquemas entre motores y la comparación de esquemas |
-| `crates/dbine-sync` | La sincronización cifrada (Google Drive, OneDrive, carpeta) |
-| `crates/dbine-ai` | El asistente de IA (modelo integrado, Ollama, Claude Code, Codex, LM Studio) |
-| `src-tauri` | Los comandos Tauri |
-| `web` | La UI en Vue 3 |
+| `crates/dbine-driver` | The driver contract (`Driver` and `Session` traits) and the helpers |
+| `crates/drivers/<engine>` | One crate per engine or protocol family |
+| `crates/dbine-drivers` | The driver registry, with one feature per crate |
+| `crates/dbine-plugin`, `crates/dbine-plugin-host` | The drivers as separate processes, downloaded on use |
+| `crates/dbine-core` | The local state (SQLite), the keychain, export and import |
+| `crates/dbine-schema` | Schema conversion between engines and schema comparison |
+| `crates/dbine-sync` | Encrypted sync (Google Drive, OneDrive, folder) |
+| `crates/dbine-ai` | The AI assistant (built-in model, Ollama, Claude Code, Codex, LM Studio) |
+| `src-tauri` | The Tauri commands |
+| `web` | The Vue 3 UI |
 
-Documentación:
+Documentation:
 
-- [`AGENTS.md`](AGENTS.md): convenciones y reglas del proyecto.
-- [`docs/drivers.md`](docs/drivers.md): cómo agregar un motor.
-- [`docs/drivers-bajo-demanda.md`](docs/drivers-bajo-demanda.md): cómo se descargan los drivers.
-- [`docs/api-comandos.md`](docs/api-comandos.md): los comandos del backend.
-- [`docs/soporte-por-motor.md`](docs/soporte-por-motor.md): qué soporta cada
-  motor.
-- [`docs/cache-del-explorador.md`](docs/cache-del-explorador.md): la caché del
-  árbol del explorador.
-- [`docs/esquemas.md`](docs/esquemas.md): crear y borrar esquemas.
-- [`docs/crear-bases.md`](docs/crear-bases.md): crear bases con opciones.
-- [`docs/ventanas.md`](docs/ventanas.md): las ventanas, qué guarda cada
-  una y cerrar una ventana o salir.
-- [`docs/comparacion-de-esquemas.md`](docs/comparacion-de-esquemas.md): cómo
-  se comparan y sincronizan dos bases.
-- [`docs/migracion.md`](docs/migracion.md) y
-  [`docs/conversion-de-esquemas.md`](docs/conversion-de-esquemas.md): la
-  migración a otro motor y cómo convierte los tipos.
-- [`docs/asistente-ia.md`](docs/asistente-ia.md),
-  [`docs/biblioteca.md`](docs/biblioteca.md) y
-  [`docs/sincronizacion.md`](docs/sincronizacion.md): el asistente de IA, la
-  biblioteca de scripts y la sincronización en la nube.
+- [`AGENTS.md`](AGENTS.md): the project's conventions and rules.
+- [`docs/drivers.md`](docs/drivers.md): how to add an engine.
+- [`docs/on-demand-drivers.md`](docs/on-demand-drivers.md): how drivers are downloaded.
+- [`docs/api-commands.md`](docs/api-commands.md): the backend commands.
+- [`docs/engine-support.md`](docs/engine-support.md): what each engine
+  supports.
+- [`docs/explorer-cache.md`](docs/explorer-cache.md): the explorer tree's
+  cache.
+- [`docs/schemas.md`](docs/schemas.md): creating and dropping schemas.
+- [`docs/create-databases.md`](docs/create-databases.md): creating databases with options.
+- [`docs/windows.md`](docs/windows.md): the windows, what each one stores and
+  closing a window or quitting.
+- [`docs/schema-compare.md`](docs/schema-compare.md): how two databases are
+  compared and synced.
+- [`docs/migration.md`](docs/migration.md) and
+  [`docs/schema-conversion.md`](docs/schema-conversion.md): migrating to
+  another engine and how types are converted.
+- [`docs/ai-assistant.md`](docs/ai-assistant.md),
+  [`docs/library.md`](docs/library.md) and
+  [`docs/sync.md`](docs/sync.md): the AI assistant, the script library and
+  cloud sync.
 
-Los tests de integración están en `crates/drivers/*/tests/`, marcados
-`#[ignore]`. Leen `DBINE_TEST_<MOTOR>_URL` y se corren contra contenedores de
-Docker.
+The integration tests are in `crates/drivers/*/tests/`, marked `#[ignore]`.
+They read `DBINE_TEST_<ENGINE>_URL` and run against Docker containers.

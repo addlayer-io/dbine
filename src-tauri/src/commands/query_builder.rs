@@ -1,4 +1,4 @@
-//! "Diseñar consulta" (docs/constructor-de-consultas.md): a `SELECT` built
+//! "Diseñar consulta" (docs/query-builder.md): a `SELECT` built
 //! from a spec the visual builder edits (tables on a canvas, the joins
 //! between them, a grid of columns with aggregates, sorting and filters).
 //! The spec lives in the tab; the SQL is generated here and is never parsed
@@ -318,7 +318,7 @@ fn sqlite_outer_joins(version: Option<&str>) -> bool {
 }
 
 /// Joins, grouping and filters per engine (the ones it doesn't have stay
-/// out of the UI). See docs/soporte-por-motor.md.
+/// out of the UI). See docs/engine-support.md.
 pub fn features(info: &DriverInfo, sqlite_version: Option<&str>) -> Features {
     use JoinKind::*;
     let three = vec![Inner, Left, Right];

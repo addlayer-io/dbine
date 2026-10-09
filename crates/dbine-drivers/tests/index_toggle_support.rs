@@ -1,12 +1,12 @@
 //! "Deshabilitar / Habilitar índice" shows where the engine can do it
 //! (`Driver::supports_index_toggle`). Every engine that lists indexes but
 //! can't disable them is listed, with its reason, in
-//! docs/soporte-por-motor.md.
+//! docs/engine-support.md.
 
 #[test]
 fn engines_without_index_toggle_are_documented() {
-    let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/soporte-por-motor.md")).unwrap();
-    let section = doc.split("### Motores sin deshabilitar índices").nth(1).expect("section in soporte-por-motor.md");
+    let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/engine-support.md")).unwrap();
+    let section = doc.split("### Motores sin deshabilitar índices").nth(1).expect("section in engine-support.md");
     let section = section.split("\n## ").next().unwrap_or(section);
     // Names wrap across lines in the doc.
     let section = section.split_whitespace().collect::<Vec<_>>().join(" ");

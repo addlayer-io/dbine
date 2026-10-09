@@ -2,7 +2,7 @@ name: drivers
 
 # Push a tag like `driver-postgres-v0.1.10` to build one driver for Windows,
 # macOS (Apple Silicon + Intel) and Linux and publish it in the permanent
-# `drivers` release, without an app release (docs/drivers-bajo-demanda.md).
+# `drivers` release, without an app release (docs/on-demand-drivers.md).
 # Installed apps that can run it (its min_app) switch to it on their own.
 # The tag's version must be the one in the driver's Cargo.toml.
 # A manual run (Actions → drivers → Run workflow) builds the driver of the

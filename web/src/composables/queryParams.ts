@@ -1,7 +1,7 @@
 import type { Language } from '../api/types';
 import { lexRegions, lexSyntax } from './sqlLexer';
 
-// Parameters in editor queries (docs/editor-de-consultas.md): `:name` outside
+// Parameters in editor queries (docs/query-editor.md): `:name` outside
 // strings and comments (never a `::` cast), plus the engine's own markers
 // where they can't mean anything else: `?` on engines that take JDBC-style
 // placeholders and `@name` on engines where `@` isn't a variable. Before a run

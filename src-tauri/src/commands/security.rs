@@ -1,4 +1,4 @@
-//! Users and permissions (docs/usuarios-y-permisos.md): what the server has,
+//! Users and permissions (docs/users-and-permissions.md): what the server has,
 //! and the code for a change, which the UI shows (password hidden) and runs
 //! only on the user's click, without keeping it in the history.
 

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-// AI assistant (src-tauri/src/commands/ai.rs, docs/asistente-ia.md).
+// AI assistant (src-tauri/src/commands/ai.rs, docs/ai-assistant.md).
 
 export type AiProviderKind = 'embedded' | 'ollama' | 'claude_code' | 'codex' | 'lm_studio';
 

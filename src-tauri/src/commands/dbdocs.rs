@@ -1,4 +1,4 @@
-//! "Documentar la base…" (docs/documentar-la-base.md): the data dictionary
+//! "Documentar la base…" (docs/database-docs.md): the data dictionary
 //! of a database written to one file (`crate::dbdocs` reads and renders
 //! it). On a read-only session of its own, cancellable with `cancel_query`
 //! on `docs:<id>`, with progress as `dbdocs-progress`. "Abrir" and "Mostrar

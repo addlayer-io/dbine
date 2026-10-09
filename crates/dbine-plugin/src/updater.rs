@@ -1,6 +1,6 @@
 //! Driver updates: drivers are released apart from the app, and an
 //! installed app picks up new versions of the drivers it already has
-//! (docs/drivers-bajo-demanda.md).
+//! (docs/on-demand-drivers.md).
 //!
 //! The catalog the app carries is each driver crate's floor: the version it
 //! was released with, always available. The signed index

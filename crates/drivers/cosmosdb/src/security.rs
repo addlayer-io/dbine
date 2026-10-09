@@ -1,4 +1,4 @@
-//! Users and permissions of a Cosmos DB database (docs/usuarios-y-permisos.md).
+//! Users and permissions of a Cosmos DB database (docs/users-and-permissions.md).
 //!
 //! The NoSQL API's own users (`/dbs/{db}/users`) don't sign in with a
 //! password: an application with the account key asks for their resource
