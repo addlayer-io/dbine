@@ -48,9 +48,13 @@
 - **Ver dependências e Renomear** não travam mais em rotinas com nomes entre aspas incomuns.
 - **Somente leitura no SQL Server:** um lote só pode começar com `SELECT`, `WITH`, `USE` ou `PRINT`. O que vem depois de `SHOW`, `DESCRIBE` ou `PRAGMA` é verificado em todos os motores.
 - **Importar conexões:** uma URL JDBC do Oracle com usuário e senha mantém esses dados fora do nome da conexão: a senha vai para o chaveiro do sistema.
-- **Somente leitura:** um comentário `--` também termina em um retorno de carro (CR), como o PostgreSQL lê, então nada que seja executado pode se esconder em um comentário. No SQL Server, um procedimento cujo nome começa como `print_` ou `select1` deixa de ser tomado por uma leitura.
+- **Somente leitura no SQL Server:** um procedimento cujo nome começa como `print_` ou `select1` deixa de ser tomado por uma leitura.
 - **Importar conexões:** uma senha do Oracle com `@` é guardada inteira no chaveiro do sistema.
 - **Túneis SSH no Linux:** a porta local do túnel só confia em conexões abertas pelo seu próprio usuário.
+- **Somente leitura:** uma consulta com um retorno de carro isolado ou um espaço Unicode incomum é recusada, porque os motores discordam sobre onde um comentário ou uma instrução termina ali. Funções com efeitos colaterais também são recusadas: `load_extension` no SQLite, `pg_notify` e leituras de replicação lógica no PostgreSQL, e o cancelamento de sessões ou consultas no Snowflake.
+- **Exportação SQL** de uma grade de vários bancos de dados: escapa as strings para que o script seja lido da mesma forma em qualquer motor.
+- **Importar conexões:** uma URL do SQL Server sem host não coloca mais a senha no nome da conexão.
+- **Usuários e permissões:** a prévia oculta as senhas do PostgreSQL em todas as formas.
 
 ## [0.1.9] - 2026-10-09
 

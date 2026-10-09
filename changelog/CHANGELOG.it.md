@@ -48,9 +48,13 @@
 - **Mostra dipendenze e Rinomina** non si fermano più sulle routine con nomi tra virgolette insoliti.
 - **Sola lettura su SQL Server:** un batch può iniziare solo con `SELECT`, `WITH`, `USE` o `PRINT`. Ciò che segue `SHOW`, `DESCRIBE` o `PRAGMA` viene controllato su tutti i motori.
 - **Importa connessioni:** un URL JDBC di Oracle con utente e password li tiene fuori dal nome della connessione: la password va nel portachiavi di sistema.
-- **Sola lettura:** anche un commento `--` termina a un ritorno a capo (CR), come lo legge PostgreSQL, quindi nulla di ciò che viene eseguito può nascondersi in un commento. Su SQL Server, una procedura il cui nome inizia come `print_` o `select1` non viene più scambiata per una lettura.
+- **Sola lettura su SQL Server:** una procedura il cui nome inizia come `print_` o `select1` non viene più scambiata per una lettura.
 - **Importa connessioni:** una password Oracle contenente `@` viene conservata per intero nel portachiavi del sistema.
 - **Tunnel SSH su Linux:** la porta locale del tunnel si fida solo delle connessioni aperte dal tuo stesso utente.
+- **Sola lettura:** una query con un ritorno a capo isolato o uno spazio Unicode insolito viene rifiutata, perché i motori non concordano su dove lì termini un commento o un'istruzione. Vengono rifiutate anche le funzioni con effetti collaterali: `load_extension` in SQLite, `pg_notify` e le letture di replica logica in PostgreSQL, e l'annullamento di sessioni o query in Snowflake.
+- **Esportazione SQL** di una griglia multi-database: esegue l'escape delle stringhe in modo che lo script si legga allo stesso modo su qualsiasi motore.
+- **Importa connessioni:** un URL di SQL Server senza host non mette più la sua password nel nome della connessione.
+- **Utenti e permessi:** l'anteprima nasconde le password di PostgreSQL in tutte le loro forme.
 
 ## [0.1.9] - 2026-10-09
 
