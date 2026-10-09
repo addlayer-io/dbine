@@ -9551,5 +9551,8 @@
   "sin catálogo": "no catalog",
   "sin entrada o salida": "no input or output",
   "índice de drivers en caché de otra plataforma ({0})": "driver index cached for another platform ({0})",
-  "índice de drivers en caché descartado: {0}": "cached driver index discarded: {0}"
+  "índice de drivers en caché descartado: {0}": "cached driver index discarded: {0}",
+  "El nombre nuevo no puede tener barras invertidas (\\), comillas invertidas (`) ni caracteres de control": "The new name can't contain backslashes (\\), backticks (`) or control characters",
+  "el índice de drivers venció ({0} < {1}): el servidor de drivers no publicó uno nuevo": "the drivers index expired ({0} < {1}): the drivers server didn't publish a new one",
+  "Conexión de solo lectura: el plan estimado no admite {0} ni varias sentencias que escriban. Pedí el plan de una sola consulta.": "Read-only connection: the estimated plan doesn't allow {0} or several statements that write. Ask for the plan of a single query."
 }

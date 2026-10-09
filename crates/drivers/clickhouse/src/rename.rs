@@ -128,6 +128,12 @@ pub fn script(flavor: Flavor, req: &RenameRequest) -> Result<SyncScript> {
             Flavor::Timeplus => "Timeplus Proton solo renombra streams, vistas, vistas materializadas y columnas".into(),
         }));
     }
+    // The views put back with the new name are rewritten by the shared
+    // reference rewriting, which quotes with MySQL's backticks: a backslash
+    // there is an escape for ClickHouse. A name that would need it is refused.
+    if req.new_name.chars().any(|c| c == '\\' || c == '`' || c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) {
+        return Err(Error::Query("El nombre nuevo no puede tener barras invertidas (\\), comillas invertidas (`) ni caracteres de control".into()));
+    }
     // Quoted, the new name goes through `q`, which escapes backslashes too.
     let new = match quote_new(&req.new_name, &dialect(), Fold::None, false) {
         bare if bare == req.new_name => bare,
@@ -206,8 +212,18 @@ mod tests {
 
     #[test]
     fn a_backslash_cannot_end_the_quoted_names() {
-        let s = script(Flavor::ClickHouse, &object(kinds::TABLE, Some("d\\"), "t\\", "x\\`; DROP TABLE y; --")).unwrap();
-        assert_eq!(s.statements, ["RENAME TABLE `d\\\\`.`t\\\\` TO `d\\\\`.`x\\\\\\`; DROP TABLE y; --`;"]);
+        let s = script(Flavor::ClickHouse, &object(kinds::TABLE, Some("d\\"), "t\\", "x; DROP TABLE y; --")).unwrap();
+        assert_eq!(s.statements, ["RENAME TABLE `d\\\\`.`t\\\\` TO `d\\\\`.`x; DROP TABLE y; --`;"]);
+    }
+
+    #[test]
+    fn new_names_the_reference_rewriting_cannot_quote_are_refused() {
+        for bad in ["x\\", "a`b", "a\nb", "a\u{2028}b"] {
+            let e = script(Flavor::ClickHouse, &object(kinds::TABLE, None, "t", bad)).unwrap_err();
+            assert!(matches!(&e, Error::Query(m) if m.contains("nombre nuevo")), "{bad:?}: {e:?}");
+            let col = req(RenameTarget::Column { table: obj(kinds::TABLE, None, "t"), column: "c".into() }, bad);
+            assert!(script(Flavor::Timeplus, &col).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

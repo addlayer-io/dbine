@@ -370,6 +370,13 @@ fn resource_value(o: &ObjectRef) -> Result<Value> {
     Ok(json!({ "db": db, "collection": coll }))
 }
 
+/// Text for a `//` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+}
+
 /// `{ "k": v, … }` in the order given, as the editor reads it.
 fn command(pairs: &[(&str, Value)]) -> String {
     let body: Vec<String> = pairs.iter().map(|(k, v)| format!("{k}: {v}")).collect();
@@ -392,7 +399,7 @@ impl Out {
         let one = |c: &str| format!("db.{m}({}, {{}}, {{ ifExists: true }})", command(&[(c, json!(who)), (key, value.clone())]));
         format!(
             "// «{}» puede ser un usuario o un rol: cada comando se aplica solo si existe (extensión de DBine).\n{}\n{}",
-            who.replace('\n', " "),
+            comment_text(who),
             one(user_cmd),
             one(role_cmd)
         )
@@ -567,6 +574,17 @@ mod tests {
         let d = script(Flavor::DocumentDb, &add).unwrap();
         assert!(cmds(&d).iter().all(|c| c.2 && c.1 == Shape::IfExists));
         assert!(spec(Flavor::Mongo).per_database && !spec(Flavor::Ferret).create_role);
+    }
+
+    #[test]
+    fn a_name_cannot_end_the_comment() {
+        let add = SecurityAction::AddMember { role: "r".into(), member: "ana\u{2028}db.dropDatabase()\u{2029}x".into() };
+        let t = s(add);
+        let first = t.split(['\n', '\u{2028}', '\u{2029}']).next().unwrap();
+        assert!(first.starts_with("// «ana?db.dropDatabase()?x» puede ser"), "{t}");
+        // The names inside the commands are JSON strings, where U+2028 is just a character.
+        assert_eq!(t.lines().count(), 3, "{t}");
+        assert_eq!(t.lines().next(), Some(first), "{t}");
     }
 
     #[test]

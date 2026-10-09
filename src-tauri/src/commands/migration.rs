@@ -463,7 +463,8 @@ fn script_text<'a>(target: &dyn Driver, header: [String; 2], statements: impl In
         }
     };
     let comment = if sql { "--" } else { "//" };
-    let mut script = format!("{comment} {}\n{comment} {}\n\n", header[0], header[1]);
+    let line = crate::commands::scripts::comment_text;
+    let mut script = format!("{comment} {}\n{comment} {}\n\n", line(&header[0]), line(&header[1]));
     for s in statements {
         script.push_str(&end_block(s));
     }

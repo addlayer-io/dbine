@@ -1060,7 +1060,7 @@ impl CatalogEntry {
         let name = if properties.is_empty() { format!(":{target}") } else { format!(":{target}({})", properties.join(", ")) };
         let spec = ddl::IndexSpec { name: String::new(), target: target.clone(), relationship, kind: spec_kind.into(), properties: properties.clone(), options: BTreeMap::new() };
         let definition = if spec_kind == "VECTOR" {
-            format!("// índice vectorial {name}")
+            format!("// índice vectorial {}", cypher::comment_text(&name))
         } else {
             ddl::create(Flavor::Memgraph, &spec, false).map(|s| format!("{s};")).unwrap_or_default()
         };
@@ -1284,15 +1284,18 @@ impl Session for GraphSession {
                     if rel { format!("MATCH ()-[e:{n}]->() RETURN count(e)") } else { format!("MATCH (e:{n}) RETURN count(e)") };
                 let count = self.strings(&count_q).await?.into_iter().next().unwrap_or_default();
                 let cols = infer_columns(&self.sample(obj).await?);
-                let mut text = if rel {
-                    format!("// Tipo de relación :{n} — {count} relaciones\n")
-                } else {
-                    format!("// Etiqueta :{n} — {count} nodos\n")
+                let mut text = {
+                    let (n, count) = (cypher::comment_text(&n), cypher::comment_text(&count));
+                    if rel {
+                        format!("// Tipo de relación :{n} — {count} relaciones\n")
+                    } else {
+                        format!("// Etiqueta :{n} — {count} nodos\n")
+                    }
                 };
                 if !cols.is_empty() {
                     text.push_str("// Propiedades (muestra de 100):\n");
                     for c in &cols {
-                        text.push_str(&format!("//   {} {}{}\n", c.name, c.data_type, if c.nullable { "" } else { " (en todos)" }));
+                        text.push_str(&format!("//   {} {}{}\n", cypher::comment_text(&c.name), cypher::comment_text(&c.data_type), if c.nullable { "" } else { " (en todos)" }));
                     }
                 }
                 let defs: Vec<String> = self
@@ -1320,13 +1323,15 @@ impl Session for GraphSession {
                     _ => self.records("CALL mg.procedures() YIELD name, signature, is_write, path").await?,
                 };
                 Ok(rows.into_iter().find(|r| r.get("name").map(as_text).as_deref() == Some(obj.name.as_str())).map(|r| {
-                    let mut t = format!("// {}\n", r.get("signature").map(as_text).unwrap_or_default());
+                    let mut t = format!("// {}\n", cypher::comment_text(&r.get("signature").map(as_text).unwrap_or_default()));
                     for k in ["description", "mode", "is_write", "path"] {
                         if let Some(v) = r.get(k).filter(|v| !v.is_null()) {
-                            t.push_str(&format!("// {k}: {}\n", as_text(v)));
+                            t.push_str(&format!("// {k}: {}\n", cypher::comment_text(&as_text(v))));
                         }
                     }
-                    t.push_str(&format!("CALL {}()", obj.name));
+                    // Each part of the dotted name quoted, so a name from the server is only a name.
+                    let name = obj.name.split('.').map(cypher::ident).collect::<Vec<_>>().join(".");
+                    t.push_str(&format!("CALL {name}()"));
                     t
                 }))
             }

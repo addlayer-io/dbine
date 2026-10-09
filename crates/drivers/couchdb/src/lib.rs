@@ -312,6 +312,13 @@ impl CouchSession {
     }
 }
 
+/// Text for a `//` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+}
+
 fn as_text(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
@@ -593,7 +600,7 @@ impl Session for CouchSession {
             let Some(view) = doc.get("views").and_then(|vs| vs.get(v)) else { return Ok(None) };
             let mut text = String::new();
             if let Some(lang) = doc.get("language").and_then(Value::as_str) {
-                text.push_str(&format!("// language: {lang}\n"));
+                text.push_str(&format!("// language: {}\n", comment_text(lang)));
             }
             for part in ["map", "reduce"] {
                 match view.get(part) {
@@ -928,6 +935,13 @@ fn push_reply(out: &mut QueryOutcome, reply: &Value, max_rows: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_language_cannot_end_its_comment() {
+        let c = format!("// language: {}", comment_text("js\nDELETE /db\r\u{85}\u{2028}\u{2029}x"));
+        assert_eq!(c, "// language: js?DELETE /db????x");
+        assert_eq!(c.lines().count(), 1);
+    }
 
     #[test]
     fn statements_keep_their_block() {

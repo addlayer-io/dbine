@@ -229,6 +229,13 @@ pub fn write_reason(stmt: &str) -> Option<String> {
     None
 }
 
+/// Text for a `//` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+pub fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+}
+
 /// A name between backticks when it isn't a plain identifier.
 pub fn ident(name: &str) -> String {
     let plain = !name.is_empty()
@@ -288,6 +295,13 @@ pub fn property(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_cannot_end_a_line_comment() {
+        let c = format!("// {}", comment_text("a\nMATCH (n) DETACH DELETE n\r\u{85}\u{2028}\u{2029}`x"));
+        assert_eq!(c, "// a?MATCH (n) DETACH DELETE n????`x");
+        assert_eq!(c.lines().count(), 1);
+    }
     use serde_json::json;
 
     #[test]
