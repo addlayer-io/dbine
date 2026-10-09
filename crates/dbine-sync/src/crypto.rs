@@ -49,6 +49,10 @@ impl Kdf {
     }
 }
 
+/// The policy `Kdf::fast()` passes (tests only).
+#[cfg(test)]
+pub const FAST_POLICY: KdfPolicy = KdfPolicy { min_m_cost: 1024, min_t_cost: 1, ..POLICY };
+
 /// A derived key; it zeroes itself when dropped.
 pub struct Key([u8; 32]);
 
@@ -58,10 +62,62 @@ impl Drop for Key {
     }
 }
 
-pub fn derive(passphrase: &str, kdf: &Kdf) -> Result<Key> {
-    if kdf.alg != "argon2id" {
-        return Err(SyncError::Format(format!("algoritmo de clave desconocido: {}", kdf.alg)));
+/// Bounds for KDF parameters read from a backup file. The header is written
+/// by whoever can write the backup location, so it's untrusted until the
+/// file decrypts: a floor stops a forged header from making this machine
+/// derive (and later re-encrypt everything with) a weak key, and a ceiling
+/// stops it from exhausting memory or CPU.
+#[derive(Debug, Clone, Copy)]
+pub struct KdfPolicy {
+    pub min_m_cost: u32,
+    pub max_m_cost: u32,
+    pub min_t_cost: u32,
+    pub max_t_cost: u32,
+    pub min_p_cost: u32,
+    pub max_p_cost: u32,
+    pub min_salt: usize,
+    pub max_salt: usize,
+}
+
+/// The floor is exactly what `Kdf::generate()` writes (and has written since
+/// the first version), so every legitimate backup opens.
+pub const POLICY: KdfPolicy = KdfPolicy {
+    min_m_cost: 64 * 1024,
+    max_m_cost: 1024 * 1024,
+    min_t_cost: 3,
+    max_t_cost: 20,
+    min_p_cost: 1,
+    max_p_cost: 16,
+    min_salt: 16,
+    max_salt: 64,
+};
+
+impl Kdf {
+    /// Reject an unknown algorithm or parameters outside `policy`.
+    pub fn check(&self, policy: &KdfPolicy) -> Result<()> {
+        if self.alg != "argon2id" {
+            return Err(SyncError::Format(format!("algoritmo de clave desconocido: {}", self.alg)));
+        }
+        let salt = B64.decode(&self.salt).map_err(|_| SyncError::Format("sal inválida".into()))?;
+        let ok = (policy.min_salt..=policy.max_salt).contains(&salt.len())
+            && (policy.min_m_cost..=policy.max_m_cost).contains(&self.m_cost)
+            && (policy.min_t_cost..=policy.max_t_cost).contains(&self.t_cost)
+            && (policy.min_p_cost..=policy.max_p_cost).contains(&self.p_cost);
+        if !ok {
+            return Err(SyncError::Format("los parámetros de clave del backup están fuera de lo permitido: el archivo no es confiable".into()));
+        }
+        Ok(())
     }
+}
+
+/// Derive the key for `passphrase` with `kdf`, which must pass `POLICY`.
+pub fn derive(passphrase: &str, kdf: &Kdf) -> Result<Key> {
+    derive_with(passphrase, kdf, &POLICY)
+}
+
+/// `derive` with an explicit policy (tests use a cheaper one).
+pub fn derive_with(passphrase: &str, kdf: &Kdf, policy: &KdfPolicy) -> Result<Key> {
+    kdf.check(policy)?;
     let salt = B64.decode(&kdf.salt).map_err(|_| SyncError::Format("sal inválida".into()))?;
     let params = Params::new(kdf.m_cost, kdf.t_cost, kdf.p_cost, Some(32))
         .map_err(|e| SyncError::Format(format!("parámetros de clave inválidos: {e}")))?;
@@ -155,25 +211,25 @@ mod tests {
     #[test]
     fn roundtrip_and_nothing_readable_in_the_file() {
         let kdf = Kdf::fast();
-        let key = derive("una frase larga", &kdf).unwrap();
+        let key = derive_with("una frase larga", &kdf, &FAST_POLICY).unwrap();
         let file = seal(&key, header(kdf.clone()), b"host=prod.example password=hunter2").unwrap();
         let text = String::from_utf8(file.clone()).unwrap();
         assert!(!text.contains("hunter2") && !text.contains("prod.example"));
-        assert_eq!(open(&derive("una frase larga", &kdf).unwrap(), &file).unwrap(), b"host=prod.example password=hunter2");
+        assert_eq!(open(&derive_with("una frase larga", &kdf, &FAST_POLICY).unwrap(), &file).unwrap(), b"host=prod.example password=hunter2");
         assert_eq!(peek(&file).unwrap().device, "mac");
     }
 
     #[test]
     fn wrong_passphrase_fails() {
         let kdf = Kdf::fast();
-        let file = seal(&derive("correcta", &kdf).unwrap(), header(kdf.clone()), b"x").unwrap();
-        assert!(matches!(open(&derive("incorrecta", &kdf).unwrap(), &file), Err(SyncError::WrongPassphrase)));
+        let file = seal(&derive_with("correcta", &kdf, &FAST_POLICY).unwrap(), header(kdf.clone()), b"x").unwrap();
+        assert!(matches!(open(&derive_with("incorrecta", &kdf, &FAST_POLICY).unwrap(), &file), Err(SyncError::WrongPassphrase)));
     }
 
     #[test]
     fn tampered_header_fails() {
         let kdf = Kdf::fast();
-        let key = derive("frase", &kdf).unwrap();
+        let key = derive_with("frase", &kdf, &FAST_POLICY).unwrap();
         let file = seal(&key, header(kdf), b"x").unwrap();
         let tampered = String::from_utf8(file).unwrap().replace("\"mac\"", "\"otra\"");
         assert!(open(&key, tampered.as_bytes()).is_err());
@@ -182,5 +238,39 @@ mod tests {
     #[test]
     fn not_a_backup() {
         assert!(matches!(peek(b"{\"hola\":1}"), Err(SyncError::Format(_))));
+    }
+
+    fn weak(m_cost: u32, t_cost: u32, p_cost: u32, salt_len: usize) -> Kdf {
+        Kdf { alg: "argon2id".into(), salt: B64.encode(vec![7u8; salt_len]), m_cost, t_cost, p_cost }
+    }
+
+    #[test]
+    fn generated_parameters_pass_the_policy() {
+        // What every DBine version has written: 64 MiB, t=3, p=1, 16-byte salt.
+        Kdf::generate().check(&POLICY).unwrap();
+        weak(64 * 1024, 3, 1, 16).check(&POLICY).unwrap();
+    }
+
+    #[test]
+    fn parameters_below_the_floor_are_rejected() {
+        for k in [weak(8, 1, 1, 16), weak(64 * 1024 - 1, 3, 1, 16), weak(64 * 1024, 2, 1, 16), weak(64 * 1024, 3, 0, 16), weak(64 * 1024, 3, 1, 8)] {
+            assert!(matches!(k.check(&POLICY), Err(SyncError::Format(_))), "{k:?}");
+            // `derive` refuses before hashing.
+            assert!(matches!(derive("frase", &k), Err(SyncError::Format(_))), "{k:?}");
+        }
+    }
+
+    #[test]
+    fn parameters_above_the_ceiling_are_rejected() {
+        // Checked before Argon2 allocates anything (4 GiB here).
+        for k in [weak(4 * 1024 * 1024, 3, 1, 16), weak(64 * 1024, 1000, 1, 16), weak(64 * 1024, 3, 64, 16), weak(64 * 1024, 3, 1, 4096)] {
+            assert!(matches!(derive("frase", &k), Err(SyncError::Format(_))), "{k:?}");
+        }
+    }
+
+    #[test]
+    fn unknown_algorithm_is_rejected() {
+        let k = Kdf { alg: "pbkdf2".into(), ..Kdf::generate() };
+        assert!(matches!(derive("frase", &k), Err(SyncError::Format(_))));
     }
 }
