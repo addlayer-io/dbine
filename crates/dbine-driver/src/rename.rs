@@ -1072,7 +1072,7 @@ fn relations(toks: &[Tok<'_>], a: usize, b: usize) -> Vec<Rel> {
                 // `table(s)` (Proton): the stream read as a table.
                 rel.name = Some(last);
                 j = last + 2;
-            } else if n.is_name() && !n.text.as_bytes()[0].is_ascii_digit() && !(n.quote.is_none() && n.any(NOT_ALIAS) && !dotted_after(toks, j)) {
+            } else if n.is_name() && !n.text.as_bytes().first().is_none_or(|b| b.is_ascii_digit()) && !(n.quote.is_none() && n.any(NOT_ALIAS) && !dotted_after(toks, j)) {
                 // A keyword before a dot is a qualifier (`default.t`).
                 let mut last = j;
                 while dotted_after(toks, last) {
@@ -1326,7 +1326,7 @@ fn pipeline(w: &mut Writer<'_>, toks: &[Tok<'_>], old: &str, new: &str) {
     let value = |t: &Tok<'_>| -> Option<(u8, String)> {
         match (t.kind, t.quote) {
             (TokenKind::Name, Some(b'"')) => Some((b'"', t.value())),
-            (TokenKind::String, _) if t.text.len() >= 2 => Some((t.text.as_bytes()[0], t.text[1..t.text.len() - 1].to_string())),
+            (TokenKind::String, _) if t.text.len() >= 2 => Some((t.text.as_bytes()[0], t.text.get(1..t.text.len() - 1)?.to_string())),
             _ => None,
         }
     };
@@ -1403,6 +1403,23 @@ mod tests {
 
     fn view(body: &str, d: &ScriptDialect, target: &RewriteTarget, new: &str) -> Rewrite {
         rewrite_references(body, d, target, new, &spec(Fold::None), &RewriteOptions { keep_view_columns: true, ..Default::default() })
+    }
+
+    #[test]
+    fn hostile_bodies_never_panic() {
+        let pg = ScriptDialect::postgres();
+        // An empty quoted name where a relation goes, and an unterminated
+        // one ending in a multi-byte character (a routine body cut short).
+        for body in [
+            "SELECT nombre FROM clientes JOIN \"\" ON true",
+            "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$SELECT 1 FROM t \"é$$",
+            "SELECT 'é",
+        ] {
+            let _ = rw(body, &pg, &column("", "clientes", "nombre"), "nuevo");
+            let _ = rw(body, &pg, &table("", "clientes"), "nuevo");
+            let _ = rewrite_references(body, &pg, &RewriteTarget::Schema { schema: "public".into() }, "otro", &spec(Fold::None), &RewriteOptions::default());
+        }
+        let _ = rw("SELECT x FROM [] JOIN `` ON 1 = 1", &tsql(), &column("dbo", "t", "x"), "y");
     }
 
     // 1

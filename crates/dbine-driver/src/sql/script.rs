@@ -1736,7 +1736,16 @@ pub fn name_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
             Tok::Space | Tok::LineComment | Tok::BlockComment => None,
         };
         if let Some(kind) = kind {
-            let text = if kind == TokenKind::Name && raw.len() >= 2 && matches!(raw.as_bytes()[0], b'`' | b'[' | b'"') { &raw[1..raw.len() - 1] } else { raw };
+            // The quotes off, when it has both: an unterminated one (a body
+            // cut short) keeps its text, never a slice inside a character.
+            let close = |open: u8| match open {
+                b'[' => ']',
+                b => b as char,
+            };
+            let text = match raw.as_bytes().first() {
+                Some(&q @ (b'`' | b'[' | b'"')) if kind == TokenKind::Name => raw[1..].strip_suffix(close(q)).unwrap_or(&raw[1..]),
+                _ => raw,
+            };
             out.push(NameToken { kind, text, start: i, end });
         }
         i = end.max(i + 1);
@@ -1781,6 +1790,25 @@ pub fn code_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod unterminated_name_tests {
+    use super::*;
+
+    #[test]
+    fn an_unterminated_quoted_name_keeps_its_text() {
+        let pg = ScriptDialect::postgres();
+        for text in ["SELECT 1 FROM t \"é", "SELECT [é", "SELECT `é", "SELECT \"\""] {
+            let _ = name_tokens(text, &pg);
+            let _ = code_tokens(text, &pg);
+            let _ = name_tokens(text, &ScriptDialect::tsql());
+            let _ = name_tokens(text, &ScriptDialect::mysql());
+        }
+        let body = "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$SELECT 1 FROM t \"é$$";
+        assert!(code_tokens(body, &pg).iter().any(|t| t.kind == TokenKind::Name && t.text == "é"));
+        assert!(name_tokens("SELECT \"a b\"", &pg).iter().any(|t| t.text == "a b"));
+    }
 }
 
 #[cfg(test)]
