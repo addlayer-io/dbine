@@ -359,6 +359,22 @@ pub(crate) fn libsql_url(url: &str) -> (String, Option<String>) {
     (base, token)
 }
 
+/// `HOST` and `SERVICE_NAME` (or `SID`) of an Oracle TNS descriptor, for a
+/// connection's name.
+pub(crate) fn descriptor_name(descriptor: &str) -> Option<String> {
+    let upper = descriptor.to_ascii_uppercase();
+    let value = |key: &str| {
+        let at = upper.find(&format!("({key}="))? + key.len() + 2;
+        let end = descriptor[at..].find(')')? + at;
+        Some(descriptor[at..end].trim().to_string()).filter(|v| !v.is_empty())
+    };
+    let host = value("HOST")?;
+    Some(match value("SERVICE_NAME").or_else(|| value("SID")) {
+        Some(service) => format!("{host} / {service}"),
+        None => host,
+    })
+}
+
 /// What follows the `@` of an Oracle JDBC/EZConnect URL, without the
 /// `user/password@` some carry before it.
 fn oracle_target(url: &str) -> String {
@@ -413,7 +429,18 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
             return !cfg.host.is_empty();
         }
         "oracle" => {
-            let Some((_, target)) = rest.split_once('@') else { return false };
+            let Some((login, target)) = rest.split_once('@') else { return false };
+            // `user/password@…`: the login goes where secrets are kept, never
+            // into the target (or a name made from it).
+            let login = login.strip_prefix("oracle:thin:").unwrap_or(login);
+            if let Some((user, password)) = login.split_once('/') {
+                if cfg.username.is_none() && !user.is_empty() {
+                    cfg.username = Some(user.to_string());
+                }
+                if cfg.password.is_none() && !password.is_empty() {
+                    cfg.password = Some(password.to_string());
+                }
+            }
             let target = target.trim();
             if target.starts_with('(') {
                 cfg.options.insert("connect_descriptor".into(), target.to_string());
