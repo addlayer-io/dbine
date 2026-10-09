@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { EditorState, Compartment, StateEffect, StateField, type Extension } from '@codemirror/state';
-import { Decoration, EditorView, keymap, placeholder as cmPlaceholder, type DecorationSet } from '@codemirror/view';
+import { Decoration, EditorView, keymap, placeholder as cmPlaceholder, showTooltip, type DecorationSet, type Tooltip } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import {
   closeCompletion, snippet, snippetCompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult,
@@ -20,6 +20,7 @@ import type { Language } from '../api/types';
 import { useTranslation } from 'i18next-vue';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import type { Snippet } from '../composables/snippets';
+import { insertColumnAt } from '../composables/insertColumns';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
 // (`language` + `dialect`), `schema` feeds table/column completion.
@@ -315,6 +316,53 @@ function showLink(v: EditorView, r: { from: number; to: number } | null) {
   linkShown = r;
   v.dispatch({ effects: setLink.of(r) });
 }
+// "Which column is this value?": with the cursor on a value of an INSERT's
+// VALUES, a tooltip names its column and the column list highlights it
+// (composables/insertColumns.ts). Without a list, the table's columns from
+// `schema`, in order.
+const insertMark = Decoration.mark({ class: 'cm-insert-col' });
+/** Past this size, recomputing on each cursor move isn't worth it. */
+const INSERT_HINT_MAX = 500_000;
+function columnsOf(table: string): string[] | null {
+  const want = table.toLowerCase();
+  const last = want.split('.').pop()!;
+  const entries = Object.entries(props.schema);
+  return entries.find(([k]) => k.toLowerCase() === want)?.[1]
+    ?? entries.find(([k]) => k.toLowerCase().split('.').pop() === last)?.[1]
+    ?? null;
+}
+interface InsertHint { tooltip: Tooltip | null; deco: DecorationSet }
+const noHint: InsertHint = { tooltip: null, deco: Decoration.none };
+function insertHint(state: EditorState): InsertHint {
+  const sel = state.selection.main;
+  if (!sel.empty || state.doc.length > INSERT_HINT_MAX) return noHint;
+  const r = insertColumnAt(state.doc.toString(), sel.head, props.language, props.dialect, columnsOf);
+  if (!r) return noHint;
+  const text = r.name
+    ? t('editor:insertColumn', { name: r.name, n: r.index + 1, total: r.total })
+    : t('editor:insertExtra', { n: r.index + 1, total: r.total });
+  const tooltip: Tooltip = {
+    pos: sel.head, above: true, strictSide: false, arrow: false,
+    create: () => {
+      const dom = document.createElement('div');
+      dom.className = 'cm-insert-col-tip';
+      dom.textContent = text;
+      return { dom };
+    },
+  };
+  const deco = r.from !== null && r.to !== null && r.to > r.from ? Decoration.set([insertMark.range(r.from, r.to)]) : Decoration.none;
+  return { tooltip, deco };
+}
+const insertHints = StateField.define<InsertHint>({
+  create: insertHint,
+  update: (v, tr) => (tr.docChanged || tr.selection ? insertHint(tr.state) : v),
+  provide: (f) => [showTooltip.from(f, (v) => v.tooltip), EditorView.decorations.from(f, (v) => v.deco)],
+});
+const insertTheme = EditorView.theme({
+  '.cm-insert-col': { backgroundColor: 'color-mix(in srgb, var(--nm-accent) 28%, transparent)', borderRadius: '2px' },
+  '.cm-insert-col-tip': { padding: '2px 8px', fontSize: '12px', fontFamily: 'var(--nm-mono)', color: 'var(--nm-text)' },
+});
+
 const links = [
   linkField,
   EditorView.domEventHandlers({
@@ -381,6 +429,8 @@ onMounted(() => {
         openTableList,
         EditorState.languageData.of(() => [{ autocomplete: snippetSource }]),
         links,
+        insertHints,
+        insertTheme,
       ],
     }),
   });

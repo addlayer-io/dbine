@@ -25,5 +25,7 @@
   "nav": {
     "notFound": "Il n'y a aucune table, vue ou routine de ce nom dans la base de l'onglet.",
     "notLoaded": "Les objets de la base ne sont pas encore chargés : connectez-vous pour aller à la définition."
-  }
+  },
+  "insertColumn": "Colonne {{n}} sur {{total}} : {{name}}",
+  "insertExtra": "Valeur {{n}} : la liste a {{total}} colonnes"
 }
