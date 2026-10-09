@@ -5,6 +5,7 @@
 ### Nuevo
 - **Los drivers se actualizan solos, aparte de la app:** DBine busca en un índice firmado el driver más nuevo compatible con tu versión, lo descarga en segundo plano y vuelve al anterior si algo falla. En Configuración › Drivers hay un botón **Buscar actualizaciones**, el estado de cada driver y **Volver a la anterior**. Un driver puede publicarse solo, sin una versión nueva de la app.
 - **Renombrar una base:** **Renombrar…** sobre una base en el explorador. El diálogo muestra las otras sesiones abiertas sobre ella (que el renombrado cierra), si el nombre nuevo ya existe, cuántos objetos se mueven y el script completo. Después, la base predeterminada de la conexión, las pestañas abiertas, las consultas guardadas, las migraciones, los destinos de proyectos y los pasos de tareas programadas siguen el nombre nuevo; las tareas que modifican datos en ella piden aprobación de nuevo. Disponible en SQL Server, Azure SQL, Babelfish, la familia PostgreSQL, MySQL, MariaDB, Snowflake y MongoDB; donde el motor no puede renombrar (o mover) una base, no se ofrece.
+- **¿A qué columna corresponde este valor?** En un `INSERT … VALUES`, al poner el cursor sobre un valor aparece un tooltip con su columna (por ejemplo "Columna 14 de 48: Name") y se resalta esa columna en la lista. Sin lista de columnas, usa las de la tabla en orden. Funciona en todos los motores SQL y CQL.
 
 ### Mejoras
 - **Qué trae cada versión:** el aviso de versión nueva muestra sus cambios y los de las versiones intermedias, a partir de la que tenés instalada, en el idioma de la app.
