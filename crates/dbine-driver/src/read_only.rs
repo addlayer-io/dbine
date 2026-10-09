@@ -126,7 +126,13 @@ fn statements(sql: &str, dialect: &ScriptDialect) -> Vec<String> {
 
 /// What makes `stmt` a write: its first keyword, or a word inside it.
 fn statement_write(stmt: &str, dialect: &ScriptDialect) -> Option<String> {
-    let kw = first_keyword(stmt, dialect)?;
+    let kw = match leading(stmt, dialect) {
+        Leading::Nothing => return None,
+        // `[dbo].[proc]` or `"proc"` alone runs the procedure (T-SQL), and
+        // anything else that isn't a word can't be told apart: refused.
+        Leading::Other(c) => return Some(c.to_string()),
+        Leading::Word(kw) => kw,
+    };
     if !READ_KEYWORDS.contains(&kw.as_str()) {
         return Some(kw.to_uppercase());
     }
@@ -224,9 +230,31 @@ fn unsafe_to_plan(sql: &str, dialect: &ScriptDialect) -> Option<String> {
 }
 
 fn first_keyword(stmt: &str, dialect: &ScriptDialect) -> Option<String> {
+    match leading(stmt, dialect) {
+        Leading::Word(w) => Some(w),
+        _ => None,
+    }
+}
+
+/// How a statement starts, comments and opening parentheses (`(SELECT …)
+/// UNION …`) aside.
+enum Leading {
+    /// Only comments or spaces: no statement.
+    Nothing,
+    Word(String),
+    /// A quote, a bracket or any other character.
+    Other(char),
+}
+
+fn leading(stmt: &str, dialect: &ScriptDialect) -> Leading {
     let s = strip_comments(stmt, dialect, false);
-    let word: String = s.trim_start().chars().take_while(|c| c.is_ascii_alphabetic()).collect();
-    (!word.is_empty()).then(|| word.to_ascii_lowercase())
+    let s = s.trim_start_matches(|c: char| c.is_whitespace() || c == '(');
+    let word: String = s.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    match s.chars().next() {
+        None => Leading::Nothing,
+        Some(_) if !word.is_empty() => Leading::Word(word.to_ascii_lowercase()),
+        Some(c) => Leading::Other(c),
+    }
 }
 
 #[async_trait]
@@ -576,6 +604,27 @@ mod tests {
         let mut ro = super::ReadOnlySession::with_dialect(Box::new(Recorder(log.clone())), ScriptDialect::postgres());
         ready(ro.execute("SELECT 1", 10, &mut Default::default())).unwrap();
         assert_eq!(*log.lock().unwrap(), ["execute SELECT 1"]);
+    }
+
+    #[test]
+    fn statements_that_dont_start_with_a_word_fail_closed() {
+        use crate::sql::ScriptDialect;
+        let pg = ScriptDialect::postgres();
+        let t = ScriptDialect::tsql();
+        // Parenthesized reads still read, and their words are checked.
+        assert_eq!(super::first_write_in("(SELECT 1) UNION (SELECT 2)", &pg), None);
+        assert_eq!(super::first_write_in("((select a from t))", &pg), None);
+        assert_eq!(super::first_write_in("(SELECT set_config('default_transaction_read_only','off',false))", &pg).as_deref(), Some("SET_CONFIG"));
+        assert_eq!(super::first_write_in("(SELECT 1) DELETE FROM t", &t).as_deref(), Some("DELETE"));
+        // A quoted or bracketed name alone runs a procedure in T-SQL.
+        assert_eq!(super::first_write_in("[dbo].[purge_all]", &t).as_deref(), Some("["));
+        assert_eq!(super::first_write_in("\"purge_all\"", &t).as_deref(), Some("\""));
+        assert_eq!(super::first_write_in("{call purge_all}", &pg).as_deref(), Some("{"));
+        // Comments alone are no statement.
+        assert_eq!(super::first_write_in("select 1; -- the end", &pg), None);
+        assert_eq!(super::first_write_in("/* nothing */", &t), None);
+        // The MCP pre-check uses the same rule.
+        assert_eq!(super::first_write("[dbo].[purge_all]").as_deref(), Some("["));
     }
 
     #[test]
