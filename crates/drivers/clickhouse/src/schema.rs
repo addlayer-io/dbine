@@ -203,14 +203,14 @@ pub fn literal(v: &Value) -> String {
 /// `table(stream)` one of Timeplus). Literals take backslash escapes, so
 /// LIKE patterns rely on the default `\` escape: no ESCAPE clause.
 pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Result<String> {
-    use dbine_driver::filter::{insert_where, sql_condition, FilterOp, SqlFilterStyle};
+    use dbine_driver::filter::{insert_where, FilterOp, SqlFilterStyle};
     if filters.is_empty() {
         return Ok(browse.to_string());
     }
     let style = SqlFilterStyle { quote: Quote::Backtick, literal: &literal, like: "LIKE", true_literal: "true", false_literal: "false" };
     let mut parts = Vec::new();
     for f in filters {
-        let c = sql_condition(std::slice::from_ref(f), &style)?;
+        let c = condition(f, &style)?;
         let like = matches!(f.op, FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith);
         parts.push(match c.strip_suffix(" ESCAPE '\\'") {
             Some(s) if like => s.to_string(),
@@ -219,6 +219,31 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     }
     insert_where(browse, &parts.join("\n  AND "))
         .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+}
+
+/// One filter as a condition, with the column quoted by [`q`]. The shared
+/// builder's backtick quoting is MySQL's, which leaves `\` alone, while
+/// ClickHouse reads it as an escape inside backticks: a column name ending
+/// in `\` would swallow the closing quote. So the condition is built for a
+/// placeholder column named `\` and the placeholder is swapped for `q(column)`.
+/// The literal's output can't contain `` `\` ``: every backslash in it comes
+/// doubled or before a quote. A raw "SQL condition" is the user's text and is
+/// left alone; after the column, only the leading placeholder is replaced.
+fn condition(f: &dbine_driver::ColumnFilter, style: &dbine_driver::filter::SqlFilterStyle) -> Result<String> {
+    use dbine_driver::filter::{sql_condition, FilterOp};
+    const PLACEHOLDER: &str = "\\";
+    let held = dbine_driver::ColumnFilter { column: PLACEHOLDER.into(), ..f.clone() };
+    let c = match sql_condition(std::slice::from_ref(&held), style) {
+        Ok(c) => c,
+        // The error names the real column.
+        Err(_) => return sql_condition(std::slice::from_ref(f), style),
+    };
+    let held = dbine_driver::sql::quote_ident(Quote::Backtick, PLACEHOLDER);
+    Ok(match f.op {
+        FilterOp::Sql => c,
+        FilterOp::SqlRight => c.replacen(&held, &q(&f.column), 1),
+        _ => c.replace(&held, &q(&f.column)),
+    })
 }
 
 /// `INSERT INTO t (…) VALUES (…), (…)`, 1000 rows per statement.
@@ -813,6 +838,20 @@ mod tests {
             filtered_browse("SELECT *\nFROM `db`.`t`\nLIMIT 200", &filters).unwrap(),
             "SELECT *\nFROM `db`.`t`\nWHERE `name` = 'O\\'Brien'\n  AND `note` LIKE '%50\\\\%%'\n  AND `n` > 7\n  AND `gone` IS NULL\n  AND `id` IN (1, 2)\n  AND `ok` = true\nLIMIT 200"
         );
+        // A column name ending in `\` can't swallow the closing backtick,
+        // a backtick in it is escaped, and the raw SQL after it is untouched.
+        let odd = [
+            f("a\\", FilterOp::Eq, vec![json!("`\\`")]),
+            f("b`\\", FilterOp::NotEmpty, vec![]),
+            f("c\\", FilterOp::StartsWith, vec![json!("x\\")]),
+            ColumnFilter { column: "d\\".into(), op: FilterOp::SqlRight, values: vec![], sql: Some("= '`\\`'".into()) },
+        ];
+        assert_eq!(
+            filtered_browse("SELECT *\nFROM `t`", &odd).unwrap(),
+            "SELECT *\nFROM `t`\nWHERE `a\\\\` = '`\\\\`'\n  AND (`b\\`\\\\` IS NOT NULL AND `b\\`\\\\` <> '')\n  AND `c\\\\` LIKE 'x\\\\\\\\%'\n  AND `d\\\\` = '`\\`'"
+        );
+        let e = filtered_browse("SELECT *\nFROM `t`", &[f("e\\", FilterOp::Eq, vec![])]).unwrap_err();
+        assert!(matches!(&e, Error::Query(m) if m.contains("«e\\»")), "{e:?}");
         // Timeplus streams read through table().
         assert_eq!(
             filtered_browse("SELECT *\nFROM table(`s`)\nLIMIT 50", &filters[2..3]).unwrap(),

@@ -9551,5 +9551,8 @@
   "sin catálogo": "sem catálogo",
   "sin entrada o salida": "sem entrada ou saída",
   "índice de drivers en caché de otra plataforma ({0})": "índice de drivers em cache de outra plataforma ({0})",
-  "índice de drivers en caché descartado: {0}": "índice de drivers em cache descartado: {0}"
+  "índice de drivers en caché descartado: {0}": "índice de drivers em cache descartado: {0}",
+  "El nombre nuevo no puede tener barras invertidas (\\), comillas invertidas (`) ni caracteres de control": "O novo nome não pode conter barras invertidas (\\), crases (`) nem caracteres de controle",
+  "el índice de drivers venció ({0} < {1}): el servidor de drivers no publicó uno nuevo": "o índice de drivers expirou ({0} < {1}): o servidor de drivers não publicou um novo",
+  "Conexión de solo lectura: el plan estimado no admite {0} ni varias sentencias que escriban. Pedí el plan de una sola consulta.": "Conexão somente leitura: o plano estimado não aceita {0} nem várias instruções que escrevem. Peça o plano de uma única consulta."
 }

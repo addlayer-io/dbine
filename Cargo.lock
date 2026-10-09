@@ -2501,7 +2501,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-couchdb"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2748,7 +2748,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-neo4j"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aws-config",
  "aws-credential-types",

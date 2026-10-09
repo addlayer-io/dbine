@@ -138,6 +138,14 @@ fn is_table(kind: &str) -> bool {
     kind == kinds::TABLE || kind == kinds::COLLECTION
 }
 
+/// Text for a `--` or `//` comment line of a generated script: a name from
+/// the server can't end the comment and turn the rest of the line into a
+/// statement. Line breaks (CR, LF, NEL, U+2028/U+2029) and other control
+/// characters become `?`.
+pub(crate) fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+}
+
 /// `DROP VIEW …` and friends for objects that aren't tables (SQL and CQL
 /// engines, MongoDB views).
 pub(crate) fn drop_other(driver: &dyn Driver, obj: &ObjectRef, if_exists: bool) -> Option<String> {
@@ -346,7 +354,7 @@ pub(crate) async fn generate(
     if matches!(driver.info().language, Language::Sql | Language::Cql) {
         write(&format!(
             "-- DBine · script de {} · {}\n\n",
-            if args.database.is_empty() { "la base" } else { &args.database },
+            if args.database.is_empty() { "la base".into() } else { comment_text(&args.database) },
             chrono::Local::now().format("%Y-%m-%d %H:%M")
         ))?;
     }
@@ -360,7 +368,7 @@ pub(crate) async fn generate(
         if !notes.is_empty() {
             head.push_str(&format!("{c} Observaciones de la conversión:\n"));
             for n in &notes {
-                head.push_str(&format!("{c}   - {n}\n"));
+                head.push_str(&format!("{c}   - {}\n", comment_text(n)));
             }
         }
         let _ = t;
@@ -637,6 +645,12 @@ pub async fn run_script_file(app: AppHandle, state: State<'_, AppState>, args: R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_cannot_end_a_comment_line() {
+        let c = format!("-- {}", comment_text("db\nDROP TABLE t;\r\u{85}\u{2028}\u{2029}x"));
+        assert_eq!(c, "-- db?DROP TABLE t;????x");
+    }
 
     fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
         ObjectRef { kind: kind.into(), schema: Some(schema.into()), name: name.into() }

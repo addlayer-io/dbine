@@ -11,7 +11,7 @@
 //! own in Cypher (they exist while a node has them): their part of the
 //! script is their indexes and constraints.
 
-use crate::cypher::{ident, property, string};
+use crate::cypher::{comment_text, ident, property, string};
 use crate::{Flavor, LABEL, RELATIONSHIP};
 use dbine_driver::{
     kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef, ObjectRef, Result, RowChange,
@@ -319,7 +319,7 @@ pub fn table_ddl(f: Flavor, t: &TableSchema, parts: DdlParts) -> Result<String> 
         let what = if rel { "Tipo de relación" } else { "Etiqueta" };
         out.push(format!(
             "// {what} {}: en Cypher no se crea por separado, existe mientras haya {} que la usen",
-            ident(&t.name),
+            comment_text(&ident(&t.name)),
             if rel { "relaciones" } else { "nodos" }
         ));
     }
@@ -718,6 +718,11 @@ mod tests {
         let s = table_ddl(Flavor::Neo4j, &t, all).unwrap();
         assert!(s.starts_with("// Etiqueta Person"), "{s}");
         assert!(s.ends_with("CREATE CONSTRAINT u\nFOR (e:Person) REQUIRE e.id IS UNIQUE;"), "{s}");
+        // A line break in the label can't end the comment.
+        let t = TableSchema { kind: LABEL.into(), name: "P\nMATCH (n) DETACH DELETE n\u{2028}".into(), ..Default::default() };
+        let s = table_ddl(Flavor::Neo4j, &t, all).unwrap();
+        assert!(s.starts_with("// Etiqueta `P?MATCH (n) DETACH DELETE n?`: en Cypher"), "{s}");
+        assert_eq!(s.lines().count(), 1, "{s}");
     }
 
     #[test]

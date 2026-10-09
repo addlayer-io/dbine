@@ -4035,6 +4035,9 @@
  "Conexión de solo lectura y la traza de sentencias costosas está apagada: se muestrean las sentencias en curso; las muy rápidas pueden no verse.": [
   "crates/drivers/hana/src/profiler.rs"
  ],
+ "Conexión de solo lectura: el plan estimado no admite {0} ni varias sentencias que escriban. Pedí el plan de una sola consulta.": [
+  "crates/dbine-driver/src/read_only.rs"
+ ],
  "Conexión de solo lectura: el plan real ejecutaría una sentencia {0}. Pedí el plan estimado.": [
   "crates/dbine-driver/src/read_only.rs"
  ],
@@ -6840,6 +6843,9 @@
  ],
  "El nombre del índice «{0}» no es válido: no puede empezar con -, _ o + ni tener espacios, comas ni \\ / * ? \" < > | # :": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "El nombre nuevo no puede tener barras invertidas (\\), comillas invertidas (`) ni caracteres de control": [
+  "crates/drivers/clickhouse/src/rename.rs"
  ],
  "El nombre que tenía la base al hacer el backup. Si es distinto del destino, se restaura con new_db_name.": [
   "crates/drivers/postgres/src/backup.rs"
@@ -23441,6 +23447,9 @@
   "crates/dbine-plugin/src/index.rs"
  ],
  "el índice de drivers no se pudo leer: {0}": [
+  "crates/dbine-plugin/src/index.rs"
+ ],
+ "el índice de drivers venció ({0} < {1}): el servidor de drivers no publicó uno nuevo": [
   "crates/dbine-plugin/src/index.rs"
  ],
  "el índice de texto completo del original usa como clave un índice que el clon no tiene; no se clona": [

@@ -294,7 +294,7 @@ async fn compare_schemas(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResu
     let sep = driver.script_separator();
     let mut body = String::new();
     for w in &script.warnings {
-        body.push_str(&format!("-- {w}\n"));
+        body.push_str(&format!("-- {}\n", crate::commands::scripts::comment_text(w)));
     }
     if !c.include_drops && only_target > 0 {
         body.push_str(&format!("-- {} solo en el destino: no se borran (opción «Incluir borrados»).\n", plural(only_target, "objeto está", "objetos están")));
