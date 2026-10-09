@@ -150,6 +150,24 @@ pub trait Driver: Send + Sync {
         Err(Error::Unsupported("este motor no renombra bases de datos".into()))
     }
 
+    /// "Asignar login…" in the Users and permissions tab: a user of the
+    /// current database for a login that already exists on the server
+    /// ([`Driver::map_login_script`], [`Session::unmapped_logins`]). Only
+    /// engines whose database users and server logins are separate
+    /// principals (SQL Server, SAP ASE) have it.
+    fn supports_map_login(&self) -> bool {
+        false
+    }
+
+    /// The statement that creates the user `user` of the current database
+    /// for the server login `login` (offered where
+    /// [`Driver::supports_map_login`]). `default_schema` is ignored where
+    /// the engine has none.
+    fn map_login_script(&self, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
+        let _ = (login, user, default_schema);
+        Err(Error::Unsupported("este motor no asigna logins del servidor a usuarios de la base".into()))
+    }
+
     /// Its sessions implement [`Session::index_usage`]: the explorer lists a
     /// table's indexes with their usage, and "Índices…" opens the details.
     fn supports_index_usage(&self) -> bool {
@@ -716,6 +734,14 @@ pub trait Session: Send {
         Err(Error::Unsupported("este motor no administra usuarios desde DBine".into()))
     }
 
+    /// The server's logins with no user in the session's database, for
+    /// "Asignar login…" (`Driver::supports_map_login`). `Unsupported` where
+    /// they can't be read from here: the dialog then lets the user type
+    /// the login.
+    async fn unmapped_logins(&mut self) -> Result<Vec<String>> {
+        Err(Error::Unsupported("este motor no lista los logins del servidor".into()))
+    }
+
     /// A user's or role's permissions, direct and through its roles.
     async fn grants(&mut self, principal: &str) -> Result<Vec<security::Grant>> {
         let _ = principal;
@@ -915,6 +941,13 @@ mod tests {
             has_schemas: true,
             object_kinds: vec![],
         })
+    }
+
+    #[test]
+    fn map_login_is_unsupported_by_default() {
+        let d = bare();
+        assert!(!d.supports_map_login());
+        assert!(matches!(d.map_login_script("ana", "ana", None), Err(Error::Unsupported(_))));
     }
 
     #[test]

@@ -24,6 +24,8 @@ pub struct DriverDescriptor {
     supports_index_toggle: bool,
     /// "Renombrar…" (`Driver::rename_spec`); `None`: not offered.
     rename: Option<dbine_driver::RenameSpec>,
+    /// "Asignar login…" in Users and permissions (`Driver::supports_map_login`).
+    supports_map_login: bool,
     /// Databases of keys, searched on the server (Redis, etcd).
     key_search: Option<dbine_driver::KeySearch>,
     capabilities: dbine_driver::Capabilities,
@@ -60,6 +62,7 @@ pub async fn list_drivers() -> CommandResult<Vec<DriverDescriptor>> {
             supports_dependencies: d.supports_dependencies(),
             supports_index_toggle: d.supports_index_toggle(),
             rename: d.rename_spec(),
+            supports_map_login: d.supports_map_login(),
             key_search: d.key_search(),
             capabilities: d.capabilities(),
             designer: d.designer(),

@@ -578,6 +578,69 @@ pub fn script(v: Variant, a: &SecurityAction) -> Result<String> {
     })
 }
 
+const NO_LOGINS: &str = "Fabric no tiene logins: los usuarios son de Microsoft Entra ID";
+
+/// "Asignar login…" (`Driver::supports_map_login`): SQL Server, Azure SQL
+/// Database (its logins live in master) and Babelfish (verified on 5.4);
+/// not Fabric, whose users are Microsoft Entra ID identities.
+pub fn supports_map_login(v: Variant) -> bool {
+    v != Variant::Fabric
+}
+
+/// A user of the current database for an existing server login.
+pub fn map_login(v: Variant, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
+    if !supports_map_login(v) {
+        return Err(Error::Unsupported(NO_LOGINS.into()));
+    }
+    let (login, user) = (login.trim(), user.trim());
+    if login.is_empty() {
+        return Err(Error::Query("elegí o escribí el login".into()));
+    }
+    if user.is_empty() {
+        return Err(Error::Query("escribí el nombre del usuario".into()));
+    }
+    let schema = default_schema.map(str::trim).filter(|s| !s.is_empty());
+    // Babelfish 5.4 doesn't read `]]` inside brackets (see `script`).
+    if v == Variant::Babelfish && [login, user, schema.unwrap_or_default()].iter().any(|n| n.contains(']')) {
+        return Err(Error::Query("Babelfish no acepta «]» en los nombres de usuarios, roles ni objetos".into()));
+    }
+    let schema = schema.map(|sc| format!(" WITH DEFAULT_SCHEMA = {}", q(sc))).unwrap_or_default();
+    Ok(format!("CREATE USER {} FOR LOGIN {}{schema};", q(user), q(login)))
+}
+
+/// The server's logins (SQL, Windows and Entra ID ones) with no user in
+/// the current database, matched by SID: not `sa` (SID 0x01, `dbo`
+/// everywhere) nor the internal certificate logins (`##MS_…##`). Disabled
+/// logins are listed: a user can be mapped to one and the login enabled
+/// later.
+const UNMAPPED_LOGINS: &str = "
+SELECT sp.name
+  FROM sys.server_principals sp
+ WHERE sp.type IN ('S', 'U', 'G', 'E', 'X')
+   AND sp.sid <> 0x01
+   AND sp.name NOT LIKE '##%##'
+   AND NOT EXISTS (SELECT 1 FROM sys.database_principals dp WHERE dp.sid = sp.sid)
+ ORDER BY sp.name";
+
+pub async fn unmapped_logins(s: &mut SqlServerSession) -> Result<Vec<String>> {
+    match s.variant {
+        Variant::Fabric => return Err(Error::Unsupported(NO_LOGINS.into())),
+        // Azure SQL Database shows a user database only the caller's own
+        // login in sys.server_principals; the rest are in master.
+        Variant::AzureSql => {
+            let rows = s.rows("SELECT DB_NAME()", &[]).await?;
+            if rows.first().and_then(|r| text(r, 0)).is_none_or(|db| !db.eq_ignore_ascii_case("master")) {
+                return Err(Error::Unsupported(
+                    "en Azure SQL Database los logins están en master y no se pueden listar desde esta base: escribí el nombre del login".into(),
+                ));
+            }
+        }
+        Variant::SqlServer | Variant::Babelfish => {}
+    }
+    let rows = s.rows(UNMAPPED_LOGINS, &[]).await?;
+    Ok(rows.iter().filter_map(|r| text(r, 0)).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -800,5 +863,28 @@ mod tests {
             .unwrap(),
             "GRANT SELECT, TAKE OWNERSHIP ON SCHEMA::[ventas] TO [lectores] WITH GRANT OPTION;"
         );
+    }
+
+    #[test]
+    fn maps_a_login_to_a_user() {
+        for v in [Variant::SqlServer, Variant::AzureSql] {
+            assert!(supports_map_login(v));
+            assert_eq!(map_login(v, "ana", "ana", None).unwrap(), "CREATE USER [ana] FOR LOGIN [ana];");
+            assert_eq!(
+                map_login(v, " dom\\an]a ", "o'k]u", Some("ven]tas")).unwrap(),
+                "CREATE USER [o'k]]u] FOR LOGIN [dom\\an]]a] WITH DEFAULT_SCHEMA = [ven]]tas];"
+            );
+            // A blank schema is no schema.
+            assert_eq!(map_login(v, "ana", "ana", Some("  ")).unwrap(), "CREATE USER [ana] FOR LOGIN [ana];");
+            assert!(matches!(map_login(v, "", "ana", None), Err(Error::Query(_))));
+            assert!(matches!(map_login(v, "ana", " ", None), Err(Error::Query(_))));
+        }
+        assert!(supports_map_login(Variant::Babelfish));
+        assert_eq!(map_login(Variant::Babelfish, "o'k", "o'k", Some("ventas")).unwrap(), "CREATE USER [o'k] FOR LOGIN [o'k] WITH DEFAULT_SCHEMA = [ventas];");
+        assert!(matches!(map_login(Variant::Babelfish, "a]b", "ab", None), Err(Error::Query(_))));
+        assert!(matches!(map_login(Variant::Babelfish, "ab", "ab", Some("x]")), Err(Error::Query(_))));
+        // Fabric has no logins.
+        assert!(!supports_map_login(Variant::Fabric));
+        assert!(matches!(map_login(Variant::Fabric, "ana", "ana", None), Err(Error::Unsupported(_))));
     }
 }

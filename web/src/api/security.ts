@@ -37,9 +37,18 @@ export type SecurityAction =
 export const securityApi = {
   principals: (connectionId: string, database: string) =>
     invoke<Principal[]>('security_principals', { args: { connection_id: connectionId, database } }),
+  /** The server's logins with no user in `database` ("Asignar login…"). Fails
+   *  where the engine can't list them from there: the dialog lets the user type one. */
+  unmappedLogins: (connectionId: string, database: string) =>
+    invoke<string[]>('security_unmapped_logins', { args: { connection_id: connectionId, database } }),
   grants: (connectionId: string, database: string, principal: string) =>
     invoke<Grant[]>('security_grants', { args: { connection_id: connectionId, database, principal } }),
   /** `shown` hides the password (for the preview). */
   script: (connectionId: string, action: SecurityAction) =>
     invoke<{ script: string; shown: string }>('security_script', { args: { connection_id: connectionId, action } }),
+  /** "Asignar login…": a user of the tab's database for an existing server login. */
+  mapLoginScript: (connectionId: string, login: string, user: string, defaultSchema: string | null) =>
+    invoke<{ script: string; shown: string }>('security_map_login_script', {
+      args: { connection_id: connectionId, login, user, default_schema: defaultSchema },
+    }),
 };

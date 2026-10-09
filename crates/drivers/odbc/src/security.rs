@@ -370,6 +370,29 @@ pub async fn principals(s: &OdbcSession, d: Dialect) -> Result<Vec<Principal>> {
     }
 }
 
+/// "Asignar login…" (`Driver::supports_map_login`): only SAP ASE has
+/// server logins apart from the database's users; elsewhere the user is the
+/// login.
+pub fn supports_map_login(d: Dialect) -> bool {
+    d == Dialect::Ase
+}
+
+const NO_SERVER_LOGINS: &str = "en este motor el usuario es el login: no hay logins del servidor para asignar a un usuario de la base";
+
+pub fn map_login_script(d: Dialect, login: &str, user: &str) -> Result<String> {
+    match d {
+        Dialect::Ase => sybase::ase_map_login(login, user),
+        _ => Err(Error::Unsupported(NO_SERVER_LOGINS.into())),
+    }
+}
+
+pub async fn unmapped_logins(s: &OdbcSession, d: Dialect) -> Result<Vec<String>> {
+    match d {
+        Dialect::Ase => sybase::ase_unmapped_logins(s).await,
+        _ => Err(Error::Unsupported(NO_SERVER_LOGINS.into())),
+    }
+}
+
 pub async fn grants(s: &OdbcSession, d: Dialect, principal: &str) -> Result<Vec<Grant>> {
     match d {
         Dialect::Hive => hive_grants(s, principal).await,
@@ -1272,6 +1295,26 @@ mod more_engines {
         assert_eq!(sybase::sa_privilege("SYS_CREATE_ANY_TABLE_ROLE").as_deref(), Some("CREATE ANY TABLE"));
         assert_eq!(sybase::sa_privilege("SYS_AUTH_DBA_ROLE"), None);
         assert_eq!(sybase::sa_privilege("lect"), None);
+    }
+
+    #[test]
+    fn ase_maps_a_login_to_a_user() {
+        assert!(supports_map_login(Dialect::Ase));
+        // sp_adduser loginame, name_in_db: the login first.
+        assert_eq!(map_login_script(Dialect::Ase, "ana", "ana").unwrap(), "exec sp_adduser 'ana', 'ana'");
+        assert_eq!(map_login_script(Dialect::Ase, " o'k]x ", "us'r").unwrap(), "exec sp_adduser 'o''k]x', 'us''r'");
+        assert!(matches!(map_login_script(Dialect::Ase, " ", "ana"), Err(Error::Query(_))));
+        assert!(matches!(map_login_script(Dialect::Ase, "ana", ""), Err(Error::Query(_))));
+        // One batch, as `Session::execute` sends it.
+        let p = crate::PRESETS.iter().find(|p| p.id == "sybase").unwrap();
+        let sent: Vec<String> = crate::split(p.batch, &map_login_script(Dialect::Ase, "a;b", "a").unwrap()).into_iter().map(|s| s.trim().to_string()).collect();
+        assert_eq!(sent, vec!["exec sp_adduser 'a;b', 'a'"]);
+        assert!(sybase::ASE_UNMAPPED_LOGINS.contains("master..syslogins") && sybase::ASE_UNMAPPED_LOGINS.contains("sysalternates"));
+        // Every other engine: the user is the login.
+        for d in [Dialect::SqlAnywhere, Dialect::Db2, Dialect::Hive, Dialect::Teradata, Dialect::Informix, Dialect::Netezza, Dialect::Cubrid, Dialect::MonetDb] {
+            assert!(!supports_map_login(d), "{d:?}");
+            assert!(matches!(map_login_script(d, "ana", "ana"), Err(Error::Unsupported(_))), "{d:?}");
+        }
     }
 
     #[test]

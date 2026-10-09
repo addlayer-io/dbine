@@ -1643,6 +1643,31 @@ The rest was implemented following the vendor's documentation, with unit tests: 
 | ODBC: Informix, GBase 8s, Db2 (LUW, i, z/OS), Hive, Impala | Creating users and passwords | Users belong to the operating system, LDAP, Kerberos or RACF. |
 | ODBC: Spark, Kyuubi, Access, dBase, Ignite 3, NetSuite, generic ODBC | Everything | Spark and Kyuubi authorize from the catalog or Ranger; Access and dBase have no users; Ignite 3 is configured in the cluster; NetSuite is read-only; with generic ODBC it is not known which engine is behind. |
 
+### Map login
+
+**Map login…** creates a database user for a server login that already
+exists ([`users-and-permissions.md`](users-and-permissions.md#map-a-login)).
+It only applies where a database user and a server login are separate
+principals.
+
+| Engine | Script | Logins offered |
+|---|---|---|
+| SQL Server | `CREATE USER … FOR LOGIN … [WITH DEFAULT_SCHEMA = …]` | `sys.server_principals` (SQL, Windows and Entra ID logins and groups) with no user of the same SID in the database; not `sa` nor the `##…##` certificate logins. Disabled logins are listed. |
+| Babelfish | Same as SQL Server; names with `]` are rejected | Same query, which Babelfish answers. Tested on `dbine-test-babelfish`. |
+| Azure SQL Database | Same as SQL Server | From `master` only. From a user database `sys.server_principals` only shows the caller's own login, so the login is typed. |
+| Sybase ASE (ODBC) | `exec sp_adduser 'login', 'user'` | `master..syslogins` with no user (`sysusers`) and no alias (`sysalternates`) in the current database. ASE has no default schema. Unit tests only. |
+
+Tested on `dbine-test-sqlserver` and `dbine-test-babelfish`: the login shows
+up as unmapped, the script creates the user with that login's SID and the
+default schema, and the login leaves the list.
+
+| Engine | Reason it doesn't have it |
+|---|---|
+| Microsoft Fabric Data Warehouse | It has no logins: users are Microsoft Entra ID identities. |
+| PostgreSQL family, MySQL family, Oracle, SAP HANA, Firebird, ClickHouse, Snowflake, the other ODBC presets (SQL Anywhere, Db2, Informix, Teradata…) and the remaining engines with users | The user is the login: a single principal signs in and holds the permissions, so there is no separate server login to map. |
+| MongoDB, Amazon DocumentDB | Users are created in each database with their own credentials; there are no server logins. |
+| Engines whose users come from IAM, the operating system or the server configuration (Spanner, BigQuery, Databricks, Trino, Hive, Impala…) | The users aren't created from the engine. |
+
 ## New schema and drop schema
 
 Create and drop schemas from the explorer ([`schemas.md`](schemas.md)).

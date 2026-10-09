@@ -8724,6 +8724,9 @@
  "Fabric no expone CPU, memoria ni disco del almacén por T-SQL: el consumo de capacidad está en la app Microsoft Fabric Capacity Metrics.": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "Fabric no tiene logins: los usuarios son de Microsoft Entra ID": [
+  "crates/drivers/sqlserver/src/security.rs"
+ ],
  "Fabric no usa contraseñas: los usuarios son de Microsoft Entra ID": [
   "crates/drivers/sqlserver/src/security.rs"
  ],
@@ -24770,6 +24773,10 @@
  "elegí la carpeta": [
   "src-tauri/src/sync.rs"
  ],
+ "elegí o escribí el login": [
+  "crates/drivers/odbc/src/security/sybase.rs",
+  "crates/drivers/sqlserver/src/security.rs"
+ ],
  "elegí qué versión conservar": [
   "src-tauri/src/commands/library_git.rs"
  ],
@@ -24806,6 +24813,9 @@
  ],
  "elegí una tabla, una vista o una rutina: IBM i no tiene permisos de SQL sobre todo el sistema": [
   "crates/drivers/odbc/src/security/ibm.rs"
+ ],
+ "en Azure SQL Database los logins están en master y no se pueden listar desde esta base: escribí el nombre del login": [
+  "crates/drivers/sqlserver/src/security.rs"
  ],
  "en BigQuery los roles se otorgan sobre un dataset, una tabla o una vista": [
   "crates/drivers/bigquery/src/security.rs"
@@ -24977,6 +24987,9 @@
  ],
  "en este motor el nombre del esquema solo puede tener letras, números y guiones bajos": [
   "crates/drivers/odbc/src/schemas.rs"
+ ],
+ "en este motor el usuario es el login: no hay logins del servidor para asignar a un usuario de la base": [
+  "crates/drivers/odbc/src/security.rs"
  ],
  "en este motor los esquemas no tienen dueño": [
   "src-tauri/src/commands/schemas.rs"
@@ -25186,6 +25199,10 @@
   "crates/drivers/spanner/src/security.rs",
   "crates/drivers/trino/src/security.rs"
  ],
+ "escribí el nombre del usuario": [
+  "crates/drivers/odbc/src/security/sybase.rs",
+  "crates/drivers/sqlserver/src/security.rs"
+ ],
  "escribí el scope con su bucket, «bucket.scope» (por ejemplo «mibucket.{0}»)": [
   "crates/drivers/couchbase/src/ddl.rs"
  ],
@@ -25362,6 +25379,9 @@
  "este motor no aplica cambios de esquema": [
   "crates/dbine-driver/src/lib.rs"
  ],
+ "este motor no asigna logins del servidor a usuarios de la base": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
  "este motor no bloquea ni deshabilita usuarios desde SQL: cambiale la contraseña o quitale los permisos": [
   "crates/drivers/odbc/src/security/groups.rs",
   "crates/drivers/odbc/src/security/misc.rs",
@@ -25459,6 +25479,9 @@
  ],
  "este motor no limita las filas en la consulta": [
   "src-tauri/src/commands/query_builder.rs"
+ ],
+ "este motor no lista los logins del servidor": [
+  "crates/dbine-driver/src/lib.rs"
  ],
  "este motor no lista sus backups": [
   "crates/dbine-driver/src/lib.rs",

@@ -271,6 +271,32 @@ pub fn ase_script(a: &SecurityAction) -> Result<String> {
     })
 }
 
+/// "Asignar login…": `sp_adduser loginame [, name_in_db [, grpname]]`, the
+/// login first. ASE users have no default schema (objects are found by
+/// owner: the user, then dbo), so there's none to set.
+pub fn ase_map_login(login: &str, user: &str) -> Result<String> {
+    let (login, user) = (login.trim(), user.trim());
+    if login.is_empty() {
+        return Err(dbine_driver::Error::Query("elegí o escribí el login".into()));
+    }
+    if user.is_empty() {
+        return Err(dbine_driver::Error::Query("escribí el nombre del usuario".into()));
+    }
+    Ok(format!("exec sp_adduser {}, {}", lit(login), lit(user)))
+}
+
+/// The server's logins with no user in the current database: neither a
+/// user of `sysusers` nor an alias (`sysalternates`, `sp_addalias`), which
+/// already lets the login in as another user.
+pub const ASE_UNMAPPED_LOGINS: &str = "SELECT l.name FROM master..syslogins l
+ WHERE l.suid NOT IN (SELECT u.suid FROM sysusers u WHERE u.suid IS NOT NULL)
+   AND l.suid NOT IN (SELECT a.suid FROM sysalternates a)
+ ORDER BY l.name";
+
+pub async fn ase_unmapped_logins(s: &OdbcSession) -> Result<Vec<String>> {
+    Ok(rows(s, ASE_UNMAPPED_LOGINS).await?.iter().map(|r| get(r, "name").to_string()).filter(|n| !n.is_empty()).collect())
+}
+
 // SQL Anywhere ---------------------------------------------------------------
 
 /// `SYS_CREATE_ANY_TABLE_ROLE` → `CREATE ANY TABLE`: the system privilege

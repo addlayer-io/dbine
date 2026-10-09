@@ -638,6 +638,13 @@ impl Driver for RemoteDriver {
     fn supports_index_toggle(&self) -> bool {
         self.meta.supports_index_toggle
     }
+    fn supports_map_login(&self) -> bool {
+        self.meta.supports_map_login
+    }
+    fn map_login_script(&self, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
+        let call = Call::MapLoginScript { driver: self.id(), login: login.into(), user: user.into(), default_schema: default_schema.map(str::to_string) };
+        text(self.blocking(call)?)
+    }
     fn key_search(&self) -> Option<KeySearch> {
         self.meta.key_search.clone()
     }
@@ -1094,6 +1101,14 @@ impl Session for RemoteSession {
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {
         match self.host.call(Call::Principals { session: self.id }).await? {
             Reply::Principals(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn unmapped_logins(&mut self) -> Result<Vec<String>> {
+        // A host built before the call answers `Unsupported` (its manifest
+        // doesn't offer "Asignar login…" anyway).
+        match self.host.call(Call::UnmappedLogins { session: self.id }).await? {
+            Reply::Texts(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
