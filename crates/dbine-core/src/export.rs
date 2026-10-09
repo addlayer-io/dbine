@@ -40,6 +40,12 @@ pub struct ExportOptions {
     pub delimiter: String,
     /// Always quote CSV fields (else only when needed).
     pub quote_all: bool,
+    /// CSV/TSV: text cells and column names that a spreadsheet would read
+    /// as a formula (starting with `=`, `+`, `-`, `@`, tab or CR) get a `'`
+    /// in front (CWE-1236). On by default, also when the options come
+    /// without it (scheduled tasks); numbers are never touched. Off gives
+    /// the values exactly as they are, for files read by other programs.
+    pub formula_safe: bool,
     /// Windows line endings (CSV for Excel uses them anyway).
     pub crlf: bool,
     /// UTF-8 byte order mark (so Excel reads accents right).
@@ -74,6 +80,7 @@ impl Default for ExportOptions {
             null_text: String::new(),
             delimiter: String::new(),
             quote_all: false,
+            formula_safe: true,
             crlf: false,
             bom: false,
             pretty: true,
@@ -97,6 +104,15 @@ fn text(v: &Value) -> Option<String> {
         Value::Number(n) => Some(n.to_string()),
         other => Some(other.to_string()),
     }
+}
+
+/// A text cell a spreadsheet would run as a formula, with a `'` in front
+/// (the OWASP CSV-injection advice). A plain number written as text
+/// (`-5`, `+3.2`, `-1e3`) is left alone: it can't be a formula.
+fn formula_safe(s: String) -> String {
+    let risky = matches!(s.as_bytes().first(), Some(b'=' | b'+' | b'-' | b'@' | b'\t' | b'\r'));
+    let number = s.len() > 1 && s.bytes().all(|b| b.is_ascii_digit() || b"+-.eE".contains(&b)) && s.parse::<f64>().is_ok();
+    if risky && !number { format!("'{s}") } else { s }
 }
 
 /// Column names made unique ("id", "id_2"…): JSON keys and XML elements
@@ -207,7 +223,8 @@ impl Exporter {
                     .terminator(if self.nl() == "\r\n" { csv::Terminator::CRLF } else { csv::Terminator::Any(b'\n') })
                     .from_writer(f);
                 if o.header {
-                    w.write_record(&self.names)?;
+                    let safe = o.formula_safe;
+                    w.write_record(self.names.iter().map(|n| if safe { formula_safe(n.clone()) } else { n.clone() }))?;
                 }
                 self.writer = Some(Writer::Csv(w));
             }
@@ -255,7 +272,19 @@ impl Exporter {
         match self.opts.format {
             Format::Csv | Format::CsvSemicolon | Format::CsvExcel | Format::Tsv => {
                 let null = self.opts.null_text.clone();
-                let rec: Vec<String> = row.iter().map(|v| text(v).unwrap_or_else(|| null.clone())).collect();
+                // Only text is neutralized: numbers and booleans can't be
+                // formulas, and a negative number must stay a number.
+                let safe = self.opts.formula_safe;
+                let numeric = &self.numeric;
+                let rec: Vec<String> = row
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| match (text(v), v) {
+                        (None, _) => null.clone(),
+                        (Some(t), Value::String(_)) if safe && !numeric.get(i).copied().unwrap_or(false) => formula_safe(t),
+                        (Some(t), _) => t,
+                    })
+                    .collect();
                 if let Some(Writer::Csv(w)) = self.writer.as_mut() {
                     w.write_record(&rec)?;
                 }
@@ -545,6 +574,51 @@ mod tests {
         assert!(excel.starts_with('\u{feff}'), "BOM so Excel reads UTF-8");
         assert!(excel.contains("id;nombre;total;id_2\r\n"));
         assert!(run(Format::Tsv, |o| o.null_text = "NULL".into()).contains("2\tNULL\t3\tNULL\n"));
+    }
+
+    #[test]
+    fn csv_cells_cannot_become_formulas() {
+        let cols = vec![
+            ResultColumn { name: "=HYPERLINK(\"x\")".into(), type_name: "varchar".into() },
+            ResultColumn { name: "n".into(), type_name: "varchar".into() },
+            ResultColumn { name: "amount".into(), type_name: "decimal".into() },
+        ];
+        let rows = vec![
+            vec![json!("=1+1"), json!(-5), json!("-12.50")],
+            vec![json!("+cmd|' /C calc'!A0"), json!("-5"), json!("-1")],
+            vec![json!("@SUM(A1)"), json!("-2+3"), Value::Null],
+            vec![json!("\t=1"), json!("\r=1"), json!("1")],
+            vec![json!("-"), json!("ok"), json!("2")],
+        ];
+        let out = |f: Format, safe: Option<bool>| {
+            let dir = tempfile::tempdir().unwrap();
+            let p = dir.path().join("out");
+            let mut o = ExportOptions { format: f, ..Default::default() };
+            if let Some(v) = safe {
+                o.formula_safe = v;
+            }
+            export_rows(&p, o, &cols, &rows).unwrap();
+            String::from_utf8_lossy(&std::fs::read(&p).unwrap()).to_string()
+        };
+        for f in [Format::CsvExcel, Format::Csv, Format::CsvSemicolon, Format::Tsv] {
+            let s = out(f, None);
+            assert!(s.contains("'=HYPERLINK"), "{f:?}: {s}");
+            assert!(s.contains("'=1+1"), "{f:?}: {s}");
+            assert!(s.contains("'+cmd"), "{f:?}: {s}");
+            assert!(s.contains("'@SUM(A1)"), "{f:?}: {s}");
+            assert!(s.contains("'\t=1") && s.contains("'\r=1"), "{f:?}: {s}");
+            assert!(s.contains("'-2+3") && s.contains("'-"), "{f:?}: {s}");
+            // Numbers stay numbers: a JSON number, a number written as text
+            // and any value of a numeric column.
+            assert!(!s.contains("'-5") && !s.contains("'-12.50") && !s.contains("'-1"), "{f:?}: {s}");
+        }
+        // Off: the values exactly as they are.
+        let raw = out(Format::Csv, Some(false));
+        assert!(raw.starts_with("\"=HYPERLINK(\"\"x\"\")\",n,amount\n=1+1,-5,-12.50\n"), "{raw}");
+        assert!(!raw.contains("'=") && !raw.contains("'@") && raw.contains("\n+cmd"), "{raw}");
+        // Scheduled tasks send the options as JSON, often without the field.
+        let o: ExportOptions = serde_json::from_value(json!({ "format": "csv" })).unwrap();
+        assert!(o.formula_safe);
     }
 
     #[test]

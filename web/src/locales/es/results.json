@@ -94,6 +94,7 @@
     "nullText": "Texto para NULL",
     "empty": "(vacío)",
     "quoteAll": "Entrecomillar todos los campos",
+    "formulaSafe": "Proteger de fórmulas de planilla (agrega ' a los textos que empiezan con =, +, -, @)",
     "bom": "BOM UTF-8 (acentos en Excel)",
     "crlf": "Fin de línea de Windows (CRLF)",
     "pretty": "Con sangría (legible)",

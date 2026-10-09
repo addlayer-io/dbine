@@ -94,6 +94,7 @@
     "nullText": "Texto para NULL",
     "empty": "(vazio)",
     "quoteAll": "Colocar todos os campos entre aspas",
+    "formulaSafe": "Proteger contra fórmulas de planilha (adiciona ' aos textos que começam com =, +, -, @)",
     "bom": "BOM UTF-8 (acentos no Excel)",
     "crlf": "Fim de linha do Windows (CRLF)",
     "pretty": "Com recuo (legível)",

@@ -178,6 +178,7 @@ function toBackground() {
             <el-input v-model="opts.null_text" :placeholder="$t('results:exportDialog.empty')" />
           </el-form-item>
           <el-form-item><el-checkbox v-model="opts.quote_all">{{ $t('results:exportDialog.quoteAll') }}</el-checkbox></el-form-item>
+          <el-form-item><el-checkbox v-model="opts.formula_safe">{{ $t('results:exportDialog.formulaSafe') }}</el-checkbox></el-form-item>
           <el-form-item><el-checkbox v-model="opts.bom">{{ $t('results:exportDialog.bom') }}</el-checkbox></el-form-item>
           <el-form-item><el-checkbox v-model="opts.crlf">{{ $t('results:exportDialog.crlf') }}</el-checkbox></el-form-item>
         </template>

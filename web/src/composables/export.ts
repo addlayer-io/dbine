@@ -26,6 +26,8 @@ export interface ExportOptions {
   null_text: string;
   delimiter: string;
   quote_all: boolean;
+  /** CSV/TSV: a `'` before text that a spreadsheet would run as a formula. */
+  formula_safe: boolean;
   crlf: boolean;
   bom: boolean;
   pretty: boolean;
@@ -39,7 +41,7 @@ export interface ExportOptions {
 
 export function defaultOptions(format: ExportFormat, table = t('core:export.defaultTable'), dialect = ''): ExportOptions {
   return {
-    format, header: true, null_text: '', delimiter: '', quote_all: false, crlf: false, bom: false,
+    format, header: true, null_text: '', delimiter: '', quote_all: false, formula_safe: true, crlf: false, bom: false,
     pretty: true, table, rows_per_insert: 100, quote: quoteFor(dialect), sheet: t('core:export.defaultSheet'),
     xml_root: 'rows', xml_row: 'row',
   };

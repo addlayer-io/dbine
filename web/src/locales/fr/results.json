@@ -94,6 +94,7 @@
     "nullText": "Texte pour NULL",
     "empty": "(vide)",
     "quoteAll": "Mettre tous les champs entre guillemets",
+    "formulaSafe": "Protéger contre les formules de tableur (ajoute ' aux textes commençant par =, +, -, @)",
     "bom": "BOM UTF-8 (accents dans Excel)",
     "crlf": "Fin de ligne Windows (CRLF)",
     "pretty": "Indenté (lisible)",
