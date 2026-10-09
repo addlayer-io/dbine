@@ -321,7 +321,8 @@ impl Call {
             | Permissions { session, .. } | ListSchemas { session } | IndexUsage { session, .. } | Dependents { session, .. }
             | Processes { session } | CancelQuery { session, .. } | CreateDatabaseChoices { session }
             | CreateDatabaseWith { session, .. } | DatabaseProperties { session, .. } | AlterDatabase { session, .. }
-            | SearchCode { session, .. } | HealthChecks { session, .. } | RowEstimates { session } | ObjectComments { session } | UnmappedLogins { session } => Some(*session),
+            | SearchCode { session, .. } | HealthChecks { session, .. } | RowEstimates { session } | ObjectComments { session } | UnmappedLogins { session }
+            | RunReadOnly { session, .. } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
             CopyNative { from, .. } => Some(*from),
@@ -486,6 +487,12 @@ impl State {
                 let slot = self.slot(session)?;
                 let mut out = self.outcome(id, sink, &sink_failed);
                 let r = slot.session.lock().await.explain(&text, analyze, max_rows as usize, &mut out).await;
+                run_reply(out, r)
+            }
+            Call::RunReadOnly { session, statement, max_rows, sink } => {
+                let slot = self.slot(session)?;
+                let mut out = self.outcome(id, sink, &sink_failed);
+                let r = slot.session.lock().await.run_read_only(&statement, max_rows as usize, &mut out).await;
                 run_reply(out, r)
             }
             Call::DatabaseSchema { session } => Reply::Schema(self.slot(session)?.session.lock().await.database_schema().await?),

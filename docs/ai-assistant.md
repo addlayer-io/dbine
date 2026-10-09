@@ -60,13 +60,19 @@ front (it would not fit in the context): it asks for it as it needs it.
   model receives an `<error>` and continues without that data. "Approve reads
   in this conversation" stops applying when another conversation starts or
   when the connection or database changes. Approving does not enable writes:
-  the query runs in a read-only session that rejects any change.
+  where the engine supports it, the query runs as one statement in a
+  read-only transaction the server enforces (`run_query`); elsewhere your
+  approval in the chat is what lets it run, in a read-only session that
+  rejects any change. "Approve reads in this conversation" is off at the
+  start of each conversation and only that button turns it on. Which engines
+  enforce reads: [engine-support.md](engine-support.md#server-enforced-reads-mcp-and-the-ai-assistant).
 - **With what code:** the same tools as the [MCP server](mcp.md)
   (`assistant_call` in `src-tauri/src/mcp/tools.rs`): its own read-only
   sessions, write rejection, row and time limits. It does not depend on the
   MCP configuration, and it applies only to the tab's connection (it does not
   see other connections). Each read is recorded in the MCP activity as
-  "DBine assistant".
+  "DBine assistant", saying whether the server enforced it or it was
+  approved in the chat.
 - **Limits:** up to 12 reads per answer; a repeated query is not run again.
   Each result is trimmed to 12,000 characters.
 - **In the chat:** while it reads you see "Querying the connection: structure

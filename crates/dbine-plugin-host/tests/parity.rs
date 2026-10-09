@@ -61,6 +61,15 @@ impl RowSink for Collect {
     }
 }
 
+/// `run_read_only`'s answer as data: the error's kind (and whether it is
+/// `Unsupported`), and the rows.
+async fn read_only(s: &mut Box<dyn Session>, sql: &str) -> (Result<(), (std::mem::Discriminant<Error>, bool)>, Vec<Vec<Vec<Value>>>) {
+    let mut out = QueryOutcome::default();
+    let r = s.run_read_only(sql, 10, &mut out).await;
+    let rows = out.results.iter().map(|r| r.rows.clone()).collect();
+    (r.map_err(|e| (std::mem::discriminant(&e), matches!(e, Error::Unsupported(_)))), rows)
+}
+
 async fn streamed(s: &mut Box<dyn Session>, sql: &str) -> (Value, QueryOutcome) {
     let sink = Arc::new(Mutex::new(Collect::default()));
     let mut out = QueryOutcome { sink: Some(RowSinkRef(sink.clone())), sink_base: 2, ..Default::default() };
@@ -120,6 +129,20 @@ async fn sqlite_through_the_host_answers_the_same() {
     assert_eq!(ea.to_string(), eb.to_string());
     assert_eq!(std::mem::discriminant(&ea), std::mem::discriminant(&eb));
     assert_eq!(oa.results.len(), ob.results.len());
+
+    // A server-enforced read crosses the host like `execute`: the same rows,
+    // or the same `Unsupported` while the driver doesn't enforce reads; a
+    // write is refused the same way on both sides.
+    let (ra, rows_a) = read_only(&mut a, "SELECT id, nombre FROM clientes ORDER BY id").await;
+    let (rb, rows_b) = read_only(&mut b, "SELECT id, nombre FROM clientes ORDER BY id").await;
+    assert_eq!(ra, rb);
+    assert_eq!(rows_a, rows_b);
+    let (wa, _) = read_only(&mut a, "DELETE FROM clientes").await;
+    let (wb, _) = read_only(&mut b, "DELETE FROM clientes").await;
+    assert_eq!(wa, wb);
+    if ra.is_ok() {
+        assert!(wa.is_err(), "a write through run_read_only must fail");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

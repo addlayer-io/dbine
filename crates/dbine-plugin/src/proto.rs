@@ -227,6 +227,12 @@ pub enum Call {
     /// of the current database. A host published before it answers
     /// `Unsupported` (and its manifest doesn't offer it).
     MapLoginScript { driver: String, login: String, user: String, default_schema: Option<String> },
+    /// `Session::run_read_only`: one statement as a read the server
+    /// enforces (what MCP and the AI assistant run without asking). Replies
+    /// `Run` like `Execute`. A host published before it answers
+    /// `Unsupported`, which the app treats as "the engine can't enforce
+    /// it": the read needs the user's approval.
+    RunReadOnly { session: u64, statement: String, max_rows: u64, sink: bool },
 }
 
 /// Host → app.
@@ -706,6 +712,7 @@ mod tests {
             (26, Call::RenameDatabaseScript { driver: "postgres".into(), database: "v".into(), new_name: "w".into(), objects: Vec::new() }, "RenameDatabaseScript"),
             (27, Call::UnmappedLogins { session: 3 }, "UnmappedLogins"),
             (28, Call::MapLoginScript { driver: "sqlserver".into(), login: "ana".into(), user: "ana".into(), default_schema: Some("dbo".into()) }, "MapLoginScript"),
+            (29, Call::RunReadOnly { session: 3, statement: "SELECT 1".into(), max_rows: 10, sink: false }, "RunReadOnly"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

@@ -4,8 +4,9 @@
 //! answers MCP over Streamable HTTP on `127.0.0.1:<port>/mcp`. Each client
 //! (Claude Code, Codex…) has its own bearer token; only its SHA-256 hash is
 //! kept. What a client may do is decided per connection: `disabled`,
-//! `schema` (structure only), `read` (plus read-only queries) or `write`
-//! (plus writes, each one approved by the user in DBine: `approvals`).
+//! `schema` (structure only), `read` (plus read-only queries: enforced by
+//! the server, or approved by the user where the engine can't: `reads`) or
+//! `write` (plus writes, each one approved by the user in DBine: `approvals`).
 //!
 //! Everything here is local to this machine: the settings live under the
 //! state store's `local.` prefix, so they never reach the cloud backup.
@@ -13,6 +14,7 @@
 pub mod activity;
 pub mod approvals;
 pub mod commands;
+pub(crate) mod reads;
 mod server;
 pub(crate) mod tools;
 mod write;

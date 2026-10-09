@@ -86,9 +86,9 @@ function copyConfig(kind: 'claude' | 'codex' | 'json') {
 }
 
 /** Ask again before each write of this client. */
-async function clearApproveAll(c: McpClient) {
+async function clearApproveAll(c: McpClient, kind: 'read' | 'write') {
   try {
-    status.value = await mcpApi.clearApproveAll(c.id);
+    status.value = await mcpApi.clearApproveAll(c.id, kind);
   } catch (e) {
     ElMessage.error(errorMessage(e));
   }
@@ -202,7 +202,11 @@ onBeforeUnmount(() => unlisten?.());
           <span>{{ $t('mcp:created', { date: fmtDate(c.created_at) }) }} · {{ c.last_used_at ? $t('mcp:lastUsed', { date: fmtDate(c.last_used_at) }) : $t('mcp:neverUsed') }}</span>
           <span v-if="c.approve_all" class="mcp-approve-all">
             <el-icon><ei-warning-filled /></el-icon>{{ $t('mcp:approveAllOn') }}
-            <el-button size="small" link type="warning" :title="$t('mcp:approveAllOffTitle')" @click="clearApproveAll(c)">{{ $t('mcp:approveAllOff') }}</el-button>
+            <el-button size="small" link type="warning" :title="$t('mcp:approveAllOffTitle')" @click="clearApproveAll(c, 'write')">{{ $t('mcp:approveAllOff') }}</el-button>
+          </span>
+          <span v-if="c.approve_all_reads" class="mcp-approve-all">
+            <el-icon><ei-warning-filled /></el-icon>{{ $t('mcp:approveAllReadsOn') }}
+            <el-button size="small" link type="warning" :title="$t('mcp:approveAllReadsOffTitle')" @click="clearApproveAll(c, 'read')">{{ $t('mcp:approveAllOff') }}</el-button>
           </span>
         </div>
         <el-dropdown trigger="click" @command="copyConfig">

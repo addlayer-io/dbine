@@ -25379,6 +25379,11 @@
  "este motor no aplica cambios de esquema": [
   "crates/dbine-driver/src/lib.rs"
  ],
+ "este motor no asegura lecturas de solo lectura en el servidor": [
+  "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/mysql/src/session.rs",
+  "src-tauri/src/mcp/tools.rs"
+ ],
  "este motor no asigna logins del servidor a usuarios de la base": [
   "crates/dbine-driver/src/lib.rs"
  ],

@@ -1,16 +1,20 @@
 //! The tools MCP clients call. Structure tools need a connection at level
 //! `schema`; data tools (`sample_rows`, `run_query`, `explain`) need `read`
-//! and always run on a read-only session of their own. `execute` (writes)
-//! needs `write` and the user's approval of each call (`write.rs`). Answers
-//! are compact text; no tool ever shows hosts, users or secrets.
+//! and always run on a read-only session of their own; `run_query` and
+//! `explain` run without asking only where the server enforces the read,
+//! and otherwise after the user approves the query (`reads.rs`). `execute`
+//! (writes) needs `write` and the user's approval of each call (`write.rs`).
+//! Answers are compact text; no tool ever shows hosts, users or secrets.
 
 use super::activity::ActivityEntry;
+use super::approvals::{ApprovalKind, Outcome, APPROVAL_TIMEOUT};
+use super::reads::{self, Attempt, How, Refused};
 use super::{effective_level, load_config, Inner, McpClient, McpLevel};
 use crate::commands::explorer::{META_LIMIT, SCHEMA_LIMIT};
 use crate::error::CommandError;
 use crate::state::SessionEntry;
 use dbine_core::SavedConnection;
-use dbine_driver::{kinds, Language, ObjectRef, PlanNode, QueryOutcome, StatementResult};
+use dbine_driver::{kinds, Error, Language, ObjectRef, PlanNode, QueryOutcome, StatementResult};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,7 +22,9 @@ use std::time::Duration;
 pub const INSTRUCTIONS: &str = "DBine exposes the user's saved database connections. Start with list_connections, \
 then list_databases, list_objects and describe_object. Data tools (sample_rows, run_query, explain) only work on \
 connections the user set to the 'read' level, and every query they run is read-only: statements that change data or \
-structure are refused. To change data or structure use execute, on connections at the 'write' level: the user must \
+structure are refused. run_query and explain run at once where the database server itself enforces the read as \
+read-only; on engines that can't, the user approves each query in DBine first (it waits up to 2 minutes for the answer). \
+To change data or structure use execute, on connections at the 'write' level: the user must \
 approve each call in DBine (it waits up to 2 minutes for the answer). Pass database \"\" for engines without databases.";
 
 const SAMPLE_MAX: u64 = 100;
@@ -90,7 +96,7 @@ pub fn definitions() -> Value {
         },
         {
             "name": "run_query",
-            "description": "Run a read-only query in the engine's own language (SQL, a Mongo command, Cypher…) and get the rows as text. Needs the 'read' level; writes are refused.",
+            "description": "Run a read-only query in the engine's own language (SQL, a Mongo command, Cypher…) and get the rows as text. Needs the 'read' level; writes are refused. Where the server can enforce a read-only transaction it runs at once (one statement per call); on other engines the user approves this exact query in DBine first (the call waits up to 2 minutes and is rejected without an answer).",
             "inputSchema": { "type": "object", "properties": {
                 "connection": conn, "database": db,
                 "query": { "type": "string" },
@@ -101,7 +107,7 @@ pub fn definitions() -> Value {
         },
         {
             "name": "explain",
-            "description": "The estimated execution plan of a query (nothing runs). Needs the 'read' level and an engine with plans.",
+            "description": "The estimated execution plan of a query (nothing runs). Needs the 'read' level and an engine with plans. On engines where the server can't enforce reads as read-only, the user approves the query in DBine first (the call waits up to 2 minutes).",
             "inputSchema": { "type": "object", "properties": { "connection": conn, "database": db, "query": { "type": "string" } }, "required": ["connection", "database", "query"] },
             "annotations": ro,
         },
@@ -122,8 +128,9 @@ pub async fn call(inner: &Inner, client: &McpClient, tool: &str, args: &Value) -
         return super::write::call(inner, client, args).await;
     }
     let mut connection = String::new();
-    let result = run(inner, tool, args, &mut connection, None).await;
-    logged(inner, client.name.as_str(), tool, args, connection, result)
+    let mut phase = None;
+    let result = run(inner, tool, args, &mut connection, &mut phase, None, Who::Mcp(client)).await;
+    logged(inner, client.name.as_str(), tool, phase, args, connection, result)
 }
 
 /// DBine's own assistant with a local model: the same tools, on the tab's
@@ -135,8 +142,20 @@ pub async fn assistant_call(inner: &Inner, conn: &SavedConnection, tool: &str, a
     }
     let level = if allow_data { McpLevel::Read } else { McpLevel::Schema };
     let mut connection = String::new();
-    let result = run(inner, tool, args, &mut connection, Some((conn.clone(), level))).await;
-    logged(inner, "Asistente de DBine", tool, args, connection, result)
+    let mut phase = None;
+    let result = run(inner, tool, args, &mut connection, &mut phase, Some((conn.clone(), level)), Who::Chat).await;
+    logged(inner, "Asistente de DBine", tool, phase, args, connection, result)
+}
+
+/// Who approves a read the engine can't enforce on the server.
+#[derive(Clone, Copy)]
+pub(super) enum Who<'a> {
+    /// An MCP client: DBine's approval dialog, as for `execute`.
+    Mcp(&'a McpClient),
+    /// DBine's assistant: the chat already showed the exact query and the
+    /// user approved it (or approved the conversation's reads), before
+    /// `assistant_call`.
+    Chat,
 }
 
 /// The exact query a read of rows will run, for the user to approve first:
@@ -157,7 +176,9 @@ pub async fn assistant_preview(inner: &Inner, conn: &SavedConnection, tool: &str
     }
 }
 
-fn logged(inner: &Inner, client: &str, tool: &str, args: &Value, connection: String, result: Result<Done, String>) -> (String, bool) {
+/// The log entry of a call; `phase` names how a read ran (`run_query:enforced`,
+/// `run_query:approved`…) or why it didn't (`run_query:rejected`).
+fn logged(inner: &Inner, client: &str, tool: &str, phase: Option<&str>, args: &Value, connection: String, result: Result<Done, String>) -> (String, bool) {
     let (ok, rows, error) = match &result {
         Ok(d) => (true, d.rows, None),
         Err(e) => (false, None, Some(e.clone())),
@@ -167,7 +188,10 @@ fn logged(inner: &Inner, client: &str, tool: &str, args: &Value, connection: Str
         at: chrono::Utc::now().to_rfc3339(),
         client: client.to_string(),
         connection,
-        tool: tool.to_string(),
+        tool: match phase {
+            Some(p) => format!("{tool}:{p}"),
+            None => tool.to_string(),
+        },
         summary: summary(tool, args),
         ok,
         rows,
@@ -209,7 +233,15 @@ pub(super) fn arg_num(args: &Value, key: &str, default: u64, max: u64) -> u64 {
     args.get(key).and_then(Value::as_u64).unwrap_or(default).clamp(1, max)
 }
 
-async fn run(inner: &Inner, tool: &str, args: &Value, connection: &mut String, on: Option<(SavedConnection, McpLevel)>) -> Result<Done, String> {
+async fn run(
+    inner: &Inner,
+    tool: &str,
+    args: &Value,
+    connection: &mut String,
+    phase: &mut Option<&'static str>,
+    on: Option<(SavedConnection, McpLevel)>,
+    who: Who<'_>,
+) -> Result<Done, String> {
     let default = load_config(&inner.state).default_level;
     if tool == "list_connections" {
         return list_connections(inner, default);
@@ -277,9 +309,22 @@ async fn run(inner: &Inner, tool: &str, args: &Value, connection: &mut String, o
             let query = arg(args, "query")?;
             refuse_writes(&conn, query)?;
             let max = arg_num(args, "max_rows", QUERY_DEFAULT, QUERY_MAX);
-            let secs = arg_num(args, "timeout_seconds", TIMEOUT_DEFAULT, TIMEOUT_MAX);
-            let out = run_read_only(inner, &conn, db, Op::Execute(query.to_string(), max as usize), Duration::from_secs(secs)).await?;
-            Ok(results_text(&out, max))
+            let limit = Duration::from_secs(arg_num(args, "timeout_seconds", TIMEOUT_DEFAULT, TIMEOUT_MAX));
+            let (key, entry) = read_only_session(inner, &conn, db).await?;
+            let routed = reads::route(
+                async {
+                    match run_op(inner, &key, entry.clone(), Op::ReadOnly(query.to_string(), max as usize), limit).await {
+                        Ok(out) => Ok(Attempt::Done(out)),
+                        Err(RunFail::Unsupported) => Ok(Attempt::NotEnforced),
+                        Err(RunFail::Failed(e)) => Err(e),
+                    }
+                },
+                approve_read(inner, who, tool, args, &conn, db, query),
+                run_read_only(inner, &conn, db, Op::Execute(query.to_string(), max as usize), limit),
+            )
+            .await;
+            let (out, how) = routed_phase(routed, phase)?;
+            Ok(approved_head(how, results_text(&out, max)))
         }
         "explain" => {
             let query = arg(args, "query")?;
@@ -288,8 +333,25 @@ async fn run(inner: &Inner, tool: &str, args: &Value, connection: &mut String, o
                 return Err(format!("{} no ofrece planes de ejecución", driver.info().name));
             }
             refuse_writes(&conn, query)?;
-            let out = run_read_only(inner, &conn, db, Op::Explain(query.to_string()), Duration::from_secs(TIMEOUT_DEFAULT)).await?;
-            Ok(plans_text(&out))
+            let limit = Duration::from_secs(TIMEOUT_DEFAULT);
+            let (key, entry) = read_only_session(inner, &conn, db).await?;
+            // An estimated plan runs nothing where the engine enforces reads
+            // (asked with a trivial read, `Op::Probe`: only `Unsupported`
+            // says it can't). Elsewhere (SQL Server runs the batch under SHOWPLAN)
+            // the guard alone isn't a boundary: the user approves it first.
+            let routed = reads::route(
+                async {
+                    match run_op(inner, &key, entry.clone(), Op::Probe, limit).await {
+                        Err(RunFail::Unsupported) => Ok(Attempt::NotEnforced),
+                        _ => run_on(inner, &key, entry.clone(), Op::Explain(query.to_string()), limit).await.map(Attempt::Done),
+                    }
+                },
+                approve_read(inner, who, tool, args, &conn, db, query),
+                run_read_only(inner, &conn, db, Op::Explain(query.to_string()), limit),
+            )
+            .await;
+            let (out, how) = routed_phase(routed, phase)?;
+            Ok(approved_head(how, plans_text(&out)))
         }
         _ => Err(format!("herramienta desconocida: {tool}")),
     }
@@ -577,6 +639,74 @@ fn refuse_writes(conn: &SavedConnection, query: &str) -> Result<(), String> {
 pub(super) enum Op {
     Execute(String, usize),
     Explain(String),
+    /// `Session::run_read_only`: one statement as a read the server enforces.
+    ReadOnly(String, usize),
+    /// `run_read_only` of `SELECT 1`: whether the engine enforces reads at
+    /// all. Only `Unsupported` says no (an engine whose language has no
+    /// `SELECT 1` answers `Unsupported` before reading the statement, or an
+    /// error that still means it enforces reads).
+    Probe,
+}
+
+/// Why `run_op` failed.
+pub(super) enum RunFail {
+    /// `run_read_only` isn't there: the engine (or its driver host) can't
+    /// enforce the read on the server.
+    Unsupported,
+    Failed(String),
+}
+
+/// The routed read's log step, and its error as the client sees it.
+fn routed_phase(routed: Result<(QueryOutcome, How), Refused>, phase: &mut Option<&'static str>) -> Result<(QueryOutcome, How), String> {
+    match routed {
+        Ok((out, how)) => {
+            *phase = Some(how.phase());
+            Ok((out, how))
+        }
+        Err(r) => {
+            *phase = Some(r.phase);
+            Err(r.message)
+        }
+    }
+}
+
+/// An MCP client is told the user approved the read in DBine.
+fn approved_head(how: How, mut done: Done) -> Done {
+    if how == How::Approved {
+        done.text = format!("{}\n\n{}", "Aprobado por el usuario y ejecutado.", done.text);
+    }
+    done
+}
+
+/// The user's approval of a read the engine can't enforce: DBine's dialog
+/// for an MCP client (the log gets the request first, as for `execute`);
+/// DBine's assistant was already approved in the chat.
+pub(super) async fn approve_read(inner: &Inner, who: Who<'_>, tool: &str, args: &Value, conn: &SavedConnection, db: &str, code: &str) -> Result<How, Refused> {
+    let client = match who {
+        Who::Chat => return Ok(How::ApprovedInChat),
+        Who::Mcp(client) => client,
+    };
+    let request = super::write::approval_request(ApprovalKind::Read, client, conn, db, code).map_err(|message| Refused { message, phase: "request" })?;
+    inner.activity.record(&ActivityEntry {
+        id: 0,
+        at: chrono::Utc::now().to_rfc3339(),
+        client: client.name.clone(),
+        connection: conn.name.clone(),
+        tool: format!("{tool}:request"),
+        summary: summary(tool, args),
+        ok: true,
+        rows: None,
+        error: None,
+    });
+    match inner.approvals.ask(request, APPROVAL_TIMEOUT).await {
+        Outcome::Approved => Ok(How::Approved),
+        Outcome::AutoApproved => Ok(How::AutoApproved),
+        Outcome::Rejected => Err(Refused { message: "Rechazado por el usuario en DBine: no se ejecutó nada.".into(), phase: "rejected" }),
+        Outcome::TimedOut => Err(Refused {
+            message: format!("Sin respuesta del usuario en {} segundos: rechazado, no se ejecutó nada.", APPROVAL_TIMEOUT.as_secs()),
+            phase: "timeout",
+        }),
+    }
 }
 
 /// A read-only session of MCP's own for the database: `cfg.read_only` is
@@ -601,28 +731,40 @@ async fn run_read_only(inner: &Inner, conn: &SavedConnection, db: &str, op: Op, 
 /// Run `op` on the session `key` holds, within `limit`; on timeout the
 /// statement is interrupted and the session dropped.
 pub(super) async fn run_on(inner: &Inner, key: &str, entry: Arc<SessionEntry>, op: Op, limit: Duration) -> Result<QueryOutcome, String> {
+    run_op(inner, key, entry, op, limit).await.map_err(|e| match e {
+        RunFail::Unsupported => Error::Unsupported("este motor no asegura lecturas de solo lectura en el servidor".into()).to_string(),
+        RunFail::Failed(e) => e,
+    })
+}
+
+/// `run_on`, telling `Unsupported` of `run_read_only` apart.
+pub(super) async fn run_op(inner: &Inner, key: &str, entry: Arc<SessionEntry>, op: Op, limit: Duration) -> Result<QueryOutcome, RunFail> {
     let mut out = QueryOutcome::default();
     let work = async {
         let mut s = entry.session.lock().await;
         match &op {
             Op::Execute(q, max) => s.execute(q, *max, &mut out).await,
             Op::Explain(q) => s.explain(q, false, 100, &mut out).await,
+            Op::ReadOnly(q, max) => s.run_read_only(q, *max, &mut out).await,
+            Op::Probe => s.run_read_only("SELECT 1", 1, &mut out).await,
         }
     };
+    let enforced_call = matches!(op, Op::ReadOnly(..) | Op::Probe);
     match tokio::time::timeout(limit, work).await {
         Ok(Ok(())) => {}
-        Ok(Err(e)) => return Err(e.to_string()),
+        Ok(Err(Error::Unsupported(_))) if enforced_call => return Err(RunFail::Unsupported),
+        Ok(Err(e)) => return Err(RunFail::Failed(e.to_string())),
         Err(_) => {
             if let Some(i) = &entry.interrupter {
                 i();
             }
             entry.cancel.notify_waiters();
             inner.state.sessions.remove_if(key, |_, e| Arc::ptr_eq(e, &entry));
-            return Err(format!("la consulta superó el límite de {} s y se canceló", limit.as_secs()));
+            return Err(RunFail::Failed(format!("la consulta superó el límite de {} s y se canceló", limit.as_secs())));
         }
     }
     if let Some(e) = out.error.take() {
-        return Err(e);
+        return Err(RunFail::Failed(e));
     }
     Ok(out)
 }

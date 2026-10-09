@@ -14,6 +14,8 @@ export interface McpClient {
   last_used_at: string | null;
   /** "Aprobar todo" is on: its writes run without asking until DBine closes. */
   approve_all: boolean;
+  /** The same for reads the engine can't enforce as read-only on the server. */
+  approve_all_reads: boolean;
 }
 
 export interface McpStatus {
@@ -51,16 +53,22 @@ export const mcpApi = {
     invoke<McpActivity[]>('mcp_activity', { args: { client, connection, limit } }),
   pendingApprovals: () => invoke<McpApprovalRequest[]>('mcp_pending_approvals'),
   answerApproval: (id: string, decision: McpDecision) => invoke<void>('mcp_answer_approval', { args: { id, decision } }),
-  /** Ask again before each write of this client. */
-  clearApproveAll: (clientId: string) => invoke<McpStatus>('mcp_clear_approve_all', { args: { client_id: clientId } }),
+  /** Ask again before each write (or read) of this client; without `kind`, both. */
+  clearApproveAll: (clientId: string, kind?: McpApprovalKind) =>
+    invoke<McpStatus>('mcp_clear_approve_all', { args: { client_id: clientId, kind: kind ?? null } }),
 };
 
 /** The event with the whole list of writes waiting for approval. */
 export const MCP_APPROVALS_EVENT = 'mcp-approvals';
 
-/** A write an MCP client wants to run, waiting for the user's answer. */
+/** `write`: `execute`. `read`: `run_query` / `explain` on an engine that
+ *  can't enforce a read-only transaction on the server. */
+export type McpApprovalKind = 'read' | 'write';
+
+/** A write (or an unenforced read) an MCP client wants to run, waiting for the user's answer. */
 export interface McpApprovalRequest {
   id: string;
+  kind: McpApprovalKind;
   client_id: string;
   client: string;
   connection: string;
