@@ -90,6 +90,9 @@ pub struct ScriptDialect {
     pub dollar_quotes: bool,
     /// `\'` escapes a quote inside '…' and "…" (MySQL, ClickHouse).
     pub backslash_escapes: bool,
+    /// `"…"` is an identifier that only escapes by doubling `""`, even when
+    /// '…' takes backslash escapes (Snowflake).
+    pub dquote_idents: bool,
     /// `/* /* */ */` nests (PostgreSQL, SQL Server).
     pub nested_comments: bool,
     /// `#` starts a line comment (MySQL).
@@ -141,6 +144,7 @@ impl ScriptDialect {
             semicolons: true,
             dollar_quotes: false,
             backslash_escapes: false,
+            dquote_idents: false,
             nested_comments: false,
             hash_comments: false,
             q_quotes: false,
@@ -543,7 +547,7 @@ impl Scanner<'_> {
             b'#' if self.d.hash_comments => (Tok::LineComment, self.line_end(i)),
             b'/' if n == b'*' => (Tok::BlockComment, self.block_comment_end(i)),
             b'\'' => (Tok::Quoted, self.quote_end(i + 1, b'\'', self.d.backslash_escapes)),
-            b'"' => (Tok::Quoted, self.quote_end(i + 1, b'"', self.d.backslash_escapes)),
+            b'"' => (Tok::Quoted, self.quote_end(i + 1, b'"', self.d.backslash_escapes && !self.d.dquote_idents)),
             b'`' if self.d.backtick_idents => (Tok::Quoted, self.quote_end(i + 1, b'`', false)),
             b'[' if self.d.bracket_idents => (Tok::Quoted, self.quote_end(i + 1, b']', false)),
             b'$' if self.d.dollar_quotes && !is_ident(prev) => match self.dollar_tag(i) {
@@ -1726,7 +1730,7 @@ pub fn name_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
             Tok::Punct => Some(TokenKind::Punct),
             Tok::Quoted => Some(match raw.as_bytes()[0] {
                 b'`' | b'[' => TokenKind::Name,
-                b'"' if !d.backslash_escapes => TokenKind::Name,
+                b'"' if !d.backslash_escapes || d.dquote_idents => TokenKind::Name,
                 _ => TokenKind::String,
             }),
             Tok::Space | Tok::LineComment | Tok::BlockComment => None,
@@ -1777,6 +1781,23 @@ pub fn code_tokens<'a>(text: &'a str, d: &ScriptDialect) -> Vec<NameToken<'a>> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod dquote_ident_tests {
+    use super::*;
+
+    #[test]
+    fn double_quoted_identifiers_ignore_backslashes_where_the_dialect_says() {
+        // Snowflake: '…' takes backslash escapes, "…" only doubles `""`.
+        let sf = ScriptDialect { backslash_escapes: true, dquote_idents: true, ..ScriptDialect::generic() };
+        let parts = split_script("SELECT \"a\\\"; DELETE FROM t; SELECT 1", &sf);
+        assert_eq!(parts.len(), 3, "{parts:?}");
+        assert!(name_tokens("select \"x\\\" from t", &sf).iter().any(|t| t.kind == TokenKind::Name && t.text == "x\\"));
+        // MySQL-like: "…" is a string with backslash escapes, as before.
+        let my = ScriptDialect { backslash_escapes: true, ..ScriptDialect::generic() };
+        assert_eq!(split_script("SELECT \"a\\\"; b\"; SELECT 1", &my).len(), 2);
+    }
 }
 
 #[cfg(test)]
