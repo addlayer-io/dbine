@@ -134,8 +134,7 @@ fn safe_line(line: &str) -> String {
         return redact_url(line);
     }
     // `jdbc:oracle:thin:user/password@…` and EZConnect `user/password@…`.
-    if let Some((_, target)) = line.split_once('@') {
-        let head = line.split('@').next().unwrap_or("");
+    if let Some((head, target)) = line.rsplit_once('@') {
         if head.contains('/') || head.to_ascii_lowercase().starts_with("jdbc:oracle") {
             return format!("@{}", target.trim());
         }
@@ -211,5 +210,13 @@ mod tests {
             assert_eq!(c.config.password.as_deref(), Some("S3cretPw"));
         }
         assert_eq!(f.candidates[0].name, "ora / XE");
+        // A password with `@`, quoted or not, stays whole and out of the target.
+        let f = read("jdbc:oracle:thin:scott/\"Pa@ssw0rd\"@//ora:1521/XE\njdbc:oracle:thin:scott/Pa@ss@(DESCRIPTION=(ADDRESS=(HOST=ora))(CONNECT_DATA=(SID=X)))");
+        assert_eq!(f.candidates[0].config.password.as_deref(), Some("Pa@ssw0rd"));
+        assert_eq!(f.candidates[1].config.password.as_deref(), Some("Pa@ss"));
+        for c in &f.candidates {
+            assert!(!c.name.contains("ss"), "{}", c.name);
+            assert!(!c.config.host.contains('@') && !serde_json::to_string(&c.config.options).unwrap().contains("Pa@"));
+        }
     }
 }

@@ -379,7 +379,8 @@ pub(crate) fn descriptor_name(descriptor: &str) -> Option<String> {
 /// `user/password@` some carry before it.
 fn oracle_target(url: &str) -> String {
     let rest = url.trim().strip_prefix("jdbc:oracle:thin:").unwrap_or(url.trim());
-    rest.split_once('@').map(|(_, t)| t).unwrap_or(rest).to_string()
+    // At the last `@`: a password may hold one, a target never does.
+    rest.rsplit_once('@').map(|(_, t)| t).unwrap_or(rest).to_string()
 }
 
 fn pct_decode(s: &str) -> String {
@@ -429,11 +430,13 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
             return !cfg.host.is_empty();
         }
         "oracle" => {
-            let Some((login, target)) = rest.split_once('@') else { return false };
+            // At the last `@`: a password may hold one, a target never does.
+            let Some((login, target)) = rest.rsplit_once('@') else { return false };
             // `user/password@…`: the login goes where secrets are kept, never
             // into the target (or a name made from it).
             let login = login.strip_prefix("oracle:thin:").unwrap_or(login);
             if let Some((user, password)) = login.split_once('/') {
+                let password = password.strip_prefix('"').and_then(|p| p.strip_suffix('"')).unwrap_or(password);
                 if cfg.username.is_none() && !user.is_empty() {
                     cfg.username = Some(user.to_string());
                 }
