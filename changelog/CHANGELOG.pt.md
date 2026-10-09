@@ -9,6 +9,21 @@
 - **O que cada versão traz:** o aviso de nova versão mostra as mudanças dela e das versões intermediárias, a partir da que você tem instalada, no idioma do app.
 - **Versões antigas do app:** a partir de agora, um app mais antigo que as últimas cinco versões precisa ser atualizado para baixar novos drivers. Os drivers que ele já tem instalados continuam funcionando.
 
+### Correções
+- **O somente leitura é mais rigoroso:** as consultas dos clientes MCP com nível Leitura, do assistente de IA e das conexões somente leitura são verificadas palavra por palavra, não só pela primeira. Agora elas recusam:
+  - uma escrita escondida depois de uma leitura em um lote do SQL Server;
+  - um `WITH` que modifica dados;
+  - `SELECT … INTO`, `EXEC` e `SET`;
+  - funções que atuam fora da consulta, como `set_config`, `dblink_exec` e `xp_cmdshell`.
+
+  Um plano estimado recusa scripts que desligariam o modo plano, então as alternativas de IA de **Otimizar consulta** não conseguem executar nada. As tarefas agendadas cujos scripts agora contam como escrita pedem aprovação de novo.
+- **Biblioteca com git:** um repositório compartilhado não pode mais fazer o DBine ler, gravar ou apagar arquivos fora da pasta da Biblioteca.
+- **Exportação SQL:** os valores de texto são escapados do jeito que o motor de origem os lê, então um valor armazenado não consegue adicionar instruções a um script `INSERT` para MySQL, ClickHouse, BigQuery, Hive, Spark ou Databricks.
+- **Túneis SSH:** a chave de host de cada servidor é verificada separadamente. Uma chave aceita para um salto não vale mais para o servidor seguinte, o `known_hosts` é consultado primeiro e uma chave alterada é sempre recusada. Os servidores que você aceitou antes são perguntados mais uma vez. A porta local do túnel só atende aos programas do seu próprio usuário.
+- **Backup na nuvem:** um arquivo de backup modificado por outra pessoa não pode mais enfraquecer a criptografia do seu próximo envio.
+- **libSQL / Turso:** um `authToken` em uma URL colada é guardado no chaveiro do sistema, não no endereço, no nome nem no histórico da conexão. As conexões salvas antes são limpas quando o DBine inicia.
+- **Documentar o banco de dados:** nomes de coluna não podem injetar HTML no dicionário de dados em Markdown.
+
 ## [0.1.9] - 2026-10-09
 
 ### Novidades
