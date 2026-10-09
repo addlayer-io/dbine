@@ -9,6 +9,21 @@
 - **Cosa porta ogni versione:** l'avviso di nuova versione mostra le sue modifiche e quelle delle versioni intermedie, a partire da quella che hai installato, nella lingua dell'app.
 - **Versioni vecchie dell'app:** d'ora in poi, un'app più vecchia delle ultime cinque versioni deve aggiornarsi per scaricare nuovi driver. I driver che ha già installati continuano a funzionare.
 
+### Correzioni
+- **La sola lettura è più rigorosa:** le query dei client MCP con livello Lettura, dell'assistente IA e delle connessioni in sola lettura vengono controllate parola per parola, non solo dalla prima. Ora rifiutano:
+  - una scrittura nascosta dopo una lettura in un batch di SQL Server;
+  - un `WITH` che modifica i dati;
+  - `SELECT … INTO`, `EXEC` e `SET`;
+  - funzioni che agiscono al di fuori della query, come `set_config`, `dblink_exec` e `xp_cmdshell`.
+
+  Un piano stimato rifiuta gli script che disattiverebbero la modalità piano, quindi le alternative IA di **Ottimizza query** non possono eseguire nulla. Le attività pianificate i cui script ora contano come scrittura chiedono di nuovo l'approvazione.
+- **Libreria con git:** un repository condiviso non può più far leggere, scrivere o eliminare a DBine file al di fuori della cartella della Libreria.
+- **Esportazione SQL:** i valori di tipo stringa vengono escapati nel modo in cui li legge il motore di origine, così un valore memorizzato non può aggiungere istruzioni a uno script `INSERT` per MySQL, ClickHouse, BigQuery, Hive, Spark o Databricks.
+- **Tunnel SSH:** la chiave host di ogni server viene verificata separatamente. Una chiave accettata per un jump host non vale più per il server successivo, `known_hosts` viene controllato per primo e una chiave cambiata viene sempre rifiutata. Ai server che avevi accettato prima viene chiesto ancora una volta. La porta locale del tunnel serve solo i programmi del tuo stesso utente.
+- **Backup nel cloud:** un file di backup modificato da qualcun altro non può più indebolire la cifratura del tuo prossimo caricamento.
+- **libSQL / Turso:** un `authToken` in un URL incollato viene conservato nel portachiavi di sistema, non nell'indirizzo, nel nome o nella cronologia della connessione. Le connessioni salvate in precedenza vengono ripulite all'avvio di DBine.
+- **Documenta il database:** i nomi delle colonne non possono iniettare HTML nel dizionario dati in Markdown.
+
 ## [0.1.9] - 2026-10-09
 
 ### Novità

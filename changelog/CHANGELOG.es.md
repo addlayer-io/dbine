@@ -9,6 +9,21 @@
 - **Qué trae cada versión:** el aviso de versión nueva muestra sus cambios y los de las versiones intermedias, a partir de la que tenés instalada, en el idioma de la app.
 - **Versiones viejas de la app:** de ahora en más, una app anterior a las últimas cinco versiones tiene que actualizarse para descargar drivers nuevos. Los drivers que ya tiene instalados siguen funcionando.
 
+### Correcciones
+- **El solo lectura es más estricto:** las consultas de los clientes MCP con nivel Lectura, del asistente de IA y de las conexiones de solo lectura se revisan palabra por palabra, no solo por la primera. Ahora rechazan:
+  - una escritura escondida después de una lectura en un lote de SQL Server;
+  - un `WITH` que modifica datos;
+  - `SELECT … INTO`, `EXEC` y `SET`;
+  - funciones que actúan fuera de la consulta, como `set_config`, `dblink_exec` y `xp_cmdshell`.
+
+  Un plan estimado rechaza los scripts que apagarían el modo plan, así que las alternativas de IA de **Optimizar consulta** no pueden ejecutar nada. Las tareas programadas cuyos scripts ahora cuentan como escritura piden aprobación de nuevo.
+- **Biblioteca con git:** un repositorio compartido ya no puede hacer que DBine lea, escriba o borre archivos fuera de la carpeta de la Biblioteca.
+- **Exportación SQL:** los valores de texto se escapan como los lee el motor de origen, así que un valor guardado no puede agregar sentencias a un script `INSERT` para MySQL, ClickHouse, BigQuery, Hive, Spark o Databricks.
+- **Túneles SSH:** la clave de host de cada servidor se verifica por separado. Una clave aceptada para un salto ya no vale para el servidor siguiente, `known_hosts` se consulta primero y una clave cambiada siempre se rechaza. A los servidores que aceptaste antes se les pregunta una vez más. El puerto local del túnel solo atiende a los programas de tu propio usuario.
+- **Backup en la nube:** un archivo de backup modificado por otra persona ya no puede debilitar el cifrado de tu próxima subida.
+- **libSQL / Turso:** un `authToken` en una URL pegada se guarda en el llavero del sistema, no en la dirección, el nombre ni el historial de la conexión. Las conexiones guardadas antes se limpian al iniciar DBine.
+- **Documentar la base:** los nombres de columna no pueden inyectar HTML en el diccionario de datos en Markdown.
+
 ## [0.1.9] - 2026-10-09
 
 ### Nuevo

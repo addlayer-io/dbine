@@ -9,6 +9,21 @@
 - **Ce qu'apporte chaque version :** l'avis de nouvelle version affiche ses changements et ceux des versions intermédiaires, à partir de celle que vous avez installée, dans la langue de l'application.
 - **Anciennes versions de l'application :** désormais, une application plus ancienne que les cinq dernières versions doit être mise à jour pour télécharger de nouveaux pilotes. Les pilotes qu'elle a déjà installés continuent de fonctionner.
 
+### Corrections
+- **Le mode lecture seule est plus strict :** les requêtes des clients MCP au niveau Lecture, de l'assistant IA et des connexions en lecture seule sont vérifiées mot par mot, et pas seulement par leur premier mot. Elles refusent désormais :
+  - une écriture cachée après une lecture dans un lot SQL Server ;
+  - un `WITH` qui modifie des données ;
+  - `SELECT … INTO`, `EXEC` et `SET` ;
+  - les fonctions qui agissent en dehors de la requête, comme `set_config`, `dblink_exec` et `xp_cmdshell`.
+
+  Un plan estimé refuse les scripts qui désactiveraient le mode plan, si bien que les alternatives IA de **Optimiser la requête** ne peuvent rien exécuter. Les tâches planifiées dont les scripts comptent désormais comme de l'écriture demandent à nouveau une approbation.
+- **Bibliothèque avec git :** un dépôt partagé ne peut plus faire lire, écrire ou supprimer à DBine des fichiers en dehors du dossier de la Bibliothèque.
+- **Export SQL :** les valeurs de type chaîne sont échappées comme les lit le moteur source, de sorte qu'une valeur stockée ne peut pas ajouter d'instructions à un script `INSERT` pour MySQL, ClickHouse, BigQuery, Hive, Spark ou Databricks.
+- **Tunnels SSH :** la clé d'hôte de chaque serveur est vérifiée séparément. Une clé acceptée pour un hôte de rebond ne vaut plus pour le serveur suivant, `known_hosts` est consulté en premier et une clé modifiée est toujours refusée. Les serveurs que vous aviez acceptés auparavant sont demandés une fois de plus. Le port local du tunnel ne sert que les programmes de votre propre utilisateur.
+- **Sauvegarde dans le cloud :** un fichier de sauvegarde modifié par quelqu'un d'autre ne peut plus affaiblir le chiffrement de votre prochain envoi.
+- **libSQL / Turso :** un `authToken` dans une URL collée est conservé dans le trousseau du système, et non dans l'adresse, le nom ou l'historique de la connexion. Les connexions enregistrées auparavant sont nettoyées au démarrage de DBine.
+- **Documenter la base :** les noms de colonnes ne peuvent pas injecter de HTML dans le dictionnaire de données Markdown.
+
 ## [0.1.9] - 2026-10-09
 
 ### Nouveautés
