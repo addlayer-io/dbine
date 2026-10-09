@@ -654,12 +654,17 @@ pub struct Followed {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn rename_database_follow(state: State<'_, AppState>, args: FollowArgs) -> CommandResult<Followed> {
     let store = &state.store;
-    let (cid, old, new) = (args.connection_id.as_str(), args.database.as_str(), args.new_name.as_str());
+    let new_name = database_name(&args.database, &args.new_name)?;
+    let (cid, old, new) = (args.connection_id.as_str(), args.database.as_str(), new_name.as_str());
     let mut out = Followed::default();
     if let Some(mut c) = store.get_connection(cid)? {
         if c.config.database == old {
             c.config.database = new.to_string();
             store.save_connection(&c)?;
+            // As a saved connection pointed at another database: its cached
+            // tree and the sessions opened on its default database are stale.
+            state.cache_forget(cid);
+            state.sessions.retain(|_, e| !(e.connection_id == cid && (e.database.is_empty() || e.database == old)));
             out.connections += 1;
         }
     }

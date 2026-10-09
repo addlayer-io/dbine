@@ -64,6 +64,11 @@ pub(crate) fn database_script(database: &str, new_name: &str) -> Result<SyncScri
     if database.is_empty() || new_name.is_empty() {
         return Err(Error::Unsupported("Falta el nombre de la base.".into()));
     }
+    // DBine splits Snowflake scripts reading backslash escapes, which a
+    // quoted identifier doesn't have: a name with one would be cut apart.
+    if let Some(n) = [database, new_name].into_iter().find(|n| n.contains('\\')) {
+        return Err(Error::Unsupported(format!("«{n}» tiene una barra invertida: DBine no renombra esa base (hacelo desde Snowsight o SnowSQL).")));
+    }
     Ok(SyncScript {
         statements: vec![format!("ALTER DATABASE {} RENAME TO {};", q(database), q(new_name))],
         warnings: vec![format!(
@@ -347,5 +352,12 @@ mod tests {
         let t = obj(kinds::TABLE, "APP", "T");
         assert!(matches!(script(&req(RenameTarget::Index { table: t.clone(), index: "I".into() }, "J", None)), Err(Error::Unsupported(_))));
         assert!(matches!(script(&req(RenameTarget::Constraint { table: t, constraint: "C".into() }, "D", None)), Err(Error::Unsupported(_))));
+    }
+
+    #[test]
+    fn names_with_a_backslash_are_refused() {
+        assert!(database_script("a\\\"b", "c").is_err());
+        assert!(database_script("a", "c\\d").is_err());
+        assert!(database_script("Sales", "sales_2024").is_ok());
     }
 }

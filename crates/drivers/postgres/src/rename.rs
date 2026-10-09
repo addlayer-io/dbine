@@ -177,6 +177,17 @@ fn kept_databases(v: Variant) -> &'static [&'static str] {
     }
 }
 
+/// The database's name as a string literal that means the same whatever
+/// `standard_conforming_strings` says: an escape string (`E'…'`) with
+/// backslashes and quotes doubled. Redshift has no `E''` and always reads
+/// backslashes as escapes, which [`crate::catalog::lit`] already doubles.
+fn name_literal(v: Variant, name: &str) -> String {
+    if v == Variant::Redshift {
+        return crate::catalog::lit(v, name);
+    }
+    format!("E'{}'", name.replace('\\', "\\\\").replace('\'', "''"))
+}
+
 fn database_note(v: Variant, r: DatabaseRename) -> String {
     let engine = v.info().name;
     let elsewhere = "El código, las aplicaciones y las cadenas de conexión que la nombran en otro lado no se actualizan.";
@@ -237,7 +248,7 @@ pub(crate) fn database_script(v: Variant, database: &str, new_name: &str) -> Res
         Sessions::Terminate(pid) => {
             statements.push(format!(
                 "SELECT pg_terminate_backend({pid}) FROM pg_stat_activity WHERE datname = {} AND {pid} <> pg_backend_pid();",
-                crate::catalog::lit(v, database)
+                name_literal(v, database)
             ));
             warnings.push(format!("Se cierran las demás sesiones conectadas a «{database}»."));
         }
@@ -535,7 +546,7 @@ mod tests {
             assert_eq!(
                 db(v, "Ventas", "ventas 2024").statements,
                 [
-                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'Ventas' AND pid <> pg_backend_pid();",
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = E'Ventas' AND pid <> pg_backend_pid();",
                     "ALTER DATABASE \"Ventas\" RENAME TO \"ventas 2024\";",
                 ],
                 "{v:?}"
@@ -545,7 +556,7 @@ mod tests {
         assert_eq!(
             db(Variant::Postgres, "o'brien\"x", "n\"y").statements,
             [
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'o''brien\"x' AND pid <> pg_backend_pid();",
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = E'o''brien\"x' AND pid <> pg_backend_pid();",
                 "ALTER DATABASE \"o'brien\"\"x\" RENAME TO \"n\"\"y\";",
             ]
         );
@@ -623,5 +634,12 @@ mod tests {
             assert!(spec(v).is_none_or(|s| !s.databases && s.database_from.is_none()), "{v:?}");
             assert!(matches!(database_script(v, "a", "b"), Err(Error::Unsupported(_))), "{v:?}");
         }
+    }
+
+    #[test]
+    fn the_sessions_literal_holds_whatever_standard_conforming_strings_says() {
+        assert_eq!(name_literal(Variant::Postgres, r"a\'; DROP"), r"E'a\\''; DROP'");
+        assert_eq!(name_literal(Variant::Postgres, "ventas"), "E'ventas'");
+        assert_eq!(name_literal(Variant::Redshift, r"a\b"), crate::catalog::lit(Variant::Redshift, r"a\b"));
     }
 }
