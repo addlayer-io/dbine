@@ -1119,6 +1119,81 @@ impl Session for PgSession {
         res.map_err(crate::err)
     }
 
+    /// `START TRANSACTION READ ONLY`, a check that the server says the
+    /// transaction is read-only (a query, so its snapshot is taken and a
+    /// later `SET TRANSACTION READ WRITE` / `set_config(
+    /// 'transaction_read_only', 'off', …)` fails), the statement, `ROLLBACK`.
+    ///
+    /// One statement: it is parsed first as an extended-protocol Parse
+    /// (prepared, nothing runs), which the server refuses when the text
+    /// holds more than one statement ("cannot insert multiple commands
+    /// into a prepared statement"). The same text then runs over the
+    /// simple protocol, so its rows come as the server's text, exactly as
+    /// `execute` shows them (the extended protocol here only gives binary
+    /// rows); the server parses it the same way, in the same transaction,
+    /// so it is the one statement it accepted. Should it disagree, a second
+    /// statement would still run inside the read-only transaction.
+    ///
+    /// The transaction can't stop what runs outside it, and the driver
+    /// refuses those statements before they reach the server: COPY (`TO
+    /// PROGRAM`, files), `dblink*` and `pg_background*` (another session,
+    /// with its own transaction), transaction control, `SET`/`RESET` and
+    /// `set_config` (CockroachDB lets a statement turn its transaction
+    /// read-write; PostgreSQL refuses it once the snapshot is taken),
+    /// `PREPARE`/`DEALLOCATE`, `DISCARD`, `LOAD`, `CHECKPOINT`. The
+    /// read-only guard the caller runs first covers the functions with
+    /// effects outside the transaction (advisory locks, cancelling
+    /// backends…).
+    ///
+    /// A future dropped half-way (a timeout, the caller gave up) queues a
+    /// `ROLLBACK` on the connection, which runs after what is in flight: the
+    /// session is never left inside the read-only transaction.
+    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let v = self.variant;
+        if !v.enforces_read_only() {
+            return Err(Error::Unsupported(format!(
+                "{} no asegura lecturas de solo lectura en el servidor",
+                v.info().name
+            )));
+        }
+        if self.simple {
+            return Err(Error::Unsupported(
+                "esta conexión usa solo el protocolo simple de consultas: no se puede asegurar una sola sentencia de solo lectura".into(),
+            ));
+        }
+        if let Some(why) = read_only_refusal(statement) {
+            return Err(Error::Query(why));
+        }
+        // START TRANSACTION inside an open transaction joins it (with a
+        // warning) and the ROLLBACK would undo the user's work.
+        let state = if self.tx != TxState::Idle || self.tx_unsure {
+            self.transaction_state().await?.unwrap_or(self.tx)
+        } else {
+            self.tx
+        };
+        if state != TxState::Idle {
+            return Err(Error::State(OPEN_TRANSACTION.into()));
+        }
+        while self.notices.try_recv().is_ok() {}
+        self.client.batch_execute("START TRANSACTION READ ONLY").await.map_err(crate::err)?;
+        // The warning arrives before the command completes.
+        let mut nested = false;
+        while let Ok(n) = self.notices.try_recv() {
+            nested |= n.code() == &SqlState::ACTIVE_SQL_TRANSACTION;
+        }
+        if nested {
+            self.tx = TxState::Open;
+            return Err(Error::State(OPEN_TRANSACTION.into()));
+        }
+        let guard = RollbackOnDrop(Some(&self.client));
+        let res = read_only_statement(&self.client, &mut self.notices, v, statement, max_rows, out).await;
+        guard.disarm();
+        let rolled = self.client.batch_execute("ROLLBACK").await;
+        while self.notices.try_recv().is_ok() {}
+        res?;
+        rolled.map_err(crate::err)
+    }
+
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         match self.schema_of_database().await {
             Ok(t) => Ok(t),
@@ -1395,6 +1470,115 @@ fn one_by_one(v: Variant, units: &[ScriptStatement]) -> Option<Vec<String>> {
     (v == Variant::Materialize && units.len() > 1).then(|| units.iter().map(|u| u.text.clone()).collect())
 }
 
+const OPEN_TRANSACTION: &str =
+    "Hay una transacción abierta en esta sesión: confirmala (COMMIT) o deshacela (ROLLBACK) antes de una lectura protegida.";
+
+/// Why [`Session::run_read_only`] refuses `sql` before sending it, if it
+/// does: not exactly one statement, or one whose effects a read-only
+/// transaction doesn't hold back or that would change the transaction or
+/// the session.
+fn read_only_refusal(sql: &str) -> Option<String> {
+    if sql.contains('\0') {
+        return Some("La sentencia contiene un carácter nulo.".into());
+    }
+    let units = dbine_driver::sql::split_script(sql, &script::DIALECT);
+    match units.len() {
+        0 => return Some("No hay ninguna sentencia para ejecutar.".into()),
+        1 => {}
+        _ => return Some("Una lectura protegida ejecuta una sola sentencia.".into()),
+    }
+    let head = script::head(&units[0].text);
+    let first = head.first().map(String::as_str).unwrap_or("");
+    let refused = matches!(
+        first,
+        "begin" | "start" | "commit" | "end" | "rollback" | "abort" | "savepoint" | "release" | "prepare" | "deallocate"
+            | "set" | "reset" | "discard" | "load" | "checkpoint" | "copy"
+    );
+    if refused {
+        return Some(format!(
+            "{} no es una lectura: una lectura protegida no la ejecuta.",
+            first.to_ascii_uppercase()
+        ));
+    }
+    let lower = sql.to_ascii_lowercase();
+    if let Some(f) = ["dblink", "pg_background"].into_iter().find(|f| lower.contains(f)) {
+        return Some(format!(
+            "{f}: abre otra sesión con su propia transacción, que la de solo lectura no protege; una lectura protegida no lo usa."
+        ));
+    }
+    // CockroachDB lets a statement turn the transaction read-write
+    // (`set_config('transaction_read_only', 'off', true)`); its own writes
+    // still fail, and nothing runs after it, but a read never needs it.
+    if lower.contains("set_config") {
+        return Some("set_config cambia la configuración de la sesión: una lectura protegida no lo usa.".into());
+    }
+    None
+}
+
+/// Sends `ROLLBACK` without waiting when dropped armed: the read-only
+/// transaction ends even if [`Session::run_read_only`] is dropped half-way.
+/// Queued after the requests in flight, so it runs once they finish.
+struct RollbackOnDrop<'a>(Option<&'a Client>);
+
+impl RollbackOnDrop<'_> {
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for RollbackOnDrop<'_> {
+    fn drop(&mut self) {
+        if let Some(client) = self.0 {
+            // What tokio-postgres's own `Transaction` does when dropped.
+            client.__private_api_rollback(None);
+        }
+    }
+}
+
+/// The statement of [`Session::run_read_only`], inside the transaction it
+/// opened.
+async fn read_only_statement(
+    client: &Client,
+    notices: &mut mpsc::UnboundedReceiver<DbError>,
+    v: Variant,
+    statement: &str,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
+    let unconfirmed = |why: String| {
+        Error::Unsupported(format!(
+            "{} no confirmó una transacción de solo lectura ({why}): la lectura no se ejecutó",
+            v.info().name
+        ))
+    };
+    match client.simple_query("SELECT current_setting('transaction_read_only')").await {
+        Ok(msgs) => match first_cell(&msgs) {
+            Some(s) if s == "on" => {}
+            other => return Err(unconfirmed(format!("transaction_read_only = {}", other.unwrap_or_default()))),
+        },
+        Err(e) if e.as_db_error().is_some() => return Err(unconfirmed(crate::err(e).to_string())),
+        Err(e) => return Err(crate::err(e)),
+    }
+    let prepared = client.prepare(statement).await.map_err(|e| script::statement_error(e, statement))?;
+    let head = script::head(statement);
+    let first = out.results.len();
+    let res = run_script(client, notices, statement, Some(&head), max_rows, out).await;
+    while let Ok(n) = notices.try_recv() {
+        script::notice(out, &n);
+    }
+    if res.is_err() && out.sink.is_none() {
+        out.results.truncate(first);
+    }
+    if let (Ok(()), [r], true) = (&res, &mut out.results[first..], v.has_pg_catalog()) {
+        if prepared.columns().len() == r.columns.len() {
+            for (c, t) in r.columns.iter_mut().zip(prepared.columns()) {
+                c.type_name = t.type_().name().to_string();
+            }
+        }
+    }
+    res
+}
+
 /// Run `sql` as one simple query. Notices go to `out` as they arrive, in
 /// order with the results. `head`: the words of a single statement, to tag
 /// its result like psql ("INSERT 0 3", "CREATE TABLE"); without it (a
@@ -1463,6 +1647,46 @@ async fn run_script(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_only_refuses_what_the_transaction_cant_hold_back() {
+        for ok in ["SELECT 1", "select * from t;", "WITH x AS (SELECT 1) SELECT * FROM x", "SHOW search_path", "EXPLAIN SELECT 1", "VALUES (1)", "TABLE t", "SELECT 'a;b'"] {
+            assert_eq!(read_only_refusal(ok), None, "{ok}");
+        }
+        for bad in [
+            "",
+            "-- nothing",
+            "SELECT 1; DELETE FROM t",
+            "COMMIT",
+            "begin; delete from t",
+            "SET TRANSACTION READ WRITE",
+            "set session characteristics as transaction read write",
+            "RESET ALL",
+            "COPY t TO PROGRAM 'id'",
+            "copy (select 1) to stdout",
+            "/* x */ copy t from '/etc/passwd'",
+            "SELECT * FROM dblink('host=x', 'delete from t') AS r(a int)",
+            "select \"DBLINK_EXEC\"('x', 'y')",
+            "select pg_background_launch('delete from t')",
+            "SELECT set_config('transaction_read_only', 'off', true)",
+            "PREPARE p AS SELECT 1",
+            "DEALLOCATE ALL",
+            "DISCARD PLANS",
+            "LOAD 'x'",
+            "SELECT 1\0",
+        ] {
+            assert!(read_only_refusal(bad).is_some(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn variants_that_enforce_read_only() {
+        let on: Vec<_> = Variant::ALL.into_iter().filter(|v| v.enforces_read_only()).collect();
+        for v in [Variant::Edb, Variant::Kingbase, Variant::OpenGauss, Variant::Denodo, Variant::RisingWave, Variant::Materialize, Variant::CrateDb, Variant::H2] {
+            assert!(!on.contains(&v), "{v:?}");
+        }
+        assert!(on.contains(&Variant::Postgres) && on.contains(&Variant::Cockroach));
+    }
 
     #[test]
     fn parameters_are_inlined_as_literals() {
