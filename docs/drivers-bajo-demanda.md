@@ -100,8 +100,10 @@ tiene su versión y su propio lugar de publicación:
     (rustls, tokio) o un cambio en `dbine-driver` que todos deben tener.
 - **Dónde:** en el release permanente `drivers` del repo. Cada plataforma
   tiene su índice (`index-<target>.json`) con todas las versiones publicadas,
-  su tamaño, su SHA-256 y lo que cada driver dice de sí mismo. Nada se borra,
-  así una app vieja siempre encuentra los suyos.
+  su tamaño, su SHA-256 y lo que cada driver dice de sí mismo. Se conservan
+  los drivers que bajan las últimas cinco versiones de la app; los más viejos
+  se borran al publicar (un release de GitHub admite hasta 1000 archivos). Una
+  app más vieja que esas cinco no baja drivers nuevos: tiene que actualizarse.
 - **Lo que muestra la app** (campos de conexión, capacidades) sale del
   índice, es decir, de la versión publicada del driver y no del código actual.
   Por eso los campos nuevos en `DriverMeta`, `DriverInfo` o `Capabilities`
@@ -133,6 +135,12 @@ tiene su versión y su propio lugar de publicación:
 4. Arma la app con `--features plugins` y
    `DBINE_PLUGIN_CATALOG=driver-hosts/plugins.json`. Sin la variable, la app
    compila igual pero no ofrece drivers descargables (y cargo avisa).
+5. Cuando las cuatro plataformas terminaron, `scripts/prune-driver-assets.py`
+   borra del release `drivers` los archivos que no baja ninguna de las últimas
+   cinco versiones de la app (y los saca de los índices). Arma los nombres
+   desde las fuentes de cada tag, igual que `build-driver-hosts.py`; si los de
+   la versión nueva no están todos publicados, no borra nada. Con `--dry-run`
+   muestra lo que borraría.
 
 En las corridas manuales, los drivers nuevos quedan como artefacto y no se
 publican.
