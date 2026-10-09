@@ -13,6 +13,10 @@
 - **Cosa porta ogni versione:** l'avviso di nuova versione mostra le sue modifiche e quelle delle versioni intermedie, a partire da quella che hai installato, nella lingua dell'app.
 - **Versioni vecchie dell'app:** d'ora in poi, un'app più vecchia delle ultime cinque versioni deve aggiornarsi per scaricare nuovi driver. I driver che ha già installati continuano a funzionare.
 - **Utenti e permessi:** le modifiche vengono messe in coda e applicate insieme. Una barra **Modifiche in sospeso** le elenca, un'unica revisione mostra tutto lo script e vengono eseguite una alla volta: quelle applicate escono dall'elenco e, se una fallisce, lei e le successive restano in sospeso.
+- **Le letture dei client MCP e dell'assistente IA sono protette dal database stesso:**
+  - **Garantito dal server:** sulla famiglia PostgreSQL, MySQL, MariaDB, SQLite e libSQL, ogni lettura viene eseguita come una singola istruzione dentro una transazione in sola lettura che il server fa rispettare e che DBine annulla sempre.
+  - **Approvazione:** sugli altri motori, ogni lettura chiede la tua approvazione in DBine, come le scritture. La finestra di approvazione indica se si tratta di una lettura o di una scrittura, e **Approva tutto** si applica separatamente a letture e scritture.
+  - **Controllo delle scritture:** DBine continua a controllare ogni query alla ricerca di scritture, come livello aggiuntivo.
 
 ### Correzioni
 - **La sola lettura è più rigorosa:** le query dei client MCP con livello Lettura, dell'assistente IA e delle connessioni in sola lettura vengono controllate parola per parola, non solo dalla prima. Ora rifiutano:
@@ -56,6 +60,13 @@
 - **Importa connessioni:** un URL di SQL Server senza host non mette più la sua password nel nome della connessione.
 - **Utenti e permessi:** l'anteprima nasconde le password di PostgreSQL in tutte le loro forme.
 - **Sola lettura:** le query che acquisiscono lock su cui altre sessioni restano in attesa vengono rifiutate, per esempio `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` e `FOR SHARE`.
+- **Snowflake e Cassandra:** i commenti `//` vengono letti come li legge il server.
+- **Le connessioni SQL Server in sola lettura** rifiutano gli hint di lock e `WAITFOR`.
+- **Le connessioni in sola lettura** rifiutano di avanzare una sequenza (`NEXT VALUE FOR`, `.NEXTVAL`).
+- **Rinomina:**
+  - Su tutti i motori viene rifiutato un dipendente il cui codice verrebbe diviso in più di un'istruzione.
+  - I corpi delle routine Snowflake che contengono `$$` vengono mantenuti interi.
+  - I nomi OrientDB che DBine non potrebbe racchiudere tra virgolette in modo sicuro vengono rifiutati.
 
 ## [0.1.9] - 2026-10-09
 
