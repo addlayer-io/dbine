@@ -26,7 +26,7 @@ mod sync;
 mod transfer;
 
 use dbine_driver::sql::{
-    quote_ident, select_top, split_script, strip_comments, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
+    split_script, strip_comments, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
 };
 use dbine_driver::{
     json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts,
@@ -1047,9 +1047,9 @@ impl Session for ClickHouseSession {
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
         if self.flavor == Flavor::Timeplus && obj.kind == kinds::STREAM {
             // table() reads what the stream holds instead of waiting for new events.
-            return format!("SELECT *\nFROM table({})\nLIMIT {limit}", quote_ident(Quote::Backtick, &obj.name));
+            return format!("SELECT *\nFROM table({})\nLIMIT {limit}", schema::q(&obj.name));
         }
-        select_top(Quote::Backtick, Limit::Limit, obj.schema(), &obj.name, limit)
+        format!("SELECT *\nFROM {}\nLIMIT {limit}", schema::qualified(obj.schema(), &obj.name))
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -1168,7 +1168,7 @@ impl Session for ClickHouseSession {
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        let sql = format!("CREATE DATABASE {}", quote_ident(Quote::Backtick, name.trim()));
+        let sql = format!("CREATE DATABASE {}", schema::q(name.trim()));
         self.send(&sql, &[], false).await?;
         self.done();
         Ok(())
@@ -1211,7 +1211,7 @@ impl Session for ClickHouseSession {
         if name == self.database {
             return Err(Error::Query("no se puede borrar la base de esta sesión".into()));
         }
-        let sql = format!("DROP DATABASE {}", quote_ident(Quote::Backtick, name));
+        let sql = format!("DROP DATABASE {}", schema::q(name));
         self.send(&sql, &[], false).await?;
         self.done();
         Ok(())

@@ -24,7 +24,7 @@
 //! permission, a catalog the variant emulates) is skipped. Fix scripts are
 //! only shown; DBine never runs them.
 
-use crate::catalog::lit;
+use crate::catalog::{comment_text, lit};
 use crate::session::PgSession;
 use crate::Variant;
 use dbine_driver::health::{HealthCheck, Severity};
@@ -46,6 +46,12 @@ const SEP: char = '\u{1f}';
 
 fn q(schema: &str, name: &str) -> String {
     qualified_name(Quote::Double, Some(schema), name)
+}
+
+/// A commented `DROP INDEX` for the unused-indexes fix: a line break in a
+/// name can't end the comment.
+fn drop_comment(index: &str) -> String {
+    format!("-- DROP INDEX {};", comment_text(index))
 }
 
 fn get(r: &SimpleQueryRow, i: usize) -> String {
@@ -334,7 +340,7 @@ impl PgSession {
             return;
         };
         let objects = rows.iter().map(|r| format!("{}.{} · {} ({})", get(r, 0), get(r, 1), get(r, 2), get(r, 3))).collect();
-        let drops = rows.iter().map(|r| format!("-- DROP INDEX {};", q(&get(r, 0), &get(r, 2)))).collect();
+        let drops = rows.iter().map(|r| drop_comment(&q(&get(r, 0), &get(r, 2)))).collect();
         let since = match window {
             Some((d, true)) => Some(format!("los contadores cubren {d} días, desde que se reiniciaron las estadísticas")),
             Some((d, false)) => Some(format!("los contadores cubren al menos {d} días, desde el arranque del servidor")),
@@ -384,7 +390,7 @@ impl PgSession {
         let _ = self.client.batch_execute("RESET allow_unsafe_internals").await;
         let Some(rows) = rows else { return };
         let objects = rows.iter().map(|r| format!("{}.{} · {}", get(r, 0), get(r, 1), get(r, 2))).collect();
-        let drops = rows.iter().map(|r| format!("-- DROP INDEX {}@{};", q(&get(r, 0), &get(r, 1)), quote_ident(Quote::Double, &get(r, 2)))).collect();
+        let drops = rows.iter().map(|r| drop_comment(&format!("{}@{}", q(&get(r, 0), &get(r, 1)), quote_ident(Quote::Double, &get(r, 2))))).collect();
         let since = window.map(|d| format!("los contadores cubren {d} días, desde el último arranque de un nodo"));
         out.push(unused_check(objects, drops, window, since));
     }
@@ -745,5 +751,12 @@ mod tests {
         assert!(long.fix.unwrap().contains("-- DROP INDEX"));
         assert_eq!(unused_check(objs(), drops(), None, None).severity, Severity::Info);
         assert_eq!(unused_check(vec![], vec![], Some(30), None).severity, Severity::Ok);
+    }
+
+    #[test]
+    fn a_name_cannot_end_the_commented_drop() {
+        let line = drop_comment(&q("s", "ix\nDROP TABLE t;\r\u{85}\u{2028}\u{2029}x"));
+        assert_eq!(line, "-- DROP INDEX \"s\".\"ix?DROP TABLE t;????x\";");
+        assert_eq!(line.lines().count(), 1);
     }
 }

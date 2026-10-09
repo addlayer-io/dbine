@@ -128,7 +128,11 @@ pub fn script(flavor: Flavor, req: &RenameRequest) -> Result<SyncScript> {
             Flavor::Timeplus => "Timeplus Proton solo renombra streams, vistas, vistas materializadas y columnas".into(),
         }));
     }
-    let new = quote_new(&req.new_name, &dialect(), Fold::None, false);
+    // Quoted, the new name goes through `q`, which escapes backslashes too.
+    let new = match quote_new(&req.new_name, &dialect(), Fold::None, false) {
+        bare if bare == req.new_name => bare,
+        _ => q(&req.new_name),
+    };
     let stream = flavor == Flavor::Timeplus;
     let mut warnings = Vec::new();
     let statements = match &req.target {
@@ -198,6 +202,12 @@ mod tests {
         assert!(s.warnings.is_empty());
         let s = script(Flavor::ClickHouse, &object(kinds::MATERIALIZED_VIEW, Some("db"), "mv", "select")).unwrap();
         assert_eq!(s.statements, ["RENAME TABLE `db`.`mv` TO `db`.`select`;"]);
+    }
+
+    #[test]
+    fn a_backslash_cannot_end_the_quoted_names() {
+        let s = script(Flavor::ClickHouse, &object(kinds::TABLE, Some("d\\"), "t\\", "x\\`; DROP TABLE y; --")).unwrap();
+        assert_eq!(s.statements, ["RENAME TABLE `d\\\\`.`t\\\\` TO `d\\\\`.`x\\\\\\`; DROP TABLE y; --`;"]);
     }
 
     #[test]

@@ -6,9 +6,9 @@
 //! data is read): one that fails (an older server, Timeplus, no access) is
 //! skipped.
 
+use crate::schema::{comment_text, q};
 use crate::{text, ClickHouseSession};
 use dbine_driver::health::{HealthCheck, Severity};
-use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::Result;
 use serde_json::Value;
 
@@ -34,7 +34,7 @@ fn n(r: &[Value], i: usize) -> f64 {
 }
 
 fn qn(db: &str, table: &str) -> String {
-    format!("{}.{}", quote_ident(Quote::Backtick, db), quote_ident(Quote::Backtick, table))
+    format!("{}.{}", q(db), q(table))
 }
 
 /// A ClickHouse string literal.
@@ -166,7 +166,7 @@ impl ClickHouseSession {
                 let lines: Vec<String> = rows
                     .iter()
                     .take(MAX_OBJECTS)
-                    .map(|r| format!("-- ALTER TABLE {} DROP DETACHED PART {} SETTINGS allow_drop_detached = 1;", qn(&db, &s(r, 0)), lit(&s(r, 1))))
+                    .map(|r| format!("-- {}", comment_text(&format!("ALTER TABLE {} DROP DETACHED PART {} SETTINGS allow_drop_detached = 1;", qn(&db, &s(r, 0)), lit(&s(r, 1))))))
                     .collect();
                 check = check.fix(format!("-- Borrar una parte separada es definitivo: revisá cada una antes.\n{}", lines.join("\n")));
             }
@@ -290,6 +290,12 @@ mod tests {
         assert!(is_broken("broken-on-start") && is_broken("unexpected"));
         assert!(!is_broken("") && !is_broken("attaching"));
         assert_eq!(lit("a'b\\c"), "'a\\'b\\\\c'");
-        assert_eq!(qn("d", "t`x"), "`d`.`t``x`");
+        assert_eq!(qn("d", "t`x"), "`d`.`t\\`x`");
+        // A trailing backslash can't escape the closing backtick.
+        assert_eq!(qn("d", "t\\"), "`d`.`t\\\\`");
+        // A line break in a name can't end the `--` comment.
+        let line = format!("-- {}", comment_text(&format!("ALTER TABLE {};", qn("d", "t\nDROP TABLE x;\r\u{2028}\u{85}"))));
+        assert_eq!(line, "-- ALTER TABLE `d`.`t?DROP TABLE x;???`;");
+        assert_eq!(line.lines().count(), 1);
     }
 }

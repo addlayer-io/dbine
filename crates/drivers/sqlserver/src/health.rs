@@ -6,7 +6,7 @@
 //! query: one that fails (no VIEW SERVER STATE, Azure limits) is skipped.
 
 use crate::variant::Variant;
-use crate::{text, SqlServerSession};
+use crate::{comment_text, text, SqlServerSession};
 use dbine_driver::health::{HealthCheck, Severity};
 use dbine_driver::sql::{qualified_name, Quote};
 use dbine_driver::Result;
@@ -193,7 +193,7 @@ impl SqlServerSession {
                 .detail("Un índice que nunca se lee solo cuesta en cada escritura. Antes de borrarlo, tené en cuenta procesos de fin de mes o reportes ocasionales, y que en un grupo de disponibilidad cada réplica cuenta por separado.")
                 .objects(objects);
             if conclusive && !rows.is_empty() {
-                let drops: Vec<String> = rows.iter().filter_map(|r| text(r, 1)).map(|i| format!("-- DROP INDEX {i};")).collect();
+                let drops: Vec<String> = rows.iter().filter_map(|r| text(r, 1)).map(|i| format!("-- DROP INDEX {};", comment_text(&i))).collect();
                 check = check.fix(format!("-- Revisá cada uno antes de borrarlo:\n{}", drops.join("\n")));
             }
             out.push(check);

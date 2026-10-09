@@ -341,7 +341,7 @@ pub fn fabric_table_ddl(t: &TableSchema, parts: DdlParts) -> String {
                     cols.join(", ")
                 ));
             } else {
-                out.push(format!("-- Índice {} omitido: los almacenes de Fabric no tienen índices.", ix.name));
+                out.push(format!("-- Índice {} omitido: los almacenes de Fabric no tienen índices.", crate::comment_text(&ix.name)));
             }
         }
     }

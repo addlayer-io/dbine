@@ -2429,7 +2429,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-bigquery"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2473,7 +2473,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-cosmosdb"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2551,7 +2551,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dsql"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -2586,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dynamodb"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -2659,7 +2659,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-hana"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "dbine-driver",
  "hdbconnect_async",
@@ -2781,7 +2781,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-oracle"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "dbine-driver",
  "oracledb",
@@ -2792,7 +2792,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-orientdb"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "dbine-driver",
  "percent-encoding",

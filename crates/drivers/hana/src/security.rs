@@ -263,8 +263,9 @@ pub fn script(a: &SecurityAction) -> Result<String> {
         SecurityAction::CreateRole { name } => format!("CREATE ROLE {};", new_name(name)?),
         SecurityAction::Drop { name, kind: PrincipalKind::Role } => format!("DROP ROLE {};", q(name)),
         SecurityAction::Drop { name, kind: PrincipalKind::User } => format!(
-            "DROP USER {n};\n-- Si el usuario tiene objetos en su esquema, hace falta CASCADE, que los borra junto con él:\n-- DROP USER {n} CASCADE;",
-            n = q(name)
+            "DROP USER {n};\n-- Si el usuario tiene objetos en su esquema, hace falta CASCADE, que los borra junto con él:\n-- DROP USER {c} CASCADE;",
+            n = q(name),
+            c = comment_text(&q(name))
         ),
         SecurityAction::SetPassword { name, password: pw } => format!("ALTER USER {} PASSWORD {};", q(name), password(pw)?),
         SecurityAction::SetLogin { name, enabled } => {
@@ -289,6 +290,13 @@ pub fn script(a: &SecurityAction) -> Result<String> {
         SecurityAction::AddMember { role, member } => format!("GRANT {} TO {};", q(role), q(member)),
         SecurityAction::RemoveMember { role, member } => format!("REVOKE {} FROM {};", q(role), q(member)),
     })
+}
+
+/// Text for a `--` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
 }
 
 #[cfg(test)]

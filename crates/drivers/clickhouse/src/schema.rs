@@ -14,7 +14,7 @@
 //!   `GRANULARITY n`.
 
 use crate::Flavor;
-use dbine_driver::sql::{qualified_name, quote_ident, Quote};
+use dbine_driver::sql::Quote;
 use dbine_driver::{
     kinds, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, IndexDef, KeyDef, RowChange,
     TableSchema,
@@ -162,8 +162,26 @@ pub fn templates(flavor: Flavor) -> Vec<CreateTemplate> {
     }
 }
 
+/// A ClickHouse identifier in backticks. Inside them the server applies
+/// backslash escapes too, so `\` is escaped as well as the backtick: a name
+/// ending in `\` can't swallow the closing quote.
 pub(crate) fn q(name: &str) -> String {
-    quote_ident(Quote::Backtick, name)
+    format!("`{}`", name.replace('\\', "\\\\").replace('`', "\\`"))
+}
+
+/// Text for a `--` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+pub(crate) fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+}
+
+/// `db.name`, or `name` alone when there is no database.
+pub(crate) fn qualified(schema: Option<&str>, name: &str) -> String {
+    match schema.filter(|s| !s.is_empty()) {
+        Some(s) => format!("{}.{}", q(s), q(name)),
+        None => q(name),
+    }
 }
 
 /// A string literal: ClickHouse strings take backslash escapes.
@@ -205,7 +223,7 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
 
 /// `INSERT INTO t (…) VALUES (…), (…)`, 1000 rows per statement.
 pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
-    let name = qualified_name(Quote::Backtick, schema.filter(|s| !s.is_empty()), table);
+    let name = qualified(schema, table);
     let cols: Vec<String> = columns.iter().map(|c| q(c)).collect();
     rows.chunks(1000)
         .map(|chunk| {
@@ -223,7 +241,7 @@ pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows
 /// WHERE …;` (`ALTER STREAM` in Timeplus). A mutation needs a WHERE, so a
 /// row without key columns gets `WHERE 1`.
 pub fn update_script(flavor: Flavor, schema: Option<&str>, table: &str, changes: &[RowChange]) -> String {
-    let name = qualified_name(Quote::Backtick, schema.filter(|s| !s.is_empty()), table);
+    let name = qualified(schema, table);
     let what = match flavor {
         Flavor::ClickHouse => "TABLE",
         Flavor::Timeplus => "STREAM",
@@ -246,7 +264,7 @@ pub fn update_script(flavor: Flavor, schema: Option<&str>, table: &str, changes:
 /// …;` (`ALTER STREAM` in Timeplus), as in [`update_script`]. A key without
 /// columns is skipped: it would delete the whole table.
 pub fn delete_script(flavor: Flavor, schema: Option<&str>, table: &str, keys: &[Vec<(String, Value)>]) -> String {
-    let name = qualified_name(Quote::Backtick, schema.filter(|s| !s.is_empty()), table);
+    let name = qualified(schema, table);
     let what = match flavor {
         Flavor::ClickHouse => "TABLE",
         Flavor::Timeplus => "STREAM",
@@ -380,7 +398,7 @@ pub(crate) fn column_sql(flavor: Flavor, c: &ColumnDef) -> String {
 }
 
 pub fn table_ddl(flavor: Flavor, t: &TableSchema, parts: DdlParts) -> String {
-    let name = qualified_name(Quote::Backtick, t.schema.as_deref().filter(|s| !s.is_empty()), &t.name);
+    let name = qualified(t.schema.as_deref(), &t.name);
     let what = match flavor {
         Flavor::ClickHouse => "TABLE",
         Flavor::Timeplus => "STREAM",

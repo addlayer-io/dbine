@@ -13,7 +13,7 @@
 //! (the default backup folder, the data and log folders, the files inside
 //! the backup) is looked up when it runs.
 
-use crate::SqlServerSession;
+use crate::{comment_text, SqlServerSession};
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{BackupAction, BackupEntry, BackupSpec, Error, Field, FieldKind, Result};
 use std::collections::BTreeMap;
@@ -164,7 +164,7 @@ fn backup(db: &str, options: &BTreeMap<String, String>) -> Result<String> {
         lit(&format!("{safe}_{kind}_")),
         lit(&format!(".{ext}"))
     );
-    let mut s = format!("-- Backup {label} de {}\n", quote_ident(Quote::Bracket, db));
+    let mut s = format!("-- Backup {label} de {}\n", comment_text(&quote_ident(Quote::Bracket, db)));
     s += &format!("DECLARE @db sysname = {};\n", lit(db));
     if url {
         let target = opt(options, "url").ok_or_else(|| Error::Query("Falta la URL del backup.".into()))?;
@@ -272,7 +272,7 @@ fn restore(id: &str, db: &str, options: &BTreeMap<String, String>) -> Result<Str
     let q = quote_ident(Quote::Bracket, db);
     let single_user = flag(options, "single_user", true);
 
-    let mut s = format!("-- Restaurar {q} desde un backup\n");
+    let mut s = format!("-- Restaurar {} desde un backup\n", comment_text(&q));
     s += &format!(
         "DECLARE @db sysname = {};\nDECLARE @src nvarchar(4000) = {};\nDECLARE @position int = {position};\n",
         lit(db),

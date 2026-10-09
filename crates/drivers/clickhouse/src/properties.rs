@@ -15,9 +15,9 @@
 //! SQL.
 
 use crate::create_db::literal;
+use crate::schema::q;
 use crate::{text, ClickHouseSession, Flavor};
 use dbine_driver::serde_static::intern;
-use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{DatabaseProperties, Error, Field, FieldKind, PropertyInfo, Result};
 use std::collections::BTreeMap;
 
@@ -111,7 +111,7 @@ pub(crate) fn alter(flavor: Flavor, database: &str, changes: &BTreeMap<String, S
     if flavor == Flavor::Timeplus {
         return Err(Error::Unsupported("Timeplus Proton no modifica las propiedades de una base".into()));
     }
-    let db = quote_ident(Quote::Backtick, database);
+    let db = q(database);
     let (mut out, mut settings) = (Vec::new(), Vec::new());
     for (key, value) in changes {
         match key.as_str() {
@@ -243,10 +243,10 @@ mod tests {
                 &c(&[("setting:materialized_postgresql_tables_list", "a,b"), ("comment", "it's \\ ok"), ("settings_add", "x_y = 10\n\nflag = true")])
             )
             .unwrap(),
-            "ALTER DATABASE `ven``tas` MODIFY COMMENT 'it\\'s \\\\ ok';\n\
-             ALTER DATABASE `ven``tas` MODIFY SETTING materialized_postgresql_tables_list = 'a,b';\n\
-             ALTER DATABASE `ven``tas` MODIFY SETTING x_y = 10;\n\
-             ALTER DATABASE `ven``tas` MODIFY SETTING flag = true"
+            "ALTER DATABASE `ven\\`tas` MODIFY COMMENT 'it\\'s \\\\ ok';\n\
+             ALTER DATABASE `ven\\`tas` MODIFY SETTING materialized_postgresql_tables_list = 'a,b';\n\
+             ALTER DATABASE `ven\\`tas` MODIFY SETTING x_y = 10;\n\
+             ALTER DATABASE `ven\\`tas` MODIFY SETTING flag = true"
         );
         assert_eq!(script(Flavor::ClickHouse, "v", &c(&[("comment", "")])).unwrap(), "ALTER DATABASE `v` MODIFY COMMENT ''");
     }

@@ -250,7 +250,7 @@ pub fn index_statement(ix: &Value) -> String {
         }
     };
     if let Some(algo) = conf.and_then(|c| c.get("algorithm")).map(as_text).filter(|a| !a.is_empty()) {
-        s.push_str(&format!("\n-- algoritmo: {algo}"));
+        s.push_str(&format!("\n-- algoritmo: {}", crate::comment_text(&algo)));
     }
     s
 }

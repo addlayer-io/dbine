@@ -228,7 +228,7 @@ mod tests {
         let s = |a| script(&a).unwrap();
         assert_eq!(
             s(SecurityAction::CreateUser { name: "ana`x".into(), password: Some("p'w".into()) }),
-            "CREATE USER `ana``x` IDENTIFIED WITH sha256_password BY 'p\\'w';"
+            "CREATE USER `ana\\`x` IDENTIFIED WITH sha256_password BY 'p\\'w';"
         );
         assert!(script(&SecurityAction::CreateUser { name: "ana".into(), password: None }).is_err());
         assert_eq!(s(SecurityAction::CreateRole { name: "lectores".into() }), "CREATE ROLE `lectores`;");

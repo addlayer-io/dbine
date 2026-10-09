@@ -285,7 +285,7 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     } else if parts.indexes && !t.indexes.is_empty() {
         stmts.push(format!(
             "-- Las claves únicas y los índices compuestos de {} se definen al crear el contenedor (CREATE CONTAINER).",
-            t.name.replace('\n', " ")
+            crate::comment_text(&t.name)
         ));
     }
     let mut s = stmts.join("\n\n");

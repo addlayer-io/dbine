@@ -9,8 +9,8 @@
 //!
 //! Every value is checked before it reaches the SQL.
 
+use crate::schema::q;
 use crate::{text, ClickHouseSession, Flavor};
-use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{Error, Field, FieldChoices, FieldKind, Result};
 use std::collections::BTreeMap;
 
@@ -61,12 +61,12 @@ fn keeper_text(v: &str, path: bool) -> bool {
 
 /// The `CREATE DATABASE` for `name`.
 pub(crate) fn script(flavor: Flavor, name: &str, o: &BTreeMap<String, String>) -> Result<String> {
-    let mut sql = format!("CREATE DATABASE {}", quote_ident(Quote::Backtick, name.trim()));
+    let mut sql = format!("CREATE DATABASE {}", q(name.trim()));
     if flavor == Flavor::Timeplus {
         return Ok(sql);
     }
     if let Some(c) = opt(o, "cluster") {
-        sql.push_str(&format!(" ON CLUSTER {}", quote_ident(Quote::Backtick, c)));
+        sql.push_str(&format!(" ON CLUSTER {}", q(c)));
     }
     match opt(o, "engine") {
         None => {}
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn plain_name_is_the_old_create() {
         assert_eq!(script(Flavor::ClickHouse, "ventas", &o(&[])).unwrap(), "CREATE DATABASE `ventas`");
-        assert_eq!(script(Flavor::ClickHouse, "ven`tas", &o(&[("comment", " ")])).unwrap(), "CREATE DATABASE `ven``tas`");
+        assert_eq!(script(Flavor::ClickHouse, "ven`tas", &o(&[("comment", " ")])).unwrap(), "CREATE DATABASE `ven\\`tas`");
         assert_eq!(script(Flavor::Timeplus, "v", &o(&[("engine", "Memory"), ("comment", "x")])).unwrap(), "CREATE DATABASE `v`");
         assert!(fields(Flavor::Timeplus).is_empty());
     }

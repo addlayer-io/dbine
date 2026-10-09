@@ -551,7 +551,7 @@ pub fn script(v: Variant, a: &SecurityAction) -> Result<String> {
             if contained {
                 format!("DROP USER {};", q(name))
             } else {
-                format!("DROP USER {n};\n-- Si el login no se usa en otras bases:\n-- DROP LOGIN {n};", n = q(name))
+                format!("DROP USER {n};\n-- Si el login no se usa en otras bases:\n-- DROP LOGIN {c};", n = q(name), c = crate::comment_text(&q(name)))
             }
         }
         SecurityAction::SetPassword { name, password } => {

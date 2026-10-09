@@ -19,7 +19,7 @@
 mod h2;
 mod risingwave;
 
-use crate::catalog::{cell, lit};
+use crate::catalog::{cell, comment_text, lit};
 use crate::session::PgSession;
 use crate::Variant;
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
@@ -689,10 +689,11 @@ fn pg_script(v: Variant, a: &SecurityAction, cascade: bool) -> Result<String> {
         SecurityAction::CreateRole { name } => format!("CREATE ROLE {}{no_password};", q(name)),
         SecurityAction::Drop { name, .. } => format!(
             "-- Si tiene objetos o permisos en alguna base, antes, en cada una:\n\
-             -- REASSIGN OWNED BY {n} TO CURRENT_USER;\n\
-             -- DROP OWNED BY {n};\n\
+             -- REASSIGN OWNED BY {c} TO CURRENT_USER;\n\
+             -- DROP OWNED BY {c};\n\
              DROP ROLE {n};",
-            n = q(name)
+            n = q(name),
+            c = comment_text(&q(name))
         ),
         SecurityAction::SetPassword { name, password } => format!("ALTER ROLE {} WITH PASSWORD {};", q(name), lit(v, password)),
         SecurityAction::SetLogin { name, enabled } => {

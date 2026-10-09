@@ -71,18 +71,8 @@ pub(crate) enum Ty {
     DtText(Box<Ty>),
 }
 
-/// A ClickHouse identifier in backticks. Inside them the server applies
-/// backslash escapes too, so `\` is escaped as well as the backtick.
-pub(crate) fn ident(name: &str) -> String {
-    format!("`{}`", name.replace('\\', "\\\\").replace('`', "\\`"))
-}
-
-fn qualified(schema: Option<&str>, name: &str) -> String {
-    match schema.filter(|s| !s.is_empty()) {
-        Some(s) => format!("{}.{}", ident(s), ident(name)),
-        None => ident(name),
-    }
-}
+/// A ClickHouse identifier in backticks, backslash escapes included.
+pub(crate) use crate::schema::{q as ident, qualified};
 
 /// A type as ClickHouse spells it (for an `input()` structure).
 fn render(ty: &Ty) -> String {
