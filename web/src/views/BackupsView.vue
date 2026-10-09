@@ -9,6 +9,7 @@ import { backupApi, type BackupAction, type BackupCopy, type BackupEntry } from 
 import type { Cell, Field, QueryOutcome } from '../api/types';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
+import { isMaskedField } from '../composables/secretFields';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 import type { BackupsTab } from '../stores/tabs';
 import { startTask, useTasksStore, type TaskHandle, type TaskProgress } from '../stores/tasks';
@@ -716,7 +717,7 @@ function cancelScript() {
               <el-input v-model="form.values[f.key]" :placeholder="tb(f.placeholder)" />
               <el-button @click="pickFile(f)">{{ $t('backups:pick') }}</el-button>
             </div>
-            <el-input v-else v-model="form.values[f.key]" :type="f.kind.type === 'password' ? 'password' : 'text'" :show-password="f.kind.type === 'password'" :placeholder="tb(f.placeholder)" />
+            <el-input v-else v-model="form.values[f.key]" :type="isMaskedField(f) ? 'password' : 'text'" :show-password="isMaskedField(f)" :autocomplete="isMaskedField(f) ? 'new-password' : undefined" :placeholder="tb(f.placeholder)" />
             <div v-if="f.help" class="bv-help">{{ tb(f.help) }}</div>
           </el-form-item>
         </template>

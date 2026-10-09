@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus';
 import { open as openFile } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
 import { tb } from '../i18n/backend';
+import { isMaskedField } from '../composables/secretFields';
 import { api, errorMessage } from '../api/client';
 import { FAMILY_LABELS, TYPED_FIELDS, type ConnectionConfig, type DriverInfo, type Family, type Field, type SavedConnection } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
@@ -480,8 +481,9 @@ function selectOptions(f: Field): [string, string][] {
               <el-input
                 v-else
                 v-model="values[f.key] as string"
-                :type="f.kind.type === 'password' ? 'password' : 'text'"
-                :show-password="f.kind.type === 'password'"
+                :type="isMaskedField(f) ? 'password' : 'text'"
+                :show-password="isMaskedField(f)"
+                :autocomplete="isMaskedField(f) ? 'new-password' : undefined"
                 :placeholder="f.secret && editing ? $t('connection:form.secretKeptFem') : f.key === 'port' ? String(driver.default_port || '') : tb(f.placeholder)"
               >
                 <template v-if="f.kind.type === 'file'" #append>
