@@ -4,6 +4,7 @@
 
 ### Novità
 - **I driver si aggiornano da soli, separatamente dall'app:** DBine cerca in un indice firmato il driver più recente compatibile con la tua versione, lo scarica in background e torna al precedente se qualcosa va storto. In Impostazioni › Driver c'è un pulsante **Cerca aggiornamenti**, lo stato di ogni driver e **Torna alla precedente**. Un driver può essere pubblicato da solo, senza una nuova versione dell'app.
+- **Rinominare un database:** **Rinomina…** su un database nell'esplora risorse. La finestra mostra le altre sessioni aperte su di esso (che la ridenominazione termina), se il nuovo nome esiste già, quanti oggetti vengono spostati e lo script completo. Dopo, il database predefinito della connessione, le schede aperte, le query salvate, le migrazioni, le destinazioni dei progetti e i passaggi delle attività pianificate seguono il nuovo nome; le attività che modificano dati al suo interno chiedono di nuovo l'approvazione. Disponibile in SQL Server, Azure SQL, Babelfish, nella famiglia PostgreSQL, in MySQL, MariaDB, Snowflake e MongoDB; dove il motore non può rinominare (o spostare) un database, non viene offerto.
 
 ### Miglioramenti
 - **Cosa porta ogni versione:** l'avviso di nuova versione mostra le sue modifiche e quelle delle versioni intermedie, a partire da quella che hai installato, nella lingua dell'app.
@@ -23,6 +24,15 @@
 - **Backup nel cloud:** un file di backup modificato da qualcun altro non può più indebolire la cifratura del tuo prossimo caricamento.
 - **libSQL / Turso:** un `authToken` in un URL incollato viene conservato nel portachiavi di sistema, non nell'indirizzo, nel nome o nella cronologia della connessione. Le connessioni salvate in precedenza vengono ripulite all'avvio di DBine.
 - **Documenta il database:** i nomi delle colonne non possono iniettare HTML nel dizionario dati in Markdown.
+- **Notifiche delle attività su Windows:** un messaggio di errore del database non può più eseguire comandi tramite la notifica. Anche le notifiche su macOS e Linux ricevono il testo come argomenti separati.
+- **Tunnel SSH:** un server di cui hai accettato la chiave in DBine e che ora ne presenta una diversa viene rifiutato, invece di chiedertelo di nuovo. La sezione SSH della connessione elenca i server accettati, ciascuno con **Dimentica**.
+- **SQL su PostgreSQL:** i valori di tipo stringa vengono scritti come `E'…'` con i backslash escapati, così un valore non può chiudere la stringa in anticipo su un server con `standard_conforming_strings` disattivato. Questo copre la famiglia PostgreSQL, CockroachDB e motori simili.
+- **Script Snowflake:** un backslash all'interno di un `"nome tra virgolette"` non cambia più il punto in cui termina un'istruzione.
+- **Esportazione CSV e TSV:** le celle di testo e i nomi di colonna che iniziano con `=`, `+`, `-`, `@`, una tabulazione o un ritorno a capo ricevono un `'` davanti, così i fogli di calcolo non li eseguono come formule. I numeri non vengono mai modificati. Un'opzione nella finestra di esportazione la disattiva.
+- **Annullare le modifiche in Progetti:** un file con nome simile a un pattern (`*`) annulla solo quel file.
+- **Copia un sottoinsieme:** il mascheramento usa una nuova chiave casuale a 256 bit a ogni esecuzione.
+- **Aggiornamenti dei driver:** l'app non accetta mai un indice dei driver più vecchio di quello con cui è stata rilasciata, nemmeno su una nuova installazione, né uno che ha smesso di essere rinnovato. I driver installati continuano a funzionare in entrambi i casi.
+- L'importazione delle connessioni, il linter e il controllo di integrità non si fermano più con caratteri accentati o altri caratteri multibyte.
 
 ## [0.1.9] - 2026-10-09
 

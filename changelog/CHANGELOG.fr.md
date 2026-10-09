@@ -4,6 +4,7 @@
 
 ### Nouveautés
 - **Les pilotes se mettent à jour tout seuls, séparément de l'application :** DBine cherche dans un index signé le pilote le plus récent compatible avec votre version, le télécharge en arrière-plan et revient au précédent en cas d'échec. Dans Paramètres › Pilotes, il y a un bouton **Rechercher des mises à jour**, l'état de chaque pilote et **Revenir à la précédente**. Un pilote peut être publié seul, sans nouvelle version de l'application.
+- **Renommer une base de données :** **Renommer…** sur une base dans l'explorateur. La boîte de dialogue affiche les autres sessions ouvertes dessus (que le renommage termine), si le nouveau nom existe déjà, combien d'objets sont déplacés et le script complet. Ensuite, la base par défaut de la connexion, les onglets ouverts, les requêtes enregistrées, les migrations, les cibles de projets et les étapes de tâches planifiées suivent le nouveau nom ; les tâches qui modifient des données dedans demandent à nouveau une approbation. Disponible dans SQL Server, Azure SQL, Babelfish, la famille PostgreSQL, MySQL, MariaDB, Snowflake et MongoDB ; lorsque le moteur ne peut pas renommer (ou déplacer) une base, l'option n'est pas proposée.
 
 ### Améliorations
 - **Ce qu'apporte chaque version :** l'avis de nouvelle version affiche ses changements et ceux des versions intermédiaires, à partir de celle que vous avez installée, dans la langue de l'application.
@@ -23,6 +24,15 @@
 - **Sauvegarde dans le cloud :** un fichier de sauvegarde modifié par quelqu'un d'autre ne peut plus affaiblir le chiffrement de votre prochain envoi.
 - **libSQL / Turso :** un `authToken` dans une URL collée est conservé dans le trousseau du système, et non dans l'adresse, le nom ou l'historique de la connexion. Les connexions enregistrées auparavant sont nettoyées au démarrage de DBine.
 - **Documenter la base :** les noms de colonnes ne peuvent pas injecter de HTML dans le dictionnaire de données Markdown.
+- **Notifications de tâches sous Windows :** un message d'erreur de la base ne peut plus exécuter de commandes via la notification. Sous macOS et Linux, les notifications reçoivent aussi le texte sous forme d'arguments séparés.
+- **Tunnels SSH :** un serveur dont vous avez accepté la clé dans DBine et qui en présente maintenant une autre est refusé, au lieu de vous le redemander. La section SSH de la connexion liste les serveurs acceptés, chacun avec **Oublier**.
+- **SQL contre PostgreSQL :** les valeurs de type chaîne sont écrites sous la forme `E'…'` avec les barres obliques inverses échappées, de sorte qu'une valeur ne peut pas fermer la chaîne trop tôt sur un serveur où `standard_conforming_strings` est désactivé. Cela couvre la famille PostgreSQL, CockroachDB et les moteurs similaires.
+- **Scripts Snowflake :** une barre oblique inverse dans un `"nom entre guillemets"` ne change plus l'endroit où une instruction se termine.
+- **Export CSV et TSV :** les cellules de texte et les noms de colonnes qui commencent par `=`, `+`, `-`, `@`, une tabulation ou un retour chariot reçoivent un `'` devant, pour que les tableurs ne les exécutent pas comme des formules. Les nombres ne sont jamais modifiés. Une option de la boîte de dialogue d'export la désactive.
+- **Abandon des modifications dans Projets :** un fichier nommé comme un motif (`*`) n'abandonne que ce fichier.
+- **Copier un sous-ensemble :** le masquage utilise une nouvelle clé aléatoire de 256 bits à chaque exécution.
+- **Mises à jour des pilotes :** l'application n'accepte jamais un index de pilotes plus ancien que celui avec lequel elle a été publiée, même sur une nouvelle installation, ni un index qui n'est plus renouvelé. Les pilotes installés continuent de fonctionner dans les deux cas.
+- L'import de connexions, le linter et le bilan de santé ne s'arrêtent plus sur les caractères accentués ou autres caractères multi-octets.
 
 ## [0.1.9] - 2026-10-09
 
