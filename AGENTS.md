@@ -77,6 +77,22 @@ fails if a translation is missing a version). The release workflow fails if
 the tag has no section. The app shows the notes in the interface language by
 reading the tag's translation, and in English if it can't.
 
+## Release gate: tests and security
+
+A release goes out only when **both** pass, on the release commit:
+
+1. **Tests:** `cargo test --workspace` (no failures), `cd web && npx vue-tsc
+   --noEmit` and `npx vite build`, on a clean worktree of that commit.
+2. **Security:** the `security` agent (`.claude/agents/security.md`) runs the
+   `claude-security` scan on what the release adds (since the last release
+   users have) and returns PASS: a verified report with **zero findings of
+   any severity**.
+
+The scan starts at the same time as the tests: they run in parallel, not one
+after the other. Any finding blocks the tag: the owning session fixes it, and
+tests and scan run again on the new commit. Nobody downgrades or waives a
+finding except the owner.
+
 ## Shared files
 
 To modify these files you have to coordinate with the other sessions: announce

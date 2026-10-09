@@ -21,6 +21,15 @@ Never commit, tag or push on your own. Never run `git checkout --`,
 `git reset --hard`, `git clean` or `git stash`: other sessions work on the
 same tree.
 
+## The gate: tests and security
+
+Never ask for the publishing OK before both of these passed on the release
+commit (AGENTS.md, "Release gate"): the full tests on a clean worktree, and
+the `security` agent's PASS (a verified claude-security report with zero
+findings, at any severity) for the range since the last release users have.
+They run in parallel. Report both results, with the security report folder,
+when you ask for the OK. Any failure or finding stops the release.
+
 ## Versions
 
 - **App:** `version` in `[workspace.package]` of the root `Cargo.toml` and in
