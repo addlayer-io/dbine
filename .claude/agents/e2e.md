@@ -114,6 +114,30 @@ with `<scratch>/test-config.json`:
   restarts the build.
 - Stop the instance when you're done.
 
+### Driving the instance (dev harness)
+
+Debug builds run a local harness (`src-tauri/src/devtools.rs`) on
+`127.0.0.1:$DBINE_DEV_PORT` (17999 by default; 18001 for the test instance
+above). `POST /eval` with a JavaScript body runs it in the main window as the
+body of an async function and answers its return value as JSON
+(`/eval?label=<window>` targets another window; `return await
+window.__dbineSnap()` gives a PNG data URL of the page).
+
+Every request needs the per-run token, which the app writes at start to
+`<temp dir>/dbine-devtools-<port>.token` (owner-only, replaced on each
+start), in the `X-DBine-Devtools-Token` header:
+
+```
+TOKEN=$(cat "${TMPDIR:-/tmp}/dbine-devtools-18001.token")
+curl -s http://127.0.0.1:18001/eval -H "X-DBine-Devtools-Token: $TOKEN" \
+  --data-binary 'return document.title'
+```
+
+Without the token, with an `Origin` header, a `Host` other than
+`127.0.0.1:<port>`/`localhost:<port>`, another method or path, or a body over
+1 MiB, the harness answers 403/4xx and runs nothing. Re-read the token after
+each restart of the instance.
+
 ## Report
 
 Keep it short:
