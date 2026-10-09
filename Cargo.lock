@@ -3080,10 +3080,12 @@ dependencies = [
 name = "dbine-tunnel"
 version = "0.1.10"
 dependencies = [
+ "libc",
  "russh",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

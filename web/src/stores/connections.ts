@@ -283,9 +283,10 @@ export const useConnectionsStore = defineStore('connections', {
         const kind = errorKind(e);
         // The tunnel's SSH server isn't known yet: trust it (the user checks
         // the fingerprint) and connect again.
-        const fingerprint = await askTrustSshHost(e);
-        if (fingerprint) {
-          await api.trustSshHost(id, fingerprint);
+        const entry = await askTrustSshHost(e);
+        if (entry) {
+          // The command's `fingerprint` takes the entry bound to its server.
+          await api.trustSshHost(id, entry);
           await this.load();
           return this.connect(id, password);
         }

@@ -4,18 +4,26 @@
 //! the local port as if it were the server, so every engine that connects
 //! over the network gets tunnels without knowing about them.
 //!
-//! Server keys are checked: a key in the user's `~/.ssh/known_hosts` or one
-//! the user accepted before (`Spec::trusted`) passes; an unknown one is an
-//! [`Error::UnknownHost`] carrying its fingerprint, for the app to ask; a key
-//! that differs from the one in known_hosts is refused.
+//! Server keys are checked, each hop on its own: `~/.ssh/known_hosts` first
+//! (a key that differs from the one there is refused, whatever the user
+//! accepted), then the keys the user accepted for that same server
+//! (`Spec::trusted`, entries bound to `[host]:port`); an unknown one is an
+//! [`Error::UnknownHost`] carrying its fingerprint, for the app to ask.
+//!
+//! The local port only serves processes of the user running DBine (see
+//! `peer`): another account on the same machine can't ride the user's SSH
+//! session.
 
 use russh::client::{self, Handle};
 use russh::keys::{self, HashAlg, PrivateKeyWithHashAlg, PublicKey};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+
+mod peer;
 
 /// An SSH server on the way to the database.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -53,8 +61,42 @@ pub struct Spec {
     pub auth: Auth,
     pub target_host: String,
     pub target_port: u16,
-    /// Server key fingerprints (`SHA256:…`) the user accepted.
+    /// Server keys the user accepted, each bound to the server it was
+    /// accepted for: `[host]:port SHA256:…` ([`trusted_entry`]). Entries
+    /// without the server (a bare `SHA256:…`, as older versions saved them)
+    /// are ignored: the user is asked again.
     pub trusted: Vec<String>,
+}
+
+/// The `Spec::trusted` entry for a key accepted for `host:port`.
+pub fn trusted_entry(host: &str, port: u16, fingerprint: &str) -> String {
+    format!("[{host}]:{port} {fingerprint}")
+}
+
+/// The server and fingerprint of a `Spec::trusted` entry; None for a bare
+/// fingerprint or anything malformed.
+pub fn parse_trusted(entry: &str) -> Option<(&str, u16, &str)> {
+    let rest = entry.trim().strip_prefix('[')?;
+    let (host, rest) = rest.rsplit_once("]:")?;
+    let (port, fingerprint) = rest.split_once(' ')?;
+    let port = port.parse().ok()?;
+    let fingerprint = fingerprint.trim();
+    let valid = !host.is_empty()
+        && !host.contains(|c: char| c.is_whitespace() || c == ',' || c == '[' || c == ']')
+        && fingerprint.len() > "SHA256:".len()
+        && fingerprint.starts_with("SHA256:")
+        && !fingerprint.contains(|c: char| c.is_whitespace() || c == ',');
+    valid.then_some((host, port, fingerprint))
+}
+
+/// The fingerprints accepted for exactly this server.
+fn trusted_for(trusted: &[String], host: &str, port: u16) -> Vec<String> {
+    trusted
+        .iter()
+        .filter_map(|e| parse_trusted(e))
+        .filter(|(h, p, _)| *p == port && h.eq_ignore_ascii_case(host))
+        .map(|(_, _, f)| f.to_string())
+        .collect()
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -114,7 +156,7 @@ struct Checker {
     seen: Arc<Mutex<Option<Verdict>>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 enum Verdict {
     Unknown(String),
     Changed,
@@ -128,27 +170,28 @@ impl client::Handler for Checker {
             keys::PublicKeyOrCertificate::PublicKey { key, .. } => key.clone(),
             keys::PublicKeyOrCertificate::Certificate(cert) => PublicKey::from(cert.public_key().clone()),
         };
-        let key = &key;
         let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
-        if self.trusted.iter().any(|t| t == &fingerprint) {
-            return Ok(true);
-        }
-        match keys::check_known_hosts(&self.host, self.port, key) {
-            Ok(true) => Ok(true),
-            Ok(false) => {
-                *self.seen.lock().unwrap() = Some(Verdict::Unknown(fingerprint));
-                Ok(false)
-            }
-            Err(keys::Error::KeyChanged { .. }) => {
-                *self.seen.lock().unwrap() = Some(Verdict::Changed);
-                Ok(false)
-            }
-            // No known_hosts file (or an unreadable one): the key is unknown.
-            Err(_) => {
-                *self.seen.lock().unwrap() = Some(Verdict::Unknown(fingerprint));
+        let known = keys::check_known_hosts(&self.host, self.port, &key);
+        match decide(known, fingerprint, &self.trusted) {
+            Ok(()) => Ok(true),
+            Err(verdict) => {
+                *self.seen.lock().unwrap() = Some(verdict);
                 Ok(false)
             }
         }
+    }
+}
+
+/// known_hosts rules: a pinned key that changed is refused even if the user
+/// accepted this one in DBine; only a server known_hosts doesn't pin falls
+/// back to `trusted` (the fingerprints accepted for this very server).
+fn decide(known: Result<bool, keys::Error>, fingerprint: String, trusted: &[String]) -> Result<(), Verdict> {
+    match known {
+        Ok(true) => Ok(()),
+        Err(keys::Error::KeyChanged { .. }) => Err(Verdict::Changed),
+        // Not in known_hosts (or no known_hosts file, or an unreadable one).
+        Ok(false) | Err(_) if trusted.iter().any(|t| t == &fingerprint) => Ok(()),
+        Ok(false) | Err(_) => Err(Verdict::Unknown(fingerprint)),
     }
 }
 
@@ -172,7 +215,8 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
     let mut hops: Vec<Arc<Handle<Checker>>> = Vec::new();
     for (i, hop) in spec.hops.iter().enumerate() {
         let seen = Arc::new(Mutex::new(None));
-        let checker = Checker { host: hop.host.clone(), port: hop.port, trusted: spec.trusted.clone(), seen: seen.clone() };
+        let trusted = trusted_for(&spec.trusted, &hop.host, hop.port);
+        let checker = Checker { host: hop.host.clone(), port: hop.port, trusted, seen: seen.clone() };
         let connecting = match hops.last() {
             None => tokio::time::timeout(Duration::from_secs(20), client::connect(config(), (first.host.as_str(), first.port), checker)).await,
             Some(prev) => {
@@ -201,7 +245,8 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
     let last = hops.last().cloned().expect("at least one hop");
 
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.map_err(Error::Listen)?;
-    let local_port = listener.local_addr().map_err(Error::Listen)?.port();
+    let local: SocketAddr = listener.local_addr().map_err(Error::Listen)?;
+    let local_port = local.port();
     let (target_host, target_port) = (spec.target_host.clone(), spec.target_port);
     // The database has to be reachable before the driver is told to use it.
     last.channel_open_direct_tcpip(target_host.clone(), target_port.into(), "127.0.0.1", 0)
@@ -218,6 +263,12 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
             let session = session.clone();
             let host = target_host.clone();
             tokio::spawn(async move {
+                // Only the user's own processes (DBine, its driver hosts) may
+                // use the user's SSH session.
+                if !tokio::task::spawn_blocking(move || peer::same_user(peer, local)).await.unwrap_or(false) {
+                    tracing::warn!(%peer, "SSH tunnel: refused a local connection that isn't from this user's processes");
+                    return;
+                }
                 let _ = socket.set_nodelay(true);
                 match session.channel_open_direct_tcpip(host.clone(), target_port.into(), peer.ip().to_string(), peer.port().into()).await {
                     Ok(channel) => {
@@ -294,5 +345,52 @@ async fn agent() -> Result<keys::agent::client::AgentClient<impl tokio::io::Asyn
     match keys::agent::client::AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
         Ok(a) => Ok(a),
         Err(e) => Err(Error::Agent(format!("{e} (¿está corriendo el servicio «OpenSSH Authentication Agent»?)"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FP_J: &str = "SHA256:jumpjumpjumpjumpjumpjumpjumpjumpjumpjumpjum";
+    const FP_H: &str = "SHA256:hosthosthosthosthosthosthosthosthosthosthos";
+
+    #[test]
+    fn trusted_entries_carry_their_server() {
+        let e = trusted_entry("bastion.corp", 2200, FP_J);
+        assert_eq!(e, format!("[bastion.corp]:2200 {FP_J}"));
+        assert_eq!(parse_trusted(&e), Some(("bastion.corp", 2200, FP_J)));
+        assert_eq!(parse_trusted(&format!("[::1]:22 {FP_H}")), Some(("::1", 22, FP_H)));
+        // Older versions saved bare fingerprints: no server, not honored.
+        assert_eq!(parse_trusted(FP_H), None);
+        assert_eq!(parse_trusted(&format!("bastion:22 {FP_J}")), None);
+        assert_eq!(parse_trusted(&format!("[]:22 {FP_J}")), None);
+        assert_eq!(parse_trusted(&format!("[h]:x {FP_J}")), None);
+        assert_eq!(parse_trusted("[h]:22 MD5:aa"), None);
+        assert_eq!(parse_trusted("[h]:22 SHA256:"), None);
+    }
+
+    #[test]
+    fn a_key_trusted_for_one_hop_doesnt_pass_another() {
+        let trusted = vec![trusted_entry("jump", 22, FP_J), trusted_entry("db-ssh", 2222, FP_H), FP_J.to_string()];
+        assert_eq!(trusted_for(&trusted, "jump", 22), vec![FP_J.to_string()]);
+        assert_eq!(trusted_for(&trusted, "JUMP", 22), vec![FP_J.to_string()]);
+        assert_eq!(trusted_for(&trusted, "db-ssh", 2222), vec![FP_H.to_string()]);
+        // Same host, other port; or a hop with no entry of its own: the
+        // bare legacy fingerprint doesn't count either.
+        assert!(trusted_for(&trusted, "db-ssh", 22).is_empty());
+        assert!(trusted_for(&trusted, "other", 22).is_empty());
+    }
+
+    #[test]
+    fn known_hosts_wins_over_trusted() {
+        let trusted = vec![FP_H.to_string()];
+        let changed = || Err(keys::Error::KeyChanged { line: 3 });
+        assert_eq!(decide(Ok(true), FP_J.into(), &[]), Ok(()));
+        // A key that differs from the pinned one is refused even if accepted in DBine.
+        assert_eq!(decide(changed(), FP_H.into(), &trusted), Err(Verdict::Changed));
+        assert_eq!(decide(Ok(false), FP_H.into(), &trusted), Ok(()));
+        assert_eq!(decide(Ok(false), FP_J.into(), &trusted), Err(Verdict::Unknown(FP_J.into())));
+        assert_eq!(decide(Err(keys::Error::CouldNotReadKey), FP_H.into(), &trusted), Ok(()));
     }
 }
