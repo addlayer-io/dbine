@@ -116,6 +116,9 @@ fn name_of(c: &Candidate, line: &str) -> String {
     if matches!(cfg.driver.as_str(), "sqlite" | "duckdb") {
         return std::path::Path::new(&cfg.host).file_name().and_then(|f| f.to_str()).unwrap_or(&cfg.host).to_string();
     }
+    if let Some(name) = cfg.options.get("connect_descriptor").and_then(|d| super::descriptor_name(d)) {
+        return name;
+    }
     let host = cfg.host.split([',', '\\']).next().unwrap_or("").to_string();
     match (host.is_empty(), cfg.database.is_empty()) {
         (false, false) => format!("{host} / {}", cfg.database),
@@ -129,6 +132,13 @@ fn name_of(c: &Candidate, line: &str) -> String {
 fn safe_line(line: &str) -> String {
     if line.contains("://") {
         return redact_url(line);
+    }
+    // `jdbc:oracle:thin:user/password@…` and EZConnect `user/password@…`.
+    if let Some((_, target)) = line.split_once('@') {
+        let head = line.split('@').next().unwrap_or("");
+        if head.contains('/') || head.to_ascii_lowercase().starts_with("jdbc:oracle") {
+            return format!("@{}", target.trim());
+        }
     }
     line.split(';')
         .filter(|p| {
@@ -189,5 +199,17 @@ mod tests {
         for c in &f.candidates {
             assert!(!c.name.contains("s3cret"), "{}", c.name);
         }
+    }
+
+    #[test]
+    fn an_oracle_descriptor_url_keeps_its_login_out_of_the_name() {
+        let f = read("jdbc:oracle:thin:scott/S3cretPw@(DESCRIPTION=(ADDRESS=(HOST=ora)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=XE)))\njdbc:oracle:thin:scott/S3cretPw@//ora:1521/XE");
+        for c in &f.candidates {
+            assert!(!c.name.contains("S3cretPw"), "{}", c.name);
+            assert!(!serde_json::to_string(&c.config.options).unwrap().contains("S3cretPw"));
+            assert_eq!(c.config.username.as_deref(), Some("scott"));
+            assert_eq!(c.config.password.as_deref(), Some("S3cretPw"));
+        }
+        assert_eq!(f.candidates[0].name, "ora / XE");
     }
 }
