@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-dsql"
-version = "0.1.6"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+version = "0.1.7"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 
