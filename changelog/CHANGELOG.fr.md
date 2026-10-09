@@ -48,9 +48,13 @@
 - **Voir les dépendances et Renommer** ne s'arrêtent plus sur les routines dont les noms entre guillemets sont inhabituels.
 - **Lecture seule sur SQL Server :** un lot ne peut commencer que par `SELECT`, `WITH`, `USE` ou `PRINT`. Ce qui suit `SHOW`, `DESCRIBE` ou `PRAGMA` est vérifié sur tous les moteurs.
 - **Importer des connexions :** une URL JDBC Oracle avec utilisateur et mot de passe les garde hors du nom de la connexion : le mot de passe va dans le trousseau du système.
-- **Lecture seule :** un commentaire `--` se termine aussi à un retour chariot (CR), comme PostgreSQL le lit, de sorte que rien de ce qui s'exécute ne peut se cacher dans un commentaire. Sur SQL Server, une procédure dont le nom commence comme `print_` ou `select1` n'est plus prise pour une lecture.
+- **Lecture seule sur SQL Server :** une procédure dont le nom commence comme `print_` ou `select1` n'est plus prise pour une lecture.
 - **Importer des connexions :** un mot de passe Oracle contenant `@` est conservé en entier dans le trousseau du système.
 - **Tunnels SSH sur Linux :** le port local du tunnel ne fait confiance qu'aux connexions ouvertes par votre propre utilisateur.
+- **Lecture seule :** une requête contenant un retour chariot isolé ou une espace Unicode inhabituel est refusée, car les moteurs ne s'accordent pas sur l'endroit où un commentaire ou une instruction se termine dans ce cas. Les fonctions à effets de bord sont aussi refusées : `load_extension` dans SQLite, `pg_notify` et les lectures de réplication logique dans PostgreSQL, et l'annulation de sessions ou de requêtes dans Snowflake.
+- **Export SQL** d'une grille multi-bases : il échappe les chaînes pour que le script se lise de la même façon sur n'importe quel moteur.
+- **Importer des connexions :** une URL SQL Server sans hôte ne place plus son mot de passe dans le nom de la connexion.
+- **Utilisateurs et droits :** l'aperçu masque les mots de passe PostgreSQL sous toutes leurs formes.
 
 ## [0.1.9] - 2026-10-09
 

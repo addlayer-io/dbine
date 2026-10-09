@@ -48,9 +48,13 @@
 - **Ver dependencias y Renombrar** ya no se detienen en rutinas con nombres entre comillas poco comunes.
 - **Solo lectura en SQL Server:** un batch solo puede empezar con `SELECT`, `WITH`, `USE` o `PRINT`. Lo que sigue a `SHOW`, `DESCRIBE` o `PRAGMA` se revisa en todos los motores.
 - **Importar conexiones:** una URL JDBC de Oracle con usuario y contraseña los deja fuera del nombre de la conexión: la contraseña va al llavero del sistema.
-- **Solo lectura:** un comentario `--` también termina en un retorno de carro (CR), como lo lee PostgreSQL, así que nada que se ejecute puede esconderse en un comentario. En SQL Server, un procedimiento cuyo nombre empieza como `print_` o `select1` ya no se toma por una lectura.
+- **Solo lectura en SQL Server:** un procedimiento cuyo nombre empieza como `print_` o `select1` ya no se toma por una lectura.
 - **Importar conexiones:** una contraseña de Oracle con `@` se guarda entera en el llavero del sistema.
 - **Túneles SSH en Linux:** el puerto local del túnel solo acepta conexiones abiertas de tu propio usuario.
+- **Solo lectura:** se rechaza una consulta con un retorno de carro suelto o un espacio Unicode inusual, porque los motores no coinciden en dónde termina ahí un comentario o una sentencia. También se rechazan las funciones con efectos secundarios: `load_extension` en SQLite, `pg_notify` y las lecturas de replicación lógica en PostgreSQL, y la cancelación de sesiones o consultas en Snowflake.
+- **Exportación SQL** de una grilla de varias bases de datos: escapa las cadenas para que el script se lea igual en cualquier motor.
+- **Importar conexiones:** una URL de SQL Server sin host ya no pone su contraseña en el nombre de la conexión.
+- **Usuarios y permisos:** la vista previa oculta las contraseñas de PostgreSQL en todas sus formas.
 
 ## [0.1.9] - 2026-10-09
 
