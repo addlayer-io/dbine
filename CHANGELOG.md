@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Read-only:** queries that take locks other sessions wait on are refused, for example `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` and `FOR SHARE`.
+
 ## [0.1.10] - 2026-10-10
 
 ### New
