@@ -55,7 +55,9 @@ const WRITE_FUNCTIONS: &[&str] = &[
     "pg_stat_reset_shared", "pg_stat_reset_single_table_counters", "pg_stat_reset_single_function_counters", "pg_stat_statements_reset",
     "lo_import", "lo_export", "lo_unlink", "lo_create", "lo_creat", "lo_from_bytea", "lo_put", "lo_truncate", "setval", "nextval", "dblink",
     "dblink_exec", "dblink_open", "dblink_send_query", "dblink_connect", "query_to_xml", "query_to_xmlschema", "query_to_xml_and_xmlschema",
-    "cursor_to_xml", "load_file", "sys_exec", "sys_eval",
+    "cursor_to_xml", "load_file", "sys_exec", "sys_eval", "pg_notify", "pg_logical_slot_get_changes", "pg_logical_slot_get_binary_changes",
+    "pg_replication_slot_advance", "load_extension", "writefile", "fts3_tokenizer", "system$abort_session", "system$abort_transaction",
+    "system$cancel_all_queries", "system$cancel_query", "system$user_task_cancel_ongoing_executions",
 ];
 
 /// Prefixes of procedures and packages that act outside the query: SQL
@@ -118,7 +120,28 @@ pub fn first_write(sql: &str) -> Option<String> {
 /// ([`ScriptDialect::dash_comment_space`]); elsewhere `--` is a comment, as
 /// the server reads it.
 pub fn first_write_in(sql: &str, dialect: &ScriptDialect) -> Option<String> {
+    if has_lone_cr(sql) {
+        return Some("CR".into());
+    }
+    if let Some(c) = ambiguous_space(sql) {
+        return Some(format!("U+{:04X}", c as u32));
+    }
     writes_in(&expose_versioned(sql, dialect), dialect)
+}
+
+/// A space-like character some servers may read as whitespace between
+/// statements while the guard reads it as part of a word (NBSP, the
+/// Unicode spaces, line and paragraph separators, BOM): refused.
+fn ambiguous_space(sql: &str) -> Option<char> {
+    sql.chars().find(|&c| matches!(c, '\u{85}' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200b}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'))
+}
+
+/// A carriage return not followed by a line feed. PostgreSQL ends a `--`
+/// comment there and MySQL doesn't, so where a comment ends would depend on
+/// the server: such SQL is refused rather than guessed.
+fn has_lone_cr(sql: &str) -> bool {
+    let b = sql.as_bytes();
+    b.iter().enumerate().any(|(i, &c)| c == b'\r' && b.get(i + 1) != Some(&b'\n'))
 }
 
 fn writes_in(sql: &str, dialect: &ScriptDialect) -> Option<String> {
@@ -216,6 +239,12 @@ fn hidden_write(stmt: &str, first: &str, dialect: &ScriptDialect) -> Option<Stri
 /// changes the plan mode or the session, or a write next to other
 /// statements (a single write is only planned, not run).
 fn unsafe_to_plan(sql: &str, dialect: &ScriptDialect) -> Option<String> {
+    if has_lone_cr(sql) {
+        return Some("CR".into());
+    }
+    if let Some(c) = ambiguous_space(sql) {
+        return Some(format!("U+{:04X}", c as u32));
+    }
     let sql = expose_versioned(sql, dialect);
     let stmts = statements(&sql, dialect);
     for stmt in &stmts {
@@ -620,6 +649,64 @@ mod tests {
         assert_eq!(*log.lock().unwrap(), ["execute SELECT 1"]);
     }
 
+    /// Every bypass the security scans found, round after round: none may
+    /// pass again, in the dialect it was found in and in the generic MCP check.
+    #[test]
+    fn every_reported_bypass_stays_closed() {
+        use crate::sql::ScriptDialect;
+        let (t, pg, my, ora) = (ScriptDialect::tsql(), ScriptDialect::postgres(), ScriptDialect::mysql(), ScriptDialect::oracle());
+        let cases: &[(&str, &ScriptDialect)] = &[
+            // First scan: first-keyword filter.
+            ("SELECT 1 DELETE FROM dbo.t", &t),
+            ("SELECT 1 DROP TABLE dbo.Orders", &t),
+            ("WITH c AS (SELECT 1 x) DELETE FROM dbo.t", &t),
+            ("with d as (delete from t returning 1) select count(*) from d", &pg),
+            ("SELECT * INTO dbo.copy FROM dbo.t", &t),
+            ("SELECT 1 EXEC xp_cmdshell 'whoami'", &t),
+            ("SELECT set_config('default_transaction_read_only','off',false)", &pg),
+            ("select dblink_exec('dbname=x', 'drop table t')", &pg),
+            ("select * from t into outfile '/tmp/x'", &my),
+            ("select utl_http.request('http://x') from dual", &ora),
+            // Gate on dd3903d: escaped names, T-SQL state changes.
+            ("select U&\"\\0073et_config\"('default_transaction_read_only','off',false)", &pg),
+            ("SELECT 1 DISABLE TRIGGER audit ON dbo.t", &t),
+            ("SELECT 1 BACKUP LOG db TO DISK = 'nul'", &t),
+            ("SELECT 1 SEND ON CONVERSATION @h (0x01)", &t),
+            ("SELECT 1 COMMIT", &t),
+            // Gate on 48b0bf5: statements that don't start with a word.
+            ("[dbo].[purge_all]", &t),
+            ("\"purge_all\"", &t),
+            ("(SELECT set_config('a','b',false))", &pg),
+            ("(SELECT 1) DELETE FROM t", &t),
+            // Gate on 7e9e50c: read leads that exempted what followed.
+            ("SHOW x DELETE FROM t COMMIT", &t),
+            ("DESC t UPDATE t SET a = 1", &t),
+            ("pragma table_info(t) delete from t", &ScriptDialect::generic()),
+            // Gate on 7752c41: partial lead words, CR in comments.
+            ("print_cleanup", &t),
+            ("select1", &t),
+            ("SELECT 1 --x\r, set_config('a','b',false)", &pg),
+            // Gate on b350379: a quote after a lone CR in a MySQL comment.
+            ("SELECT 1 -- x\r'\n; SET SESSION TRANSACTION READ WRITE; DELETE FROM customers -- '", &my),
+            ("SELECT 1 # x\r'\n; DELETE FROM customers # '", &my),
+            // Side-effect functions found reviewing the b350379 fix.
+            ("select load_extension('/tmp/x.so')", &ScriptDialect::generic()),
+            ("select writefile('/tmp/x', 'y')", &ScriptDialect::generic()),
+            ("select pg_notify('c', 'x')", &pg),
+            ("select * from pg_logical_slot_get_changes('s', null, null)", &pg),
+            ("select pg_replication_slot_advance('s', '0/0')", &pg),
+            ("SELECT SYSTEM$ABORT_SESSION(1)", &ScriptDialect::generic()),
+            ("SELECT SYSTEM$CANCEL_ALL_QUERIES(1)", &ScriptDialect::generic()),
+            ("SELECT 1\u{a0}DELETE FROM t", &t),
+        ];
+        for (sql, d) in cases {
+            assert!(super::first_write_in(sql, d).is_some(), "{sql:?} in {d:?}");
+            assert!(super::first_write(sql).is_some(), "{sql:?} in the MCP pre-check");
+        }
+        // Estimated plans: SHOWPLAN turned off by a later batch.
+        assert!(super::unsafe_to_plan("SELECT 1\nGO\nSET SHOWPLAN_XML OFF\nGO\nDROP TABLE dbo.orders", &t).is_some());
+    }
+
     #[test]
     fn a_lead_is_the_whole_word_and_comments_end_at_cr() {
         use crate::sql::ScriptDialect;
@@ -628,12 +715,17 @@ mod tests {
             assert!(super::first_write_in(sql, &t).is_some(), "{sql}");
             assert!(super::first_write(sql).is_some(), "{sql}");
         }
-        // PostgreSQL ends a `--` comment at a lone CR: what follows is checked.
+        // A lone CR ends a `--` comment in PostgreSQL but not in MySQL: refused.
         let pg = ScriptDialect::postgres();
-        assert_eq!(super::first_write_in("SELECT 1 --x\r, set_config('a','b',false)", &pg).as_deref(), Some("SET_CONFIG"));
-        assert_eq!(super::first_write("select 1 -- c\rdelete from t").as_deref(), Some("DELETE"));
+        let my = ScriptDialect::mysql();
+        assert_eq!(super::first_write_in("SELECT 1 --x\r, set_config('a','b',false)", &pg).as_deref(), Some("CR"));
+        assert_eq!(super::first_write_in("SELECT 1 -- x\r'\n; SET SESSION TRANSACTION READ WRITE; DELETE FROM t -- '", &my).as_deref(), Some("CR"));
+        assert_eq!(super::first_write_in("SELECT 1 # x\r'\n; DELETE FROM t # '", &my).as_deref(), Some("CR"));
+        assert_eq!(super::first_write("select 1 -- c\rdelete from t").as_deref(), Some("CR"));
+        assert!(super::unsafe_to_plan("select 1 -- c\rdelete from t", &pg).is_some());
         // CRLF scripts read as before.
         assert_eq!(super::first_write_in("select 1 -- note\r\nfrom t", &pg), None);
+        assert_eq!(super::first_write_in("select 1 -- note\r\nfrom t", &my), None);
     }
 
     #[test]

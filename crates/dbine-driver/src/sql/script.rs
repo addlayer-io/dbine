@@ -576,10 +576,11 @@ impl Scanner<'_> {
         j
     }
 
-    /// Where a line comment ends: at LF or CR (PostgreSQL ends one at a
-    /// lone CR too, so what follows is code, never hidden in a comment).
+    /// Where a line comment ends: at LF. Servers disagree on a lone CR
+    /// (PostgreSQL ends the comment there, MySQL doesn't), so the read-only
+    /// guard refuses SQL that has one ([`crate::read_only`]).
     fn comment_end(&self, i: usize) -> usize {
-        self.b[i..].iter().position(|&c| c == b'\n' || c == b'\r').map_or(self.b.len(), |p| i + p)
+        self.line_end(i)
     }
 
     /// The newline (not included) or the end.
