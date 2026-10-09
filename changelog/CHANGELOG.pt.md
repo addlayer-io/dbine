@@ -55,6 +55,7 @@
 - **Exportação SQL** de uma grade de vários bancos de dados: escapa as strings para que o script seja lido da mesma forma em qualquer motor.
 - **Importar conexões:** uma URL do SQL Server sem host não coloca mais a senha no nome da conexão.
 - **Usuários e permissões:** a prévia oculta as senhas do PostgreSQL em todas as formas.
+- **Somente leitura:** consultas que adquirem bloqueios pelos quais outras sessões esperam são recusadas, por exemplo `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` e `FOR SHARE`.
 
 ## [0.1.9] - 2026-10-09
 

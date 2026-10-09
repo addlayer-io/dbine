@@ -2,9 +2,6 @@
 
 ## [Unreleased]
 
-### Fixes
-- **Read-only:** queries that take locks other sessions wait on are refused, for example `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` and `FOR SHARE`.
-
 ## [0.1.10] - 2026-10-10
 
 ### New
@@ -60,6 +57,7 @@
 - **SQL export** of a multi-database grid escapes strings so the script reads the same on any engine.
 - **Import connections:** a SQL Server URL with no host no longer puts its password in the connection's name.
 - **Users and permissions:** the preview hides PostgreSQL passwords in every form.
+- **Read-only:** queries that take locks other sessions wait on are refused, for example `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` and `FOR SHARE`.
 
 ## [0.1.9] - 2026-10-09
 

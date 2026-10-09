@@ -55,6 +55,7 @@
 - **Exportación SQL** de una grilla de varias bases de datos: escapa las cadenas para que el script se lea igual en cualquier motor.
 - **Importar conexiones:** una URL de SQL Server sin host ya no pone su contraseña en el nombre de la conexión.
 - **Usuarios y permisos:** la vista previa oculta las contraseñas de PostgreSQL en todas sus formas.
+- **Solo lectura:** se rechazan las consultas que toman bloqueos por los que otras sesiones esperan, por ejemplo `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` y `FOR SHARE`.
 
 ## [0.1.9] - 2026-10-09
 

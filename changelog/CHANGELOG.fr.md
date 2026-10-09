@@ -55,6 +55,7 @@
 - **Export SQL** d'une grille multi-bases : il échappe les chaînes pour que le script se lise de la même façon sur n'importe quel moteur.
 - **Importer des connexions :** une URL SQL Server sans hôte ne place plus son mot de passe dans le nom de la connexion.
 - **Utilisateurs et droits :** l'aperçu masque les mots de passe PostgreSQL sous toutes leurs formes.
+- **Lecture seule :** les requêtes qui prennent des verrous que d’autres sessions attendent sont refusées, par exemple `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` et `FOR SHARE`.
 
 ## [0.1.9] - 2026-10-09
 
