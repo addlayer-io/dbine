@@ -54,7 +54,11 @@ DEFAULT_CONF = ROOT / "src-tauri" / "tauri.conf.json"
 DEFAULT_SIGNER = "npx --yes @tauri-apps/cli@^2 signer sign"
 # The code both sides of the app <-> host pipe are built from: a host built
 # from this code runs under an app built from code with the same hash.
-WIRE_DIRS = ("crates/dbine-plugin/src", "crates/dbine-driver/src")
+# What a driver host and the app exchange: the protocol (proto.rs), how the
+# host answers it (host.rs) and the driver contract. App-side code (the
+# launcher, installer, updater) isn't part of it, so changing it doesn't
+# raise the min_app of the drivers published after.
+WIRE_DIRS = ("crates/dbine-plugin/src/proto.rs", "crates/dbine-plugin/src/host.rs", "crates/dbine-driver/src")
 WIRE_EXCLUDED = {"tests", "testdata"}
 APP_TAG = re.compile(r"^v(\d+\.\d+\.\d+)$")
 DRIVER_ID = re.compile(r"^(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\+p(\d+)\.e(\d+)$")
@@ -156,7 +160,7 @@ def wire_hash(rev=None, root=ROOT):
     files = []
     if rev is None:
         for d in WIRE_DIRS:
-            for p in (root / d).rglob("*"):
+            for p in ([root / d] if (root / d).is_file() else (root / d).rglob("*")):
                 rel = p.relative_to(root).as_posix()
                 if p.is_file() and _wire_path(rel):
                     files.append((rel, p.read_bytes()))

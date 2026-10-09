@@ -6,7 +6,7 @@
 #[test]
 fn engines_without_index_toggle_are_documented() {
     let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/engine-support.md")).unwrap();
-    let section = doc.split("### Motores sin deshabilitar índices").nth(1).expect("section in engine-support.md");
+    let section = doc.split("### Engines without disabling indexes").nth(1).expect("section in engine-support.md");
     let section = section.split("\n## ").next().unwrap_or(section);
     // Names wrap across lines in the doc.
     let section = section.split_whitespace().collect::<Vec<_>>().join(" ");

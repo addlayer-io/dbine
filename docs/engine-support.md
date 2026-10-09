@@ -75,13 +75,13 @@ Three features depend only on the app, not on each engine, so they work in all o
 | Materialize, RisingWave | table | no foreign keys | yes | No identity; Materialize without PRIMARY KEY. |
 | CrateDB | table (shards and replicas) | no foreign keys or indexes | no | No COMMENT. |
 | Yellowbrick, H2 (`-pg` mode) | table | yes | yes in Yellowbrick | H2 without TLS. |
-| Aurora MySQL, Cloud SQL for MySQL | table | yes | yes | Same as MySQL, with TLS and CA certificate. Cloud SQL without client certificates: use the Cloud SQL Auth Proxy. |
+| Aurora MySQL, Cloud SQL para MySQL | table | yes | yes | Same as MySQL, with TLS and CA certificate. Cloud SQL without client certificates: use the Cloud SQL Auth Proxy. |
 | VeloDB | table | no foreign keys | yes | Same as Doris. |
 | Azure SQL Database | table | yes | yes | SQL login or Microsoft Entra ID. |
 | Fabric Warehouse | table | `NOT ENFORCED` keys, no indexes | no | Entra ID only; warehouses are created in the portal; no triggers. |
 | Babelfish | table | yes | yes | T-SQL on top of PostgreSQL. |
 | Oracle Autonomous | table | yes | as Oracle | Wallet with `ewallet.pem` or TLS string; `cwallet.sso` and `.p12` not supported. |
-| CSV / Parquet / JSON files | — (each file is a view) | — | no | Through DuckDB; not Excel (it needs an extension that is not bundled). |
+| Archivos CSV / Parquet / JSON | — (each file is a view) | — | no | Through DuckDB; not Excel (it needs an extension that is not bundled). |
 | libSQL / Turso | table | yes | no (platform API) | No cancellation: Hrana HTTP has no cancel request. |
 | Azure Databricks | table (Delta) | yes | yes (catalogs) | Same as Databricks, with token or Entra ID service principal. |
 | Apache Calcite Avatica | — | — | no | No designer, DDL, definitions or monitor: they depend on the database behind the server. |
@@ -1580,7 +1580,7 @@ These have it:
 - **Relational and compatibles:**
   - SQL Server family: SQL Server, Azure SQL, Microsoft Fabric Data Warehouse and Babelfish.
   - PostgreSQL family: PostgreSQL, TimescaleDB, YugabyteDB, openGauss, Cloudberry, Greengage, Greenplum, KingbaseES, EDB, Fujitsu, Yellowbrick, AlloyDB, Cloud SQL, Aurora PostgreSQL, Aurora DSQL, CockroachDB, Materialize, Redshift, CrateDB, H2 and RisingWave.
-  - MySQL family: MySQL, Aurora MySQL, Cloud SQL for MySQL, MariaDB, TiDB, OceanBase, SingleStore, StarRocks, Apache Doris, VeloDB and Databend.
+  - MySQL family: MySQL, Aurora MySQL, Cloud SQL para MySQL, MariaDB, TiDB, OceanBase, SingleStore, StarRocks, Apache Doris, VeloDB and Databend.
   - Others: Oracle, SAP HANA and Firebird.
 - **Analytical and cloud:** ClickHouse, Timeplus Proton, Snowflake, Databricks, BigQuery, Cloud Spanner, Trino, Presto, Starburst and Dremio.
 - **Documents, graphs and key-value:** MongoDB, FerretDB (users only), Amazon DocumentDB, Couchbase, CouchDB, Azure Cosmos DB, OrientDB, Neo4j, Memgraph, Cassandra, ScyllaDB, Redis, Valkey, Dragonfly and etcd.
@@ -1711,7 +1711,7 @@ Dremio.
 | Engine | Reason |
 |---|---|
 | Oracle | A schema is a user with a password: it is created and dropped from "Users and permissions". |
-| MySQL family (MySQL, Aurora MySQL, Cloud SQL for MySQL, MariaDB, TiDB, OceanBase, SingleStore, StarRocks, Apache Doris, VeloDB, Databend) | The schema is the database: it is created with "New database". |
+| MySQL family (MySQL, Aurora MySQL, Cloud SQL para MySQL, MariaDB, TiDB, OceanBase, SingleStore, StarRocks, Apache Doris, VeloDB, Databend) | The schema is the database: it is created with "New database". |
 | SAP HANA | HANA schemas are the explorer's databases: they are created and dropped with "New database" and "Delete database". Pending: choosing the owner (`OWNED BY`) and permissions from "New database". |
 | Firebird | It has no schemas before version 6.0. Pending: showing and creating them in Firebird 6.0. |
 | Generic ODBC | It is not known which engine is behind. |
@@ -1928,7 +1928,7 @@ those not in it only have DBine copies.
 | Materialize | Server backups | It does not store data of its own: its state is rebuilt from the sources. |
 | Denodo | Server backups | It exports its metadata with its own tool; there is no server backup through SQL. |
 | MariaDB, Databend | Server backups | They are done with tools (`mariadb-backup`, `bendsave`). MariaDB's `BACKUP STAGE` only locks the server for those tools. |
-| Cloud SQL for MySQL, VeloDB | Server backups | They belong to the provider (console or API). |
+| Cloud SQL para MySQL, VeloDB | Server backups | They belong to the provider (console or API). |
 | MySQL, Manticore, OceanBase | Restore | MySQL: the server is restarted with `--datadir` pointing to the copy. Manticore: `manticore-backup --restore` with the server stopped. OceanBase: restoring creates a new tenant from the sys tenant. |
 | TiDB | Restoring under another name | TiDB restores under the original name and the tables must not exist. |
 | MySQL, TiDB, SingleStore, OceanBase, StarRocks, Doris, Manticore, GreptimeDB, ClickHouse, CockroachDB | Deleting a backup | There is no statement for that: the folder or object is deleted in storage. |
@@ -2363,7 +2363,7 @@ real servers", at the end of this section.
 | Sybase ASE (ODBC) | Same | `master..monOpenObjectActivity`: `UsedCount` to seeks, rows inserted + deleted + updated to writes, `LastUsedDate` | — (it counts while the object descriptor is open) | No | Yes | mon_role and the "enable monitoring" and "per object statistics active" options; without that, no counters and the warning says so | No (unit tests only) | — |
 | Db2 for z/OS, Informix, GBase 8s, Teradata, SQL Anywhere, Altibase, CUBRID, Dameng, Mimer, Ingres, IRIS and Caché, OpenEdge, MonetDB, Virtuoso, MaxDB, Zen, NuoDB, Ocient, Ignite, Machbase, Access, dBase and generic ODBC | From the table's ODBC catalog | They do not expose per-index counters through SQL: no counters, with a warning | — | — | — | — | The generic preset yes (through the SQL Server ODBC driver); the others no | Candidates: Teradata with object DBQL (`DBC.DBQLObjTbl`, if enabled), Informix with `sysmaster:sysptprof` (per partition), Db2 for z/OS with `SYSINDEXSPACESTATS.LASTUSED` (the date only). **Drop index** with each engine's sync script. |
 | Vertica, Exasol, Netezza (ODBC) | Without user-defined indexes (projections, automatic indexes, zone maps): the primary key as a constraint (CONSTRAINT) | — | — | — | — | — | No | Foreign keys (informational) mark their columns. |
-| MySQL (and Aurora MySQL, Cloud SQL for MySQL) | `SHOW INDEX` (PK included, `col(n)` prefixes, expressions, DESC); foreign keys from `KEY_COLUMN_USAGE` | `performance_schema.table_io_waits_summary_by_index_usage`: `COUNT_FETCH` (rows read through the index) to seeks; rows read without an index (table scans) to the primary key's scans in InnoDB, where the table is its clustered index; writes = the table's (`COUNT_INSERT + COUNT_UPDATE + COUNT_DELETE`: inserts are not attributed to any index) | Server start (`Uptime`); the warning clarifies that it holds unless the statistics were reset or enabled later | No | Yes (the table's) | SELECT on performance_schema; with `performance_schema = OFF`, the `wait/io/table/sql/handler` instrument off or without the permission, no counters and the warning says why | Yes (8.4) | "Unused" is equivalent to `sys.schema_unused_indexes`. Size from `mysql.innodb_index_stats` (pages × `innodb_page_size`, partitions added up, according to the last ANALYZE) if the user can read it. A TRUNCATE of the performance_schema table resets the counters. |
+| MySQL (and Aurora MySQL, Cloud SQL para MySQL) | `SHOW INDEX` (PK included, `col(n)` prefixes, expressions, DESC); foreign keys from `KEY_COLUMN_USAGE` | `performance_schema.table_io_waits_summary_by_index_usage`: `COUNT_FETCH` (rows read through the index) to seeks; rows read without an index (table scans) to the primary key's scans in InnoDB, where the table is its clustered index; writes = the table's (`COUNT_INSERT + COUNT_UPDATE + COUNT_DELETE`: inserts are not attributed to any index) | Server start (`Uptime`); the warning clarifies that it holds unless the statistics were reset or enabled later | No | Yes (the table's) | SELECT on performance_schema; with `performance_schema = OFF`, the `wait/io/table/sql/handler` instrument off or without the permission, no counters and the warning says why | Yes (8.4) | "Unused" is equivalent to `sys.schema_unused_indexes`. Size from `mysql.innodb_index_stats` (pages × `innodb_page_size`, partitions added up, according to the last ANALYZE) if the user can read it. A TRUNCATE of the performance_schema table resets the counters. |
 | MariaDB | Same | With `userstat = 1`: `information_schema.INDEX_STATISTICS` (`ROWS_READ` to seeks) and `TABLE_STATISTICS` (`ROWS_CHANGED` to writes; its `ROWS_READ` minus what was read through indexes, to the primary key's scans in InnoDB). Otherwise, performance_schema, like MySQL | Same | No | Yes (the table's) | The `userstat` views in information_schema; performance_schema like MySQL | Yes (11.8) | performance_schema comes off by default: without `userstat` or performance_schema the warning says how to enable them (`SET GLOBAL userstat = 1` does not require a restart). `FLUSH INDEX_STATISTICS` resets the counters. |
 | TiDB | `SHOW INDEX` | 8.0+: `CLUSTER_TIDB_INDEX_USAGE` (summed across instances; `TIDB_INDEX_USAGE` if it fails): queries that read less than 10 % of the table's rows to seeks, the rest to scans; `LAST_ACCESS_TIME` to the last read; writes = `mysql.stats_meta.modify_count` (rows modified since the last ANALYZE) | Instance start (`Uptime`) | Yes | Yes (without SELECT on `mysql.stats_meta`, no, and the warning says so) | SELECT on `mysql.stats_meta` for writes | Yes (7.5 and 8.5) | The clustered primary key is the row identifier: TiDB does not count it and it stays at zero (never "unused"). It only counts on tables with statistics. Before 8.0, no counters with a warning. It does not keep `DESC`. No size. |
 | OceanBase (MySQL mode) | `SHOW INDEX` | `oceanbase.DBA_INDEX_USAGE` (4.x; joined with `DBA_OBJECTS` by the internal name `__idx_<table id>_<index>`): `TOTAL_ACCESS_COUNT` to seeks, `LAST_USED` to the last read; writes from `DBA_TAB_MODIFICATIONS` (since the last statistics) | — (counters persist across restarts) | No | Yes (if `DBA_TAB_MODIFICATIONS` is denied, no) | SELECT on the `oceanbase` database; with `_iut_enable` off or without the permission, a warning | Yes (4.4.2) | It counts by sampling except with `_iut_stat_collection_type = 'ALL'` and flushes to the view in the background: in 4.4.2 no access appeared in 40 minutes, so the name join is verified against the view's definition, not with data. `DBA_TAB_MODIFICATIONS` arrives late and in 4.4 does not count UPDATEs. The primary key is not counted: it stays at zero, never "unused". |
@@ -2605,7 +2605,7 @@ a disabled index.
 | Engine | Disable | Enable | Notes |
 |---|---|---|---|
 | SQL Server, Azure SQL Database | `ALTER INDEX … DISABLE` | `ALTER INDEX … REBUILD` | It stops being maintained and frees its space; enabling it rebuilds it in full. The clustered index leaves the table inaccessible, and the primary key's or a UNIQUE disables the foreign keys that point to it (they do not come back by themselves). |
-| MySQL 8, Aurora MySQL, Cloud SQL for MySQL, TiDB, OceanBase (MySQL) | `ALTER TABLE … ALTER INDEX … INVISIBLE` | `… VISIBLE` | It is still maintained. The primary key (the implicit one too) cannot. OceanBase untested against a server. MySQL 5.7 rejects the statement. |
+| MySQL 8, Aurora MySQL, Cloud SQL para MySQL, TiDB, OceanBase (MySQL) | `ALTER TABLE … ALTER INDEX … INVISIBLE` | `… VISIBLE` | It is still maintained. The primary key (the implicit one too) cannot. OceanBase untested against a server. MySQL 5.7 rejects the statement. |
 | MariaDB | `… IGNORED` | `… NOT IGNORED` | Since 10.6. A MariaDB database connected as "MySQL" receives MySQL's syntax and rejects it. |
 | Oracle, Oracle Autonomous Database | `ALTER INDEX … INVISIBLE` | `ALTER INDEX … VISIBLE` | Not UNUSABLE: it stays maintained and still guarantees uniqueness (the primary key's too). An UNUSABLE index is marked disabled and enabling it rebuilds it, by partitions if needed. Those of IOT and cluster tables cannot. |
 | Firebird | `ALTER INDEX … INACTIVE` | `ALTER INDEX … ACTIVE` | Activating it rebuilds it. Constraint indexes (PRIMARY KEY, FOREIGN KEY, UNIQUE) cannot. |
@@ -2620,20 +2620,19 @@ The option does not appear (`supports_index_toggle` is false) where the
 engine has no native way to turn an index off without dropping it:
 
 - **PostgreSQL and its family** (PostgreSQL, TimescaleDB, YugabyteDB,
-  KingbaseES, AlloyDB for PostgreSQL, Amazon Aurora PostgreSQL, Cloud SQL
-  for PostgreSQL, EDB Postgres Advanced Server, Fujitsu Enterprise Postgres,
+  KingbaseES, AlloyDB para PostgreSQL, Amazon Aurora PostgreSQL, Cloud SQL para PostgreSQL, EDB Postgres Advanced Server, Fujitsu Enterprise Postgres,
   openGauss, Greenplum, Apache Cloudberry, Greengage DB, Amazon Redshift,
-  Amazon Aurora DSQL, H2 (PostgreSQL server), Materialize, RisingWave,
+  Amazon Aurora DSQL, H2 (servidor PostgreSQL), Materialize, RisingWave,
   Yellowbrick): there is no supported way; marking the index as invalid by
   touching `pg_index` by hand is not reasonable to offer. **Babelfish for
   PostgreSQL** does not accept `ALTER INDEX … DISABLE` either.
-- **SQLite, libSQL / Turso, DuckDB, dBase files (DBF), Microsoft Access**:
+- **SQLite, libSQL / Turso, DuckDB, Archivos dBase (DBF), Microsoft Access**:
   no index state; they are only created and dropped.
 - **IBM Db2 (LUW), IBM Db2 for i (AS/400), IBM Db2 for z/OS, SAP ASE
   (Sybase), SAP SQL Anywhere, SAP HANA, Teradata, Actian Ingres, Actian Zen
   (Pervasive PSQL), Mimer SQL, CUBRID, Altibase, InterSystems IRIS,
   InterSystems Caché, Progress OpenEdge, NuoDB, MonetDB, OpenLink Virtuoso,
-  Machbase, Ocient, Exasol, IBM Netezza, Vertica, ODBC (generic)**: no
+  Machbase, Ocient, Exasol, IBM Netezza, Vertica, ODBC (genérico)**: no
   statement to disable an index (or no user indexes). CUBRID 10 might have
   `INVISIBLE`: pending verification.
 - **Dameng (DM)**: pending; it probably accepts `ALTER INDEX … INVISIBLE`,
@@ -2706,9 +2705,8 @@ The action does not appear where the engine has a single database
 (`DriverInfo::databases_label` empty: the explorer shows the objects
 directly under the connection). Reason in all of them: a single database.
 
-- **Files**: SQLite, libSQL / Turso, CSV / Parquet / JSON files, dBase files
-  (DBF), Microsoft Access.
-- **SQL**: Firebird, Amazon Aurora DSQL, H2 (PostgreSQL server), CrateDB,
+- **Files**: SQLite, libSQL / Turso, Archivos CSV / Parquet / JSON, Archivos dBase (DBF), Microsoft Access.
+- **SQL**: Firebird, Amazon Aurora DSQL, H2 (servidor PostgreSQL), CrateDB,
   Apache Phoenix, Apache Ignite 2, Apache Ignite 3, Apache Calcite Avatica,
   HeavyDB (OmniSciDB), Manticore Search, Dameng (DM).
 - **ODBC**: IBM Db2 (LUW), IBM Db2 for i (AS/400), IBM Db2 for z/OS,
@@ -2716,7 +2714,7 @@ directly under the connection). Reason in all of them: a single database.
   Actian Zen (Pervasive PSQL), Altibase, CUBRID, InterSystems IRIS,
   InterSystems Caché, Mimer SQL, MonetDB, NuoDB, Ocient, Machbase, Progress
   OpenEdge, SQream DB, Apache Hive, Apache Impala, Apache Kyuubi, Spark
-  Thrift Server, Cloudera CDP (Hive over HTTP), Oracle NetSuite
+  Thrift Server, Cloudera CDP (Hive por HTTP), Oracle NetSuite
   (SuiteAnalytics Connect).
 - **NoSQL and search**: Amazon DynamoDB, Amazon Neptune, Elasticsearch,
   OpenSearch, Open Distro for Elasticsearch, Apache Solr, etcd, ksqlDB.
@@ -3106,13 +3104,13 @@ not offer **Rename…** in that engine.
 | Amazon Redshift, Yellowbrick | yes (no live test) | table, view (Redshift: with `ALTER TABLE`), column, schema | foreign keys | views: `CREATE OR REPLACE` | no indexes, constraints or routines; no transaction |
 | Materialize, RisingWave | yes | table, view, materialized view, source, sink, index, schema | views, materialized views and sinks | — | no columns; no transaction |
 | CrateDB | yes | table, view (`ALTER TABLE … RENAME TO`), column (5.5+) | — | views: `CREATE OR REPLACE` | no schemas, indexes or constraints; no transaction |
-| H2 (PostgreSQL server) | yes | table, view, column, index, constraint, schema | — | views: `CREATE OR REPLACE` | no transaction |
+| H2 (servidor PostgreSQL) | yes | table, view, column, index, constraint, schema | — | views: `CREATE OR REPLACE` | no transaction |
 | Denodo | no | — | — | — | it does not modify objects through SQL: views are defined in Denodo |
 | Amazon Aurora DSQL | yes (no live test) | tables, views and sequences (`ALTER TABLE\|VIEW\|SEQUENCE … RENAME TO`), functions (`ALTER FUNCTION f(args) RENAME TO`, each overload), table and view columns (`RENAME COLUMN`) and constraints (`RENAME CONSTRAINT`) | views | `CREATE OR REPLACE` (SQL functions) | it does not rename indexes, schemas or domains (it has no `ALTER INDEX`, `ALTER SCHEMA` or `ALTER DOMAIN`); each DDL statement goes in its own transaction: it is not atomic |
 | SQL Server, Azure SQL | yes | table, view, procedure, function, trigger, column, index, constraint (`sp_rename`; a module is renamed with `sp_rename` and then `CREATE OR ALTER` with the new header, because `sp_rename` does not change the stored text) | foreign keys, indexes and constraints of the renamed object | `CREATE OR ALTER` (keeps permissions); views with SCHEMABINDING are dropped before and created after; in a transaction | no schemas or synonyms; a column used by CHECK constraints or filtered indexes is renamed by dropping and recreating them in the same batch; if a computed column uses it, it is not renamed |
 | Microsoft Fabric Data Warehouse | yes (no live test) | table, column (`sp_rename`) | — | `CREATE OR ALTER`; no transaction | no views, routines, indexes or constraints |
 | Babelfish for PostgreSQL | yes | table, view, procedure, function, column (`sp_rename`; procedures and functions are dropped and created with the new name) | CHECK constraints and computed columns when renaming a column | dropped before and created after (they lose permissions); in a transaction | no triggers, constraints, indexes, schemas or synonyms |
-| MySQL, Aurora MySQL, Cloud SQL for MySQL | yes | table and view (`RENAME TABLE`), column (`CHANGE COLUMN` with the full definition: it works in all versions), index (`RENAME INDEX`, MySQL 5.7+) | foreign keys and indexes; checks on the column are dropped and added again with the new name in the same `ALTER TABLE` | views, routines and triggers: they are dropped and created again (they lose permissions) | no databases or constraints; DDL without a transaction; a foreign `DEFINER` requires `SET_USER_ID` (`SET_ANY_DEFINER` since 8.2) or `SUPER`; a text column's own collation has to be added by hand |
+| MySQL, Aurora MySQL, Cloud SQL para MySQL | yes | table and view (`RENAME TABLE`), column (`CHANGE COLUMN` with the full definition: it works in all versions), index (`RENAME INDEX`, MySQL 5.7+) | foreign keys and indexes; checks on the column are dropped and added again with the new name in the same `ALTER TABLE` | views, routines and triggers: they are dropped and created again (they lose permissions) | no databases or constraints; DDL without a transaction; a foreign `DEFINER` requires `SET_USER_ID` (`SET_ANY_DEFINER` since 8.2) or `SUPER`; a text column's own collation has to be added by hand |
 | MariaDB | yes | table and view (`RENAME TABLE`), column (`CHANGE COLUMN` with the full definition), index (`RENAME INDEX`, 10.5+) | foreign keys, indexes and checks | views, routines and triggers: `CREATE OR REPLACE` | no databases or constraints; DDL without a transaction; a foreign `DEFINER` requires `SET USER` or `SUPER`; a text column's own collation has to be added by hand |
 | TiDB | yes | table and view (`RENAME TABLE`), column (`CHANGE COLUMN`), index (`RENAME INDEX`) | foreign keys and indexes; checks on the column are dropped and added again | views: `CREATE OR REPLACE` | no databases or constraints; DDL without a transaction |
 | StarRocks, Apache Doris, VeloDB, GreptimeDB | yes | table (`ALTER TABLE … RENAME`) | — | views: dropped and created again | no views, columns or indexes |
@@ -3122,7 +3120,7 @@ not offer **Rename…** in that engine.
 | SQLite | yes | tables and virtual tables (`ALTER TABLE … RENAME TO`), columns (`ALTER TABLE … RENAME COLUMN`, 3.25+), views, triggers and indexes (created with the new name and the old one dropped) | when renaming a table or a column: views, triggers, indexes, CHECK and foreign keys (with `legacy_alter_table` OFF; the script turns it off beforehand) | drop and create, in a transaction; when renaming a view, the views and triggers that use it are rewritten | it fails if there is already a broken view in the database; it does not rename constraints, attached databases or the automatic PRIMARY KEY/UNIQUE indexes |
 | libSQL / Turso | yes | same as SQLite (`ALTER TABLE … RENAME TO / RENAME COLUMN`; views, triggers and indexes by recreation) | when renaming a table or a column: views, triggers, indexes, CHECK and foreign keys | drop and create, in a transaction (Hrana 3 servers); when renaming a view, the views and triggers that use it are rewritten | as SQLite; the server rejects `PRAGMA legacy_alter_table` and the script does not send it |
 | DuckDB | yes | tables (`ALTER TABLE … RENAME TO`), views (`ALTER VIEW … RENAME TO`), columns (`ALTER TABLE … RENAME COLUMN`) | indexes and CHECK; views and macros do not | `CREATE OR REPLACE` after the change, in a transaction | it rejects renaming a table with indexes or referenced by a foreign key, and a column that is indexed or in a foreign key; it does not rename indexes, sequences, macros, types or schemas |
-| CSV / Parquet / JSON files | no | — | — | — | views are regenerated from the folder's files on each connection: the file is renamed |
+| Archivos CSV / Parquet / JSON | no | — | — | — | views are regenerated from the folder's files on each connection: the file is renamed |
 | MongoDB | yes | collections (`renameCollection`), views (dropped and created with `db.createView`), fields (`updateMany` with `$rename`) | — | views that depend: `viewOn`, `$lookup.from`, `$graphLookup.from`, `$unionWith.coll`, `$out` and `$merge` are rewritten, and dropped and created (they store no data or lose permissions: roles grant by name); when renaming a field, the indexes that use it are dropped and created with the new field and the validator is changed with `collMod` | it is not transactional; renaming a field rewrites every document that has it; `_id`, time series collections and their time or metadata field are not renamed; fields used by views are listed and not rewritten; roles with privileges on the old name are not updated |
 | FerretDB | yes | collections (`renameCollection`), fields (`updateMany` with `$rename`) | — | when renaming a field, the indexes that use it are dropped and created with the new field | it has no views; it does not store validators; it is not transactional; renaming a field rewrites every document that has it |
 | Amazon DocumentDB | yes (no live test) | collections (`renameCollection`), fields (`updateMany` with `$rename`) | — | when renaming a field, the indexes that use it are dropped and created with the new field; the validator is changed with `collMod` | it has no views; it is not transactional; renaming a field rewrites every document that has it |
