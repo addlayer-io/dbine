@@ -354,6 +354,14 @@ impl Session for ReadOnlySession {
         undone?;
         restored
     }
+    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        if let Some(kw) = self.first_write(statement) {
+            return Err(Error::Query(format!(
+                "Conexión de solo lectura: se bloqueó una sentencia {kw}. Solo se permiten lecturas (SELECT, WITH, SHOW, EXPLAIN…)."
+            )));
+        }
+        self.inner.run_read_only(statement, max_rows, out).await
+    }
     async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         // An actual plan runs the script. An estimated one runs nothing,
         // unless the script turns plan mode off or holds more statements.

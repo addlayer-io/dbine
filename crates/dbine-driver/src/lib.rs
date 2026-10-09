@@ -619,6 +619,18 @@ pub trait Session: Send {
         Err(Error::Unsupported("este motor no permite transacciones manuales desde DBine".into()))
     }
 
+    /// Run one statement as a read the server enforces: a single statement
+    /// (the protocol refuses a second one) inside a read-only transaction
+    /// it can't leave, rolled back afterwards. What MCP and the AI
+    /// assistant run without asking; engines that can't guarantee it
+    /// answer `Unsupported`, and the app asks the user to approve each read
+    /// instead. The read-only guard ([`read_only`]) is checked first by the
+    /// caller, as defense in depth only.
+    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let _ = (statement, max_rows, out);
+        Err(Error::Unsupported("este motor no asegura lecturas de solo lectura en el servidor".into()))
+    }
+
     /// Execution plans of a script, pushed to `out.plans`.
     /// - `analyze = false`: estimated plans; nothing runs.
     /// - `analyze = true`: the script runs as with `execute` (its results go
