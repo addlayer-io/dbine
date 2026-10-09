@@ -107,7 +107,7 @@ async function run() {
       result = await exportApi.query({ exportId, ...all, path, options });
     } else {
       h.progress({ total: props.rows.length, unit: 'rows' });
-      result = await exportApi.rows(path, options, props.columns, props.rows);
+      result = await exportApi.rows(path, options, props.columns, props.rows, props.source?.connectionId);
     }
     const rows = result.rows.toLocaleString(locale());
     h.setReopen(undefined);

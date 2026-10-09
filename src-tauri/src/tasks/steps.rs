@@ -147,11 +147,14 @@ async fn export(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
     if sql.trim().is_empty() {
         return Err(CommandError::BadRequest("la consulta está vacía".into()));
     }
-    let options: ExportOptions = if c.options.is_null() {
+    let mut options: ExportOptions = if c.options.is_null() {
         ExportOptions::default()
     } else {
         serde_json::from_value(c.options.clone()).map_err(|e| CommandError::BadRequest(format!("opciones de exportación no válidas: {e}")))?
     };
+    // String literals of an SQL export follow the source engine's escaping.
+    options.backslash_escapes =
+        crate::commands::schema::driver_of(ctx.state, &c.target.connection_id).is_ok_and(|d| d.script_dialect().backslash_escapes);
     let path = out_path(&c.folder, &c.file_name, extension(options.format), vars)?;
     let key = format!("{}:{}", ctx.run_key, step.id);
     // Reading only, whatever the connection says.

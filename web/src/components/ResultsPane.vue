@@ -569,7 +569,7 @@ async function quickExport(format: ExportFormat) {
   } catch { /* outside Tauri */ }
   if (!path) return;
   try {
-    const res = await exportApi.rows(path, defaultOptions(format, props.title ?? t('results:defaultTableName'), props.dialect ?? ''), r.columns, r.rows);
+    const res = await exportApi.rows(path, defaultOptions(format, props.title ?? t('results:defaultTableName'), props.dialect ?? ''), r.columns, r.rows, props.source?.connectionId ?? props.editSource?.connectionId);
     ElMessage.success({
       message: r.truncated
         ? t('results:export.doneLoaded', { count: res.rows, rows: res.rows.toLocaleString(locale()) })

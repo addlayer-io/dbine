@@ -61,8 +61,9 @@ export function fileName(title: string, format: ExportFormat) {
 export interface ExportResult { rows: number; elapsed_ms: number }
 
 export const exportApi = {
-  rows: (path: string, options: ExportOptions, columns: ResultColumn[], rows: Cell[][]) =>
-    invoke<ExportResult>('export_rows_to_file', { args: { path, options, columns, rows } }),
+  /** `connectionId`: where the rows came from; SQL literals follow its engine's escaping. */
+  rows: (path: string, options: ExportOptions, columns: ResultColumn[], rows: Cell[][], connectionId?: string | null) =>
+    invoke<ExportResult>('export_rows_to_file', { args: { path, options, columns, rows, connection_id: connectionId ?? null } }),
   query: (a: {
     exportId: string; connectionId: string; database: string; sql: string; resultIndex: number;
     path: string; options: ExportOptions;

@@ -52,6 +52,13 @@ pub struct ExportOptions {
     pub rows_per_insert: usize,
     /// SQL: identifier quoting ("double", "bracket", "backtick").
     pub quote: String,
+    /// SQL: the source engine reads backslash escapes in '…' strings
+    /// ([`dbine_driver::ScriptDialect::backslash_escapes`]: MySQL,
+    /// ClickHouse, BigQuery, Hive, Spark…). Never taken from the UI: the
+    /// backend sets it from the connection's driver. Backtick quoting (the
+    /// identifiers of those engines) turns the escaping on as well.
+    #[serde(skip)]
+    pub backslash_escapes: bool,
     /// Excel: sheet name.
     pub sheet: String,
     /// XML: element names.
@@ -73,6 +80,7 @@ impl Default for ExportOptions {
             table: "tabla".into(),
             rows_per_insert: 100,
             quote: "double".into(),
+            backslash_escapes: false,
             sheet: "Resultado".into(),
             xml_root: "rows".into(),
             xml_row: "row".into(),
@@ -288,7 +296,10 @@ impl Exporter {
                     _ => Quote::Double,
                 };
                 let per = self.opts.rows_per_insert.max(1);
-                let values: Vec<String> = row.iter().zip(&self.numeric).map(|(v, &num)| sql_literal(v, num)).collect();
+                // The script may be read by the source engine or by the one
+                // the backtick quoting is meant for: escape for either.
+                let bs = self.opts.backslash_escapes || q == Quote::Backtick;
+                let values: Vec<String> = row.iter().zip(&self.numeric).map(|(v, &num)| sql_literal(v, num, bs)).collect();
                 let head = if self.in_batch == 0 {
                     let table = sql_table(&self.opts.table, q);
                     let cols: Vec<String> = self.names.iter().map(|c| quote_ident(q, c)).collect();
@@ -413,15 +424,46 @@ fn xlsx_err(e: rust_xlsxwriter::XlsxError) -> io::Error {
     io::Error::other(e.to_string())
 }
 
-fn sql_literal(v: &Value, numeric_col: bool) -> String {
+/// A value as a literal of the INSERT script. `backslash`: the engine reads
+/// backslash escapes in strings (see [`string_literal`]).
+fn sql_literal(v: &Value, numeric_col: bool, backslash: bool) -> String {
     match v {
         Value::Null => "NULL".into(),
         Value::Bool(b) => if *b { "1".into() } else { "0".into() },
         Value::Number(n) => n.to_string(),
-        Value::String(s) if numeric_col && s.trim().parse::<f64>().is_ok() => s.trim().to_string(),
-        Value::String(s) => format!("'{}'", s.replace('\'', "''")),
-        other => format!("'{}'", other.to_string().replace('\'', "''")),
+        // Only finite numbers go bare: "NaN" or "inf" would be identifiers.
+        Value::String(s) if numeric_col && s.trim().parse::<f64>().is_ok_and(f64::is_finite) => s.trim().to_string(),
+        Value::String(s) => string_literal(s, backslash),
+        other => string_literal(&other.to_string(), backslash),
     }
+}
+
+/// `'…'` for the engine. Standard SQL only doubles the quote. Engines that
+/// read backslash escapes (MySQL, ClickHouse, BigQuery, Hive, Spark…) would
+/// take a stored `\'` as an escaped quote and let the rest of the value run
+/// as SQL, so there every backslash and quote is escaped with a backslash
+/// (`\'` is the form all of them accept; BigQuery and Spark don't read
+/// `''`), and so are the bytes that cut a script in a client: NUL, line
+/// breaks and Ctrl-Z (mysql on Windows reads it as the end of the file).
+fn string_literal(s: &str, backslash: bool) -> String {
+    if !backslash {
+        return format!("'{}'", s.replace('\'', "''"));
+    }
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '\0' => out.push_str("\\0"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\u{1a}' => out.push_str("\\Z"),
+            c => out.push(c),
+        }
+    }
+    out.push('\'');
+    out
 }
 
 /// `schema.table` quoted part by part; empty → "tabla".
@@ -529,6 +571,60 @@ mod tests {
         let batched = run(Format::Sql, |_| {});
         assert_eq!(batched.matches("INSERT INTO").count(), 1);
         assert!(batched.trim_end().ends_with(';'));
+    }
+
+    const EXPLOIT: &str = "x\\');DROP TABLE users;#";
+
+    #[test]
+    fn sql_literals_follow_the_dialect() {
+        let v = json!(EXPLOIT);
+        // Standard SQL: a backslash is just a character, the quote doubles.
+        assert_eq!(sql_literal(&v, false, false), "'x\\'');DROP TABLE users;#'");
+        // Backslash engines: `\'` must not close the string.
+        assert_eq!(sql_literal(&v, false, true), "'x\\\\\\');DROP TABLE users;#'");
+        assert_eq!(sql_literal(&json!("a\0b\nc\rd\u{1a}e"), false, true), "'a\\0b\\nc\\rd\\Ze'");
+        assert_eq!(sql_literal(&json!({"k": "it's"}), false, true), "'{\"k\":\"it\\'s\"}'");
+        assert_eq!(sql_literal(&json!("NaN"), true, false), "'NaN'");
+        assert_eq!(sql_literal(&json!(" 1e3 "), true, false), "1e3");
+    }
+
+    /// Where a `'…'` literal that starts at `start` ends, read the way the
+    /// engine reads it.
+    fn literal_end(s: &str, start: usize, backslash: bool) -> usize {
+        let b = s.as_bytes();
+        let mut i = start + 1;
+        loop {
+            match b[i] {
+                b'\\' if backslash => i += 2,
+                b'\'' if b.get(i + 1) == Some(&b'\'') => i += 2,
+                b'\'' => return i,
+                _ => i += 1,
+            }
+        }
+    }
+
+    #[test]
+    fn sql_export_cannot_be_escaped_by_a_value() {
+        let one = |tweak: fn(&mut ExportOptions)| {
+            let dir = tempfile::tempdir().unwrap();
+            let p = dir.path().join("out.sql");
+            let mut o = ExportOptions { format: Format::Sql, table: "t".into(), ..Default::default() };
+            tweak(&mut o);
+            let cols = [ResultColumn { name: "v".into(), type_name: "varchar".into() }];
+            export_rows(&p, o, &cols, &[vec![json!(EXPLOIT)]]).unwrap();
+            std::fs::read_to_string(&p).unwrap()
+        };
+        // From the source connection's driver, from the backtick quoting,
+        // and the standard escaping.
+        for (script, backslash) in [
+            (one(|o| o.backslash_escapes = true), true),
+            (one(|o| o.quote = "backtick".into()), true),
+            (one(|_| {}), false),
+        ] {
+            let start = script.find('\'').unwrap();
+            let end = literal_end(&script, start, backslash);
+            assert_eq!(&script[end + 1..], ");\n", "the value ends where it should: {script}");
+        }
     }
 
     #[test]

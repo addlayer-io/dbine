@@ -18,6 +18,11 @@ pub struct ExportRowsArgs {
     pub options: ExportOptions,
     pub columns: Vec<ResultColumn>,
     pub rows: Vec<Vec<Value>>,
+    /// The connection the rows came from: SQL string literals follow its
+    /// engine's escaping. Without it, only the backtick quoting turns the
+    /// backslash escaping on.
+    #[serde(default)]
+    pub connection_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -28,10 +33,13 @@ pub struct ExportResult {
 
 /// Export the rows the grid already has.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn export_rows_to_file(args: ExportRowsArgs) -> CommandResult<ExportResult> {
+pub async fn export_rows_to_file(state: State<'_, AppState>, args: ExportRowsArgs) -> CommandResult<ExportResult> {
     let started = std::time::Instant::now();
     let path = PathBuf::from(&args.path);
-    let rows = tokio::task::spawn_blocking(move || export_rows(&path, args.options, &args.columns, &args.rows))
+    let mut options = args.options;
+    options.backslash_escapes =
+        args.connection_id.as_deref().is_some_and(|id| driver_of(&state, id).is_ok_and(|d| d.script_dialect().backslash_escapes));
+    let rows = tokio::task::spawn_blocking(move || export_rows(&path, options, &args.columns, &args.rows))
         .await
         .map_err(|e| CommandError::Internal(e.to_string()))?
         .map_err(|e| CommandError::Internal(format!("no se pudo escribir el archivo: {e}")))?;
@@ -187,8 +195,11 @@ pub async fn export_query_to_file(
     let emitter = app.clone();
     let (written_cb, total_cb) = (written.clone(), total.clone());
     let mut last_emit: Option<Instant> = None;
+    // String literals of an SQL export follow the source engine's escaping.
+    let mut options = args.options;
+    options.backslash_escapes = driver_of(&state, &args.connection_id).is_ok_and(|d| d.script_dialect().backslash_escapes);
     let exporter = Arc::new(Mutex::new(
-        Exporter::new(&path, args.result_index, args.options).on_progress(move |rows| {
+        Exporter::new(&path, args.result_index, options).on_progress(move |rows| {
             written_cb.store(rows, Ordering::Relaxed);
             if last_emit.is_some_and(|t| t.elapsed() < PROGRESS_EVERY) {
                 return;
