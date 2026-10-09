@@ -10,7 +10,8 @@ to web/src/locales/backend.msgids.json:
 - `format!` placeholders (`{}`, `{name}`, `{0:?}`, `{:.1}`…) become `{0}`,
   `{1}`… in order, which is how `tb()` matches them;
 - `{{` / `}}` become literal braces;
-- test code (`#[cfg(test)]` modules, `tests/` folders) is skipped.
+- test code (`#[cfg(test)]` items, `tests/` folders) is skipped; code after
+  a mid-file `#[cfg(test)]` field or fn is kept.
 
 Run it after changing backend messages, then translate what's new in each
 web/src/locales/<lang>/backend.json (`python3 scripts/i18n/check.py` lists
@@ -36,11 +37,67 @@ CODE_START = re.compile(
 PLACEHOLDER = re.compile(r"\{\{|\}\}|\{[^{}]*\}")
 
 
-def strip_tests(src: str) -> str:
-    """Drop `#[cfg(test)]` items (test modules usually close the file)."""
-    i = src.find("#[cfg(test)]")
-    return src if i < 0 else src[:i]
+def _skip_item(src: str, i: int) -> int:
+    """End of the item that starts at `i` (after a `#[cfg(test)]`): a block
+    item ends at its closing brace, a field or statement at `,` / `;`."""
+    n, depth, opened = len(src), 0, False
+    while i < n:
+        c = src[i]
+        if src.startswith("//", i):
+            j = src.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if src.startswith("/*", i):
+            j = src.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if c == "r" and re.match(r'r#*"', src[i : i + 16]) and (not (src[i - 1].isalnum() or src[i - 1] == "_") or src[i - 1] == "b"):
+            hashes = len(re.match(r"r(#*)", src[i:]).group(1))
+            end = src.find('"' + "#" * hashes, i + 2 + hashes)
+            i = n if end < 0 else end + 1 + hashes
+            continue
+        if c == "'" and i + 2 < n and (src[i + 2] == "'" or (src[i + 1] == "\\" and src[i + 3 : i + 4] == "'")):
+            i += 3 if src[i + 2] == "'" else 4
+            continue
+        if c == '"':
+            i += 1
+            while i < n and src[i] != '"':
+                i += 2 if src[i] == "\\" else 1
+            i += 1
+            continue
+        if c in "([{":
+            depth += 1
+            opened = opened or c == "{"
+        elif c in ")]}":
+            if depth == 0:
+                return i  # closes the enclosing item: leave it alone
+            depth -= 1
+            if depth == 0 and c == "}" and opened:
+                return i + 1
+        elif depth == 0 and c in ",;":
+            return i + 1
+        i += 1
+    return n
 
+
+def strip_tests(src: str) -> str:
+    """Drop `#[cfg(test)]` items: test modules, but also single fields, fns
+    and statements in the middle of a file (the code after them stays)."""
+    out, pos = [], 0
+    while True:
+        i = src.find("#[cfg(test)]", pos)
+        if i < 0:
+            out.append(src[pos:])
+            return "".join(out)
+        out.append(src[pos:i])
+        j = i + len("#[cfg(test)]")
+        # further attributes of the same item (`#[serde(default)]`)
+        while True:
+            m = re.compile(r"\s*#\[[^\]]*\]").match(src, j)
+            if not m:
+                break
+            j = m.end()
+        pos = _skip_item(src, j)
 
 def literals(src: str):
     """Plain "…" string literals (raw strings r#"…"# are SQL/JSON: skipped)."""

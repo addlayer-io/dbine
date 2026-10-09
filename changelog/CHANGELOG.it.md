@@ -34,6 +34,10 @@
 - **Copia un sottoinsieme:** il mascheramento usa una nuova chiave casuale a 256 bit a ogni esecuzione.
 - **Aggiornamenti dei driver:** l'app non accetta mai un indice dei driver più vecchio di quello con cui è stata rilasciata, nemmeno su una nuova installazione, né uno che ha smesso di essere rinnovato. I driver installati continuano a funzionare in entrambi i casi.
 - L'importazione delle connessioni, il linter e il controllo di integrità non si fermano più con caratteri accentati o altri caratteri multibyte.
+- **Sola lettura su SQL Server:** ogni query viene eseguita in una transazione che viene sempre annullata. Backup, ripristini, attivazione o disattivazione dei trigger, scritture con puntatori di testo, Service Broker e istruzioni di transazione vengono rifiutati quando arrivano dopo una lettura nello stesso batch.
+- **Sola lettura su PostgreSQL:** i nomi scritti con escape Unicode (`U&"…"`) vengono rifiutati, così una funzione vietata non può essere chiamata con un'altra grafia.
+- **Esportazione CSV e TSV:** la protezione dalle formule vale anche per il testo salvato in colonne dichiarate numeriche, cosa che SQLite consente.
+- **Script generati:** i nomi di oggetti provenienti dal server non possono chiudere un commento ed essere eseguiti come codice. Questo copre le correzioni suggerite dal **Controllo di integrità** e gli script di utenti, backup e struttura. I nomi ClickHouse con un backslash vengono racchiusi correttamente tra virgolette.
 
 ## [0.1.9] - 2026-10-09
 

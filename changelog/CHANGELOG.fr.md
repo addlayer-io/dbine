@@ -34,6 +34,10 @@
 - **Copier un sous-ensemble :** le masquage utilise une nouvelle clé aléatoire de 256 bits à chaque exécution.
 - **Mises à jour des pilotes :** l'application n'accepte jamais un index de pilotes plus ancien que celui avec lequel elle a été publiée, même sur une nouvelle installation, ni un index qui n'est plus renouvelé. Les pilotes installés continuent de fonctionner dans les deux cas.
 - L'import de connexions, le linter et le bilan de santé ne s'arrêtent plus sur les caractères accentués ou autres caractères multi-octets.
+- **Lecture seule sur SQL Server :** chaque requête s'exécute dans une transaction toujours annulée. Les sauvegardes, les restaurations, l'activation ou la désactivation de triggers, les écritures par pointeur de texte, Service Broker et les instructions de transaction sont refusés lorsqu'ils viennent après une lecture dans le même lot.
+- **Lecture seule sur PostgreSQL :** les noms écrits avec des échappements Unicode (`U&"…"`) sont refusés, afin qu'une fonction interdite ne puisse pas être appelée sous une autre graphie.
+- **Export CSV et TSV :** la protection contre les formules s'applique aussi au texte stocké dans des colonnes déclarées numériques, ce que SQLite autorise.
+- **Scripts générés :** les noms d'objets provenant du serveur ne peuvent plus terminer un commentaire et s'exécuter comme du code. Cela couvre les correctifs proposés par le **Contrôle de santé** ainsi que les scripts d'utilisateurs, de sauvegardes et de structure. Les noms ClickHouse contenant une barre oblique inverse sont correctement entre guillemets.
 
 ## [0.1.9] - 2026-10-09
 
