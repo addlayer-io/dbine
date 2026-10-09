@@ -283,6 +283,56 @@ async fn sql_mode_flow(id: &str, env: &str) {
     ok(&mut root, &format!("DROP DATABASE IF EXISTS {SENTINEL}")).await;
 }
 
+/// MariaDB: a routine in ORACLE mode (which the text check doesn't model)
+/// stops the script before anything exists in the new database, or the
+/// script is refused when it's built.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn mariadb_rename_database_refuses_oracle_mode() {
+    let Ok(url) = std::env::var("DBINE_TEST_MARIADB_URL") else {
+        eprintln!("DBINE_TEST_MARIADB_URL not set; skipped");
+        return;
+    };
+    let d = driver("mariadb");
+    let cfg = parse_url("mariadb", &url);
+    let mut root = d.connect(&cfg, None).await.unwrap();
+    setup(&mut root, true).await;
+    ok(&mut root, "SET @dbine_test_mode = @@SESSION.sql_mode").await;
+    ok(&mut root, "SET SESSION sql_mode = ORACLE").await;
+    ok(&mut root, &format!("CREATE PROCEDURE {OLD}.p_ora AS BEGIN SELECT 1 FROM DUAL; END")).await;
+    ok(&mut root, "SET SESSION sql_mode = @dbine_test_mode").await;
+    let objects_now = objects(&d, &cfg).await;
+    match d.rename_database_script(OLD, NEW, &objects_now) {
+        Err(e) => {
+            eprintln!("refused when built: {e}");
+            assert!(e.to_string().contains("p_ora"), "{e}");
+        }
+        Ok(script) => {
+            let mut runner = d.connect(&cfg, None).await.unwrap();
+            let mut failed = None;
+            for (i, st) in script.statements.iter().enumerate() {
+                if let Err(e) = run(&mut runner, st).await {
+                    failed = Some((i, e));
+                    break;
+                }
+            }
+            let (i, e) = failed.expect("the script ran whole");
+            eprintln!("stopped at statement {}: {e}", i + 1);
+            assert!(e.contains("sql_mode no admitido"), "{e}");
+            assert!(!script.statements[..i].iter().any(|s| s.contains("CREATE DATABASE")), "it got past CREATE DATABASE");
+        }
+    }
+    // Nothing changed.
+    let dbs = col(&mut root, "SHOW DATABASES").await;
+    assert!(dbs.iter().any(|x| x == OLD) && !dbs.iter().any(|x| x == NEW), "{dbs:?}");
+    let count = |t: &str, c: &str| format!("SELECT COUNT(*) FROM information_schema.{t} WHERE {c} = '{OLD}'");
+    assert_eq!(one(&mut root, &count("TABLES", "TABLE_SCHEMA")).await, "4");
+    assert_eq!(one(&mut root, &count("ROUTINES", "ROUTINE_SCHEMA")).await, "3");
+    assert_eq!(one(&mut root, &count("TRIGGERS", "TRIGGER_SCHEMA")).await, "1");
+    assert_eq!(one(&mut root, &format!("SELECT COUNT(*) FROM {OLD}.pedidos")).await, "3");
+    clean(&mut root).await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn mysql_rename_database_keeps_each_sql_mode() {

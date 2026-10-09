@@ -75,8 +75,14 @@ fn check_database_name(name: &str) -> Result<()> {
     if RESERVED_DATABASES.iter().any(|r| r.eq_ignore_ascii_case(name)) {
         return Err(Error::Unsupported(format!("«{name}» es una base del sistema: DBine no la renombra ni la usa como destino")));
     }
-    if name.is_empty() || name.len() >= 64 || name.contains(['/', '\\', '.', ' ', '"', '$', '*', '<', '>', ':', '|', '?', '\0']) {
-        return Err(Error::Query(format!("«{name}» no es un nombre de base válido en MongoDB")));
+    // Letters, digits, `_` and `-` only: the names go into `use` lines of
+    // the script, which end at a line break and trim quotes, spaces and `;`.
+    // MongoDB takes more (a line break included); DBine doesn't rename those.
+    if name.is_empty() || name.len() >= 64 || !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+        return Err(Error::Query(format!(
+            "«{}» no se renombra desde DBine: el nombre de la base tiene caracteres que no son letras, dígitos, «_» ni «-».",
+            name.escape_debug()
+        )));
     }
     Ok(())
 }
@@ -602,5 +608,15 @@ mod tests {
         assert!(renamed_index(&ix("f", &["fecha"], false), "pepe", "x").is_none());
         // A field named like the start of another isn't it.
         assert!(renamed_index(&ix("p", &["pepes"], false), "pepe", "x").is_none());
+    }
+
+    #[test]
+    fn names_with_anything_but_letters_digits_underscore_or_dash_are_refused() {
+        for bad in ["a\nb", "a\tb", "a;b", "'a'", "a b", "a{b}", "a`b", "ventas.2024"] {
+            assert!(check_database_name(bad).is_err(), "{bad:?}");
+        }
+        for good in ["ventas", "Ventas_2024", "ventas-qa", "año"] {
+            assert!(check_database_name(good).is_ok(), "{good}");
+        }
     }
 }

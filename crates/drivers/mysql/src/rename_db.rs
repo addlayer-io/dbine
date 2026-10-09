@@ -70,12 +70,26 @@ const GRANTS: &str = "Los permisos no se copian: los GRANT … ON {old}.* y los 
 const OUTSIDE: &str = "No se cambia lo que nombra la base desde afuera: vistas, rutinas y triggers de otras bases, eventos, jobs y las aplicaciones (cadenas de conexión, consultas con {old}.tabla) siguen apuntando a la base vieja.";
 const DEFINER: &str = "Las rutinas, vistas, triggers y eventos se crean con su DEFINER original: si no es tu usuario hace falta el privilegio SET_USER_ID (SET_ANY_DEFINER desde MySQL 8.2) o SUPER (SET USER en MariaDB).";
 const GUARD: &str = "La primera sentencia comprueba que la base tenga exactamente las tablas, vistas, rutinas y triggers que DBine leyó y ningún evento ni secuencia: si tiene algo más (eventos, secuencias de MariaDB, objetos que tu usuario no puede leer o creados después de leerla), falla a propósito con «Table '…DBine: hay eventos, secuencias u objetos sin leer; nada cambió' doesn't exist» antes de cambiar nada. Esas bases no se renombran desde DBine.";
+const MODES: &str = "Las rutinas, triggers y eventos se vuelven a crear con el sql_mode con que se crearon (como mysqldump). Si alguno ya no está con ese nombre o usa ORACLE o MSSQL (MariaDB), modos que cambian cómo se lee su código, la sentencia que lo comprueba falla con «Table '…DBine: un objeto usa un sql_mode no admitido; nada cambió' doesn't exist» antes de crear la base nueva.";
 const LAST_DROP: &str = "La última sentencia borra la base vieja solo si quedó vacía; si apareció algo mientras corría el script, falla a propósito con «Table '…DBine: la base no quedó vacía y no se borra' doesn't exist» y la base queda para revisarla.";
 
 /// The table the guards select from to fail: its name is the message
 /// (at most 64 characters, MySQL's limit for a name).
 const NOT_READ: &str = "DBine: hay eventos, secuencias u objetos sin leer; nada cambió";
 const NOT_EMPTY: &str = "DBine: la base no quedó vacía y no se borra";
+const BAD_MODE: &str = "DBine: un objeto usa un sql_mode no admitido; nada cambió";
+
+/// `sql_mode` flags that change how the server reads a body beyond what
+/// [`one_statement`] models (MariaDB's ORACLE and MSSQL): an object
+/// carrying one isn't created again.
+const UNMODELED: &[&str] = &["ORACLE", "MSSQL"];
+
+/// SQL true when the mode in `var` (a user variable) is NULL (the object
+/// isn't there by that name) or has a flag in [`UNMODELED`].
+fn bad_mode(var: &str) -> String {
+    let flags: Vec<String> = UNMODELED.iter().map(|f| format!("FIND_IN_SET('{f}', {var}) > 0")).collect();
+    format!("{var} IS NULL OR {}", flags.join(" OR "))
+}
 
 fn q(name: &str) -> String {
     quote_ident(Quote::Backtick, name)
@@ -215,6 +229,14 @@ pub(crate) fn script(v: Variant, database: &str, new_name: &str, objects: &[Data
         ));
     }
 
+    // Before anything changes: every object is there by name, under a mode
+    // its text was checked for.
+    if !moded.is_empty() {
+        let bad: Vec<String> = (1..=moded.len()).map(|n| format!("({})", bad_mode(&format!("@dbine_m{n}")))).collect();
+        statements.push(prepared(&format!("IF({}, {}, 'DO 0')", bad.join(" OR "), lit(&format!("SELECT * FROM {old}.{}", q(BAD_MODE))))));
+        warnings.push(MODES.to_string());
+    }
+
     // 1. The new database, with the old one's defaults.
     statements.push(prepared(&format!(
         "COALESCE((SELECT CONCAT({}, DEFAULT_CHARACTER_SET_NAME, ' COLLATE ', DEFAULT_COLLATION_NAME) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = {}), {})",
@@ -249,7 +271,9 @@ pub(crate) fn script(v: Variant, database: &str, new_name: &str, objects: &[Data
     // that charset, where a 0x5C inside a character is a backslash.
     let under_own_mode = |o: &DatabaseObject, statements: &mut Vec<String>| {
         let n = moded.iter().position(|x| std::ptr::eq(*x, o)).expect("moded") + 1;
-        statements.push(format!("SET SESSION sql_mode = @dbine_m{n}, SESSION collation_connection = @dbine_c{n};"));
+        // NULL (an error) again if the mode isn't one the text was checked for.
+        let var = format!("@dbine_m{n}");
+        statements.push(format!("SET SESSION sql_mode = IF({}, NULL, {var}), SESSION collation_connection = @dbine_c{n};", bad_mode(&var)));
         statements.push(format!("{};", text_of(o)));
         statements.push("SET SESSION sql_mode = @dbine_saved_m, SESSION collation_connection = @dbine_saved_c;".to_string());
     };
@@ -279,14 +303,100 @@ pub(crate) fn script(v: Variant, database: &str, new_name: &str, objects: &[Data
     Ok(SyncScript { statements, warnings })
 }
 
-/// The server reads `text` as one statement, whether backslashes escape
-/// quotes or not (`NO_BACKSLASH_ESCAPES`): the client's `DELIMITER` means
-/// nothing to it.
+/// The server reads `text` as one statement under every mode that changes
+/// how it's tokenized and that a routine may carry: with backslash escapes
+/// or `NO_BACKSLASH_ESCAPES`, and with `"…"` as a string or as an
+/// identifier (`ANSI_QUOTES`). The modes are read at run time, after the
+/// text: whichever the object has by then, its text is one statement.
+/// Modes that change more (MariaDB's ORACLE, MSSQL) are refused by the
+/// script itself ([`UNMODELED`]). The client's `DELIMITER` means nothing to
+/// the server.
 fn one_statement(text: &str, d: &ScriptDialect) -> bool {
-    [true, false].into_iter().all(|backslash_escapes| {
-        let d = ScriptDialect { backslash_escapes, delimiter_command: false, ..*d };
-        split_script(text, &d).iter().filter(|s| !s.text.trim().is_empty()).count() == 1
-    })
+    let d = ScriptDialect { delimiter_command: false, ..*d };
+    [(true, false), (true, true), (false, false), (false, true)]
+        .into_iter()
+        .all(|(backslash_escapes, ansi_quotes)| split_script(&lexed(text, backslash_escapes, ansi_quotes), &d).iter().filter(|s| !s.text.trim().is_empty()).count() == 1)
+}
+
+/// `text` as the server's lexer reads it under one mode, with nothing left
+/// for the splitter to read differently: each string becomes `'s'`, each
+/// quoted identifier `` `i` ``, comments go (an executable `/*! … */` or
+/// MariaDB `/*M! … */` keeps its contents as code, as the server runs
+/// them). An unterminated literal swallows the rest, as it does on the
+/// server (where the statement then fails).
+fn lexed(text: &str, backslash_escapes: bool, ansi_quotes: bool) -> String {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    let mut executable = false;
+    // The end of a literal closed by `q`, doubled `q` escaping it.
+    let end = |mut i: usize, q: u8, backslash: bool| -> Option<usize> {
+        while i < b.len() {
+            if backslash && b[i] == b'\\' {
+                i += 2;
+            } else if b[i] == q {
+                if b.get(i + 1) == Some(&q) {
+                    i += 2;
+                } else {
+                    return Some(i + 1);
+                }
+            } else {
+                i += 1;
+            }
+        }
+        None
+    };
+    while i < b.len() {
+        let c = b[i];
+        let literal = match c {
+            b'\'' => Some((b'\'', backslash_escapes, "'s'")),
+            b'"' if ansi_quotes => Some((b'"', false, "`i`")),
+            b'"' => Some((b'"', backslash_escapes, "'s'")),
+            b'`' => Some((b'`', false, "`i`")),
+            _ => None,
+        };
+        if let Some((q, backslash, placeholder)) = literal {
+            out.push(' ');
+            out.push_str(placeholder);
+            out.push(' ');
+            match end(i + 1, q, backslash) {
+                Some(e) => i = e,
+                None => return out,
+            }
+        } else if c == b'#' || (c == b'-' && b.get(i + 1) == Some(&b'-') && b.get(i + 2).is_none_or(|n| n.is_ascii_whitespace() || n.is_ascii_control())) {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+        } else if c == b'/' && b.get(i + 1) == Some(&b'*') {
+            let rest = &text[i + 2..];
+            let opener = if rest.starts_with('!') { Some(1) } else if rest.starts_with("M!") { Some(2) } else { None };
+            if let (Some(n), false) = (opener, executable) {
+                executable = true;
+                i += 2 + n;
+                while i < b.len() && b[i].is_ascii_digit() {
+                    i += 1;
+                }
+                out.push(' ');
+            } else {
+                match text[i + 2..].find("*/") {
+                    Some(e) => {
+                        i += 2 + e + 2;
+                        out.push(' ');
+                    }
+                    None => return out,
+                }
+            }
+        } else if executable && c == b'*' && b.get(i + 1) == Some(&b'/') {
+            executable = false;
+            i += 2;
+            out.push(' ');
+        } else {
+            let n = text[i..].chars().next().map_or(1, char::len_utf8);
+            out.push_str(&text[i..i + n]);
+            i += n;
+        }
+    }
+    out
 }
 
 fn reason(r: UnresolvedReason) -> &'static str {
@@ -399,32 +509,35 @@ mod tests {
         assert!(st[2].contains("ROUTINE_NAME = 'f_doble' AND ROUTINE_TYPE = 'FUNCTION'") && st[2].starts_with("SET @dbine_m2 = "));
         assert_eq!(st[3], "SET @dbine_m3 = (SELECT SQL_MODE FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = 'tienda' AND TRIGGER_NAME = 'tr_pedidos'), @dbine_c3 = (SELECT COLLATION_CONNECTION FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = 'tienda' AND TRIGGER_NAME = 'tr_pedidos');");
         assert!(st[4].starts_with("SET @dbine_m4 = (SELECT SQL_MODE FROM information_schema.EVENTS WHERE EVENT_SCHEMA = 'tienda' AND EVENT_NAME = 'ev_limpia')"));
-        assert!(st[5].starts_with("SET @dbine_sql = COALESCE((SELECT CONCAT('CREATE DATABASE `negocio` CHARACTER SET ', DEFAULT_CHARACTER_SET_NAME"), "{}", st[5]);
-        assert!(st[5].contains("WHERE SCHEMA_NAME = 'tienda'), 'CREATE DATABASE `negocio`');\nPREPARE dbine_rename FROM @dbine_sql;\nEXECUTE dbine_rename;"));
-        assert_eq!(st[6], "DROP TRIGGER `tienda`.`tr_pedidos`;");
-        assert_eq!(st[7], "RENAME TABLE `tienda`.`clientes` TO `negocio`.`clientes`,\n  `tienda`.`pedidos` TO `negocio`.`pedidos`;");
-        assert_eq!(st[8], "USE `negocio`;");
-        assert_eq!(st[9], "SET @dbine_saved_m = @@SESSION.sql_mode, @dbine_saved_c = @@SESSION.collation_connection;");
+        // Then every one of them is there under a mode its text was checked for.
+        assert!(st[5].starts_with("SET @dbine_sql = IF((@dbine_m1 IS NULL OR FIND_IN_SET('ORACLE', @dbine_m1) > 0 OR FIND_IN_SET('MSSQL', @dbine_m1) > 0) OR ("), "{}", st[5]);
+        assert!(st[5].contains("(@dbine_m4 IS NULL OR FIND_IN_SET('ORACLE', @dbine_m4) > 0 OR FIND_IN_SET('MSSQL', @dbine_m4) > 0), 'SELECT * FROM `tienda`.`DBine: un objeto usa un sql_mode no admitido; nada cambió`', 'DO 0');"));
+        assert!(st[6].starts_with("SET @dbine_sql = COALESCE((SELECT CONCAT('CREATE DATABASE `negocio` CHARACTER SET ', DEFAULT_CHARACTER_SET_NAME"), "{}", st[6]);
+        assert!(st[6].contains("WHERE SCHEMA_NAME = 'tienda'), 'CREATE DATABASE `negocio`');\nPREPARE dbine_rename FROM @dbine_sql;\nEXECUTE dbine_rename;"));
+        assert_eq!(st[7], "DROP TRIGGER `tienda`.`tr_pedidos`;");
+        assert_eq!(st[8], "RENAME TABLE `tienda`.`clientes` TO `negocio`.`clientes`,\n  `tienda`.`pedidos` TO `negocio`.`pedidos`;");
+        assert_eq!(st[9], "USE `negocio`;");
+        assert_eq!(st[10], "SET @dbine_saved_m = @@SESSION.sql_mode, @dbine_saved_c = @@SESSION.collation_connection;");
         // Routines first (views check the functions they call), each one
         // under its own mode, in a request of its own.
-        let own = |n: u32| format!("SET SESSION sql_mode = @dbine_m{n}, SESSION collation_connection = @dbine_c{n};");
+        let own = |n: u32| format!("SET SESSION sql_mode = IF(@dbine_m{n} IS NULL OR FIND_IN_SET('ORACLE', @dbine_m{n}) > 0 OR FIND_IN_SET('MSSQL', @dbine_m{n}) > 0, NULL, @dbine_m{n}), SESSION collation_connection = @dbine_c{n};");
         let back = "SET SESSION sql_mode = @dbine_saved_m, SESSION collation_connection = @dbine_saved_c;";
-        assert_eq!(st[10], own(1));
-        assert_eq!(st[11], "CREATE DEFINER=`root`@`%` PROCEDURE `negocio`.`p_total`()\nBEGIN\n  SELECT COUNT(*) FROM negocio.pedidos;\n  SELECT 'tienda.pedidos';\nEND;");
-        assert_eq!(st[12], back);
-        assert_eq!(st[13], own(2));
-        assert!(st[14].starts_with("CREATE DEFINER=`root`@`%` FUNCTION `negocio`.`f_doble`(x INT)"));
-        assert_eq!(st[15], back);
+        assert_eq!(st[11], own(1));
+        assert_eq!(st[12], "CREATE DEFINER=`root`@`%` PROCEDURE `negocio`.`p_total`()\nBEGIN\n  SELECT COUNT(*) FROM negocio.pedidos;\n  SELECT 'tienda.pedidos';\nEND;");
+        assert_eq!(st[13], back);
+        assert_eq!(st[14], own(2));
+        assert!(st[15].starts_with("CREATE DEFINER=`root`@`%` FUNCTION `negocio`.`f_doble`(x INT)"));
+        assert_eq!(st[16], back);
         // Views under the session's mode; v_cli before v_top, which reads it.
-        assert_eq!(st[16], "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER VIEW `negocio`.`v_cli` AS select `negocio`.`clientes`.`id` AS `id` from `negocio`.`clientes`;");
-        assert!(st[17].contains("VIEW `negocio`.`v_top` AS select `v_cli`.`id` AS `id` from `negocio`.`v_cli`;"));
-        assert_eq!(st[18..21], [own(3), "CREATE DEFINER=`root`@`%` TRIGGER `negocio`.tr_pedidos BEFORE INSERT ON `negocio`.pedidos FOR EACH ROW SET NEW.total = f_doble(NEW.total);".into(), back.into()]);
-        assert_eq!(st[21..24], [own(4), "CREATE DEFINER=`root`@`%` EVENT `negocio`.`ev_limpia` ON SCHEDULE EVERY 1 DAY DO DELETE FROM `negocio`.`pedidos` WHERE total < 0;".into(), back.into()]);
-        assert_eq!(&st[24..28], ["DROP VIEW `tienda`.`v_top`;", "DROP VIEW `tienda`.`v_cli`;", "DROP PROCEDURE `tienda`.`p_total`;", "DROP FUNCTION `tienda`.`f_doble`;"]);
-        assert_eq!(st[28], "DROP EVENT `tienda`.`ev_limpia`;");
+        assert_eq!(st[17], "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER VIEW `negocio`.`v_cli` AS select `negocio`.`clientes`.`id` AS `id` from `negocio`.`clientes`;");
+        assert!(st[18].contains("VIEW `negocio`.`v_top` AS select `v_cli`.`id` AS `id` from `negocio`.`v_cli`;"));
+        assert_eq!(st[19..22], [own(3), "CREATE DEFINER=`root`@`%` TRIGGER `negocio`.tr_pedidos BEFORE INSERT ON `negocio`.pedidos FOR EACH ROW SET NEW.total = f_doble(NEW.total);".into(), back.into()]);
+        assert_eq!(st[22..25], [own(4), "CREATE DEFINER=`root`@`%` EVENT `negocio`.`ev_limpia` ON SCHEDULE EVERY 1 DAY DO DELETE FROM `negocio`.`pedidos` WHERE total < 0;".into(), back.into()]);
+        assert_eq!(&st[25..29], ["DROP VIEW `tienda`.`v_top`;", "DROP VIEW `tienda`.`v_cli`;", "DROP PROCEDURE `tienda`.`p_total`;", "DROP FUNCTION `tienda`.`f_doble`;"]);
+        assert_eq!(st[29], "DROP EVENT `tienda`.`ev_limpia`;");
         let last = st.last().unwrap();
         assert!(last.contains("information_schema.EVENTS WHERE EVENT_SCHEMA = 'tienda') = 0, 'DROP DATABASE `tienda`', 'SELECT * FROM `tienda`.`DBine: la base no quedó vacía y no se borra`')"), "{last}");
-        assert_eq!(st.len(), 30);
+        assert_eq!(st.len(), 31);
         // No request holds a CREATE and anything else.
         for x in st.iter().filter(|x| x.contains("CREATE DEFINER") || x.contains("CREATE ALGORITHM")) {
             assert!(!x.contains("USE ") && !x.contains("SET SESSION"), "{x}");
@@ -454,6 +567,33 @@ mod tests {
         // Two statements outright.
         let two = "CREATE FUNCTION f() RETURNS INT RETURN 1; DROP DATABASE victima";
         assert!(matches!(script(Variant::MySql, "a", "b", &[obj("function", "f", Some(two))]), Err(Error::Query(_))));
+    }
+
+    /// `"` read as a string (and backslash escapes) hides a `;` that ends
+    /// the statement when ANSI_QUOTES makes it an identifier quote, and the
+    /// other way round: every combination of the two modes is checked.
+    #[test]
+    fn ansi_quotes_and_backslashes_mixed() {
+        let d = crate::script_dialect(Variant::MySql);
+        // ANSI_QUOTES + backslash escapes: `"a\"` is an identifier ending at
+        // the second quote, so `; DROP …` is a statement of its own; with
+        // `"` as a string, `\"` escapes and it's all one string.
+        let ansi = r#"CREATE PROCEDURE p() SELECT "a\"; DROP DATABASE victima; SELECT ""#;
+        assert_eq!(split_script(&lexed(ansi, true, false), &d).len(), 1);
+        assert!(split_script(&lexed(ansi, true, true), &d).len() > 1);
+        assert!(!one_statement(ansi, &d));
+        // Without backslash escapes and without ANSI_QUOTES `"…"` is a plain
+        // string; ANSI_QUOTES alone doesn't split it either.
+        let mixed = r#"CREATE PROCEDURE p() SELECT 'x\' AS a, "y;z" AS b"#;
+        for (bs, aq) in [(true, false), (true, true), (false, false), (false, true)] {
+            assert_eq!(split_script(&lexed(mixed, bs, aq), &d).len(), 1, "{bs} {aq}");
+        }
+        assert!(one_statement(mixed, &d));
+        let o = [obj("table", "t", None), obj("procedure", "p", Some(ansi))];
+        assert!(matches!(script(Variant::MariaDb, "a", "b", &o), Err(Error::Query(m)) if m.contains("«p»")));
+        // Executable comments run as code: their `;` counts.
+        assert!(!one_statement("CREATE PROCEDURE p() SELECT 1 /*!50000 ; DROP DATABASE victima */", &d));
+        assert!(one_statement("CREATE PROCEDURE p() SELECT 1 /* ; DROP DATABASE victima */ -- ;\n", &d));
     }
 
     /// Backslashes and quotes that read as one statement either way are fine.
