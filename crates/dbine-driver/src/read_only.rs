@@ -27,7 +27,15 @@ const OPAQUE_READS: &[&str] = &["show", "describe", "desc"];
 const WRITE_WORDS: &[&str] = &[
     "insert", "update", "delete", "merge", "upsert", "replace", "into", "drop", "create", "alter", "truncate", "rename", "grant", "revoke", "deny",
     "exec", "execute", "call", "dbcc", "reconfigure", "shutdown", "kill", "bulk", "openrowset", "opendatasource", "openquery", "setuser", "revert",
+    // T-SQL statements that change state after a read in the same batch.
+    "backup", "restore", "dump", "writetext", "updatetext", "receive", "commit", "rollback", "checkpoint",
 ];
+
+/// Write words only when the next word says so (`ENABLE TRIGGER`, `SEND ON
+/// CONVERSATION`, `SAVE TRANSACTION`), so columns named `enable` or `save`
+/// still read.
+const WRITE_PAIRS: &[(&str, &[&str])] =
+    &[("enable", &["trigger"]), ("disable", &["trigger"]), ("send", &["on"]), ("save", &["tran", "transaction"]), ("end", &["conversation"])];
 
 /// Write words that are also read-only functions (`REPLACE(s, a, b)`,
 /// MySQL's `INSERT(s, pos, len, new)`).
@@ -65,6 +73,9 @@ const PLAN_MODE_WORDS: &[&str] = &["showplan_xml", "showplan_all", "showplan_tex
 pub struct ReadOnlySession {
     inner: Box<dyn Session>,
     dialect: ScriptDialect,
+    /// T-SQL: the engine has no read-only mode the session can't undo, so
+    /// each run also goes in a transaction that is always rolled back.
+    roll_back: bool,
 }
 
 impl ReadOnlySession {
@@ -77,11 +88,12 @@ impl ReadOnlySession {
     /// Checks statements split as the driver's dialect says
     /// ([`crate::Driver::script_dialect`]), statement by statement.
     pub fn with_dialect(inner: Box<dyn Session>, dialect: ScriptDialect) -> Self {
+        let roll_back = dialect.tsql_blocks;
         let mut dialect = dialect.statements();
         if dialect.batch == BatchLine::None {
             dialect.batch = BatchLine::Go;
         }
-        Self { inner, dialect }
+        Self { inner, dialect, roll_back }
     }
 
     fn first_write(&self, sql: &str) -> Option<String> {
@@ -148,6 +160,20 @@ fn hidden_write(stmt: &str, first: &str, dialect: &ScriptDialect) -> Option<Stri
             continue;
         }
         let w = lower(i);
+        // PostgreSQL's `U&"…"` names spell a function with escapes
+        // (`U&"\0073et_config"`): what it names can't be checked here.
+        if bare(i) && w == "u" && toks.get(i + 1).is_some_and(|t| t.text == "&" && t.start == toks[i].end) {
+            if toks.get(i + 2).is_some_and(|t| t.start == toks[i + 1].end && matches!(bytes[t.start], b'"' | b'\'')) {
+                return Some("U&".into());
+            }
+        }
+        if bare(i) {
+            if let Some((_, next)) = WRITE_PAIRS.iter().find(|(word, _)| *word == w) {
+                if toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Name && next.contains(&t.text.to_ascii_lowercase().as_str())) {
+                    return Some(w.to_uppercase());
+                }
+            }
+        }
         // MySQL's `SELECT … INTO @var` only sets a session variable.
         let into_variable = w == "into" && toks.get(i + 1).is_some_and(|t| t.text == "@");
         if bare(i) && WRITE_WORDS.contains(&w.as_str()) && !(READ_FUNCTIONS.contains(&w.as_str()) && is_call(i)) && !into_variable {
@@ -232,7 +258,21 @@ impl Session for ReadOnlySession {
                 "Conexión de solo lectura: se bloqueó una sentencia {kw}. Solo se permiten lecturas (SELECT, WITH, SHOW, EXPLAIN…)."
             )));
         }
-        self.inner.execute(sql, max_rows, out).await
+        if !self.roll_back {
+            return self.inner.execute(sql, max_rows, out).await;
+        }
+        // Implicit transactions: whatever the batch changes is undone.
+        match self.inner.set_autocommit(false).await {
+            Ok(()) => {}
+            Err(Error::Unsupported(_)) => return self.inner.execute(sql, max_rows, out).await,
+            Err(e) => return Err(e),
+        }
+        let ran = self.inner.execute(sql, max_rows, out).await;
+        let undone = self.inner.rollback().await;
+        let restored = self.inner.set_autocommit(true).await;
+        ran?;
+        undone?;
+        restored
     }
     async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         // An actual plan runs the script. An estimated one runs nothing,
@@ -448,6 +488,94 @@ mod tests {
         assert_eq!(super::first_write_in("pragma journal_mode", &lite), None);
         assert_eq!(super::first_write_in("pragma journal_mode = wal", &lite).as_deref(), Some("PRAGMA"));
         assert_eq!(super::first_write_in("pragma writable_schema(1)", &lite).as_deref(), Some("PRAGMA"));
+    }
+
+    #[test]
+    fn tsql_state_changes_and_escaped_names_are_caught() {
+        use crate::sql::ScriptDialect;
+        let t = ScriptDialect::tsql();
+        for (sql, kw) in [
+            ("SELECT 1 DISABLE TRIGGER audit ON dbo.t", "DISABLE"),
+            ("SELECT 1 ENABLE TRIGGER ALL ON DATABASE", "ENABLE"),
+            ("SELECT 1 BACKUP LOG db TO DISK = 'nul'", "BACKUP"),
+            ("SELECT 1 RESTORE DATABASE db FROM DISK = 'x'", "RESTORE"),
+            ("SELECT 1 WRITETEXT t.c @p 'x'", "WRITETEXT"),
+            ("SELECT 1 UPDATETEXT t.c @p 0 NULL 'x'", "UPDATETEXT"),
+            ("SELECT 1 SEND ON CONVERSATION @h (0x01)", "SEND"),
+            ("SELECT 1 RECEIVE TOP(1) * FROM q", "RECEIVE"),
+            ("SELECT 1 END CONVERSATION @h", "END"),
+            ("SELECT 1 SAVE TRANSACTION s", "SAVE"),
+            ("SELECT 1 COMMIT", "COMMIT"),
+            ("SELECT 1 CHECKPOINT", "CHECKPOINT"),
+        ] {
+            assert_eq!(super::first_write_in(sql, &t).as_deref(), Some(kw), "{sql}");
+        }
+        // Columns named like the paired words still read.
+        assert_eq!(super::first_write_in("select enable, disable, save, send, case when a then 1 end from t", &t), None);
+        // PostgreSQL's escaped names can spell a refused function.
+        let pg = ScriptDialect::postgres();
+        assert_eq!(super::first_write_in("select U&\"\\0073et_config\"('default_transaction_read_only','off',false)", &pg).as_deref(), Some("U&"));
+        assert_eq!(super::first_write_in("select u&\"!0073et_config\" UESCAPE '!' ('a','b',false)", &pg).as_deref(), Some("U&"));
+    }
+
+    /// Records what reaches the driver.
+    struct Recorder(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+    #[async_trait::async_trait]
+    impl crate::Session for Recorder {
+        async fn server_version(&mut self) -> crate::error::Result<String> {
+            Ok(String::new())
+        }
+        async fn list_databases(&mut self) -> crate::error::Result<Vec<String>> {
+            Ok(vec![])
+        }
+        async fn list_objects(&mut self) -> crate::error::Result<Vec<crate::model::DbObject>> {
+            Ok(vec![])
+        }
+        async fn columns(&mut self, _: &crate::model::ObjectRef) -> crate::error::Result<Vec<crate::model::ColumnInfo>> {
+            Ok(vec![])
+        }
+        async fn definition(&mut self, _: &crate::model::ObjectRef) -> crate::error::Result<Option<String>> {
+            Ok(None)
+        }
+        fn browse_query(&self, _: &crate::model::ObjectRef, _: u32) -> String {
+            String::new()
+        }
+        async fn execute(&mut self, sql: &str, _: usize, _: &mut crate::model::QueryOutcome) -> crate::error::Result<()> {
+            self.0.lock().unwrap().push(format!("execute {sql}"));
+            Ok(())
+        }
+        async fn set_autocommit(&mut self, on: bool) -> crate::error::Result<()> {
+            self.0.lock().unwrap().push(format!("autocommit {on}"));
+            Ok(())
+        }
+        async fn rollback(&mut self) -> crate::error::Result<()> {
+            self.0.lock().unwrap().push("rollback".into());
+            Ok(())
+        }
+    }
+
+    fn ready<T>(f: impl std::future::Future<Output = T>) -> T {
+        let mut f = std::pin::pin!(f);
+        match f.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())) {
+            std::task::Poll::Ready(v) => v,
+            std::task::Poll::Pending => panic!("pending"),
+        }
+    }
+
+    #[test]
+    fn tsql_reads_run_in_a_transaction_that_is_rolled_back() {
+        use crate::sql::ScriptDialect;
+        use crate::Session;
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut ro = super::ReadOnlySession::with_dialect(Box::new(Recorder(log.clone())), ScriptDialect::tsql());
+        ready(ro.execute("SELECT 1", 10, &mut Default::default())).unwrap();
+        assert_eq!(*log.lock().unwrap(), ["autocommit false", "execute SELECT 1", "rollback", "autocommit true"]);
+        // Other dialects keep their own read-only mode: no extra round trips.
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut ro = super::ReadOnlySession::with_dialect(Box::new(Recorder(log.clone())), ScriptDialect::postgres());
+        ready(ro.execute("SELECT 1", 10, &mut Default::default())).unwrap();
+        assert_eq!(*log.lock().unwrap(), ["execute SELECT 1"]);
     }
 
     #[test]
