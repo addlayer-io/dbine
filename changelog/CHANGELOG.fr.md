@@ -1,16 +1,18 @@
 # Modifications
 
-## [0.1.10] - 2026-10-09
+## [0.1.10] - 2026-10-10
 
 ### Nouveautés
 - **Les pilotes se mettent à jour tout seuls, séparément de l'application :** DBine cherche dans un index signé le pilote le plus récent compatible avec votre version, le télécharge en arrière-plan et revient au précédent en cas d'échec. Dans Paramètres › Pilotes, il y a un bouton **Rechercher des mises à jour**, l'état de chaque pilote et **Revenir à la précédente**. Un pilote peut être publié seul, sans nouvelle version de l'application.
 - **Renommer une base de données :** **Renommer…** sur une base dans l'explorateur. La boîte de dialogue affiche les autres sessions ouvertes dessus (que le renommage termine), si le nouveau nom existe déjà, combien d'objets sont déplacés et le script complet. Ensuite, la base par défaut de la connexion, les onglets ouverts, les requêtes enregistrées, les migrations, les cibles de projets et les étapes de tâches planifiées suivent le nouveau nom ; les tâches qui modifient des données dedans demandent à nouveau une approbation. Disponible dans SQL Server, Azure SQL, Babelfish, la famille PostgreSQL, MySQL, MariaDB, Snowflake et MongoDB ; lorsque le moteur ne peut pas renommer (ou déplacer) une base, l'option n'est pas proposée.
 - **À quelle colonne correspond cette valeur ?** Dans un `INSERT … VALUES`, placer le curseur sur une valeur affiche une infobulle avec sa colonne (par exemple « Colonne 14 sur 48 : Name ») et met cette colonne en évidence dans la liste. Sans liste de colonnes, elle utilise celles de la table dans l'ordre. Fonctionne sur tous les moteurs SQL et CQL.
 - **Plus de façons de se connecter à SQL Server avec Microsoft Entra ID :** interactive avec MFA (dans le navigateur), intégrée (le compte Windows, via l'ADFS fédéré de l'organisation), identité managée et par défaut (variables d'environnement, identité managée, Azure CLI ou Azure Developer CLI). Le jeton est conservé tant que DBine est ouvert et renouvelé avant son expiration.
+- **Associer une connexion à une base :** **Associer une connexion…** dans Utilisateurs et droits crée l'utilisateur de la base pour une connexion du serveur qui existe déjà (`CREATE USER … FOR LOGIN`, avec son schéma par défaut), en listant les connexions qui n'ont pas encore d'utilisateur à cet endroit. Disponible sur SQL Server, Azure SQL Database (la connexion y est saisie), Babelfish et SAP ASE.
 
 ### Améliorations
 - **Ce qu'apporte chaque version :** l'avis de nouvelle version affiche ses changements et ceux des versions intermédiaires, à partir de celle que vous avez installée, dans la langue de l'application.
 - **Anciennes versions de l'application :** désormais, une application plus ancienne que les cinq dernières versions doit être mise à jour pour télécharger de nouveaux pilotes. Les pilotes qu'elle a déjà installés continuent de fonctionner.
+- **Utilisateurs et droits :** les modifications sont mises en file et appliquées ensemble. Une barre **Modifications en attente** les liste, une seule revue montre tout le script, et elles s'exécutent une par une : celles qui sont appliquées quittent la liste et, si l'une échoue, elle et les suivantes restent en attente.
 
 ### Corrections
 - **Le mode lecture seule est plus strict :** les requêtes des clients MCP au niveau Lecture, de l'assistant IA et des connexions en lecture seule sont vérifiées mot par mot, et pas seulement par leur premier mot. Elles refusent désormais :
@@ -46,6 +48,9 @@
 - **Voir les dépendances et Renommer** ne s'arrêtent plus sur les routines dont les noms entre guillemets sont inhabituels.
 - **Lecture seule sur SQL Server :** un lot ne peut commencer que par `SELECT`, `WITH`, `USE` ou `PRINT`. Ce qui suit `SHOW`, `DESCRIBE` ou `PRAGMA` est vérifié sur tous les moteurs.
 - **Importer des connexions :** une URL JDBC Oracle avec utilisateur et mot de passe les garde hors du nom de la connexion : le mot de passe va dans le trousseau du système.
+- **Lecture seule :** un commentaire `--` se termine aussi à un retour chariot (CR), comme PostgreSQL le lit, de sorte que rien de ce qui s'exécute ne peut se cacher dans un commentaire. Sur SQL Server, une procédure dont le nom commence comme `print_` ou `select1` n'est plus prise pour une lecture.
+- **Importer des connexions :** un mot de passe Oracle contenant `@` est conservé en entier dans le trousseau du système.
+- **Tunnels SSH sur Linux :** le port local du tunnel ne fait confiance qu'aux connexions ouvertes par votre propre utilisateur.
 
 ## [0.1.9] - 2026-10-09
 

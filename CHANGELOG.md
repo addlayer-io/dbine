@@ -2,22 +2,19 @@
 
 ## [Unreleased]
 
-### Fixes
-- **Read-only:** a `--` comment ends at a carriage return too, as PostgreSQL reads it, so nothing that runs can hide in a comment. On SQL Server, a procedure whose name starts like `print_` or `select1` is no longer taken for a read.
-- **Import connections:** an Oracle password containing `@` is kept whole in the system keychain.
-- **SSH tunnels on Linux:** the tunnel's local port only trusts open connections from your own user.
-
-## [0.1.10] - 2026-10-09
+## [0.1.10] - 2026-10-10
 
 ### New
 - **Drivers update on their own, apart from the app:** DBine looks in a signed index for the newest driver compatible with your version, downloads it in the background and goes back to the previous one if something fails. In Settings › Drivers there is a **Check for updates** button, the status of each driver and **Roll back**. A driver can be released on its own, without a new app version.
 - **Rename a database:** **Rename…** on a database in the explorer. The dialog shows the other sessions open on it (which the rename ends), whether the new name exists, how many objects move and the full script. Afterwards the connection's default database, open tabs, saved queries, migrations, project targets and scheduled task steps follow the new name; tasks that change data in it ask for approval again. Available in SQL Server, Azure SQL, Babelfish, the PostgreSQL family, MySQL, MariaDB, Snowflake and MongoDB; where the engine can't rename (or move) a database, it isn't offered.
 - **Which column is this value?** In an `INSERT … VALUES`, placing the cursor on a value shows a tooltip with its column (for example "Column 14 of 48: Name") and highlights that column in the list. Without a column list, it uses the table's columns in order. Works on every SQL and CQL engine.
 - **More ways to sign in to SQL Server with Microsoft Entra ID:** interactive with MFA (in the browser), integrated (the Windows account, through the organization's federated ADFS), managed identity and default (environment variables, managed identity, Azure CLI or Azure Developer CLI). The token is kept while DBine runs and renewed before it expires.
+- **Map a login to a database:** **Assign login…** in Users and permissions creates the database user for a server login that already exists (`CREATE USER … FOR LOGIN`, with its default schema), listing the logins that don't have a user there yet. Available in SQL Server, Azure SQL Database (the login is typed there), Babelfish and SAP ASE.
 
 ### Improvements
 - **What each version brings:** the new-version notice shows its changes and those of the versions in between, starting from the one you have installed, in the app's language.
 - **Old app versions:** from now on, an app older than the last five versions has to update in order to download new drivers. The drivers it already has installed keep working.
+- **Users and permissions:** changes are queued and applied together. A **pending changes** bar lists them, one review shows the whole script, and they run one at a time: applied ones leave the list and, if one fails, it and the rest stay pending.
 
 ### Fixes
 - **Read-only is stricter:** the queries of MCP clients at the Read level, the AI assistant and read-only connections are checked word by word, not only by their first word. They now refuse:
@@ -53,6 +50,9 @@
 - **View dependencies and Rename** no longer stop on routines with unusual quoted names.
 - **Read-only on SQL Server:** a batch can only start with `SELECT`, `WITH`, `USE` or `PRINT`. What follows `SHOW`, `DESCRIBE` or `PRAGMA` is checked on every engine.
 - **Import connections:** an Oracle JDBC URL with a user and password keeps them out of the connection's name: the password goes to the system keychain.
+- **Read-only:** a `--` comment ends at a carriage return too, as PostgreSQL reads it, so nothing that runs can hide in a comment. On SQL Server, a procedure whose name starts like `print_` or `select1` is no longer taken for a read.
+- **Import connections:** an Oracle password containing `@` is kept whole in the system keychain.
+- **SSH tunnels on Linux:** the tunnel's local port only trusts open connections from your own user.
 
 ## [0.1.9] - 2026-10-09
 

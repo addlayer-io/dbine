@@ -1,16 +1,18 @@
 # Cambios
 
-## [0.1.10] - 2026-10-09
+## [0.1.10] - 2026-10-10
 
 ### Nuevo
 - **Los drivers se actualizan solos, aparte de la app:** DBine busca en un índice firmado el driver más nuevo compatible con tu versión, lo descarga en segundo plano y vuelve al anterior si algo falla. En Configuración › Drivers hay un botón **Buscar actualizaciones**, el estado de cada driver y **Volver a la anterior**. Un driver puede publicarse solo, sin una versión nueva de la app.
 - **Renombrar una base:** **Renombrar…** sobre una base en el explorador. El diálogo muestra las otras sesiones abiertas sobre ella (que el renombrado cierra), si el nombre nuevo ya existe, cuántos objetos se mueven y el script completo. Después, la base predeterminada de la conexión, las pestañas abiertas, las consultas guardadas, las migraciones, los destinos de proyectos y los pasos de tareas programadas siguen el nombre nuevo; las tareas que modifican datos en ella piden aprobación de nuevo. Disponible en SQL Server, Azure SQL, Babelfish, la familia PostgreSQL, MySQL, MariaDB, Snowflake y MongoDB; donde el motor no puede renombrar (o mover) una base, no se ofrece.
 - **¿A qué columna corresponde este valor?** En un `INSERT … VALUES`, al poner el cursor sobre un valor aparece un tooltip con su columna (por ejemplo "Columna 14 de 48: Name") y se resalta esa columna en la lista. Sin lista de columnas, usa las de la tabla en orden. Funciona en todos los motores SQL y CQL.
 - **Más formas de entrar a SQL Server con Microsoft Entra ID:** interactiva con MFA (en el navegador), integrada (la cuenta de Windows, a través del ADFS federado de la organización), identidad administrada y predeterminada (variables de entorno, identidad administrada, Azure CLI o Azure Developer CLI). El token se conserva mientras DBine está abierto y se renueva antes de que venza.
+- **Asignar un login a una base:** **Asignar login…** en Usuarios y permisos crea el usuario de la base para un login del servidor que ya existe (`CREATE USER … FOR LOGIN`, con su schema por defecto), y lista los logins que todavía no tienen usuario ahí. Disponible en SQL Server, Azure SQL Database (ahí el login se escribe), Babelfish y SAP ASE.
 
 ### Mejoras
 - **Qué trae cada versión:** el aviso de versión nueva muestra sus cambios y los de las versiones intermedias, a partir de la que tenés instalada, en el idioma de la app.
 - **Versiones viejas de la app:** de ahora en más, una app anterior a las últimas cinco versiones tiene que actualizarse para descargar drivers nuevos. Los drivers que ya tiene instalados siguen funcionando.
+- **Usuarios y permisos:** los cambios se encolan y se aplican juntos. Una barra de **Cambios pendientes** los lista, una sola revisión muestra todo el script y se ejecutan de a uno: los aplicados salen de la lista y, si uno falla, ese y los que siguen quedan pendientes.
 
 ### Correcciones
 - **El solo lectura es más estricto:** las consultas de los clientes MCP con nivel Lectura, del asistente de IA y de las conexiones de solo lectura se revisan palabra por palabra, no solo por la primera. Ahora rechazan:
@@ -46,6 +48,9 @@
 - **Ver dependencias y Renombrar** ya no se detienen en rutinas con nombres entre comillas poco comunes.
 - **Solo lectura en SQL Server:** un batch solo puede empezar con `SELECT`, `WITH`, `USE` o `PRINT`. Lo que sigue a `SHOW`, `DESCRIBE` o `PRAGMA` se revisa en todos los motores.
 - **Importar conexiones:** una URL JDBC de Oracle con usuario y contraseña los deja fuera del nombre de la conexión: la contraseña va al llavero del sistema.
+- **Solo lectura:** un comentario `--` también termina en un retorno de carro (CR), como lo lee PostgreSQL, así que nada que se ejecute puede esconderse en un comentario. En SQL Server, un procedimiento cuyo nombre empieza como `print_` o `select1` ya no se toma por una lectura.
+- **Importar conexiones:** una contraseña de Oracle con `@` se guarda entera en el llavero del sistema.
+- **Túneles SSH en Linux:** el puerto local del túnel solo acepta conexiones abiertas de tu propio usuario.
 
 ## [0.1.9] - 2026-10-09
 

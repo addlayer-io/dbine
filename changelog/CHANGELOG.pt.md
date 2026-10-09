@@ -1,16 +1,18 @@
 # Alterações
 
-## [0.1.10] - 2026-10-09
+## [0.1.10] - 2026-10-10
 
 ### Novidades
 - **Os drivers se atualizam sozinhos, separados do app:** o DBine procura em um índice assinado o driver mais novo compatível com a sua versão, baixa em segundo plano e volta ao anterior se algo falhar. Em Configurações › Drivers há um botão **Buscar atualizações**, o estado de cada driver e **Voltar à anterior**. Um driver pode ser publicado sozinho, sem uma nova versão do app.
 - **Renomear um banco de dados:** **Renomear…** em um banco de dados no explorador. O diálogo mostra as outras sessões abertas nele (que a renomeação encerra), se o novo nome já existe, quantos objetos são movidos e o script completo. Depois, o banco padrão da conexão, as abas abertas, as consultas salvas, as migrações, os destinos de projetos e as etapas de tarefas agendadas passam a usar o novo nome; as tarefas que alteram dados nele pedem aprovação de novo. Disponível no SQL Server, Azure SQL, Babelfish, na família PostgreSQL, no MySQL, MariaDB, Snowflake e MongoDB; onde o motor não consegue renomear (ou mover) um banco de dados, a opção não é oferecida.
 - **A qual coluna corresponde este valor?** Em um `INSERT … VALUES`, ao colocar o cursor sobre um valor aparece um tooltip com a sua coluna (por exemplo "Coluna 14 de 48: Name") e essa coluna é destacada na lista. Sem lista de colunas, usa as colunas da tabela em ordem. Funciona em todos os motores SQL e CQL.
 - **Mais formas de entrar no SQL Server com o Microsoft Entra ID:** interativa com MFA (no navegador), integrada (a conta do Windows, pelo ADFS federado da organização), identidade gerenciada e padrão (variáveis de ambiente, identidade gerenciada, Azure CLI ou Azure Developer CLI). O token é mantido enquanto o DBine está aberto e renovado antes de expirar.
+- **Associar um login a um banco:** **Associar login…** em Usuários e permissões cria o usuário do banco para um login do servidor que já existe (`CREATE USER … FOR LOGIN`, com o schema padrão), listando os logins que ainda não têm usuário ali. Disponível no SQL Server, Azure SQL Database (lá o login é digitado), Babelfish e SAP ASE.
 
 ### Melhorias
 - **O que cada versão traz:** o aviso de nova versão mostra as mudanças dela e das versões intermediárias, a partir da que você tem instalada, no idioma do app.
 - **Versões antigas do app:** a partir de agora, um app mais antigo que as últimas cinco versões precisa ser atualizado para baixar novos drivers. Os drivers que ele já tem instalados continuam funcionando.
+- **Usuários e permissões:** as alterações entram em uma fila e são aplicadas juntas. Uma barra de **Alterações pendentes** as lista, uma única revisão mostra o script completo e elas rodam uma de cada vez: as aplicadas saem da lista e, se uma falhar, ela e as seguintes continuam pendentes.
 
 ### Correções
 - **O somente leitura é mais rigoroso:** as consultas dos clientes MCP com nível Leitura, do assistente de IA e das conexões somente leitura são verificadas palavra por palavra, não só pela primeira. Agora elas recusam:
@@ -46,6 +48,9 @@
 - **Ver dependências e Renomear** não travam mais em rotinas com nomes entre aspas incomuns.
 - **Somente leitura no SQL Server:** um lote só pode começar com `SELECT`, `WITH`, `USE` ou `PRINT`. O que vem depois de `SHOW`, `DESCRIBE` ou `PRAGMA` é verificado em todos os motores.
 - **Importar conexões:** uma URL JDBC do Oracle com usuário e senha mantém esses dados fora do nome da conexão: a senha vai para o chaveiro do sistema.
+- **Somente leitura:** um comentário `--` também termina em um retorno de carro (CR), como o PostgreSQL lê, então nada que seja executado pode se esconder em um comentário. No SQL Server, um procedimento cujo nome começa como `print_` ou `select1` deixa de ser tomado por uma leitura.
+- **Importar conexões:** uma senha do Oracle com `@` é guardada inteira no chaveiro do sistema.
+- **Túneis SSH no Linux:** a porta local do túnel só confia em conexões abertas pelo seu próprio usuário.
 
 ## [0.1.9] - 2026-10-09
 
