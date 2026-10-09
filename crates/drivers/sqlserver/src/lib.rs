@@ -5,6 +5,7 @@ mod backup;
 mod clone;
 mod create_db;
 mod delta;
+mod entra;
 mod health;
 mod dependencies;
 mod index_usage;
