@@ -39,8 +39,16 @@ const WRITE_WORDS: &[&str] = &[
 /// Write words only when the next word says so (`ENABLE TRIGGER`, `SEND ON
 /// CONVERSATION`, `SAVE TRANSACTION`), so columns named `enable` or `save`
 /// still read.
-const WRITE_PAIRS: &[(&str, &[&str])] =
-    &[("enable", &["trigger"]), ("disable", &["trigger"]), ("send", &["on"]), ("save", &["tran", "transaction"]), ("end", &["conversation"])];
+const WRITE_PAIRS: &[(&str, &[&str])] = &[
+    ("enable", &["trigger"]),
+    ("disable", &["trigger"]),
+    ("send", &["on"]),
+    ("save", &["tran", "transaction"]),
+    ("end", &["conversation"]),
+    // Row locks: `LOCK IN SHARE MODE`, `FOR SHARE` / `FOR KEY SHARE` / `FOR NO KEY UPDATE`.
+    ("lock", &["in"]),
+    ("for", &["share", "key", "no"]),
+];
 
 /// Write words that are also read-only functions (`REPLACE(s, a, b)`,
 /// MySQL's `INSERT(s, pos, len, new)`).
@@ -58,6 +66,9 @@ const WRITE_FUNCTIONS: &[&str] = &[
     "cursor_to_xml", "load_file", "sys_exec", "sys_eval", "pg_notify", "pg_logical_slot_get_changes", "pg_logical_slot_get_binary_changes",
     "pg_replication_slot_advance", "load_extension", "writefile", "fts3_tokenizer", "system$abort_session", "system$abort_transaction",
     "system$cancel_all_queries", "system$cancel_query", "system$user_task_cancel_ongoing_executions",
+    // Locks other sessions block on.
+    "pg_advisory_lock", "pg_advisory_lock_shared", "pg_try_advisory_lock", "pg_try_advisory_lock_shared", "pg_advisory_xact_lock",
+    "pg_advisory_xact_lock_shared", "pg_try_advisory_xact_lock", "pg_try_advisory_xact_lock_shared", "get_lock", "sp_getapplock",
 ];
 
 /// Prefixes of procedures and packages that act outside the query: SQL
@@ -698,6 +709,12 @@ mod tests {
             ("SELECT SYSTEM$ABORT_SESSION(1)", &ScriptDialect::generic()),
             ("SELECT SYSTEM$CANCEL_ALL_QUERIES(1)", &ScriptDialect::generic()),
             ("SELECT 1\u{a0}DELETE FROM t", &t),
+            // Locks other sessions would wait on.
+            ("select pg_advisory_lock(1)", &pg),
+            ("select pg_try_advisory_xact_lock(1)", &pg),
+            ("select get_lock('x', 10)", &my),
+            ("select 1 from t lock in share mode", &my),
+            ("select * from t for share", &pg),
         ];
         for (sql, d) in cases {
             assert!(super::first_write_in(sql, d).is_some(), "{sql:?} in {d:?}");
