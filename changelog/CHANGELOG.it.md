@@ -55,6 +55,7 @@
 - **Esportazione SQL** di una griglia multi-database: esegue l'escape delle stringhe in modo che lo script si legga allo stesso modo su qualsiasi motore.
 - **Importa connessioni:** un URL di SQL Server senza host non mette più la sua password nel nome della connessione.
 - **Utenti e permessi:** l'anteprima nasconde le password di PostgreSQL in tutte le loro forme.
+- **Sola lettura:** le query che acquisiscono lock su cui altre sessioni restano in attesa vengono rifiutate, per esempio `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` e `FOR SHARE`.
 
 ## [0.1.9] - 2026-10-09
 
