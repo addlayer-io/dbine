@@ -1,16 +1,18 @@
 # Modifiche
 
-## [0.1.10] - 2026-10-09
+## [0.1.10] - 2026-10-10
 
 ### Novità
 - **I driver si aggiornano da soli, separatamente dall'app:** DBine cerca in un indice firmato il driver più recente compatibile con la tua versione, lo scarica in background e torna al precedente se qualcosa va storto. In Impostazioni › Driver c'è un pulsante **Cerca aggiornamenti**, lo stato di ogni driver e **Torna alla precedente**. Un driver può essere pubblicato da solo, senza una nuova versione dell'app.
 - **Rinominare un database:** **Rinomina…** su un database nell'esplora risorse. La finestra mostra le altre sessioni aperte su di esso (che la ridenominazione termina), se il nuovo nome esiste già, quanti oggetti vengono spostati e lo script completo. Dopo, il database predefinito della connessione, le schede aperte, le query salvate, le migrazioni, le destinazioni dei progetti e i passaggi delle attività pianificate seguono il nuovo nome; le attività che modificano dati al suo interno chiedono di nuovo l'approvazione. Disponibile in SQL Server, Azure SQL, Babelfish, nella famiglia PostgreSQL, in MySQL, MariaDB, Snowflake e MongoDB; dove il motore non può rinominare (o spostare) un database, non viene offerto.
 - **A quale colonna corrisponde questo valore?** In un `INSERT … VALUES`, posizionando il cursore su un valore compare un tooltip con la sua colonna (ad esempio "Colonna 14 di 48: Name") e quella colonna viene evidenziata nell'elenco. Senza elenco di colonne, usa quelle della tabella in ordine. Funziona su tutti i motori SQL e CQL.
 - **Più modi per accedere a SQL Server con Microsoft Entra ID:** interattiva con MFA (nel browser), integrata (l'account Windows, tramite l'ADFS federato dell'organizzazione), identità gestita e predefinita (variabili d'ambiente, identità gestita, Azure CLI o Azure Developer CLI). Il token viene conservato finché DBine è aperto e rinnovato prima della scadenza.
+- **Associare un login a un database:** **Associa login…** in Utenti e permessi crea l'utente del database per un login del server che esiste già (`CREATE USER … FOR LOGIN`, con il suo schema predefinito), elencando i login che lì non hanno ancora un utente. Disponibile su SQL Server, Azure SQL Database (lì il login si digita), Babelfish e SAP ASE.
 
 ### Miglioramenti
 - **Cosa porta ogni versione:** l'avviso di nuova versione mostra le sue modifiche e quelle delle versioni intermedie, a partire da quella che hai installato, nella lingua dell'app.
 - **Versioni vecchie dell'app:** d'ora in poi, un'app più vecchia delle ultime cinque versioni deve aggiornarsi per scaricare nuovi driver. I driver che ha già installati continuano a funzionare.
+- **Utenti e permessi:** le modifiche vengono messe in coda e applicate insieme. Una barra **Modifiche in sospeso** le elenca, un'unica revisione mostra tutto lo script e vengono eseguite una alla volta: quelle applicate escono dall'elenco e, se una fallisce, lei e le successive restano in sospeso.
 
 ### Correzioni
 - **La sola lettura è più rigorosa:** le query dei client MCP con livello Lettura, dell'assistente IA e delle connessioni in sola lettura vengono controllate parola per parola, non solo dalla prima. Ora rifiutano:
@@ -46,6 +48,9 @@
 - **Mostra dipendenze e Rinomina** non si fermano più sulle routine con nomi tra virgolette insoliti.
 - **Sola lettura su SQL Server:** un batch può iniziare solo con `SELECT`, `WITH`, `USE` o `PRINT`. Ciò che segue `SHOW`, `DESCRIBE` o `PRAGMA` viene controllato su tutti i motori.
 - **Importa connessioni:** un URL JDBC di Oracle con utente e password li tiene fuori dal nome della connessione: la password va nel portachiavi di sistema.
+- **Sola lettura:** anche un commento `--` termina a un ritorno a capo (CR), come lo legge PostgreSQL, quindi nulla di ciò che viene eseguito può nascondersi in un commento. Su SQL Server, una procedura il cui nome inizia come `print_` o `select1` non viene più scambiata per una lettura.
+- **Importa connessioni:** una password Oracle contenente `@` viene conservata per intero nel portachiavi del sistema.
+- **Tunnel SSH su Linux:** la porta locale del tunnel si fida solo delle connessioni aperte dal tuo stesso utente.
 
 ## [0.1.9] - 2026-10-09
 
