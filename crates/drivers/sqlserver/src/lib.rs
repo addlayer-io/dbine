@@ -327,6 +327,12 @@ impl Driver for SqlServerDriver {
     fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String> {
         security::script(self.variant, action)
     }
+    fn supports_map_login(&self) -> bool {
+        security::supports_map_login(self.variant)
+    }
+    fn map_login_script(&self, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
+        security::map_login(self.variant, login, user, default_schema)
+    }
 
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
         Some(security::schema_spec(self.variant))
@@ -1125,6 +1131,9 @@ impl Session for SqlServerSession {
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {
         security::principals(self).await
+    }
+    async fn unmapped_logins(&mut self) -> Result<Vec<String>> {
+        security::unmapped_logins(self).await
     }
 
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {

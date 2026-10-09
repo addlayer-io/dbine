@@ -219,6 +219,14 @@ pub enum Call {
     /// "Renombrar…" on a database. A host published before it answers
     /// `Unsupported` (and its manifest doesn't offer it).
     RenameDatabaseScript { driver: String, database: String, new_name: String, objects: Vec<dbine_driver::rename::DatabaseObject> },
+    /// "Asignar login…": the server's logins with no user in the session's
+    /// database. A host published before it answers `Unsupported`, and the
+    /// dialog lets the user type the login.
+    UnmappedLogins { session: u64 },
+    /// "Asignar login…": the statement that maps a server login to a user
+    /// of the current database. A host published before it answers
+    /// `Unsupported` (and its manifest doesn't offer it).
+    MapLoginScript { driver: String, login: String, user: String, default_schema: Option<String> },
 }
 
 /// Host → app.
@@ -359,6 +367,10 @@ pub struct DriverMeta {
     /// manifests: just the name).
     #[serde(default, deserialize_with = "owned")]
     pub create_database_fields: Vec<dbine_driver::Field>,
+    /// "Asignar login…" (`Driver::supports_map_login`; absent in older
+    /// manifests: not offered).
+    #[serde(default)]
+    pub supports_map_login: bool,
 }
 
 /// The contract's metadata types hold `&'static str` (interned when read),
@@ -412,6 +424,7 @@ impl DriverMeta {
             supports_index_toggle: d.supports_index_toggle(),
             rename: d.rename_spec(),
             create_database_fields: d.create_database_fields(),
+            supports_map_login: d.supports_map_login(),
         }
     }
 }
@@ -691,6 +704,8 @@ mod tests {
             (24, Call::ObjectComments { session: 3 }, "ObjectComments"),
             (25, Call::RenameScript { driver: "postgres".into(), request: rename_request() }, "RenameScript"),
             (26, Call::RenameDatabaseScript { driver: "postgres".into(), database: "v".into(), new_name: "w".into(), objects: Vec::new() }, "RenameDatabaseScript"),
+            (27, Call::UnmappedLogins { session: 3 }, "UnmappedLogins"),
+            (28, Call::MapLoginScript { driver: "sqlserver".into(), login: "ana".into(), user: "ana".into(), default_schema: Some("dbo".into()) }, "MapLoginScript"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

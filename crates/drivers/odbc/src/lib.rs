@@ -215,6 +215,17 @@ impl Driver for OdbcDriver {
             None => Err(Error::Unsupported(security::unsupported(self.preset).into())),
         }
     }
+    fn supports_map_login(&self) -> bool {
+        security::dialect(self.preset).is_some_and(security::supports_map_login)
+    }
+    fn map_login_script(&self, login: &str, user: &str, default_schema: Option<&str>) -> Result<String> {
+        // ASE users have no default schema.
+        let _ = default_schema;
+        match security::dialect(self.preset) {
+            Some(d) => security::map_login_script(d, login, user),
+            None => Err(Error::Unsupported(security::unsupported(self.preset).into())),
+        }
+    }
 
     fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
         schemas::spec(self.preset)
@@ -1350,6 +1361,13 @@ impl Session for OdbcSession {
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {
         match security::dialect(self.preset) {
             Some(d) => security::principals(self, d).await,
+            None => Err(Error::Unsupported(security::unsupported(self.preset).into())),
+        }
+    }
+
+    async fn unmapped_logins(&mut self) -> Result<Vec<String>> {
+        match security::dialect(self.preset) {
+            Some(d) => security::unmapped_logins(self, d).await,
             None => Err(Error::Unsupported(security::unsupported(self.preset).into())),
         }
     }

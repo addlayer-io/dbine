@@ -256,6 +256,8 @@ pub fn run() {
             commands::data_compare::data_compare,
             commands::data_compare::data_compare_script,
             commands::security::security_principals,
+            commands::security::security_unmapped_logins,
+            commands::security::security_map_login_script,
             commands::security::security_grants,
             commands::security::security_script,
             commands::backup::backup_list,

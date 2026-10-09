@@ -351,3 +351,71 @@ async fn babelfish_schemas_with_owner_and_grants() {
     run(&mut admin, "DROP LOGIN dbine_dueno;").await;
     run(&mut admin, "DROP LOGIN dbine_creador;").await;
 }
+
+/// "Asignar login…" on a driver: a login made on master shows among the
+/// unmapped ones of a new database, `map_login_script` gives it a user
+/// there (same SID, the default schema) and it leaves the list.
+async fn maps_a_login(d: &dyn dbine_driver::Driver, cfg: &ConnectionConfig, login: &str, user: &str) {
+    assert!(d.supports_map_login());
+    let lit = |s: &str| format!("N'{}'", s.replace('\'', "''"));
+    let br = |s: &str| format!("[{}]", s.replace(']', "]]"));
+    let mut admin = d.connect(cfg, Some("master")).await.unwrap();
+    run(&mut admin, "IF DB_ID('dbine_map') IS NOT NULL DROP DATABASE dbine_map;").await;
+    run(&mut admin, &format!("IF SUSER_ID({}) IS NOT NULL DROP LOGIN {};", lit(login), br(login))).await;
+    run(&mut admin, &format!("CREATE LOGIN {} WITH PASSWORD = N'Pw_12345!x';", br(login))).await;
+    run(&mut admin, "CREATE DATABASE dbine_map;").await;
+    let mut s = d.connect(cfg, Some("dbine_map")).await.unwrap();
+    run(&mut s, "CREATE SCHEMA ventas;").await;
+
+    let before = s.unmapped_logins().await.unwrap();
+    assert!(before.iter().any(|l| l == login), "{before:?}");
+    assert!(before.iter().all(|l| l != "sa" && !l.starts_with("##")), "{before:?}");
+
+    let script = d.map_login_script(login, user, Some("ventas")).unwrap();
+    run(&mut s, &script).await;
+
+    // `principals` joins the server login by SID.
+    let all = s.principals().await.unwrap();
+    let u = all.iter().find(|p| p.name == user).unwrap_or_else(|| panic!("the user in {all:?}"));
+    assert_eq!(u.kind, PrincipalKind::User);
+    assert!(u.details.iter().any(|(k, v)| k == "Login" && v == login), "{:?}", u.details);
+    assert!(u.details.iter().any(|(k, v)| k == "Esquema predeterminado" && v == "ventas"), "{:?}", u.details);
+    let after = s.unmapped_logins().await.unwrap();
+    assert!(after.iter().all(|l| l != login), "{after:?}");
+
+    run(&mut s, &format!("DROP USER {};", br(user))).await;
+    drop(s);
+    // The dropped session's backend can take a moment to leave (Babelfish).
+    for i in 0..40 {
+        let mut out = QueryOutcome::default();
+        let r = admin.execute("DROP DATABASE dbine_map;", 100, &mut out).await;
+        match r.err().map(|e| e.to_string()).or(out.error) {
+            Some(e) if e.contains("in use") && i < 39 => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+            Some(e) => panic!("DROP DATABASE: {e}"),
+            None => break,
+        }
+    }
+    run(&mut admin, &format!("DROP LOGIN {};", br(login))).await;
+}
+
+/// `cargo test -p dbine-driver-sqlserver --test security map_login -- --ignored`
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn map_login_sqlserver() {
+    let Some(cfg) = cfg() else { return };
+    let d = dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == "sqlserver").unwrap();
+    maps_a_login(d.as_ref(), &cfg, "dbine_m'a]p", "usr m'x]").await;
+}
+
+/// Babelfish (`DBINE_TEST_BABELFISH_URL`): it rejects `]` in names.
+/// `cargo test -p dbine-driver-sqlserver --test security map_login_babelfish -- --ignored`
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn map_login_babelfish() {
+    let Some(mut cfg) = std::env::var("DBINE_TEST_BABELFISH_URL").ok().and_then(|u| cfg_from(&u)) else {
+        return;
+    };
+    cfg.driver = "babelfish".into();
+    let d = dbine_driver_sqlserver::drivers().into_iter().find(|d| d.info().id == "babelfish").unwrap();
+    maps_a_login(d.as_ref(), &cfg, "dbine_m'ap", "usr m'x").await;
+}

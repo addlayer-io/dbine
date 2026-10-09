@@ -321,7 +321,7 @@ impl Call {
             | Permissions { session, .. } | ListSchemas { session } | IndexUsage { session, .. } | Dependents { session, .. }
             | Processes { session } | CancelQuery { session, .. } | CreateDatabaseChoices { session }
             | CreateDatabaseWith { session, .. } | DatabaseProperties { session, .. } | AlterDatabase { session, .. }
-            | SearchCode { session, .. } | HealthChecks { session, .. } | RowEstimates { session } | ObjectComments { session } => Some(*session),
+            | SearchCode { session, .. } | HealthChecks { session, .. } | RowEstimates { session } | ObjectComments { session } | UnmappedLogins { session } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
             CopyNative { from, .. } => Some(*from),
@@ -428,6 +428,9 @@ impl State {
             Call::SyncScript { driver, changes } => Reply::Sync(self.driver(&driver)?.sync_script(&changes)?),
             Call::IndexToggleScript { driver, table, index, enable } => Reply::Sync(self.driver(&driver)?.index_toggle_script(&table, &index, enable)?),
             Call::RenameScript { driver, request } => Reply::Sync(self.driver(&driver)?.rename_script(&request)?),
+            Call::MapLoginScript { driver, login, user, default_schema } => {
+                Reply::Text(self.driver(&driver)?.map_login_script(&login, &user, default_schema.as_deref())?)
+            }
             Call::RenameDatabaseScript { driver, database, new_name, objects } => {
                 Reply::Sync(self.driver(&driver)?.rename_database_script(&database, &new_name, &objects)?)
             }
@@ -497,6 +500,7 @@ impl State {
             Call::Monitor { session } => Reply::Monitor(self.slot(session)?.session.lock().await.monitor().await?),
             Call::Blocking { session } => Reply::Blocking(self.slot(session)?.session.lock().await.blocking().await?),
             Call::Principals { session } => Reply::Principals(self.slot(session)?.session.lock().await.principals().await?),
+            Call::UnmappedLogins { session } => Reply::Texts(self.slot(session)?.session.lock().await.unmapped_logins().await?),
             Call::Grants { session, principal } => Reply::Grants(self.slot(session)?.session.lock().await.grants(&principal).await?),
             Call::Backups { session, database } => Reply::Backups(self.slot(session)?.session.lock().await.backups(database.as_deref()).await?),
             Call::KillSession { session, id } => {

@@ -27,6 +27,16 @@ pub async fn security_principals(state: State<'_, AppState>, args: PrincipalsArg
     Ok(r?)
 }
 
+/// "Asignar login…": the server's logins with no user in `database`.
+/// `Unsupported` where the engine can't list them from there (the dialog
+/// lets the user type the login).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn security_unmapped_logins(state: State<'_, AppState>, args: PrincipalsArgs) -> CommandResult<Vec<String>> {
+    let entry = state.session(&key(&args.connection_id, &args.database), &args.connection_id, &args.database).await?;
+    let r = entry.session.lock().await.unmapped_logins().await;
+    Ok(r?)
+}
+
 #[derive(Deserialize)]
 pub struct GrantsArgs {
     pub connection_id: String,
@@ -65,6 +75,26 @@ pub async fn security_script(state: State<'_, AppState>, args: ScriptArgs) -> Co
         None => script.clone(),
     };
     Ok(SecurityScript { script, shown })
+}
+
+#[derive(Deserialize)]
+pub struct MapLoginArgs {
+    pub connection_id: String,
+    pub login: String,
+    pub user: String,
+    #[serde(default)]
+    pub default_schema: Option<String>,
+}
+
+/// "Asignar login…" (`Driver::supports_map_login`): the statement that maps
+/// a server login to a user of the tab's database. No password in it, so
+/// `shown` is the script itself; it runs like the other changes.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn security_map_login_script(state: State<'_, AppState>, args: MapLoginArgs) -> CommandResult<SecurityScript> {
+    let cfg = state.store.get_connection(&args.connection_id)?.ok_or_else(|| CommandError::NotFound("la conexión ya no existe".into()))?.config;
+    let driver = dbine_drivers::find(&cfg.driver).ok_or_else(|| CommandError::BadRequest(format!("no hay driver '{}'", cfg.driver)))?;
+    let script = driver.map_login_script(&args.login, &args.user, args.default_schema.as_deref())?;
+    Ok(SecurityScript { shown: script.clone(), script })
 }
 
 /// The script with the password hidden, however the engine escaped it

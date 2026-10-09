@@ -19,6 +19,8 @@ const props = defineProps<{ tab: SecurityTab }>();
 const conns = useConnectionsStore();
 const { t } = useTranslation();
 const spec = computed(() => conns.driverOf(props.tab.connectionId)?.security ?? null);
+/** "Asignar login…": users for logins the server already has (SQL Server, SAP ASE). */
+const canMapLogin = computed(() => !!conns.driverOf(props.tab.connectionId)?.supports_map_login);
 const readOnly = computed(() => !!conns.byId(props.tab.connectionId)?.config.read_only);
 /** Why the login can't manage users and grants ('' when it can). */
 const noPermission = computed(() => {
@@ -98,18 +100,27 @@ onBeforeUnmount(() => {
     runTask.background();
   }
 });
-const review = reactive<{ open: boolean; action: SecurityAction | null; script: string; shown: string; error: string | null; running: boolean; cancelling: boolean }>({
-  open: false, action: null, script: '', shown: '', error: null, running: false, cancelling: false,
+const review = reactive<{
+  open: boolean; action: SecurityAction | null;
+  /** The user "Asignar login…" creates, selected once it runs. */
+  mapped: string | null;
+  script: string; shown: string; error: string | null; running: boolean; cancelling: boolean;
+}>({
+  open: false, action: null, mapped: null, script: '', shown: '', error: null, running: false, cancelling: false,
 });
-async function propose(action: SecurityAction) {
+/** Show a change's script for review (`load` writes it). */
+async function showScript(load: () => Promise<{ script: string; shown: string }>, action: SecurityAction | null, mapped: string | null) {
   // A change still running owns the dialog: show it instead of replacing it.
   if (review.running) { review.open = true; return; }
   try {
-    const s = await securityApi.script(props.tab.connectionId, action);
-    Object.assign(review, { open: true, action, script: s.script, shown: s.shown, error: null, running: false, cancelling: false });
+    const s = await load();
+    Object.assign(review, { open: true, action, mapped, script: s.script, shown: s.shown, error: null, running: false, cancelling: false });
   } catch (e) {
     ElMessage.error(errorMessage(e));
   }
+}
+function propose(action: SecurityAction) {
+  return showScript(() => securityApi.script(props.tab.connectionId, action), action, null);
 }
 async function copyScript() {
   // The copy never carries the password.
@@ -145,6 +156,7 @@ async function run() {
   });
   runTask = task;
   const a = review.action;
+  const mapped = review.mapped;
   try {
     const o = await api.executeQuery({ sessionId, connectionId, database, sql: review.script, maxRows: 10, record: false });
     if (o.error) {
@@ -158,6 +170,7 @@ async function run() {
     if (!quiet) ElMessage.success(t('security:done'));
     if (!alive) return;
     if (a && (a.action === 'create_user' || a.action === 'create_role')) selected.value = a.name;
+    if (mapped) selected.value = mapped;
     if (a && a.action === 'drop') selected.value = null;
     await load();
   } catch (e) {
@@ -184,6 +197,39 @@ function submitCreate() {
   propose(create.kind === 'user'
     ? { action: 'create_user', name: create.name.trim(), password: create.password || null }
     : { action: 'create_role', name: create.name.trim() });
+}
+// "Asignar login…": a user of this database for a login the server already has.
+const mapLogin = reactive({
+  open: false, login: '', user: '', schema: '',
+  logins: [] as string[], loading: false,
+  /** Why the logins couldn't be listed ('' when they were): the login is typed. */
+  unlisted: '',
+});
+/** The engine has schemas to default to (SQL Server's family; not SAP ASE). */
+const mapSchemas = computed(() => !!spec.value?.object_kinds.includes('schema'));
+async function openMapLogin() {
+  const driver = conns.driverOf(props.tab.connectionId)?.id ?? '';
+  const schema = mapSchemas.value && ['sqlserver', 'azuresql', 'babelfish'].includes(driver) ? 'dbo' : '';
+  Object.assign(mapLogin, { open: true, login: '', user: '', schema, logins: [], loading: true, unlisted: '' });
+  try {
+    mapLogin.logins = await securityApi.unmappedLogins(props.tab.connectionId, props.tab.database);
+  } catch (e) {
+    mapLogin.unlisted = errorMessage(e);
+  } finally {
+    mapLogin.loading = false;
+  }
+}
+/** The user's name follows the login until it's edited. */
+watch(() => mapLogin.login, (login, before) => {
+  if (!mapLogin.user || mapLogin.user === before) mapLogin.user = login;
+});
+function submitMapLogin() {
+  const login = mapLogin.login.trim();
+  const user = mapLogin.user.trim();
+  if (!login || !user) return;
+  mapLogin.open = false;
+  const schema = (mapSchemas.value && mapLogin.schema.trim()) || null;
+  showScript(() => securityApi.mapLoginScript(props.tab.connectionId, login, user, schema), null, user);
 }
 const password = reactive({ open: false, value: '' });
 function submitPassword() {
@@ -235,6 +281,7 @@ function submitAddRole() {
       </div>
       <div class="sv-list-actions" v-if="spec && !readOnly" :title="noPermission">
         <el-button v-if="spec.create_user" size="small" :disabled="!canEdit" @click="openCreate('user')">{{ $t('security:newUser') }}</el-button>
+        <el-button v-if="canMapLogin" size="small" :disabled="!canEdit" @click="openMapLogin">{{ $t('security:mapLogin') }}</el-button>
         <el-button v-if="spec.create_role" size="small" :disabled="!canEdit" @click="openCreate('role')">{{ $t('security:newRole') }}</el-button>
       </div>
       <div v-if="noPermission && !readOnly" class="sv-error">{{ noPermission }}</div>
@@ -334,6 +381,34 @@ function submitAddRole() {
         <el-button type="primary" :disabled="!create.name.trim()" @click="submitCreate">{{ $t('security:seeScript') }}</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="mapLogin.open" :title="$t('security:mapLoginTitle')" width="440px" append-to-body>
+      <p class="sv-dim sv-hint">{{ $t('security:mapLoginHint') }}</p>
+      <el-form label-position="top" @submit.prevent="submitMapLogin">
+        <el-form-item :label="$t('security:login')">
+          <template v-if="mapLogin.unlisted">
+            <el-input v-model="mapLogin.login" :placeholder="$t('security:loginType')" autofocus />
+            <!-- Why they couldn't be listed (Azure SQL Database: the logins are in master). -->
+            <div class="sv-dim sv-hint">{{ mapLogin.unlisted }}</div>
+          </template>
+          <template v-else>
+            <el-select v-model="mapLogin.login" filterable allow-create default-first-option :loading="mapLogin.loading" :placeholder="$t('security:loginPick')" style="width: 100%">
+              <el-option v-for="l in mapLogin.logins" :key="l" :label="l" :value="l" />
+            </el-select>
+            <div v-if="!mapLogin.loading && !mapLogin.logins.length" class="sv-dim sv-hint">{{ $t('security:noUnmapped') }}</div>
+          </template>
+        </el-form-item>
+        <el-form-item :label="$t('security:userName')"><el-input v-model="mapLogin.user" /></el-form-item>
+        <el-form-item v-if="mapSchemas" :label="$t('security:defaultSchema')">
+          <el-select v-model="mapLogin.schema" filterable allow-create clearable default-first-option :placeholder="$t('security:optional')" style="width: 100%">
+            <el-option v-for="s in schemas" :key="s" :label="s" :value="s" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="mapLogin.open = false">{{ $t('common:cancel') }}</el-button>
+        <el-button type="primary" :disabled="!mapLogin.login.trim() || !mapLogin.user.trim()" @click="submitMapLogin">{{ $t('security:seeScript') }}</el-button>
+      </template>
+    </el-dialog>
     <el-dialog v-model="password.open" :title="$t('security:setPassword')" width="420px" append-to-body>
       <el-input v-model="password.value" type="password" show-password autofocus @keyup.enter="submitPassword" />
       <template #footer>
@@ -365,7 +440,7 @@ function submitAddRole() {
 .sv { display: flex; height: 100%; min-height: 0; background: var(--ide-editor); }
 .sv-list { width: 280px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--nm-border); }
 .sv-list-head { display: flex; gap: 4px; padding: 10px 10px 6px; }
-.sv-list-actions { display: flex; gap: 6px; padding: 0 10px 8px; }
+.sv-list-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 8px; }
 .sv-list-actions .el-button { margin: 0; }
 .sv-items { flex: 1; overflow: auto; padding-bottom: 12px; }
 .sv-group { padding: 8px 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--nm-text-dim); }
@@ -392,6 +467,7 @@ function submitAddRole() {
 .sv-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; background: var(--ide-selection); font-size: 12px; }
 .sv-chip button { border: 0; background: none; color: var(--nm-text-dim); cursor: pointer; padding: 0 2px; }
 .sv-dim { color: var(--nm-text-dim); font-size: 12px; }
+.sv-hint { margin: 4px 0 0; line-height: 1.4; }
 .sv-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .sv-table th { text-align: left; font-weight: 500; color: var(--nm-text-dim); padding: 5px 8px; border-bottom: 1px solid var(--nm-border); }
 .sv-table td { padding: 4px 8px; border-bottom: 1px solid var(--nm-border-soft); color: var(--nm-text); }

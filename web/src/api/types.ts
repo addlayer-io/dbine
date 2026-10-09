@@ -116,6 +116,8 @@ export interface DriverInfo {
   supports_index_toggle?: boolean;
   /** "Renombrar…" (`Driver::rename_spec`); absent or null: not offered. */
   rename?: RenameSpec | null;
+  /** "Asignar login…" in Users and permissions (`Driver::supports_map_login`). */
+  supports_map_login?: boolean;
 }
 
 /** One index and how it's used (`dbine_driver::IndexUsage`). The last four

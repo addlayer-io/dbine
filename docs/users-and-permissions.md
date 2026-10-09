@@ -35,6 +35,28 @@ Nothing runs without clicking **Run**.
 - The permissions available to grant are the engine's. You can also type
   another.
 
+## Map a login
+
+On engines whose database users sign in through a separate server login
+(SQL Server, Azure SQL Database, Babelfish and Sybase ASE), **Map login…**,
+next to **New user**, creates a user of the current database for a login
+that already exists on the server, without creating a new login:
+
+- **Login:** a list of the server's logins that have no user in this
+  database yet; you can also type one. Where the logins can't be listed
+  from the database (Azure SQL Database, where they live in `master`), you
+  type it.
+- **User name:** filled in with the login's name; it can be changed.
+- **Default schema** (optional; SQL Server family only): `dbo` is proposed.
+
+The script is shown and run like any other change:
+
+- SQL Server, Azure SQL Database, Babelfish:
+  `CREATE USER [user] FOR LOGIN [login] WITH DEFAULT_SCHEMA = [schema];`
+- Sybase ASE: `exec sp_adduser 'login', 'user'` (ASE has no default schema).
+
+After it runs, the list is refreshed and the new user is selected.
+
 ## Particularities
 
 - **SQL Server:** users belong to the database and sign in with a server
@@ -71,6 +93,12 @@ Nothing runs without clicking **Run**.
   permissions, object types, whether it creates users and roles, whether it
   handles passwords and memberships, and whether it is per database.
 - `Session::principals()` and `Session::grants(name)` read.
+- **Map login…** is offered where `Driver::supports_map_login()` is true;
+  `Driver::map_login_script(login, user, default_schema)` writes the
+  statement, and `Session::unmapped_logins()` lists the server's logins with
+  no user in the current database. Where it answers `Unsupported`, the
+  dialog lets the user type the login. All three default to off /
+  `Unsupported`, so only the drivers that have it implement them.
 - `Driver::security_script(action)` writes the change.
 
 What each engine supports is in
