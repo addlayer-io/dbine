@@ -136,7 +136,10 @@ impl Server {
 #[tokio::test]
 async fn mcp_server_end_to_end() {
     let s = server().await;
-    let (_, token) = s.rt.inner.create_client("Claude Code").unwrap();
+    let (claude, token) = s.rt.inner.create_client("Claude Code").unwrap();
+    // Whether SQLite enforces reads on the server or they need the user's
+    // approval, they run here without a dialog (the routing has its own tests).
+    s.rt.inner.approvals.approve_all_for(&claude.id, approvals::ApprovalKind::Read);
 
     // initialize → tools/list
     let init = s.rpc(&token, "initialize", json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "t", "version": "1" } })).await;
@@ -182,7 +185,9 @@ async fn mcp_server_end_to_end() {
     // Every call is in the log, with the client's name.
     let log = s.rt.inner.activity.list(Some("Claude Code"), Some("lectura"), 100).unwrap();
     assert!(log.iter().any(|e| e.tool == "run_query" && !e.ok));
-    assert!(log.iter().any(|e| e.tool == "run_query" && e.ok && e.rows == Some(2)));
+    // A read says whether the server enforced it or it was approved.
+    let read = |e: &&activity::ActivityEntry| e.tool == "run_query:enforced" || e.tool == "run_query:auto_approved";
+    assert!(log.iter().filter(read).any(|e| e.ok && e.rows == Some(2)), "{log:?}");
 
     // Wrong token → 401; revoked token → 401.
     let r = s.post("dbine_wrong", json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })).await;
@@ -232,6 +237,7 @@ async fn mcp_write_needs_the_level_and_the_users_approval() {
     prod.name = "produccion".into();
     prod.tags = vec!["prod".into()];
     s.rt.inner.state.store.save_connection(&prod).unwrap();
+    s.rt.inner.approvals.approve_all_for(&claude.id, approvals::ApprovalKind::Read);
     let args = |conn: &str, code: &str| json!({ "connection": conn, "database": "", "code": code });
 
     // Below write (and on prod, capped at read) it's refused without asking.
@@ -267,13 +273,61 @@ async fn mcp_write_needs_the_level_and_the_users_approval() {
         answer_next(&s.rt, Decision::ApproveAll)
     );
     assert!(!r.1, "{}", r.0);
-    assert!(s.rt.inner.approvals.approves_all(&claude.id));
+    assert!(s.rt.inner.approvals.approves_all(&claude.id, approvals::ApprovalKind::Write));
     let (r, err) = s.call(&token, "execute", args("escritura", "delete from people where name = 'CARLA'")).await;
     assert!(!err && r.contains("1 rows affected"), "{r}");
     assert!(s.rt.inner.activity.list(Some("Claude Code"), None, 100).unwrap().iter().any(|e| e.tool == "execute:auto_approved"));
     // Revoking the client ends approve-all.
     s.rt.inner.revoke_client(&claude.id).unwrap();
-    assert!(!s.rt.inner.approvals.approves_all(&claude.id));
+    assert!(!s.rt.inner.approvals.approves_all(&claude.id, approvals::ApprovalKind::Write));
+    assert!(!s.rt.inner.approvals.approves_all(&claude.id, approvals::ApprovalKind::Read));
+}
+
+/// A read the engine can't enforce: an MCP client's waits for the user in
+/// DBine's dialog (kind `read`, logged as a request); rejected or approved,
+/// the answer comes back. The assistant's was approved in the chat.
+#[tokio::test]
+async fn mcp_unenforced_read_asks_the_user() {
+    use super::reads::How;
+    use super::tools::{approve_read, Who};
+    use approvals::{ApprovalKind, Decision};
+    let s = server().await;
+    let (claude, _) = s.rt.inner.create_client("Claude Code").unwrap();
+    let conn = load_connection(&s, "read-conn");
+    let args = json!({ "connection": "lectura", "database": "", "query": "select * from people" });
+    let inner = &s.rt.inner;
+
+    let ask = || approve_read(inner, Who::Mcp(&claude), "run_query", &args, &conn, "", "select * from people");
+    let (r, _) = tokio::join!(ask(), async {
+        for _ in 0..400 {
+            if let Some(p) = inner.approvals.pending().first() {
+                assert_eq!(p.kind, ApprovalKind::Read);
+                assert_eq!(p.code, "select * from people");
+                assert_eq!(p.connection, "lectura");
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        answer_next(&s.rt, Decision::Reject).await
+    });
+    let refused = r.unwrap_err();
+    assert_eq!(refused.phase, "rejected");
+    assert!(refused.message.contains("Rechazado"), "{}", refused.message);
+    let log = inner.activity.list(Some("Claude Code"), None, 100).unwrap();
+    assert!(log.iter().any(|e| e.tool == "run_query:request"), "{log:?}");
+
+    let (r, _) = tokio::join!(ask(), answer_next(&s.rt, Decision::Approve));
+    assert_eq!(r.unwrap(), How::Approved);
+    // Approving every read doesn't approve writes.
+    let (r, _) = tokio::join!(ask(), answer_next(&s.rt, Decision::ApproveAll));
+    assert_eq!(r.unwrap(), How::Approved);
+    assert!(inner.approvals.approves_all(&claude.id, ApprovalKind::Read));
+    assert!(!inner.approvals.approves_all(&claude.id, ApprovalKind::Write));
+    assert_eq!(ask().await.unwrap(), How::AutoApproved);
+
+    // DBine's assistant: approved in the chat, nothing pending here.
+    assert_eq!(approve_read(inner, Who::Chat, "run_query", &args, &conn, "", "select 1").await.unwrap(), How::ApprovedInChat);
+    assert!(inner.approvals.pending().is_empty());
 }
 
 fn load_connection(s: &Server, id: &str) -> SavedConnection {

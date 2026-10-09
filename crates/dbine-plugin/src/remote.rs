@@ -1065,6 +1065,12 @@ impl Session for RemoteSession {
         let call = Call::Explain { session: self.id, text: text.to_string(), analyze, max_rows: max_rows as u64, sink: out.sink.is_some() };
         self.run(call, out).await
     }
+    async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        // A host published before the call answers `Unsupported` (see
+        // `proto::unknown_call`): the app then asks the user to approve the read.
+        let call = Call::RunReadOnly { session: self.id, statement: statement.to_string(), max_rows: max_rows as u64, sink: out.sink.is_some() };
+        self.run(call, out).await
+    }
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         if !self.interruptible {
             return None;
@@ -1387,6 +1393,50 @@ mod tests {
             }
         });
         Host::attach("viejo", "", stdin, BufReader::new(theirs), child)
+    }
+
+    /// A host published before `RunReadOnly`: its `Call` doesn't have it, so
+    /// (as `host::run` does) the frame doesn't decode and it answers
+    /// `Unsupported` through `unknown_call`. The app must read that as
+    /// "not enforced" (`Error::Unsupported`), never as another error.
+    #[tokio::test]
+    async fn an_old_host_answers_run_read_only_unsupported() {
+        #[derive(serde::Deserialize)]
+        #[allow(dead_code)]
+        enum OldCall {
+            ServerVersion { session: u64 },
+        }
+        #[derive(serde::Deserialize)]
+        #[allow(dead_code)]
+        enum OldToHost {
+            Call { id: u64, call: OldCall },
+        }
+        let mut child = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let stdin = BufWriter::new(child.stdin.take().unwrap());
+        let mut calls = BufReader::new(child.stdout.take().unwrap());
+        let (theirs, ours) = UnixStream::pair().unwrap();
+        let out: Out = Arc::new(Mutex::new(ours));
+        std::thread::spawn(move || {
+            while let Ok(Some(body)) = crate::proto::read_raw(&mut calls) {
+                match rmp_serde::from_slice::<OldToHost>(&body) {
+                    Ok(OldToHost::Call { id, call: OldCall::ServerVersion { .. } }) => reply(&out, id, Ok(Reply::Text("1".into()))),
+                    Err(_) => {
+                        if let Some((id, name)) = crate::proto::unknown_call(&body) {
+                            let e = Error::Unsupported(format!("esta versión del driver no tiene «{name}»"));
+                            reply(&out, id, Err(WireError::from(&e)));
+                        }
+                    }
+                }
+            }
+        });
+        let host = Host::attach("viejo", "", stdin, BufReader::new(theirs), child);
+        let mut s = RemoteSession { host, id: 1, interruptible: false };
+        let mut out = QueryOutcome::default();
+        let r = tokio::time::timeout(Duration::from_secs(5), s.run_read_only("SELECT 1", 10, &mut out)).await.unwrap();
+        assert!(matches!(r, Err(Error::Unsupported(_))), "{r:?}");
+        assert!(out.results.is_empty());
+        // The channel is still up.
+        assert_eq!(s.server_version().await.unwrap(), "1");
     }
 
     /// A sink that holds its first batch until the test lets it go, the way

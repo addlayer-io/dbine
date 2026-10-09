@@ -68,11 +68,15 @@
     "approved": "approuvé",
     "auto_approved": "approuvé (approuve tout)",
     "rejected": "rejeté",
-    "timeout": "sans réponse"
+    "timeout": "sans réponse",
+    "enforced": "lecture garantie par le serveur",
+    "approved_in_chat": "approuvé dans le chat"
   },
   "approveAllOn": "Approuve tout jusqu'à la fermeture de DBine",
   "approveAllOff": "Retirer",
   "approveAllOffTitle": "Redemander une approbation pour chaque écriture de ce client",
+  "approveAllReadsOn": "Approuve toutes les lectures jusqu'à la fermeture de DBine",
+  "approveAllReadsOffTitle": "Redemander une approbation pour chaque lecture de ce client sur les moteurs qui ne garantissent pas la lecture seule côté serveur",
   "approval": {
     "title": "« {{client}} » veut modifier {{connection}} · {{database}}",
     "titleNoDb": "« {{client}} » veut modifier {{connection}}",
@@ -83,7 +87,13 @@
     "approveAllWarning": "« Tout approuver » exécute sans demander tout ce que {{client}} réclame, jusqu'à la fermeture de DBine ou son retrait dans Paramètres › MCP. Le risque est pour vous : vérifiez ce que l'assistant peut faire avant de le choisir.",
     "approve": "Approuver",
     "reject": "Rejeter",
-    "approveAll": "Tout approuver"
+    "approveAll": "Tout approuver",
+    "kindRead": "Lecture",
+    "kindWrite": "Écriture",
+    "readTitle": "« {{client}} » veut lire depuis {{connection}} · {{database}}",
+    "readTitleNoDb": "« {{client}} » veut lire depuis {{connection}}",
+    "readIntro": "{{client}} a demandé cette lecture sur {{engine}}. {{engine}} ne peut pas garantir côté serveur qu'elle soit en lecture seule : rien n'est exécuté tant que vous ne l'approuvez pas.",
+    "readApproveAllWarning": "« Tout approuver » exécute sans demander toutes les lectures que {{client}} réclame, jusqu'à la fermeture de DBine ou son retrait dans Paramètres › MCP. Les écritures restent soumises à approbation."
   },
   "ok": "OK",
   "error": "Erreur",

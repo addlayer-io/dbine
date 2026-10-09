@@ -3,7 +3,7 @@
 //! writes waiting for approval.
 
 use super::activity::ActivityEntry;
-use super::approvals::{ApprovalRequest, Decision};
+use super::approvals::{ApprovalKind, ApprovalRequest, Decision};
 use super::{check_level, load_clients, load_config, save_config, McpLevel, McpRuntime};
 use crate::error::{CommandError, CommandResult};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,9 @@ pub struct ClientView {
     /// "Approve all" is on: its writes run without asking until DBine
     /// closes (or the user removes it).
     pub approve_all: bool,
+    /// The same for reads the engine can't enforce on the server: they
+    /// run without asking (kept apart from writes).
+    pub approve_all_reads: bool,
 }
 
 #[derive(Serialize)]
@@ -47,7 +50,14 @@ fn status(rt: &McpRuntime) -> McpStatus {
         url: format!("http://127.0.0.1:{}/mcp", cfg.port),
         clients: load_clients(state)
             .into_iter()
-            .map(|c| ClientView { approve_all: approve_all.contains(&c.id), id: c.id, name: c.name, created_at: c.created_at, last_used_at: c.last_used_at })
+            .map(|c| ClientView {
+                approve_all: approve_all.contains(&(c.id.clone(), ApprovalKind::Write)),
+                approve_all_reads: approve_all.contains(&(c.id.clone(), ApprovalKind::Read)),
+                id: c.id,
+                name: c.name,
+                created_at: c.created_at,
+                last_used_at: c.last_used_at,
+            })
             .collect(),
     }
 }
@@ -93,7 +103,7 @@ pub struct CreatedClient {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn mcp_create_client(rt: State<'_, McpRuntime>, args: CreateClientArgs) -> CommandResult<CreatedClient> {
     let (c, token) = rt.inner.create_client(&args.name)?;
-    Ok(CreatedClient { client: ClientView { id: c.id, name: c.name, created_at: c.created_at, last_used_at: c.last_used_at, approve_all: false }, token })
+    Ok(CreatedClient { client: ClientView { id: c.id, name: c.name, created_at: c.created_at, last_used_at: c.last_used_at, approve_all: false, approve_all_reads: false }, token })
 }
 
 #[derive(Deserialize)]
@@ -147,11 +157,14 @@ pub async fn mcp_answer_approval(rt: State<'_, McpRuntime>, args: AnswerArgs) ->
 #[derive(Deserialize)]
 pub struct ClearApproveAllArgs {
     pub client_id: String,
+    /// Only writes or only reads; absent, both.
+    #[serde(default)]
+    pub kind: Option<ApprovalKind>,
 }
 
-/// Ask again before each write of this client.
+/// Ask again before each write (or read) of this client.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn mcp_clear_approve_all(rt: State<'_, McpRuntime>, args: ClearApproveAllArgs) -> CommandResult<McpStatus> {
-    rt.inner.approvals.clear_approve_all(&args.client_id);
+    rt.inner.approvals.clear_approve_all(&args.client_id, args.kind);
     Ok(status(&rt))
 }

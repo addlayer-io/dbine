@@ -68,11 +68,15 @@
     "approved": "approved",
     "auto_approved": "approved (approve all)",
     "rejected": "rejected",
-    "timeout": "no response"
+    "timeout": "no response",
+    "enforced": "read enforced by the server",
+    "approved_in_chat": "approved in the chat"
   },
   "approveAllOn": "Approving everything until DBine is closed",
   "approveAllOff": "Remove",
   "approveAllOffTitle": "Ask for approval again for each write from this client",
+  "approveAllReadsOn": "Approving all reads until DBine is closed",
+  "approveAllReadsOffTitle": "Ask for approval again for each read from this client on engines that can't enforce read-only on the server",
   "approval": {
     "title": "“{{client}}” wants to modify {{connection}} · {{database}}",
     "titleNoDb": "“{{client}}” wants to modify {{connection}}",
@@ -83,7 +87,13 @@
     "approveAllWarning": "“Approve all” runs everything {{client}} asks for without asking, until you close DBine or remove it in Settings › MCP. The risk is yours: review what the assistant can do before choosing it.",
     "approve": "Approve",
     "reject": "Reject",
-    "approveAll": "Approve all"
+    "approveAll": "Approve all",
+    "kindRead": "Read",
+    "kindWrite": "Write",
+    "readTitle": "“{{client}}” wants to read from {{connection}} · {{database}}",
+    "readTitleNoDb": "“{{client}}” wants to read from {{connection}}",
+    "readIntro": "{{client}} asked for this read on {{engine}}. {{engine}} can't guarantee on the server that it's read-only, so nothing runs until you approve it.",
+    "readApproveAllWarning": "“Approve all” runs every read {{client}} asks for without asking, until you close DBine or remove it in Settings › MCP. Writes are still asked."
   },
   "ok": "OK",
   "error": "Error",

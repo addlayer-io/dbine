@@ -10100,5 +10100,6 @@
   "terminó con {0}": "terminato con {0}",
   "variables de entorno": "variabili d'ambiente",
   "{0} (¿falta {1}?)": "{0} (manca {1}?)",
-  "{0}. Podés cerrar esta ventana.": "{0}. Puoi chiudere questa finestra."
+  "{0}. Podés cerrar esta ventana.": "{0}. Puoi chiudere questa finestra.",
+  "este motor no asegura lecturas de solo lectura en el servidor": "questo motore non garantisce letture di sola lettura sul server"
 }

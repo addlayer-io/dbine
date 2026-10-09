@@ -68,11 +68,15 @@
     "approved": "aprovado",
     "auto_approved": "aprovado (aprova tudo)",
     "rejected": "rejeitado",
-    "timeout": "sem resposta"
+    "timeout": "sem resposta",
+    "enforced": "leitura garantida pelo servidor",
+    "approved_in_chat": "aprovado no chat"
   },
   "approveAllOn": "Aprova tudo até fechar o DBine",
   "approveAllOff": "Remover",
   "approveAllOffTitle": "Voltar a pedir aprovação para cada escrita deste cliente",
+  "approveAllReadsOn": "Aprova todas as leituras até fechar o DBine",
+  "approveAllReadsOffTitle": "Voltar a pedir aprovação para cada leitura deste cliente em motores que não garantem somente leitura no servidor",
   "approval": {
     "title": "«{{client}}» quer modificar {{connection}} · {{database}}",
     "titleNoDb": "«{{client}}» quer modificar {{connection}}",
@@ -83,7 +87,13 @@
     "approveAllWarning": "«Aprovar tudo» executa sem perguntar tudo o que {{client}} pedir até você fechar o DBine ou remover em Configurações › MCP. O risco é seu: revise o que o assistente pode fazer antes de escolher.",
     "approve": "Aprovar",
     "reject": "Rejeitar",
-    "approveAll": "Aprovar tudo"
+    "approveAll": "Aprovar tudo",
+    "kindRead": "Leitura",
+    "kindWrite": "Escrita",
+    "readTitle": "«{{client}}» quer ler de {{connection}} · {{database}}",
+    "readTitleNoDb": "«{{client}}» quer ler de {{connection}}",
+    "readIntro": "{{client}} pediu esta leitura em {{engine}}. {{engine}} não consegue garantir no servidor que ela seja somente leitura, então nada é executado até você aprovar.",
+    "readApproveAllWarning": "«Aprovar tudo» executa sem perguntar todas as leituras que {{client}} pedir até você fechar o DBine ou remover em Configurações › MCP. As escritas continuam sendo perguntadas."
   },
   "ok": "OK",
   "error": "Erro",

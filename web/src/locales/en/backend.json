@@ -10100,5 +10100,6 @@
   "terminó con {0}": "finished with {0}",
   "variables de entorno": "environment variables",
   "{0} (¿falta {1}?)": "{0} (is {1} missing?)",
-  "{0}. Podés cerrar esta ventana.": "{0}. You can close this window."
+  "{0}. Podés cerrar esta ventana.": "{0}. You can close this window.",
+  "este motor no asegura lecturas de solo lectura en el servidor": "this engine can't enforce read-only reads on the server"
 }

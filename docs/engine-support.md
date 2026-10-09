@@ -562,6 +562,34 @@ In an engine that does not implement it, the assistant answers without
 structure and tells the user so; there are no other differences. Details in
 `docs/ai-assistant.md`.
 
+## Server-enforced reads (MCP and the AI assistant)
+
+`run_query` and `explain` from MCP clients, and the AI assistant's reads,
+run without asking only where the server enforces the read
+(`Session::run_read_only`: one statement, in a read-only transaction rolled
+back afterwards). Everywhere else the user approves each query first (the
+MCP dialog, or the chat card for the assistant), and it then runs on the
+read-only session with DBine's guard. The guard is defense in depth on both
+paths, not the boundary.
+
+| Engine | Reads enforced by the server | How |
+|---|---|---|
+| PostgreSQL, CockroachDB, Redshift, Greenplum, YugabyteDB, TimescaleDB, AlloyDB, Cloud SQL, Aurora PostgreSQL, Fujitsu Enterprise Postgres (and the other variants listed in `Variant::enforces_read_only`) | yes | `START TRANSACTION READ ONLY`, the statement through the extended protocol (one statement per Parse), `ROLLBACK`. Not with a connection set to the simple query protocol |
+| MySQL 5.6.5+, MariaDB 10.0+ | yes | `START TRANSACTION READ ONLY`, one statement, `ROLLBACK` |
+| SQLite | yes | One statement, on a connection that can't write, under an authorizer that only allows reading |
+| libSQL / Turso | yes (servers with Hrana 3) | The server checks the statement is a read, between `BEGIN` and `ROLLBACK` on a stream of its own |
+| EDB, KingbaseES, openGauss | no: approval | Autonomous transactions commit outside the read-only transaction |
+| Denodo, RisingWave, Materialize, CrateDB, H2 | no: approval | No read-only transaction the server enforces |
+| The other engines of the MySQL driver | no: approval | Not verified to enforce read-only transactions |
+| Every other engine | no: approval | Not implemented in its driver yet (`Unsupported`) |
+
+A driver downloaded before this version doesn't know the call and answers
+`Unsupported`: its reads ask for approval until it is updated.
+
+Pending: for every engine in the last row that has a read-only mode the
+server enforces, implementing `run_read_only` in its driver is an explicit
+pending item; until then its reads are approved by the user.
+
 ## Format code
 
 The **Format** button of the query (⇧⌥F) formats the selection, or everything

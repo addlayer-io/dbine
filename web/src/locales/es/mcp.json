@@ -68,11 +68,15 @@
     "approved": "aprobado",
     "auto_approved": "aprobado (aprueba todo)",
     "rejected": "rechazado",
-    "timeout": "sin respuesta"
+    "timeout": "sin respuesta",
+    "enforced": "lectura asegurada por el servidor",
+    "approved_in_chat": "aprobado en el chat"
   },
   "approveAllOn": "Aprueba todo hasta cerrar DBine",
   "approveAllOff": "Quitar",
   "approveAllOffTitle": "Volver a pedir aprobación para cada escritura de este cliente",
+  "approveAllReadsOn": "Aprueba todas las lecturas hasta cerrar DBine",
+  "approveAllReadsOffTitle": "Volver a pedir aprobación para cada lectura de este cliente en motores que no aseguran la solo lectura en el servidor",
   "approval": {
     "title": "«{{client}}» quiere modificar {{connection}} · {{database}}",
     "titleNoDb": "«{{client}}» quiere modificar {{connection}}",
@@ -83,7 +87,13 @@
     "approveAllWarning": "«Aprobar todo» ejecuta sin preguntar todo lo que pida {{client}} hasta que cierres DBine o lo quites en Configuración › MCP. El riesgo es tuyo: revisá qué puede hacer el asistente antes de elegirlo.",
     "approve": "Aprobar",
     "reject": "Rechazar",
-    "approveAll": "Aprobar todo"
+    "approveAll": "Aprobar todo",
+    "kindRead": "Lectura",
+    "kindWrite": "Escritura",
+    "readTitle": "«{{client}}» quiere leer de {{connection}} · {{database}}",
+    "readTitleNoDb": "«{{client}}» quiere leer de {{connection}}",
+    "readIntro": "{{client}} pidió esta lectura en {{engine}}. {{engine}} no puede asegurar en el servidor que sea solo de lectura, así que no se ejecuta hasta que la apruebes.",
+    "readApproveAllWarning": "«Aprobar todo» ejecuta sin preguntar todas las lecturas que pida {{client}} hasta que cierres DBine o lo quites en Configuración › MCP. Las escrituras se siguen preguntando."
   },
   "ok": "OK",
   "error": "Error",

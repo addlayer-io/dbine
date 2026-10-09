@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useTranslation } from 'i18next-vue';
 import { ElMessage } from 'element-plus';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { errorMessage } from '../api/client';
@@ -9,14 +10,18 @@ import { initWindowRole } from '../composables/windowRole';
 import { ownsSavedState } from '../stores/tabs';
 import CodeEditor from './CodeEditor.vue';
 
-// A write an MCP client wants to run (docs/mcp.md, "Aprobaciones"): one
-// dialog at a time, the rest queued. Mounted once, from App.vue. The backend
+// A write an MCP client wants to run, or a read on an engine that can't
+// enforce it as read-only on the server (docs/mcp.md, "Aprobaciones"): one
+// dialog at a time, the rest queued; the dialog says which of the two it is.
+// "Aprobar todo" covers only that kind. Mounted once, from App.vue. The backend
 // rejects it on its own when the countdown ends. Every window keeps the list
 // (it's broadcast), but only the one the backend names as `presenter` shows
 // the dialog.
 
 /** As broadcast: each request carries the label of the window that shows it. */
 type Presented = McpApprovalRequest & { presenter?: string };
+
+const { t } = useTranslation();
 
 const queue = ref<Presented[]>([]);
 /** Which window shows the dialog; null until an event says (the list read at
@@ -28,6 +33,14 @@ const LABEL = (() => { try { return getCurrentWindow().label; } catch { return '
 const mine = computed(() => presenter.value === null ? ownsSavedState() : presenter.value === LABEL);
 const current = computed(() => (mine.value ? queue.value[0] : null) ?? null);
 const busy = ref(false);
+/** The texts of a read or of a write (older payloads have no kind: a write). */
+const isRead = computed(() => current.value?.kind === 'read');
+const title = computed(() => {
+  const c = current.value;
+  if (!c) return '';
+  const key = isRead.value ? (c.database ? 'mcp:approval.readTitle' : 'mcp:approval.readTitleNoDb') : (c.database ? 'mcp:approval.title' : 'mcp:approval.titleNoDb');
+  return t(key, { client: c.client, connection: c.connection, database: c.database });
+});
 const now = ref(Date.now());
 
 const secondsLeft = computed(() => {
@@ -50,7 +63,7 @@ async function answer(decision: McpDecision) {
     // Already gone (it timed out meanwhile): the event brings the new list.
     ElMessage.warning(errorMessage(e));
   } finally {
-    queue.value = queue.value.filter((r) => r.id !== req.id && !(decision === 'approve_all' && r.client_id === req.client_id));
+    queue.value = queue.value.filter((r) => r.id !== req.id && !(decision === 'approve_all' && r.client_id === req.client_id && r.kind === req.kind));
     busy.value = false;
   }
 }
@@ -87,7 +100,7 @@ onBeforeUnmount(() => {
 <template>
   <el-dialog
     :model-value="!!current"
-    :title="current ? $t(current.database ? 'mcp:approval.title' : 'mcp:approval.titleNoDb', { client: current.client, connection: current.connection, database: current.database }) : ''"
+    :title="title"
     width="720px"
     append-to-body
     :show-close="false"
@@ -97,7 +110,8 @@ onBeforeUnmount(() => {
   >
     <template v-if="current">
       <p class="mcp-ap-muted">
-        {{ $t('mcp:approval.intro', { client: current.client, engine: current.engine }) }}
+        <el-tag size="small" :type="isRead ? 'info' : 'warning'" class="mcp-ap-kind">{{ $t(isRead ? 'mcp:approval.kindRead' : 'mcp:approval.kindWrite') }}</el-tag>
+        {{ $t(isRead ? 'mcp:approval.readIntro' : 'mcp:approval.intro', { client: current.client, engine: current.engine }) }}
         <span v-if="queue.length > 1" class="mcp-ap-queue">{{ $t('mcp:approval.pending', { count: queue.length - 1 }) }}</span>
       </p>
       <div class="mcp-ap-code">
@@ -106,7 +120,7 @@ onBeforeUnmount(() => {
       <p class="mcp-ap-muted">{{ $t('mcp:approval.countdown', { time: countdown }) }}</p>
       <div class="mcp-ap-warn">
         <el-icon><ei-warning-filled /></el-icon>
-        <span>{{ $t('mcp:approval.approveAllWarning', { client: current.client }) }}</span>
+        <span>{{ $t(isRead ? 'mcp:approval.readApproveAllWarning' : 'mcp:approval.approveAllWarning', { client: current.client }) }}</span>
       </div>
     </template>
     <template #footer>
@@ -119,6 +133,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .mcp-ap-muted { color: var(--nm-text-dim); font-size: 12.5px; line-height: 1.5; margin: 0 0 8px; }
+.mcp-ap-kind { margin-right: 6px; vertical-align: 1px; }
 .mcp-ap-queue { margin-left: 6px; color: var(--nm-warning); }
 .mcp-ap-code { height: 240px; border: 1px solid var(--nm-border); border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
 .mcp-ap-warn {

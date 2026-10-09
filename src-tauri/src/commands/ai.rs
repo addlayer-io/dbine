@@ -285,7 +285,12 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, A
             let mut label = tool_label(&name, &targs);
             let _ = app.emit("ai-status", StatusEvent { chat_id: &id, phase: "tool", note: Some(label.clone()) });
             // A read of rows runs only after the user approves its exact
-            // query in the chat; catalog reads (structure, index usage) don't ask.
+            // query in the chat (or chose "Aprobar lecturas en esta
+            // conversación": `approve_reads` starts off and only that button
+            // turns it on); catalog reads (structure, index usage) don't ask.
+            // That approval is what lets a read run on an engine that can't
+            // enforce it on the server (mcp/reads.rs); where it can, it runs
+            // through `run_read_only` anyway.
             let refused = if READS_ROWS.contains(&name.as_str()) && !approve_all {
                 let preview = tokio::select! {
                     p = crate::mcp::tools::assistant_preview(&mcp.inner, conn, &name, &targs) => p,

@@ -4,7 +4,7 @@
 //! then its outcome (approved and run, rejected, or no answer).
 
 use super::activity::ActivityEntry;
-use super::approvals::{ApprovalRequest, Outcome, APPROVAL_TIMEOUT};
+use super::approvals::{ApprovalKind, ApprovalRequest, Outcome, APPROVAL_TIMEOUT};
 use super::tools::{arg, arg_num, failure, find_connection, results_text, run_on, summary, Op, TIMEOUT_DEFAULT, TIMEOUT_MAX};
 use super::{effective_level, load_config, Cap, Inner, McpClient, McpLevel};
 use dbine_core::SavedConnection;
@@ -122,12 +122,25 @@ async fn prepare(inner: &Inner, client: &McpClient, args: &Value, connection: &m
     if code.is_empty() {
         return Err("falta el código a ejecutar («code» está vacío)".into());
     }
+    let request = approval_request(ApprovalKind::Write, client, &conn, db, code)?;
+    let session = write_session(inner, &conn, db).await?;
+    Ok(Prepared {
+        request,
+        code: code.to_string(),
+        limit: Duration::from_secs(arg_num(args, "timeout_seconds", TIMEOUT_DEFAULT, TIMEOUT_MAX)),
+        session,
+    })
+}
+
+/// What the approval dialog shows for `code` on `conn` · `db`: a write of
+/// `execute`, or a read the engine can't enforce (`run_query`, `explain`).
+pub(super) fn approval_request(kind: ApprovalKind, client: &McpClient, conn: &SavedConnection, db: &str, code: &str) -> Result<ApprovalRequest, String> {
     let driver = dbine_drivers::find(&conn.config.driver).ok_or_else(|| format!("esta versión no incluye el driver '{}'", conn.config.driver))?;
     let info = driver.info();
-    let session = write_session(inner, &conn, db).await?;
     let now = chrono::Utc::now();
-    let request = ApprovalRequest {
+    Ok(ApprovalRequest {
         id: uuid::Uuid::new_v4().to_string(),
+        kind,
         client_id: client.id.clone(),
         client: client.name.clone(),
         connection: conn.name.clone(),
@@ -138,12 +151,6 @@ async fn prepare(inner: &Inner, client: &McpClient, args: &Value, connection: &m
         code: code.to_string(),
         expires_at: (now + chrono::Duration::from_std(APPROVAL_TIMEOUT).unwrap_or_default()).to_rfc3339(),
         timeout_secs: APPROVAL_TIMEOUT.as_secs(),
-    };
-    Ok(Prepared {
-        request,
-        code: code.to_string(),
-        limit: Duration::from_secs(arg_num(args, "timeout_seconds", TIMEOUT_DEFAULT, TIMEOUT_MAX)),
-        session,
     })
 }
 

@@ -45,14 +45,39 @@ Two caps always apply, whatever level is chosen:
 | `describe_object` | Schema | Columns, primary key, foreign keys and indexes. |
 | `index_usage` | Schema | A table's indexes and how much they're used: reads, writes, percentage of reads, unused and disabled. |
 | `sample_rows` | Read | The first rows of a table or collection. |
-| `run_query` | Read | A read-only query in the engine's language. |
-| `explain` | Read | A query's estimated plan, in the engines that have plans. |
+| `run_query` | Read | A read-only query in the engine's language. Runs at once where the server enforces the read; elsewhere it waits for the user's approval (see [Reads](#reads)). |
+| `explain` | Read | A query's estimated plan, in the engines that have plans. Same rule as `run_query`. |
 | `execute` | Write | Code that changes data or structure, in the engine's language. Waits for the user's approval. |
+
+## Reads
+
+DBine's own check of the query text (below) is defense in depth, not the
+security boundary. What lets `run_query` and `explain` run without asking is
+the database server itself:
+
+- **Server-enforced read.** Where the engine supports it, `run_query` runs
+  the query as **one statement** (the protocol refuses a second one) inside a
+  **read-only transaction** the statement can't leave, rolled back
+  afterwards (`Session::run_read_only`). The server refuses any write. A
+  query with several statements is rejected: send one per call. `explain` on
+  these engines gives the estimated plan on the read-only session (nothing
+  runs).
+- **Approved read.** Where the engine can't enforce it (and with a driver
+  downloaded before this version, which doesn't know the call), DBine asks
+  you first, with the same dialog as writes (see [Approvals](#approvals)),
+  marked as a **read**. Only after you approve it does the query run, in the
+  read-only session described below. This also applies to `explain`: SQL
+  Server's estimated plan, for instance, runs the batch under `SHOWPLAN`, so
+  the text check alone isn't a boundary.
+- `sample_rows` doesn't ask: DBine writes its query itself (the engine's
+  browse query for the quoted object name), the model doesn't.
+
+Which engines enforce reads on the server: [engine-support.md](engine-support.md#server-enforced-reads-mcp-and-the-ai-assistant).
 
 Queries always run in the MCP server's own read-only session. In SQL engines,
 a statement that modifies data or structure is rejected before reaching the
-server. Every word of the statement is checked, not only the first one, so
-these are rejected too:
+server, in both paths. Every word of the statement is checked, not only the
+first one, so these are rejected too:
 
 - a write hidden after a read in a T-SQL batch;
 - a data-modifying CTE;
@@ -69,19 +94,24 @@ use `execute`.
 
 ## Approvals
 
-Every time an assistant asks for `execute`, DBine opens a window (even if
-minimized or hidden) with the client, the connection, the database and the
-exact code, and doesn't run anything until you answer:
+Every time an assistant asks for `execute`, or for `run_query` / `explain`
+on an engine that can't enforce reads on the server, DBine opens a window
+(even if minimized or hidden) with the client, the connection, the database,
+whether it is a **read** or a **write**, and the exact code, and doesn't run
+anything until you answer:
 
 - **Approve**: only that request runs, in the MCP server's own session and
   with the same time limit as queries (30 s by default). The assistant
   receives "approved and executed" with the affected rows or the ones it
   returned.
 - **Reject**: it doesn't run; the assistant receives "rejected by the user".
-- **Approve all**: this request and the following ones from that client run
-  without asking, until you close DBine, remove it or revoke the client. The
-  risk is yours. While active, Settings › MCP shows it next to the client
-  ("Approving everything until DBine is closed") with the **Remove** button.
+- **Approve all**: this request and the following ones of the same kind
+  from that client run without asking, until you close DBine, remove it or
+  revoke the client. The risk is yours. Reads and writes are kept apart:
+  approving every read doesn't approve any write, and the other way round.
+  While active, Settings › MCP shows it next to the client ("Approving
+  everything until DBine is closed" for writes, "Approving all reads until
+  DBine is closed" for reads), each with its **Remove** button.
 
 If you don't answer within **2 minutes**, the request is rejected and the
 assistant receives "no response: rejected". If several arrive at once, they're
@@ -198,6 +228,11 @@ connection, the tool, a summary (the query, trimmed) and the result with the
 number of rows. The last 10,000 are kept and shown in Settings › MCP,
 filterable by client or by connection.
 
+The tool says how a read or a write was allowed: `run_query · read enforced
+by the server`, `run_query · approved`, `run_query · approved (approve all)`,
+`run_query · approved in the chat` (DBine's assistant), and the request,
+rejection or lack of response of the ones that asked.
+
 ## Security
 
 - **Local only.** The server listens on `127.0.0.1`, never on the network. It
@@ -209,6 +244,9 @@ filterable by client or by connection.
   you lose it, revoke the client and create another.
 - **Caps.** `prod` connections and read-only ones never go beyond Read, and
   every write needs your approval in DBine.
+- **Reads.** A query from the assistant runs without asking only inside a
+  read-only transaction the server enforces; on other engines you approve it
+  first. DBine's text check is an extra layer, not the boundary.
 - **No credentials.** No response or the activity log includes passwords,
   tokens or other secrets, and `list_connections` doesn't show hosts or users.
 - **Query results reach the model.** What `sample_rows` and `run_query`
