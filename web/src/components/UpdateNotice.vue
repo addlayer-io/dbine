@@ -149,7 +149,7 @@ function openPage() {
 .un-body h3 { margin: 0 0 10px; font-size: 16px; color: var(--nm-text-strong); }
 .un-body p { margin: 0 0 10px; line-height: 1.55; }
 .un-notes {
-  margin: 0 0 10px; max-height: 220px; overflow: auto; padding: 8px 10px;
+  margin: 0 0 10px; max-height: 320px; overflow: auto; padding: 8px 10px;
   border: 1px solid var(--nm-border); border-radius: 4px;
   word-break: break-word; font-size: 12.5px; line-height: 1.5; color: var(--nm-text-muted);
 }
