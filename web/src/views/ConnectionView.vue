@@ -265,8 +265,11 @@ async function test() {
   } catch (e) {
     // The tunnel's SSH server isn't known yet: trust it and test again.
     const entry = await askTrustSshHost(e);
-    if (entry) {
-      ssh.value.trusted = addTrusted(ssh.value.trusted, entry);
+    // Null if the server has another key accepted (it's forgotten first, in
+    // the SSH section): then the error stands.
+    const trusted = entry ? addTrusted(ssh.value.trusted, entry) : null;
+    if (trusted !== null) {
+      ssh.value.trusted = trusted;
       testing.value = false;
       return test();
     }

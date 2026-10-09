@@ -22,6 +22,8 @@
   "trusted_many": "{{count}} server SSH verificati",
   "trusted_other": "{{count}} server SSH verificati",
   "forget": "Dimentica",
+  "trustedLegacy": "(impronta di una versione precedente, senza server: non più usata)",
+  "trustedHelp": "Se un server ha cambiato chiave, DBine rifiuta la connessione. Se il cambio è legittimo, dimentica quel server, salva e connettiti di nuovo: DBine ti mostrerà la nuova impronta da verificare.",
   "tlsNote": "Con il tunnel il database vede la connessione arrivare da 127.0.0.1: se il certificato TLS del server non lo copre, attiva «Considera attendibile il certificato del server».",
   "unknownTitle": "Server SSH sconosciuto",
   "unknownBody": "È la prima volta che DBine si connette a {{host}}. Verifica che l’impronta della sua chiave corrisponda a quella del server prima di continuare:",

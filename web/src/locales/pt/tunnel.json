@@ -22,6 +22,8 @@
   "trusted_many": "{{count}} servidores SSH verificados",
   "trusted_other": "{{count}} servidores SSH verificados",
   "forget": "Esquecer",
+  "trustedLegacy": "(impressão digital de uma versão anterior, sem servidor: não é mais usada)",
+  "trustedHelp": "Se um servidor mudou de chave, o DBine recusa a conexão. Se a mudança for legítima, esqueça esse servidor, salve e conecte de novo: o DBine vai mostrar a nova impressão digital para você verificá-la.",
   "tlsNote": "Com túnel, o banco vê a conexão vindo de 127.0.0.1: se o certificado TLS do servidor não o incluir, ative «Confiar no certificado do servidor».",
   "unknownTitle": "Servidor SSH desconhecido",
   "unknownBody": "É a primeira vez que o DBine se conecta a {{host}}. Confira se a impressão digital da chave corresponde à do servidor antes de continuar:",

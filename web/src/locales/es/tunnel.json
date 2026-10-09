@@ -22,6 +22,8 @@
   "trusted_many": "{{count}} servidores SSH verificados",
   "trusted_other": "{{count}} servidores SSH verificados",
   "forget": "Olvidar",
+  "trustedLegacy": "(huella de una versión anterior, sin servidor: ya no se usa)",
+  "trustedHelp": "Si un servidor cambió de clave, DBine rechaza la conexión. Si el cambio es legítimo, olvidá ese servidor, guardá y volvé a conectarte: DBine te va a mostrar la huella nueva para que la verifiques.",
   "tlsNote": "Con túnel, la base ve la conexión desde 127.0.0.1: si el certificado TLS del servidor no lo incluye, activá «Confiar en el certificado del servidor».",
   "unknownTitle": "Servidor SSH desconocido",
   "unknownBody": "Es la primera vez que DBine se conecta a {{host}}. Verificá que la huella de su clave coincida con la del servidor antes de continuar:",

@@ -22,6 +22,8 @@
   "trusted_many": "{{count}} verified SSH servers",
   "trusted_other": "{{count}} verified SSH servers",
   "forget": "Forget",
+  "trustedLegacy": "(fingerprint from an older version, no server: no longer used)",
+  "trustedHelp": "If a server changed its key, DBine refuses the connection. If the change is legitimate, forget that server, save and connect again: DBine will show you the new fingerprint to verify it.",
   "tlsNote": "Through a tunnel the database sees the connection coming from 127.0.0.1: if the server's TLS certificate doesn't cover it, turn on “Trust the server certificate”.",
   "unknownTitle": "Unknown SSH server",
   "unknownBody": "This is the first time DBine connects to {{host}}. Check that its key fingerprint matches the server's before you go on:",

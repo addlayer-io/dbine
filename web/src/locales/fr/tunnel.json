@@ -22,6 +22,8 @@
   "trusted_many": "{{count}} serveurs SSH vérifiés",
   "trusted_other": "{{count}} serveurs SSH vérifiés",
   "forget": "Oublier",
+  "trustedLegacy": "(empreinte d'une version précédente, sans serveur : n'est plus utilisée)",
+  "trustedHelp": "Si un serveur a changé de clé, DBine refuse la connexion. Si le changement est légitime, oubliez ce serveur, enregistrez et reconnectez-vous : DBine vous montrera la nouvelle empreinte pour que vous la vérifiiez.",
   "tlsNote": "Avec un tunnel, la base voit la connexion venir de 127.0.0.1 : si le certificat TLS du serveur ne le couvre pas, activez « Faire confiance au certificat du serveur ».",
   "unknownTitle": "Serveur SSH inconnu",
   "unknownBody": "C’est la première fois que DBine se connecte à {{host}}. Vérifiez que l’empreinte de sa clé correspond à celle du serveur avant de continuer :",

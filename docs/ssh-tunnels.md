@@ -31,17 +31,26 @@ The first time DBine connects to an SSH server it shows the fingerprint of
 its key (`SHA256:…`) and asks whether to trust it. It must be compared with
 the one the server administrator gives. The accepted fingerprint is saved in
 the connection together with the server it was accepted for
-(`[host]:port SHA256:…`), and the form shows "N verified SSH servers", with
-the option to forget them.
+(`[host]:port SHA256:…`), and the form's SSH section lists the verified
+servers, each with its fingerprint and a "Forget" action.
 
 - `~/.ssh/known_hosts` is checked first. A server that is already there is
   accepted without asking.
 - If a server's key doesn't match the one in `known_hosts`, the connection is
   rejected, even if that key was accepted in DBine: it may be another server
-  impersonating it.
+  impersonating it. The same happens when `known_hosts` only has keys of
+  other types for that server. DBine asks the server first for the key types
+  `known_hosts` holds for it (as OpenSSH does), so a server that still has
+  the recorded key isn't rejected for this.
+- If a server has a key accepted in DBine and presents a different one, the
+  connection is rejected as well, never asked again: the message shows the
+  server, the new fingerprint and the accepted one. If the server really
+  changed its key, forget that server in the connection's SSH section, save,
+  and connect again: DBine shows the new fingerprint to verify, as on the
+  first connection. Accepting a key from that prompt never replaces one
+  already accepted for the same server (the backend refuses it too).
 - With jump hosts, each server is verified separately: a key accepted for one
   server (a bastion) is never accepted for another one (the next hop).
-- Accepting a new key for a server replaces the one accepted before for it.
 - Fingerprints saved by older versions (0.1.10 and before) don't say which
   server they were for, so they are no longer accepted: DBine asks once more
   for each server, and the old ones are dropped when a key is accepted.

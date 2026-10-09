@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { open as openFile } from '@tauri-apps/plugin-dialog';
+import { forgetTrusted, parseTrusted } from '../composables/sshTrust';
 
 // The SSH tunnel of a connection (docs/ssh-tunnels.md): its settings go to
 // the connection's options as `ssh.*`; the password and the key's passphrase
@@ -16,7 +18,7 @@ export interface SshValues {
   passphrase: string;
   /** Jump hosts, `user@host:port` separated by commas. */
   jump: string;
-  /** Accepted server fingerprints, comma-separated. */
+  /** Accepted server keys, `[host]:port SHA256:…` each, comma-separated. */
   trusted: string;
 }
 
@@ -30,8 +32,18 @@ async function browseKey() {
   } catch { /* no dialog outside Tauri */ }
 }
 
-function forget() {
-  model.value.trusted = '';
+// The servers whose key the user accepted. Forgetting one is how a server
+// that changed its key is accepted again: the next connection asks for it.
+const trusted = computed(() =>
+  model.value.trusted
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .map((e, i) => ({ i, entry: parseTrusted(e) })),
+);
+
+function forget(i: number) {
+  model.value.trusted = forgetTrusted(model.value.trusted, i);
 }
 </script>
 
@@ -83,10 +95,20 @@ function forget() {
         <el-input v-model="model.jump" :placeholder="$t('tunnel:jumpPlaceholder')" />
         <div class="st-help">{{ $t('tunnel:jumpHelp') }}</div>
       </el-form-item>
-      <div v-if="model.trusted" class="st-trusted">
-        <el-icon><ei-lock /></el-icon>
-        <span>{{ $t('tunnel:trusted', { count: model.trusted.split(',').filter(Boolean).length }) }}</span>
-        <el-button text size="small" @click="forget">{{ $t('tunnel:forget') }}</el-button>
+      <div v-if="trusted.length" class="st-trusted">
+        <div class="st-trusted-head">
+          <el-icon><ei-lock /></el-icon>
+          <span>{{ $t('tunnel:trusted', { count: trusted.length }) }}</span>
+        </div>
+        <div v-for="t in trusted" :key="t.i" class="st-trusted-row">
+          <template v-if="t.entry">
+            <span class="st-server">{{ t.entry.host }}:{{ t.entry.port }}</span>
+            <code :title="t.entry.fingerprint">{{ t.entry.fingerprint }}</code>
+          </template>
+          <span v-else class="st-server st-legacy">{{ $t('tunnel:trustedLegacy') }}</span>
+          <el-button text size="small" @click="forget(t.i)">{{ $t('tunnel:forget') }}</el-button>
+        </div>
+        <div class="st-help">{{ $t('tunnel:trustedHelp') }}</div>
       </div>
       <div class="st-help">{{ $t('tunnel:tlsNote') }}</div>
     </div>
@@ -104,6 +126,12 @@ function forget() {
 .st-grow { flex: 1; min-width: 0; }
 .st-port { width: 84px; flex: none; }
 .st-help { font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.4; margin: 2px 0 10px; }
-.st-trusted { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--nm-text); margin-bottom: 8px; }
-.st-trusted .el-icon { color: var(--nm-success); }
+.st-trusted { font-size: 12px; color: var(--nm-text); margin-bottom: 8px; }
+.st-trusted-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.st-trusted-head .el-icon { color: var(--nm-success); }
+.st-trusted-row { display: flex; align-items: center; gap: 8px; padding-left: 20px; min-width: 0; }
+.st-server { flex: none; color: var(--nm-text-strong); }
+.st-legacy { color: var(--nm-text-dim); flex: 1; }
+.st-trusted-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nm-text-dim); font-size: 11px; }
+.st-trusted .st-help { padding-left: 20px; margin-bottom: 0; }
 </style>

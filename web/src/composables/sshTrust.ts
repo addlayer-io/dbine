@@ -27,23 +27,39 @@ export function trustedEntry(host: string, port: number, fingerprint: string): s
   return `[${host}]:${port} ${fingerprint}`;
 }
 
+/** The server and fingerprint of an `ssh.trusted` entry; null for a bare fingerprint of older versions. */
+export function parseTrusted(entry: string): { host: string; port: number; fingerprint: string } | null {
+  const m = /^\[(.+)\]:(\d+) (SHA256:\S+)$/.exec(entry.trim());
+  return m ? { host: m[1], port: Number(m[2]), fingerprint: m[3] } : null;
+}
+
 /**
- * `ssh.trusted` (comma-separated) with `entry` added, replacing a key accepted
- * before for the same server and dropping bare fingerprints of older versions
- * (no server matches them any more). Same rules as the backend's.
+ * `ssh.trusted` (comma-separated) with `entry` added, dropping bare
+ * fingerprints of older versions (no server matches them any more). Null if
+ * another key is already accepted for the same server: a changed key is
+ * never swapped in from the first-connection prompt, the user forgets the old
+ * one in the form first. Same rules as the backend's (`add_trusted`).
  */
-export function addTrusted(trusted: string, entry: string): string {
-  const server = (e: string) => /^\[(.+)\]:(\d+) SHA256:\S+$/.exec(e.trim());
-  const mine = server(entry);
-  if (!mine) return trusted;
+export function addTrusted(trusted: string, entry: string): string | null {
+  const mine = parseTrusted(entry);
+  if (!mine) return null;
   const kept = trusted
     .split(',')
     .map((e) => e.trim())
-    .filter((e) => {
-      const s = server(e);
-      return s !== null && !(s[2] === mine[2] && s[1].toLowerCase() === mine[1].toLowerCase());
-    });
-  return [...kept, entry.trim()].join(',');
+    .filter((e) => parseTrusted(e) !== null);
+  const same = kept.map(parseTrusted).filter((s) => s!.port === mine.port && s!.host.toLowerCase() === mine.host.toLowerCase());
+  if (same.some((s) => s!.fingerprint !== mine.fingerprint)) return null;
+  return (same.length ? kept : [...kept, entry.trim()]).join(',');
+}
+
+/** `ssh.trusted` without the entry at `index` (the user forgets that server). */
+export function forgetTrusted(trusted: string, index: number): string {
+  return trusted
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .filter((_, i) => i !== index)
+    .join(',');
 }
 
 /**

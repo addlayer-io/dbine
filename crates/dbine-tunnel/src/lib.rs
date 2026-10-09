@@ -5,10 +5,13 @@
 //! over the network gets tunnels without knowing about them.
 //!
 //! Server keys are checked, each hop on its own: `~/.ssh/known_hosts` first
-//! (a key that differs from the one there is refused, whatever the user
-//! accepted), then the keys the user accepted for that same server
-//! (`Spec::trusted`, entries bound to `[host]:port`); an unknown one is an
-//! [`Error::UnknownHost`] carrying its fingerprint, for the app to ask.
+//! (a key that differs from the one there, or of another type than the ones
+//! there, is refused, whatever the user accepted), then the keys the user
+//! accepted for that same server (`Spec::trusted`, entries bound to
+//! `[host]:port`): a server with an accepted key that presents another one
+//! is refused too ([`Error::TrustedKeyChanged`]); only a server with nothing
+//! accepted is an [`Error::UnknownHost`] carrying its fingerprint, for the
+//! app to ask.
 //!
 //! The local port only serves processes of the user running DBine (see
 //! `peer`): another account on the same machine can't ride the user's SSH
@@ -90,7 +93,7 @@ pub fn parse_trusted(entry: &str) -> Option<(&str, u16, &str)> {
 }
 
 /// The fingerprints accepted for exactly this server.
-fn trusted_for(trusted: &[String], host: &str, port: u16) -> Vec<String> {
+pub fn trusted_for(trusted: &[String], host: &str, port: u16) -> Vec<String> {
     trusted
         .iter()
         .filter_map(|e| parse_trusted(e))
@@ -105,6 +108,8 @@ pub enum Error {
     UnknownHost { host: String, port: u16, fingerprint: String },
     #[error("la clave del servidor SSH {host}:{port} no coincide con la de known_hosts: puede ser otro servidor haciéndose pasar por él. Si el servidor cambió de clave, actualizá tu known_hosts.")]
     HostKeyChanged { host: String, port: u16 },
+    #[error("la clave del servidor SSH {host}:{port} cambió: ahora presenta la huella {fingerprint} y la aceptada en DBine es {accepted}. Puede ser otro servidor haciéndose pasar por él. Si el servidor cambió de clave, olvidalo en los servidores SSH verificados de la conexión (Túnel SSH) y volvé a conectarte para verificar la huella nueva.")]
+    TrustedKeyChanged { host: String, port: u16, fingerprint: String, accepted: String },
     #[error("el servidor SSH {host} rechazó al usuario «{user}»: {how}")]
     Auth { host: String, user: String, how: String },
     #[error("no se pudo conectar al servidor SSH {host}:{port}: {message}")]
@@ -158,8 +163,12 @@ struct Checker {
 
 #[derive(Clone, Debug, PartialEq)]
 enum Verdict {
+    /// Nothing pins this server: the user may accept the key.
     Unknown(String),
+    /// known_hosts pins another key for it.
     Changed,
+    /// The user accepted other keys for it (these) in DBine.
+    TrustedChanged { fingerprint: String, accepted: Vec<String> },
 }
 
 impl client::Handler for Checker {
@@ -172,7 +181,9 @@ impl client::Handler for Checker {
         };
         let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
         let known = keys::check_known_hosts(&self.host, self.port, &key);
-        match decide(known, fingerprint, &self.trusted) {
+        // known_hosts holds keys for this server, none of this key's type.
+        let other_type = matches!(known, Ok(false)) && !known_types(&self.host, self.port).is_empty();
+        match decide(known, other_type, fingerprint, &self.trusted) {
             Ok(()) => Ok(true),
             Err(verdict) => {
                 *self.seen.lock().unwrap() = Some(verdict);
@@ -182,26 +193,55 @@ impl client::Handler for Checker {
     }
 }
 
-/// known_hosts rules: a pinned key that changed is refused even if the user
-/// accepted this one in DBine; only a server known_hosts doesn't pin falls
-/// back to `trusted` (the fingerprints accepted for this very server).
-fn decide(known: Result<bool, keys::Error>, fingerprint: String, trusted: &[String]) -> Result<(), Verdict> {
+/// known_hosts rules: a pinned key that changed (or a key of another type
+/// than the pinned ones: `other_type`) is refused even if the user accepted
+/// this one in DBine; only a server known_hosts doesn't pin falls back to
+/// `trusted` (the fingerprints accepted for this very server). A server with
+/// an accepted key that presents another one is refused as well: only one
+/// nothing pins is unknown, for the user to accept.
+fn decide(known: Result<bool, keys::Error>, other_type: bool, fingerprint: String, trusted: &[String]) -> Result<(), Verdict> {
     match known {
         Ok(true) => Ok(()),
         Err(keys::Error::KeyChanged { .. }) => Err(Verdict::Changed),
+        Ok(false) if other_type => Err(Verdict::Changed),
         // Not in known_hosts (or no known_hosts file, or an unreadable one).
         Ok(false) | Err(_) if trusted.iter().any(|t| t == &fingerprint) => Ok(()),
+        Ok(false) | Err(_) if !trusted.is_empty() => Err(Verdict::TrustedChanged { fingerprint, accepted: trusted.to_vec() }),
         Ok(false) | Err(_) => Err(Verdict::Unknown(fingerprint)),
     }
 }
 
-fn config() -> Arc<client::Config> {
+/// The key types known_hosts holds for this server (none if it has no file).
+fn known_types(host: &str, port: u16) -> Vec<keys::Algorithm> {
+    keys::known_hosts::known_host_keys(host, port).unwrap_or_default().into_iter().map(|(_, k)| k.algorithm()).collect()
+}
+
+fn same_type(a: &keys::Algorithm, b: &keys::Algorithm) -> bool {
+    match (a, b) {
+        // ssh-rsa, rsa-sha2-256 and rsa-sha2-512 are the same RSA key.
+        (keys::Algorithm::Rsa { .. }, keys::Algorithm::Rsa { .. }) => true,
+        _ => a == b,
+    }
+}
+
+/// The SSH settings for one server. Like OpenSSH, it asks first for the key
+/// types known_hosts holds for it, so a server pinned there with a key of a
+/// type russh doesn't prefer presents that one (and isn't refused for
+/// presenting another).
+fn config(known: &[keys::Algorithm]) -> Arc<client::Config> {
+    let mut preferred = russh::Preferred::default();
+    if !known.is_empty() {
+        let (mut first, rest): (Vec<_>, Vec<_>) = preferred.key.iter().cloned().partition(|a| known.iter().any(|k| same_type(a, k)));
+        first.extend(rest);
+        preferred.key = first.into();
+    }
     Arc::new(client::Config {
         // Keep NATs and firewalls from dropping an idle tunnel.
         keepalive_interval: Some(Duration::from_secs(30)),
         keepalive_max: 3,
         inactivity_timeout: None,
         nodelay: true,
+        preferred,
         ..Default::default()
     })
 }
@@ -217,15 +257,16 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
         let seen = Arc::new(Mutex::new(None));
         let trusted = trusted_for(&spec.trusted, &hop.host, hop.port);
         let checker = Checker { host: hop.host.clone(), port: hop.port, trusted, seen: seen.clone() };
+        let config = config(&known_types(&hop.host, hop.port));
         let connecting = match hops.last() {
-            None => tokio::time::timeout(Duration::from_secs(20), client::connect(config(), (first.host.as_str(), first.port), checker)).await,
+            None => tokio::time::timeout(Duration::from_secs(20), client::connect(config, (first.host.as_str(), first.port), checker)).await,
             Some(prev) => {
                 // The next hop, reached from inside the previous one.
                 let channel = prev
                     .channel_open_direct_tcpip(hop.host.clone(), hop.port.into(), "127.0.0.1", 0)
                     .await
                     .map_err(|e| Error::Connect { host: hop.host.clone(), port: hop.port, message: format!("desde {}: {e}", spec.hops[i - 1].host) })?;
-                tokio::time::timeout(Duration::from_secs(20), client::connect_stream(config(), channel.into_stream(), checker)).await
+                tokio::time::timeout(Duration::from_secs(20), client::connect_stream(config, channel.into_stream(), checker)).await
             }
         };
         let mut handle = match connecting {
@@ -234,6 +275,9 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
                 return Err(match seen.lock().unwrap().clone() {
                     Some(Verdict::Unknown(fingerprint)) => Error::UnknownHost { host: hop.host.clone(), port: hop.port, fingerprint },
                     Some(Verdict::Changed) => Error::HostKeyChanged { host: hop.host.clone(), port: hop.port },
+                    Some(Verdict::TrustedChanged { fingerprint, accepted }) => {
+                        Error::TrustedKeyChanged { host: hop.host.clone(), port: hop.port, fingerprint, accepted: accepted.join(", ") }
+                    }
                     None => Error::Connect { host: hop.host.clone(), port: hop.port, message: e.to_string() },
                 })
             }
@@ -386,11 +430,43 @@ mod tests {
     fn known_hosts_wins_over_trusted() {
         let trusted = vec![FP_H.to_string()];
         let changed = || Err(keys::Error::KeyChanged { line: 3 });
-        assert_eq!(decide(Ok(true), FP_J.into(), &[]), Ok(()));
+        assert_eq!(decide(Ok(true), false, FP_J.into(), &[]), Ok(()));
         // A key that differs from the pinned one is refused even if accepted in DBine.
-        assert_eq!(decide(changed(), FP_H.into(), &trusted), Err(Verdict::Changed));
-        assert_eq!(decide(Ok(false), FP_H.into(), &trusted), Ok(()));
-        assert_eq!(decide(Ok(false), FP_J.into(), &trusted), Err(Verdict::Unknown(FP_J.into())));
-        assert_eq!(decide(Err(keys::Error::CouldNotReadKey), FP_H.into(), &trusted), Ok(()));
+        assert_eq!(decide(changed(), false, FP_H.into(), &trusted), Err(Verdict::Changed));
+        // known_hosts pins the server with keys of another type only.
+        assert_eq!(decide(Ok(false), true, FP_H.into(), &trusted), Err(Verdict::Changed));
+        assert_eq!(decide(Ok(false), true, FP_H.into(), &[]), Err(Verdict::Changed));
+        assert_eq!(decide(Ok(false), false, FP_H.into(), &trusted), Ok(()));
+        assert_eq!(decide(Err(keys::Error::CouldNotReadKey), false, FP_H.into(), &trusted), Ok(()));
+    }
+
+    #[test]
+    fn a_key_accepted_for_the_server_is_never_swapped_by_asking() {
+        let pinned = vec![FP_H.to_string()];
+        // Accepted before and presented again: connects.
+        assert_eq!(decide(Ok(false), false, FP_H.into(), &pinned), Ok(()));
+        // Another key for a server with one accepted: refused, not asked.
+        assert_eq!(
+            decide(Ok(false), false, FP_J.into(), &pinned),
+            Err(Verdict::TrustedChanged { fingerprint: FP_J.into(), accepted: pinned.clone() })
+        );
+        assert_eq!(
+            decide(Err(keys::Error::CouldNotReadKey), false, FP_J.into(), &pinned),
+            Err(Verdict::TrustedChanged { fingerprint: FP_J.into(), accepted: pinned.clone() })
+        );
+        // Nothing accepted for it: the user is asked.
+        assert_eq!(decide(Ok(false), false, FP_J.into(), &[]), Err(Verdict::Unknown(FP_J.into())));
+    }
+
+    #[test]
+    fn rsa_hashes_are_one_key_type() {
+        use keys::Algorithm;
+        assert!(same_type(&Algorithm::Rsa { hash: None }, &Algorithm::Rsa { hash: Some(keys::HashAlg::Sha512) }));
+        assert!(!same_type(&Algorithm::Ed25519, &Algorithm::Rsa { hash: None }));
+        // The known types go first, the rest keep their order after them.
+        let key = &config(&[Algorithm::Rsa { hash: None }]).preferred.key;
+        assert!(matches!(key[0], Algorithm::Rsa { .. }));
+        assert!(key.contains(&Algorithm::Ed25519));
+        assert_eq!(key.len(), russh::Preferred::default().key.len());
     }
 }
