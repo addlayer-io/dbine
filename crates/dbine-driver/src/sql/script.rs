@@ -542,9 +542,9 @@ impl Scanner<'_> {
                 c.is_ascii_whitespace() || c.is_ascii_control()
             }) =>
             {
-                (Tok::LineComment, self.line_end(i))
+                (Tok::LineComment, self.comment_end(i))
             }
-            b'#' if self.d.hash_comments => (Tok::LineComment, self.line_end(i)),
+            b'#' if self.d.hash_comments => (Tok::LineComment, self.comment_end(i)),
             b'/' if n == b'*' => (Tok::BlockComment, self.block_comment_end(i)),
             b'\'' => (Tok::Quoted, self.quote_end(i + 1, b'\'', self.d.backslash_escapes)),
             b'"' => (Tok::Quoted, self.quote_end(i + 1, b'"', self.d.backslash_escapes && !self.d.dquote_idents)),
@@ -574,6 +574,12 @@ impl Scanner<'_> {
             j += 1;
         }
         j
+    }
+
+    /// Where a line comment ends: at LF or CR (PostgreSQL ends one at a
+    /// lone CR too, so what follows is code, never hidden in a comment).
+    fn comment_end(&self, i: usize) -> usize {
+        self.b[i..].iter().position(|&c| c == b'\n' || c == b'\r').map_or(self.b.len(), |p| i + p)
     }
 
     /// The newline (not included) or the end.
