@@ -185,7 +185,10 @@ jobs:
             exit 1
           fi
           if [ -s driver-hosts/new-files.txt ]; then
-            (cd driver-hosts && tr -d '\r' < new-files.txt | xargs gh release upload drivers)
+            # --clobber: these ids aren't in the published index (the build
+            # checked), so a file under that name is a leftover of a run that
+            # stopped before publishing the index, never one an app uses.
+            (cd driver-hosts && tr -d '\r' < new-files.txt | xargs gh release upload drivers --clobber)
           fi
           python3 scripts/driver_index.py publish ${{ matrix.target }} driver-hosts
 
