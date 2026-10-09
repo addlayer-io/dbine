@@ -285,7 +285,7 @@ impl MySqlSession {
         let objects: Vec<String> = rows.iter().map(|r| format!("{} · {}", get(r, 0), get(r, 1))).collect();
         let drops: Vec<String> = rows
             .iter()
-            .map(|r| format!("-- ALTER TABLE {} DROP INDEX {};", qualified_name(Quote::Backtick, Some(db), &get(r, 0)), quote_ident(Quote::Backtick, &get(r, 1))))
+            .map(|r| drop_comment(db, &get(r, 0), &get(r, 1)))
             .collect();
         out.push(unused_check(objects, drops, window));
     }
@@ -467,6 +467,19 @@ impl MySqlSession {
 
 /// The unused-indexes finding: conclusive (and with a commented DROP per
 /// index) only when the server has been up [`MIN_WINDOW_DAYS`].
+/// Text for a `--` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+}
+
+/// A commented `ALTER TABLE … DROP INDEX` for the unused-indexes fix.
+fn drop_comment(db: &str, table: &str, index: &str) -> String {
+    let stmt = format!("ALTER TABLE {} DROP INDEX {};", qualified_name(Quote::Backtick, Some(db), table), quote_ident(Quote::Backtick, index));
+    format!("-- {}", comment_text(&stmt))
+}
+
 fn unused_check(objects: Vec<String>, drops: Vec<String>, window: Option<i64>) -> HealthCheck {
     let conclusive = window.is_some_and(|d| d >= MIN_WINDOW_DAYS);
     let since = match window {
@@ -541,6 +554,13 @@ mod tests {
             let a = applies(v, v);
             assert!(!a.no_pk && !a.redundant && !a.unused && !a.collations, "{v:?}");
         }
+    }
+
+    #[test]
+    fn a_name_cannot_end_the_commented_drop() {
+        let line = drop_comment("d", "t\r\nDROP TABLE x;", "i`x\u{2028}\u{85}");
+        assert_eq!(line, "-- ALTER TABLE `d`.`t??DROP TABLE x;` DROP INDEX `i``x??`;");
+        assert_eq!(line.lines().count(), 1);
     }
 
     #[test]

@@ -293,15 +293,17 @@ pub fn script(a: &SecurityAction) -> Result<String> {
         SecurityAction::CreateUser { name, .. } => format!(
             "CREATE ROLE {n} WITH LOGIN;\n\
              -- Para ingresar hace falta asociarle un rol de IAM (con permiso dsql:DbConnect):\n\
-             -- AWS IAM GRANT {n} TO 'arn:aws:iam::<cuenta>:role/<rol-de-iam>';",
-            n = q(name)
+             -- AWS IAM GRANT {c} TO 'arn:aws:iam::<cuenta>:role/<rol-de-iam>';",
+            n = q(name),
+            c = comment_text(&q(name))
         ),
         SecurityAction::CreateRole { name } => format!("CREATE ROLE {};", q(name)),
         SecurityAction::Drop { name, .. } => format!(
             "-- Si tiene roles de IAM asociados (sys.iam_pg_role_mappings), antes:\n\
-             -- AWS IAM REVOKE {n} FROM '<arn>';\n\
+             -- AWS IAM REVOKE {c} FROM '<arn>';\n\
              DROP ROLE {n};",
-            n = q(name)
+            n = q(name),
+            c = comment_text(&q(name))
         ),
         SecurityAction::SetPassword { .. } => return Err(no_passwords()),
         SecurityAction::SetLogin { name, enabled } => {
@@ -355,6 +357,13 @@ pub fn schema_owner(name: &str, owner: &str) -> Result<String> {
 
 pub fn drop_schema(name: &str) -> Result<String> {
     Ok(format!("DROP SCHEMA {};", schema_name(name)?))
+}
+
+/// Text for a `--` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
 }
 
 #[cfg(test)]

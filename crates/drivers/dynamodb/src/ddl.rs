@@ -323,7 +323,7 @@ pub(crate) fn create_index_statements(t: &TableSchema) -> Result<Vec<String>> {
         if matches!(kind, IndexKind::Local) {
             out.push(format!(
                 "-- El índice local {} solo se puede crear junto con la tabla (CREATE TABLE).",
-                i.name.replace('\n', " ")
+                comment_text(&i.name)
             ));
             continue;
         }
@@ -537,6 +537,13 @@ pub(crate) fn split_script(text: &str) -> Vec<String> {
     }
     out.push(cur);
     out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+/// Text for a `--` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
 }
 
 #[cfg(test)]

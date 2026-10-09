@@ -755,6 +755,13 @@ fn visible_databases(rows: Vec<DatabaseRow>, scoped: bool) -> Vec<String> {
     dbs.into_iter().map(|(_, name)| name).collect()
 }
 
+/// Text for a `--` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+pub(crate) fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+}
+
 fn text(r: &Row, i: usize) -> Option<String> {
     r.try_get::<&str, _>(i).ok().flatten().map(str::to_string)
 }
@@ -1305,6 +1312,13 @@ mod script_live;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_cannot_end_a_comment_line() {
+        let line = format!("-- DROP INDEX {};", comment_text("[ix\r\nDROP TABLE t;\u{85}\u{2028}\u{2029}] ON [s].[t]"));
+        assert_eq!(line, "-- DROP INDEX [ix??DROP TABLE t;???] ON [s].[t];");
+        assert_eq!(line.lines().count(), 1);
+    }
 
     /// "Con opción de otorgar" is offered on the new schema's grants
     /// exactly where the engine writes them (`SchemaSpec::grant_option`).

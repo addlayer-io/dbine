@@ -1308,7 +1308,7 @@ impl Session for CosmosSession {
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        format!("-- container: {}\nSELECT TOP {limit} * FROM c", obj.name)
+        format!("-- container: {}\nSELECT TOP {limit} * FROM c", comment_text(&obj.name))
     }
 
     /// Statements one by one; the first failing one stops the script (the
@@ -1418,6 +1418,13 @@ impl Session for CosmosSession {
         let coll = self.call(Method::GET, "colls", &link, &path, None, &[]).await?.body;
         Ok(Some(index_usage::report(&coll)))
     }
+}
+
+/// Text for a `--` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+pub(crate) fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
 }
 
 #[cfg(test)]

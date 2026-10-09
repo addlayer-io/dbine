@@ -334,7 +334,7 @@ mod tests {
         };
         assert_eq!(
             b("ven`tas", &[("disk", "backups"), ("name", "o'k.zip")]),
-            "BACKUP DATABASE `ven``tas` TO Disk('backups', 'o\\'k.zip');"
+            "BACKUP DATABASE `ven\\`tas` TO Disk('backups', 'o\\'k.zip');"
         );
         assert_eq!(
             b("v", &[("destination", "file"), ("name", "/b/v/"), ("async", "true")]),

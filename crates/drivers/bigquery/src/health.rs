@@ -137,7 +137,7 @@ impl BigQuerySession {
                             .objects(forever.iter().map(|t| format!("{} ({})", name(t), size(f(t, "numBytes")))).collect())
                             .fix(format!(
                                 "-- Elegí cuántos días guardar antes de correrlo:\n{}",
-                                forever.iter().take(MAX_OBJECTS).map(|t| format!("-- ALTER TABLE {} SET OPTIONS (partition_expiration_days = 365);", full(t))).collect::<Vec<_>>().join("\n")
+                                forever.iter().take(MAX_OBJECTS).map(|t| format!("-- {}", comment_text(&format!("ALTER TABLE {} SET OPTIONS (partition_expiration_days = 365);", full(t))))).collect::<Vec<_>>().join("\n")
                             )),
                     );
                 }
@@ -183,6 +183,13 @@ impl BigQuerySession {
         }
         Ok(out)
     }
+}
+
+/// Text for a `--` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
 }
 
 #[cfg(test)]

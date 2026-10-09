@@ -10,7 +10,7 @@
 //! (descending keys, columnstore order, the primary XML index…).
 
 use crate::variant::Variant;
-use crate::{format_type, text, SqlServerSession};
+use crate::{comment_text, format_type, text, SqlServerSession};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::{kinds, CheckDef, DbObject, IndexDef, KeyDef, ObjectKindInfo, ObjectRef, Result, TableChange, TableSchema};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -752,7 +752,7 @@ pub(crate) fn index_statements(owner: &str, t: &TableSchema, if_exists: bool) ->
     ixs.sort_by_key(|i| create_rank(i));
     ixs.into_iter()
         .map(|ix| match index_sql(owner, ix) {
-            None => format!("-- Índice {} ({}) omitido: se crea a mano.", ix.name, ix.kind.as_deref().unwrap_or("")),
+            None => format!("-- Índice {} ({}) omitido: se crea a mano.", comment_text(&ix.name), comment_text(ix.kind.as_deref().unwrap_or(""))),
             Some(s) if !if_exists => s,
             Some(s) if is_fulltext(ix) => {
                 format!("IF NOT EXISTS (SELECT 1 FROM sys.fulltext_indexes WHERE object_id = OBJECT_ID({}))\n    {s}", nlit(owner))
@@ -998,8 +998,9 @@ fn stash_fks_sql(owner: &str, key: &str) -> String {
     let parent = "QUOTENAME(SCHEMA_NAME(p.schema_id)) + N'.' + QUOTENAME(p.name)";
     let from = "FROM sys.foreign_keys fk JOIN sys.tables p ON p.object_id = fk.parent_object_id
  WHERE fk.referenced_object_id = @t AND fk.key_index_id = @k";
+    let (c_owner, c_key) = (comment_text(owner), comment_text(key));
     format!(
-        "-- Foreign keys that reference {owner} ({key}): kept to be made again after the key, then dropped.
+        "-- Foreign keys that reference {c_owner} ({c_key}): kept to be made again after the key, then dropped.
 IF OBJECT_ID(N'tempdb..{FK_STASH}') IS NULL CREATE TABLE {FK_STASH} (id int IDENTITY(1, 1) PRIMARY KEY, add_sql nvarchar(max) NOT NULL);
 DECLARE @t int = OBJECT_ID({obj});
 DECLARE @k int = (SELECT index_id FROM sys.indexes WHERE object_id = @t AND name = {keylit});
@@ -1935,6 +1936,12 @@ mod tests {
         keep_referencing_fks(&mut s.statements, &mut s.warnings, &prepared);
         s.warnings.extend(clustering_warnings(&prepared));
         s
+    }
+
+    #[test]
+    fn a_name_cannot_end_the_stash_comment() {
+        let sql = stash_fks_sql("[s].[t\n]", "PK\nDROP TABLE x;");
+        assert_eq!(sql.lines().next(), Some("-- Foreign keys that reference [s].[t?] (PK?DROP TABLE x;): kept to be made again after the key, then dropped."));
     }
 
     fn stash(owner: &str, key: &str) -> String {

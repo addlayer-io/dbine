@@ -82,6 +82,13 @@ pub fn system_schema(v: Variant, name: &str) -> bool {
         || (v == Variant::Materialize && name.starts_with("mz_"))
 }
 
+/// Text for a `--` comment line: a server-controlled name can't end the
+/// comment and turn the rest of the line into a statement. Line breaks
+/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+pub(crate) fn comment_text(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { '?' } else { c }).collect()
+}
+
 /// A string literal for a text-protocol query. Redshift treats backslashes
 /// in literals as escapes, so they are doubled there.
 pub fn lit(v: Variant, s: &str) -> String {

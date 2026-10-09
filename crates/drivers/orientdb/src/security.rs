@@ -288,7 +288,7 @@ pub fn script(a: &SecurityAction) -> Result<String> {
         SecurityAction::Grant { privileges: p, object, to, .. } => {
             let (res, role) = (resource(object)?, role_ident(to)?);
             let lines: Vec<String> = privileges(p)?.iter().map(|p| format!("GRANT {p} ON {res} TO {role};")).collect();
-            format!("-- Los permisos son de los roles: «{to}» tiene que ser un rol.\n{}", lines.join("\n"))
+            format!("-- Los permisos son de los roles: «{}» tiene que ser un rol.\n{}", crate::comment_text(to), lines.join("\n"))
         }
         SecurityAction::Revoke { privileges: p, object, from } => {
             let (res, role) = (resource(object)?, role_ident(from)?);

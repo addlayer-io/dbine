@@ -7,9 +7,8 @@
 //! and ASSUME constraints. The engine, the sorting key and
 //! the partition key can't change in place: those only warn.
 
-use crate::schema::{check_name, column_sql, full_type, index_clause, is_projection, q, string_literal, table_ddl, ASSUME};
+use crate::schema::{check_name, column_sql, full_type, index_clause, is_projection, q, qualified, string_literal, table_ddl, ASSUME};
 use crate::Flavor;
-use dbine_driver::sql::{qualified_name, Quote};
 use dbine_driver::{ColumnDef, DdlParts, IndexDef, Result, SyncScript, TableChange, TableSchema};
 
 fn display(t: &TableSchema) -> String {
@@ -101,7 +100,7 @@ fn alter(flavor: Flavor, old: &TableSchema, new: &TableSchema, p: &mut Plan) {
         Flavor::ClickHouse => "TABLE",
         Flavor::Timeplus => "STREAM",
     };
-    let name = qualified_name(Quote::Backtick, new.schema.as_deref().filter(|s| !s.is_empty()), &new.name);
+    let name = qualified(new.schema.as_deref(), &new.name);
     let head = format!("ALTER {what} {name}");
     let tname = display(new);
     let eq = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
