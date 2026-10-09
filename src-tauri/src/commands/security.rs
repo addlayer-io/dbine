@@ -105,6 +105,8 @@ pub(crate) fn mask(script: &str, password: &str) -> String {
         password.to_string(),
         password.replace('\'', "''"),
         password.replace('\\', "\\\\").replace('\'', "\\'"),
+        // PostgreSQL's E'…' strings: both doubled.
+        password.replace('\\', "\\\\").replace('\'', "''"),
         password.replace('"', "\"\""),
         json.trim_matches('"').to_string(),
     ];
@@ -128,6 +130,7 @@ mod tests {
             format!("CREATE USER x PASSWORD '{}';", p.replace('\'', "''")),
             format!("CREATE USER x IDENTIFIED BY '{}';", p.replace('\\', "\\\\").replace('\'', "\\'")),
             format!("db.createUser({{ pwd: {} }})", serde_json::to_string(p).unwrap()),
+            format!("CREATE ROLE x PASSWORD E'{}';", p.replace('\\', "\\\\").replace('\'', "''")),
         ] {
             let m = mask(&script, p);
             assert!(m.contains("••••••") && !m.contains("a'b") && !m.contains("a''b") && !m.contains("a\\'b"), "{m}");
