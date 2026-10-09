@@ -13,6 +13,10 @@
 - **O que cada versão traz:** o aviso de nova versão mostra as mudanças dela e das versões intermediárias, a partir da que você tem instalada, no idioma do app.
 - **Versões antigas do app:** a partir de agora, um app mais antigo que as últimas cinco versões precisa ser atualizado para baixar novos drivers. Os drivers que ele já tem instalados continuam funcionando.
 - **Usuários e permissões:** as alterações entram em uma fila e são aplicadas juntas. Uma barra de **Alterações pendentes** as lista, uma única revisão mostra o script completo e elas rodam uma de cada vez: as aplicadas saem da lista e, se uma falhar, ela e as seguintes continuam pendentes.
+- **As leituras dos clientes MCP e do assistente de IA são protegidas pelo próprio banco de dados:**
+  - **Garantido pelo servidor:** na família PostgreSQL, no MySQL, MariaDB, SQLite e libSQL, cada leitura roda como uma única instrução dentro de uma transação somente leitura que o servidor faz valer e que o DBine sempre reverte.
+  - **Aprovação:** nos demais motores, cada leitura pede a sua aprovação no DBine, do mesmo jeito que as escritas. O diálogo de aprovação informa se é uma leitura ou uma escrita, e **Aprovar tudo** vale separadamente para leituras e escritas.
+  - **Verificação de escrita:** o DBine continua verificando cada consulta em busca de escritas, como uma camada extra.
 
 ### Correções
 - **O somente leitura é mais rigoroso:** as consultas dos clientes MCP com nível Leitura, do assistente de IA e das conexões somente leitura são verificadas palavra por palavra, não só pela primeira. Agora elas recusam:
@@ -56,6 +60,13 @@
 - **Importar conexões:** uma URL do SQL Server sem host não coloca mais a senha no nome da conexão.
 - **Usuários e permissões:** a prévia oculta as senhas do PostgreSQL em todas as formas.
 - **Somente leitura:** consultas que adquirem bloqueios pelos quais outras sessões esperam são recusadas, por exemplo `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` e `FOR SHARE`.
+- **Snowflake e Cassandra:** os comentários `//` são lidos como o servidor os lê.
+- **As conexões somente leitura do SQL Server** recusam hints de bloqueio e `WAITFOR`.
+- **As conexões somente leitura** recusam avançar uma sequência (`NEXT VALUE FOR`, `.NEXTVAL`).
+- **Renomear:**
+  - Em todos os motores, é recusado um dependente cujo código seria dividido em mais de uma instrução.
+  - Corpos de rotinas do Snowflake que contêm `$$` são mantidos inteiros.
+  - Nomes do OrientDB que o DBine não conseguiria colocar entre aspas com segurança são recusados.
 
 ## [0.1.9] - 2026-10-09
 

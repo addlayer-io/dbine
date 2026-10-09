@@ -13,6 +13,10 @@
 - **Ce qu'apporte chaque version :** l'avis de nouvelle version affiche ses changements et ceux des versions intermédiaires, à partir de celle que vous avez installée, dans la langue de l'application.
 - **Anciennes versions de l'application :** désormais, une application plus ancienne que les cinq dernières versions doit être mise à jour pour télécharger de nouveaux pilotes. Les pilotes qu'elle a déjà installés continuent de fonctionner.
 - **Utilisateurs et droits :** les modifications sont mises en file et appliquées ensemble. Une barre **Modifications en attente** les liste, une seule revue montre tout le script, et elles s'exécutent une par une : celles qui sont appliquées quittent la liste et, si l'une échoue, elle et les suivantes restent en attente.
+- **Les lectures des clients MCP et de l'assistant IA sont protégées par la base de données elle-même :**
+  - **Garanti par le serveur :** sur la famille PostgreSQL, MySQL, MariaDB, SQLite et libSQL, chaque lecture s'exécute comme une seule instruction dans une transaction en lecture seule que le serveur impose et que DBine annule toujours.
+  - **Approbation :** sur les autres moteurs, chaque lecture demande votre approbation dans DBine, comme les écritures. La boîte de dialogue d'approbation indique s'il s'agit d'une lecture ou d'une écriture, et **Tout approuver** s'applique séparément aux lectures et aux écritures.
+  - **Contrôle des écritures :** DBine vérifie toujours chaque requête à la recherche d'écritures, comme couche supplémentaire.
 
 ### Corrections
 - **Le mode lecture seule est plus strict :** les requêtes des clients MCP au niveau Lecture, de l'assistant IA et des connexions en lecture seule sont vérifiées mot par mot, et pas seulement par leur premier mot. Elles refusent désormais :
@@ -56,6 +60,13 @@
 - **Importer des connexions :** une URL SQL Server sans hôte ne place plus son mot de passe dans le nom de la connexion.
 - **Utilisateurs et droits :** l'aperçu masque les mots de passe PostgreSQL sous toutes leurs formes.
 - **Lecture seule :** les requêtes qui prennent des verrous que d’autres sessions attendent sont refusées, par exemple `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` et `FOR SHARE`.
+- **Snowflake et Cassandra :** les commentaires `//` sont lus comme le serveur les lit.
+- **Les connexions SQL Server en lecture seule** refusent les hints de verrouillage et `WAITFOR`.
+- **Les connexions en lecture seule** refusent d'avancer une séquence (`NEXT VALUE FOR`, `.NEXTVAL`).
+- **Renommer :**
+  - Sur tous les moteurs, un dépendant dont le code serait scindé en plus d'une instruction est refusé.
+  - Les corps de routines Snowflake contenant `$$` sont conservés entiers.
+  - Les noms OrientDB que DBine ne pourrait pas mettre entre guillemets en toute sécurité sont refusés.
 
 ## [0.1.9] - 2026-10-09
 

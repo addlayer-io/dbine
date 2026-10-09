@@ -2,21 +2,6 @@
 
 ## [Unreleased]
 
-### Improvements
-- **Reads by MCP clients and the AI assistant are protected by the database itself:**
-  - **Enforced by the server:** on the PostgreSQL family, MySQL, MariaDB, SQLite and libSQL, each read runs as a single statement inside a read-only transaction that the server enforces and DBine always rolls back.
-  - **Approval:** on the other engines, every read asks for your approval in DBine, the same way writes do. The approval dialog says whether it's a read or a write, and **Approve all** applies to reads and writes separately.
-  - **Write check:** DBine still checks each query for writes, as an extra layer.
-
-### Fixes
-- **Snowflake and Cassandra:** `//` comments are read the way the server reads them.
-- **Read-only SQL Server connections** refuse lock hints and `WAITFOR`.
-- **Read-only connections** refuse advancing a sequence (`NEXT VALUE FOR`, `.NEXTVAL`).
-- **Rename:**
-  - On every engine, a dependent whose code would split into more than one statement is refused.
-  - Snowflake routine bodies containing `$$` are kept whole.
-  - OrientDB names that DBine couldn't quote safely are refused.
-
 ## [0.1.10] - 2026-10-10
 
 ### New
@@ -30,6 +15,10 @@
 - **What each version brings:** the new-version notice shows its changes and those of the versions in between, starting from the one you have installed, in the app's language.
 - **Old app versions:** from now on, an app older than the last five versions has to update in order to download new drivers. The drivers it already has installed keep working.
 - **Users and permissions:** changes are queued and applied together. A **pending changes** bar lists them, one review shows the whole script, and they run one at a time: applied ones leave the list and, if one fails, it and the rest stay pending.
+- **Reads by MCP clients and the AI assistant are protected by the database itself:**
+  - **Enforced by the server:** on the PostgreSQL family, MySQL, MariaDB, SQLite and libSQL, each read runs as a single statement inside a read-only transaction that the server enforces and DBine always rolls back.
+  - **Approval:** on the other engines, every read asks for your approval in DBine, the same way writes do. The approval dialog says whether it's a read or a write, and **Approve all** applies to reads and writes separately.
+  - **Write check:** DBine still checks each query for writes, as an extra layer.
 
 ### Fixes
 - **Read-only is stricter:** the queries of MCP clients at the Read level, the AI assistant and read-only connections are checked word by word, not only by their first word. They now refuse:
@@ -73,6 +62,13 @@
 - **Import connections:** a SQL Server URL with no host no longer puts its password in the connection's name.
 - **Users and permissions:** the preview hides PostgreSQL passwords in every form.
 - **Read-only:** queries that take locks other sessions wait on are refused, for example `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` and `FOR SHARE`.
+- **Snowflake and Cassandra:** `//` comments are read the way the server reads them.
+- **Read-only SQL Server connections** refuse lock hints and `WAITFOR`.
+- **Read-only connections** refuse advancing a sequence (`NEXT VALUE FOR`, `.NEXTVAL`).
+- **Rename:**
+  - On every engine, a dependent whose code would split into more than one statement is refused.
+  - Snowflake routine bodies containing `$$` are kept whole.
+  - OrientDB names that DBine couldn't quote safely are refused.
 
 ## [0.1.9] - 2026-10-09
 
