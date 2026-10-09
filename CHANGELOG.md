@@ -2,12 +2,6 @@
 
 ## [Unreleased]
 
-### Fixes
-- **Read-only on SQL Server:** each query runs in a transaction that is always rolled back. Backups, restores, enabling or disabling triggers, text-pointer writes, Service Broker and transaction statements are refused when they come after a read in the same batch.
-- **Read-only on PostgreSQL:** names written with Unicode escapes (`U&"…"`) are refused, so a forbidden function can't be called under another spelling.
-- **CSV and TSV export:** the formula protection also applies to text stored in columns declared as numbers, which SQLite allows.
-- **Generated scripts:** object names from the server can't end a comment and run as code. This covers the fixes suggested by **Health check**, and the users, backup and structure scripts. ClickHouse names with a backslash are quoted correctly.
-
 ## [0.1.10] - 2026-10-09
 
 ### New
@@ -42,6 +36,10 @@
 - **Copy a subset:** masking uses a new random 256-bit key on every run.
 - **Driver updates:** the app never accepts a driver index older than the one it was released with, even on a new installation, nor one that has stopped being renewed. Installed drivers keep working either way.
 - Connection import, the linter and the health check no longer stop on accented or other multi-byte characters.
+- **Read-only on SQL Server:** each query runs in a transaction that is always rolled back. Backups, restores, enabling or disabling triggers, text-pointer writes, Service Broker and transaction statements are refused when they come after a read in the same batch.
+- **Read-only on PostgreSQL:** names written with Unicode escapes (`U&"…"`) are refused, so a forbidden function can't be called under another spelling.
+- **CSV and TSV export:** the formula protection also applies to text stored in columns declared as numbers, which SQLite allows.
+- **Generated scripts:** object names from the server can't end a comment and run as code. This covers the fixes suggested by **Health check**, and the users, backup and structure scripts. ClickHouse names with a backslash are quoted correctly.
 
 ## [0.1.9] - 2026-10-09
 
