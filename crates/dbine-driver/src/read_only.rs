@@ -1,17 +1,66 @@
 //! Read-only connections: a decorator that refuses any statement that
-//! isn't a read before it reaches the server. It checks the first keyword
-//! of each SQL statement, so it's a guard against mistakes, not a security
-//! boundary — use a read-only login for that. Only SQL drivers are wrapped;
-//! the others enforce read-only themselves (see `ConnectionConfig::read_only`).
+//! isn't a read before it reaches the server. A statement passes only when
+//! its first keyword is a read and no word inside it writes or changes the
+//! session: a T-SQL batch needs no `;` between statements (`SELECT 1 DELETE
+//! FROM t`), a CTE can modify data (`WITH … DELETE`), `SELECT … INTO`
+//! creates a table, and functions like `set_config` or `xp_cmdshell` act
+//! from inside a SELECT. Drivers also set a server-side read-only mode where
+//! the engine has one; the statements that would switch it off (`SET`,
+//! `set_config`) are refused here. Only SQL drivers are wrapped; the others
+//! enforce read-only themselves (see `ConnectionConfig::read_only`).
 
 use crate::error::{Error, Result};
 use crate::model::{ColumnInfo, DbObject, ObjectRef, QueryOutcome, TxState};
-use crate::sql::{expose_versioned, split_script, strip_comments, BatchLine, ScriptDialect, StatementKind};
+use crate::sql::{expose_versioned, name_tokens, split_script, strip_comments, BatchLine, ScriptDialect, StatementKind, TokenKind};
 use crate::Session;
 use async_trait::async_trait;
 use std::sync::Arc;
 
 const READ_KEYWORDS: &[&str] = &["select", "with", "show", "explain", "describe", "desc", "values", "table", "pragma", "use", "list", "count", "print", "match", "traverse"];
+
+/// Statements that can't hold another one: their words aren't looked into
+/// (`SHOW CREATE TABLE t` is a read).
+const OPAQUE_READS: &[&str] = &["show", "describe", "desc"];
+
+/// Words that write, change structure or run other code wherever they
+/// appear in a statement.
+const WRITE_WORDS: &[&str] = &[
+    "insert", "update", "delete", "merge", "upsert", "replace", "into", "drop", "create", "alter", "truncate", "rename", "grant", "revoke", "deny",
+    "exec", "execute", "call", "dbcc", "reconfigure", "shutdown", "kill", "bulk", "openrowset", "opendatasource", "openquery", "setuser", "revert",
+];
+
+/// Write words that are also read-only functions (`REPLACE(s, a, b)`,
+/// MySQL's `INSERT(s, pos, len, new)`).
+const READ_FUNCTIONS: &[&str] = &["replace", "insert"];
+
+/// Functions with side effects, called from a read: session settings,
+/// other sessions, files, sequences, dynamic SQL and other servers.
+const WRITE_FUNCTIONS: &[&str] = &[
+    "set_config", "pg_terminate_backend", "pg_cancel_backend", "pg_reload_conf", "pg_rotate_logfile", "pg_promote", "pg_switch_wal",
+    "pg_create_restore_point", "pg_file_write", "pg_file_rename", "pg_file_unlink", "pg_file_sync", "pg_logical_emit_message",
+    "pg_create_logical_replication_slot", "pg_create_physical_replication_slot", "pg_drop_replication_slot", "pg_stat_reset",
+    "pg_stat_reset_shared", "pg_stat_reset_single_table_counters", "pg_stat_reset_single_function_counters", "pg_stat_statements_reset",
+    "lo_import", "lo_export", "lo_unlink", "lo_create", "lo_creat", "lo_from_bytea", "lo_put", "lo_truncate", "setval", "nextval", "dblink",
+    "dblink_exec", "dblink_open", "dblink_send_query", "dblink_connect", "query_to_xml", "query_to_xmlschema", "query_to_xml_and_xmlschema",
+    "cursor_to_xml", "load_file", "sys_exec", "sys_eval",
+];
+
+/// Prefixes of procedures and packages that act outside the query: SQL
+/// Server's `sp_` / `xp_`, Oracle's `UTL_` (files, network) and `DBMS_`
+/// (except the read-only packages in [`READ_PACKAGES`]).
+const WRITE_PREFIXES: &[&str] = &["sp_", "xp_", "utl_", "dbms_"];
+const READ_PACKAGES: &[&str] = &["dbms_metadata", "dbms_xplan", "dbms_lob", "dbms_random", "dbms_utility", "dbms_assert"];
+
+/// SQLite pragmas that read and take an argument (`PRAGMA table_info(t)`).
+const READ_PRAGMAS: &[&str] = &[
+    "table_info", "table_xinfo", "table_list", "index_list", "index_info", "index_xinfo", "foreign_key_list", "foreign_key_check", "integrity_check",
+    "quick_check", "database_list", "collation_list", "function_list", "module_list", "pragma_list", "compile_options",
+];
+const WRITE_PRAGMAS: &[&str] = &["optimize", "wal_checkpoint", "incremental_vacuum", "shrink_memory"];
+
+/// Words that switch an estimated plan into running the script (SQL
+/// Server's `SET SHOWPLAN_XML OFF`, Sybase's `SET NOEXEC OFF`).
+const PLAN_MODE_WORDS: &[&str] = &["showplan_xml", "showplan_all", "showplan_text", "noexec", "fmtonly", "parseonly"];
 
 pub struct ReadOnlySession {
     inner: Box<dyn Session>,
@@ -56,10 +105,94 @@ pub fn first_write_in(sql: &str, dialect: &ScriptDialect) -> Option<String> {
 }
 
 fn writes_in(sql: &str, dialect: &ScriptDialect) -> Option<String> {
-    split_script(sql, &dialect.statements()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand).find_map(|stmt| {
-        let kw = first_keyword(&stmt.text, dialect)?;
-        (!READ_KEYWORDS.contains(&kw.as_str())).then(|| kw.to_uppercase())
-    })
+    statements(sql, dialect).into_iter().find_map(|stmt| statement_write(&stmt, dialect))
+}
+
+fn statements(sql: &str, dialect: &ScriptDialect) -> Vec<String> {
+    split_script(sql, &dialect.statements()).into_iter().filter(|s| s.kind != StatementKind::ClientCommand).map(|s| s.text).collect()
+}
+
+/// What makes `stmt` a write: its first keyword, or a word inside it.
+fn statement_write(stmt: &str, dialect: &ScriptDialect) -> Option<String> {
+    let kw = first_keyword(stmt, dialect)?;
+    if !READ_KEYWORDS.contains(&kw.as_str()) {
+        return Some(kw.to_uppercase());
+    }
+    if OPAQUE_READS.contains(&kw.as_str()) {
+        return None;
+    }
+    hidden_write(stmt, &kw, dialect)
+}
+
+/// A word of `stmt` (not its first) that writes, changes the session or
+/// runs code: see [`WRITE_WORDS`], [`WRITE_FUNCTIONS`], [`WRITE_PREFIXES`].
+fn hidden_write(stmt: &str, first: &str, dialect: &ScriptDialect) -> Option<String> {
+    let toks = name_tokens(stmt, dialect);
+    let bytes = stmt.as_bytes();
+    let bare = |i: usize| toks[i].kind == TokenKind::Name && !matches!(bytes[toks[i].start], b'"' | b'`' | b'[');
+    let is_call = |i: usize| toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Punct && t.text == "(");
+    let lower = |i: usize| toks[i].text.to_ascii_lowercase();
+    if first == "pragma" {
+        // `PRAGMA [schema.]x = y` and `PRAGMA x(y)` set x, except the reads.
+        let Some(mut i) = toks.iter().position(|t| t.kind == TokenKind::Name && !t.text.eq_ignore_ascii_case("pragma")) else { return None };
+        if toks.get(i + 1).is_some_and(|t| t.text == ".") && toks.get(i + 2).is_some_and(|t| t.kind == TokenKind::Name) {
+            i += 2;
+        }
+        let name = lower(i);
+        let assigns = toks.iter().any(|t| t.kind == TokenKind::Punct && t.text == "=");
+        let with_arg = is_call(i) && !READ_PRAGMAS.contains(&name.as_str());
+        return (assigns || with_arg || WRITE_PRAGMAS.contains(&name.as_str())).then(|| "PRAGMA".into());
+    }
+    for i in 0..toks.len() {
+        if toks[i].kind != TokenKind::Name {
+            continue;
+        }
+        let w = lower(i);
+        if bare(i) && WRITE_WORDS.contains(&w.as_str()) && !(READ_FUNCTIONS.contains(&w.as_str()) && is_call(i)) {
+            return Some(w.to_uppercase());
+        }
+        // `SET` outside `CHARACTER SET` changes the session (T-SQL batches).
+        if bare(i) && w == "set" && !(i > 0 && matches!(lower(i - 1).as_str(), "character" | "char")) {
+            return Some("SET".into());
+        }
+        if is_call(i) && WRITE_FUNCTIONS.contains(&w.as_str()) {
+            return Some(w.to_uppercase());
+        }
+        // A call or a package member (`xp_cmdshell(…)`, `utl_http.request`),
+        // not a column that happens to start the same way.
+        let called = is_call(i) || toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".");
+        if called && WRITE_PREFIXES.iter().any(|p| w.starts_with(p)) && !READ_PACKAGES.contains(&w.as_str()) {
+            return Some(w.to_uppercase());
+        }
+    }
+    None
+}
+
+/// Why an estimated plan of `sql` could run something: a statement that
+/// changes the plan mode or the session, or a write next to other
+/// statements (a single write is only planned, not run).
+fn unsafe_to_plan(sql: &str, dialect: &ScriptDialect) -> Option<String> {
+    let sql = expose_versioned(sql, dialect);
+    let stmts = statements(&sql, dialect);
+    for stmt in &stmts {
+        let kw = first_keyword(stmt, dialect);
+        if matches!(kw.as_deref(), Some("set" | "reset" | "begin" | "commit" | "rollback" | "start")) {
+            return kw.map(|k| k.to_uppercase());
+        }
+        let toks = name_tokens(stmt, dialect);
+        if let Some(t) = toks.iter().find(|t| t.kind == TokenKind::Name && PLAN_MODE_WORDS.contains(&t.text.to_ascii_lowercase().as_str())) {
+            return Some(t.text.to_uppercase());
+        }
+        if toks.iter().enumerate().any(|(i, t)| {
+            t.kind == TokenKind::Name && WRITE_FUNCTIONS.contains(&t.text.to_ascii_lowercase().as_str()) && toks.get(i + 1).is_some_and(|n| n.text == "(")
+        }) {
+            return Some("FUNCTION".into());
+        }
+    }
+    if stmts.len() > 1 {
+        return stmts.iter().find_map(|s| statement_write(s, dialect));
+    }
+    None
 }
 
 fn first_keyword(stmt: &str, dialect: &ScriptDialect) -> Option<String> {
@@ -100,13 +233,18 @@ impl Session for ReadOnlySession {
         self.inner.execute(sql, max_rows, out).await
     }
     async fn explain(&mut self, sql: &str, analyze: bool, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        // An estimated plan runs nothing; an actual one runs the script.
+        // An actual plan runs the script. An estimated one runs nothing,
+        // unless the script turns plan mode off or holds more statements.
         if analyze {
             if let Some(kw) = self.first_write(sql) {
                 return Err(Error::Query(format!(
                     "Conexión de solo lectura: el plan real ejecutaría una sentencia {kw}. Pedí el plan estimado."
                 )));
             }
+        } else if let Some(kw) = unsafe_to_plan(sql, &self.dialect) {
+            return Err(Error::Query(format!(
+                "Conexión de solo lectura: el plan estimado no admite {kw} ni varias sentencias que escriban. Pedí el plan de una sola consulta."
+            )));
         }
         self.inner.explain(sql, analyze, max_rows, out).await
     }
@@ -254,6 +392,69 @@ mod tests {
         // GO inside a comment doesn't split; GO 2 and GO -- x do.
         assert_eq!(first_write("select 1 /*\nGO\n*/\nGO 2\nupdate t set a = 1").as_deref(), Some("UPDATE"));
         assert_eq!(first_write("select 1\nGO -- next\ninsert into t values (1)").as_deref(), Some("INSERT"));
+    }
+
+    #[test]
+    fn writes_hidden_inside_a_read_are_caught() {
+        use crate::sql::ScriptDialect;
+        let t = ScriptDialect::tsql();
+        // A T-SQL batch needs no `;` between statements.
+        assert_eq!(super::first_write_in("SELECT 1 DELETE FROM dbo.t", &t).as_deref(), Some("DELETE"));
+        assert_eq!(super::first_write_in("SELECT 1 DROP TABLE dbo.Orders", &t).as_deref(), Some("DROP"));
+        assert_eq!(super::first_write_in("SELECT 1 EXEC xp_cmdshell 'whoami'", &t).as_deref(), Some("EXEC"));
+        assert_eq!(super::first_write_in("SELECT 1 SET IMPLICIT_TRANSACTIONS ON", &t).as_deref(), Some("SET"));
+        assert_eq!(super::first_write_in("SELECT * INTO dbo.copy FROM dbo.t", &t).as_deref(), Some("INTO"));
+        assert_eq!(super::first_write_in("SELECT * FROM OPENQUERY(srv, 'delete from t')", &t).as_deref(), Some("OPENQUERY"));
+        for d in [ScriptDialect::generic(), ScriptDialect::postgres(), t] {
+            // Data-modifying CTEs.
+            assert_eq!(super::first_write_in("WITH c AS (SELECT 1 x) DELETE FROM t", &d).as_deref(), Some("DELETE"), "{d:?}");
+            assert_eq!(super::first_write_in("with d as (delete from t returning 1) select count(*) from d", &d).as_deref(), Some("DELETE"), "{d:?}");
+            assert_eq!(super::first_write_in("select 1 from t for update", &d).as_deref(), Some("UPDATE"), "{d:?}");
+        }
+        let pg = ScriptDialect::postgres();
+        // Functions that switch the session's read-only mode off or act elsewhere.
+        assert_eq!(super::first_write_in("SELECT set_config('default_transaction_read_only','off',false)", &pg).as_deref(), Some("SET_CONFIG"));
+        assert_eq!(super::first_write_in("select pg_catalog.set_config('x','y',false)", &pg).as_deref(), Some("SET_CONFIG"));
+        assert_eq!(super::first_write_in("select dblink_exec('dbname=x', 'drop table t')", &pg).as_deref(), Some("DBLINK_EXEC"));
+        assert_eq!(super::first_write_in("select pg_terminate_backend(123)", &pg).as_deref(), Some("PG_TERMINATE_BACKEND"));
+        assert_eq!(super::first_write_in("select query_to_xml('delete from t', true, false, '')", &pg).as_deref(), Some("QUERY_TO_XML"));
+        let ora = ScriptDialect::oracle();
+        assert_eq!(super::first_write_in("select utl_http.request('http://x') from dual", &ora).as_deref(), Some("UTL_HTTP"));
+        // MySQL writes files from a SELECT.
+        assert_eq!(super::first_write_in("select * from t into outfile '/tmp/x'", &ScriptDialect::mysql()).as_deref(), Some("INTO"));
+    }
+
+    #[test]
+    fn ordinary_reads_still_pass() {
+        use crate::sql::ScriptDialect;
+        for d in [ScriptDialect::generic(), ScriptDialect::postgres(), ScriptDialect::tsql(), ScriptDialect::mysql(), ScriptDialect::oracle()] {
+            assert_eq!(super::first_write_in("select replace(name, 'a', 'b'), update_date, sp_id, deleted from t where note = 'delete me'", &d), None, "{d:?}");
+            assert_eq!(super::first_write_in("with x as (select 1 as a) select * from x order by a desc", &d), None, "{d:?}");
+            assert_eq!(super::first_write_in("select \"update\" from t", &d), None, "{d:?}");
+            assert_eq!(super::first_write_in("show create table t", &d), None, "{d:?}");
+        }
+        assert_eq!(super::first_write_in("select cast(x as char character set utf8mb4) from t", &ScriptDialect::mysql()), None);
+        assert_eq!(super::first_write_in("select dbms_metadata.get_ddl('TABLE', 'T') from dual", &ScriptDialect::oracle()), None);
+        let lite = ScriptDialect::generic();
+        assert_eq!(super::first_write_in("pragma table_info(t)", &lite), None);
+        assert_eq!(super::first_write_in("pragma main.table_info(t)", &lite), None);
+        assert_eq!(super::first_write_in("pragma journal_mode", &lite), None);
+        assert_eq!(super::first_write_in("pragma journal_mode = wal", &lite).as_deref(), Some("PRAGMA"));
+        assert_eq!(super::first_write_in("pragma writable_schema(1)", &lite).as_deref(), Some("PRAGMA"));
+    }
+
+    #[test]
+    fn estimated_plans_refuse_what_could_run() {
+        use crate::sql::ScriptDialect;
+        let t = ScriptDialect::tsql();
+        // SHOWPLAN turned off by a later batch would run the rest.
+        assert!(super::unsafe_to_plan("SELECT 1\nGO\nSET SHOWPLAN_XML OFF\nGO\nDROP TABLE dbo.orders", &t).is_some());
+        assert!(super::unsafe_to_plan("SET NOEXEC OFF", &t).is_some());
+        assert!(super::unsafe_to_plan("select 1; delete from t", &ScriptDialect::postgres()).is_some());
+        assert!(super::unsafe_to_plan("select set_config('a','b',false)", &ScriptDialect::postgres()).is_some());
+        // One statement, even a write, is only planned.
+        assert_eq!(super::unsafe_to_plan("DELETE FROM dbo.t WHERE id = 1", &t), None);
+        assert_eq!(super::unsafe_to_plan("select * from t; select * from u", &ScriptDialect::postgres()), None);
     }
 
     #[test]
