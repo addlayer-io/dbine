@@ -101,7 +101,7 @@ impl Driver for DremioDriver {
     }
 
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
-        dbine_driver::ScriptDialect { backtick_idents: false, ..dbine_driver::ScriptDialect::generic() }
+        dialect()
     }
 
     fn supports_explain(&self) -> bool {
@@ -247,6 +247,12 @@ struct Conn {
     pat: Option<String>,
     /// The `Authorization` header value.
     auth: Mutex<Option<String>>,
+}
+
+/// How scripts are cut: `"…"` names, no backticks, and `//` line comments
+/// (Dremio's parser is Calcite's, which reads `//` like `--`).
+pub(crate) fn dialect() -> dbine_driver::ScriptDialect {
+    dbine_driver::ScriptDialect { backtick_idents: false, slash_comments: true, ..dbine_driver::ScriptDialect::generic() }
 }
 
 fn http_error(e: reqwest::Error) -> Error {
@@ -713,7 +719,7 @@ impl Session for DremioSession {
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
-        let d = dbine_driver::ScriptDialect { backtick_idents: false, ..dbine_driver::ScriptDialect::generic() };
+        let d = dialect();
         for unit in dbine_driver::sql::split_script(text, &d) {
             match self.run(&unit.text, max_rows, out).await {
                 Ok(_) => {}

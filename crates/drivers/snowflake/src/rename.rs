@@ -1,10 +1,14 @@
-//! "Renombrar…" on Snowflake: the rename statement for the target; the app
-//! rewrites and puts back the views that name it (`CREATE OR REPLACE`).
-//! Functions and procedures that name it are only listed (the app's
-//! `manual_kinds`): `CREATE OR REPLACE` would hand them to the role running
-//! the rename, and their catalog text has no `EXECUTE AS`, `SECURE`,
-//! `HANDLER`… The renamed routine itself goes through `ALTER … RENAME TO`,
-//! which keeps its owner, rights and grants.
+//! "Renombrar…" on Snowflake: the rename statement for the target. What
+//! names it (views, materialized views, functions, procedures, tasks,
+//! streams, dynamic tables…) is only listed for the user to fix
+//! (`ReferenceStyle::None`): no kind of dependent is safe to create again.
+//! `CREATE OR REPLACE` hands any object to the role running the rename, so
+//! a view would read, a routine or a task run (on its schedule), with that
+//! role's privileges; a stream would start over from a new offset, a
+//! materialized or dynamic table lose its rows; and the catalog text of a
+//! routine has no `EXECUTE AS`, `SECURE`, `HANDLER`… The renamed object
+//! itself goes through `ALTER … RENAME TO`, which keeps its owner, rights
+//! and grants.
 //!
 //! - Tables, views, materialized views and sequences:
 //!   `ALTER <kind> s.x RENAME TO s.new`.
@@ -43,14 +47,17 @@ pub(crate) fn spec() -> RenameSpec {
         // keep the old name in their text.
         tracked: Vec::new(),
         replace: ReplaceStyle::CreateOrReplace,
-        references: ReferenceStyle::Sql,
+        // Listed, never created again: no dependent kind is safe to put
+        // back (see the module's doc). An allowlist that holds nothing.
+        references: ReferenceStyle::None,
         fold: FOLD,
         transactional: false,
         note: Some(
             "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. \
-             No actualiza las vistas ni el código que nombran lo renombrado. Las vistas, funciones y procedimientos que lo nombran \
-             solo se listan para corregirlos a mano: recrearlos los pasaría al rol que renombra (las vistas leerían y las rutinas \
-             correrían con sus privilegios) y las rutinas perderían EXECUTE AS, SECURE y el resto de sus opciones."
+             No actualiza las vistas ni el código que nombran lo renombrado. Todo lo que lo nombra (vistas, vistas materializadas, \
+             funciones, procedimientos, tareas, streams, tablas dinámicas) solo se lista para corregirlo a mano: recrearlo lo pasaría \
+             al rol que renombra (leería y correría con sus privilegios), las rutinas perderían EXECUTE AS, SECURE y sus opciones, \
+             las tareas volverían a programarse, los streams perderían su posición y las vistas materializadas y tablas dinámicas, sus filas."
                 .into(),
         ),
         databases: true,
@@ -474,6 +481,24 @@ mod tests {
         assert!(s.columns && s.schemas && !s.indexes && !s.constraints && !s.transactional);
         assert_eq!((s.fold, s.replace), (Fold::Upper, ReplaceStyle::CreateOrReplace));
         assert!(s.note.as_deref().is_some_and(|n| n.contains("procedimientos") && n.contains("EXECUTE AS")));
+    }
+
+    #[test]
+    fn no_dependent_is_ever_created_again() {
+        // Tasks, streams, materialized views, views and routines alike: the
+        // app lists every dependent for the user and refuses to put one back.
+        let s = spec();
+        assert_eq!(s.references, ReferenceStyle::None);
+        let target = dbine_driver::rename::RewriteTarget::Object { object: obj(kinds::TABLE, "S", "T") };
+        for def in [
+            "CREATE OR REPLACE TASK S.K WAREHOUSE = W SCHEDULE = '1 minute' AS INSERT INTO S.LOG SELECT * FROM S.T",
+            "CREATE OR REPLACE STREAM S.ST ON TABLE S.T",
+            "CREATE OR REPLACE MATERIALIZED VIEW S.MV AS SELECT A FROM S.T",
+            "CREATE OR REPLACE VIEW S.V AS SELECT A FROM S.T",
+        ] {
+            let r = dbine_driver::rename::rewrite_references(def, &script::dialect(), &target, "U", &s, &Default::default());
+            assert!(r.edits.is_empty() && r.text == def, "{def}");
+        }
     }
 
     #[test]

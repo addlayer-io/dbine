@@ -9,6 +9,7 @@
 
 use crate::ddl::{path, q};
 use dbine_driver::rename::{quote_new, rename_header, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
+use dbine_driver::sql::split_script;
 use dbine_driver::{kinds, Error, Result, SyncScript};
 
 pub const NOTE: &str = "Dremio no tiene RENAME: las columnas se renombran con CHANGE COLUMN, solo en tablas Iceberg (como las de $scratch o de un catálogo Nessie); en archivos Parquet, JSON o de otros orígenes el servidor rechaza el cambio. Las vistas se renombran creándolas con el nombre nuevo y borrando la anterior. Las vistas que usan el objeto no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE VIEW. Las sentencias no son transaccionales. Solo se buscan dependientes en el mismo espacio u origen y sus carpetas: revisá después los de otros espacios.";
@@ -33,14 +34,16 @@ pub fn spec() -> Option<RenameSpec> {
 }
 
 pub fn script(req: &RenameRequest) -> Result<SyncScript> {
-    let dialect = dbine_driver::ScriptDialect { backtick_idents: false, ..dbine_driver::ScriptDialect::generic() };
+    let dialect = crate::dialect();
     match &req.target {
         RenameTarget::Object { object, .. } if object.kind == kinds::VIEW => {
             let def = req.definition.as_deref().ok_or_else(|| Error::Query(format!("no se pudo leer la definición de la vista «{}»", object.name)))?;
             let renamed = rename_header(def, &dialect, Fold::None, &req.new_name)
                 .ok_or_else(|| Error::Query(format!("no se reconoce el encabezado de la definición de la vista «{}»", object.name)))?;
             let create = format!("{};", plain_create(&renamed).trim().trim_end_matches(';').trim_end());
-            Ok(SyncScript { statements: vec![create, format!("DROP VIEW {};", path(object.schema(), &object.name))], warnings: vec![VIEW_RECREATED.into()] })
+            let statements = vec![create, format!("DROP VIEW {};", path(object.schema(), &object.name))];
+            one_unit_each(&statements, &format!("la definición de la vista «{}»", object.name))?;
+            Ok(SyncScript { statements, warnings: vec![VIEW_RECREATED.into()] })
         }
         RenameTarget::Object { object, .. } if object.kind == kinds::TABLE => Err(Error::Unsupported(
             "Dremio no renombra tablas: creá una nueva con CREATE TABLE … AS SELECT y borrá la anterior".into(),
@@ -63,15 +66,27 @@ pub fn script(req: &RenameRequest) -> Result<SyncScript> {
                 )));
             }
             let new = quote_new(&req.new_name, &dialect, Fold::None, false);
-            Ok(SyncScript {
-                statements: vec![format!("ALTER TABLE {} CHANGE COLUMN {} {new} {};", path(table.schema(), &table.name), q(&c.name), c.data_type)],
-                warnings: vec![],
-            })
+            let statements = vec![format!("ALTER TABLE {} CHANGE COLUMN {} {new} {};", path(table.schema(), &table.name), q(&c.name), c.data_type)];
+            one_unit_each(&statements, &format!("el tipo de la columna «{}»", c.name))?;
+            Ok(SyncScript { statements, warnings: vec![] })
         }
         RenameTarget::Index { .. } => Err(Error::Unsupported("Dremio no tiene índices: las reflexiones no se renombran".into())),
         RenameTarget::Constraint { .. } => Err(Error::Unsupported("Dremio no tiene restricciones con nombre".into())),
         RenameTarget::Schema { .. } => Err(Error::Unsupported("Dremio no renombra espacios, orígenes ni carpetas desde SQL".into())),
     }
+}
+
+/// Each statement must reach the server whole: `execute` cuts what it gets
+/// with [`crate::dialect`], so a stored text whose `;` sits outside what
+/// that dialect reads as a string or a comment (Dremio reading it as one)
+/// would run what follows as a statement of its own.
+fn one_unit_each(statements: &[String], what: &str) -> Result<()> {
+    if statements.iter().any(|s| split_script(s, &crate::dialect()).len() > 1) {
+        return Err(Error::Unsupported(format!(
+            "{what} se partiría en varias sentencias al ejecutar el cambio de nombre, así que DBine no lo renombra: hacelo a mano"
+        )));
+    }
+    Ok(())
 }
 
 /// `CREATE OR REPLACE VIEW` → `CREATE VIEW`: the new name must not
@@ -150,6 +165,36 @@ mod tests {
         ] {
             assert!(matches!(script(&req(t, "x")), Err(Error::Unsupported(_))));
         }
+    }
+
+    #[test]
+    fn stored_text_that_would_split_is_refused() {
+        let mut r = req(RenameTarget::Object { object: obj("view", "v"), parent: None }, "w");
+        // A `;` outside strings and comments: the second statement would run alone.
+        r.definition = Some("CREATE VIEW \"ventas\".\"crudo\".\"v\" AS SELECT 1 AS x; DROP TABLE \"$scratch\".secreta".into());
+        assert!(matches!(script(&r), Err(Error::Unsupported(m)) if m.contains("«v»")));
+        // Dremio reads `//` as a comment: the splitter must too, or the
+        // `'` in it would hide the `;` that follows from the splitter.
+        r.definition = Some("CREATE VIEW \"ventas\".\"crudo\".\"v\" AS SELECT 1 AS x // it's\n; DROP TABLE \"$scratch\".secreta".into());
+        assert!(matches!(script(&r), Err(Error::Unsupported(_))));
+        // A `;` inside a string, a `--` or a `//` comment stays in the view.
+        r.definition = Some("CREATE VIEW \"ventas\".\"crudo\".\"v\" AS\nSELECT 'a;b' AS x -- c;d\n// e;f\nFROM \"$scratch\".t".into());
+        let s = script(&r).unwrap();
+        assert_eq!(s.statements[0], "CREATE VIEW \"ventas\".\"crudo\".\"w\" AS\nSELECT 'a;b' AS x -- c;d\n// e;f\nFROM \"$scratch\".t;");
+        assert!(crate::dialect().slash_comments && !crate::dialect().backtick_idents);
+    }
+
+    #[test]
+    fn a_column_type_that_would_split_is_refused() {
+        let mut r = req(RenameTarget::Column { table: obj("table", "t"), column: "pepe".into() }, "nuevo");
+        r.table = Some(TableSchema {
+            name: "t".into(),
+            columns: vec![ColumnDef { name: "pepe".into(), data_type: "INT; DROP TABLE \"$scratch\".secreta".into(), ..Default::default() }],
+            ..Default::default()
+        });
+        assert!(matches!(script(&r), Err(Error::Unsupported(m)) if m.contains("«pepe»")));
+        r.table.as_mut().unwrap().columns[0].data_type = "VARCHAR".into();
+        assert_eq!(script(&r).unwrap().statements, ["ALTER TABLE \"ventas\".\"crudo\".\"t\" CHANGE COLUMN \"pepe\" nuevo VARCHAR;"]);
     }
 
     #[test]

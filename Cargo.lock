@@ -2414,7 +2414,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-athena"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -2526,7 +2526,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dremio"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -2538,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-drill"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2847,7 +2847,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-snowflake"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
@@ -2932,7 +2932,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-trino"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

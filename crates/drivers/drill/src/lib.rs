@@ -462,9 +462,10 @@ fn drill_error(msg: String, exception: Option<&str>, sql: &str) -> Error {
     e.into()
 }
 
-/// sqlline's: `;` outside quotes and comments, `` `name` ``.
+/// sqlline's: `;` outside quotes and comments, `` `name` ``. Drill's parser
+/// is Calcite's, which also reads `//` as a line comment.
 fn dialect() -> ScriptDialect {
-    ScriptDialect { compound_blocks: false, ..ScriptDialect::generic() }
+    ScriptDialect { compound_blocks: false, slash_comments: true, ..ScriptDialect::generic() }
 }
 
 /// `USE x` → `x`.

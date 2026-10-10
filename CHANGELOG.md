@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Rename on Snowflake and Trino, Presto and Starburst:** what names the renamed object (views, materialized views, functions, procedures and, on Snowflake, tasks, streams and dynamic tables) is listed for you to fix by hand instead of being re-created, so it keeps its owner and security settings. The rename is also refused when stored code would split into several statements, and rewriting dependents no longer changes who the code runs as (`DEFINER`, `SQL SECURITY`, `AUTHID`, `EXECUTE AS`).
+
 ## [0.1.10] - 2026-10-10
 
 ### New
