@@ -105,7 +105,7 @@
     "quoteDouble": "\"colonne\" (ANSI, PostgreSQL, Oracle…)",
     "quoteBracket": "[colonne] (SQL Server)",
     "quoteBacktick": "`colonne` (MySQL, BigQuery…)",
-    "standardStrings": "Cible lisant les chaînes de façon standard : les barres obliques inverses sont écrites telles quelles. Inutile depuis PostgreSQL, SQL Server, Oracle, SQLite ou DuckDB : le script les restitue déjà à l'identique",
+    "standardStrings": "Cible lisant les chaînes de façon standard : les barres obliques inverses sont écrites telles quelles. Inutile depuis une source que DBine connaît (PostgreSQL, SQL Server, Oracle, Db2, Trino…) : le script les restitue déjà à l'identique",
     "sheet": "Nom de la feuille",
     "xmlRoot": "Élément racine",
     "xmlRow": "Élément par ligne",

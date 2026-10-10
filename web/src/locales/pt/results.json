@@ -105,7 +105,7 @@
     "quoteDouble": "\"coluna\" (ANSI, PostgreSQL, Oracle…)",
     "quoteBracket": "[coluna] (SQL Server)",
     "quoteBacktick": "`coluna` (MySQL, BigQuery…)",
-    "standardStrings": "Destino com textos padrão: as barras invertidas vão como estão. Com origem PostgreSQL, SQL Server, Oracle, SQLite ou DuckDB não é preciso: o script já as devolve exatas",
+    "standardStrings": "Destino com textos padrão: as barras invertidas vão como estão. Com uma origem que o DBine conhece (PostgreSQL, SQL Server, Oracle, Db2, Trino…) não é preciso: o script já as devolve exatas",
     "sheet": "Nome da planilha",
     "xmlRoot": "Elemento raiz",
     "xmlRow": "Elemento por linha",

@@ -349,7 +349,8 @@ impl Exporter {
                     "backtick" => Quote::Backtick,
                     _ => Quote::Double,
                 };
-                let per = self.opts.rows_per_insert.max(1);
+                // Firebird takes one row per INSERT … VALUES.
+                let per = if self.opts.source == SourceStrings::Firebird { 1 } else { self.opts.rows_per_insert.max(1) };
                 let lit = Literal::pick(self.opts.source, q, self.opts.standard_strings);
                 let values: Vec<String> = row.iter().zip(&self.numeric).map(|(v, &num)| sql_literal(v, num, lit)).collect();
                 let head = if self.in_batch == 0 {
@@ -500,6 +501,24 @@ pub enum SourceStrings {
     Sqlite,
     /// DuckDB: `chr(92)`.
     DuckDb,
+    /// Firebird: `ASCII_CHAR(92)`.
+    Firebird,
+    /// SAP HANA: `NCHAR(92)`.
+    Hana,
+    /// Trino, Presto, Starburst and Athena: `chr(92)`.
+    Trino,
+    /// Db2 for Linux, UNIX and Windows: `CHR(92)`.
+    Db2,
+    /// Teradata: `CHR(92)`.
+    Teradata,
+    /// Vertica: `CHR(92)`.
+    Vertica,
+    /// Exasol: `CHR(92)`.
+    Exasol,
+    /// Netezza: `chr(92)`.
+    Netezza,
+    /// Dremio: `CHR(92)`.
+    Dremio,
 }
 
 impl SourceStrings {
@@ -517,12 +536,26 @@ impl SourceStrings {
         if backslash_escapes || id == "redshift" {
             return Self::Backslash;
         }
+        // Every engine below reads `'…'` the standard way (only `''` is
+        // special) and has `||` and a character function that takes a code
+        // point (the ones it doesn't list stay `Unknown`, which the test
+        // `sql_exports_know_how_each_source_reads_strings` lists with why).
         match (id, dialect) {
             ("duckdb" | "duckdb_files", _) => Self::DuckDb,
+            ("firebird", _) => Self::Firebird,
+            ("hana", _) => Self::Hana,
+            // Db2 for i and for z/OS share the dialect hint, not `CHR`.
+            ("db2", _) => Self::Db2,
             (_, "postgres") => Self::Postgres,
             (_, "mssql") => Self::SqlServer,
             (_, "oracle") => Self::Oracle,
             (_, "sqlite") => Self::Sqlite,
+            (_, "trino") => Self::Trino,
+            (_, "teradata") => Self::Teradata,
+            (_, "vertica") => Self::Vertica,
+            (_, "exasol") => Self::Exasol,
+            (_, "netezza") => Self::Netezza,
+            (_, "dremio") => Self::Dremio,
             _ => Self::Unknown,
         }
     }
@@ -600,14 +633,34 @@ const SPLICE_GROUP: usize = 50;
 ///
 /// NUL: PostgreSQL text can't hold it (`chr(0)` fails, which beats cutting
 /// the value); the others store it.
+///
+/// The character functions take a code point and give that character:
+/// - Firebird: `ASCII_CHAR` (0–255) gives a `CHAR(1) CHARACTER SET NONE`,
+///   which `||` with a UTF8 piece keeps as is for ASCII (`CHR` doesn't exist
+///   there).
+/// - SAP HANA: a literal is standard (`''` is the quote, a backslash is
+///   plain text; there is no `E'…'` or escape syntax at all), `CHAR(n)`
+///   gives an ASCII VARCHAR and `NCHAR(n)` the Unicode NVARCHAR character.
+///   HANA text columns are usually NVARCHAR (and VARCHAR is NVARCHAR in HANA
+///   Cloud), so `NCHAR` is the exact one: `||` with it stays NVARCHAR.
+/// - Db2, Teradata, Vertica, Exasol, Dremio: `CHR`. Never Db2's `CHAR(92)`,
+///   which is a cast that gives the text `'92'`.
+/// - Trino (and Presto, Starburst, Athena), Netezza: `chr`.
 fn spliced_literal(s: &str, src: SourceStrings) -> String {
     if !s.contains(['\\', '\0']) {
         return standard_literal(s);
     }
     let char_fn = |c: char| match src {
         SourceStrings::SqlServer => format!("CHAR({})", c as u32),
-        SourceStrings::Oracle => format!("CHR({})", c as u32),
+        SourceStrings::Oracle
+        | SourceStrings::Db2
+        | SourceStrings::Teradata
+        | SourceStrings::Vertica
+        | SourceStrings::Exasol
+        | SourceStrings::Dremio => format!("CHR({})", c as u32),
         SourceStrings::Sqlite => format!("char({})", c as u32),
+        SourceStrings::Firebird => format!("ASCII_CHAR({})", c as u32),
+        SourceStrings::Hana => format!("NCHAR({})", c as u32),
         _ => format!("chr({})", c as u32),
     };
     let mut parts = Vec::new();
@@ -870,7 +923,7 @@ mod tests {
         "C:\\temp\\new\\'' \\0 \\Z",
     ];
 
-    const SOURCES: [SourceStrings; 7] = [
+    const SOURCES: [SourceStrings; 16] = [
         SourceStrings::Unknown,
         SourceStrings::Backslash,
         SourceStrings::Postgres,
@@ -878,6 +931,15 @@ mod tests {
         SourceStrings::Oracle,
         SourceStrings::Sqlite,
         SourceStrings::DuckDb,
+        SourceStrings::Firebird,
+        SourceStrings::Hana,
+        SourceStrings::Trino,
+        SourceStrings::Db2,
+        SourceStrings::Teradata,
+        SourceStrings::Vertica,
+        SourceStrings::Exasol,
+        SourceStrings::Netezza,
+        SourceStrings::Dremio,
     ];
 
     #[test]
@@ -896,7 +958,22 @@ mod tests {
             (("libsql", "sqlite", false), Sqlite),
             (("duckdb", "standard", false), DuckDb),
             (("duckdb_files", "standard", false), DuckDb),
-            (("firebird", "standard", false), Unknown),
+            (("firebird", "standard", false), Firebird),
+            (("hana", "standard", false), Hana),
+            (("trino", "trino", false), Trino),
+            (("presto", "trino", false), Trino),
+            (("starburst", "trino", false), Trino),
+            (("athena", "trino", false), Trino),
+            (("db2", "db2", false), Db2),
+            (("db2i", "db2", false), Unknown),
+            (("db2zos", "db2", false), Unknown),
+            (("teradata", "teradata", false), Teradata),
+            (("vertica", "vertica", false), Vertica),
+            (("exasol", "exasol", false), Exasol),
+            (("netezza", "netezza", false), Netezza),
+            (("dremio", "dremio", false), Dremio),
+            (("drill", "drill", false), Unknown),
+            (("odbc", "standard", false), Unknown),
             (("mysql", "mysql", true), Backslash),
             (("snowflake", "snowflake", true), Backslash),
             // Backslash escapes win over the dialect hint.
@@ -929,7 +1006,18 @@ mod tests {
             assert_eq!(lit(EXPLOIT, Oracle, Quote::Double, std), "('x' || CHR(92) || ''');DROP TABLE users;#')");
             assert_eq!(lit(EXPLOIT, Sqlite, Quote::Double, std), "('x' || char(92) || ''');DROP TABLE users;#')");
             assert_eq!(lit(EXPLOIT, SqlServer, Quote::Bracket, std), "CONCAT('x', CHAR(92), ''');DROP TABLE users;#')");
+            assert_eq!(lit(EXPLOIT, Firebird, Quote::Double, std), "('x' || ASCII_CHAR(92) || ''');DROP TABLE users;#')");
+            assert_eq!(lit(EXPLOIT, Hana, Quote::Double, std), "('x' || NCHAR(92) || ''');DROP TABLE users;#')");
+            for src in [Trino, Netezza] {
+                assert_eq!(lit(EXPLOIT, src, Quote::Double, std), "('x' || chr(92) || ''');DROP TABLE users;#')", "{src:?}");
+            }
+            for src in [Db2, Teradata, Vertica, Exasol, Dremio] {
+                assert_eq!(lit(EXPLOIT, src, Quote::Double, std), "('x' || CHR(92) || ''');DROP TABLE users;#')", "{src:?}");
+            }
         }
+        assert_eq!(lit("a\0b\\", Firebird, Quote::Double, false), "('a' || ASCII_CHAR(0) || 'b' || ASCII_CHAR(92))");
+        assert_eq!(lit("ñ\\€", Hana, Quote::Double, false), "('ñ' || NCHAR(92) || '€')");
+        assert_eq!(lit("\\", Db2, Quote::Double, false), "CHR(92)");
         assert_eq!(lit("\\", Postgres, Quote::Double, false), "chr(92)");
         assert_eq!(lit("\\", SqlServer, Quote::Bracket, false), "CHAR(92)");
         assert_eq!(lit("\\\\", SqlServer, Quote::Bracket, false), "CONCAT(CHAR(92), CHAR(92))");
@@ -963,7 +1051,8 @@ mod tests {
         let oracle = spliced_literal(&v, SourceStrings::Oracle);
         assert_eq!(eval_spliced(&oracle), v);
         assert_eq!(depth(&oracle), 2, "one flat chain of CHR(92) on Oracle");
-        for src in [SourceStrings::Postgres, SourceStrings::Sqlite, SourceStrings::SqlServer] {
+        let spliced = SOURCES.into_iter().filter(|s| !matches!(s, SourceStrings::Unknown | SourceStrings::Backslash | SourceStrings::Oracle));
+        for src in spliced {
             let s = spliced_literal(&v, src);
             assert_eq!(eval_spliced(&s), v, "{src:?}");
             // 5000 parts: three levels of groups, each at most 50 wide.
@@ -1041,7 +1130,7 @@ mod tests {
                 let end = literal_end(&expr, i, false);
                 out.push_str(&decode(&expr[i + 1..end], false));
                 i = end + 1;
-            } else if let Some(p) = ["chr(", "CHR(", "char(", "CHAR("].iter().find(|p| rest.starts_with(**p)) {
+            } else if let Some(p) = ["chr(", "CHR(", "char(", "CHAR(", "ASCII_CHAR(", "NCHAR("].iter().find(|p| rest.starts_with(**p)) {
                 let close = rest.find(')').unwrap();
                 out.push(char::from_u32(rest[p.len()..close].parse().unwrap()).unwrap());
                 i += close + 1;
