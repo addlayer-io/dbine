@@ -19299,7 +19299,7 @@
  "Snowflake admite hasta 38 dígitos; el origen tiene {0}.": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
  ],
- "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. No actualiza las vistas ni el código que nombran lo renombrado: DBine los vuelve a crear con CREATE OR REPLACE, que no conserva los permisos otorgados sobre ellos (no se agrega COPY GRANTS).": [
+ "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. No actualiza las vistas ni el código que nombran lo renombrado. Las vistas, funciones y procedimientos que lo nombran solo se listan para corregirlos a mano: recrearlos los pasaría al rol que renombra (las vistas leerían y las rutinas correrían con sus privilegios) y las rutinas perderían EXECUTE AS, SECURE y el resto de sus opciones.": [
   "crates/drivers/snowflake/src/rename.rs"
  ],
  "Snowflake necesita un warehouse para listar las consultas en curso: la conexión no tiene uno": [

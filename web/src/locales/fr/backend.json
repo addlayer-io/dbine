@@ -9438,7 +9438,6 @@
   "Si un tópico usa el tag, el servidor rechaza el cambio: hay que borrarlo, renombrar y volver a crearlo con el nombre nuevo.": "Si un topic utilise le tag, le serveur rejette le changement : il faut le supprimer, renommer et le recréer avec le nouveau nom.",
   "Si un tópico usa la columna, el servidor rechaza el cambio: hay que borrarlo, renombrar y volver a crearlo con el nombre nuevo.": "Si un topic utilise la colonne, le serveur rejette le changement : il faut le supprimer, renommer et le recréer avec le nouveau nom.",
   "Si una vista materializada usa la columna, el servidor rechaza el cambio: hay que borrar la vista, renombrar y volver a crearla.": "Si une vue matérialisée utilise la colonne, le serveur rejette le changement : il faut supprimer la vue, renommer et la recréer.",
-  "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. No actualiza las vistas ni el código que nombran lo renombrado: DBine los vuelve a crear con CREATE OR REPLACE, que no conserva los permisos otorgados sobre ellos (no se agrega COPY GRANTS).": "Snowflake valide chaque instruction DDL à son exécution : si l'une échoue, les précédentes sont déjà faites. Il ne met pas à jour les vues ni le code qui nomment l'objet renommé : DBine les recrée avec CREATE OR REPLACE, qui ne conserve pas les permissions accordées dessus (COPY GRANTS n'est pas ajouté).",
   "Snowflake no renombra objetos de tipo «{0}» desde DBine.": "Snowflake ne renomme pas les objets de type « {0} » depuis DBine.",
   "Snowflake no renombra restricciones.": "Snowflake ne renomme pas les contraintes.",
   "Snowflake no tiene índices que se puedan renombrar.": "Snowflake n'a pas d'index pouvant être renommés.",
@@ -10101,5 +10100,6 @@
   "variables de entorno": "variables d'environnement",
   "{0} (¿falta {1}?)": "{0} ({1} manque-t-il ?)",
   "{0}. Podés cerrar esta ventana.": "{0}. Vous pouvez fermer cette fenêtre.",
-  "este motor no asegura lecturas de solo lectura en el servidor": "ce moteur ne garantit pas les lectures en lecture seule côté serveur"
+  "este motor no asegura lecturas de solo lectura en el servidor": "ce moteur ne garantit pas les lectures en lecture seule côté serveur",
+  "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. No actualiza las vistas ni el código que nombran lo renombrado. Las vistas, funciones y procedimientos que lo nombran solo se listan para corregirlos a mano: recrearlos los pasaría al rol que renombra (las vistas leerían y las rutinas correrían con sus privilegios) y las rutinas perderían EXECUTE AS, SECURE y el resto de sus opciones.": "Snowflake valide chaque instruction DDL à son exécution : si l'une échoue, les précédentes sont déjà faites. Il ne met pas à jour les vues ni le code qui nomment ce qui a été renommé. Les vues, fonctions et procédures qui le nomment sont seulement listées pour être corrigées à la main : les recréer les donnerait au rôle qui renomme (les vues liraient et les routines s'exécuteraient avec ses privilèges) et les routines perdraient EXECUTE AS, SECURE et leurs autres options."
 }

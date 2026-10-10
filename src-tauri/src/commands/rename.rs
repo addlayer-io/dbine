@@ -136,6 +136,24 @@ pub(crate) struct Context {
     pub row_routines: Vec<usize>,
     /// Those that triggers on other tables run too.
     pub shared_routines: Vec<usize>,
+    /// Dependent kinds never put back on this engine ([`manual_kinds`]).
+    pub manual_kinds: Vec<String>,
+}
+
+/// Dependent kinds DBine lists for review but never puts back on that
+/// engine. Snowflake's functions and procedures: `CREATE OR REPLACE` hands
+/// the routine to the role running the rename (`COPY GRANTS` copies every
+/// grant but ownership, so an owner's-rights procedure would run with that
+/// role's privileges), and the text its catalog gives has no `EXECUTE AS`,
+/// `SECURE`, `HANDLER`, `PACKAGES`…: a caller's-rights procedure would
+/// come back with the owner's rights.
+pub(crate) fn manual_kinds(driver: &dyn Driver) -> &'static [&'static str] {
+    match driver.info().id {
+        // Re-creating hands the object to the renaming role: routines would
+        // run, and views read, with that role's privileges.
+        "snowflake" => &[kinds::FUNCTION, kinds::PROCEDURE, kinds::VIEW],
+        _ => &[],
+    }
 }
 
 /// A trigger routine found through the triggers on the column's table.
@@ -230,6 +248,7 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
         database,
         row_routines: found.iter().map(|(at, _, _)| *at).collect(),
         shared_routines: found.iter().filter(|(_, shared, _)| *shared).map(|(at, _, _)| *at).collect(),
+        manual_kinds: manual_kinds(driver.as_ref()).iter().map(|k| k.to_string()).collect(),
     };
     // A routine added for its trigger that doesn't name the column isn't one.
     let column = match &args.target {
@@ -523,6 +542,8 @@ pub(crate) fn classify(
             let manual = |reason| Action::Manual { reason, unresolved: Vec::new() };
             let action = if d.relation != Relation::Code {
                 Action::Engine
+            } else if ctx.manual_kinds.contains(&d.kind) {
+                manual(ManualReason::NotRewritten)
             } else if ctx.shared_routines.contains(&at) {
                 manual(ManualReason::SharedRoutine)
             } else if spec.tracked_for_target(target).contains(&d.kind) {
@@ -741,6 +762,13 @@ pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &Ren
     // early (a `$$` in a body wrapped in `$$`), would run what follows as
     // statements of their own.
     for o in rewrites.iter().flat_map(|r| std::iter::once(&r.object).chain(r.carried.iter())) {
+        if manual_kinds(driver).contains(&o.kind.as_str()) {
+            return Err(CommandError::BadRequest(format!(
+                "{} no vuelve a crear «{}» desde DBine: perdería sus derechos de ejecución y su dueño; corregilo a mano",
+                driver.info().name,
+                o.name
+            )));
+        }
         check_one_unit(driver, o)?;
     }
     let mut lost = Vec::new();
@@ -941,6 +969,40 @@ mod tests {
         assert_eq!(items[3].original.as_deref(), Some("CREATE VIEW dbo.v_ok AS SELECT id FROM dbo.Clientes"));
         let Action::Manual { unresolved, .. } = &items[7].action else { panic!() };
         assert_eq!(unresolved.len(), 1);
+    }
+
+    #[test]
+    fn snowflake_routines_are_left_for_review_and_never_put_back() {
+        let mut d = fake(ReplaceStyle::CreateOrReplace);
+        d.info.id = "snowflake";
+        assert_eq!(manual_kinds(&d), [kinds::FUNCTION, kinds::PROCEDURE, kinds::VIEW]);
+        assert!(manual_kinds(&fake(ReplaceStyle::CreateOrReplace)).is_empty());
+        let r = report(vec![
+            dependent("procedure", "P_CALLER", Relation::Code, Confidence::Probable),
+            dependent("function", "F_SECURE", Relation::Code, Confidence::Probable),
+            dependent("view", "V", Relation::Code, Confidence::Probable),
+        ]);
+        let defs = vec![
+            Some("CREATE OR REPLACE PROCEDURE P_CALLER() RETURNS NUMBER LANGUAGE SQL AS $$ SELECT COUNT(*) FROM dbo.Clientes $$;".into()),
+            Some("CREATE OR REPLACE FUNCTION F_SECURE() RETURNS NUMBER LANGUAGE SQL AS $$ SELECT COUNT(*) FROM dbo.Clientes $$;".into()),
+            Some("CREATE OR REPLACE VIEW dbo.V AS SELECT id FROM dbo.Clientes".into()),
+        ];
+        let ctx = Context { manual_kinds: manual_kinds(&d).iter().map(|k| k.to_string()).collect(), ..Default::default() };
+        let items = classify(&ScriptDialect::generic(), &d.spec, &table_target(), "Nuevo", true, &r, defs, &ctx);
+        assert_eq!(items[0].action, Action::Manual { reason: ManualReason::NotRewritten, unresolved: vec![] });
+        assert_eq!(items[1].action, Action::Manual { reason: ManualReason::NotRewritten, unresolved: vec![] });
+        assert_eq!(items[2].action, Action::Manual { reason: ManualReason::NotRewritten, unresolved: vec![] });
+        // A routine sent back anyway is refused, carried ones too.
+        let routine = |kind: &str| CodeObject { kind: kind.into(), schema: Some("dbo".into()), name: "P_CALLER".into(), definition: "CREATE OR REPLACE PROCEDURE P_CALLER() RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;".into() };
+        for kind in ["procedure", "function"] {
+            let r = RewriteChoice { object: routine(kind), schemabound: false, carried: vec![] };
+            assert!(matches!(build_script(&d, &d.spec, &request("Nuevo"), &[r]), Err(CommandError::BadRequest(m)) if m.contains("P_CALLER")));
+        }
+        // Views are refused too: re-created, they'd read with the renaming role.
+        assert!(build_script(&d, &d.spec, &request("Nuevo"), &[choice("V", "CREATE VIEW dbo.V AS SELECT id FROM dbo.Nuevo", false)]).is_err());
+        // Other engines keep putting their routines back.
+        let other = fake(ReplaceStyle::CreateOrAlter);
+        assert!(build_script(&other, &other.spec, &request("Nuevo"), &[RewriteChoice { object: routine("procedure"), schemabound: false, carried: vec![] }]).is_ok());
     }
 
     #[test]

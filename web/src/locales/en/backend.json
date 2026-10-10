@@ -9438,7 +9438,6 @@
   "Si un tópico usa el tag, el servidor rechaza el cambio: hay que borrarlo, renombrar y volver a crearlo con el nombre nuevo.": "If a topic uses the tag, the server rejects the change: drop it, rename and create it again with the new name.",
   "Si un tópico usa la columna, el servidor rechaza el cambio: hay que borrarlo, renombrar y volver a crearlo con el nombre nuevo.": "If a topic uses the column, the server rejects the change: drop it, rename and create it again with the new name.",
   "Si una vista materializada usa la columna, el servidor rechaza el cambio: hay que borrar la vista, renombrar y volver a crearla.": "If a materialized view uses the column, the server rejects the change: drop the view, rename and create it again.",
-  "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. No actualiza las vistas ni el código que nombran lo renombrado: DBine los vuelve a crear con CREATE OR REPLACE, que no conserva los permisos otorgados sobre ellos (no se agrega COPY GRANTS).": "Snowflake commits each DDL statement when it runs it: if one fails, the previous ones are already done. It does not update the views or code that name the renamed object: DBine recreates them with CREATE OR REPLACE, which does not keep the permissions granted on them (COPY GRANTS is not added).",
   "Snowflake no renombra objetos de tipo «{0}» desde DBine.": "Snowflake does not rename objects of type “{0}” from DBine.",
   "Snowflake no renombra restricciones.": "Snowflake does not rename constraints.",
   "Snowflake no tiene índices que se puedan renombrar.": "Snowflake has no indexes that can be renamed.",
@@ -10101,5 +10100,6 @@
   "variables de entorno": "environment variables",
   "{0} (¿falta {1}?)": "{0} (is {1} missing?)",
   "{0}. Podés cerrar esta ventana.": "{0}. You can close this window.",
-  "este motor no asegura lecturas de solo lectura en el servidor": "this engine can't enforce read-only reads on the server"
+  "este motor no asegura lecturas de solo lectura en el servidor": "this engine can't enforce read-only reads on the server",
+  "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. No actualiza las vistas ni el código que nombran lo renombrado. Las vistas, funciones y procedimientos que lo nombran solo se listan para corregirlos a mano: recrearlos los pasaría al rol que renombra (las vistas leerían y las rutinas correrían con sus privilegios) y las rutinas perderían EXECUTE AS, SECURE y el resto de sus opciones.": "Snowflake commits each DDL statement as it runs: if one fails, the previous ones are already done. It doesn't update the views or the code that name what was renamed. The views, functions and procedures that name it are only listed for you to fix by hand: re-creating them would hand them to the renaming role (views would read and routines would run with its privileges), and routines would lose EXECUTE AS, SECURE and their other options."
 }
