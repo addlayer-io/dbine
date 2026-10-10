@@ -199,6 +199,7 @@ function toBackground() {
               <el-option :label="$t('results:exportDialog.quoteBacktick')" value="backtick" />
             </el-select>
           </el-form-item>
+          <el-form-item><el-checkbox v-model="opts.standard_strings">{{ $t('results:exportDialog.standardStrings') }}</el-checkbox></el-form-item>
         </template>
         <template v-if="opts.format === 'xlsx'">
           <el-form-item :label="$t('results:exportDialog.sheet')">

@@ -105,6 +105,7 @@
     "quoteDouble": "\"coluna\" (ANSI, PostgreSQL, Oracle…)",
     "quoteBracket": "[coluna] (SQL Server)",
     "quoteBacktick": "`coluna` (MySQL, BigQuery…)",
+    "standardStrings": "Destino com textos padrão (PostgreSQL, SQL Server, Oracle, SQLite): as barras invertidas vão como estão",
     "sheet": "Nome da planilha",
     "xmlRoot": "Elemento raiz",
     "xmlRow": "Elemento por linha",

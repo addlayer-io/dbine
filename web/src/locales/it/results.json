@@ -105,6 +105,7 @@
     "quoteDouble": "\"colonna\" (ANSI, PostgreSQL, Oracle…)",
     "quoteBracket": "[colonna] (SQL Server)",
     "quoteBacktick": "`colonna` (MySQL, BigQuery…)",
+    "standardStrings": "Destinazione con stringhe standard (PostgreSQL, SQL Server, Oracle, SQLite): le barre rovesciate restano come sono",
     "sheet": "Nome del foglio",
     "xmlRoot": "Elemento radice",
     "xmlRow": "Elemento per riga",
