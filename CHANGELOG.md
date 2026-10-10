@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixes
+- **SQL export:** backslashes are written doubled by default, so the script reads the same on any engine, including Redshift, Snowflake and ClickHouse. A new option, **Target reads strings the standard way**, keeps them exact for PostgreSQL, SQL Server, Oracle and SQLite.
+- **CSV and TSV export:** formula protection also covers text after a `,` or `;`, which a spreadsheet with another list separator would split into its own cell.
+- **Rename on Snowflake:** views, functions and procedures that name the renamed object are listed for you to fix by hand instead of being re-created, so they keep their owner, `EXECUTE AS` and `SECURE`.
+
 ## [0.1.10] - 2026-10-10
 
 ### New
