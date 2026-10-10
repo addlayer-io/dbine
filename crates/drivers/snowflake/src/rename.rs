@@ -1,5 +1,10 @@
 //! "Renombrar…" on Snowflake: the rename statement for the target; the app
-//! rewrites and puts back what names it (`CREATE OR REPLACE`).
+//! rewrites and puts back the views that name it (`CREATE OR REPLACE`).
+//! Functions and procedures that name it are only listed (the app's
+//! `manual_kinds`): `CREATE OR REPLACE` would hand them to the role running
+//! the rename, and their catalog text has no `EXECUTE AS`, `SECURE`,
+//! `HANDLER`… The renamed routine itself goes through `ALTER … RENAME TO`,
+//! which keeps its owner, rights and grants.
 //!
 //! - Tables, views, materialized views and sequences:
 //!   `ALTER <kind> s.x RENAME TO s.new`.
@@ -43,8 +48,9 @@ pub(crate) fn spec() -> RenameSpec {
         transactional: false,
         note: Some(
             "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. \
-             No actualiza las vistas ni el código que nombran lo renombrado: DBine los vuelve a crear con CREATE OR REPLACE, \
-             que no conserva los permisos otorgados sobre ellos (no se agrega COPY GRANTS)."
+             No actualiza las vistas ni el código que nombran lo renombrado. Las vistas, funciones y procedimientos que lo nombran \
+             solo se listan para corregirlos a mano: recrearlos los pasaría al rol que renombra (las vistas leerían y las rutinas \
+             correrían con sus privilegios) y las rutinas perderían EXECUTE AS, SECURE y el resto de sus opciones."
                 .into(),
         ),
         databases: true,
@@ -467,6 +473,20 @@ mod tests {
         assert_eq!(s.kinds, ["table", "view", "materialized_view", "sequence", "function", "procedure"]);
         assert!(s.columns && s.schemas && !s.indexes && !s.constraints && !s.transactional);
         assert_eq!((s.fold, s.replace), (Fold::Upper, ReplaceStyle::CreateOrReplace));
+        assert!(s.note.as_deref().is_some_and(|n| n.contains("procedimientos") && n.contains("EXECUTE AS")));
+    }
+
+    #[test]
+    fn a_renamed_routine_keeps_its_rights_through_alter() {
+        // `ALTER … RENAME TO` keeps owner, EXECUTE AS, SECURE and grants;
+        // nothing is created again.
+        let def = "CREATE OR REPLACE PROCEDURE TOTAL(X NUMBER) RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;";
+        for kind in [kinds::PROCEDURE, kinds::FUNCTION] {
+            let def = if kind == kinds::FUNCTION { def.replace("PROCEDURE", "FUNCTION") } else { def.to_string() };
+            let s = stmts(&routine_req(kind, &def));
+            assert_eq!(s.len(), 1);
+            assert!(s[0].starts_with("ALTER ") && s[0].contains(" RENAME TO ") && !s[0].contains("CREATE"), "{s:?}");
+        }
     }
 
     #[test]
