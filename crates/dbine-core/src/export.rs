@@ -65,6 +65,14 @@ pub struct ExportOptions {
     /// identifiers of those engines) turns the escaping on as well.
     #[serde(skip)]
     pub backslash_escapes: bool,
+    /// SQL: the user says the script goes to an engine that reads strings
+    /// the standard way (PostgreSQL, SQL Server, Oracle, SQLite), so
+    /// backslashes are written as they are. Off by default: a backslash is
+    /// written doubled, so the literal ends in the same place whichever
+    /// engine reads it (Redshift, Snowflake and ClickHouse read `\'` as an
+    /// escaped quote). Ignored when the source reads backslash escapes or
+    /// the quoting is backtick.
+    pub standard_strings: bool,
     /// Excel: sheet name.
     pub sheet: String,
     /// XML: element names.
@@ -88,6 +96,7 @@ impl Default for ExportOptions {
             rows_per_insert: 100,
             quote: "double".into(),
             backslash_escapes: false,
+            standard_strings: false,
             sheet: "Resultado".into(),
             xml_root: "rows".into(),
             xml_row: "row".into(),
@@ -110,9 +119,24 @@ fn text(v: &Value) -> Option<String> {
 /// (the OWASP CSV-injection advice). A plain number written as text
 /// (`-5`, `+3.2`, `-1e3`) is left alone: it can't be a formula.
 fn formula_safe(s: String) -> String {
-    let risky = matches!(s.as_bytes().first(), Some(b'=' | b'+' | b'-' | b'@' | b'\t' | b'\r'));
+    let trigger = |b: u8| matches!(b, b'=' | b'+' | b'-' | b'@' | b'\t' | b'\r');
     let number = s.len() > 1 && s.bytes().all(|b| b.is_ascii_digit() || b"+-.eE".contains(&b)) && s.parse::<f64>().is_ok();
-    if risky && !number { format!("'{s}") } else { s }
+    if number {
+        return s;
+    }
+    // A spreadsheet whose list separator isn't the file's (`;` in es, pt, fr
+    // and it; `,` in en) splits an unquoted field at `,` or `;` too: every
+    // piece that would start a formula gets its `'` as well.
+    let mut out = String::with_capacity(s.len() + 1);
+    let mut piece_start = true;
+    for c in s.chars() {
+        if piece_start && c.is_ascii() && trigger(c as u8) {
+            out.push('\'');
+        }
+        out.push(c);
+        piece_start = matches!(c, ',' | ';');
+    }
+    out
 }
 
 /// Column names made unique ("id", "id_2"…): JSON keys and XML elements
@@ -325,9 +349,11 @@ impl Exporter {
                     _ => Quote::Double,
                 };
                 let per = self.opts.rows_per_insert.max(1);
-                // The script may be read by the source engine or by the one
-                // the backtick quoting is meant for: escape for either.
-                let bs = self.opts.backslash_escapes || q == Quote::Backtick;
+                // The script may be read by the source engine, by the one the
+                // quoting is meant for or by another: unless the user says
+                // the target reads strings the standard way, escape so the
+                // literal ends in the same place under either rule.
+                let bs = self.opts.backslash_escapes || q == Quote::Backtick || !self.opts.standard_strings;
                 let values: Vec<String> = row.iter().zip(&self.numeric).map(|(v, &num)| sql_literal(v, num, bs)).collect();
                 let head = if self.in_batch == 0 {
                     let table = sql_table(&self.opts.table, q);
@@ -479,11 +505,11 @@ fn sql_literal(v: &Value, numeric_col: bool, backslash: bool) -> String {
 ///   `\'` as a backslash plus the closing quote, which would let the value
 ///   inject SQL. `''` is a quote for standard engines, for MySQL in both
 ///   modes and for ClickHouse.
-/// - `\\`, `\0`, `\n`, `\r` and `\Z` are plain text under the standard rule
-///   and the escaped byte under the backslash rule; none of them contains a
-///   quote, so neither rule can end the literal there. The raw bytes are
-///   escaped because they cut a script in a client (NUL, line breaks, and
-///   Ctrl-Z, which mysql on Windows reads as the end of the file).
+/// - `\\`, `\0` and `\Z` are plain text under the standard rule and the
+///   escaped byte under the backslash rule; none of them contains a quote, so
+///   neither rule can end the literal there. NUL and Ctrl-Z (which mysql on
+///   Windows reads as the end of the file) are escaped; line breaks stay as
+///   they are, which every engine reads the same inside a literal.
 ///
 /// BigQuery and Spark don't read `''` as a quote: there the statement fails
 /// or concatenates two literals, which never runs the value as SQL. Safety
@@ -499,8 +525,6 @@ fn string_literal(s: &str, backslash: bool) -> String {
             '\\' => out.push_str("\\\\"),
             '\'' => out.push_str("''"),
             '\0' => out.push_str("\\0"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
             '\u{1a}' => out.push_str("\\Z"),
             c => out.push(c),
         }
@@ -603,6 +627,8 @@ mod tests {
             vec![json!("@SUM(A1)"), json!("-2+3"), Value::Null],
             vec![json!("\t=1"), json!("\r=1"), json!("1")],
             vec![json!("-"), json!("ok"), json!("2")],
+            vec![json!("Ana;=cmd|' /C calc'!A0"), json!("x,=WEBSERVICE(B2)"), json!("3")],
+            vec![json!("a; +cmd"), json!("1,2"), json!("4")],
         ];
         let out = |f: Format, safe: Option<bool>| {
             let dir = tempfile::tempdir().unwrap();
@@ -622,6 +648,9 @@ mod tests {
             assert!(s.contains("'@SUM(A1)"), "{f:?}: {s}");
             assert!(s.contains("'\t=1") && s.contains("'\r=1"), "{f:?}: {s}");
             assert!(s.contains("'-2+3") && s.contains("'-"), "{f:?}: {s}");
+            // A piece after `,` or `;` that a spreadsheet with another list
+            // separator would make its own cell.
+            assert!(!s.contains(";=") && !s.contains(",=") && !s.contains(";+cmd"), "{f:?}: {s}");
             // Numbers stay numbers: a JSON number, a number written as text
             // and any value of a numeric column.
             assert!(!s.contains("'-5") && !s.contains("'-12.50") && !s.contains("'-1"), "{f:?}: {s}");
@@ -681,7 +710,8 @@ mod tests {
         // Backslash engines: the backslash doubles and the quote too, never
         // `\'` (a standard engine would read it as the closing quote).
         assert_eq!(sql_literal(&v, false, true), "'x\\\\'');DROP TABLE users;#'");
-        assert_eq!(sql_literal(&json!("a\0b\nc\rd\u{1a}e"), false, true), "'a\\0b\\nc\\rd\\Ze'");
+        // Line breaks stay as they are (every engine reads them the same).
+        assert_eq!(sql_literal(&json!("a\0b\nc\rd\u{1a}e"), false, true), "'a\\0b\nc\rd\\Ze'");
         assert_eq!(sql_literal(&json!({"k": "it's"}), false, true), "'{\"k\":\"it''s\"}'");
         assert_eq!(sql_literal(&json!("NaN"), true, false), "'NaN'");
         assert_eq!(sql_literal(&json!(" 1e3 "), true, false), "1e3");

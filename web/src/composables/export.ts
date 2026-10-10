@@ -34,6 +34,8 @@ export interface ExportOptions {
   table: string;
   rows_per_insert: number;
   quote: 'double' | 'bracket' | 'backtick';
+  /** SQL: the target reads strings the standard way; backslashes are written as they are. */
+  standard_strings: boolean;
   sheet: string;
   xml_root: string;
   xml_row: string;
@@ -42,7 +44,7 @@ export interface ExportOptions {
 export function defaultOptions(format: ExportFormat, table = t('core:export.defaultTable'), dialect = ''): ExportOptions {
   return {
     format, header: true, null_text: '', delimiter: '', quote_all: false, formula_safe: true, crlf: false, bom: false,
-    pretty: true, table, rows_per_insert: 100, quote: quoteFor(dialect), sheet: t('core:export.defaultSheet'),
+    pretty: true, table, rows_per_insert: 100, quote: quoteFor(dialect), standard_strings: false, sheet: t('core:export.defaultSheet'),
     xml_root: 'rows', xml_row: 'row',
   };
 }

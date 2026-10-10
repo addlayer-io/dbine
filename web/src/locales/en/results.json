@@ -105,6 +105,7 @@
     "quoteDouble": "\"column\" (ANSI, PostgreSQL, Oracle…)",
     "quoteBracket": "[column] (SQL Server)",
     "quoteBacktick": "`column` (MySQL, BigQuery…)",
+    "standardStrings": "Target reads strings the standard way (PostgreSQL, SQL Server, Oracle, SQLite): backslashes are written as they are",
     "sheet": "Sheet name",
     "xmlRoot": "Root element",
     "xmlRow": "Element per row",
