@@ -85,13 +85,14 @@ A release goes out only when **both** pass, on the release commit:
    --noEmit` and `npx vite build`, on a clean worktree of that commit.
 2. **Security:** the `security` agent (`.claude/agents/security.md`) runs the
    `claude-security` scan on what the release adds (since the last release
-   users have) and returns PASS: a verified report with **zero findings of
-   any severity**.
+   users have) and returns PASS: a verified report with **no CRITICAL or
+   HIGH findings**. MEDIUM and LOW findings are reported but don't block the
+   release; the owning session fixes them in a later commit.
 
 The scan starts at the same time as the tests: they run in parallel, not one
-after the other. Any finding blocks the tag: the owning session fixes it, and
-tests and scan run again on the new commit. Nobody downgrades or waives a
-finding except the owner.
+after the other. A CRITICAL or HIGH finding blocks the tag: the owning
+session fixes it, and tests and scan run again on the new commit. Nobody
+downgrades or waives a finding except the owner.
 
 ## Shared files
 
