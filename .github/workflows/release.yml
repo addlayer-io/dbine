@@ -67,8 +67,71 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
-  build:
+  # The driver hosts that need building (a new version), spread over
+  # shards per target: each host is a full release build of its own, so one
+  # job building them one after another took hours. Shards only build: the
+  # target's app job below runs the checks, publishes the hosts and writes the
+  # index (one writer per target), taking the shards' files instead of
+  # building them again.
+  driver-shards:
     needs: route
+    name: drivers ${{ matrix.name }} ${{ matrix.shard }}/4
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+        name: [windows-x64, macos-arm64, macos-x64, linux-x64]
+        include:
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: macos-x64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/driver-hosts
+        with:
+          target: ${{ matrix.target }}
+          save-cache: "false"
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i.bak -E '/^\[workspace\.package\]/,/^\[/ s/^(version[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$VERSION"'"/' Cargo.toml
+
+      - name: Build this shard's driver hosts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download drivers -p "index-${{ matrix.target }}.json" -D driver-index 2>/dev/null \
+            || echo "No published index for ${{ matrix.target }} yet: every driver gets built."
+          PY=$(command -v python3 || command -v python)
+          "$PY" scripts/build-driver-hosts.py ${{ matrix.target }} driver-shard \
+            "https://github.com/${{ github.repository }}/releases/download/drivers" \
+            "driver-index/index-${{ matrix.target }}.json" --shard ${{ matrix.shard }}/4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: driver-shard-${{ matrix.target }}-${{ matrix.shard }}
+          path: driver-shard/*.gz
+          if-no-files-found: ignore
+          retention-days: 3
+
+  build:
+    needs: [route, driver-shards]
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -129,10 +192,19 @@ jobs:
           ' "$VERSION"
           echo "version -> $VERSION"
 
+      # The hosts the shards built for this target (none when every driver
+      # version is already published).
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: driver-shard-${{ matrix.target }}-*
+          path: driver-prebuilt
+          merge-multiple: true
+
       # Every driver except the built-in ones is its own small program that
       # the app downloads the first time it's used. Drivers have their own
       # versions and live in the permanent `drivers` release: only the ones
-      # whose version isn't published yet are built (docs/on-demand-drivers.md).
+      # whose version isn't published yet are built (docs/on-demand-drivers.md),
+      # by the shards above; one a shard didn't leave is built here.
       - name: Build new driver versions
         shell: bash
         env:
@@ -143,7 +215,7 @@ jobs:
           PY=$(command -v python3 || command -v python)
           "$PY" scripts/build-driver-hosts.py ${{ matrix.target }} driver-hosts \
             "https://github.com/${{ github.repository }}/releases/download/drivers" \
-            "driver-index/index-${{ matrix.target }}.json"
+            "driver-index/index-${{ matrix.target }}.json" --prebuilt driver-prebuilt
           cat driver-hosts/summary.md >> "$GITHUB_STEP_SUMMARY"
           # A native path: on Windows, bash's $PWD is /d/a/… and Rust can't open it.
           CATALOG="$PWD/driver-hosts/plugins.json"
