@@ -10,6 +10,12 @@ inputs:
   target:
     description: Rust target triple (also the cache key).
     required: true
+  save-cache:
+    description: >-
+      Whether this job saves the Rust cache. The release's driver shards
+      don't: sixteen ~2 GB caches would evict every other one from the
+      repository's 10 GB.
+    default: "true"
 
 runs:
   using: composite
@@ -31,3 +37,4 @@ runs:
       with:
         workspaces: ". -> target"
         key: ${{ inputs.target }}
+        save-if: ${{ inputs.save-cache == 'true' }}
