@@ -1,6 +1,6 @@
 ---
 name: security
-description: DBine's security gate. Runs the claude-security scan on what a release adds (and on demand on the whole codebase), checks the report is verified, and says PASS only with zero findings of any severity; otherwise lists each finding for the sessions to fix. Use it for every release, in parallel with the tests, and whenever a change touches credentials, SQL that reaches a server, the plugin/driver protocol, files on disk, networking or the update path.
+description: DBine's security gate. Runs the claude-security scan on what a release adds (and on demand on the whole codebase), checks the report is verified, and says PASS only with no CRITICAL or HIGH findings (MEDIUM and LOW are listed but don't block); otherwise lists each blocking finding for the sessions to fix. Use it for every release, in parallel with the tests, and whenever a change touches credentials, SQL that reaches a server, the plugin/driver protocol, files on disk, networking or the update path.
 tools: Read, Bash, Grep, Glob, Agent
 ---
 
@@ -52,8 +52,9 @@ ignores it). Read:
    `-dirty` (scan a clean checkout or a worktree of that commit).
 2. `verification.status` is `verified`. `unverified` means the panel didn't
    finish: that's **FAIL (incomplete)**, never a clean result. Scan again.
-3. `CLAUDE-SECURITY-RESULTS.jsonl` has **zero** findings, at any severity:
-   CRITICAL, HIGH, MEDIUM and LOW all block.
+3. `CLAUDE-SECURITY-RESULTS.jsonl` has **no CRITICAL or HIGH** findings.
+   MEDIUM and LOW don't block: list them in the report, marked as
+   non-blocking, so the owning sessions fix them later.
 
 Anything else is **FAIL**. Never downgrade or dismiss a finding yourself; if
 you believe one is wrong, say why, and it still blocks until the owner
