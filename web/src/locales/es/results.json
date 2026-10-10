@@ -105,7 +105,7 @@
     "quoteDouble": "\"columna\" (ANSI, PostgreSQL, Oracle…)",
     "quoteBracket": "[columna] (SQL Server)",
     "quoteBacktick": "`columna` (MySQL, BigQuery…)",
-    "standardStrings": "Destino con textos estándar: las barras invertidas van tal cual. Con origen PostgreSQL, SQL Server, Oracle, SQLite o DuckDB no hace falta: el script ya las devuelve exactas",
+    "standardStrings": "Destino con textos estándar: las barras invertidas van tal cual. Con un origen que DBine conoce (PostgreSQL, SQL Server, Oracle, Db2, Trino…) no hace falta: el script ya las devuelve exactas",
     "sheet": "Nombre de la hoja",
     "xmlRoot": "Elemento raíz",
     "xmlRow": "Elemento por fila",

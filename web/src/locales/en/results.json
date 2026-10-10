@@ -105,7 +105,7 @@
     "quoteDouble": "\"column\" (ANSI, PostgreSQL, Oracle…)",
     "quoteBracket": "[column] (SQL Server)",
     "quoteBacktick": "`column` (MySQL, BigQuery…)",
-    "standardStrings": "Target reads strings the standard way: backslashes are written as they are. Not needed from PostgreSQL, SQL Server, Oracle, SQLite or DuckDB: the script already gives them back exactly",
+    "standardStrings": "Target reads strings the standard way: backslashes are written as they are. Not needed from a source DBine knows (PostgreSQL, SQL Server, Oracle, Db2, Trino…): the script already gives them back exactly",
     "sheet": "Sheet name",
     "xmlRoot": "Root element",
     "xmlRow": "Element per row",

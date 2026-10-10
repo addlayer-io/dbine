@@ -354,27 +354,142 @@ mod tests {
         assert!(ran > 0, "no test server configured");
     }
 
+    /// Every SQL driver, with how its SQL exports write strings. A new SQL
+    /// driver fails here until it is classified.
     #[test]
     fn sql_exports_know_how_each_source_reads_strings() {
+        use SourceStrings::*;
         let cases = [
-            ("postgres", SourceStrings::Postgres),
-            ("cockroachdb", SourceStrings::Postgres),
-            ("redshift", SourceStrings::Backslash),
-            ("sqlserver", SourceStrings::SqlServer),
-            ("babelfish", SourceStrings::SqlServer),
-            ("oracle", SourceStrings::Oracle),
-            ("sqlite", SourceStrings::Sqlite),
-            ("libsql", SourceStrings::Sqlite),
-            ("duckdb", SourceStrings::DuckDb),
-            ("mysql", SourceStrings::Backslash),
-            ("clickhouse", SourceStrings::Backslash),
-            ("snowflake", SourceStrings::Backslash),
-            ("firebird", SourceStrings::Unknown),
+            // Reads backslash escapes: the dual-safe form, exact there.
+            ("mysql", Backslash),
+            ("mariadb", Backslash),
+            ("aurora-mysql", Backslash),
+            ("cloudsql-mysql", Backslash),
+            ("tidb", Backslash),
+            ("oceanbase", Backslash),
+            ("singlestore", Backslash),
+            ("doris", Backslash),
+            ("starrocks", Backslash),
+            ("velodb", Backslash),
+            ("databend", Backslash),
+            ("greptimedb", Backslash),
+            ("manticore", Backslash),
+            ("clickhouse", Backslash),
+            ("timeplus", Backslash),
+            ("bigquery", Backslash),
+            ("snowflake", Backslash),
+            ("databricks", Backslash),
+            ("azure_databricks", Backslash),
+            ("spark", Backslash),
+            ("kyuubi", Backslash),
+            ("hive", Backslash),
+            ("impala", Backslash),
+            ("cloudera", Backslash),
+            ("spanner", Backslash),
+            ("couchbase", Backslash),
+            ("orientdb", Backslash),
+            ("tdengine", Backslash),
+            ("redshift", Backslash),
+            // Standard strings, with the engine's character function.
+            ("postgres", Postgres),
+            ("alloydb", Postgres),
+            ("aurora_postgres", Postgres),
+            ("cloudsql_postgres", Postgres),
+            ("cockroachdb", Postgres),
+            ("cratedb", Postgres),
+            ("denodo", Postgres),
+            ("dsql", Postgres),
+            ("edb", Postgres),
+            ("fujitsu", Postgres),
+            ("greengage", Postgres),
+            ("greenplum", Postgres),
+            ("cloudberry", Postgres),
+            ("h2", Postgres),
+            ("kingbase", Postgres),
+            ("materialize", Postgres),
+            ("opengauss", Postgres),
+            ("risingwave", Postgres),
+            ("timescaledb", Postgres),
+            ("yellowbrick", Postgres),
+            ("yugabytedb", Postgres),
+            ("sqlserver", SqlServer),
+            ("azuresql", SqlServer),
+            ("fabric", SqlServer),
+            ("babelfish", SqlServer),
+            ("oracle", Oracle),
+            ("oracle_adb", Oracle),
+            ("dameng", Oracle),
+            ("sqlite", Sqlite),
+            ("libsql", Sqlite),
+            ("duckdb", DuckDb),
+            ("duckdb_files", DuckDb),
+            ("firebird", Firebird),
+            ("hana", Hana),
+            ("trino", Trino),
+            ("presto", Trino),
+            ("starburst", Trino),
+            ("athena", Trino),
+            ("db2", Db2),
+            ("teradata", Teradata),
+            ("vertica", Vertica),
+            ("exasol", Exasol),
+            ("netezza", Netezza),
+            ("dremio", Dremio),
+            // Unknown: the dual-safe form, or the standard one if the user
+            // says the target reads strings the standard way.
+            // No INSERT … VALUES on the engine, so the script never runs on
+            // the source: the target decides.
+            ("drill", Unknown),
+            ("cosmosdb", Unknown),
+            ("influxdb1", Unknown),
+            ("influxdb3", Unknown),
+            ("netsuite", Unknown),
+            // The engine behind the connection isn't known.
+            ("odbc", Unknown),
+            ("avatica", Unknown),
+            ("flightsql", Unknown),
+            // No character function to splice a backslash with.
+            ("dynamodb", Unknown),
+            ("iotdb", Unknown),
+            ("timechodb", Unknown),
+            ("ksqldb", Unknown),
+            ("heavydb", Unknown),
+            // Not verified: the character function, the concatenation
+            // operator or how the engine reads a backslash in a literal
+            // (some read escapes, or do so by a server setting).
+            ("phoenix", Unknown),
+            ("db2i", Unknown),
+            ("db2zos", Unknown),
+            ("informix", Unknown),
+            ("gbase8s", Unknown),
+            ("sybase", Unknown),
+            ("sqlanywhere", Unknown),
+            ("cubrid", Unknown),
+            ("monetdb", Unknown),
+            ("altibase", Unknown),
+            ("access", Unknown),
+            ("dbase", Unknown),
+            ("cache", Unknown),
+            ("iris", Unknown),
+            ("ignite", Unknown),
+            ("ignite3", Unknown),
+            ("ingres", Unknown),
+            ("machbase", Unknown),
+            ("maxdb", Unknown),
+            ("mimer", Unknown),
+            ("nuodb", Unknown),
+            ("ocient", Unknown),
+            ("openedge", Unknown),
+            ("sqream", Unknown),
+            ("virtuoso", Unknown),
+            ("zen", Unknown),
         ];
-        for (id, want) in cases {
-            if let Some(d) = dbine_drivers::find(id) {
-                assert_eq!(SourceStrings::of(d.as_ref()), want, "{id}");
-            }
+        let known: std::collections::HashMap<_, _> = cases.into_iter().collect();
+        assert_eq!(known.len(), cases.len(), "an id listed twice");
+        for d in dbine_drivers::all().iter().filter(|d| d.info().language == Language::Sql) {
+            let id = d.info().id;
+            let want = known.get(id).unwrap_or_else(|| panic!("{id}: SQL driver without a SourceStrings classification here"));
+            assert_eq!(SourceStrings::of(d.as_ref()), *want, "{id}");
         }
     }
 
@@ -410,9 +525,17 @@ mod tests {
         let source = SourceStrings::of(d.as_ref());
         let mut s = dbine_drivers::open_session(&cfg, None).await.unwrap();
         let (src, dst) = tables;
+        // Firebird 5 has neither DROP TABLE IF EXISTS (RECREATE drops the
+        // table first) nor a VALUES list of more than one row.
+        let firebird = cfg.driver == "firebird";
+        let drop = |t: &str| if firebird { format!("DROP TABLE {t}") } else { format!("DROP TABLE IF EXISTS {t}") };
         for t in [src, dst] {
-            run(&mut s, &format!("DROP TABLE IF EXISTS {t}")).await;
-            run(&mut s, &format!("CREATE TABLE {t} (id INT, v {text_type})")).await;
+            if firebird {
+                run(&mut s, &format!("RECREATE TABLE {t} (id INT, v {text_type})")).await;
+            } else {
+                run(&mut s, &drop(t)).await;
+                run(&mut s, &format!("CREATE TABLE {t} (id INT, v {text_type})")).await;
+            }
         }
         for (i, v) in values.iter().enumerate() {
             let hex: String = v.bytes().map(|b| format!("{b:02x}")).collect();
@@ -433,15 +556,21 @@ mod tests {
             source,
             ..Default::default()
         };
-        export_rows(&path, options, &read.columns, &read.rows).unwrap();
-        let script = std::fs::read_to_string(&path).unwrap();
+        // One INSERT for all the rows, or one per row where VALUES takes one.
+        let batches: Vec<&[Vec<serde_json::Value>]> = if firebird { read.rows.chunks(1).collect() } else { vec![&read.rows[..]] };
+        let mut script = String::new();
+        for rows in batches {
+            export_rows(&path, options.clone(), &read.columns, rows).unwrap();
+            let one = std::fs::read_to_string(&path).unwrap();
+            assert!(!one.contains('\\'), "{}: no backslash in the script: {one}", cfg.driver);
+            // Without its `;` (Oracle's OCI refuses it).
+            run(&mut s, one.trim_end().trim_end_matches(';')).await;
+            script.push_str(&one);
+        }
         let _ = std::fs::remove_file(&path);
-        assert!(!script.contains('\\'), "{}: no backslash in the script: {script}", cfg.driver);
-        // One INSERT; without its `;` (Oracle's OCI refuses it).
-        run(&mut s, script.trim_end().trim_end_matches(';')).await;
         let back: Vec<_> = run(&mut s, &select(dst)).await.results.remove(0).rows.iter().map(|r| r[1].clone()).collect();
         for t in [src, dst] {
-            run(&mut s, &format!("DROP TABLE IF EXISTS {t}")).await;
+            run(&mut s, &drop(t)).await;
         }
         for (got, want) in back.iter().zip(&want) {
             eprintln!("{} {source:?}: {want} -> {got}", cfg.driver);
@@ -519,5 +648,53 @@ mod tests {
         // characters.
         let values: Vec<String> = tricky(&["a\0b".into(), "ab\\".repeat(600)]).into_iter().filter(|v| !v.is_empty()).collect();
         sql_export_round_trip(cfg, "VARCHAR2(4000)", |h| format!("UTL_RAW.CAST_TO_VARCHAR2(HEXTORAW('{h}'))"), "double", ("DBINE_RT_SRC", "DBINE_RT_DST"), &values).await;
+    }
+
+    /// `DBINE_TEST_FIREBIRD_URL=firebird://dbine:dbine@localhost:25602//var/lib/firebird/data/test.fdb`
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn sql_export_round_trips_on_firebird() {
+        let Ok(url) = std::env::var("DBINE_TEST_FIREBIRD_URL") else {
+            panic!("DBINE_TEST_FIREBIRD_URL not set");
+        };
+        let rest = url.strip_prefix("firebird://").expect("firebird://user:pass@host:port/path");
+        let (cred, addr) = rest.split_once('@').unwrap();
+        let (user, pass) = cred.split_once(':').unwrap();
+        let (hostport, path) = addr.split_once('/').unwrap();
+        let (host, port) = hostport.split_once(':').unwrap();
+        let cfg = ConnectionConfig {
+            driver: "firebird".into(),
+            host: host.into(),
+            port: port.parse().unwrap(),
+            database: path.into(),
+            username: Some(user.into()),
+            password: Some(pass.into()),
+            ..Default::default()
+        };
+        // Firebird keeps '' apart from NULL and stores NUL. A UTF8 VARCHAR
+        // holds 8191 characters at most.
+        let values = tricky(&["a\0b".into(), "ñandú \\ €".into(), "ab\\".repeat(2700)]);
+        let text = "VARCHAR(8191) CHARACTER SET UTF8";
+        sql_export_round_trip(cfg, text, |h| format!("CAST(_UTF8 x'{h}' AS VARCHAR(8191) CHARACTER SET UTF8)"), "double", ("DBINE_RT_SRC", "DBINE_RT_DST"), &values).await;
+    }
+
+    /// `DBINE_TEST_TRINO_URL=http://localhost:25180` (the memory catalog).
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn sql_export_round_trips_on_trino() {
+        let Ok(url) = std::env::var("DBINE_TEST_TRINO_URL") else {
+            panic!("DBINE_TEST_TRINO_URL not set");
+        };
+        let url = reqwest::Url::parse(&url).expect("URL");
+        let cfg = ConnectionConfig {
+            driver: "trino".into(),
+            host: url.host_str().unwrap().into(),
+            port: url.port().unwrap_or(8080),
+            username: Some("dbine".into()),
+            database: "memory".into(),
+            ..Default::default()
+        };
+        let values = tricky(&["a\0b".into(), "ñandú \\ €".into(), "ab\\".repeat(3000)]);
+        sql_export_round_trip(cfg, "varchar", |h| format!("from_utf8(from_hex('{h}'))"), "double", ("memory.default.dbine_rt_src", "memory.default.dbine_rt_dst"), &values).await;
     }
 }

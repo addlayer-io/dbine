@@ -4,7 +4,7 @@
 
 ### Fixes
 - **SQL export:** string values are written the way the source engine reads them, so they come back exact when you run the script there. They also can't add statements on an engine that reads backslashes differently.
-  - **PostgreSQL, SQL Server, Oracle, SQLite and DuckDB:** a backslash is written with the engine's own character function, so no backslash appears inside a string.
+  - **PostgreSQL, SQL Server, Oracle, SQLite, DuckDB, Firebird, SAP HANA, Trino, Db2, Teradata, Vertica, Exasol, Netezza and Dremio:** a backslash is written with the engine's own character function, so no backslash appears inside a string. Firebird scripts carry one row per `INSERT`, which is all Firebird accepts.
   - **Engines that read backslash escapes** (MySQL, ClickHouse, Snowflake, Redshift…): backslashes and quotes are escaped the way those engines read them.
   - **Unknown sources** (a grid from several databases) get a form that's safe on any engine. The new option **Target reads strings the standard way** writes their backslashes as they are.
 - **CSV and TSV export:** formula protection also covers text after a `,` or `;`, which a spreadsheet with another list separator would split into its own cell.
