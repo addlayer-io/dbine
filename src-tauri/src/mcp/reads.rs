@@ -1,14 +1,20 @@
-//! How `run_query` and `explain` read (docs/mcp.md, "Lecturas"). DBine's
+//! How `run_query` and `explain` read (docs/mcp.md, "Reads"). DBine's
 //! lexical guard (`dbine_driver::read_only`) is defense in depth, not the
 //! boundary: a read runs without asking only when the server enforces it
-//! (`Session::run_read_only`: one statement in a read-only transaction).
-//! An engine that can't (or a driver host published before the call)
-//! answers `Unsupported`, and then the user approves the exact query first:
+//! (`Session::run_read_only`: one statement in a read-only transaction)
+//! and every function it calls is a side-effect-free built-in
+//! ([`allowlist`]: some functions act outside the transaction, and its
+//! rollback doesn't undo them). A statement calling anything else, or an
+//! engine that can't enforce reads (or a driver host published before the
+//! call, answering `Unsupported`), and the user approves the exact query first:
 //! MCP clients in DBine's dialog (like `execute`), DBine's assistant in the
 //! chat. Only after that it runs on the read-only session (guard plus the
 //! driver's read-only mode).
 
 use std::future::Future;
+
+mod allowlist;
+pub(crate) use allowlist::approval_free;
 
 /// How a read was allowed to run: the activity log says it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,17 +56,22 @@ pub(crate) struct Refused {
     pub phase: &'static str,
 }
 
-/// The routing. Futures are lazy: `approve` runs only when the read isn't
-/// enforced, and `guarded` only after the approval.
+/// The routing. Futures are lazy: `enforced` runs only when the statement
+/// calls nothing but listed built-ins (`free`, from [`approval_free`]),
+/// `approve` only when the read isn't enforced, and `guarded` only after
+/// the approval.
 pub(crate) async fn route<T>(
+    free: bool,
     enforced: impl Future<Output = Result<Attempt<T>, String>>,
     approve: impl Future<Output = Result<How, Refused>>,
     guarded: impl Future<Output = Result<T, String>>,
 ) -> Result<(T, How), Refused> {
-    match enforced.await {
-        Ok(Attempt::Done(out)) => return Ok((out, How::Enforced)),
-        Ok(Attempt::NotEnforced) => {}
-        Err(message) => return Err(Refused { message, phase: How::Enforced.phase() }),
+    if free {
+        match enforced.await {
+            Ok(Attempt::Done(out)) => return Ok((out, How::Enforced)),
+            Ok(Attempt::NotEnforced) => {}
+            Err(message) => return Err(Refused { message, phase: How::Enforced.phase() }),
+        }
     }
     let how = approve.await?;
     match guarded.await {
@@ -90,6 +101,7 @@ mod tests {
     async fn mcp_read_enforced_runs_without_asking() {
         let t = Trace::default();
         let r = route(
+            true,
             async {
                 t.push("enforced");
                 Ok(Attempt::Done(3))
@@ -112,6 +124,7 @@ mod tests {
     async fn mcp_read_not_enforced_needs_approval_first() {
         let t = Trace::default();
         let r = route(
+            true,
             async {
                 t.push("enforced");
                 Ok(Attempt::<i32>::NotEnforced)
@@ -135,6 +148,7 @@ mod tests {
     async fn mcp_read_rejected_runs_nothing() {
         let t = Trace::default();
         let r = route(
+            true,
             async {
                 t.push("enforced");
                 Ok(Attempt::<i32>::NotEnforced)
@@ -159,6 +173,7 @@ mod tests {
         // it never falls back to asking and running another way.
         let t = Trace::default();
         let r = route(
+            true,
             async {
                 t.push("enforced");
                 Err::<Attempt<i32>, _>("Conexión de solo lectura: se bloqueó una sentencia DELETE.".to_string())
@@ -178,8 +193,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mcp_read_calling_unlisted_functions_asks_before_running_anything() {
+        // The engine would enforce it, but `pg_wal_replay_pause()` acts
+        // outside the read-only transaction: nothing runs before the approval.
+        let free = approval_free(dbine_driver::Language::Sql, "postgres", &dbine_driver::ScriptDialect::postgres(), "SELECT pg_wal_replay_pause()");
+        assert!(free.is_err());
+        let t = Trace::default();
+        let r = route(
+            free.is_ok(),
+            async {
+                t.push("enforced");
+                Ok(Attempt::Done(3))
+            },
+            async {
+                t.push("approve");
+                Ok(How::Approved)
+            },
+            async {
+                t.push("guarded");
+                Ok(4)
+            },
+        )
+        .await;
+        assert_eq!(r.unwrap(), (4, How::Approved));
+        assert_eq!(t.get(), ["approve", "guarded"]);
+    }
+
+    #[tokio::test]
+    async fn mcp_read_calling_unlisted_functions_rejected_runs_nothing() {
+        let t = Trace::default();
+        let r = route(
+            false,
+            async {
+                t.push("enforced");
+                Ok(Attempt::Done(3))
+            },
+            async {
+                t.push("approve");
+                Err(Refused { message: "rechazado".into(), phase: "rejected" })
+            },
+            async {
+                t.push("guarded");
+                Ok(4)
+            },
+        )
+        .await;
+        assert_eq!(r.unwrap_err().phase, "rejected");
+        assert_eq!(t.get(), ["approve"]);
+    }
+
+    #[tokio::test]
     async fn mcp_read_approved_but_failing_says_how_it_was_approved() {
-        let r = route(async { Ok(Attempt::<i32>::NotEnforced) }, async { Ok(How::ApprovedInChat) }, async { Err("no existe la tabla".to_string()) }).await;
+        let r = route(true, async { Ok(Attempt::<i32>::NotEnforced) }, async { Ok(How::ApprovedInChat) }, async { Err("no existe la tabla".to_string()) }).await;
         assert_eq!(r.unwrap_err(), Refused { message: "no existe la tabla".into(), phase: "approved_in_chat" });
     }
 }
