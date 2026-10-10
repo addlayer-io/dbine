@@ -105,7 +105,7 @@
     "quoteDouble": "\"colonna\" (ANSI, PostgreSQL, Oracle…)",
     "quoteBracket": "[colonna] (SQL Server)",
     "quoteBacktick": "`colonna` (MySQL, BigQuery…)",
-    "standardStrings": "Destinazione con stringhe standard (PostgreSQL, SQL Server, Oracle, SQLite): le barre rovesciate restano come sono",
+    "standardStrings": "Destinazione con stringhe standard: le barre rovesciate restano come sono. Non serve da PostgreSQL, SQL Server, Oracle, SQLite o DuckDB: lo script le restituisce già esatte",
     "sheet": "Nome del foglio",
     "xmlRoot": "Elemento radice",
     "xmlRow": "Elemento per riga",

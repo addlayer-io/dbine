@@ -58,20 +58,21 @@ pub struct ExportOptions {
     pub rows_per_insert: usize,
     /// SQL: identifier quoting ("double", "bracket", "backtick").
     pub quote: String,
-    /// SQL: the source engine reads backslash escapes in '…' strings
-    /// ([`dbine_driver::ScriptDialect::backslash_escapes`]: MySQL,
-    /// ClickHouse, BigQuery, Hive, Spark…). Never taken from the UI: the
-    /// backend sets it from the connection's driver. Backtick quoting (the
-    /// identifiers of those engines) turns the escaping on as well.
+    /// SQL: how the source engine reads '…' strings, which decides how the
+    /// string literals are written (see [`SourceStrings`]). Never taken from
+    /// the UI: the backend sets it from the connection's driver
+    /// ([`SourceStrings::of`]); without a connection it stays `Unknown`.
     #[serde(skip)]
-    pub backslash_escapes: bool,
+    pub source: SourceStrings,
     /// SQL: the user says the script goes to an engine that reads strings
-    /// the standard way (PostgreSQL, SQL Server, Oracle, SQLite), so
-    /// backslashes are written as they are. Off by default: a backslash is
-    /// written doubled, so the literal ends in the same place whichever
-    /// engine reads it (Redshift, Snowflake and ClickHouse read `\'` as an
-    /// escaped quote). Ignored when the source reads backslash escapes or
-    /// the quoting is backtick.
+    /// the standard way, so backslashes are written as they are. It only
+    /// matters when the source is `Unknown` (no connection, or an engine
+    /// without an exact form): off, a backslash is written doubled, so the
+    /// literal ends in the same place whichever engine reads it (Redshift,
+    /// Snowflake and ClickHouse read `\'` as an escaped quote). Sources that
+    /// read backslash escapes and backtick quoting always double them; the
+    /// standard engines DBine knows (PostgreSQL, SQL Server, Oracle, SQLite,
+    /// DuckDB) always get their exact form, without backslashes.
     pub standard_strings: bool,
     /// Excel: sheet name.
     pub sheet: String,
@@ -95,7 +96,7 @@ impl Default for ExportOptions {
             table: "tabla".into(),
             rows_per_insert: 100,
             quote: "double".into(),
-            backslash_escapes: false,
+            source: SourceStrings::Unknown,
             standard_strings: false,
             sheet: "Resultado".into(),
             xml_root: "rows".into(),
@@ -349,12 +350,8 @@ impl Exporter {
                     _ => Quote::Double,
                 };
                 let per = self.opts.rows_per_insert.max(1);
-                // The script may be read by the source engine, by the one the
-                // quoting is meant for or by another: unless the user says
-                // the target reads strings the standard way, escape so the
-                // literal ends in the same place under either rule.
-                let bs = self.opts.backslash_escapes || q == Quote::Backtick || !self.opts.standard_strings;
-                let values: Vec<String> = row.iter().zip(&self.numeric).map(|(v, &num)| sql_literal(v, num, bs)).collect();
+                let lit = Literal::pick(self.opts.source, q, self.opts.standard_strings);
+                let values: Vec<String> = row.iter().zip(&self.numeric).map(|(v, &num)| sql_literal(v, num, lit)).collect();
                 let head = if self.in_batch == 0 {
                     let table = sql_table(&self.opts.table, q);
                     let cols: Vec<String> = self.names.iter().map(|c| quote_ident(q, c)).collect();
@@ -479,27 +476,182 @@ fn xlsx_err(e: rust_xlsxwriter::XlsxError) -> io::Error {
     io::Error::other(e.to_string())
 }
 
-/// A value as a literal of the INSERT script. `backslash`: the engine reads
-/// backslash escapes in strings (see [`string_literal`]).
-fn sql_literal(v: &Value, numeric_col: bool, backslash: bool) -> String {
+/// How the source engine reads `'…'` strings: it decides how an SQL export
+/// writes them, so the script gives back the same value on the source
+/// engine and can't be broken by a value on any other.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SourceStrings {
+    /// No connection (rows of a multi-database grid, a connection gone) or
+    /// an engine without an exact form here: the dual-safe form (or the
+    /// standard one, if the user asks for it with `standard_strings`).
+    #[default]
+    Unknown,
+    /// Reads backslash escapes in strings (MySQL, MariaDB, ClickHouse,
+    /// BigQuery, Snowflake, Hive, Spark… and Redshift): the dual-safe form,
+    /// exact there.
+    Backslash,
+    /// PostgreSQL and its wire-compatible engines but Redshift: `chr(92)`.
+    Postgres,
+    /// SQL Server, Azure SQL, Fabric, Babelfish: `CONCAT(…, CHAR(92), …)`.
+    SqlServer,
+    /// Oracle (and engines with its dialect): `CHR(92)`.
+    Oracle,
+    /// SQLite and libSQL: `char(92)`.
+    Sqlite,
+    /// DuckDB: `chr(92)`.
+    DuckDb,
+}
+
+impl SourceStrings {
+    /// From the connection's driver.
+    pub fn of(driver: &dyn dbine_driver::Driver) -> Self {
+        let info = driver.info();
+        Self::from_parts(info.id, info.dialect, driver.script_dialect().backslash_escapes)
+    }
+
+    /// From the driver id, its dialect hint and whether its scripts read
+    /// backslash escapes.
+    pub fn from_parts(id: &str, dialect: &str, backslash_escapes: bool) -> Self {
+        // Redshift shares PostgreSQL's lexer but its strings read `\'` as an
+        // escaped quote.
+        if backslash_escapes || id == "redshift" {
+            return Self::Backslash;
+        }
+        match (id, dialect) {
+            ("duckdb" | "duckdb_files", _) => Self::DuckDb,
+            (_, "postgres") => Self::Postgres,
+            (_, "mssql") => Self::SqlServer,
+            (_, "oracle") => Self::Oracle,
+            (_, "sqlite") => Self::Sqlite,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// How the INSERT script writes a string value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Literal {
+    /// `'…'` with the quote doubled, backslashes as they are.
+    Standard,
+    /// The quote and the backslash doubled (see [`dual_safe_literal`]).
+    DualSafe,
+    /// Standard pieces joined with the engine's character function where the
+    /// value has a backslash or a NUL (see [`spliced_literal`]).
+    Spliced(SourceStrings),
+}
+
+impl Literal {
+    fn pick(source: SourceStrings, quote: Quote, standard_strings: bool) -> Self {
+        // Backtick identifiers are MySQL's (and its kin's): the script goes
+        // to an engine that reads backslash escapes and has neither `chr` nor
+        // `||` as concatenation.
+        if quote == Quote::Backtick {
+            return Self::DualSafe;
+        }
+        match source {
+            SourceStrings::Backslash => Self::DualSafe,
+            SourceStrings::Unknown if standard_strings => Self::Standard,
+            SourceStrings::Unknown => Self::DualSafe,
+            known => Self::Spliced(known),
+        }
+    }
+}
+
+/// A value as a literal of the INSERT script.
+fn sql_literal(v: &Value, numeric_col: bool, lit: Literal) -> String {
     match v {
         Value::Null => "NULL".into(),
         Value::Bool(b) => if *b { "1".into() } else { "0".into() },
         Value::Number(n) => n.to_string(),
         // Only finite numbers go bare: "NaN" or "inf" would be identifiers.
         Value::String(s) if numeric_col && s.trim().parse::<f64>().is_ok_and(f64::is_finite) => s.trim().to_string(),
-        Value::String(s) => string_literal(s, backslash),
-        other => string_literal(&other.to_string(), backslash),
+        Value::String(s) => string_literal(s, lit),
+        other => string_literal(&other.to_string(), lit),
     }
 }
 
-/// `'…'` for the engine. Standard SQL only doubles the quote.
+fn string_literal(s: &str, lit: Literal) -> String {
+    match lit {
+        Literal::Standard => standard_literal(s),
+        Literal::DualSafe => dual_safe_literal(s),
+        Literal::Spliced(src) => spliced_literal(s, src),
+    }
+}
+
+/// `'…'` the standard way: only the quote doubles.
+fn standard_literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Parts joined in one call or `||` chain at most: SQL Server's CONCAT takes
+/// up to 254 arguments, SQLite nests 1000 expressions at most and
+/// PostgreSQL has a stack limit, so a value with many backslashes is joined
+/// in groups of groups (but on Oracle, see [`spliced_literal`]).
+const SPLICE_GROUP: usize = 50;
+
+/// The exact form for a standard engine DBine knows: the value as standard
+/// `'…'` pieces, and each backslash (and NUL, which a script can't carry
+/// raw) as the engine's character function, joined in parentheses:
+/// `('a' || chr(92) || 'b')`, or `CONCAT('a', CHAR(92), 'b')` on SQL Server.
+/// No backslash is left anywhere in the literal, so it ends in the same
+/// place whether the engine that reads it takes backslash escapes or not,
+/// and the source engine reads back exactly the value. A value without
+/// backslash or NUL is just the standard literal.
+///
+/// NUL: PostgreSQL text can't hold it (`chr(0)` fails, which beats cutting
+/// the value); the others store it.
+fn spliced_literal(s: &str, src: SourceStrings) -> String {
+    if !s.contains(['\\', '\0']) {
+        return standard_literal(s);
+    }
+    let char_fn = |c: char| match src {
+        SourceStrings::SqlServer => format!("CHAR({})", c as u32),
+        SourceStrings::Oracle => format!("CHR({})", c as u32),
+        SourceStrings::Sqlite => format!("char({})", c as u32),
+        _ => format!("chr({})", c as u32),
+    };
+    let mut parts = Vec::new();
+    let mut piece = String::new();
+    for c in s.chars() {
+        if matches!(c, '\\' | '\0') {
+            if !piece.is_empty() {
+                parts.push(standard_literal(&std::mem::take(&mut piece)));
+            }
+            parts.push(char_fn(c));
+        } else {
+            piece.push(c);
+        }
+    }
+    if !piece.is_empty() {
+        parts.push(standard_literal(&piece));
+    }
+    // CONCAT without a MAX argument cuts its result at 8000 bytes.
+    let long = src == SourceStrings::SqlServer && s.len() > 4000;
+    // Oracle (23ai) misreads a nested `((…) || (…))` in a VALUES list of
+    // more than one row (ORA-00907); its strings stop at 4000 bytes (32767
+    // extended) anyway, so the chain stays flat there.
+    let group = if src == SourceStrings::Oracle { usize::MAX } else { SPLICE_GROUP };
+    while parts.len() > 1 {
+        parts = parts
+            .chunks(group)
+            .map(|g| match src {
+                SourceStrings::SqlServer if long => format!("CONCAT(CAST('' AS varchar(max)), {})", g.join(", ")),
+                SourceStrings::SqlServer if g.len() > 1 => format!("CONCAT({})", g.join(", ")),
+                _ if g.len() > 1 => format!("({})", g.join(" || ")),
+                _ => g[0].clone(),
+            })
+            .collect();
+    }
+    parts.pop().unwrap_or_default()
+}
+
+/// `'…'` that ends in the same place under both reading rules.
 ///
 /// Engines that read backslash escapes (MySQL, ClickHouse, Hive…) would take
 /// a stored `\'` as an escaped quote and let the rest of the value run as
-/// SQL, so in that mode every backslash is doubled. The script may still be
-/// run on another engine than the source's (the user picks the quoting), so
-/// the literal has to end in the same place under both reading rules:
+/// SQL, so every backslash is doubled. The script may still be run on
+/// another engine than the source's (the user picks the quoting), so the
+/// literal has to end in the same place under both reading rules:
 /// - the quote is always doubled (`''`), never `\'`: a standard engine
 ///   (PostgreSQL, SQL Server, Oracle, MySQL with NO_BACKSLASH_ESCAPES) reads
 ///   `\'` as a backslash plus the closing quote, which would let the value
@@ -511,13 +663,12 @@ fn sql_literal(v: &Value, numeric_col: bool, backslash: bool) -> String {
 ///   Windows reads as the end of the file) are escaped; line breaks stay as
 ///   they are, which every engine reads the same inside a literal.
 ///
-/// BigQuery and Spark don't read `''` as a quote: there the statement fails
-/// or concatenates two literals, which never runs the value as SQL. Safety
-/// beats exactness here: a standard engine keeps the doubled backslashes.
-fn string_literal(s: &str, backslash: bool) -> String {
-    if !backslash {
-        return format!("'{}'", s.replace('\'', "''"));
-    }
+/// Exact on the engines that read backslash escapes; a standard engine keeps
+/// the doubled backslashes (the standard engines DBine knows get
+/// [`spliced_literal`] instead). BigQuery and Spark don't read `''` as a
+/// quote: there the statement fails or concatenates two literals, which
+/// never runs the value as SQL.
+fn dual_safe_literal(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('\'');
     for c in s.chars() {
@@ -702,27 +853,134 @@ mod tests {
 
     const EXPLOIT: &str = "x\\');DROP TABLE users;#";
 
+    /// Values that have broken or bent string literals.
+    const TRICKY: [&str; 13] = [
+        "a\\b",
+        "\\",
+        "x\\'",
+        "x\\');DROP TABLE users;--",
+        EXPLOIT,
+        "ends with\\",
+        "\\\\",
+        "it's",
+        "line\nbreak\r\n",
+        "",
+        "a\0b",
+        "x'); DROP TABLE users; --",
+        "C:\\temp\\new\\'' \\0 \\Z",
+    ];
+
+    const SOURCES: [SourceStrings; 7] = [
+        SourceStrings::Unknown,
+        SourceStrings::Backslash,
+        SourceStrings::Postgres,
+        SourceStrings::SqlServer,
+        SourceStrings::Oracle,
+        SourceStrings::Sqlite,
+        SourceStrings::DuckDb,
+    ];
+
     #[test]
-    fn sql_literals_follow_the_dialect() {
-        let v = json!(EXPLOIT);
-        // Standard SQL: a backslash is just a character, the quote doubles.
-        assert_eq!(sql_literal(&v, false, false), "'x\\'');DROP TABLE users;#'");
-        // Backslash engines: the backslash doubles and the quote too, never
-        // `\'` (a standard engine would read it as the closing quote).
-        assert_eq!(sql_literal(&v, false, true), "'x\\\\'');DROP TABLE users;#'");
-        // Line breaks stay as they are (every engine reads them the same).
-        assert_eq!(sql_literal(&json!("a\0b\nc\rd\u{1a}e"), false, true), "'a\\0b\nc\rd\\Ze'");
-        assert_eq!(sql_literal(&json!({"k": "it's"}), false, true), "'{\"k\":\"it''s\"}'");
-        assert_eq!(sql_literal(&json!("NaN"), true, false), "'NaN'");
-        assert_eq!(sql_literal(&json!(" 1e3 "), true, false), "1e3");
+    fn source_strings_from_the_driver() {
+        use SourceStrings::*;
+        let cases = [
+            (("postgres", "postgres", false), Postgres),
+            (("cockroachdb", "postgres", false), Postgres),
+            (("dsql", "postgres", false), Postgres),
+            (("redshift", "postgres", false), Backslash),
+            (("sqlserver", "mssql", false), SqlServer),
+            (("babelfish", "mssql", false), SqlServer),
+            (("oracle", "oracle", false), Oracle),
+            (("oracle_adb", "oracle", false), Oracle),
+            (("sqlite", "sqlite", false), Sqlite),
+            (("libsql", "sqlite", false), Sqlite),
+            (("duckdb", "standard", false), DuckDb),
+            (("duckdb_files", "standard", false), DuckDb),
+            (("firebird", "standard", false), Unknown),
+            (("mysql", "mysql", true), Backslash),
+            (("snowflake", "snowflake", true), Backslash),
+            // Backslash escapes win over the dialect hint.
+            (("x", "postgres", true), Backslash),
+        ];
+        for ((id, dialect, bs), want) in cases {
+            assert_eq!(SourceStrings::from_parts(id, dialect, bs), want, "{id}");
+        }
+    }
+
+    #[test]
+    fn sql_literals_follow_the_source() {
+        use SourceStrings::*;
+        let lit = |v: &str, src, q, std| sql_literal(&json!(v), false, Literal::pick(src, q, std));
+        let dual = "'x\\\\'');DROP TABLE users;#'";
+        // No connection: doubled backslashes, unless the user says the target
+        // reads strings the standard way.
+        assert_eq!(lit(EXPLOIT, Unknown, Quote::Double, false), dual);
+        assert_eq!(lit(EXPLOIT, Unknown, Quote::Double, true), "'x\\'');DROP TABLE users;#'");
+        // A source that reads backslash escapes, or backtick quoting: always
+        // doubled, whatever the user says.
+        assert_eq!(lit(EXPLOIT, Backslash, Quote::Double, true), dual);
+        assert_eq!(lit(EXPLOIT, Postgres, Quote::Backtick, false), dual);
+        assert_eq!(lit(EXPLOIT, SqlServer, Quote::Backtick, true), dual);
+        // Standard engines DBine knows: the backslash as the engine's
+        // character function, whatever the user says.
+        for std in [false, true] {
+            assert_eq!(lit(EXPLOIT, Postgres, Quote::Double, std), "('x' || chr(92) || ''');DROP TABLE users;#')");
+            assert_eq!(lit(EXPLOIT, DuckDb, Quote::Double, std), "('x' || chr(92) || ''');DROP TABLE users;#')");
+            assert_eq!(lit(EXPLOIT, Oracle, Quote::Double, std), "('x' || CHR(92) || ''');DROP TABLE users;#')");
+            assert_eq!(lit(EXPLOIT, Sqlite, Quote::Double, std), "('x' || char(92) || ''');DROP TABLE users;#')");
+            assert_eq!(lit(EXPLOIT, SqlServer, Quote::Bracket, std), "CONCAT('x', CHAR(92), ''');DROP TABLE users;#')");
+        }
+        assert_eq!(lit("\\", Postgres, Quote::Double, false), "chr(92)");
+        assert_eq!(lit("\\", SqlServer, Quote::Bracket, false), "CHAR(92)");
+        assert_eq!(lit("\\\\", SqlServer, Quote::Bracket, false), "CONCAT(CHAR(92), CHAR(92))");
+        assert_eq!(lit("a\\", Sqlite, Quote::Double, false), "('a' || char(92))");
+        assert_eq!(lit("a\0b", SqlServer, Quote::Bracket, false), "CONCAT('a', CHAR(0), 'b')");
+        // Without a backslash it's the plain standard literal.
+        assert_eq!(lit("it's\nok", Postgres, Quote::Double, false), "'it''s\nok'");
+        assert_eq!(lit("", SqlServer, Quote::Bracket, false), "''");
+        // Line breaks stay as they are in the dual-safe form too.
+        assert_eq!(lit("a\0b\nc\rd\u{1a}e", Unknown, Quote::Double, false), "'a\\0b\nc\rd\\Ze'");
+        // JSON values go through the same literal.
+        let json_lit = |src| sql_literal(&json!({"k": "it's \\ ok"}), false, Literal::pick(src, Quote::Double, false));
+        assert_eq!(json_lit(Unknown), "'{\"k\":\"it''s \\\\\\\\ ok\"}'");
+        assert_eq!(json_lit(Postgres), "('{\"k\":\"it''s ' || chr(92) || chr(92) || ' ok\"}')");
+        let standard = Literal::Standard;
+        assert_eq!(sql_literal(&json!("NaN"), true, standard), "'NaN'");
+        assert_eq!(sql_literal(&json!(" 1e3 "), true, standard), "1e3");
+    }
+
+    #[test]
+    fn many_backslashes_are_joined_in_groups() {
+        let v = "\\".repeat(5000);
+        let depth = |s: &str| {
+            let (mut d, mut max) = (0i32, 0i32);
+            for c in s.chars() {
+                d += i32::from(c == '(') - i32::from(c == ')');
+                max = max.max(d);
+            }
+            max
+        };
+        let oracle = spliced_literal(&v, SourceStrings::Oracle);
+        assert_eq!(eval_spliced(&oracle), v);
+        assert_eq!(depth(&oracle), 2, "one flat chain of CHR(92) on Oracle");
+        for src in [SourceStrings::Postgres, SourceStrings::Sqlite, SourceStrings::SqlServer] {
+            let s = spliced_literal(&v, src);
+            assert_eq!(eval_spliced(&s), v, "{src:?}");
+            // 5000 parts: three levels of groups, each at most 50 wide.
+            assert!(depth(&s) <= 8, "{src:?}: {}", depth(&s));
+            if src == SourceStrings::SqlServer {
+                // Past 4000 characters CONCAT has to return varchar(max).
+                assert!(s.starts_with("CONCAT(CAST('' AS varchar(max)), CONCAT(CAST('' AS varchar(max)), "), "{}", &s[..80]);
+            }
+        }
     }
 
     /// Where a `'…'` literal that starts at `start` ends, read the way the
-    /// engine reads it.
+    /// engine reads it (the end of the text if it never ends).
     fn literal_end(s: &str, start: usize, backslash: bool) -> usize {
         let b = s.as_bytes();
         let mut i = start + 1;
-        loop {
+        while i < b.len() {
             match b[i] {
                 b'\\' if backslash => i += 2,
                 b'\'' if b.get(i + 1) == Some(&b'\'') => i += 2,
@@ -730,49 +988,128 @@ mod tests {
                 _ => i += 1,
             }
         }
+        b.len()
+    }
+
+    /// The script with every literal as `L`, read with one rule.
+    fn skeleton(s: &str, backslash: bool) -> String {
+        let b = s.as_bytes();
+        let (mut out, mut i) = (Vec::new(), 0);
+        while i < b.len() {
+            if b[i] == b'\'' {
+                out.push(b'L');
+                i = literal_end(s, i, backslash) + 1;
+            } else {
+                out.push(b[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    /// The text inside a literal, read with one rule.
+    fn decode(content: &str, backslash: bool) -> String {
+        let mut out = String::new();
+        let mut it = content.chars().peekable();
+        while let Some(c) = it.next() {
+            match c {
+                '\\' if backslash => match it.next() {
+                    Some('0') => out.push('\0'),
+                    Some('Z') => out.push('\u{1a}'),
+                    Some(o) => out.push(o),
+                    None => {}
+                },
+                '\'' => {
+                    it.next();
+                    out.push('\'');
+                }
+                c => out.push(c),
+            }
+        }
+        out
+    }
+
+    /// What the engine reads from a spliced literal: the pieces in order,
+    /// each character function as its character.
+    fn eval_spliced(expr: &str) -> String {
+        let expr = expr.replace("CAST('' AS varchar(max))", "");
+        let mut out = String::new();
+        let mut i = 0;
+        while i < expr.len() {
+            let rest = &expr[i..];
+            if rest.starts_with('\'') {
+                let end = literal_end(&expr, i, false);
+                out.push_str(&decode(&expr[i + 1..end], false));
+                i = end + 1;
+            } else if let Some(p) = ["chr(", "CHR(", "char(", "CHAR("].iter().find(|p| rest.starts_with(**p)) {
+                let close = rest.find(')').unwrap();
+                out.push(char::from_u32(rest[p.len()..close].parse().unwrap()).unwrap());
+                i += close + 1;
+            } else {
+                assert!("()|, CONCAT".contains(&rest[..1]), "unexpected {rest}");
+                i += 1;
+            }
+        }
+        out
     }
 
     #[test]
     fn sql_export_cannot_be_escaped_by_a_value() {
-        let one = |quote: &str, flag: bool, value: &str| {
+        let one = |src: SourceStrings, quote: &str, std: bool, value: &str| {
             let dir = tempfile::tempdir().unwrap();
             let p = dir.path().join("out.sql");
             let o = ExportOptions {
                 format: Format::Sql,
                 table: "t".into(),
                 quote: quote.into(),
-                backslash_escapes: flag,
+                source: src,
+                standard_strings: std,
                 ..Default::default()
             };
             let cols = [ResultColumn { name: "v".into(), type_name: "varchar".into() }];
             export_rows(&p, o, &cols, &[vec![json!(value)]]).unwrap();
             std::fs::read_to_string(&p).unwrap()
         };
-        for quote in ["backtick", "double", "bracket"] {
-            for flag in [false, true] {
-                // Backslash mode: from the source connection's driver, or
-                // from the backtick quoting.
-                let backslash_mode = flag || quote == "backtick";
-                for value in [EXPLOIT, "x'); DROP TABLE users; --"] {
-                    let script = one(quote, flag, value);
-                    let start = script.find('\'').unwrap();
-                    // The script may run on a standard engine or on one that
-                    // reads backslash escapes: in backslash mode the literal
-                    // must end in the same place under both rules. The
-                    // standard escaping is exact for standard engines only,
-                    // so there the backslash rule is checked only on a value
-                    // without backslashes.
-                    let mut rules = vec![false];
-                    if backslash_mode || !value.contains('\\') {
-                        rules.push(true);
-                    }
-                    for rule in rules {
-                        let end = literal_end(&script, start, rule);
-                        assert_eq!(
-                            &script[end + 1..],
-                            ");\n",
-                            "quote={quote} flag={flag} backslash rule={rule}: the value ends where it should: {script}"
-                        );
+        for src in SOURCES {
+            for quote in ["backtick", "double", "bracket"] {
+                for std in [false, true] {
+                    let q = match quote {
+                        "backtick" => Quote::Backtick,
+                        "bracket" => Quote::Bracket,
+                        _ => Quote::Double,
+                    };
+                    let lit = Literal::pick(src, q, std);
+                    for value in TRICKY {
+                        let script = one(src, quote, std, value);
+                        let ctx = format!("src={src:?} quote={quote} std={std} lit={lit:?}: {script:?}");
+                        let head = script.find("VALUES\n  (").unwrap() + "VALUES\n  (".len();
+                        assert!(script.ends_with(");\n"), "{ctx}");
+                        let expr = &script[head..script.len() - 3];
+                        // The script may run on a standard engine or on one
+                        // that reads backslash escapes: the literals must end
+                        // in the same place under both rules, and the value
+                        // never reaches the SQL around them. The standard
+                        // form is exact for standard engines only, so there
+                        // the backslash rule is checked only on a value
+                        // without backslashes.
+                        let mut rules = vec![false];
+                        if lit != Literal::Standard || !value.contains('\\') {
+                            rules.push(true);
+                        }
+                        let shapes: Vec<String> = rules.iter().map(|&r| skeleton(&script, r)).collect();
+                        for shape in &shapes {
+                            assert_eq!(shape, &shapes[0], "{ctx}");
+                            assert!(!shape.contains("DROP") && shape.matches(';').count() == 1, "{ctx}: {shape}");
+                        }
+                        // The source engine reads back exactly the value.
+                        match lit {
+                            Literal::Spliced(_) => {
+                                assert!(!script.contains('\\'), "no backslash in a spliced script: {ctx}");
+                                assert_eq!(eval_spliced(expr), value, "{ctx}");
+                            }
+                            Literal::DualSafe => assert_eq!(decode(&expr[1..expr.len() - 1], true), value, "{ctx}"),
+                            Literal::Standard => assert_eq!(decode(&expr[1..expr.len() - 1], false), value, "{ctx}"),
+                        }
                     }
                 }
             }
