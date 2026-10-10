@@ -9,11 +9,14 @@
 //! schemas.
 //!
 //! Views keep their SQL text and bind names when queried: a rename leaves
-//! them naming the old one, so the app rewrites them and puts them back
-//! with `CREATE OR REPLACE`. Their unqualified names resolve against the
-//! session's schema at creation, which `SHOW CREATE VIEW` doesn't keep: the
-//! script starts with `USE` of the target's schema so a view put back reads
-//! the same tables. Names are stored in lower case, and DDL isn't
+//! them naming the old one. They are only listed for the user to fix
+//! (`ReferenceStyle::None`), never put back: `CREATE OR REPLACE VIEW` (or
+//! `MATERIALIZED VIEW`) makes the session user the owner, and a `SECURITY
+//! DEFINER` view (the default) then reads with the renaming user's rights,
+//! past the row filters, masks and grants its owner had. The renamed
+//! object itself goes through `ALTER … RENAME TO`, which keeps its owner.
+//! The script starts with `USE` of the target's schema, so the session
+//! ends where the object is. Names are stored in lower case, and DDL isn't
 //! transactional on the usual connectors ("Catalog only supports writes
 //! using autocommit").
 
@@ -22,7 +25,7 @@ use dbine_driver::rename::{quote_new, Fold, RenameRequest, RenameSpec, RenameTar
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{kinds, Error, ObjectRef, Result, SyncScript};
 
-pub const NOTE: &str = "Lo que se puede renombrar lo decide el conector del catálogo (memory e Iceberg renombran tablas, vistas y columnas; Hive no renombra algunas cosas): si el conector no puede, el servidor rechaza la sentencia. Las vistas no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE, después de un USE del esquema del objeto para que sus nombres sin calificar se resuelvan como al crearlas. Las sentencias no son transaccionales: si una falla, las anteriores quedan hechas.";
+pub const NOTE: &str = "Lo que se puede renombrar lo decide el conector del catálogo (memory e Iceberg renombran tablas, vistas y columnas; Hive no renombra algunas cosas): si el conector no puede, el servidor rechaza la sentencia. Las vistas y vistas materializadas que nombran lo renombrado no se actualizan solas, y DBine solo las lista para corregirlas a mano: recrearlas las pasaría al usuario que renombra, y una vista SECURITY DEFINER leería con sus permisos en lugar de los de su dueño. Las sentencias no son transaccionales: si una falla, las anteriores quedan hechas.";
 
 pub const SCHEMA_VIEWS: &str = "Las vistas del esquema que nombran tablas sin calificar dejan de funcionar: Trino las resuelve con el esquema en que se crearon, que deja de existir. Volvé a crearlas (SHOW CREATE VIEW) en el esquema nuevo después de renombrar.";
 
@@ -39,7 +42,8 @@ pub fn spec(flavor: Flavor) -> Option<RenameSpec> {
         schemas: true,
         tracked: Vec::new(),
         replace: ReplaceStyle::CreateOrReplace,
-        references: ReferenceStyle::Sql,
+        // Dependents are listed, never put back (see the module's doc).
+        references: ReferenceStyle::None,
         fold: Fold::Lower,
         transactional: false,
         note: Some(NOTE.into()),
@@ -139,6 +143,33 @@ mod tests {
         assert_eq!((s.replace, s.fold), (ReplaceStyle::CreateOrReplace, Fold::Lower));
         assert_eq!(spec(Flavor::Starburst).unwrap().kinds.len(), 3);
         assert_eq!(spec(Flavor::Presto).unwrap().kinds, ["table", "view"]);
+    }
+
+    #[test]
+    fn dependents_are_listed_never_put_back() {
+        // Re-created, a view or materialized view would belong to (and a
+        // DEFINER one read as) the user running the rename.
+        for f in [Flavor::Trino, Flavor::Presto, Flavor::Starburst] {
+            let s = spec(f).unwrap();
+            assert_eq!(s.references, ReferenceStyle::None, "{f:?}");
+            assert!(s.note.as_deref().is_some_and(|n| n.contains("a mano") && n.contains("SECURITY DEFINER")));
+        }
+        // What the app runs on a dependent: nothing is rewritten.
+        let s = spec(Flavor::Trino).unwrap();
+        let target = dbine_driver::rename::RewriteTarget::Object { object: obj("table", "clientes") };
+        let r = dbine_driver::rename::rewrite_references(
+            "CREATE VIEW ventas.v SECURITY DEFINER AS SELECT * FROM ventas.clientes",
+            &crate::script_dialect(),
+            &target,
+            "clientes_2",
+            &s,
+            &Default::default(),
+        );
+        assert!(r.edits.is_empty());
+        // The renamed object keeps its owner: no CREATE in its own script.
+        for t in [object("view", "v"), object("materialized_view", "mv"), object("table", "t")] {
+            assert!(run(Flavor::Trino, t, "n").iter().all(|s| !s.contains("CREATE")));
+        }
     }
 
     #[test]

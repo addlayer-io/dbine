@@ -136,23 +136,20 @@ pub(crate) struct Context {
     pub row_routines: Vec<usize>,
     /// Those that triggers on other tables run too.
     pub shared_routines: Vec<usize>,
-    /// Dependent kinds never put back on this engine ([`manual_kinds`]).
-    pub manual_kinds: Vec<String>,
 }
 
-/// Dependent kinds DBine lists for review but never puts back on that
-/// engine. Snowflake's functions and procedures: `CREATE OR REPLACE` hands
-/// the routine to the role running the rename (`COPY GRANTS` copies every
-/// grant but ownership, so an owner's-rights procedure would run with that
-/// role's privileges), and the text its catalog gives has no `EXECUTE AS`,
-/// `SECURE`, `HANDLER`, `PACKAGES`…: a caller's-rights procedure would
-/// come back with the owner's rights.
-pub(crate) fn manual_kinds(driver: &dyn Driver) -> &'static [&'static str] {
-    match driver.info().id {
-        // Re-creating hands the object to the renaming role: routines would
-        // run, and views read, with that role's privileges.
-        "snowflake" => &[kinds::FUNCTION, kinds::PROCEDURE, kinds::VIEW],
-        _ => &[],
+/// Whether DBine puts back a dependent of `target` at all: an allowlist,
+/// not a list of exceptions. The driver says which dependents may be
+/// created again through [`RenameSpec::references`]: `None` (Snowflake,
+/// where `CREATE OR REPLACE` hands any object to the renaming role, and
+/// tasks, streams and materialized views also run, reset or lose their
+/// rows) means none, and every dependent is listed for the user;
+/// `Pipeline` rewrites a view's pipeline for an object rename only.
+pub(crate) fn puts_back(spec: &RenameSpec, target: &RenameTarget) -> bool {
+    match spec.references {
+        ReferenceStyle::Sql => true,
+        ReferenceStyle::Pipeline => !matches!(target, RenameTarget::Column { .. }),
+        ReferenceStyle::None => false,
     }
 }
 
@@ -175,6 +172,8 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
     let target = args.target.clone();
     let tracked = spec.tracked_for_target(&args.target).to_vec();
     let wants_table = spec.wants_table;
+    // Definitions are read only where they may be put back.
+    let rewrites = puts_back(&spec, &args.target);
     // Engines whose database is the schema: the explorer's objects carry no
     // schema, while the catalog and the stored definitions name the database.
     let database = (!driver.info().has_schemas && !args.database.is_empty()).then(|| args.database.clone());
@@ -222,7 +221,7 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
                 // Each dependent to rewrite, read again (the scan doesn't keep them).
                 let mut defs = Vec::with_capacity(report.items.len());
                 for d in &report.items {
-                    let wanted = d.relation == Relation::Code && d.confidence != Confidence::Review && !tracked.contains(&d.kind);
+                    let wanted = rewrites && d.relation == Relation::Code && d.confidence != Confidence::Review && !tracked.contains(&d.kind);
                     defs.push(if wanted { s.definition(&ObjectRef { kind: d.kind.clone(), schema: d.schema.clone(), name: d.name.clone() }).await.ok().flatten() } else { None });
                 }
                 let definition = match &target {
@@ -248,7 +247,6 @@ pub async fn rename_impact(state: State<'_, AppState>, args: ImpactArgs) -> Comm
         database,
         row_routines: found.iter().map(|(at, _, _)| *at).collect(),
         shared_routines: found.iter().filter(|(_, shared, _)| *shared).map(|(at, _, _)| *at).collect(),
-        manual_kinds: manual_kinds(driver.as_ref()).iter().map(|k| k.to_string()).collect(),
     };
     // A routine added for its trigger that doesn't name the column isn't one.
     let column = match &args.target {
@@ -531,7 +529,7 @@ pub(crate) fn classify(
     ctx: &Context,
 ) -> Vec<ImpactItem> {
     let rewrite_target = target.rewrite_target();
-    let column = matches!(target, RenameTarget::Column { .. });
+    let rewrites = puts_back(spec, target);
     report
         .items
         .iter()
@@ -542,15 +540,13 @@ pub(crate) fn classify(
             let manual = |reason| Action::Manual { reason, unresolved: Vec::new() };
             let action = if d.relation != Relation::Code {
                 Action::Engine
-            } else if ctx.manual_kinds.contains(&d.kind) {
-                manual(ManualReason::NotRewritten)
             } else if ctx.shared_routines.contains(&at) {
                 manual(ManualReason::SharedRoutine)
             } else if spec.tracked_for_target(target).contains(&d.kind) {
                 Action::Tracked
             } else if d.confidence == Confidence::Review {
                 manual(ManualReason::Dynamic)
-            } else if spec.references == ReferenceStyle::None || (column && spec.references == ReferenceStyle::Pipeline) {
+            } else if !rewrites {
                 manual(ManualReason::NotRewritten)
             } else if let Some(body) = def.as_deref() {
                 let opts = RewriteOptions {
@@ -562,6 +558,10 @@ pub(crate) fn classify(
                 let r = rewrite_references(body, dialect, &rewrite_target, new_name, spec, &opts);
                 if r.edits.is_empty() {
                     Action::Manual { reason: ManualReason::NoMatch, unresolved: r.unresolved }
+                } else if definers(body, dialect) != definers(&r.text, dialect) {
+                    // A MySQL definer called like the renamed object: put
+                    // back, the view or routine would run as another user.
+                    manual(ManualReason::NotRewritten)
                 } else {
                     // Put back, a view holding its own rows loses them.
                     let loses_rows = spec.holds_rows.contains(&d.kind) && !writes_to_table(body, dialect);
@@ -581,6 +581,17 @@ pub(crate) fn classify(
             let original = matches!(action, Action::Rewrite { .. }).then(|| def.unwrap_or_default());
             ImpactItem { dependent: d, action, original }
         })
+        .collect()
+}
+
+/// The users a definition runs as (`DEFINER = user@host`, MySQL and
+/// MariaDB), as written: a rewrite must leave them as they were.
+fn definers(body: &str, dialect: &ScriptDialect) -> Vec<String> {
+    use dbine_driver::sql::TokenKind;
+    let toks = dbine_driver::sql::name_tokens(body, dialect);
+    (0..toks.len())
+        .filter(|&i| toks[i].kind == TokenKind::Name && toks[i].text.eq_ignore_ascii_case("definer") && toks.get(i + 1).is_some_and(|t| t.text == "="))
+        .map(|i| toks[i + 2..(i + 5).min(toks.len())].iter().map(|t| &body[t.start..t.end]).collect())
         .collect()
 }
 
@@ -755,36 +766,41 @@ fn follow_json(v: &mut serde_json::Value, cid: &str, old: &str, new: &str) -> bo
 }
 
 pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &RenameRequest, rewrites: &[RewriteChoice]) -> CommandResult<SyncScript> {
+    let target = request.target.old_name();
     let middle = driver.rename_script(request)?;
+    // `schema_sync_run` runs each statement through `execute`, which cuts
+    // it again with the driver's splitter: each one must be a single
+    // statement, or what runs isn't what the dialog showed (a name or a
+    // stored definition the driver copies into its own statements, with a
+    // `;` or a `GO` line the quoting didn't hold).
+    for sql in &middle.statements {
+        one_unit(driver, sql, &format!("la sentencia que renombra «{target}»"), "renombralo a mano")?;
+    }
     let dialect = driver.script_dialect();
-    // A dependent put back must be one unit as the driver cuts scripts:
-    // a `GO` line stored in a T-SQL module, or a body whose quoting closes
-    // early (a `$$` in a body wrapped in `$$`), would run what follows as
-    // statements of their own.
-    for o in rewrites.iter().flat_map(|r| std::iter::once(&r.object).chain(r.carried.iter())) {
-        if manual_kinds(driver).contains(&o.kind.as_str()) {
-            return Err(CommandError::BadRequest(format!(
-                "{} no vuelve a crear «{}» desde DBine: perdería sus derechos de ejecución y su dueño; corregilo a mano",
-                driver.info().name,
-                o.name
-            )));
-        }
-        check_one_unit(driver, o)?;
+    if !rewrites.is_empty() && !puts_back(spec, &request.target) {
+        let first = &rewrites[0].object.name;
+        return Err(CommandError::BadRequest(format!(
+            "{} no vuelve a crear «{first}» desde DBine: lo que nombra lo renombrado solo se lista, porque recrearlo le cambiaría el dueño, los permisos o los datos; corregilo a mano",
+            driver.info().name
+        )));
     }
     let mut lost = Vec::new();
-    let mut objects: Vec<ObjectChange> = rewrites
-        .iter()
-        .map(|r| {
-            let style = spec.replace_for(&r.object.kind);
-            let object = CodeObject { definition: with_create_style(&r.object.definition, &dialect, style), ..r.object.clone() };
-            if style == ReplaceStyle::DropCreate || r.schemabound {
-                lost.push(format!("«{}»", r.object.name));
-                ObjectChange::Replace { object }
-            } else {
-                ObjectChange::Create { object }
-            }
-        })
-        .collect();
+    let mut objects: Vec<ObjectChange> = Vec::with_capacity(rewrites.len());
+    for r in rewrites {
+        let style = spec.replace_for(&r.object.kind);
+        let object = CodeObject { definition: with_create_style(&r.object.definition, &dialect, style), ..r.object.clone() };
+        // A dependent put back must be one unit as the driver cuts scripts:
+        // a `GO` line stored in a T-SQL module, or a body whose quoting
+        // closes early (a `$$` in a body wrapped in `$$`), would run what
+        // follows as statements of their own. Checked as it goes out.
+        one_unit(driver, &object.definition, &format!("la definición de «{}»", object.name), "quitala de la lista o recreala a mano")?;
+        objects.push(if style == ReplaceStyle::DropCreate || r.schemabound {
+            lost.push(format!("«{}»", r.object.name));
+            ObjectChange::Replace { object }
+        } else {
+            ObjectChange::Create { object }
+        });
+    }
     // What reads a dropped one goes and comes back as it is, once.
     let same = |a: &CodeObject, b: &CodeObject| a.kind == b.kind && a.schema == b.schema && a.name.eq_ignore_ascii_case(&b.name);
     let mut carried: Vec<&CodeObject> = Vec::new();
@@ -796,34 +812,42 @@ pub(crate) fn build_script(driver: &dyn Driver, spec: &RenameSpec, request: &Ren
         }
     }
     for c in carried {
+        one_unit(driver, &c.definition, &format!("la definición de «{}»", c.name), "quitá de la lista lo que la arrastra o recreala a mano")?;
         lost.push(format!("«{}»", c.name));
         objects.push(ObjectChange::Replace { object: c.clone() });
     }
     let mut script = plan_around(driver, middle, &objects);
-    script.statements.extend(spec.epilogue_for(&request.target));
+    if let Some(epilogue) = spec.epilogue_for(&request.target) {
+        one_unit(driver, &epilogue, "la sentencia final del renombrado", "renombralo a mano")?;
+        script.statements.push(epilogue);
+    }
     if !lost.is_empty() && spec.grants_on_objects {
         script.warnings.push(format!("Se borran y se vuelven a crear {}: se pierden los permisos otorgados sobre ellos.", lost.join(", ")));
     }
     Ok(script)
 }
 
-/// `o`'s definition is a single unit as `driver` splits scripts (client
-/// commands aside), or the rename refuses to put it back.
-fn check_one_unit(driver: &dyn Driver, o: &CodeObject) -> CommandResult<()> {
-    let units = driver.split_script(&o.definition).into_iter().filter(|u| u.kind != dbine_driver::StatementKind::ClientCommand).count();
-    if units <= 1 {
+/// How many statements `text` runs as: cut by the driver's own splitter,
+/// the one its `execute` uses, without client commands (`DELIMITER //`),
+/// which the splitter applies and the app never sends.
+fn statement_count(driver: &dyn Driver, text: &str) -> usize {
+    driver.split_script(text).into_iter().filter(|u| u.kind != dbine_driver::StatementKind::ClientCommand).count()
+}
+
+/// `text` (`what`, as the error names it) runs as exactly one statement on
+/// `driver`, or the rename refuses the script; `fix` tells the user what
+/// to do instead.
+fn one_unit(driver: &dyn Driver, text: &str, what: &str, fix: &str) -> CommandResult<()> {
+    let n = statement_count(driver, text);
+    if n == 1 {
         return Ok(());
     }
-    Err(CommandError::BadRequest(if driver.script_dialect().semicolons {
-        format!(
-            "la definición de «{}» se parte en {units} sentencias al volver a crearla: DBine no la vuelve a ejecutar así; quitala de la lista o recreala a mano",
-            o.name
-        )
+    Err(CommandError::BadRequest(if n == 0 {
+        format!("{what} no tiene ninguna sentencia que ejecutar: DBine no arma el renombrado así; {fix}")
+    } else if driver.script_dialect().batch == dbine_driver::sql::BatchLine::Go {
+        format!("{what} tiene una línea que dice solo GO: al ejecutarla se partiría en {n} lotes; {fix}")
     } else {
-        format!(
-            "la definición de «{}» tiene una línea que dice solo GO: al volver a crearla se partiría en varios lotes; quitala de la lista o corregila antes",
-            o.name
-        )
+        format!("{what} se parte en {n} sentencias al ejecutarla: DBine no la ejecuta así; {fix}")
     }))
 }
 
@@ -972,37 +996,31 @@ mod tests {
     }
 
     #[test]
-    fn snowflake_routines_are_left_for_review_and_never_put_back() {
-        let mut d = fake(ReplaceStyle::CreateOrReplace);
-        d.info.id = "snowflake";
-        assert_eq!(manual_kinds(&d), [kinds::FUNCTION, kinds::PROCEDURE, kinds::VIEW]);
-        assert!(manual_kinds(&fake(ReplaceStyle::CreateOrReplace)).is_empty());
-        let r = report(vec![
-            dependent("procedure", "P_CALLER", Relation::Code, Confidence::Probable),
-            dependent("function", "F_SECURE", Relation::Code, Confidence::Probable),
-            dependent("view", "V", Relation::Code, Confidence::Probable),
-        ]);
-        let defs = vec![
-            Some("CREATE OR REPLACE PROCEDURE P_CALLER() RETURNS NUMBER LANGUAGE SQL AS $$ SELECT COUNT(*) FROM dbo.Clientes $$;".into()),
-            Some("CREATE OR REPLACE FUNCTION F_SECURE() RETURNS NUMBER LANGUAGE SQL AS $$ SELECT COUNT(*) FROM dbo.Clientes $$;".into()),
-            Some("CREATE OR REPLACE VIEW dbo.V AS SELECT id FROM dbo.Clientes".into()),
-        ];
-        let ctx = Context { manual_kinds: manual_kinds(&d).iter().map(|k| k.to_string()).collect(), ..Default::default() };
-        let items = classify(&ScriptDialect::generic(), &d.spec, &table_target(), "Nuevo", true, &r, defs, &ctx);
-        assert_eq!(items[0].action, Action::Manual { reason: ManualReason::NotRewritten, unresolved: vec![] });
-        assert_eq!(items[1].action, Action::Manual { reason: ManualReason::NotRewritten, unresolved: vec![] });
-        assert_eq!(items[2].action, Action::Manual { reason: ManualReason::NotRewritten, unresolved: vec![] });
-        // A routine sent back anyway is refused, carried ones too.
-        let routine = |kind: &str| CodeObject { kind: kind.into(), schema: Some("dbo".into()), name: "P_CALLER".into(), definition: "CREATE OR REPLACE PROCEDURE P_CALLER() RETURNS NUMBER LANGUAGE SQL AS $$ 1 $$;".into() };
-        for kind in ["procedure", "function"] {
-            let r = RewriteChoice { object: routine(kind), schemabound: false, carried: vec![] };
-            assert!(matches!(build_script(&d, &d.spec, &request("Nuevo"), &[r]), Err(CommandError::BadRequest(m)) if m.contains("P_CALLER")));
+    fn snowflake_lists_every_dependent_and_never_puts_one_back() {
+        let d = dbine_drivers::find("snowflake").unwrap();
+        let spec = d.rename_spec().unwrap();
+        assert!(!puts_back(&spec, &table_target()));
+        let code = ["view", "materialized_view", "function", "procedure", "task", "stream", "dynamic_table"];
+        let r = report(code.iter().map(|k| dependent(k, "X", Relation::Code, Confidence::Probable)).collect());
+        let defs = code.iter().map(|k| Some(format!("CREATE OR REPLACE {} dbo.X AS SELECT id FROM dbo.Clientes", k.to_uppercase().replace('_', " ")))).collect();
+        let items = classify(&d.script_dialect(), &spec, &table_target(), "NUEVO", true, &r, defs, &Context::default());
+        for it in &items {
+            assert_eq!(it.action, Action::Manual { reason: ManualReason::NotRewritten, unresolved: vec![] }, "{}", it.dependent.kind);
         }
-        // Views are refused too: re-created, they'd read with the renaming role.
-        assert!(build_script(&d, &d.spec, &request("Nuevo"), &[choice("V", "CREATE VIEW dbo.V AS SELECT id FROM dbo.Nuevo", false)]).is_err());
-        // Other engines keep putting their routines back.
+        // Sent back anyway (an older UI, a crafted call): refused, whatever its kind.
+        for kind in code {
+            let o = CodeObject { kind: kind.into(), schema: Some("dbo".into()), name: "K_RUNS_AS_OWNER".into(), definition: "CREATE OR REPLACE TASK dbo.K AS SELECT 1".into() };
+            let r = RewriteChoice { object: o, schemabound: false, carried: vec![] };
+            assert!(matches!(build_script(d.as_ref(), &spec, &request("NUEVO"), &[r]), Err(CommandError::BadRequest(m)) if m.contains("K_RUNS_AS_OWNER")), "{kind}");
+        }
+        // The rename alone still goes.
+        let s = build_script(d.as_ref(), &spec, &request("NUEVO"), &[]).unwrap();
+        assert_eq!(s.statements, vec![r#"ALTER TABLE "dbo"."Clientes" RENAME TO "dbo".NUEVO;"#]);
+        // Engines that rewrite keep putting their routines back.
         let other = fake(ReplaceStyle::CreateOrAlter);
-        assert!(build_script(&other, &other.spec, &request("Nuevo"), &[RewriteChoice { object: routine("procedure"), schemabound: false, carried: vec![] }]).is_ok());
+        let mut p = choice("p", "CREATE PROCEDURE dbo.p AS SELECT 1 FROM dbo.Nuevo", false);
+        p.object.kind = "procedure".into();
+        assert!(build_script(&other, &other.spec, &request("Nuevo"), &[p]).is_ok());
     }
 
     #[test]
@@ -1134,13 +1152,158 @@ mod tests {
         d.info.dialect = "postgres";
         let two = choice("f", "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql; DROP TABLE t", false);
         assert!(matches!(build_script(&d, &d.spec, &request("Nuevo"), std::slice::from_ref(&two)), Err(CommandError::BadRequest(m)) if m.contains("2 sentencias")));
-        // Carried ones too.
+        // Carried ones too (they go and come back where views are dropped).
+        let mut d = fake(ReplaceStyle::DropCreate);
+        d.info.dialect = "postgres";
         let mut v = choice("v1", "CREATE VIEW v1 AS SELECT a FROM Nuevo", false);
         v.carried = vec![two.object.clone()];
         assert!(build_script(&d, &d.spec, &request("Nuevo"), &[v]).is_err());
         // One unit (a `;` inside the body, a trailing `;`) is fine.
         let one = choice("f", "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;", false);
         assert!(build_script(&d, &d.spec, &request("Nuevo"), &[one]).is_ok());
+        // Nothing to run is refused too.
+        let empty = choice("v0", "-- nada", false);
+        assert!(matches!(build_script(&d, &d.spec, &request("Nuevo"), &[empty]), Err(CommandError::BadRequest(m)) if m.contains("«v0»")));
+    }
+
+    /// The fake writes the new name as given, unescaped, like a driver that
+    /// got its quoting wrong would.
+    #[test]
+    fn the_drivers_own_statements_are_one_unit_each() {
+        // `;` engines: a name that closes the literal early.
+        let mut d = fake(ReplaceStyle::CreateOrReplace);
+        d.info.dialect = "postgres";
+        let r = build_script(&d, &d.spec, &request("x'; DROP TABLE t; --"), &[]);
+        assert!(matches!(&r, Err(CommandError::BadRequest(m)) if m.contains("«Clientes»") && m.contains("sentencias")), "{:?}", r.as_ref().err());
+        // T-SQL: a GO line in what the driver wrote.
+        let d = fake(ReplaceStyle::CreateOrAlter);
+        let r = build_script(&d, &d.spec, &request("x'\nGO\nDROP TABLE t\n--"), &[]);
+        assert!(matches!(&r, Err(CommandError::BadRequest(m)) if m.contains("«Clientes»") && m.contains("GO")), "{:?}", r.as_ref().err());
+        // The epilogue too.
+        let mut d = fake(ReplaceStyle::CreateOrReplace);
+        d.info.dialect = "postgres";
+        d.spec.epilogue = Some("CALL recompile({schema}); DROP TABLE t;".into());
+        let r = build_script(&d, &d.spec, &request("Nuevo"), &[]);
+        assert!(matches!(&r, Err(CommandError::BadRequest(m)) if m.contains("sentencia final")), "{:?}", r.as_ref().err());
+        d.spec.epilogue = Some("CALL recompile({schema});".into());
+        assert!(build_script(&d, &d.spec, &request("Nuevo"), &[]).is_ok());
+    }
+
+    /// A one-unit refusal (not another error of the driver's).
+    fn split_refusal(r: &CommandResult<SyncScript>) -> Option<String> {
+        match r {
+            Err(CommandError::BadRequest(m)) if m.contains("al ejecutarla") || m.contains("ninguna sentencia") || m.contains("lotes") => Some(m.clone()),
+            _ => None,
+        }
+    }
+
+    /// Every shipped driver's own rename statements, for each target it
+    /// takes, pass the check: none emits a statement its splitter cuts.
+    #[test]
+    fn no_driver_rename_is_refused_as_several_statements() {
+        let obj = |kind: &str| ObjectRef { kind: kind.into(), schema: Some("ventas".into()), name: "Clientes".into() };
+        let mut checked = 0;
+        for d in dbine_drivers::all() {
+            let Some(spec) = d.rename_spec() else { continue };
+            let mut targets: Vec<RenameTarget> = spec.kinds.iter().map(|k| RenameTarget::Object { object: obj(k), parent: None }).collect();
+            targets.push(RenameTarget::Column { table: obj("table"), column: "nombre".into() });
+            targets.push(RenameTarget::Schema { database: None, schema: "ventas".into() });
+            for target in targets.into_iter().filter(|t| spec.allows(t)) {
+                for new_name in ["Nuevo", "nuevo nombre; con punto y coma", "it's"] {
+                    let req = RenameRequest { target: target.clone(), new_name: new_name.into(), table: None, definition: None };
+                    let r = build_script(d.as_ref(), &spec, &req, &[]);
+                    assert!(split_refusal(&r).is_none(), "{} {target:?} {new_name}: {:?}", d.info().id, split_refusal(&r));
+                    checked += r.is_ok() as usize;
+                }
+            }
+        }
+        assert!(checked > 50, "{checked}");
+    }
+
+    /// Typical bodies on each engine stay one statement: PostgreSQL `$$`,
+    /// MySQL `BEGIN … END`, T-SQL modules, Oracle PL/SQL, ClickHouse views.
+    #[test]
+    fn typical_dependents_are_not_refused() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("postgres", "function", "CREATE OR REPLACE FUNCTION public.total(p int)\n RETURNS integer\n LANGUAGE plpgsql\nAS $function$\nDECLARE n int;\nBEGIN\n  SELECT count(*) INTO n FROM public.\"Nuevo\" WHERE id = p;\n  RETURN n;\nEND;\n$function$\n"),
+            ("postgres", "procedure", "CREATE OR REPLACE PROCEDURE public.limpiar()\n LANGUAGE sql\nBEGIN ATOMIC\n DELETE FROM public.\"Nuevo\" WHERE id < 0;\n UPDATE public.\"Nuevo\" SET id = 1;\nEND"),
+            ("postgres", "view", " SELECT id\n   FROM public.\"Nuevo\";"),
+            ("mysql", "procedure", "CREATE DEFINER=`root`@`%` PROCEDURE `limpiar`(IN p INT)\nBEGIN\n  DECLARE n INT;\n  SELECT COUNT(*) INTO n FROM `Nuevo` WHERE id = p;\n  IF n > 0 THEN\n    DELETE FROM `Nuevo` WHERE id = p;\n  END IF;\nEND"),
+            ("mysql", "trigger", "CREATE DEFINER=`root`@`%` TRIGGER `tg` BEFORE INSERT ON `Nuevo` FOR EACH ROW BEGIN\n  SET NEW.a = 1;\n  SET NEW.b = 2;\nEND"),
+            ("mysql", "view", "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER VIEW `v` AS select `Nuevo`.`id` AS `id` from `Nuevo`"),
+            ("sqlserver", "procedure", "CREATE PROCEDURE dbo.limpiar @p int\nAS\nBEGIN\n  SET NOCOUNT ON;\n  DELETE FROM dbo.Nuevo WHERE id = @p;\n  SELECT 1;\nEND"),
+            ("sqlserver", "function", "CREATE FUNCTION dbo.total() RETURNS int AS BEGIN DECLARE @n int; SELECT @n = COUNT(*) FROM dbo.Nuevo; RETURN @n; END"),
+            ("sqlserver", "trigger", "CREATE TRIGGER dbo.tg ON dbo.Nuevo AFTER INSERT AS\n  UPDATE dbo.Nuevo SET a = 1;\n  DELETE FROM dbo.Log;"),
+            ("oracle", "procedure", "CREATE OR REPLACE EDITIONABLE PROCEDURE \"VENTAS\".\"LIMPIAR\" (p IN NUMBER) AS\n  n NUMBER;\nBEGIN\n  SELECT COUNT(*) INTO n FROM ventas.nuevo WHERE id = p;\n  DELETE FROM ventas.nuevo WHERE id = p;\nEND;"),
+            ("oracle", "package_body", "CREATE OR REPLACE PACKAGE BODY ventas.pk AS\n  PROCEDURE a IS BEGIN DELETE FROM ventas.nuevo; END;\n  FUNCTION b RETURN NUMBER IS BEGIN RETURN 1; END;\nEND pk;"),
+            ("oracle", "trigger", "CREATE OR REPLACE TRIGGER ventas.tg BEFORE INSERT ON ventas.nuevo FOR EACH ROW\nBEGIN\n  :NEW.a := 1;\n  :NEW.b := 2;\nEND;"),
+            ("oracle", "view", "CREATE OR REPLACE FORCE VIEW ventas.v AS SELECT id FROM ventas.nuevo"),
+            ("clickhouse", "view", "CREATE VIEW ventas.v (`id` UInt64) AS SELECT id FROM ventas.Nuevo WHERE note != 'a;b'"),
+            ("clickhouse", "materialized_view", "CREATE MATERIALIZED VIEW ventas.mv TO ventas.d (`id` UInt64) AS SELECT id FROM ventas.Nuevo"),
+        ];
+        for (id, kind, def) in cases {
+            let d = dbine_drivers::find(id).unwrap_or_else(|| panic!("{id}"));
+            let spec = d.rename_spec().unwrap();
+            let target = RenameTarget::Object { object: ObjectRef { kind: "table".into(), schema: Some("ventas".into()), name: "Clientes".into() }, parent: None };
+            let req = RenameRequest { target, new_name: "Nuevo".into(), table: None, definition: None };
+            let o = CodeObject { kind: (*kind).into(), schema: Some("ventas".into()), name: "dep".into(), definition: (*def).into() };
+            let r = build_script(d.as_ref(), &spec, &req, &[RewriteChoice { object: o, schemabound: false, carried: vec![] }]);
+            assert!(r.is_ok(), "{id} {kind}: {:?}", r.err().map(|e| e.to_string()));
+            // And a second statement hidden after it isn't.
+            // (Oracle: a PL/SQL unit runs to its `/` line, `;` included.)
+            let sep = match d.script_dialect().batch {
+                dbine_driver::sql::BatchLine::Go => "\nGO\n",
+                dbine_driver::sql::BatchLine::Slash => "\n/\n",
+                dbine_driver::sql::BatchLine::None => ";\n",
+            };
+            let o = CodeObject { kind: (*kind).into(), schema: Some("ventas".into()), name: "dep".into(), definition: format!("{}{sep}DROP TABLE ventas.x", def.trim_end().trim_end_matches(';')) };
+            let r = build_script(d.as_ref(), &spec, &req, &[RewriteChoice { object: o, schemabound: false, carried: vec![] }]);
+            assert!(split_refusal(&r).is_some(), "{id} {kind}: {:?}", r.map(|s| s.statements));
+        }
+    }
+
+    #[test]
+    fn mysql_keeps_the_definer_it_had() {
+        // Re-created with the DEFINER it was stored with, not the renamer's,
+        // even when the definer is called like the renamed table.
+        let d = dbine_drivers::find("mysql").unwrap();
+        let spec = d.rename_spec().unwrap();
+        let target = RenameTarget::Object { object: ObjectRef { kind: "table".into(), schema: None, name: "admin".into() }, parent: None };
+        let r = report(vec![dependent("view", "v", Relation::Code, Confidence::Probable), dependent("procedure", "p", Relation::Code, Confidence::Probable)]);
+        let defs = vec![
+            Some("CREATE ALGORITHM=UNDEFINED DEFINER=`admin`@`%` SQL SECURITY DEFINER VIEW `v` AS select `admin`.`id` AS `id` from `admin`".into()),
+            Some("CREATE DEFINER=`admin`@`%` PROCEDURE `p`()\nBEGIN\n  SELECT COUNT(*) FROM admin;\nEND".into()),
+        ];
+        let ctx = Context { database: Some("ventas".into()), ..Default::default() };
+        // The definer called like the table stays; the table's name changes.
+        let items = classify(&d.script_dialect(), &spec, &target, "cuentas", true, &r, defs, &ctx);
+        for it in &items {
+            let Action::Rewrite { object, .. } = &it.action else { panic!("{:?}", it.action) };
+            assert!(object.definition.contains("DEFINER=`admin`@`%`") && object.definition.contains("cuentas"), "{}", object.definition);
+        }
+        // And if a rewrite ever changed it, the dependent would be left to the user.
+        let dl = d.script_dialect();
+        assert_eq!(definers("CREATE DEFINER=`admin`@`%` VIEW v AS SELECT 1", &dl), ["`admin`@`%`"]);
+        assert_ne!(definers("CREATE DEFINER=`admin`@`%` VIEW v", &dl), definers("CREATE DEFINER=`cuentas`@`%` VIEW v", &dl));
+        assert!(definers("CREATE VIEW v AS SELECT 1", &dl).is_empty());
+        // Any other definer stays as stored, through the rewrite and the script.
+        let defs = vec![
+            Some("CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`%` SQL SECURITY DEFINER VIEW `v` AS select `admin`.`id` AS `id` from `admin`".into()),
+            Some("CREATE DEFINER=`app`@`localhost` PROCEDURE `p`()\nBEGIN\n  SELECT COUNT(*) FROM admin;\nEND".into()),
+        ];
+        let items = classify(&d.script_dialect(), &spec, &target, "cuentas", true, &r, defs, &ctx);
+        let mut rewrites = Vec::new();
+        for it in &items {
+            let Action::Rewrite { object, .. } = &it.action else { panic!("{:?}", it.action) };
+            assert!(object.definition.contains("DEFINER=`root`@`%`") || object.definition.contains("DEFINER=`app`@`localhost`"), "{}", object.definition);
+            assert!(object.definition.contains("cuentas"), "{}", object.definition);
+            rewrites.push(RewriteChoice { object: object.clone(), schemabound: false, carried: vec![] });
+        }
+        let req = RenameRequest { target, new_name: "cuentas".into(), table: None, definition: None };
+        let s = build_script(d.as_ref(), &spec, &req, &rewrites).unwrap();
+        let creates: Vec<&String> = s.statements.iter().filter(|x| x.starts_with("CREATE")).collect();
+        assert_eq!(creates.len(), 2, "{:?}", s.statements);
+        assert!(creates.iter().any(|c| c.contains("DEFINER=`root`@`%`")) && creates.iter().any(|c| c.contains("DEFINER=`app`@`localhost`")), "{creates:?}");
     }
 
     #[test]
@@ -1222,5 +1385,165 @@ mod tests {
         let t = TableSchema { name: "Clientes".into(), columns: vec![dbine_driver::ColumnDef { name: "b".into(), ..Default::default() }], ..Default::default() };
         let col = RenameTarget::Column { table: ObjectRef { kind: "table".into(), schema: None, name: "Clientes".into() }, column: "a".into() };
         assert!(collides(&col, "B", Some(&t), &[]));
+    }
+}
+
+/// The app's own path (`classify`, `build_script` with its one-unit checks,
+/// then each statement through `execute` as `schema_sync_run` does) on real
+/// servers, with typical bodies: nothing is refused that should run.
+/// `DBINE_TEST_POSTGRES_URL`, `DBINE_TEST_MYSQL_URL`,
+/// `DBINE_TEST_SQLSERVER_URL` as in the drivers' tests; `cargo test -p dbine
+/// --lib rename::live -- --ignored --test-threads=1`.
+#[cfg(test)]
+mod live {
+    use super::*;
+    use dbine_driver::{ConnectionConfig, QueryOutcome, Session};
+
+    fn cfg(driver: &str, env: &str) -> Option<ConnectionConfig> {
+        let url = std::env::var(env).ok()?;
+        let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
+        let (auth, hostpart) = rest.rsplit_once('@').unwrap_or(("", rest));
+        let (user, pass) = auth.split_once(':').map_or((auth, None), |(u, p)| (u, Some(p)));
+        let (hostport, db) = hostpart.split_once('/').unwrap_or((hostpart, ""));
+        let (host, port) = hostport.rsplit_once(':')?;
+        Some(ConnectionConfig {
+            driver: driver.into(),
+            host: host.into(),
+            port: port.parse().ok()?,
+            database: db.into(),
+            username: (!user.is_empty()).then(|| user.into()),
+            password: pass.map(Into::into),
+            ..Default::default()
+        })
+    }
+
+    async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, String> {
+        let mut out = QueryOutcome::default();
+        s.execute(sql, 100, &mut out).await.map_err(|e| e.to_string())?;
+        match out.error.take() {
+            Some(e) => Err(format!("{e:?}")),
+            None => Ok(out),
+        }
+    }
+
+    async fn ok(s: &mut Box<dyn Session>, sql: &str) {
+        run(s, sql).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+    }
+
+    /// Renames `table` to `new_name` the way the dialog does and runs it;
+    /// returns the dependents DBine put back.
+    async fn rename(driver: &dyn Driver, s: &mut Box<dyn Session>, table: ObjectRef, new_name: &str, database: Option<String>) -> Vec<String> {
+        let spec = driver.rename_spec().unwrap();
+        let dialect = driver.script_dialect();
+        let target = RenameTarget::Object { object: table, parent: None };
+        let scan = DependencyScan::new(driver.info(), dialect, driver.capabilities().foreign_keys);
+        let report = s.dependents(&target.dependency_target(), &scan).await.unwrap();
+        let mut defs = Vec::new();
+        for d in &report.items {
+            let wanted = d.relation == Relation::Code && d.confidence != Confidence::Review && !spec.tracked_for_target(&target).contains(&d.kind);
+            defs.push(if wanted { s.definition(&ObjectRef { kind: d.kind.clone(), schema: d.schema.clone(), name: d.name.clone() }).await.unwrap() } else { None });
+        }
+        let ctx = Context { database, ..Default::default() };
+        let items = classify(&dialect, &spec, &target, new_name, true, &report, defs, &ctx);
+        eprintln!("{}: {:?}", driver.info().id, items.iter().map(|i| (&i.dependent.name, &i.action)).map(|(n, a)| format!("{n}: {}", serde_json::to_string(a).unwrap_or_default().chars().take(60).collect::<String>())).collect::<Vec<_>>());
+        let rewrites: Vec<RewriteChoice> = items
+            .iter()
+            .filter_map(|i| match &i.action {
+                Action::Rewrite { object, schemabound, carried, .. } => Some(RewriteChoice { object: object.clone(), schemabound: *schemabound, carried: carried.clone() }),
+                _ => None,
+            })
+            .collect();
+        let req = RenameRequest { target, new_name: new_name.into(), table: None, definition: None };
+        let script = build_script(driver, &spec, &req, &rewrites).unwrap_or_else(|e| panic!("{}: refused: {e}", driver.info().id));
+        for st in &script.statements {
+            eprintln!("> {st}");
+            ok(s, st).await;
+        }
+        rewrites.into_iter().map(|r| r.object.name).collect()
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn postgres_typical_bodies_pass() {
+        let Some(c) = cfg("postgres", "DBINE_TEST_POSTGRES_URL") else { return eprintln!("skipping") };
+        let d = dbine_drivers::find("postgres").unwrap();
+        let mut s = d.connect(&c, None).await.unwrap();
+        for sql in [
+            "DROP SCHEMA IF EXISTS rn_live CASCADE",
+            "CREATE SCHEMA rn_live",
+            "CREATE TABLE rn_live.clientes (id int, nombre text)",
+            "INSERT INTO rn_live.clientes VALUES (1, 'a'), (2, 'b;c')",
+            "CREATE VIEW rn_live.v AS SELECT id, nombre FROM rn_live.clientes",
+            "CREATE FUNCTION rn_live.total(p int) RETURNS int LANGUAGE plpgsql AS $fn$\nDECLARE n int;\nBEGIN\n  SELECT count(*) INTO n FROM rn_live.clientes WHERE id >= p; -- ; in a comment\n  RETURN n;\nEND;\n$fn$",
+            "CREATE FUNCTION rn_live.nombres() RETURNS text LANGUAGE sql AS $$ SELECT string_agg(nombre, ';') FROM rn_live.clientes $$",
+            "CREATE PROCEDURE rn_live.limpiar() LANGUAGE plpgsql AS $$ BEGIN DELETE FROM rn_live.clientes WHERE id < 0; UPDATE rn_live.clientes SET id = id WHERE false; END $$",
+        ] {
+            ok(&mut s, sql).await;
+        }
+        let put_back = rename(d.as_ref(), &mut s, ObjectRef { kind: "table".into(), schema: Some("rn_live".into()), name: "clientes".into() }, "cuentas", None).await;
+        assert!(put_back.len() >= 3, "{put_back:?}");
+        assert_eq!(run(&mut s, "SELECT rn_live.total(1)").await.unwrap().results[0].rows[0][0].to_string().trim_matches('"'), "2");
+        ok(&mut s, "SELECT rn_live.nombres()").await;
+        ok(&mut s, "CALL rn_live.limpiar()").await;
+        ok(&mut s, "DROP SCHEMA rn_live CASCADE").await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn mysql_typical_bodies_pass() {
+        let Some(c) = cfg("mysql", "DBINE_TEST_MYSQL_URL") else { return eprintln!("skipping") };
+        let d = dbine_drivers::find("mysql").unwrap();
+        let mut root = d.connect(&c, None).await.unwrap();
+        ok(&mut root, "DROP DATABASE IF EXISTS rn_live").await;
+        ok(&mut root, "CREATE DATABASE rn_live").await;
+        let mut s = d.connect(&c, Some("rn_live")).await.unwrap();
+        for sql in [
+            "CREATE TABLE clientes (id int, nombre varchar(20))",
+            "CREATE TABLE log (id int)",
+            "INSERT INTO clientes VALUES (1, 'a'), (2, 'b;c')",
+            "CREATE VIEW v AS SELECT id, nombre FROM clientes",
+            "CREATE PROCEDURE limpiar(IN p INT)\nBEGIN\n  DECLARE n INT;\n  SELECT COUNT(*) INTO n FROM clientes WHERE id = p;\n  IF n > 0 THEN\n    DELETE FROM clientes WHERE id = p AND nombre = 'x;y';\n  END IF;\nEND",
+            "CREATE FUNCTION total() RETURNS INT READS SQL DATA\nBEGIN\n  DECLARE n INT;\n  SELECT COUNT(*) INTO n FROM clientes;\n  RETURN n;\nEND",
+            "CREATE TRIGGER tg AFTER INSERT ON log FOR EACH ROW\nBEGIN\n  INSERT INTO clientes VALUES (NEW.id, 't');\n  UPDATE clientes SET nombre = 'u' WHERE id = NEW.id;\nEND",
+        ] {
+            ok(&mut s, sql).await;
+        }
+        let put_back = rename(d.as_ref(), &mut s, ObjectRef { kind: "table".into(), schema: None, name: "clientes".into() }, "cuentas", Some("rn_live".into())).await;
+        assert!(put_back.len() >= 4, "{put_back:?}");
+        assert_eq!(run(&mut s, "SELECT total()").await.unwrap().results[0].rows[0][0].to_string().trim_matches('"'), "2");
+        ok(&mut s, "CALL limpiar(1)").await;
+        ok(&mut s, "INSERT INTO log VALUES (9)").await;
+        ok(&mut s, "SELECT * FROM v").await;
+        ok(&mut root, "DROP DATABASE rn_live").await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn sqlserver_typical_bodies_pass() {
+        let Some(c) = cfg("sqlserver", "DBINE_TEST_SQLSERVER_URL") else { return eprintln!("skipping") };
+        let d = dbine_drivers::find("sqlserver").unwrap();
+        let mut root = d.connect(&c, None).await.unwrap();
+        ok(&mut root, "IF DB_ID('rn_live') IS NOT NULL BEGIN ALTER DATABASE rn_live SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE rn_live; END").await;
+        ok(&mut root, "CREATE DATABASE rn_live").await;
+        let mut s = d.connect(&c, Some("rn_live")).await.unwrap();
+        for sql in [
+            "CREATE TABLE dbo.clientes (id int, nombre nvarchar(20))",
+            "CREATE TABLE dbo.log (id int)",
+            "INSERT INTO dbo.clientes VALUES (1, N'a'), (2, N'b;c')",
+            "CREATE VIEW dbo.v AS SELECT id, nombre FROM dbo.clientes",
+            "CREATE PROCEDURE dbo.limpiar @p int\nAS\nBEGIN\n  SET NOCOUNT ON;\n  DELETE FROM dbo.clientes WHERE id = @p AND nombre = N'x;y';\n  SELECT COUNT(*) FROM dbo.clientes;\nEND",
+            "CREATE FUNCTION dbo.total() RETURNS int AS BEGIN DECLARE @n int; SELECT @n = COUNT(*) FROM dbo.clientes; RETURN @n; END",
+            "CREATE TRIGGER dbo.tg ON dbo.log AFTER INSERT AS\n  INSERT INTO dbo.clientes SELECT id, N't' FROM inserted;\n  UPDATE dbo.clientes SET nombre = N'u' WHERE id IN (SELECT id FROM inserted);",
+        ] {
+            ok(&mut s, sql).await;
+        }
+        let put_back = rename(d.as_ref(), &mut s, ObjectRef { kind: "table".into(), schema: Some("dbo".into()), name: "clientes".into() }, "cuentas", None).await;
+        assert!(put_back.len() >= 4, "{put_back:?}");
+        assert_eq!(run(&mut s, "SELECT dbo.total()").await.unwrap().results[0].rows[0][0].to_string().trim_matches('"'), "2");
+        ok(&mut s, "EXEC dbo.limpiar 1").await;
+        ok(&mut s, "INSERT INTO dbo.log VALUES (9)").await;
+        ok(&mut s, "SELECT * FROM dbo.v").await;
+        drop(s);
+        ok(&mut root, "ALTER DATABASE rn_live SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE rn_live").await;
     }
 }

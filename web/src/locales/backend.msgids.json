@@ -1278,6 +1278,7 @@
   "src-tauri/src/mcp/write.rs"
  ],
  "Aprobado por el usuario y ejecutado.": [
+  "src-tauri/src/mcp/tools.rs",
   "src-tauri/src/mcp/write.rs"
  ],
  "Aprobado por el usuario, pero falló al ejecutarse: {0}": [
@@ -9775,6 +9776,12 @@
  "Hay un CHECK sin nombre sobre la columna: revisalo después de renombrar.": [
   "crates/drivers/mysql/src/rename.rs"
  ],
+ "Hay una transacción abierta en esta sesión: confirmala (COMMIT) o deshacela (ROLLBACK) antes de una lectura protegida.": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
+ "Hay una transacción abierta en esta sesión: confirmala o deshacela antes de una lectura protegida.": [
+  "crates/drivers/mysql/src/session.rs"
+ ],
  "Hay una transacción abierta: confirmala (:commit) o deshacela (:rollback) antes de cambiar de base.": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
@@ -11157,6 +11164,12 @@
  "La de las columnas de texto que se creen sin una.": [
   "crates/drivers/snowflake/src/create_db.rs"
  ],
+ "La definición de «{0}» no es solo la de ese objeto ({1}): no se renombra.": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "La definición de «{0}» no se puede leer sin ambigüedad (su cuerpo tiene $$ o texto fuera de un CREATE): DBine no la renombra (hacelo desde Snowsight o SnowSQL).": [
+  "crates/drivers/snowflake/src/rename.rs"
+ ],
  "La definición de «{0}» no tiene un CREATE.": [
   "crates/drivers/oracle/src/rename.rs"
  ],
@@ -11304,6 +11317,13 @@
  ],
  "La ruta del endpoint HiveServer2 por HTTP; en Cloudera Data Warehouse suele ser «cliservice».": [
   "crates/drivers/odbc/src/presets.rs"
+ ],
+ "La sentencia contiene un carácter nulo.": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
+ "La sentencia escribe en la base: una lectura no la admite.": [
+  "crates/drivers/libsql/src/hrana.rs",
+  "crates/drivers/sqlite/src/read_only.rs"
  ],
  "La sesión de BigQuery terminó (venció por inactividad) y se abrió una nueva: sus tablas temporales y variables ya no están.": [
   "crates/drivers/bigquery/src/lib.rs"
@@ -11753,6 +11773,9 @@
  "Lectura prom. (ms)": [
   "crates/drivers/bigquery/src/plan.rs"
  ],
+ "Lectura protegida: se bloqueó {0}. Solo se permite una lectura (SELECT, WITH, SHOW, EXPLAIN…), sin INTO OUTFILE ni bloqueos.": [
+  "crates/drivers/mysql/src/session.rs"
+ ],
  "Lecturas": [
   "crates/drivers/phoenix/src/monitor.rs"
  ],
@@ -11889,7 +11912,7 @@
  "Lo que se escribe en una tabla columnar va primero al delta store, que ocupa más memoria y se lee más lento que el principal. La fusión automática lo vacía; si quedó grande, fusionalo a mano (usa CPU y memoria mientras corre).": [
   "crates/drivers/hana/src/health.rs"
  ],
- "Lo que se puede renombrar lo decide el conector del catálogo (memory e Iceberg renombran tablas, vistas y columnas; Hive no renombra algunas cosas): si el conector no puede, el servidor rechaza la sentencia. Las vistas no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE, después de un USE del esquema del objeto para que sus nombres sin calificar se resuelvan como al crearlas. Las sentencias no son transaccionales: si una falla, las anteriores quedan hechas.": [
+ "Lo que se puede renombrar lo decide el conector del catálogo (memory e Iceberg renombran tablas, vistas y columnas; Hive no renombra algunas cosas): si el conector no puede, el servidor rechaza la sentencia. Las vistas y vistas materializadas que nombran lo renombrado no se actualizan solas, y DBine solo las lista para corregirlas a mano: recrearlas las pasaría al usuario que renombra, y una vista SECURITY DEFINER leería con sus permisos en lugar de los de su dueño. Las sentencias no son transaccionales: si una falla, las anteriores quedan hechas.": [
   "crates/drivers/trino/src/rename.rs"
  ],
  "Locale del proveedor": [
@@ -13860,6 +13883,13 @@
  "No hay ninguna petición para ejecutar.": [
   "crates/drivers/elasticsearch/src/lib.rs",
   "crates/drivers/solr/src/lib.rs"
+ ],
+ "No hay ninguna sentencia para ejecutar.": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
+ "No hay ninguna sentencia que ejecutar.": [
+  "crates/drivers/libsql/src/lib.rs",
+  "crates/drivers/sqlite/src/read_only.rs"
  ],
  "No hay ninguna transacción abierta.": [
   "crates/drivers/neo4j/src/lib.rs"
@@ -16918,6 +16948,7 @@
   "src-tauri/src/mcp/tests.rs"
  ],
  "Rechazado por el usuario en DBine: no se ejecutó nada.": [
+  "src-tauri/src/mcp/tools.rs",
   "src-tauri/src/mcp/write.rs"
  ],
  "Recolecciones de GC": [
@@ -19139,6 +19170,7 @@
   "crates/drivers/snowflake/src/plan.rs"
  ],
  "Sin respuesta del usuario en {0} segundos: rechazado, no se ejecutó nada.": [
+  "src-tauri/src/mcp/tools.rs",
   "src-tauri/src/mcp/write.rs"
  ],
  "Sin sesiones bloqueadas": [
@@ -19299,7 +19331,7 @@
  "Snowflake admite hasta 38 dígitos; el origen tiene {0}.": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
  ],
- "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. No actualiza las vistas ni el código que nombran lo renombrado. Las vistas, funciones y procedimientos que lo nombran solo se listan para corregirlos a mano: recrearlos los pasaría al rol que renombra (las vistas leerían y las rutinas correrían con sus privilegios) y las rutinas perderían EXECUTE AS, SECURE y el resto de sus opciones.": [
+ "Snowflake confirma cada sentencia DDL al ejecutarla: si una falla, las anteriores ya quedaron hechas. No actualiza las vistas ni el código que nombran lo renombrado. Todo lo que lo nombra (vistas, vistas materializadas, funciones, procedimientos, tareas, streams, tablas dinámicas) solo se lista para corregirlo a mano: recrearlo lo pasaría al rol que renombra (leería y correría con sus privilegios), las rutinas perderían EXECUTE AS, SECURE y sus opciones, las tareas volverían a programarse, los streams perderían su posición y las vistas materializadas y tablas dinámicas, sus filas.": [
   "crates/drivers/snowflake/src/rename.rs"
  ],
  "Snowflake necesita un warehouse para listar las consultas en curso: la conexión no tiene uno": [
@@ -21530,6 +21562,17 @@
  "Una key de tipo {0} necesita al menos una entrada: Redis no guarda colecciones vacías.": [
   "crates/drivers/redis/src/ddl.rs"
  ],
+ "Una lectura admite una sola sentencia.": [
+  "crates/drivers/libsql/src/lib.rs",
+  "crates/drivers/sqlite/src/read_only.rs"
+ ],
+ "Una lectura no admite {0}.": [
+  "crates/drivers/libsql/src/lib.rs",
+  "crates/drivers/sqlite/src/read_only.rs"
+ ],
+ "Una lectura protegida ejecuta una sola sentencia.": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
  "Una partición": [
   "crates/drivers/cassandra/src/plan.rs"
  ],
@@ -23188,6 +23231,7 @@
  ],
  "conexión SQLite envenenada": [
   "crates/drivers/sqlite/src/lib.rs",
+  "crates/drivers/sqlite/src/read_only.rs",
   "crates/drivers/sqlite/src/transfer.rs"
  ],
  "conexión inexistente": [
@@ -23239,6 +23283,9 @@
  ],
  "contraseña incorrecta": [
   "crates/dbine-tunnel/src/lib.rs"
+ ],
+ "control de transacciones": [
+  "crates/drivers/sqlite/src/read_only.rs"
  ],
  "copia de las filas: {0}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
@@ -23761,6 +23808,9 @@
  ],
  "el backup {0} es de {1}: DBine restaura cada backup en su propio tenant": [
   "crates/drivers/hana/src/backup.rs"
+ ],
+ "el cambio de nombre de la columna «{0}»": [
+  "crates/drivers/athena/src/rename.rs"
  ],
  "el campo _id no se puede renombrar": [
   "crates/drivers/mongodb/src/rename.rs"
@@ -24454,6 +24504,9 @@
  "el servidor no acepta ninguna versión de Bolt entre 4.2 y 5.4": [
   "crates/drivers/neo4j/src/bolt.rs"
  ],
+ "el servidor no confirmó la transacción de solo lectura": [
+  "crates/drivers/mysql/src/session.rs"
+ ],
  "el servidor no deja consultar el estado de la consulta {0} (HTTP {1})": [
   "crates/drivers/trino/src/transfer.rs"
  ],
@@ -24464,6 +24517,9 @@
   "crates/drivers/mysql/src/health.rs",
   "crates/drivers/postgres/src/health.rs",
   "crates/drivers/sqlserver/src/health.rs"
+ ],
+ "el servidor no dijo si la sentencia es de solo lectura": [
+  "crates/drivers/libsql/src/hrana.rs"
  ],
  "el servidor no la informó": [
   "crates/drivers/dynamodb/src/lib.rs"
@@ -24570,6 +24626,12 @@
  "el tipo": [
   "crates/drivers/hana/src/transfer.rs",
   "src-tauri/src/commands/compare.rs"
+ ],
+ "el tipo de la columna «{0}»": [
+  "crates/drivers/dremio/src/rename.rs"
+ ],
+ "el tipo de la columna «{0}» en el catálogo ({1}) no es un tipo de Athena que DBine reconozca, así que no la renombra: hacelo a mano con ALTER TABLE … CHANGE COLUMN": [
+  "crates/drivers/athena/src/rename.rs"
  ],
  "el tipo de tabla": [
   "crates/drivers/mysql/src/design.rs"
@@ -25174,6 +25236,9 @@
  "esa es una tarea de la sesión con la que DBine está consultando: no se puede cancelar desde acá": [
   "crates/drivers/elasticsearch/src/processes.rs"
  ],
+ "esa operación": [
+  "crates/drivers/sqlite/src/read_only.rs"
+ ],
  "esa solicitud ya no está pendiente: se respondió o venció": [
   "src-tauri/src/mcp/approvals.rs"
  ],
@@ -25288,6 +25353,9 @@
  "esta conexión usa solo el protocolo simple de consultas: copiar o comparar datos necesita el protocolo extendido. Si el servidor lo acepta, cambiá «Protocolo de consultas» a Automático en la conexión": [
   "crates/drivers/postgres/src/session.rs"
  ],
+ "esta conexión usa solo el protocolo simple de consultas: no se puede asegurar una sola sentencia de solo lectura": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
  "esta replicación está definida en el documento «{0}» de {1}: se detiene borrando o editando ese documento": [
   "crates/drivers/couchdb/src/processes.rs"
  ],
@@ -25302,7 +25370,8 @@
   "crates/drivers/cassandra/src/profiler.rs"
  ],
  "esta versión del driver no tiene «{0}»": [
-  "crates/dbine-plugin/src/host.rs"
+  "crates/dbine-plugin/src/host.rs",
+  "crates/dbine-plugin/src/remote.rs"
  ],
  "esta versión no incluye el driver '{0}'": [
   "src-tauri/src/commands/migration.rs",
@@ -26909,14 +26978,21 @@
  "la cuenta {0} no es federada (no inicia sesión con ADFS), así que la autenticación integrada no está disponible. Usá «Microsoft Entra ID: interactivo (MFA)» o «Microsoft Entra ID: predeterminada».": [
   "crates/drivers/sqlserver/src/entra.rs"
  ],
+ "la definición de la vista «{0}»": [
+  "crates/drivers/athena/src/rename.rs",
+  "crates/drivers/dremio/src/rename.rs"
+ ],
+ "la definición de la vista «{0}» se partiría en varias sentencias al ejecutar el cambio de nombre, así que DBine no la renombra: hacelo a mano": [
+  "crates/drivers/drill/src/rename.rs"
+ ],
  "la definición de {0} «{1}» no se lee como una sola sentencia (con y sin escapes de barra invertida): no se vuelve a crear, así que la base no se renombra; revisala a mano": [
   "crates/drivers/mysql/src/rename_db.rs"
  ],
+ "la definición de «{0}»": [
+  "src-tauri/src/commands/rename.rs"
+ ],
  "la definición de «{0}» tiene una línea que dice solo GO: al volver a crearla se partiría en varios lotes, así que no se renombra desde DBine": [
   "crates/drivers/sqlserver/src/rename.rs"
- ],
- "la definición de «{0}» tiene una línea que dice solo GO: al volver a crearla se partiría en varios lotes; quitala de la lista o corregila antes": [
-  "src-tauri/src/commands/rename.rs"
  ],
  "la del tipo": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
@@ -26929,6 +27005,9 @@
  ],
  "la escala": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "la especificación y el cuerpo": [
+  "crates/drivers/oracle/src/rename.rs"
  ],
  "la fecha no es AAAA-MM-DD": [
   "crates/drivers/hana/src/transfer.rs"
@@ -27229,6 +27308,12 @@
  "la sentencia falló": [
   "crates/drivers/databricks/src/lib.rs",
   "crates/drivers/databricks/src/transfer.rs"
+ ],
+ "la sentencia final del renombrado": [
+  "src-tauri/src/commands/rename.rs"
+ ],
+ "la sentencia que renombra «{0}»": [
+  "src-tauri/src/commands/rename.rs"
  ],
  "la sesión con {0} venció o fue revocada: volvé a conectar la cuenta": [
   "crates/dbine-sync/src/lib.rs"
@@ -28399,6 +28484,9 @@
  ],
  "no se pudo abrir el puerto {0}: {1}": [
   "src-tauri/src/mcp/mod.rs"
+ ],
+ "no se pudo abrir la transacción de lectura: {0}": [
+  "crates/drivers/libsql/src/hrana.rs"
  ],
  "no se pudo abrir {0}: {1}": [
   "src-tauri/src/commands/scripts.rs"
@@ -29623,6 +29711,12 @@
  "queryCompletedThreshold = 0 (estaba en {0} ms)": [
   "crates/drivers/couchbase/src/profiler.rs"
  ],
+ "quitala de la lista o recreala a mano": [
+  "src-tauri/src/commands/rename.rs"
+ ],
+ "quitá de la lista lo que la arrastra o recreala a mano": [
+  "src-tauri/src/commands/rename.rs"
+ ],
  "rango de compactación": [
   "crates/drivers/tdengine/src/properties.rs"
  ],
@@ -30071,6 +30165,9 @@
   "crates/drivers/snowflake/src/blocking.rs",
   "crates/drivers/snowflake/src/processes.rs"
  ],
+ "set_config cambia la configuración de la sesión: una lectura protegida no lo usa.": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
  "signo de numeric inválido": [
   "crates/drivers/postgres/src/transfer.rs"
  ],
@@ -30432,6 +30529,7 @@
   "crates/drivers/flightsql/src/lib.rs",
   "crates/drivers/ksqldb/src/lib.rs",
   "crates/drivers/mysql/src/lib.rs",
+  "crates/drivers/mysql/src/session.rs",
   "crates/drivers/phoenix/src/lib.rs",
   "crates/drivers/postgres/src/lib.rs",
   "crates/drivers/redis/src/lib.rs",
@@ -30482,6 +30580,9 @@
  ],
  "tiene {0} caracteres (se recortaría)": [
   "crates/drivers/athena/src/transfer.rs"
+ ],
+ "tiene {0} unidades CREATE y se esperaba {1}": [
+  "crates/drivers/oracle/src/rename.rs"
  ],
  "time travel: «{0}» no es un múltiplo de 24 horas entre 48 y 168": [
   "crates/drivers/bigquery/src/properties.rs"
@@ -30567,6 +30668,15 @@
  "umbral de operación lenta: «{0}» no es una cantidad de milisegundos": [
   "crates/drivers/mongodb/src/properties.rs"
  ],
+ "un CREATE en la línea {0} sin encabezado reconocible": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "un CREATE {0} de «{1}»": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "un CREATE {0} donde se esperaba {1}{2}": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
  "un JSON dentro de un tipo anidado (STRUCT, lista, MAP o UNION) se carga desde una cadena JSON con el texto del documento, como lo lee DBine; un texto suelto en esa posición no es un documento JSON y no se carga para no cambiar su significado": [
   "crates/drivers/duckdb/src/transfer.rs"
  ],
@@ -30624,6 +30734,9 @@
  ],
  "un nombre": [
   "crates/drivers/etcd/src/security.rs"
+ ],
+ "un nombre de la base tiene caracteres (`, \\ o ;) que harían que el script se parta distinto de como lo lee OrientDB: DBine no lo genera": [
+  "crates/drivers/orientdb/src/lib.rs"
  ],
  "un número": [
   "crates/drivers/couchbase/src/transfer.rs",
@@ -30786,6 +30899,12 @@
  ],
  "una restricción de tipo": [
   "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "una sentencia que no es CREATE en la línea {0}": [
+  "crates/drivers/oracle/src/rename.rs"
+ ],
+ "una sola": [
+  "crates/drivers/oracle/src/rename.rs"
  ],
  "una subtabla es parte de su supertabla: el clon sería otra subtabla de la misma supertabla y sus filas aparecerían dos veces en las consultas sobre ella": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
@@ -31388,12 +31507,18 @@
  "{0} no aplica cambios de esquema desde DBine": [
   "src-tauri/src/commands/compare.rs"
  ],
+ "{0} no asegura lecturas de solo lectura en el servidor": [
+  "crates/drivers/postgres/src/session.rs"
+ ],
  "{0} no cabe exacto en un {1}; se redondearía": [
   "crates/drivers/cassandra/src/transfer.rs"
  ],
  "{0} no clona bases": [
   "crates/drivers/postgres/src/clone.rs",
   "src-tauri/src/commands/migration.rs"
+ ],
+ "{0} no confirmó una transacción de solo lectura ({1}): la lectura no se ejecutó": [
+  "crates/drivers/postgres/src/session.rs"
  ],
  "{0} no crea ni borra bases desde DBine": [
   "crates/drivers/odbc/src/create_db.rs",
@@ -31488,6 +31613,9 @@
  ],
  "{0} no es una hora": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "{0} no es una lectura: una lectura protegida no la ejecuta.": [
+  "crates/drivers/postgres/src/session.rs"
  ],
  "{0} no es una tabla": [
   "crates/drivers/postgres/src/clone.rs"
@@ -31734,6 +31862,9 @@
  "{0} no tiene la columna «{1}»": [
   "crates/drivers/ksqldb/src/transfer.rs"
  ],
+ "{0} no tiene ninguna sentencia que ejecutar: DBine no arma el renombrado así; {1}": [
+  "src-tauri/src/commands/rename.rs"
+ ],
  "{0} no tiene sesiones persistentes (HTTP): la tabla de consultas muestra lo que corre ahora; no hay transacciones ni bloqueos de filas.": [
   "crates/drivers/clickhouse/src/monitor.rs"
  ],
@@ -31768,6 +31899,9 @@
  ],
  "{0} no tiene índices únicos: la unicidad solo la da la clave de la tabla.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "{0} no vuelve a crear «{1}» desde DBine: lo que nombra lo renombrado solo se lista, porque recrearlo le cambiaría el dueño, los permisos o los datos; corregilo a mano": [
+  "src-tauri/src/commands/rename.rs"
  ],
  "{0} objetos inválidos": [
   "crates/drivers/hana/src/health.rs",
@@ -31821,6 +31955,15 @@
  ],
  "{0} se creó con errores de compilación.": [
   "crates/drivers/oracle/src/lib.rs"
+ ],
+ "{0} se parte en {1} sentencias al ejecutarla: DBine no la ejecuta así; {2}": [
+  "src-tauri/src/commands/rename.rs"
+ ],
+ "{0} se partiría en varias sentencias al ejecutar el cambio de nombre, así que DBine no lo renombra: hacelo a mano": [
+  "crates/drivers/dremio/src/rename.rs"
+ ],
+ "{0} se partiría en varias sentencias al ejecutarlo, así que DBine no lo hace: renombrá a mano": [
+  "crates/drivers/athena/src/rename.rs"
  ],
  "{0} se reconstruye (copia de los datos, tabla nueva y vuelta de los datos): DuckDB no cambia claves ni restricciones con ALTER. Falla si otras tablas la referencian.": [
   "crates/drivers/duckdb/src/schema.rs"
@@ -31971,6 +32114,9 @@
  ],
  "{0} tiene que ser un número entero: {1}": [
   "crates/drivers/cassandra/src/ddl.rs"
+ ],
+ "{0} tiene una línea que dice solo GO: al ejecutarla se partiría en {1} lotes; {2}": [
+  "src-tauri/src/commands/rename.rs"
  ],
  "{0} trigger(s) de base (DDL) no se clonan: se dispararían con el propio script al reanudar": [
   "crates/drivers/sqlserver/src/clone.rs"
@@ -32315,6 +32461,9 @@
  ],
  "{0}: TiDB no cambia una clave primaria entre CLUSTERED y NONCLUSTERED con ALTER; hay que recrear la tabla.": [
   "crates/drivers/mysql/src/design.rs"
+ ],
+ "{0}: abre otra sesión con su propia transacción, que la de solo lectura no protege; una lectura protegida no lo usa.": [
+  "crates/drivers/postgres/src/session.rs"
  ],
  "{0}: cambia el índice clúster; la tabla se reorganiza entera y puede tardar si tiene muchos datos.": [
   "crates/drivers/sqlserver/src/structure.rs"
@@ -33277,6 +33426,9 @@
  "«{0}» solo lleva names y roles, no «{1}»": [
   "crates/drivers/couchdb/src/properties.rs"
  ],
+ "«{0}» tiene caracteres (`, \\, ; o de control) que DBine no escribe en un script de OrientDB: hacelo desde la consola del servidor": [
+  "crates/drivers/orientdb/src/lib.rs"
+ ],
  "«{0}» tiene caracteres que no se admiten en un nombre de usuario o rol": [
   "crates/drivers/elasticsearch/src/security.rs"
  ],
@@ -33327,6 +33479,9 @@
  ],
  "«{0}» tiene que ser un objeto JSON.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "«{0}» tiene un argumento de un tipo que DBine no reconoce («{1}»): no se renombra (hacelo desde Snowsight o SnowSQL).": [
+  "crates/drivers/snowflake/src/rename.rs"
  ],
  "«{0}» tiene una barra invertida: DBine no renombra esa base (hacelo desde Snowsight o SnowSQL).": [
   "crates/drivers/snowflake/src/rename.rs"

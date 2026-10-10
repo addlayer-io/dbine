@@ -8,13 +8,14 @@
 //! The same runs on Presto with `DBINE_TEST_PRESTO_URL` (`prestodb/presto`,
 //! memory catalog).
 //!
-//! Trino doesn't follow views: they are rewritten with
-//! `rewrite_references` and put back with `CREATE OR REPLACE` after the
-//! rename, as the app does (statement by statement: the memory catalog
-//! takes no DDL in a transaction). The memory catalog has no keys, indexes,
+//! Trino doesn't follow views, and DBine doesn't put them back either
+//! (re-created, they would belong to the renaming user): the views that
+//! name the target are listed for the user, as the app does, and keep
+//! naming the old object. Statements run one by one: the memory catalog
+//! takes no DDL in a transaction. The memory catalog has no keys, indexes,
 //! checks or routines; the rest of the fixture is there.
 
-use dbine_driver::rename::{rewrite_references, with_create_style, RenameTarget, RewriteOptions};
+use dbine_driver::rename::{rewrite_references, with_create_style, ReferenceStyle, RenameTarget, RewriteOptions};
 use dbine_driver::{Confidence, ConnectionConfig, DependencyScan, Driver, ObjectRef, QueryOutcome, Relation, RenameRequest, Session};
 use serde_json::Value;
 
@@ -61,7 +62,7 @@ async fn rename(d: &dyn Driver, c: &ConnectionConfig, target: RenameTarget, new:
     let mut statements = script.statements;
     let mut manual = Vec::new();
     for dep in report.items.iter().filter(|x| x.relation == Relation::Code) {
-        if dep.confidence == Confidence::Review {
+        if dep.confidence == Confidence::Review || spec.references == ReferenceStyle::None {
             manual.push(dep.name.clone());
             continue;
         }
@@ -121,37 +122,49 @@ async fn run(d: &dyn Driver, c: &ConnectionConfig) {
     // Upper case is refused before reaching the server.
     assert!(matches!(rename(d, &c, column(), "Nuevo").await, Err(dbine_driver::Error::Unsupported(_))));
 
+    let names = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+
     if d.info().id == "presto" {
         // Presto's memory connector renames no columns: the server says so
-        // at the first statement, before any view is touched.
+        // at the first statement.
         let err = rename(d, &c, column(), "nuevo pepe").await.unwrap_err().to_string();
         assert!(err.contains("RENAME COLUMN") && err.contains("not support"), "{err}");
         assert_eq!(one(s.as_mut(), "SELECT pepe FROM rn_it.v").await, "a");
     } else {
-        // Column: the views keep their output name, the same-named column
-        // of t3 is left alone, the view in another schema follows.
+        // Column: the views that read it are listed, not put back, and
+        // still name the old column; the same-named column of t3 is
+        // nobody's business.
         let manual = rename(d, &c, column(), "nuevo pepe").await.unwrap();
-        assert!(manual.is_empty(), "{manual:?}");
-        assert_eq!(one(s.as_mut(), "SELECT pepe FROM rn_it.v").await, "a");
-        assert_eq!(one(s.as_mut(), "SELECT pepe FROM rn_other.far").await, "a");
-        assert_eq!(one(s.as_mut(), "SELECT pepe FROM rn_it.other").await, "z");
+        assert_eq!(manual, names(&["far", "v"]));
         assert_eq!(one(s.as_mut(), "SELECT \"nuevo pepe\" FROM rn_it.t").await, "a");
+        assert_eq!(one(s.as_mut(), "SELECT pepe FROM rn_it.other").await, "z");
+        fails(d, &c, "SELECT pepe FROM rn_it.v").await;
+        fails(d, &c, "SELECT pepe FROM rn_other.far").await;
+        // Back, for what follows: nothing names "nuevo pepe".
+        let back = RenameTarget::Column { table: obj("table", "t"), column: "nuevo pepe".into() };
+        assert!(rename(d, &c, back, "pepe").await.unwrap().is_empty());
+        assert_eq!(one(s.as_mut(), "SELECT pepe FROM rn_it.v").await, "a");
     }
 
-    // Table.
-    rename(d, &c, table(), "t_nueva").await.unwrap();
-    assert_eq!(one(s.as_mut(), "SELECT count(*) FROM rn_it.v").await, "1");
-    assert_eq!(one(s.as_mut(), "SELECT count(*) FROM rn_other.far").await, "1");
+    // Table: the same.
+    assert_eq!(rename(d, &c, table(), "t_nueva").await.unwrap(), names(&["far", "v"]));
     assert_eq!(one(s.as_mut(), "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'rn_it' AND table_name = 't'").await, "0");
+    fails(d, &c, "SELECT count(*) FROM rn_it.v").await;
+    fails(d, &c, "SELECT count(*) FROM rn_other.far").await;
+    let back = RenameTarget::Object { object: obj("table", "t_nueva"), parent: None };
+    assert!(rename(d, &c, back, "t").await.unwrap().is_empty());
+    assert_eq!(one(s.as_mut(), "SELECT count(*) FROM rn_it.v").await, "1");
 
-    // View, with a view on it.
+    // View, with a view on it: renamed through ALTER (it keeps its owner),
+    // the one on it listed.
     s.execute("CREATE VIEW rn_it.w AS SELECT pepe FROM rn_it.v", 10, &mut out).await.unwrap();
-    rename(d, &c, RenameTarget::Object { object: obj("view", "v"), parent: None }, "v2").await.unwrap();
-    assert_eq!(one(s.as_mut(), "SELECT pepe FROM rn_it.w").await, "a");
+    assert_eq!(rename(d, &c, RenameTarget::Object { object: obj("view", "v"), parent: None }, "v2").await.unwrap(), names(&["w"]));
+    assert_eq!(one(s.as_mut(), "SELECT pepe FROM rn_it.v2").await, "a");
     assert_eq!(one(s.as_mut(), "SELECT count(*) FROM information_schema.views WHERE table_schema = 'rn_it' AND table_name = 'v'").await, "0");
+    fails(d, &c, "SELECT pepe FROM rn_it.w").await;
 
-    // Schema: the view that names it qualified follows; the ones inside it
-    // that name tables unqualified are what the warning is about.
+    // Schema: the views that name it are listed; the ones inside it that
+    // name tables unqualified are what the warning is about.
     let schema = RenameTarget::Schema { database: Some("memory".into()), schema: "rn_it".into() };
     let w = d.rename_script(&RenameRequest { target: schema.clone(), new_name: "rn_it_b".into(), table: None, definition: None }).unwrap().warnings;
     assert_eq!(w.len(), 1);
@@ -161,11 +174,18 @@ async fn run(d: &dyn Driver, c: &ConnectionConfig) {
         clean(s.as_mut()).await;
         return;
     }
-    rename(d, &c, schema, "rn_it_b").await.unwrap();
-    assert_eq!(one(s.as_mut(), "SELECT count(*) FROM rn_other.far").await, "1");
-    assert_eq!(one(s.as_mut(), "SELECT count(*) FROM rn_it_b.t_nueva").await, "1");
+    let manual = rename(d, &c, schema, "rn_it_b").await.unwrap();
+    assert!(manual.contains(&"far".to_string()), "{manual:?}");
+    assert_eq!(one(s.as_mut(), "SELECT count(*) FROM rn_it_b.t").await, "1");
+    fails(d, &c, "SELECT count(*) FROM rn_other.far").await;
 
     clean(s.as_mut()).await;
+}
+
+/// A view left naming what was renamed no longer runs.
+async fn fails(d: &dyn Driver, c: &ConnectionConfig, sql: &str) {
+    let mut s = d.connect(c, None).await.unwrap();
+    assert!(s.execute(sql, 10, &mut QueryOutcome::default()).await.is_err(), "{sql} still runs");
 }
 
 /// One by one: Presto has no `DROP SCHEMA … CASCADE`.

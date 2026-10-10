@@ -147,6 +147,30 @@ DBine only changes what it is sure is the object:
 - In MongoDB the collections in `viewOn`, `$lookup.from`, `$unionWith.coll`,
   `$out` and `$merge` are rewritten. Renaming a field doesn't rewrite views.
 
+Rewriting never edits the clauses that say who the code runs as: MySQL and
+MariaDB `DEFINER`, `SQL SECURITY`, `SECURITY DEFINER|INVOKER`, Oracle
+`AUTHID` and `EXECUTE AS`. A user or role called like the renamed object
+stays as it was. If a rewrite would still change a `DEFINER`, the dependent is
+left for review.
+
+Some engines never get their dependents re-created. On Snowflake and on
+Trino, Presto and Starburst (`RenameSpec.references` is `None`), everything
+that names the object is only listed, to fix by hand: views, materialized
+views, functions, procedures, tasks, streams and dynamic tables on Snowflake;
+views, materialized views and SQL functions on the Trino family. Re-creating
+them would hand the object to the renaming role and lose its security
+settings (and, on Snowflake, the schedule of tasks, the offset of streams and
+the rows of materialized and dynamic tables). The app also refuses any
+rewrite sent for such an engine.
+
+Every statement of the script is checked before it runs: the driver's rename
+statements, each rewritten or carried dependent and the final statement must
+be exactly one statement as the engine's own splitter cuts it. If stored code
+would split into more (a `;` or a `GO` line the quoting doesn't hold, or `//`
+comments on Dremio and Drill, which read them as comments like the server),
+the rename is refused naming the object. Athena also checks the catalog's
+type of a column against a strict type grammar before renaming it.
+
 Rewritten objects come back with the statement that preserves their
 permissions when the engine has one (`CREATE OR ALTER` in SQL Server,
 `CREATE OR REPLACE` in Oracle, in PostgreSQL routines and in MySQL views).

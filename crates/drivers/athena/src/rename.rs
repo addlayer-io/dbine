@@ -18,7 +18,7 @@
 
 use crate::ddl::{column, q, TABLE_TYPE};
 use dbine_driver::rename::{quote_new, rename_header, Fold, RenameRequest, RenameSpec, RenameTarget, ReferenceStyle, ReplaceStyle};
-use dbine_driver::sql::{qualified_name, Quote, ScriptDialect};
+use dbine_driver::sql::{qualified_name, split_script, Quote, ScriptDialect};
 use dbine_driver::{kinds, ColumnDef, Error, ObjectRef, Result, SyncScript};
 
 pub const NOTE: &str = "Athena renombra tablas y columnas solo si son Iceberg: con una tabla externa (Hive) el servidor rechaza el cambio de nombre de la tabla, y DBine no renombra sus columnas porque en Parquet u ORC dejarían de leer sus datos. Las vistas se renombran creándolas con el nombre nuevo y borrando la anterior. Las vistas que usan el objeto no se actualizan solas: DBine las reescribe y las repone con CREATE OR REPLACE VIEW. Las sentencias no son transaccionales.";
@@ -75,7 +75,9 @@ pub fn script(req: &RenameRequest) -> Result<SyncScript> {
                 Some(s) => format!("{}.{}", bare(s), bare(&object.name)),
                 None => bare(&object.name),
             };
-            Ok(SyncScript { statements: vec![create, format!("DROP VIEW {old};")], warnings: vec![VIEW_RECREATED.into()] })
+            let statements = vec![create, format!("DROP VIEW {old};")];
+            one_unit_each(&statements, &format!("la definición de la vista «{}»", object.name))?;
+            Ok(SyncScript { statements, warnings: vec![VIEW_RECREATED.into()] })
         }
         RenameTarget::Object { .. } => Err(Error::Unsupported("Athena solo renombra tablas, vistas y columnas".into())),
         RenameTarget::Column { table, column: name } => {
@@ -93,12 +95,149 @@ pub fn script(req: &RenameRequest) -> Result<SyncScript> {
                 .find(|c| c.name == *name)
                 .or_else(|| t.columns.iter().find(|c| c.name.eq_ignore_ascii_case(name)))
                 .ok_or_else(|| Error::Query(format!("la tabla «{}» no tiene la columna «{name}»", table.name)))?;
+            // CHANGE COLUMN restates the type as Glue keeps it: only a type
+            // the grammar below reads goes into the statement.
+            if !valid_type(&c.data_type) {
+                return Err(Error::Unsupported(format!(
+                    "el tipo de la columna «{}» en el catálogo ({}) no es un tipo de Athena que DBine reconozca, así que no la renombra: hacelo a mano con ALTER TABLE … CHANGE COLUMN",
+                    c.name,
+                    printable(&c.data_type)
+                )));
+            }
             let renamed = column(&ColumnDef { name: new.into(), ..c.clone() });
-            Ok(SyncScript { statements: vec![format!("ALTER TABLE {} CHANGE COLUMN {} {renamed};", ddl_name(table), q(&c.name))], warnings: vec![] })
+            let statements = vec![format!("ALTER TABLE {} CHANGE COLUMN {} {renamed};", ddl_name(table), q(&c.name))];
+            one_unit_each(&statements, &format!("el cambio de nombre de la columna «{}»", c.name))?;
+            Ok(SyncScript { statements, warnings: vec![] })
         }
         RenameTarget::Index { .. } => Err(Error::Unsupported("Athena no tiene índices".into())),
         RenameTarget::Constraint { .. } => Err(Error::Unsupported("Athena no tiene restricciones".into())),
         RenameTarget::Schema { .. } => Err(Error::Unsupported("Athena no renombra bases de datos".into())),
+    }
+}
+
+/// Each statement must reach Athena whole: `execute` cuts what it gets with
+/// the generic dialect, so a stored text whose `;` sits outside what that
+/// dialect reads as a string or a comment would run what follows on its own.
+fn one_unit_each(statements: &[String], what: &str) -> Result<()> {
+    if statements.iter().any(|s| split_script(s, &ScriptDialect::generic()).len() > 1) {
+        return Err(Error::Unsupported(format!(
+            "{what} se partiría en varias sentencias al ejecutarlo, así que DBine no lo hace: renombrá a mano"
+        )));
+    }
+    Ok(())
+}
+
+/// Glue's type, cut short and on one line, for an error message.
+fn printable(ty: &str) -> String {
+    let one_line: String = ty.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    match one_line.char_indices().nth(80) {
+        Some((at, _)) => format!("{}…", &one_line[..at]),
+        None => one_line,
+    }
+}
+
+/// Athena's (Hive DDL) primitive type names.
+const PRIMITIVES: &[&str] = &[
+    "BOOLEAN", "TINYINT", "SMALLINT", "INT", "INTEGER", "BIGINT", "FLOAT", "REAL", "DOUBLE", "DECIMAL", "NUMERIC", "CHAR", "VARCHAR",
+    "STRING", "BINARY", "DATE", "TIMESTAMP", "TIMESTAMPTZ", "TIME", "UUID",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Tok<'a> {
+    Word(&'a str),
+    Num,
+    Sym(u8),
+}
+
+/// A column type as Athena's DDL writes it: a primitive (`int`, `string`…),
+/// `decimal(p[,s])`, `char(n)`, `varchar(n)`, or `array<t>`, `map<k,v>`,
+/// `struct<name:t,…>` nested up to [`MAX_DEPTH`] levels. Only ASCII
+/// letters, digits, `_`, spaces and `( ) , < > :`: no quotes, `;`,
+/// comments, backticks or line breaks.
+fn valid_type(ty: &str) -> bool {
+    if ty.trim().is_empty() || !ty.bytes().all(|c| c.is_ascii_alphanumeric() || b"_ (),<>:".contains(&c)) {
+        return false;
+    }
+    let b = ty.as_bytes();
+    let mut toks = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b' ' => i += 1,
+            c if b"(),<>:".contains(&c) => {
+                toks.push(Tok::Sym(c));
+                i += 1;
+            }
+            c if c.is_ascii_digit() => {
+                while i < b.len() && b[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i < b.len() && (b[i].is_ascii_alphabetic() || b[i] == b'_') {
+                    return false;
+                }
+                toks.push(Tok::Num);
+            }
+            _ => {
+                let s = i;
+                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+                    i += 1;
+                }
+                toks.push(Tok::Word(&ty[s..i]));
+            }
+        }
+    }
+    let mut pos = 0;
+    parse_type(&toks, &mut pos, 0) && pos == toks.len()
+}
+
+const MAX_DEPTH: usize = 8;
+
+fn parse_type(toks: &[Tok], pos: &mut usize, depth: usize) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    let Some(Tok::Word(w)) = toks.get(*pos) else { return false };
+    let name = w.to_ascii_uppercase();
+    *pos += 1;
+    let sym = |pos: &mut usize, c: u8| {
+        let ok = toks.get(*pos) == Some(&Tok::Sym(c));
+        if ok {
+            *pos += 1;
+        }
+        ok
+    };
+    let num = |pos: &mut usize| {
+        let ok = toks.get(*pos) == Some(&Tok::Num);
+        if ok {
+            *pos += 1;
+        }
+        ok
+    };
+    match name.as_str() {
+        "ARRAY" => sym(pos, b'<') && parse_type(toks, pos, depth + 1) && sym(pos, b'>'),
+        "MAP" => sym(pos, b'<') && parse_type(toks, pos, depth + 1) && sym(pos, b',') && parse_type(toks, pos, depth + 1) && sym(pos, b'>'),
+        "STRUCT" => {
+            if !sym(pos, b'<') {
+                return false;
+            }
+            loop {
+                // A field: `name:type`, the name a plain word.
+                let Some(Tok::Word(_)) = toks.get(*pos) else { return false };
+                *pos += 1;
+                if !(sym(pos, b':') && parse_type(toks, pos, depth + 1)) {
+                    return false;
+                }
+                if sym(pos, b'>') {
+                    return true;
+                }
+                if !sym(pos, b',') {
+                    return false;
+                }
+            }
+        }
+        "DECIMAL" | "NUMERIC" => !sym(pos, b'(') || (num(pos) && (!sym(pos, b',') || num(pos)) && sym(pos, b')')),
+        "CHAR" | "VARCHAR" => !sym(pos, b'(') || (num(pos) && sym(pos, b')')),
+        n => PRIMITIVES.contains(&n),
     }
 }
 
@@ -176,6 +315,78 @@ mod tests {
         assert_eq!(script(&r).unwrap().statements, ["ALTER TABLE `ventas` CHANGE COLUMN `importe` `monto` decimal(10,2) COMMENT 'El importe';"]);
         r.table = Some(table("parquet"));
         assert!(matches!(script(&r), Err(Error::Unsupported(_))));
+    }
+
+    #[test]
+    fn column_types_glue_gives() {
+        for ty in [
+            "int",
+            "BIGINT",
+            "string",
+            "decimal(10,2)",
+            "decimal(38, 0)",
+            "decimal",
+            "varchar(255)",
+            "char(3)",
+            "timestamp",
+            "array<string>",
+            "map<string,array<int>>",
+            "struct<a:int,b:struct<c:string,d:array<decimal(10,2)>>>",
+            "array<struct<id:bigint,tags:map<string,string>>>",
+        ] {
+            assert!(valid_type(ty), "{ty}");
+        }
+    }
+
+    #[test]
+    fn column_types_refused() {
+        let deep = format!("{}int{}", "array<".repeat(MAX_DEPTH + 1), ">".repeat(MAX_DEPTH + 1));
+        assert!(valid_type(&format!("{}int{}", "array<".repeat(MAX_DEPTH), ">".repeat(MAX_DEPTH))));
+        for ty in [
+            "",
+            "int; DROP TABLE finance.salaries; --",
+            "int;",
+            "int -- x",
+            "int /* x */",
+            "int\nDROP",
+            "string COMMENT 'x'",
+            "varchar(10",
+            "decimal(10,2,3)",
+            "array<int",
+            "map<string>",
+            "struct<a int>",
+            "struct<`a`:int>",
+            "struct<>",
+            "array<foo>",
+            "int int",
+            "9int",
+            "varchar(n)",
+            &deep,
+        ] {
+            assert!(!valid_type(ty), "{ty:?}");
+        }
+    }
+
+    #[test]
+    fn a_column_with_a_type_outside_the_grammar_is_not_renamed() {
+        let mut r = req(RenameTarget::Column { table: obj("table", "ventas"), column: "importe".into() }, "monto");
+        let mut t = table("iceberg");
+        t.columns[0].data_type = "int; DROP TABLE finance.salaries; --".into();
+        r.table = Some(t);
+        assert!(matches!(script(&r), Err(Error::Unsupported(m)) if m.contains("«importe»") && !m.contains('\n')));
+        let mut t = table("iceberg");
+        t.columns[0].data_type = "struct<a:int,b:array<string>>".into();
+        r.table = Some(t);
+        assert_eq!(script(&r).unwrap().statements, ["ALTER TABLE `ventas` CHANGE COLUMN `importe` `monto` struct<a:int,b:array<string>> COMMENT 'El importe';"]);
+    }
+
+    #[test]
+    fn a_view_whose_text_would_split_is_not_renamed() {
+        let mut r = req(RenameTarget::Object { object: obj("view", "v"), parent: None }, "w");
+        r.definition = Some("CREATE VIEW v AS SELECT 1 AS x; DROP TABLE finance.salaries".into());
+        assert!(matches!(script(&r), Err(Error::Unsupported(m)) if m.contains("«v»")));
+        r.definition = Some("CREATE VIEW v AS SELECT 'a;b' AS x -- c;d\nFROM t".into());
+        assert_eq!(script(&r).unwrap().statements, ["CREATE VIEW w AS SELECT 'a;b' AS x -- c;d\nFROM t;", "DROP VIEW v;"]);
     }
 
     #[test]

@@ -809,15 +809,25 @@ struct Writer<'a> {
     body: &'a str,
     subs: Vec<(usize, usize, String)>,
     unresolved: Vec<(usize, UnresolvedReason)>,
+    /// Byte ranges never edited ([`who_it_runs_as`]).
+    kept: Vec<(usize, usize)>,
 }
 
 impl Writer<'_> {
+    fn kept(&self, at: usize) -> bool {
+        self.kept.iter().any(|&(s, e)| at >= s && at < e)
+    }
+
     fn sub(&mut self, start: usize, end: usize, text: String) {
-        self.subs.push((start, end, text));
+        if !self.kept(start) {
+            self.subs.push((start, end, text));
+        }
     }
 
     fn unsure(&mut self, at: usize, reason: UnresolvedReason) {
-        self.unresolved.push((at, reason));
+        if !self.kept(at) {
+            self.unresolved.push((at, reason));
+        }
     }
 
     fn finish(mut self) -> Rewrite {
@@ -886,7 +896,7 @@ pub fn rewrite_references(
     opts: &RewriteOptions,
 ) -> Rewrite {
     let toks = tokens(body, dialect);
-    let mut w = Writer { body, subs: Vec::new(), unresolved: Vec::new() };
+    let mut w = Writer { body, subs: Vec::new(), unresolved: Vec::new(), kept: who_it_runs_as(&toks) };
     match (spec.references, target) {
         (ReferenceStyle::None, _) => {}
         (ReferenceStyle::Pipeline, RewriteTarget::Object { object }) => pipeline(&mut w, &toks, &object.name, new_name),
@@ -896,6 +906,37 @@ pub fn rewrite_references(
         (ReferenceStyle::Sql, RewriteTarget::Schema { schema }) => schemas(&mut w, &toks, dialect, spec.fold, schema, new_name),
     }
     w.finish()
+}
+
+/// The clauses that say whom a definition runs as, never a reference
+/// however they're spelled: a user called like the renamed object stays
+/// who it was. MySQL and MariaDB `DEFINER = user@host` (or
+/// `CURRENT_USER[()]`), `SQL SECURITY DEFINER|INVOKER` and PostgreSQL's or
+/// Trino's `SECURITY DEFINER|INVOKER`, Oracle's `AUTHID DEFINER|
+/// CURRENT_USER`, and `EXECUTE AS OWNER|CALLER|SELF|RESTRICTED CALLER|
+/// 'user'` (SQL Server, Snowflake). Byte ranges of `body`.
+fn who_it_runs_as(toks: &[Tok<'_>]) -> Vec<(usize, usize)> {
+    let word = |i: usize, w: &str| toks.get(i).is_some_and(|t| t.word(w));
+    let mut out = Vec::new();
+    let mut keep = |from: usize, to: usize| {
+        if let (Some(a), Some(b)) = (toks.get(from), toks.get(to.min(toks.len().saturating_sub(1)))) {
+            out.push((a.start, b.end.max(a.end)));
+        }
+    };
+    for i in 0..toks.len() {
+        if word(i, "definer") && toks.get(i + 1).is_some_and(|t| t.punct("=")) {
+            // user, user@host, CURRENT_USER, CURRENT_USER()
+            let at = i + 2;
+            let host = toks.get(at + 1).is_some_and(|t| t.punct("@"));
+            let call = toks.get(at + 1).is_some_and(|t| t.punct("(")) && toks.get(at + 2).is_some_and(|t| t.punct(")"));
+            keep(at, if host || call { at + 2 } else { at });
+        } else if (word(i, "security") && (word(i + 1, "definer") || word(i + 1, "invoker"))) || word(i, "authid") {
+            keep(i + 1, i + 1);
+        } else if (word(i, "execute") || word(i, "exec")) && word(i + 1, "as") {
+            keep(i + 2, if word(i + 2, "restricted") { i + 3 } else { i + 2 });
+        }
+    }
+    out
 }
 
 /// Kinds a `name(` may also be a same-named function for.
@@ -1403,6 +1444,46 @@ mod tests {
 
     fn view(body: &str, d: &ScriptDialect, target: &RewriteTarget, new: &str) -> Rewrite {
         rewrite_references(body, d, target, new, &spec(Fold::None), &RewriteOptions { keep_view_columns: true, ..Default::default() })
+    }
+
+    #[test]
+    fn who_a_definition_runs_as_is_never_rewritten() {
+        let my = ScriptDialect::mysql();
+        // MySQL: the definer is called like the renamed table.
+        for (body, want) in [
+            (
+                "CREATE ALGORITHM=UNDEFINED DEFINER=`admin`@`%` SQL SECURITY DEFINER VIEW `v` AS select `admin`.`id` AS `id` from `admin`",
+                "CREATE ALGORITHM=UNDEFINED DEFINER=`admin`@`%` SQL SECURITY DEFINER VIEW `v` AS select `cuentas`.`id` AS `id` from `cuentas`",
+            ),
+            (
+                "CREATE DEFINER=admin@localhost PROCEDURE p() BEGIN SELECT COUNT(*) FROM admin; END",
+                "CREATE DEFINER=admin@localhost PROCEDURE p() BEGIN SELECT COUNT(*) FROM cuentas; END",
+            ),
+            (
+                "CREATE DEFINER = 'admin'@'%' TRIGGER tg BEFORE INSERT ON t FOR EACH ROW INSERT INTO admin VALUES (1)",
+                "CREATE DEFINER = 'admin'@'%' TRIGGER tg BEFORE INSERT ON t FOR EACH ROW INSERT INTO cuentas VALUES (1)",
+            ),
+            ("CREATE DEFINER=admin VIEW v AS SELECT 1 FROM admin", "CREATE DEFINER=admin VIEW v AS SELECT 1 FROM cuentas"),
+        ] {
+            let r = rw(body, &my, &table("", "admin"), "cuentas");
+            assert_eq!(r.text, want);
+            assert!(r.unresolved.is_empty(), "{:?}", r.unresolved);
+        }
+        // SQL SECURITY, SECURITY, AUTHID and EXECUTE AS keep their word
+        // when the renamed object is called like it.
+        let cases: [(&str, ScriptDialect, &str); 5] = [
+            ("definer", my, "CREATE SQL SECURITY DEFINER VIEW v AS SELECT a FROM definer"),
+            ("invoker", ScriptDialect::postgres(), "CREATE FUNCTION f() RETURNS int LANGUAGE sql SECURITY INVOKER RETURN (SELECT count(*) FROM invoker)"),
+            ("definer", ScriptDialect::oracle(), "CREATE OR REPLACE PROCEDURE p AUTHID DEFINER AS BEGIN DELETE FROM definer; END;"),
+            ("owner", tsql(), "CREATE PROCEDURE dbo.p WITH EXECUTE AS OWNER AS SELECT a FROM owner"),
+            ("caller", ScriptDialect::generic(), "CREATE PROCEDURE p() RETURNS int LANGUAGE SQL EXECUTE AS RESTRICTED CALLER AS 'SELECT 1'; SELECT a FROM caller"),
+        ];
+        for (name, d, body) in cases {
+            let r = rw(body, &d, &table("", name), "nuevo");
+            let keyword = body.split_whitespace().find(|w| w.eq_ignore_ascii_case(name)).unwrap();
+            assert!(r.text.contains(keyword) && r.text.contains("nuevo"), "{body} => {}", r.text);
+            assert_eq!(r.text.matches("nuevo").count(), 1, "{}", r.text);
+        }
     }
 
     #[test]
