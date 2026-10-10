@@ -30,6 +30,7 @@ Writes to <out-dir>:
 
   scripts/build-driver-hosts.py <target> <out-dir> <base-url> [<published index>]
       [--only <pkg>[,<pkg>…]] [--no-catalog] [--app-version X.Y.Z]
+      [--shard I/N] [--prebuilt <dir>]
 
 Without --only it's an app release: every driver with a new version gets
 built and the app being released (--app-version, by default the workspace
@@ -37,6 +38,12 @@ version) is the newest min_app. --only builds just those drivers (a driver
 release, .github/workflows/drivers.yml): the other drivers' problems are only
 warnings, and if no released app can run what's built it fails (release the
 app first). --no-catalog skips plugins.json and its check.
+
+An app release spreads the builds over several CI jobs: --shard I/N builds
+only every N-th host to build (from the I-th, counting from 0) into <out-dir>
+and writes nothing else (no checks, index or catalog: the full run does
+them). The full run then takes --prebuilt <dir>, the shards' .gz files, and
+builds only the hosts that aren't there.
 
 Cross-compiling (Windows from macOS): CARGO_BUILD="cargo xwin build".
 Hosts to build at once: DBINE_DRIVER_JOBS (default: one per four CPUs, up
@@ -121,8 +128,15 @@ def parse_args(argv=None):
     ap.add_argument("--only", action="append", default=[], help="solo estos drivers (repetible o separados por coma)")
     ap.add_argument("--no-catalog", action="store_true", help="sin plugins.json ni su chequeo")
     ap.add_argument("--app-version", help="la versión de la app que se publica (por defecto, la del workspace)")
+    ap.add_argument("--shard", help="I/N: solo uno de cada N drivers a compilar, desde el I (desde 0); solo los .gz")
+    ap.add_argument("--prebuilt", help="carpeta con los .gz ya compilados (por --shard): esos no se compilan")
     args = ap.parse_args(argv)
     args.only = {p.strip() for o in args.only for p in o.split(",") if p.strip()}
+    if args.shard:
+        m = re.fullmatch(r"(\d+)/(\d+)", args.shard)
+        if not m or not 0 <= int(m.group(1)) < int(m.group(2)):
+            ap.error(f"--shard {args.shard}: tiene que ser I/N con 0 <= I < N")
+        args.shard = (int(m.group(1)), int(m.group(2)))
     return args
 
 
@@ -205,7 +219,9 @@ def main():
     native_dir = ROOT / "target" / (target if native else "") / "release"
     # With --only, a host with just those drivers says the same about them.
     only_features = ["--no-default-features", "--features", ",".join(sorted(only))] if only else []
-    manifest = json.loads(run(["cargo", "run", "--quiet", "-p", "dbine-plugin-host", "--release", *native, *only_features, "--", "--manifest"], capture=True))
+    # A shard skips it (and the checks that use it): the full run does them.
+    shard = args.shard
+    manifest = [] if shard else json.loads(run(["cargo", "run", "--quiet", "-p", "dbine-plugin-host", "--release", *native, *only_features, "--", "--manifest"], capture=True))
 
     built, reused, errors, warnings, todo, skipped = [], [], [], [], [], []
     for pkg in packages:
@@ -232,7 +248,8 @@ def main():
             skipped.append(f"{pkg} {version}")
             continue
         ids = [m["info"]["id"] for m in manifest if m["package"] == pkg]
-        errors += check_new(pkg, version, entries, protocol, epoch, ids)
+        if not shard:
+            errors += check_new(pkg, version, entries, protocol, epoch, ids)
         declared = ((crate.get("metadata") or {}).get("dbine") or {}).get("min-app")
         try:
             declared and driver_index.version_key(declared)
@@ -241,9 +258,12 @@ def main():
             declared = None
         todo.append((pkg, version, driver_id, own, shared, declared))
 
+    if shard:
+        todo, errors = todo[shard[0]::shard[1]], []
+
     # The oldest app that can run what gets built now.
     min_app = None
-    if todo:
+    if todo and not shard:
         app_version = None
         if not only:
             app_version = args.app_version or re.search(r'\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"', (ROOT / "Cargo.toml").read_text("utf-8"), re.M | re.S).group(1)
@@ -276,8 +296,13 @@ def main():
     failed = threading.Event()
 
     def build(pkg, driver_id):
-        """Build one host and gzip it into `out`; the file name, or None if
-        skipped after another build failed."""
+        """Build one host and gzip it into `out` (or take it from --prebuilt);
+        the file name, or None if skipped after another build failed."""
+        file = f"dbine-driver-{pkg}-{driver_id}-{target}.gz"
+        if args.prebuilt and (Path(args.prebuilt) / file).is_file():
+            print(f"== {pkg} {driver_id}: ya compilado ({args.prebuilt})", flush=True)
+            shutil.copyfile(Path(args.prebuilt) / file, out / file)
+            return file
         target_dir = slots.get()
         try:
             if failed.is_set():
@@ -294,7 +319,6 @@ def main():
                 print(f"+ {' '.join(cmd)}\n{log}" if log.strip() or r.returncode else "", end="", flush=True)
                 if r.returncode:
                     raise subprocess.CalledProcessError(r.returncode, cmd)
-            file = f"dbine-driver-{pkg}-{driver_id}-{target}.gz"
             binary = target_dir / target / "release" / f"dbine-plugin-host{exe}"
             with open(binary, "rb") as src, gzip.open(out / file, "wb", compresslevel=9) as dst:
                 shutil.copyfileobj(src, dst)
@@ -316,6 +340,12 @@ def main():
     failures = [(t[0], f.exception()) for t, f in zip(todo, futures) if f.exception()]
     if failures:
         sys.exit("\n".join(["No compiló:", *(f"- {pkg}: {e}" for pkg, e in failures)]))
+
+    if shard:
+        files = [f.result() for f in futures]
+        (out / "new-files.txt").write_text("".join(f"{f}\n" for f in files), "utf-8", newline="\n")
+        print(f"Shard {shard[0]}/{shard[1]}: {len(files)} compilados" + (": " + ", ".join(t[0] for t in todo) if todo else ""))
+        return
 
     published_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for (pkg, version, driver_id, own, shared, entry_min_app), f in zip(todo, futures):
