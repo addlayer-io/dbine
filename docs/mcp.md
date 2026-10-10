@@ -53,17 +53,39 @@ Two caps always apply, whatever level is chosen:
 
 DBine's own check of the query text (below) is defense in depth, not the
 security boundary. What lets `run_query` and `explain` run without asking is
-the database server itself:
+the database server itself, and only for statements that call nothing but
+built-in, side-effect-free functions:
 
-- **Server-enforced read.** Where the engine supports it, `run_query` runs
+- **Server-enforced read.** Where the engine supports it, and the query
+  passes the function check below, `run_query` runs
   the query as **one statement** (the protocol refuses a second one) inside a
   **read-only transaction** the statement can't leave, rolled back
   afterwards (`Session::run_read_only`). The server refuses any write. A
   query with several statements is rejected: send one per call. `explain` on
   these engines gives the estimated plan on the read-only session (nothing
   runs).
+- **Function check.** Some functions act outside the transaction, and its
+  rollback doesn't undo them: pausing WAL replay, starting a backup,
+  resetting statistics, advisory locks, signalling other sessions, `dblink`,
+  a user's function written in an untrusted language. Others run SQL handed
+  to them as text (`ts_stat`, `query_to_xml`, `crosstab`…). So the
+  approval-free path uses an **allowlist**, never a list of what to block:
+  DBine reads the statement's tokens with the engine's dialect and finds
+  every function call, in subqueries too. If any of them isn't a built-in
+  of that engine on the list (aggregates, window functions, string, math,
+  date, conversion, JSON and array functions, and the catalog readers
+  metadata queries use, such as `pg_get_viewdef` or `pg_size_pretty`), the
+  query asks for approval as below. That covers user-defined functions,
+  schema-qualified names (except PostgreSQL built-ins under `pg_catalog`),
+  quoted names, functions that sleep, lock, touch sequences, settings or
+  files, and every function that runs SQL text. Statements in a language
+  other than SQL always ask. The check sees calls, not what an object runs
+  inside: a view, a user-defined cast or operator, or a user's function
+  that shadows a built-in's name can still call code, which the read-only
+  transaction contains but can't undo if it acts outside it.
 - **Approved read.** Where the engine can't enforce it (and with a driver
-  downloaded before this version, which doesn't know the call), DBine asks
+  downloaded before this version, which doesn't know the call), or the query
+  calls a function outside the allowlist, DBine asks
   you first, with the same dialog as writes (see [Approvals](#approvals)),
   marked as a **read**. Only after you approve it does the query run, in the
   read-only session described below. This also applies to `explain`: SQL

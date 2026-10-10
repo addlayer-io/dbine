@@ -4,6 +4,7 @@
 
 ### Fixes
 - **Rename on Snowflake and Trino, Presto and Starburst:** what names the renamed object (views, materialized views, functions, procedures and, on Snowflake, tasks, streams and dynamic tables) is listed for you to fix by hand instead of being re-created, so it keeps its owner and security settings. The rename is also refused when stored code would split into several statements, and rewriting dependents no longer changes who the code runs as (`DEFINER`, `SQL SECURITY`, `AUTHID`, `EXECUTE AS`).
+- **Queries from AI clients and the assistant:** a query runs without asking only when the database enforces it as read-only and it calls nothing but the engine's built-in, side-effect-free functions. One that calls any other function (a user's function, or one that acts outside the transaction such as pausing replication or taking a lock) waits for your approval first.
 
 ## [0.1.10] - 2026-10-10
 

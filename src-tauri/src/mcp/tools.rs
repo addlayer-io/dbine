@@ -1,8 +1,9 @@
 //! The tools MCP clients call. Structure tools need a connection at level
 //! `schema`; data tools (`sample_rows`, `run_query`, `explain`) need `read`
 //! and always run on a read-only session of their own; `run_query` and
-//! `explain` run without asking only where the server enforces the read,
-//! and otherwise after the user approves the query (`reads.rs`). `execute`
+//! `explain` run without asking only where the server enforces the read
+//! and the query calls only side-effect-free built-ins, and otherwise after
+//! the user approves the query (`reads.rs`). `execute`
 //! (writes) needs `write` and the user's approval of each call (`write.rs`).
 //! Answers are compact text; no tool ever shows hosts, users or secrets.
 
@@ -23,7 +24,8 @@ pub const INSTRUCTIONS: &str = "DBine exposes the user's saved database connecti
 then list_databases, list_objects and describe_object. Data tools (sample_rows, run_query, explain) only work on \
 connections the user set to the 'read' level, and every query they run is read-only: statements that change data or \
 structure are refused. run_query and explain run at once where the database server itself enforces the read as \
-read-only; on engines that can't, the user approves each query in DBine first (it waits up to 2 minutes for the answer). \
+read-only and the query calls only built-in, side-effect-free functions; otherwise (other functions, or engines that \
+can't enforce reads) the user approves each query in DBine first (it waits up to 2 minutes for the answer). \
 To change data or structure use execute, on connections at the 'write' level: the user must \
 approve each call in DBine (it waits up to 2 minutes for the answer). Pass database \"\" for engines without databases.";
 
@@ -312,6 +314,7 @@ async fn run(
             let limit = Duration::from_secs(arg_num(args, "timeout_seconds", TIMEOUT_DEFAULT, TIMEOUT_MAX));
             let (key, entry) = read_only_session(inner, &conn, db).await?;
             let routed = reads::route(
+                approval_free(&conn, query),
                 async {
                     match run_op(inner, &key, entry.clone(), Op::ReadOnly(query.to_string(), max as usize), limit).await {
                         Ok(out) => Ok(Attempt::Done(out)),
@@ -339,7 +342,10 @@ async fn run(
             // (asked with a trivial read, `Op::Probe`: only `Unsupported`
             // says it can't). Elsewhere (SQL Server runs the batch under SHOWPLAN)
             // the guard alone isn't a boundary: the user approves it first.
+            // A function outside the allowlist asks too: the planner may
+            // run one (a user's function declared IMMUTABLE).
             let routed = reads::route(
+                approval_free(&conn, query),
                 async {
                     match run_op(inner, &key, entry.clone(), Op::Probe, limit).await {
                         Err(RunFail::Unsupported) => Ok(Attempt::NotEnforced),
@@ -629,6 +635,15 @@ pub(super) fn refuse_writes_in(language: Language, query: &str) -> Result<(), St
         }
     }
     Ok(())
+}
+
+/// Whether `query` may skip the approval where the engine enforces reads:
+/// it calls only side-effect-free built-ins (`reads::approval_free`).
+fn approval_free(conn: &SavedConnection, query: &str) -> bool {
+    dbine_drivers::find(&conn.config.driver).is_some_and(|d| {
+        let info = d.info();
+        reads::approval_free(info.language, info.dialect, &d.script_dialect(), query).is_ok()
+    })
 }
 
 fn refuse_writes(conn: &SavedConnection, query: &str) -> Result<(), String> {
