@@ -1,7 +1,7 @@
 use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
-use dbine_core::export::{export_rows, ExportOptions, Exporter};
+use dbine_core::export::{export_rows, ExportOptions, Exporter, SourceStrings};
 use dbine_driver::sql::leading_keyword;
 use dbine_driver::{ConnectionConfig, Driver, Language, QueryOutcome, ResultColumn, RowSinkRef};
 use serde::{Deserialize, Serialize};
@@ -37,12 +37,12 @@ pub async fn export_rows_to_file(state: State<'_, AppState>, args: ExportRowsArg
     let started = std::time::Instant::now();
     let path = PathBuf::from(&args.path);
     let mut options = args.options;
-    // An unknown source (a multi-database grid, a connection gone) gets the
-    // form that reads the same on every engine: doubled quotes and escaped
-    // backslashes.
-    options.backslash_escapes = match args.connection_id.as_deref().map(|id| driver_of(&state, id)) {
-        Some(Ok(d)) => d.script_dialect().backslash_escapes,
-        _ => true,
+    // String literals of an SQL export follow the source engine; an unknown
+    // source (a multi-database grid, a connection gone) gets the form that
+    // ends in the same place on every engine.
+    options.source = match args.connection_id.as_deref().map(|id| driver_of(&state, id)) {
+        Some(Ok(d)) => SourceStrings::of(d.as_ref()),
+        _ => SourceStrings::Unknown,
     };
     let rows = tokio::task::spawn_blocking(move || export_rows(&path, options, &args.columns, &args.rows))
         .await
@@ -200,9 +200,9 @@ pub async fn export_query_to_file(
     let emitter = app.clone();
     let (written_cb, total_cb) = (written.clone(), total.clone());
     let mut last_emit: Option<Instant> = None;
-    // String literals of an SQL export follow the source engine's escaping.
+    // String literals of an SQL export follow the source engine.
     let mut options = args.options;
-    options.backslash_escapes = driver_of(&state, &args.connection_id).is_ok_and(|d| d.script_dialect().backslash_escapes);
+    options.source = driver_of(&state, &args.connection_id).map_or(SourceStrings::Unknown, |d| SourceStrings::of(d.as_ref()));
     let exporter = Arc::new(Mutex::new(
         Exporter::new(&path, args.result_index, options).on_progress(move |rows| {
             written_cb.store(rows, Ordering::Relaxed);
@@ -352,5 +352,172 @@ mod tests {
             ran += 1;
         }
         assert!(ran > 0, "no test server configured");
+    }
+
+    #[test]
+    fn sql_exports_know_how_each_source_reads_strings() {
+        let cases = [
+            ("postgres", SourceStrings::Postgres),
+            ("cockroachdb", SourceStrings::Postgres),
+            ("redshift", SourceStrings::Backslash),
+            ("sqlserver", SourceStrings::SqlServer),
+            ("babelfish", SourceStrings::SqlServer),
+            ("oracle", SourceStrings::Oracle),
+            ("sqlite", SourceStrings::Sqlite),
+            ("libsql", SourceStrings::Sqlite),
+            ("duckdb", SourceStrings::DuckDb),
+            ("mysql", SourceStrings::Backslash),
+            ("clickhouse", SourceStrings::Backslash),
+            ("snowflake", SourceStrings::Backslash),
+            ("firebird", SourceStrings::Unknown),
+        ];
+        for (id, want) in cases {
+            if let Some(d) = dbine_drivers::find(id) {
+                assert_eq!(SourceStrings::of(d.as_ref()), want, "{id}");
+            }
+        }
+    }
+
+    /// Values that have broken or bent string literals.
+    const TRICKY: [&str; 12] = [
+        "a\\b",
+        "\\",
+        "x\\'",
+        "x\\');DROP TABLE users;--",
+        "x\\');DROP TABLE users;#",
+        "ends with\\",
+        "\\\\",
+        "it's",
+        "line\nbreak\r\n",
+        "",
+        "x'); DROP TABLE users; --",
+        "C:\\temp\\new\\'' \\0 \\Z",
+    ];
+
+    async fn run(s: &mut Box<dyn dbine_driver::Session>, sql: &str) -> QueryOutcome {
+        let mut out = QueryOutcome::default();
+        s.execute(sql, 10_000, &mut out).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+        assert!(out.error.is_none(), "{sql}: {:?}", out.error);
+        out
+    }
+
+    /// Stores `values` in a table (through hex, which no string escaping
+    /// touches), reads them back, exports them as an SQL script with the
+    /// source set to the connection's driver, runs the script on the same
+    /// engine into a second table and checks every value came back exactly.
+    async fn sql_export_round_trip(cfg: ConnectionConfig, text_type: &str, from_hex: fn(&str) -> String, quote: &str, tables: (&str, &str), values: &[String]) {
+        let d = dbine_drivers::find(&cfg.driver).unwrap();
+        let source = SourceStrings::of(d.as_ref());
+        let mut s = dbine_drivers::open_session(&cfg, None).await.unwrap();
+        let (src, dst) = tables;
+        for t in [src, dst] {
+            run(&mut s, &format!("DROP TABLE IF EXISTS {t}")).await;
+            run(&mut s, &format!("CREATE TABLE {t} (id INT, v {text_type})")).await;
+        }
+        for (i, v) in values.iter().enumerate() {
+            let hex: String = v.bytes().map(|b| format!("{b:02x}")).collect();
+            run(&mut s, &format!("INSERT INTO {src} (id, v) VALUES ({i}, {})", from_hex(&hex))).await;
+        }
+        let select = |t: &str| format!("SELECT id, v FROM {t} ORDER BY id");
+        let read = run(&mut s, &select(src)).await.results.remove(0);
+        let stored: Vec<_> = read.rows.iter().map(|r| r[1].clone()).collect();
+        let want: Vec<_> = values.iter().map(|v| serde_json::json!(v)).collect();
+        assert_eq!(stored, want, "{}: the source table holds the values", cfg.driver);
+
+        let path = std::env::temp_dir().join(format!("dbine-export-rt-{}-{}.sql", cfg.driver, std::process::id()));
+        let options = ExportOptions {
+            format: dbine_core::export::Format::Sql,
+            table: dst.into(),
+            quote: quote.into(),
+            rows_per_insert: 1000,
+            source,
+            ..Default::default()
+        };
+        export_rows(&path, options, &read.columns, &read.rows).unwrap();
+        let script = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(!script.contains('\\'), "{}: no backslash in the script: {script}", cfg.driver);
+        // One INSERT; without its `;` (Oracle's OCI refuses it).
+        run(&mut s, script.trim_end().trim_end_matches(';')).await;
+        let back: Vec<_> = run(&mut s, &select(dst)).await.results.remove(0).rows.iter().map(|r| r[1].clone()).collect();
+        for t in [src, dst] {
+            run(&mut s, &format!("DROP TABLE IF EXISTS {t}")).await;
+        }
+        for (got, want) in back.iter().zip(&want) {
+            eprintln!("{} {source:?}: {want} -> {got}", cfg.driver);
+        }
+        assert_eq!(back, want, "{}: the script gives back the values exactly:\n{script}", cfg.driver);
+    }
+
+    fn tricky(extra: &[String]) -> Vec<String> {
+        TRICKY.iter().map(|v| v.to_string()).chain(extra.iter().cloned()).collect()
+    }
+
+    /// No server needed: a SQLite file.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sql_export_round_trips_on_sqlite() {
+        let path = std::env::temp_dir().join(format!("dbine-export-rt-{}.db", std::process::id()));
+        let cfg = ConnectionConfig { driver: "sqlite".into(), host: path.to_string_lossy().into(), ..Default::default() };
+        let values = tricky(&["a\0b".into(), "ab\\".repeat(3000)]);
+        sql_export_round_trip(cfg, "TEXT", |h| format!("CAST(X'{h}' AS TEXT)"), "double", ("rt_src", "rt_dst"), &values).await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// `DBINE_TEST_POSTGRES_URL=postgres://postgres:pw@localhost:25010/postgres`
+    /// `cargo test -p dbine --lib sql_export_round_trips -- --ignored --nocapture`
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn sql_export_round_trips_on_postgres() {
+        let Some(mut cfg) = cfg("postgres", "DBINE_TEST_POSTGRES_URL") else {
+            panic!("DBINE_TEST_POSTGRES_URL not set");
+        };
+        cfg.read_only = false;
+        cfg.database = "postgres".into();
+        // PostgreSQL text can't hold NUL.
+        let values = tricky(&["ab\\".repeat(3000), "ñandú \\ €".into()]);
+        sql_export_round_trip(cfg, "text", |h| format!("convert_from(decode('{h}', 'hex'), 'UTF8')"), "double", ("dbine_rt_src", "dbine_rt_dst"), &values).await;
+    }
+
+    /// `DBINE_TEST_SQLSERVER_URL='mssql://sa:Pw_12345!@localhost:25013'`
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn sql_export_round_trips_on_sqlserver() {
+        let Some(mut cfg) = cfg("sqlserver", "DBINE_TEST_SQLSERVER_URL") else {
+            panic!("DBINE_TEST_SQLSERVER_URL not set");
+        };
+        cfg.read_only = false;
+        cfg.database = "tempdb".into();
+        cfg.options.insert("auth".into(), "sql".into());
+        // Past 8000 characters: CONCAT has to return varchar(max).
+        let values = tricky(&["a\0b".into(), "ab\\".repeat(3000)]);
+        sql_export_round_trip(cfg, "varchar(max)", |h| format!("CAST(0x{h} AS varchar(max))"), "bracket", ("dbo.dbine_rt_src", "dbo.dbine_rt_dst"), &values).await;
+    }
+
+    /// `DBINE_TEST_ORACLE_URL=oracle://dbine:Dbine123@localhost:25601/FREEPDB1`
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn sql_export_round_trips_on_oracle() {
+        let Ok(url) = std::env::var("DBINE_TEST_ORACLE_URL") else {
+            panic!("DBINE_TEST_ORACLE_URL not set");
+        };
+        let rest = url.strip_prefix("oracle://").expect("oracle://user:pass@host:port/service");
+        let (cred, addr) = rest.split_once('@').unwrap();
+        let (user, pass) = cred.split_once(':').unwrap();
+        let (hostport, service) = addr.split_once('/').unwrap();
+        let (host, port) = hostport.split_once(':').unwrap();
+        let mut cfg = ConnectionConfig {
+            driver: "oracle".into(),
+            host: host.into(),
+            port: port.parse().unwrap(),
+            username: Some(user.into()),
+            password: Some(pass.into()),
+            ..Default::default()
+        };
+        cfg.options.insert("service".into(), service.into());
+        // Oracle reads '' as NULL: the empty string can't round-trip there
+        // by any script. A literal (the hex that stores the value) stops at 4000
+        // characters.
+        let values: Vec<String> = tricky(&["a\0b".into(), "ab\\".repeat(600)]).into_iter().filter(|v| !v.is_empty()).collect();
+        sql_export_round_trip(cfg, "VARCHAR2(4000)", |h| format!("UTL_RAW.CAST_TO_VARCHAR2(HEXTORAW('{h}'))"), "double", ("DBINE_RT_SRC", "DBINE_RT_DST"), &values).await;
     }
 }

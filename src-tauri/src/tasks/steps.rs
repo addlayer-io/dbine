@@ -5,7 +5,7 @@
 use super::{Ctx, StepDone, Target, SCRIPT_MAX_ROWS};
 use crate::commands::compare::{self, LoadArgs, ObjectChange};
 use crate::error::{CommandError, CommandResult};
-use dbine_core::export::{ExportOptions, Exporter, Format};
+use dbine_core::export::{ExportOptions, Exporter, Format, SourceStrings};
 use dbine_core::tasks::{expand, kinds, Step};
 use dbine_driver::{BackupAction, ObjectRef, QueryOutcome, RowSinkRef, TableChange};
 use dbine_schema::compare::{CompareOptions, Status};
@@ -152,9 +152,9 @@ async fn export(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
     } else {
         serde_json::from_value(c.options.clone()).map_err(|e| CommandError::BadRequest(format!("opciones de exportación no válidas: {e}")))?
     };
-    // String literals of an SQL export follow the source engine's escaping.
-    options.backslash_escapes =
-        crate::commands::schema::driver_of(ctx.state, &c.target.connection_id).is_ok_and(|d| d.script_dialect().backslash_escapes);
+    // String literals of an SQL export follow the source engine.
+    options.source = crate::commands::schema::driver_of(ctx.state, &c.target.connection_id)
+        .map_or(SourceStrings::Unknown, |d| SourceStrings::of(d.as_ref()));
     let path = out_path(&c.folder, &c.file_name, extension(options.format), vars)?;
     let key = format!("{}:{}", ctx.run_key, step.id);
     // Reading only, whatever the connection says.

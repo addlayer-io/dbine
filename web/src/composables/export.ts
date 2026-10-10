@@ -34,7 +34,9 @@ export interface ExportOptions {
   table: string;
   rows_per_insert: number;
   quote: 'double' | 'bracket' | 'backtick';
-  /** SQL: the target reads strings the standard way; backslashes are written as they are. */
+  /** SQL: the target reads strings the standard way; backslashes are written as they are. Only used when
+   * the backend has no exact form for the source (no connection, or an engine other than PostgreSQL,
+   * SQL Server, Oracle, SQLite or DuckDB) and the source doesn't read backslash escapes. */
   standard_strings: boolean;
   sheet: string;
   xml_root: string;

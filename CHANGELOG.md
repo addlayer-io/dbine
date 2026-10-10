@@ -3,7 +3,10 @@
 ## [Unreleased]
 
 ### Fixes
-- **SQL export:** backslashes are written doubled by default, so the script reads the same on any engine, including Redshift, Snowflake and ClickHouse. A new option, **Target reads strings the standard way**, keeps them exact for PostgreSQL, SQL Server, Oracle and SQLite.
+- **SQL export:** string values are written the way the source engine reads them, so they come back exact when you run the script there. They also can't add statements on an engine that reads backslashes differently.
+  - **PostgreSQL, SQL Server, Oracle, SQLite and DuckDB:** a backslash is written with the engine's own character function, so no backslash appears inside a string.
+  - **Engines that read backslash escapes** (MySQL, ClickHouse, Snowflake, Redshift…): backslashes and quotes are escaped the way those engines read them.
+  - **Unknown sources** (a grid from several databases) get a form that's safe on any engine. The new option **Target reads strings the standard way** writes their backslashes as they are.
 - **CSV and TSV export:** formula protection also covers text after a `,` or `;`, which a spreadsheet with another list separator would split into its own cell.
 - **Rename on Snowflake:** views, functions and procedures that name the renamed object are listed for you to fix by hand instead of being re-created, so they keep their owner, `EXECUTE AS` and `SECURE`.
 
