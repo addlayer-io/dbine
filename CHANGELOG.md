@@ -2,14 +2,6 @@
 
 ## [Unreleased]
 
-### Fixes
-- **SQL export:** string values are written the way the source engine reads them, so they come back exact when you run the script there. They also can't add statements on an engine that reads backslashes differently.
-  - **PostgreSQL, SQL Server, Oracle, SQLite, DuckDB, Firebird, SAP HANA, Trino, Db2, Teradata, Vertica, Exasol, Netezza and Dremio:** a backslash is written with the engine's own character function, so no backslash appears inside a string. Firebird scripts carry one row per `INSERT`, which is all Firebird accepts.
-  - **Engines that read backslash escapes** (MySQL, ClickHouse, Snowflake, Redshift…): backslashes and quotes are escaped the way those engines read them.
-  - **Unknown sources** (a grid from several databases) get a form that's safe on any engine. The new option **Target reads strings the standard way** writes their backslashes as they are.
-- **CSV and TSV export:** formula protection also covers text after a `,` or `;`, which a spreadsheet with another list separator would split into its own cell.
-- **Rename on Snowflake:** views, functions and procedures that name the renamed object are listed for you to fix by hand instead of being re-created, so they keep their owner, `EXECUTE AS` and `SECURE`.
-
 ## [0.1.10] - 2026-10-10
 
 ### New
@@ -37,7 +29,6 @@
 
   An estimated plan refuses scripts that would turn plan mode off, so AI alternatives in **Optimize query** can't run anything. Scheduled tasks whose scripts now count as writing ask to be approved again.
 - **Library with git:** a shared repository can no longer make DBine read, write or delete files outside the Library's folder.
-- **SQL export:** string values are escaped the way the source engine reads them, so a stored value can't add statements to an `INSERT` script for MySQL, ClickHouse, BigQuery, Hive, Spark or Databricks.
 - **SSH tunnels:** each server's host key is checked on its own. A key accepted for a jump host no longer counts for the next server, `known_hosts` is checked first and a changed key is always refused. Servers you accepted before are asked once more. The tunnel's local port only serves your own user's programs.
 - **Cloud backup:** a backup file someone else modified can no longer weaken the encryption of your next upload.
 - **libSQL / Turso:** an `authToken` in a pasted URL is kept in the system keychain, not in the connection's address, name or history. Connections saved before are cleaned up when DBine starts.
@@ -56,7 +47,6 @@
 - **CSV and TSV export:** the formula protection also applies to text stored in columns declared as numbers, which SQLite allows.
 - **Generated scripts:** object names from the server can't end a comment and run as code. This covers the fixes suggested by **Health check**, and the users, backup and structure scripts. ClickHouse names with a backslash are quoted correctly.
 - **Read-only:** a statement that doesn't start with a word, such as a bracketed name that runs a procedure on SQL Server, is refused. The words inside parenthesized reads are checked too.
-- **SQL export:** from MySQL, ClickHouse and other engines that read backslashes, quotes are written as `''`, so the script reads the same on any target.
 - **Modify table:** the warnings in the script you open as a query stay on their comment line.
 - **Passwords and secret options** are masked wherever they're edited, including backup steps in scheduled tasks.
 - **View dependencies and Rename** no longer stop on routines with unusual quoted names.
@@ -66,7 +56,6 @@
 - **Import connections:** an Oracle password containing `@` is kept whole in the system keychain.
 - **SSH tunnels on Linux:** the tunnel's local port only trusts open connections from your own user.
 - **Read-only:** a query with a lone carriage return or an unusual Unicode space is refused, because engines disagree on where a comment or a statement ends there. Functions with side effects are refused too: `load_extension` in SQLite, `pg_notify` and logical replication reads in PostgreSQL, and session or query cancellation in Snowflake.
-- **SQL export** of a multi-database grid escapes strings so the script reads the same on any engine.
 - **Import connections:** a SQL Server URL with no host no longer puts its password in the connection's name.
 - **Users and permissions:** the preview hides PostgreSQL passwords in every form.
 - **Read-only:** queries that take locks other sessions wait on are refused, for example `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` and `FOR SHARE`.
@@ -77,6 +66,12 @@
   - On every engine, a dependent whose code would split into more than one statement is refused.
   - Snowflake routine bodies containing `$$` are kept whole.
   - OrientDB names that DBine couldn't quote safely are refused.
+- **SQL export:** string values are written the way the source engine reads them, so they come back exact when you run the script there. They also can't add statements on an engine that reads backslashes differently.
+  - **PostgreSQL, SQL Server, Oracle, SQLite, DuckDB, Firebird, SAP HANA, Trino, Db2, Teradata, Vertica, Exasol, Netezza and Dremio:** a backslash is written with the engine's own character function, so no backslash appears inside a string. Firebird scripts carry one row per `INSERT`, which is all Firebird accepts.
+  - **Engines that read backslash escapes** (MySQL, ClickHouse, Snowflake, Redshift…): backslashes and quotes are escaped the way those engines read them.
+  - **Unknown sources** (a grid from several databases) get a form that's safe on any engine. The new option **Target reads strings the standard way** writes their backslashes as they are.
+- **CSV and TSV export:** formula protection also covers text after a `,` or `;`, which a spreadsheet with another list separator would split into its own cell.
+- **Rename on Snowflake:** views, functions and procedures that name the renamed object are listed for you to fix by hand instead of being re-created, so they keep their owner, `EXECUTE AS` and `SECURE`.
 
 ## [0.1.9] - 2026-10-09
 

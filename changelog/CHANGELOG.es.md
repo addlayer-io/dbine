@@ -27,7 +27,6 @@
 
   Un plan estimado rechaza los scripts que apagarían el modo plan, así que las alternativas de IA de **Optimizar consulta** no pueden ejecutar nada. Las tareas programadas cuyos scripts ahora cuentan como escritura piden aprobación de nuevo.
 - **Biblioteca con git:** un repositorio compartido ya no puede hacer que DBine lea, escriba o borre archivos fuera de la carpeta de la Biblioteca.
-- **Exportación SQL:** los valores de texto se escapan como los lee el motor de origen, así que un valor guardado no puede agregar sentencias a un script `INSERT` para MySQL, ClickHouse, BigQuery, Hive, Spark o Databricks.
 - **Túneles SSH:** la clave de host de cada servidor se verifica por separado. Una clave aceptada para un salto ya no vale para el servidor siguiente, `known_hosts` se consulta primero y una clave cambiada siempre se rechaza. A los servidores que aceptaste antes se les pregunta una vez más. El puerto local del túnel solo atiende a los programas de tu propio usuario.
 - **Backup en la nube:** un archivo de backup modificado por otra persona ya no puede debilitar el cifrado de tu próxima subida.
 - **libSQL / Turso:** un `authToken` en una URL pegada se guarda en el llavero del sistema, no en la dirección, el nombre ni el historial de la conexión. Las conexiones guardadas antes se limpian al iniciar DBine.
@@ -46,7 +45,6 @@
 - **Exportación CSV y TSV:** la protección contra fórmulas también se aplica al texto guardado en columnas declaradas como numéricas, algo que SQLite permite.
 - **Scripts generados:** los nombres de objetos que vienen del servidor no pueden cerrar un comentario y ejecutarse como código. Esto cubre las correcciones sugeridas por el **Chequeo de salud** y los scripts de usuarios, backups y estructura. Los nombres de ClickHouse con una barra invertida se entrecomillan correctamente.
 - **Solo lectura:** se rechaza una sentencia que no empieza con una palabra, como un nombre entre corchetes que ejecuta un procedimiento en SQL Server. También se revisan las palabras dentro de lecturas entre paréntesis.
-- **Exportación SQL:** desde MySQL, ClickHouse y otros motores que leen las barras invertidas, las comillas se escriben como `''`, así que el script se lee igual en cualquier destino.
 - **Modificar tabla:** las advertencias del script que abrís como query quedan en su línea de comentario.
 - **Las contraseñas y las opciones secretas** se enmascaran en todos los lugares donde se editan, incluidos los pasos de backup de las tareas programadas.
 - **Ver dependencias y Renombrar** ya no se detienen en rutinas con nombres entre comillas poco comunes.
@@ -56,7 +54,6 @@
 - **Importar conexiones:** una contraseña de Oracle con `@` se guarda entera en el llavero del sistema.
 - **Túneles SSH en Linux:** el puerto local del túnel solo acepta conexiones abiertas de tu propio usuario.
 - **Solo lectura:** se rechaza una consulta con un retorno de carro suelto o un espacio Unicode inusual, porque los motores no coinciden en dónde termina ahí un comentario o una sentencia. También se rechazan las funciones con efectos secundarios: `load_extension` en SQLite, `pg_notify` y las lecturas de replicación lógica en PostgreSQL, y la cancelación de sesiones o consultas en Snowflake.
-- **Exportación SQL** de una grilla de varias bases de datos: escapa las cadenas para que el script se lea igual en cualquier motor.
 - **Importar conexiones:** una URL de SQL Server sin host ya no pone su contraseña en el nombre de la conexión.
 - **Usuarios y permisos:** la vista previa oculta las contraseñas de PostgreSQL en todas sus formas.
 - **Solo lectura:** se rechazan las consultas que toman bloqueos por los que otras sesiones esperan, por ejemplo `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` y `FOR SHARE`.
@@ -67,6 +64,12 @@
   - En todos los motores se rechaza un dependiente cuyo código se partiría en más de una sentencia.
   - Los cuerpos de rutinas de Snowflake que contienen `$$` se mantienen enteros.
   - Se rechazan los nombres de OrientDB que DBine no podría entrecomillar de forma segura.
+- **Exportación SQL:** los valores de texto se escriben como los lee el motor de origen, así que vuelven exactos al ejecutar el script ahí. Tampoco pueden agregar sentencias en un motor que lee las barras invertidas de otra manera.
+  - **PostgreSQL, SQL Server, Oracle, SQLite, DuckDB, Firebird, SAP HANA, Trino, Db2, Teradata, Vertica, Exasol, Netezza y Dremio:** la barra invertida se escribe con la función de caracteres del propio motor, así que no aparece ninguna dentro de un texto. Los scripts de Firebird llevan una fila por `INSERT`, que es lo único que Firebird acepta.
+  - **Motores que leen escapes con barra invertida** (MySQL, ClickHouse, Snowflake, Redshift…): las barras invertidas y las comillas se escapan como esos motores las leen.
+  - **Orígenes desconocidos** (una grilla de varias bases de datos) reciben una forma segura en cualquier motor. La opción nueva **Destino con textos estándar** escribe sus barras invertidas tal cual.
+- **Exportación CSV y TSV:** la protección contra fórmulas también cubre el texto después de una `,` o un `;`, que una planilla con otro separador de listas partiría en su propia celda.
+- **Renombrar en Snowflake:** las vistas, funciones y procedimientos que nombran el objeto renombrado se listan para que los corrijas a mano en lugar de recrearlos, así conservan su dueño, `EXECUTE AS` y `SECURE`.
 
 ## [0.1.9] - 2026-10-09
 

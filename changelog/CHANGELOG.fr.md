@@ -27,7 +27,6 @@
 
   Un plan estimé refuse les scripts qui désactiveraient le mode plan, si bien que les alternatives IA de **Optimiser la requête** ne peuvent rien exécuter. Les tâches planifiées dont les scripts comptent désormais comme de l'écriture demandent à nouveau une approbation.
 - **Bibliothèque avec git :** un dépôt partagé ne peut plus faire lire, écrire ou supprimer à DBine des fichiers en dehors du dossier de la Bibliothèque.
-- **Export SQL :** les valeurs de type chaîne sont échappées comme les lit le moteur source, de sorte qu'une valeur stockée ne peut pas ajouter d'instructions à un script `INSERT` pour MySQL, ClickHouse, BigQuery, Hive, Spark ou Databricks.
 - **Tunnels SSH :** la clé d'hôte de chaque serveur est vérifiée séparément. Une clé acceptée pour un hôte de rebond ne vaut plus pour le serveur suivant, `known_hosts` est consulté en premier et une clé modifiée est toujours refusée. Les serveurs que vous aviez acceptés auparavant sont demandés une fois de plus. Le port local du tunnel ne sert que les programmes de votre propre utilisateur.
 - **Sauvegarde dans le cloud :** un fichier de sauvegarde modifié par quelqu'un d'autre ne peut plus affaiblir le chiffrement de votre prochain envoi.
 - **libSQL / Turso :** un `authToken` dans une URL collée est conservé dans le trousseau du système, et non dans l'adresse, le nom ou l'historique de la connexion. Les connexions enregistrées auparavant sont nettoyées au démarrage de DBine.
@@ -46,7 +45,6 @@
 - **Export CSV et TSV :** la protection contre les formules s'applique aussi au texte stocké dans des colonnes déclarées numériques, ce que SQLite autorise.
 - **Scripts générés :** les noms d'objets provenant du serveur ne peuvent plus terminer un commentaire et s'exécuter comme du code. Cela couvre les correctifs proposés par le **Contrôle de santé** ainsi que les scripts d'utilisateurs, de sauvegardes et de structure. Les noms ClickHouse contenant une barre oblique inverse sont correctement entre guillemets.
 - **Lecture seule :** une instruction qui ne commence pas par un mot, comme un nom entre crochets qui exécute une procédure sur SQL Server, est refusée. Les mots à l'intérieur des lectures entre parenthèses sont eux aussi vérifiés.
-- **Export SQL :** depuis MySQL, ClickHouse et d'autres moteurs qui interprètent les barres obliques inverses, les guillemets simples sont écrits `''`, de sorte que le script se lit de la même façon sur n'importe quelle cible.
 - **Modifier la table :** les avertissements du script que vous ouvrez comme requête restent sur leur ligne de commentaire.
 - **Les mots de passe et les options secrètes** sont masqués partout où ils sont modifiés, y compris dans les étapes de sauvegarde des tâches planifiées.
 - **Voir les dépendances et Renommer** ne s'arrêtent plus sur les routines dont les noms entre guillemets sont inhabituels.
@@ -56,7 +54,6 @@
 - **Importer des connexions :** un mot de passe Oracle contenant `@` est conservé en entier dans le trousseau du système.
 - **Tunnels SSH sur Linux :** le port local du tunnel ne fait confiance qu'aux connexions ouvertes par votre propre utilisateur.
 - **Lecture seule :** une requête contenant un retour chariot isolé ou une espace Unicode inhabituel est refusée, car les moteurs ne s'accordent pas sur l'endroit où un commentaire ou une instruction se termine dans ce cas. Les fonctions à effets de bord sont aussi refusées : `load_extension` dans SQLite, `pg_notify` et les lectures de réplication logique dans PostgreSQL, et l'annulation de sessions ou de requêtes dans Snowflake.
-- **Export SQL** d'une grille multi-bases : il échappe les chaînes pour que le script se lise de la même façon sur n'importe quel moteur.
 - **Importer des connexions :** une URL SQL Server sans hôte ne place plus son mot de passe dans le nom de la connexion.
 - **Utilisateurs et droits :** l'aperçu masque les mots de passe PostgreSQL sous toutes leurs formes.
 - **Lecture seule :** les requêtes qui prennent des verrous que d’autres sessions attendent sont refusées, par exemple `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` et `FOR SHARE`.
@@ -67,6 +64,12 @@
   - Sur tous les moteurs, un dépendant dont le code serait scindé en plus d'une instruction est refusé.
   - Les corps de routines Snowflake contenant `$$` sont conservés entiers.
   - Les noms OrientDB que DBine ne pourrait pas mettre entre guillemets en toute sécurité sont refusés.
+- **Export SQL :** les valeurs de type chaîne sont écrites comme les lit le moteur source, de sorte qu'elles reviennent exactes quand vous exécutez le script dessus. Elles ne peuvent pas non plus ajouter d'instructions sur un moteur qui lit les barres obliques inverses autrement.
+  - **PostgreSQL, SQL Server, Oracle, SQLite, DuckDB, Firebird, SAP HANA, Trino, Db2, Teradata, Vertica, Exasol, Netezza et Dremio :** la barre oblique inverse est écrite avec la fonction de caractères du moteur lui-même, si bien qu'aucune n'apparaît dans une chaîne. Les scripts Firebird contiennent une ligne par `INSERT`, le seul format que Firebird accepte.
+  - **Moteurs qui interprètent les échappements par barre oblique inverse** (MySQL, ClickHouse, Snowflake, Redshift…) : les barres obliques inverses et les guillemets sont échappés comme ces moteurs les lisent.
+  - **Sources inconnues** (une grille issue de plusieurs bases de données) : elles reçoivent une forme sûre sur n'importe quel moteur. La nouvelle option **Cible lisant les chaînes de façon standard** écrit leurs barres obliques inverses telles quelles.
+- **Export CSV et TSV :** la protection contre les formules couvre aussi le texte après une `,` ou un `;`, qu'un tableur avec un autre séparateur de liste scinderait dans sa propre cellule.
+- **Renommer sur Snowflake :** les vues, fonctions et procédures qui citent l'objet renommé sont listées pour que vous les corrigiez à la main au lieu d'être recréées, afin de conserver leur propriétaire, `EXECUTE AS` et `SECURE`.
 
 ## [0.1.9] - 2026-10-09
 

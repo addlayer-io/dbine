@@ -27,7 +27,6 @@
 
   Un piano stimato rifiuta gli script che disattiverebbero la modalità piano, quindi le alternative IA di **Ottimizza query** non possono eseguire nulla. Le attività pianificate i cui script ora contano come scrittura chiedono di nuovo l'approvazione.
 - **Libreria con git:** un repository condiviso non può più far leggere, scrivere o eliminare a DBine file al di fuori della cartella della Libreria.
-- **Esportazione SQL:** i valori di tipo stringa vengono escapati nel modo in cui li legge il motore di origine, così un valore memorizzato non può aggiungere istruzioni a uno script `INSERT` per MySQL, ClickHouse, BigQuery, Hive, Spark o Databricks.
 - **Tunnel SSH:** la chiave host di ogni server viene verificata separatamente. Una chiave accettata per un jump host non vale più per il server successivo, `known_hosts` viene controllato per primo e una chiave cambiata viene sempre rifiutata. Ai server che avevi accettato prima viene chiesto ancora una volta. La porta locale del tunnel serve solo i programmi del tuo stesso utente.
 - **Backup nel cloud:** un file di backup modificato da qualcun altro non può più indebolire la cifratura del tuo prossimo caricamento.
 - **libSQL / Turso:** un `authToken` in un URL incollato viene conservato nel portachiavi di sistema, non nell'indirizzo, nel nome o nella cronologia della connessione. Le connessioni salvate in precedenza vengono ripulite all'avvio di DBine.
@@ -46,7 +45,6 @@
 - **Esportazione CSV e TSV:** la protezione dalle formule vale anche per il testo salvato in colonne dichiarate numeriche, cosa che SQLite consente.
 - **Script generati:** i nomi di oggetti provenienti dal server non possono chiudere un commento ed essere eseguiti come codice. Questo copre le correzioni suggerite dal **Controllo di integrità** e gli script di utenti, backup e struttura. I nomi ClickHouse con un backslash vengono racchiusi correttamente tra virgolette.
 - **Sola lettura:** un'istruzione che non inizia con una parola, come un nome tra parentesi quadre che esegue una procedura su SQL Server, viene rifiutata. Vengono controllate anche le parole all'interno delle letture tra parentesi.
-- **Esportazione SQL:** da MySQL, ClickHouse e altri motori che interpretano i backslash, gli apici vengono scritti come `''`, così lo script si legge allo stesso modo su qualsiasi destinazione.
 - **Modifica tabella:** gli avvisi dello script che apri come query restano sulla propria riga di commento.
 - **Le password e le opzioni segrete** vengono mascherate ovunque si modifichino, compresi i passaggi di backup delle attività pianificate.
 - **Mostra dipendenze e Rinomina** non si fermano più sulle routine con nomi tra virgolette insoliti.
@@ -56,7 +54,6 @@
 - **Importa connessioni:** una password Oracle contenente `@` viene conservata per intero nel portachiavi del sistema.
 - **Tunnel SSH su Linux:** la porta locale del tunnel si fida solo delle connessioni aperte dal tuo stesso utente.
 - **Sola lettura:** una query con un ritorno a capo isolato o uno spazio Unicode insolito viene rifiutata, perché i motori non concordano su dove lì termini un commento o un'istruzione. Vengono rifiutate anche le funzioni con effetti collaterali: `load_extension` in SQLite, `pg_notify` e le letture di replica logica in PostgreSQL, e l'annullamento di sessioni o query in Snowflake.
-- **Esportazione SQL** di una griglia multi-database: esegue l'escape delle stringhe in modo che lo script si legga allo stesso modo su qualsiasi motore.
 - **Importa connessioni:** un URL di SQL Server senza host non mette più la sua password nel nome della connessione.
 - **Utenti e permessi:** l'anteprima nasconde le password di PostgreSQL in tutte le loro forme.
 - **Sola lettura:** le query che acquisiscono lock su cui altre sessioni restano in attesa vengono rifiutate, per esempio `pg_advisory_lock`, `GET_LOCK`, `LOCK IN SHARE MODE` e `FOR SHARE`.
@@ -67,6 +64,12 @@
   - Su tutti i motori viene rifiutato un dipendente il cui codice verrebbe diviso in più di un'istruzione.
   - I corpi delle routine Snowflake che contengono `$$` vengono mantenuti interi.
   - I nomi OrientDB che DBine non potrebbe racchiudere tra virgolette in modo sicuro vengono rifiutati.
+- **Esportazione SQL:** i valori di tipo stringa vengono scritti nel modo in cui li legge il motore di origine, così tornano esatti quando esegui lo script lì. Inoltre non possono aggiungere istruzioni su un motore che legge i backslash in modo diverso.
+  - **PostgreSQL, SQL Server, Oracle, SQLite, DuckDB, Firebird, SAP HANA, Trino, Db2, Teradata, Vertica, Exasol, Netezza e Dremio:** il backslash viene scritto con la funzione di caratteri del motore stesso, quindi nessun backslash compare dentro una stringa. Gli script Firebird contengono una riga per `INSERT`, che è tutto ciò che Firebird accetta.
+  - **Motori che interpretano gli escape con backslash** (MySQL, ClickHouse, Snowflake, Redshift…): i backslash e gli apici vengono escapati nel modo in cui questi motori li leggono.
+  - **Origini sconosciute** (una griglia di più database) ricevono una forma sicura su qualsiasi motore. La nuova opzione **Destinazione con stringhe standard** scrive i loro backslash così come sono.
+- **Esportazione CSV e TSV:** la protezione dalle formule copre anche il testo dopo una `,` o un `;`, che un foglio di calcolo con un altro separatore di elenco dividerebbe in una cella a sé.
+- **Rinomina su Snowflake:** le viste, le funzioni e le procedure che nominano l'oggetto rinominato vengono elencate perché tu le corregga a mano invece di essere ricreate, così mantengono il proprietario, `EXECUTE AS` e `SECURE`.
 
 ## [0.1.9] - 2026-10-09
 
