@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
@@ -44,7 +45,7 @@ function tablesOf(p: Pick) {
 }
 async function prepare(p: Pick) {
   if (!p.connectionId) return;
-  if (!(await conns.ensureConnected(p.connectionId))) return;
+  if (!(await ensureConnectedOrTell(p.connectionId))) return;
   const live = conns.live[p.connectionId];
   // Another connection keeps the database if it has one by that name.
   if (live && live.databases.length && !live.databases.includes(p.database)) p.database = live.defaultDatabase || live.databases[0];

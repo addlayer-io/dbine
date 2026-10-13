@@ -21,11 +21,7 @@ export interface LiveConnection {
   databases: string[];
   defaultDatabase: string;
   error: string | null;
-  /** While connecting, or after a failed connect: `databases` are the
-   *  explorer cache's (last time's) or the previous session's. */
-  fromCache?: boolean;
-  /** When the last connect failed (ms since the epoch): the explorer doesn't
-   *  retry on its own before `CONNECT_COOLDOWN_MS` has passed. */
+  /** When the last connect failed (ms since the epoch). */
   failedAt?: number;
   /** Why the last connect failed, when the backend could tell (firewall,
    *  timeout…): the "Ver qué pasa…" dialog explains it. */
@@ -34,8 +30,8 @@ export interface LiveConnection {
 
 export interface Loadable<T> {
   /** stale: `items` are the explorer cache's (last time's), shown while the
-   *  server is asked again; its answer replaces them. stale with an `error`:
-   *  the server couldn't be asked (offline), the items stay as they were. */
+   *  server is asked again (the connection is confirmed by then); its answer
+   *  replaces them. */
   status: 'loading' | 'ready' | 'error' | 'stale';
   items: T;
   error: string | null;
@@ -76,13 +72,12 @@ const KEY_ENOUGH = 50;
 const KEY_SEARCH_MS = 4000;
 /** The latest search per database: a slower, older reply is dropped. */
 const keySeq: Record<string, number> = {};
-/** Explorer-cache lookups of a connection's databases, while connecting. */
-const cachedDatabases = new Map<string, Promise<void>>();
 /** The connect in flight per connection: every caller shares it. */
 const connecting = new Map<string, Promise<boolean>>();
-/** After a failed connect, the explorer's expands don't connect again for
- *  this long (they show the cache and the error); "Reintentar" does. */
-export const CONNECT_COOLDOWN_MS = 20_000;
+/** A load that failed with a connection error checks the connection again
+ *  (a connect), at most once per this long per connection. */
+const RECHECK_MS = 10_000;
+const lastRecheck = new Map<string, number>();
 /** A failure repeated within this long (same message) is the same burst: one
  *  Output entry for all of it. */
 const FAILURE_BURST_MS = 60_000;
@@ -95,10 +90,9 @@ const objectsLoading = new Map<string, Promise<void>>();
 /** Permission checks in flight, by `dbKey`. */
 const permissionsLoading = new Map<string, Promise<void>>();
 
-/** A load that couldn't reach the server: what was there (the cache's, or
- *  the last answer) stays, marked with the error; nothing there, an error. */
-function offline<T>(now: Loadable<T[]> | undefined, error: string): Loadable<T[]> {
-  return now?.items.length ? { status: 'stale', items: now.items, error } : { status: 'error', items: [], error };
+/** A failed load: its error (the tree shows it; nothing stays spinning). */
+function failedLoad<T>(error: string): Loadable<T[]> {
+  return { status: 'error', items: [], error };
 }
 
 export const dbKey = (connectionId: string, database: string) => `${connectionId}\u0000${database}`;
@@ -139,11 +133,6 @@ export const useConnectionsStore = defineStore('connections', {
       return s.drivers.find((d) => d.id === id);
     },
     isConnected: (s) => (id: string) => s.live[id]?.status === 'connected',
-    /** The last connect failed a moment ago: automatic retries wait. */
-    inCooldown: (s) => (id: string): boolean => {
-      const l = s.live[id];
-      return l?.status === 'error' && !!l.failedAt && Date.now() - l.failedAt < CONNECT_COOLDOWN_MS;
-    },
     /** The privilege the login lacks for an action, or null when it may (or
      *  nobody knows: the server has the last word). */
     denied: (s) => (connectionId: string, database: string, action: keyof Permissions): string | null => {
@@ -290,25 +279,13 @@ export const useConnectionsStore = defineStore('connections', {
     async openConnection(id: string, password: string | null): Promise<boolean> {
       const conn = this.byId(id);
       if (!conn) return false;
-      // What the explorer shows (last time's databases) stays while it
-      // connects again, and if it fails.
+      // Nothing of the tree shows until the server answers: what's shown
+      // afterwards is a confirmed connection's (cache included).
       const prev = this.live[id];
-      const kept = prev?.databases ?? [];
       this.live[id] = {
-        status: 'connecting', serverVersion: '', databases: kept, defaultDatabase: prev?.defaultDatabase ?? '', error: null,
-        fromCache: kept.length ? true : undefined,
+        status: 'connecting', serverVersion: '', databases: [], defaultDatabase: prev?.defaultDatabase ?? '', error: null,
       };
       await this.listenDownloads();
-      // Last time's databases, shown while the server answers.
-      const lookup = kept.length ? Promise.resolve() : api.getCached<string[]>(id, '', 'databases').then((dbs) => {
-        const live = this.live[id];
-        if (dbs?.length && live?.status === 'connecting') {
-          live.databases = dbs;
-          live.fromCache = true;
-          live.defaultDatabase = conn.config.database;
-        }
-      }).catch(() => {});
-      cachedDatabases.set(id, lookup);
       try {
         // A failed download leaves no stale progress behind.
         const r = await api.connect(id, password).finally(() => {
@@ -347,16 +324,14 @@ export const useConnectionsStore = defineStore('connections', {
       }
     },
 
-    /** A connect failed: the databases on screen (the cache's, or the last
-     *  session's) stay, with the error; Output hears once per burst. */
+    /** A connect failed: the connection shows the error (the explorer, its
+     *  banner and nothing below it); Output hears once per burst. */
     async failed(id: string, e: unknown) {
       const message = errorMessage(e);
-      await cachedDatabases.get(id);
       const now = this.live[id];
-      const databases = now?.databases ?? [];
       this.live[id] = {
-        status: 'error', serverVersion: '', databases, defaultDatabase: now?.defaultDatabase ?? '', error: message,
-        fromCache: databases.length ? true : undefined, failedAt: Date.now(), detail: errorDetail(e),
+        status: 'error', serverVersion: '', databases: [], defaultDatabase: now?.defaultDatabase ?? '', error: message,
+        failedAt: Date.now(), detail: errorDetail(e),
       };
       const at = Date.now();
       const last = lastFailure.get(id);
@@ -390,21 +365,27 @@ export const useConnectionsStore = defineStore('connections', {
       live.databases = await api.listDatabases(id);
     },
 
-    /** Wait for the explorer cache's databases of a connection that's
-     *  connecting (they're in `live[id].databases` then, if there were any). */
-    async cachedDatabasesReady(id: string): Promise<void> {
-      await cachedDatabases.get(id);
+    /** A load failed: with a connection error (kind "connect"), the
+     *  connection is checked again — a connect, shared with any other caller —
+     *  so a dropped one flips to the error state (banner, nothing below it)
+     *  instead of leaving stale nodes. At most once per RECHECK_MS. */
+    async recheckAfter(id: string, e: unknown) {
+      if (errorKind(e) !== 'connect' || this.live[id]?.status !== 'connected') return;
+      const at = Date.now();
+      if (at - (lastRecheck.get(id) ?? 0) < RECHECK_MS) return;
+      lastRecheck.set(id, at);
+      await this.connect(id);
     },
 
     /** Make sure the connection is up; connects when needed (sharing a
-     *  connect in flight). `auto`: a background load (an explorer expand, the
-     *  editor's completion) — right after a failure it doesn't connect again,
-     *  see `CONNECT_COOLDOWN_MS`. */
+     *  connect in flight). `auto`: a background load or an explorer expand —
+     *  on a connection that failed it doesn't connect again (the banner's
+     *  "Reintentar", Connect and explicit actions do). */
     async ensureConnected(id: string, opts: { auto?: boolean } = {}): Promise<boolean> {
       if (this.live[id]?.status === 'connected') return true;
       const running = connecting.get(id);
       if (running) return running;
-      if (opts.auto && this.inCooldown(id)) return false;
+      if (opts.auto && this.live[id]?.status === 'error') return false;
       return this.connect(id);
     },
 
@@ -414,15 +395,9 @@ export const useConnectionsStore = defineStore('connections', {
       if (this.driverOf(connectionId)?.key_search) {
         if (!force && this.objects[k]?.status === 'ready') return;
         const last = this.keys[k];
-        // Not connected (and not retrying yet): the search waits, its last
-        // page stays.
+        // Not connected: the connection shows its error; nothing to search.
         if (!(await this.ensureConnected(connectionId, { auto: !force }))) {
-          const why = this.live[connectionId]?.error ?? t('common:error');
-          // Not 'ready': the next expand tries again.
-          this.objects[k] = { status: 'stale', items: [], error: why };
-          this.keys[k] = last
-            ? { ...last, status: 'error', error: why }
-            : { pattern: '', keyType: '', items: [], cursor: null, total: null, scanned: 0, status: 'error', error: why };
+          this.objects[k] = failedLoad(this.live[connectionId]?.error ?? t('common:error'));
           return;
         }
         this.objects[k] = { status: 'ready', items: [], error: null };
@@ -431,10 +406,16 @@ export const useConnectionsStore = defineStore('connections', {
       if (!force && this.objects[k]?.status === 'ready') return;
       if (!force && objectsLoading.has(k)) return objectsLoading.get(k);
       const run = (async () => {
-        // What's there stays on screen while the server is asked; the first
-        // time, last time's list from the explorer cache.
         const had = this.objects[k]?.items ?? [];
         this.objects[k] = { status: had.length ? 'stale' : 'loading', items: had, error: null };
+        // The connection first: nothing is shown from a server that can't
+        // be reached.
+        if (!(await this.ensureConnected(connectionId, { auto: !force }))) {
+          this.objects[k] = failedLoad(this.live[connectionId]?.error ?? t('common:error'));
+          return;
+        }
+        // Confirmed: what's there stays while the server is asked; the
+        // first time, last time's list from the explorer cache.
         if (!had.length) {
           const [cached, cachedSchemas] = await Promise.all([
             api.getCached<DbObject[]>(connectionId, database, 'objects').catch(() => null),
@@ -445,16 +426,13 @@ export const useConnectionsStore = defineStore('connections', {
             this.objects[k] = { status: 'stale', items: cached ?? [], error: null };
           }
         }
-        if (!(await this.ensureConnected(connectionId, { auto: !force }))) {
-          this.objects[k] = offline(this.objects[k], this.live[connectionId]?.error ?? t('common:error'));
-          return;
-        }
         try {
           const read = await api.listDatabaseObjects(connectionId, database);
           this.schemas[k] = read.schemas;
           this.objects[k] = { status: 'ready', items: read.objects, error: null };
         } catch (e) {
-          this.objects[k] = offline(this.objects[k], errorMessage(e));
+          this.objects[k] = failedLoad(errorMessage(e));
+          void this.recheckAfter(connectionId, e);
         }
       })();
       objectsLoading.set(k, run);
@@ -508,6 +486,7 @@ export const useConnectionsStore = defineStore('connections', {
         if (keySeq[k] !== seq || this.keys[k] !== b) return;
         b.status = 'error';
         b.error = errorMessage(e);
+        void this.recheckAfter(connectionId, e);
       }
     },
 
@@ -516,21 +495,23 @@ export const useConnectionsStore = defineStore('connections', {
       if (!force && this.columns[k]?.status === 'ready') return this.columns[k].items;
       const had = this.columns[k]?.items ?? [];
       this.columns[k] = { status: had.length ? 'stale' : 'loading', items: had, error: null };
+      // The connection first; then the cache (instant) and the server.
+      if (!(await this.ensureConnected(connectionId, { auto: !force }))) {
+        this.columns[k] = failedLoad(this.live[connectionId]?.error ?? t('common:error'));
+        return [];
+      }
       if (!had.length) {
         const cached = await api.getCached<ColumnInfo[]>(connectionId, database, 'columns', columnsItem(obj)).catch(() => null);
         if (cached?.length && this.columns[k]?.status === 'loading') this.columns[k] = { status: 'stale', items: cached, error: null };
-      }
-      if (!(await this.ensureConnected(connectionId, { auto: !force }))) {
-        this.columns[k] = offline(this.columns[k], this.live[connectionId]?.error ?? t('common:error'));
-        return this.columns[k].items;
       }
       try {
         const items = await api.getColumns(connectionId, database, { kind: obj.kind, schema: obj.schema, name: obj.name });
         this.columns[k] = { status: 'ready', items, error: null };
         return items;
       } catch (e) {
-        this.columns[k] = offline(this.columns[k], errorMessage(e));
-        return this.columns[k].items;
+        this.columns[k] = failedLoad(errorMessage(e));
+        void this.recheckAfter(connectionId, e);
+        return [];
       }
     },
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ensureConnectedOrTell } from '../composables/connectionGate';
 import ImportConnectionsDialog from './ImportConnectionsDialog.vue';
 import ImportSuggestion from './ImportSuggestion.vue';
 import SupportReminder from './SupportReminder.vue';
@@ -443,33 +444,28 @@ function connectionNode(c: SavedConnection): TNode {
     const node: TNode = { id, label: c.name, type: 'connection', connectionId: c.id, hint: d?.name ?? c.config.driver };
     const live = conns.live[c.id];
     if (!d) node.children = [status(id, 'error', t('explorer:tree.driverUnavailable', { driver: c.config.driver }))];
-    else if (!live || (live.status === 'connecting' && !live.fromCache)) {
+    // Connect first: until the server answers nothing of the tree shows
+    // ("Conectando…"); if it fails, only the banner. What shows afterwards
+    // (the cache included) is a confirmed connection's.
+    else if (!live || live.status === 'connecting') {
       const label = live ? (conns.downloadNote(d.id) ?? t('explorer:tree.connecting')) : t('explorer:tree.expandToConnect');
       node.children = [status(id, 'loading', label)];
     }
+    else if (live.status === 'error') {
+      node.children = [{ id: `x:${id}:connerr`, label: bannerText(live.error, live.detail?.kind), type: 'connerr', connectionId: c.id }];
+    }
+    else if (!d.databases_label) node.children = databaseChildren(c, d, live.databases[0] ?? '', id);
     else {
-      // Couldn't connect: a banner with the error, and what the explorer
-      // knew (last time's databases and objects) stays below it, muted.
-      const offline = live.status === 'error';
-      const banner: TNode[] = offline
-        ? [{ id: `x:${id}:connerr`, label: bannerText(live.error, live.detail?.kind), type: 'connerr', connectionId: c.id }]
-        : [];
-      if (offline && !live.databases.length) node.children = banner;
-      else if (!d.databases_label) node.children = [...banner, ...databaseChildren(c, d, live.databases[0] ?? '', id)];
-      else {
-        node.children = [...banner, ...live.databases.map((db) => {
-          const did = `d:${c.id}:${db}`;
-          const loaded = conns.objects[dbKey(c.id, db)];
-          return {
-            id: did, label: db, type: 'database' as const, connectionId: c.id, database: db,
-            hint: offline ? t('explorer:tree.offline')
-              : loaded?.status === 'stale' && !loaded.error ? t('explorer:tree.refreshing')
-                : db === live.defaultDatabase ? t('explorer:tree.defaultDatabase') : undefined,
-            children: loaded ? databaseChildren(c, d, db, did) : [status(did, offline ? 'empty' : 'loading', offline ? t('explorer:tree.offline') : t('common:loading'))],
-          };
-        })];
-        if (!node.children.length) node.children = [status(id, 'empty', t('explorer:tree.noDatabases'))];
-      }
+      node.children = live.databases.map((db) => {
+        const did = `d:${c.id}:${db}`;
+        const loaded = conns.objects[dbKey(c.id, db)];
+        return {
+          id: did, label: db, type: 'database' as const, connectionId: c.id, database: db,
+          hint: loaded?.status === 'stale' ? t('explorer:tree.refreshing') : db === live.defaultDatabase ? t('explorer:tree.defaultDatabase') : undefined,
+          children: loaded ? databaseChildren(c, d, db, did) : [status(did, 'loading', t('common:loading'))],
+        };
+      });
+      if (!node.children.length) node.children = [status(id, 'empty', t('explorer:tree.noDatabases'))];
     }
     return node;
 }
@@ -486,14 +482,8 @@ function bannerText(error: string | null, kind?: string): string {
   return firstLine(error ?? t('common:error'));
 }
 
-/** A row below a connection that couldn't connect: what the explorer shows
- *  there is last time's. */
-function isOffline(n: TNode): boolean {
-  return !!n.connectionId && n.type !== 'connection' && n.type !== 'connerr' && conns.live[n.connectionId]?.status === 'error';
-}
-
-/** "Reintentar", Connect and Refresh: connect now (no cooldown), and reload
- *  what's expanded below it. */
+/** "Reintentar", Connect and Refresh: connect now, and reload what's
+ *  expanded below it. */
 async function retryConnect(connectionId: string) {
   if (await conns.connect(connectionId)) reloadExpanded(connectionId);
 }
@@ -555,15 +545,11 @@ async function onExpand(n: TNode) {
   if (n.type === 'connection' && n.connectionId) {
     const id = n.connectionId;
     const d = conns.driverOf(id);
-    // Right after a failed connect this doesn't try again (the banner's
-    // "Reintentar" does): the cache stays on screen.
-    const connecting = conns.ensureConnected(id, { auto: true });
-    // Engines with a single namespace: its objects from the explorer cache
-    // right away (they refresh once connected).
-    await conns.cachedDatabasesReady(id);
-    const cachedDb = conns.live[id]?.fromCache ? conns.live[id]?.databases[0] : undefined;
-    if (d && !d.databases_label && cachedDb !== undefined) loadDatabase(id, cachedDb);
-    if (!(await connecting)) return;
+    // Connect (or validate) first; a connection that failed isn't retried
+    // here: its banner shows, and "Reintentar" tries again.
+    if (!(await conns.ensureConnected(id, { auto: true }))) return;
+    // Engines with a single namespace: its objects (the cache's at once,
+    // then the server's).
     if (d && !d.databases_label) loadDatabase(id, conns.live[id]?.databases[0] ?? '');
   } else if (n.type === 'database' && n.connectionId) {
     loadDatabase(n.connectionId, n.database ?? '');
@@ -574,14 +560,14 @@ async function onExpand(n: TNode) {
   }
 }
 /** After a (re)connect: el-tree-v2 doesn't fire `node-expand` for nodes it
- *  restores open, so what's open below the connection and failed (offline,
- *  or an error) loads again here. */
+ *  restores open, so what's open below the connection and failed (or never
+ *  loaded) loads again here. */
 function reloadExpanded(connectionId: string) {
   for (const key of expanded.value) {
     const n = findNode(key);
     if (!n || n.connectionId !== connectionId) continue;
     const db = n.database ?? '';
-    const failed = (l?: { status: string; error: string | null }) => !!l && (l.status === 'error' || (l.status === 'stale' && !!l.error));
+    const failed = (l?: { status: string }) => !l || l.status === 'error';
     if (n.type === 'connection') {
       const d = conns.driverOf(connectionId);
       const only = conns.live[connectionId]?.databases[0] ?? '';
@@ -1160,7 +1146,7 @@ watch(() => ui.reveal?.seq, async () => {
   const c = r ? conns.byId(r.connectionId) : null;
   if (!r || !c) return;
   if (filter.value) { filter.value = ''; applyFilter(); }
-  if (!(await conns.ensureConnected(c.id))) return;
+  if (!(await ensureConnectedOrTell(c.id))) return;
   const d = conns.driverOf(c.id);
   await Promise.all([conns.loadObjects(c.id, r.database), conns.loadQueries(c.id, r.database)]);
   // Everything above the target must be open.
@@ -1374,7 +1360,6 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             :class="[n.type, n.status, {
               'drop-here': isDropOn(n, 'into'), 'drop-before': isDropOn(n, 'before'), 'drop-after': isDropOn(n, 'after'),
               picked: picked.has(n.id),
-              offline: isOffline(n),
               tinted: n.type === 'connection' && !!conns.colorOf(n.connectionId),
             }]"
             :style="n.type === 'connection' && conns.colorOf(n.connectionId) ? { '--c': conns.colorOf(n.connectionId)! } : undefined"
@@ -1561,7 +1546,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 }
 .ex-connerr-btn:hover { text-decoration: underline; }
 .ex-connerr-btn:disabled { opacity: .5; cursor: default; text-decoration: none; }
-.ex-node.offline .ex-label { color: var(--nm-text-muted); }
+
 .ex-ic.mg { color: var(--nm-text-dim); }
 .ex-ic.mg.running { color: var(--nm-accent); }
 .ex-ic.mg.done { color: var(--nm-success); }

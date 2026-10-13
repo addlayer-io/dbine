@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -25,6 +27,9 @@ import { useUiStore } from '../stores/ui';
 const props = defineProps<{ tab: OptimizerTab }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const tabs = useTabsStore();
 const ui = useUiStore();
 const ai = useAiStore();
@@ -66,7 +71,7 @@ function newId(kind: string) {
 
 async function analyze() {
   if (analyzing.value) return;
-  if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+  if (!(await ensureConnection())) return;
   analyzing.value = true;
   error.value = null;
   analyzeId = newId('a');
@@ -172,7 +177,7 @@ const rows = computed(() => [
 
 async function compare() {
   if (comparing.value || !candidates.value.length) return;
-  if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+  if (!(await ensureConnection())) return;
   comparing.value = true;
   error.value = null;
   measures.value = {};
@@ -302,6 +307,7 @@ const sourceLabel = (s: string) => t(`optimizer:source.${s}`);
       <div class="ov-spacer" />
       <el-button size="small" :loading="analyzing" @click="analyze">{{ $t('optimizer:reanalyze') }}</el-button>
     </header>
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="analyze" />
 
     <div class="ov-body">
       <el-alert v-if="error" type="error" :title="error" :closable="false" show-icon class="ov-alert" />

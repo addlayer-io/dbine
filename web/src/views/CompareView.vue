@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
@@ -75,7 +76,7 @@ const driverOf = (id: string) => conns.driverOf(id);
 
 async function pickDefaults(s: SideId) {
   const side = sides[s];
-  if (!side.connectionId || !(await conns.ensureConnected(side.connectionId))) return;
+  if (!side.connectionId || !(await ensureConnectedOrTell(side.connectionId))) return;
   if (side.database) return;
   const dbs = dbsOf(side.connectionId);
   // The right side starts on another database of the same connection.

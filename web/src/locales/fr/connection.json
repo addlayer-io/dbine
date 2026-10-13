@@ -114,6 +114,7 @@
       "openPortal": "Ouvrir le portail",
       "byTsql": "Avec T-SQL, depuis une autre connexion qui a accès, dans la base master :",
       "unavailable": "Azure indique que la base n’est pas disponible pour le moment (cela arrive pendant un déplacement ou une mise à l’échelle). Attendez une minute et réessayez."
-    }
+    },
+    "couldNotConnect": "Impossible de se connecter à {{name}} : {{error}}"
   }
 }

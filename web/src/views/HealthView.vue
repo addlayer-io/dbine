@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'i18next-vue';
@@ -19,6 +21,9 @@ interface Report { checks: Check[]; checked_at: string; skipped: string[] }
 const props = defineProps<{ tab: HealthTab }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 
 const report = ref<Report | null>(null);
 const error = ref<string | null>(null);
@@ -40,7 +45,7 @@ const groups = computed(() => {
 
 async function run() {
   if (running.value) return;
-  if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+  if (!(await ensureConnection())) return;
   running.value = true;
   error.value = null;
   runId = `${props.tab.id}-${Date.now()}`;
@@ -79,6 +84,7 @@ function openFix(c: Check) {
       <el-checkbox v-model="showOk" size="small">{{ $t('health:showOk') }}</el-checkbox>
       <el-button size="small" :loading="running" @click="run">{{ $t('health:run') }}</el-button>
     </header>
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="run" />
 
     <div v-if="report" class="hv-summary">
       <div v-for="s in SEVERITIES" :key="s" class="hv-count" :class="s">

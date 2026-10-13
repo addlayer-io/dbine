@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { ensureConnectedOrTell, useConnectionGate } from '../composables/connectionGate';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -31,6 +33,9 @@ import { trackFeature } from '../composables/telemetry';
 
 const props = defineProps<{ tab: MigrationTab }>();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const { t } = useTranslation();
 
 const source = computed(() => conns.byId(props.tab.connectionId));
@@ -99,7 +104,7 @@ watch(targetConnection, async (id) => {
   restoringDatabase = null;
   if (!id) return;
   if (kept !== null) { targetDatabase.value = kept; return; }
-  if (!(await conns.ensureConnected(id))) return;
+  if (!(await ensureConnectedOrTell(id))) return;
   // On the source's own server, never preselect the source database: that
   // would migrate a database onto itself. The user picks one.
   const pick = conns.live[id]?.defaultDatabase ?? targetDbs.value[0] ?? '';
@@ -118,7 +123,7 @@ async function loadTables(force = false) {
   loadingTables.value = true;
   tablesError.value = null;
   try {
-    if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+    if (!(await ensureConnection())) return;
     await conns.loadObjects(props.tab.connectionId, props.tab.database, force);
     const state = conns.objects[dbKey(props.tab.connectionId, props.tab.database)];
     if (state?.status === 'error') tablesError.value = state.error;
@@ -172,7 +177,7 @@ async function generate() {
   if (!targetDriver.value) { ElMessage.warning(t('migration:pickEngine')); return; }
   if (!picked.value.size) { ElMessage.warning(t('migration:pickTable')); return; }
   if (mode.value === 'clone' && !targetConnection.value) { ElMessage.warning(t('migration:clone.needConnection')); return; }
-  if (mode.value === 'clone' && !(await conns.ensureConnected(targetConnection.value))) return;
+  if (mode.value === 'clone' && !(await ensureConnectedOrTell(targetConnection.value))) return;
   pane.value = 'preview';
   planning.value = true;
   planError.value = null;
@@ -375,7 +380,7 @@ async function runMigration() {
   try {
     await ElMessageBox.confirm(message, actionLabel.value, { confirmButtonText: actionLabel.value, cancelButtonText: t('common:cancel'), type: 'warning' });
   } catch { return; }
-  if (!(await conns.ensureConnected(props.tab.connectionId)) || !(await conns.ensureConnected(targetConnection.value))) return;
+  if (!(await ensureConnectedOrTell(props.tab.connectionId)) || !(await ensureConnectedOrTell(targetConnection.value))) return;
   runMode.value = mode.value;
   trackFeature('migration_run');
   const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -406,7 +411,7 @@ async function retryFailed() {
   const id = runId.value;
   if (!id || running.value) return;
   const target = runTarget.value;
-  if (!(await conns.ensureConnected(props.tab.connectionId)) || !(await conns.ensureConnected(target.connectionId))) return;
+  if (!(await ensureConnectedOrTell(props.tab.connectionId)) || !(await ensureConnectedOrTell(target.connectionId))) return;
   await execute(id, target, () => migrationApi.retryFailed(id), result.value?.tables ?? rows.value);
 }
 
@@ -431,7 +436,7 @@ function runDate(r: RunInfo) {
 }
 async function resumeRun(r: RunInfo) {
   if (running.value) return;
-  if (!(await conns.ensureConnected(r.source_connection_id)) || !(await conns.ensureConnected(r.target_connection_id))) return;
+  if (!(await ensureConnectedOrTell(r.source_connection_id)) || !(await ensureConnectedOrTell(r.target_connection_id))) return;
   parallel.value = r.parallel;
   runMode.value = r.mode ?? 'convert';
   await execute(r.id, { connectionId: r.target_connection_id, database: r.target_database }, () => migrationApi.resume(r.id), r.tables);
@@ -773,6 +778,7 @@ function saveScript() {
         </p>
       </div>
     </header>
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="loadTables(true)" />
 
     <div class="mg-grid">
       <!-- 1. Target -->

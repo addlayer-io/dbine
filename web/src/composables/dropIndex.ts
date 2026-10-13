@@ -64,7 +64,7 @@ export async function toggleIndexScript(target: DropIndexTarget): Promise<SyncSc
 /** The script that drops the index, with the generator's warnings. */
 export async function dropIndexScript(target: DropIndexTarget): Promise<SyncScript> {
   const conns = useConnectionsStore();
-  if (!(await conns.ensureConnected(target.connectionId))) throw new Error(t('common:error'));
+  if (!(await conns.ensureConnected(target.connectionId))) throw new Error(conns.live[target.connectionId]?.error ?? t('common:error'));
   const tables = await invoke<TableSchema[]>('database_schema', { args: { connection_id: target.connectionId, database: target.database } });
   const table = tables.find((x) => x.name === target.table.name && (x.schema ?? null) === (target.table.schema ?? null));
   if (!table) throw new Error(t('explorer:indexes.drop.tableNotFound', { table: target.table.name }));

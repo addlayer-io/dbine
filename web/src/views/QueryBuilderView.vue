@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { computed, onMounted, onUnmounted, reactive, ref, toRaw, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ElMessage } from 'element-plus';
@@ -32,6 +34,9 @@ import ResultGrid from '../components/ResultGrid.vue';
 const props = defineProps<{ tab: QueryBuilderTab }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => cid);
 const tabs = useTabsStore();
 
 const cid = props.tab.connectionId;
@@ -103,16 +108,14 @@ async function readSchema() {
   }
 }
 
-onMounted(async () => {
-  if (!(await conns.ensureConnected(cid))) {
-    connectError.value = t('queryBuilder:connectFailed');
-    return;
-  }
+onMounted(() => { void init(); });
+async function init() {
+  if (!(await ensureConnection())) return;
   conns.loadObjects(cid, db);
   for (const st of spec.tables) loadColumns(st);
   build();
   readSchema();
-});
+}
 
 // -- the generated SQL ---------------------------------------------------------------------
 const sql = ref('');
@@ -462,6 +465,7 @@ function onSplitDown(e: PointerEvent) {
 
 <template>
   <div class="qb">
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="init" />
     <div class="nm-toolbar qb-bar">
       <strong class="qb-title">{{ $t('queryBuilder:title') }}</strong>
       <span class="nm-muted">{{ tab.database || conns.byId(tab.connectionId)?.name }}</span>

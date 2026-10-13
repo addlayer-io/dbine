@@ -114,6 +114,7 @@
       "openPortal": "Open the portal",
       "byTsql": "With T-SQL, from another connection that does have access, in the master database:",
       "unavailable": "Azure reports the database isn't available right now (it happens while it's moved or scaled). Wait a minute and retry."
-    }
+    },
+    "couldNotConnect": "Couldn't connect to {{name}}: {{error}}"
   }
 }

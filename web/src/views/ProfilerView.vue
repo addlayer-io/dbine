@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
@@ -22,6 +24,9 @@ import { profilerAutostart, type ProfilerTab } from '../stores/tabs';
 
 const props = defineProps<{ tab: ProfilerTab }>();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const { t } = useTranslation();
 /** A number with the current language's separators. */
 const num = (n: number) => n.toLocaleString(locale());
@@ -58,10 +63,7 @@ async function start() {
   starting.value = true;
   error.value = null;
   try {
-    if (!(await conns.ensureConnected(props.tab.connectionId))) {
-      error.value = t('profiler:couldNotConnect');
-      return;
-    }
+    if (!(await ensureConnection())) return;
     await conns.loadPermissions(props.tab.connectionId, props.tab.database);
     if (noPermission.value) return;
     started.value = await api.profilerStart(props.tab.id, props.tab.connectionId, props.tab.database);
@@ -454,6 +456,7 @@ const status = computed(() => {
         <el-icon><ei-delete /></el-icon><span>{{ $t('common:clear') }}</span>
       </el-button>
     </header>
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="start" />
 
     <div v-if="unsupported" class="pv-empty">
       <el-icon :size="28"><ei-view /></el-icon>

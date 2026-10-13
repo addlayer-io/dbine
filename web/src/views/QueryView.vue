@@ -9,6 +9,8 @@ import type { QueryMessage, QueryOutcome, QueryProgress, TxState, UnsafeDml } fr
 import CodeEditor from '../components/CodeEditor.vue';
 import type { MenuItem } from '../components/ContextMenu.vue';
 import ResultsPane from '../components/ResultsPane.vue';
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
 import { useSettingsStore } from '../stores/settings';
@@ -55,6 +57,17 @@ const outcome = ref<QueryOutcome | null>(null);
 /** The script behind `outcome` (exports run it again for every row). */
 const lastScript = ref('');
 const running = ref(false);
+// A run connects first: the results pane shows "Conectando…", then the run
+// ("Ejecutando…") or the connection's error with "Ver qué pasa…" and
+// "Reintentar" — never nothing.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
+const connecting = computed(() => connBlocked.value && conns.live[props.tab.connectionId]?.status === 'connecting');
+/** What "Reintentar" runs again: the run that couldn't connect. */
+let retryRun: (() => Promise<void>) | null = null;
+function retryConnection() {
+  if (retryRun) void retryRun();
+  else void ensureConnection();
+}
 const settings = useSettingsStore();
 const maxRows = ref(settings.get('query.maxRows', 5000));
 watch(maxRows, (v) => { if (v !== settings.get('query.maxRows', 5000)) settings.set('query.maxRows', v); });
@@ -75,7 +88,7 @@ const loadingDatabases = ref(false);
 async function onDatabaseMenu(visible: boolean) {
   if (!visible || unbound.value || conns.live[props.tab.connectionId]?.databases?.length) return;
   loadingDatabases.value = true;
-  try { await conns.ensureConnected(props.tab.connectionId); } finally { loadingDatabases.value = false; }
+  try { await ensureConnection(); } finally { loadingDatabases.value = false; }
 }
 
 // -- file tabs: the project, its active base, the file's kind ------------------------------
@@ -493,7 +506,7 @@ onBeforeUnmount(stopClock);
 /** Run `sqlText` (default: the selection, or everything). `from`: where it
  *  starts in the editor, so the lines of messages and errors map to it. */
 async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
-  if (running.value) return;
+  if (running.value || connecting.value) return;
   const picked = sqlText !== undefined ? { text: sqlText, from: from ?? 0 } : editor.value?.runnable() ?? { text: text.value, from: 0 };
   const script = picked.text.trim();
   if (!script) return;
@@ -503,11 +516,19 @@ async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
   const filled = await withParams(script);
   if (filled === null) return;
   if (!(await confirmEnvironment())) return;
-  if (!(await conns.ensureConnected(props.tab.connectionId))) return;
-  if (doc.autosave && saveState.value === 'dirty') save();
-  runBase.value = base;
-  lineOffset.value = (editor.value?.lineAt(base) ?? 1) - 1;
-  await execute(filled, plan, false);
+  const go = async () => {
+    retryRun = null;
+    if (!(await ensureConnection())) {
+      // The pane shows the error; "Reintentar" connects and runs this again.
+      retryRun = go;
+      return;
+    }
+    if (doc.autosave && saveState.value === 'dirty') save();
+    runBase.value = base;
+    lineOffset.value = (editor.value?.lineAt(base) ?? 1) - 1;
+    await execute(filled, plan, false);
+  };
+  await go();
 }
 
 // -- parameters (`:name`, `?`, `@name`): asked before every kind of run ------------------------
@@ -580,6 +601,9 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean)
   } catch (e) {
     outcome.value = { results: [], messages: [], error: errorMessage(e), elapsed_ms: Date.now() - startedAt.value, plans: [] };
     output.add('error', errorMessage(e), { where });
+    // A connection error: check the connection (the explorer and this pane
+    // then show its state).
+    void conns.recheckAfter(props.tab.connectionId, e);
   } finally {
     running.value = false;
     stopClock();
@@ -647,12 +671,17 @@ const serverVersion = computed(() => conns.live[props.tab.connectionId]?.serverV
 const serverLabel = computed(() => conn.value?.config.host || conn.value?.name || '');
 const userName = computed(() => conn.value?.config.username ?? '');
 const statusLabel = computed(() => {
+  if (connecting.value) return t('explorer:tree.connecting');
+  if (connBlocked.value) {
+    const kind = conns.live[props.tab.connectionId]?.detail?.kind;
+    return t(`connection:problem.kind.${kind && kind !== 'unknown' ? kind : 'unknown'}.title`);
+  }
   if (running.value) return t('results:running');
   const o = outcome.value;
   if (!o) return t('query:status.ready');
   return o.error || o.errors?.length ? t('results:status.doneWithErrors') : t('results:status.done');
 });
-const statusKind = computed(() => (running.value ? 'running' : outcome.value?.error || outcome.value?.errors?.length ? 'error' : outcome.value ? 'ok' : ''));
+const statusKind = computed(() => (connecting.value || running.value ? 'running' : connBlocked.value ? 'error' : outcome.value?.error || outcome.value?.errors?.length ? 'error' : outcome.value ? 'ok' : ''));
 /** hh:mm:ss, live while it runs. */
 const clockText = computed(() => {
   const ms = running.value ? now.value - startedAt.value : outcome.value?.elapsed_ms ?? 0;
@@ -686,7 +715,10 @@ async function openMultiDb() {
   multiOpen.value = true;
   if (conns.live[props.tab.connectionId]?.databases?.length) return;
   multiLoading.value = true;
-  try { await conns.ensureConnected(props.tab.connectionId); } finally { multiLoading.value = false; }
+  try {
+    // Couldn't connect: the results pane shows why, not an empty dialog.
+    if (!(await ensureConnection())) multiOpen.value = false;
+  } finally { multiLoading.value = false; }
 }
 
 async function runMultiDb(databases: string[]) {
@@ -928,7 +960,9 @@ function drag(e: PointerEvent) {
           <span>{{ $t('multiDb:results.bar', { summary: multiShown.summary }) }}</span>
           <span class="nm-muted">{{ $t('multiDb:summary.messages') }}</span>
         </div>
+        <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="retryConnection" />
         <ResultsPane
+          v-else
           :outcome="outcome"
           :running="running"
           :source="lastScript && !multiShown ? { connectionId: tab.connectionId, database: tab.database, sql: lastScript } : null"

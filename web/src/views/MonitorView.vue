@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
@@ -19,6 +21,9 @@ import type { MonitorTab } from '../stores/tabs';
 
 const props = defineProps<{ tab: MonitorTab; active: boolean }>();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const { t } = useTranslation();
 
 const HISTORY = 120;
@@ -61,10 +66,7 @@ watch(
   () => [props.active, showProcesses.value] as const,
   async ([active, shown]) => {
     if (!active || !shown || processesReady.value) return;
-    if (!(await conns.ensureConnected(props.tab.connectionId))) {
-      error.value = t('monitor:couldNotConnect');
-      return;
-    }
+    if (!(await ensureConnection())) return;
     if (canKill.value || canCancel.value) conns.loadPermissions(props.tab.connectionId, '');
     processesReady.value = true;
   },
@@ -104,14 +106,12 @@ function record(s: MonitorSnapshot, t: number) {
   }
 }
 
-async function poll() {
+/** `explicit`: "Reintentar" (a timer's poll doesn't reconnect after a failure). */
+async function poll(explicit = false) {
   if (loading.value) return;
   loading.value = true;
   try {
-    if (!(await conns.ensureConnected(props.tab.connectionId))) {
-      error.value = t('monitor:couldNotConnect');
-      return;
-    }
+    if (!(await ensureConnection({ auto: !explicit }))) return;
     if (canKill.value) conns.loadPermissions(props.tab.connectionId, '');
     const [s] = await Promise.all([api.monitorSnapshot(props.tab.connectionId), pollBlocking()]);
     const at = Date.now();
@@ -267,6 +267,7 @@ const ago = computed(() => {
         <el-icon><ei-refresh /></el-icon><span>{{ $t('monitor:refresh') }}</span>
       </el-button>
     </header>
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="poll(true)" />
 
     <div class="mv-body">
       <ProcessesPanel
