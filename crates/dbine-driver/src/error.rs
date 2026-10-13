@@ -8,6 +8,13 @@ pub enum Error {
     #[error("{0}")]
     Connect(String),
 
+    /// A connect that failed and the driver knows why (see
+    /// [`ConnectFailure`]). Reads as a [`Error::Connect`] everywhere else
+    /// (see [`Error::is_connect`]); drivers that don't classify keep
+    /// returning `Connect(text)`.
+    #[error("{}", .0.message)]
+    ConnectFailed(Box<ConnectFailure>),
+
     #[error("{0}")]
     AuthFailed(String),
 
@@ -50,6 +57,29 @@ impl Error {
         Self::Connect(e.to_string())
     }
 
+    /// A connect that failed, with why.
+    pub fn connect_failed(f: ConnectFailure) -> Self {
+        Self::ConnectFailed(Box::new(f))
+    }
+
+    /// The connection couldn't be opened or broke: [`Error::Connect`] or
+    /// [`Error::ConnectFailed`].
+    pub fn is_connect(&self) -> bool {
+        matches!(self, Self::Connect(_) | Self::ConnectFailed(_))
+    }
+
+    /// Why a connect failed: the driver's classification, or a guess from the
+    /// text of a plain [`Error::Connect`] (an [`ConnectFailureKind::Unknown`]
+    /// when nothing in it is recognized). `None` for other errors.
+    pub fn connect_failure(&self) -> Option<ConnectFailure> {
+        match self {
+            Self::ConnectFailed(f) => Some((**f).clone()),
+            Self::Connect(m) => Some(ConnectFailure::from_message(m.clone())),
+            Self::AuthFailed(m) => Some(ConnectFailure::new(ConnectFailureKind::Auth, m.clone())),
+            _ => None,
+        }
+    }
+
     /// A statement the server rejected, with or without details.
     pub fn is_query(&self) -> bool {
         matches!(self, Self::Query(_) | Self::Statement(_))
@@ -72,7 +102,7 @@ impl Error {
     /// the connection is gone, the run was cancelled, or the engine says so.
     pub fn ends_script(&self) -> bool {
         match self {
-            Self::Connect(_) | Self::AuthFailed(_) | Self::Io(_) | Self::Cancelled => true,
+            Self::Connect(_) | Self::ConnectFailed(_) | Self::AuthFailed(_) | Self::Io(_) | Self::Cancelled => true,
             Self::Statement(e) => e.fatal,
             _ => false,
         }
@@ -82,5 +112,220 @@ impl Error {
 impl From<crate::model::ScriptError> for Error {
     fn from(e: crate::model::ScriptError) -> Self {
         Self::Statement(Box::new(e))
+    }
+}
+
+/// Why a connection couldn't be opened, as far as the driver (or the
+/// network error) tells: the app explains each kind and what to check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectFailureKind {
+    /// The server (or a firewall in front of it) refuses this client's IP
+    /// (Azure SQL's server firewall: 40615).
+    Firewall,
+    /// Nothing answered in time: a firewall dropping packets, a VPN that's
+    /// off, a server that's down.
+    Timeout,
+    /// The host answered but nothing listens on that port.
+    Refused,
+    /// The host name doesn't resolve.
+    Dns,
+    /// The TLS handshake or the server's certificate failed.
+    Tls,
+    /// The login was rejected.
+    Auth,
+    /// Anything else (and kinds a newer driver sends that this app doesn't know).
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// A failed connect, classified. Crosses the plugin protocol as an optional
+/// field: a peer that doesn't know it reads a plain connect error.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ConnectFailure {
+    #[serde(default)]
+    pub kind: ConnectFailureKind,
+    /// The server's error number or SQLSTATE, when it answered with one.
+    #[serde(default)]
+    pub code: Option<String>,
+    /// This client's address as the server saw it, when it says (Azure SQL
+    /// does, in 40615).
+    #[serde(default)]
+    pub client_ip: Option<String>,
+    pub message: String,
+}
+
+impl ConnectFailure {
+    pub fn new(kind: ConnectFailureKind, message: impl Into<String>) -> Self {
+        Self { kind, code: None, client_ip: None, message: message.into() }
+    }
+
+    pub fn with_code(mut self, code: impl ToString) -> Self {
+        self.code = Some(code.to_string());
+        self
+    }
+
+    /// Classified from its text alone (see [`classify_message`]); the
+    /// client's IP too, when the text has it.
+    pub fn from_message(message: impl Into<String>) -> Self {
+        let message = message.into();
+        let mut f = Self::new(classify_message(&message), message);
+        f.client_ip = client_ip_in(&f.message);
+        f
+    }
+
+    /// From an OS-level error: its kind first, its text when the kind says
+    /// nothing (name lookups fail with kinds that vary by OS).
+    pub fn from_io(e: &std::io::Error, message: impl Into<String>) -> Self {
+        let message = message.into();
+        let kind = match classify_io_kind(e.kind()) {
+            ConnectFailureKind::Unknown => classify_message(&format!("{e} {message}")),
+            k => k,
+        };
+        Self::new(kind, message)
+    }
+
+    /// From a client library's error: the first `std::io::Error` in its
+    /// chain of sources decides, else the text of the whole chain.
+    pub fn from_error(e: &(dyn std::error::Error + 'static)) -> Self {
+        let message = e.to_string();
+        let mut text = message.clone();
+        let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(e);
+        let mut first = true;
+        while let Some(x) = cur {
+            if let Some(io) = x.downcast_ref::<std::io::Error>() {
+                if let k @ (ConnectFailureKind::Timeout | ConnectFailureKind::Refused) = classify_io_kind(io.kind()) {
+                    return Self::new(k, message);
+                }
+            }
+            if !first {
+                text.push(' ');
+                text.push_str(&x.to_string());
+            }
+            first = false;
+            cur = x.source();
+        }
+        let mut f = Self::new(classify_message(&text), message);
+        f.client_ip = client_ip_in(&text);
+        f
+    }
+}
+
+/// What an OS error kind says about a connect; `Unknown` when it says nothing.
+pub fn classify_io_kind(kind: std::io::ErrorKind) -> ConnectFailureKind {
+    use std::io::ErrorKind as K;
+    match kind {
+        K::TimedOut => ConnectFailureKind::Timeout,
+        // No route: the host can't be reached from here (VPN, network), the
+        // same checks as a refused port.
+        K::ConnectionRefused | K::HostUnreachable | K::NetworkUnreachable => ConnectFailureKind::Refused,
+        _ => ConnectFailureKind::Unknown,
+    }
+}
+
+/// A connect failure's kind guessed from its text (English and Spanish
+/// messages of clients, OSes and DBine's drivers). `Unknown` when nothing
+/// matches.
+pub fn classify_message(text: &str) -> ConnectFailureKind {
+    let t = text.to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| t.contains(w));
+    if has(&["is not allowed to access the server", "client with ip address", "not allowed to connect to this mysql server", "no pg_hba.conf entry"]) {
+        ConnectFailureKind::Firewall
+    } else if has(&[
+        "failed to lookup address", "nodename nor servname", "name or service not known", "no such host", "getaddrinfo",
+        "could not translate host name", "temporary failure in name resolution", "dns error", "no se encontró el servidor",
+    ]) {
+        ConnectFailureKind::Dns
+    } else if has(&["connection refused", "actively refused", "rechazó la conexión", "os error 61)", "os error 111)", "os error 10061)", "no route to host", "network is unreachable", "no hay ruta"]) {
+        ConnectFailureKind::Refused
+    } else if has(&["timed out", "timeout", "time out", "tiempo de espera", "no respondió"]) {
+        ConnectFailureKind::Timeout
+    } else if has(&["password authentication failed", "login failed", "access denied", "authentication failed", "invalid password", "invalid username"]) {
+        ConnectFailureKind::Auth
+    } else if has(&["certificate", "tls", "ssl", "handshake", "x509"]) {
+        ConnectFailureKind::Tls
+    } else {
+        ConnectFailureKind::Unknown
+    }
+}
+
+/// The client IP a server names in its refusal ("Client with IP address
+/// '203.0.113.7' is not allowed…", MySQL's "Host '203.0.113.7' is not
+/// allowed…"): a valid IPv4 or IPv6 address only.
+pub fn client_ip_in(text: &str) -> Option<String> {
+    let lower = text.to_lowercase();
+    for marker in ["ip address '", "ip address \"", "host '", "entry for host \""] {
+        let Some(at) = lower.find(marker) else { continue };
+        let rest = &text[at + marker.len()..];
+        let end = rest.find(['\'', '"'])?;
+        let ip = &rest[..end];
+        if ip.parse::<std::net::IpAddr>().is_ok() {
+            return Some(ip.to_string());
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn messages_are_classified() {
+        let k = |m: &str| classify_message(m);
+        assert_eq!(k("Cannot open server 'x' requested by the login. Client with IP address '203.0.113.7' is not allowed to access the server."), ConnectFailureKind::Firewall);
+        assert_eq!(k("failed to lookup address information: nodename nor servname provided, or not known"), ConnectFailureKind::Dns);
+        assert_eq!(k("Connection refused (os error 61)"), ConnectFailureKind::Refused);
+        assert_eq!(k("tiempo de espera agotado"), ConnectFailureKind::Timeout);
+        assert_eq!(k("password authentication failed for user \"x\""), ConnectFailureKind::Auth);
+        assert_eq!(k("invalid peer certificate: UnknownIssuer"), ConnectFailureKind::Tls);
+        assert_eq!(k("algo raro"), ConnectFailureKind::Unknown);
+    }
+
+    #[test]
+    fn client_ip_is_read_only_when_valid() {
+        let m = "Cannot open server 'srv' requested by the login. Client with IP address '203.0.113.7' is not allowed to access the server.";
+        assert_eq!(client_ip_in(m).as_deref(), Some("203.0.113.7"));
+        assert_eq!(client_ip_in("Host '10.0.0.5' is not allowed to connect to this MySQL server").as_deref(), Some("10.0.0.5"));
+        assert_eq!(client_ip_in("Client with IP address 'nope; rm -rf' is not allowed").as_deref(), None);
+        assert_eq!(client_ip_in("nothing here"), None);
+        let f = ConnectFailure::from_message(m);
+        assert_eq!((f.kind, f.client_ip.as_deref()), (ConnectFailureKind::Firewall, Some("203.0.113.7")));
+    }
+
+    #[test]
+    fn io_errors_are_classified_by_kind() {
+        use std::io::{Error as E, ErrorKind as K};
+        assert_eq!(ConnectFailure::from_io(&E::from(K::TimedOut), "x").kind, ConnectFailureKind::Timeout);
+        assert_eq!(ConnectFailure::from_io(&E::from(K::ConnectionRefused), "x").kind, ConnectFailureKind::Refused);
+        assert_eq!(ConnectFailure::from_io(&E::other("failed to lookup address information"), "x").kind, ConnectFailureKind::Dns);
+        // Wrapped in a client's error: found through `source()`.
+        #[derive(Debug)]
+        struct Wrap(E);
+        impl std::fmt::Display for Wrap {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("error connecting to server")
+            }
+        }
+        impl std::error::Error for Wrap {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+        let f = ConnectFailure::from_error(&Wrap(E::from(K::ConnectionRefused)));
+        assert_eq!((f.kind, f.message.as_str()), (ConnectFailureKind::Refused, "error connecting to server"));
+        let f = ConnectFailure::from_error(&Wrap(E::other("failed to lookup address information")));
+        assert_eq!(f.kind, ConnectFailureKind::Dns);
+    }
+
+    #[test]
+    fn unknown_kinds_from_newer_peers_read_as_unknown() {
+        let f: ConnectFailure = serde_json::from_str(r#"{"kind":"quota","message":"m"}"#).unwrap();
+        assert_eq!(f.kind, ConnectFailureKind::Unknown);
+        let e = Error::connect_failed(ConnectFailure::new(ConnectFailureKind::Timeout, "slow"));
+        assert!(e.is_connect() && e.ends_script());
+        assert_eq!(e.to_string(), "slow");
+        assert_eq!(Error::Connect("Connection refused".into()).connect_failure().unwrap().kind, ConnectFailureKind::Refused);
     }
 }

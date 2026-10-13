@@ -47,6 +47,7 @@ fn driver_error(e: CommandError) -> dbine_driver::Error {
     use dbine_driver::Error;
     match e {
         CommandError::Connect(m) => Error::Connect(m),
+        CommandError::ConnectFailed(f) => Error::connect_failed(f),
         CommandError::AuthFailed(m) => Error::AuthFailed(m),
         CommandError::PasswordRequired(_) => Error::AuthFailed(e.to_string()),
         CommandError::Cancelled => Error::Cancelled,

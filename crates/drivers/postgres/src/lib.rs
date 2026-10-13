@@ -695,7 +695,7 @@ const PROBE_LIMIT: Duration = Duration::from_secs(5);
 async fn open(v: Variant, pg: &tokio_postgres::Config, tls: &MakeTlsConnector) -> Result<(tokio_postgres::Client, mpsc::UnboundedReceiver<tokio_postgres::error::DbError>)> {
     let (client, mut connection) = tokio::time::timeout(Duration::from_secs(20), pg.connect(tls.clone()))
         .await
-        .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+        .map_err(|_| Error::connect_failed(dbine_driver::ConnectFailure::new(dbine_driver::ConnectFailureKind::Timeout, "tiempo de espera agotado")))?
         .map_err(|e| connect_error(v, e))?;
     let (tx, notices) = mpsc::unbounded_channel();
     tokio::spawn(async move {
@@ -764,8 +764,9 @@ fn connect_error(v: Variant, e: tokio_postgres::Error) -> Error {
         Some(c) if *c == SqlState::INVALID_PASSWORD || *c == SqlState::INVALID_AUTHORIZATION_SPECIFICATION => {
             Error::AuthFailed(db_message(&e))
         }
-        Some(_) => Error::Connect(db_message(&e)),
-        None => Error::Connect(e.to_string()),
+        // Classified for the app's explanation (same messages as before).
+        Some(c) => Error::connect_failed(dbine_driver::ConnectFailure::from_message(db_message(&e)).with_code(c.code())),
+        None => Error::connect_failed(dbine_driver::ConnectFailure::from_error(&e)),
     }
 }
 
@@ -806,6 +807,20 @@ pub(crate) fn db_text(db: &tokio_postgres::error::DbError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Nothing listens on the port: a classified, refused connect.
+    #[tokio::test]
+    async fn refused_connects_are_classified() {
+        let d = drivers().into_iter().find(|d| d.info().id == "postgres").unwrap();
+        let cfg = ConnectionConfig {
+            driver: "postgres".into(), host: "127.0.0.1".into(), port: 1, username: Some("u".into()), password: Some("p".into()),
+            ..Default::default()
+        };
+        match d.connect(&cfg, None).await.err() {
+            Some(Error::ConnectFailed(f)) => assert_eq!(f.kind, dbine_driver::ConnectFailureKind::Refused, "{f:?}"),
+            other => panic!("{other:?}"),
+        }
+    }
 
     /// "Con opción de otorgar" is offered on the new schema's grants
     /// exactly where the engine writes them (`SchemaSpec::grant_option`).

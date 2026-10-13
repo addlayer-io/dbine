@@ -445,6 +445,11 @@ pub struct WireError {
     /// that doesn't know them still gets the query error.
     #[serde(default)]
     pub detail: Option<dbine_driver::ScriptError>,
+    /// An `Error::ConnectFailed`'s classification; its `kind` is "connect",
+    /// so a peer that doesn't know it gets the plain connect error. Left out
+    /// when there's none: the reply is byte for byte what older peers send.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connect: Option<dbine_driver::ConnectFailure>,
 }
 
 impl From<&Error> for WireError {
@@ -454,21 +459,27 @@ impl From<&Error> for WireError {
             Error::AuthFailed(m) => ("auth_failed", m.clone()),
             Error::Unsupported(m) => ("unsupported", m.clone()),
             Error::Query(m) => ("query", m.clone()),
-            Error::Statement(d) => return WireError { kind: "query".into(), message: d.message.clone(), detail: Some((**d).clone()) },
+            Error::Statement(d) => return WireError { kind: "query".into(), message: d.message.clone(), detail: Some((**d).clone()), connect: None },
+            Error::ConnectFailed(f) => {
+                return WireError { kind: "connect".into(), message: f.message.clone(), detail: None, connect: Some((**f).clone()) }
+            }
             Error::State(m) => ("state", m.clone()),
             Error::Secrets(m) => ("secrets", m.clone()),
             Error::Cancelled => ("cancelled", String::new()),
             Error::Io(e) => ("io", e.to_string()),
             Error::Serde(e) => ("serde", e.to_string()),
         };
-        WireError { kind: kind.into(), message, detail: None }
+        WireError { kind: kind.into(), message, detail: None, connect: None }
     }
 }
 
 impl From<WireError> for Error {
     fn from(w: WireError) -> Self {
         match w.kind.as_str() {
-            "connect" => Error::Connect(w.message),
+            "connect" => match w.connect {
+                Some(f) => Error::ConnectFailed(Box::new(f)),
+                None => Error::Connect(w.message),
+            },
             "auth_failed" => Error::AuthFailed(w.message),
             "unsupported" => Error::Unsupported(w.message),
             "query" => match w.detail {
@@ -815,6 +826,47 @@ mod tests {
         }
         let io = Error::Io(io::Error::other("x"));
         assert_eq!(Error::from(WireError::from(&io)).to_string(), io.to_string());
+    }
+
+    #[test]
+    fn connect_failures_cross_with_their_kind_and_stay_compatible() {
+        use dbine_driver::{ConnectFailure, ConnectFailureKind};
+        let mut f = ConnectFailure::from_message("Client with IP address '203.0.113.7' is not allowed to access the server.");
+        f.code = Some("40615".into());
+        let e = Error::connect_failed(f.clone());
+        let body = rmp_serde::to_vec_named(&WireError::from(&e)).unwrap();
+        let back = Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap());
+        let Error::ConnectFailed(got) = back else { panic!("{back:?}") };
+        assert_eq!(*got, f);
+        assert_eq!(got.kind, ConnectFailureKind::Firewall);
+        // An app built before the classification reads a plain connect error.
+        #[derive(Deserialize)]
+        struct OldWire {
+            kind: String,
+            message: String,
+            #[serde(default)]
+            #[allow(dead_code)]
+            detail: Option<dbine_driver::ScriptError>,
+        }
+        let old: OldWire = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(old.kind, "connect");
+        assert_eq!(old.message, f.message);
+        // A host built before it answers the old shape: text only, which
+        // reads as a plain connect error (kind unknown in the app).
+        #[derive(Serialize)]
+        struct OldHost {
+            kind: String,
+            message: String,
+            detail: Option<dbine_driver::ScriptError>,
+        }
+        let body = rmp_serde::to_vec_named(&OldHost { kind: "connect".into(), message: "se cayó".into(), detail: None }).unwrap();
+        let back = Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap());
+        assert!(matches!(&back, Error::Connect(m) if m == "se cayó"), "{back:?}");
+        assert_eq!(back.connect_failure().unwrap().kind, ConnectFailureKind::Unknown);
+        // A plain connect error still leaves the field out: same bytes as before.
+        let plain = rmp_serde::to_vec_named(&WireError::from(&Error::Connect("x".into()))).unwrap();
+        let old = rmp_serde::to_vec_named(&OldHost { kind: "connect".into(), message: "x".into(), detail: None }).unwrap();
+        assert_eq!(plain, old);
     }
 
     #[test]

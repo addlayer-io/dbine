@@ -28,7 +28,7 @@ mod variant;
 use dbine_driver::sql::{qualified_name, select_top, Limit, Quote};
 use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
-    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema,
+    ConnectFailure, ConnectFailureKind, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema,
 };
 #[cfg(test)]
 use futures::TryStreamExt;
@@ -430,24 +430,27 @@ async fn connect_once(config: Config) -> tiberius::Result<Client<Compat<TcpStrea
 }
 
 /// The OS's reason for not reaching the server, in Spanish and naming it.
+/// The kind says what happened (`connect_error` classifies by it): refused
+/// and unreachable keep theirs, a name that doesn't resolve is `NotFound`.
 fn unreachable(config: &Config, e: tiberius::error::Error) -> tiberius::error::Error {
     use std::io::ErrorKind as K;
     let addr = config.get_addr();
-    let message = match &e {
-        tiberius::error::Error::Io { kind: K::ConnectionRefused, .. } => {
-            format!("el servidor {addr} rechazó la conexión: no hay un SQL Server escuchando en ese puerto (revisá el puerto y que el servicio esté iniciado)")
-        }
+    let (kind, message) = match &e {
+        tiberius::error::Error::Io { kind: K::ConnectionRefused, .. } => (
+            K::ConnectionRefused,
+            format!("el servidor {addr} rechazó la conexión: no hay un SQL Server escuchando en ese puerto (revisá el puerto y que el servicio esté iniciado)"),
+        ),
         // A name that doesn't resolve: NotFound from tiberius, or the
         // resolver's own error (its kind varies by OS).
         tiberius::error::Error::Io { kind, message } if *kind == K::NotFound || message.contains("failed to lookup address") => {
-            format!("no se encontró el servidor {addr}: revisá el nombre del host")
+            (K::NotFound, format!("no se encontró el servidor {addr}: revisá el nombre del host"))
         }
-        tiberius::error::Error::Io { kind: K::HostUnreachable | K::NetworkUnreachable, .. } => {
-            format!("no hay ruta hasta el servidor {addr}: revisá la red o la VPN")
+        tiberius::error::Error::Io { kind: k @ (K::HostUnreachable | K::NetworkUnreachable), .. } => {
+            (*k, format!("no hay ruta hasta el servidor {addr}: revisá la red o la VPN"))
         }
         _ => return e,
     };
-    tiberius::error::Error::Io { kind: K::Other, message }
+    tiberius::error::Error::Io { kind, message }
 }
 
 fn no_answer(config: &Config) -> String {
@@ -472,12 +475,40 @@ fn connect_error(e: tiberius::error::Error) -> Error {
         // Kerberos on macOS and Linux: no ticket, an expired one, or no KDC.
         #[cfg(unix)]
         tiberius::error::Error::Gssapi(m) => Error::AuthFailed(kerberos_hint(m)),
-        tiberius::error::Error::Server(t) => Error::Connect(t.message().to_string()),
+        tiberius::error::Error::Server(t) => Error::connect_failed(server_refusal(t.code(), t.message())),
         // The network's own message (or ours, for a timeout), without
         // tiberius' English prefix.
-        tiberius::error::Error::Io { message, .. } => Error::Connect(message.clone()),
-        _ => Error::Connect(e.to_string()),
+        tiberius::error::Error::Io { kind, message } => {
+            let kind = match *kind {
+                std::io::ErrorKind::NotFound => ConnectFailureKind::Dns,
+                k => match dbine_driver::error::classify_io_kind(k) {
+                    ConnectFailureKind::Unknown => dbine_driver::error::classify_message(message),
+                    known => known,
+                },
+            };
+            Error::connect_failed(ConnectFailure::new(kind, message.clone()))
+        }
+        tiberius::error::Error::Tls(_) => Error::connect_failed(ConnectFailure::new(ConnectFailureKind::Tls, e.to_string())),
+        _ => Error::connect_failed(ConnectFailure::from_message(e.to_string())),
     }
+}
+
+/// A server's refusal to log in, classified by its error number.
+fn server_refusal(code: u32, message: &str) -> ConnectFailure {
+    let kind = match code {
+        // Azure SQL: "Client with IP address '…' is not allowed to access
+        // the server" (its firewall).
+        40615 => ConnectFailureKind::Firewall,
+        // Azure SQL: "Cannot open server '…' requested by the login": the
+        // login names another server (user@server) or doesn't exist there.
+        40532 => ConnectFailureKind::Auth,
+        // 40613 (database unavailable, Azure moving it) and the rest: the
+        // number tells the app, the kind doesn't.
+        _ => dbine_driver::error::classify_message(message),
+    };
+    let mut f = ConnectFailure::new(kind, message).with_code(code);
+    f.client_ip = dbine_driver::error::client_ip_in(message);
+    f
 }
 
 /// A GSSAPI failure, explained: what usually fixes it comes first, the
@@ -1355,6 +1386,34 @@ mod tests {
         assert_eq!(format_type("varchar", -1, 0, 0), "varchar(max)");
         assert_eq!(format_type("decimal", 9, 18, 2), "decimal(18,2)");
         assert_eq!(format_type("int", 4, 10, 0), "int");
+    }
+
+    /// Connect failures carry what the app explains: the kind, the error
+    /// number, and the client's IP when Azure names it.
+    #[test]
+    fn connect_failures_are_classified() {
+        use std::io::ErrorKind as K;
+        let f = server_refusal(
+            40615,
+            "Cannot open server 'ventas' requested by the login. Client with IP address '203.0.113.7' is not allowed to access the server.  To enable access, use the Azure Management Portal or run sp_set_firewall_rule on the master database to create a firewall rule for this IP address or address range.  It may take up to five minutes for this change to take effect.",
+        );
+        assert_eq!((f.kind, f.code.as_deref(), f.client_ip.as_deref()), (ConnectFailureKind::Firewall, Some("40615"), Some("203.0.113.7")));
+        assert_eq!(server_refusal(40532, "Cannot open server 'x' requested by the login. The login failed.").kind, ConnectFailureKind::Auth);
+        let f = server_refusal(40613, "Database 'ventas' on server 'srv' is not currently available.");
+        assert_eq!((f.kind, f.code.as_deref()), (ConnectFailureKind::Unknown, Some("40613")));
+        let kind = |e: tiberius::error::Error| match connect_error(e) {
+            Error::ConnectFailed(f) => f.kind,
+            other => panic!("{other:?}"),
+        };
+        let cfg = Config::new();
+        let io = |k: K, m: &str| tiberius::error::Error::Io { kind: k, message: m.into() };
+        assert_eq!(kind(unreachable(&cfg, io(K::ConnectionRefused, "refused"))), ConnectFailureKind::Refused);
+        assert_eq!(kind(unreachable(&cfg, io(K::Other, "failed to lookup address information: nodename nor servname provided"))), ConnectFailureKind::Dns);
+        assert_eq!(kind(unreachable(&cfg, io(K::HostUnreachable, "no route"))), ConnectFailureKind::Refused);
+        assert_eq!(kind(io(K::TimedOut, &no_answer(&cfg))), ConnectFailureKind::Timeout);
+        assert_eq!(kind(tiberius::error::Error::Tls("invalid peer certificate: UnknownIssuer".into())), ConnectFailureKind::Tls);
+        // The messages stay the same Spanish ones.
+        assert!(connect_error(unreachable(&cfg, io(K::ConnectionRefused, "x"))).to_string().contains("rechazó la conexión"));
     }
 
     #[test]

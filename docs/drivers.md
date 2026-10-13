@@ -35,6 +35,12 @@ crates/drivers/<name>/
   (`fn err(e: X) -> Error`) and `.map_err(err)?`:
   - `Error::AuthFailed`: login rejected.
   - `Error::Connect`: the server can't be reached.
+  - `Error::ConnectFailed(ConnectFailure)`: the same, classified (firewall,
+    timeout, refused, dns, tls, auth, unknown) with the server's error code
+    and the client IP when known. Use it in the connect path when the client
+    tells why: `ConnectFailure::from_error` / `from_io` / `from_message` do
+    the common cases (SQL Server, PostgreSQL and MySQL use them). The app
+    explains each kind; a plain `Connect(text)` is classified from its text.
   - `Error::Query`: the server rejected the statement.
   - `Error::Unsupported`: what the engine doesn't offer.
 

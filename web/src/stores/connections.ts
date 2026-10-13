@@ -1,9 +1,9 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { ElMessageBox } from 'element-plus';
 import { listen } from '@tauri-apps/api/event';
-import { api, errorKind, errorMessage } from '../api/client';
+import { api, errorDetail, errorKind, errorMessage } from '../api/client';
 import { askTrustSshHost } from '../composables/sshTrust';
-import type { ColumnInfo, ConnectionFolder, DbObject, DriverInfo, KeyEntry, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
+import type { ColumnInfo, ConnectDetail, ConnectionFolder, DbObject, DriverInfo, KeyEntry, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { rt } from '../composables/i18nLabels';
@@ -27,6 +27,9 @@ export interface LiveConnection {
   /** When the last connect failed (ms since the epoch): the explorer doesn't
    *  retry on its own before `CONNECT_COOLDOWN_MS` has passed. */
   failedAt?: number;
+  /** Why the last connect failed, when the backend could tell (firewall,
+   *  timeout…): the "Ver qué pasa…" dialog explains it. */
+  detail?: ConnectDetail | null;
 }
 
 export interface Loadable<T> {
@@ -353,7 +356,7 @@ export const useConnectionsStore = defineStore('connections', {
       const databases = now?.databases ?? [];
       this.live[id] = {
         status: 'error', serverVersion: '', databases, defaultDatabase: now?.defaultDatabase ?? '', error: message,
-        fromCache: databases.length ? true : undefined, failedAt: Date.now(),
+        fromCache: databases.length ? true : undefined, failedAt: Date.now(), detail: errorDetail(e),
       };
       const at = Date.now();
       const last = lastFailure.get(id);

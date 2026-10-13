@@ -17,7 +17,7 @@ pub async fn monitor_snapshot(state: State<'_, AppState>, args: MonitorArgs) -> 
     let key = format!("monitor:{}", args.connection_id);
     let entry = state.session(&key, &args.connection_id, "").await?;
     let result = entry.session.lock().await.monitor().await;
-    if matches!(result, Err(Error::Connect(_) | Error::Io(_))) {
+    if matches!(result, Err(Error::Connect(_) | Error::ConnectFailed(_) | Error::Io(_))) {
         // A dropped connection would fail every poll: reconnect next time.
         state.sessions.remove(&key);
     }
@@ -31,7 +31,7 @@ pub async fn monitor_blocking(state: State<'_, AppState>, args: MonitorArgs) -> 
     let key = format!("monitor:{}", args.connection_id);
     let entry = state.session(&key, &args.connection_id, "").await?;
     let result = entry.session.lock().await.blocking().await;
-    if matches!(result, Err(Error::Connect(_) | Error::Io(_))) {
+    if matches!(result, Err(Error::Connect(_) | Error::ConnectFailed(_) | Error::Io(_))) {
         state.sessions.remove(&key);
     }
     Ok(result?)
@@ -61,7 +61,7 @@ pub async fn monitor_processes(state: State<'_, AppState>, args: MonitorArgs) ->
     let key = format!("processes:{}", args.connection_id);
     let entry = state.session(&key, &args.connection_id, "").await?;
     let result = entry.session.lock().await.processes().await;
-    if matches!(result, Err(Error::Connect(_) | Error::Io(_))) {
+    if matches!(result, Err(Error::Connect(_) | Error::ConnectFailed(_) | Error::Io(_))) {
         state.sessions.remove(&key);
     }
     Ok(result?)

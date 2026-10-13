@@ -440,7 +440,7 @@ impl Driver for MySqlDriver {
 
         let mut conn = tokio::time::timeout(Duration::from_secs(20), Conn::new(opts.clone()))
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|_| Error::connect_failed(dbine_driver::ConnectFailure::new(dbine_driver::ConnectFailureKind::Timeout, "tiempo de espera agotado")))?
             .map_err(connect_error)?;
 
         // Best effort: an engine that refuses these still works, and the
@@ -462,8 +462,9 @@ fn connect_error(e: mysql_async::Error) -> Error {
     match e {
         // ER_ACCESS_DENIED_ERROR, ER_DBACCESS_DENIED_ERROR
         mysql_async::Error::Server(s) if s.code == 1045 || s.code == 1044 => Error::AuthFailed(s.message),
-        mysql_async::Error::Server(s) => Error::Connect(s.message),
-        other => Error::Connect(other.to_string()),
+        // Classified for the app's explanation (same messages as before).
+        mysql_async::Error::Server(s) => Error::connect_failed(dbine_driver::ConnectFailure::from_message(s.message).with_code(s.code)),
+        other => Error::connect_failed(dbine_driver::ConnectFailure::from_error(&other)),
     }
 }
 
@@ -573,6 +574,20 @@ pub(crate) fn error_position(sql: &str, message: &str) -> (Option<usize>, Option
 mod tests {
     use super::*;
     use dbine_driver::kinds;
+
+    /// Nothing listens on the port: a classified, refused connect.
+    #[tokio::test]
+    async fn refused_connects_are_classified() {
+        let d = drivers().into_iter().find(|d| d.info().id == "mysql").unwrap();
+        let cfg = ConnectionConfig {
+            driver: "mysql".into(), host: "127.0.0.1".into(), port: 1, username: Some("u".into()), password: Some("p".into()),
+            ..Default::default()
+        };
+        match d.connect(&cfg, None).await.err() {
+            Some(Error::ConnectFailed(f)) => assert_eq!(f.kind, dbine_driver::ConnectFailureKind::Refused, "{f:?}"),
+            other => panic!("{other:?}"),
+        }
+    }
 
     #[test]
     fn ids_are_unique_and_kinds_match_capabilities() {

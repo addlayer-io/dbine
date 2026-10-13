@@ -44,7 +44,7 @@ const TRANSIENT: &[&str] = &[
 /// column mismatch, a table with rows, a panic) never are.
 pub fn is_transient(e: &Error) -> bool {
     match e {
-        Error::Connect(_) => true,
+        Error::Connect(_) | Error::ConnectFailed(_) => true,
         Error::Query(m) => transient_text(m),
         Error::Io(io) => {
             matches!(
