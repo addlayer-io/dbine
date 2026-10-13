@@ -1,15 +1,17 @@
 # Explorer cache
 
-When a connection is opened, the tree appears immediately with what it showed
-last time: the databases, each database's objects and each object's columns.
-Meanwhile DBine asks the server, as usual.
+Once a connection is confirmed, the tree shows right away what it showed last
+time: each database's objects and each object's columns. Meanwhile DBine asks
+the server, as usual.
 
 ## How it works
 
 It is *stale-while-revalidate*:
 
-1. On connecting, or on expanding a database or an object, the UI asks for
-   what is stored (`get_cached`) and shows it right away.
+1. Expanding a connection connects first (the node shows **Connecting…**);
+   nothing below it shows until the server has answered. Then, on expanding
+   a database or an object, the UI asks for what is stored (`get_cached`)
+   and shows it right away.
 2. In parallel, the server answers the usual way. While it waits, the node
    shows the **refreshing…** notice.
 3. When the answer arrives, **the server wins**: it replaces what was on
@@ -20,22 +22,29 @@ before: it waits for the server.
 
 ## When the connection fails
 
-A failed connect or refresh never empties the tree:
+Connect first, then show: what the tree shows always belongs to a connection
+that answered.
 
-- **What was on screen stays.** The databases, objects and columns the
-  explorer had (from the cache or from the last session) remain, muted and
-  marked **offline**. A node with nothing stored shows an error row instead
-  of a spinner.
-- **Error banner.** Under the connection, a row says what happened (for
-  example "The server's firewall blocks your IP") with **Retry** and
-  **What's wrong…**. The whole message is its tooltip.
-- **No connect storms.** One connect runs per connection at a time; every
-  expand, completion or tab that needs it waits for that one (the backend
-  shares it the same way per session). For 20 seconds after a failure,
-  expanding nodes doesn't connect again: it shows what's stored. **Retry**
-  and the context menu's **Connect** / **Refresh** try right away. Repeated
-  failures with the same message leave one entry in Output.
+- **Failed connect.** The connection shows only a banner: what happened (for
+  example "The server's firewall blocks your IP"), **Retry** and **What's
+  wrong…**; the whole message is its tooltip. No cached tree is shown.
+- **No silent retries.** Expanding a connection that failed shows its banner
+  again without connecting; **Retry**, the context menu's **Connect** /
+  **Refresh**, and explicit actions in a tab (running a query, opening a
+  table) try again. One connect runs per connection at a time: every expand,
+  completion or tab that needs it waits for that one (the backend shares it
+  the same way per session). Repeated failures with the same message leave
+  one entry in Output.
+- **Dropped later.** When a load fails with a connection error, DBine checks
+  the connection again (a connect, at most every 10 seconds). If it fails,
+  the connection flips to its banner and its children hide. A structure read
+  that only timed out on a busy or blocked server (kind `busy`) doesn't count.
 - After a successful retry, the open nodes that failed load again.
+- **Tabs.** A tab never stays blank: while its connection connects it shows
+  **Connecting…**, and if it can't, the error with **What's wrong…** and
+  **Retry** (in a query tab, in the results pane and the status bar; Retry
+  runs the same script again). Code: `composables/connectionGate.ts`,
+  `components/ConnectionState.vue`.
 
 ### What's wrong…
 
@@ -111,10 +120,9 @@ If the file can't be opened, DBine continues without a cache and logs it.
   also stored on connecting, in `connections.rs`).
 - `src-tauri/src/commands/connections.rs`: deletion on removing or changing
   the connection.
-- `web/src/stores/connections.ts`: the `fromCache` (databases) and `stale`
-  (objects and columns) states that the UI shows as "refreshing…", or as
-  "offline" when `stale` carries an error; the connect single-flight and the
-  retry cooldown (`CONNECT_COOLDOWN_MS`).
+- `web/src/stores/connections.ts`: the `stale` state (objects and columns)
+  that the UI shows as "refreshing…", the connect single-flight and
+  `recheckAfter` (a load's connection error rechecks the connection).
 
 ## Contract
 
