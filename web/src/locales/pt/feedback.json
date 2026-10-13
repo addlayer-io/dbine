@@ -44,5 +44,11 @@
   "done": {
     "title": "O GitHub foi aberto no seu navegador.",
     "text": "Revise o que foi preenchido e clique em “Create” para publicar. Obrigado por nos ajudar a melhorar o DBine!"
+  },
+  "needs": {
+    "lead": "Para continuar: {{what}}.",
+    "title": "o título precisa de pelo menos {{n}} caracteres",
+    "engine": "escreva o nome do banco de dados",
+    "description": "a descrição precisa de pelo menos {{n}} caracteres"
   }
 }

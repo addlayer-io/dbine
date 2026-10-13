@@ -44,5 +44,11 @@
   "done": {
     "title": "Se abrió GitHub en tu navegador.",
     "text": "Revisá lo que se cargó y tocá «Create» para publicarlo. ¡Gracias por ayudarnos a mejorar DBine!"
+  },
+  "needs": {
+    "lead": "Para continuar: {{what}}.",
+    "title": "el título necesita al menos {{n}} caracteres",
+    "engine": "escribí el nombre del motor",
+    "description": "la descripción necesita al menos {{n}} caracteres"
   }
 }
