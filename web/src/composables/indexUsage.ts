@@ -41,7 +41,8 @@ export function loadIndexUsage(connectionId: string, database: string, table: Ob
   entries[k] = { status: 'loading', report: had?.report ?? null, error: null };
   const p = (async () => {
     try {
-      if (!(await useConnectionsStore().ensureConnected(connectionId))) throw new Error(t('common:error'));
+      const conns = useConnectionsStore();
+      if (!(await conns.ensureConnected(connectionId, { auto: !force }))) throw new Error(conns.live[connectionId]?.error ?? t('common:error'));
       const report = await api.getIndexUsage(connectionId, database, { kind: table.kind, schema: table.schema ?? null, name: table.name });
       entries[k] = { status: 'ready', report, error: null };
       return report;
