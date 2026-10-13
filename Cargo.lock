@@ -2736,7 +2736,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-mysql"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "dbine-driver",
  "futures",
@@ -2821,7 +2821,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-postgres"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "dbine-driver",
  "futures",
@@ -2899,7 +2899,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlserver"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "base64 0.22.1",
  "chrono",
