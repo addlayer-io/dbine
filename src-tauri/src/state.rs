@@ -282,7 +282,7 @@ impl AppState {
             )));
         };
         match tokio::time::timeout(limit, f(&mut s)).await {
-            Ok(Err(e @ (dbine_driver::Error::Connect(_) | dbine_driver::Error::Io(_)))) => {
+            Ok(Err(e @ (dbine_driver::Error::Connect(_) | dbine_driver::Error::ConnectFailed(_) | dbine_driver::Error::Io(_)))) => {
                 drop(s);
                 self.sessions.remove_if(&key, |_, held| Arc::ptr_eq(held, &entry));
                 Err(e.into())

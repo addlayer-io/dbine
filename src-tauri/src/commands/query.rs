@@ -730,7 +730,7 @@ where
 fn after_cancel(r: dbine_driver::Result<()>) -> Run {
     match r {
         Ok(()) => Run::Cancelled { keep: true, completed: true },
-        Err(dbine_driver::Error::Connect(_) | dbine_driver::Error::Io(_)) => Run::Cancelled { keep: false, completed: false },
+        Err(dbine_driver::Error::Connect(_) | dbine_driver::Error::ConnectFailed(_) | dbine_driver::Error::Io(_)) => Run::Cancelled { keep: false, completed: false },
         Err(_) => Run::Cancelled { keep: true, completed: false },
     }
 }

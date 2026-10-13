@@ -453,6 +453,19 @@ export interface ConnectResult {
   default_database: string;
 }
 
+/** Why a connect failed (dbine_driver::ConnectFailureKind). */
+export type ConnectFailureKind = 'firewall' | 'timeout' | 'refused' | 'dns' | 'tls' | 'auth' | 'unknown';
+
+/** A "connect" / "auth_failed" error's classification (CommandError's
+ *  `detail`, src-tauri/src/error.rs ConnectDetail). */
+export interface ConnectDetail {
+  kind: ConnectFailureKind;
+  /** The server's error number or SQLSTATE ("40615"). */
+  code: string | null;
+  /** This client's IP as the server saw it (Azure SQL's 40615 says it). */
+  client_ip: string | null;
+}
+
 export interface TestResult {
   ok: boolean;
   message: string;

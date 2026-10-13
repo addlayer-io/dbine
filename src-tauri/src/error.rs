@@ -12,6 +12,11 @@ pub enum CommandError {
     #[error("{0}")]
     Connect(String),
 
+    /// A connect that failed, classified (firewall, timeout…): serialized
+    /// as kind "connect" plus `detail`.
+    #[error("{}", .0.message)]
+    ConnectFailed(dbine_driver::ConnectFailure),
+
     #[error("{0}")]
     AuthFailed(String),
 
@@ -56,7 +61,7 @@ impl CommandError {
         match self {
             Self::NotFound(_) => "not_found",
             Self::BadRequest(_) => "bad_request",
-            Self::Connect(_) => "connect",
+            Self::Connect(_) | Self::ConnectFailed(_) => "connect",
             Self::AuthFailed(_) => "auth_failed",
             Self::PasswordRequired(_) => "password_required",
             Self::Sql(_) => "sql",
@@ -73,10 +78,33 @@ impl CommandError {
 
 impl Serialize for CommandError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("CommandError", 2)?;
+        let mut s = serializer.serialize_struct("CommandError", 3)?;
         s.serialize_field("kind", self.kind())?;
         s.serialize_field("message", &self.to_string())?;
+        match self.detail() {
+            Some(d) => s.serialize_field("detail", &d)?,
+            None => s.skip_field("detail")?,
+        }
         s.end()
+    }
+}
+
+/// Why a connect failed, for the UI's explanation (`detail` of a
+/// "connect" or "auth_failed" error).
+#[derive(Debug, Serialize)]
+pub struct ConnectDetail<'a> {
+    pub kind: dbine_driver::ConnectFailureKind,
+    pub code: Option<&'a str>,
+    pub client_ip: Option<&'a str>,
+}
+
+impl CommandError {
+    pub fn detail(&self) -> Option<ConnectDetail<'_>> {
+        match self {
+            Self::ConnectFailed(f) => Some(ConnectDetail { kind: f.kind, code: f.code.as_deref(), client_ip: f.client_ip.as_deref() }),
+            Self::AuthFailed(_) => Some(ConnectDetail { kind: dbine_driver::ConnectFailureKind::Auth, code: None, client_ip: None }),
+            _ => None,
+        }
     }
 }
 
@@ -84,7 +112,13 @@ impl From<dbine_driver::Error> for CommandError {
     fn from(e: dbine_driver::Error) -> Self {
         use dbine_driver::Error::*;
         match e {
-            Connect(m) => Self::Connect(m),
+            ConnectFailed(f) => Self::ConnectFailed(*f),
+            // Drivers that don't classify: a guess from the text, so every
+            // engine gets the explanation when its message is a known one.
+            Connect(m) => match dbine_driver::ConnectFailure::from_message(m.clone()) {
+                f if f.kind != dbine_driver::ConnectFailureKind::Unknown => Self::ConnectFailed(f),
+                _ => Self::Connect(m),
+            },
             AuthFailed(m) => Self::AuthFailed(m),
             Unsupported(m) => Self::BadRequest(m),
             Query(m) => Self::Sql(m),
@@ -111,3 +145,29 @@ impl From<dbine_sync::SyncError> for CommandError {
 }
 
 pub type CommandResult<T> = Result<T, CommandError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dbine_driver::{ConnectFailure, ConnectFailureKind};
+
+    #[test]
+    fn connect_failures_carry_their_detail() {
+        let mut f = ConnectFailure::from_message("Client with IP address '203.0.113.7' is not allowed to access the server.");
+        f.code = Some("40615".into());
+        let v = serde_json::to_value(CommandError::from(dbine_driver::Error::connect_failed(f))).unwrap();
+        assert_eq!(v["kind"], "connect");
+        assert_eq!(v["detail"], serde_json::json!({ "kind": "firewall", "code": "40615", "client_ip": "203.0.113.7" }));
+        // A driver's plain text, recognized.
+        let v = serde_json::to_value(CommandError::from(dbine_driver::Error::Connect("Connection refused (os error 61)".into()))).unwrap();
+        assert_eq!((v["kind"].as_str(), v["detail"]["kind"].as_str()), (Some("connect"), Some("refused")));
+        // Not recognized: no detail, as before.
+        let v = serde_json::to_value(CommandError::from(dbine_driver::Error::Connect("algo".into()))).unwrap();
+        assert!(v.get("detail").is_none());
+        let v = serde_json::to_value(CommandError::AuthFailed("no".into())).unwrap();
+        assert_eq!(v["detail"]["kind"], "auth");
+        let v = serde_json::to_value(CommandError::Sql("x".into())).unwrap();
+        assert_eq!(v, serde_json::json!({ "kind": "sql", "message": "x" }));
+        let _ = ConnectFailureKind::Unknown;
+    }
+}

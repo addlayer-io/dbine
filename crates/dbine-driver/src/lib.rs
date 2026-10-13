@@ -43,7 +43,7 @@ pub use alter::{SyncScript, TableChange};
 pub use backup::{BackupAction, BackupEntry, BackupSpec};
 pub use config::ConnectionConfig;
 pub use dependencies::{Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation};
-pub use error::{Error, Result};
+pub use error::{ConnectFailure, ConnectFailureKind, Error, Result};
 pub use rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
 pub use index_usage::{IndexUsage, IndexUsageReport};
 pub use info::{

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
-  ColumnInfo, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
+  ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
   ExecuteResponse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
 } from './types';
 import type { MultiDbResponse } from './types';
@@ -12,6 +12,8 @@ import type { MultiDbResponse } from './types';
 export interface CommandErrorShape {
   kind: string;
   message: string;
+  /** Connect and login failures: why, when the backend could tell. */
+  detail?: ConnectDetail;
 }
 
 /** An error's message in the app's language (the backend writes Spanish). */
@@ -22,6 +24,12 @@ export function errorMessage(e: unknown): string {
 
 export function errorKind(e: unknown): string | null {
   return e && typeof e === 'object' && 'kind' in e ? String((e as CommandErrorShape).kind) : null;
+}
+
+/** A connect failure's classification (firewall, timeout…), when there is one. */
+export function errorDetail(e: unknown): ConnectDetail | null {
+  const d = e && typeof e === 'object' && 'detail' in e ? (e as CommandErrorShape).detail : undefined;
+  return d && typeof d === 'object' && typeof d.kind === 'string' ? { kind: d.kind, code: d.code ?? null, client_ip: d.client_ip ?? null } : null;
 }
 
 /** A project file run from a tab: its runs go to the file's timeline. */
