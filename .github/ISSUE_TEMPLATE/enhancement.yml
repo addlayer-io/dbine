@@ -1,0 +1,22 @@
+# Issue form for suggestions. DBine's "Enviar comentarios" dialog opens it
+# prefilled (docs/feedback.md); the labels come from here, never from the URL.
+# Keep the field ids stable.
+name: Suggest an improvement
+description: An idea to make DBine better.
+labels: [enhancement, from-app]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Your suggestion
+      description: What you'd like DBine to do and why it would help you.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Optional. DBine version, OS and architecture, UI language, and the engine and server version of the active connection.
+      render: text
+    validations:
+      required: false

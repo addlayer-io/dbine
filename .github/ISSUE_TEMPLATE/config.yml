@@ -1,0 +1,3 @@
+# The forms in this folder are what DBine's "Enviar comentarios" dialog opens
+# (docs/feedback.md). Blank issues stay available for everything else.
+blank_issues_enabled: true

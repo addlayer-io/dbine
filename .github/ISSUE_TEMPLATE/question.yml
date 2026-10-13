@@ -1,0 +1,22 @@
+# Issue form for questions. DBine's "Enviar comentarios" dialog opens it
+# prefilled (docs/feedback.md); the labels come from here, never from the URL.
+# Keep the field ids stable.
+name: Ask a question
+description: How to do something in DBine.
+labels: [question, from-app]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Your question
+      description: What you're trying to do and what you tried.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Optional. DBine version, OS and architecture, UI language, and the engine and server version of the active connection.
+      render: text
+    validations:
+      required: false

@@ -1,0 +1,48 @@
+{
+  "button": "Enviar comentarios",
+  "title": "Enviar comentarios",
+  "lead": "Recomendanos mejoras, reportá un problema, pedí un motor nuevo o hacé una pregunta.",
+  "kindLabel": "Tipo de comentario",
+  "kinds": {
+    "bug": {
+      "name": "Reportar un error",
+      "hint": "Algo no funciona como esperabas",
+      "titlePlaceholder": "Ej.: El editor se cierra al exportar a Excel",
+      "placeholder": "Qué hiciste, qué esperabas que pasara y qué pasó. Si hubo un mensaje de error, copialo."
+    },
+    "enhancement": {
+      "name": "Sugerir una mejora",
+      "hint": "Una idea para que DBine sea mejor",
+      "titlePlaceholder": "Ej.: Poder fijar columnas en la grilla de resultados",
+      "placeholder": "Qué te gustaría que hiciera DBine y en qué te ayudaría."
+    },
+    "driver-request": {
+      "name": "Pedir un motor nuevo",
+      "hint": "Una base de datos que DBine todavía no soporta",
+      "titlePlaceholder": "Ej.: Firebird 5",
+      "placeholder": "Cómo usás este motor y qué necesitarías primero: explorar, consultar, editar datos, migrar…"
+    },
+    "question": {
+      "name": "Hacer una pregunta",
+      "hint": "Cómo hacer algo en DBine",
+      "titlePlaceholder": "Ej.: ¿Cómo comparo dos bases?",
+      "placeholder": "Qué querés hacer y qué probaste."
+    }
+  },
+  "titleField": "Título",
+  "engine": "Motor",
+  "description": "Descripción",
+  "steps": "Pasos para reproducirlo",
+  "stepsPlaceholder": "1. Conectarse a…\n2. Abrir…\n3. …",
+  "optional": "(opcional)",
+  "diagnostics": "Incluir datos de diagnóstico",
+  "diagnosticsNever": "Esto es todo lo que se incluye. Nunca servidores, usuarios, nombres de bases o de conexiones, consultas ni contraseñas.",
+  "truncated": "La descripción es demasiado larga para enviarla entera: se va a cortar. Podés completarla en GitHub antes de crear el issue.",
+  "publicNote": "Se abre GitHub con todo cargado: solo tenés que tocar «Create». Necesitás una cuenta de GitHub. El issue es público: no incluyas datos privados.",
+  "continue": "Continuar en GitHub",
+  "openAgain": "Abrir de nuevo",
+  "done": {
+    "title": "Se abrió GitHub en tu navegador.",
+    "text": "Revisá lo que se cargó y tocá «Create» para publicarlo. ¡Gracias por ayudarnos a mejorar DBine!"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "button": "Envoyer un commentaire",
+  "title": "Envoyer un commentaire",
+  "lead": "Proposez des améliorations, signalez un problème, demandez un nouveau moteur ou posez une question.",
+  "kindLabel": "Type de commentaire",
+  "kinds": {
+    "bug": {
+      "name": "Signaler une erreur",
+      "hint": "Quelque chose ne fonctionne pas comme prévu",
+      "titlePlaceholder": "Ex. : L'éditeur se ferme lors de l'export vers Excel",
+      "placeholder": "Ce que vous avez fait, ce que vous attendiez et ce qui s'est passé. S'il y a eu un message d'erreur, copiez-le."
+    },
+    "enhancement": {
+      "name": "Suggérer une amélioration",
+      "hint": "Une idée pour améliorer DBine",
+      "titlePlaceholder": "Ex. : Pouvoir épingler des colonnes dans la grille de résultats",
+      "placeholder": "Ce que vous aimeriez que DBine fasse et en quoi cela vous aiderait."
+    },
+    "driver-request": {
+      "name": "Demander un nouveau moteur",
+      "hint": "Une base de données que DBine ne prend pas encore en charge",
+      "titlePlaceholder": "Ex. : Firebird 5",
+      "placeholder": "Comment vous utilisez ce moteur et ce dont vous auriez besoin en premier : explorer, interroger, modifier des données, migrer…"
+    },
+    "question": {
+      "name": "Poser une question",
+      "hint": "Comment faire quelque chose dans DBine",
+      "titlePlaceholder": "Ex. : Comment comparer deux bases ?",
+      "placeholder": "Ce que vous voulez faire et ce que vous avez essayé."
+    }
+  },
+  "titleField": "Titre",
+  "engine": "Moteur",
+  "description": "Description",
+  "steps": "Étapes pour le reproduire",
+  "stepsPlaceholder": "1. Se connecter à…\n2. Ouvrir…\n3. …",
+  "optional": "(facultatif)",
+  "diagnostics": "Inclure les données de diagnostic",
+  "diagnosticsNever": "C'est tout ce qui est inclus. Jamais de serveurs, d'utilisateurs, de noms de bases ou de connexions, de requêtes ni de mots de passe.",
+  "truncated": "La description est trop longue pour être envoyée en entier : elle sera tronquée. Vous pouvez la compléter sur GitHub avant de créer le ticket (issue).",
+  "publicNote": "GitHub s'ouvre avec tout pré-rempli : il suffit de cliquer sur « Create ». Un compte GitHub est nécessaire. Le ticket (issue) est public : n'incluez pas de données privées.",
+  "continue": "Continuer sur GitHub",
+  "openAgain": "Rouvrir",
+  "done": {
+    "title": "GitHub s'est ouvert dans votre navigateur.",
+    "text": "Vérifiez ce qui a été renseigné et cliquez sur « Create » pour le publier. Merci de nous aider à améliorer DBine !"
+  }
+}

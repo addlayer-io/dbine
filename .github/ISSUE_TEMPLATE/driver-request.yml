@@ -1,0 +1,31 @@
+# Issue form for new engine requests. DBine's "Enviar comentarios" dialog
+# opens it prefilled (docs/feedback.md); the labels come from here, never from
+# the URL. Keep the field ids stable.
+name: Request a new engine
+description: A database engine or service DBine doesn't support yet.
+title: "Support for "
+labels: [driver-request, from-app]
+body:
+  - type: input
+    id: engine
+    attributes:
+      label: Engine
+      description: The database engine or service, and the version you use.
+      placeholder: e.g. Firebird 5
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What you'd use it for
+      description: How you work with this engine and what you'd need first (browsing, queries, editing data, migrations…).
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Optional. DBine version, OS and architecture, UI language.
+      render: text
+    validations:
+      required: false

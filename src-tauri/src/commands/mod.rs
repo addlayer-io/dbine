@@ -40,6 +40,7 @@ pub mod scheduled;
 pub mod mail;
 pub mod security;
 pub mod backup;
+pub mod feedback;
 pub mod telemetry;
 pub mod updates;
 pub mod multi_db;
