@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
-  ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
+  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
   ExecuteResponse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
 } from './types';
 import type { MultiDbResponse } from './types';
@@ -54,6 +54,16 @@ export const api = {
   connect: (connectionId: string, password: string | null = null) =>
     invoke<ConnectResult>('connect', { args: { connection_id: connectionId, password } }),
   disconnect: (connectionId: string) => invoke<void>('disconnect', { args: { connection_id: connectionId } }),
+  /** The firewall rule "Agregar mi IP al firewall de Azure" would create; changes nothing. */
+  azureFirewallPlan: (connectionId: string) =>
+    invoke<AzureFirewallPlan>('azure_firewall_plan', { args: { connection_id: connectionId } }),
+  /** Create it with the user's Azure CLI login (after their confirmation). */
+  azureAddFirewallRule: (connectionId: string, ip: string, ruleName: string) =>
+    invoke<AzureFirewallRuleAdded>('azure_sql_add_firewall_rule', { args: { connection_id: connectionId, ip, rule_name: ruleName } }),
+  /** This machine's public IPv4 (api.ipify.org; only when the user asks). */
+  publicIp: () => invoke<string>('public_ip'),
+  /** The Azure portal's SQL servers, in the browser. */
+  openAzurePortal: () => invoke<void>('open_azure_portal'),
 
   listFolders: () => invoke<ConnectionFolder[]>('list_folders'),
   saveFolder: (folder: ConnectionFolder) => invoke<ConnectionFolder>('save_folder', { args: { folder } }),

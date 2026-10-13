@@ -45,7 +45,6 @@
     "offline": "hors ligne",
     "retry": "Réessayer",
     "whatsWrong": "Voir ce qui se passe…",
-    "connectFailedTitle": "Impossible de se connecter à {{name}}",
     "projects": "Projets",
     "noProjects": "Aucun projet : clic droit › Lier un projet…",
     "projectChanges_one": "{{count}} modification non validée",

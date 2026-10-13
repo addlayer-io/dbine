@@ -42,5 +42,78 @@
     "connectionOk": "Connection successful",
     "saveAndConnect": "Save and connect",
     "missingFields": "Missing: {{fields}}"
+  },
+  "problem": {
+    "title": "Connection problem · {{name}}",
+    "connection": "Connection",
+    "server": "Server",
+    "message": "Message",
+    "kindLabel": "Kind",
+    "clientIp": "Client IP",
+    "code": "code {{code}}",
+    "copyDetail": "Copy details",
+    "editConnection": "Edit connection",
+    "publicIp": "Show my public IP",
+    "yourIp": "Your public IP: {{ip}}",
+    "ipFromServer": "The server saw your connection from IP {{ip}}.",
+    "kind": {
+      "firewall": {
+        "title": "The server's firewall blocks your IP",
+        "azure": "Azure SQL only accepts connections from the IPs allowed in the server's firewall, and yours isn't one of them. Add it as a rule and connect again (the change can take a few minutes).",
+        "other": "The server doesn't accept connections from your address. Ask for your public IP to be allowed (for example in pg_hba.conf, the MySQL user's allowed hosts or the server's firewall)."
+      },
+      "timeout": {
+        "title": "The server didn't answer",
+        "body": "The connection didn't reach the server in time. Most often:"
+      },
+      "refused": {
+        "title": "The server refused the connection",
+        "body": "The machine was reached but nothing is listening on that port, or there's no route to it. Most often:"
+      },
+      "dns": {
+        "title": "The server can't be found",
+        "body": "The name {{host}} doesn't resolve. Check that it's spelled right and, if it's an internal name, that you're on the network or VPN that resolves it."
+      },
+      "tls": {
+        "title": "The secure connection (TLS) failed",
+        "body": "The server's certificate isn't trusted or doesn't match the host name. Check the connection's encryption options: use the name on the certificate, or trust the server's certificate only if you know it's the right one."
+      },
+      "auth": {
+        "title": "Login rejected",
+        "body": "The server rejected the user or password. Check the credentials and the authentication method (for example Microsoft Entra), and that the user exists in that database."
+      },
+      "unknown": {
+        "title": "Couldn't connect",
+        "body": "The server or the driver answered with this message."
+      }
+    },
+    "network": {
+      "vpn": "The VPN to the server's network isn't connected.",
+      "firewall": "A firewall on the way (an Azure NSG or WAF, the virtual machine's firewall or your network's) drops traffic to port {{port}}.",
+      "down": "The server or the service is stopped, or listens on another port.",
+      "azureVm": "{{host}} is an Azure virtual machine: SQL Server runs on the VM, so the rule goes in its NSG or WAF (or the VM's Windows firewall), not in the Azure SQL firewall.",
+      "azureSql": "With Azure SQL, an IP that isn't allowed gets a firewall error, not a timeout: if it doesn't answer, check that your network lets port 1433 out."
+    },
+    "azure": {
+      "add": "Add my IP to the Azure firewall",
+      "confirmTitle": "This rule will be created in your Azure account",
+      "rule": "Rule",
+      "ip": "IP",
+      "ipPlaceholder": "YOUR_IP",
+      "groupPlaceholder": "RESOURCE_GROUP",
+      "ipInvalid": "Not a valid IPv4",
+      "ipNeeded": "Use “Show my public IP” or type it",
+      "confirmNote": "It's a change to the Azure SQL server's firewall, made with your Azure CLI (az) session.",
+      "prodConfirm": "This is a production connection. Type “{{name}}” to confirm:",
+      "create": "Create rule",
+      "created": "Rule {{rule}} created on {{server}} (group {{group}}) for {{ip}}. It can take a few minutes to apply: then, Retry.",
+      "azMissing": "The Azure CLI (az) wasn't found on this machine. You can create the rule in one of these ways:",
+      "azLoggedOut": "The Azure CLI (az) isn't logged in (run “az login” and try again). Meanwhile, you can create the rule in one of these ways:",
+      "byCli": "With the Azure CLI (fill in the resource group):",
+      "byPortal": "In the Azure portal: the server › Networking › Firewall rules › Add your client IP.",
+      "openPortal": "Open the portal",
+      "byTsql": "With T-SQL, from another connection that does have access, in the master database:",
+      "unavailable": "Azure reports the database isn't available right now (it happens while it's moved or scaled). Wait a minute and retry."
+    }
   }
 }

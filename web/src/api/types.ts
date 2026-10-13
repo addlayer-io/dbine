@@ -456,6 +456,24 @@ export interface ConnectResult {
 /** Why a connect failed (dbine_driver::ConnectFailureKind). */
 export type ConnectFailureKind = 'firewall' | 'timeout' | 'refused' | 'dns' | 'tls' | 'auth' | 'unknown';
 
+/** "Agregar mi IP al firewall de Azure": the rule that would be created
+ *  (src-tauri commands/azure_firewall.rs FirewallPlan). */
+export interface AzureFirewallPlan {
+  server: string;
+  host: string;
+  rule_name: string;
+  /** ready: az installed and logged in. */
+  az: 'ready' | 'missing' | 'logged_out';
+}
+
+export interface AzureFirewallRuleAdded {
+  server: string;
+  resource_group: string;
+  subscription: string | null;
+  rule_name: string;
+  ip: string;
+}
+
 /** A "connect" / "auth_failed" error's classification (CommandError's
  *  `detail`, src-tauri/src/error.rs ConnectDetail). */
 export interface ConnectDetail {

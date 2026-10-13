@@ -42,5 +42,78 @@
     "connectionOk": "Connexion réussie",
     "saveAndConnect": "Enregistrer et se connecter",
     "missingFields": "À compléter : {{fields}}"
+  },
+  "problem": {
+    "title": "Problème de connexion · {{name}}",
+    "connection": "Connexion",
+    "server": "Serveur",
+    "message": "Message",
+    "kindLabel": "Type",
+    "clientIp": "IP du client",
+    "code": "code {{code}}",
+    "copyDetail": "Copier les détails",
+    "editConnection": "Modifier la connexion",
+    "publicIp": "Voir mon IP publique",
+    "yourIp": "Votre IP publique : {{ip}}",
+    "ipFromServer": "Le serveur a vu votre connexion depuis l’IP {{ip}}.",
+    "kind": {
+      "firewall": {
+        "title": "Le pare-feu du serveur bloque votre IP",
+        "azure": "Azure SQL n’accepte que les connexions des IP autorisées dans le pare-feu du serveur, et la vôtre n’en fait pas partie. Ajoutez-la comme règle et reconnectez-vous (le changement peut prendre quelques minutes).",
+        "other": "Le serveur n’accepte pas les connexions depuis votre adresse. Demandez qu’on autorise votre IP publique (par exemple dans pg_hba.conf, les hôtes autorisés de l’utilisateur MySQL ou le pare-feu du serveur)."
+      },
+      "timeout": {
+        "title": "Le serveur n’a pas répondu",
+        "body": "La connexion n’a pas atteint le serveur à temps. Le plus souvent :"
+      },
+      "refused": {
+        "title": "Le serveur a refusé la connexion",
+        "body": "La machine a été atteinte, mais rien n’écoute sur ce port, ou il n’y a pas de route jusqu’à elle. Le plus souvent :"
+      },
+      "dns": {
+        "title": "Serveur introuvable",
+        "body": "Le nom {{host}} ne se résout pas. Vérifiez son orthographe et, s’il s’agit d’un nom interne, que vous êtes sur le réseau ou le VPN qui le résout."
+      },
+      "tls": {
+        "title": "La connexion sécurisée (TLS) a échoué",
+        "body": "Le certificat du serveur n’est pas approuvé ou ne correspond pas au nom d’hôte. Vérifiez les options de chiffrement de la connexion : utilisez le nom indiqué dans le certificat, ou faites confiance au certificat du serveur seulement si vous savez que c’est le bon."
+      },
+      "auth": {
+        "title": "Connexion refusée",
+        "body": "Le serveur a refusé l’utilisateur ou le mot de passe. Vérifiez les identifiants et la méthode d’authentification (par exemple Microsoft Entra), et que l’utilisateur existe dans cette base."
+      },
+      "unknown": {
+        "title": "Connexion impossible",
+        "body": "Le serveur ou le pilote a répondu avec ce message."
+      }
+    },
+    "network": {
+      "vpn": "Le VPN vers le réseau du serveur n’est pas connecté.",
+      "firewall": "Un pare-feu sur le chemin (un NSG ou un WAF Azure, le pare-feu de la machine virtuelle ou celui de votre réseau) bloque le trafic vers le port {{port}}.",
+      "down": "Le serveur ou le service est arrêté, ou écoute sur un autre port.",
+      "azureVm": "{{host}} est une machine virtuelle Azure : SQL Server tourne sur la VM, donc la règle va dans son NSG ou WAF (ou le pare-feu Windows de la VM), pas dans le pare-feu d’Azure SQL.",
+      "azureSql": "Avec Azure SQL, une IP non autorisée donne une erreur de pare-feu, pas un délai dépassé : s’il ne répond pas, vérifiez que votre réseau laisse sortir le port 1433."
+    },
+    "azure": {
+      "add": "Ajouter mon IP au pare-feu Azure",
+      "confirmTitle": "Cette règle va être créée dans votre compte Azure",
+      "rule": "Règle",
+      "ip": "IP",
+      "ipPlaceholder": "VOTRE_IP",
+      "groupPlaceholder": "GROUPE_DE_RESSOURCES",
+      "ipInvalid": "IPv4 non valide",
+      "ipNeeded": "Utilisez « Voir mon IP publique » ou saisissez-la",
+      "confirmNote": "C’est une modification du pare-feu du serveur Azure SQL, faite avec votre session Azure CLI (az).",
+      "prodConfirm": "C’est une connexion de production. Tapez « {{name}} » pour confirmer :",
+      "create": "Créer la règle",
+      "created": "Règle {{rule}} créée sur {{server}} (groupe {{group}}) pour {{ip}}. Elle peut mettre quelques minutes à s’appliquer : ensuite, Réessayer.",
+      "azMissing": "Azure CLI (az) est introuvable sur cette machine. Vous pouvez créer la règle de l’une de ces façons :",
+      "azLoggedOut": "Azure CLI (az) n’a pas de session ouverte (lancez « az login » puis réessayez). En attendant, vous pouvez créer la règle de l’une de ces façons :",
+      "byCli": "Avec Azure CLI (complétez le groupe de ressources) :",
+      "byPortal": "Dans le portail Azure : le serveur › Mise en réseau › Règles de pare-feu › Ajouter l’IP du client.",
+      "openPortal": "Ouvrir le portail",
+      "byTsql": "Avec T-SQL, depuis une autre connexion qui a accès, dans la base master :",
+      "unavailable": "Azure indique que la base n’est pas disponible pour le moment (cela arrive pendant un déplacement ou une mise à l’échelle). Attendez une minute et réessayez."
+    }
   }
 }

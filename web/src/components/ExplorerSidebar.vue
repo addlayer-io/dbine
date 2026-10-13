@@ -6,7 +6,7 @@ import TelemetryConsent from './TelemetryConsent.vue';
 import UpdateNotice from './UpdateNotice.vue';
 import SchemaIcon from './SchemaIcon.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -40,6 +40,7 @@ import DropIndexDialog from './DropIndexDialog.vue';
 import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composables/dropIndex';
 import { databaseRenameItem, renameItem, type RenameDialogTarget } from '../composables/rename';
 import RenameDialog from './RenameDialog.vue';
+import ConnectionProblemDialog from './ConnectionProblemDialog.vue';
 
 // The explorer: user folders (clients, environments… nested at will) →
 // connections → databases → Queries + the kinds of objects the driver
@@ -451,7 +452,7 @@ function connectionNode(c: SavedConnection): TNode {
       // knew (last time's databases and objects) stays below it, muted.
       const offline = live.status === 'error';
       const banner: TNode[] = offline
-        ? [{ id: `x:${id}:connerr`, label: firstLine(live.error ?? t('common:error')), type: 'connerr', connectionId: c.id }]
+        ? [{ id: `x:${id}:connerr`, label: bannerText(live.error, live.detail?.kind), type: 'connerr', connectionId: c.id }]
         : [];
       if (offline && !live.databases.length) node.children = banner;
       else if (!d.databases_label) node.children = [...banner, ...databaseChildren(c, d, live.databases[0] ?? '', id)];
@@ -478,6 +479,13 @@ function firstLine(s: string): string {
   return s.split('\n').find((l) => l.trim())?.trim() ?? s;
 }
 
+/** The banner's text: what kind of failure it was, when the backend could
+ *  tell; else the message's first line (the whole message is its tooltip). */
+function bannerText(error: string | null, kind?: string): string {
+  if (kind && kind !== 'unknown') return t(`connection:problem.kind.${kind}.title`);
+  return firstLine(error ?? t('common:error'));
+}
+
 /** A row below a connection that couldn't connect: what the explorer shows
  *  there is last time's. */
 function isOffline(n: TNode): boolean {
@@ -490,11 +498,10 @@ async function retryConnect(connectionId: string) {
   if (await conns.connect(connectionId)) reloadExpanded(connectionId);
 }
 
-/** "Ver qué pasa…": the whole error. */
+/** "Ver qué pasa…": the connection whose failure ConnectionProblemDialog explains. */
+const problemFor = ref<string | null>(null);
 function explainError(connectionId: string) {
-  const live = conns.live[connectionId];
-  const name = conns.byId(connectionId)?.name ?? '';
-  void ElMessageBox.alert(live?.error ?? t('common:error'), t('explorer:tree.connectFailedTitle', { name }), { type: 'error' }).catch(() => {});
+  problemFor.value = connectionId;
 }
 
 /** Folders under `parent` (then their connections), recursively. */
@@ -1453,6 +1460,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
     <DropIndexDialog v-if="droppingIndex" :target="droppingIndex" @close="droppingIndex = null" />
     <RenameDialog v-if="renaming" :target="renaming" @close="renaming = null" />
+    <ConnectionProblemDialog v-if="problemFor" :connection-id="problemFor" @close="problemFor = null" @retry="retryConnect(problemFor!)" />
     <CloneTableDialog v-if="cloning" :connection-id="cloning.connectionId" :database="cloning.database" :object="cloning.object" @close="cloning = null" />
     <CreateDatabaseDialog v-if="creatingDatabase" :connection-id="creatingDatabase" @close="creatingDatabase = null" />
     <GenerateDataDialog v-if="generatingData" :connection-id="generatingData.connectionId" :database="generatingData.database" :table="generatingData.table" @close="generatingData = null" />

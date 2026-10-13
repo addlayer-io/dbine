@@ -45,7 +45,6 @@
     "offline": "offline",
     "retry": "Retry",
     "whatsWrong": "What's wrong…",
-    "connectFailedTitle": "Couldn't connect to {{name}}",
     "projects": "Projects",
     "noProjects": "No projects: right-click › Link project…",
     "projectChanges_one": "{{count}} uncommitted change",
