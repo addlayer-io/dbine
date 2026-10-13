@@ -53,6 +53,7 @@
     "code": "code {{code}}",
     "copyDetail": "Copier les détails",
     "editConnection": "Modifier la connexion",
+    "publicIp": "Voir mon IP publique",
     "yourIp": "Votre IP publique : {{ip}}",
     "ipFromServer": "Le serveur a vu votre connexion depuis l’IP {{ip}}.",
     "kind": {
@@ -114,8 +115,6 @@
       "byTsql": "Avec T-SQL, depuis une autre connexion qui a accès, dans la base master :",
       "unavailable": "Azure indique que la base n’est pas disponible pour le moment (cela arrive pendant un déplacement ou une mise à l’échelle). Attendez une minute et réessayez."
     },
-    "couldNotConnect": "Impossible de se connecter à {{name}} : {{error}}",
-    "lookingUpIp": "Recherche de votre IP publique…",
-    "retryIp": "Réessayer"
+    "couldNotConnect": "Impossible de se connecter à {{name}} : {{error}}"
   }
 }

@@ -53,6 +53,7 @@
     "code": "code {{code}}",
     "copyDetail": "Copy details",
     "editConnection": "Edit connection",
+    "publicIp": "Show my public IP",
     "yourIp": "Your public IP: {{ip}}",
     "ipFromServer": "The server saw your connection from IP {{ip}}.",
     "kind": {
@@ -114,8 +115,6 @@
       "byTsql": "With T-SQL, from another connection that does have access, in the master database:",
       "unavailable": "Azure reports the database isn't available right now (it happens while it's moved or scaled). Wait a minute and retry."
     },
-    "couldNotConnect": "Couldn't connect to {{name}}: {{error}}",
-    "lookingUpIp": "Looking up your public IP…",
-    "retryIp": "Try again"
+    "couldNotConnect": "Couldn't connect to {{name}}: {{error}}"
   }
 }
