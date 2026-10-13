@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Improvements
+- **When a connection fails:** the explorer keeps showing what it had (databases, objects and columns, marked offline) under a banner with **Retry** and **What's wrong…**, instead of an empty tree or an endless spinner, and expanding nodes no longer starts a new connection attempt each time. **What's wrong…** explains the failure (firewall, timeout, refused, host name, certificate or login) and what to check, and on Azure SQL it can add your IP to the server's firewall with your Azure CLI login, after confirming the server, rule and IP. Works on every engine; the cause is most precise on SQL Server, Azure SQL, PostgreSQL and MySQL.
+
 ### Fixes
 - **Rename on Snowflake and Trino, Presto and Starburst:** what names the renamed object (views, materialized views, functions, procedures and, on Snowflake, tasks, streams and dynamic tables) is listed for you to fix by hand instead of being re-created, so it keeps its owner and security settings. The rename is also refused when stored code would split into several statements, and rewriting dependents no longer changes who the code runs as (`DEFINER`, `SQL SECURITY`, `AUTHID`, `EXECUTE AS`).
 - **Queries from AI clients and the assistant:** a query runs without asking only when the database enforces it as read-only and it calls nothing but the engine's built-in, side-effect-free functions. One that calls any other function (a user's function, or one that acts outside the transaction such as pausing replication or taking a lock) waits for your approval first.

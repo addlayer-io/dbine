@@ -45,7 +45,6 @@
     "offline": "non connesso",
     "retry": "Riprova",
     "whatsWrong": "Vedi cosa succede…",
-    "connectFailedTitle": "Impossibile connettersi a {{name}}",
     "projects": "Progetti",
     "noProjects": "Nessun progetto: clic destro › Collega progetto…",
     "projectChanges_one": "{{count}} modifica non committata",

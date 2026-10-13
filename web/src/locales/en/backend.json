@@ -10152,5 +10152,18 @@
   "{0} tiene una línea que dice solo GO: al ejecutarla se partiría en {1} lotes; {2}": "{0} has a line that says only GO: when run it would be split into {1} batches; {2}",
   "{0}: abre otra sesión con su propia transacción, que la de solo lectura no protege; una lectura protegida no lo usa.": "{0}: opens another session with its own transaction, which the read-only one does not protect; a protected read does not use it.",
   "«{0}» tiene caracteres (`, \\, ; o de control) que DBine no escribe en un script de OrientDB: hacelo desde la consola del servidor": "“{0}” has characters (`, \\, ; or control) that DBine does not write in an OrientDB script: do it from the server console",
-  "«{0}» tiene un argumento de un tipo que DBine no reconoce («{1}»): no se renombra (hacelo desde Snowsight o SnowSQL).": "“{0}” has an argument of a type DBine does not recognize (“{1}”): it is not renamed (do it from Snowsight or SnowSQL)."
+  "«{0}» tiene un argumento de un tipo que DBine no reconoce («{1}»): no se renombra (hacelo desde Snowsight o SnowSQL).": "“{0}” has an argument of a type DBine does not recognize (“{1}”): it is not renamed (do it from Snowsight or SnowSQL).",
+  "Azure no creó la regla: {0}": "Azure didn't create the rule: {0}",
+  "el nombre de la regla solo puede tener letras, números, «-» y «_»": "the rule name can only have letters, numbers, “-” and “_”",
+  "la CLI de Azure (az) no terminó en {0} s": "the Azure CLI (az) didn't finish in {0} s",
+  "la CLI de Azure no tiene una sesión iniciada: corré «az login» y volvé a intentar": "the Azure CLI isn't logged in: run “az login” and try again",
+  "la conexión no es a un servidor de Azure SQL (*.database.windows.net)": "the connection isn't to an Azure SQL server (*.database.windows.net)",
+  "no se encontró el servidor {0} en las suscripciones de tu cuenta de Azure (la sesión de az puede ser de otra cuenta o de otro tenant)": "server {0} wasn't found in your Azure account's subscriptions (the az session may be another account's or another tenant's)",
+  "no se encontró la CLI de Azure (az) en esta máquina": "the Azure CLI (az) wasn't found on this machine",
+  "no se pudo averiguar la IP pública: respuesta inesperada": "couldn't find out the public IP: unexpected answer",
+  "no se pudo averiguar la IP pública: {0}": "couldn't find out the public IP: {0}",
+  "no se pudo ejecutar la CLI de Azure (az): {0}": "couldn't run the Azure CLI (az): {0}",
+  "no se pudo listar los servidores de Azure SQL: {0}": "couldn't list the Azure SQL servers: {0}",
+  "{0} no es una IP pública: Azure ve la IP pública de tu red (usá «Ver mi IP pública»)": "{0} isn't a public IP: Azure sees your network's public IP (use “Show my public IP”)",
+  "«{0}» no es una dirección IPv4 válida": "“{0}” isn't a valid IPv4 address"
 }

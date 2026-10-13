@@ -230,32 +230,33 @@ pub fn classify_io_kind(kind: std::io::ErrorKind) -> ConnectFailureKind {
 pub fn classify_message(text: &str) -> ConnectFailureKind {
     let t = text.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| t.contains(w));
-    if has(&["is not allowed to access the server", "client with ip address", "not allowed to connect to this mysql server", "no pg_hba.conf entry"]) {
+    if has(&[r"is not allowed to access the server", r"client with ip address", r"not allowed to connect to this mysql server", r"no pg_hba.conf entry"]) {
         ConnectFailureKind::Firewall
     } else if has(&[
-        "failed to lookup address", "nodename nor servname", "name or service not known", "no such host", "getaddrinfo",
-        "could not translate host name", "temporary failure in name resolution", "dns error", "no se encontró el servidor",
+        r"failed to lookup address", r"nodename nor servname", r"name or service not known", r"no such host", r"getaddrinfo",
+        r"could not translate host name", r"temporary failure in name resolution", r"dns error", r"no se encontró el servidor",
     ]) {
         ConnectFailureKind::Dns
-    } else if has(&["connection refused", "actively refused", "rechazó la conexión", "os error 61)", "os error 111)", "os error 10061)", "no route to host", "network is unreachable", "no hay ruta"]) {
+    } else if has(&[r"connection refused", r"actively refused", r"rechazó la conexión", r"os error 61)", r"os error 111)", r"os error 10061)", r"no route to host", r"network is unreachable", r"no hay ruta"]) {
         ConnectFailureKind::Refused
-    } else if has(&["timed out", "timeout", "time out", "tiempo de espera", "no respondió"]) {
+    } else if has(&[r"timed out", r"timeout", r"time out", r"tiempo de espera", r"no respondió"]) {
         ConnectFailureKind::Timeout
-    } else if has(&["password authentication failed", "login failed", "access denied", "authentication failed", "invalid password", "invalid username"]) {
+    } else if has(&[r"password authentication failed", r"login failed", r"access denied", r"authentication failed", r"invalid password", r"invalid username"]) {
         ConnectFailureKind::Auth
-    } else if has(&["certificate", "tls", "ssl", "handshake", "x509"]) {
+    } else if has(&[r"certificate", r"tls", r"ssl", r"handshake", r"x509"]) {
         ConnectFailureKind::Tls
     } else {
         ConnectFailureKind::Unknown
     }
 }
 
-/// The client IP a server names in its refusal ("Client with IP address
-/// '203.0.113.7' is not allowed…", MySQL's "Host '203.0.113.7' is not
+/// The client IP a server names in its refusal (r"Client with IP address
+/// '203.0.113.7' is not allowed…", MySQL's r"Host '203.0.113.7' is not
 /// allowed…"): a valid IPv4 or IPv6 address only.
 pub fn client_ip_in(text: &str) -> Option<String> {
-    let lower = text.to_lowercase();
-    for marker in ["ip address '", "ip address \"", "host '", "entry for host \""] {
+    // ASCII lowering keeps byte offsets, so they index `text` too.
+    let lower = text.to_ascii_lowercase();
+    for marker in [r"ip address '", r#"ip address ""#, r"host '", r#"entry for host ""#] {
         let Some(at) = lower.find(marker) else { continue };
         let rest = &text[at + marker.len()..];
         let end = rest.find(['\'', '"'])?;

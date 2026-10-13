@@ -42,5 +42,78 @@
     "connectionOk": "Conexão bem-sucedida",
     "saveAndConnect": "Salvar e conectar",
     "missingFields": "Falta preencher: {{fields}}"
+  },
+  "problem": {
+    "title": "Problema de conexão · {{name}}",
+    "connection": "Conexão",
+    "server": "Servidor",
+    "message": "Mensagem",
+    "kindLabel": "Tipo",
+    "clientIp": "IP do cliente",
+    "code": "código {{code}}",
+    "copyDetail": "Copiar detalhes",
+    "editConnection": "Editar conexão",
+    "publicIp": "Ver meu IP público",
+    "yourIp": "Seu IP público: {{ip}}",
+    "ipFromServer": "O servidor viu sua conexão a partir do IP {{ip}}.",
+    "kind": {
+      "firewall": {
+        "title": "O firewall do servidor bloqueia seu IP",
+        "azure": "O Azure SQL só aceita conexões dos IPs permitidos no firewall do servidor, e o seu não está entre eles. Adicione-o como regra e conecte novamente (a mudança pode levar alguns minutos).",
+        "other": "O servidor não aceita conexões do seu endereço. Peça que liberem seu IP público (por exemplo, no pg_hba.conf, nos hosts permitidos do usuário do MySQL ou no firewall do servidor)."
+      },
+      "timeout": {
+        "title": "O servidor não respondeu",
+        "body": "A conexão não chegou ao servidor a tempo. O mais comum:"
+      },
+      "refused": {
+        "title": "O servidor recusou a conexão",
+        "body": "A máquina foi alcançada, mas nada está escutando nessa porta, ou não há rota até ela. O mais comum:"
+      },
+      "dns": {
+        "title": "O servidor não foi encontrado",
+        "body": "O nome {{host}} não é resolvido. Verifique se está escrito corretamente e, se for um nome interno, se você está na rede ou VPN que o resolve."
+      },
+      "tls": {
+        "title": "A conexão segura (TLS) falhou",
+        "body": "O certificado do servidor não é confiável ou não corresponde ao nome do host. Revise as opções de criptografia da conexão: use o nome que consta no certificado, ou confie no certificado do servidor só se souber que é o correto."
+      },
+      "auth": {
+        "title": "Login recusado",
+        "body": "O servidor recusou o usuário ou a senha. Verifique as credenciais e o método de autenticação (por exemplo, Microsoft Entra), e se o usuário existe nesse banco."
+      },
+      "unknown": {
+        "title": "Não foi possível conectar",
+        "body": "O servidor ou o driver responderam com esta mensagem."
+      }
+    },
+    "network": {
+      "vpn": "A VPN da rede do servidor não está conectada.",
+      "firewall": "Um firewall no caminho (um NSG ou WAF do Azure, o firewall da máquina virtual ou o da sua rede) descarta o tráfego para a porta {{port}}.",
+      "down": "O servidor ou o serviço está parado, ou escuta em outra porta.",
+      "azureVm": "{{host}} é uma máquina virtual do Azure: o SQL Server roda na VM, então a regra vai no NSG ou WAF dela (ou no firewall do Windows da VM), não no firewall do Azure SQL.",
+      "azureSql": "Com o Azure SQL, um IP não permitido gera um erro de firewall, não um tempo esgotado: se não responde, verifique se sua rede deixa sair a porta 1433."
+    },
+    "azure": {
+      "add": "Adicionar meu IP ao firewall do Azure",
+      "confirmTitle": "Esta regra será criada na sua conta do Azure",
+      "rule": "Regra",
+      "ip": "IP",
+      "ipPlaceholder": "SEU_IP",
+      "groupPlaceholder": "GRUPO_DE_RECURSOS",
+      "ipInvalid": "Não é um IPv4 válido",
+      "ipNeeded": "Use “Ver meu IP público” ou digite-o",
+      "confirmNote": "É uma mudança no firewall do servidor do Azure SQL, feita com sua sessão da CLI do Azure (az).",
+      "prodConfirm": "É uma conexão de produção. Digite “{{name}}” para confirmar:",
+      "create": "Criar regra",
+      "created": "Regra {{rule}} criada em {{server}} (grupo {{group}}) para {{ip}}. Pode levar alguns minutos para valer: depois, Tentar novamente.",
+      "azMissing": "A CLI do Azure (az) não foi encontrada nesta máquina. Você pode criar a regra de uma destas formas:",
+      "azLoggedOut": "A CLI do Azure (az) não tem uma sessão iniciada (execute “az login” e tente novamente). Enquanto isso, você pode criar a regra de uma destas formas:",
+      "byCli": "Com a CLI do Azure (complete o grupo de recursos):",
+      "byPortal": "No portal do Azure: o servidor › Rede › Regras de firewall › Adicionar o IP do cliente.",
+      "openPortal": "Abrir o portal",
+      "byTsql": "Com T-SQL, a partir de outra conexão que tenha acesso, no banco master:",
+      "unavailable": "O Azure informa que o banco não está disponível no momento (acontece enquanto ele é movido ou escalado). Aguarde um minuto e tente novamente."
+    }
   }
 }

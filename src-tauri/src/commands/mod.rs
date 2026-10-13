@@ -2,6 +2,7 @@ pub mod compare;
 pub mod rename;
 pub mod conn_import;
 pub mod connections;
+pub mod azure_firewall;
 pub mod drivers;
 pub mod explorer;
 pub mod export;

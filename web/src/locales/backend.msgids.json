@@ -1677,6 +1677,9 @@
  "Azure SQL no permite cambiar de base en la misma conexión.": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "Azure no creó la regla: {0}": [
+  "src-tauri/src/commands/azure_firewall.rs"
+ ],
  "Año como DECIMAL(4, 0).": [
   "crates/dbine-schema/src/dialect/exasol.rs"
  ],
@@ -24249,6 +24252,9 @@
  "el nombre de la base tiene que tener entre 1 y 63 caracteres": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
+ "el nombre de la regla solo puede tener letras, números, «-» y «_»": [
+  "src-tauri/src/commands/azure_firewall.rs"
+ ],
  "el nombre de una base no puede pasar de 128 caracteres": [
   "crates/drivers/sqlserver/src/rename.rs"
  ],
@@ -26486,6 +26492,12 @@
  "ksqlDB solo admite claves de texto en los mapas.": [
   "crates/dbine-schema/src/dialect/ksqldb.rs"
  ],
+ "la CLI de Azure (az) no terminó en {0} s": [
+  "src-tauri/src/commands/azure_firewall.rs"
+ ],
+ "la CLI de Azure no tiene una sesión iniciada: corré «az login» y volvé a intentar": [
+  "src-tauri/src/commands/azure_firewall.rs"
+ ],
  "la E/S (pg_stat_io)": [
   "crates/drivers/sqlserver/src/babelfish.rs"
  ],
@@ -26877,6 +26889,9 @@
  ],
  "la conexión necesita un nombre": [
   "src-tauri/src/commands/connections.rs"
+ ],
+ "la conexión no es a un servidor de Azure SQL (*.database.windows.net)": [
+  "src-tauri/src/commands/azure_firewall.rs"
  ],
  "la conexión quedó compartida": [
   "src-tauri/src/commands/clone_table.rs",
@@ -28178,6 +28193,7 @@
   "crates/drivers/firebird/src/transfer.rs"
  ],
  "no existe la conexión '{0}'": [
+  "src-tauri/src/commands/azure_firewall.rs",
   "src-tauri/src/commands/connections.rs",
   "src-tauri/src/commands/multi_db.rs",
   "src-tauri/src/state.rs"
@@ -28367,11 +28383,17 @@
  "no se encontró el nombre en la definición de la vista «{0}»": [
   "crates/drivers/spanner/src/rename.rs"
  ],
+ "no se encontró el servidor {0} en las suscripciones de tu cuenta de Azure (la sesión de az puede ser de otra cuenta o de otro tenant)": [
+  "src-tauri/src/commands/azure_firewall.rs"
+ ],
  "no se encontró el servidor {0}: revisá el nombre del host": [
   "crates/drivers/sqlserver/src/lib.rs"
  ],
  "no se encontró git en esta máquina: instalalo (git-scm.com) y volvé a intentar": [
   "src-tauri/src/commands/git_cli.rs"
+ ],
+ "no se encontró la CLI de Azure (az) en esta máquina": [
+  "src-tauri/src/commands/azure_firewall.rs"
  ],
  "no se encontró la base «{0}»": [
   "src-tauri/src/commands/rename.rs"
@@ -28478,6 +28500,7 @@
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo abrir el navegador: {0}": [
+  "src-tauri/src/commands/azure_firewall.rs",
   "src-tauri/src/commands/settings.rs",
   "src-tauri/src/commands/updates.rs",
   "src-tauri/src/sync.rs"
@@ -28528,6 +28551,12 @@
  ],
  "no se pudo armar el mail: {0}": [
   "src-tauri/src/tasks/mail.rs"
+ ],
+ "no se pudo averiguar la IP pública: respuesta inesperada": [
+  "src-tauri/src/commands/azure_firewall.rs"
+ ],
+ "no se pudo averiguar la IP pública: {0}": [
+  "src-tauri/src/commands/azure_firewall.rs"
  ],
  "no se pudo borrar el clon a medias «{0}»: {1}": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -28729,6 +28758,9 @@
  ],
  "no se pudo ejecutar git: {0}": [
   "src-tauri/src/commands/git_cli.rs"
+ ],
+ "no se pudo ejecutar la CLI de Azure (az): {0}": [
+  "src-tauri/src/commands/azure_firewall.rs"
  ],
  "no se pudo ejecutar {0}: {1}": [
   "crates/dbine-ai/src/cli.rs"
@@ -28968,6 +29000,9 @@
   "crates/dbine-core/src/conn_import/dbeaver.rs",
   "crates/dbine-core/src/conn_import/dbgate.rs",
   "crates/dbine-core/src/conn_import/ssms.rs"
+ ],
+ "no se pudo listar los servidores de Azure SQL: {0}": [
+  "src-tauri/src/commands/azure_firewall.rs"
  ],
  "no se pudo llegar a ADFS: {0}": [
   "crates/drivers/sqlserver/src/entra.rs"
@@ -31605,6 +31640,9 @@
  "{0} no es un valor de {1}": [
   "crates/drivers/clickhouse/src/transfer.rs"
  ],
+ "{0} no es una IP pública: Azure ve la IP pública de tu red (usá «Ver mi IP pública»)": [
+  "src-tauri/src/commands/azure_firewall.rs"
+ ],
  "{0} no es una fecha": [
   "crates/drivers/hana/src/transfer.rs"
  ],
@@ -33313,6 +33351,9 @@
  ],
  "«{0}» no es una colección (bucket.scope.colección)": [
   "crates/drivers/couchbase/src/security.rs"
+ ],
+ "«{0}» no es una dirección IPv4 válida": [
+  "src-tauri/src/commands/azure_firewall.rs"
  ],
  "«{0}» no es una dirección de correo válida": [
   "src-tauri/src/tasks/mail.rs"

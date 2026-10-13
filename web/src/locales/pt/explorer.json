@@ -45,7 +45,6 @@
     "offline": "sem conexão",
     "retry": "Tentar novamente",
     "whatsWrong": "Ver o que houve…",
-    "connectFailedTitle": "Não foi possível conectar a {{name}}",
     "projects": "Projetos",
     "noProjects": "Sem projetos: clique com o botão direito › Vincular projeto…",
     "projectChanges_one": "{{count}} alteração sem commit",
