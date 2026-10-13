@@ -6,7 +6,7 @@ import { errorMessage } from '../api/client';
 import { feedbackApi } from '../api/feedback';
 import type { FeedbackSystemInfo } from '../api/types';
 import { buildFeedbackUrl, diagnosticsText, FEEDBACK_KINDS, MAX_TITLE, type FeedbackDiagnostics, type FeedbackKind } from '../composables/feedbackUrl';
-import { language } from '../i18n';
+import { language, t } from '../i18n';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 
@@ -73,9 +73,20 @@ const built = computed(() => buildFeedbackUrl({
   diagnostics: withDiagnostics.value ? diagnostics.value : null,
 }));
 
-const titleOk = computed(() => title.value.trim().length >= (kind.value === 'driver-request' ? 2 : 5));
-const descriptionOk = computed(() => description.value.trim().length >= 10);
-const ready = computed(() => titleOk.value && descriptionOk.value && !!system.value);
+const MIN_DESCRIPTION = 10;
+const minTitle = computed(() => (kind.value === 'driver-request' ? 2 : 5));
+const titleOk = computed(() => title.value.trim().length >= minTitle.value);
+const descriptionOk = computed(() => description.value.trim().length >= MIN_DESCRIPTION);
+// Not waiting for the system info: without it the diagnostics just say less.
+const ready = computed(() => titleOk.value && descriptionOk.value);
+/** Why "Continuar en GitHub" is still off, so it never looks stuck. */
+const missing = computed(() => {
+  void language.value; // re-translate on a language change
+  const parts: string[] = [];
+  if (!titleOk.value) parts.push(t(kind.value === 'driver-request' ? 'feedback:needs.engine' : 'feedback:needs.title', { n: minTitle.value }));
+  if (!descriptionOk.value) parts.push(t('feedback:needs.description', { n: MIN_DESCRIPTION }));
+  return parts.length ? t('feedback:needs.lead', { what: parts.join(' · ') }) : '';
+});
 
 async function open() {
   if (!ready.value || busy.value) return;
@@ -184,6 +195,8 @@ function closed() {
 
       <p v-if="built.truncated" class="fb-truncated">{{ $t('feedback:truncated') }}</p>
 
+      <p v-if="missing" class="fb-missing">{{ missing }}</p>
+
       <p class="fb-public">
         <el-icon :size="14"><WarningFilled /></el-icon>
         <span>{{ $t('feedback:publicNote') }}</span>
@@ -228,6 +241,7 @@ function closed() {
   pre { margin: 0; font-family: var(--nm-mono); font-size: 12px; white-space: pre-wrap; color: var(--nm-text); }
   p { margin: 6px 0 0; font-size: 12px; color: var(--nm-text-muted); }
 }
+.fb-missing { margin: 10px 0 0; font-size: 12.5px; color: var(--nm-text-muted, #8a8a8a); }
 .fb-truncated { margin: 10px 0 0; font-size: 12.5px; color: var(--nm-warning); }
 .fb-public {
   display: flex; gap: 6px; align-items: flex-start; margin: 14px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--nm-text-dim);
