@@ -41,7 +41,7 @@ const network = computed(() => kind.value === 'timeout' || kind.value === 'refus
 // Connected after a retry: nothing left to explain.
 watch(() => live.value?.status, (s) => { if (s === 'connected') emit('close'); });
 
-// -- public IP (looked up when the dialog opens for a network or firewall problem) --------
+// -- public IP (asked only on click) ----------------------------------------------------
 const publicIp = ref<string | null>(null);
 const ipLoading = ref(false);
 const ipError = ref<string | null>(null);
@@ -59,12 +59,6 @@ async function lookUpIp() {
 }
 /** The IP the server saw (Azure says it), else the one looked up. */
 const knownIp = computed(() => detail.value?.client_ip ?? publicIp.value);
-// Where the IP matters and the server didn't say it, look it up right away.
-watch(
-  () => (kind.value === 'firewall' || network.value) && !detail.value?.client_ip,
-  (wanted) => { if (wanted && !publicIp.value && !ipLoading.value) void lookUpIp(); },
-  { immediate: true },
-);
 
 // -- Azure SQL firewall rule ------------------------------------------------------------
 const plan = ref<AzureFirewallPlan | null>(null);
@@ -188,8 +182,7 @@ function editConnection() {
         <span v-if="detail?.client_ip">{{ $t('connection:problem.ipFromServer', { ip: detail.client_ip }) }}</span>
         <span v-else-if="publicIp">{{ $t('connection:problem.yourIp', { ip: publicIp }) }}</span>
         <el-button v-if="knownIp" size="small" text :title="$t('common:copy')" @click="copy(knownIp)"><el-icon><ei-copy-document /></el-icon></el-button>
-        <span v-else-if="ipLoading" class="cp-dim">{{ $t('connection:problem.lookingUpIp') }}</span>
-        <el-button v-if="ipError" size="small" text @click="lookUpIp">{{ $t('connection:problem.retryIp') }}</el-button>
+        <el-button v-if="!detail?.client_ip" size="small" :loading="ipLoading" @click="lookUpIp">{{ $t('connection:problem.publicIp') }}</el-button>
         <span v-if="ipError" class="cp-error">{{ ipError }}</span>
       </div>
 
@@ -272,7 +265,6 @@ function editConnection() {
 .cp-note { color: var(--nm-text-dim); font-size: 12.5px; }
 .cp-ip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; }
 .cp-error { color: var(--nm-danger); font-size: 12.5px; }
-.cp-dim { color: var(--nm-text-dim); font-size: 12.5px; }
 .cp-azure { margin: 6px 0 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .cp-confirm, .cp-manual { align-self: stretch; border: 1px solid var(--nm-border-soft); border-radius: 4px; padding: 10px 12px; }
 .cp-confirm-title { font-weight: 600; margin-bottom: 6px; }
