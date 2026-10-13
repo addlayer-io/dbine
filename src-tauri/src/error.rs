@@ -1,7 +1,7 @@
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum CommandError {
     #[error("{0}")]
     NotFound(String),

@@ -6,7 +6,7 @@ import TelemetryConsent from './TelemetryConsent.vue';
 import UpdateNotice from './UpdateNotice.vue';
 import SchemaIcon from './SchemaIcon.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -56,7 +56,9 @@ type NodeType = 'group' | 'connection' | 'database' | 'schema' | 'folder' | 'que
   // A table's "Índices" folder and its indexes.
   | 'indexes' | 'index'
   // "Proyectos": the linked projects whose base is this database.
-  | 'projects' | 'project';
+  | 'projects' | 'project'
+  // The banner of a connection that couldn't connect ("Reintentar", "Ver qué pasa…").
+  | 'connerr';
 
 interface TNode {
   id: string;
@@ -444,21 +446,55 @@ function connectionNode(c: SavedConnection): TNode {
       const label = live ? (conns.downloadNote(d.id) ?? t('explorer:tree.connecting')) : t('explorer:tree.expandToConnect');
       node.children = [status(id, 'loading', label)];
     }
-    else if (live.status === 'error') node.children = [status(id, 'error', live.error ?? t('common:error'))];
-    else if (!d.databases_label) node.children = databaseChildren(c, d, live.databases[0] ?? '', id);
     else {
-      node.children = live.databases.map((db) => {
-        const did = `d:${c.id}:${db}`;
-        const loaded = conns.objects[dbKey(c.id, db)];
-        return {
-          id: did, label: db, type: 'database' as const, connectionId: c.id, database: db,
-          hint: loaded?.status === 'stale' ? t('explorer:tree.refreshing') : db === live.defaultDatabase ? t('explorer:tree.defaultDatabase') : undefined,
-          children: loaded ? databaseChildren(c, d, db, did) : [status(did, 'loading', t('common:loading'))],
-        };
-      });
-      if (!node.children.length) node.children = [status(id, 'empty', t('explorer:tree.noDatabases'))];
+      // Couldn't connect: a banner with the error, and what the explorer
+      // knew (last time's databases and objects) stays below it, muted.
+      const offline = live.status === 'error';
+      const banner: TNode[] = offline
+        ? [{ id: `x:${id}:connerr`, label: firstLine(live.error ?? t('common:error')), type: 'connerr', connectionId: c.id }]
+        : [];
+      if (offline && !live.databases.length) node.children = banner;
+      else if (!d.databases_label) node.children = [...banner, ...databaseChildren(c, d, live.databases[0] ?? '', id)];
+      else {
+        node.children = [...banner, ...live.databases.map((db) => {
+          const did = `d:${c.id}:${db}`;
+          const loaded = conns.objects[dbKey(c.id, db)];
+          return {
+            id: did, label: db, type: 'database' as const, connectionId: c.id, database: db,
+            hint: offline ? t('explorer:tree.offline')
+              : loaded?.status === 'stale' && !loaded.error ? t('explorer:tree.refreshing')
+                : db === live.defaultDatabase ? t('explorer:tree.defaultDatabase') : undefined,
+            children: loaded ? databaseChildren(c, d, db, did) : [status(did, offline ? 'empty' : 'loading', offline ? t('explorer:tree.offline') : t('common:loading'))],
+          };
+        })];
+        if (!node.children.length) node.children = [status(id, 'empty', t('explorer:tree.noDatabases'))];
+      }
     }
     return node;
+}
+
+/** A message's first line (the banner row has room for one). */
+function firstLine(s: string): string {
+  return s.split('\n').find((l) => l.trim())?.trim() ?? s;
+}
+
+/** A row below a connection that couldn't connect: what the explorer shows
+ *  there is last time's. */
+function isOffline(n: TNode): boolean {
+  return !!n.connectionId && n.type !== 'connection' && n.type !== 'connerr' && conns.live[n.connectionId]?.status === 'error';
+}
+
+/** "Reintentar", Connect and Refresh: connect now (no cooldown), and reload
+ *  what's expanded below it. */
+async function retryConnect(connectionId: string) {
+  if (await conns.connect(connectionId)) reloadExpanded(connectionId);
+}
+
+/** "Ver qué pasa…": the whole error. */
+function explainError(connectionId: string) {
+  const live = conns.live[connectionId];
+  const name = conns.byId(connectionId)?.name ?? '';
+  void ElMessageBox.alert(live?.error ?? t('common:error'), t('explorer:tree.connectFailedTitle', { name }), { type: 'error' }).catch(() => {});
 }
 
 /** Folders under `parent` (then their connections), recursively. */
@@ -512,7 +548,9 @@ async function onExpand(n: TNode) {
   if (n.type === 'connection' && n.connectionId) {
     const id = n.connectionId;
     const d = conns.driverOf(id);
-    const connecting = conns.ensureConnected(id);
+    // Right after a failed connect this doesn't try again (the banner's
+    // "Reintentar" does): the cache stays on screen.
+    const connecting = conns.ensureConnected(id, { auto: true });
     // Engines with a single namespace: its objects from the explorer cache
     // right away (they refresh once connected).
     await conns.cachedDatabasesReady(id);
@@ -528,6 +566,39 @@ async function onExpand(n: TNode) {
     if (indexesShown(n.connectionId, n.object)) loadIndexUsage(n.connectionId, n.database ?? '', n.object);
   }
 }
+/** After a (re)connect: el-tree-v2 doesn't fire `node-expand` for nodes it
+ *  restores open, so what's open below the connection and failed (offline,
+ *  or an error) loads again here. */
+function reloadExpanded(connectionId: string) {
+  for (const key of expanded.value) {
+    const n = findNode(key);
+    if (!n || n.connectionId !== connectionId) continue;
+    const db = n.database ?? '';
+    const failed = (l?: { status: string; error: string | null }) => !!l && (l.status === 'error' || (l.status === 'stale' && !!l.error));
+    if (n.type === 'connection') {
+      const d = conns.driverOf(connectionId);
+      const only = conns.live[connectionId]?.databases[0] ?? '';
+      if (d && !d.databases_label && failed(conns.objects[dbKey(connectionId, only)])) loadDatabase(connectionId, only);
+    } else if (n.type === 'database' && failed(conns.objects[dbKey(connectionId, db)])) {
+      loadDatabase(connectionId, db);
+    } else if (n.type === 'object' && n.object && failed(conns.columns[objKey(connectionId, db, n.object.schema, n.object.name)])) {
+      conns.loadColumns(connectionId, db, n.object);
+    }
+  }
+}
+// A connect from anywhere (a query tab, the context menu…) reloads what's
+// open and failed below that connection.
+watch(
+  () => Object.entries(conns.live).map(([id, l]) => `${id}:${l.status}`).join('|'),
+  (now, before) => {
+    const was = new Set((before ?? '').split('|'));
+    for (const entry of now.split('|')) {
+      if (!entry.endsWith(':connected') || was.has(entry)) continue;
+      reloadExpanded(entry.slice(0, -':connected'.length));
+    }
+  },
+);
+
 function loadDatabase(connectionId: string, database: string, force = false) {
   conns.loadObjects(connectionId, database, force);
   conns.loadQueries(connectionId, database, force);
@@ -716,10 +787,10 @@ async function onContext(e: MouseEvent, n: TNode) {
       const d = conns.driverOf(cid!);
       if (connected) {
         if (d && !d.databases_label) items.push({ label: t('explorer:menu.newQuery'), action: () => newQuery(cid!, conns.live[cid!]?.databases[0] ?? '') });
-        items.push({ label: t('common:refresh'), action: () => conns.connect(cid!) });
+        items.push({ label: t('common:refresh'), action: () => retryConnect(cid!) });
         items.push({ label: t('common:disconnect'), action: () => conns.disconnect(cid!) });
       } else {
-        items.push({ label: t('common:connect'), action: () => conns.connect(cid!) });
+        items.push({ label: t('common:connect'), action: () => retryConnect(cid!) });
       }
       if (d?.capabilities.monitor) items.push({ label: t('explorer:menu.monitor'), action: () => tabs.openMonitor(cid!) });
       // Backups of the whole server (Redis, a snapshot of every index…).
@@ -1190,7 +1261,7 @@ function onClick(n: TNode, node: { expanded: boolean; isLeaf?: boolean }, e?: Mo
     conns.moreKeys(n.connectionId!, n.database ?? '');
     return;
   }
-  if (n.type === 'keysearch') return;
+  if (n.type === 'keysearch' || n.type === 'connerr') return;
   if (n.type === 'project' && n.project && n.connectionId) {
     void projects.useDatabase(n.project.id, n.connectionId, n.database ?? '');
     projects.focusProject(n.project.id);
@@ -1296,6 +1367,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             :class="[n.type, n.status, {
               'drop-here': isDropOn(n, 'into'), 'drop-before': isDropOn(n, 'before'), 'drop-after': isDropOn(n, 'after'),
               picked: picked.has(n.id),
+              offline: isOffline(n),
               tinted: n.type === 'connection' && !!conns.colorOf(n.connectionId),
             }]"
             :style="n.type === 'connection' && conns.colorOf(n.connectionId) ? { '--c': conns.colorOf(n.connectionId)! } : undefined"
@@ -1343,12 +1415,13 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             <el-icon v-else-if="n.type === 'index'" class="ex-ic ix"><ei-sort /></el-icon>
             <el-icon v-else-if="n.type === 'status' && n.status === 'loading'" class="ex-ic is-loading"><ei-loading /></el-icon>
             <el-icon v-else-if="n.type === 'status' && n.status === 'error'" class="ex-ic err"><ei-warning /></el-icon>
+            <el-icon v-else-if="n.type === 'connerr'" class="ex-ic err"><ei-warning /></el-icon>
             <KeySearchRow v-else-if="n.type === 'keysearch'" :connection-id="n.connectionId" :database="n.database ?? ''" />
             <el-icon v-else-if="n.type === 'keyns'" class="ex-ic f"><ei-folder-opened v-if="expanded.includes(n.id)" /><ei-folder v-else /></el-icon>
             <el-icon v-else-if="n.type === 'keymore'" class="ex-ic q"><ei-arrow-down /></el-icon>
             <span v-else-if="n.type === 'object' && n.key?.key_type" class="ex-ktype" :class="n.key.key_type">{{ typeTag(n.key.key_type) }}</span>
             <el-icon v-else-if="n.type === 'object'" class="ex-ic o"><component :is="`ei-${n.icon}`" /></el-icon>
-            <span v-if="n.type !== 'keysearch'" class="ex-label" :title="n.status === 'error' ? n.label : undefined"><span v-if="n.qualifier" class="ex-qual">{{ n.qualifier }}.</span>{{ n.label }}</span>
+            <span v-if="n.type !== 'keysearch'" class="ex-label" :title="n.status === 'error' ? n.label : n.type === 'connerr' ? conns.live[n.connectionId]?.error ?? n.label : undefined"><span v-if="n.qualifier" class="ex-qual">{{ n.qualifier }}.</span>{{ n.label }}</span>
             <span v-if="n.type === 'connection' && tagsOf(n.connectionId).length" class="ex-tags">
               <span
                 v-for="tag in tagsOf(n.connectionId).slice(0, 2)"
@@ -1369,6 +1442,10 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             >{{ n.badge.text }}</span>
             <span v-if="n.changes" class="ex-changes" :title="$t('explorer:tree.projectChanges', { count: n.changes })">{{ n.changes }}</span>
             <span v-if="n.hint" class="ex-hint">{{ n.hint }}</span>
+            <span v-if="n.type === 'connerr'" class="ex-connerr-actions">
+              <button class="ex-connerr-btn" :disabled="conns.live[n.connectionId]?.status === 'connecting'" @click.stop="retryConnect(n.connectionId!)">{{ $t('explorer:tree.retry') }}</button>
+              <button class="ex-connerr-btn" @click.stop="explainError(n.connectionId!)">{{ $t('explorer:tree.whatsWrong') }}</button>
+            </span>
           </span>
         </template>
       </el-tree-v2>
@@ -1466,6 +1543,17 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ixbadge.h-warn { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); color: var(--nm-warning); }
 .ex-ixbadge.h-bad { background: color-mix(in srgb, var(--nm-danger) 22%, transparent); color: var(--nm-danger); }
 .ex-ic.err { color: var(--nm-danger); }
+/* A connection that couldn't connect: its banner, and last time's tree, muted. */
+.ex-node.connerr { color: var(--nm-danger); font-size: 12px; }
+.ex-node.connerr .ex-label { flex: 1; min-width: 0; }
+.ex-connerr-actions { flex: none; display: flex; gap: 6px; }
+.ex-connerr-btn {
+  padding: 0; border: 0; background: none; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
+  color: var(--nm-link, #3794ff);
+}
+.ex-connerr-btn:hover { text-decoration: underline; }
+.ex-connerr-btn:disabled { opacity: .5; cursor: default; text-decoration: none; }
+.ex-node.offline .ex-label { color: var(--nm-text-muted); }
 .ex-ic.mg { color: var(--nm-text-dim); }
 .ex-ic.mg.running { color: var(--nm-accent); }
 .ex-ic.mg.done { color: var(--nm-success); }

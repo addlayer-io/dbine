@@ -51,6 +51,17 @@ pub struct AppState {
     /// The explorer's cache (`cache.db`); unset if it couldn't be opened,
     /// and then the explorer simply waits for the server as before.
     pub cache: Arc<std::sync::OnceLock<dbine_core::ExplorerCache>>,
+    /// Sessions being opened, by key: callers that ask for the same key
+    /// while it opens wait for that attempt and share its outcome instead
+    /// of each starting a connect of their own (see `session`).
+    opening: Arc<DashMap<String, Arc<OpenGate>>>,
+}
+
+/// One key's opening: held while a session is opened; remembers the last
+/// failure so whoever waited for that attempt gets its error too.
+#[derive(Default)]
+struct OpenGate {
+    last_failure: Mutex<Option<(std::time::Instant, CommandError)>>,
 }
 
 /// The app, for events sent from here; set once at startup.
@@ -111,6 +122,7 @@ impl AppState {
             sync: Arc::new(std::sync::OnceLock::new()),
             tunnels: Arc::default(),
             cache: Arc::new(std::sync::OnceLock::new()),
+            opening: Arc::default(),
         }
     }
 
@@ -180,14 +192,53 @@ impl AppState {
 
     /// The session under `key`, opened on `database` if missing or bound
     /// elsewhere.
+    ///
+    /// Single flight per key: concurrent callers (the explorer expanding
+    /// several nodes while the server doesn't answer) wait for the one
+    /// attempt in progress and share its session or its error, instead of
+    /// stacking connects of up to 30 s each. A caller that arrives after an
+    /// attempt failed starts a new one.
     pub async fn session(&self, key: &str, connection_id: &str, database: &str) -> CommandResult<Arc<SessionEntry>> {
-        if let Some(e) = self.sessions.get(key) {
-            // Where the session is now: a `USE` may have moved it.
-            let now = e.switched_to.lock().unwrap_or_else(|p| p.into_inner()).clone();
-            if e.connection_id == connection_id && now.as_deref().unwrap_or(e.database.as_str()) == database {
-                return Ok(e.clone());
+        if let Some(e) = self.open_session_at(key, connection_id, database) {
+            return Ok(e);
+        }
+        let asked = std::time::Instant::now();
+        let gate = self.opening.entry(key.to_string()).or_default().clone();
+        let mut last = gate.last_failure.lock().await;
+        // Opened by the attempt we waited for.
+        if let Some(e) = self.open_session_at(key, connection_id, database) {
+            return Ok(e);
+        }
+        // Or that attempt failed: same answer, no second connect.
+        if let Some((at, err)) = last.as_ref() {
+            if *at >= asked {
+                return Err(err.clone());
             }
         }
+        match self.open_session(key, connection_id, database).await {
+            Ok(entry) => {
+                *last = None;
+                drop(last);
+                // Nobody else holds the gate: drop it (tab keys are many).
+                self.opening.remove_if(key, |_, g| Arc::ptr_eq(g, &gate) && Arc::strong_count(g) <= 2);
+                Ok(entry)
+            }
+            Err(e) => {
+                *last = Some((std::time::Instant::now(), e.clone()));
+                Err(e)
+            }
+        }
+    }
+
+    /// The session under `key` if it's open on that connection and database.
+    fn open_session_at(&self, key: &str, connection_id: &str, database: &str) -> Option<Arc<SessionEntry>> {
+        let e = self.sessions.get(key)?;
+        // Where the session is now: a `USE` may have moved it.
+        let now = e.switched_to.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        (e.connection_id == connection_id && now.as_deref().unwrap_or(e.database.as_str()) == database).then(|| e.clone())
+    }
+
+    async fn open_session(&self, key: &str, connection_id: &str, database: &str) -> CommandResult<Arc<SessionEntry>> {
         let mut cfg = self.resolve_config(connection_id)?;
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
