@@ -181,6 +181,7 @@ function editConnection() {
       <div v-if="kind === 'firewall' || network" class="cp-ip">
         <span v-if="detail?.client_ip">{{ $t('connection:problem.ipFromServer', { ip: detail.client_ip }) }}</span>
         <span v-else-if="publicIp">{{ $t('connection:problem.yourIp', { ip: publicIp }) }}</span>
+        <el-button v-if="knownIp" size="small" text :title="$t('common:copy')" @click="copy(knownIp)"><el-icon><ei-copy-document /></el-icon></el-button>
         <el-button v-if="!detail?.client_ip" size="small" :loading="ipLoading" @click="lookUpIp">{{ $t('connection:problem.publicIp') }}</el-button>
         <span v-if="ipError" class="cp-error">{{ ipError }}</span>
       </div>
