@@ -195,7 +195,7 @@ fn session_id() -> String {
 }
 
 /// OS name and version, read once.
-fn os() -> (&'static str, &'static str) {
+pub(crate) fn os() -> (&'static str, &'static str) {
     static OS: OnceLock<(&'static str, String)> = OnceLock::new();
     let (name, version) = OS.get_or_init(|| (os_name(), os_version()));
     (name, version)

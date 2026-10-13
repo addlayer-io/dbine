@@ -1,0 +1,48 @@
+{
+  "button": "Send feedback",
+  "title": "Send feedback",
+  "lead": "Suggest improvements, report a problem, request a new engine or ask a question.",
+  "kindLabel": "Feedback type",
+  "kinds": {
+    "bug": {
+      "name": "Report a bug",
+      "hint": "Something doesn't work as you expected",
+      "titlePlaceholder": "E.g.: The editor closes when exporting to Excel",
+      "placeholder": "What you did, what you expected to happen and what happened. If there was an error message, copy it."
+    },
+    "enhancement": {
+      "name": "Suggest an improvement",
+      "hint": "An idea to make DBine better",
+      "titlePlaceholder": "E.g.: Being able to pin columns in the results grid",
+      "placeholder": "What you would like DBine to do and how it would help you."
+    },
+    "driver-request": {
+      "name": "Request a new engine",
+      "hint": "A database DBine doesn't support yet",
+      "titlePlaceholder": "E.g.: Firebird 5",
+      "placeholder": "How you use this engine and what you would need first: explore, query, edit data, migrate…"
+    },
+    "question": {
+      "name": "Ask a question",
+      "hint": "How to do something in DBine",
+      "titlePlaceholder": "E.g.: How do I compare two databases?",
+      "placeholder": "What you want to do and what you tried."
+    }
+  },
+  "titleField": "Title",
+  "engine": "Engine",
+  "description": "Description",
+  "steps": "Steps to reproduce",
+  "stepsPlaceholder": "1. Connect to…\n2. Open…\n3. …",
+  "optional": "(optional)",
+  "diagnostics": "Include diagnostic data",
+  "diagnosticsNever": "This is everything that is included. Never servers, users, database or connection names, queries or passwords.",
+  "truncated": "The description is too long to send in full: it will be cut off. You can complete it on GitHub before creating the issue.",
+  "publicNote": "GitHub opens with everything filled in: you just have to click “Create”. You need a GitHub account. The issue is public: don't include private data.",
+  "continue": "Continue on GitHub",
+  "openAgain": "Open again",
+  "done": {
+    "title": "GitHub opened in your browser.",
+    "text": "Review what was filled in and click “Create” to publish it. Thanks for helping us improve DBine!"
+  }
+}

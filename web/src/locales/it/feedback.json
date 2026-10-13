@@ -1,0 +1,48 @@
+{
+  "button": "Invia feedback",
+  "title": "Invia feedback",
+  "lead": "Suggerisci miglioramenti, segnala un problema, richiedi un nuovo motore o fai una domanda.",
+  "kindLabel": "Tipo di feedback",
+  "kinds": {
+    "bug": {
+      "name": "Segnala un errore",
+      "hint": "Qualcosa non funziona come ti aspettavi",
+      "titlePlaceholder": "Es.: L'editor si chiude durante l'esportazione in Excel",
+      "placeholder": "Cosa hai fatto, cosa ti aspettavi che succedesse e cosa è successo. Se c'è stato un messaggio di errore, copialo."
+    },
+    "enhancement": {
+      "name": "Suggerisci un miglioramento",
+      "hint": "Un'idea per rendere DBine migliore",
+      "titlePlaceholder": "Es.: Poter bloccare le colonne nella griglia dei risultati",
+      "placeholder": "Cosa vorresti che DBine facesse e come ti aiuterebbe."
+    },
+    "driver-request": {
+      "name": "Richiedi un nuovo motore",
+      "hint": "Un database che DBine non supporta ancora",
+      "titlePlaceholder": "Es.: Firebird 5",
+      "placeholder": "Come usi questo motore e di cosa avresti bisogno per prima cosa: esplorare, interrogare, modificare dati, migrare…"
+    },
+    "question": {
+      "name": "Fai una domanda",
+      "hint": "Come fare qualcosa in DBine",
+      "titlePlaceholder": "Es.: Come confronto due database?",
+      "placeholder": "Cosa vuoi fare e cosa hai provato."
+    }
+  },
+  "titleField": "Titolo",
+  "engine": "Motore",
+  "description": "Descrizione",
+  "steps": "Passaggi per riprodurlo",
+  "stepsPlaceholder": "1. Connettersi a…\n2. Aprire…\n3. …",
+  "optional": "(facoltativo)",
+  "diagnostics": "Includi i dati di diagnostica",
+  "diagnosticsNever": "Questo è tutto ciò che viene incluso. Mai server, utenti, nomi di database o di connessioni, query né password.",
+  "truncated": "La descrizione è troppo lunga per essere inviata per intero: verrà troncata. Puoi completarla su GitHub prima di creare l'issue.",
+  "publicNote": "GitHub si apre con tutto già compilato: devi solo cliccare su «Create». Serve un account GitHub. L'issue è pubblica: non includere dati privati.",
+  "continue": "Continua su GitHub",
+  "openAgain": "Apri di nuovo",
+  "done": {
+    "title": "GitHub si è aperto nel tuo browser.",
+    "text": "Controlla quanto è stato compilato e clicca su «Create» per pubblicarlo. Grazie per aiutarci a migliorare DBine!"
+  }
+}

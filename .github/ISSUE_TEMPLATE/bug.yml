@@ -1,0 +1,32 @@
+# Issue form for bug reports. DBine's "Enviar comentarios" dialog opens it
+# prefilled (title, description, steps, diagnostics: docs/feedback.md); the
+# labels come from here, never from the URL. Keep the field ids stable.
+name: Bug report
+description: Something in DBine doesn't work as expected.
+labels: [bug, from-app]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead. Don't include passwords, server names or data.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect to …
+        2. Open …
+        3. …
+    validations:
+      required: false
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: DBine version, OS and architecture, UI language, and the engine and server version of the active connection. Never hosts, users, databases or queries.
+      render: text
+    validations:
+      required: false

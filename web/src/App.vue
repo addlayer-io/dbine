@@ -23,6 +23,7 @@ import ProjectDialogs from './components/ProjectDialogs.vue';
 import LibraryDialogs from './components/LibraryDialogs.vue';
 import OutputPanel from './components/OutputPanel.vue';
 import StatusBar from './components/StatusBar.vue';
+import FeedbackDialog from './components/FeedbackDialog.vue';
 import { errorMessage } from './api/client';
 import { newQuery } from './composables/actions';
 import { ownsShortcut, useAppMenu } from './composables/appMenu';
@@ -109,6 +110,8 @@ const sidebarWidth = ref(readJson('dbine.sidebarWidth', 300));
 const sidebarOpen = ref(readJson('dbine.sidebarOpen', true));
 const panelHeight = ref(readJson('dbine.panelHeight', 180));
 const panelOpen = ref(readJson('dbine.panelOpen', false));
+/** "Enviar comentarios" (bottom of the activity bar). */
+const feedbackOpen = ref(false);
 watch(sidebarOpen, (v) => writeJson('dbine.sidebarOpen', v));
 // The left sidebar shows the Explorer, Proyectos, the script Library (⭐) or the history.
 ui.sidebarView = readJson<SidebarView>('dbine.sidebarView', 'explorer');
@@ -224,6 +227,10 @@ watch(
         <button class="ide-activity-item" :class="{ active: ui.settingsSection }" :title="$t('workbench:app.settings')" @click="ui.openSettings()">
           <el-icon :size="21"><ei-setting /></el-icon>
         </button>
+        <!-- Not a tool: last, smaller and dimmer than the rest. -->
+        <button class="ide-activity-item ide-activity-feedback" :title="$t('feedback:button')" :aria-label="$t('feedback:button')" @click="feedbackOpen = true">
+          <el-icon :size="17"><ei-chat-line-round /></el-icon>
+        </button>
       </nav>
 
       <div class="ide-sidebar" :class="{ hidden: !sidebarOpen }">
@@ -286,6 +293,7 @@ watch(
     <ProjectDialogs />
     <SettingsDialog />
     <McpApprovals />
+    <FeedbackDialog v-model="feedbackOpen" />
   </div>
   </el-config-provider>
 </template>
@@ -304,6 +312,8 @@ watch(
   position: absolute; right: 7px; bottom: 9px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px;
   background: var(--ide-focus, #0078d4); color: #ffffff; font-size: 9.5px; font-weight: 600; line-height: 16px; text-align: center; pointer-events: none;
 }
+.ide-activity-feedback { height: 36px; }
+.ide-activity-feedback:not(:hover) { color: #6a6a6a; }
 .ide-activity-item.active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: #ffffff; }
 .ide-sidebar { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--ide-sidebar); }
 .ide-sidebar > :first-child { flex: 1; }

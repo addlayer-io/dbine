@@ -451,6 +451,8 @@ pub fn run() {
             mcp::commands::mcp_answer_approval,
             mcp::commands::mcp_clear_approve_all,
             menu::app_menu_set,
+            commands::feedback::feedback_system_info,
+            commands::feedback::feedback_open_issue_form,
             commands::telemetry::track_event,
             commands::updates::check_for_update,
             commands::updates::open_release_page,

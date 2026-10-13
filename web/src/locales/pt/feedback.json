@@ -1,0 +1,48 @@
+{
+  "button": "Enviar feedback",
+  "title": "Enviar feedback",
+  "lead": "Sugira melhorias, relate um problema, peça um novo motor ou faça uma pergunta.",
+  "kindLabel": "Tipo de feedback",
+  "kinds": {
+    "bug": {
+      "name": "Relatar um erro",
+      "hint": "Algo não funciona como você esperava",
+      "titlePlaceholder": "Ex.: O editor fecha ao exportar para Excel",
+      "placeholder": "O que você fez, o que esperava que acontecesse e o que aconteceu. Se houve uma mensagem de erro, copie-a."
+    },
+    "enhancement": {
+      "name": "Sugerir uma melhoria",
+      "hint": "Uma ideia para deixar o DBine melhor",
+      "titlePlaceholder": "Ex.: Poder fixar colunas na grade de resultados",
+      "placeholder": "O que você gostaria que o DBine fizesse e como isso ajudaria você."
+    },
+    "driver-request": {
+      "name": "Pedir um novo motor",
+      "hint": "Um banco de dados que o DBine ainda não suporta",
+      "titlePlaceholder": "Ex.: Firebird 5",
+      "placeholder": "Como você usa este motor e o que precisaria primeiro: explorar, consultar, editar dados, migrar…"
+    },
+    "question": {
+      "name": "Fazer uma pergunta",
+      "hint": "Como fazer algo no DBine",
+      "titlePlaceholder": "Ex.: Como comparo dois bancos?",
+      "placeholder": "O que você quer fazer e o que já tentou."
+    }
+  },
+  "titleField": "Título",
+  "engine": "Motor",
+  "description": "Descrição",
+  "steps": "Passos para reproduzir",
+  "stepsPlaceholder": "1. Conectar-se a…\n2. Abrir…\n3. …",
+  "optional": "(opcional)",
+  "diagnostics": "Incluir dados de diagnóstico",
+  "diagnosticsNever": "Isto é tudo o que é incluído. Nunca servidores, usuários, nomes de bancos ou de conexões, consultas nem senhas.",
+  "truncated": "A descrição é longa demais para ser enviada inteira: ela será cortada. Você pode completá-la no GitHub antes de criar o issue.",
+  "publicNote": "O GitHub abre com tudo preenchido: basta clicar em “Create”. Você precisa de uma conta do GitHub. O issue é público: não inclua dados privados.",
+  "continue": "Continuar no GitHub",
+  "openAgain": "Abrir novamente",
+  "done": {
+    "title": "O GitHub foi aberto no seu navegador.",
+    "text": "Revise o que foi preenchido e clique em “Create” para publicar. Obrigado por nos ajudar a melhorar o DBine!"
+  }
+}

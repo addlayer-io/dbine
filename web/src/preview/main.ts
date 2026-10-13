@@ -29,6 +29,7 @@ import JsonTreeView from '../components/JsonTreeView.vue';
 import ResultsPane from '../components/ResultsPane.vue';
 import CompareView from '../views/CompareView.vue';
 import SupportReminder from '../components/SupportReminder.vue';
+import FeedbackDialog from '../components/FeedbackDialog.vue';
 import { compareMock } from './compare-samples';
 import { matchesLocal, type FilterState } from '../composables/gridFilter';
 import ExportDialog from '../components/ExportDialog.vue';
@@ -210,6 +211,12 @@ function multiDbView() {
   ];
 }
 if (view === 'multidb') installTauriMock();
+if (view === 'feedback') {
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
+    transformCallback: () => 0,
+    invoke: async (cmd: string) => (cmd === 'feedback_system_info' ? { app_version: '0.1.10', os: 'macOS 15.1', arch: 'aarch64' } : null),
+  };
+}
 
 const app = createApp({
   render: () =>
@@ -223,6 +230,7 @@ const app = createApp({
         h(QueryView, { tab: (useTabsStore().tabs.find((x) => x.id === 'q') ?? { id: 'q', kind: 'query', connectionId: 'c1', database: 'tenant-ventas', queryId: 'q1', preview: false, continueOnError: true }) as never }),
       ]) :
       view === 'support' ? h(SupportReminder) :
+      view === 'feedback' ? h(FeedbackDialog, { modelValue: true }) :
       view === 'multidb' ? multiDbView() :
       view === 'rename' ? h(RenameDialog, {
         ref: renameDialog, onClose: () => console.log('close'),

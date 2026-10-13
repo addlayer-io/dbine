@@ -900,3 +900,7 @@ export interface ProjectSyncOut extends ProjectPullOut { pushed: boolean }
 export interface FolderInspect { path: string; exists: boolean; is_repo: boolean; repo_root: string | null; already_linked: string | null; suggested_name: string; has_manifest: boolean; empty: boolean }
 export interface GitProgress { op_id: string; phase: string; percent: number | null }
 export interface ProjectFilesChanged { project_id: string; paths: string[]; reason: 'write' | 'create' | 'rename' | 'delete' | 'pull' | 'discard' | 'operation' | 'checkout' }
+
+// Feedback (src-tauri/src/commands/feedback.rs): what the optional
+// diagnostics of "Enviar comentarios" can say about the machine.
+export interface FeedbackSystemInfo { app_version: string; os: string; arch: string }

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### New
+- **Send feedback:** a button at the bottom of the activity bar opens a short form to report a bug, suggest an improvement, request a new engine or ask a question. GitHub opens with the issue already filled in and labeled, so you only press Create. Optional diagnostics (DBine version, OS, language, and the active connection's engine and server version) are shown before they're included, and never carry servers, users, database names or queries.
+
 ### Improvements
 - **When a connection fails:** expanding a connection connects first and shows **Connecting…**; the tree appears only once the server answers (then instantly, from what DBine remembers, while it refreshes). If it can't connect, the connection shows a banner with **Retry** and **What's wrong…**, and tabs (a table's data, a query run, and the other tools) show the same error instead of staying blank. If the connection drops later, it goes back to the banner. **What's wrong…** explains the failure (firewall, timeout, refused, host name, certificate or login) and what to check, and on Azure SQL it can add your IP to the server's firewall with your Azure CLI login, after confirming the server, rule and IP. Works on every engine; the cause is most precise on SQL Server, Azure SQL, PostgreSQL and MySQL.
 
