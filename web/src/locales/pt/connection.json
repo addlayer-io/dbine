@@ -53,7 +53,6 @@
     "code": "código {{code}}",
     "copyDetail": "Copiar detalhes",
     "editConnection": "Editar conexão",
-    "publicIp": "Ver meu IP público",
     "yourIp": "Seu IP público: {{ip}}",
     "ipFromServer": "O servidor viu sua conexão a partir do IP {{ip}}.",
     "kind": {
@@ -115,6 +114,8 @@
       "byTsql": "Com T-SQL, a partir de outra conexão que tenha acesso, no banco master:",
       "unavailable": "O Azure informa que o banco não está disponível no momento (acontece enquanto ele é movido ou escalado). Aguarde um minuto e tente novamente."
     },
-    "couldNotConnect": "Não foi possível conectar a {{name}}: {{error}}"
+    "couldNotConnect": "Não foi possível conectar a {{name}}: {{error}}",
+    "lookingUpIp": "Buscando seu IP público…",
+    "retryIp": "Tentar novamente"
   }
 }
