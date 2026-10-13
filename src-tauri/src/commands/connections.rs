@@ -247,10 +247,23 @@ pub async fn connect(state: State<'_, AppState>, args: ConnectArgs) -> CommandRe
     }
     let result = async {
         let cfg = state.resolve_config(&args.connection_id)?;
-        let entry = state.session(&meta_key(&args.connection_id, ""), &args.connection_id, "").await?;
+        let key = meta_key(&args.connection_id, "");
+        let entry = state.session(&key, &args.connection_id, "").await?;
         let mut s = entry.session.lock().await;
-        let server_version = s.server_version().await?;
-        let databases = s.list_databases().await?;
+        let read = async { Ok::<_, dbine_driver::Error>((s.server_version().await?, s.list_databases().await?)) }.await;
+        let (server_version, databases) = match read {
+            Ok(r) => r,
+            Err(e) => {
+                // A session that broke since it opened (the server went
+                // away): the next connect opens a new one instead of failing
+                // on it forever.
+                if e.is_connect() || matches!(e, dbine_driver::Error::Io(_)) {
+                    drop(s);
+                    state.sessions.remove_if(&key, |_, held| std::sync::Arc::ptr_eq(held, &entry));
+                }
+                return Err(e.into());
+            }
+        };
         state.cache_put(&args.connection_id, "", dbine_core::cache::kinds::DATABASES, "", &databases);
         Ok::<_, CommandError>(ConnectResult { server_version, databases, default_database: cfg.database })
     }

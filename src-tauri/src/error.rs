@@ -20,6 +20,12 @@ pub enum CommandError {
     #[error("{0}")]
     AuthFailed(String),
 
+    /// The connection is up but a structure read couldn't run in time (the
+    /// session busy with another read, or the server blocked on a lock):
+    /// not a connection failure, so the UI doesn't recheck the connection.
+    #[error("{0}")]
+    Busy(String),
+
     /// No password to connect with (the connection doesn't keep it, or the
     /// keychain couldn't be read): the UI asks for it and retries. The
     /// message says why when there's more to say.
@@ -63,6 +69,7 @@ impl CommandError {
             Self::BadRequest(_) => "bad_request",
             Self::Connect(_) | Self::ConnectFailed(_) => "connect",
             Self::AuthFailed(_) => "auth_failed",
+            Self::Busy(_) => "busy",
             Self::PasswordRequired(_) => "password_required",
             Self::Sql(_) => "sql",
             Self::State(_) => "state",

@@ -48,6 +48,7 @@ export function loadIndexUsage(connectionId: string, database: string, table: Ob
       return report;
     } catch (e) {
       entries[k] = { status: 'error', report: null, error: errorMessage(e) };
+      void useConnectionsStore().recheckAfter(connectionId, e);
       return null;
     } finally {
       pending.delete(k);

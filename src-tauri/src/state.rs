@@ -277,7 +277,7 @@ impl AppState {
         let entry = self.session(&key, connection_id, database).await?;
         let on = if database.is_empty() { String::new() } else { format!(" de «{database}»") };
         let Ok(mut s) = tokio::time::timeout(limit, entry.session.lock()).await else {
-            return Err(CommandError::Connect(format!(
+            return Err(CommandError::Busy(format!(
                 "la conexión sigue ocupada leyendo la estructura{on} (por ejemplo, una comparación de esquemas en curso); volvé a intentar en un momento."
             )));
         };
@@ -295,7 +295,7 @@ impl AppState {
                 entry.cancel.notify_waiters();
                 drop(s);
                 self.sessions.remove_if(&key, |_, e| Arc::ptr_eq(e, &entry));
-                Err(CommandError::Connect(format!(
+                Err(CommandError::Busy(format!(
                     "el servidor no respondió en {} s leyendo la estructura{on}. Puede estar bloqueado por una transacción o un cambio de estructura en curso; se canceló la consulta, volvé a intentar.",
                     limit.as_secs(),
                 )))

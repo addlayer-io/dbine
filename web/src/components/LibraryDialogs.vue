@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
@@ -133,7 +134,7 @@ watch(() => lib.opening, async (o) => {
 });
 async function loadTarget() {
   if (!target.connectionId) return;
-  if (!(await conns.ensureConnected(target.connectionId))) return;
+  if (!(await ensureConnectedOrTell(target.connectionId))) return;
   if (!target.database) target.database = conns.live[target.connectionId]?.defaultDatabase ?? targetDbs.value[0] ?? '';
   await conns.loadObjects(target.connectionId, target.database);
 }

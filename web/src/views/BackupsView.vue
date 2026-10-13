@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
@@ -21,6 +23,9 @@ import { startTask, useTasksStore, type TaskHandle, type TaskProgress } from '..
 
 const props = defineProps<{ tab: BackupsTab }>();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const { t } = useTranslation();
 const driver = computed(() => conns.driverOf(props.tab.connectionId));
 const spec = computed(() => driver.value?.backup ?? null);
@@ -44,7 +49,7 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+    if (!(await ensureConnection())) return;
     conns.loadPermissions(props.tab.connectionId, props.tab.database);
     const l = await backupApi.list(props.tab.connectionId, props.tab.database);
     copies.value = l.copies;
@@ -560,6 +565,7 @@ function cancelScript() {
       <span style="flex: 1" />
       <el-button size="small" text :title="$t('common:refresh')" @click="load"><el-icon><ei-refresh /></el-icon></el-button>
     </header>
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="load" />
     <div v-if="error" class="bv-error">{{ error }}</div>
 
     <!-- DBine's copies: every engine -->

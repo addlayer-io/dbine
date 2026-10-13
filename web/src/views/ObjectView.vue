@@ -8,6 +8,8 @@ import { api, errorMessage } from '../api/client';
 import type { ColumnInfo, QueryOutcome } from '../api/types';
 import CodeEditor from '../components/CodeEditor.vue';
 import ResultsPane from '../components/ResultsPane.vue';
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { newQuery } from '../composables/actions';
 import { matchesLocal, type ColumnFilter, type FilterState } from '../composables/gridFilter';
 import { objKey, useConnectionsStore } from '../stores/connections';
@@ -25,6 +27,9 @@ const output = useOutputStore();
 const { t } = useTranslation();
 
 const driver = computed(() => conns.driverOf(props.tab.connectionId));
+// Every view connects first: "Conectando…", or the connection's error with
+// "Ver qué pasa…" and "Reintentar" — never an empty pane.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const kind = computed(() => driver.value?.object_kinds.find((k) => k.id === props.tab.object.kind));
 const views = computed(() => {
   const v: { id: ObjectView; label: string }[] = [];
@@ -79,7 +84,7 @@ let pending = false;
 async function loadData() {
   // A filter applied while loading reloads when it ends.
   if (running.value) { pending = true; return; }
-  if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+  if (!(await ensureConnection())) return;
   running.value = true;
   try {
     const [page, all] = await Promise.all([filteredBrowse(limit.value), filteredBrowse(1_000_000_000)]);
@@ -118,9 +123,12 @@ const keyColumns = computed(() => {
 const colError = ref<string | null>(null);
 async function loadColumns() {
   colError.value = null;
-  if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+  if (!(await ensureConnection())) return;
   try {
     columns.value = await conns.loadColumns(props.tab.connectionId, props.tab.database, { ...props.tab.object, parent: null }, true);
+    // The store keeps a failed read's error instead of throwing.
+    const read = conns.columns[objKey(props.tab.connectionId, props.tab.database, props.tab.object.schema, props.tab.object.name)];
+    if (read?.status === 'error') colError.value = read.error ?? t('common:error');
   } catch (e) {
     colError.value = errorMessage(e);
   }
@@ -132,7 +140,7 @@ const defError = ref<string | null>(null);
 const defLoading = ref(false);
 async function loadDefinition() {
   defError.value = null;
-  if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+  if (!(await ensureConnection())) return;
   defLoading.value = true;
   try {
     definition.value = await api.getDefinition(props.tab.connectionId, props.tab.database, props.tab.object);
@@ -154,7 +162,11 @@ function ensure(v: ObjectView, force = false) {
 watch(view, (v) => ensure(v), { immediate: true });
 watch(() => props.tab.object, () => { loaded.clear(); ensure(view.value); });
 
-function refresh() { ensure(view.value, true); }
+function refresh() {
+  // After a failed connect every view loads again, not only this one.
+  if (connBlocked.value) loaded.clear();
+  ensure(view.value, true);
+}
 
 function openAsQuery() {
   const text = view.value === 'definition' ? definition.value : browseText.value;
@@ -189,6 +201,8 @@ function openAsQuery() {
     </div>
 
     <div class="ov-body">
+      <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="refresh" />
+      <template v-else>
       <div v-if="view === 'data' && filterList.length" class="ov-filters">
         <el-icon><ei-filter /></el-icon>
         <span>
@@ -245,6 +259,7 @@ function openAsQuery() {
         <div v-else-if="defLoading" class="nm-content nm-muted">{{ $t('common:loading') }}</div>
         <CodeEditor v-else :model-value="definition" :language="driver?.language" :dialect="driver?.dialect" read-only />
       </div>
+      </template>
     </div>
   </div>
 </template>

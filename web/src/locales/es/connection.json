@@ -114,6 +114,7 @@
       "openPortal": "Abrir el portal",
       "byTsql": "Con T-SQL, desde otra conexión que sí tenga acceso, en la base master:",
       "unavailable": "Azure informa que la base no está disponible en este momento (suele pasar mientras la mueve o la escala). Esperá un minuto y reintentá."
-    }
+    },
+    "couldNotConnect": "No se pudo conectar a {{name}}: {{error}}"
   }
 }

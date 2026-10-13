@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
@@ -21,6 +23,9 @@ import { useTabsStore, type DesignerTab } from '../stores/tabs';
 
 const props = defineProps<{ tab: DesignerTab }>();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const tabs = useTabsStore();
 const { t } = useTranslation();
 
@@ -39,10 +44,12 @@ const initial = computed(() => {
   return e ? tables.value.find((t) => t.name === e.name && (t.schema ?? null) === (e.schema ?? null)) : undefined;
 });
 
-onMounted(async () => {
+onMounted(() => { void load(); });
+async function load() {
   if (!editing.value && !driver.value?.designer?.foreign_keys && !driver.value?.designer?.schemas) return;
+  loading.value = true;
   try {
-    if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+    if (!(await ensureConnection())) return;
     if (editing.value) {
       const m = await compareApi.load(props.tab.connectionId, props.tab.database);
       tables.value = m.tables;
@@ -56,7 +63,7 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-});
+}
 
 const columnTarget = (column: string): RenameDialogTarget => ({
   connectionId: props.tab.connectionId, database: props.tab.database,
@@ -111,7 +118,8 @@ function openScript(ddl: string) {
 </script>
 
 <template>
-  <div v-if="editing && loading" class="nm-content nm-muted">{{ $t('designer:alter.loading', { name: editing.name }) }}</div>
+  <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="load" />
+  <div v-else-if="editing && loading" class="nm-content nm-muted">{{ $t('designer:alter.loading', { name: editing.name }) }}</div>
   <div v-else-if="editing && (loadError || !initial)" class="nm-content nm-muted">{{ loadError ?? $t('designer:alter.notFound', { name: editing.name }) }}</div>
   <div v-else-if="editing && !driver?.supports_schema_sync" class="nm-content nm-muted">{{ $t('designer:alter.unsupported') }}</div>
   <TableDesignerView

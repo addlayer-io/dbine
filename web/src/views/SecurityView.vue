@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
@@ -17,6 +19,9 @@ import { closeGuards, type SecurityTab } from '../stores/tabs';
 
 const props = defineProps<{ tab: SecurityTab }>();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const { t } = useTranslation();
 const spec = computed(() => conns.driverOf(props.tab.connectionId)?.security ?? null);
 /** "Asignar login…": users for logins the server already has (SQL Server, SAP ASE). */
@@ -42,7 +47,7 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+    if (!(await ensureConnection())) return;
     conns.loadPermissions(props.tab.connectionId, props.tab.database);
     principals.value = await securityApi.principals(props.tab.connectionId, props.tab.database);
     if (selected.value && !principals.value.some((p) => p.name === selected.value)) selected.value = null;
@@ -478,6 +483,7 @@ function submitAddRole() {
             <el-button v-if="!current.system" size="small" type="danger" plain @click="propose({ action: 'drop', name: current.name, kind: current.kind })">{{ $t('common:delete') }}</el-button>
           </template>
         </header>
+        <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="load" />
         <div v-if="current.details.length" class="sv-details">
           <div v-for="[k, v] in current.details" :key="k"><span>{{ tb(k) }}</span><b>{{ tb(v) }}</b></div>
         </div>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { computed, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'i18next-vue';
@@ -29,7 +30,7 @@ watch(d, async (v) => {
   ready.value = false;
   tables.value = [];
   if (!v) return;
-  if (!(await conns.ensureConnected(v.connectionId))) { ui.closeDbDialog(); return; }
+  if (!(await ensureConnectedOrTell(v.connectionId))) { ui.closeDbDialog(); return; }
   await conns.loadObjects(v.connectionId, v.database);
   if (v.kind === 'import') {
     try {

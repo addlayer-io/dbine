@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { onErrorCaptured, onMounted, onUnmounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'i18next-vue';
@@ -14,6 +16,9 @@ import { useTabsStore, type DiagramTab } from '../stores/tabs';
 
 const props = defineProps<{ tab: DiagramTab }>();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const tabs = useTabsStore();
 const { t } = useTranslation();
 
@@ -33,10 +38,7 @@ async function load() {
   clearInterval(timer);
   timer = setInterval(() => elapsed.value++, 1000);
   try {
-    if (!(await conns.ensureConnected(props.tab.connectionId))) {
-      error.value = t('diagram:tab.connectFailed');
-      return;
-    }
+    if (!(await ensureConnection())) return;
     schema.value = await invoke<TableSchema[]>('database_schema', { args: { connection_id: props.tab.connectionId, database: props.tab.database } });
   } catch (e) {
     error.value = errorMessage(e);
@@ -74,6 +76,7 @@ function exportPng(url: string) {
 
 <template>
   <div class="dt">
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="load" />
     <div v-if="loading" class="dt-busy">
       <el-icon class="is-loading" :size="22"><ei-loading /></el-icon>
       <span>{{ $t('diagram:tab.reading') }}</span>

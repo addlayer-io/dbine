@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { computed, ref, watch } from 'vue';
 import type { ProjectTarget } from '../api/types';
 import { tb } from '../i18n/backend';
@@ -32,7 +33,7 @@ const databases = computed(() => {
 async function loadDatabases() {
   if (!connectionId.value || conns.live[connectionId.value]?.databases?.length) return;
   loading.value = true;
-  try { await conns.ensureConnected(connectionId.value); } finally { loading.value = false; }
+  try { await ensureConnectedOrTell(connectionId.value); } finally { loading.value = false; }
   if (!hasDatabases.value && !database.value) database.value = conns.live[connectionId.value]?.databases[0] ?? '';
 }
 

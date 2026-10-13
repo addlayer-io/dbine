@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { ensureConnectedOrTell, useConnectionGate } from '../composables/connectionGate';
 import { computed, onUnmounted, reactive, ref, watch } from 'vue';
 import { listen } from '@tauri-apps/api/event';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -21,6 +23,9 @@ import { runTask } from '../stores/tasks';
 const props = defineProps<{ tab: SubsetTab }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 
 // -- what to copy -----------------------------------------------------------------------
 
@@ -48,7 +53,7 @@ conns.loadColumns(props.tab.connectionId, props.tab.database, { kind: props.tab.
 
 const targetDbs = computed(() => conns.live[target.connectionId]?.databases ?? []);
 watch(() => target.connectionId, async (id) => {
-  if (!id || !(await conns.ensureConnected(id))) return;
+  if (!id || !(await ensureConnectedOrTell(id))) return;
   const live = conns.live[id];
   if (live && live.databases.length && !live.databases.includes(target.database)) target.database = live.defaultDatabase || live.databases[0];
 });
@@ -104,7 +109,7 @@ function progressText(p: SubsetProgress): string {
 
 async function makePlan() {
   if (planning.value || !target.connectionId) return;
-  if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+  if (!(await ensureConnection())) return;
   planning.value = true;
   planError.value = null;
   report.value = null;
@@ -261,6 +266,7 @@ async function copy() {
       <el-button size="small" :loading="planning" :disabled="!target.connectionId" @click="makePlan">{{ plan ? $t('subset:replan') : $t('subset:plan') }}</el-button>
       <el-button size="small" type="primary" :disabled="!plan || planning || copying || blocked.length > 0" :loading="copying" @click="copy">{{ $t('subset:copyEllipsis') }}</el-button>
     </header>
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="makePlan" />
 
     <div class="sv-body">
       <section class="sv-form">

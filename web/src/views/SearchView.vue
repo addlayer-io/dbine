@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConnectionState from '../components/ConnectionState.vue';
+import { useConnectionGate } from '../composables/connectionGate';
 import { computed, onUnmounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -19,6 +21,9 @@ interface Result { hits: Hit[]; scanned: number; unreadable: string[]; truncated
 const props = defineProps<{ tab: SearchTab }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
+// Connects first: <ConnectionState> shows "Conectando…", or the error with
+// "Ver qué pasa…" and "Reintentar", instead of an empty view.
+const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const tabs = useTabsStore();
 
 const text = ref('');
@@ -55,7 +60,7 @@ const groups = computed(() => {
 async function search() {
   const q = text.value.trim();
   if (!q || running.value) return;
-  if (!(await conns.ensureConnected(props.tab.connectionId))) return;
+  if (!(await ensureConnection())) return;
   searchId = `${props.tab.id}-${Date.now()}`;
   hits.value = [];
   result.value = null;
@@ -135,6 +140,7 @@ function marked(line: string): string {
       <el-button v-if="!running" type="primary" :disabled="!text.trim() || (!names && !code)" @click="search">{{ $t('search:search') }}</el-button>
       <el-button v-else @click="cancel">{{ $t('common:cancel') }}</el-button>
     </header>
+    <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="search" />
     <div class="sv-opts">
       <el-checkbox v-model="names" size="small">{{ $t('search:names') }}</el-checkbox>
       <el-checkbox v-model="code" size="small">{{ $t('search:code') }}</el-checkbox>
