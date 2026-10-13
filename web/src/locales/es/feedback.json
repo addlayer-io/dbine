@@ -46,9 +46,8 @@
     "text": "Revisá lo que se cargó y tocá «Create» para publicarlo. ¡Gracias por ayudarnos a mejorar DBine!"
   },
   "needs": {
-    "lead": "Para continuar: {{what}}.",
-    "title": "el título necesita al menos {{n}} caracteres",
-    "engine": "escribí el nombre del motor",
-    "description": "la descripción necesita al menos {{n}} caracteres"
+    "title": "El título tiene que tener al menos {{n}} caracteres.",
+    "engine": "Escribí el nombre del motor.",
+    "description": "La descripción tiene que tener al menos {{n}} caracteres."
   }
 }

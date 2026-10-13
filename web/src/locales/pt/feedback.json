@@ -46,9 +46,8 @@
     "text": "Revise o que foi preenchido e clique em “Create” para publicar. Obrigado por nos ajudar a melhorar o DBine!"
   },
   "needs": {
-    "lead": "Para continuar: {{what}}.",
-    "title": "o título precisa de pelo menos {{n}} caracteres",
-    "engine": "escreva o nome do banco de dados",
-    "description": "a descrição precisa de pelo menos {{n}} caracteres"
+    "title": "O título precisa ter pelo menos {{n}} caracteres.",
+    "engine": "Escreva o nome do banco de dados.",
+    "description": "A descrição precisa ter pelo menos {{n}} caracteres."
   }
 }

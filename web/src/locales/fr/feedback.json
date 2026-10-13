@@ -46,9 +46,8 @@
     "text": "Vérifiez ce qui a été renseigné et cliquez sur « Create » pour le publier. Merci de nous aider à améliorer DBine !"
   },
   "needs": {
-    "lead": "Pour continuer : {{what}}.",
-    "title": "le titre doit contenir au moins {{n}} caractères",
-    "engine": "saisissez le nom du moteur",
-    "description": "la description doit contenir au moins {{n}} caractères"
+    "title": "Le titre doit contenir au moins {{n}} caractères.",
+    "engine": "Saisissez le nom du moteur.",
+    "description": "La description doit contenir au moins {{n}} caractères."
   }
 }

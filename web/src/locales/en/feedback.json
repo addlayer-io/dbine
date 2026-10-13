@@ -46,9 +46,8 @@
     "text": "Review what was filled in and click “Create” to publish it. Thanks for helping us improve DBine!"
   },
   "needs": {
-    "lead": "To continue: {{what}}.",
-    "title": "the title needs at least {{n}} characters",
-    "engine": "type the engine's name",
-    "description": "the description needs at least {{n}} characters"
+    "title": "The title needs at least {{n}} characters.",
+    "engine": "Type the engine's name.",
+    "description": "The description needs at least {{n}} characters."
   }
 }

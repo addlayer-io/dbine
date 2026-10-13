@@ -79,16 +79,23 @@ const titleOk = computed(() => title.value.trim().length >= minTitle.value);
 const descriptionOk = computed(() => description.value.trim().length >= MIN_DESCRIPTION);
 // Not waiting for the system info: without it the diagnostics just say less.
 const ready = computed(() => titleOk.value && descriptionOk.value);
-/** Why "Continuar en GitHub" is still off, so it never looks stuck. */
-const missing = computed(() => {
+// A field shows its error once the user left it or tried to continue, not
+// while it's still empty on opening.
+const touched = ref({ title: false, description: false });
+const tried = ref(false);
+const titleError = computed(() => {
   void language.value; // re-translate on a language change
-  const parts: string[] = [];
-  if (!titleOk.value) parts.push(t(kind.value === 'driver-request' ? 'feedback:needs.engine' : 'feedback:needs.title', { n: minTitle.value }));
-  if (!descriptionOk.value) parts.push(t('feedback:needs.description', { n: MIN_DESCRIPTION }));
-  return parts.length ? t('feedback:needs.lead', { what: parts.join(' · ') }) : '';
+  if (titleOk.value || !(touched.value.title || tried.value)) return '';
+  return t(kind.value === 'driver-request' ? 'feedback:needs.engine' : 'feedback:needs.title', { n: minTitle.value });
+});
+const descriptionError = computed(() => {
+  void language.value;
+  if (descriptionOk.value || !(touched.value.description || tried.value)) return '';
+  return t('feedback:needs.description', { n: MIN_DESCRIPTION });
 });
 
 async function open() {
+  tried.value = true;
   if (!ready.value || busy.value) return;
   busy.value = true;
   try {
@@ -112,6 +119,8 @@ function closed() {
   title.value = '';
   description.value = '';
   steps.value = '';
+  touched.value = { title: false, description: false };
+  tried.value = false;
   kind.value = 'bug';
   withDiagnostics.value = true;
 }
@@ -160,21 +169,27 @@ function closed() {
       </div>
 
       <label class="fb-label" for="fb-title">{{ kind === 'driver-request' ? $t('feedback:engine') : $t('feedback:titleField') }}</label>
-      <el-input
-        id="fb-title"
-        v-model="title"
-        :maxlength="MAX_TITLE"
-        :placeholder="$t(`feedback:kinds.${kind}.titlePlaceholder`)"
-      />
+      <el-form-item :error="titleError" class="fb-field">
+        <el-input
+          id="fb-title"
+          v-model="title"
+          :maxlength="MAX_TITLE"
+          :placeholder="$t(`feedback:kinds.${kind}.titlePlaceholder`)"
+          @blur="touched.title = true"
+        />
+      </el-form-item>
 
       <label class="fb-label" for="fb-description">{{ $t('feedback:description') }}</label>
-      <el-input
-        id="fb-description"
-        v-model="description"
-        type="textarea"
-        :autosize="{ minRows: 4, maxRows: 10 }"
-        :placeholder="$t(`feedback:kinds.${kind}.placeholder`)"
-      />
+      <el-form-item :error="descriptionError" class="fb-field">
+        <el-input
+          id="fb-description"
+          v-model="description"
+          type="textarea"
+          :autosize="{ minRows: 4, maxRows: 10 }"
+          :placeholder="$t(`feedback:kinds.${kind}.placeholder`)"
+          @blur="touched.description = true"
+        />
+      </el-form-item>
 
       <template v-if="kind === 'bug'">
         <label class="fb-label" for="fb-steps">{{ $t('feedback:steps') }} <span class="fb-optional">{{ $t('feedback:optional') }}</span></label>
@@ -195,8 +210,6 @@ function closed() {
 
       <p v-if="built.truncated" class="fb-truncated">{{ $t('feedback:truncated') }}</p>
 
-      <p v-if="missing" class="fb-missing">{{ missing }}</p>
-
       <p class="fb-public">
         <el-icon :size="14"><WarningFilled /></el-icon>
         <span>{{ $t('feedback:publicNote') }}</span>
@@ -210,7 +223,7 @@ function closed() {
       </template>
       <template v-else>
         <el-button @click="close">{{ $t('common:cancel') }}</el-button>
-        <el-button type="primary" :disabled="!ready" :loading="busy" @click="open">{{ $t('feedback:continue') }}</el-button>
+        <el-button type="primary" :loading="busy" @click="open">{{ $t('feedback:continue') }}</el-button>
       </template>
     </template>
   </el-dialog>
@@ -241,7 +254,15 @@ function closed() {
   pre { margin: 0; font-family: var(--nm-mono); font-size: 12px; white-space: pre-wrap; color: var(--nm-text); }
   p { margin: 6px 0 0; font-size: 12px; color: var(--nm-text-muted); }
 }
-.fb-missing { margin: 10px 0 0; font-size: 12.5px; color: var(--nm-text-muted, #8a8a8a); }
+// Room for the error line always: if it pushed the dialog down when it
+// appears (on blur), a click on "Continuar" would land below the button.
+.fb-field { margin-bottom: 16px; }
+.fb-field + .fb-label { margin-top: 0; }
+// global.scss draws every input's border with an !important box-shadow, above Element's
+// error style.
+.fb-field.is-error :deep(.el-input__wrapper),
+.fb-field.is-error :deep(.el-textarea__inner) { box-shadow: 0 0 0 1px var(--el-color-danger) inset !important; }
+.fb-field :deep(.el-form-item__error) { padding-top: 3px; }
 .fb-truncated { margin: 10px 0 0; font-size: 12.5px; color: var(--nm-warning); }
 .fb-public {
   display: flex; gap: 6px; align-items: flex-start; margin: 14px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--nm-text-dim);
