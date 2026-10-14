@@ -35,6 +35,7 @@ use dbine_driver::{
     Result, RowChange, TableSchema,
 };
 use dbine_driver::filter::{ColumnFilter, FilterOp};
+use dbine_driver::SortKey;
 use mongodb::bson::{Bson, Document};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -547,6 +548,40 @@ pub fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<String>
     Ok(format!("{}.find({doc}){}", &browse[..at], &browse[at + ".find({})".len()..]))
 }
 
+/// The browse query (filtered or not) sorted by the grid's columns: a
+/// `.sort({ "a": 1, "b": -1 })` chained to the `find` before its
+/// `.limit(n)`. A column is a top-level key, so a name with a `.` (a path
+/// for the server) or starting with `$` (an operator) is refused.
+pub fn sorted_browse(browse: &str, sort: &[SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(browse.to_string());
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut keys = Vec::new();
+    for k in sort {
+        let c = k.column.as_str();
+        if c.is_empty() || c.contains('.') || c.starts_with('$') {
+            return Err(Error::Unsupported(format!(
+                "MongoDB no ordena en el servidor por «{c}»: un nombre con «.» o que empieza con «$» no es un campo de primer nivel"
+            )));
+        }
+        if seen.insert(c) {
+            keys.push(format!("{}: {}", q(c), if k.descending { -1 } else { 1 }));
+        }
+    }
+    let spec = format!(".sort({{ {} }})", keys.join(", "));
+    // The browse query ends in `.limit(n)`; the filter before it may hold
+    // any text, so the last one is the query's.
+    let at = browse
+        .rfind(".limit(")
+        .filter(|&i| browse[i + 7..].trim_end().strip_suffix(')').is_some_and(|n| n.trim().parse::<i64>().is_ok()))
+        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))?;
+    if !browse[..at].contains(".find(") {
+        return Err(Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()));
+    }
+    Ok(format!("{}{spec}{}", &browse[..at], &browse[at..]))
+}
+
 /// Characters with a meaning in a regular expression, escaped.
 fn regex_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -918,6 +953,35 @@ mod tests {
         );
         assert!(parse_script(&twice).is_ok());
         assert!(matches!(filtered_browse("db.u.find({}).limit(5)", &[ColumnFilter { column: "x".into(), op: FilterOp::Sql, values: vec![], sql: Some("1".into()) }]), Err(Error::Unsupported(_))));
+    }
+
+    #[test]
+    fn sorted_browse_chains_a_sort() {
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        assert_eq!(sorted_browse("db.users.find({}).limit(200)", &[k("age", true)]).unwrap(), "db.users.find({}).sort({ \"age\": -1 }).limit(200)");
+        assert_eq!(
+            sorted_browse("db.users.find({}).limit(200)", &[k("age", true), k("name", false), k("age", false)]).unwrap(),
+            "db.users.find({}).sort({ \"age\": -1, \"name\": 1 }).limit(200)"
+        );
+        // Over a filter whose text has `.limit(` in it.
+        let f = filtered_browse(
+            "db.getCollection(\"my-coll\").find({}).limit(5)",
+            &[ColumnFilter { column: "s".into(), op: FilterOp::Eq, values: vec![json!(".limit(3)")], sql: None }],
+        )
+        .unwrap();
+        let got = sorted_browse(&f, &[k("we\"ird 'n\\ame", false)]).unwrap();
+        assert_eq!(
+            got,
+            "db.getCollection(\"my-coll\").find({ \"s\": \".limit(3)\" }).sort({ \"we\\\"ird 'n\\\\ame\": 1 }).limit(5)"
+        );
+        let st = parse_script(&got).unwrap();
+        assert_eq!(st[0].cmd.get_document("sort").unwrap(), &doc! { "we\"ird 'n\\ame": 1 });
+        assert_eq!(st[0].cmd.get_document("filter").unwrap(), &doc! { "s": ".limit(3)" });
+        assert_eq!(st[0].cmd.get_i64("limit"), Ok(5));
+        // Paths and operators aren't top-level fields.
+        assert!(matches!(sorted_browse("db.u.find({}).limit(5)", &[k("a.b", false)]), Err(Error::Unsupported(_))));
+        assert!(matches!(sorted_browse("db.u.find({}).limit(5)", &[k("$x", false)]), Err(Error::Unsupported(_))));
+        assert_eq!(sorted_browse("db.u.find({}).limit(5)", &[]).unwrap(), "db.u.find({}).limit(5)");
     }
 
     fn col(name: &str, t: &str, nullable: bool) -> ColumnDef {

@@ -2473,7 +2473,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-cosmosdb"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2489,7 +2489,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-couchbase"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -2501,7 +2501,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-couchdb"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2601,7 +2601,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-elasticsearch"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -2722,7 +2722,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-mongodb"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2863,7 +2863,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-solr"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "dbine-driver",
  "dbine-driver-elasticsearch",
