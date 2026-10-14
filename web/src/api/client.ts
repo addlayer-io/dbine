@@ -2,8 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
   AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
-  ExecuteResponse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
+  ExecuteResponse, FilteredBrowse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
 } from './types';
+import type { ColumnFilter } from '../composables/gridFilter';
 import type { MultiDbResponse } from './types';
 
 // Every backend command, in one place. Commands take one `args` object whose
@@ -102,6 +103,11 @@ export const api = {
     invoke<string>('get_definition', { args: { connection_id: connectionId, database, object } }),
   browseQuery: (connectionId: string, database: string, object: ObjectRef, limit: number) =>
     invoke<string>('browse_query', { args: { connection_id: connectionId, database, object, limit } }),
+  /** The browse query with the data grid's column filters and sort. */
+  filteredBrowseQuery: (a: { connectionId: string; database: string; object: ObjectRef; limit: number; filters: ColumnFilter[]; sort: SortKey[] }) =>
+    invoke<FilteredBrowse>('filtered_browse_query', {
+      args: { connection_id: a.connectionId, database: a.database, object: a.object, limit: a.limit, filters: a.filters, sort: a.sort },
+    }),
 
   executeQuery: (a: {
     sessionId: string; connectionId: string; database: string; sql: string;

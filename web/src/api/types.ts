@@ -308,6 +308,26 @@ export interface ResultColumn {
   type_name: string;
 }
 
+/** One key of the data grid's column sort (`dbine_driver::SortKey`); the
+ *  first is the primary one. */
+export interface SortKey {
+  column: string;
+  descending: boolean;
+}
+
+/** `filtered_browse_query`: an object's browse query with the grid's
+ *  filters and sort, and which of them the server applies. */
+export interface FilteredBrowse {
+  query: string;
+  /** The filters are in `query`; false: `reason` says why the engine can't. */
+  server_side: boolean;
+  reason: string | null;
+  /** The sort is in `query` (also when there's none); false: `sort_reason`
+   *  says why the engine can't, and the grid sorts the loaded rows. */
+  sort_server_side: boolean;
+  sort_reason: string | null;
+}
+
 export interface StatementResult {
   columns: ResultColumn[];
   rows: Cell[][];

@@ -2,10 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { t } from '../i18n';
-import { Filter, MoreFilled } from '@element-plus/icons-vue';
+import { CaretBottom, CaretTop, Filter, MoreFilled } from '@element-plus/icons-vue';
 import { coerce, coerceNew, sameValue, type Edits } from '../composables/gridEdit';
 import { isSaveShortcut } from '../composables/shortcuts';
-import type { Cell, ResultColumn } from '../api/types';
+import type { Cell, ResultColumn, SortKey } from '../api/types';
+import { nextSort } from '../composables/gridSort';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import CellViewer from './CellViewer.vue';
 import { columnKind, describe, menuFor, parseFilter, type ColumnFilter, type FilterMenuEntry, type FilterState } from '../composables/gridFilter';
@@ -43,6 +44,10 @@ const props = defineProps<{
   added?: number;
   /** New rows can be added (the INSERT code is generated, never run). */
   insertable?: boolean;
+  /** A click on a header sorts by that column (Shift+click adds a key). */
+  sortable?: boolean;
+  /** The current sort, shown on the headers; the parent sorts the rows. */
+  sort?: SortKey[];
 }>();
 const emit = defineEmits<{
   /** A cell's new value; `undefined` reverts it. */
@@ -53,6 +58,8 @@ const emit = defineEmits<{
   filter: [column: string, state: FilterState | null];
   /** "Agregar fila": the pane adds a new row at the end. */
   add: [];
+  /** The sort after a header click (empty: none). */
+  sort: [keys: SortKey[]];
 }>();
 
 const ROW_H = 22;
@@ -473,13 +480,42 @@ function toggleDelete(rows: number[]) {
 }
 
 // -- column resize -------------------------------------------------------------
+/** A resize drag just ended: the click it ends with isn't a sort. */
+let resized = false;
 function startResize(e: PointerEvent, c: number) {
   const start = e.clientX;
   const from = widths.value[c];
   const move = (ev: PointerEvent) => { widths.value[c] = Math.max(40, from + ev.clientX - start); };
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    resized = true;
+    setTimeout(() => { resized = false; });
+  };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
+}
+
+// -- sort ----------------------------------------------------------------------
+/** Where `name` is in the sort: its position (1-based) and direction. */
+function sortOf(name: string) {
+  const at = (props.sort ?? []).findIndex((k) => k.column === name);
+  return at < 0 ? null : { n: at + 1, desc: props.sort![at].descending };
+}
+/** Where the press on a header started: a drag isn't a click. */
+let pressX = 0;
+function onHeadDown(e: MouseEvent) {
+  pressX = e.clientX;
+  // Shift+click adds a sort key: don't select text.
+  if (props.sortable && e.shiftKey) e.preventDefault();
+}
+function onHeadClick(e: MouseEvent, c: number) {
+  if (!props.sortable || resized || e.button !== 0 || Math.abs(e.clientX - pressX) > 4) return;
+  emit('sort', nextSort(props.sort ?? [], props.columns[c].name, e.shiftKey));
+}
+function headTitle(col: ResultColumn) {
+  const name = col.type_name ? `${col.name} (${col.type_name})` : col.name;
+  return props.sortable ? `${name}\n${t('results:grid.sortHint')}` : name;
 }
 
 // -- filters -------------------------------------------------------------------
@@ -728,11 +764,19 @@ function columnsMenu(e: MouseEvent) {
           :key="c"
           v-show="!isHidden(c)"
           class="rg-hcell"
+          :class="{ sortable, sorted: !!sortOf(col.name) }"
           :style="{ width: widths[c] + 'px' }"
-          :title="col.type_name ? `${col.name} (${col.type_name})` : col.name"
+          :title="headTitle(col)"
+          :aria-sort="sortOf(col.name) ? (sortOf(col.name)!.desc ? 'descending' : 'ascending') : undefined"
+          @mousedown="onHeadDown"
+          @click="onHeadClick($event, c)"
         >
           <span class="rg-hname">{{ col.name }}</span>
-          <span class="rg-resize" @pointerdown.prevent.stop="startResize($event, c)" />
+          <span v-if="sortOf(col.name)" class="rg-sort" :data-sort="sortOf(col.name)!.desc ? 'desc' : 'asc'">
+            <el-icon><CaretBottom v-if="sortOf(col.name)!.desc" /><CaretTop v-else /></el-icon>
+            <sup v-if="(sort?.length ?? 0) > 1">{{ sortOf(col.name)!.n }}</sup>
+          </span>
+          <span class="rg-resize" @pointerdown.prevent.stop="startResize($event, c)" @click.stop />
         </div>
       </div>
       <div v-if="filterable" class="rg-filters" :style="{ width: totalW + 'px' }">
@@ -858,6 +902,17 @@ function columnsMenu(e: MouseEvent) {
   overflow: hidden;
 }
 .rg-hname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rg-hcell.sortable { cursor: pointer; user-select: none; }
+.rg-hcell.sortable:hover { background: color-mix(in srgb, var(--nm-text) 6%, transparent); }
+.rg-sort {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 3px;
+  color: var(--ide-focus);
+  font-size: 11px;
+}
+.rg-sort sup { font-size: 9px; line-height: 1; margin-left: 1px; }
 .rg-resize {
   position: absolute;
   right: -3px;

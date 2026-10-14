@@ -376,6 +376,39 @@ DynamoDB Local, the Spanner emulator, Elasticsearch 8, Couchbase and Drill.
 LIKE wrongly), Databricks, Snowflake, Cosmos DB, ksqlDB, Phoenix and the
 Hive and Spark ODBC presets.
 
+## Sort by column
+
+A click on a column header of a table's data sorts by that column
+(ascending, descending, none); Shift+click adds more keys. The sort goes to
+the server like the filters (`Driver::sorted_browse`, applied after
+`filtered_browse`): the driver adds an `ORDER BY` to its browse query, so
+the row limit and the export see the sorted data. When an engine cannot
+sort on the server, the UI sorts the rows already loaded (NULLs last) and
+says so in a bar, with the reason; the export is not sorted then.
+
+The contract's default covers SQL and CQL: it adds or replaces the
+`ORDER BY` after the `WHERE` and before `LIMIT` / `OFFSET` / `FETCH FIRST` /
+`ALLOW FILTERING` / `;` (also with `TOP` and `FIRST`), with the dialect's
+identifier quotes. It refuses Cosmos DB, Couchbase (N1QL), DynamoDB
+(PartiQL), ksqlDB, InfluxQL and IoTDB, whose drivers have to build their
+own sort. Other languages (documents, search, key-value, graphs, Flux)
+need their own implementation or fall back to the loaded rows.
+
+The results of a query in a query tab sort the loaded rows only, in every
+engine; the header arrow shows the order.
+
+| Engine | How it sorts | Status |
+|---|---|---|
+| PostgreSQL and variants, DSQL, SQLite, libSQL, DuckDB, SQL Server, Oracle, SAP HANA, Firebird, Athena, Trino, Flight SQL, Dremio | `ORDER BY` (contract default) | pending |
+| MySQL and variants, ClickHouse, TDengine, Drill, BigQuery, Spanner, Databricks, Snowflake, Phoenix, InfluxDB 3 | `ORDER BY` with the dialect's quotes | pending |
+| ODBC presets | `ORDER BY` according to the preset | pending |
+| Cassandra, ScyllaDB, Keyspaces | `ORDER BY` (clustering columns only) | pending |
+| ksqlDB, IoTDB, InfluxDB 1 (InfluxQL) | — | pending |
+| DynamoDB, Cosmos DB, Couchbase, OrientDB | — | pending |
+| MongoDB, CouchDB, Elasticsearch, OpenSearch, Solr, InfluxDB 2 (Flux) | — | pending |
+| Neo4j, Memgraph, Neptune | — | pending |
+| Redis, etcd | — | pending |
+
 ## Cell editing (update code)
 
 When you edit cells in the results grid, DBine generates the code that applies

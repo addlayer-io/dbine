@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { api, errorMessage } from '../api/client';
-import type { ColumnInfo, QueryOutcome } from '../api/types';
+import type { ColumnInfo, QueryOutcome, SortKey } from '../api/types';
 import CodeEditor from '../components/CodeEditor.vue';
 import ResultsPane from '../components/ResultsPane.vue';
 import ConnectionState from '../components/ConnectionState.vue';
 import { useConnectionGate } from '../composables/connectionGate';
 import { newQuery } from '../composables/actions';
 import { matchesLocal, type ColumnFilter, type FilterState } from '../composables/gridFilter';
+import { sortRows } from '../composables/gridSort';
 import { objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
 import { useTabsStore, type ObjectTab, type ObjectView } from '../stores/tabs';
@@ -61,11 +61,27 @@ const filterList = computed<ColumnFilter[]>(() => Object.values(filters.value).f
  *  engine gave no reason; null = they're applied by the server). */
 const localReason = ref<string | null>(null);
 
-interface FilteredBrowse { query: string; server_side: boolean; reason: string | null }
+// Column sort (a click on a header). The driver adds an ORDER BY to its
+// browse query; engines that can't get the loaded rows sorted.
+const sort = ref<SortKey[]>([]);
+/** Why the sort only applies to the loaded rows, when it does ('' = the
+ *  engine gave no reason; null = the server sorts). */
+const localSortReason = ref<string | null>(null);
+
 function filteredBrowse(max: number) {
-  return invoke<FilteredBrowse>('filtered_browse_query', {
-    args: { connection_id: props.tab.connectionId, database: props.tab.database, object: props.tab.object, limit: max, filters: filterList.value },
+  return api.filteredBrowseQuery({
+    connectionId: props.tab.connectionId, database: props.tab.database, object: props.tab.object,
+    limit: max, filters: filterList.value, sort: sort.value,
   });
+}
+
+function onSort(keys: SortKey[]) {
+  sort.value = keys;
+  loadData();
+}
+function clearSort() {
+  sort.value = [];
+  loadData();
 }
 
 function onFilter(column: string, state: FilterState | null) {
@@ -91,6 +107,7 @@ async function loadData() {
     browseText.value = page.query;
     exportText.value = all.query;
     localReason.value = filterList.value.length && !page.server_side ? page.reason ?? '' : null;
+    localSortReason.value = sort.value.length && !page.sort_server_side ? page.sort_reason ?? '' : null;
     // Key columns for "Copiar como SQL UPDATEs" (cached; no refetch).
     conns.loadColumns(props.tab.connectionId, props.tab.database, { ...props.tab.object, parent: null });
     const out = await api.executeQuery({
@@ -102,6 +119,9 @@ async function loadData() {
         const names = r.columns.map((c) => c.name);
         return { ...r, rows: r.rows.filter((row) => matchesLocal(row, names, filterList.value)) };
       });
+    }
+    if (localSortReason.value !== null) {
+      out.results = out.results.map((r) => ({ ...r, rows: sortRows(r.rows, r.columns, sort.value) }));
     }
     outcome.value = out;
     if (outcome.value.error) output.add('error', outcome.value.error, { where: title.value });
@@ -212,6 +232,12 @@ function openAsQuery() {
         <div class="nm-spacer" />
         <el-button size="small" link @click="clearFilters">{{ $t('query:object.clearFilters') }}</el-button>
       </div>
+      <div v-if="view === 'data' && sort.length && localSortReason !== null" class="ov-filters">
+        <el-icon><ei-sort /></el-icon>
+        <span>{{ $t('query:object.localSort', { rows: limit.toLocaleString(locale()), reason: localSortReason ? tb(localSortReason) : $t('query:object.noServerSort') }) }}</span>
+        <div class="nm-spacer" />
+        <el-button size="small" link @click="clearSort">{{ $t('query:object.clearSort') }}</el-button>
+      </div>
       <ResultsPane
         v-if="view === 'data'"
         :outcome="outcome"
@@ -227,6 +253,8 @@ function openAsQuery() {
         filterable
         :filters="filters"
         @filter="onFilter"
+        :sort="sort"
+        @sort="onSort"
       />
 
       <div v-else-if="view === 'structure'" class="nm-content">
