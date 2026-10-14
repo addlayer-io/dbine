@@ -472,25 +472,60 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
             }
         });
     }
-    let encode = |s: &str| {
-        let mut out = String::with_capacity(s.len() * 3);
-        for b in s.bytes() {
-            if b.is_ascii_alphanumeric() || b"-_.~:*".contains(&b) {
-                out.push(b as char);
-            } else {
-                out.push_str(&format!("%{b:02X}"));
-            }
+    let params: Vec<String> = fqs.iter().map(|q| format!("fq={}", url_encode(q))).collect();
+    Ok(add_params(browse, &params))
+}
+
+fn url_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.~:*".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
         }
-        out
-    };
+    }
+    out
+}
+
+/// `params` appended to the request line (the first one) of `browse`.
+fn add_params(browse: &str, params: &[String]) -> String {
     let (line, rest) = browse.split_once('\n').map_or((browse, None), |(l, r)| (l, Some(r)));
     let sep = if line.contains('?') { '&' } else { '?' };
-    let params: Vec<String> = fqs.iter().map(|q| format!("fq={}", encode(q))).collect();
     let line = format!("{}{sep}{}", line.trim_end(), params.join("&"));
-    Ok(match rest {
+    match rest {
         Some(r) => format!("{line}\n{r}"),
         None => line,
-    })
+    }
+}
+
+/// The browse request (filtered or not) sorted by the grid's columns: a
+/// `sort=a asc,b desc` parameter. Solr's sort syntax can't quote a name, so
+/// only plain field names go (letters, digits, `_`, `.`, `-`, not starting
+/// with a digit or `-`); any other is refused and the grid sorts what it
+/// loaded.
+pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(browse.to_string());
+    }
+    let plain = |c: &str| {
+        c.chars().next().is_some_and(|f| f.is_ascii_alphabetic() || f == '_')
+            && c.chars().all(|x| x.is_ascii_alphanumeric() || matches!(x, '_' | '.' | '-'))
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut keys = Vec::new();
+    for k in sort {
+        let c = k.column.as_str();
+        if !plain(c) {
+            return Err(Error::Unsupported(format!(
+                "Solr no ordena en el servidor por «{c}»: su sintaxis de orden solo admite nombres simples (letras, números, «_», «.» y «-»)"
+            )));
+        }
+        if seen.insert(c) {
+            keys.push(format!("{c} {}", if k.descending { "desc" } else { "asc" }));
+        }
+    }
+    Ok(add_params(browse, &[format!("sort={}", url_encode(&keys.join(",")))]))
 }
 
 #[cfg(test)]
@@ -523,6 +558,22 @@ mod tests {
             filtered_browse("GET /solr/c/select?q=*:*", &[ColumnFilter { column: "a".into(), op: FilterOp::SqlRight, values: vec![], sql: Some("1".into()) }]),
             Err(Error::Unsupported(_))
         ));
+    }
+
+    #[test]
+    fn sorted_browse_adds_a_sort_param() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let b = "GET /solr/books/select?q=*:*&rows=200";
+        assert_eq!(sorted_browse(b, &[k("price", true)]).unwrap(), "GET /solr/books/select?q=*:*&rows=200&sort=price%20desc");
+        let f = filtered_browse(b, &[ColumnFilter { column: "cat".into(), op: FilterOp::Eq, values: vec![json!("x")], sql: None }]).unwrap();
+        let got = sorted_browse(&f, &[k("price", false), k("a.b-c_d", true), k("price", true)]).unwrap();
+        assert_eq!(got, "GET /solr/books/select?q=*:*&rows=200&fq=cat:%22x%22&sort=price%20asc%2Ca.b-c_d%20desc");
+        assert!(matches!(console::parse(&got).unwrap()[0], Command::Http(_)));
+        for bad in ["a b", "a,b", "x\"", "price desc,id", "1a", "-a", "field(a)", ""] {
+            assert!(matches!(sorted_browse(b, &[k(bad, false)]), Err(Error::Unsupported(_))), "{bad}");
+        }
+        assert_eq!(sorted_browse(b, &[]).unwrap(), b);
     }
 
     fn col(name: &str, ty: &str, opts: &[(&str, &str)]) -> ColumnDef {

@@ -490,6 +490,10 @@ impl Driver for MongoDriver {
         ddl::filtered_browse(browse, filters)
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        ddl::sorted_browse(query, sort)
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
         let mut o = client_options(cfg, self.flavor).await?;
         o.app_name = Some("DBine".into());

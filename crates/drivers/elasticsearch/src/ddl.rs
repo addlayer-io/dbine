@@ -920,6 +920,38 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     Ok(format!("{head}\n{body}"))
 }
 
+/// The browse request (filtered or not) sorted by the grid's columns: a
+/// `sort` array in the body, `{ "field": { "order": "asc" } }` per key.
+/// Elasticsearch 8 can't sort by `_id` (no field data for it by default):
+/// refused there, so the grid sorts what it loaded.
+pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey], opensearch: bool) -> Result<String> {
+    use serde_json::json;
+    if sort.is_empty() {
+        return Ok(browse.to_string());
+    }
+    let (head, body) = browse.split_once('\n').unwrap_or((browse, "{}"));
+    let Ok(Value::Object(mut body)) = serde_json::from_str::<Value>(body) else {
+        return Err(Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()));
+    };
+    let mut keys: Vec<Value> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for k in sort {
+        let c = k.column.as_str();
+        if c == "_id" && !opensearch {
+            return Err(Error::Unsupported("Elasticsearch no ordena por «_id» en el servidor".into()));
+        }
+        if c.is_empty() {
+            return Err(Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()));
+        }
+        if seen.insert(c) {
+            keys.push(json!({ c: { "order": if k.descending { "desc" } else { "asc" } } }));
+        }
+    }
+    body.insert("sort".into(), Value::Array(keys));
+    let body = serde_json::to_string_pretty(&Value::Object(body)).map_err(|e| Error::Query(e.to_string()))?;
+    Ok(format!("{head}\n{body}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -958,6 +990,29 @@ mod tests {
             filtered_browse("GET /x/_search\n{}", &[ColumnFilter { column: "a".into(), op: FilterOp::Sql, values: vec![], sql: Some("1".into()) }]),
             Err(Error::Unsupported(_))
         ));
+    }
+
+    #[test]
+    fn sorted_browse_adds_a_sort_array() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let browse = "GET /logs/_search\n{\n  \"size\": 200,\n  \"query\": { \"match_all\": {} }\n}";
+        let body = |q: &str| serde_json::from_str::<Value>(q.split_once('\n').unwrap().1).unwrap();
+        let got = sorted_browse(browse, &[k("bytes", true)], false).unwrap();
+        assert!(got.starts_with("GET /logs/_search\n"));
+        assert_eq!(body(&got), json!({ "size": 200, "query": { "match_all": {} }, "sort": [{ "bytes": { "order": "desc" } }] }));
+        // Several keys, over a filter, and a name that needs escaping.
+        let f = filtered_browse(browse, &[ColumnFilter { column: "status".into(), op: FilterOp::Eq, values: vec![json!(200)], sql: None }]).unwrap();
+        let got = sorted_browse(&f, &[k("user.name", false), k("we\"ird\\", true), k("user.name", true)], false).unwrap();
+        assert_eq!(
+            body(&got),
+            json!({ "size": 200, "query": { "bool": { "filter": [{ "term": { "status": 200 } }] } },
+                    "sort": [{ "user.name": { "order": "asc" } }, { "we\"ird\\": { "order": "desc" } }] })
+        );
+        assert!(!console::parse(&got).unwrap().is_empty());
+        assert!(matches!(sorted_browse(browse, &[k("_id", false)], false), Err(Error::Unsupported(_))));
+        assert!(sorted_browse(browse, &[k("_id", false)], true).is_ok());
+        assert_eq!(sorted_browse(browse, &[], false).unwrap(), browse);
     }
 
     fn col(name: &str, ty: &str, opts: &[(&str, &str)]) -> ColumnDef {
