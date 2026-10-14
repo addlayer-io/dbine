@@ -68,10 +68,10 @@ const sort = ref<SortKey[]>([]);
  *  engine gave no reason; null = the server sorts). */
 const localSortReason = ref<string | null>(null);
 
-function filteredBrowse(max: number) {
+function filteredBrowse(max: number, withSort = true) {
   return api.filteredBrowseQuery({
     connectionId: props.tab.connectionId, database: props.tab.database, object: props.tab.object,
-    limit: max, filters: filterList.value, sort: sort.value,
+    limit: max, filters: filterList.value, sort: withSort ? sort.value : [],
   });
 }
 
@@ -110,10 +110,23 @@ async function loadData() {
     localSortReason.value = sort.value.length && !page.sort_server_side ? page.sort_reason ?? '' : null;
     // Key columns for "Copiar como SQL UPDATEs" (cached; no refetch).
     conns.loadColumns(props.tab.connectionId, props.tab.database, { ...props.tab.object, parent: null });
-    const out = await api.executeQuery({
+    const run = () => api.executeQuery({
       sessionId: props.tab.id, connectionId: props.tab.connectionId, database: props.tab.database,
       sql: browseText.value, maxRows: limit.value,
     });
+    let out = await run();
+    // The server refused the order it was asked for (a text field in
+    // Elasticsearch, a multivalued one in Solr…): load without it and sort
+    // the loaded rows, saying why.
+    if (out.error && sort.value.length && localSortReason.value === null) {
+      const [plain, plainAll] = await Promise.all([filteredBrowse(limit.value, false), filteredBrowse(1_000_000_000, false)]);
+      browseText.value = plain.query;
+      exportText.value = plainAll.query;
+      const why = out.error;
+      out = await run();
+      // Failing without the order too: it wasn't the order. Show that error.
+      localSortReason.value = out.error ? null : why;
+    }
     if (localReason.value !== null) {
       out.results = out.results.map((r) => {
         const names = r.columns.map((c) => c.name);
