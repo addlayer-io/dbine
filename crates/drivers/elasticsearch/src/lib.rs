@@ -357,6 +357,10 @@ impl Driver for Es {
         ddl::filtered_browse(browse, filters)
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        ddl::sorted_browse(query, sort, self.opensearch)
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
         let base = match cfg.option("cloud_id").filter(|_| !self.opensearch) {
             Some(id) => cloud_id_url(id).ok_or_else(|| Error::Connect("El Cloud ID no es válido.".into()))?,

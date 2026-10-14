@@ -404,8 +404,14 @@ engine; the header arrow shows the order.
 | ODBC presets | `ORDER BY` according to the preset | pending |
 | Cassandra, ScyllaDB, Keyspaces | `ORDER BY` (clustering columns only) | pending |
 | ksqlDB, IoTDB, InfluxDB 1 (InfluxQL) | — | pending |
-| DynamoDB, Cosmos DB, Couchbase, OrientDB | — | pending |
-| MongoDB, CouchDB, Elasticsearch, OpenSearch, Solr, InfluxDB 2 (Flux) | — | pending |
+| DynamoDB, OrientDB | — | pending |
+| Cosmos DB | `ORDER BY c["field"]`, one key only: an `ORDER BY` of several properties needs a composite index for exactly those properties and directions, which the driver can't see, so more than one key sorts the loaded rows | yes (one key) |
+| Couchbase | `` ORDER BY d.`field` `` (`META(d).id` for `_id`), backtick-quoted, after the `WHERE` and before the `LIMIT` | yes |
+| MongoDB, FerretDB, DocumentDB | `.sort({ "a": 1, "b": -1 })` chained to the `find` before its `.limit(n)`. A column name with a `.` (a path for the server) or starting with `$` is refused | yes |
+| Elasticsearch, OpenSearch | a `sort` array in the search body. The driver can't see the mapping when it builds the sort: a `text` field without `fielddata` (and a `nested` one) is rejected by the server with a query error instead of falling back to the loaded rows. Elasticsearch 8 can't sort by `_id`: refused there | yes (not `text` fields) |
+| Solr | the `sort=a asc,b desc` parameter. Sort syntax can't quote a name: only names of letters, digits, `_`, `.` and `-` go to the server. A tokenized or multi-valued text field (schemaless guessing makes strings `text_general`) is rejected by the server with a query error, as the driver can't see the schema | yes (not text fields) |
+| CouchDB | only by `_id`, with the `_all_docs` index (`"_id": {"$gt": null}` joined to the selector). Any other field needs a Mango index over it, and views come sorted by their key: the loaded rows | `_id` only |
+| InfluxDB 2 (Flux) | — | pending |
 | Neo4j, Memgraph, Neptune | — | pending |
 | Redis, etcd | — | pending |
 
