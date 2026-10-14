@@ -39,8 +39,11 @@
     "ask": {
       "close": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de fechá-la?",
       "database": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de trocar de banco de dados?",
-      "mode": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de passar para transações automáticas?"
-    }
+      "mode": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de passar para transações automáticas?",
+      "connection": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de trocar de conexão?"
+    },
+    "commitTip": "Confirmar a transação aberta (COMMIT)",
+    "rollbackTip": "Desfazer a transação aberta (ROLLBACK)"
   },
   "unsafe": {
     "title": "UPDATE ou DELETE sem WHERE",
@@ -55,7 +58,24 @@
     "server": "Servidor",
     "user": "Usuário",
     "elapsed": "Tempo de execução",
-    "rowsTip": "Linhas retornadas"
+    "rowsTip": "Linhas retornadas",
+    "noConnection": "Sem conexão",
+    "connectionTip": "Conexão: {{name}}. Clique para trocá-la.",
+    "databaseTip": "Banco de dados da aba. Clique para trocá-lo.",
+    "lockedRunning": "Não é possível trocar enquanto uma consulta é executada",
+    "txTip": "Clique para escolher transações Auto ou Manual.",
+    "pickConnection": "Conexão desta aba (digite para filtrar)",
+    "pickDatabase": "Banco de dados desta aba (digite para filtrar)",
+    "pickTx": "Modo de transações desta aba",
+    "pickRows": "Máximo de linhas por resultado",
+    "rowsMax": "{{rows}} linhas",
+    "rowsAll": "Todas as linhas",
+    "rowsAllOption": "Todas",
+    "rowsCustom": "Outro valor…",
+    "rowsCustomPlaceholder": "Quantidade de linhas",
+    "rowsCustomPrompt": "Digite o máximo de linhas a trazer e pressione Enter.",
+    "rowsCustomInvalid": "Deve ser um número inteiro maior que zero.",
+    "rowsTipButton": "Máximo de linhas por resultado. Clique para alterá-lo."
   },
   "object": {
     "data": "Dados",
@@ -79,5 +99,6 @@
     "autoIncrement": "Autoincr.",
     "default": "Padrão",
     "filteredColumns_many": "{{count}} colunas filtradas"
-  }
+  },
+  "moreActions": "Mais ações"
 }

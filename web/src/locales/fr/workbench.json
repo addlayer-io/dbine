@@ -94,5 +94,8 @@
     "fileDiffSuffix": "(modifications)",
     "noBase": "sans base",
     "revealInProjects": "Afficher dans Projets"
+  },
+  "quickPick": {
+    "noResults": "Aucun résultat"
   }
 }

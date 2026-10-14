@@ -39,8 +39,11 @@
     "ask": {
       "close": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de le fermer ?",
       "database": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de changer de base de données ?",
-      "mode": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de passer aux transactions automatiques ?"
-    }
+      "mode": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de passer aux transactions automatiques ?",
+      "connection": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de changer de connexion ?"
+    },
+    "commitTip": "Valider la transaction ouverte (COMMIT)",
+    "rollbackTip": "Annuler la transaction ouverte (ROLLBACK)"
   },
   "unsafe": {
     "title": "UPDATE ou DELETE sans WHERE",
@@ -55,7 +58,24 @@
     "server": "Serveur",
     "user": "Utilisateur",
     "elapsed": "Temps d'exécution",
-    "rowsTip": "Lignes retournées"
+    "rowsTip": "Lignes retournées",
+    "noConnection": "Aucune connexion",
+    "connectionTip": "Connexion : {{name}}. Cliquez pour la changer.",
+    "databaseTip": "Base de données de l'onglet. Cliquez pour la changer.",
+    "lockedRunning": "Impossible de changer pendant l'exécution d'une requête",
+    "txTip": "Cliquez pour choisir les transactions Auto ou Manuelles.",
+    "pickConnection": "Connexion de cet onglet (tapez pour filtrer)",
+    "pickDatabase": "Base de données de cet onglet (tapez pour filtrer)",
+    "pickTx": "Mode de transactions de cet onglet",
+    "pickRows": "Lignes maximum par résultat",
+    "rowsMax": "{{rows}} lignes",
+    "rowsAll": "Toutes les lignes",
+    "rowsAllOption": "Toutes",
+    "rowsCustom": "Autre valeur…",
+    "rowsCustomPlaceholder": "Nombre de lignes",
+    "rowsCustomPrompt": "Tapez le nombre maximum de lignes à récupérer et appuyez sur Entrée.",
+    "rowsCustomInvalid": "Doit être un nombre entier supérieur à zéro.",
+    "rowsTipButton": "Lignes maximum par résultat. Cliquez pour le changer."
   },
   "object": {
     "data": "Données",
@@ -79,5 +99,6 @@
     "autoIncrement": "Auto-incr.",
     "default": "Par défaut",
     "filteredColumns_many": "{{count}} colonnes filtrées"
-  }
+  },
+  "moreActions": "Plus d'actions"
 }

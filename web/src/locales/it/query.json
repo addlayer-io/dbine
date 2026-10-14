@@ -39,8 +39,11 @@
     "ask": {
       "close": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di chiuderla?",
       "database": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di cambiare database?",
-      "mode": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di passare alle transazioni automatiche?"
-    }
+      "mode": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di passare alle transazioni automatiche?",
+      "connection": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di cambiare connessione?"
+    },
+    "commitTip": "Conferma la transazione aperta (COMMIT)",
+    "rollbackTip": "Annulla la transazione aperta (ROLLBACK)"
   },
   "unsafe": {
     "title": "UPDATE o DELETE senza WHERE",
@@ -55,7 +58,24 @@
     "server": "Server",
     "user": "Utente",
     "elapsed": "Tempo di esecuzione",
-    "rowsTip": "Righe restituite"
+    "rowsTip": "Righe restituite",
+    "noConnection": "Nessuna connessione",
+    "connectionTip": "Connessione: {{name}}. Fai clic per cambiarla.",
+    "databaseTip": "Database della scheda. Fai clic per cambiarlo.",
+    "lockedRunning": "Non si può cambiare mentre è in esecuzione una query",
+    "txTip": "Fai clic per scegliere transazioni Auto o Manuali.",
+    "pickConnection": "Connessione di questa scheda (digita per filtrare)",
+    "pickDatabase": "Database di questa scheda (digita per filtrare)",
+    "pickTx": "Modalità delle transazioni di questa scheda",
+    "pickRows": "Righe massime per risultato",
+    "rowsMax": "{{rows}} righe",
+    "rowsAll": "Tutte le righe",
+    "rowsAllOption": "Tutte",
+    "rowsCustom": "Altro valore…",
+    "rowsCustomPlaceholder": "Numero di righe",
+    "rowsCustomPrompt": "Digita il numero massimo di righe da recuperare e premi Invio.",
+    "rowsCustomInvalid": "Deve essere un numero intero maggiore di zero.",
+    "rowsTipButton": "Righe massime per risultato. Fai clic per cambiarlo."
   },
   "object": {
     "data": "Dati",
@@ -79,5 +99,6 @@
     "autoIncrement": "Autoincr.",
     "default": "Predefinito",
     "filteredColumns_many": "{{count}} colonne filtrate"
-  }
+  },
+  "moreActions": "Altre azioni"
 }

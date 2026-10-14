@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { api, errorMessage } from '../api/client';
@@ -34,6 +34,8 @@ import {
 } from '../composables/queryParams';
 import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
 import QueryParamsDialog from '../components/QueryParamsDialog.vue';
+import { queryControls, type QueryControls } from '../composables/queryControls';
+import { useToolbarOverflow } from '../composables/toolbarOverflow';
 
 // A saved query, or a project's file, open in the editor. A query's text is
 // saved as you type (to the state store, under its database in the
@@ -85,8 +87,9 @@ const databases = computed(() => {
   return live.length ? live : props.tab.database ? [props.tab.database] : [];
 });
 const loadingDatabases = ref(false);
-async function onDatabaseMenu(visible: boolean) {
-  if (!visible || unbound.value || conns.live[props.tab.connectionId]?.databases?.length) return;
+/** Opening the database picker connects (if needed) and loads the rest. */
+async function loadDatabases() {
+  if (unbound.value || conns.live[props.tab.connectionId]?.databases?.length) return;
   loadingDatabases.value = true;
   try { await ensureConnection(); } finally { loadingDatabases.value = false; }
 }
@@ -139,12 +142,24 @@ async function save() {
 }
 
 async function changeDatabase(db: string) {
-  if (db === props.tab.database) return;
+  if (db === props.tab.database || running.value) return;
   // Another database is another session: the open transaction would go.
   if (!(await settleTransaction('database'))) return;
   await doc.changeDatabase(db);
   conns.loadObjects(props.tab.connectionId, db);
   txState.value = null;
+}
+
+/** The status bar's connection picker: the tab (and its saved query) moves
+ *  to the other connection, on its default database. */
+async function changeConnection(connectionId: string) {
+  if (connectionId === props.tab.connectionId || running.value) return;
+  // Another connection is another session: the open transaction would go.
+  if (!(await settleTransaction('connection'))) return;
+  const db = conns.byId(connectionId)?.config.database ?? '';
+  await doc.changeConnection(connectionId, db);
+  txState.value = null;
+  if (conns.live[connectionId]?.status === 'connected') conns.loadObjects(connectionId, db);
 }
 
 /** A statement switched the database (`USE`): the tab follows it on the same
@@ -364,7 +379,7 @@ async function endTransaction(commit: boolean): Promise<boolean> {
 
 // The dialog when an open transaction would be lost (closing the tab,
 // another database, back to automatic): Confirmar / Deshacer / Cancelar.
-type TxReason = 'close' | 'database' | 'mode';
+type TxReason = 'close' | 'database' | 'connection' | 'mode';
 const txAsk = ref<{ reason: TxReason; resolve: (ok: boolean) => void } | null>(null);
 const txError = ref<string | null>(null);
 /** Resolves true when there's no open transaction left (or there was none). */
@@ -777,6 +792,40 @@ function drag(e: PointerEvent) {
   window.addEventListener('pointerup', up);
   e.preventDefault();
 }
+
+// -- the status bar: connection, database, transactions and row limit ----------------------
+const controls: QueryControls = reactive({
+  running, txBusy, unbound, databases, loadingDatabases, offersManualTx, manualTx, txOpen, txState, maxRows,
+  showDatabase: computed(() => !unbound.value && driver.value?.databases_label !== ''),
+  loadDatabases, changeConnection, changeDatabase, setManualTx,
+  setMaxRows: (n: number) => { maxRows.value = n; },
+});
+queryControls.set(props.tab.id, controls);
+onBeforeUnmount(() => { if (queryControls.get(props.tab.id) === controls) queryControls.delete(props.tab.id); });
+
+// -- the toolbar: what doesn't fit goes to "…" ---------------------------------------------
+const bar = ref<HTMLElement | null>(null);
+const { hidden: overflowed, isHidden } = useToolbarOverflow(bar);
+const syntaxOpen = ref(false);
+/** The collapsed actions, as the "…" menu shows them. */
+const overflowItems = computed<MenuItem[]>(() => {
+  const all: Record<string, () => MenuItem> = {
+    format: () => ({ label: t('query:format'), shortcut: '⇧⌥F', disabled: !!formatOff.value || formatting.value, action: formatQuery }),
+    optimize: () => ({ label: t('optimizer:action'), disabled: unbound.value, action: optimize }),
+    multiDb: () => ({ label: t('multiDb:action'), action: openMultiDb }),
+    builder: () => ({ label: t('queryBuilder:toolbar'), action: () => tabs.openQueryBuilder(props.tab.connectionId, props.tab.database) }),
+    continueOnError: () => ({ label: t('query:continueOnError'), checked: continueOnError.value, action: () => { continueOnError.value = !continueOnError.value; } }),
+    library: () => ({ label: t('query:saveToLibrary'), action: saveToLibrary }),
+    problems: () => ({ divided: true, label: problems.value.length ? t('lint:problems.count', { count: problems.value.length }) : t('lint:problems.none'), action: () => { problemsOpen.value = true; } }),
+    syntax: () => ({ label: t('query:syntax'), action: () => { syntaxOpen.value = true; } }),
+  };
+  return overflowed.value.filter((k) => all[k]).map((k) => all[k]());
+});
+function runOverflow(i: number) {
+  const item = overflowItems.value[i];
+  // After the dropdown's click is over (a popover would take it as an outside click).
+  if (item && !item.disabled) setTimeout(() => item.action?.(), 0);
+}
 </script>
 
 <template>
@@ -819,120 +868,121 @@ function drag(e: PointerEvent) {
       <el-button size="small" @click="doc.reloadFromDisk?.()">{{ $t('projects:file.reload') }}</el-button>
       <el-button size="small" type="warning" @click="doc.keepMine?.()">{{ $t('projects:file.overwrite') }}</el-button>
     </div>
-    <div class="nm-toolbar qv-bar">
-      <template v-if="!runnable" />
-      <template v-else-if="!running">
-        <el-tooltip :disabled="!unbound" :content="$t('projects:file.pickBase')" placement="bottom">
-          <span class="qv-run-wrap">
-            <el-button type="primary" :title="unbound ? undefined : $t('query:runTitle')" :disabled="unbound" @click="run()">
-              <el-icon><ei-video-play /></el-icon>&nbsp;{{ $t('common:run') }}
-            </el-button>
-          </span>
-        </el-tooltip>
-        <el-tooltip :content="$t('query:runStatementTip')" placement="bottom" :show-after="300">
-          <el-button :aria-label="$t('query:runStatement')" :disabled="unbound" @click="editor && runStatement(text, editor.cursor())"><el-icon><ei-caret-right /></el-icon></el-button>
-        </el-tooltip>
-        <el-button-group v-if="driver?.supports_explain">
-          <el-tooltip :content="$t('query:estimatedPlanTip')" placement="bottom" :show-after="300">
-            <el-button :aria-label="$t('query:estimatedPlan')" @click="run(undefined, 'estimated')"><el-icon><ei-share /></el-icon></el-button>
+    <!-- The connection, database, transaction mode and row limit are in the
+         status bar (StatusBar.vue). What doesn't fit here goes to "…". -->
+    <div ref="bar" class="nm-toolbar qv-bar">
+      <div class="qv-group" data-ov-fixed>
+        <template v-if="!runnable" />
+        <template v-else-if="!running">
+          <el-tooltip :disabled="!unbound" :content="$t('projects:file.pickBase')" placement="bottom">
+            <span class="qv-run-wrap">
+              <el-button type="primary" :title="unbound ? undefined : $t('query:runTitle')" :disabled="unbound" @click="run()">
+                <el-icon><ei-video-play /></el-icon>&nbsp;{{ $t('common:run') }}
+              </el-button>
+            </span>
           </el-tooltip>
-          <el-tooltip :content="$t('query:actualPlanTip')" placement="bottom" :show-after="300">
-            <el-button :aria-label="$t('query:runWithPlan')" @click="run(undefined, 'actual')"><el-icon><ei-data-analysis /></el-icon></el-button>
+          <el-tooltip :content="$t('query:runStatementTip')" placement="bottom" :show-after="300">
+            <el-button :aria-label="$t('query:runStatement')" :disabled="unbound" @click="editor && runStatement(text, editor.cursor())"><el-icon><ei-caret-right /></el-icon></el-button>
           </el-tooltip>
-        </el-button-group>
-      </template>
-      <el-button v-else type="danger" @click="cancel">
-        <el-icon><ei-video-pause /></el-icon>&nbsp;{{ $t('common:cancel') }}
-      </el-button>
-      <el-tooltip :content="formatOff ?? $t('query:formatTip')" placement="bottom" :show-after="400">
-        <el-button :disabled="!!formatOff" :loading="formatting" :aria-label="$t('query:format')" @click="formatQuery">
-          <el-icon v-if="!formatting"><ei-magic-stick /></el-icon><span class="qv-lbl">&nbsp;{{ $t('query:format') }}</span>
+          <el-button-group v-if="driver?.supports_explain">
+            <el-tooltip :content="$t('query:estimatedPlanTip')" placement="bottom" :show-after="300">
+              <el-button :aria-label="$t('query:estimatedPlan')" @click="run(undefined, 'estimated')"><el-icon><ei-share /></el-icon></el-button>
+            </el-tooltip>
+            <el-tooltip :content="$t('query:actualPlanTip')" placement="bottom" :show-after="300">
+              <el-button :aria-label="$t('query:runWithPlan')" @click="run(undefined, 'actual')"><el-icon><ei-data-analysis /></el-icon></el-button>
+            </el-tooltip>
+          </el-button-group>
+        </template>
+        <el-button v-else type="danger" @click="cancel">
+          <el-icon><ei-video-pause /></el-icon>&nbsp;{{ $t('common:cancel') }}
         </el-button>
-      </el-tooltip>
-      <el-tooltip v-if="runnable" :content="$t('optimizer:actionTip')" placement="bottom" :show-after="400">
-        <el-button :disabled="unbound" :aria-label="$t('optimizer:action')" @click="optimize">
-          <el-icon><ei-trend-charts /></el-icon><span class="qv-lbl">&nbsp;{{ $t('optimizer:action') }}</span>
-        </el-button>
-      </el-tooltip>
-      <el-select
-        v-if="!unbound && driver?.databases_label !== ''"
-        :model-value="tab.database"
-        filterable
-        size="small"
-        class="qv-db"
-        :loading="loadingDatabases"
-        :placeholder="driver?.databases_label ? tb(driver.databases_label) : $t('query:database')"
-        :title="tab.database"
-        @visible-change="onDatabaseMenu"
-        @update:model-value="changeDatabase"
-      >
-        <el-option v-for="d in databases" :key="d" :label="d" :value="d" />
-      </el-select>
-      <el-tooltip v-if="multiDbAvailable" :content="$t('multiDb:actionTip')" placement="bottom" :show-after="300">
-        <el-button size="small" :aria-label="$t('multiDb:action')" @click="openMultiDb">
-          <el-icon :class="{ 'is-loading': multiLive?.running }"><ei-loading v-if="multiLive?.running" /><ei-files v-else /></el-icon><span class="qv-lbl">&nbsp;{{ $t('multiDb:action') }}</span>
-        </el-button>
-      </el-tooltip>
-      <el-tooltip v-if="!unbound && (driver?.language === 'sql' || driver?.language === 'cql')" :content="$t('queryBuilder:toolbarTip')" placement="bottom" :show-after="300">
-        <el-button size="small" :aria-label="$t('queryBuilder:toolbar')" @click="tabs.openQueryBuilder(tab.connectionId, tab.database)">
-          <el-icon><ei-set-up /></el-icon><span class="qv-lbl">&nbsp;{{ $t('queryBuilder:toolbar') }}</span>
-        </el-button>
-      </el-tooltip>
-      <el-tooltip v-if="perStatement" :content="$t('query:continueOnErrorTip')" placement="bottom" :show-after="400">
-        <el-checkbox v-model="continueOnError" size="small" class="qv-check" :aria-label="$t('query:continueOnError')"><span class="qv-lbl2">{{ $t('query:continueOnError') }}</span></el-checkbox>
-      </el-tooltip>
-      <template v-if="offersManualTx">
-        <el-radio-group
-          size="small"
-          :model-value="manualTx ? 'manual' : 'auto'"
-          :aria-label="$t('query:tx.label')"
-          :disabled="running || txBusy"
-          @update:model-value="(v: string | number | boolean | undefined) => setManualTx(v === 'manual')"
-        >
-          <el-radio-button value="auto" :title="$t('query:tx.autoTip')">{{ $t('query:tx.auto') }}</el-radio-button>
-          <el-radio-button value="manual" :title="$t('query:tx.manualTip')">{{ $t('query:tx.manual') }}</el-radio-button>
-        </el-radio-group>
-      </template>
-      <span v-if="txOpen" class="qv-tx" :class="txState" role="status">
-        <el-icon><ei-warning-filled /></el-icon>{{ txState === 'failed' ? $t('query:tx.failed') : $t('query:tx.open') }}
-      </span>
-      <template v-if="txOpen || manualTx">
-        <el-button size="small" :disabled="running || txBusy" @click="endTransaction(true)">{{ $t('query:tx.commit') }}</el-button>
-        <el-button size="small" :disabled="running || txBusy" @click="endTransaction(false)">{{ $t('query:tx.rollback') }}</el-button>
-      </template>
-      <el-tooltip :content="$t('query:saveToLibraryTip')" placement="bottom" :show-after="300">
-        <el-button link :aria-label="$t('query:saveToLibrary')" @click="saveToLibrary"><el-icon :size="15"><ei-star /></el-icon></el-button>
-      </el-tooltip>
-      <el-popover v-if="lintSource" v-model:visible="problemsOpen" placement="bottom-start" :width="480" trigger="click">
-        <template #reference>
-          <el-button link class="qv-problems" :class="worstProblem" :title="$t('lint:problems.button')" :aria-label="$t('lint:problems.button')">
-            <el-icon><ei-warning /></el-icon><span class="qv-lbl2">&nbsp;{{ problems.length ? $t('lint:problems.count', { count: problems.length }) : $t('lint:problems.none') }}</span>
+        <!-- Manual transactions: Confirmar / Deshacer stay at hand (the mode is in the status bar). -->
+        <template v-if="txOpen || manualTx">
+          <el-button size="small" class="qv-txbtn" :disabled="running || txBusy" :title="$t('query:tx.commitTip')" @click="endTransaction(true)">{{ $t('query:tx.commit') }}</el-button>
+          <el-button size="small" class="qv-txbtn" :disabled="running || txBusy" :title="$t('query:tx.rollbackTip')" @click="endTransaction(false)">{{ $t('query:tx.rollback') }}</el-button>
+        </template>
+      </div>
+      <div class="qv-ov" data-ov="format" :class="{ 'qv-ov-off': isHidden('format') }">
+        <el-tooltip :content="formatOff ?? $t('query:formatTip')" placement="bottom" :show-after="400">
+          <el-button :disabled="!!formatOff" :loading="formatting" :aria-label="$t('query:format')" @click="formatQuery">
+            <el-icon v-if="!formatting"><ei-magic-stick /></el-icon><span class="qv-lbl">&nbsp;{{ $t('query:format') }}</span>
           </el-button>
-        </template>
-        <div class="qv-plist">
-          <div class="qv-plist-head">
-            <strong>{{ $t('lint:problems.title') }}</strong>
-            <el-button link size="small" @click="ui.openSettings('lint')">{{ $t('lint:problems.settings') }}</el-button>
+        </el-tooltip>
+      </div>
+      <div v-if="runnable" class="qv-ov" data-ov="optimize" :class="{ 'qv-ov-off': isHidden('optimize') }">
+        <el-tooltip :content="$t('optimizer:actionTip')" placement="bottom" :show-after="400">
+          <el-button :disabled="unbound" :aria-label="$t('optimizer:action')" @click="optimize">
+            <el-icon><ei-trend-charts /></el-icon><span class="qv-lbl">&nbsp;{{ $t('optimizer:action') }}</span>
+          </el-button>
+        </el-tooltip>
+      </div>
+      <div v-if="multiDbAvailable" class="qv-ov" data-ov="multiDb" :class="{ 'qv-ov-off': isHidden('multiDb') }">
+        <el-tooltip :content="$t('multiDb:actionTip')" placement="bottom" :show-after="300">
+          <el-button size="small" :aria-label="$t('multiDb:action')" @click="openMultiDb">
+            <el-icon :class="{ 'is-loading': multiLive?.running }"><ei-loading v-if="multiLive?.running" /><ei-files v-else /></el-icon><span class="qv-lbl">&nbsp;{{ $t('multiDb:action') }}</span>
+          </el-button>
+        </el-tooltip>
+      </div>
+      <div v-if="!unbound && (driver?.language === 'sql' || driver?.language === 'cql')" class="qv-ov" data-ov="builder" :class="{ 'qv-ov-off': isHidden('builder') }">
+        <el-tooltip :content="$t('queryBuilder:toolbarTip')" placement="bottom" :show-after="300">
+          <el-button size="small" :aria-label="$t('queryBuilder:toolbar')" @click="tabs.openQueryBuilder(tab.connectionId, tab.database)">
+            <el-icon><ei-set-up /></el-icon><span class="qv-lbl">&nbsp;{{ $t('queryBuilder:toolbar') }}</span>
+          </el-button>
+        </el-tooltip>
+      </div>
+      <div v-if="perStatement" class="qv-ov" data-ov="continueOnError" :class="{ 'qv-ov-off': isHidden('continueOnError') }">
+        <el-tooltip :content="$t('query:continueOnErrorTip')" placement="bottom" :show-after="400">
+          <el-checkbox v-model="continueOnError" size="small" class="qv-check" :aria-label="$t('query:continueOnError')"><span class="qv-lbl2">{{ $t('query:continueOnError') }}</span></el-checkbox>
+        </el-tooltip>
+      </div>
+      <div class="qv-ov" data-ov="library" :class="{ 'qv-ov-off': isHidden('library') }">
+        <el-tooltip :content="$t('query:saveToLibraryTip')" placement="bottom" :show-after="300">
+          <el-button link :aria-label="$t('query:saveToLibrary')" @click="saveToLibrary"><el-icon :size="15"><ei-star /></el-icon></el-button>
+        </el-tooltip>
+      </div>
+      <div v-if="lintSource" class="qv-ov" data-ov="problems" :class="{ 'qv-ov-off': isHidden('problems') }">
+        <el-popover v-model:visible="problemsOpen" placement="bottom-start" :width="480" trigger="click">
+          <template #reference>
+            <el-button link class="qv-problems" :class="worstProblem" :title="$t('lint:problems.button')" :aria-label="$t('lint:problems.button')">
+              <el-icon><ei-warning /></el-icon><span class="qv-lbl2">&nbsp;{{ problems.length ? $t('lint:problems.count', { count: problems.length }) : $t('lint:problems.none') }}</span>
+            </el-button>
+          </template>
+          <div class="qv-plist">
+            <div class="qv-plist-head">
+              <strong>{{ $t('lint:problems.title') }}</strong>
+              <el-button link size="small" @click="ui.openSettings('lint')">{{ $t('lint:problems.settings') }}</el-button>
+            </div>
+            <p v-if="!problems.length" class="nm-muted">{{ $t('lint:problems.none') }}</p>
+            <button v-for="(p, n) in problems" :key="n" class="qv-problem" :title="p.rule" @click="editor?.goTo({ pos: p.start })">
+              <span class="qv-sev" :class="p.severity" />
+              <span class="qv-pmsg">{{ p.message }}</span>
+              <span class="nm-muted">{{ $t('lint:problems.line', { line: p.line }) }}</span>
+            </button>
           </div>
-          <p v-if="!problems.length" class="nm-muted">{{ $t('lint:problems.none') }}</p>
-          <button v-for="(p, n) in problems" :key="n" class="qv-problem" :title="p.rule" @click="editor?.goTo({ pos: p.start })">
-            <span class="qv-sev" :class="p.severity" />
-            <span class="qv-pmsg">{{ p.message }}</span>
-            <span class="nm-muted">{{ $t('lint:problems.line', { line: p.line }) }}</span>
-          </button>
-        </div>
-      </el-popover>
+        </el-popover>
+      </div>
       <div class="nm-spacer" />
-      <el-popover v-if="driver?.query_help" placement="bottom-end" :width="520" trigger="click">
-        <template #reference>
-          <el-button link :title="$t('query:syntaxTitle')"><el-icon><ei-question-filled /></el-icon><span class="qv-lbl">&nbsp;{{ $t('query:syntax') }}</span></el-button>
+      <div v-if="driver?.query_help" class="qv-ov" data-ov="syntax" :class="{ 'qv-ov-off': isHidden('syntax') }">
+        <el-popover v-model:visible="syntaxOpen" placement="bottom-end" :width="520" trigger="click">
+          <template #reference>
+            <el-button link :title="$t('query:syntaxTitle')"><el-icon><ei-question-filled /></el-icon><span class="qv-lbl">&nbsp;{{ $t('query:syntax') }}</span></el-button>
+          </template>
+          <pre class="qv-help nm-selectable">{{ tb(driver.query_help) }}</pre>
+        </el-popover>
+      </div>
+      <el-dropdown data-ov-more class="qv-more" :class="{ 'qv-ov-off': !overflowItems.length }" trigger="click" placement="bottom-end" @command="runOverflow">
+        <el-button link :title="$t('query:moreActions')" :aria-label="$t('query:moreActions')" :tabindex="overflowItems.length ? 0 : -1">
+          <el-icon><ei-more-filled /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item v-for="(item, i) in overflowItems" :key="item.label" :command="i" :disabled="item.disabled" :divided="i > 0 && item.divided">
+              <span class="qv-more-check"><el-icon v-if="item.checked"><ei-check /></el-icon></span>{{ item.label }}
+              <span v-if="item.shortcut" class="qv-more-key">{{ item.shortcut }}</span>
+            </el-dropdown-item>
+          </el-dropdown-menu>
         </template>
-        <pre class="qv-help nm-selectable">{{ tb(driver.query_help) }}</pre>
-      </el-popover>
-      <span class="nm-muted qv-lbl2">{{ $t('query:maxRows') }}</span>
-      <el-select v-model="maxRows" size="small" style="width: 96px" :title="$t('query:maxRows')">
-        <el-option v-for="n in [100, 1000, 5000, 20000, 100000]" :key="n" :label="n.toLocaleString(locale())" :value="n" />
-      </el-select>
+      </el-dropdown>
     </div>
     <div ref="col" class="qv-body">
       <div class="qv-editor" :style="{ height: split * 100 + '%' }">
@@ -1117,23 +1167,23 @@ function drag(e: PointerEvent) {
 .qv-banner > .el-icon { color: var(--nm-warning); }
 .qv-banner.err { border-bottom-color: color-mix(in srgb, var(--nm-danger) 45%, transparent); background: color-mix(in srgb, var(--nm-danger) 12%, transparent); }
 .qv-banner.err > .el-icon { color: var(--nm-danger); }
-/* The toolbar never wraps: groups (Auto/Manual, the plan buttons) keep one
-   line, the database select gives up width first, then labels go and leave
-   icon-only buttons (their name stays in the tooltip). The breakpoints are
-   the toolbar's own width, so opening the AI sidebar counts. */
-.qv-bar { container-type: inline-size; overflow: hidden; }
+/* The toolbar never wraps nor clips: labels go first (icon-only buttons,
+   the name stays in the tooltip), then the actions that still don't fit go
+   to "…" (composables/toolbarOverflow.ts). The breakpoints are the
+   toolbar's own width, so opening the AI sidebar counts. */
+.qv-bar { container-type: inline-size; overflow: hidden; position: relative; }
 .qv-bar > * { flex-shrink: 0; }
-.qv-bar :deep(.el-radio-group), .qv-bar :deep(.el-button-group) { display: inline-flex; flex-wrap: nowrap; flex-shrink: 0; }
-.qv-bar :deep(.el-radio-button__inner), .qv-bar :deep(.el-button) { white-space: nowrap; }
-.qv-bar .qv-db { flex: 0 1 234px; width: auto; min-width: 110px; }
+.qv-group, .qv-ov { display: inline-flex; align-items: center; gap: 6px; }
+.qv-group > .el-button + .el-button { margin-left: 0; }
+.qv-bar :deep(.el-button-group) { display: inline-flex; flex-wrap: nowrap; flex-shrink: 0; }
+.qv-bar :deep(.el-button) { white-space: nowrap; }
+/* Collapsed into "…": out of the line and invisible, still measurable (and
+   an anchor for its popover, at the toolbar's right end). */
+.qv-bar > .qv-ov-off { position: absolute; right: 8px; top: 0; height: 100%; visibility: hidden; pointer-events: none; }
+.qv-more-check { display: inline-flex; width: 16px; }
+.qv-more-key { margin-left: 18px; color: var(--nm-text-dim); font-size: 11.5px; }
 @container (max-width: 1180px) { .qv-lbl { display: none; } }
 @container (max-width: 960px) { .qv-lbl2 { display: none; } }
-.qv-tx {
-  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 10px; font-size: 11.5px;
-  color: var(--nm-warning); border: 1px solid color-mix(in srgb, var(--nm-warning) 50%, transparent);
-  background: color-mix(in srgb, var(--nm-warning) 10%, transparent);
-}
-.qv-tx.failed { color: var(--nm-danger); border-color: color-mix(in srgb, var(--nm-danger) 50%, transparent); background: color-mix(in srgb, var(--nm-danger) 10%, transparent); }
 .qv-status {
   display: flex; align-items: center; height: 22px; flex-shrink: 0; padding: 0 4px; overflow: hidden; white-space: nowrap;
   border-top: 1px solid var(--nm-border-soft); font-size: 11.5px; color: var(--nm-text-dim); font-variant-numeric: tabular-nums;

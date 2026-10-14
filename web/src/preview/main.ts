@@ -37,6 +37,7 @@ import { samplePlans, sampleResult, parallelFkSchema } from './samples';
 import DatabaseDiagram from '../components/DatabaseDiagram.vue';
 import ConnectionView from '../views/ConnectionView.vue';
 import { useTabsStore } from '../stores/tabs';
+import StatusBar from '../components/StatusBar.vue';
 import MonitorView from '../views/MonitorView.vue';
 import { useConnectionsStore } from '../stores/connections';
 import { sampleDrivers, sampleProfilerPoll, sampleProfilerStart, sampleSnapshot } from './monitor-samples';
@@ -225,9 +226,12 @@ const app = createApp({
       view === 'keys' ? h('div', { style: 'width: 340px; height: 640px; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
       view === 'connection' ? connectionTab() : view === 'monitor'
         ? h(MonitorView, { tab: { id: 'm', kind: 'monitor', connectionId: 'c1', database: '', preview: false }, active: true }) :
-      // view=query&w=<px>: the query editor's toolbar at a given width.
+      // view=query&w=<px>: the query editor's toolbar and the status bar at a given width.
       view === 'query' ? h('div', { style: `width: ${params.get('w') ?? 1300}px; height: ${params.get('h') ?? 260}px; display: flex; flex-direction: column; background: var(--ide-editor)` }, [
-        h(QueryView, { tab: (useTabsStore().tabs.find((x) => x.id === 'q') ?? { id: 'q', kind: 'query', connectionId: 'c1', database: 'tenant-ventas', queryId: 'q1', preview: false, continueOnError: true }) as never }),
+        h('div', { style: 'flex: 1; min-height: 0; display: flex; flex-direction: column' }, [
+          h(QueryView, { tab: (useTabsStore().tabs.find((x) => x.id === 'q') ?? { id: 'q', kind: 'query', connectionId: 'c1', database: 'tenant-ventas', queryId: 'q1', preview: false, continueOnError: true }) as never }),
+        ]),
+        h(StatusBar, { panelOpen: false }),
       ]) :
       view === 'support' ? h(SupportReminder) :
       view === 'feedback' ? h(FeedbackDialog, { modelValue: true }) :
@@ -291,6 +295,13 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
     config: { driver: 'postgres', host: 'db-prod-01', port: 5432, database: 'ventas', username: 'app', password: null,
       encrypt: true, trust_server_certificate: false, read_only: false, options: {} },
   }];
+  if (view === 'query') {
+    // A second connection for the status bar's connection picker.
+    conns.list.push({ ...conns.list[0], id: 'c2', name: 'Desarrollo · ventas', tags: [], config: { ...conns.list[0].config, host: 'db-dev-01', database: 'ventas_dev' } });
+    const tabs = useTabsStore();
+    tabs.tabs = [{ id: 'q', kind: 'query', connectionId: 'c1', database: 'tenant-ventas', queryId: 'q1', preview: false, continueOnError: true }];
+    tabs.activeId = 'q';
+  }
   conns.live.c1 = { status: 'connected', serverVersion: 'PostgreSQL 16.4', databases: view === 'compare' ? ['ventas', 'ventas_qa'] : view === 'query' ? ['tenant-ventas', 'tenant-compras'] : ['ventas'], defaultDatabase: 'ventas', error: null };
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
     transformCallback: () => 0,
@@ -302,6 +313,10 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
       if (cmd === 'get_dependents' && view !== 'compare') return sampleDependents;
       if (cmd === 'test_connection') return { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
       if (view === 'query') {
+        if (cmd === 'save_query') return (a?.args as { query: unknown }).query;
+        if (cmd === 'lint_script') return [];
+        // …&tx=open: Manual leaves a transaction open.
+        if (cmd === 'set_tab_autocommit' || cmd === 'tab_transaction_state') return params.get('tx') === 'open' && !(a?.args as { autocommit?: boolean }).autocommit ? 'open' : null;
         if (cmd === 'get_query') return { id: 'q1', name: 'Query', sql: params.get('sample') === 'editor' ? EDITOR_SAMPLE_SQL : 'select top 10 * from ventas.clientes', connection_id: 'c1', database: null, folder: null, updated_at: '' };
         if (params.get('sample') === 'editor') return installEditorSample.invoke(cmd, a?.args);
         return null;
