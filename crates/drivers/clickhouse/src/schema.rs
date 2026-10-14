@@ -246,6 +246,26 @@ fn condition(f: &dbine_driver::ColumnFilter, style: &dbine_driver::filter::SqlFi
     })
 }
 
+/// The (filtered) browse query with `ORDER BY` the grid's sort keys,
+/// quoted with [`q`]: ClickHouse reads `\` as an escape inside backticks,
+/// so the shared backtick quoting (which only doubles `` ` ``) would let a
+/// name ending in `\` swallow its closing quote. The shared clause finder
+/// doesn't know backslash escapes, so a query with a backslash before a
+/// quote (a filter on `O'Brien` is `'O\'Brien'`, a name with a backtick is
+/// `` `a\`b` ``) could get its `ORDER BY` after the `LIMIT`: that one is
+/// refused and the app sorts the loaded rows instead.
+pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    if query.as_bytes().windows(2).any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"')) {
+        return Err(Error::Unsupported("con comillas escapadas en el filtro o en el nombre, ClickHouse no ordena en el servidor".into()));
+    }
+    let order = sort.iter().map(|k| format!("{} {}", q(&k.column), if k.descending { "DESC" } else { "ASC" })).collect::<Vec<_>>().join(", ");
+    dbine_driver::sort::set_order_by(query, &order)
+        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+}
+
 /// `INSERT INTO t (…) VALUES (…), (…)`, 1000 rows per statement.
 pub fn insert_script(schema: Option<&str>, table: &str, columns: &[String], rows: &[Vec<Value>]) -> String {
     let name = qualified(schema, table);
@@ -821,6 +841,36 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn sorted_browse_quotes_and_places_the_order() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let browse = "SELECT *\nFROM `db`.`t`\nLIMIT 200";
+        assert_eq!(sorted_browse(browse, &[]).unwrap(), browse);
+        assert_eq!(sorted_browse(browse, &[k("a", false)]).unwrap(), "SELECT *\nFROM `db`.`t`\nORDER BY `a` ASC\nLIMIT 200");
+        // Several keys, one descending, on a name with a space.
+        assert_eq!(
+            sorted_browse(browse, &[k("Grupo Mixto", false), k("v", true)]).unwrap(),
+            "SELECT *\nFROM `db`.`t`\nORDER BY `Grupo Mixto` ASC, `v` DESC\nLIMIT 200"
+        );
+        // With a filter: WHERE, ORDER BY, LIMIT.
+        let f = ColumnFilter { column: "n".into(), op: FilterOp::Ge, values: vec![json!(5)], sql: None };
+        let w = filtered_browse(browse, &[f]).unwrap();
+        assert_eq!(sorted_browse(&w, &[k("x", true)]).unwrap(), "SELECT *\nFROM `db`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200");
+        // Backslashes and backticks in a name are escaped ClickHouse's way.
+        assert_eq!(sorted_browse(browse, &[k("a\\", false), k("b`c", true)]).unwrap(), "SELECT *\nFROM `db`.`t`\nORDER BY `a\\\\` ASC, `b\\`c` DESC\nLIMIT 200");
+        // Timeplus streams: FROM table(…).
+        assert_eq!(sorted_browse("SELECT *\nFROM table(`s`)\nLIMIT 5", &[k("a", false)]).unwrap(), "SELECT *\nFROM table(`s`)\nORDER BY `a` ASC\nLIMIT 5");
+        // A backslash-escaped quote in the filter: refused, not misplaced.
+        let f = ColumnFilter { column: "n".into(), op: FilterOp::Eq, values: vec![json!("O'Brien")], sql: None };
+        let w = filtered_browse(browse, &[f]).unwrap();
+        assert!(matches!(sorted_browse(&w, &[k("a", false)]), Err(Error::Unsupported(_))));
+        // A plain backslash is fine.
+        let f = ColumnFilter { column: "n".into(), op: FilterOp::Eq, values: vec![json!("a\\b")], sql: None };
+        let w = filtered_browse(browse, &[f]).unwrap();
+        assert!(sorted_browse(&w, &[k("a", false)]).unwrap().ends_with("ORDER BY `a` ASC\nLIMIT 200"));
+    }
 
     #[test]
     fn filtered_browse_with_backslash_literals() {

@@ -234,6 +234,24 @@ pub fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<String>
         .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
 }
 
+/// The (filtered) browse query with `ORDER BY` the grid's sort keys,
+/// quoted with [`ident`] (GoogleSQL escapes with a backslash). The shared
+/// clause finder doesn't know backslash escapes, so a query with a
+/// backslash before a quote (a filter on `O'Brien` is `'O\'Brien'`) could
+/// get its `ORDER BY` after the `LIMIT`: that one is refused and the app
+/// sorts the loaded rows instead.
+pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    if query.as_bytes().windows(2).any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"')) {
+        return Err(Error::Unsupported("con comillas escapadas en el filtro, BigQuery no ordena en el servidor".into()));
+    }
+    let order = sort.iter().map(|k| format!("{} {}", ident(&k.column), if k.descending { "DESC" } else { "ASC" })).collect::<Vec<_>>().join(", ");
+    dbine_driver::sort::set_order_by(query, &order)
+        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+}
+
 pub fn designer() -> DesignerSpec {
     let mut d = DesignerSpec::sql_table(vec![
         "INT64", "NUMERIC", "NUMERIC(10, 2)", "BIGNUMERIC", "FLOAT64", "BOOL", "STRING", "STRING(100)", "BYTES", "DATE",
@@ -406,6 +424,27 @@ pub fn assemble(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn sorted_browse_after_the_filter() {
+        use dbine_driver::SortKey;
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let browse = "SELECT *\nFROM `ds1`.`t`\nLIMIT 200";
+        assert_eq!(sorted_browse(browse, &[]).unwrap(), browse);
+        assert_eq!(sorted_browse(browse, &[k("a", false)]).unwrap(), "SELECT *\nFROM `ds1`.`t`\nORDER BY `a` ASC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(browse, &[k("Grupo Mixto", false), k("v", true)]).unwrap(),
+            "SELECT *\nFROM `ds1`.`t`\nORDER BY `Grupo Mixto` ASC, `v` DESC\nLIMIT 200"
+        );
+        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let w = filtered_browse(browse, &[f("n", FilterOp::Ge, vec![json!(5)])]).unwrap();
+        assert_eq!(sorted_browse(&w, &[k("x", true)]).unwrap(), "SELECT *\nFROM `ds1`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200");
+        // GoogleSQL escapes in names: a backtick can't close the quote.
+        assert_eq!(sorted_browse(browse, &[k("a`b\\", false)]).unwrap(), "SELECT *\nFROM `ds1`.`t`\nORDER BY `a\\`b\\\\` ASC\nLIMIT 200");
+        // A backslash-escaped quote in the filter: refused, not misplaced.
+        let w = filtered_browse(browse, &[f("n", FilterOp::Eq, vec![json!("O'Brien")])]).unwrap();
+        assert!(matches!(sorted_browse(&w, &[k("a", false)]), Err(Error::Unsupported(_))));
+    }
 
     #[test]
     fn filtered_browse_uses_googlesql_literals() {

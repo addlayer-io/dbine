@@ -399,11 +399,16 @@ engine; the header arrow shows the order.
 
 | Engine | How it sorts | Status |
 |---|---|---|
-| PostgreSQL and variants, DSQL, SQLite, libSQL, DuckDB, SQL Server, Oracle, SAP HANA, Firebird, Athena, Trino, Flight SQL, Dremio | `ORDER BY` (contract default) | pending |
-| MySQL and variants, ClickHouse, Drill, BigQuery, Spanner, Databricks, Snowflake, Phoenix | `ORDER BY` with the dialect's quotes | pending |
+| PostgreSQL and variants, DSQL, SQLite, libSQL, DuckDB, Trino, Presto, Athena, SAP HANA, Flight SQL, Dremio, Snowflake, Phoenix | `ORDER BY "…"` after the filter's `WHERE` and before `LIMIT` (contract default) | done; tested live on PostgreSQL, CockroachDB, DSQL (against PostgreSQL), SQLite, libSQL, DuckDB, Trino, Presto, Flight SQL, Dremio and Phoenix; Athena, SAP HANA and Snowflake with unit tests (no container) |
+| Firebird | `SELECT FIRST n … ORDER BY "…"` (contract default) | done; tested live |
+| SQL Server, Azure SQL, Fabric, Babelfish | `SELECT TOP (n) … ORDER BY […]` (contract default): `TOP` takes the first rows of the order | done; tested live on SQL Server and Babelfish |
+| Oracle | `ORDER BY "…"` before `FETCH FIRST n ROWS ONLY` (contract default) | done; tested live |
+| MySQL and variants, Drill, Spanner, Databricks | `` ORDER BY `…` `` (contract default; Databricks its own, for the case below) | done; tested live on MySQL, MariaDB, TiDB, Drill and Spanner (the emulator; Spanner names can't have spaces, so mixed case only) |
+| ClickHouse, Timeplus | its own: `` ORDER BY `…` `` with ClickHouse's backslash escapes in names (the shared backtick quoting only doubles `` ` ``), also on `FROM table(stream)` | done; tested live on ClickHouse |
+| BigQuery | its own: `` ORDER BY `…` `` with GoogleSQL's backslash escapes in names | done; tested live on bigquery-emulator |
+| ODBC presets | its own: the preset's quotes, or for the generic preset the ones the ODBC driver gave the browse query (the dialect alone would put `"` on a MySQL or Access source); before `FETCH FIRST` / `LIMIT`, after `TOP n` / `FIRST n` | done; unit tests per preset (no container) |
 | TDengine | `ORDER BY` with backquotes (contract default), by any column or tag, on tables and supertables | yes |
 | InfluxDB 3 | `ORDER BY` in place of the browse query's `ORDER BY time DESC` | yes |
-| ODBC presets | `ORDER BY` according to the preset | pending |
 | Cassandra, ScyllaDB, Keyspaces | Loaded rows. CQL orders only by clustering columns, and only with the whole partition key fixed in the `WHERE`; a table's browse fixes none, and the sort doesn't know which columns are keys | no |
 | IoTDB (1.x and 2.x, tree model) | `ORDER BY` on `time` and the device's measurements (IoTDB 1.1 and later), in place of the browse query's `ORDER BY time DESC` | yes |
 | InfluxDB 1 (InfluxQL) | `ORDER BY time ASC` / `DESC` only: InfluxQL orders by nothing else, so a sort by another column (or by time plus another) uses the loaded rows | time only |
@@ -419,6 +424,13 @@ engine; the header arrow shows the order.
 | Solr | the `sort=a asc,b desc` parameter. Sort syntax can't quote a name: only names of letters, digits, `_`, `.` and `-` go to the server. A tokenized or multi-valued text field (schemaless guessing makes strings `text_general`) is rejected by the server, as the driver can't see the schema; DBine then sorts the loaded rows, showing the server's reason | yes (not text fields) |
 | CouchDB | only by `_id`, with the `_all_docs` index (`"_id": {"$gt": null}` joined to the selector). Any other field needs a Mango index over it, and views come sorted by their key: the loaded rows | `_id` only |
 | OrientDB | `ORDER BY` with backquotes (contract default); not tested against a server | yes |
+
+ClickHouse, BigQuery, Databricks and the Hive, Impala and Spark ODBC
+presets write a quote inside a string literal as `\'`, which the
+contract's clause finder doesn't know. With a filter whose value has a
+quote (or ends in a backslash) they don't sort on the server, so the
+`ORDER BY` never lands after the `LIMIT`: the UI sorts the loaded rows and
+says so.
 
 ## Cell editing (update code)
 
