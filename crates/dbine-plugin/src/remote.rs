@@ -6,7 +6,7 @@ use crate::proto::{read_frame, write_frame, Call, DriverMeta, FromHost, Hello, R
 use dbine_driver::transfer::{self, BatchSinkRef, BatchSource, BucketSum, CloneScript, CopySpec, DeltaResult, DeltaSpec, LoadSpec, ReadSpec, RowBatch, TransferColumn};
 use dbine_driver::serde_static::intern;
 use dbine_driver::{
-    async_trait, Capabilities, ColumnFilter, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver,
+    async_trait, Capabilities, ColumnFilter, ColumnInfo, SortKey, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver,
     DriverInfo, Error, KeyPage, KeyScan, KeySearch, MonitorSnapshot, ObjectRef, ProfiledStatement, ProfilerOptions, ProfilerStarted,
     MessageSinkRef, ProgressSinkRef, QueryOutcome, Result, RowChange, RowSinkRef, Session, SyncScript, TableChange, TableSchema,
 };
@@ -783,6 +783,12 @@ impl Driver for RemoteDriver {
     }
     fn filtered_browse(&self, browse: &str, filters: &[ColumnFilter]) -> Result<String> {
         text(self.blocking(Call::FilteredBrowse { driver: self.id(), browse: browse.to_string(), filters: filters.to_vec() })?)
+    }
+    fn sorted_browse(&self, query: &str, sort: &[SortKey]) -> Result<String> {
+        if sort.is_empty() {
+            return Ok(query.to_string());
+        }
+        text(self.blocking(Call::SortedBrowse { driver: self.id(), query: query.to_string(), sort: sort.to_vec() })?)
     }
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         text(self.blocking(Call::UpdateScript { driver: self.id(), target: target.clone(), changes: changes.to_vec() })?)

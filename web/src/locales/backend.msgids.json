@@ -25607,6 +25607,9 @@
  "este motor no ofrece {0}": [
   "src-tauri/src/commands/query_builder.rs"
  ],
+ "este motor no ordena en el servidor": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
  "este motor no ordena los resultados: la consulta queda sin ORDER BY": [
   "src-tauri/src/commands/query_builder.rs"
  ],
@@ -25691,6 +25694,9 @@
   "crates/dbine-driver/src/lib.rs"
  ],
  "este motor todavía no ofrece monitoreo": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
+ "este motor todavía no ordena en el servidor": [
   "crates/dbine-driver/src/lib.rs"
  ],
  "este proceso no sirve el driver «{0}»": [
@@ -28549,6 +28555,9 @@
   "crates/drivers/snowflake/src/ddl.rs",
   "crates/drivers/spanner/src/lib.rs",
   "crates/drivers/tdengine/src/lib.rs"
+ ],
+ "no se pudo agregar el orden a la consulta de este objeto": [
+  "crates/dbine-driver/src/lib.rs"
  ],
  "no se pudo ajustar la identidad «{0}» ({1})": [
   "crates/drivers/sqlserver/src/delta.rs"
@@ -33865,8 +33874,5 @@
  ],
  "… ({0} operadores más)": [
   "src-tauri/src/optimizer/hints.rs"
- ],
- "dirección de GitHub inválida": [
-  "src-tauri/src/commands/feedback.rs"
  ]
 }

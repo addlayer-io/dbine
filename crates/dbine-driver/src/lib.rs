@@ -26,6 +26,7 @@ pub mod model;
 pub mod monitor;
 pub mod permissions;
 pub mod security;
+pub mod sort;
 pub mod plan;
 pub mod profiler;
 pub mod read_only;
@@ -51,6 +52,7 @@ pub use info::{
     PropertyInfo,
 };
 pub use filter::{ColumnFilter, FilterOp};
+pub use sort::SortKey;
 pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
 pub use model::{
     json_bytes, json_f64, json_i64, json_u64, ColumnInfo, DbObject, Message, MessageLevel, MessageSinkRef, ObjectRef, Plan,
@@ -271,6 +273,38 @@ pub trait Driver: Send + Sync {
         };
         let cond = filter::sql_condition(filters, &style)?;
         filter::insert_where(browse, &cond).ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
+    }
+
+    /// The browse query (already filtered by [`Driver::filtered_browse`])
+    /// sorted by the data grid's columns, the first key being the primary
+    /// one. SQL and CQL engines put an `ORDER BY` with their own quoting
+    /// after the WHERE and before the LIMIT / FETCH / `;` (replacing the
+    /// query's own); other engines build their own sort, or say they can't
+    /// (the grid then sorts the rows it loaded). An empty `sort` returns
+    /// the query as is.
+    fn sorted_browse(&self, query: &str, sort: &[SortKey]) -> Result<String> {
+        if sort.is_empty() {
+            return Ok(query.to_string());
+        }
+        if !matches!(self.info().language, Language::Sql | Language::Cql) {
+            return Err(Error::Unsupported("este motor no ordena en el servidor".into()));
+        }
+        let dialect = self.info().dialect;
+        // SQL dialects whose browse query isn't plain SQL over a table
+        // (Cosmos's `c`, N1QL's `d.*`, PartiQL, ksqlDB push queries,
+        // InfluxQL and IoTDB time series): their driver sorts, or not.
+        if matches!(dialect, "cosmos" | "n1ql" | "partiql" | "ksql" | "influxql" | "iotdb") {
+            return Err(Error::Unsupported("este motor todavía no ordena en el servidor".into()));
+        }
+        let quote = match dialect {
+            "mssql" | "sybase" | "access" => sql::Quote::Bracket,
+            "mysql" | "bigquery" | "hive" | "clickhouse" | "sparksql" | "databricks" | "spanner" | "drill" | "tdengine" | "orientdb" => {
+                sql::Quote::Backtick
+            }
+            _ => sql::Quote::Double,
+        };
+        sort::set_order_by(query, &sort::order_list(sort, quote))
+            .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
     }
 
     /// Rows edited in the results grid as code in the driver's language
@@ -953,6 +987,50 @@ mod tests {
             has_schemas: true,
             object_kinds: vec![],
         })
+    }
+
+    fn with(language: Language, dialect: &'static str) -> Bare {
+        let mut d = bare();
+        d.0.language = language;
+        d.0.dialect = dialect;
+        d
+    }
+
+    #[test]
+    fn sorted_browse_by_default() {
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let eq = |c: &str| ColumnFilter { column: c.into(), op: FilterOp::Eq, values: vec![serde_json::json!(1)], sql: None };
+        // Filters first, then the sort: WHERE, ORDER BY, LIMIT.
+        let pg = with(Language::Sql, "postgres");
+        let q = sql::select_top(sql::Quote::Double, sql::Limit::Limit, Some("public"), "t", 200);
+        let q = pg.filtered_browse(&q, &[eq("a")]).unwrap();
+        assert_eq!(
+            pg.sorted_browse(&q, &[k("b", true), k("c", false)]).unwrap(),
+            "SELECT *\nFROM \"public\".\"t\"\nWHERE \"a\" = 1\nORDER BY \"b\" DESC, \"c\" ASC\nLIMIT 200"
+        );
+        let ms = with(Language::Sql, "mssql");
+        let q = sql::select_top(sql::Quote::Bracket, sql::Limit::Top, Some("dbo"), "t", 200);
+        let q = ms.filtered_browse(&q, &[eq("a")]).unwrap();
+        assert_eq!(ms.sorted_browse(&q, &[k("b", false)]).unwrap(), "SELECT TOP (200) *\nFROM [dbo].[t]\nWHERE [a] = 1\nORDER BY [b] ASC");
+        let ora = with(Language::Sql, "oracle");
+        let q = sql::select_top(sql::Quote::Double, sql::Limit::FetchFirst, Some("HR"), "EMP", 10);
+        let q = ora.filtered_browse(&q, &[eq("DEPT")]).unwrap();
+        assert_eq!(
+            ora.sorted_browse(&q, &[k("SAL", true)]).unwrap(),
+            "SELECT *\nFROM \"HR\".\"EMP\"\nWHERE \"DEPT\" = 1\nORDER BY \"SAL\" DESC\nFETCH FIRST 10 ROWS ONLY"
+        );
+        let my = with(Language::Sql, "mysql");
+        let q = sql::select_top(sql::Quote::Backtick, sql::Limit::Limit, Some("db"), "t", 5);
+        assert_eq!(my.sorted_browse(&q, &[k("b", true)]).unwrap(), "SELECT *\nFROM `db`.`t`\nORDER BY `b` DESC\nLIMIT 5");
+        let cql = with(Language::Cql, "cql");
+        let q = cql.filtered_browse("SELECT * FROM ks.t LIMIT 50;", &[eq("a")]).unwrap();
+        assert_eq!(cql.sorted_browse(&q, &[k("ts", true)]).unwrap(), "SELECT * FROM ks.t\nWHERE \"a\" = 1\nORDER BY \"ts\" DESC\nLIMIT 50;");
+        // Empty sort: the query as is, on any engine.
+        let mongo = with(Language::Json, "");
+        assert_eq!(mongo.sorted_browse("db.t.find({})", &[]).unwrap(), "db.t.find({})");
+        assert!(matches!(mongo.sorted_browse("db.t.find({})", &[k("a", false)]), Err(Error::Unsupported(_))));
+        assert!(matches!(with(Language::Sql, "cosmos").sorted_browse("SELECT TOP 5 * FROM c", &[k("a", false)]), Err(Error::Unsupported(_))));
+        assert!(matches!(pg.sorted_browse("SHOW TABLES", &[k("a", false)]), Err(Error::Unsupported(_))));
     }
 
     #[test]

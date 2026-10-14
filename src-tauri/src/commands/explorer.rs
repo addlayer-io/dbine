@@ -281,6 +281,45 @@ mod tests {
         let plain = vec![t(Some("a"), "T"), t(None, "T")];
         assert!(find_table(&plain, &obj(None, "T")).unwrap().schema.is_none());
     }
+
+    struct Engine(dbine_driver::DriverInfo);
+
+    #[dbine_driver::async_trait]
+    impl dbine_driver::Driver for Engine {
+        fn info(&self) -> &dbine_driver::DriverInfo {
+            &self.0
+        }
+        async fn connect(&self, _: &dbine_driver::ConnectionConfig, _: Option<&str>) -> dbine_driver::Result<Box<dyn dbine_driver::Session>> {
+            Err(dbine_driver::Error::Unsupported("test".into()))
+        }
+    }
+
+    fn engine(language: dbine_driver::Language) -> Engine {
+        Engine(dbine_driver::DriverInfo {
+            id: "e",
+            name: "E",
+            family: dbine_driver::Family::Relational,
+            language,
+            dialect: "postgres",
+            default_port: 0,
+            fields: vec![],
+            databases_label: "",
+            has_schemas: true,
+            object_kinds: vec![],
+        })
+    }
+
+    #[test]
+    fn sort_falls_back_when_the_engine_cant() {
+        let key = [dbine_driver::SortKey { column: "a".into(), descending: true }];
+        let q = "SELECT *\nFROM \"t\"\nLIMIT 5".to_string();
+        let sql = engine(dbine_driver::Language::Sql);
+        assert_eq!(sort_browse(&sql, q.clone(), &[]).unwrap(), (q.clone(), true, None));
+        assert_eq!(sort_browse(&sql, q.clone(), &key).unwrap(), ("SELECT *\nFROM \"t\"\nORDER BY \"a\" DESC\nLIMIT 5".to_string(), true, None));
+        let (query, server, why) = sort_browse(&engine(dbine_driver::Language::Json), "db.t.find({})".into(), &key).unwrap();
+        assert_eq!((query.as_str(), server), ("db.t.find({})", false));
+        assert!(why.is_some());
+    }
 }
 
 fn quote_of(dialect: &str) -> Quote {
@@ -315,6 +354,9 @@ pub struct FilteredBrowseArgs {
     pub limit: u32,
     #[serde(default)]
     pub filters: Vec<dbine_driver::ColumnFilter>,
+    /// The grid's column sort, applied after the filters.
+    #[serde(default)]
+    pub sort: Vec<dbine_driver::SortKey>,
 }
 
 #[derive(serde::Serialize)]
@@ -325,6 +367,11 @@ pub struct FilteredBrowse {
     /// grid filters the rows it loaded.
     pub server_side: bool,
     pub reason: Option<String>,
+    /// The sort is in `query` (the server sorts; also when there's no
+    /// sort). When `false`, the engine can't: `query` has no `ORDER BY` of
+    /// the grid, `sort_reason` says why and the grid sorts the rows it loaded.
+    pub sort_server_side: bool,
+    pub sort_reason: Option<String>,
 }
 
 /// The browse query of an object with the data grid's column filters.
@@ -336,9 +383,23 @@ pub async fn filtered_browse_query(state: State<'_, AppState>, args: FilteredBro
         s.browse_query(&args.object, args.limit)
     };
     let driver = crate::commands::schema::driver_of(&state, &args.connection_id)?;
-    Ok(match driver.filtered_browse(&browse, &args.filters) {
-        Ok(query) => FilteredBrowse { query, server_side: true, reason: None },
-        Err(dbine_driver::Error::Unsupported(why)) => FilteredBrowse { query: browse, server_side: false, reason: Some(why) },
+    let (query, server_side, reason) = match driver.filtered_browse(&browse, &args.filters) {
+        Ok(query) => (query, true, None),
+        Err(dbine_driver::Error::Unsupported(why)) => (browse, false, Some(why)),
         Err(e) => return Err(e.into()),
-    })
+    };
+    let (query, sort_server_side, sort_reason) = sort_browse(driver.as_ref(), query, &args.sort)?;
+    Ok(FilteredBrowse { query, server_side, reason, sort_server_side, sort_reason })
+}
+
+/// `query` with the grid's sort, or as it was and why the engine can't.
+fn sort_browse(driver: &dyn dbine_driver::Driver, query: String, sort: &[dbine_driver::SortKey]) -> CommandResult<(String, bool, Option<String>)> {
+    if sort.is_empty() {
+        return Ok((query, true, None));
+    }
+    match driver.sorted_browse(&query, sort) {
+        Ok(sorted) => Ok((sorted, true, None)),
+        Err(dbine_driver::Error::Unsupported(why)) => Ok((query, false, Some(why))),
+        Err(e) => Err(e.into()),
+    }
 }
