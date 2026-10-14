@@ -80,6 +80,16 @@ pub async fn azure_firewall_plan(state: State<'_, AppState>, args: FirewallPlanA
 pub async fn azure_sql_add_firewall_rule(state: State<'_, AppState>, args: AddFirewallRuleArgs) -> CommandResult<FirewallRuleAdded> {
     let (host, server) = connection_server(&state, &args.connection_id)?;
     let ip = public_ipv4(&args.ip)?.to_string();
+    // Only this machine's own public IP, as an HTTPS service sees it: never
+    // one a server named (a 40615 can come from whoever answers on the
+    // path when the connection isn't encrypted or its certificate isn't
+    // checked), nor one typed or changed in the window.
+    let mine = lookup_public_ip().await?;
+    if !same_ip(&ip, &mine) {
+        return Err(CommandError::BadRequest(format!(
+            "la IP de la regla ({ip}) no es tu IP pública ({mine}): DBine solo agrega tu propia IP al firewall"
+        )));
+    }
     let rule_name = valid_rule_name(&args.rule_name)?;
     let bin = find_az().ok_or_else(|| CommandError::BadRequest("no se encontró la CLI de Azure (az) en esta máquina".into()))?;
     let (found, subscription) = find_server(&bin, &host).await?;
@@ -106,6 +116,15 @@ const PUBLIC_IP_URL: &str = "https://api.ipify.org";
 /// This machine's public IPv4 as the internet sees it ("Ver mi IP pública").
 #[tauri::command(rename_all = "camelCase")]
 pub async fn public_ip() -> CommandResult<String> {
+    lookup_public_ip().await
+}
+
+/// Two IPv4 addresses written the same way once parsed.
+fn same_ip(a: &str, b: &str) -> bool {
+    matches!((a.trim().parse::<Ipv4Addr>(), b.trim().parse::<Ipv4Addr>()), (Ok(x), Ok(y)) if x == y)
+}
+
+async fn lookup_public_ip() -> CommandResult<String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -410,5 +429,12 @@ mod tests {
         assert_eq!(az_error(e), "(AuthorizationFailed) The client does not have authorization.");
         assert_eq!(az_error("plain failure\n"), "plain failure");
         assert_eq!(az_error(""), "error desconocido");
+    }
+
+    #[test]
+    fn only_the_same_ip_matches() {
+        assert!(super::same_ip("203.0.113.7", " 203.0.113.7 "));
+        assert!(!super::same_ip("203.0.113.7", "203.0.113.8"));
+        assert!(!super::same_ip("203.0.113.7", "nope"));
     }
 }

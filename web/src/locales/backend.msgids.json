@@ -23589,6 +23589,9 @@
  "dirección de ADFS no válida": [
   "crates/drivers/sqlserver/src/entra.rs"
  ],
+ "dirección de GitHub inválida": [
+  "src-tauri/src/commands/feedback.rs"
+ ],
  "dirección de descarga inválida": [
   "src-tauri/src/commands/updates.rs"
  ],
@@ -26503,6 +26506,9 @@
  ],
  "la E/S de archivos": [
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "la IP de la regla ({0}) no es tu IP pública ({1}): DBine solo agrega tu propia IP al firewall": [
+  "src-tauri/src/commands/azure_firewall.rs"
  ],
  "la PGA (V$PGASTAT)": [
   "crates/drivers/oracle/src/monitor.rs"

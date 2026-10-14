@@ -50,7 +50,7 @@ async function lookUpIp() {
   ipError.value = null;
   try {
     publicIp.value = await api.publicIp();
-    if (!ruleIp.value) ruleIp.value = publicIp.value;
+    ruleIp.value = publicIp.value;
   } catch (e) {
     ipError.value = errorMessage(e);
   } finally {
@@ -58,13 +58,18 @@ async function lookUpIp() {
   }
 }
 /** The IP the server saw (Azure says it), else the one looked up. */
-const knownIp = computed(() => detail.value?.client_ip ?? publicIp.value);
+const knownIp = computed(() => publicIp.value ?? detail.value?.client_ip ?? null);
+/** The server named a different IP than this machine's: say so (it's unverified). */
+const ipMismatch = computed(() => !!publicIp.value && !!detail.value?.client_ip && publicIp.value !== detail.value.client_ip);
 
 // -- Azure SQL firewall rule ------------------------------------------------------------
 const plan = ref<AzureFirewallPlan | null>(null);
 const planning = ref(false);
 const planError = ref<string | null>(null);
-const ruleIp = ref(detail.value?.client_ip ?? '');
+// Only this machine's own public IP (looked up over HTTPS), never the one
+// the server's message names: an unencrypted connection's answer can come
+// from anyone on the path. The backend checks it again before creating.
+const ruleIp = ref('');
 const prodTyped = ref('');
 const prod = computed(() => isProdConnection(conn.value));
 const creating = ref(false);
@@ -78,6 +83,8 @@ async function startAddRule() {
   planError.value = null;
   created.value = null;
   try {
+    if (!publicIp.value) await lookUpIp();
+    if (!publicIp.value) return;
     plan.value = await api.azureFirewallPlan(props.connectionId);
   } catch (e) {
     planError.value = errorMessage(e);
@@ -102,7 +109,8 @@ async function createRule() {
 }
 
 /** By hand: the same rule with the CLI, and with T-SQL from another connection. */
-const manualIp = computed(() => (ipValid.value ? ruleIp.value.trim() : knownIp.value) ?? t('connection:problem.azure.ipPlaceholder'));
+// The manual instructions too: only the verified public IP, else a placeholder.
+const manualIp = computed(() => (ipValid.value ? ruleIp.value.trim() : publicIp.value) ?? t('connection:problem.azure.ipPlaceholder'));
 const cliCommand = computed(() => {
   const p = plan.value;
   if (!p) return '';
@@ -179,10 +187,11 @@ function editConnection() {
 
       <!-- the client's IP: what the server saw, or looked up on click -->
       <div v-if="kind === 'firewall' || network" class="cp-ip">
-        <span v-if="detail?.client_ip">{{ $t('connection:problem.ipFromServer', { ip: detail.client_ip }) }}</span>
-        <span v-else-if="publicIp">{{ $t('connection:problem.yourIp', { ip: publicIp }) }}</span>
+        <span v-if="publicIp">{{ $t('connection:problem.yourIp', { ip: publicIp }) }}</span>
+        <span v-else-if="detail?.client_ip">{{ $t('connection:problem.ipFromServer', { ip: detail.client_ip }) }}</span>
         <el-button v-if="knownIp" size="small" text :title="$t('common:copy')" @click="copy(knownIp)"><el-icon><ei-copy-document /></el-icon></el-button>
-        <el-button v-if="!detail?.client_ip" size="small" :loading="ipLoading" @click="lookUpIp">{{ $t('connection:problem.publicIp') }}</el-button>
+        <el-button v-if="!publicIp" size="small" :loading="ipLoading" @click="lookUpIp">{{ $t('connection:problem.publicIp') }}</el-button>
+        <span v-if="ipMismatch" class="cp-error">{{ $t('connection:problem.ipMismatch', { server: detail?.client_ip }) }}</span>
         <span v-if="ipError" class="cp-error">{{ ipError }}</span>
       </div>
 
@@ -200,9 +209,7 @@ function editConnection() {
             <dt>{{ $t('connection:problem.azure.rule') }}</dt><dd><code>{{ plan.rule_name }}</code></dd>
             <dt>{{ $t('connection:problem.azure.ip') }}</dt>
             <dd>
-              <el-input v-model="ruleIp" size="small" style="width: 160px" :placeholder="$t('connection:problem.azure.ipPlaceholder')" />
-              <span v-if="ruleIp && !ipValid" class="cp-error">{{ $t('connection:problem.azure.ipInvalid') }}</span>
-              <span v-else-if="!ruleIp" class="nm-muted">{{ $t('connection:problem.azure.ipNeeded') }}</span>
+              <code>{{ ruleIp }}</code> <span class="nm-muted">{{ $t('connection:problem.azure.ipVerified') }}</span>
             </dd>
           </dl>
           <p class="cp-note">{{ $t('connection:problem.azure.confirmNote') }}</p>

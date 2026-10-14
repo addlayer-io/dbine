@@ -55,7 +55,7 @@
     "editConnection": "Modifier la connexion",
     "publicIp": "Voir mon IP publique",
     "yourIp": "Votre IP publique : {{ip}}",
-    "ipFromServer": "Le serveur a vu votre connexion depuis l’IP {{ip}}.",
+    "ipFromServer": "Le serveur indique que vous vous êtes connecté depuis {{ip}} (non vérifié : « Voir mon IP publique » le confirme).",
     "kind": {
       "firewall": {
         "title": "Le pare-feu du serveur bloque votre IP",
@@ -101,8 +101,6 @@
       "ip": "IP",
       "ipPlaceholder": "VOTRE_IP",
       "groupPlaceholder": "GROUPE_DE_RESSOURCES",
-      "ipInvalid": "IPv4 non valide",
-      "ipNeeded": "Utilisez « Voir mon IP publique » ou saisissez-la",
       "confirmNote": "C’est une modification du pare-feu du serveur Azure SQL, faite avec votre session Azure CLI (az).",
       "prodConfirm": "C’est une connexion de production. Tapez « {{name}} » pour confirmer :",
       "create": "Créer la règle",
@@ -113,8 +111,10 @@
       "byPortal": "Dans le portail Azure : le serveur › Mise en réseau › Règles de pare-feu › Ajouter l’IP du client.",
       "openPortal": "Ouvrir le portail",
       "byTsql": "Avec T-SQL, depuis une autre connexion qui a accès, dans la base master :",
-      "unavailable": "Azure indique que la base n’est pas disponible pour le moment (cela arrive pendant un déplacement ou une mise à l’échelle). Attendez une minute et réessayez."
+      "unavailable": "Azure indique que la base n’est pas disponible pour le moment (cela arrive pendant un déplacement ou une mise à l’échelle). Attendez une minute et réessayez.",
+      "ipVerified": "votre IP publique, vérifiée par HTTPS"
     },
-    "couldNotConnect": "Impossible de se connecter à {{name}} : {{error}}"
+    "couldNotConnect": "Impossible de se connecter à {{name}} : {{error}}",
+    "ipMismatch": "Le serveur a indiqué une autre IP ({{server}}) : elle ne correspond pas à votre IP publique, elle n'est donc pas utilisée."
   }
 }

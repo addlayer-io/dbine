@@ -55,7 +55,7 @@
     "editConnection": "Edit connection",
     "publicIp": "Show my public IP",
     "yourIp": "Your public IP: {{ip}}",
-    "ipFromServer": "The server saw your connection from IP {{ip}}.",
+    "ipFromServer": "The server says you connected from {{ip}} (unverified: “See my public IP” confirms it).",
     "kind": {
       "firewall": {
         "title": "The server's firewall blocks your IP",
@@ -101,8 +101,6 @@
       "ip": "IP",
       "ipPlaceholder": "YOUR_IP",
       "groupPlaceholder": "RESOURCE_GROUP",
-      "ipInvalid": "Not a valid IPv4",
-      "ipNeeded": "Use “Show my public IP” or type it",
       "confirmNote": "It's a change to the Azure SQL server's firewall, made with your Azure CLI (az) session.",
       "prodConfirm": "This is a production connection. Type “{{name}}” to confirm:",
       "create": "Create rule",
@@ -113,8 +111,10 @@
       "byPortal": "In the Azure portal: the server › Networking › Firewall rules › Add your client IP.",
       "openPortal": "Open the portal",
       "byTsql": "With T-SQL, from another connection that does have access, in the master database:",
-      "unavailable": "Azure reports the database isn't available right now (it happens while it's moved or scaled). Wait a minute and retry."
+      "unavailable": "Azure reports the database isn't available right now (it happens while it's moved or scaled). Wait a minute and retry.",
+      "ipVerified": "your public IP, verified over HTTPS"
     },
-    "couldNotConnect": "Couldn't connect to {{name}}: {{error}}"
+    "couldNotConnect": "Couldn't connect to {{name}}: {{error}}",
+    "ipMismatch": "The server reported a different IP ({{server}}): it doesn't match your public IP, so it isn't used."
   }
 }

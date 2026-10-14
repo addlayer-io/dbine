@@ -55,7 +55,7 @@
     "editConnection": "Editar conexão",
     "publicIp": "Ver meu IP público",
     "yourIp": "Seu IP público: {{ip}}",
-    "ipFromServer": "O servidor viu sua conexão a partir do IP {{ip}}.",
+    "ipFromServer": "O servidor informa que você se conectou de {{ip}} (não verificado: «Ver meu IP público» confirma).",
     "kind": {
       "firewall": {
         "title": "O firewall do servidor bloqueia seu IP",
@@ -101,8 +101,6 @@
       "ip": "IP",
       "ipPlaceholder": "SEU_IP",
       "groupPlaceholder": "GRUPO_DE_RECURSOS",
-      "ipInvalid": "Não é um IPv4 válido",
-      "ipNeeded": "Use “Ver meu IP público” ou digite-o",
       "confirmNote": "É uma mudança no firewall do servidor do Azure SQL, feita com sua sessão da CLI do Azure (az).",
       "prodConfirm": "É uma conexão de produção. Digite “{{name}}” para confirmar:",
       "create": "Criar regra",
@@ -113,8 +111,10 @@
       "byPortal": "No portal do Azure: o servidor › Rede › Regras de firewall › Adicionar o IP do cliente.",
       "openPortal": "Abrir o portal",
       "byTsql": "Com T-SQL, a partir de outra conexão que tenha acesso, no banco master:",
-      "unavailable": "O Azure informa que o banco não está disponível no momento (acontece enquanto ele é movido ou escalado). Aguarde um minuto e tente novamente."
+      "unavailable": "O Azure informa que o banco não está disponível no momento (acontece enquanto ele é movido ou escalado). Aguarde um minuto e tente novamente.",
+      "ipVerified": "seu IP público, verificado por HTTPS"
     },
-    "couldNotConnect": "Não foi possível conectar a {{name}}: {{error}}"
+    "couldNotConnect": "Não foi possível conectar a {{name}}: {{error}}",
+    "ipMismatch": "O servidor informou outro IP ({{server}}): não coincide com seu IP público, então não é usado."
   }
 }
