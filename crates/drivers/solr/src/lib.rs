@@ -292,6 +292,10 @@ impl Driver for Solr {
         ddl::filtered_browse(browse, filters)
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        ddl::sorted_browse(query, sort)
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, _database: Option<&str>) -> Result<Box<dyn Session>> {
         let base = http::base_url(cfg, 8983);
         let client = http::client(cfg, http::auth_from(cfg))?;

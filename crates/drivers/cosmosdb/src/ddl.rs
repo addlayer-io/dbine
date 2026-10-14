@@ -426,6 +426,32 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
         .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
 }
 
+/// The browse query (filtered or not) sorted by the grid's column: an
+/// `ORDER BY c["field"]` at the end (the browse has no clause after the
+/// WHERE). The default indexing policy serves an ORDER BY of one property;
+/// more than one needs a composite index for exactly those properties and
+/// directions, which the driver can't see here: refused, and the grid
+/// sorts what it loaded.
+pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    let mut keys: Vec<&dbine_driver::SortKey> = Vec::new();
+    for k in sort {
+        if !keys.iter().any(|x| x.column == k.column) {
+            keys.push(k);
+        }
+    }
+    let [k] = keys.as_slice() else {
+        return if keys.is_empty() {
+            Ok(browse.to_string())
+        } else {
+            Err(Error::Unsupported(
+                "Cosmos DB ordena en el servidor por un solo campo: varios necesitan un índice compuesto, y se ordena en la grilla".into(),
+            ))
+        };
+    };
+    let dir = if k.descending { "DESC" } else { "ASC" };
+    Ok(format!("{}\nORDER BY c[{}] {dir}", browse.trim_end().trim_end_matches(';').trim_end(), Value::String(k.column.clone())))
+}
+
 /// The `SELECT` that finds the documents an UPDATE's WHERE fields match.
 pub fn update_query(filter: &Map<String, Value>) -> String {
     let conds: Vec<String> = filter.iter().map(|(k, v)| format!("c[{}] = {v}", Value::String(k.clone()))).collect();
@@ -754,6 +780,22 @@ mod tests {
             .unwrap(),
             "-- container: from orders\nSELECT TOP 200 * FROM c\nWHERE c[\"name\"] = \"O'Brien \\\"Jr\\\"\"\n  AND c[\"id\"] IN (\"1\", \"b\")\n  AND c[\"total\"] > 10.5\n  AND CONTAINS(c[\"note\"], \"50%\", true)\n  AND (NOT IS_DEFINED(c[\"gone\"]) OR IS_NULL(c[\"gone\"]))"
         );
+    }
+
+    #[test]
+    fn sorted_browse_by_one_property() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let b = "-- container: from orders\nSELECT TOP 200 * FROM c";
+        assert_eq!(sorted_browse(b, &[k("total", true)]).unwrap(), "-- container: from orders\nSELECT TOP 200 * FROM c\nORDER BY c[\"total\"] DESC");
+        let f = filtered_browse(b, &[ColumnFilter { column: "g".into(), op: FilterOp::Eq, values: vec![json!("offset")], sql: None }]).unwrap();
+        assert_eq!(
+            sorted_browse(&f, &[k("we\"ird] 'n'", false), k("we\"ird] 'n'", true)]).unwrap(),
+            "-- container: from orders\nSELECT TOP 200 * FROM c\nWHERE c[\"g\"] = \"offset\"\nORDER BY c[\"we\\\"ird] 'n'\"] ASC"
+        );
+        assert!(crate::parse_located(&sorted_browse(&f, &[k("a", false)]).unwrap()).is_ok());
+        assert!(matches!(sorted_browse(b, &[k("a", false), k("b", true)]), Err(Error::Unsupported(_))));
+        assert_eq!(sorted_browse(b, &[]).unwrap(), b);
     }
 
     fn items() -> TableSchema {

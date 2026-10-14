@@ -435,6 +435,36 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     serde_json::to_string_pretty(&Value::Object(body)).map_err(|e| Error::Query(e.to_string()))
 }
 
+/// The browse query (filtered or not) sorted by the grid's columns. A
+/// Mango `sort` needs an index over its fields, and the only one every
+/// database has is `_all_docs`, used when the selector names `_id`: so only
+/// a sort by `_id` alone goes to the server, with `"_id": {"$gt": null}`
+/// (every document) joined to the selector. Any other sort, and views
+/// (sorted by their key), are refused and the grid sorts what it loaded.
+pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(browse.to_string());
+    }
+    let Ok(Value::Object(mut body)) = serde_json::from_str::<Value>(browse) else {
+        return Err(Error::Unsupported("las vistas de CouchDB vienen ordenadas por su clave: se ordena en la grilla".into()));
+    };
+    let first = &sort[0];
+    if first.column != "_id" || sort.iter().any(|k| k.column != "_id") {
+        return Err(Error::Unsupported(
+            "CouchDB solo ordena en el servidor por «_id»: otro campo necesita un índice Mango sobre él, y se ordena en la grilla".into(),
+        ));
+    }
+    let all = json!({ "_id": { "$gt": null } });
+    let selector = match body.remove("selector") {
+        Some(Value::Object(m)) if m.is_empty() => all,
+        None => all,
+        Some(other) => json!({ "$and": [all, other] }),
+    };
+    body.insert("selector".into(), selector);
+    body.insert("sort".into(), json!([{ "_id": if first.descending { "desc" } else { "asc" } }]));
+    serde_json::to_string_pretty(&Value::Object(body)).map_err(|e| Error::Query(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,6 +498,31 @@ mod tests {
         assert!(parse_script(&got).is_ok());
         let view = "GET /db/_design/d/_view/v?limit=5";
         assert!(matches!(filtered_browse(view, &[f("a", FilterOp::IsNull, vec![])]), Err(Error::Unsupported(_))));
+    }
+
+    #[test]
+    fn sorted_browse_only_by_id() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let b = "{\n  \"selector\": {},\n  \"limit\": 200\n}";
+        let v = |q: &str| serde_json::from_str::<Value>(q).unwrap();
+        assert_eq!(
+            v(&sorted_browse(b, &[k("_id", true)]).unwrap()),
+            json!({ "limit": 200, "selector": { "_id": { "$gt": null } }, "sort": [{ "_id": "desc" }] })
+        );
+        let f = filtered_browse(b, &[ColumnFilter { column: "g".into(), op: FilterOp::Eq, values: vec![json!(1)], sql: None }]).unwrap();
+        let got = sorted_browse(&f, &[k("_id", false), k("_id", true)]).unwrap();
+        assert_eq!(
+            v(&got),
+            json!({ "limit": 200, "selector": { "$and": [{ "_id": { "$gt": null } }, { "g": { "$eq": 1 } }] }, "sort": [{ "_id": "asc" }] })
+        );
+        assert!(parse_script(&got).is_ok());
+        // Any other field needs an index; views come sorted by key.
+        for keys in [vec![k("n", false)], vec![k("_id", false), k("n", true)], vec![k("we\"ird", false)]] {
+            assert!(matches!(sorted_browse(b, &keys), Err(Error::Unsupported(_))));
+        }
+        assert!(matches!(sorted_browse("GET /db/_design/d/_view/v?limit=5", &[k("_id", false)]), Err(Error::Unsupported(_))));
+        assert_eq!(sorted_browse(b, &[]).unwrap(), b);
     }
 
     #[test]

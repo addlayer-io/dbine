@@ -402,6 +402,25 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
         .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
 }
 
+/// The browse query (filtered or not) sorted by the grid's columns: an
+/// `ORDER BY` of `` d.`f` `` (`_id` is `META(d).id`) after the WHERE and
+/// before the LIMIT.
+pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(browse.to_string());
+    }
+    let order = sort
+        .iter()
+        .map(|k| {
+            let c = if k.column == "_id" { "META(d).id".to_string() } else { format!("d.{}", q(&k.column)) };
+            format!("{c} {}", if k.descending { "DESC" } else { "ASC" })
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    dbine_driver::sort::set_order_by(browse, &order)
+        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,6 +465,20 @@ mod tests {
             .unwrap(),
             "SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nWHERE META(d).id = \"user::1\"\n  AND d.`name` = \"O'Brien \\\"Jr\\\"\"\n  AND d.`note` LIKE \"%50\\\\%%\"\n  AND d.`age` >= 18\n  AND d.`gone` IS NOT VALUED\n  AND d.`tag` IN [\"a\", 2]\nLIMIT 200"
         );
+    }
+
+    #[test]
+    fn sorted_browse_in_sqlpp() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let b = "SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nLIMIT 200";
+        assert_eq!(sorted_browse(b, &[k("age", true)]).unwrap(), "SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nORDER BY d.`age` DESC\nLIMIT 200");
+        let f = filtered_browse(b, &[ColumnFilter { column: "g".into(), op: FilterOp::Eq, values: vec![json!(1)], sql: None }]).unwrap();
+        assert_eq!(
+            sorted_browse(&f, &[k("we`ird \"n\"", false), k("_id", true)]).unwrap(),
+            "SELECT META(d).id AS _id, d.*\nFROM `b`.`s`.`c` AS d\nWHERE d.`g` = 1\nORDER BY d.`we``ird \"n\"` ASC, META(d).id DESC\nLIMIT 200"
+        );
+        assert_eq!(sorted_browse(b, &[]).unwrap(), b);
     }
 
     #[test]

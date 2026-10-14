@@ -281,6 +281,10 @@ impl Driver for CosmosDriver {
         ddl::filtered_browse(browse, filters)
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        ddl::sorted_browse(query, sort)
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
         if cfg.host.trim().is_empty() {
             return Err(Error::Connect("Falta el endpoint de la cuenta.".into()));
