@@ -198,6 +198,14 @@ impl Driver for InfluxDriver {
         }
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        match self.api {
+            Api::Flux => v2::sorted_browse(query, sort),
+            Api::InfluxQl => v1::sorted_browse(query, sort),
+            Api::Sql => v3::sorted_browse(query, sort),
+        }
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
         match self.api {
             Api::Flux => v2::connect(cfg, database).await,

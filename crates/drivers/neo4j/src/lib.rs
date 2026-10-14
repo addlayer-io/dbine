@@ -321,6 +321,10 @@ impl Driver for GraphDriver {
         ddl::filtered_browse(browse, filters)
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        ddl::sorted_browse(query, sort)
+    }
+
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
         security::spec(self.flavor)
     }

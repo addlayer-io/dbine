@@ -571,9 +571,35 @@ fn parquet_row_estimates(cols: &[String], rows: &[Vec<J>]) -> Vec<dbine_driver::
         .collect()
 }
 
+/// The browse query (filtered or not) sorted by the grid's columns: SQL's
+/// `ORDER BY`, replacing the browse query's `ORDER BY time DESC`.
+pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    use dbine_driver::sort::{order_list, set_order_by};
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    set_order_by(query, &order_list(sort, dbine_driver::sql::Quote::Double))
+        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sorted_browse_replaces_order_by_time() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let q = "SELECT *\nFROM \"cpu\"\nORDER BY time DESC\nLIMIT 200";
+        assert_eq!(sorted_browse(q, &[]).unwrap(), q);
+        assert_eq!(sorted_browse(q, &[k("host", false)]).unwrap(), "SELECT *\nFROM \"cpu\"\nORDER BY \"host\" ASC\nLIMIT 200");
+        let f = filtered_browse(q, &[ColumnFilter { column: "host".into(), op: FilterOp::Eq, values: vec![serde_json::json!("O'Brien LIMIT 1")], sql: None }])
+            .unwrap();
+        assert_eq!(
+            sorted_browse(&f, &[k("us\"age", true), k("time", false)]).unwrap(),
+            "SELECT *\nFROM \"cpu\"\nWHERE \"host\" = 'O''Brien LIMIT 1'\nORDER BY \"us\"\"age\" DESC, \"time\" ASC\nLIMIT 200"
+        );
+    }
 
     #[test]
     fn parquet_rows_per_table() {
