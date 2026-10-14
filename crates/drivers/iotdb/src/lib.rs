@@ -224,6 +224,10 @@ impl Driver for IotDbDriver {
         filtered_browse(browse, filters)
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        sorted_browse(query, sort)
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
         let db = database.filter(|d| !d.is_empty()).or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
         let http = reqwest::Client::builder()
@@ -756,6 +760,32 @@ fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Resu
         .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
 }
 
+/// The browse query (filtered or not) sorted by the grid's columns: an
+/// `ORDER BY` replacing the browse query's `time DESC`, with `time` and
+/// the device's measurements named as in [`filtered_browse`] (IoTDB 1.1
+/// and later sort by any series of the device).
+fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    use dbine_driver::sql::{quote_ident, Quote};
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    let device = query.find("FROM ").map(|i| query[i + 5..].lines().next().unwrap_or("").trim().to_string()).unwrap_or_default();
+    let prefix = format!("{device}.");
+    let order: Vec<String> = sort
+        .iter()
+        .map(|k| {
+            let c = if is_time(&k.column) {
+                "time".to_string()
+            } else {
+                quote_ident(Quote::Backtick, &unquote(k.column.strip_prefix(&prefix).unwrap_or(&k.column)))
+            };
+            format!("{c} {}", if k.descending { "DESC" } else { "ASC" })
+        })
+        .collect();
+    dbine_driver::sort::set_order_by(query, &order.join(", "))
+        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+}
+
 #[async_trait]
 impl Session for IotDbSession {
     async fn server_version(&mut self) -> Result<String> {
@@ -1047,6 +1077,25 @@ impl Session for IotDbSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sorted_browse_names_measurements() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let q = "SELECT *\nFROM root.sg.d1\nORDER BY time DESC\nLIMIT 200";
+        assert_eq!(sorted_browse(q, &[]).unwrap(), q);
+        assert_eq!(sorted_browse(q, &[k("Time", false)]).unwrap(), "SELECT *\nFROM root.sg.d1\nORDER BY time ASC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(q, &[k("root.sg.d1.temp", true), k("Time", false)]).unwrap(),
+            "SELECT *\nFROM root.sg.d1\nORDER BY `temp` DESC, time ASC\nLIMIT 200"
+        );
+        let f = filtered_browse(q, &[ColumnFilter { column: "root.sg.d1.status".into(), op: FilterOp::Eq, values: vec![json!("O'Brien LIMIT 3")], sql: None }])
+            .unwrap();
+        assert_eq!(
+            sorted_browse(&f, &[k("root.sg.d1.`odd``name`", false)]).unwrap(),
+            "SELECT *\nFROM root.sg.d1\nWHERE `status` = 'O''Brien LIMIT 3'\nORDER BY `odd``name` ASC\nLIMIT 200"
+        );
+    }
 
     #[test]
     fn filtered_browse_names_measurements() {

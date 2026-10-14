@@ -1045,6 +1045,24 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn sorted_browse_by_default_after_the_filter() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let d = TdDriver { info: info() };
+        let k = |c: &str, desc: bool| SortKey { column: c.into(), descending: desc };
+        let q = "SELECT *\nFROM `db`.`st`\nLIMIT 200";
+        assert_eq!(d.sorted_browse(q, &[]).unwrap(), q);
+        assert_eq!(d.sorted_browse(q, &[k("ts", true)]).unwrap(), "SELECT *\nFROM `db`.`st`\nORDER BY `ts` DESC\nLIMIT 200");
+        // TDengine's literals double the quote and escape the backslash.
+        let f = d
+            .filtered_browse(q, &[ColumnFilter { column: "s".into(), op: FilterOp::Eq, values: vec![json!("O'Brien \\ LIMIT 1")], sql: None }])
+            .unwrap();
+        assert_eq!(
+            d.sorted_browse(&f, &[k("loc", false), k("we`ird", true)]).unwrap(),
+            "SELECT *\nFROM `db`.`st`\nWHERE `s` = 'O''Brien \\\\ LIMIT 1'\nORDER BY `loc` ASC, `we``ird` DESC\nLIMIT 200"
+        );
+    }
+
+    #[test]
     fn filtered_browse_in_tdengine_syntax() {
         use dbine_driver::{ColumnFilter, FilterOp};
         let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };

@@ -674,9 +674,64 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     Ok(lines.join("\n"))
 }
 
+/// The browse query (filtered or not) sorted by the grid's columns:
+/// `sort()` after the pivot and the `group()`, before the last `limit()`,
+/// so the limit keeps the first rows of the whole sorted measurement (the
+/// browse query's per-series `limit()` before the pivot goes, as with a
+/// filter). Flux sorts every column in one direction: mixed directions are
+/// left to the grid.
+pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    let desc = sort[0].descending;
+    if sort.iter().any(|k| k.descending != desc) {
+        return Err(Error::Unsupported(
+            "Flux ordena todas las columnas en el mismo sentido: con sentidos mezclados se ordenan las filas cargadas".into(),
+        ));
+    }
+    let cant = || Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into());
+    let is = |l: &String, f: &str| l.trim_start().starts_with(f);
+    let mut lines: Vec<String> = query.lines().filter(|l| !l.trim_start().starts_with("|> sort(")).map(str::to_string).collect();
+    let pivot = lines.iter().position(|l| is(l, "|> pivot(")).ok_or_else(cant)?;
+    if let Some(l) = lines.iter().position(|l| is(l, "|> limit(")).filter(|&l| l < pivot) {
+        lines.remove(l);
+    }
+    let last = lines.iter().rposition(|l| is(l, "|> limit(")).filter(|&l| l > pivot).ok_or_else(cant)?;
+    let columns = sort.iter().map(|k| flux_str(&k.column)).collect::<Vec<_>>().join(", ");
+    lines.insert(last, format!("  |> sort(columns: [{columns}], desc: {desc})"));
+    Ok(lines.join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sorted_browse_before_the_last_limit() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let browse = "from(bucket: \"b\")\n  |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"cpu\")\n  |> limit(n: 200)\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> drop(columns: [\"_start\", \"_stop\"])\n  |> limit(n: 200)";
+        let tail = "  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> drop(columns: [\"_start\", \"_stop\"])\n";
+        assert_eq!(sorted_browse(browse, &[]).unwrap(), browse);
+        let head = "from(bucket: \"b\")\n  |> range(start: 0)\n  |> filter(fn: (r) => r._measurement == \"cpu\")\n";
+        assert_eq!(
+            sorted_browse(browse, &[k("usage", true)]).unwrap(),
+            format!("{head}{tail}  |> sort(columns: [\"usage\"], desc: true)\n  |> limit(n: 200)")
+        );
+        // Several keys, odd names; a second sort replaces the first.
+        let once = sorted_browse(browse, &[k("host", false)]).unwrap();
+        assert_eq!(
+            sorted_browse(&once, &[k("re\"gion ${x}", false), k("_time", false)]).unwrap(),
+            format!("{head}{tail}  |> sort(columns: [\"re\\\"gion \\${{x}}\", \"_time\"], desc: false)\n  |> limit(n: 200)")
+        );
+        // After a filter.
+        let f = filtered_browse(browse, &[ColumnFilter { column: "host".into(), op: FilterOp::Eq, values: vec![serde_json::json!("a")], sql: None }])
+            .unwrap();
+        let s = sorted_browse(&f, &[k("usage", false)]).unwrap();
+        assert!(s.ends_with("|> filter(fn: (r) => r[\"host\"] == \"a\")\n  |> group()\n  |> drop(columns: [\"_start\", \"_stop\"])\n  |> sort(columns: [\"usage\"], desc: false)\n  |> limit(n: 200)"), "{s}");
+        assert!(matches!(sorted_browse(browse, &[k("a", false), k("b", true)]), Err(Error::Unsupported(_))));
+    }
 
     #[test]
     fn filtered_browse_after_the_pivot() {

@@ -501,7 +501,7 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
     }
     let var = if browse.trim_start().starts_with("MATCH ()-[r") { "r" } else { "n" };
     let at = browse
-        .find(" RETURN ")
+        .rfind(" RETURN ")
         .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))?;
     let mut parts = Vec::new();
     for f in filters {
@@ -545,6 +545,37 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
         });
     }
     Ok(format!("{}\nWHERE {}\n{}", &browse[..at], parts.join("\n  AND "), &browse[at + 1..]))
+}
+
+/// The browse query (filtered or not: `MATCH … [WHERE …] RETURN n LIMIT k`)
+/// sorted by the grid's columns: `ORDER BY n.prop` between RETURN and
+/// LIMIT, replacing an earlier sort. The columns are properties (`prop` or
+/// `n.prop`); the one holding the whole node or relationship isn't
+/// sortable on the server and is left to the grid.
+pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    let cant = || Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into());
+    // RETURN and LIMIT are the browse query's own, so the last ones: a
+    // filter value or a label in backticks comes before them.
+    let at = query.rfind("RETURN ").filter(|&i| i == 0 || query[..i].ends_with(char::is_whitespace)).ok_or_else(cant)?;
+    let rest = &query[at + "RETURN ".len()..];
+    let var: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    if var.is_empty() {
+        return Err(cant());
+    }
+    let limit = rest.rfind("LIMIT ").map(|i| rest[i..].trim_end()).unwrap_or("");
+    let mut keys = Vec::new();
+    for k in sort {
+        let prop = k.column.strip_prefix(&format!("{var}.")).unwrap_or(&k.column);
+        if prop == var {
+            return Err(Error::Unsupported("la columna tiene el elemento completo: se ordena por sus propiedades".into()));
+        }
+        keys.push(format!("{var}.{} {}", ident(prop), if k.descending { "DESC" } else { "ASC" }));
+    }
+    let head = format!("{}RETURN {var}\nORDER BY {}", &query[..at], keys.join(", "));
+    Ok(if limit.is_empty() { head } else { format!("{head}\n{limit}") })
 }
 
 /// `MATCH … DELETE` per row, identified like [`update_script`] does: a
@@ -629,6 +660,33 @@ mod tests {
             "MATCH ()-[r:ACTED_IN]->()\nWHERE r.roles IS NOT NULL\nRETURN r LIMIT 5"
         );
         assert!(matches!(filtered_browse("MATCH (n:P) RETURN n LIMIT 5", &[f("n", FilterOp::Contains, vec![json!("x")])]), Err(Error::Unsupported(_))));
+    }
+
+    #[test]
+    fn sorted_browse_orders_before_limit() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let browse = "MATCH (n:`Per RETURN son`) RETURN n LIMIT 200";
+        assert_eq!(sorted_browse(browse, &[]).unwrap(), browse);
+        assert_eq!(sorted_browse(browse, &[k("name", false)]).unwrap(), "MATCH (n:`Per RETURN son`) RETURN n\nORDER BY n.name ASC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(browse, &[k("n.born", true), k("full `name`", false)]).unwrap(),
+            "MATCH (n:`Per RETURN son`) RETURN n\nORDER BY n.born DESC, n.`full ``name``` ASC\nLIMIT 200"
+        );
+        // After the filter, whose values may hold RETURN / LIMIT.
+        let filtered = filtered_browse(
+            browse,
+            &[ColumnFilter { column: "name".into(), op: FilterOp::Eq, values: vec![json!("x RETURN y LIMIT 3")], sql: None }],
+        )
+        .unwrap();
+        assert_eq!(
+            sorted_browse(&filtered, &[k("born", true)]).unwrap(),
+            "MATCH (n:`Per RETURN son`)\nWHERE n.name = 'x RETURN y LIMIT 3'\nRETURN n\nORDER BY n.born DESC\nLIMIT 200"
+        );
+        // A second sort replaces the first.
+        let once = sorted_browse("MATCH ()-[r:ACTED_IN]->() RETURN r LIMIT 5", &[k("roles", false)]).unwrap();
+        assert_eq!(sorted_browse(&once, &[k("r.year", true)]).unwrap(), "MATCH ()-[r:ACTED_IN]->() RETURN r\nORDER BY r.year DESC\nLIMIT 5");
+        assert!(matches!(sorted_browse(browse, &[k("n", false)]), Err(Error::Unsupported(_))));
     }
 
     fn designed(kind: &str, entity: &str, props: &[&str]) -> TableSchema {
