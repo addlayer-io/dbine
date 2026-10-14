@@ -2551,7 +2551,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dsql"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -2568,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-duckdb"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2626,7 +2626,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-firebird"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2640,7 +2640,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-flightsql"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "arrow-array",
  "arrow-cast",
@@ -2659,7 +2659,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-hana"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "dbine-driver",
  "hdbconnect_async",
@@ -2707,7 +2707,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-libsql"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -2781,7 +2781,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-oracle"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "dbine-driver",
  "oracledb",
@@ -2792,7 +2792,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-orientdb"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "dbine-driver",
  "percent-encoding",
@@ -2805,7 +2805,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-phoenix"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2874,7 +2874,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-spanner"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
