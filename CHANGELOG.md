@@ -2,13 +2,20 @@
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-10-13
+
 ### New
+- **Sort by column:** click a column header in a table's data to sort by it (again for descending, a third time to clear; Shift+click adds more columns). The database sorts the whole table where the engine allows it, the same way filters work; elsewhere, or when the server refuses the order, the loaded rows are sorted and a notice says why. Query results can be sorted the same way.
+- **Status bar controls:** on a query tab, the blue status bar now holds the connection, the database, the transaction mode (Auto by default, or Manual) and the row limit. Click any of them to change it with a quick picker, like in VS Code. The query toolbar no longer loses buttons when the sidebar is wide: what doesn't fit goes under a **…** menu.
 - **Send feedback:** a button at the bottom of the activity bar opens a short form to report a bug, suggest an improvement, request a new engine or ask a question. GitHub opens with the issue already filled in and labeled, so you only press Create. Optional diagnostics (DBine version, OS, language, and the active connection's engine and server version) are shown before they're included, and never carry servers, users, database names or queries.
 
 ### Improvements
+- **Long text in the grid:** resting on a cell whose text doesn't fit shows it whole in a tooltip that keeps line breaks and can be scrolled and selected.
 - **When a connection fails:** expanding a connection connects first and shows **Connecting…**; the tree appears only once the server answers (then instantly, from what DBine remembers, while it refreshes). If it can't connect, the connection shows a banner with **Retry** and **What's wrong…**, and tabs (a table's data, a query run, and the other tools) show the same error instead of staying blank. If the connection drops later, it goes back to the banner. **What's wrong…** explains the failure (firewall, timeout, refused, host name, certificate or login) and what to check, and on Azure SQL it can add your IP to the server's firewall with your Azure CLI login, after confirming the server, rule and IP. Works on every engine; the cause is most precise on SQL Server, Azure SQL, PostgreSQL and MySQL.
 
 ### Fixes
+- **Azure SQL firewall:** **Add my IP** only uses this machine's public IP, looked up over HTTPS and checked again before the rule is created. An IP named in a server's error message is shown as unverified and never used.
+- **Retry after a failed connection:** if the tab moved to another connection or database in the meantime, retrying asks for the production confirmation again.
 - **Rename on Snowflake and Trino, Presto and Starburst:** what names the renamed object (views, materialized views, functions, procedures and, on Snowflake, tasks, streams and dynamic tables) is listed for you to fix by hand instead of being re-created, so it keeps its owner and security settings. The rename is also refused when stored code would split into several statements, and rewriting dependents no longer changes who the code runs as (`DEFINER`, `SQL SECURITY`, `AUTHID`, `EXECUTE AS`).
 - **Queries from AI clients and the assistant:** a query runs without asking only when the database enforces it as read-only and it calls nothing but the engine's built-in, side-effect-free functions. One that calls any other function (a user's function, or one that acts outside the transaction such as pausing replication or taking a lock) waits for your approval first.
 

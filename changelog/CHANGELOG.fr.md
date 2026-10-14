@@ -1,5 +1,22 @@
 # Modifications
 
+## [0.1.11] - 2026-10-13
+
+### Nouveautés
+- **Trier par colonne :** cliquez sur l'en-tête d'une colonne dans les données d'une table pour trier selon elle (une deuxième fois pour l'ordre décroissant, une troisième pour l'effacer ; Shift+clic ajoute d'autres colonnes). La base trie toute la table lorsque le moteur le permet, comme pour les filtres ; sinon, ou lorsque le serveur refuse l'ordre, les lignes chargées sont triées et un avis en explique la raison. Les résultats d'une requête peuvent être triés de la même façon.
+- **Contrôles de la barre d'état :** dans un onglet de requête, la barre d'état bleue contient désormais la connexion, la base de données, le mode de transaction (Auto par défaut, ou Manuel) et la limite de lignes. Cliquez sur l'un d'eux pour le modifier avec un sélecteur rapide, comme dans VS Code. La barre d'outils de la requête ne perd plus de boutons lorsque le panneau latéral est large : ce qui ne tient pas passe dans un menu **…**.
+- **Envoyer un commentaire :** un bouton en bas de la barre d'activité ouvre un court formulaire pour signaler un bogue, suggérer une amélioration, demander un nouveau moteur ou poser une question. GitHub s'ouvre avec le ticket déjà rempli et étiqueté, il ne reste qu'à appuyer sur « Create ». Le diagnostic facultatif (version de DBine, système d'exploitation, langue, ainsi que le moteur et la version du serveur de la connexion active) est affiché avant d'être inclus, et ne contient jamais de serveurs, d'utilisateurs, de noms de bases ni de requêtes.
+
+### Améliorations
+- **Texte long dans la grille :** en s'arrêtant sur une cellule dont le texte ne tient pas, on le voit en entier dans une infobulle qui conserve les sauts de ligne et que l'on peut faire défiler et sélectionner.
+- **Quand une connexion échoue :** développer une connexion commence par la connecter et affiche **Connexion…** ; l'arborescence n'apparaît que lorsque le serveur répond (alors instantanément, à partir de ce que DBine mémorise, pendant son actualisation). Si la connexion est impossible, elle affiche un bandeau avec **Réessayer** et **Voir ce qui se passe…**, et les onglets (les données d'une table, l'exécution d'une requête et les autres outils) affichent la même erreur au lieu de rester vides. Si la connexion tombe plus tard, elle revient au bandeau. **Voir ce qui se passe…** explique l'échec (pare-feu, délai dépassé, refus, nom d'hôte, certificat ou connexion) et ce qu'il faut vérifier, et sur Azure SQL il peut ajouter votre IP au pare-feu du serveur avec votre session Azure CLI, après confirmation du serveur, de la règle et de l'IP. Fonctionne sur tous les moteurs ; la cause est plus précise sur SQL Server, Azure SQL, PostgreSQL et MySQL.
+
+### Corrections
+- **Pare-feu d'Azure SQL :** **Ajouter mon IP au pare-feu Azure** n'utilise que l'IP publique de cette machine, obtenue en HTTPS et vérifiée à nouveau avant la création de la règle. Une IP citée dans le message d'erreur d'un serveur est affichée comme non vérifiée et n'est jamais utilisée.
+- **Réessayer après un échec de connexion :** si, entre-temps, l'onglet est passé à une autre connexion ou base de données, réessayer redemande la confirmation de production.
+- **Renommage sur Snowflake et sur Trino, Presto et Starburst :** ce qui désigne l'objet renommé (vues, vues matérialisées, fonctions, procédures et, sur Snowflake, tâches, streams et tables dynamiques) est listé pour que vous le corrigiez à la main au lieu d'être recréé, afin de conserver son propriétaire et ses paramètres de sécurité. Le renommage est aussi refusé lorsque le code stocké serait scindé en plusieurs instructions, et la réécriture des dépendants ne change plus l'identité sous laquelle le code s'exécute (`DEFINER`, `SQL SECURITY`, `AUTHID`, `EXECUTE AS`).
+- **Requêtes des clients IA et de l'assistant :** une requête s'exécute sans demander d'approbation uniquement lorsque la base l'impose en lecture seule et qu'elle n'appelle que des fonctions natives du moteur, sans effets de bord. Une requête qui appelle toute autre fonction (une fonction utilisateur, ou une qui agit hors de la transaction, comme suspendre la réplication ou prendre un verrou) attend d'abord votre approbation.
+
 ## [0.1.10] - 2026-10-10
 
 ### Nouveautés

@@ -1,5 +1,22 @@
 # Cambios
 
+## [0.1.11] - 2026-10-13
+
+### Nuevo
+- **Ordenar por columna:** hacé clic en el encabezado de una columna en los datos de una tabla para ordenar por ella (otra vez para descendente, una tercera para quitar el orden; Shift+clic suma más columnas). La base ordena la tabla entera donde el motor lo permite, igual que los filtros; en los demás casos, o cuando el servidor rechaza el orden, se ordenan las filas cargadas y un aviso explica por qué. Los resultados de una consulta se pueden ordenar de la misma manera.
+- **Controles en la barra de estado:** en una pestaña de consulta, la barra de estado azul ahora muestra la conexión, la base de datos, el modo de transacción (Auto por defecto, o Manual) y el límite de filas. Hacé clic en cualquiera para cambiarlo con un selector rápido, como en VS Code. La barra de herramientas de la consulta ya no pierde botones cuando la barra lateral es ancha: lo que no entra va bajo un menú **…**.
+- **Enviar comentarios:** un botón al pie de la barra de actividad abre un formulario corto para reportar un error, sugerir una mejora, pedir un motor nuevo o hacer una pregunta. Se abre GitHub con el issue ya completo y con sus etiquetas, así que solo tenés que apretar «Create». El diagnóstico opcional (versión de DBine, sistema operativo, idioma, y el motor y la versión del servidor de la conexión activa) se muestra antes de incluirlo, y nunca lleva servidores, usuarios, nombres de bases ni consultas.
+
+### Mejoras
+- **Texto largo en la grilla:** al detenerte sobre una celda cuyo texto no entra, se muestra completo en un tooltip que respeta los saltos de línea y se puede desplazar y seleccionar.
+- **Cuando una conexión falla:** al expandir una conexión primero se conecta y muestra **Conectando…**; el árbol aparece recién cuando el servidor responde (ahí al instante, con lo que DBine recuerda, mientras se actualiza). Si no puede conectar, la conexión muestra un aviso con **Reintentar** y **Ver qué pasa…**, y las pestañas (los datos de una tabla, la ejecución de una consulta y las demás herramientas) muestran el mismo error en lugar de quedar en blanco. Si la conexión se cae más tarde, vuelve al aviso. **Ver qué pasa…** explica la falla (firewall, tiempo de espera, rechazo, nombre del host, certificado o inicio de sesión) y qué revisar, y en Azure SQL puede agregar tu IP al firewall del servidor con tu sesión de Azure CLI, después de confirmar el servidor, la regla y la IP. Funciona en todos los motores; la causa es más precisa en SQL Server, Azure SQL, PostgreSQL y MySQL.
+
+### Correcciones
+- **Firewall de Azure SQL:** **Agregar mi IP al firewall de Azure** usa solamente la IP pública de esta máquina, consultada por HTTPS y verificada de nuevo antes de crear la regla. Una IP mencionada en el mensaje de error de un servidor se muestra como no verificada y nunca se usa.
+- **Reintentar tras una conexión fallida:** si mientras tanto la pestaña pasó a otra conexión o base de datos, al reintentar se vuelve a pedir la confirmación de producción.
+- **Renombrar en Snowflake y en Trino, Presto y Starburst:** lo que nombra al objeto renombrado (vistas, vistas materializadas, funciones, procedimientos y, en Snowflake, tareas, streams y tablas dinámicas) se lista para que lo corrijas a mano en lugar de recrearse, así conserva su propietario y su configuración de seguridad. Además, el renombrado se rechaza cuando el código almacenado se partiría en varias sentencias, y reescribir los dependientes ya no cambia con qué identidad corre el código (`DEFINER`, `SQL SECURITY`, `AUTHID`, `EXECUTE AS`).
+- **Consultas de los clientes de IA y del asistente:** una consulta corre sin pedir aprobación solo cuando la base la hace cumplir como de solo lectura y no llama más que a funciones propias del motor, sin efectos secundarios. Una que llame a cualquier otra función (una función de usuario, o una que actúe fuera de la transacción, como pausar la replicación o tomar un lock) espera antes tu aprobación.
+
 ## [0.1.10] - 2026-10-10
 
 ### Nuevo
