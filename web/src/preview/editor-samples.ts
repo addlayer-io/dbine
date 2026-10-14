@@ -38,6 +38,14 @@ export function installEditorSample() {
     ],
   }));
   const db = 'tenant-ventas';
+  // …&lazy=1: nothing preloaded; the tab reads objects and columns from the
+  // (fake) server, as it does in the app when the explorer hasn't.
+  if (new URLSearchParams(location.search).get('lazy') === '1') {
+    // …&lazy=1&offline=1: the connection isn't open yet either (a tab restored at startup).
+    if (new URLSearchParams(location.search).get('offline') === '1') delete conns.live.c1;
+    useTabsStore().tabs.push({ id: 'q', kind: 'query', connectionId: 'c1', database: db, queryId: 'q1', preview: false });
+    return;
+  }
   conns.objects[dbKey('c1', db)] = { status: 'ready', items: OBJECTS, error: null };
   conns.schemas[dbKey('c1', db)] = [{ name: 'public', system: false }];
   for (const [table, cols] of Object.entries(COLUMNS)) {
@@ -57,6 +65,12 @@ export function installEditorSample() {
 installEditorSample.invoke = (cmd: string, args?: Record<string, unknown>): unknown => {
   const w = window as unknown as Record<string, unknown>;
   if (cmd === 'lint_script') return [];
+  if (cmd === 'connect') return { server_version: 'PostgreSQL 16.4', databases: ['tenant-ventas', 'tenant-compras'], default_database: 'tenant-ventas' };
+  if (cmd === 'list_database_objects') return { objects: OBJECTS, schemas: [{ name: 'public', system: false }] };
+  if (cmd === 'get_columns') {
+    const name = (args?.object as { name: string }).name;
+    return (COLUMNS[name] ?? []).map((n) => ({ name: n, data_type: 'text', nullable: true, primary_key: n === 'id', auto_increment: false, default_value: null }));
+  }
   if (cmd === 'execute_query') {
     w.__lastSql = args?.sql;
     return { results: [], messages: ['Ejecutado en la vista previa'], error: null, elapsed_ms: 3, plans: [], log: [], errors: [] };

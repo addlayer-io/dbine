@@ -65,6 +65,9 @@ const emit = defineEmits<{
   /** Completion reached a table whose columns aren't loaded: `[schema, table]`
    *  or `[table]`. The list reopens when `schema` brings them. */
   needColumns: [path: string[]];
+  /** Completion was asked for while `schema` is empty. The list reopens
+   *  when `schema` brings names. */
+  needNames: [];
   /** ⌘/Ctrl+click on a name `linkAt` knows. */
   navigate: [doc: string, pos: number];
 }>();
@@ -177,10 +180,12 @@ function aliasesIn(doc: string): Map<string, string[]> {
 
 /** Schemas, tables and columns, with what comes after a dot resolved by
  *  name (`sales.`, `orders.`, an alias). A table whose columns aren't loaded
- *  yet asks for them, and the list reopens when they arrive. */
+ *  yet asks for them, and the list reopens when they arrive; so does a list
+ *  asked for before there are any names at all. */
 function nameSource(dialect: SQLDialect) {
   const tree = nameTree(props.schema);
   const asked = new Set<string>();
+  let namesAsked = false;
   // SQL Server takes "x" too, but [x] is what everyone writes there.
   const quotes = dialect.spec.identifierQuotes ?? '"';
   const open = quotes.includes('[') ? '[' : quotes[0];
@@ -193,6 +198,16 @@ function nameSource(dialect: SQLDialect) {
     const word = ctx.matchBefore(/[\w$#]*/) ?? { from: ctx.pos, text: '' };
     let parents = parentsBefore(ctx.state.sliceDoc(Math.max(0, word.from - 300), word.from));
     if (!parents.length && !word.text && !ctx.explicit) return null;
+    if (!tree.children.length) {
+      // No names yet (the tab's connection isn't open): ask once; the list
+      // opens when they arrive if the cursor stayed.
+      if (!namesAsked) {
+        namesAsked = true;
+        reopenAt = ctx.pos;
+        emit('needNames');
+      }
+      return null;
+    }
     const aliases = aliasesIn(ctx.state.doc.toString());
     if (parents.length === 1) parents = aliases.get(parents[0].toLowerCase()) ?? parents;
 
@@ -290,7 +305,9 @@ function expandSnippet(v: EditorView): boolean {
 const snippetSource = (ctx: CompletionContext): CompletionResult | null => {
   if (!props.snippets.length || props.readOnly || inStringOrComment(ctx.state, ctx.pos)) return null;
   const word = abbreviationBefore(ctx.state, ctx.pos);
-  if (!word && !ctx.explicit) return null;
+  // Not after a dot (`sales.`, `sales.or`): a name goes there, not a snippet,
+  // even when the list was opened explicitly.
+  if (!word && (!ctx.explicit || /[.\w$#@:]$/.test(ctx.state.sliceDoc(Math.max(0, ctx.pos - 1), ctx.pos)))) return null;
   return {
     from: word?.from ?? ctx.pos,
     options: props.snippets.map((s) => snippetCompletion(s.body, { label: s.abbr, detail: s.detail, type: 'snippet', boost: -1 })),

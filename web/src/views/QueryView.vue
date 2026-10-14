@@ -186,10 +186,19 @@ const schema = computed(() => {
 
 // Completion reads objects and columns from the store, which only the explorer
 // filled. The tab loads its database's objects itself once the connection is
-// open (it never connects just for this).
+// open.
 watch(() => [conns.live[props.tab.connectionId]?.status, props.tab.database] as const, ([status, db]) => {
   if (status === 'connected') conns.loadObjects(props.tab.connectionId, db);
 }, { immediate: true });
+
+/** The editor asked for names and has none: the connection isn't open (a tab
+ *  restored at startup, nothing expanded or run yet). Open it, as a run
+ *  would; the watch above then loads the names and the list opens. After a
+ *  failed connect it doesn't try again ("Reintentar" does). */
+function loadNames() {
+  if (unbound.value || conns.isConnected(props.tab.connectionId)) return;
+  void ensureConnection({ auto: true });
+}
 
 // Columns are loaded per table, only for the tables the text names.
 let columnsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1000,6 +1009,7 @@ function runOverflow(i: number) {
           @save="save"
           @format="formatQuery"
           @need-columns="loadColumnsFor"
+          @need-names="loadNames"
           run-actions
           :menu-items="editorMenu"
           :snippets="snippets"
