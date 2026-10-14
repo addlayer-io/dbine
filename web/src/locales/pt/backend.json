@@ -10166,5 +10166,6 @@
   "no se pudo listar los servidores de Azure SQL: {0}": "não foi possível listar os servidores do Azure SQL: {0}",
   "{0} no es una IP pública: Azure ve la IP pública de tu red (usá «Ver mi IP pública»)": "{0} não é um IP público: o Azure vê o IP público da sua rede (use “Ver meu IP público”)",
   "«{0}» no es una dirección IPv4 válida": "“{0}” não é um endereço IPv4 válido",
+  "la IP de la regla ({0}) no es tu IP pública ({1}): DBine solo agrega tu propia IP al firewall": "o IP da regra ({0}) não é seu IP público ({1}): o DBine só adiciona seu próprio IP ao firewall",
   "dirección de GitHub inválida": "endereço do GitHub inválido"
 }

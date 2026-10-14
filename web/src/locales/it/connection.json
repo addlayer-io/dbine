@@ -55,7 +55,7 @@
     "editConnection": "Modifica connessione",
     "publicIp": "Mostra il mio IP pubblico",
     "yourIp": "Il tuo IP pubblico: {{ip}}",
-    "ipFromServer": "Il server ha visto la tua connessione dall’IP {{ip}}.",
+    "ipFromServer": "Il server dice che ti sei connesso da {{ip}} (non verificato: «Vedi il mio IP pubblico» lo conferma).",
     "kind": {
       "firewall": {
         "title": "Il firewall del server blocca il tuo IP",
@@ -101,8 +101,6 @@
       "ip": "IP",
       "ipPlaceholder": "TUO_IP",
       "groupPlaceholder": "GRUPPO_DI_RISORSE",
-      "ipInvalid": "Non è un IPv4 valido",
-      "ipNeeded": "Usa “Mostra il mio IP pubblico” o scrivilo",
       "confirmNote": "È una modifica al firewall del server Azure SQL, fatta con la tua sessione della CLI di Azure (az).",
       "prodConfirm": "È una connessione di produzione. Scrivi “{{name}}” per confermare:",
       "create": "Crea regola",
@@ -113,8 +111,10 @@
       "byPortal": "Nel portale di Azure: il server › Rete › Regole del firewall › Aggiungi l’IP del client.",
       "openPortal": "Apri il portale",
       "byTsql": "Con T-SQL, da un’altra connessione che ha accesso, nel database master:",
-      "unavailable": "Azure segnala che il database non è disponibile al momento (succede mentre viene spostato o scalato). Attendi un minuto e riprova."
+      "unavailable": "Azure segnala che il database non è disponibile al momento (succede mentre viene spostato o scalato). Attendi un minuto e riprova.",
+      "ipVerified": "il tuo IP pubblico, verificato via HTTPS"
     },
-    "couldNotConnect": "Impossibile connettersi a {{name}}: {{error}}"
+    "couldNotConnect": "Impossibile connettersi a {{name}}: {{error}}",
+    "ipMismatch": "Il server ha indicato un altro IP ({{server}}): non corrisponde al tuo IP pubblico, quindi non viene usato."
   }
 }
