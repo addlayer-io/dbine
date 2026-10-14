@@ -2429,7 +2429,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-bigquery"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2459,7 +2459,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-clickhouse"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "async-trait",
  "dbine-driver",
@@ -2514,7 +2514,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-databricks"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -2770,7 +2770,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-odbc"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "dbine-driver",
  "libloading 0.8.9",

@@ -211,6 +211,23 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
         .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
 }
 
+/// The (filtered) browse query with `ORDER BY` the grid's sort keys, quoted
+/// with [`q`]. Spark literals escape with a backslash and the shared clause
+/// finder doesn't know that, so a query with a backslash before a quote (a
+/// filter on `O'Brien` is `'O\'Brien'`) could get its `ORDER BY` after the
+/// `LIMIT`: that one is refused and the app sorts the loaded rows instead.
+pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    if query.as_bytes().windows(2).any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"')) {
+        return Err(Error::Unsupported("con comillas escapadas en el filtro, Databricks no ordena en el servidor".into()));
+    }
+    let order = sort.iter().map(|k| format!("{} {}", q(&k.column), if k.descending { "DESC" } else { "ASC" })).collect::<Vec<_>>().join(", ");
+    dbine_driver::sort::set_order_by(query, &order)
+        .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+}
+
 pub fn update_script(schema: Option<&str>, table: &str, changes: &[RowChange]) -> String {
     dbine_driver::ddl::update_script_with(Quote::Backtick, schema, table, changes, &value)
 }
@@ -352,6 +369,24 @@ pub fn assemble(tables: &[Row], columns: &[Row], pks: &[Row], fks: &[Row]) -> Ve
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn sorted_browse_after_the_filter() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let browse = "SELECT *\nFROM `main`.`s`.`t`\nLIMIT 200";
+        assert_eq!(sorted_browse(browse, &[]).unwrap(), browse);
+        assert_eq!(sorted_browse(browse, &[k("a", false)]).unwrap(), "SELECT *\nFROM `main`.`s`.`t`\nORDER BY `a` ASC\nLIMIT 200");
+        assert_eq!(
+            sorted_browse(browse, &[k("Grupo Mixto", false), k("v`w", true)]).unwrap(),
+            "SELECT *\nFROM `main`.`s`.`t`\nORDER BY `Grupo Mixto` ASC, `v``w` DESC\nLIMIT 200"
+        );
+        let f = |column: &str, op: FilterOp, values: Vec<Json>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let w = filtered_browse(browse, &[f("n", FilterOp::Ge, vec![json!(5)])]).unwrap();
+        assert_eq!(sorted_browse(&w, &[k("x", true)]).unwrap(), "SELECT *\nFROM `main`.`s`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200");
+        let w = filtered_browse(browse, &[f("n", FilterOp::Eq, vec![json!("O'Brien")])]).unwrap();
+        assert!(matches!(sorted_browse(&w, &[k("a", false)]), Err(Error::Unsupported(_))));
+    }
 
     #[test]
     fn filtered_browse_uses_spark_literals() {

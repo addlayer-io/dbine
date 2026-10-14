@@ -12,6 +12,7 @@ use dbine_driver::{
     kinds, Capabilities, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, Result, RowChange, TableSchema,
 };
 use dbine_driver::filter::{insert_where, sql_condition, ColumnFilter, FilterOp, SqlFilterStyle};
+use dbine_driver::sort::{order_list, set_order_by, SortKey};
 use serde_json::Value;
 
 /// The engine behind a preset, for the parts that differ.
@@ -824,6 +825,26 @@ pub fn filtered_browse(p: &Preset, browse: &str, filters: &[ColumnFilter]) -> Re
         .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
 }
 
+/// The (filtered) browse query with `ORDER BY` the grid's sort keys, quoted
+/// like the browse query: the preset's quote, or for the generic preset the
+/// one the ODBC driver gave (taken from the query, as in
+/// [`filtered_browse`]); the dialect alone would quote a MySQL or Access
+/// source with `"`. Hive, Impala and Spark literals escape with a
+/// backslash, which the shared clause finder doesn't know: a query with a
+/// backslash before a quote (a filter on `O'Brien` is `'O\'Brien'`) could
+/// get its `ORDER BY` after the `LIMIT`, so it is refused and the app sorts
+/// the loaded rows instead.
+pub fn sorted_browse(p: &Preset, query: &str, sort: &[SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    if backslash_strings(p) && query.as_bytes().windows(2).any(|w| w[0] == b'\\' && matches!(w[1], b'\'' | b'`' | b'"')) {
+        return Err(Error::Unsupported("con comillas escapadas en el filtro, este motor no ordena en el servidor".into()));
+    }
+    let quote = if p.quote.is_some() { flavor(p).quote } else { quote_after_from(query) };
+    set_order_by(query, &order_list(sort, quote)).ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+}
+
 /// The identifier quote the table after `FROM` uses.
 fn quote_after_from(browse: &str) -> Quote {
     let lower = browse.to_ascii_lowercase();
@@ -1050,6 +1071,37 @@ mod tests {
 
     fn preset(id: &str) -> &'static Preset {
         PRESETS.iter().find(|p| p.id == id).unwrap()
+    }
+
+    #[test]
+    fn sorted_browse_per_preset() {
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let f = |column: &str, op: FilterOp, values: Vec<Value>| ColumnFilter { column: column.into(), op, values, sql: None };
+        let ge = [f("n", FilterOp::Ge, vec![json!(5)])];
+        let keys = [k("Grupo Mixto", false), k("v\"w", true)];
+        assert_eq!(sorted_browse(preset("db2"), "SELECT *\nFROM \"T\"", &[]).unwrap(), "SELECT *\nFROM \"T\"");
+        // FETCH FIRST: the order goes before it.
+        let w = filtered_browse(preset("db2"), "SELECT *\nFROM \"S\".\"T\"\nFETCH FIRST 200 ROWS ONLY", &ge).unwrap();
+        assert_eq!(
+            sorted_browse(preset("db2"), &w, &keys).unwrap(),
+            "SELECT *\nFROM \"S\".\"T\"\nWHERE \"n\" >= 5\nORDER BY \"Grupo Mixto\" ASC, \"v\"\"w\" DESC\nFETCH FIRST 200 ROWS ONLY"
+        );
+        // TOP and FIRST: the order goes last.
+        let w = filtered_browse(preset("teradata"), "SELECT TOP 200 *\nFROM \"t\"", &ge).unwrap();
+        assert_eq!(sorted_browse(preset("teradata"), &w, &keys[..1]).unwrap(), "SELECT TOP 200 *\nFROM \"t\"\nWHERE \"n\" >= 5\nORDER BY \"Grupo Mixto\" ASC");
+        assert_eq!(sorted_browse(preset("informix"), "SELECT FIRST 200 *\nFROM \"t\"", &keys[1..]).unwrap(), "SELECT FIRST 200 *\nFROM \"t\"\nORDER BY \"v\"\"w\" DESC");
+        assert_eq!(sorted_browse(preset("access"), "SELECT TOP 200 *\nFROM [t]", &[k("a]b", false)]).unwrap(), "SELECT TOP 200 *\nFROM [t]\nORDER BY [a]]b] ASC");
+        // SQL Anywhere's dialect is "sybase", but the preset quotes with `"`.
+        assert_eq!(sorted_browse(preset("sqlanywhere"), "SELECT TOP 200 *\nFROM \"t\"", &keys[..1]).unwrap(), "SELECT TOP 200 *\nFROM \"t\"\nORDER BY \"Grupo Mixto\" ASC");
+        // Generic: the quote the driver gave the browse query.
+        let w = filtered_browse(preset("odbc"), "SELECT *\nFROM `t`\nLIMIT 200", &ge).unwrap();
+        assert_eq!(sorted_browse(preset("odbc"), &w, &keys[..1]).unwrap(), "SELECT *\nFROM `t`\nWHERE `n` >= 5\nORDER BY `Grupo Mixto` ASC\nLIMIT 200");
+        assert_eq!(sorted_browse(preset("odbc"), "SELECT TOP 200 *\nFROM [dbo].[t]", &keys[..1]).unwrap(), "SELECT TOP 200 *\nFROM [dbo].[t]\nORDER BY [Grupo Mixto] ASC");
+        // Hive: backslash literals. A plain filter sorts; an escaped quote is refused.
+        let w = filtered_browse(preset("hive"), "SELECT *\nFROM `db`.`t`\nLIMIT 200", &ge).unwrap();
+        assert_eq!(sorted_browse(preset("hive"), &w, &[k("x", true)]).unwrap(), "SELECT *\nFROM `db`.`t`\nWHERE `n` >= 5\nORDER BY `x` DESC\nLIMIT 200");
+        let w = filtered_browse(preset("hive"), "SELECT *\nFROM `db`.`t`\nLIMIT 200", &[f("n", FilterOp::Eq, vec![json!("O'Brien")])]).unwrap();
+        assert!(matches!(sorted_browse(preset("hive"), &w, &[k("x", true)]), Err(Error::Unsupported(_))));
     }
 
     #[test]
