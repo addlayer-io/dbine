@@ -562,6 +562,51 @@ function openFilterMenu(e: MouseEvent, c: number) {
   menu.value = { x: r.left, y: r.bottom, items };
 }
 
+// -- full value on hover ---------------------------------------------------------
+// Resting on a cell whose text doesn't fit (or has line breaks) shows it whole
+// in a fixed-width tooltip; the pointer can move into it to scroll or select.
+const HOVER_DELAY = 600;
+const HOVER_MAX = 20_000;
+const peek = ref<{ text: string; cut: boolean; left: number; top: number; maxH: number } | null>(null);
+let peekTimer: ReturnType<typeof setTimeout> | null = null;
+let peekLeave: ReturnType<typeof setTimeout> | null = null;
+function fullText(v: Cell): string | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'object') return JSON.stringify(v, null, 2);
+  return String(v);
+}
+function hoverStart(e: MouseEvent, r: number, c: number) {
+  // Passing over cells on the way into an open tooltip mustn't close it.
+  hideSoon(peek.value ? 150 : 0);
+  if (dragging || editing.value || isEdited(r, c) || isUnset(r, c)) return;
+  const el = e.currentTarget as HTMLElement;
+  if (peekTimer) clearTimeout(peekTimer);
+  peekTimer = setTimeout(() => {
+    const text = fullText(valueAt(r, c));
+    if (!text || !(el.scrollWidth > el.clientWidth || text.includes('\n') || text.length > 500)) return;
+    const box = el.getBoundingClientRect();
+    const W = 520;
+    const left = Math.max(8, Math.min(box.left, window.innerWidth - W - 8));
+    // Below the cell when there's room, else above it.
+    const below = window.innerHeight - box.bottom - 12;
+    const above = box.top - 12;
+    const maxH = Math.max(120, Math.min(window.innerHeight * 0.6, Math.max(below, above)));
+    // Flush with the cell, so the pointer can go straight into it.
+    const top = below >= Math.min(maxH, 200) || below >= above ? box.bottom : Math.max(8, box.top - maxH);
+    peek.value = { text: text.length > HOVER_MAX ? text.slice(0, HOVER_MAX) : text, cut: text.length > HOVER_MAX, left, top, maxH };
+  }, HOVER_DELAY);
+}
+function hideSoon(ms = 150) {
+  if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
+  if (peekLeave) clearTimeout(peekLeave);
+  if (!ms) { peek.value = null; return; }
+  peekLeave = setTimeout(() => { peek.value = null; }, ms);
+}
+function keepPeek() {
+  if (peekLeave) { clearTimeout(peekLeave); peekLeave = null; }
+}
+onBeforeUnmount(() => hideSoon(0));
+
 // -- viewer / menu ---------------------------------------------------------------
 const viewer = ref<{ title: string; value: Cell } | null>(null);
 function openViewer(r: number, c: number) {
@@ -671,8 +716,9 @@ function columnsMenu(e: MouseEvent) {
     ref="scroller"
     class="rg"
     tabindex="0"
-    @scroll="scrollTop = ($event.target as HTMLDivElement).scrollTop"
-    @keydown="onKey"
+    @scroll="scrollTop = ($event.target as HTMLDivElement).scrollTop; hideSoon(0)"
+    @keydown="hideSoon(0); onKey($event)"
+    @mousedown="hideSoon(0)"
   >
     <div class="rg-inner" :style="{ width: totalW + 'px', height: (rows.length + HEAD) * ROW_H + 'px' }">
       <div class="rg-head" :style="{ width: totalW + 'px' }" @contextmenu="columnsMenu">
@@ -735,7 +781,8 @@ function columnsMenu(e: MouseEvent) {
           :style="{ width: widths[c] + 'px' }"
           :title="isEdited(i, c) ? $t('results:grid.before', { value: display(v) }) : undefined"
           @mousedown="onCellDown($event, i, c)"
-          @mouseenter="onCellEnter(i, c)"
+          @mouseenter="onCellEnter(i, c); hoverStart($event, i, c)"
+          @mouseleave="hideSoon()"
           @dblclick="canEditRow(i) ? startEdit(i, c) : openViewer(i, c)"
           @contextmenu="onContext($event, i, c)"
         >{{ isUnset(i, c) ? $t('results:grid.defaultValue') : display(valueAt(i, c)) }}</div>
@@ -753,8 +800,28 @@ function columnsMenu(e: MouseEvent) {
     />
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
     <CellViewer v-if="viewer" :title="viewer.title" :value="viewer.value" @close="viewer = null" />
+    <Teleport to="body">
+      <div
+        v-if="peek"
+        class="rg-peek nm-selectable"
+        :style="{ left: peek.left + 'px', top: peek.top + 'px', maxHeight: peek.maxH + 'px' }"
+        @mouseenter="keepPeek"
+        @mouseleave="hideSoon()"
+      ><div class="rg-peek-text">{{ peek.text }}</div><div v-if="peek.cut" class="rg-peek-cut">{{ $t('results:grid.peekCut') }}</div></div>
+    </Teleport>
   </div>
 </template>
+
+<style>
+/* Teleported to <body>: not scoped. */
+.rg-peek {
+  position: fixed; z-index: 3000; width: 520px; overflow: auto; padding: 8px 10px;
+  background: var(--nm-bg-elev); color: var(--nm-text); border: 1px solid var(--nm-border); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); font-family: var(--nm-mono); font-size: 12px; line-height: 1.45;
+}
+.rg-peek-text { white-space: pre-wrap; word-break: break-word; }
+.rg-peek-cut { margin-top: 6px; color: var(--nm-text-dim); font-family: var(--nm-font, inherit); font-style: italic; }
+</style>
 
 <style scoped>
 .rg {
