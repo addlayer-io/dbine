@@ -10165,5 +10165,6 @@
   "no se pudo ejecutar la CLI de Azure (az): {0}": "impossible d’exécuter Azure CLI (az) : {0}",
   "no se pudo listar los servidores de Azure SQL: {0}": "impossible de lister les serveurs Azure SQL : {0}",
   "{0} no es una IP pública: Azure ve la IP pública de tu red (usá «Ver mi IP pública»)": "{0} n’est pas une IP publique : Azure voit l’IP publique de votre réseau (utilisez « Voir mon IP publique »)",
-  "«{0}» no es una dirección IPv4 válida": "« {0} » n’est pas une adresse IPv4 valide"
+  "«{0}» no es una dirección IPv4 válida": "« {0} » n’est pas une adresse IPv4 valide",
+  "dirección de GitHub inválida": "adresse GitHub non valide"
 }
