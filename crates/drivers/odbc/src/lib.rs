@@ -353,6 +353,10 @@ impl Driver for OdbcDriver {
         design::filtered_browse(self.preset, browse, filters)
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        design::sorted_browse(self.preset, query, sort)
+    }
+
     fn script_separator(&self) -> &'static str {
         design::script_separator(self.preset)
     }
