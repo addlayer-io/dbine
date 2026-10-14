@@ -208,7 +208,8 @@
       "min": "Mín: {{v}}",
       "max": "Máx: {{v}}",
       "title": "{{cells}} células selecionadas, {{numbers}} com números (as vazias não contam)"
-    }
+    },
+    "peekCut": "Texto cortado: clique duas vezes na célula para vê-lo inteiro."
   },
   "chart": {
     "kind": {
