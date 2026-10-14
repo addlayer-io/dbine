@@ -166,6 +166,10 @@ impl Driver for DynamoDriver {
         ddl::filtered_browse(browse, filters)
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        ddl::sorted_browse(query, sort)
+    }
+
     fn backup(&self) -> Option<dbine_driver::BackupSpec> {
         Some(backup::spec())
     }

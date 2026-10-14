@@ -400,14 +400,20 @@ engine; the header arrow shows the order.
 | Engine | How it sorts | Status |
 |---|---|---|
 | PostgreSQL and variants, DSQL, SQLite, libSQL, DuckDB, SQL Server, Oracle, SAP HANA, Firebird, Athena, Trino, Flight SQL, Dremio | `ORDER BY` (contract default) | pending |
-| MySQL and variants, ClickHouse, TDengine, Drill, BigQuery, Spanner, Databricks, Snowflake, Phoenix, InfluxDB 3 | `ORDER BY` with the dialect's quotes | pending |
+| MySQL and variants, ClickHouse, Drill, BigQuery, Spanner, Databricks, Snowflake, Phoenix | `ORDER BY` with the dialect's quotes | pending |
+| TDengine | `ORDER BY` with backquotes (contract default), by any column or tag, on tables and supertables | yes |
+| InfluxDB 3 | `ORDER BY` in place of the browse query's `ORDER BY time DESC` | yes |
 | ODBC presets | `ORDER BY` according to the preset | pending |
-| Cassandra, ScyllaDB, Keyspaces | `ORDER BY` (clustering columns only) | pending |
-| ksqlDB, IoTDB, InfluxDB 1 (InfluxQL) | — | pending |
-| DynamoDB, Cosmos DB, Couchbase, OrientDB | — | pending |
-| MongoDB, CouchDB, Elasticsearch, OpenSearch, Solr, InfluxDB 2 (Flux) | — | pending |
-| Neo4j, Memgraph, Neptune | — | pending |
-| Redis, etcd | — | pending |
+| Cassandra, ScyllaDB, Keyspaces | Loaded rows. CQL orders only by clustering columns, and only with the whole partition key fixed in the `WHERE`; a table's browse fixes none, and the sort doesn't know which columns are keys | no |
+| IoTDB (1.x and 2.x, tree model) | `ORDER BY` on `time` and the device's measurements (IoTDB 1.1 and later), in place of the browse query's `ORDER BY time DESC` | yes |
+| InfluxDB 1 (InfluxQL) | `ORDER BY time ASC` / `DESC` only: InfluxQL orders by nothing else, so a sort by another column (or by time plus another) uses the loaded rows | time only |
+| ksqlDB | Loaded rows. ksqlDB has no `ORDER BY`: push and pull queries return the events as they arrive | no |
+| DynamoDB | Loaded rows. PartiQL orders only by the sort key and only with the partition key fixed (a Query); a table's browse is a Scan, which comes back in no order | no |
+| Cosmos DB, Couchbase, OrientDB | — | pending |
+| InfluxDB 2 (Flux) | `sort(columns: [...], desc:)` after the pivot and before the last `limit()` (the per-series `limit()` before the pivot goes, as with a filter). Flux sorts every key in one direction: mixed directions use the loaded rows | yes |
+| MongoDB, CouchDB, Elasticsearch, OpenSearch, Solr | — | pending |
+| Neo4j, Memgraph, Neptune | `ORDER BY n.prop` between `RETURN` and `LIMIT`, by the node's or relationship's properties; the column holding the whole element uses the loaded rows | yes |
+| Redis, etcd | Loaded rows. Key-value stores: a key listing has no server-side order by a column | no |
 
 ## Cell editing (update code)
 
