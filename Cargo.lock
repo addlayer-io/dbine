@@ -2444,7 +2444,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-cassandra"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2586,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dynamodb"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -2670,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-influxdb"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2683,7 +2683,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-iotdb"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2695,7 +2695,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-ksqldb"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "async-trait",
  "dbine-driver",
@@ -2748,7 +2748,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-neo4j"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "aws-config",
  "aws-credential-types",

@@ -400,20 +400,25 @@ engine; the header arrow shows the order.
 | Engine | How it sorts | Status |
 |---|---|---|
 | PostgreSQL and variants, DSQL, SQLite, libSQL, DuckDB, SQL Server, Oracle, SAP HANA, Firebird, Athena, Trino, Flight SQL, Dremio | `ORDER BY` (contract default) | pending |
-| MySQL and variants, ClickHouse, TDengine, Drill, BigQuery, Spanner, Databricks, Snowflake, Phoenix, InfluxDB 3 | `ORDER BY` with the dialect's quotes | pending |
+| MySQL and variants, ClickHouse, Drill, BigQuery, Spanner, Databricks, Snowflake, Phoenix | `ORDER BY` with the dialect's quotes | pending |
+| TDengine | `ORDER BY` with backquotes (contract default), by any column or tag, on tables and supertables | yes |
+| InfluxDB 3 | `ORDER BY` in place of the browse query's `ORDER BY time DESC` | yes |
 | ODBC presets | `ORDER BY` according to the preset | pending |
-| Cassandra, ScyllaDB, Keyspaces | `ORDER BY` (clustering columns only) | pending |
-| ksqlDB, IoTDB, InfluxDB 1 (InfluxQL) | — | pending |
-| DynamoDB, OrientDB | — | pending |
+| Cassandra, ScyllaDB, Keyspaces | Loaded rows. CQL orders only by clustering columns, and only with the whole partition key fixed in the `WHERE`; a table's browse fixes none, and the sort doesn't know which columns are keys | no |
+| IoTDB (1.x and 2.x, tree model) | `ORDER BY` on `time` and the device's measurements (IoTDB 1.1 and later), in place of the browse query's `ORDER BY time DESC` | yes |
+| InfluxDB 1 (InfluxQL) | `ORDER BY time ASC` / `DESC` only: InfluxQL orders by nothing else, so a sort by another column (or by time plus another) uses the loaded rows | time only |
+| ksqlDB | Loaded rows. ksqlDB has no `ORDER BY`: push and pull queries return the events as they arrive | no |
+| DynamoDB | Loaded rows. PartiQL orders only by the sort key and only with the partition key fixed (a Query); a table's browse is a Scan, which comes back in no order | no |
+| InfluxDB 2 (Flux) | `sort(columns: [...], desc:)` after the pivot and before the last `limit()` (the per-series `limit()` before the pivot goes, as with a filter). Flux sorts every key in one direction: mixed directions use the loaded rows | yes |
+| Neo4j, Memgraph, Neptune | `ORDER BY n.prop` between `RETURN` and `LIMIT`, by the node's or relationship's properties; the column holding the whole element uses the loaded rows | yes |
+| Redis, etcd | Loaded rows. Key-value stores: a key listing has no server-side order by a column | no |
 | Cosmos DB | `ORDER BY c["field"]`, one key only: an `ORDER BY` of several properties needs a composite index for exactly those properties and directions, which the driver can't see, so more than one key sorts the loaded rows | yes (one key) |
 | Couchbase | `` ORDER BY d.`field` `` (`META(d).id` for `_id`), backtick-quoted, after the `WHERE` and before the `LIMIT` | yes |
 | MongoDB, FerretDB, DocumentDB | `.sort({ "a": 1, "b": -1 })` chained to the `find` before its `.limit(n)`. A column name with a `.` (a path for the server) or starting with `$` is refused | yes |
-| Elasticsearch, OpenSearch | a `sort` array in the search body. The driver can't see the mapping when it builds the sort: a `text` field without `fielddata` (and a `nested` one) is rejected by the server with a query error instead of falling back to the loaded rows. Elasticsearch 8 can't sort by `_id`: refused there | yes (not `text` fields) |
-| Solr | the `sort=a asc,b desc` parameter. Sort syntax can't quote a name: only names of letters, digits, `_`, `.` and `-` go to the server. A tokenized or multi-valued text field (schemaless guessing makes strings `text_general`) is rejected by the server with a query error, as the driver can't see the schema | yes (not text fields) |
+| Elasticsearch, OpenSearch | a `sort` array in the search body. The driver can't see the mapping when it builds the sort: a `text` field without `fielddata` (and a `nested` one) is rejected by the server; DBine then loads the data unsorted and sorts the loaded rows, showing the server's reason. Elasticsearch 8 can't sort by `_id`: refused there | yes (not `text` fields) |
+| Solr | the `sort=a asc,b desc` parameter. Sort syntax can't quote a name: only names of letters, digits, `_`, `.` and `-` go to the server. A tokenized or multi-valued text field (schemaless guessing makes strings `text_general`) is rejected by the server, as the driver can't see the schema; DBine then sorts the loaded rows, showing the server's reason | yes (not text fields) |
 | CouchDB | only by `_id`, with the `_all_docs` index (`"_id": {"$gt": null}` joined to the selector). Any other field needs a Mango index over it, and views come sorted by their key: the loaded rows | `_id` only |
-| InfluxDB 2 (Flux) | — | pending |
-| Neo4j, Memgraph, Neptune | — | pending |
-| Redis, etcd | — | pending |
+| OrientDB | `ORDER BY` with backquotes (contract default); not tested against a server | yes |
 
 ## Cell editing (update code)
 

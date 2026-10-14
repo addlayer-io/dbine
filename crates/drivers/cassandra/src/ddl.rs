@@ -421,6 +421,19 @@ pub fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<String>
     Ok(format!("{body} ALLOW FILTERING;"))
 }
 
+/// The browse query sorted by the grid's columns: never on the server.
+/// CQL orders only by the clustering columns, and only with the whole
+/// partition key fixed by the WHERE; a table browse fixes none (and which
+/// columns are keys isn't known here), so the server would refuse it.
+pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    Err(Error::Unsupported(
+        "CQL solo ordena por las columnas de clustering y con la clave de partición fija en el filtro: se ordenan las filas cargadas".into(),
+    ))
+}
+
 /// A keyspace name as CQL allows it (letters, digits, `_`; up to 48).
 pub fn keyspace_name(name: &str) -> Result<String> {
     let n = name.trim();
@@ -437,6 +450,17 @@ mod tests {
     use super::*;
     use crate::cql::split;
     use dbine_driver::KeyDef;
+
+    #[test]
+    fn sorted_browse_is_left_to_the_grid() {
+        use dbine_driver::SortKey;
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        assert_eq!(sorted_browse("SELECT * FROM ks.t LIMIT 50;", &[]).unwrap(), "SELECT * FROM ks.t LIMIT 50;");
+        for sort in [vec![k("a", false)], vec![k("a", true), k("b\"`c", false)]] {
+            assert!(matches!(sorted_browse("SELECT * FROM ks.t LIMIT 50;", &sort), Err(Error::Unsupported(_))));
+            assert!(matches!(sorted_browse("SELECT * FROM ks.t\nWHERE k = 1\nLIMIT 50 ALLOW FILTERING;", &sort), Err(Error::Unsupported(_))));
+        }
+    }
 
     #[test]
     fn filtered_browse_allows_filtering() {

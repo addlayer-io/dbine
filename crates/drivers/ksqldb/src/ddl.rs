@@ -166,6 +166,18 @@ fn literal(v: &Value) -> String {
     }
 }
 
+/// The browse query sorted by the grid's columns: never on the server.
+/// A stream's browse is a push query (`EMIT CHANGES`) and a topic's a
+/// `PRINT`; ksqlDB has no ORDER BY in either (nor in pull queries).
+pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    Err(Error::Unsupported(
+        "ksqlDB no tiene ORDER BY: las consultas devuelven los eventos en el orden en que llegan; se ordenan las filas cargadas".into(),
+    ))
+}
+
 /// The browse query (`SELECT * FROM s EMIT CHANGES LIMIT n;`) restricted
 /// by the grid's column filters: the WHERE goes before EMIT CHANGES. A
 /// topic's `PRINT` can't filter.
@@ -310,6 +322,17 @@ pub fn from_descriptions<'a>(descriptions: impl IntoIterator<Item = &'a Value>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sorted_browse_is_left_to_the_grid() {
+        use dbine_driver::SortKey;
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        assert_eq!(sorted_browse("SELECT * FROM `s` EMIT CHANGES LIMIT 50;", &[]).unwrap(), "SELECT * FROM `s` EMIT CHANGES LIMIT 50;");
+        for sort in [vec![k("a", false)], vec![k("a", true), k("b\"`c", false)]] {
+            assert!(matches!(sorted_browse("SELECT * FROM `s` EMIT CHANGES LIMIT 50;", &sort), Err(Error::Unsupported(_))));
+            assert!(matches!(sorted_browse("SELECT * FROM `s`\nWHERE `a` = 1\nEMIT CHANGES LIMIT 50;", &sort), Err(Error::Unsupported(_))));
+        }
+    }
 
     #[test]
     fn filtered_browse_before_emit_changes() {

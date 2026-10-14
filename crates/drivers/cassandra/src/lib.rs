@@ -265,6 +265,10 @@ impl Driver for CassandraDriver {
         ddl::filtered_browse(browse, filters)
     }
 
+    fn sorted_browse(&self, query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+        ddl::sorted_browse(query, sort)
+    }
+
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn DbSession>> {
         let port = cfg.port_or(self.info.default_port);
         let nodes: Vec<String> = cfg

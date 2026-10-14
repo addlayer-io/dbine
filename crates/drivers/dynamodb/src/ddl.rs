@@ -440,6 +440,19 @@ pub(crate) fn delete_script(table: &str, keys: &[Vec<(String, Json)>]) -> Result
     Ok(out)
 }
 
+/// The browse query sorted by the grid's columns: never on the server.
+/// PartiQL on DynamoDB orders only by the sort key, and only with the
+/// partition key fixed in the WHERE (a Query, not a Scan); a table browse
+/// is a Scan, which DynamoDB returns in no order.
+pub(crate) fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    Err(Error::Unsupported(
+        "DynamoDB solo ordena por la clave de ordenamiento y con la clave de partición fija en el filtro: se ordenan las filas cargadas".into(),
+    ))
+}
+
 /// The browse query (`SELECT * FROM "t"`, or `"t"."index"`) restricted by
 /// the grid's column filters, in DynamoDB's PartiQL: `[…]` lists,
 /// `begins_with()` / `contains()` instead of LIKE (there's none, nor an
@@ -549,6 +562,19 @@ fn comment_text(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sorted_browse_is_left_to_the_grid() {
+        use dbine_driver::SortKey;
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let q = "SELECT * FROM \"t\"";
+        let f = "SELECT * FROM \"t\" WHERE \"pk\" = 'a'";
+        assert_eq!(sorted_browse(q, &[]).unwrap(), q);
+        for sort in [vec![k("sk", false)], vec![k("sk", true), k("a\"b", false)]] {
+            assert!(matches!(sorted_browse(q, &sort), Err(Error::Unsupported(_))));
+            assert!(matches!(sorted_browse(f, &sort), Err(Error::Unsupported(_))));
+        }
+    }
 
     #[test]
     fn delete_script_by_primary_key() {

@@ -803,10 +803,54 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
         .ok_or_else(|| Error::Unsupported("no se pudo agregar el filtro a la consulta de este objeto".into()))
 }
 
+/// The browse query (filtered or not) sorted by the grid's columns:
+/// InfluxQL orders only by `time`, so that's the one sort it takes (its
+/// direction replaces the browse query's own); any other column is left to
+/// the grid.
+pub fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> {
+    if sort.is_empty() {
+        return Ok(query.to_string());
+    }
+    let [k] = sort else {
+        return Err(Error::Unsupported("InfluxQL solo ordena por time: se ordenan las filas cargadas".into()));
+    };
+    if !k.column.eq_ignore_ascii_case("time") {
+        return Err(Error::Unsupported("InfluxQL solo ordena por time: se ordenan las filas cargadas".into()));
+    }
+    // The browse query's own `ORDER BY time DESC`, the last one: a filter
+    // value comes before it.
+    const ORDER: &str = "ORDER BY time";
+    let at = query.rfind(ORDER).ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))?;
+    let rest = query[at + ORDER.len()..].trim_start();
+    let rest = rest.strip_prefix("DESC").or_else(|| rest.strip_prefix("ASC")).unwrap_or(rest).trim_start();
+    let dir = if k.descending { "DESC" } else { "ASC" };
+    Ok(format!("{}{ORDER} {dir}{}{rest}", &query[..at], if rest.is_empty() { "" } else { " " }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn sorted_browse_only_by_time() {
+        use dbine_driver::{ColumnFilter, FilterOp, SortKey};
+        let k = |c: &str, d: bool| SortKey { column: c.into(), descending: d };
+        let q = "SELECT * FROM \"cpu\" ORDER BY time DESC LIMIT 200";
+        assert_eq!(sorted_browse(q, &[]).unwrap(), q);
+        assert_eq!(sorted_browse(q, &[k("time", false)]).unwrap(), "SELECT * FROM \"cpu\" ORDER BY time ASC LIMIT 200");
+        assert_eq!(sorted_browse(q, &[k("Time", true)]).unwrap(), q);
+        // With a filter whose value says ORDER BY time.
+        let f = filtered_browse(q, &[ColumnFilter { column: "host".into(), op: FilterOp::Eq, values: vec![json!("ORDER BY time DESC \"x\"")], sql: None }])
+            .unwrap();
+        assert_eq!(
+            sorted_browse(&f, &[k("time", false)]).unwrap(),
+            "SELECT * FROM \"cpu\"\nWHERE \"host\" = 'ORDER BY time DESC \"x\"'\nORDER BY time ASC LIMIT 200"
+        );
+        for sort in [vec![k("host", false)], vec![k("time", true), k("host", false)], vec![k("we\"ird", true)]] {
+            assert!(matches!(sorted_browse(q, &sort), Err(Error::Unsupported(_))));
+        }
+    }
 
     #[test]
     fn filtered_browse_in_influxql() {
