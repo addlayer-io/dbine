@@ -145,6 +145,7 @@
     "showAll": "Tout afficher",
     "columnFilters": "Filtres par colonne",
     "filterHelp": "Entrée pour appliquer. Texte : contient, =égal, !ne contient pas, ^commence par, se termine par$. Nombres et dates : =, <>, >, >=, <, <=, 1,2,3. NULL / NOT NULL.",
+    "sortHint": "Clic : trier (croissant, décroissant, sans tri). Maj+clic : ajouter au tri.",
     "filterOptions": "Options de filtre",
     "before": "Avant : {{value}}",
     "copyFormat": {

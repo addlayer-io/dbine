@@ -32,6 +32,7 @@ import SupportReminder from '../components/SupportReminder.vue';
 import FeedbackDialog from '../components/FeedbackDialog.vue';
 import { compareMock } from './compare-samples';
 import { matchesLocal, type FilterState } from '../composables/gridFilter';
+import { sortRows, type SortKey } from '../composables/gridSort';
 import ExportDialog from '../components/ExportDialog.vue';
 import { samplePlans, sampleResult, parallelFkSchema } from './samples';
 import DatabaseDiagram from '../components/DatabaseDiagram.vue';
@@ -176,16 +177,22 @@ function docsEditView() {
   });
 }
 
-// view=filters: the column filter row, filtering the sample locally.
+// view=filters: the column filter row, filtering the sample locally, and
+// the header sort the way a table's data has it (the parent sorts).
 const pvFilters = ref<Record<string, FilterState>>({});
+const pvSort = ref<SortKey[]>([]);
 function filtersView() {
   const list = Object.values(pvFilters.value).flatMap((f) => f.filters);
   const names = sampleResult.columns.map((c) => c.name);
   const cols = [...sampleResult.columns, { name: 'activo', type_name: 'bit' }, { name: 'alta', type_name: 'date' }];
   const rows = sampleResult.rows.map((r, i) => [...r, i % 3 === 0 ? null : i % 2 === 0, `2024-0${(i % 9) + 1}-1${i % 10}`]);
   return h(ResultsPane, {
-    running: false, title: 'Ventas', dialect: 'mssql', filterable: true, filters: pvFilters.value,
-    outcome: { results: [{ columns: cols, rows: rows.filter((r) => matchesLocal(r, [...names, 'activo', 'alta'], list)), total_rows: rows.length, truncated: false, rows_affected: null }], messages: [], error: null, elapsed_ms: 5, plans: [] },
+    running: false, title: 'Ventas', dialect: 'mssql', filterable: true, filters: pvFilters.value, sort: pvSort.value,
+    outcome: { results: [{ columns: cols, rows: sortRows(rows.filter((r) => matchesLocal(r, [...names, 'activo', 'alta'], list)), cols, pvSort.value), total_rows: rows.length, truncated: false, rows_affected: null }], messages: [], error: null, elapsed_ms: 5, plans: [] },
+    onSort: (keys: SortKey[]) => {
+      pvSort.value = keys;
+      console.log('sort', JSON.stringify(keys));
+    },
     onFilter: (c: string, st: FilterState | null) => {
       const next = { ...pvFilters.value };
       if (st) next[c] = st; else delete next[c];

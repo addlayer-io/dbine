@@ -7,7 +7,8 @@ import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { save } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
-import type { Cell, Message, MessageLevel, ObjectRef, QueryOutcome, ResultColumn, StatementResult } from '../api/types';
+import type { Cell, Message, MessageLevel, ObjectRef, QueryOutcome, ResultColumn, SortKey, StatementResult } from '../api/types';
+import { sortRows } from '../composables/gridSort';
 import { buildChanges, buildInserts, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits } from '../composables/gridEdit';
 import ResultGrid from './ResultGrid.vue';
 import AddDocumentDialog from './AddDocumentDialog.vue';
@@ -43,6 +44,10 @@ const props = defineProps<{
   /** Column filters under the headers (a table's data). */
   filterable?: boolean;
   filters?: Record<string, FilterState>;
+  /** A table's data: the parent sorts (on the server) and this is its sort;
+   *  a header click emits `sort`. Absent (a query's results): a header
+   *  click sorts the loaded rows here. */
+  sort?: SortKey[];
   /** The editor's line of the script's first line, minus one: messages then
    *  show "Línea N" and a click on one emits `goto`. Absent: no lines. */
   lineOffset?: number | null;
@@ -56,6 +61,8 @@ const emit = defineEmits<{
   /** "Agregar a la query": the generated DELETE / UPDATE code. */
   script: [code: string];
   filter: [column: string, state: FilterState | null];
+  /** A header click on a table's data (see the `sort` prop). */
+  sort: [keys: SortKey[]];
   /** The edits were saved (run) on the server: a table's data reloads. */
   applied: [];
   /** A message's line was clicked: where it is in the script that ran
@@ -135,9 +142,50 @@ const deleteCount = computed(() => currentDeletes.value.size);
 const currentAdded = computed(() => (typeof active.value === 'number' ? added[active.value] ?? [] : []));
 const newCount = computed(() => currentAdded.value.length + docs.value.length);
 const pending = computed(() => editCount.value + deleteCount.value + newCount.value > 0);
+// -- sort ------------------------------------------------------------------------------
+/** A query's results sorted on the loaded rows, per result set. */
+const localSort = reactive<Record<number, SortKey[]>>({});
+/** Each result set's rows in the order they arrived ("no sort" again). */
+const arrived = new WeakMap<object, Cell[][]>();
+/** Bumped on each local sort: the rows are replaced in the result object,
+ *  which needn't be reactive. */
+const sortTick = ref(0);
+watch(() => props.outcome, () => {
+  for (const k of Object.keys(localSort)) delete localSort[Number(k)];
+});
+const gridSort = computed(() => props.sort ?? (typeof active.value === 'number' ? localSort[active.value] ?? [] : []));
+function onSort(keys: SortKey[]) {
+  if (props.sort) { emit('sort', keys); return; }
+  const r = current.value;
+  const i = active.value;
+  if (!r || typeof i !== 'number') return;
+  if (!arrived.has(r.rows)) arrived.set(r.rows, r.rows.slice());
+  const first = arrived.get(r.rows)!;
+  const before = r.rows;
+  let after: Cell[][];
+  if (keys.length) {
+    after = sortRows(before, r.columns, keys);
+  } else {
+    // Back to the arrival order; rows that came later (saved inserts) stay last.
+    const live = new Set(before);
+    const known = new Set(first);
+    after = first.filter((row) => live.has(row)).concat(before.filter((row) => !known.has(row)));
+  }
+  arrived.set(after, first);
+  // Pending edits and deletions follow their rows; new rows stay at the end.
+  const at = new Map(after.map((row, k) => [row, k]));
+  const move = (k: number) => (k < before.length ? at.get(before[k]) ?? k : k);
+  if (edits[i]) edits[i] = Object.fromEntries(Object.entries(edits[i]).map(([k, v]) => [move(Number(k)), v]));
+  if (deletes[i]) deletes[i] = new Set([...deletes[i]].map(move));
+  r.rows = after;
+  localSort[i] = keys;
+  sortTick.value++;
+}
+
 /** The grid's rows: the result's, then the new ones (blank: the grid shows
  *  their cells as the column default until set). */
 const gridRows = computed(() => {
+  void sortTick.value;
   const r = current.value;
   if (!r) return [];
   const n = currentAdded.value.length;
@@ -818,10 +866,13 @@ const statusText = computed(() => {
         :filters="filters"
         :added="currentAdded.length"
         :insertable="canInsert"
+        sortable
+        :sort="gridSort"
         @edit="onEdit"
         @delete="onDelete"
         @add="addRow"
         @filter="(c, st) => emit('filter', c, st)"
+        @sort="onSort"
       />
       </template>
     </template>

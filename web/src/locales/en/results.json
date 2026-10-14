@@ -145,6 +145,7 @@
     "showAll": "Show all",
     "columnFilters": "Column filters",
     "filterHelp": "Enter to apply. Text: contains, =equals, !does not contain, ^starts with, ends with$. Numbers and dates: =, <>, >, >=, <, <=, 1,2,3. NULL / NOT NULL.",
+    "sortHint": "Click: sort (ascending, descending, none). Shift+click: add to the sort.",
     "filterOptions": "Filter options",
     "before": "Before: {{value}}",
     "copyFormat": {
