@@ -11,9 +11,14 @@ import { useUiStore } from '../stores/ui';
 import { useTabsStore } from '../stores/tabs';
 import { formatElapsed, formatEta, useTasksStore } from '../stores/tasks';
 import TasksPanel from './TasksPanel.vue';
+import QuickPick from './QuickPick.vue';
+import QueryStatusItems from './QueryStatusItems.vue';
+import { queryControls } from '../composables/queryControls';
 
 // Status bar (VS Code's blue strip): live connections and problems on the
-// left; the active tab's connection, database and server on the right.
+// left; the active tab's connection, database and server on the right. On
+// a query tab they can be changed from here (QueryStatusItems), along with
+// the transaction mode and the row limit.
 
 defineProps<{ panelOpen: boolean }>();
 defineEmits<{ 'toggle-panel': [] }>();
@@ -60,6 +65,13 @@ const active = computed(() => tabs.active);
 const conn = computed(() => (active.value ? conns.byId(active.value.connectionId) : null));
 const server = computed(() => (active.value ? conns.live[active.value.connectionId]?.serverVersion ?? '' : ''));
 const driver = computed(() => (active.value ? conns.driverOf(active.value.connectionId) : null));
+/** The active tab is a query (or project file) tab: its controls. */
+const query = computed(() => {
+  const a = active.value;
+  if (a?.kind !== 'query' && a?.kind !== 'file') return null;
+  const controls = queryControls.get(a.id);
+  return controls ? { tab: a, controls } : null;
+});
 
 // The window's title says where the active tab is: "DBine — connection —
 // database" (a long database name gets lost in the editor's combo).
@@ -101,15 +113,21 @@ onMounted(async () => {
         <el-icon v-else><ei-upload-filled /></el-icon>
         <template v-if="syncBadge.text">{{ syncBadge.text }}</template>
       </button>
-      <template v-if="conn">
+      <template v-if="query">
+        <QueryStatusItems :tab="query.tab" :controls="query.controls" />
+        <span v-if="conn?.config.read_only" class="sb-item sb-ro">{{ $t('workbench:status.readOnly') }}</span>
+        <span v-if="server" class="sb-item sb-server" :title="server">{{ server }}</span>
+      </template>
+      <template v-else-if="conn">
         <span class="sb-item">{{ driver?.name }}</span>
         <span class="sb-item">{{ conn.name }}{{ active?.database ? ` · ${active.database}` : '' }}</span>
         <span v-if="conn.config.read_only" class="sb-item sb-ro">{{ $t('workbench:status.readOnly') }}</span>
         <span v-if="server" class="sb-item sb-server" :title="server">{{ server }}</span>
       </template>
-      <span class="sb-item">DBine{{ version ? ` ${version}` : '' }}</span>
+      <span class="sb-item sb-version">DBine{{ version ? ` ${version}` : '' }}</span>
     </div>
     <TasksPanel />
+    <QuickPick />
   </footer>
 </template>
 
@@ -119,6 +137,14 @@ onMounted(async () => {
   background: var(--ide-status); color: #ffffff; font-size: 12px; overflow: hidden; white-space: nowrap;
 }
 .sb-left, .sb-right { display: flex; align-items: center; height: 100%; min-width: 0; }
+/* Short of room, the right side gives way from its end (server, version):
+   the left never gets overlapped. */
+.sb-left { flex-shrink: 0; }
+.sb-right { overflow: hidden; }
+.sb-right > * { flex-shrink: 0; }
+/* …the server and DBine's version shrink with an ellipsis instead of being
+   cut mid-word. */
+.sb-right > .sb-server, .sb-right > .sb-version { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 22px; }
 .sb-item { display: inline-flex; align-items: center; gap: 4px; height: 100%; padding: 0 7px; font-variant-numeric: tabular-nums; }
 .sb-server { max-width: 360px; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 22px; }
 .sb-ro { background: #c27d0e; }

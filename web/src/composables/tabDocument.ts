@@ -32,6 +32,8 @@ export interface TabDocument {
   rename?(name: string): Promise<void>;
   /** The tab's database picker. */
   changeDatabase(db: string): Promise<void>;
+  /** The status bar's connection picker (and the database to start on). */
+  changeConnection(connectionId: string, db: string): Promise<void>;
   /** A statement switched the database (`USE`): the tab follows it. */
   followDatabase(db: string): Promise<void>;
   /** File tabs: changed on disk while edited here (`disk` null: deleted). */
@@ -121,6 +123,13 @@ export function useQueryDocument(tab: QueryTab): TabDocument & { query: Ref<Save
     tabs.retarget(tab.id, tab.connectionId, db);
   }
 
+  /** The query moves with the tab, under the other connection's database. */
+  async function changeConnection(connectionId: string, db: string) {
+    if (!query.value) return;
+    query.value = await conns.saveQuery({ ...query.value, connection_id: connectionId, database: db, sql: text.value });
+    tabs.retarget(tab.id, connectionId, db);
+  }
+
   async function followDatabase(db: string) {
     if (query.value) query.value = await conns.saveQuery({ ...query.value, database: db, sql: text.value });
     tabs.retarget(tab.id, tab.connectionId, db);
@@ -129,7 +138,7 @@ export function useQueryDocument(tab: QueryTab): TabDocument & { query: Ref<Save
   return {
     query, text, saveState, loadError, queryId: tab.queryId, autosave: true,
     title: computed(() => query.value?.name ?? t('query:resultName')),
-    load, save, rename, changeDatabase, followDatabase,
+    load, save, rename, changeDatabase, changeConnection, followDatabase,
     conflict: ref(null), missing: ref(null),
   };
 }
@@ -239,6 +248,13 @@ export function useFileDocument(tab: FileTab): TabDocument {
     tabs.persist();
   }
 
+  /** Like the database: the tab picks its own base and stops following the project's. */
+  async function changeConnection(connectionId: string, db: string) {
+    tabs.retarget(tab.id, connectionId, db);
+    tab.pinnedTarget = true;
+    tabs.persist();
+  }
+
   const handle: FileDocHandle = {
     tabId: tab.id,
     projectId: () => tab.projectId,
@@ -272,7 +288,7 @@ export function useFileDocument(tab: FileTab): TabDocument {
   return {
     text, saveState, loadError, conflict, missing, queryId: undefined, autosave: false,
     title: computed(() => baseName(tab.path)),
-    load, save, changeDatabase,
+    load, save, changeDatabase, changeConnection,
     followDatabase: changeDatabase,
     reloadFromDisk: load,
     keepMine: () => write(false),

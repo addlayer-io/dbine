@@ -39,8 +39,11 @@
     "ask": {
       "close": "This tab has an open transaction. Commit or roll back the changes before closing it?",
       "database": "This tab has an open transaction. Commit or roll back the changes before switching databases?",
-      "mode": "This tab has an open transaction. Commit or roll back the changes before switching to automatic transactions?"
-    }
+      "mode": "This tab has an open transaction. Commit or roll back the changes before switching to automatic transactions?",
+      "connection": "This tab has an open transaction. Commit or roll back the changes before switching connections?"
+    },
+    "commitTip": "Commit the open transaction (COMMIT)",
+    "rollbackTip": "Roll back the open transaction (ROLLBACK)"
   },
   "unsafe": {
     "title": "UPDATE or DELETE without WHERE",
@@ -55,7 +58,24 @@
     "server": "Server",
     "user": "User",
     "elapsed": "Execution time",
-    "rowsTip": "Rows returned"
+    "rowsTip": "Rows returned",
+    "noConnection": "No connection",
+    "connectionTip": "Connection: {{name}}. Click to change it.",
+    "databaseTip": "The tab's database. Click to change it.",
+    "lockedRunning": "Can't be changed while a query is running",
+    "txTip": "Click to choose Auto or Manual transactions.",
+    "pickConnection": "This tab's connection (type to filter)",
+    "pickDatabase": "This tab's database (type to filter)",
+    "pickTx": "This tab's transaction mode",
+    "pickRows": "Maximum rows per result",
+    "rowsMax": "{{rows}} rows",
+    "rowsAll": "All rows",
+    "rowsAllOption": "All",
+    "rowsCustom": "Other value…",
+    "rowsCustomPlaceholder": "Number of rows",
+    "rowsCustomPrompt": "Type the maximum number of rows to fetch and press Enter.",
+    "rowsCustomInvalid": "It must be a whole number greater than zero.",
+    "rowsTipButton": "Maximum rows per result. Click to change it."
   },
   "object": {
     "data": "Data",
@@ -79,5 +99,6 @@
     "autoIncrement": "Auto-incr.",
     "default": "Default",
     "filteredColumns_many": "{{count}} filtered columns"
-  }
+  },
+  "moreActions": "More actions"
 }

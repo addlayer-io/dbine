@@ -31,6 +31,7 @@ import SnippetSettings from './SnippetSettings.vue';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
+import { ALL_ROWS } from '../composables/queryControls';
 
 // Configuración (⌘,): preferences and the cloud backup (docs/sync.md).
 
@@ -72,6 +73,12 @@ const telemetry = computed({
   set: (v) => { settings.set(TELEMETRY_CONSENT, v); if (v) trackAppStarted(); },
 });
 const MAX_ROWS = [100, 500, 1000, 5000, 10000, 50000, 100000];
+/** The presets, plus a number picked in the status bar (QueryStatusItems)
+ *  so the select shows it instead of the raw value. "All" is ALL_ROWS. */
+const maxRowsOptions = computed(() => {
+  const v = maxRows.value;
+  return MAX_ROWS.includes(v) || v >= ALL_ROWS ? MAX_ROWS : [...MAX_ROWS, v].sort((a, b) => a - b);
+});
 /** The running app's version ("Versión instalada"). */
 const appVersion = ref('');
 if ('__TAURI_INTERNALS__' in window) {
@@ -379,7 +386,8 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <div class="st-row">
           <div><strong>{{ $t('settings:general.maxRows') }}</strong><span>{{ $t('settings:general.maxRowsHelp') }}</span></div>
           <el-select v-model="maxRows" style="width: 240px">
-            <el-option v-for="n in MAX_ROWS" :key="n" :label="n.toLocaleString(locale())" :value="n" />
+            <el-option v-for="n in maxRowsOptions" :key="n" :label="n.toLocaleString(locale())" :value="n" />
+            <el-option :label="$t('query:status.rowsAllOption')" :value="ALL_ROWS" />
           </el-select>
         </div>
         <div class="st-row">
