@@ -32,7 +32,7 @@ struct Clauses {
     tail: Option<usize>,
 }
 
-fn clauses(query: &str) -> Clauses {
+fn clauses(query: &str, backslash: bool) -> Clauses {
     let b = query.as_bytes();
     let lower = query.to_ascii_lowercase();
     let lb = lower.as_bytes();
@@ -49,6 +49,11 @@ fn clauses(query: &str) -> Clauses {
             q @ (b'\'' | b'"' | b'`') => {
                 i += 1;
                 while i < b.len() {
+                    // MySQL, ClickHouse, BigQuery…: `\'` inside a string.
+                    if backslash && b[i] == b'\\' && q != b'`' {
+                        i += 2;
+                        continue;
+                    }
                     if b[i] == q {
                         // A doubled quote is an escaped one.
                         if b.get(i + 1) == Some(&q) {
@@ -109,7 +114,13 @@ fn clauses(query: &str) -> Clauses {
 /// `ORDER BY`, or goes after the `WHERE` and before the `LIMIT` / `OFFSET` /
 /// `FETCH` / `ALLOW FILTERING` / `;`. `None` when there's no `FROM`.
 pub fn set_order_by(query: &str, order: &str) -> Option<String> {
-    let c = clauses(query);
+    set_order_by_in(query, order, false)
+}
+
+/// [`set_order_by`] for dialects whose strings take backslash escapes
+/// (`'O\\'Brien'`) when `backslash` is set.
+pub fn set_order_by_in(query: &str, order: &str, backslash: bool) -> Option<String> {
+    let c = clauses(query, backslash);
     c.from?;
     let tail_at = c.tail.unwrap_or(query.len());
     let head_end = c.order_by.unwrap_or(tail_at);
@@ -224,6 +235,18 @@ mod tests {
         // The table is a function call (Timeplus streams).
         let q = "SELECT *\nFROM table(`s`)\nLIMIT 5";
         assert_eq!(sorted(q, Quote::Backtick, &[("a", false)]), "SELECT *\nFROM table(`s`)\nORDER BY `a` ASC\nLIMIT 5");
+    }
+
+    #[test]
+    fn backslash_escaped_quotes() {
+        let q = "SELECT * FROM `t` WHERE `a` = 'O\\'Brien LIMIT 9' LIMIT 200";
+        assert_eq!(
+            set_order_by_in(q, "`b` ASC", true).unwrap(),
+            "SELECT * FROM `t` WHERE `a` = 'O\\'Brien LIMIT 9'\nORDER BY `b` ASC\nLIMIT 200"
+        );
+        // Standard strings: the backslash is a plain character.
+        let q = "SELECT * FROM \"t\" WHERE \"a\" = 'x\\' LIMIT 200";
+        assert_eq!(set_order_by_in(q, "\"b\" ASC", false).unwrap(), "SELECT * FROM \"t\" WHERE \"a\" = 'x\\'\nORDER BY \"b\" ASC\nLIMIT 200");
     }
 
     #[test]
