@@ -303,7 +303,8 @@ pub trait Driver: Send + Sync {
             }
             _ => sql::Quote::Double,
         };
-        sort::set_order_by(query, &sort::order_list(sort, quote))
+        let backslash = sql::ScriptDialect::for_hint(dialect).backslash_escapes;
+        sort::set_order_by_in(query, &sort::order_list(sort, quote), backslash)
             .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
     }
 
