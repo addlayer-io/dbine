@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { EditorState, Compartment, StateEffect, StateField, type Extension } from '@codemirror/state';
-import { Decoration, EditorView, keymap, placeholder as cmPlaceholder, showTooltip, type DecorationSet, type Tooltip } from '@codemirror/view';
+import { Decoration, EditorView, keymap, placeholder as cmPlaceholder, showTooltip, tooltips, type DecorationSet, type Tooltip } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import {
   closeCompletion, snippet, snippetCompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult,
@@ -419,6 +419,10 @@ onMounted(() => {
           indentWithTab,
         ]),
         basicSetup,
+        // Completions and hints live in <body>, not inside the editor's
+        // box: there they open upwards when the cursor is on the last
+        // lines, instead of being cut off or hidden under the results.
+        tooltips({ parent: document.body }),
         oneDark,
         lang.of(languageExt()),
         ro.of(EditorState.readOnly.of(props.readOnly)),
