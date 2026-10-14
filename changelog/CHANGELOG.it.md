@@ -1,5 +1,22 @@
 # Modifiche
 
+## [0.1.11] - 2026-10-13
+
+### Novità
+- **Ordina per colonna:** fai clic sull'intestazione di una colonna nei dati di una tabella per ordinare in base ad essa (di nuovo per l'ordine decrescente, una terza volta per rimuoverlo; Shift+clic aggiunge altre colonne). Il database ordina l'intera tabella dove il motore lo consente, come per i filtri; altrove, o quando il server rifiuta l'ordinamento, vengono ordinate le righe caricate e un avviso ne spiega il motivo. I risultati di una query si possono ordinare allo stesso modo.
+- **Controlli nella barra di stato:** in una scheda di query, la barra di stato blu ora contiene la connessione, il database, la modalità di transazione (Auto per impostazione predefinita, oppure Manuale) e il limite di righe. Fai clic su uno qualsiasi per cambiarlo con un selettore rapido, come in VS Code. La barra degli strumenti della query non perde più pulsanti quando la barra laterale è larga: ciò che non entra va sotto un menu **…**.
+- **Invia feedback:** un pulsante in fondo alla barra delle attività apre un breve modulo per segnalare un bug, suggerire un miglioramento, richiedere un nuovo motore o fare una domanda. GitHub si apre con l'issue già compilata e con le etichette, quindi basta premere «Create». La diagnostica facoltativa (versione di DBine, sistema operativo, lingua, e motore e versione del server della connessione attiva) viene mostrata prima di essere inclusa, e non contiene mai server, utenti, nomi di database né query.
+
+### Miglioramenti
+- **Testo lungo nella griglia:** fermandosi su una cella il cui testo non entra, lo si vede per intero in un tooltip che mantiene le interruzioni di riga e che si può scorrere e selezionare.
+- **Quando una connessione fallisce:** espandendo una connessione, prima si connette e mostra **Connessione…**; l'albero compare solo quando il server risponde (allora subito, da ciò che DBine ricorda, mentre si aggiorna). Se non riesce a connettersi, la connessione mostra un avviso con **Riprova** e **Vedi cosa succede…**, e le schede (i dati di una tabella, l'esecuzione di una query e gli altri strumenti) mostrano lo stesso errore invece di restare vuote. Se la connessione cade più tardi, torna all'avviso. **Vedi cosa succede…** spiega il guasto (firewall, timeout, rifiuto, nome host, certificato o login) e cosa controllare, e su Azure SQL può aggiungere il tuo IP al firewall del server con il tuo accesso Azure CLI, dopo aver confermato server, regola e IP. Funziona su tutti i motori; la causa è più precisa su SQL Server, Azure SQL, PostgreSQL e MySQL.
+
+### Correzioni
+- **Firewall di Azure SQL:** **Aggiungi il mio IP al firewall di Azure** usa solo l'IP pubblico di questa macchina, ottenuto via HTTPS e ricontrollato prima di creare la regola. Un IP indicato nel messaggio di errore di un server viene mostrato come non verificato e non viene mai usato.
+- **Riprova dopo una connessione fallita:** se nel frattempo la scheda è passata a un'altra connessione o a un altro database, riprovando viene richiesta di nuovo la conferma di produzione.
+- **Ridenominazione su Snowflake e su Trino, Presto e Starburst:** ciò che nomina l'oggetto rinominato (viste, viste materializzate, funzioni, procedure e, su Snowflake, task, stream e tabelle dinamiche) viene elencato perché lo correggi a mano invece di essere ricreato, così mantiene il suo proprietario e le impostazioni di sicurezza. La ridenominazione viene inoltre rifiutata quando il codice memorizzato si dividerebbe in più istruzioni, e la riscrittura dei dipendenti non cambia più l'identità con cui viene eseguito il codice (`DEFINER`, `SQL SECURITY`, `AUTHID`, `EXECUTE AS`).
+- **Query dei client IA e dell'assistente:** una query viene eseguita senza chiedere approvazione solo quando il database la impone in sola lettura e chiama soltanto funzioni native del motore, senza effetti collaterali. Una che chiami qualsiasi altra funzione (una funzione utente, o una che agisce fuori dalla transazione, come sospendere la replica o prendere un lock) attende prima la tua approvazione.
+
 ## [0.1.10] - 2026-10-10
 
 ### Novità

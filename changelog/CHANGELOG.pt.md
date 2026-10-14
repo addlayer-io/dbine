@@ -1,5 +1,22 @@
 # Alterações
 
+## [0.1.11] - 2026-10-13
+
+### Novidades
+- **Ordenar por coluna:** clique no cabeçalho de uma coluna nos dados de uma tabela para ordenar por ela (de novo para decrescente, uma terceira vez para limpar; Shift+clique adiciona mais colunas). O banco de dados ordena a tabela inteira onde o motor permite, da mesma forma que os filtros; nos outros casos, ou quando o servidor recusa a ordem, as linhas carregadas são ordenadas e um aviso explica o motivo. Os resultados de uma consulta podem ser ordenados da mesma maneira.
+- **Controles na barra de status:** em uma aba de consulta, a barra de status azul agora mostra a conexão, o banco de dados, o modo de transação (Auto por padrão, ou Manual) e o limite de linhas. Clique em qualquer um deles para alterá-lo com um seletor rápido, como no VS Code. A barra de ferramentas da consulta não perde mais botões quando a barra lateral está larga: o que não couber vai para um menu **…**.
+- **Enviar feedback:** um botão no fim da barra de atividades abre um formulário curto para relatar um erro, sugerir uma melhoria, pedir um novo motor ou fazer uma pergunta. O GitHub abre com a issue já preenchida e com os rótulos, então você só precisa clicar em «Create». O diagnóstico opcional (versão do DBine, sistema operacional, idioma, e o motor e a versão do servidor da conexão ativa) é mostrado antes de ser incluído, e nunca leva servidores, usuários, nomes de bancos de dados nem consultas.
+
+### Melhorias
+- **Texto longo na grade:** ao parar sobre uma célula cujo texto não cabe, ele é mostrado inteiro em um tooltip que mantém as quebras de linha e pode ser rolado e selecionado.
+- **Quando uma conexão falha:** ao expandir uma conexão, ela primeiro se conecta e mostra **Conectando…**; a árvore só aparece quando o servidor responde (aí instantaneamente, com o que o DBine lembra, enquanto atualiza). Se não conseguir conectar, a conexão mostra um aviso com **Tentar novamente** e **Ver o que houve…**, e as abas (os dados de uma tabela, a execução de uma consulta e as demais ferramentas) mostram o mesmo erro em vez de ficarem em branco. Se a conexão cair depois, volta ao aviso. **Ver o que houve…** explica a falha (firewall, tempo esgotado, recusa, nome do host, certificado ou login) e o que verificar, e no Azure SQL pode adicionar o seu IP ao firewall do servidor com o seu login do Azure CLI, depois de confirmar o servidor, a regra e o IP. Funciona em todos os motores; a causa é mais precisa no SQL Server, Azure SQL, PostgreSQL e MySQL.
+
+### Correções
+- **Firewall do Azure SQL:** **Adicionar meu IP ao firewall do Azure** usa somente o IP público desta máquina, consultado por HTTPS e verificado novamente antes de a regra ser criada. Um IP citado na mensagem de erro de um servidor é mostrado como não verificado e nunca é usado.
+- **Tentar novamente após uma conexão com falha:** se, nesse meio-tempo, a aba passou para outra conexão ou outro banco de dados, ao tentar novamente a confirmação de produção é pedida de novo.
+- **Renomear no Snowflake e no Trino, Presto e Starburst:** o que nomeia o objeto renomeado (views, views materializadas, funções, procedimentos e, no Snowflake, tarefas, streams e tabelas dinâmicas) é listado para você corrigir manualmente em vez de ser recriado, e assim mantém o seu proprietário e as configurações de segurança. Além disso, a renomeação é recusada quando o código armazenado seria dividido em várias instruções, e reescrever os dependentes não muda mais com qual identidade o código é executado (`DEFINER`, `SQL SECURITY`, `AUTHID`, `EXECUTE AS`).
+- **Consultas dos clientes de IA e do assistente:** uma consulta roda sem pedir aprovação somente quando o banco a faz valer como somente leitura e ela chama apenas funções nativas do motor, sem efeitos colaterais. Uma que chame qualquer outra função (uma função de usuário, ou uma que atue fora da transação, como pausar a replicação ou obter um lock) espera antes a sua aprovação.
+
 ## [0.1.10] - 2026-10-10
 
 ### Novidades
