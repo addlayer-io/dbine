@@ -399,9 +399,22 @@ engine; the header arrow shows the order.
 
 | Engine | How it sorts | Status |
 |---|---|---|
-| PostgreSQL and variants, DSQL, SQLite, libSQL, DuckDB, SQL Server, Oracle, SAP HANA, Firebird, Athena, Trino, Flight SQL, Dremio | `ORDER BY` (contract default) | pending |
-| MySQL and variants, ClickHouse, TDengine, Drill, BigQuery, Spanner, Databricks, Snowflake, Phoenix, InfluxDB 3 | `ORDER BY` with the dialect's quotes | pending |
-| ODBC presets | `ORDER BY` according to the preset | pending |
+| PostgreSQL and variants, DSQL, SQLite, libSQL, DuckDB, Trino, Presto, Athena, SAP HANA, Flight SQL, Dremio, Snowflake, Phoenix | `ORDER BY "…"` after the filter's `WHERE` and before `LIMIT` (contract default) | done; tested live on PostgreSQL, CockroachDB, DSQL (against PostgreSQL), SQLite, libSQL, DuckDB, Trino, Presto, Flight SQL, Dremio and Phoenix; Athena, SAP HANA and Snowflake with unit tests (no container) |
+| Firebird | `SELECT FIRST n … ORDER BY "…"` (contract default) | done; tested live |
+| SQL Server, Azure SQL, Fabric, Babelfish | `SELECT TOP (n) … ORDER BY […]` (contract default): `TOP` takes the first rows of the order | done; tested live on SQL Server and Babelfish |
+| Oracle | `ORDER BY "…"` before `FETCH FIRST n ROWS ONLY` (contract default) | done; tested live |
+| MySQL and variants, Drill, Spanner, Databricks | `` ORDER BY `…` `` (contract default; Databricks its own, for the case below) | done; tested live on MySQL, MariaDB, TiDB, Drill and Spanner (the emulator; Spanner names can't have spaces, so mixed case only) |
+| ClickHouse, Timeplus | its own: `` ORDER BY `…` `` with ClickHouse's backslash escapes in names (the shared backtick quoting only doubles `` ` ``), also on `FROM table(stream)` | done; tested live on ClickHouse |
+| BigQuery | its own: `` ORDER BY `…` `` with GoogleSQL's backslash escapes in names | done; tested live on bigquery-emulator |
+| ODBC presets | its own: the preset's quotes, or for the generic preset the ones the ODBC driver gave the browse query (the dialect alone would put `"` on a MySQL or Access source); before `FETCH FIRST` / `LIMIT`, after `TOP n` / `FIRST n` | done; unit tests per preset (no container) |
+| TDengine, InfluxDB 3 | `ORDER BY` with the dialect's quotes | pending |
+
+ClickHouse, BigQuery, Databricks and the Hive, Impala and Spark ODBC
+presets write a quote inside a string literal as `\'`, which the
+contract's clause finder doesn't know. With a filter whose value has a
+quote (or ends in a backslash) they don't sort on the server, so the
+`ORDER BY` never lands after the `LIMIT`: the UI sorts the loaded rows and
+says so.
 | Cassandra, ScyllaDB, Keyspaces | `ORDER BY` (clustering columns only) | pending |
 | ksqlDB, IoTDB, InfluxDB 1 (InfluxQL) | — | pending |
 | DynamoDB, Cosmos DB, Couchbase, OrientDB | — | pending |
