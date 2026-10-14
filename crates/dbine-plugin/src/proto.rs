@@ -6,7 +6,7 @@ use dbine_driver::runtime::ComponentProgress;
 use dbine_driver::{
     Capabilities, ColumnFilter, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
     BlockedSession, DriverInfo, Error, KeyPage, KeyScan, KeySearch, MonitorSnapshot, ObjectRef, ProfiledStatement, ProfilerOptions,
-    ProfilerStarted, QueryOutcome, ResultColumn, RowChange, SyncScript, TableChange, TableSchema,
+    ProfilerStarted, QueryOutcome, ResultColumn, RowChange, SortKey, SyncScript, TableChange, TableSchema,
 };
 use dbine_driver::transfer::{BucketSum, CloneScript, CopySpec, DeltaResult, DeltaSpec, LoadSpec, ReadSpec, RowBatch, TransferColumn};
 use serde::{Deserialize, Serialize};
@@ -233,6 +233,10 @@ pub enum Call {
     /// `Unsupported`, which the app treats as "the engine can't enforce
     /// it": the read needs the user's approval.
     RunReadOnly { session: u64, statement: String, max_rows: u64, sink: bool },
+    /// The data grid's column sort on a (filtered) browse query. A host
+    /// published before it answers `Unsupported`: the grid then sorts the
+    /// rows it loaded.
+    SortedBrowse { driver: String, query: String, sort: Vec<SortKey> },
 }
 
 /// Host → app.
@@ -724,6 +728,11 @@ mod tests {
             (27, Call::UnmappedLogins { session: 3 }, "UnmappedLogins"),
             (28, Call::MapLoginScript { driver: "sqlserver".into(), login: "ana".into(), user: "ana".into(), default_schema: Some("dbo".into()) }, "MapLoginScript"),
             (29, Call::RunReadOnly { session: 3, statement: "SELECT 1".into(), max_rows: 10, sink: false }, "RunReadOnly"),
+            (
+                30,
+                Call::SortedBrowse { driver: "postgres".into(), query: "SELECT * FROM t".into(), sort: vec![SortKey { column: "a".into(), descending: true }] },
+                "SortedBrowse",
+            ),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

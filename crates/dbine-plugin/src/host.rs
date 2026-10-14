@@ -438,6 +438,7 @@ impl State {
             Call::TableDdl { driver, table, parts } => Reply::Text(self.driver(&driver)?.table_ddl(&table, parts)?),
             Call::InsertScript { driver, target, columns, rows } => Reply::Text(self.driver(&driver)?.insert_script(&target, &columns, &rows)?),
             Call::FilteredBrowse { driver, browse, filters } => Reply::Text(self.driver(&driver)?.filtered_browse(&browse, &filters)?),
+            Call::SortedBrowse { driver, query, sort } => Reply::Text(self.driver(&driver)?.sorted_browse(&query, &sort)?),
             Call::UpdateScript { driver, target, changes } => Reply::Text(self.driver(&driver)?.update_script(&target, &changes)?),
             Call::DeleteScript { driver, target, keys } => Reply::Text(self.driver(&driver)?.delete_script(&target, &keys)?),
             Call::SecurityScript { driver, action } => Reply::Text(self.driver(&driver)?.security_script(&action)?),
