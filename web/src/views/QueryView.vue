@@ -516,8 +516,12 @@ async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
   const filled = await withParams(script);
   if (filled === null) return;
   if (!(await confirmEnvironment())) return;
+  // Where the confirmation was given: a retry after the tab moved to another
+  // connection or database asks again before running there.
+  const confirmedFor = `${props.tab.connectionId}\u0000${props.tab.database}`;
   const go = async () => {
     retryRun = null;
+    if (`${props.tab.connectionId}\u0000${props.tab.database}` !== confirmedFor && !(await confirmEnvironment())) return;
     if (!(await ensureConnection())) {
       // The pane shows the error; "Reintentar" connects and runs this again.
       retryRun = go;
