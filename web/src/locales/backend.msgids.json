@@ -28501,6 +28501,7 @@
  ],
  "no se pudo abrir el navegador: {0}": [
   "src-tauri/src/commands/azure_firewall.rs",
+  "src-tauri/src/commands/feedback.rs",
   "src-tauri/src/commands/settings.rs",
   "src-tauri/src/commands/updates.rs",
   "src-tauri/src/sync.rs"
@@ -33858,5 +33859,8 @@
  ],
  "… ({0} operadores más)": [
   "src-tauri/src/optimizer/hints.rs"
+ ],
+ "dirección de GitHub inválida": [
+  "src-tauri/src/commands/feedback.rs"
  ]
 }
