@@ -1,5 +1,14 @@
 # Alterações
 
+## [0.1.12] - 2026-10-15
+
+### Novidades
+- **Flathub:** o DBine foi enviado ao Flathub como `io.addlayer.dbine`. Essa build inclui todos os drivers, o DuckDB e o motor do assistente de IA, então nada é baixado no primeiro uso, e o Flatpak a mantém atualizada no lugar do DBine. Dentro do sandbox, a ação do firewall do Azure explica que não pode usar o Azure CLI e oferece o portal, T-SQL ou um terminal, e as tarefas agendadas são salvas, mas não podem ser registradas no agendador do sistema.
+- **winget:** o DBine foi enviado ao winget no Windows como `AddLayer.DBine` (`winget install AddLayer.DBine` assim que for aceito), e cada nova versão chega a ele sozinha. Instalado com o winget, o DBine continua se atualizando sozinho como antes.
+
+### Melhorias
+- **Novo identificador do app:** o DBine agora é `io.addlayer.dbine`. Na primeira inicialização após a atualização, suas conexões, senhas salvas, abas abertas, chats do assistente, configurações e tarefas agendadas são copiadas automaticamente; os dados da versão anterior ficam como estavam, então voltar a ela não perde nada. No Windows e no Linux, um modelo de IA grande pode ser baixado novamente. No macOS, o chaveiro pode pedir acesso uma vez, e algumas permissões de privacidade (como o acesso à rede local) podem ser pedidas de novo; no Windows, um atalho fixado na barra de tarefas com uma versão anterior pode precisar ser fixado novamente.
+
 ## [0.1.11] - 2026-10-13
 
 ### Novidades
