@@ -4,6 +4,7 @@
 
 ### Improvements
 - **Usage statistics:** when the statistics server doesn't answer or fails, DBine retries for up to an hour instead of dropping the event. Nothing else about what's sent changes, and turning statistics off stops any pending retry.
+- **Flatpak download:** each release now includes a `.flatpak` file for Linux (`x86_64` and `aarch64`), to install with `flatpak install --user ./dbine-X.Y.Z-x86_64.flatpak`; Flatpak fetches the GNOME runtime from Flathub by itself. It doesn't update itself: install the next version's file the same way.
 
 ## [0.1.13] - 2026-10-16
 
