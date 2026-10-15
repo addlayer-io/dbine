@@ -197,8 +197,8 @@ flatpak run io.addlayer.dbine
 
 (`aarch64` on ARM.) The bundle points at Flathub for its runtime: the
 install adds the `flathub` remote for the user if it's missing and pulls
-GNOME 51 from it (Flatpak asks before adding the remote and installing the
-runtime). After that DBine is in the applications menu like any
+GNOME 51 from it (Flatpak shows "Configuring https://dl.flathub.org/repo/
+as new remote 'flathub'" and the permissions, and asks before installing). After that DBine is in the applications menu like any
 other app, with its data under `~/.var/app/io.addlayer.dbine/`.
 
 ### Updates
@@ -209,13 +209,15 @@ The bundle doesn't update itself, and neither does Flatpak:
   DBine never checks for or downloads a new version, shows no update
   notice, and a manual check (Settings) answers that Flatpak updates the
   app (`reason: "flatpak"` in `check_for_update`).
-- But a bundle has no repository to update from: `flatpak update` updates
-  the GNOME runtime from Flathub, not DBine.
+- But a bundle has no repository to update from: the app's remote is a
+  local `dbine-origin` with no URL, so `flatpak update` updates the GNOME
+  runtime from Flathub and says nothing about DBine.
 
-To update, download the new version's `.flatpak` from the release and
-install it the same way. If Flatpak says the app is already installed, add
-`--reinstall`; the data in `~/.var/app/io.addlayer.dbine/` is kept (only
-`flatpak uninstall --delete-data` removes it).
+To update, download the new version's `.flatpak` from the release and run
+the same `flatpak install --user ./dbine-X.Y.Z-<arch>.flatpak`: it replaces
+the installed version in place (checked with Flatpak 1.18). The data in
+`~/.var/app/io.addlayer.dbine/` is kept; only
+`flatpak uninstall --delete-data` removes it.
 
 ## Building locally
 
