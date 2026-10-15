@@ -401,7 +401,8 @@ The installers are in
 
 - **Windows:** `.msi` or `-setup.exe`.
 - **macOS:** `.dmg`, in Apple Silicon or Intel version.
-- **Linux:** `.AppImage`, `.deb` or `.rpm`.
+- **Linux:** `.AppImage`, `.deb`, `.rpm` or `.flatpak`
+  ([how to install the `.flatpak`](docs/flathub.md#downloadable-flatpak)).
 
 The binaries are not yet signed by Apple or Microsoft:
 

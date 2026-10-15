@@ -16,7 +16,7 @@ prepares it for each release. The owner's first-submission checklist is in
 | `flatpak/io.addlayer.dbine.desktop` | The desktop entry (`Categories=Development;Database;`). |
 | `flatpak/flathub.json` | Flathub's build settings (architectures). |
 | `flatpak/render.py` | Renders the manifest and the metainfo for one tag. |
-| `.github/workflows/flathub.yml` | Renders, generates the offline sources, lints and opens the PR on Flathub. |
+| `.github/workflows/flathub.yml` | Renders, generates the offline sources, lints, opens the PR on Flathub and builds the downloadable `.flatpak` bundles. |
 
 ## The build
 
@@ -143,6 +143,79 @@ and uploads everything as an artifact. Without `dry_run`, it pushes a
 `release-vX.Y.Z` branch to `flathub/io.addlayer.dbine` and opens a PR there
 with the secret `FLATHUB_TOKEN`; without the secret it skips the PR with a
 notice.
+
+## Downloadable .flatpak
+
+Flathub hasn't accepted DBine for now, so every GitHub release also carries
+the Flatpak as a single file: `dbine-X.Y.Z-x86_64.flatpak` and
+`dbine-X.Y.Z-aarch64.flatpak`. It is the same app as the Flathub build (same
+manifest, same permissions, same Flatpak mode).
+
+### How it's built
+
+The `bundle` job of `.github/workflows/flathub.yml`, after `manifest`:
+
+- One job per architecture: `x86_64` on `ubuntu-latest`, `aarch64` on
+  `ubuntu-24.04-arm`, both inside
+  `ghcr.io/flathub-infra/flatpak-github-actions:gnome-51` (GNOME 51's Sdk
+  preinstalled, `--privileged` for flatpak-builder's sandbox).
+- It downloads the files `manifest` rendered (the `flathub-vX.Y.Z`
+  artifact) and builds them with the official
+  `flatpak/flatpak-github-actions/flatpak-builder` action (v6.8, pinned by
+  commit), which then runs `flatpak build-bundle` with
+  `--runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo`. The
+  bundle's branch is `stable`.
+- The action caches flatpak-builder's state directory (downloads, ccache
+  and finished modules): git, unixODBC and llama.cpp are reused from the
+  previous release while they don't change; the app always builds from its
+  tag. A run takes long (Rust with every driver, inside flatpak-builder).
+- The bundle is kept as an artifact (`flatpak-vX.Y.Z-<arch>`). On a real run
+  (not `dry_run`), `bundle-release` uploads the bundles that were built to
+  the tag's release with `gh release upload --clobber`; it is the only job
+  with `contents: write`.
+- The bundle jobs are separate from `manifest`: a failed bundle doesn't
+  affect the release or the Flathub PR. They run even if the lint or the PR
+  failed, as long as the files were rendered. If one architecture fails,
+  the other is still uploaded, with a warning.
+
+The `release` workflow's downloads list mentions the `.flatpak`; the files
+appear on the release a while after the others, when this workflow ends.
+
+To try it without publishing: Actions › flathub › Run workflow with the tag
+and `dry_run` on, or
+
+```sh
+gh workflow run flathub.yml -f tag=vX.Y.Z -f dry_run=true
+```
+
+### Installing it
+
+```sh
+flatpak install --user ./dbine-X.Y.Z-x86_64.flatpak
+flatpak run io.addlayer.dbine
+```
+
+(`aarch64` on ARM.) The bundle points at Flathub for its runtime: the
+install adds the `flathub` remote for the user if it's missing and pulls
+GNOME 51 from it (Flatpak asks before adding the remote and installing the
+runtime). After that DBine is in the applications menu like any
+other app, with its data under `~/.var/app/io.addlayer.dbine/`.
+
+### Updates
+
+The bundle doesn't update itself, and neither does Flatpak:
+
+- It is built with the `flatpak` feature, so the in-app updater is off:
+  DBine never checks for or downloads a new version, shows no update
+  notice, and a manual check (Settings) answers that Flatpak updates the
+  app (`reason: "flatpak"` in `check_for_update`).
+- But a bundle has no repository to update from: `flatpak update` updates
+  the GNOME runtime from Flathub, not DBine.
+
+To update, download the new version's `.flatpak` from the release and
+install it the same way. If Flatpak says the app is already installed, add
+`--reinstall`; the data in `~/.var/app/io.addlayer.dbine/` is kept (only
+`flatpak uninstall --delete-data` removes it).
 
 ## Building locally
 

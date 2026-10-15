@@ -376,6 +376,7 @@ jobs:
           - **Windows**: `-setup.exe` (requires WebView2, included in Windows 10/11).
           - **macOS**: `.dmg`; `aarch64` for Apple Silicon, `x64` for Intel.
           - **Linux**: `.AppImage` (portable), `.deb` or `.rpm`.
+          - **Linux (Flatpak)**: `.flatpak` (`x86_64` or `aarch64`), for `flatpak install --user ./dbine-….flatpak`; it doesn't update itself. Built by the `flathub` workflow, it appears here a while after the other files.
 
           Version 0.1.4 and later receive it through the automatic update.
 
