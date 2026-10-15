@@ -13,7 +13,7 @@
 
 bin="$1"
 if [ "$(basename "$bin")" = "dbine" ] && security find-identity -p codesigning 2>/dev/null | grep -q '"DBine Dev"'; then
-  codesign -f -s "DBine Dev" --identifier com.addlayer.dbine "$bin" >/dev/null 2>&1 \
+  codesign -f -s "DBine Dev" --identifier io.addlayer.dbine "$bin" >/dev/null 2>&1 \
     || echo "dev-sign-run: no se pudo firmar $bin con «DBine Dev»; sigue sin firmar" >&2
 fi
 exec "$@"

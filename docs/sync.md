@@ -150,7 +150,7 @@ this version". The **Folder** option always works.
 
 - **At runtime** (to test without recompiling), in the `cloud-clients.json`
   file inside the app's configuration folder. On macOS it's
-  `~/Library/Application Support/com.addlayer.dbine/`. What the file says
+  `~/Library/Application Support/io.addlayer.dbine/`. What the file says
   overrides the build's:
 
   ```json

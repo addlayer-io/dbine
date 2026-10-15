@@ -15,7 +15,7 @@ async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut ep = Endpoints::default();
     ep.models_dir = std::env::var("DBINE_MODELS_DIR").map(Into::into).unwrap_or_else(|_| {
-        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/com.addlayer.dbine/models")
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/io.addlayer.dbine/models")
     });
     if args.first().map(String::as_str) == Some("detect") {
         println!("{}", serde_json::to_string_pretty(&dbine_ai::detect(&ep).await).unwrap());

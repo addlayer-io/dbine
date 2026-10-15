@@ -19,8 +19,6 @@ use tracing_subscriber::EnvFilter;
 /// there to answer.
 const SECRETS_LIMIT: Duration = Duration::from_secs(45);
 
-const IDENTIFIER: &str = "com.addlayer.dbine";
-
 /// The task id when the process was started as `--run-task <id>`.
 pub fn requested() -> Option<String> {
     let mut args = std::env::args().skip(1);
@@ -36,25 +34,10 @@ pub fn requested() -> Option<String> {
 }
 
 /// Where the app keeps its state (as Tauri's `app_config_dir`) and its
-/// downloaded components (`app_data_dir`).
+/// downloaded components (`app_data_dir`): the old identifier's while its
+/// migration is deferred (another DBine process is running).
 fn dirs() -> Option<(PathBuf, PathBuf)> {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
-    #[cfg(target_os = "macos")]
-    let (config, data) = {
-        let base = home?.join("Library/Application Support");
-        (base.clone(), base)
-    };
-    #[cfg(windows)]
-    let (config, data) = {
-        let base = std::env::var_os("APPDATA").map(PathBuf::from).or_else(|| home.map(|h| h.join("AppData/Roaming")))?;
-        (base.clone(), base)
-    };
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let (config, data) = (
-        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| home.clone().map(|h| h.join(".config")))?,
-        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| home.map(|h| h.join(".local/share")))?,
-    );
-    Some((config.join(IDENTIFIER), data.join(IDENTIFIER)))
+    crate::identifier::state_dirs_now()
 }
 
 /// Run the task and return the exit code.
@@ -71,6 +54,7 @@ pub fn run(task_id: &str) -> i32 {
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer))
         .try_init();
+    crate::identifier::log_report();
     let code = run_logged(task_id, &dir, &data_dir);
     drop(guard);
     code
@@ -175,7 +159,7 @@ mod tests {
     #[test]
     fn config_dir_ends_with_identifier() {
         let (config, data) = super::dirs().unwrap();
-        assert!(config.ends_with(super::IDENTIFIER));
-        assert!(data.ends_with(super::IDENTIFIER));
+        assert!(config.ends_with(crate::identifier::NEW_ID));
+        assert!(data.ends_with(crate::identifier::NEW_ID));
     }
 }

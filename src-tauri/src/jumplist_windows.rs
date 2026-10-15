@@ -30,7 +30,7 @@ use windows::Win32::UI::Shell::{
 /// Must match `identifier` in `tauri.conf.json`: the bundler writes it as the
 /// AppUserModelID of the installed shortcuts (NSIS `SetLnkAppUserModelId`,
 /// MSI `ShortcutProperty System.AppUserModel.ID`).
-const APP_USER_MODEL_ID: &str = "com.addlayer.dbine";
+const APP_USER_MODEL_ID: &str = "io.addlayer.dbine";
 
 /// Argument the task passes; the single-instance callback looks for it.
 const NEW_WINDOW_ARG: &str = "--new-window";

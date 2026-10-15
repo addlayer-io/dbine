@@ -91,25 +91,27 @@ and keychain service:
 
 ```
 cd /Users/mpanichella/TeamProjects/addlayer/DBine
-DBINE_KEYCHAIN_SERVICE=com.addlayer.dbine.e2etest DBINE_DEV_PORT=18001 \
+DBINE_KEYCHAIN_SERVICE=io.addlayer.dbine.e2etest DBINE_DEV_PORT=18001 \
   cargo tauri dev --no-watch --config <scratch>/test-config.json
 ```
 
 with `<scratch>/test-config.json`:
 
 ```json
-{"identifier": "com.addlayer.dbine.e2etest", "productName": "DBine e2e",
+{"identifier": "io.addlayer.dbine.e2etest", "productName": "DBine e2e",
  "build": {"devUrl": "http://localhost:5175", "beforeDevCommand": "npm run dev --prefix ../web -- --port 5175"},
  "app": {"windows": [{"label": "main", "title": "DBine (prueba automática)", "width": 1400, "height": 880,
    "visible": false, "backgroundColor": "#1e1e1e", "dragDropEnabled": false}]}}
 ```
 
-- **Always** set `DBINE_KEYCHAIN_SERVICE=com.addlayer.dbine.e2etest`.
+- **Always** set `DBINE_KEYCHAIN_SERVICE=io.addlayer.dbine.e2etest`.
   Without it, the instance reads the owner's saved passwords and pops keychain
   prompts on their screen.
 - The first access to the vault in each run can raise a macOS keychain prompt
-  for "com.addlayer.dbine.e2etest". Only the owner can click it. If the run
+  for "io.addlayer.dbine.e2etest". Only the owner can click it. If the run
   hangs there, stop and report it; don't retry in a loop.
+- Test instances don't take part in the identifier migration: data from
+  before it stays in the `com.addlayer.dbine.e2etest` folders, unused.
 - Use `--no-watch`. With the file watcher on, any other session's write
   restarts the build.
 - Stop the instance when you're done.
