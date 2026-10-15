@@ -17,7 +17,6 @@
     "move": "Sposta"
   },
   "database": {
-    "exportTitle": "Esporta database · {{db}}",
     "scriptTitle": "Genera script · {{db}}",
     "scriptName": "Script di {{db}}",
     "scriptNameConverted": "Script di {{db}} (convertito)",

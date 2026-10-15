@@ -5,6 +5,7 @@
 ### Améliorations
 - **Soutenir le projet :** le bouton en forme de cœur (**Soutenir le projet**), son rappel et **Aide › Soutenir le projet** ouvrent Buy Me a Coffee.
 - **Script avec les données de tables choisies :** dans **Générer le script de la base**, lorsque **Données (INSERT)** est coché, vous pouvez garder les données de toutes les tables ou choisir lesquelles en reçoivent, depuis une liste avec filtre (**Choisir des tables…**), de sorte que le script puisse contenir la structure de toute la base et les lignes de quelques tables seulement.
+- **Menu de la base :** **Exporter la base…** a été retiré. Il ouvrait la même boîte de dialogue que **Générer un script…**, qui reste et fait tout ce qu'il faisait (structure, données et enregistrement dans un fichier).
 
 ## [0.1.12] - 2026-10-15
 

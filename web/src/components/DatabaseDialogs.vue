@@ -61,7 +61,7 @@ function imported() {
 <template>
   <template v-if="d && ready && driver">
     <ScriptGeneratorDialog
-      v-if="d.kind === 'script' || d.kind === 'export'"
+      v-if="d.kind === 'script'"
       :connection-id="d.connectionId"
       :database="d.database"
       :objects="objects.map((o) => ({ kind: o.kind, schema: o.schema, name: o.name }))"
@@ -70,7 +70,7 @@ function imported() {
       :dialect="driver.dialect"
       :supports-data="true"
       :driver-id="driver.id"
-      :title="d.kind === 'export' ? $t('dialogs:database.exportTitle', { db: d.database }) : $t('dialogs:database.scriptTitle', { db: d.database })"
+      :title="$t('dialogs:database.scriptTitle', { db: d.database })"
       @open-script="openScript"
       @close="ui.closeDbDialog()"
     />

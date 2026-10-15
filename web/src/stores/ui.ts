@@ -42,7 +42,7 @@ export const useUiStore = defineStore('ui', {
     settingsSection: null as 'general' | 'sync' | 'drivers' | 'mcp' | 'mail' | 'lint' | 'snippets' | null,
     /** Bumped when a cloud restore replaced the local state: views reload. */
     syncSeq: 0,
-    dbDialog: null as { kind: 'script' | 'export' | 'import' | 'run'; connectionId: string; database: string } | null,
+    dbDialog: null as { kind: 'script' | 'import' | 'run'; connectionId: string; database: string } | null,
   }),
   actions: {
     openSettings(section: 'general' | 'sync' | 'drivers' | 'mcp' | 'mail' | 'lint' | 'snippets' = 'general') { this.settingsSection = section; },
@@ -62,7 +62,7 @@ export const useUiStore = defineStore('ui', {
     moveItem(item: Movable) { this.moving = item; },
     revealInExplorer(r: Omit<RevealRequest, 'seq'>) { this.reveal = { ...r, seq: ++revealSeq }; },
     closeMove() { this.moving = null; },
-    openDbDialog(kind: 'script' | 'export' | 'import' | 'run', connectionId: string, database: string) {
+    openDbDialog(kind: 'script' | 'import' | 'run', connectionId: string, database: string) {
       this.dbDialog = { kind, connectionId, database };
     },
     closeDbDialog() { this.dbDialog = null; },

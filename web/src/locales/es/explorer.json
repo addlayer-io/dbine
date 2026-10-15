@@ -96,7 +96,6 @@
     "migrate": "Migrar…",
     "newMigration": "Nueva migración…",
     "compareSchemas": "Comparar esquemas…",
-    "exportDatabase": "Exportar base…",
     "importData": "Importar datos…",
     "runScriptFile": "Ejecutar archivo de script…",
     "linkProject": "Vincular proyecto…",
