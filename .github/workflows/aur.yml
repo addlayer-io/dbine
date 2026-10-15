@@ -92,9 +92,10 @@ jobs:
           sed -i 's/^#DisableSandbox/DisableSandbox/' /etc/pacman.conf
           pacman -Syu --noconfirm --needed git openssh python namcap >/dev/null
 
+      # The workflow's own commit: its scripts (packaging/) and the shared
+      # wording (flatpak/metainfo) may be newer than the tag being sent,
+      # which only provides the release assets.
       - uses: actions/checkout@v4
-        with:
-          ref: refs/tags/${{ steps.tag.outputs.tag }}
 
       - name: Render the PKGBUILD
         env:

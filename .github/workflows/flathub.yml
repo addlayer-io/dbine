@@ -73,13 +73,19 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "dry_run=${DRY:-false}" >> "$GITHUB_OUTPUT"
 
+      # The workflow's own commit for the packaging (flatpak/), which may be
+      # newer than the tag; the tag in src/ for what gets built: its commit
+      # and its lockfiles (the offline sources).
+      - uses: actions/checkout@v4
+
       - uses: actions/checkout@v4
         with:
           ref: refs/tags/${{ steps.tag.outputs.tag }}
+          path: src
 
       - name: Commit of the tag
         id: commit
-        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: echo "commit=$(git -C src rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
         with:
@@ -104,8 +110,8 @@ jobs:
             --env "DBINE_GOOGLE_CLIENT_ID=$DBINE_GOOGLE_CLIENT_ID" \
             --env "DBINE_GOOGLE_CLIENT_SECRET=$DBINE_GOOGLE_CLIENT_SECRET" \
             --env "DBINE_MICROSOFT_CLIENT_ID=$DBINE_MICROSOFT_CLIENT_ID"
-          python3 "$RUNNER_TEMP/fbt/cargo/flatpak-cargo-generator.py" Cargo.lock -o "$out/cargo-sources.json"
-          flatpak-node-generator npm web/package-lock.json -o "$out/node-sources.json"
+          python3 "$RUNNER_TEMP/fbt/cargo/flatpak-cargo-generator.py" src/Cargo.lock -o "$out/cargo-sources.json"
+          flatpak-node-generator npm src/web/package-lock.json -o "$out/node-sources.json"
           # Flathub's repository README and build settings ride along.
           cp flatpak/flathub.json "$out/"
           ls -la "$out"

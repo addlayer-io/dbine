@@ -87,9 +87,10 @@ jobs:
             echo "dry_run=${DRY:-false}"
           } >> "$GITHUB_OUTPUT"
 
+      # The workflow's own commit: its scripts (packaging/) and the shared
+      # wording (flatpak/metainfo) may be newer than the tag being sent,
+      # which only provides the release assets.
       - uses: actions/checkout@v4
-        with:
-          ref: refs/tags/${{ steps.tag.outputs.tag }}
 
       - uses: actions/setup-python@v5
         with:
