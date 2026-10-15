@@ -4,6 +4,7 @@
 
 ### New
 - **Flathub:** DBine is being prepared for Flathub (`io.addlayer.dbine`). That build includes every driver, DuckDB and the AI assistant's engine, so nothing is downloaded on first use, and Flatpak keeps it updated instead of DBine. Inside the sandbox, the Azure firewall action explains that it can't use the Azure CLI and offers the portal, T-SQL or a terminal, and scheduled tasks are saved but can't be registered with the system scheduler.
+- **winget and the AUR:** DBine is being prepared for winget on Windows (`AddLayer.DBine`) and for the Arch User Repository on Arch Linux (`dbine-bin`). Once they're published, each new version reaches both by itself. Installed with winget, DBine still updates itself as before; installed from the AUR, you update it with your AUR helper.
 
 ### Improvements
 - **New app identifier:** DBine is now `io.addlayer.dbine`. On the first start after updating, your connections, saved passwords, open tabs, assistant chats, settings and scheduled tasks are copied over by themselves; the previous version's data is left as it was, so going back to it loses nothing. On Windows and Linux a large AI model may be downloaded again. On macOS the keychain may ask once for access, and some privacy permissions (such as local network access) may be asked again; on Windows, a taskbar pin made with an older version may need pinning again.
