@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settings';
 import { updateOffer } from '../composables/updates';
 
-// "Apoyá el proyecto": voluntary support through GitHub Sponsors, not a
+// "Apoyá el proyecto": voluntary support through Buy Me a Coffee, not a
 // license (nothing in the app depends on it, and the app can't see who
 // supports it). One reminder: a little after the app is first opened, then
 // once a month, whatever the person answers.

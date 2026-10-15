@@ -28,9 +28,9 @@ pub async fn set_setting(state: State<'_, AppState>, args: SetSettingArgs) -> Co
     Ok(state.store.set_setting(&args.key, args.value.as_ref().filter(|v| !v.is_null()))?)
 }
 
-/// Where "Apoyar el proyecto" goes (GitHub Sponsors). Voluntary support:
-/// nothing in the app depends on it.
-pub const SUPPORT_URL: &str = "https://github.com/sponsors/addlayer-io";
+/// Where "Apoyar el proyecto" goes (Buy Me a Coffee, while GitHub Sponsors
+/// is pending approval). Voluntary support: nothing in the app depends on it.
+pub const SUPPORT_URL: &str = "https://buymeacoffee.com/addlayer";
 
 /// Open the support page in the browser. The URL is fixed: the web side
 /// can't open arbitrary links through this.
