@@ -5,6 +5,7 @@ mod devtools;
 #[cfg(target_os = "macos")]
 mod dock_macos;
 mod error;
+mod identifier;
 #[cfg(windows)]
 mod jumplist_windows;
 mod lint;
@@ -89,10 +90,22 @@ fn append_app_log_raw(line: &str) {
 pub fn run() {
     // Before any driver opens a TLS connection (see Cargo.toml).
     let _ = rustls::crypto::ring::default_provider().install_default();
+    let context = tauri::generate_context!();
+    // The folders named after the old identifier move before Tauri or a
+    // webview creates the new ones (identifier.rs). Only the real app's:
+    // a test instance (its own identifier) leaves them alone.
+    let migrate = context.config().identifier == identifier::NEW_ID;
     // Started by the OS scheduler: run the task with no window and exit,
     // before anything of the app starts (tasks/headless.rs).
     if let Some(id) = tasks::headless::requested() {
+        if migrate {
+            identifier::run(std::time::Duration::ZERO, false);
+        }
         std::process::exit(tasks::headless::run(&id));
+    }
+    if migrate {
+        // Waits for the old version to close after an update's relaunch.
+        identifier::run(std::time::Duration::from_secs(20), true);
     }
     let builder = tauri::Builder::default();
     // First: a second launch (Jump List task, desktop action, a second
@@ -124,7 +137,12 @@ pub fn run() {
         )
         .setup(|app| {
             // 1. Where state + logs live (same directory).
-            let dir = app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir().join("dbine"));
+            //    The old identifier's while its migration is deferred.
+            let deferred = identifier::state_dirs_now().filter(|_| identifier::on_old_dirs());
+            let dir = match &deferred {
+                Some((config, _)) => config.clone(),
+                None => app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir().join("dbine")),
+            };
             let _ = std::fs::create_dir_all(&dir);
             let state_path = dir.join("dbine-state.sqlite");
             // Connection secrets: encrypted file next to the state, its key in the keychain.
@@ -160,6 +178,7 @@ pub fn run() {
             }));
 
             tracing::info!(?state_path, ?logs_dir, "starting dbine");
+            identifier::log_report();
 
             // 4. State store.
             let store = StateStore::open(&state_path).expect("open state store");
@@ -196,7 +215,10 @@ pub fn run() {
             app.manage(commands::projects::UnsavedRegistry::default());
             sync::start(app.handle().clone());
             // 6. AI assistant; the built-in model's files go in `models/`.
-            let data_dir = app.path().app_data_dir().unwrap_or_else(|_| dir.clone());
+            let data_dir = match &deferred {
+                Some((_, data)) => data.clone(),
+                None => app.path().app_data_dir().unwrap_or_else(|_| dir.clone()),
+            };
             app.manage(commands::ai::AiRuntime::new(data_dir.join("models")));
             // Migrations: the bulk transfer engine's state next to the app's
             // (runs cut by the last exit become resumable).
@@ -494,7 +516,7 @@ pub fn run() {
             commands::ai::ai_start_ollama,
             commands::ai::ai_pull_ollama,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error building tauri app")
         .run(|app, event| {
             // The last window went away without the UI's quit guard: the

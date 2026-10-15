@@ -56,6 +56,42 @@ Cases where it does not update itself and offers the release page:
   been uploaded yet. In those cases, and on any error reading it, DBine
   queries the latest version on GitHub as before and offers its page.
 
+## When the app identifier changes
+
+The identifier changed from `com.addlayer.dbine` to `io.addlayer.dbine`
+(what moves, and how: [identifier-migration.md](identifier-migration.md)). The
+update itself is not affected:
+
+- **macOS:** the updater replaces `DBine.app` in place after checking the
+  package's minisign signature; it never compares bundle identifiers. The
+  relaunched app has the new bundle identifier and moves the folders before
+  its window opens. What macOS keys on the bundle identifier or the code
+  signature may ask once more:
+  - **Keychain:** the item `com.addlayer.dbine` was created by the old app, so
+    reading it asks for access once, as after every update while DBine is
+    signed ad hoc (its code requirement changes with each build). DBine then
+    writes it under `io.addlayer.dbine`, created by the new app, and deletes
+    the old one. With "Always Allow" the delete asks nothing more; if it
+    fails, the old item stays unused.
+  - **Privacy permissions (TCC)** are kept per bundle identifier: local
+    network access, and the Documents, Desktop or Downloads folders, may be
+    asked again. Full Disk Access, if the user granted it by hand, has to be
+    granted again for the new entry. Notifications don't change: DBine shows
+    them through `osascript`.
+  - Re-registering the scheduled tasks under the new label may show the
+    system's "Background item added" notice.
+- **Windows:** the NSIS installer keys on the product name
+  (`Software\Microsoft\Windows\CurrentVersion\Uninstall\DBine`, installed in
+  `…\DBine`), and the MSI upgrade code comes from the product name too, so
+  the update installs in place. The AppUserModelID changes, which only
+  re-groups the taskbar button (an older pin may need pinning again). The
+  single-instance lock is named after the identifier, so the old and new
+  versions don't see each other; the installer closes the old one before it
+  runs, so they never overlap.
+- **Linux:** the AppImage is rewritten in place; the `.deb`/`.rpm` package
+  name and the `.desktop` file come from the product name. The
+  single-instance D-Bus name follows the identifier, as on Windows.
+
 ## How it works
 
 - The `tauri-plugin-updater` plugin (pinned to 2.12: 2.13 requires tauri
@@ -216,7 +252,7 @@ In development builds (`debug_assertions`), and only in them:
 An end-to-end test on macOS:
 
 1. Two `cargo tauri build --debug --bundles app` builds with another
-   `identifier` (for example `com.addlayer.dbine.updtest`): one with
+   `identifier` (for example `io.addlayer.dbine.updtest`): one with
    `"version": "0.1.3"` and another with the new version and
    `--config src-tauri/tauri.updater.conf.json`, signed with the test key.
 2. Copy the old one to a temporary folder (not to `/Applications`) and serve

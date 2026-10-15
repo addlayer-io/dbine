@@ -19,7 +19,45 @@ use std::path::{Path, PathBuf};
 #[cfg(not(windows))]
 use std::process::Command;
 
-pub const LABEL_PREFIX: &str = "com.addlayer.dbine.task.";
+pub const LABEL_PREFIX: &str = "io.addlayer.dbine.task.";
+/// The LaunchAgents' label before the identifier changed (up to 0.1.11).
+/// Windows (`DBine\task-<id>`) and Linux (`dbine-task-<id>`) never carried
+/// the identifier.
+pub const OLD_LABEL_PREFIX: &str = "com.addlayer.dbine.task.";
+
+/// The task ids with a LaunchAgent under the old label in `dir`.
+pub fn old_label_ids(dir: &Path) -> Vec<String> {
+    let mut ids: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.strip_prefix(OLD_LABEL_PREFIX)?.strip_suffix(".plist").filter(|id| !id.is_empty()).map(str::to_string)
+        })
+        .collect();
+    ids.sort();
+    ids
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum LabelMove {
+    /// An enabled task: register it under the new label, then remove the old.
+    Register(String),
+    /// A task deleted or disabled: only remove the old one.
+    Remove(String),
+}
+
+/// What to do with each LaunchAgent under the old label.
+pub fn plan_label_moves(old_ids: &[String], tasks: &[ScheduledTask]) -> Vec<LabelMove> {
+    old_ids
+        .iter()
+        .map(|id| match tasks.iter().find(|t| &t.id == id) {
+            Some(t) if t.enabled => LabelMove::Register(id.clone()),
+            _ => LabelMove::Remove(id.clone()),
+        })
+        .collect()
+}
 
 fn hm(time: &str) -> (u32, u32) {
     let (h, m) = time.trim().split_once(':').unwrap_or(("0", "0"));
@@ -238,12 +276,66 @@ fn register(task: &ScheduledTask, exe: &Path) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 pub fn unregister(task_id: &str) -> Result<(), String> {
+    // One left under the old label too, so nothing keeps running it.
+    unregister_label(OLD_LABEL_PREFIX, task_id)?;
+    unregister_label(LABEL_PREFIX, task_id)
+}
+
+#[cfg(target_os = "macos")]
+fn unregister_label(prefix: &str, task_id: &str) -> Result<(), String> {
     let domain = gui_domain()?;
-    let _ = run(Command::new("/bin/launchctl").args(["bootout", &format!("{domain}/{LABEL_PREFIX}{task_id}")]));
-    match std::fs::remove_file(agent_path(task_id)?) {
+    let home = std::env::var_os("HOME").ok_or("sin carpeta de usuario")?;
+    let path = PathBuf::from(home).join("Library/LaunchAgents").join(format!("{prefix}{task_id}.plist"));
+    if prefix == OLD_LABEL_PREFIX && !path.exists() {
+        return Ok(());
+    }
+    let _ = run(Command::new("/bin/launchctl").args(["bootout", &format!("{domain}/{prefix}{task_id}")]));
+    match std::fs::remove_file(path) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
         _ => Ok(()),
     }
+}
+
+/// The LaunchAgents registered under the old label move to the new one: an
+/// enabled task is registered anew first and its old entry removed only
+/// then (so it never runs twice, and is never left unscheduled); one of a
+/// deleted or disabled task is removed. Returns the ids registered anew.
+/// Idempotent: with no old entry left it does nothing.
+#[cfg(target_os = "macos")]
+pub fn migrate_old_labels(tasks: &[ScheduledTask]) -> Vec<String> {
+    let Some(home) = std::env::var_os("HOME") else { return Vec::new() };
+    let ids = old_label_ids(&PathBuf::from(home).join("Library/LaunchAgents"));
+    let mut registered = Vec::new();
+    for step in plan_label_moves(&ids, tasks) {
+        match step {
+            LabelMove::Register(id) => {
+                let Some(task) = tasks.iter().find(|t| t.id == id) else { continue };
+                match executable().and_then(|exe| register(task, &exe)) {
+                    Ok(()) => {
+                        registered.push(id.clone());
+                        match unregister_label(OLD_LABEL_PREFIX, &id) {
+                            Ok(()) => tracing::info!(task = %id, "scheduled task moved to the new identifier's label"),
+                            Err(e) => tracing::warn!(task = %id, "scheduled task: the old label's entry stays: {e}"),
+                        }
+                    }
+                    // The old entry still runs it: retried next start.
+                    Err(e) => tracing::warn!(task = %id, "scheduled task not moved to the new label: {e}"),
+                }
+            }
+            LabelMove::Remove(id) => {
+                if let Err(e) = unregister_label(OLD_LABEL_PREFIX, &id) {
+                    tracing::warn!(task = %id, "scheduled task: the old label's entry stays: {e}");
+                }
+            }
+        }
+    }
+    registered
+}
+
+/// Only macOS's entries carried the identifier.
+#[cfg(not(target_os = "macos"))]
+pub fn migrate_old_labels(_tasks: &[ScheduledTask]) -> Vec<String> {
+    Vec::new()
 }
 
 #[cfg(target_os = "macos")]
@@ -379,12 +471,30 @@ mod tests {
     #[test]
     fn launchd() {
         let p = launchd_plist("t1", &exe(), &Schedule::Weekly { days: vec![1, 7], time: "08:05".into() });
-        assert!(p.contains("<string>com.addlayer.dbine.task.t1</string>"));
+        assert!(p.contains("<string>io.addlayer.dbine.task.t1</string>"));
         assert!(p.contains("<key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>5</integer>"));
         assert!(p.contains("<key>Weekday</key><integer>0</integer>"));
         assert!(p.contains("<string>--run-task</string><string>t1</string>"));
         let p = launchd_plist("t1", &exe(), &Schedule::Interval { minutes: 15 });
         assert!(p.contains("<key>StartInterval</key><integer>900</integer>"));
+    }
+
+    #[test]
+    fn old_labels_move() {
+        let dir = std::env::temp_dir().join(format!("dbine-agents-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["com.addlayer.dbine.task.a.plist", "com.addlayer.dbine.task.b.plist", "com.addlayer.dbine.task.c.plist", "io.addlayer.dbine.task.a.plist", "com.other.plist", "com.addlayer.dbine.task..plist"] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let ids = old_label_ids(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(ids, ["a", "b", "c"]);
+        let task = |id: &str, enabled: bool| ScheduledTask { id: id.into(), enabled, ..Default::default() };
+        // a enabled, b disabled, c deleted.
+        let plan = plan_label_moves(&ids, &[task("a", true), task("b", false)]);
+        assert_eq!(plan, [LabelMove::Register("a".into()), LabelMove::Remove("b".into()), LabelMove::Remove("c".into())]);
+        // Nothing left under the old label: nothing to do.
+        assert!(plan_label_moves(&[], &[task("a", true)]).is_empty());
     }
 
     #[test]
@@ -438,5 +548,40 @@ mod os_live {
         assert!(!is_registered(&task.id));
         let listed = std::process::Command::new("/bin/launchctl").arg("list").output().unwrap();
         assert!(!String::from_utf8_lossy(&listed.stdout).contains(&task.id));
+    }
+
+    /// An entry under the old label (as 0.1.11 registered it) moves to the
+    /// new one: `DBINE_ALLOW_DEV_SCHEDULE=1 cargo test -p dbine --lib old_label_moves_live -- --ignored`.
+    #[test]
+    #[ignore]
+    fn old_label_moves_live() {
+        let task = ScheduledTask {
+            id: format!("live-mig-{}", std::process::id()),
+            name: "live".into(),
+            enabled: true,
+            schedule: Schedule::Monthly { day: 28, time: "03:00".into() },
+            ..Default::default()
+        };
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        let old = home.join("Library/LaunchAgents").join(format!("{OLD_LABEL_PREFIX}{}.plist", task.id));
+        let plist = launchd_plist(&task.id, &executable().unwrap(), &task.schedule).replace(LABEL_PREFIX, OLD_LABEL_PREFIX);
+        std::fs::write(&old, plist).unwrap();
+        let domain = gui_domain().unwrap();
+        run(Command::new("/bin/launchctl").arg("bootstrap").arg(&domain).arg(&old)).unwrap();
+        let listed = || String::from_utf8_lossy(&std::process::Command::new("/bin/launchctl").arg("list").output().unwrap().stdout).into_owned();
+        assert!(listed().contains(&format!("{OLD_LABEL_PREFIX}{}", task.id)));
+
+        assert_eq!(migrate_old_labels(std::slice::from_ref(&task)), [task.id.clone()]);
+        assert!(!old.exists());
+        assert!(is_registered(&task.id));
+        let now = listed();
+        assert!(!now.contains(&format!("{OLD_LABEL_PREFIX}{}", task.id)));
+        assert!(now.contains(&format!("{LABEL_PREFIX}{}", task.id)));
+        // Again: nothing left to move.
+        assert!(migrate_old_labels(std::slice::from_ref(&task)).is_empty());
+
+        unregister(&task.id).unwrap();
+        assert!(!is_registered(&task.id));
+        assert!(!listed().contains(&task.id));
     }
 }

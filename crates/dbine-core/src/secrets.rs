@@ -15,6 +15,14 @@
 //!
 //! Without a vault path (tests, tools) secrets go straight to the keychain,
 //! one item per name, as before.
+//!
+//! The keychain service was the app's old identifier, `com.addlayer.dbine`,
+//! up to 0.1.11. An item not found under the current service is looked up
+//! under the old one; when it's there it is written under the current one
+//! and deleted from the old only after that write succeeds. A read of the
+//! old item that fails (a macOS prompt denied) leaves it untouched and
+//! writes nothing: the next start tries again. No migration when
+//! `DBINE_KEYCHAIN_SERVICE` is set (a test instance).
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
@@ -26,7 +34,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-const SERVICE: &str = "com.addlayer.dbine";
+const SERVICE: &str = "io.addlayer.dbine";
+/// The service (and the app's identifier) up to 0.1.11.
+const OLD_SERVICE: &str = "com.addlayer.dbine";
 /// The keychain item holding the vault's key.
 const KEY_ITEM: &str = "vault-key";
 const AAD: &[u8] = b"dbine-secrets-v1";
@@ -38,6 +48,12 @@ fn service() -> &'static str {
     S.get_or_init(|| std::env::var("DBINE_KEYCHAIN_SERVICE").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| SERVICE.to_string()))
 }
 
+/// Where items of an older version may still be: none with an override.
+fn legacy_service() -> Option<&'static str> {
+    let overridden = std::env::var("DBINE_KEYCHAIN_SERVICE").ok().is_some_and(|s| !s.is_empty());
+    (!overridden).then_some(OLD_SERVICE)
+}
+
 pub type Secrets = BTreeMap<String, String>;
 
 fn secrets_err(e: impl std::fmt::Display) -> Error {
@@ -46,27 +62,94 @@ fn secrets_err(e: impl std::fmt::Display) -> Error {
 
 // ---- Keychain (one item per name) ----------------------------------------
 
-fn entry(name: &str) -> Result<keyring::Entry> {
-    keyring::Entry::new(service(), name).map_err(secrets_err)
+/// The OS keychain, by service and name (a trait so the migration between
+/// services is tested without one).
+trait Keychain {
+    fn get(&self, service: &str, name: &str) -> Result<Option<String>>;
+    fn set(&self, service: &str, name: &str, value: &str) -> Result<()>;
+    fn delete(&self, service: &str, name: &str) -> Result<()>;
+}
+
+struct OsKeychain;
+
+impl Keychain for OsKeychain {
+    fn get(&self, service: &str, name: &str) -> Result<Option<String>> {
+        match keyring::Entry::new(service, name).map_err(secrets_err)?.get_password() {
+            Ok(v) => Ok(Some(v)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(secrets_err(e)),
+        }
+    }
+
+    fn set(&self, service: &str, name: &str, value: &str) -> Result<()> {
+        keyring::Entry::new(service, name).map_err(secrets_err)?.set_password(value).map_err(secrets_err)
+    }
+
+    fn delete(&self, service: &str, name: &str) -> Result<()> {
+        match keyring::Entry::new(service, name).map_err(secrets_err)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(secrets_err(e)),
+        }
+    }
+}
+
+/// Read `name` under `service`, moving it from `legacy` when only there.
+fn get_moving(kc: &dyn Keychain, service: &str, legacy: Option<&str>, name: &str) -> Result<Option<String>> {
+    if let Some(v) = kc.get(service, name)? {
+        return Ok(Some(v));
+    }
+    let Some(legacy) = legacy.filter(|l| *l != service) else { return Ok(None) };
+    // A failed read (denied) returns here: the old item stays, nothing is written.
+    let Some(v) = kc.get(legacy, name)? else { return Ok(None) };
+    kc.set(service, name, &v)?;
+    // The value is safe under the new service; an old copy left behind
+    // (the delete failed) is never read again: the new one is found first.
+    let _ = kc.delete(legacy, name);
+    Ok(Some(v))
+}
+
+/// Delete `name` under both services, so an old copy never comes back.
+fn delete_both(kc: &dyn Keychain, service: &str, legacy: Option<&str>, name: &str) -> Result<()> {
+    kc.delete(service, name)?;
+    match legacy.filter(|l| *l != service) {
+        Some(l) => kc.delete(l, name),
+        None => Ok(()),
+    }
 }
 
 fn keychain_get(name: &str) -> Result<Option<String>> {
-    match entry(name)?.get_password() {
-        Ok(v) => Ok(Some(v)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(secrets_err(e)),
-    }
+    get_moving(&OsKeychain, service(), legacy_service(), name)
 }
 
 fn keychain_set(name: &str, value: &str) -> Result<()> {
-    entry(name)?.set_password(value).map_err(secrets_err)
+    OsKeychain.set(service(), name, value)
 }
 
 fn keychain_delete(name: &str) -> Result<()> {
-    match entry(name)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(secrets_err(e)),
+    delete_both(&OsKeychain, service(), legacy_service(), name)
+}
+
+/// The app's own vault names carried its identifier (the cloud backup's
+/// `com.addlayer.dbine.sync.passphrase` and tokens): the current name of
+/// an old one, or `None`.
+fn renamed(name: &str) -> Option<String> {
+    name.strip_prefix(OLD_SERVICE).filter(|rest| rest.starts_with('.')).map(|rest| format!("{SERVICE}{rest}"))
+}
+
+/// The old name of a current one (`renamed`'s inverse).
+fn old_name(name: &str) -> Option<String> {
+    name.strip_prefix(SERVICE).filter(|rest| rest.starts_with('.')).map(|rest| format!("{OLD_SERVICE}{rest}"))
+}
+
+/// Give the vault's old names their current one (an existing current one
+/// wins). Whether anything changed.
+fn rename_old_names(values: &mut BTreeMap<String, String>) -> bool {
+    let old: Vec<String> = values.keys().filter(|k| renamed(k).is_some()).cloned().collect();
+    for k in &old {
+        let v = values.remove(k).expect("listed");
+        values.entry(renamed(k).expect("listed")).or_insert(v);
     }
+    !old.is_empty()
 }
 
 // ---- Vault file ------------------------------------------------------------
@@ -130,8 +213,15 @@ impl Vault {
         if let Some(key) = stored {
             match std::fs::read(&path) {
                 Ok(bytes) => {
-                    if let Ok(values) = open(&key, &bytes) {
-                        return Ok(Self { path, key, values, checked: HashSet::new() });
+                    if let Ok(mut values) = open(&key, &bytes) {
+                        let vault = if rename_old_names(&mut values) {
+                            let v = Self { path, key, values, checked: HashSet::new() };
+                            v.save()?;
+                            v
+                        } else {
+                            Self { path, key, values, checked: HashSet::new() }
+                        };
+                        return Ok(vault);
                     }
                     set_aside(&path);
                 }
@@ -162,15 +252,21 @@ impl Vault {
         if self.checked.contains(name) {
             return Ok(None);
         }
-        // An item from before the vault: move it in.
-        let old = keychain_get(name)?;
-        self.checked.insert(name.to_string());
-        if let Some(v) = &old {
-            self.values.insert(name.to_string(), v.clone());
-            self.save()?;
-            let _ = keychain_delete(name);
+        // An item from before the vault: move it in (under its old name
+        // too, when the name carried the old identifier).
+        let mut found = None;
+        for item in std::iter::once(name.to_string()).chain(old_name(name)) {
+            if let Some(v) = keychain_get(&item)? {
+                found = Some((item, v));
+                break;
+            }
         }
-        Ok(old)
+        self.checked.insert(name.to_string());
+        let Some((item, v)) = found else { return Ok(None) };
+        self.values.insert(name.to_string(), v.clone());
+        self.save()?;
+        let _ = keychain_delete(&item);
+        Ok(Some(v))
     }
 
     fn set(&mut self, name: &str, value: &str) -> Result<()> {
@@ -192,6 +288,9 @@ impl Vault {
     fn forget_old(&mut self, name: &str) {
         if self.checked.insert(name.to_string()) {
             let _ = keychain_delete(name);
+            if let Some(old) = old_name(name) {
+                let _ = keychain_delete(&old);
+            }
         }
     }
 }
@@ -289,7 +388,7 @@ mod tests {
     #[test]
     #[ignore]
     fn vault_with_keychain() {
-        std::env::set_var("DBINE_KEYCHAIN_SERVICE", "com.addlayer.dbine.vault-test");
+        std::env::set_var("DBINE_KEYCHAIN_SERVICE", "io.addlayer.dbine.vault-test");
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.vault");
         let _ = keychain_delete(KEY_ITEM);
@@ -314,6 +413,147 @@ mod tests {
         assert!(v.values.is_empty());
         assert!(std::fs::read_dir(dir.path()).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains("unreadable")));
         keychain_delete(KEY_ITEM).unwrap();
+    }
+
+    /// An in-memory keychain; `deny` makes reads under a service fail (a
+    /// macOS prompt the user denied), `fail_set` makes writes fail.
+    #[derive(Default)]
+    struct Mock {
+        items: std::cell::RefCell<BTreeMap<(String, String), String>>,
+        deny: Option<&'static str>,
+        fail_set: bool,
+    }
+
+    impl Mock {
+        fn with(items: &[(&str, &str, &str)]) -> Self {
+            let m = Mock::default();
+            for (s, n, v) in items {
+                m.items.borrow_mut().insert((s.to_string(), n.to_string()), v.to_string());
+            }
+            m
+        }
+        fn has(&self, service: &str, name: &str) -> bool {
+            self.items.borrow().contains_key(&(service.to_string(), name.to_string()))
+        }
+    }
+
+    impl Keychain for Mock {
+        fn get(&self, service: &str, name: &str) -> Result<Option<String>> {
+            if self.deny == Some(service) {
+                return Err(secrets_err("denied"));
+            }
+            Ok(self.items.borrow().get(&(service.to_string(), name.to_string())).cloned())
+        }
+        fn set(&self, service: &str, name: &str, value: &str) -> Result<()> {
+            if self.fail_set {
+                return Err(secrets_err("write failed"));
+            }
+            self.items.borrow_mut().insert((service.to_string(), name.to_string()), value.to_string());
+            Ok(())
+        }
+        fn delete(&self, service: &str, name: &str) -> Result<()> {
+            self.items.borrow_mut().remove(&(service.to_string(), name.to_string()));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn old_service_item_moves_once() {
+        let kc = Mock::with(&[(OLD_SERVICE, KEY_ITEM, "k"), (OLD_SERVICE, "conn-1", "p")]);
+        for name in [KEY_ITEM, "conn-1"] {
+            let v = get_moving(&kc, SERVICE, Some(OLD_SERVICE), name).unwrap();
+            assert!(v.is_some());
+            assert!(kc.has(SERVICE, name));
+            assert!(!kc.has(OLD_SERVICE, name));
+        }
+        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).unwrap().as_deref(), Some("k"));
+        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), "missing").unwrap(), None);
+    }
+
+    #[test]
+    fn current_service_wins() {
+        let kc = Mock::with(&[(SERVICE, "n", "new"), (OLD_SERVICE, "n", "old")]);
+        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), "n").unwrap().as_deref(), Some("new"));
+        assert!(kc.has(OLD_SERVICE, "n"));
+    }
+
+    #[test]
+    fn denied_old_read_keeps_it_and_writes_nothing() {
+        let mut kc = Mock::with(&[(OLD_SERVICE, KEY_ITEM, "k")]);
+        kc.deny = Some(OLD_SERVICE);
+        assert!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).is_err());
+        assert!(!kc.has(SERVICE, KEY_ITEM));
+        // Allowed on the next start.
+        kc.deny = None;
+        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).unwrap().as_deref(), Some("k"));
+        assert!(!kc.has(OLD_SERVICE, KEY_ITEM));
+    }
+
+    #[test]
+    fn failed_write_keeps_the_old_item() {
+        let mut kc = Mock::with(&[(OLD_SERVICE, KEY_ITEM, "k")]);
+        kc.fail_set = true;
+        assert!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).is_err());
+        assert!(kc.has(OLD_SERVICE, KEY_ITEM));
+        assert!(!kc.has(SERVICE, KEY_ITEM));
+    }
+
+    #[test]
+    fn no_migration_with_an_override() {
+        // `legacy_service()` is `None` under DBINE_KEYCHAIN_SERVICE.
+        let kc = Mock::with(&[(OLD_SERVICE, KEY_ITEM, "k")]);
+        assert_eq!(get_moving(&kc, "io.addlayer.dbine.e2etest", None, KEY_ITEM).unwrap(), None);
+        assert!(kc.has(OLD_SERVICE, KEY_ITEM));
+        assert!(!kc.has("io.addlayer.dbine.e2etest", KEY_ITEM));
+    }
+
+    #[test]
+    fn delete_removes_both() {
+        let kc = Mock::with(&[(SERVICE, "n", "a"), (OLD_SERVICE, "n", "b")]);
+        delete_both(&kc, SERVICE, Some(OLD_SERVICE), "n").unwrap();
+        assert!(!kc.has(SERVICE, "n") && !kc.has(OLD_SERVICE, "n"));
+        // A deleted secret doesn't come back from the old service.
+        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), "n").unwrap(), None);
+    }
+
+    #[test]
+    fn vault_names_with_the_old_identifier_are_renamed() {
+        let mut values = BTreeMap::from([
+            ("com.addlayer.dbine.sync.passphrase".to_string(), "frase".to_string()),
+            ("com.addlayer.dbine.sync.token.gdrive".to_string(), "t-old".to_string()),
+            ("io.addlayer.dbine.sync.token.gdrive".to_string(), "t-new".to_string()),
+            ("com.addlayer.dbine.e2etest.sync.passphrase".to_string(), "e2e".to_string()),
+            ("c1".to_string(), "conn".to_string()),
+            ("smtp-password".to_string(), "mail".to_string()),
+        ]);
+        assert!(rename_old_names(&mut values));
+        assert_eq!(values["io.addlayer.dbine.sync.passphrase"], "frase");
+        assert_eq!(values["io.addlayer.dbine.sync.token.gdrive"], "t-new");
+        assert_eq!(values["io.addlayer.dbine.e2etest.sync.passphrase"], "e2e");
+        assert_eq!(values["c1"], "conn");
+        assert_eq!(values["smtp-password"], "mail");
+        assert!(!values.keys().any(|k| k.starts_with("com.")));
+        assert!(!rename_old_names(&mut values));
+        assert_eq!(old_name("io.addlayer.dbine.sync.passphrase").as_deref(), Some("com.addlayer.dbine.sync.passphrase"));
+        assert_eq!(old_name("c1"), None);
+        assert_eq!(renamed("com.addlayer.dbinex"), None);
+    }
+
+    /// The move between services against the real keychain, with test
+    /// services: `cargo test -p dbine-core service_move_with_keychain -- --ignored`.
+    #[test]
+    #[ignore]
+    fn service_move_with_keychain() {
+        let (old, new) = ("io.addlayer.dbine.migtest-old", "io.addlayer.dbine.migtest-new");
+        let kc = OsKeychain;
+        let _ = kc.delete(new, KEY_ITEM);
+        kc.set(old, KEY_ITEM, "clave").unwrap();
+        assert_eq!(get_moving(&kc, new, Some(old), KEY_ITEM).unwrap().as_deref(), Some("clave"));
+        assert_eq!(kc.get(old, KEY_ITEM).unwrap(), None);
+        assert_eq!(kc.get(new, KEY_ITEM).unwrap().as_deref(), Some("clave"));
+        assert_eq!(get_moving(&kc, new, Some(old), KEY_ITEM).unwrap().as_deref(), Some("clave"));
+        delete_both(&kc, new, Some(old), KEY_ITEM).unwrap();
+        assert_eq!(get_moving(&kc, new, Some(old), KEY_ITEM).unwrap(), None);
     }
 
     #[test]

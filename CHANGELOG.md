@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Improvements
+- **New app identifier:** DBine is now `io.addlayer.dbine`. On the first start after updating, your connections, saved passwords, open tabs, assistant chats, settings and scheduled tasks move over by themselves. On macOS the keychain may ask once for access, and some privacy permissions (such as local network access) may be asked again; on Windows, a taskbar pin made with an older version may need pinning again.
+
 ## [0.1.11] - 2026-10-13
 
 ### New

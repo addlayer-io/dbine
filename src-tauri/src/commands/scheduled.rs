@@ -201,7 +201,9 @@ pub async fn scheduled_task_runs(state: State<'_, AppState>, args: RunsArgs) -> 
 #[cfg_attr(debug_assertions, allow(dead_code))]
 pub fn resync_all(state: &AppState) {
     let Ok(list) = state.store.list_tasks() else { return };
-    for task in list.iter().filter(|t| t.enabled) {
+    // Entries under the old identifier's label (macOS) move first.
+    let moved = tasks::os::migrate_old_labels(&list);
+    for task in list.iter().filter(|t| t.enabled && !moved.contains(&t.id)) {
         if let Err(e) = tasks::os::sync(task) {
             tracing::warn!(task = %task.id, "scheduled task not registered: {e}");
         }
