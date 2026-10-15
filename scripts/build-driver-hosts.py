@@ -211,17 +211,11 @@ def main():
         if index.get("target") != target:
             sys.exit(f"el índice publicado es de {index.get('target')}, no de {target}")
 
-    # What each driver says about itself, from this code: the manifest of the
-    # versions built now. Built for the target when it runs here (CI), so the
-    # drivers compile once.
+    # The host programs run here (the manifest, the catalog check) are built
+    # for the target when it runs here (CI), so the drivers compile once.
     host_triple = re.search(r"^host: (\S+)", run(["rustc", "-vV"], capture=True), re.M).group(1)
     native = ["--target", target] if host_triple == target else []
-    native_dir = ROOT / "target" / (target if native else "") / "release"
-    # With --only, a host with just those drivers says the same about them.
-    only_features = ["--no-default-features", "--features", ",".join(sorted(only))] if only else []
-    # A shard skips it (and the checks that use it): the full run does them.
     shard = args.shard
-    manifest = [] if shard else json.loads(run(["cargo", "run", "--quiet", "-p", "dbine-plugin-host", "--release", *native, *only_features, "--", "--manifest"], capture=True))
 
     built, reused, errors, warnings, todo, skipped = [], [], [], [], [], []
     for pkg in packages:
@@ -247,9 +241,6 @@ def main():
         if not mine:
             skipped.append(f"{pkg} {version}")
             continue
-        ids = [m["info"]["id"] for m in manifest if m["package"] == pkg]
-        if not shard:
-            errors += check_new(pkg, version, entries, protocol, epoch, ids)
         declared = ((crate.get("metadata") or {}).get("dbine") or {}).get("min-app")
         try:
             declared and driver_index.version_key(declared)
@@ -257,6 +248,21 @@ def main():
             errors.append(f"- **{pkg}**: `min-app = \"{declared}\"` en [package.metadata.dbine] no es una versión.")
             declared = None
         todo.append((pkg, version, driver_id, own, shared, declared))
+
+    # What each driver to build says about itself, from this code: the
+    # manifest of the versions built now, and the checks that need it. Only
+    # when something gets built (a full host with every driver is a long
+    # build), and from a host with just those drivers: it says the same about
+    # them. A shard skips it (and the checks that use it): the full run does them.
+    manifest = []
+    if todo and not shard:
+        features = ["--no-default-features", "--features", ",".join(sorted(t[0] for t in todo))]
+        manifest = json.loads(run(["cargo", "run", "--quiet", "-p", "dbine-plugin-host", "--release", *native, *features, "--", "--manifest"], capture=True))
+        for pkg, version, _, _, _, _ in todo:
+            ids = [m["info"]["id"] for m in manifest if m["package"] == pkg]
+            errors += check_new(pkg, version, index["drivers"][pkg], protocol, epoch, ids)
+        # In package order, each package's version errors before its min-app one.
+        errors.sort(key=lambda e: (next((i for i, p in enumerate(packages) if e.startswith(f"- **{p}**")), len(packages)), "min-app" in e))
 
     if shard:
         todo, errors = todo[shard[0]::shard[1]], []
@@ -383,8 +389,9 @@ def main():
         # signed index even on a fresh install (a replayed or rolled-back one).
         min_index_seq = int(index.get("seq") or 0)
         catalog.write_text(json.dumps({"target": target, "base_url": base_url, "hosts": hosts, "drivers": drivers, "min_index_seq": min_index_seq}, ensure_ascii=False, separators=(",", ":")), "utf-8")
-        # This code must read what older drivers said about themselves.
-        run([str(native_dir / f"dbine-plugin-host{'.exe' if os.name == 'nt' else ''}"), "--check-catalog", str(catalog)])
+        # This code must read what older drivers said about themselves. The
+        # check is dbine-plugin's types only, so a host without drivers runs it.
+        run(["cargo", "run", "--quiet", "-p", "dbine-plugin-host", "--release", *native, "--no-default-features", "--", "--check-catalog", str(catalog)])
 
     lines = [f"### Drivers ({target})", "", f"Protocolo {protocol}, epoch {epoch}.", ""]
     lines += [f"- Compilados: {len(built)}" + (": " + ", ".join(f"{p} {v}" for p, v, _ in built) if built else "")]
