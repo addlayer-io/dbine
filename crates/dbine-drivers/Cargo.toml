@@ -56,7 +56,9 @@ dbine-driver-tdengine = { path = "../drivers/tdengine", optional = true }
 # Release builds: the drivers left out of the build are downloaded on first
 # use (each crate's host, see crates/dbine-plugin). Needs the catalog the
 # release workflow writes: DBINE_PLUGIN_CATALOG=<path to plugins.json>.
-plugins = ["dep:dbine-plugin", "dep:serde", "dep:serde_json", "dep:tracing"]
+# Turns on the BUILT_IN drivers (src/lib.rs, which checks it at compile
+# time), so a build without the default features still has them.
+plugins = ["dep:dbine-plugin", "dep:serde", "dep:serde_json", "dep:tracing", "sqlite"]
 default = [
     "athena",
     "bigquery",

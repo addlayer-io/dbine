@@ -213,7 +213,8 @@ path: the folder and the progress come from `dbine_driver::runtime`.
 
 In release builds, each driver crate (except those in
 `dbine_drivers::BUILT_IN`) is compiled as a separate program that the app
-downloads on use. A new crate needs its feature in
+downloads on use, and the release app doesn't compile it
+(`--no-default-features --features plugins`). A new crate needs its feature in
 `crates/dbine-plugin-host/Cargo.toml` too, and a new contract method needs
 its forwarding in `crates/dbine-plugin`. Details:
 [`on-demand-drivers.md`](on-demand-drivers.md).

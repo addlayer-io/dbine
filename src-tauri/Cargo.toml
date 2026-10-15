@@ -15,6 +15,17 @@ path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Same as the list in [dependencies], for the build tools (build scripts and
+# macros) that generate the app's code.
+bitflags = { version = "2", optional = true, features = ["std"] }
+derive_more-impl = { version = "2", optional = true, features = ["display", "from"] }
+flate2 = { version = "1", optional = true, features = ["zlib-rs"] }
+percent-encoding = { version = "2", optional = true }
+syn = { version = "2", optional = true, features = ["fold"] }
+syn-1 = { package = "syn", version = "1", optional = true }
+toml_datetime = { version = "1", optional = true }
+toml_parser = { version = "1", optional = true }
+winnow = { version = "1", optional = true }
 
 [dependencies]
 # One process-wide TLS crypto provider, installed at start: with several
@@ -26,7 +37,9 @@ tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2"
 dbine-driver = { path = "../crates/dbine-driver" }
 dbine-core = { path = "../crates/dbine-core" }
-dbine-drivers = { path = "../crates/dbine-drivers" }
+# Which drivers are compiled in is this crate's features' choice (below):
+# every one by default, only the built-in ones with `plugins`.
+dbine-drivers = { path = "../crates/dbine-drivers", default-features = false }
 dbine-tunnel = { path = "../crates/dbine-tunnel" }
 dbine-sync = { path = "../crates/dbine-sync" }
 dbine-schema = { path = "../crates/dbine-schema" }
@@ -59,6 +72,36 @@ rusqlite.workspace = true
 # and the OS's certificates, the TLS stack the rest of the app uses.
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1-rustls", "ring", "rustls-platform-verifier"] }
 
+# Release builds (`plugins`) don't compile the downloadable drivers, but
+# until then the app was built with them, and they turn on features of
+# libraries the app shares with them (serde_json keeping key order, flate2's
+# zlib, rustls' providers, once_cell's critical-section…). These turn the
+# same features on without the drivers, so the app keeps the code it had:
+# scripts/check-app-features.py fails the release if anything else differs.
+ahash = { version = "0.8", optional = true }
+flate2 = { version = "1", optional = true, features = ["zlib"] }
+hashbrown = { version = "0.17", optional = true }
+hyper-rustls = { version = "0.27", optional = true, default-features = false, features = ["native-tokio"] }
+hyper-util = { version = "0.1", optional = true, features = ["server-auto"] }
+ipnet = { version = "2", optional = true, features = ["serde"] }
+num-integer = { version = "0.1", optional = true }
+num-traits = { version = "0.2", optional = true, features = ["libm"] }
+once_cell = { version = "1", optional = true, features = ["critical-section", "portable-atomic"] }
+portable-atomic = { version = "1", optional = true }
+rustls-webpki = { version = "0.103", optional = true }
+stable_deref_trait = { version = "1", optional = true }
+time = { version = "0.3", optional = true, default-features = false, features = ["large-dates", "serde"] }
+tokio-rustls = { version = "0.26", optional = true, features = ["ring"] }
+tokio-util = { version = "0.7", optional = true, features = ["compat", "rt"] }
+tower = { version = "0.5", optional = true, default-features = false, features = ["balance", "buffer", "discover", "limit", "load", "load-shed", "ready-cache", "tracing"] }
+yoke = { version = "0.8", optional = true }
+zerocopy = { version = "0.8", optional = true, features = ["derive"] }
+zeroize = { version = "1", optional = true, features = ["derive"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Same as the list above, on Linux.
+num-bigint = { version = "0.4", optional = true }
+
 # The Dock menu's "Nueva ventana" (src/dock_macos.rs): the same versions tao
 # already uses, so nothing new is compiled in.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -83,14 +126,64 @@ windows = { version = "0.61", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
+# Same as the list in [dependencies], on Windows.
+windows-result = { version = "0.4", optional = true }
+windows-sys-0-60 = { package = "windows-sys", version = "0.60", optional = true, features = ["Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_System_Rpc"] }
+windows-sys-0-61 = { package = "windows-sys", version = "0.61", optional = true, features = ["Win32_Security_Authentication_Identity", "Win32_System_Registry"] }
 
 [features]
+# Every driver crate in the app's process: dev (`cargo tauri dev` keeps the
+# default features), tests and the Flathub build.
+default = ["all-drivers"]
+all-drivers = ["dbine-drivers/default"]
 # Release builds: only the built-in drivers (dbine_drivers::BUILT_IN) stay
-# in the app; the rest are downloaded on first use. `cargo tauri build
-# --features plugins`, with DBINE_PLUGIN_CATALOG set (scripts/build-driver-hosts.py).
-plugins = ["dbine-drivers/plugins"]
+# in the app; the rest are downloaded on first use. Built without the
+# default features, so the other driver crates aren't even compiled (with
+# them they were compiled and then left out by the linker):
+# `cargo tauri build --features plugins -- --no-default-features`, with
+# DBINE_PLUGIN_CATALOG set (scripts/build-driver-hosts.py).
+plugins = [
+    "dbine-drivers/plugins",
+    # The shared libraries' features the drivers turned on (see [dependencies]).
+    "chrono/default",
+    "getrandom/std",
+    "rustls/default",
+    "serde_json/preserve_order",
+    "tracing/log",
+    "dep:ahash",
+    "dep:flate2",
+    "dep:hashbrown",
+    "dep:hyper-rustls",
+    "dep:hyper-util",
+    "dep:ipnet",
+    "dep:num-bigint",
+    "dep:num-integer",
+    "dep:num-traits",
+    "dep:once_cell",
+    "dep:portable-atomic",
+    "dep:rustls-webpki",
+    "dep:stable_deref_trait",
+    "dep:time",
+    "dep:tokio-rustls",
+    "dep:tokio-util",
+    "dep:tower",
+    "dep:windows-result",
+    "dep:windows-sys-0-60",
+    "dep:windows-sys-0-61",
+    "dep:yoke",
+    "dep:zerocopy",
+    "dep:zeroize",
+    "dep:bitflags",
+    "dep:derive_more-impl",
+    "dep:percent-encoding",
+    "dep:syn",
+    "dep:syn-1",
+    "dep:toml_datetime",
+    "dep:toml_parser",
+    "dep:winnow",
+]
 # The Flathub build (flatpak/, docs/flathub.md): Flatpak updates the app, so
 # there are no update checks; host programs (az, systemd, cron) are outside
 # the sandbox, so the features that need them say so. Built without
 # `plugins`: every driver is inside the app.
-flatpak = []
+flatpak = ["all-drivers"]

@@ -88,6 +88,10 @@ scripts/build-driver-hosts.py aarch64-apple-darwin /tmp/hosts http://127.0.0.1:8
 DBINE_PLUGIN_CATALOG=/tmp/hosts/plugins.json cargo tauri dev --features plugins
 ```
 
+That still compiles every driver crate (the default features) and uses only
+the built-in ones; `-- --no-default-features` at the end compiles just
+those, like the release.
+
 For Windows from macOS: `CARGO_BUILD="cargo xwin build"` in front of the
 script.
 
@@ -298,16 +302,31 @@ To see it locally: `scripts/driver_index.py wire-hash` and
    builds only the drivers whose id is not published, verifies the ones that
    are reused, writes the new index and `plugins.json` (the floor), and
    checks that the app can read it (`dbine-plugin-host --check-catalog`). It
-   gives each new host its `min_app`.
+   gives each new host its `min_app`. It decides what to build before
+   compiling anything: the manifest of the new versions comes from a host
+   with just those drivers, and only when there is one to build; the catalog
+   check runs on a host without drivers (it only reads `dbine-plugin`'s
+   types). A release with no new driver version compiles no driver.
 3. On tags, it uploads the new drivers to the `drivers` release, before
    building the app, and then merges the index (`scripts/driver_index.py
    publish`: reads the one published at that moment, adds the new entries,
    signs it and uploads the index with its `.sig`). That way a published app
    never points to a driver that is not there.
-4. Builds the app with `--features plugins` and
+4. Builds the app with `--features plugins`, without the default features
+   (`cargo tauri build --features plugins -- --no-default-features`), and
    `DBINE_PLUGIN_CATALOG=driver-hosts/plugins.json`. Without the variable,
    the app still compiles but does not offer downloadable drivers (and cargo
-   warns).
+   warns). Without the default features only the `BUILT_IN` driver crates
+   are compiled; with them, the others would be compiled too and left out by
+   the linker, so the app is the same either way.
+
+   The drivers turn on features of libraries the app shares with them
+   (serde_json's key order, flate2's zlib, rustls' providers…), so the
+   `plugins` feature turns those on too (the pins in `src-tauri/Cargo.toml`).
+   Before building, `scripts/check-app-features.py <target>` checks that
+   every crate the app compiles has the same features and profile as in a
+   build with every driver; if a driver changed that, it fails and lists
+   what to add to the pins.
 5. When the four platforms finished, it prunes the `drivers` release.
 
 In manual runs, the new drivers are left as an artifact and are not
@@ -356,7 +375,13 @@ Nothing special: a new crate in `crates/drivers/` and its feature in
 The release script picks it up from there.
 
 For a driver to ship in the installer, add it to `BUILT_IN` in
-`crates/dbine-drivers/src/lib.rs`.
+`crates/dbine-drivers/src/lib.rs` and its feature to the `plugins` feature
+in `crates/dbine-drivers/Cargo.toml` (a compile-time check in `lib.rs` fails
+otherwise).
+
+If a driver turns on a feature of a library the app also uses,
+`scripts/check-app-features.py` fails the release until that feature is
+added to the pins in `src-tauri/Cargo.toml`.
 
 A new method in the contract (`Driver` or `Session`) needs its variant in
 `Call` and `Reply` (`proto.rs`), its handling in `host.rs` and its forwarding
