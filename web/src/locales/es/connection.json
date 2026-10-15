@@ -107,6 +107,7 @@
       "created": "Regla {{rule}} creada en {{server}} (grupo {{group}}) para {{ip}}. Puede tardar unos minutos en aplicarse: después, Reintentar.",
       "azMissing": "No se encontró la CLI de Azure (az) en esta máquina. Podés crear la regla de alguna de estas formas:",
       "azLoggedOut": "La CLI de Azure (az) no tiene una sesión iniciada (corré «az login» y volvé a intentar). Mientras tanto, podés crear la regla de alguna de estas formas:",
+      "azSandboxed": "La versión de Flathub de DBine no puede usar la CLI de Azure (az): el sandbox de Flatpak no tiene acceso a los programas del sistema. Podés crear la regla de alguna de estas formas:",
       "byCli": "Con la CLI de Azure (completá el grupo de recursos):",
       "byPortal": "En el portal de Azure: el servidor › Redes › Reglas de firewall › Agregar la IP del cliente.",
       "openPortal": "Abrir el portal",

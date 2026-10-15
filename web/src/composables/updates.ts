@@ -73,7 +73,9 @@ export async function checkForUpdateNow() {
   try {
     const info = await api.checkForUpdate(true, language.value);
     const { label } = await initWindowRole();
-    if (!info.available) {
+    if (info.reason === 'flatpak') {
+      ElMessage.info(t('updates:managedByFlatpak', { version: info.current }));
+    } else if (!info.available) {
       ElMessage.success(t('updates:upToDate', { version: info.current }));
     } else if (info.owner && info.owner !== label && info.phase === 'downloading') {
       ElMessage.info(t('updates:busyInWindow', { n: windowNumber(info.owner) }));

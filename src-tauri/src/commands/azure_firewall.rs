@@ -25,6 +25,11 @@ const READ_LIMIT: Duration = Duration::from_secs(60);
 const CREATE_LIMIT: Duration = Duration::from_secs(120);
 /// Subscriptions looked at when the server isn't in the current one.
 const MAX_SUBSCRIPTIONS: usize = 50;
+/// The Flathub build: the sandbox has no `az` and can't run the system's,
+/// so the rule is created from the portal, the T-SQL or a terminal.
+const SANDBOXED: bool = cfg!(feature = "flatpak");
+const AZ_SANDBOXED: &str =
+    "la versión de Flathub de DBine no puede usar la CLI de Azure (az): el sandbox de Flatpak no tiene acceso a los programas del sistema. Creá la regla desde el portal de Azure, con T-SQL o con «az» en una terminal";
 
 #[derive(Deserialize)]
 pub struct FirewallPlanArgs {
@@ -40,7 +45,8 @@ pub struct FirewallPlan {
     pub host: String,
     /// The rule to create: `DBine-<user>-<yyyymmdd>`.
     pub rule_name: String,
-    /// "ready" (installed and logged in), "missing" or "logged_out".
+    /// "ready" (installed and logged in), "missing", "logged_out" or
+    /// "sandboxed" (the Flathub build: the sandbox can't run the system's `az`).
     pub az: &'static str,
 }
 
@@ -66,6 +72,7 @@ pub struct FirewallRuleAdded {
 pub async fn azure_firewall_plan(state: State<'_, AppState>, args: FirewallPlanArgs) -> CommandResult<FirewallPlan> {
     let (host, server) = connection_server(&state, &args.connection_id)?;
     let az = match find_az() {
+        None if SANDBOXED => "sandboxed",
         None => "missing",
         Some(bin) => match run_az(&bin, &["account", "show", "--query", "id", "-o", "tsv"], READ_LIMIT).await {
             Ok(out) if out.ok => "ready",
@@ -91,7 +98,9 @@ pub async fn azure_sql_add_firewall_rule(state: State<'_, AppState>, args: AddFi
         )));
     }
     let rule_name = valid_rule_name(&args.rule_name)?;
-    let bin = find_az().ok_or_else(|| CommandError::BadRequest("no se encontró la CLI de Azure (az) en esta máquina".into()))?;
+    let bin = find_az().ok_or_else(|| {
+        CommandError::BadRequest(if SANDBOXED { AZ_SANDBOXED } else { "no se encontró la CLI de Azure (az) en esta máquina" }.into())
+    })?;
     let (found, subscription) = find_server(&bin, &host).await?;
     let mut cmd: Vec<&str> = vec![
         "sql", "server", "firewall-rule", "create", "-g", &found.resource_group, "-s", &found.name, "-n", &rule_name,
@@ -285,6 +294,9 @@ async fn find_server(bin: &Path, host: &str) -> CommandResult<(AzServer, Option<
 /// Where `az` is: on the PATH (the login shell's too) or where its
 /// installers put it.
 fn find_az() -> Option<PathBuf> {
+    if SANDBOXED {
+        return None;
+    }
     if let Some(p) = dbine_ai::env::find("az") {
         return Some(p);
     }
