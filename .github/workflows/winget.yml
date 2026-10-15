@@ -203,4 +203,14 @@ jobs:
           if [ -n "$open" ]; then
             echo "::notice::a PR for $PACKAGE_ID $VERSION is already open: $open"; exit 0
           fi
+          # komac pushes to the token owner's fork of winget-pkgs and doesn't
+          # create it: fork it the first time and wait until GitHub has it.
+          owner=$(GH_TOKEN="$GITHUB_TOKEN" gh api user -q .login)
+          if ! GH_TOKEN="$GITHUB_TOKEN" gh api "repos/$owner/winget-pkgs" -q .full_name >/dev/null 2>&1; then
+            GH_TOKEN="$GITHUB_TOKEN" gh api -X POST repos/microsoft/winget-pkgs/forks -q .full_name
+            for _ in $(seq 1 30); do
+              GH_TOKEN="$GITHUB_TOKEN" gh api "repos/$owner/winget-pkgs/branches/master" -q .name >/dev/null 2>&1 && break
+              sleep 10
+            done
+          fi
           komac submit --yes "$DIR" < /dev/null
