@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright AddLayer -->
+<component type="desktop-application">
+  <id>io.addlayer.dbine</id>
+  <name>DBine</name>
+  <summary>Manage SQL, NoSQL and analytical databases in one app</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.addlayer">
+    <name>AddLayer</name>
+  </developer>
+
+  <description>
+    <p>
+      DBine is a desktop database manager for relational, analytical, document, key-value, graph,
+      time-series and search databases. One workbench connects to PostgreSQL, SQL Server, MySQL,
+      MariaDB, SQLite, Oracle, MongoDB, Redis, Cassandra, ClickHouse, DuckDB, Snowflake, BigQuery,
+      Elasticsearch, Neo4j, InfluxDB and many more engines.
+    </p>
+    <p>Explore and query</p>
+    <ul>
+      <li>A tree per connection and database, with saved queries kept inside each database</li>
+      <li>A SQL editor with each engine's dialect, completion of tables and columns, and script execution</li>
+      <li>A fast results grid with cell editing, filters, sorting, charts and a JSON tree view</li>
+      <li>Graphical execution plans, a visual query builder and query optimization hints</li>
+      <li>Search across object names, columns and stored code, and run code on several databases at once</li>
+    </ul>
+    <p>Design and move data</p>
+    <ul>
+      <li>Table designer, ER diagrams and script generation</li>
+      <li>Compare schemas and data, then migrate, clone or sync databases between engines</li>
+      <li>Import CSV, JSON, XLSX and XML; export results in many formats; generate test data and data subsets</li>
+      <li>Rename objects with an impact analysis of everything that depends on them</li>
+    </ul>
+    <p>Administer</p>
+    <ul>
+      <li>Server monitor, live processes and a profiler of the queries clients run</li>
+      <li>Users and permissions, backups, health checks and database properties</li>
+      <li>SSH tunnels, including chains of bastions and the SSH agent</li>
+      <li>Read-only connections and production safeguards</li>
+    </ul>
+    <p>Assistant and integrations</p>
+    <ul>
+      <li>An AI assistant that writes and explains queries with a local built-in model or Ollama; it never runs anything by itself</li>
+      <li>A local MCP server so AI coding assistants can work with your connections, with every write approved in DBine</li>
+      <li>End-to-end encrypted cloud sync of connections, queries and settings to your own account</li>
+      <li>A script library and projects backed by git</li>
+    </ul>
+    <p>
+      Passwords are stored encrypted with a key kept in the system keychain, and never go into
+      the state file or the logs.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.addlayer.dbine.desktop</launchable>
+  <provides>
+    <binary>dbine</binary>
+  </provides>
+
+  <url type="homepage">https://dbine.com</url>
+  <url type="bugtracker">https://github.com/addlayer-io/dbine/issues</url>
+  <url type="vcs-browser">https://github.com/addlayer-io/dbine</url>
+  <url type="donation">https://github.com/sponsors/addlayer-io</url>
+
+  <categories>
+    <category>Development</category>
+    <category>Database</category>
+  </categories>
+  <keywords>
+    <keyword>database</keyword>
+    <keyword>SQL</keyword>
+    <keyword>NoSQL</keyword>
+    <keyword>query</keyword>
+    <keyword>PostgreSQL</keyword>
+    <keyword>MySQL</keyword>
+    <keyword>SQLite</keyword>
+    <keyword>MongoDB</keyword>
+  </keywords>
+
+  <!-- TODO(owner): replace these placeholder URLs with real screenshots
+       (PNG, 16:9, at least 1248x702, no window shadows), hosted on a stable
+       URL such as dbine.com or the repository's raw files. Flathub mirrors
+       them at build time, so they must be reachable. -->
+  <screenshots>
+    <screenshot type="default">
+      <caption>The workbench: explorer, SQL editor and results</caption>
+      <image>https://dbine.com/flathub/screenshot-workbench.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Graphical execution plan</caption>
+      <image>https://dbine.com/flathub/screenshot-plan.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Comparing two schemas</caption>
+      <image>https://dbine.com/flathub/screenshot-compare.png</image>
+    </screenshot>
+  </screenshots>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#d9c9a3</color>
+    <color type="primary" scheme_preference="dark">#1e1e1e</color>
+  </branding>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+
+  <content_rating type="oars-1.1" />
+
+  <!-- Generated from CHANGELOG.md by flatpak/render.py (latest first). -->
+  <releases>
+  </releases>
+</component>

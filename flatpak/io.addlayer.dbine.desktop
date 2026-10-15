@@ -1,0 +1,29 @@
+[Desktop Entry]
+Type=Application
+Name=DBine
+GenericName=Database Manager
+GenericName[es]=Gestor de bases de datos
+GenericName[pt]=Gerenciador de bancos de dados
+GenericName[fr]=Gestionnaire de bases de données
+GenericName[it]=Gestore di database
+Comment=Manage SQL, NoSQL and analytical databases in one app
+Comment[es]=Gestioná bases de datos SQL, NoSQL y analíticas en una sola app
+Comment[pt]=Gerencie bancos de dados SQL, NoSQL e analíticos em um só app
+Comment[fr]=Gérez vos bases de données SQL, NoSQL et analytiques dans une seule app
+Comment[it]=Gestisci database SQL, NoSQL e analitici in un'unica app
+Exec=dbine
+Icon=io.addlayer.dbine
+Terminal=false
+Categories=Development;Database;
+Keywords=database;sql;nosql;query;postgresql;mysql;sqlite;mongodb;redis;
+StartupNotify=true
+StartupWMClass=dbine
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Name[es]=Nueva ventana
+Name[pt]=Nova janela
+Name[fr]=Nouvelle fenêtre
+Name[it]=Nuova finestra
+Exec=dbine --new-window
