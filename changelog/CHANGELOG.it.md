@@ -5,6 +5,7 @@
 ### Miglioramenti
 - **Sostieni il progetto:** il pulsante a forma di cuore (**Sostieni il progetto**), il suo promemoria e **Aiuto › Sostieni il progetto** aprono Buy Me a Coffee.
 - **Script con i dati di tabelle scelte:** in **Genera script del database**, con **Dati (INSERT)** selezionato, puoi mantenere i dati di tutte le tabelle o scegliere quali li ricevono, da un elenco con filtro (**Scegli tabelle…**), così lo script può contenere la struttura dell'intero database e le righe di sole alcune tabelle.
+- **Menu del database:** **Esporta database…** è stato rimosso. Apriva la stessa finestra di **Genera script…**, che resta e fa tutto quello che faceva (struttura, dati e salvataggio su file).
 
 ## [0.1.12] - 2026-10-15
 

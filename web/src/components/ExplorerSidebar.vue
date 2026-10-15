@@ -702,7 +702,6 @@ function dbItems(cid: string, db: string, items: MenuItem[]) {
   items.push({ label: t('dataCompare:menu'), action: () => tabs.openDataCompare(cid, db, null) });
   if (d.security) items.push({ label: t('security:menu'), action: () => tabs.openSecurity(cid, db) });
   items.push({ label: t('backups:menu'), action: () => tabs.openBackups(cid, db) });
-  items.push({ label: t('explorer:menu.exportDatabase'), action: () => ui.openDbDialog('export', cid, db) });
   items.push({ label: t('explorer:menu.importData'), divided: true, action: () => ui.openDbDialog('import', cid, db) });
   items.push({ label: t('explorer:menu.runScriptFile'), action: () => ui.openDbDialog('run', cid, db) });
 }

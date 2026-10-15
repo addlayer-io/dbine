@@ -17,7 +17,6 @@
     "move": "Move"
   },
   "database": {
-    "exportTitle": "Export database · {{db}}",
     "scriptTitle": "Generate script · {{db}}",
     "scriptName": "Script of {{db}}",
     "scriptNameConverted": "Script of {{db}} (converted)",

@@ -5,6 +5,7 @@
 ### Melhorias
 - **Apoiar o projeto:** o botão de coração (**Apoiar o projeto**), seu lembrete e **Ajuda › Apoiar o projeto** abrem o Buy Me a Coffee.
 - **Script com dados de tabelas escolhidas:** em **Gerar script do banco**, com **Dados (INSERT)** marcado, você pode manter os dados de todas as tabelas ou escolher quais os recebem, a partir de uma lista com filtro (**Escolher tabelas…**), de modo que o script leve a estrutura de todo o banco e as linhas de apenas algumas tabelas.
+- **Menu do banco:** **Exportar banco…** foi removido. Abria o mesmo diálogo que **Gerar script…**, que continua e faz tudo o que fazia (estrutura, dados e salvar em um arquivo).
 
 ## [0.1.12] - 2026-10-15
 
