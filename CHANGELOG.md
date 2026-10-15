@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### New
+- **Flathub:** DBine is being prepared for Flathub (`io.addlayer.dbine`). That build includes every driver, DuckDB and the AI assistant's engine, so nothing is downloaded on first use, and Flatpak keeps it updated instead of DBine. Inside the sandbox, the Azure firewall action explains that it can't use the Azure CLI and offers the portal, T-SQL or a terminal, and scheduled tasks are saved but can't be registered with the system scheduler.
+
 ### Improvements
 - **New app identifier:** DBine is now `io.addlayer.dbine`. On the first start after updating, your connections, saved passwords, open tabs, assistant chats, settings and scheduled tasks move over by themselves. On macOS the keychain may ask once for access, and some privacy permissions (such as local network access) may be asked again; on Windows, a taskbar pin made with an older version may need pinning again.
 

@@ -1,0 +1,174 @@
+name: flathub
+
+# Prepares the Flathub manifest for a release and opens a PR on
+# github.com/flathub/io.addlayer.dbine; Flathub builds the app on its own
+# infrastructure from that repository (docs/flathub.md).
+#
+# - A release published with a personal token (`gh release create`) starts
+#   it through `release`. A release the `release` workflow publishes uses
+#   GITHUB_TOKEN, which starts no other workflow: that case comes through
+#   `workflow_run` when `release` ends well on a `v*` tag.
+# - By hand (Actions › flathub › Run workflow): pick the tag; `dry_run`
+#   (on by default) only renders and lints, and keeps the files as an
+#   artifact.
+#
+# Opening the PR needs the FLATHUB_TOKEN secret: a token of an account with
+# write access to flathub/io.addlayer.dbine (fine-grained: Contents and Pull
+# requests, read and write, on that repository). Without it the run renders,
+# lints, keeps the artifact and skips the PR with a notice.
+#
+# The cloud client IDs (docs/sync.md) are compiled into the app; Flathub
+# builds from a public manifest, so they go into it only when the repository
+# variables DBINE_GOOGLE_CLIENT_ID, DBINE_GOOGLE_CLIENT_SECRET and
+# DBINE_MICROSOFT_CLIENT_ID are set (Settings › Variables). Without them the
+# Flathub build has no Google Drive / OneDrive sync; folder sync still works.
+
+on:
+  release:
+    types: [published]
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (vX.Y.Z)"
+        required: true
+      dry_run:
+        description: "Only render and lint; keep the files as an artifact, no PR"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  # flatpak/flatpak-builder-tools has no releases: a pinned commit.
+  BUILDER_TOOLS_COMMIT: 74697c75b630d7330e77250fc13cb5ea688d9479
+  FLATHUB_REPO: flathub/io.addlayer.dbine
+  APP_ID: io.addlayer.dbine
+
+concurrency:
+  group: flathub-${{ github.event.release.tag_name || github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'release' && !github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v')) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    steps:
+      - name: Release tag
+        id: tag
+        env:
+          TAG: ${{ github.event.release.tag_name || github.event.workflow_run.head_branch || inputs.tag }}
+          DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a release tag (vX.Y.Z)"; exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${DRY:-false}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+
+      - name: Commit of the tag
+        id: commit
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: flatpak-builder-tools
+        run: |
+          git clone --quiet https://github.com/flatpak/flatpak-builder-tools "$RUNNER_TEMP/fbt"
+          git -C "$RUNNER_TEMP/fbt" checkout --quiet "$BUILDER_TOOLS_COMMIT"
+          python -m pip install --quiet aiohttp tomlkit "$RUNNER_TEMP/fbt/node"
+
+      - name: Render the manifest, the metainfo and the offline sources
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          COMMIT: ${{ steps.commit.outputs.commit }}
+          DBINE_GOOGLE_CLIENT_ID: ${{ vars.DBINE_GOOGLE_CLIENT_ID }}
+          DBINE_GOOGLE_CLIENT_SECRET: ${{ vars.DBINE_GOOGLE_CLIENT_SECRET }}
+          DBINE_MICROSOFT_CLIENT_ID: ${{ vars.DBINE_MICROSOFT_CLIENT_ID }}
+        run: |
+          out="$RUNNER_TEMP/flathub"
+          python3 flatpak/render.py --tag "$TAG" --commit "$COMMIT" --out "$out" \
+            --env "DBINE_GOOGLE_CLIENT_ID=$DBINE_GOOGLE_CLIENT_ID" \
+            --env "DBINE_GOOGLE_CLIENT_SECRET=$DBINE_GOOGLE_CLIENT_SECRET" \
+            --env "DBINE_MICROSOFT_CLIENT_ID=$DBINE_MICROSOFT_CLIENT_ID"
+          python3 "$RUNNER_TEMP/fbt/cargo/flatpak-cargo-generator.py" Cargo.lock -o "$out/cargo-sources.json"
+          flatpak-node-generator npm web/package-lock.json -o "$out/node-sources.json"
+          # Flathub's repository README and build settings ride along.
+          cp flatpak/flathub.json "$out/"
+          ls -la "$out"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flathub-${{ steps.tag.outputs.tag }}
+          path: ${{ env.OUT }}
+
+      # Flathub's own linter and AppStream validation, before anything is
+      # sent. finish-args-home-filesystem-access and
+      # finish-args-has-socket-ssh-auth need an exception that Flathub's
+      # reviewers grant on the first submission (docs/flathub.md); until it
+      # is in place they are reported and not fatal.
+      - name: Lint
+        run: |
+          docker run --rm -v "$OUT:/r:ro" ghcr.io/flathub/flatpak-builder-lint:latest \
+            manifest "/r/$APP_ID.yml" > "$RUNNER_TEMP/lint.json" || true
+          cat "$RUNNER_TEMP/lint.json"
+          python3 - "$RUNNER_TEMP/lint.json" <<'EOF'
+          import json, sys
+          text = open(sys.argv[1]).read().strip()
+          r = json.loads(text) if text else {}
+          allowed = {"finish-args-home-filesystem-access", "finish-args-has-socket-ssh-auth"}
+          bad = [e for e in r.get("errors", []) if e not in allowed]
+          for e in r.get("errors", []):
+              print(f"::{'error' if e in bad else 'warning'}::linter: {e}")
+          sys.exit(1 if bad else 0)
+          EOF
+          docker run --rm -v "$OUT:/r:ro" --entrypoint appstreamcli ghcr.io/flathub/flatpak-builder-lint:latest \
+            validate --no-net --explain "/r/$APP_ID.metainfo.xml"
+
+      - name: Pull request on Flathub
+        if: steps.tag.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.FLATHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::FLATHUB_TOKEN is not set: the files are in the artifact, no PR was opened (docs/flathub.md)"
+            exit 0
+          fi
+          branch="release-$TAG"
+          dir="$RUNNER_TEMP/flathub-repo"
+          gh repo clone "$FLATHUB_REPO" "$dir" -- --quiet
+          cd "$dir"
+          base=$(gh repo view "$FLATHUB_REPO" --json defaultBranchRef -q .defaultBranchRef.name)
+          git switch --quiet -c "$branch"
+          cp "$OUT"/* .
+          git config user.name "DBine release"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::notice::$FLATHUB_REPO already has $TAG"; exit 0
+          fi
+          git commit --quiet -m "Update to $TAG"
+          gh auth setup-git
+          git push --force --quiet origin "$branch"
+          if [ -n "$(gh pr list --repo "$FLATHUB_REPO" --head "$branch" --json number -q '.[].number')" ]; then
+            echo "::notice::the PR for $TAG was updated"
+          else
+            gh pr create --repo "$FLATHUB_REPO" --base "$base" --head "$branch" \
+              --title "Update to $TAG" \
+              --body "DBine $TAG (https://github.com/addlayer-io/dbine/releases/tag/$TAG), prepared by the flathub workflow. Flathub's test build runs on this PR; merging publishes it."
+          fi
