@@ -1,0 +1,165 @@
+name: aur
+
+# Publishes each release to the AUR (Arch User Repository) as dbine-bin:
+# the release's .deb repackaged for Arch (docs/distribution.md). The AUR
+# has no review: a push to aur.archlinux.org/dbine-bin.git publishes it,
+# and the first push creates the package.
+#
+# - A release published with a personal token (`gh release create`) starts
+#   it through `release`. A release the `release` workflow publishes uses
+#   GITHUB_TOKEN, which starts no other workflow: that case comes through
+#   `workflow_run` when `release` ends well on a `v*` tag.
+# - By hand (Actions › aur › Run workflow): pick the tag; `dry_run` (on by
+#   default) renders, builds and checks the package and keeps PKGBUILD and
+#   .SRCINFO as an artifact, without pushing. `pkgrel` republishes the same
+#   version after a packaging fix.
+#
+# Every run, dry or not, renders the PKGBUILD (packaging/aur/render.py),
+# makes .SRCINFO with makepkg, lints with namcap, builds and installs the
+# package in an Arch container and checks that /usr/bin/dbine resolves its
+# shared libraries (packaging/aur/check.sh). Only then is anything pushed.
+#
+# Pushing needs the AUR_SSH_PRIVATE_KEY secret: the private half of an SSH
+# key registered on the owner's AUR account (My Account › SSH Public Key).
+# AUR_USERNAME and AUR_EMAIL (secrets) are the commit identity and the
+# PKGBUILD's Maintainer line. Without the key the run builds, checks, keeps
+# the artifact and skips the push with a notice.
+
+on:
+  release:
+    types: [published]
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (vX.Y.Z)"
+        required: true
+      pkgrel:
+        description: "Package release (raise it to republish the same version)"
+        default: "1"
+      dry_run:
+        description: "Only render, build and check; keep PKGBUILD and .SRCINFO as an artifact, no push"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  PKGNAME: dbine-bin
+  # aur.archlinux.org's Ed25519 host key; its fingerprint
+  # SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4 is the one published
+  # on https://aur.archlinux.org.
+  AUR_HOST_KEY: aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN
+
+concurrency:
+  group: aur-${{ github.event.release.tag_name || github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  aur:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'release' && !github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v')) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    steps:
+      - name: Release tag
+        id: tag
+        env:
+          TAG: ${{ github.event.release.tag_name || github.event.workflow_run.head_branch || inputs.tag }}
+          DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          PKGREL: ${{ inputs.pkgrel || '1' }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a release tag (vX.Y.Z)"; exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "pkgrel=$PKGREL"
+            echo "dry_run=${DRY:-false}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Packages
+        run: |
+          # pacman's download sandbox can't start in some container setups;
+          # this container is thrown away after the run.
+          sed -i 's/^#DisableSandbox/DisableSandbox/' /etc/pacman.conf
+          pacman -Syu --noconfirm --needed git openssh python namcap >/dev/null
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+
+      - name: Render the PKGBUILD
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          PKGREL: ${{ steps.tag.outputs.pkgrel }}
+          AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
+          AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
+        run: |
+          deb="DBine_${VERSION}_amd64.deb"
+          mkdir -p "$RUNNER_TEMP/dl"
+          curl -fsSL -o "$RUNNER_TEMP/dl/$deb" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$deb"
+          out="$RUNNER_TEMP/aur"
+          python3 -I packaging/aur/render.py --tag "$TAG" --pkgrel "$PKGREL" \
+            --deb "$RUNNER_TEMP/dl/$deb" --out "$out" \
+            --maintainer "${AUR_USERNAME:-AddLayer} <${AUR_EMAIL:-https://github.com/addlayer-io/dbine/issues}>"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+
+      - name: Build and check
+        run: packaging/aur/check.sh "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aur-${{ steps.tag.outputs.tag }}
+          path: ${{ env.OUT }}
+          include-hidden-files: true
+
+      - name: Push to the AUR
+        if: steps.tag.outputs.dry_run != 'true'
+        env:
+          KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
+          AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          PKGREL: ${{ steps.tag.outputs.pkgrel }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::notice::AUR_SSH_PRIVATE_KEY is not set: PKGBUILD and .SRCINFO are in the artifact, nothing was pushed (docs/distribution.md)"
+            exit 0
+          fi
+          if [ -z "$AUR_USERNAME" ] || [ -z "$AUR_EMAIL" ]; then
+            echo "::error::AUR_USERNAME and AUR_EMAIL must be set with AUR_SSH_PRIVATE_KEY"; exit 1
+          fi
+          ssh_dir="$RUNNER_TEMP/ssh"
+          mkdir -p "$ssh_dir"
+          chmod 700 "$ssh_dir"
+          printf '%s\n' "$KEY" > "$ssh_dir/key"
+          chmod 600 "$ssh_dir/key"
+          echo "$AUR_HOST_KEY" > "$ssh_dir/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $ssh_dir/key -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes"
+
+          repo="$RUNNER_TEMP/aur-repo"
+          # Cloning a package that doesn't exist yet gives an empty
+          # repository; the first push creates it.
+          git clone --quiet "ssh://aur@aur.archlinux.org/$PKGNAME.git" "$repo"
+          cd "$repo"
+          git config user.name "$AUR_USERNAME"
+          git config user.email "$AUR_EMAIL"
+          cp "$OUT/PKGBUILD" "$OUT/.SRCINFO" .
+          if [ -f "$OUT/LICENSE" ]; then cp "$OUT/LICENSE" .; fi
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::notice::the AUR already has $PKGNAME $VERSION-$PKGREL"; exit 0
+          fi
+          git commit --quiet -m "Update to $VERSION-$PKGREL"
+          git push --quiet origin HEAD:master
+          echo "::notice::pushed $PKGNAME $VERSION-$PKGREL: https://aur.archlinux.org/packages/$PKGNAME"

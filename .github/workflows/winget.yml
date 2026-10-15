@@ -1,0 +1,205 @@
+name: winget
+
+# Publishes each release to winget (Windows Package Manager) as
+# AddLayer.DBine: a pull request on microsoft/winget-pkgs with the NSIS
+# setup of the release (docs/distribution.md). winget's moderators and
+# validation pipeline merge it; nothing is published from here directly.
+#
+# - A release published with a personal token (`gh release create`) starts
+#   it through `release`. A release the `release` workflow publishes uses
+#   GITHUB_TOKEN, which starts no other workflow: that case comes through
+#   `workflow_run` when `release` ends well on a `v*` tag.
+# - By hand (Actions › winget › Run workflow): pick the tag; `dry_run` (on
+#   by default) renders and validates the manifests and keeps them as an
+#   artifact, without a pull request.
+#
+# The manifests are made with Komac (russellbanks/Komac, a pinned release
+# binary verified by SHA-256):
+# - First submission (AddLayer.DBine not in winget-pkgs yet): `komac new`
+#   asks questions even with every flag given, so packaging/winget/render.py
+#   writes the three manifests from komac's analysis of the installer and
+#   the Flathub metainfo's wording, and `komac submit` sends them.
+# - Later versions: `komac update`, which carries over the published
+#   manifests (and any change winget's moderators made to them).
+# Either way the files are validated against winget's JSON schemas and
+# parsed by komac before anything is sent.
+#
+# Sending the PR needs the WINGET_TOKEN secret: a classic personal access
+# token with the `public_repo` scope, of the account that owns the fork of
+# microsoft/winget-pkgs (komac creates the fork if it's missing). Without it
+# the run renders, validates, keeps the artifact and skips the PR with a
+# notice.
+
+on:
+  release:
+    types: [published]
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (vX.Y.Z)"
+        required: true
+      dry_run:
+        description: "Only render and validate; keep the manifests as an artifact, no PR"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE_ID: AddLayer.DBine
+  KOMAC_VERSION: "2.16.0"
+  KOMAC_SHA256: 7d2707fa6210f2789a3702de49fbd150b736dbf426ee0b9bc8e098736f9fd82d
+  # winget's manifest schemas 1.12.0 (what komac writes), at a pinned commit
+  # of microsoft/winget-cli.
+  SCHEMA_BASE: https://raw.githubusercontent.com/microsoft/winget-cli/efcb928ba96d314bc8aee8682a1af3588bb8e3f1/schemas/JSON/manifests/v1.12.0
+  KOMAC_CREATED_WITH: DBine winget workflow
+  KOMAC_CREATED_WITH_URL: https://github.com/addlayer-io/dbine/blob/main/.github/workflows/winget.yml
+
+concurrency:
+  group: winget-${{ github.event.release.tag_name || github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  winget:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'release' && !github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v')) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    steps:
+      - name: Release tag
+        id: tag
+        env:
+          TAG: ${{ github.event.release.tag_name || github.event.workflow_run.head_branch || inputs.tag }}
+          DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a release tag (vX.Y.Z)"; exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "dry_run=${DRY:-false}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tools
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/komac.tar.gz" \
+            "https://github.com/russellbanks/Komac/releases/download/v$KOMAC_VERSION/komac-$KOMAC_VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          echo "$KOMAC_SHA256  $RUNNER_TEMP/komac.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/komac.tar.gz" -C "$RUNNER_TEMP/bin" komac
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          python -m pip install --quiet pyyaml==6.0.3 check-jsonschema==0.38.2
+          mkdir -p "$RUNNER_TEMP/schemas"
+          for t in version installer defaultLocale locale; do
+            curl -fsSL -o "$RUNNER_TEMP/schemas/$t.json" "$SCHEMA_BASE/manifest.$t.1.12.0.json"
+          done
+
+      # New package, new version, or already there.
+      - name: State in winget-pkgs
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          dir="manifests/a/${PACKAGE_ID//.//}"
+          if ! versions=$(gh api "repos/microsoft/winget-pkgs/contents/$dir" --jq '.[].name' 2>/dev/null); then
+            mode=new
+          elif grep -qx "$VERSION" <<<"$versions"; then
+            mode=present
+          else
+            mode=update
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "$PACKAGE_ID $VERSION: $mode"
+          if [ "$mode" = present ]; then
+            echo "::notice::winget-pkgs already has $PACKAGE_ID $VERSION; nothing to do"
+          fi
+
+      - name: Render the manifests
+        if: steps.state.outputs.mode != 'present'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # komac reads winget-pkgs and GitHub through the API; the owner's
+          # token when there is one, else this run's.
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN || github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          MODE: ${{ steps.state.outputs.mode }}
+        run: |
+          out="$RUNNER_TEMP/winget"
+          setup="DBine_${VERSION}_x64-setup.exe"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$setup"
+          notes="https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          if [ "$MODE" = new ]; then
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p "$setup" -D "$RUNNER_TEMP/dl"
+            komac analyze --hash "$RUNNER_TEMP/dl/$setup" > "$RUNNER_TEMP/analysis.yaml"
+            date=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json publishedAt -q '.publishedAt[:10]')
+            python3 packaging/winget/render.py --tag "$TAG" --analysis "$RUNNER_TEMP/analysis.yaml" \
+              --release-date "$date" --out "$out"
+          else
+            komac update "$PACKAGE_ID" --version "$VERSION" --urls "$url" \
+              --release-notes-url "$notes" --dry-run --skip-pr-check --output "$out" < /dev/null
+          fi
+          dir="$out/manifests/a/${PACKAGE_ID//.//}/$VERSION"
+          ls -la "$dir"
+          for f in "$dir"/*.yaml; do echo "::group::$(basename "$f")"; cat "$f"; echo "::endgroup::"; done
+          echo "DIR=$dir" >> "$GITHUB_ENV"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+
+      - name: Validate
+        if: steps.state.outputs.mode != 'present'
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN || github.token }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          for f in "$DIR"/*.yaml; do
+            kind=$(sed -n 's/^ManifestType: *//p' "$f")
+            echo "$(basename "$f"): $kind"
+            check-jsonschema --schemafile "$RUNNER_TEMP/schemas/$kind.json" "$f"
+          done
+          # The installer the manifest points to is this release's x64 NSIS setup.
+          grep -q "InstallerUrl: https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/DBine_${VERSION}_x64-setup.exe" \
+            "$DIR/$PACKAGE_ID.installer.yaml"
+          grep -q "Architecture: x64" "$DIR/$PACKAGE_ID.installer.yaml"
+          # komac's own parsing of the files, without sending them.
+          komac submit --dry-run "$DIR" < /dev/null > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        if: steps.state.outputs.mode != 'present'
+        with:
+          name: winget-${{ steps.tag.outputs.tag }}
+          path: ${{ env.OUT }}
+
+      - name: Pull request on winget-pkgs
+        if: steps.state.outputs.mode != 'present' && steps.tag.outputs.dry_run != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "::notice::WINGET_TOKEN is not set: the manifests are in the artifact, no PR was opened (docs/distribution.md)"
+            exit 0
+          fi
+          # A re-run doesn't open a second PR for the same version.
+          open=$(gh pr list --repo microsoft/winget-pkgs --state open \
+            --search "\"$PACKAGE_ID version $VERSION\" in:title" --json url -q '.[].url')
+          if [ -n "$open" ]; then
+            echo "::notice::a PR for $PACKAGE_ID $VERSION is already open: $open"; exit 0
+          fi
+          komac submit --yes "$DIR" < /dev/null
