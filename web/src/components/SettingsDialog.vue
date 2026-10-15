@@ -361,7 +361,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <button :class="{ on: section === 'snippets' }" @click="section = 'snippets'"><el-icon><ei-document-copy /></el-icon>{{ $t('snippets:nav') }}</button>
         <button :class="{ on: section === 'mail' }" @click="section = 'mail'"><el-icon><ei-message /></el-icon>{{ $t('mail:nav') }}</button>
         <button v-if="driverPackages" :class="{ on: section === 'drivers' }" @click="section = 'drivers'"><el-icon><ei-connection /></el-icon>{{ $t('settings:nav.drivers') }}</button>
-        <!-- Voluntary support: opens GitHub Sponsors in the browser. -->
+        <!-- Voluntary support: opens Buy Me a Coffee in the browser. -->
         <button class="st-support" :title="$t('settings:nav.supportHint')" @click="openSupport">
           <span class="st-heart">♥</span>{{ $t('settings:nav.support') }}
         </button>
