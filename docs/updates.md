@@ -63,20 +63,21 @@ Cases where it does not update itself and offers the release page:
 ## When the app identifier changes
 
 The identifier changed from `com.addlayer.dbine` to `io.addlayer.dbine`
-(what moves, and how: [identifier-migration.md](identifier-migration.md)). The
-update itself is not affected:
+(what is copied, and how: [identifier-migration.md](identifier-migration.md)).
+The old data stays untouched, so going back to an older version loses
+nothing. The update itself is not affected:
 
 - **macOS:** the updater replaces `DBine.app` in place after checking the
   package's minisign signature; it never compares bundle identifiers. The
-  relaunched app has the new bundle identifier and moves the folders before
-  its window opens. What macOS keys on the bundle identifier or the code
+  relaunched app has the new bundle identifier and copies the folders (APFS
+  clones, no extra space) before its window opens. What macOS keys on the bundle identifier or the code
   signature may ask once more:
   - **Keychain:** the item `com.addlayer.dbine` was created by the old app, so
     reading it asks for access once, as after every update while DBine is
     signed ad hoc (its code requirement changes with each build). DBine then
-    writes it under `io.addlayer.dbine`, created by the new app, and deletes
-    the old one. With "Always Allow" the delete asks nothing more; if it
-    fails, the old item stays unused.
+    writes a copy under `io.addlayer.dbine`, created by the new app, and
+    leaves the old one for older versions. A denied prompt writes nothing:
+    the next start asks again.
   - **Privacy permissions (TCC)** are kept per bundle identifier: local
     network access, and the Documents, Desktop or Downloads folders, may be
     asked again. Full Disk Access, if the user granted it by hand, has to be

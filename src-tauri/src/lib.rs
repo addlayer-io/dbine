@@ -91,10 +91,12 @@ pub fn run() {
     // Before any driver opens a TLS connection (see Cargo.toml).
     let _ = rustls::crypto::ring::default_provider().install_default();
     let context = tauri::generate_context!();
-    // The folders named after the old identifier move before Tauri or a
-    // webview creates the new ones (identifier.rs). Only the real app's:
-    // a test instance (its own identifier) leaves them alone.
-    let migrate = context.config().identifier == identifier::NEW_ID;
+    // The folders named after the old identifier are copied before Tauri
+    // or a webview creates the new ones (identifier.rs); the old ones are
+    // kept for an older version. Only the real app's: a test instance (its
+    // own identifier) leaves them alone, and the Flathub build lives in its
+    // own sandbox folders.
+    let migrate = context.config().identifier == identifier::NEW_ID && !cfg!(feature = "flatpak");
     // Started by the OS scheduler: run the task with no window and exit,
     // before anything of the app starts (tasks/headless.rs).
     if let Some(id) = tasks::headless::requested() {
@@ -204,8 +206,10 @@ pub fn run() {
             app.manage(mcp::McpRuntime::open(state.clone(), &dir));
             app.state::<mcp::McpRuntime>().attach(app.handle().clone());
             // The OS scheduler's entries follow the app (moved, updated).
+            // Not while this start runs on the old identifier's folders: the
+            // entries keep their old labels until the state is copied.
             #[cfg(not(debug_assertions))]
-            {
+            if !identifier::on_old_dirs() {
                 let state = state.clone();
                 std::thread::spawn(move || commands::scheduled::resync_all(&state));
             }

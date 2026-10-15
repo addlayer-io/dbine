@@ -262,8 +262,9 @@ passwords.
   having been moved to another folder or updated.
 - On macOS, entries registered under the old identifier's label
   (`com.addlayer.dbine.task.<id>`) move to `io.addlayer.dbine.task.<id>` on
-  that same startup: the new one is registered before the old one is removed
-  ([identifier-migration.md](identifier-migration.md)).
+  that same startup, once the state was copied: the new one is registered
+  before the old one is removed, so a task never runs twice. From then on
+  tasks run from the newest app ([identifier-migration.md](identifier-migration.md)).
 - If the system rejects the task, it is saved anyway and the list says **Not
   scheduled in the system**, with the reason.
 - In a development build, tasks are not registered.
