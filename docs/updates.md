@@ -38,6 +38,10 @@ restarts to finish. Where it cannot, it offers the release page.
 | Windows | `DBine_X_x64-setup.exe` (NSIS) | DBine closes, the installer runs in passive mode (only a progress bar, no questions) and opens the new version. |
 | Linux (AppImage) | `DBine_X_amd64.AppImage` | rewrites the AppImage file in place and restarts. |
 
+The Flathub build (feature `flatpak`, [`flathub.md`](flathub.md)) doesn't
+check at all: Flatpak updates it. A manual check answers `reason: "flatpak"`
+without touching the network and the UI says where updates come from.
+
 Cases where it does not update itself and offers the release page:
 
 - **Linux with `.deb` or `.rpm`:** the files belong to the system's package

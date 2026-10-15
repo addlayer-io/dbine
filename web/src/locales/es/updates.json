@@ -29,6 +29,7 @@
     "check": "Buscar actualizaciones"
   },
   "upToDate": "Estás en la última versión ({{version}}).",
+  "managedByFlatpak": "Tenés la versión {{version}}. Esta instalación es de Flathub: Flatpak la actualiza (desde tu centro de software o con «flatpak update»).",
   "busyInWindow": "La actualización está en curso en la ventana {{n}}.",
   "failed": "No se pudo buscar actualizaciones: {{error}}"
 }

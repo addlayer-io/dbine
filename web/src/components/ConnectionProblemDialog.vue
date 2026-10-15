@@ -226,7 +226,7 @@ function editConnection() {
 
         <!-- no az, or not logged in: by hand -->
         <div v-else-if="plan" class="cp-manual">
-          <p>{{ plan.az === 'missing' ? $t('connection:problem.azure.azMissing') : $t('connection:problem.azure.azLoggedOut') }}</p>
+          <p>{{ $t(plan.az === 'sandboxed' ? 'connection:problem.azure.azSandboxed' : plan.az === 'missing' ? 'connection:problem.azure.azMissing' : 'connection:problem.azure.azLoggedOut') }}</p>
           <div class="cp-way">
             <div class="cp-way-title">{{ $t('connection:problem.azure.byCli') }}</div>
             <pre class="cp-code nm-selectable">{{ cliCommand }}</pre>

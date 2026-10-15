@@ -10170,5 +10170,8 @@
   "{0} no es una IP pública: Azure ve la IP pública de tu red (usá «Ver mi IP pública»)": "{0} non è un IP pubblico: Azure vede l’IP pubblico della tua rete (usa “Mostra il mio IP pubblico”)",
   "«{0}» no es una dirección IPv4 válida": "“{0}” non è un indirizzo IPv4 valido",
   "la IP de la regla ({0}) no es tu IP pública ({1}): DBine solo agrega tu propia IP al firewall": "l'IP della regola ({0}) non è il tuo IP pubblico ({1}): DBine aggiunge al firewall solo il tuo IP",
-  "dirección de GitHub inválida": "indirizzo GitHub non valido"
+  "dirección de GitHub inválida": "indirizzo GitHub non valido",
+  "La versión de Flathub de DBine no puede programar tareas en el sistema (el sandbox de Flatpak no tiene acceso a systemd ni a cron): la tarea quedó guardada y podés ejecutarla desde DBine.": "La versione Flathub di DBine non può pianificare attività nel sistema (il sandbox di Flatpak non ha accesso a systemd né a cron): l'attività è stata salvata e puoi eseguirla da DBine.",
+  "falta el motor de IA que viene con DBine ({0})": "manca il motore di IA fornito con DBine ({0})",
+  "la versión de Flathub de DBine no puede usar la CLI de Azure (az): el sandbox de Flatpak no tiene acceso a los programas del sistema. Creá la regla desde el portal de Azure, con T-SQL o con «az» en una terminal": "la versione Flathub di DBine non può usare la CLI di Azure (az): il sandbox di Flatpak non ha accesso ai programmi del sistema. Crea la regola dal portale di Azure, con T-SQL o con “az” in un terminale"
 }

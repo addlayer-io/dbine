@@ -74,7 +74,8 @@ pub struct UpdateInfo {
     /// Why it can't (`installable` false): `unsigned` (a build without the
     /// updater key), `location` (macOS: not run from an installed .app),
     /// `package` (a deb/rpm or MSI install), `no_manifest` (the release has
-    /// no updater manifest for this platform, or it couldn't be read).
+    /// no updater manifest for this platform, or it couldn't be read),
+    /// `flatpak` (the Flathub build: Flatpak updates it; nothing is checked).
     pub reason: Option<String>,
     /// `idle`, `downloading` or `ready` (downloaded and verified, waiting
     /// for the restart).
@@ -150,6 +151,11 @@ async fn check(window: WebviewWindow, manual: bool) -> CommandResult<UpdateInfo>
     let app = window.app_handle().clone();
     let me = window.label().to_string();
     let current = app.package_info().version.to_string();
+    // Flatpak updates the app (and Flathub's build has no updater key): no
+    // check, nothing offered; the UI says where updates come from.
+    if cfg!(feature = "flatpak") {
+        return Ok(managed_info(current));
+    }
     tracing::info!(manual, window = %me, "checking for updates");
 
     // A download running or done: answer with it instead of checking again.
@@ -218,6 +224,23 @@ async fn check(window: WebviewWindow, manual: bool) -> CommandResult<UpdateInfo>
             tracing::warn!("updater manifest unavailable, asking GitHub: {e}");
             github_check(&current, "no_manifest").await
         }
+    }
+}
+
+/// What a check answers when the system's package manager (Flatpak) updates
+/// the app: nothing available, reason `flatpak`.
+fn managed_info(current: String) -> UpdateInfo {
+    UpdateInfo {
+        latest: current.clone(),
+        current,
+        available: false,
+        url: format!("{RELEASES_PREFIX}latest"),
+        notes: String::new(),
+        published_at: None,
+        installable: false,
+        reason: Some("flatpak".into()),
+        phase: Phase::Idle.as_str().into(),
+        owner: None,
     }
 }
 
@@ -777,6 +800,15 @@ fn chain(e: &dyn std::error::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_flatpak_build_offers_nothing() {
+        let info = managed_info("0.1.11".into());
+        assert!(!info.available && !info.installable);
+        assert_eq!((info.current.as_str(), info.latest.as_str()), ("0.1.11", "0.1.11"));
+        assert_eq!(info.reason.as_deref(), Some("flatpak"));
+        assert_eq!(info.phase, "idle");
+    }
 
     #[test]
     fn compares_versions_numerically() {

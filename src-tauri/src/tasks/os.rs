@@ -68,6 +68,11 @@ fn hm(time: &str) -> (u32, u32) {
 /// next start: a disk image, a quarantined copy macOS moved
 /// (AppTranslocation), or a development build.
 pub fn executable() -> Result<PathBuf, String> {
+    // The Flathub build: the sandbox can't reach systemd or cron, so the
+    // task is saved and runs by hand (docs/flathub.md).
+    if cfg!(feature = "flatpak") {
+        return Err("La versión de Flathub de DBine no puede programar tareas en el sistema (el sandbox de Flatpak no tiene acceso a systemd ni a cron): la tarea quedó guardada y podés ejecutarla desde DBine.".into());
+    }
     if cfg!(debug_assertions) && std::env::var_os("DBINE_ALLOW_DEV_SCHEDULE").is_none() {
         return Err("Las tareas programadas no se registran desde una versión de desarrollo: usá la app instalada.".into());
     }

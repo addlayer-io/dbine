@@ -11444,6 +11444,9 @@
  "La validación de {0} no se quita: CouchDB necesita la revisión (_rev) del documento de diseño; quitala a mano.": [
   "crates/drivers/couchdb/src/sync.rs"
  ],
+ "La versión de Flathub de DBine no puede programar tareas en el sistema (el sandbox de Flatpak no tiene acceso a systemd ni a cron): la tarea quedó guardada y podés ejecutarla desde DBine.": [
+  "src-tauri/src/tasks/os.rs"
+ ],
  "La versión de fila queda como binario y no se actualiza sola (en Db2 se usa ROW CHANGE TIMESTAMP).": [
   "crates/dbine-schema/src/dialect/db2.rs"
  ],
@@ -25914,6 +25917,9 @@
  "falta el inquilino (tenant ID)": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "falta el motor de IA que viene con DBine ({0})": [
+  "crates/dbine-ai/src/embedded.rs"
+ ],
  "falta el motor de IA: volvé a intentar para descargarlo": [
   "crates/dbine-ai/src/embedded.rs"
  ],
@@ -27500,6 +27506,9 @@
  "la versión": [
   "crates/drivers/sqlserver/src/babelfish.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "la versión de Flathub de DBine no puede usar la CLI de Azure (az): el sandbox de Flatpak no tiene acceso a los programas del sistema. Creá la regla desde el portal de Azure, con T-SQL o con «az» en una terminal": [
+  "src-tauri/src/commands/azure_firewall.rs"
  ],
  "la vista": [
   "crates/drivers/mysql/src/rename_db.rs",

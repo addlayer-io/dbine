@@ -483,7 +483,7 @@ export interface AzureFirewallPlan {
   host: string;
   rule_name: string;
   /** ready: az installed and logged in. */
-  az: 'ready' | 'missing' | 'logged_out';
+  az: 'ready' | 'missing' | 'logged_out' | 'sandboxed';
 }
 
 export interface AzureFirewallRuleAdded {
@@ -659,8 +659,9 @@ export interface UpdateInfo {
   /** This install can download and install `latest` by itself. */
   installable: boolean;
   /** Why it can't: a build without the updater key, macOS not run from an
-   *  installed app, a deb/rpm/MSI install, or no updater manifest. */
-  reason: 'unsigned' | 'location' | 'package' | 'no_manifest' | null;
+   *  installed app, a deb/rpm/MSI install, no updater manifest, or the
+   *  Flathub build (Flatpak updates it: nothing was checked). */
+  reason: 'unsigned' | 'location' | 'package' | 'no_manifest' | 'flatpak' | null;
   /** The update's state in this run (`ready`: downloaded, waiting for the restart). */
   phase: 'idle' | 'downloading' | 'ready';
   /** The window driving the update (its label). */

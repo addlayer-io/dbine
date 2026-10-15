@@ -89,3 +89,8 @@ windows = { version = "0.61", features = [
 # in the app; the rest are downloaded on first use. `cargo tauri build
 # --features plugins`, with DBINE_PLUGIN_CATALOG set (scripts/build-driver-hosts.py).
 plugins = ["dbine-drivers/plugins"]
+# The Flathub build (flatpak/, docs/flathub.md): Flatpak updates the app, so
+# there are no update checks; host programs (az, systemd, cron) are outside
+# the sandbox, so the features that need them say so. Built without
+# `plugins`: every driver is inside the app.
+flatpak = []

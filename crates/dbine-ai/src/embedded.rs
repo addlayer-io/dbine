@@ -8,6 +8,10 @@
 //! child process on 127.0.0.1 with a random API key, and chats go through
 //! its OpenAI-compatible API. Whoever never uses the built-in model
 //! downloads nothing.
+//!
+//! `DBINE_LLAMA_DIR` points to a llama.cpp already on disk (a folder with
+//! `llama-server`) and nothing is downloaded: the Flathub build ships it
+//! inside the app (flatpak/, docs/flathub.md).
 
 use crate::{AiError, Cancel, ChatRequest, OnDelta, Result};
 use futures::StreamExt;
@@ -138,7 +142,12 @@ pub const ENABLED: bool = ENGINE.is_some();
 const SERVER_EXE: &str = if cfg!(windows) { "llama-server.exe" } else { "llama-server" };
 
 fn engine_dir(dir: &Path) -> PathBuf {
-    dir.join(format!("llama.cpp-{ENGINE_TAG}"))
+    bundled_engine().unwrap_or_else(|| dir.join(format!("llama.cpp-{ENGINE_TAG}")))
+}
+
+/// The llama.cpp that came with the app (`DBINE_LLAMA_DIR`), if any.
+fn bundled_engine() -> Option<PathBuf> {
+    std::env::var_os("DBINE_LLAMA_DIR").filter(|d| !d.is_empty()).map(PathBuf::from)
 }
 
 pub fn engine_installed(dir: &Path) -> bool {
@@ -162,6 +171,9 @@ pub async fn ensure_engine(dir: &Path, progress: &(dyn Fn(u64, u64) + Send + Syn
     let _guard = INSTALL.lock().await;
     if engine_installed(dir) {
         return Ok(());
+    }
+    if let Some(b) = bundled_engine() {
+        return Err(AiError::NotAvailable(format!("falta el motor de IA que viene con DBine ({})", b.join(SERVER_EXE).display())));
     }
     let archive = download_from(dir, e, e.url, progress, cancel).await?;
     let dest = engine_dir(dir);
