@@ -1,5 +1,11 @@
 # Modifications
 
+## [0.1.13] - 2026-10-16
+
+### Améliorations
+- **Soutenir le projet :** le bouton en forme de cœur (**Soutenir le projet**), son rappel et **Aide › Soutenir le projet** ouvrent Buy Me a Coffee.
+- **Script avec les données de tables choisies :** dans **Générer le script de la base**, lorsque **Données (INSERT)** est coché, vous pouvez garder les données de toutes les tables ou choisir lesquelles en reçoivent, depuis une liste avec filtre (**Choisir des tables…**), de sorte que le script puisse contenir la structure de toute la base et les lignes de quelques tables seulement.
+
 ## [0.1.12] - 2026-10-15
 
 ### Nouveautés

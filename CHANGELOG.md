@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-10-16
+
 ### Improvements
+- **Support the project:** the heart button (**Support the project**), its reminder and **Help › Support the project** open Buy Me a Coffee.
 - **Script data for chosen tables:** in **Generate database script**, when **Data (INSERT)** is ticked you can keep data for every table or pick which ones get it, from a list with a filter, so the script can carry the structure of the whole database and the rows of just a few tables.
 
 ## [0.1.12] - 2026-10-15
