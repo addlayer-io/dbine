@@ -18,11 +18,11 @@
 //!
 //! The keychain service was the app's old identifier, `com.addlayer.dbine`,
 //! up to 0.1.11. An item not found under the current service is looked up
-//! under the old one; when it's there it is written under the current one
-//! and deleted from the old only after that write succeeds. A read of the
-//! old item that fails (a macOS prompt denied) leaves it untouched and
-//! writes nothing: the next start tries again. No migration when
-//! `DBINE_KEYCHAIN_SERVICE` is set (a test instance).
+//! under the old one and, when it's there, **copied** to the current one:
+//! the old item is never changed or deleted, so an older version installed
+//! next to this one keeps working. A read of the old item that fails (a
+//! macOS prompt denied) writes nothing: the next start tries again. No
+//! migration when `DBINE_KEYCHAIN_SERVICE` is set (a test instance).
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
@@ -93,40 +93,30 @@ impl Keychain for OsKeychain {
     }
 }
 
-/// Read `name` under `service`, moving it from `legacy` when only there.
-fn get_moving(kc: &dyn Keychain, service: &str, legacy: Option<&str>, name: &str) -> Result<Option<String>> {
+/// Read `name` under `service`, copying it from `legacy` when only there.
+/// The legacy item is only read.
+fn get_copying(kc: &dyn Keychain, service: &str, legacy: Option<&str>, name: &str) -> Result<Option<String>> {
     if let Some(v) = kc.get(service, name)? {
         return Ok(Some(v));
     }
     let Some(legacy) = legacy.filter(|l| *l != service) else { return Ok(None) };
-    // A failed read (denied) returns here: the old item stays, nothing is written.
+    // A failed read (denied) returns here: nothing is written.
     let Some(v) = kc.get(legacy, name)? else { return Ok(None) };
     kc.set(service, name, &v)?;
-    // The value is safe under the new service; an old copy left behind
-    // (the delete failed) is never read again: the new one is found first.
-    let _ = kc.delete(legacy, name);
     Ok(Some(v))
 }
 
-/// Delete `name` under both services, so an old copy never comes back.
-fn delete_both(kc: &dyn Keychain, service: &str, legacy: Option<&str>, name: &str) -> Result<()> {
-    kc.delete(service, name)?;
-    match legacy.filter(|l| *l != service) {
-        Some(l) => kc.delete(l, name),
-        None => Ok(()),
-    }
-}
-
 fn keychain_get(name: &str) -> Result<Option<String>> {
-    get_moving(&OsKeychain, service(), legacy_service(), name)
+    get_copying(&OsKeychain, service(), legacy_service(), name)
 }
 
 fn keychain_set(name: &str, value: &str) -> Result<()> {
     OsKeychain.set(service(), name, value)
 }
 
+/// Under the current service only: the old one belongs to older versions.
 fn keychain_delete(name: &str) -> Result<()> {
-    delete_both(&OsKeychain, service(), legacy_service(), name)
+    OsKeychain.delete(service(), name)
 }
 
 /// The app's own vault names carried its identifier (the cloud backup's
@@ -141,15 +131,24 @@ fn old_name(name: &str) -> Option<String> {
     name.strip_prefix(SERVICE).filter(|rest| rest.starts_with('.')).map(|rest| format!("{OLD_SERVICE}{rest}"))
 }
 
-/// Give the vault's old names their current one (an existing current one
-/// wins). Whether anything changed.
-fn rename_old_names(values: &mut BTreeMap<String, String>) -> bool {
-    let old: Vec<String> = values.keys().filter(|k| renamed(k).is_some()).cloned().collect();
-    for k in &old {
-        let v = values.remove(k).expect("listed");
-        values.entry(renamed(k).expect("listed")).or_insert(v);
+/// In a vault whose old names were copied: once only, so a secret deleted
+/// under its current name doesn't come back from the old one.
+const NAMES_COPIED: &str = "dbine.vault.names-copied-from-com.addlayer.dbine";
+
+/// Copy the vault's old names to their current one (an existing current one
+/// wins), once. The old names stay: a vault an older version still opens
+/// (a start that ran on the old folders) keeps working for it. Whether
+/// anything changed.
+fn copy_old_names(values: &mut BTreeMap<String, String>) -> bool {
+    if values.contains_key(NAMES_COPIED) {
+        return false;
     }
-    !old.is_empty()
+    let old: Vec<(String, String)> = values.iter().filter_map(|(k, v)| Some((renamed(k)?, v.clone()))).collect();
+    for (k, v) in old {
+        values.entry(k).or_insert(v);
+    }
+    values.insert(NAMES_COPIED.to_string(), "1".to_string());
+    true
 }
 
 // ---- Vault file ------------------------------------------------------------
@@ -214,7 +213,7 @@ impl Vault {
             match std::fs::read(&path) {
                 Ok(bytes) => {
                     if let Ok(mut values) = open(&key, &bytes) {
-                        let vault = if rename_old_names(&mut values) {
+                        let vault = if copy_old_names(&mut values) {
                             let v = Self { path, key, values, checked: HashSet::new() };
                             v.save()?;
                             v
@@ -253,7 +252,9 @@ impl Vault {
             return Ok(None);
         }
         // An item from before the vault: move it in (under its old name
-        // too, when the name carried the old identifier).
+        // too, when the name carried the old identifier). One under the old
+        // service is only copied (`keychain_get`) and stays for an older
+        // version; the copy under the current service is dropped here.
         let mut found = None;
         for item in std::iter::once(name.to_string()).chain(old_name(name)) {
             if let Some(v) = keychain_get(&item)? {
@@ -284,13 +285,11 @@ impl Vault {
         Ok(())
     }
 
-    /// Drop the name's old keychain item, if it wasn't looked up yet.
+    /// Drop the name's old keychain item, if it wasn't looked up yet (under
+    /// the current service only).
     fn forget_old(&mut self, name: &str) {
         if self.checked.insert(name.to_string()) {
             let _ = keychain_delete(name);
-            if let Some(old) = old_name(name) {
-                let _ = keychain_delete(&old);
-            }
         }
     }
 }
@@ -458,42 +457,45 @@ mod tests {
     }
 
     #[test]
-    fn old_service_item_moves_once() {
+    fn old_service_item_is_copied_and_kept() {
         let kc = Mock::with(&[(OLD_SERVICE, KEY_ITEM, "k"), (OLD_SERVICE, "conn-1", "p")]);
         for name in [KEY_ITEM, "conn-1"] {
-            let v = get_moving(&kc, SERVICE, Some(OLD_SERVICE), name).unwrap();
+            let v = get_copying(&kc, SERVICE, Some(OLD_SERVICE), name).unwrap();
             assert!(v.is_some());
             assert!(kc.has(SERVICE, name));
-            assert!(!kc.has(OLD_SERVICE, name));
+            // An older version still finds it.
+            assert!(kc.has(OLD_SERVICE, name));
         }
-        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).unwrap().as_deref(), Some("k"));
-        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), "missing").unwrap(), None);
+        assert_eq!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).unwrap().as_deref(), Some("k"));
+        assert_eq!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), "missing").unwrap(), None);
+        assert!(!kc.has(SERVICE, "missing"));
     }
 
     #[test]
     fn current_service_wins() {
         let kc = Mock::with(&[(SERVICE, "n", "new"), (OLD_SERVICE, "n", "old")]);
-        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), "n").unwrap().as_deref(), Some("new"));
-        assert!(kc.has(OLD_SERVICE, "n"));
+        assert_eq!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), "n").unwrap().as_deref(), Some("new"));
+        assert_eq!(kc.items.borrow()[&(OLD_SERVICE.to_string(), "n".to_string())], "old");
     }
 
     #[test]
-    fn denied_old_read_keeps_it_and_writes_nothing() {
+    fn denied_old_read_writes_nothing_and_retries() {
         let mut kc = Mock::with(&[(OLD_SERVICE, KEY_ITEM, "k")]);
         kc.deny = Some(OLD_SERVICE);
-        assert!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).is_err());
+        assert!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).is_err());
         assert!(!kc.has(SERVICE, KEY_ITEM));
+        assert!(kc.has(OLD_SERVICE, KEY_ITEM));
         // Allowed on the next start.
         kc.deny = None;
-        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).unwrap().as_deref(), Some("k"));
-        assert!(!kc.has(OLD_SERVICE, KEY_ITEM));
+        assert_eq!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).unwrap().as_deref(), Some("k"));
+        assert!(kc.has(SERVICE, KEY_ITEM) && kc.has(OLD_SERVICE, KEY_ITEM));
     }
 
     #[test]
     fn failed_write_keeps_the_old_item() {
         let mut kc = Mock::with(&[(OLD_SERVICE, KEY_ITEM, "k")]);
         kc.fail_set = true;
-        assert!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).is_err());
+        assert!(get_copying(&kc, SERVICE, Some(OLD_SERVICE), KEY_ITEM).is_err());
         assert!(kc.has(OLD_SERVICE, KEY_ITEM));
         assert!(!kc.has(SERVICE, KEY_ITEM));
     }
@@ -502,22 +504,13 @@ mod tests {
     fn no_migration_with_an_override() {
         // `legacy_service()` is `None` under DBINE_KEYCHAIN_SERVICE.
         let kc = Mock::with(&[(OLD_SERVICE, KEY_ITEM, "k")]);
-        assert_eq!(get_moving(&kc, "io.addlayer.dbine.e2etest", None, KEY_ITEM).unwrap(), None);
+        assert_eq!(get_copying(&kc, "io.addlayer.dbine.e2etest", None, KEY_ITEM).unwrap(), None);
         assert!(kc.has(OLD_SERVICE, KEY_ITEM));
         assert!(!kc.has("io.addlayer.dbine.e2etest", KEY_ITEM));
     }
 
     #[test]
-    fn delete_removes_both() {
-        let kc = Mock::with(&[(SERVICE, "n", "a"), (OLD_SERVICE, "n", "b")]);
-        delete_both(&kc, SERVICE, Some(OLD_SERVICE), "n").unwrap();
-        assert!(!kc.has(SERVICE, "n") && !kc.has(OLD_SERVICE, "n"));
-        // A deleted secret doesn't come back from the old service.
-        assert_eq!(get_moving(&kc, SERVICE, Some(OLD_SERVICE), "n").unwrap(), None);
-    }
-
-    #[test]
-    fn vault_names_with_the_old_identifier_are_renamed() {
+    fn vault_names_with_the_old_identifier_are_copied_once() {
         let mut values = BTreeMap::from([
             ("com.addlayer.dbine.sync.passphrase".to_string(), "frase".to_string()),
             ("com.addlayer.dbine.sync.token.gdrive".to_string(), "t-old".to_string()),
@@ -526,34 +519,61 @@ mod tests {
             ("c1".to_string(), "conn".to_string()),
             ("smtp-password".to_string(), "mail".to_string()),
         ]);
-        assert!(rename_old_names(&mut values));
+        assert!(copy_old_names(&mut values));
         assert_eq!(values["io.addlayer.dbine.sync.passphrase"], "frase");
         assert_eq!(values["io.addlayer.dbine.sync.token.gdrive"], "t-new");
         assert_eq!(values["io.addlayer.dbine.e2etest.sync.passphrase"], "e2e");
         assert_eq!(values["c1"], "conn");
         assert_eq!(values["smtp-password"], "mail");
-        assert!(!values.keys().any(|k| k.starts_with("com.")));
-        assert!(!rename_old_names(&mut values));
+        // The old names stay for an older version that opens this vault.
+        assert_eq!(values["com.addlayer.dbine.sync.passphrase"], "frase");
+        assert_eq!(values["com.addlayer.dbine.sync.token.gdrive"], "t-old");
+        // Once: a secret deleted under its new name doesn't come back.
+        values.remove("io.addlayer.dbine.sync.passphrase");
+        assert!(!copy_old_names(&mut values));
+        assert!(!values.contains_key("io.addlayer.dbine.sync.passphrase"));
         assert_eq!(old_name("io.addlayer.dbine.sync.passphrase").as_deref(), Some("com.addlayer.dbine.sync.passphrase"));
         assert_eq!(old_name("c1"), None);
         assert_eq!(renamed("com.addlayer.dbinex"), None);
+        assert_eq!(renamed(NAMES_COPIED), None);
     }
 
-    /// The move between services against the real keychain, with test
-    /// services: `cargo test -p dbine-core service_move_with_keychain -- --ignored`.
+    #[test]
+    fn the_old_vault_still_opens_for_an_older_version() {
+        // 0.1.11's vault and key; the new app opens a copy of the file with
+        // the key copied to its own service and adds its names.
+        let key = [9u8; 32];
+        let old_values = BTreeMap::from([
+            ("c1".to_string(), r#"{"password":"p"}"#.to_string()),
+            ("com.addlayer.dbine.sync.passphrase".to_string(), "frase".to_string()),
+        ]);
+        let old_file = seal(&key, &old_values).unwrap();
+        let mut copy = open(&key, &old_file.clone()).unwrap();
+        assert!(copy_old_names(&mut copy));
+        let _new_file = seal(&key, &copy).unwrap();
+        // The old file is a different file, never written: 0.1.11 reads it as before.
+        assert_eq!(open(&key, &old_file).unwrap(), old_values);
+        // Even a vault the new app rewrote (a start on the old folders) keeps
+        // what 0.1.11 looks up.
+        assert_eq!(copy["c1"], old_values["c1"]);
+        assert_eq!(copy["com.addlayer.dbine.sync.passphrase"], "frase");
+    }
+
+    /// The copy between services against the real keychain, with test
+    /// services: `cargo test -p dbine-core service_copy_with_keychain -- --ignored`.
     #[test]
     #[ignore]
-    fn service_move_with_keychain() {
+    fn service_copy_with_keychain() {
         let (old, new) = ("io.addlayer.dbine.migtest-old", "io.addlayer.dbine.migtest-new");
         let kc = OsKeychain;
         let _ = kc.delete(new, KEY_ITEM);
         kc.set(old, KEY_ITEM, "clave").unwrap();
-        assert_eq!(get_moving(&kc, new, Some(old), KEY_ITEM).unwrap().as_deref(), Some("clave"));
-        assert_eq!(kc.get(old, KEY_ITEM).unwrap(), None);
+        assert_eq!(get_copying(&kc, new, Some(old), KEY_ITEM).unwrap().as_deref(), Some("clave"));
+        assert_eq!(kc.get(old, KEY_ITEM).unwrap().as_deref(), Some("clave"));
         assert_eq!(kc.get(new, KEY_ITEM).unwrap().as_deref(), Some("clave"));
-        assert_eq!(get_moving(&kc, new, Some(old), KEY_ITEM).unwrap().as_deref(), Some("clave"));
-        delete_both(&kc, new, Some(old), KEY_ITEM).unwrap();
-        assert_eq!(get_moving(&kc, new, Some(old), KEY_ITEM).unwrap(), None);
+        kc.delete(new, KEY_ITEM).unwrap();
+        kc.delete(old, KEY_ITEM).unwrap();
+        assert_eq!(get_copying(&kc, new, Some(old), KEY_ITEM).unwrap(), None);
     }
 
     #[test]
