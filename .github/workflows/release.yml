@@ -262,6 +262,16 @@ jobs:
             exit 1
           fi
 
+      # The app below is built without the downloadable drivers' crates
+      # (`--no-default-features`); this checks every crate it does compile
+      # gets the same features as in a build with every driver, so leaving
+      # them out changes nothing in the app (src-tauri/Cargo.toml, `plugins`).
+      - name: App compiled as with every driver
+        shell: bash
+        run: |
+          PY=$(command -v python3 || command -v python)
+          "$PY" scripts/check-app-features.py ${{ matrix.target }}
+
       - name: Build (and publish on tags)
         id: tauri
         uses: tauri-apps/tauri-action@v0
@@ -279,7 +289,9 @@ jobs:
         with:
           tauriScript: npx --yes @tauri-apps/cli@^2
           # tauri.updater.conf.json: also the signed updater packages.
-          args: --target ${{ matrix.target }} --features plugins --config src-tauri/tauri.updater.conf.json
+          # After `--`, cargo's: without the default features only the
+          # built-in drivers are compiled (the rest are downloaded).
+          args: --target ${{ matrix.target }} --features plugins --config src-tauri/tauri.updater.conf.json -- --no-default-features
           tagName: ${{ needs.route.outputs.publish == 'true' && github.ref_name || '' }}
           releaseName: DBine ${{ github.ref_name }}
           # The changelog only: it's also latest.json's notes, which the

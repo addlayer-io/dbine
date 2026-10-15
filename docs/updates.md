@@ -170,8 +170,8 @@ closed.
 
 | Platform | Command | Package and signature |
 |---|---|---|
-| macOS | `cargo tauri build --target aarch64-apple-darwin --features plugins --config src-tauri/tauri.updater.conf.json` (same with `x86_64-apple-darwin`) | `target/<triple>/release/bundle/macos/DBine.app.tar.gz` and `.sig` |
-| Windows (from macOS) | `cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --features plugins --bundles nsis --config src-tauri/tauri.updater.conf.json`, with the LLVM environment from `scripts/build-windows-from-mac.sh` | `target/x86_64-pc-windows-msvc/release/bundle/nsis/DBine_X_x64-setup.exe` and `.sig` |
+| macOS | `cargo tauri build --target aarch64-apple-darwin --features plugins --config src-tauri/tauri.updater.conf.json -- --no-default-features` (same with `x86_64-apple-darwin`) | `target/<triple>/release/bundle/macos/DBine.app.tar.gz` and `.sig` |
+| Windows (from macOS) | `cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --features plugins --bundles nsis --config src-tauri/tauri.updater.conf.json -- --no-default-features`, with the LLVM environment from `scripts/build-windows-from-mac.sh` | `target/x86_64-pc-windows-msvc/release/bundle/nsis/DBine_X_x64-setup.exe` and `.sig` |
 | Linux (Docker) | `scripts/linux-release-build.sh` inside the container, with the key mounted at `/run/secrets/dbine-updater.key` (the script's header has the `docker run`) | `linux-out/DBine_X_amd64.AppImage` and `.sig` |
 
 - On Windows, check that the log does not say "Failed to add bundler type":

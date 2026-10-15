@@ -14,8 +14,9 @@ pub const BUILT_IN: &[&str] = &["sqlite"];
 /// Every driver crate built in (its cargo feature name) with the drivers
 /// it serves. A driver plugin host serves exactly one of these.
 ///
-/// With `plugins`, only [`BUILT_IN`] ones: the rest are compiled but never
-/// referenced, so the linker leaves them out of the app.
+/// With `plugins`, only [`BUILT_IN`] ones. The release app is built without
+/// the other crates' features, so they aren't compiled; a build that has
+/// them on anyway never references them, and the linker leaves them out.
 macro_rules! packages {
     ($($feature:literal => $krate:ident),* $(,)?) => {
         pub fn packages() -> Vec<(&'static str, Vec<Arc<dyn Driver>>)> {
@@ -29,6 +30,40 @@ macro_rules! packages {
             )*
             v
         }
+
+        /// With `plugins` the app is built without the default features
+        /// (only these drivers' crates get compiled): each one's feature
+        /// has to be on, which the `plugins` feature does (Cargo.toml).
+        #[cfg(feature = "plugins")]
+        const _: () = {
+            const fn compiled_in(package: &str) -> bool {
+                $(
+                    if cfg!(feature = $feature) && same(package, $feature) {
+                        return true;
+                    }
+                )*
+                false
+            }
+            const fn same(a: &str, b: &str) -> bool {
+                let (a, b) = (a.as_bytes(), b.as_bytes());
+                if a.len() != b.len() {
+                    return false;
+                }
+                let mut i = 0;
+                while i < a.len() {
+                    if a[i] != b[i] {
+                        return false;
+                    }
+                    i += 1;
+                }
+                true
+            }
+            let mut i = 0;
+            while i < BUILT_IN.len() {
+                assert!(compiled_in(BUILT_IN[i]), "a BUILT_IN driver's feature is off: add it to the `plugins` feature");
+                i += 1;
+            }
+        };
     };
 }
 

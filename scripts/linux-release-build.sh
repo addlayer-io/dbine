@@ -30,7 +30,8 @@ set -a; . ./.env; set +a
 export TAURI_SIGNING_PRIVATE_KEY=/run/secrets/dbine-updater.key
 scripts/check-updater-signing.sh
 npm ci --prefix web
-cargo tauri build --features plugins --config src-tauri/tauri.updater.conf.json
+python3 scripts/check-app-features.py x86_64-unknown-linux-gnu
+cargo tauri build --features plugins --config src-tauri/tauri.updater.conf.json -- --no-default-features
 mkdir -p linux-out
 B=target/release/bundle
 cp "$B"/deb/*.deb "$B"/rpm/*.rpm "$B"/appimage/*.AppImage "$B"/appimage/*.AppImage.sig linux-out/
