@@ -46,6 +46,11 @@ pub struct GenerateArgs {
     /// `None` or the source's own = the same engine.
     #[serde(default)]
     pub target_driver: Option<String>,
+    /// With `options.data`, the tables whose rows go out (only those also in
+    /// `objects`); `None` = every table. Apart from `options`, which is
+    /// `Copy` and shared with backups.
+    #[serde(default)]
+    pub data_tables: Option<Vec<ObjectRef>>,
 }
 
 #[derive(Serialize)]
@@ -136,6 +141,18 @@ impl RowSink for InsertSink {
 
 fn is_table(kind: &str) -> bool {
     kind == kinds::TABLE || kind == kinds::COLLECTION
+}
+
+/// The tables whose data goes out: those of `tables` that `picked` names
+/// (kind, schema and name; an empty schema is no schema), or all of them
+/// when nothing was picked (`None`). A picked table that isn't in `tables`
+/// is ignored.
+fn data_tables<'a>(tables: &[&'a ObjectRef], picked: Option<&[ObjectRef]>) -> Vec<&'a ObjectRef> {
+    let Some(picked) = picked else {
+        return tables.to_vec();
+    };
+    let same = |a: &ObjectRef, b: &ObjectRef| a.kind == b.kind && a.schema() == b.schema() && a.name == b.name;
+    tables.iter().copied().filter(|t| picked.iter().any(|p| same(t, p))).collect()
 }
 
 /// Text for a `--` or `//` comment line of a generated script: a name from
@@ -317,6 +334,8 @@ pub(crate) async fn generate(
     let tables: Vec<&ObjectRef> = args.objects.iter().filter(|o| is_table(&o.kind)).collect();
     let others: Vec<&ObjectRef> = args.objects.iter().filter(|o| !is_table(&o.kind)).collect();
     let (triggers, code): (Vec<&&ObjectRef>, Vec<&&ObjectRef>) = others.iter().partition(|o| o.kind == kinds::TRIGGER);
+    // The tables whose rows go out (step 5).
+    let with_data: Vec<&ObjectRef> = if o.data { data_tables(&tables, args.data_tables.as_deref()) } else { Vec::new() };
     // Code (views, routines, triggers) only goes out on the same engine.
     let same_engine = other_engine.is_none();
     // Exactly the steps the loops below take, so `done` ends at `total`.
@@ -324,7 +343,7 @@ pub(crate) async fn generate(
         (o.drop, tables.len() + if same_engine { others.len() } else { 0 }),
         (o.create || o.indexes, tables.len()),
         (o.definitions && same_engine, code.len()),
-        (o.data, tables.len()),
+        (o.data, with_data.len()),
         (o.foreign_keys, tables.len()),
         (o.definitions && same_engine, triggers.len()),
     ]
@@ -449,7 +468,7 @@ pub(crate) async fn generate(
     // 5. Data, streamed through the driver's insert script.
     let mut rows = 0u64;
     if o.data {
-        for obj in &tables {
+        for obj in &with_data {
             if cancelled() {
                 return Err(CommandError::Cancelled);
             }
@@ -654,6 +673,26 @@ mod tests {
 
     fn obj(kind: &str, schema: &str, name: &str) -> ObjectRef {
         ObjectRef { kind: kind.into(), schema: Some(schema.into()), name: name.into() }
+    }
+
+    #[test]
+    fn data_goes_out_only_for_the_picked_tables() {
+        let (a, b, c) = (obj(kinds::TABLE, "dbo", "a"), obj(kinds::TABLE, "dbo", "b"), obj(kinds::COLLECTION, "dbo", "c"));
+        let tables = vec![&a, &b, &c];
+        let names = |v: Vec<&ObjectRef>| v.iter().map(|o| o.name.clone()).collect::<Vec<_>>();
+        // None: every table, as before.
+        assert_eq!(names(data_tables(&tables, None)), ["a", "b", "c"]);
+        // A subset, in the order of `tables`; one that isn't selected is ignored.
+        let picked = vec![c.clone(), a.clone(), obj(kinds::TABLE, "dbo", "not_selected")];
+        assert_eq!(names(data_tables(&tables, Some(&picked))), ["a", "c"]);
+        // Kind and schema count; an empty schema is no schema.
+        let picked = vec![obj(kinds::VIEW, "dbo", "a"), obj(kinds::TABLE, "other", "b")];
+        assert!(data_tables(&tables, Some(&picked)).is_empty());
+        let bare = ObjectRef { kind: kinds::TABLE.into(), schema: None, name: "t".into() };
+        let empty_schema = ObjectRef { kind: kinds::TABLE.into(), schema: Some(String::new()), name: "t".into() };
+        assert_eq!(data_tables(&[&bare], Some(&[empty_schema])).len(), 1);
+        // Picked, but none of them: no data at all.
+        assert!(data_tables(&tables, Some(&[])).is_empty());
     }
 
     #[test]

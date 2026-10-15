@@ -172,6 +172,7 @@ pub(crate) async fn make_copy(state: &AppState, app: Option<&AppHandle>, args: C
         },
         path: Some(args.path.clone()),
         target_driver: None,
+        data_tables: None,
     };
     let key = format!("script:{}", args.backup_id);
     let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
