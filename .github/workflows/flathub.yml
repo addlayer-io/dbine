@@ -22,6 +22,11 @@ name: flathub
 # variables DBINE_GOOGLE_CLIENT_ID, DBINE_GOOGLE_CLIENT_SECRET and
 # DBINE_MICROSOFT_CLIENT_ID are set (Settings › Variables). Without them the
 # Flathub build has no Google Drive / OneDrive sync; folder sync still works.
+#
+# The `bundle` jobs build the same manifest into a single-file
+# `dbine-X.Y.Z-<arch>.flatpak` per architecture and, unless it's a dry run,
+# `bundle-release` attaches them to the tag's GitHub release. They are
+# separate jobs: a failed bundle changes nothing in the release or the PR.
 
 on:
   release:
@@ -55,6 +60,9 @@ concurrency:
 jobs:
   manifest:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      dry_run: ${{ steps.tag.outputs.dry_run }}
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'release' && !github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v')) ||
@@ -177,4 +185,103 @@ jobs:
             gh pr create --repo "$FLATHUB_REPO" --base "$base" --head "$branch" \
               --title "Update to $TAG" \
               --body "DBine $TAG (https://github.com/addlayer-io/dbine/releases/tag/$TAG), prepared by the flathub workflow. Flathub's test build runs on this PR; merging publishes it."
+          fi
+
+  # A downloadable .flatpak per architecture, built from the manifest the
+  # `manifest` job rendered (docs/flathub.md, "Downloadable .flatpak"). It
+  # runs even if the lint or the Flathub PR failed, as long as the files
+  # were rendered: the bundle doesn't go through Flathub's review.
+  bundle:
+    needs: manifest
+    if: ${{ !cancelled() && needs.manifest.outputs.tag != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    # The image of flatpak-github-actions with GNOME 51's Sdk preinstalled
+    # (amd64 and arm64); the SDK extensions come from Flathub during the
+    # build. flatpak-builder needs --privileged for its sandbox.
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+      # The runner's preinstalled toolchains that this build doesn't use,
+      # mounted to delete them: the Rust build with every driver plus
+      # llama.cpp needs the disk space.
+      volumes:
+        - /usr/share/dotnet:/host/dotnet
+        - /usr/local/lib/android:/host/android
+        - /opt/ghc:/host/ghc
+    timeout-minutes: 300
+    env:
+      TAG: ${{ needs.manifest.outputs.tag }}
+    steps:
+      - name: Free disk space
+        run: |
+          df -h / || true
+          rm -rf /host/dotnet/* /host/android/* /host/ghc/* || true
+          df -h / || true
+
+      - name: Bundle name
+        id: name
+        run: echo "bundle=dbine-${TAG#v}-${{ matrix.arch }}.flatpak" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: flathub-${{ needs.manifest.outputs.tag }}
+          path: flathub
+
+      # Builds the app and its modules, then `flatpak build-bundle` with
+      # --runtime-repo=<repository-url>: installing the file adds Flathub
+      # and pulls GNOME 51 from it. The cache is flatpak-builder's state
+      # dir (downloads, ccache and the finished modules): git, unixODBC and
+      # llama.cpp are reused from the previous release when they haven't
+      # changed; the app itself always builds from its tag.
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
+        with:
+          manifest-path: flathub/io.addlayer.dbine.yml
+          arch: ${{ matrix.arch }}
+          bundle: ${{ steps.name.outputs.bundle }}
+          repository-url: https://dl.flathub.org/repo/flathub.flatpakrepo
+          repository-name: flathub
+          branch: stable
+          cache: true
+          artifact-name: flatpak-${{ needs.manifest.outputs.tag }}-${{ matrix.arch }}
+
+  # Attaches the bundles that were built to the tag's release (not on dry
+  # runs). The only job that writes to the repository.
+  bundle-release:
+    needs: [manifest, bundle]
+    if: ${{ !cancelled() && needs.manifest.outputs.tag != '' && needs.manifest.outputs.dry_run != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.manifest.outputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: flatpak-${{ needs.manifest.outputs.tag }}-*
+          path: bundles
+          merge-multiple: true
+
+      - name: Upload to the release
+        run: |
+          shopt -s nullglob
+          files=(bundles/*.flatpak)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no .flatpak was built for $TAG"; exit 1
+          fi
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null; then
+            echo "::error::$TAG has no GitHub release"; exit 1
+          fi
+          ls -la "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          if [ ${#files[@]} -lt 2 ]; then
+            echo "::warning::only ${files[*]} was built; the other architecture failed (see the bundle job)"
           fi

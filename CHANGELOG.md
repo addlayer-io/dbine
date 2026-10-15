@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Improvements
+- **Flatpak download:** each release now includes a `.flatpak` file for Linux (`x86_64` and `aarch64`), to install with `flatpak install --user ./dbine-X.Y.Z-x86_64.flatpak`; Flatpak fetches the GNOME runtime from Flathub by itself. It doesn't update itself: install the next version's file the same way.
+
 ## [0.1.13] - 2026-10-16
 
 ### Improvements
