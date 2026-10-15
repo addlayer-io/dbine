@@ -77,22 +77,24 @@
     <keyword>MongoDB</keyword>
   </keywords>
 
-  <!-- TODO(owner): replace these placeholder URLs with real screenshots
-       (PNG, 16:9, at least 1248x702, no window shadows), hosted on a stable
-       URL such as dbine.com or the repository's raw files. Flathub mirrors
-       them at build time, so they must be reachable. -->
+  <!-- Real screenshots of the app (flatpak/screenshots/), served from the
+       repository; Flathub mirrors them at build time. -->
   <screenshots>
     <screenshot type="default">
       <caption>The workbench: explorer, SQL editor and results</caption>
-      <image>https://dbine.com/flathub/screenshot-workbench.png</image>
+      <image>https://raw.githubusercontent.com/addlayer-io/dbine/main/flatpak/screenshots/workbench.png</image>
     </screenshot>
     <screenshot>
-      <caption>Graphical execution plan</caption>
-      <image>https://dbine.com/flathub/screenshot-plan.png</image>
+      <caption>The AI assistant writes and explains queries; it can run locally</caption>
+      <image>https://raw.githubusercontent.com/addlayer-io/dbine/main/flatpak/screenshots/assistant.png</image>
     </screenshot>
     <screenshot>
-      <caption>Comparing two schemas</caption>
-      <image>https://dbine.com/flathub/screenshot-compare.png</image>
+      <caption>AI clients connect over MCP, and every change waits for your approval</caption>
+      <image>https://raw.githubusercontent.com/addlayer-io/dbine/main/flatpak/screenshots/mcp.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Comparing the schemas of two databases</caption>
+      <image>https://raw.githubusercontent.com/addlayer-io/dbine/main/flatpak/screenshots/compare.png</image>
     </screenshot>
   </screenshots>
 
