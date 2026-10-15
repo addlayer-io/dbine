@@ -127,8 +127,43 @@ const destination = ref<'editor' | 'file'>('editor');
 
 const hasTables = computed(() => props.objects.some((o) => TABLE_KINDS.includes(o.kind)));
 const hasDefinitions = computed(() => props.objects.some((o) => !TABLE_KINDS.includes(o.kind)));
+
+// ---- which tables get their data ------------------------------------------------
+// "Todas": every selected table (the backend gets `data_tables: null`).
+// "Elegir": the ticked ones. Tables unselected on the left leave the pick;
+// newly selected ones join it only in "Todas" (in "Elegir" they start unticked).
+const dataMode = ref<'all' | 'pick'>('all');
+const dataPicked = reactive(new Set<string>());
+const dataFilter = ref('');
+const selectedTables = computed(() => props.objects
+  .filter((o) => TABLE_KINDS.includes(o.kind) && selected.has(key(o)))
+  .sort((a, b) => display(a).localeCompare(display(b))));
+watch(() => selectedTables.value.map(key), (now, before) => {
+  const was = new Set(before ?? []);
+  const is = new Set(now);
+  for (const k of [...dataPicked]) if (!is.has(k)) dataPicked.delete(k);
+  if (dataMode.value === 'all' || !before) for (const k of now) if (!was.has(k)) dataPicked.add(k);
+}, { immediate: true });
+const dataItems = computed(() => {
+  const q = dataFilter.value.trim().toLowerCase();
+  return q ? selectedTables.value.filter((o) => display(o).toLowerCase().includes(q)) : selectedTables.value;
+});
+const dataPickedCount = computed(() => selectedTables.value.filter((o) => dataPicked.has(key(o))).length);
+const dataListDisabled = computed(() => running.value || !opts.data || !props.supportsData || !hasTables.value);
+function setDataAll(on: boolean) {
+  for (const o of dataItems.value) (on ? dataPicked.add(key(o)) : dataPicked.delete(key(o)));
+}
+function toggleData(o: ScriptObject) {
+  const k = key(o);
+  if (dataPicked.has(k)) dataPicked.delete(k); else dataPicked.add(k);
+}
+const dataOn = computed(() => props.supportsData && opts.data);
+/** Data asked for, but "Elegir" with nothing ticked: the script goes out without it. */
+const dataNonePicked = computed(() => dataOn.value && dataMode.value === 'pick' && dataPickedCount.value === 0);
+/** Data that will really be written (nothing else on and no table picked = nothing to emit). */
+const dataEmits = computed(() => dataOn.value && !dataNonePicked.value);
 const nothingToEmit = computed(() =>
-  !opts.drop && !opts.create && !opts.indexes && !opts.foreign_keys && !opts.definitions && !opts.data);
+  !opts.drop && !opts.create && !opts.indexes && !opts.foreign_keys && !opts.definitions && !dataEmits.value);
 
 // ---- run ---------------------------------------------------------------------
 const running = ref(false);
@@ -214,11 +249,14 @@ async function run() {
         objects,
         options: {
           ...opts,
-          data: props.supportsData && opts.data,
-          data_limit: props.supportsData && opts.data && limitRows.value ? limitValue.value : null,
+          data: dataEmits.value,
+          data_limit: dataEmits.value && limitRows.value ? limitValue.value : null,
         },
         path,
         target_driver: target,
+        data_tables: dataEmits.value && dataMode.value === 'pick'
+          ? selectedTables.value.filter((o) => dataPicked.has(key(o))).map((o) => ({ kind: o.kind, schema: o.schema, name: o.name }))
+          : null,
       },
     });
     const objectsText = t('scripts:generator.savedObjects', { count: result.objects, n: result.objects.toLocaleString(locale()) });
@@ -337,6 +375,37 @@ defineExpose({ run });
         <div class="nm-section-title sg-gap">{{ $t('scripts:generator.dataSection') }}</div>
         <el-checkbox v-model="opts.data" :disabled="running || !supportsData || !hasTables">{{ $t('scripts:generator.data') }}</el-checkbox>
         <div v-if="!supportsData" class="sg-help">{{ $t('scripts:generator.noDataSupport') }}</div>
+        <el-radio-group v-model="dataMode" :disabled="dataListDisabled" class="sg-dest sg-indent">
+          <el-radio value="all">{{ $t('scripts:generator.dataAllTables') }}</el-radio>
+          <el-radio value="pick">{{ $t('scripts:generator.dataPickTables') }}</el-radio>
+        </el-radio-group>
+        <div v-if="dataMode === 'pick'" class="sg-data sg-indent" :class="{ disabled: dataListDisabled }">
+          <div class="sg-data-head">
+            <el-input v-model="dataFilter" size="small" :placeholder="$t('scripts:generator.dataFilterPlaceholder')" clearable :disabled="dataListDisabled" class="sg-filter">
+              <template #prefix><el-icon><ei-search /></el-icon></template>
+            </el-input>
+            <el-button link type="primary" size="small" :disabled="dataListDisabled" @click="setDataAll(true)">{{ $t('common:all') }}</el-button>
+            <el-button link size="small" :disabled="dataListDisabled" @click="setDataAll(false)">{{ $t('common:none') }}</el-button>
+          </div>
+          <div class="sg-data-list">
+            <div
+              v-for="o in dataItems" :key="key(o)" class="sg-item sg-data-item" :class="{ on: dataPicked.has(key(o)) }"
+              @click="!dataListDisabled && toggleData(o)"
+            >
+              <el-checkbox :model-value="dataPicked.has(key(o))" :disabled="dataListDisabled" @click.stop @change="toggleData(o)" />
+              <span class="sg-name" :title="display(o)">
+                <span v-if="o.schema" class="sg-schema">{{ o.schema }}.</span>{{ o.name }}
+              </span>
+            </div>
+            <div v-if="!dataItems.length" class="sg-data-empty nm-muted">
+              {{ selectedTables.length ? $t('scripts:generator.dataNoMatch') : $t('scripts:generator.dataNoTables') }}
+            </div>
+          </div>
+          <div class="sg-objects-foot nm-muted">
+            {{ $t('scripts:generator.dataPickedOf', { picked: dataPickedCount.toLocaleString(locale()), total: selectedTables.length.toLocaleString(locale()) }) }}
+          </div>
+        </div>
+        <div v-if="dataNonePicked && !nothingToEmit && !running" class="sg-help sg-indent sg-warn">{{ $t('scripts:generator.dataNonePicked') }}</div>
         <div class="sg-limit sg-indent">
           <el-checkbox v-model="limitRows" :disabled="running || !opts.data || !supportsData">{{ $t('scripts:generator.maxRows') }}</el-checkbox>
           <el-input-number
@@ -386,7 +455,7 @@ defineExpose({ run });
 
     <template #footer>
       <div class="sg-footer">
-        <span v-if="!running && nothingToEmit" class="sg-warn">{{ $t('scripts:generator.pickOption') }}</span>
+        <span v-if="!running && nothingToEmit" class="sg-warn">{{ dataNonePicked ? $t('scripts:generator.pickDataTable') : $t('scripts:generator.pickOption') }}</span>
         <span class="nm-spacer" />
         <el-button v-if="running" @click="toBackground">{{ $t('tasks:panel.background') }}</el-button>
         <el-button :disabled="cancelling" @click="cancel">{{ running ? $t('scripts:generator.cancelGeneration') : $t('common:cancel') }}</el-button>
@@ -422,6 +491,7 @@ defineExpose({ run });
 .sg-objects-foot { padding: 5px 10px; border-top: 1px solid var(--nm-border-soft); font-size: 11.5px; }
 
 .sg-options { display: flex; flex-direction: column; align-items: flex-start; overflow: auto; padding-right: 4px; }
+.sg-options > * { flex-shrink: 0; }
 .sg-options .el-checkbox { height: 24px; margin-right: 0; }
 .sg-options .nm-section-title { margin-bottom: 4px; }
 .sg-gap { margin-top: 14px; }
@@ -430,6 +500,13 @@ defineExpose({ run });
 .sg-limit-input { width: 90px; }
 .sg-dest { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
 .sg-dest .el-radio { height: 24px; margin-right: 0; }
+.sg-data { align-self: stretch; display: flex; flex-direction: column; margin-top: 4px; border: 1px solid var(--nm-border); border-radius: var(--nm-radius); background: var(--ide-editor); }
+.sg-data.disabled { opacity: 0.6; }
+.sg-data-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-bottom: 1px solid var(--nm-border-soft); }
+.sg-data-head .el-button { margin-left: 0; }
+.sg-data-list { height: 132px; overflow: auto; padding: 2px 0; }
+.sg-data-item { padding-left: 8px; }
+.sg-data-empty { padding: 16px 8px; text-align: center; font-size: 12px; }
 .sg-help { font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.45; margin-top: 4px; }
 
 .sg-progress { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }

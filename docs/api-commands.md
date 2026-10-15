@@ -286,6 +286,10 @@ running query; if the connection drops, the next call reconnects.
   - `objects: ObjectRef[]`
   - `options: { drop, if_exists, create, indexes, foreign_keys, definitions, data, data_limit: number | null }`
   - `path: string | null`
+  - `target_driver: string | null`
+  - `data_tables: ObjectRef[] | null`: with `options.data`, the tables whose
+    rows are written (only those also in `objects`); `null` = every table. The
+    progress `total` and the returned `rows` count only those tables.
 - **Destination:**
   - with `path`, it writes the file and reports progress as it goes;
   - without `path`, it returns the text to open in the editor (with a size cap).
