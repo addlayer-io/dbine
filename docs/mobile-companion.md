@@ -22,11 +22,18 @@ rest of this page is the design it grows into.
   secret is the PSK, DBine's public key is pinned), Noise `IK` afterwards
   (only keys DBine paired; the phone only talks to the key it pinned), frames
   of up to 64 KB, messages of up to 16 MB, JSON requests: `hello`,
-  `connections`, `databases`, `locks`, `processes`, `kill`.
+  `connections`, `databases`, `monitor`, `locks`, `processes`, `kill`. The
+  Monitor's labels come in Spanish, as the engines write them; the phone
+  translates them with a slice of DBine's catalog that its build copies
+  (`mobile/scripts/catalog.py`, the messages from the monitor files and the
+  channel, about 100 KB a language).
 - **The phone app** (`mobile/`, Tauri 2 + Vue, its own Cargo workspace, so
   desktop builds and CI never compile it): pairs by scanning the QR code, lists
-  the computer's connections, shows a connection's blocking chains and the
-  statements running now (refreshed every 5 seconds), and ends a session
+  the computer's connections, shows a connection's Monitor (CPU, memory,
+  connections, activity and the rest of the engine's figures, with bars
+  against their ceiling and counters as a rate per second), its blocking
+  chains and the statements running now (refreshed every 5 seconds), and
+  ends a session
   after the phone's biometrics or PIN. A kill is never retried after a
   dropped connection. The texts are in DBine's five languages.
 - **Not yet:** reaching DBine from outside the local network (the paths and

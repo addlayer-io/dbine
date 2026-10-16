@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "dev": "python3 scripts/catalog.py && vite",
+    "build": "python3 scripts/catalog.py && vue-tsc --noEmit && vite build",
     "tauri": "tauri"
   },
   "dependencies": {

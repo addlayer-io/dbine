@@ -6,3 +6,4 @@ src-tauri/gen/android/.gradle/
 src-tauri/gen/android/build/
 src-tauri/gen/android/keystore.properties
 src-tauri/gen/schemas/
+src/locales/backend/

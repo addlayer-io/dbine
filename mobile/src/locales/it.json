@@ -21,9 +21,10 @@
     "unpairConfirm": "Dissociare questo telefono? Per usarlo di nuovo bisogna scansionare un nuovo codice."
   },
   "conn": {
+    "monitor": "Monitor",
     "locks": "Blocchi",
     "processes": "In corso",
-    "unsupported": "{{engine}} non riporta blocchi né processi.",
+    "unsupported": "{{engine}} non riporta il suo stato, i blocchi né i processi.",
     "noLocks": "Non ci sono sessioni bloccate.",
     "noProcesses": "Nessuna query in esecuzione.",
     "session": "Sessione {{id}}",
