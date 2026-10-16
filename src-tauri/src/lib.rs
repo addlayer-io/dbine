@@ -8,6 +8,7 @@ mod error;
 mod identifier;
 #[cfg(windows)]
 mod jumplist_windows;
+mod link;
 mod lint;
 mod mcp;
 mod menu;
@@ -205,6 +206,10 @@ pub fn run() {
             // 4b. The local MCP server (off unless the user turned it on; docs/mcp.md).
             app.manage(mcp::McpRuntime::open(state.clone(), &dir));
             app.state::<mcp::McpRuntime>().attach(app.handle().clone());
+            // The phone app's server (off unless the user turned it on;
+            // docs/mobile-companion.md).
+            app.manage(link::LinkRuntime::new(state.clone()));
+            app.state::<link::LinkRuntime>().attach(app.handle().clone());
             // The OS scheduler's entries follow the app (moved, updated).
             // Not while this start runs on the old identifier's folders: the
             // entries keep their old labels until the state is copied.
@@ -468,6 +473,13 @@ pub fn run() {
             commands::settings::list_settings,
             commands::settings::set_setting,
             commands::settings::open_support_page,
+            link::commands::link_status,
+            link::commands::link_configure,
+            link::commands::link_invite,
+            link::commands::link_cancel_invite,
+            link::commands::link_answer,
+            link::commands::link_remove_device,
+            link::commands::link_set_device,
             mcp::commands::mcp_status,
             mcp::commands::mcp_configure,
             mcp::commands::mcp_create_client,

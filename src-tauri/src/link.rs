@@ -1,0 +1,770 @@
+//! The phone app's server (docs/mobile-companion.md): Configuración ›
+//! Dispositivos turns it on, shows the QR code and lists the paired phones.
+//!
+//! - **Off unless turned on.** Nothing listens until the user enables it.
+//! - **Pairing needs the QR and a yes on this computer.** An invite lasts 2
+//!   minutes and pairs one phone; the phone's handshake proves it read the
+//!   code, and DBine asks its user (with both screens' fingerprint) before
+//!   keeping the phone. Pairing attempts are rate-limited.
+//! - **Then, only paired phones.** Each connection is a Noise handshake with
+//!   the phone's own key (`dbine-link`); removing a phone cuts its sessions.
+//! - **The connections never leave this computer.** The phone asks for
+//!   locks, processes or a kill; DBine does it with its own sessions and
+//!   answers with what the phone shows. Ending sessions is off per phone
+//!   until the user allows it, and the phone confirms each one with the
+//!   device's biometrics.
+//!
+//! State: `local.link` (this machine only, not synced) holds the switch,
+//! the port and the phones; DBine's private key is in the vault.
+
+use crate::state::AppState;
+use dbine_link::proto::{Call, ConnectionItem, Hello, LockRow, PairResult, ProcessRow, Request, Response};
+use dbine_link::{Accepted, Invite, Keys};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::oneshot;
+
+const SETTING: &str = "local.link";
+const KEYS: &str = "link-keys";
+pub const DEFAULT_PORT: u16 = 27518;
+/// An invite (the QR code) is good for this long, and for one phone.
+const INVITE_LIFE: Duration = Duration::from_secs(120);
+/// The user has this long to accept a phone on this computer.
+const ANSWER_LIMIT: Duration = Duration::from_secs(120);
+/// Pairing attempts allowed per minute (a wrong code costs one).
+const PAIR_ATTEMPTS: usize = 5;
+/// A phone that sends nothing for this long is disconnected.
+const IDLE_LIMIT: Duration = Duration::from_secs(10 * 60);
+/// A database call from the phone waits at most this long.
+const CALL_LIMIT: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Device {
+    /// Its key's fingerprint ("ABCD-0102-0304").
+    pub id: String,
+    pub name: String,
+    /// Its public key (base64).
+    pub key: String,
+    pub paired_at: String,
+    #[serde(default)]
+    pub last_seen: Option<String>,
+    /// It may end sessions (each one confirmed on the phone).
+    #[serde(default)]
+    pub can_kill: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub devices: Vec<Device>,
+}
+
+impl Default for LinkSettings {
+    fn default() -> Self {
+        LinkSettings { enabled: false, port: DEFAULT_PORT, devices: Vec::new() }
+    }
+}
+
+fn default_port() -> u16 {
+    DEFAULT_PORT
+}
+
+struct OpenInvite {
+    secret: [u8; 32],
+    until: Instant,
+}
+
+struct Running {
+    port: u16,
+    task: tauri::async_runtime::JoinHandle<()>,
+}
+
+pub struct LinkRuntime {
+    inner: Arc<Inner>,
+}
+
+struct Inner {
+    state: AppState,
+    app: Mutex<Option<AppHandle>>,
+    server: Mutex<Option<Running>>,
+    last_error: Mutex<Option<String>>,
+    invite: Mutex<Option<OpenInvite>>,
+    /// The pairing waiting for the user's answer.
+    pending: Mutex<Option<oneshot::Sender<bool>>>,
+    /// Pairing attempts in the last minute.
+    attempts: Mutex<VecDeque<Instant>>,
+    /// Each phone's open sessions, to cut them when it's removed.
+    live: Mutex<HashMap<String, Vec<tauri::async_runtime::JoinHandle<()>>>>,
+    /// DBine's keys once read (the vault isn't read on every connection).
+    keys: Mutex<Option<Keys>>,
+}
+
+fn b64(v: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(v)
+}
+
+fn now() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()
+}
+
+/// The computer's name, to show on the phone.
+pub fn computer_name() -> String {
+    if let Ok(n) = std::env::var("COMPUTERNAME") {
+        return n;
+    }
+    #[cfg(target_os = "macos")]
+    if let Ok(o) = std::process::Command::new("/usr/sbin/scutil").args(["--get", "ComputerName"]).output() {
+        let n = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if !n.is_empty() {
+            return n;
+        }
+    }
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "DBine".into())
+}
+
+/// This computer's address on the local network: the one the OS would use
+/// to go out (no packet is sent).
+fn lan_address() -> Option<std::net::IpAddr> {
+    let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    s.connect("192.0.2.1:9").ok()?;
+    s.local_addr().ok().map(|a| a.ip()).filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
+}
+
+impl LinkRuntime {
+    pub fn new(state: AppState) -> LinkRuntime {
+        LinkRuntime {
+            inner: Arc::new(Inner {
+                state,
+                app: Mutex::new(None),
+                server: Mutex::new(None),
+                last_error: Mutex::new(None),
+                invite: Mutex::new(None),
+                pending: Mutex::new(None),
+                attempts: Mutex::new(VecDeque::new()),
+                live: Mutex::new(HashMap::new()),
+                keys: Mutex::new(None),
+            }),
+        }
+    }
+
+    /// Start listening if the user turned it on.
+    pub fn attach(&self, app: AppHandle) {
+        *self.inner.app.lock().unwrap() = Some(app);
+        self.inner.apply();
+    }
+
+    pub fn settings(&self) -> LinkSettings {
+        self.inner.settings()
+    }
+
+    pub fn status(&self) -> (bool, Option<String>) {
+        let running = self.inner.server.lock().unwrap().is_some();
+        (running, self.inner.last_error.lock().unwrap().clone())
+    }
+
+    pub fn desktop_fingerprint(&self) -> Result<String, String> {
+        Ok(dbine_link::fingerprint(&self.inner.keys()?.public))
+    }
+
+    pub fn save(&self, f: impl FnOnce(&mut LinkSettings)) -> Result<LinkSettings, String> {
+        let mut s = self.inner.settings();
+        f(&mut s);
+        let v = serde_json::to_value(&s).map_err(|e| e.to_string())?;
+        self.inner.state.store.set_setting(SETTING, Some(&v)).map_err(|e| e.to_string())?;
+        // Removed phones lose their open sessions now.
+        let ids: Vec<String> = s.devices.iter().map(|d| d.id.clone()).collect();
+        self.inner.live.lock().unwrap().retain(|id, tasks| {
+            let keep = ids.contains(id);
+            if !keep {
+                tasks.iter().for_each(|t| t.abort());
+            }
+            keep
+        });
+        self.inner.apply();
+        Ok(s)
+    }
+
+    /// A new invite: the QR's text. Replaces any open one.
+    pub fn invite(&self) -> Result<String, String> {
+        let s = self.inner.settings();
+        if !s.enabled {
+            return Err("activá «Permitir celulares» primero".into());
+        }
+        if self.inner.server.lock().unwrap().is_none() {
+            return Err(self.inner.last_error.lock().unwrap().clone().unwrap_or_else(|| "el servidor para celulares no está funcionando".into()));
+        }
+        let keys = self.inner.keys()?;
+        let secret: [u8; 32] = dbine_link::random()?;
+        let addrs: Vec<String> = lan_address().into_iter().map(|ip| std::net::SocketAddr::new(ip, s.port).to_string()).collect();
+        if addrs.is_empty() {
+            return Err("esta computadora no está conectada a una red".into());
+        }
+        *self.inner.invite.lock().unwrap() = Some(OpenInvite { secret, until: Instant::now() + INVITE_LIFE });
+        Ok(Invite { v: dbine_link::VERSION, key: keys.public, secret: secret.to_vec(), addrs, name: computer_name() }.encode())
+    }
+
+    pub fn cancel_invite(&self) {
+        *self.inner.invite.lock().unwrap() = None;
+        if let Some(tx) = self.inner.pending.lock().unwrap().take() {
+            let _ = tx.send(false);
+        }
+    }
+
+    /// The user's answer to "¿Vincular este celular?".
+    pub fn answer(&self, accept: bool) {
+        if let Some(tx) = self.inner.pending.lock().unwrap().take() {
+            let _ = tx.send(accept);
+        }
+    }
+}
+
+/// The session key of a phone's calls on a connection › database.
+fn key(connection_id: &str, database: &str) -> String {
+    format!("link:{connection_id}:{database}")
+}
+
+/// The QR code of `text`, as SVG.
+pub fn qr_svg(text: &str) -> Result<String, String> {
+    let code = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M).map_err(|e| e.to_string())?;
+    Ok(code.render::<qrcode::render::svg::Color>().min_dimensions(240, 240).quiet_zone(true).build())
+}
+
+impl Inner {
+    fn settings(&self) -> LinkSettings {
+        self.state.store.get_setting(SETTING).ok().flatten().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+    }
+
+    /// DBine's key pair, made the first time.
+    fn keys(&self) -> Result<Keys, String> {
+        let mut cached = self.keys.lock().unwrap();
+        if let Some(k) = cached.as_ref() {
+            return Ok(k.clone());
+        }
+        let k = match dbine_core::secrets::get_raw(KEYS).map_err(|e| e.to_string())?.and_then(|j| serde_json::from_str::<Keys>(&j).ok()) {
+            Some(k) => k,
+            None => {
+                let k = Keys::generate()?;
+                dbine_core::secrets::set_raw(KEYS, &serde_json::to_string(&k).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+                k
+            }
+        };
+        *cached = Some(k.clone());
+        Ok(k)
+    }
+
+    /// Listen or stop as the settings say.
+    fn apply(self: &Arc<Self>) {
+        let s = self.settings();
+        let mut server = self.server.lock().unwrap();
+        let same = server.as_ref().is_some_and(|r| r.port == s.port);
+        if s.enabled && same {
+            return;
+        }
+        if let Some(r) = server.take() {
+            r.task.abort();
+        }
+        *self.last_error.lock().unwrap() = None;
+        if !s.enabled {
+            for (_, tasks) in self.live.lock().unwrap().drain() {
+                tasks.iter().for_each(|t| t.abort());
+            }
+            return;
+        }
+        let listener = match std::net::TcpListener::bind(("0.0.0.0", s.port)).and_then(|l| l.set_nonblocking(true).map(|_| l)) {
+            Ok(l) => l,
+            Err(e) => {
+                let msg = if e.kind() == std::io::ErrorKind::AddrInUse {
+                    format!("el puerto {} está en uso por otro programa: elegí otro", s.port)
+                } else {
+                    format!("no se pudo abrir el puerto {}: {e}", s.port)
+                };
+                tracing::warn!("phone link server not started: {msg}");
+                *self.last_error.lock().unwrap() = Some(msg);
+                return;
+            }
+        };
+        let me = self.clone();
+        let task = tauri::async_runtime::spawn(async move {
+            let listener = match TcpListener::from_std(listener) {
+                Ok(l) => l,
+                Err(e) => {
+                    *me.last_error.lock().unwrap() = Some(e.to_string());
+                    return;
+                }
+            };
+            tracing::info!(port = s.port, "phone link server listening");
+            loop {
+                let Ok((stream, from)) = listener.accept().await else { continue };
+                let _ = stream.set_nodelay(true);
+                let me = me.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = me.serve(stream).await {
+                        tracing::info!(%from, "phone link connection closed: {e}");
+                    }
+                });
+            }
+        });
+        *server = Some(Running { port: s.port, task });
+    }
+
+    /// A pairing attempt counts against the limit; `false`: too many.
+    fn allow_pairing(&self) -> bool {
+        let mut a = self.attempts.lock().unwrap();
+        let minute_ago = Instant::now() - Duration::from_secs(60);
+        while a.front().is_some_and(|t| *t < minute_ago) {
+            a.pop_front();
+        }
+        if a.len() >= PAIR_ATTEMPTS {
+            return false;
+        }
+        a.push_back(Instant::now());
+        true
+    }
+
+    async fn serve(self: Arc<Self>, stream: TcpStream) -> Result<(), String> {
+        let keys = self.keys()?;
+        let secret = {
+            let mut inv = self.invite.lock().unwrap();
+            if inv.as_ref().is_some_and(|i| i.until < Instant::now()) {
+                *inv = None;
+            }
+            inv.as_ref().map(|i| i.secret)
+        };
+        let devices = self.settings().devices;
+        let known: Vec<Vec<u8>> = devices
+            .iter()
+            .filter_map(|d| {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.decode(&d.key).ok()
+            })
+            .collect();
+        // Rate-limit only what could be a pairing: peek the mode byte.
+        let mut peek = [0u8; 1];
+        stream.peek(&mut peek).await.map_err(|e| e.to_string())?;
+        let pairing = peek[0] == 1;
+        if pairing && (secret.is_none() || !self.allow_pairing()) {
+            return Err("pairing refused (no open invite or too many attempts)".into());
+        }
+        match dbine_link::accept(stream, &keys, secret.as_ref().map(|s| s.as_slice()), |k| known.iter().any(|x| x == k)).await? {
+            Accepted::Paired { channel, hello } => self.pair(channel, hello).await,
+            Accepted::Connected(channel) => {
+                let id = dbine_link::fingerprint(&channel.peer);
+                let me = self.clone();
+                let task = tauri::async_runtime::spawn({
+                    let id = id.clone();
+                    async move {
+                        if let Err(e) = me.session(channel, &id).await {
+                            tracing::info!(device = %id, "phone session ended: {e}");
+                        }
+                    }
+                });
+                self.live.lock().unwrap().entry(id).or_default().push(task);
+                Ok(())
+            }
+        }
+    }
+
+    async fn pair(self: Arc<Self>, mut channel: dbine_link::Channel<TcpStream>, hello: Vec<u8>) -> Result<(), String> {
+        // The phone proves it read the code: with a wrong secret it can't
+        // decrypt our reply and never sends this.
+        let ready = tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.map_err(|_| "pairing: no confirmation".to_string())??;
+        if ready != b"ready" {
+            return Err("pairing: unexpected message".into());
+        }
+        // One phone per code.
+        *self.invite.lock().unwrap() = None;
+        let name: String = String::from_utf8_lossy(&hello).chars().filter(|c| !c.is_control()).take(60).collect::<String>().trim().to_string();
+        let name = if name.is_empty() { "Celular".to_string() } else { name };
+        let id = dbine_link::fingerprint(&channel.peer);
+        let (tx, rx) = oneshot::channel();
+        if let Some(old) = self.pending.lock().unwrap().replace(tx) {
+            let _ = old.send(false);
+        }
+        if let Some(app) = self.app.lock().unwrap().clone() {
+            #[derive(Serialize, Clone)]
+            struct Ask {
+                name: String,
+                fingerprint: String,
+            }
+            let _ = app.emit("link-pair-request", Ask { name: name.clone(), fingerprint: id.clone() });
+        }
+        let accepted = matches!(tokio::time::timeout(ANSWER_LIMIT, rx).await, Ok(Ok(true)));
+        let desktop = computer_name();
+        if accepted {
+            let device = Device { id: id.clone(), name: name.clone(), key: b64(&channel.peer), paired_at: now(), last_seen: None, can_kill: false };
+            let mut s = self.settings();
+            s.devices.retain(|d| d.id != id);
+            s.devices.push(device);
+            let v = serde_json::to_value(&s).map_err(|e| e.to_string())?;
+            self.state.store.set_setting(SETTING, Some(&v)).map_err(|e| e.to_string())?;
+            tracing::info!(device = %id, "phone paired");
+        }
+        channel
+            .send_json(&PairResult { accepted, desktop, reason: (!accepted).then(|| "rechazado o sin respuesta en la computadora".to_string()) })
+            .await?;
+        if let Some(app) = self.app.lock().unwrap().clone() {
+            let _ = app.emit("link-changed", ());
+        }
+        Ok(())
+    }
+
+    async fn session(self: Arc<Self>, mut channel: dbine_link::Channel<TcpStream>, id: &str) -> Result<(), String> {
+        let touch = |me: &Arc<Self>| {
+            let mut s = me.settings();
+            if let Some(d) = s.devices.iter_mut().find(|d| d.id == id) {
+                d.last_seen = Some(now());
+                if let Ok(v) = serde_json::to_value(&s) {
+                    let _ = me.state.store.set_setting(SETTING, Some(&v));
+                }
+            }
+        };
+        touch(&self);
+        loop {
+            let req: Request = tokio::time::timeout(IDLE_LIMIT, channel.recv_json()).await.map_err(|_| "idle".to_string())??;
+            // Removed meanwhile: stop answering.
+            let Some(device) = self.settings().devices.into_iter().find(|d| d.id == id) else {
+                return Err("device removed".into());
+            };
+            let id_n = req.id;
+            let resp = match tokio::time::timeout(CALL_LIMIT, self.call(&device, req.call)).await {
+                Ok(Ok(r)) => r,
+                Ok(Err(e)) => Response::error(id_n, e),
+                Err(_) => Response::error(id_n, format!("el servidor no respondió en {} s", CALL_LIMIT.as_secs())),
+            };
+            let resp = Response { id: id_n, ..resp };
+            channel.send_json(&resp).await?;
+        }
+    }
+
+    async fn call(&self, device: &Device, call: Call) -> Result<Response, String> {
+        let state = &self.state;
+        Ok(match call {
+            Call::Hello => Response::ok(0, &Hello { desktop: computer_name(), version: env!("CARGO_PKG_VERSION").into(), can_kill: device.can_kill }),
+            Call::Connections => {
+                let list: Vec<ConnectionItem> = state
+                    .store
+                    .list_connections()
+                    .map_err(|e| e.to_string())?
+                    .into_iter()
+                    .filter_map(|c| {
+                        let d = dbine_drivers::find(&c.config.driver)?;
+                        let caps = d.capabilities();
+                        Some(ConnectionItem {
+                            id: c.id,
+                            name: c.name,
+                            engine: d.info().name.to_string(),
+                            color: c.color,
+                            locks: caps.blocking,
+                            processes: caps.processes,
+                            kill: caps.kill_session && !c.config.read_only,
+                        })
+                    })
+                    .collect();
+                Response::ok(0, &list)
+            }
+            Call::Databases { connection_id } => {
+                let entry = state.session(&key(&connection_id, ""), &connection_id, "").await.map_err(|e| e.to_string())?;
+                let dbs = entry.session.lock().await.list_databases().await.map_err(|e| e.to_string())?;
+                Response::ok(0, &dbs)
+            }
+            Call::Locks { connection_id, database } => {
+                let entry = state.session(&key(&connection_id, &database), &connection_id, &database).await.map_err(|e| e.to_string())?;
+                let rows = entry.session.lock().await.blocking().await;
+                let rows = self.forget_if_dropped(&key(&connection_id, &database), rows)?;
+                let out: Vec<LockRow> = rows
+                    .into_iter()
+                    .map(|b| LockRow {
+                        id: b.id,
+                        blocked_by: b.blocked_by,
+                        user: b.user,
+                        client: b.client,
+                        database: b.database,
+                        wait: b.wait,
+                        waited_ms: b.waited_ms,
+                        object: b.object,
+                        sql: b.sql,
+                    })
+                    .collect();
+                Response::ok(0, &out)
+            }
+            Call::Processes { connection_id, database } => {
+                let entry = state.session(&key(&connection_id, &database), &connection_id, &database).await.map_err(|e| e.to_string())?;
+                let rows = entry.session.lock().await.processes().await;
+                let rows = self.forget_if_dropped(&key(&connection_id, &database), rows)?;
+                let out: Vec<ProcessRow> = rows
+                    .into_iter()
+                    .filter(|p| p.active && !p.own && !p.system)
+                    .map(|p| ProcessRow {
+                        id: p.id,
+                        status: p.status,
+                        user: p.user,
+                        host: p.host,
+                        database: p.database,
+                        elapsed_ms: p.elapsed_ms,
+                        blocked_by: p.blocked_by,
+                        sql: p.sql,
+                    })
+                    .collect();
+                Response::ok(0, &out)
+            }
+            Call::Kill { connection_id, database, session_id } => {
+                if !device.can_kill {
+                    return Err("este celular no tiene permiso para terminar sesiones: se habilita en DBine, Configuración › Dispositivos".into());
+                }
+                let entry = state.session(&key(&connection_id, &database), &connection_id, &database).await.map_err(|e| e.to_string())?;
+                entry.session.lock().await.kill_session(&session_id).await.map_err(|e| e.to_string())?;
+                tracing::info!(device = %device.id, connection = %connection_id, session = %session_id, "session ended from a phone");
+                Response::ok(0, &true)
+            }
+        })
+    }
+
+    /// A dropped connection would fail every call: reconnect next time.
+    fn forget_if_dropped<T>(&self, key: &str, r: dbine_driver::Result<T>) -> Result<T, String> {
+        if matches!(r, Err(dbine_driver::Error::Connect(_) | dbine_driver::Error::ConnectFailed(_) | dbine_driver::Error::Io(_))) {
+            self.state.sessions.remove(key);
+        }
+        r.map_err(|e| e.to_string())
+    }
+}
+
+pub mod commands {
+    use super::*;
+    use crate::error::{CommandError, CommandResult};
+    use tauri::State;
+
+    #[derive(Serialize)]
+    pub struct LinkStatus {
+        pub enabled: bool,
+        pub port: u16,
+        pub running: bool,
+        pub error: Option<String>,
+        pub fingerprint: String,
+        pub devices: Vec<Device>,
+    }
+
+    fn status(rt: &LinkRuntime) -> CommandResult<LinkStatus> {
+        let s = rt.settings();
+        let (running, error) = rt.status();
+        Ok(LinkStatus { enabled: s.enabled, port: s.port, running, error, fingerprint: rt.desktop_fingerprint().map_err(CommandError::Internal)?, devices: s.devices })
+    }
+
+    #[tauri::command(rename_all = "camelCase")]
+    pub async fn link_status(rt: State<'_, LinkRuntime>) -> CommandResult<LinkStatus> {
+        status(&rt)
+    }
+
+    #[derive(Deserialize)]
+    pub struct ConfigureArgs {
+        pub enabled: bool,
+        pub port: u16,
+    }
+
+    #[tauri::command(rename_all = "camelCase")]
+    pub async fn link_configure(rt: State<'_, LinkRuntime>, args: ConfigureArgs) -> CommandResult<LinkStatus> {
+        if args.port < 1024 {
+            return Err(CommandError::BadRequest("elegí un puerto de 1024 en adelante".into()));
+        }
+        rt.save(|s| {
+            s.enabled = args.enabled;
+            s.port = args.port;
+        })
+        .map_err(CommandError::Internal)?;
+        status(&rt)
+    }
+
+    #[derive(Serialize)]
+    pub struct InviteOut {
+        pub svg: String,
+        pub fingerprint: String,
+        pub seconds: u64,
+    }
+
+    #[tauri::command(rename_all = "camelCase")]
+    pub async fn link_invite(rt: State<'_, LinkRuntime>) -> CommandResult<InviteOut> {
+        let text = rt.invite().map_err(CommandError::BadRequest)?;
+        Ok(InviteOut { svg: qr_svg(&text).map_err(CommandError::Internal)?, fingerprint: rt.desktop_fingerprint().map_err(CommandError::Internal)?, seconds: INVITE_LIFE.as_secs() })
+    }
+
+    #[tauri::command(rename_all = "camelCase")]
+    pub async fn link_cancel_invite(rt: State<'_, LinkRuntime>) -> CommandResult<()> {
+        rt.cancel_invite();
+        Ok(())
+    }
+
+    #[derive(Deserialize)]
+    pub struct AnswerArgs {
+        pub accept: bool,
+    }
+
+    #[tauri::command(rename_all = "camelCase")]
+    pub async fn link_answer(rt: State<'_, LinkRuntime>, args: AnswerArgs) -> CommandResult<()> {
+        rt.answer(args.accept);
+        Ok(())
+    }
+
+    #[derive(Deserialize)]
+    pub struct DeviceArgs {
+        pub id: String,
+        #[serde(default)]
+        pub can_kill: Option<bool>,
+    }
+
+    #[tauri::command(rename_all = "camelCase")]
+    pub async fn link_remove_device(rt: State<'_, LinkRuntime>, args: DeviceArgs) -> CommandResult<LinkStatus> {
+        rt.save(|s| s.devices.retain(|d| d.id != args.id)).map_err(CommandError::Internal)?;
+        status(&rt)
+    }
+
+    #[tauri::command(rename_all = "camelCase")]
+    pub async fn link_set_device(rt: State<'_, LinkRuntime>, args: DeviceArgs) -> CommandResult<LinkStatus> {
+        rt.save(|s| {
+            if let (Some(d), Some(k)) = (s.devices.iter_mut().find(|d| d.id == args.id), args.can_kill) {
+                d.can_kill = k;
+            }
+        })
+        .map_err(CommandError::Internal)?;
+        status(&rt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dbine_core::state::SavedConnection;
+    use dbine_core::StateStore;
+    use dbine_driver::ConnectionConfig;
+    use dbine_link::proto::{Call, ConnectionItem, Hello, PairResult, Request, Response};
+
+    async fn ask(ch: &mut dbine_link::Channel<TcpStream>, id: u64, call: Call) -> Response {
+        ch.send_json(&Request { id, call }).await.unwrap();
+        let r: Response = ch.recv_json().await.unwrap();
+        assert_eq!(r.id, id);
+        r
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn pair_confirm_ask_and_revoke() {
+        let dir = std::env::temp_dir().join(format!("dbine-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.sqlite");
+        rusqlite::Connection::open(&file).unwrap().execute_batch("CREATE TABLE t (x INTEGER);").unwrap();
+        let state = AppState::new(StateStore::open_in_memory().unwrap());
+        state
+            .store
+            .save_connection(&SavedConnection {
+                id: "a".into(),
+                name: "base a".into(),
+                color: None,
+                config: ConnectionConfig { driver: "sqlite".into(), host: file.to_string_lossy().into_owned(), ..Default::default() },
+                save_password: false,
+                folder_id: None,
+                tags: vec![],
+                mcp_level: None,
+                updated_at: String::new(),
+            })
+            .unwrap();
+        let rt = LinkRuntime::new(state);
+        *rt.inner.keys.lock().unwrap() = Some(Keys::generate().unwrap());
+        let port = { std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port() };
+
+        // Off: no invite, nothing listening.
+        assert!(rt.invite().is_err());
+        rt.save(|s| {
+            s.enabled = true;
+            s.port = port;
+        })
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(rt.status().0, "{:?}", rt.status());
+        let invite = Invite::decode(&rt.invite().unwrap()).unwrap();
+        let addr = format!("127.0.0.1:{port}");
+        let phone = Keys::generate().unwrap();
+
+        // A stranger without the code is refused.
+        let stranger = Keys::generate().unwrap();
+        let s = TcpStream::connect(&addr).await.unwrap();
+        assert!(dbine_link::connect(s, &invite.key, &stranger).await.is_err());
+
+        // Pairing: the user says yes on the computer.
+        let s = TcpStream::connect(&addr).await.unwrap();
+        let mut ch = dbine_link::pair(s, &invite, &phone, b"Pixel de prueba").await.unwrap();
+        ch.send(b"ready").await.unwrap();
+        for _ in 0..50 {
+            if rt.inner.pending.lock().unwrap().is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        rt.answer(true);
+        let result: PairResult = ch.recv_json().await.unwrap();
+        assert!(result.accepted);
+        let devices = rt.settings().devices;
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].name, "Pixel de prueba");
+        assert!(!devices[0].can_kill, "ending sessions is off until allowed");
+
+        // The code was for one phone.
+        let s = TcpStream::connect(&addr).await.unwrap();
+        let other = Keys::generate().unwrap();
+        let second = dbine_link::pair(s, &invite, &other, b"otro").await;
+        assert!(second.is_err(), "a used code doesn't pair again");
+
+        // Connected: what it may see and do.
+        let s = TcpStream::connect(&addr).await.unwrap();
+        let mut ch = dbine_link::connect(s, &invite.key, &phone).await.unwrap();
+        let hello: Hello = serde_json::from_value(ask(&mut ch, 1, Call::Hello).await.ok.unwrap()).unwrap();
+        assert!(!hello.can_kill);
+        let conns: Vec<ConnectionItem> = serde_json::from_value(ask(&mut ch, 2, Call::Connections).await.ok.unwrap()).unwrap();
+        assert_eq!(conns.len(), 1);
+        assert_eq!(conns[0].name, "base a");
+        let kill = ask(&mut ch, 3, Call::Kill { connection_id: "a".into(), database: "".into(), session_id: "1".into() }).await;
+        assert!(kill.error.unwrap().contains("no tiene permiso"));
+        // SQLite has no locks: an error, not a hang.
+        assert!(ask(&mut ch, 4, Call::Locks { connection_id: "a".into(), database: "".into() }).await.error.is_some());
+
+        // Removing the phone cuts it off.
+        let id = devices[0].id.clone();
+        rt.save(|s| s.devices.retain(|d| d.id != id)).unwrap();
+        ch.send_json(&Request { id: 5, call: Call::Hello }).await.ok();
+        assert!(ch.recv_json::<Response>().await.is_err());
+        let s = TcpStream::connect(&addr).await.unwrap();
+        assert!(dbine_link::connect(s, &invite.key, &phone).await.is_err());
+
+        // Off again: nothing listens.
+        rt.save(|s| s.enabled = false).unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(TcpStream::connect(&addr).await.is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pairing_attempts_are_limited() {
+        let rt = LinkRuntime::new(AppState::new(StateStore::open_in_memory().unwrap()));
+        for _ in 0..PAIR_ATTEMPTS {
+            assert!(rt.inner.allow_pairing());
+        }
+        assert!(!rt.inner.allow_pairing());
+    }
+
+    #[test]
+    fn qr_renders() {
+        let svg = qr_svg("dbine-link:1:abc").unwrap();
+        assert!(svg.starts_with("<?xml") || svg.starts_with("<svg"));
+    }
+}
