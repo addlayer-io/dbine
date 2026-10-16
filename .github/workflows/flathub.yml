@@ -234,6 +234,8 @@ jobs:
       # it. Swap only slows that link; the binary is the same.
       - name: Swap
         run: |
+          # The image (Fedora) ships without mkswap and swapon.
+          command -v mkswap >/dev/null || dnf install -y util-linux
           fallocate -l 16G /host/swap/swapfile
           chmod 600 /host/swap/swapfile
           mkswap /host/swap/swapfile
