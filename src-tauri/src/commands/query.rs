@@ -178,6 +178,13 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
     }
     let started = std::time::Instant::now();
     let started_at = chrono::Utc::now().to_rfc3339();
+    // An editor run shows on the paired phones while it runs.
+    let watched = (args.record && args.plan == PlanMode::None)
+        .then(|| {
+            use tauri::Manager;
+            app.try_state::<crate::link::LinkRuntime>().map(|l| l.query_started(&args.session_id, &args.connection_id, &args.database, &args.sql))
+        })
+        .flatten();
     let max_rows = args.max_rows.unwrap_or(DEFAULT_MAX_ROWS).max(1);
     let mut out = QueryOutcome::default();
     let mut session = entry.session.lock().await;
@@ -346,12 +353,9 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
         e.offset = e.offset.map(|o| pos.at(o));
     }
     out.elapsed_ms = started.elapsed().as_millis() as u64;
-    // A long run from the editor tells the paired phones when it ends.
-    if args.record && args.plan == PlanMode::None && started.elapsed() >= crate::link::LONG_QUERY {
-        use tauri::Manager;
-        if let Some(link) = app.try_state::<crate::link::LinkRuntime>() {
-            link.query_ended(&args.connection_id, &args.database, &out);
-        }
+    // The phone's "Actividad": how it ended (a long run also notifies).
+    if let Some(g) = watched {
+        g.finish(&out);
     }
     if args.record {
         let origin = crate::commands::history::Origin { query_id: args.query_id.clone(), project_id: args.project_id.clone(), file_path: args.file_path.clone() };
@@ -779,10 +783,15 @@ pub struct SessionArgs {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn cancel_query(state: State<'_, AppState>, args: SessionArgs) -> CommandResult<()> {
-    if let Some(entry) = state.sessions.get(&args.session_id).map(|e| e.clone()) {
+    cancel_session(&state, &args.session_id);
+    Ok(())
+}
+
+/// Cancel what a session runs (the editor's tab, or the phone app).
+pub fn cancel_session(state: &AppState, session_id: &str) {
+    if let Some(entry) = state.sessions.get(session_id).map(|e| e.clone()) {
         request_cancel(&entry);
     }
-    Ok(())
 }
 
 /// The tab closed: release its connection.
