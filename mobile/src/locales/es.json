@@ -42,8 +42,7 @@
   },
   "nav": {
     "connections": "Conexiones",
-    "tasks": "Tareas",
-    "news": "Avisos"
+    "activity": "Actividad"
   },
   "tasks": {
     "title": "Tareas programadas",
@@ -65,20 +64,27 @@
       "failed": "Falló"
     }
   },
-  "news": {
-    "title": "Avisos",
-    "intro": "Mientras la app esté abierta o en segundo plano, DBine te avisa cuando termina una consulta que llevó más de 10 segundos y cuando una tarea falla o tiene una alerta. Con la app cerrada no llegan.",
-    "none": "Sin avisos por ahora.",
-    "kind": {
-      "query": "Consulta",
-      "task": "Tarea"
-    }
-  },
   "health": {
     "run": "Revisar la base",
     "running": "Revisando…",
     "allGood": "No se encontraron problemas.",
     "fine_one": "{{count}} revisión sin problemas",
     "fine_other": "{{count}} revisiones sin problemas"
+  },
+  "activity": {
+    "title": "Actividad",
+    "queries": "Consultas",
+    "tasks": "Tareas programadas",
+    "running": "En curso",
+    "recent": "Terminadas",
+    "none": "No hay consultas en curso ni terminadas hace poco.",
+    "cancel": "Cancelar",
+    "cancelConfirm": "¿Cancelar esta consulta en la computadora?\n\n{{sql}}",
+    "cancelReason": "Cancelar una consulta",
+    "notConfirmed": "No se confirmó: la consulta sigue.",
+    "cancelled": "Se pidió cancelar la consulta.",
+    "done": "Terminó bien",
+    "startedAt": "Empezó el {{at}}",
+    "hint": "Acá aparecen las consultas que corrés en el editor de DBine mientras corren, y las que llevaron más de 10 segundos cuando terminan. Si lo permitís, el celular avisa cuando terminan: con la app abierta, al momento; con la app cerrada, en la próxima revisión de Android (cada 15 minutos). Mientras una consulta lleva más de 30 segundos, DBine no deja que la computadora entre en reposo."
   }
 }

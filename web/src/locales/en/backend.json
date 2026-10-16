@@ -10220,5 +10220,9 @@
   "Terminó en {0}": "Finished in {0}",
   "Terminó en {0} · {1} filas": "Finished in {0} · {1} rows",
   "Terminó en {0} · {1} filas afectadas": "Finished in {0} · {1} rows affected",
-  "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": "this phone is not allowed to run tasks: enable it in DBine, Settings › Devices"
+  "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": "this phone is not allowed to run tasks: enable it in DBine, Settings › Devices",
+  "--why=Una consulta está en curso": "--why=A query is running",
+  "Terminó en {0} · {1}": "Finished in {0} · {1}",
+  "este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos": "this phone is not allowed to cancel queries: enable it in DBine, Settings › Devices",
+  "la consulta ya terminó": "the query has already finished"
 }

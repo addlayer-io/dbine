@@ -42,8 +42,7 @@
   },
   "nav": {
     "connections": "Connections",
-    "tasks": "Tasks",
-    "news": "Notices"
+    "activity": "Activity"
   },
   "tasks": {
     "title": "Scheduled tasks",
@@ -65,20 +64,27 @@
       "failed": "Failed"
     }
   },
-  "news": {
-    "title": "Notices",
-    "intro": "While the app is open or in the background, DBine notifies you when a query that took more than 10 seconds finishes and when a task fails or has an alert. They don't arrive with the app closed.",
-    "none": "No notices for now.",
-    "kind": {
-      "query": "Query",
-      "task": "Task"
-    }
-  },
   "health": {
     "run": "Check the database",
     "running": "Checking…",
     "allGood": "No problems found.",
     "fine_one": "{{count}} check with no problems",
     "fine_other": "{{count}} checks with no problems"
+  },
+  "activity": {
+    "title": "Activity",
+    "queries": "Queries",
+    "tasks": "Scheduled tasks",
+    "running": "Running",
+    "recent": "Finished",
+    "none": "No queries are running or finished recently.",
+    "cancel": "Cancel",
+    "cancelConfirm": "Cancel this query on the computer?\n\n{{sql}}",
+    "cancelReason": "Cancel a query",
+    "notConfirmed": "Not confirmed: the query continues.",
+    "cancelled": "Cancellation of the query was requested.",
+    "done": "Finished successfully",
+    "startedAt": "Started on {{at}}",
+    "hint": "Here you see the queries you run in the DBine editor while they run, and those that took more than 10 seconds once they finish. If you allow it, the phone notifies you when they finish: with the app open, right away; with the app closed, on Android's next check (every 15 minutes). While a query has been running for more than 30 seconds, DBine keeps the computer from going to sleep."
   }
 }

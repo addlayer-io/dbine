@@ -22,8 +22,7 @@ const CALL_LIMIT: Duration = Duration::from_secs(70);
 /// How often the app asks DBine for news (long queries that ended, task
 /// runs) while it's running, in front or behind.
 const NEWS_EVERY: Duration = Duration::from_secs(20);
-/// Notices kept for the "Avisos" screen.
-const NEWS_KEPT: usize = 50;
+
 
 /// What the phone keeps (in its private app folder).
 #[derive(Clone, Serialize, Deserialize)]
@@ -39,11 +38,6 @@ struct App {
     pairing: Option<Pairing>,
     channel: Option<Channel<TcpStream>>,
     next_id: u64,
-    /// Where the phone is in DBine's list of notices.
-    news_after: Option<u64>,
-    news_boot: Option<String>,
-    /// The latest notices, newest first.
-    news: Vec<EventRow>,
 }
 
 type Shared = Mutex<App>;
@@ -140,7 +134,9 @@ async fn unpair(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> 
     let mut s = state.lock().await;
     s.pairing = None;
     s.channel = None;
-    let _ = std::fs::remove_file(file(&app)?);
+    let f = file(&app)?;
+    let _ = std::fs::remove_file(f.with_file_name("news.json"));
+    let _ = std::fs::remove_file(f);
     Ok(())
 }
 
@@ -189,46 +185,78 @@ async fn call(state: State<'_, Shared>, call: Call) -> Result<serde_json::Value,
     }
 }
 
-/// The notices received while the app runs, newest first.
-#[tauri::command]
-async fn news(state: State<'_, Shared>) -> Result<Vec<EventRow>, String> {
-    Ok(state.lock().await.news.clone())
+/// Where the phone is in DBine's list of notices, kept on disk: the app's
+/// loop and Android's periodic check (with the app closed) share it, so a
+/// notice arrives once and none is lost when the app restarts.
+#[derive(Default, Serialize, Deserialize)]
+struct Position {
+    after: Option<u64>,
+    boot: Option<String>,
 }
 
-/// Ask DBine what's new and turn it into notifications. The first look
-/// after starting (or after DBine restarted) only learns where the list is:
-/// old news isn't news.
+/// One look at DBine's notices, on a connection of its own: what's new
+/// since the saved position (none the very first time: old news isn't
+/// news). Used by the app and by `NewsWorker` (Android, app closed).
+async fn news_from(dir: &std::path::Path) -> Result<Vec<EventRow>, String> {
+    let pairing: Pairing = serde_json::from_slice(&std::fs::read(dir.join("pairing.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let pos_file = dir.join("news.json");
+    let pos: Position = std::fs::read(&pos_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let stream = reach(&pairing.addrs).await?;
+    let mut ch = dbine_link::connect(stream, &pairing.desktop_key, &pairing.phone).await?;
+    ch.send_json(&Request { id: 1, call: Call::Events { after: pos.after, boot: pos.boot.clone() } }).await?;
+    let r: Response = tokio::time::timeout(CALL_LIMIT, ch.recv_json()).await.map_err(|_| "DBine no respondió".to_string())??;
+    let ev: Events = serde_json::from_value(r.ok.ok_or_else(|| r.error.unwrap_or_default())?).map_err(|e| e.to_string())?;
+    let next = Position { after: Some(ev.last), boot: Some(ev.boot) };
+    let tmp = pos_file.with_extension("tmp");
+    std::fs::write(&tmp, serde_json::to_vec(&next).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &pos_file).map_err(|e| e.to_string())?;
+    Ok(if pos.after.is_some() { ev.events } else { Vec::new() })
+}
+
 async fn check_news(app: &AppHandle) {
     use tauri_plugin_notification::NotificationExt;
-    let state = app.state::<Shared>();
-    let mut s = state.lock().await;
-    if s.pairing.is_none() {
+    let Ok(file) = file(app) else { return };
+    let Some(dir) = file.parent() else { return };
+    if !file.exists() {
         return;
     }
-    let call = Call::Events { after: s.news_after, boot: s.news_boot.clone() };
-    let r = match tokio::time::timeout(CALL_LIMIT, ask(&mut s, &call)).await {
-        Ok(Ok(r)) => r,
-        _ => {
-            s.channel = None;
-            return;
-        }
-    };
-    let Some(ev) = r.ok.and_then(|v| serde_json::from_value::<Events>(v).ok()) else { return };
-    let fresh = s.news_boot.as_deref() == Some(ev.boot.as_str());
-    s.news_after = Some(ev.last);
-    s.news_boot = Some(ev.boot);
-    if !fresh {
-        return;
-    }
-    for e in &ev.events {
+    let Ok(events) = news_from(dir).await else { return };
+    for e in &events {
         // DBine's glass as the small icon (res/drawable-*/ic_notification.png:
         // white on transparent, as Android wants), in DBine's blue.
         let _ = app.notification().builder().title(&e.title).body(&e.body).icon("ic_notification").icon_color("#3794FF").show();
     }
-    let mut all: Vec<EventRow> = ev.events.into_iter().rev().collect();
-    all.append(&mut s.news);
-    all.truncate(NEWS_KEPT);
-    s.news = all;
+}
+
+/// Android's periodic check (`NewsWorker.kt`, every 15 minutes, also with
+/// the app closed): the new notices as JSON (`[]` when none or DBine isn't
+/// reachable). The Kotlin side shows them.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_io_addlayer_dbine_mobile_NewsWorker_check<'a>(
+    mut env: jni::JNIEnv<'a>,
+    _class: jni::objects::JClass<'a>,
+    data_dir: jni::objects::JString<'a>,
+) -> jni::sys::jstring {
+    let dir: String = env.get_string(&data_dir).map(Into::into).unwrap_or_default();
+    let json = std::panic::catch_unwind(|| {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let dir = std::path::PathBuf::from(dir);
+        // The app keeps its files in Tauri's app data folder, inside the
+        // app's own: look there and one or two levels down.
+        let mut look = vec![dir.clone()];
+        for d in std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+            look.extend(std::fs::read_dir(&d).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()));
+            look.push(d);
+        }
+        let found = look.into_iter().find(|d| d.join("pairing.json").exists())?;
+        let events = rt.block_on(news_from(&found)).ok()?;
+        serde_json::to_string(&events).ok()
+    })
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "[]".into());
+    env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -257,7 +285,79 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, pair, unpair, call, news])
+        .invoke_handler(tauri::generate_handler![status, pair, unpair, call])
         .run(tauri::generate_context!())
         .expect("error while running DBine mobile");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dbine_link::Accepted;
+    use std::sync::{Arc, Mutex as StdMutex};
+    use tokio::net::TcpListener;
+
+    /// A DBine that answers `events` from a list it is given, like the
+    /// desktop's (`after` within the same `boot`, everything from another).
+    async fn fake_dbine(keys: Keys, phone: Vec<u8>, state: Arc<StdMutex<(String, Vec<EventRow>)>>) -> String {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap().to_string();
+        tokio::spawn(async move {
+            loop {
+                let (s, _) = l.accept().await.unwrap();
+                let (keys, phone, state) = (keys.clone(), phone.clone(), state.clone());
+                tokio::spawn(async move {
+                    let Ok(Accepted::Connected(mut ch)) = dbine_link::accept(s, &keys, None, |k| k == phone.as_slice()).await else { return };
+                    while let Ok(req) = ch.recv_json::<Request>().await {
+                        let Call::Events { after, boot } = req.call else { continue };
+                        let (b, list) = state.lock().unwrap().clone();
+                        let after = match (after, boot) {
+                            (Some(a), Some(x)) if x == b => Some(a),
+                            (Some(_), _) => Some(0),
+                            (None, _) => None,
+                        };
+                        let events = after.map(|a| list.iter().filter(|e| e.seq > a).cloned().collect()).unwrap_or_default();
+                        let last = list.last().map(|e| e.seq).unwrap_or(0);
+                        let _ = ch.send_json(&Response::ok(req.id, &Events { events, last, boot: b })).await;
+                    }
+                });
+            }
+        });
+        addr
+    }
+
+    fn ev(seq: u64, title: &str) -> EventRow {
+        EventRow { seq, kind: "query".into(), title: title.into(), body: "Terminó".into(), ok: true, at: String::new() }
+    }
+
+    #[tokio::test]
+    async fn news_arrive_once_and_survive_restarts() {
+        let dir = std::env::temp_dir().join(format!("dbine-mobile-news-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let desktop = Keys::generate().unwrap();
+        let phone = Keys::generate().unwrap();
+        let state = Arc::new(StdMutex::new(("boot1".to_string(), vec![ev(1, "vieja")])));
+        let addr = fake_dbine(desktop.clone(), phone.public.clone(), state.clone()).await;
+        let p = Pairing { phone, desktop_key: desktop.public.clone(), desktop: "mac".into(), addrs: vec![addr] };
+        std::fs::write(dir.join("pairing.json"), serde_json::to_vec(&p).unwrap()).unwrap();
+
+        // First look: learns where the list is; old news isn't news.
+        assert!(news_from(&dir).await.unwrap().is_empty());
+        // A query ends: it arrives once.
+        state.lock().unwrap().1.push(ev(2, "ventas"));
+        let got = news_from(&dir).await.unwrap();
+        assert_eq!(got.iter().map(|e| e.title.as_str()).collect::<Vec<_>>(), ["ventas"]);
+        assert!(news_from(&dir).await.unwrap().is_empty(), "not twice");
+        // The position is on disk: a new process (the app restarted, or
+        // Android's check) carries on from it.
+        state.lock().unwrap().1.push(ev(3, "stock"));
+        let pos: Position = serde_json::from_slice(&std::fs::read(dir.join("news.json")).unwrap()).unwrap();
+        assert_eq!(pos.after, Some(2));
+        assert_eq!(news_from(&dir).await.unwrap()[0].title, "stock");
+        // DBine restarted: everything of its new run is new to the phone.
+        *state.lock().unwrap() = ("boot2".to_string(), vec![ev(1, "después del reinicio")]);
+        assert_eq!(news_from(&dir).await.unwrap()[0].title, "después del reinicio");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

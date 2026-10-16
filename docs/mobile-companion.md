@@ -23,7 +23,8 @@ rest of this page is the design it grows into.
   (only keys DBine paired; the phone only talks to the key it pinned), frames
   of up to 64 KB, messages of up to 16 MB, JSON requests: `hello`,
   `connections`, `databases`, `monitor`, `locks`, `processes`, `kill`,
-  `events`, `tasks`, `task_runs`, `run_task`, `health`. The
+  `events`, `tasks`, `task_runs`, `run_task`, `health`, `queries`,
+  `cancel_query`. The
   Monitor's labels come in Spanish, as the engines write them; the phone
   translates them with a slice of DBine's catalog that its build copies
   (`mobile/scripts/catalog.py`, the messages from the monitor files and the
@@ -37,23 +38,37 @@ rest of this page is the design it grows into.
   ends a session
   after the phone's biometrics or PIN. A kill is never retried after a
   dropped connection. The texts are in DBine's five languages.
-- **Tasks, notices and health (phone app):**
-  - **Tareas:** each scheduled task with its last run and next one, its
-    last 10 runs with each step's summary and alerts, and **Ejecutar
-    ahora**, allowed per phone on the computer (**Puede ejecutar tareas**,
-    off by default) and confirmed on the phone with biometrics or PIN. A
-    task with unapproved writing steps can't be run from the phone.
-  - **Avisos:** DBine keeps its last 100 notices in memory: a query from the
-    editor that ran 10 seconds or more ("Terminó en 3 min 20 s · 1240
-    filas", or the error), and each task run that ended, as the task's own
-    **Avisar** says (on failure or alert by default). It finds task runs in
-    the history every 15 seconds, so the ones the OS scheduler ran with
-    DBine closed count too, once DBine is open. The phone asks every 20
-    seconds while the app runs, in front or behind, and shows each notice as
-    an Android notification; the first look only learns where the list is,
-    so old news doesn't arrive as new. **With the app closed nothing
-    arrives**: that takes a push service (see [Alerts](#alerts)).
+- **Actividad, notices and health (phone app):** two sections at the
+  bottom, **Conexiones** and **Actividad**.
+  - **Actividad › Consultas:** the queries running in DBine's editor, with
+    how long they've been running (ticking), and **Cancelar** (the same
+    per-phone permission as ending sessions, confirmed with biometrics or
+    PIN); below, the ones that ran 10 seconds or more and ended, with their
+    result (rows, or the error). Opening the app shows how a query ended
+    even when its notification never arrived.
+  - **Actividad › Tareas programadas:** each task with its last and next
+    run, its last 10 runs with each step's summary and alerts, and
+    **Ejecutar ahora**, allowed per phone (**Puede ejecutar tareas**, off by
+    default) and confirmed with biometrics or PIN. A task with unapproved
+    writing steps can't be run from the phone.
+  - **Notices:** DBine keeps its last 100 in memory: a long query that ended
+    ("Terminó en 3 min 20 s · 1240 filas", or the error) and each task run
+    that ended, as the task's own **Avisar** says (on failure or alert by
+    default; it reads the history every 15 seconds, so runs the OS scheduler
+    made with DBine closed count too). The phone keeps its place in that list
+    on disk (`news.json`), so a notice arrives once and none is lost when the
+    app restarts; after DBine restarts, everything of its new run is new.
+    - With the app open or in the background: every 20 seconds.
+    - With the app closed: Android's periodic work (`NewsWorker.kt`,
+      WorkManager), every 15 minutes, Android's minimum, when there's a
+      network. It calls the same Rust code (`news_from`) through JNI. No
+      push service is involved, so nothing goes through a third party.
   - **Salud:** a database's health check, the desktop's, on demand.
+- **The computer stays awake** while an editor query has been running 30
+  seconds or more (`src-tauri/src/awake.rs`): `caffeinate -i` on macOS,
+  `systemd-inhibit` on Linux, `SetThreadExecutionState` on Windows. Only idle
+  sleep is held off: the display still turns off, and closing the lid or
+  choosing Sleep still sleeps. Released when no long query runs.
 - **Not yet:** reaching DBine from outside the local network (the paths and
   the signaling below), alerts as native pushes, the phone's key in the
   Android Keystore / iOS Keychain (today it's in the app's private folder),

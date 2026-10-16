@@ -7,5 +7,7 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // News with the app closed (NewsWorker.kt).
+    NewsWorker.schedule(this)
   }
 }

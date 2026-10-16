@@ -43,8 +43,7 @@
   },
   "nav": {
     "connections": "Connessioni",
-    "tasks": "Attività",
-    "news": "Avvisi"
+    "activity": "Attività"
   },
   "tasks": {
     "title": "Attività pianificate",
@@ -66,15 +65,6 @@
       "failed": "Fallita"
     }
   },
-  "news": {
-    "title": "Avvisi",
-    "intro": "Finché l'app è aperta o in background, DBine ti avvisa quando termina una query che ha richiesto più di 10 secondi e quando un'attività fallisce o ha un allarme. Con l'app chiusa non arrivano.",
-    "none": "Nessun avviso per ora.",
-    "kind": {
-      "query": "Query",
-      "task": "Attività"
-    }
-  },
   "health": {
     "run": "Controlla il database",
     "running": "Controllo in corso…",
@@ -82,5 +72,21 @@
     "fine_one": "{{count}} controllo senza problemi",
     "fine_many": "{{count}} di controlli senza problemi",
     "fine_other": "{{count}} controlli senza problemi"
+  },
+  "activity": {
+    "title": "Attività",
+    "queries": "Query",
+    "tasks": "Attività pianificate",
+    "running": "In corso",
+    "recent": "Terminate",
+    "none": "Non ci sono query in corso né terminate da poco.",
+    "cancel": "Annulla",
+    "cancelConfirm": "Annullare questa query sul computer?\n\n{{sql}}",
+    "cancelReason": "Annulla una query",
+    "notConfirmed": "Non confermato: la query continua.",
+    "cancelled": "È stato richiesto di annullare la query.",
+    "done": "Terminata con successo",
+    "startedAt": "Iniziata il {{at}}",
+    "hint": "Qui compaiono le query che esegui nell'editor di DBine mentre sono in corso, e quelle che hanno richiesto più di 10 secondi quando terminano. Se lo permetti, il telefono ti avvisa quando terminano: con l'app aperta, subito; con l'app chiusa, al successivo controllo di Android (ogni 15 minuti). Finché una query dura più di 30 secondi, DBine impedisce al computer di andare in standby."
   }
 }
