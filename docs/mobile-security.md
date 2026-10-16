@@ -106,8 +106,13 @@ when the networks allow it and only uses the relay otherwise.
   never in the state file or the logs.
 - The paired phones (name, public key, permissions) live in `local.link`,
   this machine's state; they don't sync to the cloud backup.
-- The phone keeps its own key pair and the computer's public key in the
-  app's private folder.
+- The phone keeps its own key pair and the computer's public key sealed
+  (ChaCha20-Poly1305) with a file key that is itself sealed by an AES-256
+  key held in the **Android Keystore**, which never leaves it. A copy of the
+  app's files (a rooted phone, a backup) can't be opened without that
+  phone's Keystore; if the Keystore loses its key, the pairing becomes
+  unreadable and the phone has to pair again. The app is excluded from
+  Android's backups.
 - Every kill, cancel, task run and task cancel from a phone is logged on the
   computer with the phone that did it.
 - The phone app checks for a newer version on GitHub's latest DBine release
@@ -123,7 +128,6 @@ when the networks allow it and only uses the relay otherwise.
   with internet access on, can be dialed through iroh by anyone who knows its
   id). Only paired phones get past the handshake; anything else is dropped
   before any request is read.
-- The phone's keys aren't in the Android Keystore yet.
 - The code hasn't had an independent audit yet. It's open source.
 
 ## Invariants (for anyone changing the code)
@@ -146,8 +150,9 @@ These hold in every change; a change that breaks one is a security bug:
    third party.
 6. The Noise channel runs end to end on every path (local, own relay,
    public relay). A relay or transport is never trusted with plaintext.
-7. Keys and secrets stay in the vault (computer) or the app's private folder
-   (phone): never in logs, state files, notices or error messages.
+7. Keys and secrets stay in the vault (computer) or sealed under the
+   Keystore (phone): never in the clear on disk, nor in logs, state files,
+   notices or error messages.
 8. Any change to these files goes through the security scan before a
    release: `crates/dbine-link/`, `src-tauri/src/link.rs`,
    `mobile/src-tauri/`, and anything they call on the phone's behalf.

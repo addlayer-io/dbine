@@ -26,6 +26,9 @@ tauri-plugin-opener = "2"
 dbine-link = { path = "../../crates/dbine-link", features = ["iroh"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The pairing at rest, sealed with the Keystore-protected file key.
+chacha20poly1305 = "0.10"
+getrandom = "0.3"
 tokio = { version = "1.40", features = ["net", "time", "sync", "macros"] }
 
 [target.'cfg(target_os = "android")'.dependencies]

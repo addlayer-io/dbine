@@ -95,9 +95,7 @@ rest of this page is the design it grows into.
   `cargo run -p dbine-link --features iroh --example remote` (a plain
   program: under the test harness iroh's network report doesn't complete on
   some machines).
-- **Not yet:** alerts as native pushes, the phone's key in the
-  Android Keystore / iOS Keychain (today it's in the app's private folder),
-  finding DBine again when the computer's address changes (pair again), and
+- **Not yet:** alerts as native pushes, finding DBine again when the computer's address changes (pair again), and
   iOS builds (only Android is built). The Drive-based design below stays
   as an alternative for a setup with no relay at all.
 

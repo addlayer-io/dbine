@@ -117,16 +117,93 @@ fn file(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("pairing.json"))
 }
 
+// -- the pairing at rest ----------------------------------------------------------
+// pairing.json holds this phone's private key. On Android it is sealed
+// (ChaCha20-Poly1305) with a random file key that KeyVault.kt keeps sealed
+// by an AES key in the Android Keystore, and hands to this code at start
+// (KeyVault_setFileKey). Without that key nothing is written: the pairing
+// never lands on disk in the clear. Off Android (development), plain JSON.
+
+/// The file key, once KeyVault.kt handed it over.
+static FILE_KEY: std::sync::Mutex<Option<[u8; 32]>> = std::sync::Mutex::new(None);
+/// A sealed pairing starts with this.
+const SEALED: &[u8; 4] = b"DBV1";
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_io_addlayer_dbine_mobile_KeyVault_setFileKey<'a>(
+    env: jni::JNIEnv<'a>,
+    _class: jni::objects::JClass<'a>,
+    key: jni::objects::JByteArray<'a>,
+) {
+    if let Ok(v) = env.convert_byte_array(&key) {
+        if let Ok(k) = <[u8; 32]>::try_from(v) {
+            *FILE_KEY.lock().unwrap() = Some(k);
+        }
+    }
+}
+
+fn file_key() -> Option<[u8; 32]> {
+    *FILE_KEY.lock().unwrap()
+}
+
+fn seal(key: &[u8; 32], plain: &[u8]) -> Result<Vec<u8>, String> {
+    use chacha20poly1305::aead::{Aead, KeyInit};
+    let nonce: [u8; 12] = dbine_link::random()?;
+    let ct = chacha20poly1305::ChaCha20Poly1305::new(key.into()).encrypt((&nonce).into(), plain).map_err(|_| "no se pudo cifrar la vinculación".to_string())?;
+    Ok([SEALED.as_slice(), &nonce, &ct].concat())
+}
+
+fn unseal(key: &[u8; 32], sealed: &[u8]) -> Option<Vec<u8>> {
+    use chacha20poly1305::aead::{Aead, KeyInit};
+    let rest = sealed.strip_prefix(SEALED.as_slice())?;
+    if rest.len() < 12 {
+        return None;
+    }
+    let (nonce, ct) = rest.split_at(12);
+    chacha20poly1305::ChaCha20Poly1305::new(key.into()).decrypt(nonce.into(), ct).ok()
+}
+
+/// A pairing file's contents: sealed (with the key), or the plain JSON of
+/// the first versions, which is sealed again on the spot.
+fn read_pairing(path: &std::path::Path) -> Option<Pairing> {
+    let raw = std::fs::read(path).ok()?;
+    if raw.starts_with(SEALED) {
+        return serde_json::from_slice(&unseal(&file_key()?, &raw)?).ok();
+    }
+    let p: Pairing = serde_json::from_slice(&raw).ok()?;
+    if file_key().is_some() {
+        let _ = write_pairing(path, &p);
+    }
+    Some(p)
+}
+
+fn write_pairing(path: &std::path::Path, p: &Pairing) -> Result<(), String> {
+    let json = serde_json::to_vec(p).map_err(|e| e.to_string())?;
+    let bytes = match file_key() {
+        Some(k) => seal(&k, &json)?,
+        None if cfg!(target_os = "android") => return Err("no se pudo acceder al almacén seguro del celular (Keystore)".into()),
+        None => json,
+    };
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
 fn load(app: &AppHandle) -> Option<Pairing> {
-    let raw = std::fs::read(file(app).ok()?).ok()?;
-    serde_json::from_slice(&raw).ok()
+    read_pairing(&file(app).ok()?)
 }
 
 fn store(app: &AppHandle, p: &Pairing) -> Result<(), String> {
-    let path = file(app)?;
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, serde_json::to_vec(p).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    write_pairing(&file(app)?, p)
+}
+
+/// The pairing, read again if it wasn't yet (KeyVault.kt may hand over the
+/// file key after the app's setup ran).
+fn ensure_loaded(app: &AppHandle, s: &mut App) {
+    if s.pairing.is_none() {
+        s.pairing = load(app);
+    }
 }
 
 /// DBine on the local network (fast), else through the internet (iroh).
@@ -166,8 +243,9 @@ struct Status {
 }
 
 #[tauri::command]
-async fn status(state: State<'_, Shared>) -> Result<Status, String> {
-    let s = state.lock().await;
+async fn status(app: AppHandle, state: State<'_, Shared>) -> Result<Status, String> {
+    let mut s = state.lock().await;
+    ensure_loaded(&app, &mut s);
     Ok(Status {
         paired: s.pairing.is_some(),
         desktop: s.pairing.as_ref().map(|p| p.desktop.clone()),
@@ -247,7 +325,8 @@ async fn ask(s: &mut App, call: &Call) -> Result<Response, String> {
 #[tauri::command]
 async fn call(app: AppHandle, state: State<'_, Shared>, call: Call) -> Result<serde_json::Value, String> {
     let mut s = state.lock().await;
-    let once = matches!(call, Call::Kill { .. });
+    ensure_loaded(&app, &mut s);
+    let once = matches!(call, Call::Kill { .. } | Call::CancelQuery { .. } | Call::RunTask { .. } | Call::CancelTaskRun { .. });
     let first = tokio::time::timeout(CALL_LIMIT, ask(&mut s, &call)).await.unwrap_or_else(|_| Err("DBine no respondió".into()));
     let r = match first {
         Ok(r) => r,
@@ -292,7 +371,7 @@ struct Position {
 /// since the saved position (none the very first time: old news isn't
 /// news). Used by the app and by `NewsWorker` (Android, app closed).
 async fn news_from(dir: &std::path::Path) -> Result<Vec<EventRow>, String> {
-    let pairing: Pairing = serde_json::from_slice(&std::fs::read(dir.join("pairing.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let pairing = read_pairing(&dir.join("pairing.json")).ok_or("este celular no está vinculado")?;
     let pos_file = dir.join("news.json");
     let pos: Position = std::fs::read(&pos_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let (stream, _) = reach(&pairing.addrs, pairing.remote.as_ref()).await?;
@@ -436,8 +515,37 @@ mod tests {
         EventRow { seq, kind: "query".into(), title: title.into(), body: "Terminó".into(), ok: true, at: String::new() }
     }
 
+    /// The file key is process-wide: tests that touch pairing files take turns.
+    static FILES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn the_pairing_is_sealed_at_rest() {
+        let _turn = FILES.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("dbine-mobile-seal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pairing.json");
+        let p = Pairing { phone: Keys::generate().unwrap(), desktop_key: vec![7; 32], desktop: "mac".into(), addrs: vec![], remote: None };
+        // A pairing from before sealing: plain JSON, read and sealed on the spot.
+        std::fs::write(&path, serde_json::to_vec(&p).unwrap()).unwrap();
+        *FILE_KEY.lock().unwrap() = Some([3; 32]);
+        assert_eq!(read_pairing(&path).unwrap().desktop, "mac");
+        let raw = std::fs::read(&path).unwrap();
+        assert!(raw.starts_with(SEALED));
+        let private = p.phone.private.clone();
+        assert!(!raw.windows(private.len()).any(|w| w == private.as_slice()), "the private key isn't on disk in the clear");
+        assert!(!String::from_utf8_lossy(&raw).contains("mac"));
+        assert_eq!(read_pairing(&path).unwrap().desktop, "mac");
+        // Another key (the Keystore lost its own): unreadable, never wrong.
+        *FILE_KEY.lock().unwrap() = Some([4; 32]);
+        assert!(read_pairing(&path).is_none());
+        *FILE_KEY.lock().unwrap() = None;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test]
     async fn news_arrive_once_and_survive_restarts() {
+        let _turn = FILES.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("dbine-mobile-news-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
