@@ -30635,6 +30635,9 @@
  "solo las operaciones que cumplen el filtro del profiler": [
   "crates/drivers/mongodb/src/profiler.rs"
  ],
+ "solo se abren las versiones de DBine": [
+  "mobile/src-tauri/src/lib.rs"
+ ],
  "solo se borran filas con la columna key de etcd": [
   "crates/drivers/etcd/src/ddl.rs"
  ],

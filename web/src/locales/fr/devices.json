@@ -18,7 +18,7 @@
   "remove": "Retirer",
   "removeConfirm": "Retirer « {{name}} » ? Il est déconnecté maintenant et il faudra l'associer à nouveau pour le réutiliser.",
   "pairTitle": "Associer un téléphone",
-  "scan": "Dans l'application DBine du téléphone, touchez « Associer » et scannez ce code.",
+  "scan": "Scannez-le avec l'appareil photo du téléphone ou depuis l'application DBine (Associer). Si vous n'avez pas encore l'application, le code vous mène à son téléchargement.",
   "expires": "Le code expire dans {{seconds}} s et ne sert que pour un seul téléphone.",
   "sameNetwork": "Si le téléphone est sur un autre réseau, il se connecte par internet selon « Hors du réseau local ».",
   "askText": "« {{name}} » veut s'associer à cet ordinateur.",

@@ -150,6 +150,9 @@ type Call =
 const ask = <T>(call: Call) => invoke<T>('call', { call });
 
 export const api = {
+  pendingLink: () => invoke<string | null>('pending_link'),
+  inviteName: (code: string) => invoke<string>('invite_name', { code }),
+  openRelease: (url: string) => invoke<void>('open_release', { url }),
   status: () => invoke<Status>('status'),
   pair: (code: string, name: string) => invoke<string>('pair', { code, name }),
   unpair: () => invoke<void>('unpair'),
@@ -178,4 +181,26 @@ export function duration(ms: number | null | undefined): string {
   if (s < 60) return `${s} s`;
   if (s < 3600) return `${Math.floor(s / 60)} min`;
   return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')} min`;
+}
+
+/** A newer DBine for Android on GitHub's latest release, if there is one. */
+export async function newerRelease(current: string): Promise<{ version: string; url: string } | null> {
+  try {
+    const r = await fetch('https://api.github.com/repos/addlayer-io/dbine/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
+    if (!r.ok) return null;
+    const rel = await r.json();
+    const version = String(rel.tag_name ?? '').replace(/^v/, '');
+    const asset = (rel.assets ?? []).find((a: any) => String(a.name).endsWith('-android.apk'));
+    if (!asset || !newer(version, current)) return null;
+    return { version, url: String(asset.browser_download_url) };
+  } catch {
+    return null;
+  }
+}
+
+/** `a` is a later version than `b` (X.Y.Z). */
+export function newer(a: string, b: string): boolean {
+  const pa = a.split('.').map((x) => parseInt(x, 10) || 0), pb = b.split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) > (pb[i] ?? 0);
+  return false;
 }

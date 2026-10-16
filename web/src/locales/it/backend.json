@@ -10239,5 +10239,6 @@
   "la computadora no respondió a tiempo": "il computer non ha risposto in tempo",
   "no hay direcciones": "nessun indirizzo",
   "se rechazó la vinculación en la computadora": "il collegamento è stato rifiutato sul computer",
-  "{0}. No se reintentó: revisá en DBine si la sesión terminó.": "{0}. Non è stato ritentato: controlla in DBine se la sessione è terminata."
+  "{0}. No se reintentó: revisá en DBine si la sesión terminó.": "{0}. Non è stato ritentato: controlla in DBine se la sessione è terminata.",
+  "solo se abren las versiones de DBine": "Si aprono solo le versioni di DBine"
 }

@@ -39,6 +39,40 @@ struct Pairing {
     remote: Option<Remote>,
 }
 
+/// A pairing link that opened the app (https://dbine.com/pair#…), until the
+/// UI takes it.
+static LINK: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[cfg_attr(not(mobile), allow(dead_code))]
+fn take_link(url: &str, app: &AppHandle) {
+    if url.starts_with(dbine_link::INVITE_LINK) {
+        *LINK.lock().unwrap() = Some(url.to_string());
+        let _ = app.emit("pair-link", ());
+    }
+}
+
+/// The pairing link that opened the app, once.
+#[tauri::command]
+fn pending_link() -> Option<String> {
+    LINK.lock().unwrap().take()
+}
+
+/// The computer a pairing link points to, to show before pairing.
+#[tauri::command]
+fn invite_name(code: String) -> Result<String, String> {
+    Ok(Invite::decode(&code)?.name)
+}
+
+/// Open a newer version's page in the browser: DBine's GitHub releases only.
+#[tauri::command]
+fn open_release(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !url.starts_with("https://github.com/addlayer-io/dbine/releases/") {
+        return Err("solo se abren las versiones de DBine".into());
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[derive(Default)]
 struct App {
     pairing: Option<Pairing>,
@@ -312,10 +346,22 @@ pub extern "system" fn Java_io_addlayer_dbine_mobile_NewsWorker_check<'a>(
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(mobile)]
-    let builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init());
+    let builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init()).plugin(tauri_plugin_deep_link::init());
     builder
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // A pairing link: the one that started the app, and later ones.
+            #[cfg(mobile)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let handle = app.handle().clone();
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    urls.iter().for_each(|u| take_link(u.as_str(), &handle));
+                }
+                let h2 = handle.clone();
+                app.deep_link().on_open_url(move |e| e.urls().iter().for_each(|u| take_link(u.as_str(), &h2)));
+            }
             let pairing = load(app.handle());
             app.manage::<Shared>(Mutex::new(App { pairing, ..Default::default() }));
             let handle = app.handle().clone();
@@ -334,7 +380,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, pair, unpair, call])
+        .invoke_handler(tauri::generate_handler![status, pair, unpair, call, pending_link, invite_name, open_release])
         .run(tauri::generate_context!())
         .expect("error while running DBine mobile");
 }

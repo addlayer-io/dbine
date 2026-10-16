@@ -10,7 +10,11 @@
     "step3": "Scan the code that appears. If the phone isn't on the same network, it connects over the internet (if DBine allows it in “Outside the local network”).",
     "confirmOn": "Confirm on “{{desktop}}”.",
     "compare": "Check that the computer shows this same code:",
-    "noCamera": "Without permission to use the camera, the code can't be read."
+    "noCamera": "Without permission to use the camera, the code can't be read.",
+    "fromLink": "You're about to pair this phone with “{{desktop}}”. Then you confirm on that computer that the code is the same.",
+    "pairLink": "Pair",
+    "scanInstead": "Scan another code",
+    "alreadyPaired": "This phone is already paired with “{{desktop}}”. To pair it with another computer, unpair it first."
   },
   "connections": {
     "filter": "Search connection",
@@ -90,5 +94,9 @@
     "done": "Finished successfully",
     "startedAt": "Started on {{at}}",
     "hint": "Here you see the queries you run in the DBine editor while they run, and those that took more than 10 seconds once they finish. If you allow it, the phone notifies you when they finish: with the app open, right away; with the app closed, on Android's next check (every 15 minutes). While a query has been running for more than 30 seconds, DBine keeps the computer from going to sleep."
+  },
+  "update": {
+    "available": "There is a new version of DBine ({{version}}).",
+    "download": "Download"
   }
 }

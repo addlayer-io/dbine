@@ -37,8 +37,12 @@ const CHUNK: usize = 65_535 - 16;
 pub const MAX_MESSAGE: usize = 16 * 1024 * 1024;
 /// A handshake that hasn't finished by then is dropped.
 pub const HANDSHAKE_LIMIT: Duration = Duration::from_secs(10);
-/// Prefix of the QR's text.
+/// Prefix of the QR's text (the first versions' form, still read).
 const INVITE_PREFIX: &str = "dbine-link:1:";
+/// The QR's text now: a link, so the phone's camera opens the app (Android
+/// App Links) or, without it, dbine.com/pair, which offers the app. The
+/// invite goes in the fragment, which browsers never send to the server.
+pub const INVITE_LINK: &str = "https://dbine.com/pair#";
 /// The protocol version both ends speak.
 pub const VERSION: u32 = 1;
 
@@ -134,13 +138,19 @@ pub struct Remote {
 }
 
 impl Invite {
-    /// The QR's text.
+    /// The QR's text: a dbine.com/pair link with the invite in its fragment.
     pub fn encode(&self) -> String {
-        format!("{INVITE_PREFIX}{}", URL_SAFE_NO_PAD.encode(serde_json::to_vec(self).unwrap_or_default()))
+        format!("{INVITE_LINK}{}", URL_SAFE_NO_PAD.encode(serde_json::to_vec(self).unwrap_or_default()))
     }
 
+    /// Read a QR's text or an opened link: the link form, or the first
+    /// versions' `dbine-link:1:` form.
     pub fn decode(text: &str) -> Result<Invite> {
-        let body = text.trim().strip_prefix(INVITE_PREFIX).ok_or("no es un código de DBine")?;
+        let text = text.trim();
+        let body = text
+            .strip_prefix(INVITE_LINK)
+            .or_else(|| text.strip_prefix(INVITE_PREFIX))
+            .ok_or("no es un código de DBine")?;
         let raw = URL_SAFE_NO_PAD.decode(body).map_err(|_| "el código está dañado".to_string())?;
         let invite: Invite = serde_json::from_slice(&raw).map_err(|_| "el código está dañado".to_string())?;
         if invite.v != VERSION {
@@ -362,8 +372,13 @@ mod tests {
         let d = Keys::generate().unwrap();
         let i = invite(&d, [7; 32]);
         let text = i.encode();
-        assert!(text.starts_with("dbine-link:1:"));
+        assert!(text.starts_with("https://dbine.com/pair#"));
         assert_eq!(Invite::decode(&text).unwrap(), i);
+        // The first versions' form still reads.
+        let old = text.replace("https://dbine.com/pair#", "dbine-link:1:");
+        assert_eq!(Invite::decode(&old).unwrap(), i);
+        // A look-alike host doesn't.
+        assert!(Invite::decode(&text.replace("dbine.com", "dbine.com.evil.example")).is_err());
         assert!(Invite::decode("https://example.com").is_err());
         assert!(Invite::decode("dbine-link:1:!!!").is_err());
     }

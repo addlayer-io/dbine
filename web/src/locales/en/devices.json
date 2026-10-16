@@ -18,7 +18,7 @@
   "remove": "Remove",
   "removeConfirm": "Remove “{{name}}”? It's disconnected now and has to be paired again to use it.",
   "pairTitle": "Pair a phone",
-  "scan": "In the DBine app on your phone, tap “Pair” and scan this code.",
+  "scan": "Scan it with your phone's camera or from the DBine app (Pair). If you don't have the app yet, the code takes you to download it.",
   "expires": "The code expires in {{seconds}} s and works for a single phone.",
   "sameNetwork": "If the phone is on another network, it connects over the internet according to “Outside the local network”.",
   "askText": "“{{name}}” wants to pair with this computer.",

@@ -10,7 +10,11 @@
     "step3": "Escaneie o código que aparece. Se o celular não estiver na mesma rede, ele se conecta pela internet (se o DBine permitir em «Fora da rede local»).",
     "confirmOn": "Confirme em «{{desktop}}».",
     "compare": "Confira se o computador mostra este mesmo código:",
-    "noCamera": "Sem permissão para usar a câmera, não é possível ler o código."
+    "noCamera": "Sem permissão para usar a câmera, não é possível ler o código.",
+    "fromLink": "Você vai vincular este celular com «{{desktop}}». Depois, confirme nesse computador que o código é o mesmo.",
+    "pairLink": "Vincular",
+    "scanInstead": "Escanear outro código",
+    "alreadyPaired": "Este celular já está vinculado com «{{desktop}}». Para vinculá-lo a outro computador, desvincule-o primeiro."
   },
   "connections": {
     "filter": "Buscar conexão",
@@ -92,5 +96,9 @@
     "done": "Concluída com sucesso",
     "startedAt": "Começou em {{at}}",
     "hint": "Aqui aparecem as consultas que você executa no editor do DBine enquanto rodam, e as que levaram mais de 10 segundos quando terminam. Se você permitir, o celular avisa quando terminam: com o app aberto, na hora; com o app fechado, na próxima verificação do Android (a cada 15 minutos). Enquanto uma consulta leva mais de 30 segundos, o DBine não deixa o computador entrar em repouso."
+  },
+  "update": {
+    "available": "Há uma nova versão do DBine ({{version}}).",
+    "download": "Baixar"
   }
 }

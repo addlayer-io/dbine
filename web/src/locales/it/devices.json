@@ -18,7 +18,7 @@
   "remove": "Rimuovi",
   "removeConfirm": "Rimuovere «{{name}}»? Viene disconnesso subito e, per usarlo di nuovo, va associato ancora.",
   "pairTitle": "Associa un telefono",
-  "scan": "Nell'app DBine del telefono, tocca «Associa» e scansiona questo codice.",
+  "scan": "Scansionalo con la fotocamera del telefono o dall'app DBine (Associa). Se non hai ancora l'app, il codice ti porta a scaricarla.",
   "expires": "Il codice scade tra {{seconds}} s e vale per un solo telefono.",
   "sameNetwork": "Se il telefono è su un'altra rete, si connette tramite internet secondo «Fuori dalla rete locale».",
   "askText": "«{{name}}» vuole associarsi a questo computer.",

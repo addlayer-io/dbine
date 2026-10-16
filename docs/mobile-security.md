@@ -61,7 +61,13 @@ table rows, DBine's settings.
    default).
 2. **Vincular un celular** shows a QR code with DBine's public key, a
    one-time 32-byte secret and where to reach DBine. It expires in 2 minutes
-   and pairs one phone.
+   and pairs one phone. The code is a link, `https://dbine.com/pair#…`, with
+   all of that in the fragment (after `#`), which browsers never send to a
+   server. Scanned with the phone's camera, it opens the app (Android App
+   Links, verified for dbine.com); without the app, dbine.com/pair (no
+   analytics, it clears the fragment at once) offers the download. A link
+   opened that way never replaces a pairing: a paired phone has to unpair
+   first.
 3. The phone proves it read the code (Noise `IKpsk2`, the secret as the
    pre-shared key). A wrong or expired code fails the handshake. DBine allows
    at most 5 pairing attempts a minute.
@@ -103,6 +109,10 @@ when the networks allow it and only uses the relay otherwise.
   app's private folder.
 - Every kill, cancel and task run from a phone is logged on the computer
   with the phone that did it.
+- The phone app checks for a newer version on GitHub's latest DBine release
+  (api.github.com: GitHub sees the phone's IP, nothing else is sent) and only
+  opens its download page in the browser; it never installs anything by
+  itself, and only opens DBine's own release pages.
 
 ## Known limits
 

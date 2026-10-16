@@ -19,6 +19,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-notification = "2"
+# The pairing link (https://dbine.com/pair#…) opens the app (Android App Links).
+tauri-plugin-deep-link = "2"
+# "Descargar" for a newer version opens the release page in the browser.
+tauri-plugin-opener = "2"
 dbine-link = { path = "../../crates/dbine-link", features = ["iroh"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useTranslation } from 'i18next-vue';
 import { api, errorText } from '../api';
@@ -7,7 +7,8 @@ import { api, errorText } from '../api';
 // Pairing: scan DBine's QR code (Configuración › Dispositivos), then the
 // user says yes on the computer, comparing the code both screens show.
 
-const emit = defineEmits<{ paired: [] }>();
+const props = defineProps<{ code?: string | null }>();
+const emit = defineEmits<{ paired: []; cancelLink: [] }>();
 const { t } = useTranslation();
 const name = ref(t('pair.defaultName'));
 const busy = ref(false);
@@ -29,12 +30,21 @@ async function scan(): Promise<string | null> {
   return r?.content ?? null;
 }
 
+/** The computer a pairing link points to (opened from the camera or a browser). */
+const linkDesktop = ref<string | null>(null);
+watch(() => props.code, async (c) => {
+  linkDesktop.value = null;
+  if (c) {
+    try { linkDesktop.value = await api.inviteName(c); } catch (e) { error.value = errorText(e); }
+  }
+}, { immediate: true });
+
 async function start() {
   error.value = '';
   busy.value = true;
   waiting.value = null;
   try {
-    const code = await scan();
+    const code = props.code || (await scan());
     if (!code) return;
     await api.pair(code, name.value || t('pair.defaultName'));
     emit('paired');
@@ -60,8 +70,13 @@ async function start() {
     <template v-else>
       <label class="muted">{{ $t('pair.name') }}</label>
       <input v-model="name" maxlength="60" />
-      <button class="primary" :disabled="busy" @click="start">{{ busy ? $t('pair.connecting') : $t('pair.scan') }}</button>
-      <ol class="muted steps">
+      <template v-if="code">
+        <p v-if="linkDesktop" class="card">{{ $t('pair.fromLink', { desktop: linkDesktop }) }}</p>
+        <button class="primary" :disabled="busy || !linkDesktop" @click="start">{{ busy ? $t('pair.connecting') : $t('pair.pairLink') }}</button>
+        <button :disabled="busy" @click="emit('cancelLink')">{{ $t('pair.scanInstead') }}</button>
+      </template>
+      <button v-else class="primary" :disabled="busy" @click="start">{{ busy ? $t('pair.connecting') : $t('pair.scan') }}</button>
+      <ol v-if="!code" class="muted steps">
         <li>{{ $t('pair.step1') }}</li>
         <li>{{ $t('pair.step2') }}</li>
         <li>{{ $t('pair.step3') }}</li>
