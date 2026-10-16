@@ -29,13 +29,16 @@
   "remote": "Outside the local network",
   "remoteHelp": "How the phone reaches this computer when it isn't on the same network. Everything travels end-to-end encrypted with the keys from the QR code: the relay server only sees unreadable data.",
   "remoteModes": {
-    "public": "Public iroh servers (free)",
+    "off": "Local network only (recommended)",
     "own": "Own server",
-    "off": "Local network only"
+    "public": "Public iroh servers (free)"
   },
   "remoteReady": "Available over the internet, via {{relay}}",
   "remoteConnecting": "Connecting to the relay server…",
-  "publicHelp": "iroh tries to connect directly; if the networks don't allow it, it goes through n0's public servers (free, with no availability guarantee).",
+  "publicHelp": "iroh tries to connect directly; if the networks don't allow it, it goes through n0's public servers (free, with no availability guarantee). They see the IPs and the traffic volume, never the content.",
   "ownHelp": "The URL of your iroh-relay server (https), one per line. Only that server is used: nothing goes through third-party servers. Phones already paired get the change on their next connection.",
-  "save": "Save"
+  "save": "Save",
+  "publicConfirmTitle": "Use public servers?",
+  "publicConfirm": "When the phone can't connect directly, the connection will go through iroh's public servers, operated by a third party (n0).\n\nWhat they see: the IP addresses of this computer and of the phone, and when and how much traffic goes through.\nWhat they don't see: the content. Everything is end-to-end encrypted with the keys from the QR code; they can't read or modify anything.\n\nYour databases' connections and passwords never leave this computer, and the phone can't run free-form queries.\n\nIf you don't want a third party in the middle, use your own server or keep local network only.",
+  "publicConfirmOk": "Use public servers"
 }

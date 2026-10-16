@@ -1,6 +1,8 @@
 # Mobile companion (design)
 
-Status: **built**: on the local network, and from anywhere through iroh. Agreed with the
+Status: **built**: on the local network, and from anywhere through iroh.
+The security model, what travels and the invariants every change keeps:
+[mobile-security.md](mobile-security.md). Agreed with the
 owner on 2026-10-16. What's built is in [First version](#first-version); the
 rest of this page is the design it grows into.
 
@@ -72,14 +74,14 @@ rest of this page is the design it grows into.
 - **Outside the local network (iroh):** Configuración › Dispositivos ›
   **Fuera de la red local** chooses how phones reach DBine when they aren't
   on its network:
-  - **iroh's public servers** (default): free, run by n0, best effort, no
-    availability guarantee. iroh tries a direct connection first (hole
+  - **Solo red local** (default): no iroh endpoint at all.
+  - **iroh's public servers**, after a confirmation that says what they see:
+    free, run by n0, best effort, no availability guarantee. iroh tries a direct connection first (hole
     punching, the router's port mapping, IPv6) and goes through a relay when
     the networks don't allow it; its address lookup finds DBine by its id.
   - **Own server:** the URL of an `iroh-relay` of one's own (https), one or
     more. Only that is used: no public relay, no lookup service. The phone
     dials DBine through it.
-  - **Solo red local:** no iroh endpoint at all.
 
   DBine's iroh id (its own key, in the vault, `link-iroh-key`) and the own
   relays go in the QR code (`Invite.remote`); `hello` returns them again, so
@@ -117,12 +119,12 @@ minute, without remote-desktop software.
   users, passwords or connection strings. It asks DBine to do something;
   DBine does it with its own sessions and returns the result.
 - **No AddLayer servers.** On the local network nothing is in the middle.
-  Outside it, by default, a phone that can't reach DBine directly goes
-  through **iroh's public relays, run by n0** (a third party): they forward
+  Outside it, only if the user turns it on, a phone that can't reach DBine
+  directly goes through a relay: their own `iroh-relay`, or **iroh's public
+  relays, run by n0** (a third party, after a confirmation): they forward
   encrypted packets and can't read or forge them, but they do see the IP
-  addresses of both ends and when and how much traffic flows. Anyone who
-  doesn't want that picks their own `iroh-relay` or **Solo red local** in
-  Configuración › Dispositivos. (The original design used the user's Drive
+  addresses of both ends and when and how much traffic flows. The default is
+  **Solo red local**. (The original design used the user's Drive
   as the only intermediary; it stays below as an alternative.)
 - **End-to-end encrypted.** Keys are exchanged through the QR code, so
   neither a relay, nor Google or Microsoft, nor anyone on the network can

@@ -29,13 +29,16 @@
   "remote": "Fora da rede local",
   "remoteHelp": "Como o celular chega a este computador quando não está na mesma rede. Tudo viaja criptografado de ponta a ponta com as chaves do código QR: o servidor de retransmissão só vê dados ilegíveis.",
   "remoteModes": {
-    "public": "Servidores públicos do iroh (grátis)",
+    "off": "Somente rede local (recomendado)",
     "own": "Servidor próprio",
-    "off": "Somente rede local"
+    "public": "Servidores públicos do iroh (grátis)"
   },
   "remoteReady": "Disponível pela internet, via {{relay}}",
   "remoteConnecting": "Conectando ao servidor de retransmissão…",
-  "publicHelp": "O iroh tenta conectar direto; se as redes não permitirem, passa pelos servidores públicos da n0 (sem custo e sem garantia de disponibilidade).",
+  "publicHelp": "O iroh tenta conectar direto; se as redes não permitirem, passa pelos servidores públicos da n0 (sem custo e sem garantia de disponibilidade). Eles veem os IPs e o volume do tráfego, nunca o conteúdo.",
   "ownHelp": "A URL do seu servidor iroh-relay (https), uma por linha. Somente esse servidor é usado: nada passa por servidores de terceiros. Os celulares já vinculados recebem a mudança na próxima conexão.",
-  "save": "Salvar"
+  "save": "Salvar",
+  "publicConfirmTitle": "Usar servidores públicos?",
+  "publicConfirm": "Quando o celular não conseguir se conectar direto, a conexão vai passar pelos servidores públicos do iroh, operados por um terceiro (n0).\n\nO que eles veem: os endereços IP deste computador e do celular, e quando e quanto tráfego passa.\nO que não veem: o conteúdo. Tudo vai criptografado de ponta a ponta com as chaves do código QR; eles não podem ler nem modificar nada.\n\nAs conexões e senhas dos seus bancos de dados nunca saem deste computador, e o celular não pode executar consultas livres.\n\nSe você não quer um terceiro no meio, use um servidor próprio ou deixe somente a rede local.",
+  "publicConfirmOk": "Usar servidores públicos"
 }

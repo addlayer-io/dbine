@@ -29,13 +29,16 @@
   "remote": "Fuori dalla rete locale",
   "remoteHelp": "Come il telefono raggiunge questo computer quando non è sulla stessa rete. Tutto viaggia cifrato end-to-end con le chiavi del codice QR: il server di relay vede solo dati illeggibili.",
   "remoteModes": {
-    "public": "Server pubblici di iroh (gratis)",
+    "off": "Solo rete locale (consigliato)",
     "own": "Server proprio",
-    "off": "Solo rete locale"
+    "public": "Server pubblici di iroh (gratis)"
   },
   "remoteReady": "Disponibile tramite internet, via {{relay}}",
   "remoteConnecting": "Connessione al server di relay…",
-  "publicHelp": "iroh prova a connettersi direttamente; se le reti non lo permettono, passa dai server pubblici di n0 (gratuiti e senza garanzia di disponibilità).",
+  "publicHelp": "iroh prova a connettersi direttamente; se le reti non lo permettono, passa dai server pubblici di n0 (gratuiti e senza garanzia di disponibilità). Vedono gli IP e il volume del traffico, mai il contenuto.",
   "ownHelp": "L'URL del tuo server iroh-relay (https), uno per riga. Viene usato solo quel server: nulla passa da server di terze parti. I telefoni già associati ricevono la modifica alla connessione successiva.",
-  "save": "Salva"
+  "save": "Salva",
+  "publicConfirmTitle": "Usare i server pubblici?",
+  "publicConfirm": "Quando il telefono non riesce a connettersi direttamente, la connessione passerà dai server pubblici di iroh, gestiti da una terza parte (n0).\n\nCosa vedono: gli indirizzi IP di questo computer e del telefono, e quando e quanto traffico passa.\nCosa non vedono: il contenuto. Tutto è cifrato end-to-end con le chiavi del codice QR; non possono leggere né modificare nulla.\n\nLe connessioni e le password dei tuoi database non escono mai da questo computer, e il telefono non può eseguire query libere.\n\nSe non vuoi una terza parte nel mezzo, usa un server proprio o lascia solo la rete locale.",
+  "publicConfirmOk": "Usa i server pubblici"
 }
