@@ -3,6 +3,6 @@
   "identifier": "default",
   "description": "The phone app's window: its own commands, the QR scanner and the biometric prompt.",
   "windows": ["main"],
-  "permissions": ["core:default"],
+  "permissions": ["core:default", "notification:default"],
   "platforms": ["linux", "macOS", "windows"]
 }

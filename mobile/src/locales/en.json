@@ -24,6 +24,7 @@
     "monitor": "Monitor",
     "locks": "Locks",
     "processes": "Running",
+    "health": "Health",
     "unsupported": "{{engine}} doesn't report its status, locks or processes.",
     "noLocks": "There are no blocked sessions.",
     "noProcesses": "No queries are running.",
@@ -38,5 +39,46 @@
     "killed": "Session {{id}} was ended.",
     "notAllowed": "To end sessions from this phone, enable it in DBine › Settings › Devices.",
     "engineCantKill": "This connection doesn't allow ending sessions (it's read-only or the engine doesn't support it)."
+  },
+  "nav": {
+    "connections": "Connections",
+    "tasks": "Tasks",
+    "news": "Notices"
+  },
+  "tasks": {
+    "title": "Scheduled tasks",
+    "none": "DBine has no scheduled tasks.",
+    "neverRan": "Has not run yet.",
+    "next": "Next: {{at}}",
+    "disabled": "Disabled",
+    "runNow": "Run now",
+    "runConfirm": "Run «{{name}}» now on the computer?",
+    "runReason": "Run «{{name}}»",
+    "notConfirmed": "Not confirmed: the task did not run.",
+    "started": "The task started on the computer. It shows up here when it finishes.",
+    "needsApproval": "This task changes data and has unapproved steps: approve it in DBine, on the computer.",
+    "notAllowed": "To run tasks from this phone, enable it in DBine › Settings › Devices.",
+    "status": {
+      "running": "Running",
+      "ok": "OK",
+      "partial": "With errors",
+      "failed": "Failed"
+    }
+  },
+  "news": {
+    "title": "Notices",
+    "intro": "While the app is open or in the background, DBine notifies you when a query that took more than 10 seconds finishes and when a task fails or has an alert. They don't arrive with the app closed.",
+    "none": "No notices for now.",
+    "kind": {
+      "query": "Query",
+      "task": "Task"
+    }
+  },
+  "health": {
+    "run": "Check the database",
+    "running": "Checking…",
+    "allGood": "No problems found.",
+    "fine_one": "{{count}} check with no problems",
+    "fine_other": "{{count}} checks with no problems"
   }
 }

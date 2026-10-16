@@ -24,6 +24,7 @@
     "monitor": "Monitor",
     "locks": "Verrous",
     "processes": "En cours",
+    "health": "Santé",
     "unsupported": "{{engine}} ne signale ni son état, ni ses verrous, ni ses processus.",
     "noLocks": "Aucune session bloquée.",
     "noProcesses": "Aucune requête en cours d'exécution.",
@@ -39,5 +40,47 @@
     "killed": "La session {{id}} a été terminée.",
     "notAllowed": "Pour terminer des sessions depuis ce téléphone, activez-le dans DBine › Paramètres › Appareils.",
     "engineCantKill": "Cette connexion ne permet pas de terminer des sessions (elle est en lecture seule ou le moteur ne le prend pas en charge)."
+  },
+  "nav": {
+    "connections": "Connexions",
+    "tasks": "Tâches",
+    "news": "Avis"
+  },
+  "tasks": {
+    "title": "Tâches planifiées",
+    "none": "DBine n'a aucune tâche planifiée.",
+    "neverRan": "Pas encore exécutée.",
+    "next": "Prochaine : {{at}}",
+    "disabled": "Désactivée",
+    "runNow": "Exécuter maintenant",
+    "runConfirm": "Exécuter « {{name}} » maintenant sur l'ordinateur ?",
+    "runReason": "Exécuter « {{name}} »",
+    "notConfirmed": "Non confirmé : la tâche n'a pas été exécutée.",
+    "started": "La tâche a démarré sur l'ordinateur. Elle apparaît ici quand elle se termine.",
+    "needsApproval": "Cette tâche modifie des données et comporte des étapes non approuvées : approuvez-la dans DBine, sur l'ordinateur.",
+    "notAllowed": "Pour exécuter des tâches depuis ce téléphone, activez-le dans DBine › Paramètres › Appareils.",
+    "status": {
+      "running": "En cours",
+      "ok": "Réussie",
+      "partial": "Avec erreurs",
+      "failed": "Échec"
+    }
+  },
+  "news": {
+    "title": "Avis",
+    "intro": "Tant que l'application est ouverte ou en arrière-plan, DBine vous avertit quand une requête de plus de 10 secondes se termine et quand une tâche échoue ou comporte une alerte. Application fermée, rien n'arrive.",
+    "none": "Aucun avis pour le moment.",
+    "kind": {
+      "query": "Requête",
+      "task": "Tâche"
+    }
+  },
+  "health": {
+    "run": "Vérifier la base",
+    "running": "Vérification…",
+    "allGood": "Aucun problème détecté.",
+    "fine_one": "{{count}} vérification sans problème",
+    "fine_many": "{{count}} de vérifications sans problème",
+    "fine_other": "{{count}} vérifications sans problème"
   }
 }

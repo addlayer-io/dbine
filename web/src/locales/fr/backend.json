@@ -10215,5 +10215,10 @@
   "no hay un código de vinculación abierto": "aucun code d'association n'est ouvert",
   "pairing refused (no open invite or too many attempts)": "pairing refused (no open invite or too many attempts)",
   "pairing: no confirmation": "pairing: no confirmation",
-  "rechazado o sin respuesta en la computadora": "refusé ou sans réponse sur l'ordinateur"
+  "rechazado o sin respuesta en la computadora": "refusé ou sans réponse sur l'ordinateur",
+  "Falló después de {0}: {1}": "Échec après {0} : {1}",
+  "Terminó en {0}": "Terminé en {0}",
+  "Terminó en {0} · {1} filas": "Terminé en {0} · {1} lignes",
+  "Terminó en {0} · {1} filas afectadas": "Terminé en {0} · {1} lignes affectées",
+  "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": "ce téléphone n'a pas l'autorisation d'exécuter des tâches : activez-le dans DBine, Paramètres › Appareils"
 }

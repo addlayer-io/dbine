@@ -22,7 +22,8 @@ rest of this page is the design it grows into.
   secret is the PSK, DBine's public key is pinned), Noise `IK` afterwards
   (only keys DBine paired; the phone only talks to the key it pinned), frames
   of up to 64 KB, messages of up to 16 MB, JSON requests: `hello`,
-  `connections`, `databases`, `monitor`, `locks`, `processes`, `kill`. The
+  `connections`, `databases`, `monitor`, `locks`, `processes`, `kill`,
+  `events`, `tasks`, `task_runs`, `run_task`, `health`. The
   Monitor's labels come in Spanish, as the engines write them; the phone
   translates them with a slice of DBine's catalog that its build copies
   (`mobile/scripts/catalog.py`, the messages from the monitor files and the
@@ -36,6 +37,23 @@ rest of this page is the design it grows into.
   ends a session
   after the phone's biometrics or PIN. A kill is never retried after a
   dropped connection. The texts are in DBine's five languages.
+- **Tasks, notices and health (phone app):**
+  - **Tareas:** each scheduled task with its last run and next one, its
+    last 10 runs with each step's summary and alerts, and **Ejecutar
+    ahora**, allowed per phone on the computer (**Puede ejecutar tareas**,
+    off by default) and confirmed on the phone with biometrics or PIN. A
+    task with unapproved writing steps can't be run from the phone.
+  - **Avisos:** DBine keeps its last 100 notices in memory: a query from the
+    editor that ran 10 seconds or more ("Terminó en 3 min 20 s · 1240
+    filas", or the error), and each task run that ended, as the task's own
+    **Avisar** says (on failure or alert by default). It finds task runs in
+    the history every 15 seconds, so the ones the OS scheduler ran with
+    DBine closed count too, once DBine is open. The phone asks every 20
+    seconds while the app runs, in front or behind, and shows each notice as
+    an Android notification; the first look only learns where the list is,
+    so old news doesn't arrive as new. **With the app closed nothing
+    arrives**: that takes a push service (see [Alerts](#alerts)).
+  - **Salud:** a database's health check, the desktop's, on demand.
 - **Not yet:** reaching DBine from outside the local network (the paths and
   the signaling below), alerts as native pushes, the phone's key in the
   Android Keystore / iOS Keychain (today it's in the app's private folder),

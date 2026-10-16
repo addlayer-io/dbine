@@ -42,7 +42,12 @@ fn short(sql: &Option<String>) -> String {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn database_health(state: State<'_, AppState>, args: HealthArgs) -> CommandResult<HealthReport> {
-    let driver = driver_of(&state, &args.connection_id)?;
+    report(&state, args).await
+}
+
+/// The health check, for the UI and for the phone app (src/link.rs).
+pub async fn report(state: &AppState, args: HealthArgs) -> CommandResult<HealthReport> {
+    let driver = driver_of(state, &args.connection_id)?;
     let caps = driver.capabilities();
     let key = format!("health:{}", args.run_id);
     let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;

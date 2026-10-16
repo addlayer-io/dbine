@@ -18,7 +18,7 @@
 //! the port and the phones; DBine's private key is in the vault.
 
 use crate::state::AppState;
-use dbine_link::proto::{Call, ConnectionItem, Hello, LockRow, MetricRow, MonitorView, PairResult, ProcessRow, Request, Response};
+use dbine_link::proto::{Call, ConnectionItem, EventRow, Events, HealthRow, HealthView, Hello, LockRow, MetricRow, MonitorView, PairResult, ProcessRow, Request, Response, RunRow, StepRow, TaskItem};
 use dbine_link::{Accepted, Invite, Keys};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -39,8 +39,17 @@ const ANSWER_LIMIT: Duration = Duration::from_secs(120);
 const PAIR_ATTEMPTS: usize = 5;
 /// A phone that sends nothing for this long is disconnected.
 const IDLE_LIMIT: Duration = Duration::from_secs(10 * 60);
-/// A database call from the phone waits at most this long.
-const CALL_LIMIT: Duration = Duration::from_secs(30);
+/// A database call from the phone waits at most this long (a health check
+/// reads a lot).
+const CALL_LIMIT: Duration = Duration::from_secs(60);
+/// A query from the editor that runs at least this long tells the phone
+/// when it ends.
+pub const LONG_QUERY: Duration = Duration::from_secs(10);
+/// Notices kept for the phone (it asks every few seconds while open).
+const EVENTS_KEPT: usize = 100;
+/// How often DBine looks for task runs that ended (the OS scheduler runs
+/// them in another process, so they only show in the history).
+const TASKS_EVERY: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Device {
@@ -55,6 +64,9 @@ pub struct Device {
     /// It may end sessions (each one confirmed on the phone).
     #[serde(default)]
     pub can_kill: bool,
+    /// It may run scheduled tasks ("Ejecutar ahora", confirmed on the phone).
+    #[serde(default)]
+    pub can_run_tasks: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +117,13 @@ struct Inner {
     live: Mutex<HashMap<String, Vec<tauri::async_runtime::JoinHandle<()>>>>,
     /// DBine's keys once read (the vault isn't read on every connection).
     keys: Mutex<Option<Keys>>,
+    /// What the phones get notified of, newest last.
+    events: Mutex<VecDeque<EventRow>>,
+    next_seq: Mutex<u64>,
+    /// This run's id: the phones start over when it changes.
+    boot: String,
+    /// Task runs already turned into notices.
+    seen_runs: Mutex<std::collections::HashSet<String>>,
 }
 
 fn b64(v: &[u8]) -> String {
@@ -157,6 +176,10 @@ impl LinkRuntime {
                 attempts: Mutex::new(VecDeque::new()),
                 live: Mutex::new(HashMap::new()),
                 keys: Mutex::new(None),
+                events: Mutex::new(VecDeque::new()),
+                next_seq: Mutex::new(0),
+                boot: dbine_link::random::<8>().map(|b| b.iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default(),
+                seen_runs: Mutex::new(std::collections::HashSet::new()),
             }),
         }
     }
@@ -165,6 +188,41 @@ impl LinkRuntime {
     pub fn attach(&self, app: AppHandle) {
         *self.inner.app.lock().unwrap() = Some(app);
         self.inner.apply();
+        // The runs already in the history aren't news.
+        self.inner.watch_tasks(true);
+        let me = self.inner.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(TASKS_EVERY).await;
+                me.watch_tasks(false);
+            }
+        });
+    }
+
+    /// A query from the editor ended after [`LONG_QUERY`] or more.
+    pub fn query_ended(&self, connection_id: &str, database: &str, out: &dbine_driver::QueryOutcome) {
+        if !self.inner.settings().enabled || self.inner.settings().devices.is_empty() {
+            return;
+        }
+        let conn = self.inner.state.store.get_connection(connection_id).ok().flatten().map(|c| c.name).unwrap_or_else(|| connection_id.to_string());
+        let place = if database.is_empty() { conn } else { format!("{conn} › {database}") };
+        let took = took(out.elapsed_ms);
+        let failed = out.error.clone().or_else(|| out.errors.first().map(|e| e.message.clone()));
+        let body = match &failed {
+            Some(e) => format!("Falló después de {took}: {}", e.chars().take(200).collect::<String>()),
+            None => {
+                let rows: u64 = out.results.iter().map(|r| r.total_rows).sum();
+                let affected: u64 = out.results.iter().filter_map(|r| r.rows_affected).sum();
+                if rows > 0 {
+                    format!("Terminó en {took} · {rows} filas")
+                } else if affected > 0 {
+                    format!("Terminó en {took} · {affected} filas afectadas")
+                } else {
+                    format!("Terminó en {took}")
+                }
+            }
+        };
+        self.inner.push("query", place, body, failed.is_none());
     }
 
     pub fn settings(&self) -> LinkSettings {
@@ -232,6 +290,38 @@ impl LinkRuntime {
     }
 }
 
+/// "40 s", "3 min 20 s", "1 h 05 min".
+fn took(ms: u64) -> String {
+    let s = ms / 1000;
+    match s {
+        s if s < 60 => format!("{s} s"),
+        s if s < 3600 => format!("{} min {:02} s", s / 60, s % 60),
+        s => format!("{} h {:02} min", s / 3600, (s % 3600) / 60),
+    }
+}
+
+fn status_text(s: dbine_core::tasks::RunStatus) -> &'static str {
+    use dbine_core::tasks::RunStatus::*;
+    match s {
+        Running => "running",
+        Ok => "ok",
+        Partial => "partial",
+        Failed => "failed",
+    }
+}
+
+fn run_row(r: dbine_core::tasks::TaskRun) -> RunRow {
+    RunRow {
+        id: r.id,
+        status: status_text(r.status).into(),
+        trigger: r.trigger,
+        started_at: r.started_at,
+        finished_at: r.finished_at,
+        error: r.error,
+        steps: r.steps.into_iter().map(|s| StepRow { kind: s.kind, status: status_text(s.status).into(), summary: s.summary, alert: s.alert }).collect(),
+    }
+}
+
 /// The session key of a phone's calls on a connection › database.
 fn key(connection_id: &str, database: &str) -> String {
     format!("link:{connection_id}:{database}")
@@ -244,6 +334,56 @@ pub fn qr_svg(text: &str) -> Result<String, String> {
 }
 
 impl Inner {
+    fn push(&self, kind: &str, title: String, body: String, ok: bool) {
+        let seq = {
+            let mut n = self.next_seq.lock().unwrap();
+            *n += 1;
+            *n
+        };
+        let mut ev = self.events.lock().unwrap();
+        ev.push_back(EventRow { seq, kind: kind.into(), title, body, ok, at: now() });
+        while ev.len() > EVENTS_KEPT {
+            ev.pop_front();
+        }
+    }
+
+    /// Turn task runs that ended into notices, as the task's own "Avisar"
+    /// says: on failure or alert (the default), always, or never.
+    fn watch_tasks(&self, first: bool) {
+        use dbine_core::tasks::{Notify, RunStatus};
+        let Ok(runs) = self.state.store.list_task_runs(None, 50) else { return };
+        let mut seen = self.seen_runs.lock().unwrap();
+        for r in runs.into_iter().rev() {
+            if r.status == RunStatus::Running || !seen.insert(r.id.clone()) || first {
+                continue;
+            }
+            let Ok(Some(task)) = self.state.store.get_task(&r.task_id) else { continue };
+            let alerts: Vec<&str> = r.steps.iter().filter_map(|s| s.alert.as_deref()).collect();
+            let ok = r.status == RunStatus::Ok && alerts.is_empty();
+            let tell = match task.notify {
+                Notify::Never => false,
+                Notify::Always => true,
+                Notify::Failure => !ok,
+            };
+            if !tell {
+                continue;
+            }
+            let body = match r.status {
+                RunStatus::Ok if alerts.is_empty() => "Terminó bien.".to_string(),
+                RunStatus::Ok => alerts.join("\n"),
+                RunStatus::Partial => format!("Terminó con errores. {}", alerts.join("\n")).trim().to_string(),
+                _ => r
+                    .error
+                    .clone()
+                    .or_else(|| r.steps.iter().find(|s| s.status == RunStatus::Failed).map(|s| format!("Falló: {}", s.summary)))
+                    .unwrap_or_else(|| "Falló.".into()),
+            };
+            drop(seen);
+            self.push("task", task.name.clone(), body, ok);
+            seen = self.seen_runs.lock().unwrap();
+        }
+    }
+
     fn settings(&self) -> LinkSettings {
         self.state.store.get_setting(SETTING).ok().flatten().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
     }
@@ -405,7 +545,7 @@ impl Inner {
         let accepted = matches!(tokio::time::timeout(ANSWER_LIMIT, rx).await, Ok(Ok(true)));
         let desktop = computer_name();
         if accepted {
-            let device = Device { id: id.clone(), name: name.clone(), key: b64(&channel.peer), paired_at: now(), last_seen: None, can_kill: false };
+            let device = Device { id: id.clone(), name: name.clone(), key: b64(&channel.peer), paired_at: now(), last_seen: None, can_kill: false, can_run_tasks: false };
             let mut s = self.settings();
             s.devices.retain(|d| d.id != id);
             s.devices.push(device);
@@ -453,7 +593,76 @@ impl Inner {
     async fn call(&self, device: &Device, call: Call) -> Result<Response, String> {
         let state = &self.state;
         Ok(match call {
-            Call::Hello => Response::ok(0, &Hello { desktop: computer_name(), version: env!("CARGO_PKG_VERSION").into(), can_kill: device.can_kill }),
+            Call::Hello => Response::ok(
+                0,
+                &Hello { desktop: computer_name(), version: env!("CARGO_PKG_VERSION").into(), can_kill: device.can_kill, can_run_tasks: device.can_run_tasks },
+            ),
+            Call::Events { after, boot } => {
+                let ev = self.events.lock().unwrap();
+                let last = ev.back().map(|e| e.seq).unwrap_or(0);
+                // A phone that knew another run of DBine starts over.
+                let after = match (after, boot) {
+                    (Some(a), Some(b)) if b == self.boot => Some(a),
+                    _ => None,
+                };
+                let events = after.map(|a| ev.iter().filter(|e| e.seq > a).cloned().collect()).unwrap_or_default();
+                Response::ok(0, &Events { events, last, boot: self.boot.clone() })
+            }
+            Call::Tasks => {
+                let now_t = chrono::Local::now().naive_local();
+                let list: Vec<TaskItem> = state
+                    .store
+                    .list_tasks()
+                    .map_err(|e| e.to_string())?
+                    .into_iter()
+                    .map(|t| {
+                        let fp = crate::tasks::write_fingerprint(state, &t);
+                        TaskItem {
+                            next_run: t.enabled.then(|| t.schedule.next_after(now_t)).flatten().map(|x| x.format("%Y-%m-%d %H:%M").to_string()),
+                            last: state.store.list_task_runs(Some(&t.id), 1).ok().and_then(|r| r.into_iter().next()).map(run_row),
+                            needs_approval: fp.is_some() && fp != t.approved_writes,
+                            id: t.id,
+                            name: t.name,
+                            enabled: t.enabled,
+                        }
+                    })
+                    .collect();
+                Response::ok(0, &list)
+            }
+            Call::TaskRuns { task_id } => {
+                let runs: Vec<RunRow> = state.store.list_task_runs(Some(&task_id), 10).map_err(|e| e.to_string())?.into_iter().map(run_row).collect();
+                Response::ok(0, &runs)
+            }
+            Call::RunTask { task_id } => {
+                if !device.can_run_tasks {
+                    return Err("este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos".into());
+                }
+                let task = crate::tasks::load(state, &task_id).map_err(|e| e.to_string())?;
+                let app = self.app.lock().unwrap().clone();
+                let st = state.clone();
+                tracing::info!(device = %device.id, task = %task_id, "task run from a phone");
+                tauri::async_runtime::spawn(async move {
+                    let run = crate::tasks::run_task(&st, app.as_ref(), &task, "phone").await;
+                    if let Some(app) = app {
+                        let _ = app.emit("task-run-finished", &run);
+                    }
+                });
+                Response::ok(0, &true)
+            }
+            Call::Health { connection_id, database } => {
+                let args = crate::commands::db_health::HealthArgs { connection_id, database, run_id: format!("phone-{}", device.id) };
+                let r = crate::commands::db_health::report(state, args).await.map_err(|e| e.to_string())?;
+                let sev = |s: dbine_driver::health::Severity| serde_json::to_value(s).ok().and_then(|v| v.as_str().map(str::to_lowercase)).unwrap_or_else(|| "info".into());
+                let view = HealthView {
+                    checks: r
+                        .checks
+                        .into_iter()
+                        .map(|c| HealthRow { category: c.category, title: c.title, severity: sev(c.severity), detail: (!c.detail.is_empty()).then_some(c.detail), objects: c.objects.into_iter().take(20).collect() })
+                        .collect(),
+                    skipped: r.skipped,
+                };
+                Response::ok(0, &view)
+            }
             Call::Connections => {
                 let list: Vec<ConnectionItem> = state
                     .store
@@ -642,6 +851,8 @@ pub mod commands {
         pub id: String,
         #[serde(default)]
         pub can_kill: Option<bool>,
+        #[serde(default)]
+        pub can_run_tasks: Option<bool>,
     }
 
     #[tauri::command(rename_all = "camelCase")]
@@ -653,8 +864,13 @@ pub mod commands {
     #[tauri::command(rename_all = "camelCase")]
     pub async fn link_set_device(rt: State<'_, LinkRuntime>, args: DeviceArgs) -> CommandResult<LinkStatus> {
         rt.save(|s| {
-            if let (Some(d), Some(k)) = (s.devices.iter_mut().find(|d| d.id == args.id), args.can_kill) {
-                d.can_kill = k;
+            if let Some(d) = s.devices.iter_mut().find(|d| d.id == args.id) {
+                if let Some(k) = args.can_kill {
+                    d.can_kill = k;
+                }
+                if let Some(r) = args.can_run_tasks {
+                    d.can_run_tasks = r;
+                }
             }
         })
         .map_err(CommandError::Internal)?;
@@ -759,6 +975,48 @@ mod tests {
         assert!(mon.metrics.iter().all(|m| ["percent", "bytes", "count", "millis", "seconds"].contains(&m.unit.as_str())));
         let kill = ask(&mut ch, 3, Call::Kill { connection_id: "a".into(), database: "".into(), session_id: "1".into() }).await;
         assert!(kill.error.unwrap().contains("no tiene permiso"));
+        // Notices: a long query and a task that failed.
+        let first: Events = serde_json::from_value(ask(&mut ch, 21, Call::Events { after: None, boot: None }).await.ok.unwrap()).unwrap();
+        assert!(first.events.is_empty());
+        let out = dbine_driver::QueryOutcome { elapsed_ms: 200_000, error: Some("relation \"x\" does not exist".into()), ..Default::default() };
+        rt.query_ended("a", "", &out);
+        rt.inner
+            .state
+            .store
+            .save_task(&dbine_core::tasks::ScheduledTask { id: "t1".into(), name: "backup nocturno".into(), steps: vec![dbine_core::tasks::Step::default()], ..Default::default() })
+            .unwrap();
+        rt.inner
+            .state
+            .store
+            .save_task_run(&dbine_core::tasks::TaskRun {
+                id: "r1".into(),
+                task_id: "t1".into(),
+                trigger: "schedule".into(),
+                status: dbine_core::tasks::RunStatus::Failed,
+                error: Some("sin espacio".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        rt.inner.watch_tasks(false);
+        let news: Events = serde_json::from_value(ask(&mut ch, 22, Call::Events { after: Some(first.last), boot: Some(first.boot.clone()) }).await.ok.unwrap()).unwrap();
+        assert_eq!(news.events.len(), 2, "{news:?}");
+        assert_eq!(news.events[0].kind, "query");
+        assert!(news.events[0].body.starts_with("Falló después de 3 min 20 s"), "{}", news.events[0].body);
+        assert_eq!(news.events[1].title, "backup nocturno");
+        assert_eq!(news.events[1].body, "sin espacio");
+        // Seen once: not again.
+        rt.inner.watch_tasks(false);
+        let again: Events = serde_json::from_value(ask(&mut ch, 23, Call::Events { after: Some(news.last), boot: Some(news.boot.clone()) }).await.ok.unwrap()).unwrap();
+        assert!(again.events.is_empty());
+        // Tasks: listed; running one needs the permission.
+        let tasks: Vec<TaskItem> = serde_json::from_value(ask(&mut ch, 24, Call::Tasks).await.ok.unwrap()).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].last.as_ref().unwrap().status, "failed");
+        assert!(ask(&mut ch, 25, Call::RunTask { task_id: "t1".into() }).await.error.unwrap().contains("no tiene permiso"));
+        // The health check of a database.
+        let health: HealthView = serde_json::from_value(ask(&mut ch, 26, Call::Health { connection_id: "a".into(), database: "".into() }).await.ok.unwrap()).unwrap();
+        assert!(!health.checks.is_empty() || !health.skipped.is_empty(), "{health:?}");
+
         // SQLite has no locks: an error, not a hang.
         assert!(ask(&mut ch, 4, Call::Locks { connection_id: "a".into(), database: "".into() }).await.error.is_some());
 

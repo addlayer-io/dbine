@@ -14,6 +14,55 @@ export interface Hello {
   desktop: string;
   version: string;
   can_kill: boolean;
+  can_run_tasks: boolean;
+}
+
+export interface StepRow {
+  kind: string;
+  status: string;
+  summary: string;
+  alert: string | null;
+}
+
+export interface RunRow {
+  id: string;
+  status: 'running' | 'ok' | 'partial' | 'failed';
+  trigger: string;
+  started_at: string;
+  finished_at: string;
+  error: string | null;
+  steps: StepRow[];
+}
+
+export interface TaskItem {
+  id: string;
+  name: string;
+  enabled: boolean;
+  next_run: string | null;
+  last: RunRow | null;
+  needs_approval: boolean;
+}
+
+export interface HealthRow {
+  category: string;
+  title: string;
+  severity: 'ok' | 'info' | 'warning' | 'critical';
+  detail: string | null;
+  objects: string[];
+}
+
+export interface HealthView {
+  checks: HealthRow[];
+  skipped: string[];
+}
+
+export interface EventRow {
+  seq: number;
+  kind: 'query' | 'task';
+  title: string;
+  body: string;
+  ok: boolean;
+  at: string;
 }
 
 export interface ConnectionItem {
@@ -73,6 +122,10 @@ type Call =
   | { call: 'locks'; connection_id: string; database: string }
   | { call: 'processes'; connection_id: string; database: string }
   | { call: 'monitor'; connection_id: string }
+  | { call: 'tasks' }
+  | { call: 'task_runs'; task_id: string }
+  | { call: 'run_task'; task_id: string }
+  | { call: 'health'; connection_id: string; database: string }
   | { call: 'kill'; connection_id: string; database: string; session_id: string };
 
 const ask = <T>(call: Call) => invoke<T>('call', { call });
@@ -86,6 +139,12 @@ export const api = {
   locks: (connection_id: string) => ask<LockRow[]>({ call: 'locks', connection_id, database: '' }),
   processes: (connection_id: string) => ask<ProcessRow[]>({ call: 'processes', connection_id, database: '' }),
   monitor: (connection_id: string) => ask<MonitorView>({ call: 'monitor', connection_id }),
+  databases: (connection_id: string) => ask<string[]>({ call: 'databases', connection_id }),
+  health: (connection_id: string, database: string) => ask<HealthView>({ call: 'health', connection_id, database }),
+  tasks: () => ask<TaskItem[]>({ call: 'tasks' }),
+  taskRuns: (task_id: string) => ask<RunRow[]>({ call: 'task_runs', task_id }),
+  runTask: (task_id: string) => ask<boolean>({ call: 'run_task', task_id }),
+  news: () => invoke<EventRow[]>('news'),
   kill: (connection_id: string, session_id: string) => ask<boolean>({ call: 'kill', connection_id, database: '', session_id }),
 };
 
