@@ -2,16 +2,14 @@
 
 ## [Unreleased]
 
-### Improvements
-- **Usage statistics:** when the statistics server doesn't answer or fails, DBine retries for up to an hour instead of dropping the event. Nothing else about what's sent changes, and turning statistics off stops any pending retry.
-- **Flatpak download:** each release now includes a `.flatpak` file for Linux (`x86_64` and `aarch64`), to install with `flatpak install --user ./dbine-X.Y.Z-x86_64.flatpak`; Flatpak fetches the GNOME runtime from Flathub by itself. It doesn't update itself: install the next version's file the same way.
-
 ## [0.1.13] - 2026-10-16
 
 ### Improvements
 - **Support the project:** the heart button (**Support the project**), its reminder and **Help › Support the project** open Buy Me a Coffee.
 - **Script data for chosen tables:** in **Generate database script**, when **Data (INSERT)** is ticked you can keep data for every table or pick which ones get it, from a list with a filter, so the script can carry the structure of the whole database and the rows of just a few tables.
 - **Database menu:** **Export database…** is gone. It opened the same dialog as **Generate script…**, which stays and does everything it did (structure, data and saving to a file).
+- **Usage statistics:** when the statistics server doesn't answer or fails, DBine retries for up to an hour instead of dropping the event. Nothing else about what's sent changes, and turning statistics off stops any pending retry.
+- **Flatpak download:** each release now includes a `.flatpak` file for Linux (`x86_64` and `aarch64`), to install with `flatpak install --user ./dbine-X.Y.Z-x86_64.flatpak`; Flatpak fetches the GNOME runtime from Flathub by itself. It doesn't update itself: install the next version's file the same way.
 
 ## [0.1.12] - 2026-10-15
 
