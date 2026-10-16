@@ -117,6 +117,10 @@ pub struct Hello {
     /// It may run scheduled tasks (absent from a DBine before it).
     #[serde(default)]
     pub can_run_tasks: bool,
+    /// How to reach DBine from outside the local network now: the phone
+    /// keeps it up to date (its relays may have changed since pairing).
+    #[serde(default)]
+    pub remote: Option<crate::Remote>,
 }
 
 /// Something the phone notifies.

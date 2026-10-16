@@ -7,7 +7,7 @@
     "connecting": "Connessione…",
     "step1": "Sul computer, apri DBine › Impostazioni › Dispositivi.",
     "step2": "Attiva «Consenti telefoni» e tocca «Associa un telefono».",
-    "step3": "Scansiona il codice che appare. Il telefono deve essere sulla stessa rete.",
+    "step3": "Scansiona il codice che appare. Se il telefono non è sulla stessa rete, si connette tramite internet (se DBine lo permette in «Fuori dalla rete locale»).",
     "confirmOn": "Conferma su «{{desktop}}».",
     "compare": "Controlla che il computer mostri lo stesso codice:",
     "noCamera": "Senza il permesso di usare la fotocamera non è possibile leggere il codice."
@@ -18,7 +18,11 @@
     "loading": "Caricamento…",
     "thisPhone": "Questo telefono: {{code}}",
     "unpair": "Dissocia",
-    "unpairConfirm": "Dissociare questo telefono? Per usarlo di nuovo bisogna scansionare un nuovo codice."
+    "unpairConfirm": "Dissociare questo telefono? Per usarlo di nuovo bisogna scansionare un nuovo codice.",
+    "via": {
+      "local": "Rete locale",
+      "internet": "Tramite internet"
+    }
   },
   "conn": {
     "monitor": "Monitor",

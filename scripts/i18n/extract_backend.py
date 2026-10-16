@@ -203,6 +203,8 @@ def main():
         msgs.setdefault(u, set()).add("crates/dbine-driver/src/profiler.rs")
     files = [p for p in (ROOT / "crates").rglob("*.rs") if "/tests/" not in str(p) and p.name != "build.rs"]
     files += list((ROOT / "src-tauri/src").rglob("*.rs"))
+    # The phone app's Rust (its errors reach the phone's screen).
+    files += list((ROOT / "mobile/src-tauri/src").rglob("*.rs"))
     files = [f for f in files if str(f.relative_to(ROOT)) not in PROMPT_FILES]
     for f in sorted(files):
         src = strip_tests(f.read_text(encoding="utf-8"))

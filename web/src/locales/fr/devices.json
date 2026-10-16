@@ -20,10 +20,22 @@
   "pairTitle": "Associer un téléphone",
   "scan": "Dans l'application DBine du téléphone, touchez « Associer » et scannez ce code.",
   "expires": "Le code expire dans {{seconds}} s et ne sert que pour un seul téléphone.",
-  "sameNetwork": "Le téléphone doit être sur le même réseau que cet ordinateur.",
+  "sameNetwork": "Si le téléphone est sur un autre réseau, il se connecte par internet selon « Hors du réseau local ».",
   "askText": "« {{name}} » veut s'associer à cet ordinateur.",
   "askCompare": "Vérifiez que le téléphone affiche ce même code :",
   "accept": "Associer",
   "reject": "Refuser",
-  "paired": "Téléphone associé"
+  "paired": "Téléphone associé",
+  "remote": "Hors du réseau local",
+  "remoteHelp": "Comment le téléphone atteint cet ordinateur quand il n'est pas sur le même réseau. Tout transite chiffré de bout en bout avec les clés du code QR : le serveur relais ne voit que des données illisibles.",
+  "remoteModes": {
+    "public": "Serveurs publics d'iroh (gratuit)",
+    "own": "Serveur propre",
+    "off": "Réseau local uniquement"
+  },
+  "remoteReady": "Disponible par internet, via {{relay}}",
+  "remoteConnecting": "Connexion au serveur relais…",
+  "publicHelp": "iroh essaie de se connecter directement ; si les réseaux ne le permettent pas, il passe par les serveurs publics de n0 (gratuits et sans garantie de disponibilité).",
+  "ownHelp": "L'URL de votre serveur iroh-relay (https), une par ligne. Seul ce serveur est utilisé : rien ne passe par des serveurs tiers. Les téléphones déjà associés reçoivent le changement à leur prochaine connexion.",
+  "save": "Enregistrer"
 }

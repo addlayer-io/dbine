@@ -7,7 +7,7 @@
     "connecting": "Connecting…",
     "step1": "On the computer, open DBine › Settings › Devices.",
     "step2": "Turn on “Allow phones” and tap “Pair a phone”.",
-    "step3": "Scan the code that appears. The phone must be on the same network.",
+    "step3": "Scan the code that appears. If the phone isn't on the same network, it connects over the internet (if DBine allows it in “Outside the local network”).",
     "confirmOn": "Confirm on “{{desktop}}”.",
     "compare": "Check that the computer shows this same code:",
     "noCamera": "Without permission to use the camera, the code can't be read."
@@ -18,7 +18,11 @@
     "loading": "Loading…",
     "thisPhone": "This phone: {{code}}",
     "unpair": "Unpair",
-    "unpairConfirm": "Unpair this phone? To use it again you have to scan a new code."
+    "unpairConfirm": "Unpair this phone? To use it again you have to scan a new code.",
+    "via": {
+      "local": "Local network",
+      "internet": "Over the internet"
+    }
   },
   "conn": {
     "monitor": "Monitor",

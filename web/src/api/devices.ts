@@ -13,11 +13,18 @@ export interface Device {
   can_run_tasks: boolean;
 }
 
+/** How phones reach DBine from outside the local network (iroh). */
+export type RemoteSetting = { mode: 'public' } | { mode: 'own'; relays: string[] } | { mode: 'off' };
+
 export interface LinkStatus {
   enabled: boolean;
   port: number;
   running: boolean;
   error: string | null;
+  remote: RemoteSetting;
+  /** The relay DBine is reachable through now. */
+  remote_relay: string | null;
+  remote_error: string | null;
   /** This computer's key, to compare with the phone's screen. */
   fingerprint: string;
   devices: Device[];
@@ -39,7 +46,7 @@ export interface PairAsk {
 
 export const devicesApi = {
   status: () => invoke<LinkStatus>('link_status'),
-  configure: (enabled: boolean, port: number) => invoke<LinkStatus>('link_configure', { args: { enabled, port } }),
+  configure: (enabled: boolean, port: number, remote?: RemoteSetting) => invoke<LinkStatus>('link_configure', { args: { enabled, port, remote } }),
   invite: () => invoke<LinkInvite>('link_invite'),
   cancelInvite: () => invoke<void>('link_cancel_invite'),
   answer: (accept: boolean) => invoke<void>('link_answer', { args: { accept } }),

@@ -20,10 +20,22 @@
   "pairTitle": "Vincular un celular",
   "scan": "En la app de DBine del celular, tocá «Vincular» y escaneá este código.",
   "expires": "El código vence en {{seconds}} s y sirve para un solo celular.",
-  "sameNetwork": "El celular tiene que estar en la misma red que esta computadora.",
+  "sameNetwork": "Si el celular está en otra red, se conecta por internet según «Fuera de la red local».",
   "askText": "«{{name}}» quiere vincularse con esta computadora.",
   "askCompare": "Comprobá que el celular muestre este mismo código:",
   "accept": "Vincular",
   "reject": "Rechazar",
-  "paired": "Celular vinculado"
+  "paired": "Celular vinculado",
+  "remote": "Fuera de la red local",
+  "remoteHelp": "Cómo llega el celular a esta computadora cuando no está en la misma red. Todo viaja cifrado de punta a punta con las claves del código QR: el servidor de paso solo ve datos ilegibles.",
+  "remoteModes": {
+    "public": "Servidores públicos de iroh (gratis)",
+    "own": "Servidor propio",
+    "off": "Solo red local"
+  },
+  "remoteReady": "Disponible por internet, vía {{relay}}",
+  "remoteConnecting": "Conectando con el servidor de paso…",
+  "publicHelp": "iroh intenta conectar directo; si las redes no lo permiten, pasa por los servidores públicos de n0 (sin costo y sin garantía de disponibilidad).",
+  "ownHelp": "La URL de tu servidor iroh-relay (https), uno por línea. Solo se usa ese servidor: nada pasa por servidores de terceros. Los celulares ya vinculados reciben el cambio en su próxima conexión.",
+  "save": "Guardar"
 }

@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
-import { LINK_CHANGED_EVENT, LINK_PAIR_EVENT, devicesApi, type Device, type LinkInvite, type LinkStatus, type PairAsk } from '../api/devices';
+import { LINK_CHANGED_EVENT, LINK_PAIR_EVENT, devicesApi, type Device, type LinkInvite, type LinkStatus, type PairAsk, type RemoteSetting } from '../api/devices';
 import { tb } from '../i18n/backend';
 
 // Configuración › Dispositivos (docs/mobile-companion.md): the phone app's
@@ -24,12 +24,13 @@ async function load() {
   }
 }
 
-async function configure(patch: { enabled?: boolean; port?: number }) {
+async function configure(patch: { enabled?: boolean; port?: number; remote?: RemoteSetting }) {
   if (!status.value) return;
   saving.value = true;
   try {
-    status.value = await devicesApi.configure(patch.enabled ?? status.value.enabled, patch.port ?? status.value.port);
+    status.value = await devicesApi.configure(patch.enabled ?? status.value.enabled, patch.port ?? status.value.port, patch.remote);
     port.value = status.value.port;
+    syncRemote();
   } catch (e) {
     ElMessage.error(errorMessage(e));
     port.value = status.value.port;
@@ -37,6 +38,27 @@ async function configure(patch: { enabled?: boolean; port?: number }) {
     saving.value = false;
   }
 }
+
+// -- outside the local network ----------------------------------------------------
+const remoteMode = ref<'public' | 'own' | 'off'>('public');
+const relaysText = ref('');
+
+function syncRemote() {
+  const r = status.value?.remote;
+  if (!r) return;
+  remoteMode.value = r.mode;
+  relaysText.value = r.mode === 'own' ? r.relays.join('\n') : relaysText.value;
+}
+
+function applyRemote() {
+  const relays = relaysText.value.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+  if (remoteMode.value === 'own' && !relays.length) return;
+  const remote: RemoteSetting = remoteMode.value === 'own' ? { mode: 'own', relays } : { mode: remoteMode.value };
+  configure({ remote });
+}
+
+// The relay connection comes up a few seconds after turning it on.
+let remotePoll: ReturnType<typeof setInterval> | null = null;
 
 function applyPort() {
   if (status.value && port.value && port.value !== status.value.port) configure({ port: port.value });
@@ -117,10 +139,13 @@ async function setCanKill(d: Device, v: boolean) {
 const unlisten: UnlistenFn[] = [];
 onMounted(async () => {
   await load();
+  syncRemote();
+  remotePoll = setInterval(() => { if (status.value?.enabled && status.value.remote.mode !== 'off' && !status.value.remote_relay) load(); }, 3000);
   unlisten.push(await listen<PairAsk>(LINK_PAIR_EVENT, (e) => { asking.value = e.payload; stopTimer(); }));
   unlisten.push(await listen(LINK_CHANGED_EVENT, () => load()));
 });
 onBeforeUnmount(() => {
+  if (remotePoll) clearInterval(remotePoll);
   closePairing();
   unlisten.forEach((u) => u());
 });
@@ -145,6 +170,27 @@ onBeforeUnmount(() => {
         <div><strong>{{ $t('devices:port') }}</strong><span>{{ $t('devices:portHelp') }}</span></div>
         <el-input-number v-model="port" :min="1024" :max="65535" :controls="false" style="width: 120px" @blur="applyPort" @keyup.enter="applyPort" />
       </div>
+
+      <div class="dv-row dv-remote">
+        <div>
+          <strong>{{ $t('devices:remote') }}</strong>
+          <span>{{ $t('devices:remoteHelp') }}</span>
+          <span v-if="status.enabled && status.remote.mode !== 'off' && status.remote_relay" class="dv-ok">{{ $t('devices:remoteReady', { relay: status.remote_relay }) }}</span>
+          <span v-else-if="status.enabled && status.remote_error" class="dv-err">{{ tb(status.remote_error) }}</span>
+          <span v-else-if="status.enabled && status.remote.mode !== 'off'">{{ $t('devices:remoteConnecting') }}</span>
+        </div>
+        <el-radio-group v-model="remoteMode" class="dv-modes" @change="applyRemote">
+          <el-radio value="public">{{ $t('devices:remoteModes.public') }}</el-radio>
+          <el-radio value="own">{{ $t('devices:remoteModes.own') }}</el-radio>
+          <el-radio value="off">{{ $t('devices:remoteModes.off') }}</el-radio>
+        </el-radio-group>
+      </div>
+      <div v-if="remoteMode === 'own'" class="dv-own">
+        <el-input v-model="relaysText" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" placeholder="https://relay.ejemplo.com" />
+        <el-button @click="applyRemote">{{ $t('devices:save') }}</el-button>
+        <p class="dv-muted">{{ $t('devices:ownHelp') }}</p>
+      </div>
+      <p v-else-if="remoteMode === 'public'" class="dv-muted">{{ $t('devices:publicHelp') }}</p>
 
       <h4>{{ $t('devices:phones') }}</h4>
       <el-button type="primary" :disabled="!status.enabled || !status.running" @click="startPairing">
@@ -206,6 +252,11 @@ onBeforeUnmount(() => {
 .dv-device:first-of-type { margin-top: 10px; }
 .dv-phone { font-size: 20px; color: var(--nm-text-dim); }
 .dv-perms { display: flex; flex-direction: column; }
+.dv-modes { display: flex; flex-direction: column; align-items: flex-start; flex: none; }
+.dv-modes .el-radio { height: 24px; margin: 0; }
+.dv-own { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; padding: 8px 0; }
+.dv-own .el-textarea { flex: 1; min-width: 260px; }
+.dv-own p { flex-basis: 100%; margin: 0; }
 .dv-perms .el-checkbox { height: 24px; }
 .dv-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dv-info span { font-size: 12px; color: var(--nm-text-dim); }

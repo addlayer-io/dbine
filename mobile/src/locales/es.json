@@ -7,7 +7,7 @@
     "connecting": "Conectando…",
     "step1": "En la computadora, abrí DBine › Configuración › Dispositivos.",
     "step2": "Activá «Permitir celulares» y tocá «Vincular un celular».",
-    "step3": "Escaneá el código que aparece. El celular tiene que estar en la misma red.",
+    "step3": "Escaneá el código que aparece. Si el celular no está en la misma red, se conecta por internet (si DBine lo permite en «Fuera de la red local»).",
     "confirmOn": "Confirmá en «{{desktop}}».",
     "compare": "Comprobá que la computadora muestre este mismo código:",
     "noCamera": "Sin permiso para usar la cámara no se puede leer el código."
@@ -18,7 +18,11 @@
     "loading": "Cargando…",
     "thisPhone": "Este celular: {{code}}",
     "unpair": "Desvincular",
-    "unpairConfirm": "¿Desvincular este celular? Para volver a usarlo hay que escanear un código nuevo."
+    "unpairConfirm": "¿Desvincular este celular? Para volver a usarlo hay que escanear un código nuevo.",
+    "via": {
+      "local": "Red local",
+      "internet": "Por internet"
+    }
   },
   "conn": {
     "monitor": "Monitor",

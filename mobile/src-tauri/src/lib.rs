@@ -3,8 +3,9 @@
 //! it). Every request goes to that DBine over `dbine-link`'s encrypted
 //! channel; no connection, host or password ever lives on the phone.
 
-use dbine_link::proto::{Call, EventRow, Events, PairResult, Request, Response};
-use dbine_link::{Channel, Invite, Keys};
+use dbine_link::net::Relays;
+use dbine_link::proto::{Call, EventRow, Events, Hello, PairResult, Request, Response};
+use dbine_link::{BoxIo, Channel, Invite, Keys, Remote};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -12,8 +13,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
-/// Connecting to one address waits at most this long.
-const CONNECT_LIMIT: Duration = Duration::from_secs(5);
+/// Connecting to one local address waits at most this long (then the app
+/// tries through the internet).
+const CONNECT_LIMIT: Duration = Duration::from_secs(2);
 /// The user on the computer has this long to accept the phone (DBine waits
 /// 2 minutes; a bit more here so its answer always arrives).
 const PAIR_ANSWER: Duration = Duration::from_secs(135);
@@ -31,13 +33,35 @@ struct Pairing {
     desktop_key: Vec<u8>,
     desktop: String,
     addrs: Vec<String>,
+    /// How to reach DBine from outside the local network (absent: only the
+    /// local network). DBine keeps it up to date on every connection.
+    #[serde(default)]
+    remote: Option<Remote>,
 }
 
 #[derive(Default)]
 struct App {
     pairing: Option<Pairing>,
-    channel: Option<Channel<TcpStream>>,
+    channel: Option<Channel<BoxIo>>,
     next_id: u64,
+    /// How the open channel got there: "local" or "internet".
+    via: Option<&'static str>,
+}
+
+/// The phone's iroh endpoint, made on first use and kept for the relays it
+/// was made for.
+static IROH: tokio::sync::Mutex<Option<(Relays, dbine_link::net::Endpoint)>> = tokio::sync::Mutex::const_new(None);
+
+async fn iroh_endpoint(relays: &Relays) -> Result<dbine_link::net::Endpoint, String> {
+    let mut slot = IROH.lock().await;
+    if let Some((r, ep)) = slot.as_ref() {
+        if r == relays {
+            return Ok(ep.clone());
+        }
+    }
+    let ep = dbine_link::net::endpoint(dbine_link::net::new_secret(), relays, false).await?;
+    *slot = Some((relays.clone(), ep.clone()));
+    Ok(ep)
 }
 
 type Shared = Mutex<App>;
@@ -60,21 +84,29 @@ fn store(app: &AppHandle, p: &Pairing) -> Result<(), String> {
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
-/// The first address that answers.
-async fn reach(addrs: &[String]) -> Result<TcpStream, String> {
+/// DBine on the local network (fast), else through the internet (iroh).
+async fn reach(addrs: &[String], remote: Option<&Remote>) -> Result<(BoxIo, &'static str), String> {
     let mut last = "no hay direcciones".to_string();
     for a in addrs {
         match tokio::time::timeout(CONNECT_LIMIT, TcpStream::connect(a)).await {
             Ok(Ok(s)) => {
                 let _ = s.set_nodelay(true);
-                return Ok(s);
+                return Ok((Box::new(s), "local"));
             }
             Ok(Err(e)) => last = e.to_string(),
             Err(_) => last = "no respondió".into(),
         }
     }
+    if let Some(r) = remote {
+        let ep = iroh_endpoint(&Relays::from_urls(&r.relays)).await?;
+        return match dbine_link::net::dial(&ep, r).await {
+            Ok(s) => Ok((Box::new(s), "internet")),
+            Err(e) => Err(format!("no se pudo llegar a DBine ni en la red local ni por internet ({}). Revisá que DBine esté abierto, con «Permitir celulares» activo.", e)),
+        };
+    }
     Err(format!(
-        "no se pudo llegar a DBine ({last}). Revisá que DBine esté abierto, con «Permitir celulares» activo, y que el celular esté en la misma red."
+        "no se pudo llegar a DBine ({}). Revisá que DBine esté abierto, con «Permitir celulares» activo, y que el celular esté en la misma red.",
+        last
     ))
 }
 
@@ -84,6 +116,8 @@ struct Status {
     desktop: Option<String>,
     /// This phone's key, as DBine shows it.
     fingerprint: Option<String>,
+    /// How the app reached DBine last: "local", "internet" or none yet.
+    via: Option<&'static str>,
 }
 
 #[tauri::command]
@@ -93,6 +127,7 @@ async fn status(state: State<'_, Shared>) -> Result<Status, String> {
         paired: s.pairing.is_some(),
         desktop: s.pairing.as_ref().map(|p| p.desktop.clone()),
         fingerprint: s.pairing.as_ref().map(|p| dbine_link::fingerprint(&p.phone.public)),
+        via: s.via,
     })
 }
 
@@ -108,7 +143,7 @@ struct Waiting {
 async fn pair(app: AppHandle, state: State<'_, Shared>, code: String, name: String) -> Result<String, String> {
     let invite = Invite::decode(&code)?;
     let phone = Keys::generate()?;
-    let stream = reach(&invite.addrs).await?;
+    let (stream, _) = reach(&invite.addrs, invite.remote.as_ref()).await?;
     let name: String = name.trim().chars().take(60).collect();
     let mut ch = dbine_link::pair(stream, &invite, &phone, name.as_bytes())
         .await
@@ -121,7 +156,7 @@ async fn pair(app: AppHandle, state: State<'_, Shared>, code: String, name: Stri
     if !result.accepted {
         return Err("se rechazó la vinculación en la computadora".into());
     }
-    let p = Pairing { phone, desktop_key: invite.key.clone(), desktop: result.desktop.clone(), addrs: invite.addrs.clone() };
+    let p = Pairing { phone, desktop_key: invite.key.clone(), desktop: result.desktop.clone(), addrs: invite.addrs.clone(), remote: invite.remote.clone() };
     store(&app, &p)?;
     let mut s = state.lock().await;
     s.pairing = Some(p);
@@ -143,11 +178,12 @@ async fn unpair(app: AppHandle, state: State<'_, Shared>) -> Result<(), String> 
 async fn ask(s: &mut App, call: &Call) -> Result<Response, String> {
     let pairing = s.pairing.clone().ok_or("este celular no está vinculado")?;
     if s.channel.is_none() {
-        let stream = reach(&pairing.addrs).await?;
+        let (stream, via) = reach(&pairing.addrs, pairing.remote.as_ref()).await?;
         let ch = dbine_link::connect(stream, &pairing.desktop_key, &pairing.phone)
             .await
             .map_err(|_| "DBine rechazó la conexión: puede que hayan quitado este celular. Vinculalo de nuevo.".to_string())?;
         s.channel = Some(ch);
+        s.via = Some(via);
     }
     s.next_id += 1;
     let id = s.next_id;
@@ -164,7 +200,7 @@ async fn ask(s: &mut App, call: &Call) -> Result<Response, String> {
 /// One request to DBine. A dropped channel is reopened once, except for a
 /// kill: that one is never sent twice.
 #[tauri::command]
-async fn call(state: State<'_, Shared>, call: Call) -> Result<serde_json::Value, String> {
+async fn call(app: AppHandle, state: State<'_, Shared>, call: Call) -> Result<serde_json::Value, String> {
     let mut s = state.lock().await;
     let once = matches!(call, Call::Kill { .. });
     let first = tokio::time::timeout(CALL_LIMIT, ask(&mut s, &call)).await.unwrap_or_else(|_| Err("DBine no respondió".into()));
@@ -178,6 +214,19 @@ async fn call(state: State<'_, Shared>, call: Call) -> Result<serde_json::Value,
             tokio::time::timeout(CALL_LIMIT, ask(&mut s, &call)).await.unwrap_or_else(|_| Err("DBine no respondió".into())).inspect_err(|_| s.channel = None)?
         }
     };
+    // DBine says how to reach it from outside now (its relays may have
+    // changed since pairing): keep it.
+    if let (Call::Hello, Some(v)) = (&call, &r.ok) {
+        if let Ok(h) = serde_json::from_value::<Hello>(v.clone()) {
+            if let Some(p) = s.pairing.as_mut() {
+                if h.remote.is_some() && p.remote != h.remote {
+                    p.remote = h.remote;
+                    let p = p.clone();
+                    let _ = store(&app, &p);
+                }
+            }
+        }
+    }
     match (r.ok, r.error) {
         (_, Some(e)) => Err(e),
         (Some(v), None) => Ok(v),
@@ -201,7 +250,7 @@ async fn news_from(dir: &std::path::Path) -> Result<Vec<EventRow>, String> {
     let pairing: Pairing = serde_json::from_slice(&std::fs::read(dir.join("pairing.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let pos_file = dir.join("news.json");
     let pos: Position = std::fs::read(&pos_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-    let stream = reach(&pairing.addrs).await?;
+    let (stream, _) = reach(&pairing.addrs, pairing.remote.as_ref()).await?;
     let mut ch = dbine_link::connect(stream, &pairing.desktop_key, &pairing.phone).await?;
     ch.send_json(&Request { id: 1, call: Call::Events { after: pos.after, boot: pos.boot.clone() } }).await?;
     let r: Response = tokio::time::timeout(CALL_LIMIT, ch.recv_json()).await.map_err(|_| "DBine no respondió".to_string())??;
@@ -339,7 +388,7 @@ mod tests {
         let phone = Keys::generate().unwrap();
         let state = Arc::new(StdMutex::new(("boot1".to_string(), vec![ev(1, "vieja")])));
         let addr = fake_dbine(desktop.clone(), phone.public.clone(), state.clone()).await;
-        let p = Pairing { phone, desktop_key: desktop.public.clone(), desktop: "mac".into(), addrs: vec![addr] };
+        let p = Pairing { phone, desktop_key: desktop.public.clone(), desktop: "mac".into(), addrs: vec![addr], remote: None };
         std::fs::write(dir.join("pairing.json"), serde_json::to_vec(&p).unwrap()).unwrap();
 
         // First look: learns where the list is; old news isn't news.

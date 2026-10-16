@@ -10224,5 +10224,20 @@
   "--why=Una consulta está en curso": "--why=A query is running",
   "Terminó en {0} · {1}": "Finished in {0} · {1}",
   "este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos": "this phone is not allowed to cancel queries: enable it in DBine, Settings › Devices",
-  "la consulta ya terminó": "the query has already finished"
+  "la consulta ya terminó": "the query has already finished",
+  "DBine no respondió por internet": "DBine did not respond over the internet",
+  "el código de DBine no es válido: {0}": "the DBine code is not valid: {0}",
+  "el servidor de paso {0} tiene que usar https": "the relay server {0} must use https",
+  "indicá al menos un servidor de paso": "specify at least one relay server",
+  "sin stream": "no stream",
+  "«{0}» no es una URL de servidor de paso válida: {1}": "“{0}” is not a valid relay server URL: {1}",
+  "no se pudo llegar a DBine ni en la red local ni por internet ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo.": "couldn't reach DBine on the local network or over the internet ({0}). Check that DBine is open with “Allow phones” turned on.",
+  "no se pudo llegar a DBine ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo, y que el celular esté en la misma red.": "couldn't reach DBine ({0}). Check that DBine is open with “Allow phones” turned on, and that the phone is on the same network.",
+  "DBine no aceptó el código: puede haber vencido. Generá uno nuevo en la computadora.": "DBine didn't accept the code: it may have expired. Generate a new one on the computer.",
+  "DBine rechazó la conexión: puede que hayan quitado este celular. Vinculalo de nuevo.": "DBine rejected the connection: this phone may have been removed. Pair it again.",
+  "este celular no está vinculado": "this phone is not paired",
+  "la computadora no respondió a tiempo": "the computer didn't respond in time",
+  "no hay direcciones": "no addresses",
+  "se rechazó la vinculación en la computadora": "the link was rejected on the computer",
+  "{0}. No se reintentó: revisá en DBine si la sesión terminó.": "{0}. It was not retried: check in DBine whether the session ended."
 }

@@ -19,7 +19,7 @@ OUT = pathlib.Path(__file__).resolve().parents[1] / "src" / "locales" / "backend
 
 
 def wanted(files: list) -> bool:
-    return any("monitor" in f or f.endswith("link.rs") or "dbine-link" in f for f in files)
+    return any("monitor" in f or f.endswith("link.rs") or "dbine-link" in f or f.startswith("mobile/") for f in files)
 
 
 def main() -> int:

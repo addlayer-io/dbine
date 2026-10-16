@@ -20,10 +20,22 @@
   "pairTitle": "Pair a phone",
   "scan": "In the DBine app on your phone, tap “Pair” and scan this code.",
   "expires": "The code expires in {{seconds}} s and works for a single phone.",
-  "sameNetwork": "The phone must be on the same network as this computer.",
+  "sameNetwork": "If the phone is on another network, it connects over the internet according to “Outside the local network”.",
   "askText": "“{{name}}” wants to pair with this computer.",
   "askCompare": "Check that the phone shows this same code:",
   "accept": "Pair",
   "reject": "Reject",
-  "paired": "Phone paired"
+  "paired": "Phone paired",
+  "remote": "Outside the local network",
+  "remoteHelp": "How the phone reaches this computer when it isn't on the same network. Everything travels end-to-end encrypted with the keys from the QR code: the relay server only sees unreadable data.",
+  "remoteModes": {
+    "public": "Public iroh servers (free)",
+    "own": "Own server",
+    "off": "Local network only"
+  },
+  "remoteReady": "Available over the internet, via {{relay}}",
+  "remoteConnecting": "Connecting to the relay server…",
+  "publicHelp": "iroh tries to connect directly; if the networks don't allow it, it goes through n0's public servers (free, with no availability guarantee).",
+  "ownHelp": "The URL of your iroh-relay server (https), one per line. Only that server is used: nothing goes through third-party servers. Phones already paired get the change on their next connection.",
+  "save": "Save"
 }

@@ -10224,5 +10224,20 @@
   "--why=Una consulta está en curso": "--why=Une requête est en cours",
   "Terminó en {0} · {1}": "Terminée en {0} · {1}",
   "este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos": "ce téléphone n'est pas autorisé à annuler des requêtes : activez-le dans DBine, Paramètres › Appareils",
-  "la consulta ya terminó": "la requête est déjà terminée"
+  "la consulta ya terminó": "la requête est déjà terminée",
+  "DBine no respondió por internet": "DBine n'a pas répondu par internet",
+  "el código de DBine no es válido: {0}": "le code DBine n'est pas valide : {0}",
+  "el servidor de paso {0} tiene que usar https": "le serveur relais {0} doit utiliser https",
+  "indicá al menos un servidor de paso": "indiquez au moins un serveur relais",
+  "sin stream": "pas de flux",
+  "«{0}» no es una URL de servidor de paso válida: {1}": "« {0} » n'est pas une URL de serveur relais valide : {1}",
+  "no se pudo llegar a DBine ni en la red local ni por internet ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo.": "impossible de joindre DBine ni sur le réseau local ni par internet ({0}). Vérifiez que DBine est ouvert, avec « Autoriser les téléphones » activé.",
+  "no se pudo llegar a DBine ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo, y que el celular esté en la misma red.": "impossible de joindre DBine ({0}). Vérifiez que DBine est ouvert, avec « Autoriser les téléphones » activé, et que le téléphone est sur le même réseau.",
+  "DBine no aceptó el código: puede haber vencido. Generá uno nuevo en la computadora.": "DBine n'a pas accepté le code : il a peut-être expiré. Générez-en un nouveau sur l'ordinateur.",
+  "DBine rechazó la conexión: puede que hayan quitado este celular. Vinculalo de nuevo.": "DBine a refusé la connexion : ce téléphone a peut-être été retiré. Associez-le à nouveau.",
+  "este celular no está vinculado": "ce téléphone n'est pas associé",
+  "la computadora no respondió a tiempo": "l'ordinateur n'a pas répondu à temps",
+  "no hay direcciones": "aucune adresse",
+  "se rechazó la vinculación en la computadora": "l'association a été refusée sur l'ordinateur",
+  "{0}. No se reintentó: revisá en DBine si la sesión terminó.": "{0}. Aucune nouvelle tentative n'a été faite : vérifiez dans DBine si la session est terminée."
 }

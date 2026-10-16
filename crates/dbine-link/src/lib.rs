@@ -15,6 +15,8 @@
 //! own sessions, and the connections never leave the desktop.
 
 pub mod proto;
+#[cfg(feature = "iroh")]
+pub mod net;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -41,6 +43,12 @@ const INVITE_PREFIX: &str = "dbine-link:1:";
 pub const VERSION: u32 = 1;
 
 pub type Result<T> = std::result::Result<T, String>;
+
+/// Any byte stream a channel can run over: a TCP connection on the local
+/// network, or an iroh stream from anywhere ([`net`]).
+pub trait Io: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Io for T {}
+pub type BoxIo = Box<dyn Io>;
 
 /// A static X25519 key pair (32-byte private and public keys).
 #[derive(Clone, Serialize, Deserialize)]
@@ -107,6 +115,22 @@ pub struct Invite {
     pub addrs: Vec<String>,
     /// The computer's name, to show on the phone.
     pub name: String,
+    /// Reaching DBine from outside the local network (iroh): its endpoint
+    /// id, and the relay servers it uses (empty: iroh's public ones).
+    /// Absent: only the local network.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<Remote>,
+}
+
+/// How to reach DBine from anywhere, through iroh.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Remote {
+    /// DBine's iroh endpoint id.
+    pub node: String,
+    /// Its relay servers; empty for iroh's public ones (found through
+    /// iroh's address lookup).
+    #[serde(default)]
+    pub relays: Vec<String>,
 }
 
 impl Invite {
@@ -122,7 +146,7 @@ impl Invite {
         if invite.v != VERSION {
             return Err("el código es de otra versión de DBine: actualizá la app".into());
         }
-        if invite.key.len() != 32 || invite.secret.len() != 32 || invite.addrs.is_empty() {
+        if invite.key.len() != 32 || invite.secret.len() != 32 || (invite.addrs.is_empty() && invite.remote.is_none()) {
             return Err("el código está incompleto".into());
         }
         Ok(invite)
@@ -268,9 +292,32 @@ pub async fn accept<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     pairing_secret: Option<&[u8]>,
     known: impl Fn(&[u8]) -> bool,
 ) -> Result<Accepted<S>> {
+    let mode = read_mode(&mut stream).await?;
+    accept_mode(stream, mode, desktop, pairing_secret, known).await
+}
+
+/// The first byte a phone sends: `true` when it wants to pair (so DBine
+/// can rate-limit pairing before any crypto runs).
+pub async fn read_mode<S: AsyncReadExt + Unpin>(stream: &mut S) -> Result<bool> {
+    let mut mode = [0u8; 1];
+    tokio::time::timeout(HANDSHAKE_LIMIT, stream.read_exact(&mut mode)).await.map_err(|_| "handshake demasiado lento".to_string())?.map_err(err)?;
+    match mode[0] {
+        MODE_PAIR => Ok(true),
+        MODE_CONNECT => Ok(false),
+        _ => Err("protocolo desconocido".into()),
+    }
+}
+
+/// [`accept`] after [`read_mode`].
+pub async fn accept_mode<S: AsyncReadExt + AsyncWriteExt + Unpin>(
+    mut stream: S,
+    pairing: bool,
+    desktop: &Keys,
+    pairing_secret: Option<&[u8]>,
+    known: impl Fn(&[u8]) -> bool,
+) -> Result<Accepted<S>> {
     let run = async {
-        let mut mode = [0u8; 1];
-        stream.read_exact(&mut mode).await.map_err(err)?;
+        let mode = [if pairing { MODE_PAIR } else { MODE_CONNECT }];
         let mut hs = match (mode[0], pairing_secret) {
             (MODE_PAIR, Some(secret)) => snow::Builder::new(PAIR.parse().map_err(err)?).local_private_key(&desktop.private).psk(2, secret).build_responder().map_err(err)?,
             (MODE_PAIR, None) => return Err("no hay un código de vinculación abierto".to_string()),
@@ -307,7 +354,7 @@ mod tests {
     use tokio::io::duplex;
 
     fn invite(desktop: &Keys, secret: [u8; 32]) -> Invite {
-        Invite { v: VERSION, key: desktop.public.clone(), secret: secret.to_vec(), addrs: vec!["192.168.1.10:27518".into()], name: "mac".into() }
+        Invite { v: VERSION, key: desktop.public.clone(), secret: secret.to_vec(), addrs: vec!["192.168.1.10:27518".into()], name: "mac".into(), remote: None }
     }
 
     #[test]
