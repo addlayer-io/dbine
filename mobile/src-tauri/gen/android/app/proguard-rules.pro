@@ -23,3 +23,6 @@
 # (Java_io_addlayer_dbine_mobile_NewsWorker_check), and WorkManager creates
 # it by class name.
 -keep class io.addlayer.dbine.mobile.NewsWorker { *; }
+
+# KeyVault.kt: its native setFileKey is bound by name to the Rust library.
+-keep class io.addlayer.dbine.mobile.KeyVault { *; }

@@ -48,6 +48,7 @@ class NewsWorker(context: Context, params: WorkerParameters) : Worker(context, p
 
   override fun doWork(): Result {
     val events = try {
+      KeyVault.load(applicationContext)
       JSONArray(check(applicationContext.dataDir.absolutePath))
     } catch (e: Throwable) {
       return Result.success()

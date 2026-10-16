@@ -10,6 +10,11 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // The pairing's file key, from the Keystore, before the app reads it.
+    try {
+      KeyVault.load(this)
+    } catch (_: Exception) {
+    }
     // News with the app closed (NewsWorker.kt).
     NewsWorker.schedule(this)
     // The phone's name, for pairing (the app's Rust reads it: device_name).
