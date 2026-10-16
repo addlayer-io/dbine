@@ -1,0 +1,32 @@
+[package]
+name = "dbine-mobile"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "DBine's phone app: pairs with DBine by QR code and shows its locks and processes"
+
+# Its own workspace: the desktop builds and CI never compile it, and it
+# needs nothing of DBine's but the channel (dbine-link).
+[workspace]
+
+[lib]
+name = "dbine_mobile_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+dbine-link = { path = "../../crates/dbine-link" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.40", features = ["net", "time", "sync", "macros"] }
+
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-barcode-scanner = "2"
+tauri-plugin-biometric = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true

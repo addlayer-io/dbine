@@ -1,0 +1,41 @@
+{
+  "pair": {
+    "intro": "See the locks and running queries of your databases from your phone. Connections and passwords stay on your computer.",
+    "name": "Name of this phone",
+    "defaultName": "My phone",
+    "scan": "Pair with DBine",
+    "connecting": "Connecting…",
+    "step1": "On the computer, open DBine › Settings › Devices.",
+    "step2": "Turn on “Allow phones” and tap “Pair a phone”.",
+    "step3": "Scan the code that appears. The phone must be on the same network.",
+    "confirmOn": "Confirm on “{{desktop}}”.",
+    "compare": "Check that the computer shows this same code:",
+    "noCamera": "Without permission to use the camera, the code can't be read."
+  },
+  "connections": {
+    "filter": "Search connection",
+    "none": "DBine has no saved connections.",
+    "loading": "Loading…",
+    "thisPhone": "This phone: {{code}}",
+    "unpair": "Unpair",
+    "unpairConfirm": "Unpair this phone? To use it again you have to scan a new code."
+  },
+  "conn": {
+    "locks": "Locks",
+    "processes": "Running",
+    "unsupported": "{{engine}} doesn't report locks or processes.",
+    "noLocks": "There are no blocked sessions.",
+    "noProcesses": "No queries are running.",
+    "session": "Session {{id}}",
+    "blocks_one": "blocks {{count}} session",
+    "blocks_other": "blocks {{count}} sessions",
+    "waitsFor": "waits for {{id}}",
+    "kill": "End",
+    "killConfirm": "End session {{id}}? Its current transaction is rolled back.\n\n{{sql}}",
+    "killReason": "End session {{id}}",
+    "notConfirmed": "Not confirmed: the session continues.",
+    "killed": "Session {{id}} was ended.",
+    "notAllowed": "To end sessions from this phone, enable it in DBine › Settings › Devices.",
+    "engineCantKill": "This connection doesn't allow ending sessions (it's read-only or the engine doesn't support it)."
+  }
+}

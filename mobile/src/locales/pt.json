@@ -1,0 +1,42 @@
+{
+  "pair": {
+    "intro": "Veja os bloqueios e as consultas em andamento dos seus bancos de dados pelo celular. As conexões e senhas ficam no seu computador.",
+    "name": "Nome deste celular",
+    "defaultName": "Meu celular",
+    "scan": "Vincular com o DBine",
+    "connecting": "Conectando…",
+    "step1": "No computador, abra DBine › Configurações › Dispositivos.",
+    "step2": "Ative «Permitir celulares» e toque em «Vincular um celular».",
+    "step3": "Escaneie o código que aparece. O celular precisa estar na mesma rede.",
+    "confirmOn": "Confirme em «{{desktop}}».",
+    "compare": "Confira se o computador mostra este mesmo código:",
+    "noCamera": "Sem permissão para usar a câmera, não é possível ler o código."
+  },
+  "connections": {
+    "filter": "Buscar conexão",
+    "none": "O DBine não tem conexões salvas.",
+    "loading": "Carregando…",
+    "thisPhone": "Este celular: {{code}}",
+    "unpair": "Desvincular",
+    "unpairConfirm": "Desvincular este celular? Para usá-lo de novo, é preciso escanear um código novo."
+  },
+  "conn": {
+    "locks": "Bloqueios",
+    "processes": "Em andamento",
+    "unsupported": "{{engine}} não informa bloqueios nem processos.",
+    "noLocks": "Não há sessões bloqueadas.",
+    "noProcesses": "Não há consultas em execução.",
+    "session": "Sessão {{id}}",
+    "blocks_one": "bloqueia {{count}} sessão",
+    "blocks_many": "bloqueia {{count}} de sessões",
+    "blocks_other": "bloqueia {{count}} sessões",
+    "waitsFor": "espera por {{id}}",
+    "kill": "Encerrar",
+    "killConfirm": "Encerrar a sessão {{id}}? A transação em andamento é desfeita.\n\n{{sql}}",
+    "killReason": "Encerrar a sessão {{id}}",
+    "notConfirmed": "Não foi confirmado: a sessão continua.",
+    "killed": "A sessão {{id}} foi encerrada.",
+    "notAllowed": "Para encerrar sessões deste celular, habilite em DBine › Configurações › Dispositivos.",
+    "engineCantKill": "Esta conexão não permite encerrar sessões (é somente leitura ou o motor não oferece suporte)."
+  }
+}

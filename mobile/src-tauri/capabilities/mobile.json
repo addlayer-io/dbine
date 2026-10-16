@@ -1,0 +1,7 @@
+{
+  "identifier": "mobile",
+  "description": "On the phone: scanning the pairing QR code and confirming a session's end with biometrics.",
+  "windows": ["main"],
+  "permissions": ["core:default", "barcode-scanner:default", "biometric:default"],
+  "platforms": ["android", "iOS"]
+}
