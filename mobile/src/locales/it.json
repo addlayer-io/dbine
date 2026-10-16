@@ -47,7 +47,16 @@
     "notConfirmed": "Non confermato: la sessione continua.",
     "killed": "La sessione {{id}} è stata terminata.",
     "notAllowed": "Per terminare sessioni da questo telefono, abilitalo in DBine › Impostazioni › Dispositivi.",
-    "engineCantKill": "Questa connessione non consente di terminare sessioni (è in sola lettura o il motore non lo supporta)."
+    "engineCantKill": "Questa connessione non consente di terminare sessioni (è in sola lettura o il motore non lo supporta).",
+    "f": {
+      "status": "Stato",
+      "user": "Utente",
+      "host": "Host",
+      "database": "Database",
+      "client": "Client",
+      "object": "Oggetto",
+      "waitsFor": "Attende"
+    }
   },
   "nav": {
     "connections": "Connessioni",

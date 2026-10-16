@@ -46,7 +46,16 @@
     "notConfirmed": "Not confirmed: the session continues.",
     "killed": "Session {{id}} was ended.",
     "notAllowed": "To end sessions from this phone, enable it in DBine › Settings › Devices.",
-    "engineCantKill": "This connection doesn't allow ending sessions (it's read-only or the engine doesn't support it)."
+    "engineCantKill": "This connection doesn't allow ending sessions (it's read-only or the engine doesn't support it).",
+    "f": {
+      "status": "Status",
+      "user": "User",
+      "host": "Host",
+      "database": "Database",
+      "client": "Client",
+      "object": "Object",
+      "waitsFor": "Waits for"
+    }
   },
   "nav": {
     "connections": "Connections",

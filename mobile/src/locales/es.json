@@ -46,7 +46,16 @@
     "notConfirmed": "No se confirmó: la sesión sigue.",
     "killed": "Se terminó la sesión {{id}}.",
     "notAllowed": "Para terminar sesiones desde este celular, habilitalo en DBine › Configuración › Dispositivos.",
-    "engineCantKill": "Esta conexión no permite terminar sesiones (es de solo lectura o el motor no lo admite)."
+    "engineCantKill": "Esta conexión no permite terminar sesiones (es de solo lectura o el motor no lo admite).",
+    "f": {
+      "status": "Estado",
+      "user": "Usuario",
+      "host": "Host",
+      "database": "Base",
+      "client": "Cliente",
+      "object": "Objeto",
+      "waitsFor": "Espera a"
+    }
   },
   "nav": {
     "connections": "Conexiones",
