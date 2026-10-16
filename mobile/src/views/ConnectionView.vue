@@ -109,7 +109,12 @@ onBeforeUnmount(() => {
       <p v-if="notice" class="ok">{{ notice }}</p>
       <p v-if="!conn.monitor && !conn.locks && !conn.processes" class="muted">{{ $t('conn.unsupported', { engine: conn.engine }) }}</p>
 
-      <MonitorPanel v-if="tab === 'monitor'" :view="monitor" :at="monitorAt" />
+      <!-- Until the first answer: DBine opens its session and asks the server. -->
+      <div v-if="!error && ((tab === 'monitor' && !monitor) || (tab === 'locks' && !locks) || (tab === 'processes' && !procs))" class="loading">
+        <span class="spin" />
+        <span class="muted">{{ $t('conn.loading', { engine: conn.engine }) }}</span>
+      </div>
+      <MonitorPanel v-if="tab === 'monitor' && monitor" :view="monitor" :at="monitorAt" />
       <HealthPanel v-if="tab === 'health'" :connection-id="conn.id" />
 
       <template v-if="tab === 'locks' && locks">
@@ -190,6 +195,9 @@ onBeforeUnmount(() => {
 .facts dt { color: var(--text-dim); }
 .facts dd { margin: 0; color: var(--text); word-break: break-word; }
 .tap { font-size: 12px; }
+.loading { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 48px 0; }
+.spin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .waiter .who { flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .wait { color: var(--warning); font-size: 13px; }
 .ok { color: var(--success); }
