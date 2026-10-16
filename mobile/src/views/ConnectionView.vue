@@ -26,6 +26,9 @@ const busy = ref(false);
 let timer: ReturnType<typeof setInterval> | null = null;
 
 const killable = computed(() => props.canKill && props.conn.kill);
+/** The session whose detail is open (tap a card). */
+const open = ref<string | null>(null);
+const toggle = (id: string) => (open.value = open.value === id ? null : id);
 
 /** Heads (they block someone and wait for no one), each with its waiters. */
 const chains = computed(() => {
@@ -111,16 +114,24 @@ onBeforeUnmount(() => {
 
       <template v-if="tab === 'locks' && locks">
         <p v-if="!chains.length" class="muted">{{ $t('conn.noLocks') }}</p>
-        <div v-for="c in chains" :key="c.head.id" class="card chain">
+        <div v-for="c in chains" :key="c.head.id" class="card chain" @click="toggle('l' + c.head.id)">
           <div class="head">
             <div class="who">
               <strong>{{ $t('conn.session', { id: c.head.id }) }}</strong>
               <span class="muted">{{ [c.head.user, c.head.client].filter(Boolean).join(' · ') }}</span>
               <span class="badge">{{ $t('conn.blocks', { count: c.below.length }) }}</span>
             </div>
-            <button v-if="killable" class="danger" @click="kill(c.head.id, c.head.sql)">{{ $t('conn.kill') }}</button>
+            <button v-if="killable" class="danger" @click.stop="kill(c.head.id, c.head.sql)">{{ $t('conn.kill') }}</button>
           </div>
-          <p v-if="c.head.sql" class="mono sql">{{ c.head.sql }}</p>
+          <template v-if="open === 'l' + c.head.id">
+            <pre v-if="c.head.sql" class="mono full">{{ c.head.sql }}</pre>
+            <dl class="facts">
+              <template v-if="c.head.database"><dt>{{ $t('conn.f.database') }}</dt><dd>{{ c.head.database }}</dd></template>
+              <template v-if="c.head.client"><dt>{{ $t('conn.f.client') }}</dt><dd>{{ c.head.client }}</dd></template>
+              <template v-if="c.head.object"><dt>{{ $t('conn.f.object') }}</dt><dd>{{ c.head.object }}</dd></template>
+            </dl>
+          </template>
+          <p v-else-if="c.head.sql" class="mono sql">{{ c.head.sql }}</p>
           <p v-if="c.head.wait" class="muted">{{ c.head.wait }}<template v-if="c.head.waited_ms"> · {{ duration(c.head.waited_ms) }}</template></p>
           <div v-for="w in c.below" :key="w.row.id" class="waiter" :style="{ marginLeft: `${(w.depth - 1) * 12}px` }">
             <div class="who">
@@ -136,16 +147,27 @@ onBeforeUnmount(() => {
 
       <template v-if="tab === 'processes' && procs">
         <p v-if="!procs.length" class="muted">{{ $t('conn.noProcesses') }}</p>
-        <div v-for="p in [...procs].sort((a, b) => (b.elapsed_ms ?? 0) - (a.elapsed_ms ?? 0))" :key="p.id" class="card">
+        <div v-for="p in [...procs].sort((a, b) => (b.elapsed_ms ?? 0) - (a.elapsed_ms ?? 0))" :key="p.id" class="card" @click="toggle('p' + p.id)">
           <div class="head">
             <div class="who">
               <strong>{{ $t('conn.session', { id: p.id }) }}</strong>
               <span class="muted">{{ [p.user, p.host, p.database].filter(Boolean).join(' · ') }}</span>
               <span class="wait">{{ duration(p.elapsed_ms) }}<template v-if="p.blocked_by"> · {{ $t('conn.waitsFor', { id: p.blocked_by }) }}</template></span>
             </div>
-            <button v-if="killable" class="danger" @click="kill(p.id, p.sql)">{{ $t('conn.kill') }}</button>
+            <button v-if="killable" class="danger" @click.stop="kill(p.id, p.sql)">{{ $t('conn.kill') }}</button>
           </div>
-          <p v-if="p.sql" class="mono sql">{{ p.sql }}</p>
+          <template v-if="open === 'p' + p.id">
+            <pre v-if="p.sql" class="mono full">{{ p.sql }}</pre>
+            <dl class="facts">
+              <template v-if="p.status"><dt>{{ $t('conn.f.status') }}</dt><dd>{{ p.status }}</dd></template>
+              <template v-if="p.user"><dt>{{ $t('conn.f.user') }}</dt><dd>{{ p.user }}</dd></template>
+              <template v-if="p.host"><dt>{{ $t('conn.f.host') }}</dt><dd>{{ p.host }}</dd></template>
+              <template v-if="p.database"><dt>{{ $t('conn.f.database') }}</dt><dd>{{ p.database }}</dd></template>
+              <template v-if="p.blocked_by"><dt>{{ $t('conn.f.waitsFor') }}</dt><dd>{{ p.blocked_by }}</dd></template>
+            </dl>
+          </template>
+          <p v-else-if="p.sql" class="mono sql">{{ p.sql }}</p>
+          <p v-if="open !== 'p' + p.id" class="muted tap">{{ $t('activity.tapForDetail') }}</p>
         </div>
       </template>
     </div>
@@ -163,6 +185,11 @@ onBeforeUnmount(() => {
 .badge { align-self: flex-start; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
 .sql { margin: 0; font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow: hidden; }
 .waiter { border-left: 2px solid var(--border); padding: 4px 0 4px 10px; }
+.full { margin: 6px 0 0; font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; max-height: 50vh; overflow: auto; background: var(--bg); border-radius: 6px; padding: 8px; }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 8px 0 0; font-size: 13px; }
+.facts dt { color: var(--text-dim); }
+.facts dd { margin: 0; color: var(--text); word-break: break-word; }
+.tap { font-size: 12px; }
 .waiter .who { flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .wait { color: var(--warning); font-size: 13px; }
 .ok { color: var(--success); }

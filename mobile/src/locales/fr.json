@@ -47,7 +47,16 @@
     "notConfirmed": "Non confirmé : la session continue.",
     "killed": "La session {{id}} a été terminée.",
     "notAllowed": "Pour terminer des sessions depuis ce téléphone, activez-le dans DBine › Paramètres › Appareils.",
-    "engineCantKill": "Cette connexion ne permet pas de terminer des sessions (elle est en lecture seule ou le moteur ne le prend pas en charge)."
+    "engineCantKill": "Cette connexion ne permet pas de terminer des sessions (elle est en lecture seule ou le moteur ne le prend pas en charge).",
+    "f": {
+      "status": "État",
+      "user": "Utilisateur",
+      "host": "Hôte",
+      "database": "Base",
+      "client": "Client",
+      "object": "Objet",
+      "waitsFor": "Attend"
+    }
   },
   "nav": {
     "connections": "Connexions",
