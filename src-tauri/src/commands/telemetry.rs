@@ -14,6 +14,7 @@
 use crate::error::CommandResult;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -143,12 +144,14 @@ fn post(event: &str, props: Map<String, Value>, locale: &str, version: &str) {
         "props": props,
     }]);
     tauri::async_runtime::spawn(async move {
-        let sent = client().post(INGEST_URL).header("App-Key", APP_KEY).json(&event).send().await;
-        // Logged (not shown): the only way to tell why a machine's events
-        // never arrive (proxy, firewall, TLS). The event carries nothing
-        // identifying, and neither does the error.
-        if let Err(e) = sent.and_then(|r| r.error_for_status()) {
-            // The whole chain: "error sending request" alone hides the cause.
+        let mut waits = RETRY_MINUTES.iter();
+        loop {
+            let sent = client().post(INGEST_URL).header("App-Key", APP_KEY).json(&event).send().await;
+            let Err(e) = sent.and_then(|r| r.error_for_status()) else { return };
+            // Logged (not shown): the only way to tell why a machine's events
+            // never arrive (proxy, firewall, TLS). The event carries nothing
+            // identifying, and neither does the error. The whole chain:
+            // "error sending request" alone hides the cause.
             let mut why = e.to_string();
             let mut src = std::error::Error::source(&e);
             while let Some(s) = src {
@@ -156,10 +159,39 @@ fn post(event: &str, props: Map<String, Value>, locale: &str, version: &str) {
                 why.push_str(&s.to_string());
                 src = s.source();
             }
-            tracing::warn!("telemetry event not sent: {why}");
+            match retryable(e.status()).then(|| waits.next()).flatten() {
+                Some(&minutes) => {
+                    tracing::warn!("telemetry event not sent, retrying in {minutes} min: {why}");
+                    tokio::time::sleep(Duration::from_secs(minutes * 60)).await;
+                    // Turned off meanwhile (Configuración › General): it stays unsent.
+                    if OPTED_OUT.load(Ordering::Relaxed) || disabled_by_env() {
+                        return;
+                    }
+                }
+                None => {
+                    tracing::warn!("telemetry event not sent: {why}");
+                    return;
+                }
+            }
         }
     });
 }
+
+/// Minutes to wait before each retry of an event the server or the network
+/// failed (Fibonacci: 53 minutes in all, then it's dropped). The event keeps
+/// its original timestamp.
+const RETRY_MINUTES: &[u64] = &[1, 2, 3, 5, 8, 13, 21];
+
+/// Worth retrying: no answer (offline, DNS, timeout), a server error, or the
+/// server asking to slow down. Anything else (a bad key or event) won't
+/// change by waiting.
+fn retryable(status: Option<reqwest::StatusCode>) -> bool {
+    status.map_or(true, |s| s.is_server_error() || s == reqwest::StatusCode::TOO_MANY_REQUESTS || s == reqwest::StatusCode::REQUEST_TIMEOUT)
+}
+
+/// The user turned telemetry off during this run (`telemetry.consent` set to
+/// `false`, see `commands::settings::set_setting`): pending retries stop.
+pub(crate) static OPTED_OUT: AtomicBool = AtomicBool::new(false);
 
 /// `DO_NOT_TRACK` (the common convention, any value but empty or `0`) or
 /// `DBINE_TELEMETRY` set to `0`, `false` or `off`.
@@ -251,6 +283,25 @@ fn os_version() -> String {
 #[cfg(test)]
 mod feature_tests {
     use super::*;
+
+    #[test]
+    fn retries_follow_fibonacci_within_an_hour() {
+        assert_eq!(RETRY_MINUTES, &[1, 2, 3, 5, 8, 13, 21]);
+        assert!(RETRY_MINUTES.iter().sum::<u64>() <= 60);
+    }
+
+    #[test]
+    fn only_server_network_and_rate_limit_failures_retry() {
+        use reqwest::StatusCode;
+        assert!(retryable(None), "offline, DNS or timeout");
+        assert!(retryable(Some(StatusCode::SERVICE_UNAVAILABLE)));
+        assert!(retryable(Some(StatusCode::INTERNAL_SERVER_ERROR)));
+        assert!(retryable(Some(StatusCode::TOO_MANY_REQUESTS)));
+        assert!(retryable(Some(StatusCode::REQUEST_TIMEOUT)));
+        assert!(!retryable(Some(StatusCode::BAD_REQUEST)));
+        assert!(!retryable(Some(StatusCode::UNAUTHORIZED)));
+        assert!(!retryable(Some(StatusCode::NOT_FOUND)));
+    }
 
     #[test]
     fn only_listed_features_and_providers_leave() {
