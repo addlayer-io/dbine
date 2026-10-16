@@ -39,6 +39,8 @@ pub enum Call {
     Locks { connection_id: String, database: String },
     /// The sessions running something.
     Processes { connection_id: String, database: String },
+    /// The server's figures: CPU, memory, connections… (the Monitor).
+    Monitor { connection_id: String },
     /// End a session. The phone asks its user first (biometrics or PIN).
     Kill { connection_id: String, database: String, session_id: String },
 }
@@ -85,6 +87,33 @@ pub struct ConnectionItem {
     pub locks: bool,
     pub processes: bool,
     pub kill: bool,
+    /// The engine has a Monitor (absent from a DBine before it).
+    #[serde(default)]
+    pub monitor: bool,
+}
+
+/// One figure of the Monitor. Labels and groups come in Spanish, as the
+/// engine writes them: the phone translates them with its catalog.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetricRow {
+    pub key: String,
+    pub label: String,
+    pub group: String,
+    /// "percent", "bytes", "count", "millis" or "seconds".
+    pub unit: String,
+    pub value: Option<f64>,
+    pub max: Option<f64>,
+    /// A running total: the phone shows its rate per second.
+    pub counter: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct MonitorView {
+    pub metrics: Vec<MetricRow>,
+    /// (label, value): version, uptime, host…
+    pub info: Vec<(String, String)>,
+    /// What the engine can't report and why.
+    pub notes: Vec<String>,
 }
 
 /// One session in a blocking chain.

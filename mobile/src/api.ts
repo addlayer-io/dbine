@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { tb } from './backend';
 
 // The app's Rust core (src-tauri/src/lib.rs) and, through it, DBine on the
 // computer (crates/dbine-link/src/proto.rs).
@@ -23,6 +24,23 @@ export interface ConnectionItem {
   locks: boolean;
   processes: boolean;
   kill: boolean;
+  monitor: boolean;
+}
+
+export interface MetricRow {
+  key: string;
+  label: string;
+  group: string;
+  unit: 'percent' | 'bytes' | 'count' | 'millis' | 'seconds';
+  value: number | null;
+  max: number | null;
+  counter: boolean;
+}
+
+export interface MonitorView {
+  metrics: MetricRow[];
+  info: [string, string][];
+  notes: string[];
 }
 
 export interface LockRow {
@@ -54,6 +72,7 @@ type Call =
   | { call: 'databases'; connection_id: string }
   | { call: 'locks'; connection_id: string; database: string }
   | { call: 'processes'; connection_id: string; database: string }
+  | { call: 'monitor'; connection_id: string }
   | { call: 'kill'; connection_id: string; database: string; session_id: string };
 
 const ask = <T>(call: Call) => invoke<T>('call', { call });
@@ -66,11 +85,12 @@ export const api = {
   connections: () => ask<ConnectionItem[]>({ call: 'connections' }),
   locks: (connection_id: string) => ask<LockRow[]>({ call: 'locks', connection_id, database: '' }),
   processes: (connection_id: string) => ask<ProcessRow[]>({ call: 'processes', connection_id, database: '' }),
+  monitor: (connection_id: string) => ask<MonitorView>({ call: 'monitor', connection_id }),
   kill: (connection_id: string, session_id: string) => ask<boolean>({ call: 'kill', connection_id, database: '', session_id }),
 };
 
 export function errorText(e: unknown): string {
-  return typeof e === 'string' ? e : e instanceof Error ? e.message : JSON.stringify(e);
+  return tb(typeof e === 'string' ? e : e instanceof Error ? e.message : JSON.stringify(e));
 }
 
 /** "40 s", "7 min", "1 h 05 min". */

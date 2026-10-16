@@ -21,9 +21,10 @@
     "unpairConfirm": "Dissocier ce téléphone ? Pour le réutiliser, il faudra scanner un nouveau code."
   },
   "conn": {
+    "monitor": "Monitor",
     "locks": "Verrous",
     "processes": "En cours",
-    "unsupported": "{{engine}} ne signale ni verrous ni processus.",
+    "unsupported": "{{engine}} ne signale ni son état, ni ses verrous, ni ses processus.",
     "noLocks": "Aucune session bloquée.",
     "noProcesses": "Aucune requête en cours d'exécution.",
     "session": "Session {{id}}",

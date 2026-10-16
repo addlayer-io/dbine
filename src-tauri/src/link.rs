@@ -18,7 +18,7 @@
 //! the port and the phones; DBine's private key is in the vault.
 
 use crate::state::AppState;
-use dbine_link::proto::{Call, ConnectionItem, Hello, LockRow, PairResult, ProcessRow, Request, Response};
+use dbine_link::proto::{Call, ConnectionItem, Hello, LockRow, MetricRow, MonitorView, PairResult, ProcessRow, Request, Response};
 use dbine_link::{Accepted, Invite, Keys};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -471,6 +471,7 @@ impl Inner {
                             locks: caps.blocking,
                             processes: caps.processes,
                             kill: caps.kill_session && !c.config.read_only,
+                            monitor: caps.monitor,
                         })
                     })
                     .collect();
@@ -520,6 +521,25 @@ impl Inner {
                     })
                     .collect();
                 Response::ok(0, &out)
+            }
+            Call::Monitor { connection_id } => {
+                let k = key(&connection_id, "");
+                let entry = state.session(&k, &connection_id, "").await.map_err(|e| e.to_string())?;
+                let snap = entry.session.lock().await.monitor().await;
+                let snap = self.forget_if_dropped(&k, snap)?;
+                let unit = |u: &dbine_driver::MetricUnit| {
+                    serde_json::to_value(u).ok().and_then(|v| v.as_str().map(str::to_lowercase)).unwrap_or_else(|| "count".into())
+                };
+                let view = MonitorView {
+                    metrics: snap
+                        .metrics
+                        .iter()
+                        .map(|m| MetricRow { key: m.key.clone(), label: m.label.clone(), group: m.group.clone(), unit: unit(&m.unit), value: m.value, max: m.max, counter: m.counter })
+                        .collect(),
+                    info: snap.info,
+                    notes: snap.notes,
+                };
+                Response::ok(0, &view)
             }
             Call::Kill { connection_id, database, session_id } => {
                 if !device.can_kill {
@@ -733,6 +753,10 @@ mod tests {
         let conns: Vec<ConnectionItem> = serde_json::from_value(ask(&mut ch, 2, Call::Connections).await.ok.unwrap()).unwrap();
         assert_eq!(conns.len(), 1);
         assert_eq!(conns[0].name, "base a");
+        assert!(conns[0].monitor);
+        let mon: dbine_link::proto::MonitorView = serde_json::from_value(ask(&mut ch, 20, Call::Monitor { connection_id: "a".into() }).await.ok.unwrap()).unwrap();
+        assert!(!mon.metrics.is_empty(), "{mon:?}");
+        assert!(mon.metrics.iter().all(|m| ["percent", "bytes", "count", "millis", "seconds"].contains(&m.unit.as_str())));
         let kill = ask(&mut ch, 3, Call::Kill { connection_id: "a".into(), database: "".into(), session_id: "1".into() }).await;
         assert!(kill.error.unwrap().contains("no tiene permiso"));
         // SQLite has no locks: an error, not a hang.

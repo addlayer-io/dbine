@@ -21,9 +21,10 @@
     "unpairConfirm": "Unpair this phone? To use it again you have to scan a new code."
   },
   "conn": {
+    "monitor": "Monitor",
     "locks": "Locks",
     "processes": "Running",
-    "unsupported": "{{engine}} doesn't report locks or processes.",
+    "unsupported": "{{engine}} doesn't report its status, locks or processes.",
     "noLocks": "There are no blocked sessions.",
     "noProcesses": "No queries are running.",
     "session": "Session {{id}}",

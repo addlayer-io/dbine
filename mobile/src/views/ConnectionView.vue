@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useTranslation } from 'i18next-vue';
-import { api, duration, errorText, type ConnectionItem, type LockRow, type ProcessRow } from '../api';
+import { api, duration, errorText, type ConnectionItem, type LockRow, type MonitorView, type ProcessRow } from '../api';
+import MonitorPanel from './MonitorPanel.vue';
 
 // One connection: who blocks whom (the heads first, with what waits on
 // them) and the statements running now, refreshed every few seconds. A
@@ -12,7 +13,10 @@ const props = defineProps<{ conn: ConnectionItem; canKill: boolean }>();
 const emit = defineEmits<{ back: [] }>();
 const { t } = useTranslation();
 
-const tab = ref<'locks' | 'processes'>(props.conn.locks ? 'locks' : 'processes');
+type Tab = 'monitor' | 'locks' | 'processes';
+const tab = ref<Tab>(props.conn.monitor ? 'monitor' : props.conn.locks ? 'locks' : 'processes');
+const monitor = ref<MonitorView | null>(null);
+const monitorAt = ref(0);
 const locks = ref<LockRow[] | null>(null);
 const procs = ref<ProcessRow[] | null>(null);
 const error = ref('');
@@ -37,7 +41,10 @@ async function load() {
   if (busy.value) return;
   busy.value = true;
   try {
-    if (tab.value === 'locks') locks.value = await api.locks(props.conn.id);
+    if (tab.value === 'monitor') {
+      monitor.value = await api.monitor(props.conn.id);
+      monitorAt.value = Date.now();
+    } else if (tab.value === 'locks') locks.value = await api.locks(props.conn.id);
     else procs.value = await api.processes(props.conn.id);
     error.value = '';
   } catch (e) {
@@ -47,7 +54,7 @@ async function load() {
   }
 }
 
-function pick(t2: 'locks' | 'processes') {
+function pick(t2: Tab) {
   tab.value = t2;
   load();
 }
@@ -88,13 +95,16 @@ onBeforeUnmount(() => {
       <span v-if="busy" class="muted">…</span>
     </div>
     <div class="tabs">
+      <button :class="{ on: tab === 'monitor' }" :disabled="!conn.monitor" @click="pick('monitor')">{{ $t('conn.monitor') }}</button>
       <button :class="{ on: tab === 'locks' }" :disabled="!conn.locks" @click="pick('locks')">{{ $t('conn.locks') }}</button>
       <button :class="{ on: tab === 'processes' }" :disabled="!conn.processes" @click="pick('processes')">{{ $t('conn.processes') }}</button>
     </div>
     <div class="page">
       <p v-if="error" class="error">{{ error }}</p>
       <p v-if="notice" class="ok">{{ notice }}</p>
-      <p v-if="!conn.locks && !conn.processes" class="muted">{{ $t('conn.unsupported', { engine: conn.engine }) }}</p>
+      <p v-if="!conn.monitor && !conn.locks && !conn.processes" class="muted">{{ $t('conn.unsupported', { engine: conn.engine }) }}</p>
+
+      <MonitorPanel v-if="tab === 'monitor'" :view="monitor" :at="monitorAt" />
 
       <template v-if="tab === 'locks' && locks">
         <p v-if="!chains.length" class="muted">{{ $t('conn.noLocks') }}</p>

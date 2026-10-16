@@ -21,9 +21,10 @@
     "unpairConfirm": "Desvincular este celular? Para usá-lo de novo, é preciso escanear um código novo."
   },
   "conn": {
+    "monitor": "Monitor",
     "locks": "Bloqueios",
     "processes": "Em andamento",
-    "unsupported": "{{engine}} não informa bloqueios nem processos.",
+    "unsupported": "{{engine}} não informa seu estado, bloqueios nem processos.",
     "noLocks": "Não há sessões bloqueadas.",
     "noProcesses": "Não há consultas em execução.",
     "session": "Sessão {{id}}",
