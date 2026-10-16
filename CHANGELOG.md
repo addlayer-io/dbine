@@ -4,6 +4,7 @@
 
 ### New
 - **DBine on your phone (Android, first version):** in **Settings › Devices**, turn on **Allow phones** and pair the DBine phone app by scanning a QR code; you confirm it on the computer. From the phone you see your connections, who is blocking whom and the queries running now, and, if you allow that phone, you end a session after your fingerprint, face or PIN. Your connections and passwords never leave the computer. For now the phone has to be on the same network.
+- **Phone app download:** the phone app (Android) is published with every release and on dbine.com.
 
 ## [0.1.13] - 2026-10-16
 

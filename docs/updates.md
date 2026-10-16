@@ -190,6 +190,13 @@ and publishes it as the latest release. Installed apps read
 only some platforms in it. If a build fails, the release stays a draft; a
 new run of the same tag fills that draft again.
 
+The Android phone app is part of the same release: the `android` job builds
+and signs `DBine-<version>-android.apk` alongside the desktop jobs, and
+`android-upload` adds it to the draft once `build` is done. `release-page`
+waits for it too, so a failed APK build or signature check leaves the release
+a draft like a failed desktop build. It is not in `latest.json`: the phone
+app checks GitHub's latest release itself ([mobile-companion.md](mobile-companion.md)).
+
 `scripts/make-latest-json.py` builds `latest.json`:
 
 ```
