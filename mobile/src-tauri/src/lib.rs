@@ -221,7 +221,9 @@ async fn check_news(app: &AppHandle) {
         return;
     }
     for e in &ev.events {
-        let _ = app.notification().builder().title(&e.title).body(&e.body).show();
+        // DBine's glass as the small icon (res/drawable-*/ic_notification.png:
+        // white on transparent, as Android wants), in DBine's blue.
+        let _ = app.notification().builder().title(&e.title).body(&e.body).icon("ic_notification").icon_color("#3794FF").show();
     }
     let mut all: Vec<EventRow> = ev.events.into_iter().rev().collect();
     all.append(&mut s.news);
