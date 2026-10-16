@@ -1,0 +1,41 @@
+{
+  "pair": {
+    "intro": "Mirá los bloqueos y las consultas en curso de tus bases desde el celular. Las conexiones y contraseñas se quedan en tu computadora.",
+    "name": "Nombre de este celular",
+    "defaultName": "Mi celular",
+    "scan": "Vincular con DBine",
+    "connecting": "Conectando…",
+    "step1": "En la computadora, abrí DBine › Configuración › Dispositivos.",
+    "step2": "Activá «Permitir celulares» y tocá «Vincular un celular».",
+    "step3": "Escaneá el código que aparece. El celular tiene que estar en la misma red.",
+    "confirmOn": "Confirmá en «{{desktop}}».",
+    "compare": "Comprobá que la computadora muestre este mismo código:",
+    "noCamera": "Sin permiso para usar la cámara no se puede leer el código."
+  },
+  "connections": {
+    "filter": "Buscar conexión",
+    "none": "DBine no tiene conexiones guardadas.",
+    "loading": "Cargando…",
+    "thisPhone": "Este celular: {{code}}",
+    "unpair": "Desvincular",
+    "unpairConfirm": "¿Desvincular este celular? Para volver a usarlo hay que escanear un código nuevo."
+  },
+  "conn": {
+    "locks": "Bloqueos",
+    "processes": "En curso",
+    "unsupported": "{{engine}} no informa bloqueos ni procesos.",
+    "noLocks": "No hay sesiones bloqueadas.",
+    "noProcesses": "No hay consultas ejecutándose.",
+    "session": "Sesión {{id}}",
+    "blocks_one": "bloquea a {{count}} sesión",
+    "blocks_other": "bloquea a {{count}} sesiones",
+    "waitsFor": "espera a {{id}}",
+    "kill": "Terminar",
+    "killConfirm": "¿Terminar la sesión {{id}}? Su transacción en curso se deshace.\n\n{{sql}}",
+    "killReason": "Terminar la sesión {{id}}",
+    "notConfirmed": "No se confirmó: la sesión sigue.",
+    "killed": "Se terminó la sesión {{id}}.",
+    "notAllowed": "Para terminar sesiones desde este celular, habilitalo en DBine › Configuración › Dispositivos.",
+    "engineCantKill": "Esta conexión no permite terminar sesiones (es de solo lectura o el motor no lo admite)."
+  }
+}

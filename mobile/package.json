@@ -1,0 +1,25 @@
+{
+  "name": "dbine-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "~2.12.0",
+    "@tauri-apps/plugin-barcode-scanner": "~2.5.0",
+    "@tauri-apps/plugin-biometric": "~2.5.0",
+    "i18next": "^26.4.2",
+    "i18next-vue": "^5.4.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.1.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0",
+    "vue-tsc": "^2.1.0"
+  }
+}

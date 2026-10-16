@@ -1,0 +1,42 @@
+{
+  "pair": {
+    "intro": "Consultez depuis votre téléphone les verrous et les requêtes en cours de vos bases de données. Les connexions et les mots de passe restent sur votre ordinateur.",
+    "name": "Nom de ce téléphone",
+    "defaultName": "Mon téléphone",
+    "scan": "Associer avec DBine",
+    "connecting": "Connexion…",
+    "step1": "Sur l'ordinateur, ouvrez DBine › Paramètres › Appareils.",
+    "step2": "Activez « Autoriser les téléphones » et touchez « Associer un téléphone ».",
+    "step3": "Scannez le code qui s'affiche. Le téléphone doit être sur le même réseau.",
+    "confirmOn": "Confirmez sur « {{desktop}} ».",
+    "compare": "Vérifiez que l'ordinateur affiche ce même code :",
+    "noCamera": "Sans autorisation d'utiliser l'appareil photo, le code ne peut pas être lu."
+  },
+  "connections": {
+    "filter": "Rechercher une connexion",
+    "none": "DBine n'a aucune connexion enregistrée.",
+    "loading": "Chargement…",
+    "thisPhone": "Ce téléphone : {{code}}",
+    "unpair": "Dissocier",
+    "unpairConfirm": "Dissocier ce téléphone ? Pour le réutiliser, il faudra scanner un nouveau code."
+  },
+  "conn": {
+    "locks": "Verrous",
+    "processes": "En cours",
+    "unsupported": "{{engine}} ne signale ni verrous ni processus.",
+    "noLocks": "Aucune session bloquée.",
+    "noProcesses": "Aucune requête en cours d'exécution.",
+    "session": "Session {{id}}",
+    "blocks_one": "bloque {{count}} session",
+    "blocks_many": "bloque {{count}} de sessions",
+    "blocks_other": "bloque {{count}} sessions",
+    "waitsFor": "attend {{id}}",
+    "kill": "Terminer",
+    "killConfirm": "Terminer la session {{id}} ? Sa transaction en cours est annulée.\n\n{{sql}}",
+    "killReason": "Terminer la session {{id}}",
+    "notConfirmed": "Non confirmé : la session continue.",
+    "killed": "La session {{id}} a été terminée.",
+    "notAllowed": "Pour terminer des sessions depuis ce téléphone, activez-le dans DBine › Paramètres › Appareils.",
+    "engineCantKill": "Cette connexion ne permet pas de terminer des sessions (elle est en lecture seule ou le moteur ne le prend pas en charge)."
+  }
+}

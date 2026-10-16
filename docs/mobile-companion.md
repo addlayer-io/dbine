@@ -1,6 +1,46 @@
 # Mobile companion (design)
 
-Status: **design, not built**. Agreed with the owner on 2026-10-16.
+Status: **first version built, on the same network only**. Agreed with the
+owner on 2026-10-16. What's built is in [First version](#first-version); the
+rest of this page is the design it grows into.
+
+## First version
+
+- **DBine:** Configuración › Dispositivos (`src-tauri/src/link.rs`,
+  `web/src/components/DevicesSettings.vue`).
+  - **Permitir celulares** (off by default) listens on port `27518` (it can be
+    changed) on every interface.
+  - **Vincular un celular** shows a QR code that lasts 2 minutes and pairs one
+    phone. When the phone reads it, DBine asks: the name the phone gave and a
+    code (its key's fingerprint) that the phone shows too. Nothing is kept
+    until the user says yes. At most 5 pairing attempts a minute.
+  - Each paired phone can be removed (its open sessions are cut at once) and
+    allowed, one by one, to **end sessions** (off by default).
+  - Kept in `local.link` (this machine only, not synced); DBine's key pair in
+    the vault.
+- **The channel** (`crates/dbine-link`): Noise `IKpsk2` to pair (the QR's
+  secret is the PSK, DBine's public key is pinned), Noise `IK` afterwards
+  (only keys DBine paired; the phone only talks to the key it pinned), frames
+  of up to 64 KB, messages of up to 16 MB, JSON requests: `hello`,
+  `connections`, `databases`, `locks`, `processes`, `kill`.
+- **The phone app** (`mobile/`, Tauri 2 + Vue, its own Cargo workspace, so
+  desktop builds and CI never compile it): pairs by scanning the QR code, lists
+  the computer's connections, shows a connection's blocking chains and the
+  statements running now (refreshed every 5 seconds), and ends a session
+  after the phone's biometrics or PIN. A kill is never retried after a
+  dropped connection. The texts are in DBine's five languages.
+- **Not yet:** reaching DBine from outside the local network (the paths and
+  the signaling below), alerts as native pushes, the phone's key in the
+  Android Keystore / iOS Keychain (today it's in the app's private folder),
+  finding DBine again when the computer's address changes (pair again), and
+  iOS builds (only Android is built).
+
+Build the APK (Android SDK, NDK 27 and JDK 17):
+
+```sh
+cd mobile && npm install
+JAVA_HOME=… ANDROID_HOME=… NDK_HOME=… cargo tauri android build --debug --apk --target aarch64
+```
 
 A phone app, paired with DBine by scanning a QR code, that lets you look at
 a server and act on it while you're away from the computer: the typical case

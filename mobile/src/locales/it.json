@@ -1,0 +1,42 @@
+{
+  "pair": {
+    "intro": "Guarda dal telefono i blocchi e le query in corso dei tuoi database. Le connessioni e le password restano sul tuo computer.",
+    "name": "Nome di questo telefono",
+    "defaultName": "Il mio telefono",
+    "scan": "Associa con DBine",
+    "connecting": "Connessione…",
+    "step1": "Sul computer, apri DBine › Impostazioni › Dispositivi.",
+    "step2": "Attiva «Consenti telefoni» e tocca «Associa un telefono».",
+    "step3": "Scansiona il codice che appare. Il telefono deve essere sulla stessa rete.",
+    "confirmOn": "Conferma su «{{desktop}}».",
+    "compare": "Controlla che il computer mostri lo stesso codice:",
+    "noCamera": "Senza il permesso di usare la fotocamera non è possibile leggere il codice."
+  },
+  "connections": {
+    "filter": "Cerca connessione",
+    "none": "DBine non ha connessioni salvate.",
+    "loading": "Caricamento…",
+    "thisPhone": "Questo telefono: {{code}}",
+    "unpair": "Dissocia",
+    "unpairConfirm": "Dissociare questo telefono? Per usarlo di nuovo bisogna scansionare un nuovo codice."
+  },
+  "conn": {
+    "locks": "Blocchi",
+    "processes": "In corso",
+    "unsupported": "{{engine}} non riporta blocchi né processi.",
+    "noLocks": "Non ci sono sessioni bloccate.",
+    "noProcesses": "Nessuna query in esecuzione.",
+    "session": "Sessione {{id}}",
+    "blocks_one": "blocca {{count}} sessione",
+    "blocks_many": "blocca {{count}} di sessioni",
+    "blocks_other": "blocca {{count}} sessioni",
+    "waitsFor": "attende {{id}}",
+    "kill": "Termina",
+    "killConfirm": "Terminare la sessione {{id}}? La sua transazione in corso viene annullata.\n\n{{sql}}",
+    "killReason": "Termina la sessione {{id}}",
+    "notConfirmed": "Non confermato: la sessione continua.",
+    "killed": "La sessione {{id}} è stata terminata.",
+    "notAllowed": "Per terminare sessioni da questo telefono, abilitalo in DBine › Impostazioni › Dispositivi.",
+    "engineCantKill": "Questa connessione non consente di terminare sessioni (è in sola lettura o il motore non lo supporta)."
+  }
+}
