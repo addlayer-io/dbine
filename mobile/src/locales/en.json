@@ -70,7 +70,12 @@
       "ok": "OK",
       "partial": "With errors",
       "failed": "Failed"
-    }
+    },
+    "at": "Step {{n}} of {{total}}: {{name}}",
+    "cancel": "Cancel the task",
+    "cancelConfirm": "Cancel “{{name}}”? The step in progress is stopped and the following ones don't run.",
+    "cancelReason": "Cancel “{{name}}”",
+    "cancelling": "Cancellation of the task was requested: it stops in a few seconds."
   },
   "health": {
     "run": "Check the database",
@@ -93,7 +98,9 @@
     "cancelled": "Cancellation of the query was requested.",
     "done": "Finished successfully",
     "startedAt": "Started on {{at}}",
-    "hint": "Here you see the queries you run in the DBine editor while they run, and those that took more than 10 seconds once they finish. If you allow it, the phone notifies you when they finish: with the app open, right away; with the app closed, on Android's next check (every 15 minutes). While a query has been running for more than 30 seconds, DBine keeps the computer from going to sleep."
+    "hint": "Here you see the queries you run in the DBine editor while they run, and those that took more than 10 seconds once they finish. If you allow it, the phone notifies you when they finish: with the app open, right away; with the app closed, on Android's next check (every 15 minutes). While a query has been running for more than 30 seconds, DBine keeps the computer from going to sleep.",
+    "tapForDetail": "Tap for details",
+    "cancelNotAllowed": "To cancel queries from this phone, enable it in DBine › Settings › Devices."
   },
   "update": {
     "available": "There is a new version of DBine ({{version}}).",

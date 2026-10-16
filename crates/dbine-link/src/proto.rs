@@ -59,6 +59,8 @@ pub enum Call {
     Queries,
     /// Cancel a running query (the phone asks its user first).
     CancelQuery { query_id: String },
+    /// Cancel a running task run (the phone asks its user first).
+    CancelTaskRun { run_id: String },
 }
 
 /// A query from DBine's editor.
@@ -77,6 +79,9 @@ pub struct QueryRow {
     pub ok: bool,
     /// "1240 filas", the error…
     pub summary: String,
+    /// More of the statement, for the detail (trimmed to 2000 characters).
+    #[serde(default)]
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -155,6 +160,9 @@ pub struct TaskItem {
     /// It changes data and those steps changed since they were approved:
     /// it only runs after approving it on the computer.
     pub needs_approval: bool,
+    /// Its steps' names, in order (to show where a running one is).
+    #[serde(default)]
+    pub steps: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

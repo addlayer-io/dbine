@@ -42,6 +42,7 @@ export interface TaskItem {
   next_run: string | null;
   last: RunRow | null;
   needs_approval: boolean;
+  steps: string[];
 }
 
 export interface HealthRow {
@@ -66,6 +67,8 @@ export interface QueryRow {
   running: boolean;
   ok: boolean;
   summary: string;
+  /** More of the statement (up to 2000 characters). */
+  detail: string;
 }
 
 export interface QueriesView {
@@ -142,6 +145,7 @@ type Call =
   | { call: 'tasks' }
   | { call: 'queries' }
   | { call: 'cancel_query'; query_id: string }
+  | { call: 'cancel_task_run'; run_id: string }
   | { call: 'task_runs'; task_id: string }
   | { call: 'run_task'; task_id: string }
   | { call: 'health'; connection_id: string; database: string }
@@ -151,6 +155,7 @@ const ask = <T>(call: Call) => invoke<T>('call', { call });
 
 export const api = {
   pendingLink: () => invoke<string | null>('pending_link'),
+  deviceName: () => invoke<string | null>('device_name'),
   inviteName: (code: string) => invoke<string>('invite_name', { code }),
   openRelease: (url: string) => invoke<void>('open_release', { url }),
   status: () => invoke<Status>('status'),
@@ -168,6 +173,7 @@ export const api = {
   runTask: (task_id: string) => ask<boolean>({ call: 'run_task', task_id }),
   queries: () => ask<QueriesView>({ call: 'queries' }),
   cancelQuery: (query_id: string) => ask<boolean>({ call: 'cancel_query', query_id }),
+  cancelTaskRun: (run_id: string) => ask<boolean>({ call: 'cancel_task_run', run_id }),
   kill: (connection_id: string, session_id: string) => ask<boolean>({ call: 'kill', connection_id, database: '', session_id }),
 };
 

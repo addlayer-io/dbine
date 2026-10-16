@@ -13,7 +13,7 @@
   "pairedAt": "Associé le {{at}}",
   "lastSeen": "dernière connexion {{at}}",
   "canKill": "Peut terminer des sessions et annuler des requêtes",
-  "canRunTasks": "Peut exécuter des tâches",
+  "canRunTasks": "Peut exécuter et annuler des tâches",
   "canKillHelp": "Terminer une session, annuler une requête et exécuter une tâche s'activent par téléphone, et le téléphone les confirme à chaque fois par empreinte, visage ou code PIN. Le téléphone vous avertit quand une requête de plus de 10 secondes se termine et quand une tâche planifiée échoue ou comporte une alerte (selon son réglage « Notifier ») : application ouverte, aussitôt ; application fermée, toutes les 15 minutes.",
   "remove": "Retirer",
   "removeConfirm": "Retirer « {{name}} » ? Il est déconnecté maintenant et il faudra l'associer à nouveau pour le réutiliser.",

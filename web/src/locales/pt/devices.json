@@ -13,7 +13,7 @@
   "pairedAt": "Vinculado em {{at}}",
   "lastSeen": "última conexão {{at}}",
   "canKill": "Pode encerrar sessões e cancelar consultas",
-  "canRunTasks": "Pode executar tarefas",
+  "canRunTasks": "Pode executar e cancelar tarefas",
   "canKillHelp": "Encerrar uma sessão, cancelar uma consulta e executar uma tarefa são habilitados por celular, e o celular os confirma a cada vez com a digital, o rosto ou o PIN. O celular avisa quando termina uma consulta que levou mais de 10 segundos e quando uma tarefa agendada falha ou tem um alerta (conforme o «Avisar» dela): com o app aberto, na hora; com o app fechado, a cada 15 minutos.",
   "remove": "Remover",
   "removeConfirm": "Remover «{{name}}»? Ele é desconectado agora e, para voltar a usá-lo, é preciso vinculá-lo de novo.",

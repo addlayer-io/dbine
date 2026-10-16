@@ -43,6 +43,34 @@ async function pick(task: TaskItem) {
   }
 }
 
+/** "Paso 2 de 3: Exportar": where a running task is. */
+function where(task: TaskItem): string {
+  const done = task.last?.steps.length ?? 0;
+  const total = task.steps.length || done + 1;
+  const n = Math.min(done + 1, total);
+  return t('tasks.at', { n, total, name: task.steps[n - 1] ?? '' });
+}
+
+async function cancelRun(task: TaskItem) {
+  if (!task.last) return;
+  notice.value = '';
+  if (!confirm(t('tasks.cancelConfirm', { name: task.name }))) return;
+  try {
+    const { authenticate } = await import('@tauri-apps/plugin-biometric');
+    await authenticate(t('tasks.cancelReason', { name: task.name }), { allowDeviceCredential: true, title: 'DBine' });
+  } catch {
+    error.value = t('tasks.notConfirmed');
+    return;
+  }
+  try {
+    await api.cancelTaskRun(task.last.id);
+    notice.value = t('tasks.cancelling');
+    setTimeout(load, 2500);
+  } catch (e) {
+    error.value = errorText(e);
+  }
+}
+
 async function runNow(task: TaskItem) {
   notice.value = '';
   if (!confirm(t('tasks.runConfirm', { name: task.name }))) return;
@@ -66,7 +94,7 @@ const statusText = (s: string) => t(`tasks.status.${s}`, { defaultValue: s });
 
 onMounted(() => {
   load();
-  timer = setInterval(load, 10000);
+  timer = setInterval(load, 4000);
 });
 onBeforeUnmount(() => timer && clearInterval(timer));
 </script>
@@ -88,7 +116,8 @@ onBeforeUnmount(() => timer && clearInterval(timer));
           <span class="info">
             <span class="name">{{ task.name }}</span>
             <span class="muted">
-              <template v-if="task.last">{{ statusText(task.last.status) }} · {{ task.last.started_at }}</template>
+              <template v-if="task.last?.status === 'running'">{{ where(task) }}</template>
+              <template v-else-if="task.last">{{ statusText(task.last.status) }} · {{ task.last.started_at }}</template>
               <template v-else>{{ $t('tasks.neverRan') }}</template>
             </span>
             <span v-if="task.enabled && task.next_run" class="muted">{{ $t('tasks.next', { at: task.next_run }) }}</span>
@@ -99,7 +128,12 @@ onBeforeUnmount(() => timer && clearInterval(timer));
       </template>
 
       <template v-else>
-        <button v-if="canRun" class="primary" :disabled="open.needs_approval || runs?.[0]?.status === 'running'" @click="runNow(open)">{{ $t('tasks.runNow') }}</button>
+        <div v-if="open.last?.status === 'running'" class="card running">
+          <strong>{{ $t('tasks.status.running') }}</strong>
+          <span>{{ where(open) }}</span>
+          <button v-if="canRun" class="danger" @click="cancelRun(open)">{{ $t('tasks.cancel') }}</button>
+        </div>
+        <button v-else-if="canRun" class="primary" :disabled="open.needs_approval" @click="runNow(open)">{{ $t('tasks.runNow') }}</button>
         <p v-if="open.needs_approval" class="muted">{{ $t('tasks.needsApproval') }}</p>
         <p v-else-if="!canRun" class="muted">{{ $t('tasks.notAllowed') }}</p>
         <div v-for="r in runs ?? []" :key="r.id" class="card run">
@@ -136,4 +170,5 @@ onBeforeUnmount(() => timer && clearInterval(timer));
 .step { font-size: 14px; }
 .alert { white-space: pre-line; color: var(--warning); font-size: 13px; }
 .ok { color: var(--success); }
+.running { display: flex; flex-direction: column; gap: 8px; border-left: 3px solid var(--accent); }
 </style>

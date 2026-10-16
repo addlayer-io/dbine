@@ -104,8 +104,9 @@ short:
 
 - The phone never gets credentials, hosts, connection strings, settings or
   table rows, and has no request for free-form SQL or commands.
-- Every request that changes something is refused without that phone's
-  permission and is confirmed on the phone with biometrics or PIN.
+- Every request that changes something (end a session, cancel a query, run
+  or cancel a task) is refused without that phone's permission and is
+  confirmed on the phone with biometrics or PIN.
 - Pairing needs the QR code's secret and the user's yes on the computer.
   Only paired keys connect; there is no unauthenticated fallback.
 - Internet access is off by default; public relays only after the explicit

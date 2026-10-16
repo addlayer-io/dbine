@@ -57,6 +57,17 @@ fn pending_link() -> Option<String> {
     LINK.lock().unwrap().take()
 }
 
+/// The phone's name (MainActivity.kt writes it to the app's folder when it
+/// starts), for the pairing's default name.
+#[tauri::command]
+fn device_name(app: AppHandle) -> Option<String> {
+    let base = app.path().app_data_dir().ok()?;
+    // The app's folder (Android's dataDir) is this one or one of its parents.
+    let name = base.ancestors().take(3).find_map(|d| std::fs::read_to_string(d.join("device_name.txt")).ok())?;
+    let name: String = name.trim().chars().filter(|c| !c.is_control()).take(60).collect();
+    (!name.is_empty()).then_some(name)
+}
+
 /// The computer a pairing link points to, to show before pairing.
 #[tauri::command]
 fn invite_name(code: String) -> Result<String, String> {
@@ -380,7 +391,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, pair, unpair, call, pending_link, invite_name, open_release])
+        .invoke_handler(tauri::generate_handler![status, pair, unpair, call, pending_link, invite_name, open_release, device_name])
         .run(tauri::generate_context!())
         .expect("error while running DBine mobile");
 }
