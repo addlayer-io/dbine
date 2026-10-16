@@ -71,7 +71,12 @@
       "ok": "Réussie",
       "partial": "Avec erreurs",
       "failed": "Échec"
-    }
+    },
+    "at": "Étape {{n}} sur {{total}} : {{name}}",
+    "cancel": "Annuler la tâche",
+    "cancelConfirm": "Annuler « {{name}} » ? L'étape en cours est interrompue et les suivantes ne sont pas exécutées.",
+    "cancelReason": "Annuler « {{name}} »",
+    "cancelling": "L'annulation de la tâche a été demandée : elle s'arrête dans quelques secondes."
   },
   "health": {
     "run": "Vérifier la base",
@@ -95,7 +100,9 @@
     "cancelled": "L'annulation de la requête a été demandée.",
     "done": "Terminée avec succès",
     "startedAt": "Démarrée le {{at}}",
-    "hint": "Ici apparaissent les requêtes que vous exécutez dans l'éditeur de DBine pendant qu'elles tournent, et celles qui ont duré plus de 10 secondes une fois terminées. Si vous l'autorisez, le téléphone vous avertit quand elles se terminent : application ouverte, aussitôt ; application fermée, à la prochaine vérification d'Android (toutes les 15 minutes). Tant qu'une requête dure plus de 30 secondes, DBine empêche l'ordinateur de se mettre en veille."
+    "hint": "Ici apparaissent les requêtes que vous exécutez dans l'éditeur de DBine pendant qu'elles tournent, et celles qui ont duré plus de 10 secondes une fois terminées. Si vous l'autorisez, le téléphone vous avertit quand elles se terminent : application ouverte, aussitôt ; application fermée, à la prochaine vérification d'Android (toutes les 15 minutes). Tant qu'une requête dure plus de 30 secondes, DBine empêche l'ordinateur de se mettre en veille.",
+    "tapForDetail": "Touchez pour voir le détail",
+    "cancelNotAllowed": "Pour annuler des requêtes depuis ce téléphone, activez-le dans DBine › Paramètres › Appareils."
   },
   "update": {
     "available": "Une nouvelle version de DBine est disponible ({{version}}).",

@@ -10240,5 +10240,8 @@
   "no hay direcciones": "não há endereços",
   "se rechazó la vinculación en la computadora": "a vinculação foi recusada no computador",
   "{0}. No se reintentó: revisá en DBine si la sesión terminó.": "{0}. Não foi tentado novamente: verifique no DBine se a sessão terminou.",
-  "solo se abren las versiones de DBine": "Só são abertas versões do DBine"
+  "solo se abren las versiones de DBine": "Só são abertas versões do DBine",
+  "este celular no tiene permiso para ejecutar ni cancelar tareas: se habilita en DBine, Configuración › Dispositivos": "este celular não tem permissão para executar nem cancelar tarefas: habilite em DBine, Configurações › Dispositivos",
+  "la tarea ya terminó": "a tarefa já terminou",
+  "Se canceló la tarea.": "A tarefa foi cancelada."
 }

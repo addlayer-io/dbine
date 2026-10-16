@@ -71,7 +71,12 @@
       "ok": "Riuscita",
       "partial": "Con errori",
       "failed": "Fallita"
-    }
+    },
+    "at": "Passo {{n}} di {{total}}: {{name}}",
+    "cancel": "Annulla l'attività",
+    "cancelConfirm": "Annullare «{{name}}»? Il passo in corso viene interrotto e quelli successivi non vengono eseguiti.",
+    "cancelReason": "Annulla «{{name}}»",
+    "cancelling": "È stato richiesto di annullare l'attività: si interrompe tra pochi secondi."
   },
   "health": {
     "run": "Controlla il database",
@@ -95,7 +100,9 @@
     "cancelled": "È stato richiesto di annullare la query.",
     "done": "Terminata con successo",
     "startedAt": "Iniziata il {{at}}",
-    "hint": "Qui compaiono le query che esegui nell'editor di DBine mentre sono in corso, e quelle che hanno richiesto più di 10 secondi quando terminano. Se lo permetti, il telefono ti avvisa quando terminano: con l'app aperta, subito; con l'app chiusa, al successivo controllo di Android (ogni 15 minuti). Finché una query dura più di 30 secondi, DBine impedisce al computer di andare in standby."
+    "hint": "Qui compaiono le query che esegui nell'editor di DBine mentre sono in corso, e quelle che hanno richiesto più di 10 secondi quando terminano. Se lo permetti, il telefono ti avvisa quando terminano: con l'app aperta, subito; con l'app chiusa, al successivo controllo di Android (ogni 15 minuti). Finché una query dura più di 30 secondi, DBine impedisce al computer di andare in standby.",
+    "tapForDetail": "Tocca per vedere il dettaglio",
+    "cancelNotAllowed": "Per annullare le query da questo telefono, abilitalo in DBine › Impostazioni › Dispositivi."
   },
   "update": {
     "available": "È disponibile una nuova versione di DBine ({{version}}).",

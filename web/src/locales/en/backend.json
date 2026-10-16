@@ -10240,5 +10240,8 @@
   "no hay direcciones": "no addresses",
   "se rechazó la vinculación en la computadora": "the link was rejected on the computer",
   "{0}. No se reintentó: revisá en DBine si la sesión terminó.": "{0}. It was not retried: check in DBine whether the session ended.",
-  "solo se abren las versiones de DBine": "Only DBine versions are opened"
+  "solo se abren las versiones de DBine": "Only DBine versions are opened",
+  "este celular no tiene permiso para ejecutar ni cancelar tareas: se habilita en DBine, Configuración › Dispositivos": "this phone is not allowed to run or cancel tasks: enable it in DBine, Settings › Devices",
+  "la tarea ya terminó": "the task has already finished",
+  "Se canceló la tarea.": "The task was cancelled."
 }

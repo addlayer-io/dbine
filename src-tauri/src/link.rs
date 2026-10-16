@@ -185,6 +185,7 @@ struct Running_ {
     session_id: String,
     place: String,
     sql: String,
+    detail: String,
     started: Instant,
     started_at: String,
 }
@@ -236,6 +237,7 @@ impl QueryGuard {
                 running: false,
                 ok: failed.is_none(),
                 summary,
+                detail: r.detail,
             });
             while recent.len() > QUERIES_KEPT {
                 recent.pop_front();
@@ -359,7 +361,14 @@ impl LinkRuntime {
         let place = if database.is_empty() { conn } else { format!("{conn} › {database}") };
         self.inner.running.lock().unwrap().insert(
             id.clone(),
-            Running_ { session_id: session_id.to_string(), place, sql: first_lines(sql), started: Instant::now(), started_at: now() },
+            Running_ {
+                session_id: session_id.to_string(),
+                place,
+                sql: first_lines(sql),
+                detail: sql.trim().chars().take(2000).collect(),
+                started: Instant::now(),
+                started_at: now(),
+            },
         );
         QueryGuard { inner: self.inner.clone(), id }
     }
@@ -860,6 +869,7 @@ impl Inner {
                             next_run: t.enabled.then(|| t.schedule.next_after(now_t)).flatten().map(|x| x.format("%Y-%m-%d %H:%M").to_string()),
                             last: state.store.list_task_runs(Some(&t.id), 1).ok().and_then(|r| r.into_iter().next()).map(run_row),
                             needs_approval: fp.is_some() && fp != t.approved_writes,
+                            steps: t.steps.iter().map(|s| if s.name.is_empty() { s.kind.clone() } else { s.name.clone() }).collect(),
                             id: t.id,
                             name: t.name,
                             enabled: t.enabled,
@@ -902,6 +912,7 @@ impl Inner {
                             running: true,
                             ok: true,
                             summary: String::new(),
+                            detail: q.detail.clone(),
                         })
                         .collect();
                     v.sort_by_key(|q| std::cmp::Reverse(q.elapsed_ms));
@@ -917,6 +928,23 @@ impl Inner {
                 let session_id = self.running.lock().unwrap().get(&query_id).map(|q| q.session_id.clone()).ok_or("la consulta ya terminó")?;
                 crate::commands::query::cancel_session(state, &session_id);
                 tracing::info!(device = %device.id, "query cancelled from a phone");
+                Response::ok(0, &true)
+            }
+            Call::CancelTaskRun { run_id } => {
+                if !device.can_run_tasks {
+                    return Err("este celular no tiene permiso para ejecutar ni cancelar tareas: se habilita en DBine, Configuración › Dispositivos".into());
+                }
+                let running = state
+                    .store
+                    .list_task_runs(None, 200)
+                    .map_err(|e| e.to_string())?
+                    .into_iter()
+                    .any(|r| r.id == run_id && r.status == dbine_core::tasks::RunStatus::Running);
+                if !running {
+                    return Err("la tarea ya terminó".into());
+                }
+                state.store.set_setting(&crate::tasks::cancel_key(&run_id), Some(&serde_json::json!(true))).map_err(|e| e.to_string())?;
+                tracing::info!(device = %device.id, run = %run_id, "task run cancelled from a phone");
                 Response::ok(0, &true)
             }
             Call::Health { connection_id, database } => {
@@ -1333,6 +1361,8 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].last.as_ref().unwrap().status, "failed");
         assert!(ask(&mut ch, 25, Call::RunTask { task_id: "t1".into() }).await.error.unwrap().contains("no tiene permiso"));
+        assert!(ask(&mut ch, 27, Call::CancelTaskRun { run_id: "r1".into() }).await.error.unwrap().contains("no tiene permiso"));
+        assert_eq!(tasks[0].steps.len(), 1);
         // The health check of a database.
         let health: HealthView = serde_json::from_value(ask(&mut ch, 26, Call::Health { connection_id: "a".into(), database: "".into() }).await.ok.unwrap()).unwrap();
         assert!(!health.checks.is_empty() || !health.skipped.is_empty(), "{health:?}");

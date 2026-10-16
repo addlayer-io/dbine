@@ -18345,6 +18345,9 @@
  "Se borró el backup {0}.": [
   "crates/drivers/spanner/src/backup.rs"
  ],
+ "Se canceló la tarea.": [
+  "src-tauri/src/tasks/mod.rs"
+ ],
  "Se cierran las demás sesiones conectadas a «{0}».": [
   "crates/drivers/postgres/src/rename.rs"
  ],
@@ -25553,6 +25556,9 @@
  "este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos": [
   "src-tauri/src/link.rs"
  ],
+ "este celular no tiene permiso para ejecutar ni cancelar tareas: se habilita en DBine, Configuración › Dispositivos": [
+  "src-tauri/src/link.rs"
+ ],
  "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": [
   "src-tauri/src/link.rs"
  ],
@@ -27636,6 +27642,9 @@
  ],
  "la tarea necesita un nombre": [
   "crates/dbine-core/src/tasks.rs"
+ ],
+ "la tarea ya terminó": [
+  "src-tauri/src/link.rs"
  ],
  "la tarea {0} no se puede cancelar (el servidor no la marca como cancelable)": [
   "crates/drivers/elasticsearch/src/processes.rs"

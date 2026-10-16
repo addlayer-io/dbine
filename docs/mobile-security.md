@@ -29,7 +29,8 @@ A closed list, the same for every phone:
 | See the editor's running and recent long queries, and the scheduled tasks with their runs | Being paired |
 | Get notified when a long query ends or a task fails or alerts | Being paired |
 | **End a session** or **cancel a query** | "Puede terminar sesiones y cancelar consultas" on that phone (off by default), and the phone's biometrics or PIN each time |
-| **Run a scheduled task** | "Puede ejecutar tareas" on that phone (off by default), the phone's biometrics or PIN each time, and the task's writing steps approved on the computer |
+| **Run a scheduled task** | "Puede ejecutar y cancelar tareas" on that phone (off by default), the phone's biometrics or PIN each time, and the task's writing steps approved on the computer |
+| **Cancel a running scheduled task** | "Puede ejecutar y cancelar tareas" on that phone, and the phone's biometrics or PIN each time. The step in progress is cut and no further step runs, also for a run the OS scheduler started with DBine closed |
 
 What the phone **can't** do, by design:
 
@@ -107,8 +108,8 @@ when the networks allow it and only uses the relay otherwise.
   this machine's state; they don't sync to the cloud backup.
 - The phone keeps its own key pair and the computer's public key in the
   app's private folder.
-- Every kill, cancel and task run from a phone is logged on the computer
-  with the phone that did it.
+- Every kill, cancel, task run and task cancel from a phone is logged on the
+  computer with the phone that did it.
 - The phone app checks for a newer version on GitHub's latest DBine release
   (api.github.com: GitHub sees the phone's IP, nothing else is sent) and only
   opens its download page in the browser; it never installs anything by
@@ -133,9 +134,9 @@ These hold in every change; a change that breaks one is a security bug:
    runs free-form SQL or commands, returns table rows, or returns or accepts
    hosts, credentials, connection strings or settings.
 2. Every request that changes something (`kill`, `cancel_query`,
-   `run_task`) is refused unless that phone has the permission, and the
-   phone confirms it with biometrics or PIN first. New ones follow the same
-   rule.
+   `run_task`, `cancel_task_run`) is refused unless that phone has the
+   permission, and the phone confirms it with biometrics or PIN first. New
+   ones follow the same rule.
 3. Pairing needs the QR code's secret **and** the user's yes on the
    computer. No other path adds a phone.
 4. DBine accepts only keys it paired; the phone talks only to the key it

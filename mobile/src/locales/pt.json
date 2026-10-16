@@ -71,7 +71,12 @@
       "ok": "Ok",
       "partial": "Com erros",
       "failed": "Falhou"
-    }
+    },
+    "at": "Etapa {{n}} de {{total}}: {{name}}",
+    "cancel": "Cancelar a tarefa",
+    "cancelConfirm": "Cancelar «{{name}}»? A etapa em andamento é interrompida e as seguintes não são executadas.",
+    "cancelReason": "Cancelar «{{name}}»",
+    "cancelling": "Foi solicitado o cancelamento da tarefa: ela é interrompida em alguns segundos."
   },
   "health": {
     "run": "Verificar o banco",
@@ -95,7 +100,9 @@
     "cancelled": "Foi solicitado o cancelamento da consulta.",
     "done": "Concluída com sucesso",
     "startedAt": "Começou em {{at}}",
-    "hint": "Aqui aparecem as consultas que você executa no editor do DBine enquanto rodam, e as que levaram mais de 10 segundos quando terminam. Se você permitir, o celular avisa quando terminam: com o app aberto, na hora; com o app fechado, na próxima verificação do Android (a cada 15 minutos). Enquanto uma consulta leva mais de 30 segundos, o DBine não deixa o computador entrar em repouso."
+    "hint": "Aqui aparecem as consultas que você executa no editor do DBine enquanto rodam, e as que levaram mais de 10 segundos quando terminam. Se você permitir, o celular avisa quando terminam: com o app aberto, na hora; com o app fechado, na próxima verificação do Android (a cada 15 minutos). Enquanto uma consulta leva mais de 30 segundos, o DBine não deixa o computador entrar em repouso.",
+    "tapForDetail": "Toque para ver o detalhe",
+    "cancelNotAllowed": "Para cancelar consultas a partir deste celular, habilite em DBine › Configurações › Dispositivos."
   },
   "update": {
     "available": "Há uma nova versão do DBine ({{version}}).",

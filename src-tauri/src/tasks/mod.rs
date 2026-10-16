@@ -164,6 +164,12 @@ pub(crate) struct Ctx<'a> {
     pub run_key: String,
 }
 
+/// A request to cancel a run, as a machine-local setting: the run may be in
+/// another process (the OS scheduler's `dbine --run-task`), which watches it.
+pub fn cancel_key(run_id: &str) -> String {
+    format!("local.task-cancel.{run_id}")
+}
+
 /// Run a task now. The run is saved as it goes; the result is the finished
 /// run (also when it failed: its `status` says so).
 pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &ScheduledTask, trigger: &str) -> TaskRun {
@@ -188,8 +194,29 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
 
     let mut vars = tasks::base_vars(task, started);
     let ctx = Ctx { state, app, task, run_key: format!("task:{}", run.id) };
+    // Cancelled from the phone app (or anywhere that sets the request): cut
+    // the steps' sessions at once and run no further step.
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watcher = {
+        let (state, cancelled, key, prefix) = (state.clone(), cancelled.clone(), cancel_key(&run.id), format!("{}:", ctx.run_key));
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                if state.store.get_setting(&key).ok().flatten().is_some() {
+                    cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+                    let keys: Vec<String> = state.sessions.iter().map(|e| e.key().clone()).filter(|k| k.starts_with(&prefix)).collect();
+                    for k in keys {
+                        crate::commands::query::cancel_session(&state, &k);
+                    }
+                }
+            }
+        })
+    };
     let mut any_failed = false;
     for (n, step) in task.steps.iter().enumerate() {
+        if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
         let step_started = tasks::now_text();
         let label = if step.name.is_empty() { step.kind.clone() } else { step.name.clone() };
         let result = match skipped(step, &run.steps) {
@@ -222,6 +249,12 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
         if stop {
             break;
         }
+    }
+    watcher.abort();
+    let _ = state.store.set_setting(&cancel_key(&run.id), None::<&serde_json::Value>);
+    if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+        run.error = Some("Se canceló la tarea.".into());
+        return finish(state, run, task);
     }
     run.status = match (any_failed, run.steps.iter().any(|s| s.status == RunStatus::Ok)) {
         (false, _) => RunStatus::Ok,
@@ -337,6 +370,37 @@ mod tests {
 
     fn task(steps: Vec<Step>) -> ScheduledTask {
         ScheduledTask { id: "t".into(), name: "prueba".into(), enabled: true, steps, notify: Notify::Never, ..Default::default() }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_run_cancelled_from_elsewhere_stops() {
+        let w = world("cancel");
+        let long = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c LIMIT 400000000) SELECT count(*) FROM c";
+        let t = task(vec![
+            step("s1", kinds::RUN_SCRIPT, json!({"connection_id": "b", "sql": long})),
+            step("s2", kinds::RUN_SCRIPT, json!({"connection_id": "b", "sql": "SELECT 1"})),
+        ]);
+        let state = w.state.clone();
+        let started = std::time::Instant::now();
+        let run = tokio::spawn({
+            let t = t.clone();
+            async move { run_task(&state, None, &t, "manual").await }
+        });
+        // The run shows as running: ask to cancel it, as the phone app does.
+        let id = loop {
+            let runs = w.state.store.list_task_runs(Some("t"), 1).unwrap();
+            if let Some(r) = runs.into_iter().find(|r| r.status == RunStatus::Running) {
+                break r.id;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        };
+        w.state.store.set_setting(&cancel_key(&id), Some(&json!(true))).unwrap();
+        let run = run.await.unwrap();
+        assert_eq!(run.status, RunStatus::Failed);
+        assert_eq!(run.error.as_deref(), Some("Se canceló la tarea."));
+        assert!(run.steps.len() <= 1, "the next step doesn't run: {:?}", run.steps);
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "cut, not waited out: {:?}", started.elapsed());
+        assert!(w.state.store.get_setting(&cancel_key(&id)).unwrap().is_none(), "the request is cleared");
     }
 
     #[tokio::test]

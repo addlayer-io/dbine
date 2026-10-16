@@ -53,6 +53,10 @@ async function cancel(id: string, sql: string) {
   }
 }
 
+/** The query whose detail is open. */
+const open = ref<string | null>(null);
+const toggle = (id: string) => (open.value = open.value === id ? null : id);
+
 const empty = computed(() => view.value && !view.value.running.length && !view.value.recent.length);
 
 onMounted(() => {
@@ -78,26 +82,33 @@ onBeforeUnmount(() => timers.forEach(clearInterval));
 
       <template v-if="view?.running.length">
         <h2>{{ $t('activity.running') }}</h2>
-        <div v-for="q in view.running" :key="q.id" class="card q run">
+        <div v-for="q in view.running" :key="q.id" class="card q run" @click="toggle(q.id)">
           <div class="head">
             <span class="dot running" />
             <span class="place">{{ q.place }}</span>
             <span class="time">{{ live(q.elapsed_ms) }}</span>
           </div>
-          <p class="mono sql">{{ q.sql }}</p>
-          <button v-if="canCancel" class="danger" @click="cancel(q.id, q.sql)">{{ $t('activity.cancel') }}</button>
+          <template v-if="open === q.id">
+            <pre class="mono full">{{ q.detail || q.sql }}</pre>
+            <p class="muted">{{ $t('activity.startedAt', { at: q.started_at }) }}</p>
+            <button v-if="canCancel" class="danger" @click.stop="cancel(q.id, q.sql)">{{ $t('activity.cancel') }}</button>
+            <p v-else class="muted">{{ $t('activity.cancelNotAllowed') }}</p>
+          </template>
+          <p v-else class="mono sql">{{ q.sql }}</p>
+          <p v-if="open !== q.id" class="muted tap">{{ $t('activity.tapForDetail') }}</p>
         </div>
       </template>
 
       <template v-if="view?.recent.length">
         <h2>{{ $t('activity.recent') }}</h2>
-        <div v-for="q in view.recent" :key="q.id" class="card q">
+        <div v-for="q in view.recent" :key="q.id" class="card q" @click="toggle(q.id)">
           <div class="head">
             <span class="dot" :class="q.ok ? 'ok' : 'failed'" />
             <span class="place">{{ q.place }}</span>
             <span class="muted">{{ duration(q.elapsed_ms) }}</span>
           </div>
-          <p class="mono sql">{{ q.sql }}</p>
+          <pre v-if="open === q.id" class="mono full">{{ q.detail || q.sql }}</pre>
+          <p v-else class="mono sql">{{ q.sql }}</p>
           <p :class="q.ok ? 'muted' : 'error'">{{ q.ok ? (q.summary ? tb(q.summary) : $t('activity.done')) : tb(q.summary) }}</p>
           <p class="muted">{{ $t('activity.startedAt', { at: q.started_at }) }}</p>
         </div>
@@ -118,6 +129,8 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .place { flex: 1; color: var(--text-strong); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .time { color: var(--accent); font-variant-numeric: tabular-nums; }
 .sql { font-size: 12px; color: var(--text); word-break: break-word; }
+.full { margin: 0; font-size: 12px; color: var(--text); white-space: pre-wrap; word-break: break-word; max-height: 50vh; overflow: auto; background: var(--bg); border-radius: 6px; padding: 8px; }
+.tap { font-size: 12px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--text-dim); }
 .dot.ok { background: var(--success); }
 .dot.failed { background: var(--danger); }

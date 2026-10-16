@@ -17,6 +17,11 @@ const waiting = ref<{ desktop: string; fingerprint: string } | null>(null);
 let unlisten: UnlistenFn | null = null;
 
 onMounted(async () => {
+  // The phone's own name by default (Settings › About phone).
+  try {
+    const n = await api.deviceName();
+    if (n && name.value === t('pair.defaultName')) name.value = n;
+  } catch { /* outside Android */ }
   unlisten = await listen<{ desktop: string; fingerprint: string }>('pair-waiting', (e) => { waiting.value = e.payload; });
 });
 onBeforeUnmount(() => unlisten?.());
