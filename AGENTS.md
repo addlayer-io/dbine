@@ -94,6 +94,28 @@ after the other. A CRITICAL or HIGH finding blocks the tag: the owning
 session fixes it, and tests and scan run again on the new commit. Nobody
 downgrades or waives a finding except the owner.
 
+## Phone app and remote access: security invariants
+
+The phone app (`mobile/`), its channel (`crates/dbine-link/`) and DBine's side
+of it (`src-tauri/src/link.rs`) follow
+[docs/mobile-security.md](docs/mobile-security.md). Its **Invariants** section
+is binding: a change that breaks one is a security bug, not a trade-off. In
+short:
+
+- The phone never gets credentials, hosts, connection strings, settings or
+  table rows, and has no request for free-form SQL or commands.
+- Every request that changes something is refused without that phone's
+  permission and is confirmed on the phone with biometrics or PIN.
+- Pairing needs the QR code's secret and the user's yes on the computer.
+  Only paired keys connect; there is no unauthenticated fallback.
+- Internet access is off by default; public relays only after the explicit
+  confirmation. No default sends traffic through a third party.
+- The Noise channel runs end to end on every path; no relay or transport is
+  trusted with plaintext.
+- Any change to those files goes through the security scan before a release.
+
+Docs, dbine.com and promotional material say only what that page says.
+
 ## Shared files
 
 To modify these files you have to coordinate with the other sessions: announce

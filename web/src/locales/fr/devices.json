@@ -29,13 +29,16 @@
   "remote": "Hors du réseau local",
   "remoteHelp": "Comment le téléphone atteint cet ordinateur quand il n'est pas sur le même réseau. Tout transite chiffré de bout en bout avec les clés du code QR : le serveur relais ne voit que des données illisibles.",
   "remoteModes": {
-    "public": "Serveurs publics d'iroh (gratuit)",
+    "off": "Réseau local uniquement (recommandé)",
     "own": "Serveur propre",
-    "off": "Réseau local uniquement"
+    "public": "Serveurs publics d'iroh (gratuit)"
   },
   "remoteReady": "Disponible par internet, via {{relay}}",
   "remoteConnecting": "Connexion au serveur relais…",
-  "publicHelp": "iroh essaie de se connecter directement ; si les réseaux ne le permettent pas, il passe par les serveurs publics de n0 (gratuits et sans garantie de disponibilité).",
+  "publicHelp": "iroh essaie de se connecter directement ; si les réseaux ne le permettent pas, il passe par les serveurs publics de n0 (gratuits et sans garantie de disponibilité). Ils voient les IP et le volume du trafic, jamais le contenu.",
   "ownHelp": "L'URL de votre serveur iroh-relay (https), une par ligne. Seul ce serveur est utilisé : rien ne passe par des serveurs tiers. Les téléphones déjà associés reçoivent le changement à leur prochaine connexion.",
-  "save": "Enregistrer"
+  "save": "Enregistrer",
+  "publicConfirmTitle": "Utiliser les serveurs publics ?",
+  "publicConfirm": "Quand le téléphone ne peut pas se connecter directement, la connexion passera par les serveurs publics d'iroh, exploités par un tiers (n0).\n\nCe qu'ils voient : les adresses IP de cet ordinateur et du téléphone, et quand et combien de trafic transite.\nCe qu'ils ne voient pas : le contenu. Tout est chiffré de bout en bout avec les clés du code QR ; ils ne peuvent rien lire ni modifier.\n\nLes connexions et les mots de passe de vos bases de données ne quittent jamais cet ordinateur, et le téléphone ne peut pas exécuter de requêtes libres.\n\nSi vous ne voulez pas d'un tiers au milieu, utilisez un serveur propre ou gardez uniquement le réseau local.",
+  "publicConfirmOk": "Utiliser les serveurs publics"
 }

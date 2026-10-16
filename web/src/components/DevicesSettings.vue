@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { h, onBeforeUnmount, onMounted, ref } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
@@ -40,7 +40,7 @@ async function configure(patch: { enabled?: boolean; port?: number; remote?: Rem
 }
 
 // -- outside the local network ----------------------------------------------------
-const remoteMode = ref<'public' | 'own' | 'off'>('public');
+const remoteMode = ref<'public' | 'own' | 'off'>('off');
 const relaysText = ref('');
 
 function syncRemote() {
@@ -48,6 +48,26 @@ function syncRemote() {
   if (!r) return;
   remoteMode.value = r.mode;
   relaysText.value = r.mode === 'own' ? r.relays.join('\n') : relaysText.value;
+}
+
+/** Leaving the local network through a third party is an explicit choice. */
+async function pickRemote(v: 'public' | 'own' | 'off') {
+  const before = status.value?.remote.mode ?? 'off';
+  if (v === 'public' && before !== 'public') {
+    try {
+      const text = h('div', { style: 'white-space: pre-line; line-height: 1.5' }, t('devices:publicConfirm'));
+      await ElMessageBox.confirm(text, t('devices:publicConfirmTitle'), {
+        type: 'warning',
+        confirmButtonText: t('devices:publicConfirmOk'),
+        cancelButtonText: t('common:cancel'),
+      });
+    } catch {
+      remoteMode.value = before;
+      return;
+    }
+  }
+  remoteMode.value = v;
+  if (v !== 'own') applyRemote();
 }
 
 function applyRemote() {
@@ -179,10 +199,10 @@ onBeforeUnmount(() => {
           <span v-else-if="status.enabled && status.remote_error" class="dv-err">{{ tb(status.remote_error) }}</span>
           <span v-else-if="status.enabled && status.remote.mode !== 'off'">{{ $t('devices:remoteConnecting') }}</span>
         </div>
-        <el-radio-group v-model="remoteMode" class="dv-modes" @change="applyRemote">
-          <el-radio value="public">{{ $t('devices:remoteModes.public') }}</el-radio>
-          <el-radio value="own">{{ $t('devices:remoteModes.own') }}</el-radio>
+        <el-radio-group :model-value="remoteMode" class="dv-modes" @update:model-value="(v: any) => pickRemote(v)">
           <el-radio value="off">{{ $t('devices:remoteModes.off') }}</el-radio>
+          <el-radio value="own">{{ $t('devices:remoteModes.own') }}</el-radio>
+          <el-radio value="public">{{ $t('devices:remoteModes.public') }}</el-radio>
         </el-radio-group>
       </div>
       <div v-if="remoteMode === 'own'" class="dv-own">

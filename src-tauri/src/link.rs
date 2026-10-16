@@ -98,16 +98,20 @@ impl Default for LinkSettings {
     }
 }
 
-/// How phones reach DBine from outside the local network (iroh).
+/// How phones reach DBine from outside the local network (iroh). Off
+/// unless the user turns it on: going through a third party's relays is a
+/// decision the user makes knowingly (the UI asks), never a default.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum RemoteSetting {
-    /// iroh's public relays (free, best effort, run by n0).
-    #[default]
+    /// iroh's public relays (free, best effort, run by n0: they see both
+    /// ends' IP addresses and the traffic's timing and size, never its
+    /// content).
     Public,
     /// The user's own relays (`iroh-relay`), nothing else.
     Own { relays: Vec<String> },
     /// Only the local network.
+    #[default]
     Off,
 }
 
@@ -456,6 +460,11 @@ fn run_row(r: dbine_core::tasks::TaskRun) -> RunRow {
         error: r.error,
         steps: r.steps.into_iter().map(|s| StepRow { kind: s.kind, status: status_text(s.status).into(), summary: s.summary, alert: s.alert }).collect(),
     }
+}
+
+/// A statement as the phone gets it: trimmed (docs/mobile-security.md).
+fn trimmed_sql(sql: Option<String>) -> Option<String> {
+    sql.map(|s| if s.chars().count() > 500 { format!("{}…", s.chars().take(500).collect::<String>()) } else { s })
 }
 
 /// The session key of a phone's calls on a connection › database.
@@ -967,7 +976,7 @@ impl Inner {
                         wait: b.wait,
                         waited_ms: b.waited_ms,
                         object: b.object,
-                        sql: b.sql,
+                        sql: trimmed_sql(b.sql),
                     })
                     .collect();
                 Response::ok(0, &out)
@@ -987,7 +996,7 @@ impl Inner {
                         database: p.database,
                         elapsed_ms: p.elapsed_ms,
                         blocked_by: p.blocked_by,
-                        sql: p.sql,
+                        sql: trimmed_sql(p.sql),
                     })
                     .collect();
                 Response::ok(0, &out)
@@ -1344,6 +1353,17 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(TcpStream::connect(&addr).await.is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Leaving the local network through a third party is never a default:
+    /// a fresh install, and settings saved before the option existed, stay
+    /// on the local network (docs/mobile-companion.md, "Security model").
+    #[test]
+    fn internet_is_off_unless_chosen() {
+        assert_eq!(LinkSettings::default().remote, RemoteSetting::Off);
+        let old: LinkSettings = serde_json::from_value(serde_json::json!({"enabled": true, "port": 27518, "devices": []})).unwrap();
+        assert_eq!(old.remote, RemoteSetting::Off);
+        assert!(RemoteSetting::Off.relays().is_none());
     }
 
     #[test]
