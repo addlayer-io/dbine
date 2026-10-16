@@ -18,7 +18,10 @@
 //! the port and the phones; DBine's private key is in the vault.
 
 use crate::state::AppState;
-use dbine_link::proto::{Call, ConnectionItem, EventRow, Events, HealthRow, HealthView, Hello, LockRow, MetricRow, MonitorView, PairResult, ProcessRow, Request, Response, RunRow, StepRow, TaskItem};
+use dbine_link::proto::{
+    Call, ConnectionItem, EventRow, Events, HealthRow, HealthView, Hello, LockRow, MetricRow, MonitorView, PairResult, ProcessRow, QueriesView, QueryRow, Request, Response, RunRow,
+    StepRow, TaskItem,
+};
 use dbine_link::{Accepted, Invite, Keys};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -47,6 +50,10 @@ const CALL_LIMIT: Duration = Duration::from_secs(60);
 pub const LONG_QUERY: Duration = Duration::from_secs(10);
 /// Notices kept for the phone (it asks every few seconds while open).
 const EVENTS_KEPT: usize = 100;
+/// Queries that ended, kept for the phone's "Actividad".
+const QUERIES_KEPT: usize = 30;
+/// A query running this long keeps the computer awake until it ends.
+const AWAKE_AFTER: Duration = Duration::from_secs(30);
 /// How often DBine looks for task runs that ended (the OS scheduler runs
 /// them in another process, so they only show in the history).
 const TASKS_EVERY: Duration = Duration::from_secs(15);
@@ -124,6 +131,96 @@ struct Inner {
     boot: String,
     /// Task runs already turned into notices.
     seen_runs: Mutex<std::collections::HashSet<String>>,
+    /// The editor's queries running now, by run id.
+    running: Mutex<HashMap<String, Running_>>,
+    /// The ones that ended (newest last).
+    recent: Mutex<VecDeque<QueryRow>>,
+    awake: crate::awake::Awake,
+}
+
+/// A query from the editor while it runs.
+struct Running_ {
+    session_id: String,
+    place: String,
+    sql: String,
+    started: Instant,
+    started_at: String,
+}
+
+/// Registered while an editor query runs: [`QueryGuard::finish`] records
+/// how it ended; dropped without it (the run failed before ending), it just
+/// leaves the list.
+pub struct QueryGuard {
+    inner: Arc<Inner>,
+    id: String,
+}
+
+impl QueryGuard {
+    pub fn finish(self, out: &dbine_driver::QueryOutcome) {
+        let Some(r) = self.inner.running.lock().unwrap().remove(&self.id) else { return };
+        let ms = r.started.elapsed().as_millis() as u64;
+        if Duration::from_millis(ms) < LONG_QUERY {
+            return;
+        }
+        let failed = out.error.clone().or_else(|| out.errors.first().map(|e| e.message.clone()));
+        let took = took(ms);
+        let summary = match &failed {
+            Some(e) => e.chars().take(300).collect::<String>(),
+            None => {
+                let rows: u64 = out.results.iter().map(|r| r.total_rows).sum();
+                let affected: u64 = out.results.iter().filter_map(|r| r.rows_affected).sum();
+                if rows > 0 {
+                    format!("{rows} filas")
+                } else if affected > 0 {
+                    format!("{affected} filas afectadas")
+                } else {
+                    String::new()
+                }
+            }
+        };
+        let body = match (&failed, summary.is_empty()) {
+            (Some(e), _) => format!("Falló después de {took}: {}", e.chars().take(200).collect::<String>()),
+            (None, true) => format!("Terminó en {took}"),
+            (None, false) => format!("Terminó en {took} · {summary}"),
+        };
+        {
+            let mut recent = self.inner.recent.lock().unwrap();
+            recent.push_back(QueryRow {
+                id: self.id.clone(),
+                place: r.place.clone(),
+                sql: r.sql,
+                started_at: r.started_at,
+                elapsed_ms: ms,
+                running: false,
+                ok: failed.is_none(),
+                summary,
+            });
+            while recent.len() > QUERIES_KEPT {
+                recent.pop_front();
+            }
+        }
+        let s = self.inner.settings();
+        if s.enabled && !s.devices.is_empty() {
+            self.inner.push("query", r.place, body, failed.is_none());
+        }
+    }
+}
+
+impl Drop for QueryGuard {
+    fn drop(&mut self) {
+        self.inner.running.lock().unwrap().remove(&self.id);
+    }
+}
+
+/// The first lines of a query, for a phone's screen.
+fn first_lines(sql: &str) -> String {
+    let lines: Vec<&str> = sql.lines().map(str::trim).filter(|l| !l.is_empty()).take(3).collect();
+    let s = lines.join(" ");
+    if s.chars().count() > 160 {
+        format!("{}…", s.chars().take(160).collect::<String>())
+    } else {
+        s
+    }
 }
 
 fn b64(v: &[u8]) -> String {
@@ -180,6 +277,9 @@ impl LinkRuntime {
                 next_seq: Mutex::new(0),
                 boot: dbine_link::random::<8>().map(|b| b.iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default(),
                 seen_runs: Mutex::new(std::collections::HashSet::new()),
+                running: Mutex::new(HashMap::new()),
+                recent: Mutex::new(VecDeque::new()),
+                awake: crate::awake::Awake::new(),
             }),
         }
     }
@@ -197,32 +297,27 @@ impl LinkRuntime {
                 me.watch_tasks(false);
             }
         });
+        // The computer stays awake while a query has been running a while.
+        let me = self.inner.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                let long = me.running.lock().unwrap().values().any(|r| r.started.elapsed() >= AWAKE_AFTER);
+                me.awake.set(long);
+            }
+        });
     }
 
-    /// A query from the editor ended after [`LONG_QUERY`] or more.
-    pub fn query_ended(&self, connection_id: &str, database: &str, out: &dbine_driver::QueryOutcome) {
-        if !self.inner.settings().enabled || self.inner.settings().devices.is_empty() {
-            return;
-        }
+    /// An editor query starts: it shows on the phone while it runs.
+    pub fn query_started(&self, session_id: &str, connection_id: &str, database: &str, sql: &str) -> QueryGuard {
+        let id: String = dbine_link::random::<8>().map(|b| b.iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default();
         let conn = self.inner.state.store.get_connection(connection_id).ok().flatten().map(|c| c.name).unwrap_or_else(|| connection_id.to_string());
         let place = if database.is_empty() { conn } else { format!("{conn} › {database}") };
-        let took = took(out.elapsed_ms);
-        let failed = out.error.clone().or_else(|| out.errors.first().map(|e| e.message.clone()));
-        let body = match &failed {
-            Some(e) => format!("Falló después de {took}: {}", e.chars().take(200).collect::<String>()),
-            None => {
-                let rows: u64 = out.results.iter().map(|r| r.total_rows).sum();
-                let affected: u64 = out.results.iter().filter_map(|r| r.rows_affected).sum();
-                if rows > 0 {
-                    format!("Terminó en {took} · {rows} filas")
-                } else if affected > 0 {
-                    format!("Terminó en {took} · {affected} filas afectadas")
-                } else {
-                    format!("Terminó en {took}")
-                }
-            }
-        };
-        self.inner.push("query", place, body, failed.is_none());
+        self.inner.running.lock().unwrap().insert(
+            id.clone(),
+            Running_ { session_id: session_id.to_string(), place, sql: first_lines(sql), started: Instant::now(), started_at: now() },
+        );
+        QueryGuard { inner: self.inner.clone(), id }
     }
 
     pub fn settings(&self) -> LinkSettings {
@@ -649,6 +744,37 @@ impl Inner {
                 });
                 Response::ok(0, &true)
             }
+            Call::Queries => {
+                let running: Vec<QueryRow> = {
+                    let r = self.running.lock().unwrap();
+                    let mut v: Vec<QueryRow> = r
+                        .iter()
+                        .map(|(id, q)| QueryRow {
+                            id: id.clone(),
+                            place: q.place.clone(),
+                            sql: q.sql.clone(),
+                            started_at: q.started_at.clone(),
+                            elapsed_ms: q.started.elapsed().as_millis() as u64,
+                            running: true,
+                            ok: true,
+                            summary: String::new(),
+                        })
+                        .collect();
+                    v.sort_by_key(|q| std::cmp::Reverse(q.elapsed_ms));
+                    v
+                };
+                let recent: Vec<QueryRow> = self.recent.lock().unwrap().iter().rev().cloned().collect();
+                Response::ok(0, &QueriesView { running, recent })
+            }
+            Call::CancelQuery { query_id } => {
+                if !device.can_kill {
+                    return Err("este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos".into());
+                }
+                let session_id = self.running.lock().unwrap().get(&query_id).map(|q| q.session_id.clone()).ok_or("la consulta ya terminó")?;
+                crate::commands::query::cancel_session(state, &session_id);
+                tracing::info!(device = %device.id, "query cancelled from a phone");
+                Response::ok(0, &true)
+            }
             Call::Health { connection_id, database } => {
                 let args = crate::commands::db_health::HealthArgs { connection_id, database, run_id: format!("phone-{}", device.id) };
                 let r = crate::commands::db_health::report(state, args).await.map_err(|e| e.to_string())?;
@@ -978,8 +1104,28 @@ mod tests {
         // Notices: a long query and a task that failed.
         let first: Events = serde_json::from_value(ask(&mut ch, 21, Call::Events { after: None, boot: None }).await.ok.unwrap()).unwrap();
         assert!(first.events.is_empty());
-        let out = dbine_driver::QueryOutcome { elapsed_ms: 200_000, error: Some("relation \"x\" does not exist".into()), ..Default::default() };
-        rt.query_ended("a", "", &out);
+        // An editor query: shown while it runs, then recorded with how it ended.
+        let guard = rt.query_started("tab-1", "a", "", "SELECT *\nFROM ventas\nWHERE año = 2026");
+        let q: QueriesView = serde_json::from_value(ask(&mut ch, 30, Call::Queries).await.ok.unwrap()).unwrap();
+        assert_eq!(q.running.len(), 1);
+        assert_eq!(q.running[0].sql, "SELECT * FROM ventas WHERE año = 2026");
+        assert_eq!(q.running[0].place, "base a");
+        // Cancelling needs the permission.
+        let id = q.running[0].id.clone();
+        assert!(ask(&mut ch, 31, Call::CancelQuery { query_id: id.clone() }).await.error.unwrap().contains("no tiene permiso"));
+        // It ran long (as if 200 s) and failed.
+        rt.inner.running.lock().unwrap().get_mut(&id).unwrap().started = Instant::now() - Duration::from_secs(200);
+        let out = dbine_driver::QueryOutcome { error: Some("relation \"x\" does not exist".into()), ..Default::default() };
+        guard.finish(&out);
+        let q: QueriesView = serde_json::from_value(ask(&mut ch, 32, Call::Queries).await.ok.unwrap()).unwrap();
+        assert!(q.running.is_empty());
+        assert_eq!(q.recent.len(), 1);
+        assert!(!q.recent[0].ok && q.recent[0].summary.contains("does not exist"));
+        // A short one leaves no trace, and a run that failed early leaves the list.
+        rt.query_started("tab-2", "a", "", "SELECT 1").finish(&dbine_driver::QueryOutcome::default());
+        drop(rt.query_started("tab-3", "a", "", "SELECT 2"));
+        let q: QueriesView = serde_json::from_value(ask(&mut ch, 33, Call::Queries).await.ok.unwrap()).unwrap();
+        assert!(q.running.is_empty() && q.recent.len() == 1);
         rt.inner
             .state
             .store

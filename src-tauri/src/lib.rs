@@ -1,3 +1,4 @@
+mod awake;
 mod commands;
 mod dbdocs;
 #[cfg(debug_assertions)]

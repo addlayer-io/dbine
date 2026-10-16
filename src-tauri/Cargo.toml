@@ -122,6 +122,8 @@ tauri-plugin-single-instance = "2"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Storage_EnhancedStorage",
+    # Keeping the computer awake while a long query runs (src/awake.rs).
+    "Win32_System_Power",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",

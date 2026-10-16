@@ -54,6 +54,34 @@ pub enum Call {
     RunTask { task_id: String },
     /// A database's health check.
     Health { connection_id: String, database: String },
+    /// The editor's queries running now and the ones that ended lately.
+    Queries,
+    /// Cancel a running query (the phone asks its user first).
+    CancelQuery { query_id: String },
+}
+
+/// A query from DBine's editor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueryRow {
+    pub id: String,
+    /// "Connection › database".
+    pub place: String,
+    /// Its first lines, trimmed.
+    pub sql: String,
+    pub started_at: String,
+    /// How long it ran (or has been running).
+    pub elapsed_ms: u64,
+    /// Running, or how it ended.
+    pub running: bool,
+    pub ok: bool,
+    /// "1240 filas", the error…
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct QueriesView {
+    pub running: Vec<QueryRow>,
+    pub recent: Vec<QueryRow>,
 }
 
 /// DBine's answer: `ok` or `error`.
@@ -241,5 +269,8 @@ mod tests {
         let hello: Request = serde_json::from_str(r#"{"id":1,"call":"hello"}"#).unwrap();
         assert_eq!(hello.call, Call::Hello);
         assert_eq!(serde_json::to_string(&Response::error(1, "no")).unwrap(), r#"{"id":1,"error":"no"}"#);
+        // A call's fields sit next to the request's `id`: none may be called that.
+        let c = Request { id: 9, call: Call::CancelQuery { query_id: "q".into() } };
+        assert_eq!(serde_json::from_str::<Request>(&serde_json::to_string(&c).unwrap()).unwrap(), c);
     }
 }
