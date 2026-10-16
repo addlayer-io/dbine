@@ -66,6 +66,9 @@ mimalloc = { version = "0.1", default-features = false }
 # The local MCP server (src/mcp): HTTP on 127.0.0.1, token hashes, its activity log.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 sha2 = "0.10"
+# The phone app (src/link.rs): its channel and the pairing QR code.
+dbine-link = { path = "../crates/dbine-link" }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 getrandom = "0.3"
 rusqlite.workspace = true
 # Scheduled tasks' "Enviar un mail" (SMTP, tasks/mail.rs): rustls with ring
