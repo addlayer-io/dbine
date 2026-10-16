@@ -233,14 +233,27 @@ jobs:
       # memory than the ARM runner has, and the kernel kills rustc without
       # it. Swap only slows that link; the binary is the same.
       - name: Swap
+        shell: python3 {0}
         run: |
-          # The image (Fedora) ships without mkswap and swapon.
-          command -v mkswap >/dev/null || dnf install -y util-linux
-          fallocate -l 16G /host/swap/swapfile
-          chmod 600 /host/swap/swapfile
-          mkswap /host/swap/swapfile
-          swapon /host/swap/swapfile
-          free -h
+          # The image has neither mkswap nor swapon (nor a package manager):
+          # Python writes the swap header (v1, as mkswap does) and calls
+          # swapon(2), which the privileged container is allowed to.
+          import ctypes, os
+          path = "/host/swap/swapfile"
+          size = 16 << 30
+          page = os.sysconf("SC_PAGE_SIZE")
+          fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+          os.posix_fallocate(fd, 0, size)
+          header = bytearray(page)
+          header[1024:1036] = (1).to_bytes(4, "little") + (size // page - 1).to_bytes(4, "little") + bytes(4)
+          header[page - 10:] = b"SWAPSPACE2"
+          os.pwrite(fd, bytes(header), 0)
+          os.fsync(fd)
+          os.close(fd)
+          libc = ctypes.CDLL(None, use_errno=True)
+          if libc.swapon(path.encode(), 0) != 0:
+              raise OSError(ctypes.get_errno(), "swapon " + path)
+          print(open("/proc/swaps").read())
 
       - name: Bundle name
         id: name
