@@ -1,7 +1,8 @@
 name: release
 
 # Push a tag like `v0.2.0` to build DBine for Windows, macOS (Apple
-# Silicon + Intel) and Linux and publish them as a GitHub release. The app
+# Silicon + Intel) and Linux, and its Android phone app (mobile/), and
+# publish them as a GitHub release. The app
 # version is taken from the tag. A manual run (Actions → release → Run
 # workflow) builds everything and keeps the installers as workflow
 # artifacts, without publishing a release.
@@ -326,6 +327,173 @@ jobs:
           path: target/${{ matrix.target }}/release/bundle/
           if-no-files-found: error
 
+  # The phone app (mobile/, its own cargo workspace): a release APK for
+  # arm64, signed here with the app's key (not in Gradle) and checked against
+  # the certificate the app's App Links trust (dbine.com's assetlinks.json).
+  # It builds alongside the desktop jobs; android-upload adds it to their
+  # draft once that exists. Its name, DBine-<version>-android.apk, is what
+  # the phone app's update check and dbine.com/download/android look for.
+  android:
+    needs: route
+    runs-on: ubuntu-24.04
+    env:
+      # The tauri-cli Gradle calls back as `cargo tauri` (the committed
+      # buildSrc/BuildTask.kt), of the same 2.12 line as mobile's tauri crate.
+      TAURI_CLI_VERSION: "2.12.1"
+      ANDROID_PLATFORM: "36"
+      ANDROID_BUILD_TOOLS: "36.0.0"
+      ANDROID_NDK: "27.2.12479018"
+      # SHA-256 of the signing certificate (docs/mobile-companion.md).
+      ANDROID_CERT_SHA256: "12:C1:C2:51:1A:1F:B9:57:A6:39:4D:E7:2E:99:86:55:8C:04:0D:F1:1E:34:6F:6A:07:7B:87:02:9E:BC:83:42"
+    steps:
+      # The whole repo: mobile's build reads web/src/locales (scripts/catalog.py)
+      # and the channel's crate (crates/dbine-link).
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version -> $VERSION"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            mobile/src-tauri/gen/android/*.gradle*
+            mobile/src-tauri/gen/android/app/*.gradle*
+            mobile/src-tauri/gen/android/buildSrc/*.gradle*
+            mobile/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties
+
+      # The runner image has the SDK and its sdkmanager; this adds the exact
+      # platform, build-tools and NDK the app is built with.
+      - name: Android SDK and NDK
+        shell: bash
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$ANDROID_NDK" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS" >> "$GITHUB_PATH"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "mobile/src-tauri -> target"
+          key: aarch64-linux-android
+
+      - name: Cache tauri-cli
+        id: tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: tauri-cli-${{ runner.os }}-${{ env.TAURI_CLI_VERSION }}
+
+      - name: Install tauri-cli
+        if: steps.tauri-cli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install the phone app's dependencies
+        run: npm ci --prefix mobile
+
+      # Release build, arm64 only (--target aarch64): Gradle leaves it
+      # unsigned. The version goes in through --config (versionName = the
+      # tag's version; versionCode derived from it), not by editing the file.
+      - name: Build the APK
+        working-directory: mobile
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: cargo tauri android build --apk --target aarch64 --config "{\"version\":\"$VERSION\"}"
+
+      # Signed outside Gradle: zipalign first (apksigner's v2+ signature
+      # covers the aligned file), then v2 + v3 (minSdk 24 needs no v1). The
+      # keystore only exists in $RUNNER_TEMP for this step.
+      - name: Sign and check the APK
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "::error::Missing secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD: the APK can't be signed."
+            exit 1
+          fi
+          UNSIGNED=mobile/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+          test -f "$UNSIGNED" || { echo "::error::No unsigned APK at $UNSIGNED"; exit 1; }
+          KEYSTORE="$RUNNER_TEMP/dbine-android.jks"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+          mkdir -p android-out
+          APK="android-out/DBine-$VERSION-android.apk"
+          zipalign -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/aligned.apk"
+          apksigner sign --ks "$KEYSTORE" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
+            --v2-signing-enabled true --v3-signing-enabled true \
+            --out "$APK" "$RUNNER_TEMP/aligned.apk"
+          zipalign -c -p 4 "$APK"
+          apksigner verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/verify.txt"
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/verify.txt"
+          # Exactly one signer, and it's the certificate dbine.com's assetlinks.json trusts.
+          WANT="$(printf '%s' "$ANDROID_CERT_SHA256" | tr -d ':' | tr 'A-F' 'a-f')"
+          GOT="$(sed -n 's/^Signer #[0-9]* certificate SHA-256 digest: //p' "$RUNNER_TEMP/verify.txt" | sort -u)"
+          if [ "$GOT" != "$WANT" ]; then
+            echo "::error::The APK's signing certificate SHA-256 is '$GOT', expected '$WANT' (the app's key)."
+            exit 1
+          fi
+          # The phone app compares its versionName with the release's tag.
+          BADGING="$(aapt2 dump badging "$APK" | head -1)"
+          echo "$BADGING"
+          if ! grep -q "package: name='io.addlayer.dbine.mobile' .*versionName='$VERSION'" <<< "$BADGING"; then
+            echo "::error::The APK isn't io.addlayer.dbine.mobile with versionName $VERSION."
+            exit 1
+          fi
+          sha256sum "$APK" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dbine-android
+          path: android-out/*.apk
+          if-no-files-found: error
+          # Tag runs only need it until android-upload has put it in the release.
+          retention-days: ${{ needs.route.outputs.publish == 'true' && 3 || 30 }}
+
+  # The APK into the draft the desktop builds created (the draft exists once
+  # `build` is done). Separate from `android` so that build runs alongside
+  # the desktop ones instead of waiting for them.
+  android-upload:
+    needs: [route, build, android]
+    if: needs.route.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dbine-android
+          path: android-out
+      - name: Upload the APK to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" android-out/DBine-*-android.apk --clobber --repo "$GITHUB_REPOSITORY"
+
   # The `drivers` release holds at most 1000 assets and every release adds
   # the hosts that changed. Once all four targets are published, keep only
   # the hosts the last five app versions download (scripts/prune-driver-
@@ -354,8 +522,10 @@ jobs:
 
   # The release page: this version's changelog (English), then how to
   # download and open the unsigned builds. latest.json keeps the changelog alone.
+  # It waits for the phone app too: a failed Android build or upload leaves
+  # the release a draft, like a failed desktop build.
   release-page:
-    needs: [route, build]
+    needs: [route, build, android-upload]
     if: needs.route.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -376,6 +546,7 @@ jobs:
           - **Windows**: `-setup.exe` (requires WebView2, included in Windows 10/11).
           - **macOS**: `.dmg`; `aarch64` for Apple Silicon, `x64` for Intel.
           - **Linux**: `.AppImage` (portable), `.deb` or `.rpm`.
+          - **Android**: the phone app that pairs with DBine on your computer. Install it from [dbine.com](https://dbine.com/download/android) or with the `-android.apk` below; the first time, Android asks to allow installing apps from that source (the browser or the files app).
           - **Linux (Flatpak)**: `.flatpak` (`x86_64` or `aarch64`), for `flatpak install --user ./dbine-….flatpak`; it doesn't update itself. Built by the `flathub` workflow, it appears here a while after the other files.
 
           Version 0.1.4 and later receive it through the automatic update.
