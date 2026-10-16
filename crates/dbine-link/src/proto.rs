@@ -44,7 +44,8 @@ pub enum Call {
     /// End a session. The phone asks its user first (biometrics or PIN).
     Kill { connection_id: String, database: String, session_id: String },
     /// What happened since the phone's last look: long queries that ended,
-    /// task runs. `after: None` only asks where the list is.
+    /// task runs. `after: None` only asks where the list is; with another
+    /// run's `boot`, all of this run's come back.
     Events { after: Option<u64>, boot: Option<String> },
     /// The scheduled tasks, with their last run.
     Tasks,

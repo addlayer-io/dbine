@@ -56,6 +56,22 @@ export interface HealthView {
   skipped: string[];
 }
 
+export interface QueryRow {
+  id: string;
+  place: string;
+  sql: string;
+  started_at: string;
+  elapsed_ms: number;
+  running: boolean;
+  ok: boolean;
+  summary: string;
+}
+
+export interface QueriesView {
+  running: QueryRow[];
+  recent: QueryRow[];
+}
+
 export interface EventRow {
   seq: number;
   kind: 'query' | 'task';
@@ -123,6 +139,8 @@ type Call =
   | { call: 'processes'; connection_id: string; database: string }
   | { call: 'monitor'; connection_id: string }
   | { call: 'tasks' }
+  | { call: 'queries' }
+  | { call: 'cancel_query'; query_id: string }
   | { call: 'task_runs'; task_id: string }
   | { call: 'run_task'; task_id: string }
   | { call: 'health'; connection_id: string; database: string }
@@ -144,7 +162,8 @@ export const api = {
   tasks: () => ask<TaskItem[]>({ call: 'tasks' }),
   taskRuns: (task_id: string) => ask<RunRow[]>({ call: 'task_runs', task_id }),
   runTask: (task_id: string) => ask<boolean>({ call: 'run_task', task_id }),
-  news: () => invoke<EventRow[]>('news'),
+  queries: () => ask<QueriesView>({ call: 'queries' }),
+  cancelQuery: (query_id: string) => ask<boolean>({ call: 'cancel_query', query_id }),
   kill: (connection_id: string, session_id: string) => ask<boolean>({ call: 'kill', connection_id, database: '', session_id }),
 };
 

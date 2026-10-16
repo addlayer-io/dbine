@@ -10220,5 +10220,9 @@
   "Terminó en {0}": "Terminata in {0}",
   "Terminó en {0} · {1} filas": "Terminata in {0} · {1} righe",
   "Terminó en {0} · {1} filas afectadas": "Terminata in {0} · {1} righe interessate",
-  "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": "questo telefono non ha il permesso di eseguire attività: abilitalo in DBine, Impostazioni › Dispositivi"
+  "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": "questo telefono non ha il permesso di eseguire attività: abilitalo in DBine, Impostazioni › Dispositivi",
+  "--why=Una consulta está en curso": "--why=Una query è in corso",
+  "Terminó en {0} · {1}": "Terminata in {0} · {1}",
+  "este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos": "questo telefono non è autorizzato ad annullare query: abilitalo in DBine, Impostazioni › Dispositivi",
+  "la consulta ya terminó": "la query è già terminata"
 }

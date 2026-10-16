@@ -779,6 +779,7 @@ name = "dbine-mobile"
 version = "0.1.0"
 dependencies = [
  "dbine-link",
+ "jni",
  "serde",
  "serde_json",
  "tauri",

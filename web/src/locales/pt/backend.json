@@ -10220,5 +10220,9 @@
   "Terminó en {0}": "Terminou em {0}",
   "Terminó en {0} · {1} filas": "Terminou em {0} · {1} linhas",
   "Terminó en {0} · {1} filas afectadas": "Terminou em {0} · {1} linhas afetadas",
-  "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": "este celular não tem permissão para executar tarefas: habilite em DBine, Configurações › Dispositivos"
+  "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": "este celular não tem permissão para executar tarefas: habilite em DBine, Configurações › Dispositivos",
+  "--why=Una consulta está en curso": "--why=Uma consulta está em andamento",
+  "Terminó en {0} · {1}": "Terminou em {0} · {1}",
+  "este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos": "este celular não tem permissão para cancelar consultas: habilite no DBine, Configurações › Dispositivos",
+  "la consulta ya terminó": "a consulta já terminou"
 }

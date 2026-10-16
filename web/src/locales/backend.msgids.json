@@ -443,6 +443,9 @@
  "--- {0} caracteres · primer texto a los {1}s · total {2}s": [
   "crates/dbine-ai/examples/ask.rs"
  ],
+ "--why=Una consulta está en curso": [
+  "src-tauri/src/awake.rs"
+ ],
  "--{0} espera un número: {1}": [
   "crates/drivers/etcd/src/lib.rs"
  ],
@@ -20635,10 +20638,7 @@
  "Terminó en {0}": [
   "src-tauri/src/link.rs"
  ],
- "Terminó en {0} · {1} filas": [
-  "src-tauri/src/link.rs"
- ],
- "Terminó en {0} · {1} filas afectadas": [
+ "Terminó en {0} · {1}": [
   "src-tauri/src/link.rs"
  ],
  "Text": [
@@ -25531,6 +25531,9 @@
  "este Solr no tiene seguridad configurada (security.json con los plugins de autenticación y autorización)": [
   "crates/drivers/solr/src/security.rs"
  ],
+ "este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos": [
+  "src-tauri/src/link.rs"
+ ],
  "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": [
   "src-tauri/src/link.rs"
  ],
@@ -27101,6 +27104,9 @@
  ],
  "la consulta superó el límite de {0} s y se canceló": [
   "src-tauri/src/mcp/tools.rs"
+ ],
+ "la consulta ya terminó": [
+  "src-tauri/src/link.rs"
  ],
  "la consulta {0} no terminó en {1} s": [
   "crates/drivers/trino/src/transfer.rs"

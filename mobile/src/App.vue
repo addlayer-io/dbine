@@ -4,16 +4,15 @@ import { api, type ConnectionItem, type Status } from './api';
 import PairView from './views/PairView.vue';
 import ConnectionsView from './views/ConnectionsView.vue';
 import ConnectionView from './views/ConnectionView.vue';
-import TasksView from './views/TasksView.vue';
-import NewsView from './views/NewsView.vue';
+import ActivityView from './views/ActivityView.vue';
 
-// Pairing first; then three sections at the bottom (connections, tasks,
-// notices), and a connection's own screen above them.
+// Pairing first; then two sections at the bottom (connections, activity),
+// and a connection's own screen above them.
 
 const status = ref<Status | null>(null);
 const open = ref<ConnectionItem | null>(null);
 const canKill = ref(false);
-const section = ref<'connections' | 'tasks' | 'news'>('connections');
+const section = ref<'connections' | 'activity'>('connections');
 
 async function refresh() {
   status.value = await api.status();
@@ -41,13 +40,11 @@ onMounted(refresh);
           @open="(c, k) => { open = c; canKill = k; }"
           @unpair="unpaired"
         />
-        <TasksView v-else-if="section === 'tasks'" />
-        <NewsView v-else />
+        <ActivityView v-else />
       </main>
       <nav class="nav">
         <button :class="{ on: section === 'connections' && !open }" @click="section = 'connections'; open = null">{{ $t('nav.connections') }}</button>
-        <button :class="{ on: section === 'tasks' && !open }" @click="section = 'tasks'; open = null">{{ $t('nav.tasks') }}</button>
-        <button :class="{ on: section === 'news' && !open }" @click="section = 'news'; open = null">{{ $t('nav.news') }}</button>
+        <button :class="{ on: section === 'activity' && !open }" @click="section = 'activity'; open = null">{{ $t('nav.activity') }}</button>
       </nav>
     </template>
   </template>

@@ -43,8 +43,7 @@
   },
   "nav": {
     "connections": "Connexions",
-    "tasks": "Tâches",
-    "news": "Avis"
+    "activity": "Activité"
   },
   "tasks": {
     "title": "Tâches planifiées",
@@ -66,15 +65,6 @@
       "failed": "Échec"
     }
   },
-  "news": {
-    "title": "Avis",
-    "intro": "Tant que l'application est ouverte ou en arrière-plan, DBine vous avertit quand une requête de plus de 10 secondes se termine et quand une tâche échoue ou comporte une alerte. Application fermée, rien n'arrive.",
-    "none": "Aucun avis pour le moment.",
-    "kind": {
-      "query": "Requête",
-      "task": "Tâche"
-    }
-  },
   "health": {
     "run": "Vérifier la base",
     "running": "Vérification…",
@@ -82,5 +72,21 @@
     "fine_one": "{{count}} vérification sans problème",
     "fine_many": "{{count}} de vérifications sans problème",
     "fine_other": "{{count}} vérifications sans problème"
+  },
+  "activity": {
+    "title": "Activité",
+    "queries": "Requêtes",
+    "tasks": "Tâches planifiées",
+    "running": "En cours",
+    "recent": "Terminées",
+    "none": "Aucune requête en cours ni terminée récemment.",
+    "cancel": "Annuler",
+    "cancelConfirm": "Annuler cette requête sur l'ordinateur ?\n\n{{sql}}",
+    "cancelReason": "Annuler une requête",
+    "notConfirmed": "Non confirmé : la requête continue.",
+    "cancelled": "L'annulation de la requête a été demandée.",
+    "done": "Terminée avec succès",
+    "startedAt": "Démarrée le {{at}}",
+    "hint": "Ici apparaissent les requêtes que vous exécutez dans l'éditeur de DBine pendant qu'elles tournent, et celles qui ont duré plus de 10 secondes une fois terminées. Si vous l'autorisez, le téléphone vous avertit quand elles se terminent : application ouverte, aussitôt ; application fermée, à la prochaine vérification d'Android (toutes les 15 minutes). Tant qu'une requête dure plus de 30 secondes, DBine empêche l'ordinateur de se mettre en veille."
   }
 }

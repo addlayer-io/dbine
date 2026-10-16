@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# NewsWorker.kt: its native `check` is bound by name to the Rust library
+# (Java_io_addlayer_dbine_mobile_NewsWorker_check), and WorkManager creates
+# it by class name.
+-keep class io.addlayer.dbine.mobile.NewsWorker { *; }

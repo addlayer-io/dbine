@@ -43,8 +43,7 @@
   },
   "nav": {
     "connections": "Conexões",
-    "tasks": "Tarefas",
-    "news": "Avisos"
+    "activity": "Atividade"
   },
   "tasks": {
     "title": "Tarefas agendadas",
@@ -66,15 +65,6 @@
       "failed": "Falhou"
     }
   },
-  "news": {
-    "title": "Avisos",
-    "intro": "Enquanto o app estiver aberto ou em segundo plano, o DBine avisa quando termina uma consulta que levou mais de 10 segundos e quando uma tarefa falha ou tem um alerta. Com o app fechado, os avisos não chegam.",
-    "none": "Sem avisos por enquanto.",
-    "kind": {
-      "query": "Consulta",
-      "task": "Tarefa"
-    }
-  },
   "health": {
     "run": "Verificar o banco",
     "running": "Verificando…",
@@ -82,5 +72,21 @@
     "fine_one": "{{count}} verificação sem problemas",
     "fine_many": "{{count}} de verificações sem problemas",
     "fine_other": "{{count}} verificações sem problemas"
+  },
+  "activity": {
+    "title": "Atividade",
+    "queries": "Consultas",
+    "tasks": "Tarefas agendadas",
+    "running": "Em andamento",
+    "recent": "Concluídas",
+    "none": "Não há consultas em andamento nem concluídas há pouco.",
+    "cancel": "Cancelar",
+    "cancelConfirm": "Cancelar esta consulta no computador?\n\n{{sql}}",
+    "cancelReason": "Cancelar uma consulta",
+    "notConfirmed": "Não foi confirmado: a consulta continua.",
+    "cancelled": "Foi solicitado o cancelamento da consulta.",
+    "done": "Concluída com sucesso",
+    "startedAt": "Começou em {{at}}",
+    "hint": "Aqui aparecem as consultas que você executa no editor do DBine enquanto rodam, e as que levaram mais de 10 segundos quando terminam. Se você permitir, o celular avisa quando terminam: com o app aberto, na hora; com o app fechado, na próxima verificação do Android (a cada 15 minutos). Enquanto uma consulta leva mais de 30 segundos, o DBine não deixa o computador entrar em repouso."
   }
 }

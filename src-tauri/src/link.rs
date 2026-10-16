@@ -695,10 +695,13 @@ impl Inner {
             Call::Events { after, boot } => {
                 let ev = self.events.lock().unwrap();
                 let last = ev.back().map(|e| e.seq).unwrap_or(0);
-                // A phone that knew another run of DBine starts over.
+                // A phone that knew another run of DBine gets all of this
+                // run's: it hasn't seen any of them. One that never looked
+                // only learns where the list is.
                 let after = match (after, boot) {
                     (Some(a), Some(b)) if b == self.boot => Some(a),
-                    _ => None,
+                    (Some(_), _) => Some(0),
+                    (None, _) => None,
                 };
                 let events = after.map(|a| ev.iter().filter(|e| e.seq > a).cloned().collect()).unwrap_or_default();
                 Response::ok(0, &Events { events, last, boot: self.boot.clone() })

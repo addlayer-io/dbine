@@ -8,6 +8,7 @@ import { api, errorText, type RunRow, type TaskItem } from '../api';
 // is, the last runs of one, and "Ejecutar ahora" (allowed per phone on the
 // computer, confirmed here with biometrics or PIN).
 
+defineProps<{ embedded?: boolean }>();
 const canRun = ref(false);
 const { t } = useTranslation();
 const list = ref<TaskItem[] | null>(null);
@@ -72,7 +73,7 @@ onBeforeUnmount(() => timer && clearInterval(timer));
 
 <template>
   <div>
-    <div class="bar">
+    <div v-if="!embedded || open" class="bar">
       <button v-if="open" @click="open = null">‹</button>
       <h1>{{ open ? open.name : $t('tasks.title') }}</h1>
     </div>
