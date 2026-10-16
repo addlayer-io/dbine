@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Improvements
+- **Usage statistics:** when the statistics server doesn't answer or fails, DBine retries for up to an hour instead of dropping the event. Nothing else about what's sent changes, and turning statistics off stops any pending retry.
+
 ## [0.1.13] - 2026-10-16
 
 ### Improvements

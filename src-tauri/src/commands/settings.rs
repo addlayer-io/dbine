@@ -25,6 +25,9 @@ pub async fn set_setting(state: State<'_, AppState>, args: SetSettingArgs) -> Co
     if args.key.starts_with(LOCAL_PREFIX) || args.key.is_empty() {
         return Err(CommandError::BadRequest("clave de configuración inválida".into()));
     }
+    if args.key == "telemetry.consent" {
+        super::telemetry::OPTED_OUT.store(args.value == Some(Value::Bool(false)), std::sync::atomic::Ordering::Relaxed);
+    }
     Ok(state.store.set_setting(&args.key, args.value.as_ref().filter(|v| !v.is_null()))?)
 }
 

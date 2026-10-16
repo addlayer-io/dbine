@@ -60,6 +60,16 @@ The list is fixed in the app's code, not in the interface:
 the four above, any engine that isn't a known driver and any module, feature
 or provider that isn't in its lists.
 
+## When it can't be sent
+
+If Aptabase doesn't answer, answers with a server error or asks to slow down
+(offline, DNS, timeout, 5xx, 429), the event is retried after 1, 2, 3, 5, 8,
+13 and 21 minutes (53 minutes in all), keeping its original time, and then
+dropped. Turning telemetry off stops the pending retries. Other answers (a
+rejected event) aren't retried. Retries live in memory: closing DBine drops
+them. Each failure is logged (`telemetry event not sent…`) without anything
+identifying.
+
 ## Where it is stored
 
 In [Aptabase](https://aptabase.com), an open-source analytics service built
