@@ -2696,6 +2696,9 @@
  "CQL no tiene índices únicos: la unicidad no se controla.": [
   "crates/dbine-schema/src/dialect/cassandra.rs"
  ],
+ "CQL solo ordena por las columnas de clustering y con la clave de partición fija en el filtro: se ordenan las filas cargadas": [
+  "crates/drivers/cassandra/src/ddl.rs"
+ ],
  "CQL: un filtro fuera de la clave primaria necesita ALLOW FILTERING, que recorre la tabla": [
   "src-tauri/src/commands/query_builder.rs"
  ],
@@ -2710,6 +2713,9 @@
  ],
  "CUBRID respalda con la herramienta cubrid backupdb, no con SQL": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "Caches": [
+  "src-tauri/src/identifier.rs"
  ],
  "Caché": [
   "crates/drivers/athena/src/monitor.rs",
@@ -3214,6 +3220,9 @@
  ],
  "Celdas": [
   "crates/drivers/sqlite/src/monitor.rs"
+ ],
+ "Celular": [
+  "src-tauri/src/link.rs"
  ],
  "Cerca del máximo, las conexiones nuevas se rechazan. Revisá si hay aplicaciones que no cierran sus conexiones o subí el límite.": [
   "src-tauri/src/commands/db_health.rs"
@@ -4802,6 +4811,9 @@
  "Cosmos DB no lleva la cuenta del uso de cada índice (las métricas de índices son por consulta): se listan sin contadores.": [
   "crates/drivers/cosmosdb/src/index_usage.rs"
  ],
+ "Cosmos DB ordena en el servidor por un solo campo: varios necesitan un índice compuesto, y se ordena en la grilla": [
+  "crates/drivers/cosmosdb/src/ddl.rs"
+ ],
  "Cosmos DB otorga ALL o READ sobre un contenedor.": [
   "crates/drivers/cosmosdb/src/ddl.rs"
  ],
@@ -4877,6 +4889,9 @@
   "crates/dbine-schema/src/dialect/couchdb.rs"
  ],
  "CouchDB no toma condiciones SQL: se filtran en la grilla": [
+  "crates/drivers/couchdb/src/ddl.rs"
+ ],
+ "CouchDB solo ordena en el servidor por «_id»: otro campo necesita un índice Mango sobre él, y se ordena en la grilla": [
   "crates/drivers/couchdb/src/ddl.rs"
  ],
  "Couchbase": [
@@ -5217,9 +5232,18 @@
  "DBine no otorga permisos sobre objetos «{0}» de Dremio": [
   "crates/drivers/dremio/src/security.rs"
  ],
+ "DBine no respondió": [
+  "crates/dbine-link/src/lib.rs"
+ ],
+ "DBine no se pudo verificar: no es la computadora vinculada": [
+  "crates/dbine-link/src/lib.rs"
+ ],
  "DBine no tiene un driver para «{0}»": [
   "crates/dbine-core/src/conn_import/dbgate.rs",
   "crates/dbine-core/src/conn_import/mod.rs"
+ ],
+ "DBine rechazó la conexión": [
+  "crates/dbine-link/src/lib.rs"
  ],
  "DBine se está ejecutando desde la imagen de disco o desde una copia temporal de macOS: movelo a Aplicaciones y abrilo desde ahí para programar tareas.": [
   "src-tauri/src/tasks/os.rs"
@@ -6570,6 +6594,9 @@
  "DynamoDB siguió rechazando la escritura después de {0} intentos ({1})": [
   "crates/drivers/dynamodb/src/transfer.rs"
  ],
+ "DynamoDB solo ordena por la clave de ordenamiento y con la clave de partición fija en el filtro: se ordenan las filas cargadas": [
+  "crates/drivers/dynamodb/src/ddl.rs"
+ ],
  "Días de Time Travel (DATA_RETENTION_TIME_IN_DAYS)": [
   "crates/drivers/snowflake/src/create_db.rs",
   "crates/drivers/snowflake/src/properties.rs"
@@ -7546,6 +7573,9 @@
  ],
  "Elasticsearch": [
   "crates/drivers/elasticsearch/src/lib.rs"
+ ],
+ "Elasticsearch no ordena por «_id» en el servidor": [
+  "crates/drivers/elasticsearch/src/ddl.rs"
  ],
  "Elasticsearch no permite agregar o sacar un rol suelto: hay que reescribir la lista entera de roles del usuario (PUT /_security/user/<usuario>). Hacelo desde la consola, partiendo de GET /_security/user/<usuario>": [
   "crates/drivers/elasticsearch/src/security.rs"
@@ -9277,6 +9307,9 @@
  "Flux no toma condiciones SQL: se filtran en la grilla": [
   "crates/drivers/influxdb/src/v2.rs"
  ],
+ "Flux ordena todas las columnas en el mismo sentido: con sentidos mezclados se ordenan las filas cargadas": [
+  "crates/drivers/influxdb/src/v2.rs"
+ ],
  "Forbidden": [
   "src-tauri/src/devtools.rs"
  ],
@@ -10353,6 +10386,9 @@
  "InfluxQL ordena solo por time: «{0}» no puede ir en ORDER BY": [
   "src-tauri/src/commands/query_builder.rs"
  ],
+ "InfluxQL solo ordena por time: se ordenan las filas cargadas": [
+  "crates/drivers/influxdb/src/v1.rs"
+ ],
  "Info": [
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/mysql/src/processes.rs",
@@ -10817,6 +10853,7 @@
   "crates/drivers/mysql/src/session.rs"
  ],
  "Keys": [
+  "crates/dbine-link/src/lib.rs",
   "crates/drivers/clickhouse/src/plan.rs",
   "crates/drivers/databricks/src/plan.rs"
  ],
@@ -11853,6 +11890,9 @@
  "Liam": [
   "src-tauri/src/commands/datagen.rs"
  ],
+ "Library": [
+  "src-tauri/src/identifier.rs"
+ ],
  "Libre (bytes)": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
@@ -11968,6 +12008,9 @@
   "crates/drivers/odbc/src/security/sybase.rs",
   "crates/drivers/snowflake/src/security.rs",
   "crates/drivers/sqlserver/src/security.rs"
+ ],
+ "Logs": [
+  "src-tauri/src/identifier.rs"
  ],
  "Londres": [
   "src-tauri/src/commands/datagen.rs"
@@ -13180,6 +13223,9 @@
  ],
  "MongoDB no limita el largo del texto.": [
   "crates/dbine-schema/src/dialect/mongodb.rs"
+ ],
+ "MongoDB no ordena en el servidor por «{0}»: un nombre con «.» o que empieza con «$» no es un campo de primer nivel": [
+  "crates/drivers/mongodb/src/ddl.rs"
  ],
  "MongoDB no permite deshabilitar el ingreso de un usuario: sacale los roles o borralo": [
   "crates/drivers/mongodb/src/security.rs"
@@ -19607,6 +19653,9 @@
  "Solr no lleva una lista de las consultas en curso ni de sesiones: su gestión de tareas (/tasks/list) solo ve, núcleo por núcleo, las consultas que se enviaron con canCancel=true": [
   "crates/drivers/solr/src/lib.rs"
  ],
+ "Solr no ordena en el servidor por «{0}»: su sintaxis de orden solo admite nombres simples (letras, números, «_», «.» y «-»)": [
+  "crates/drivers/solr/src/ddl.rs"
+ ],
  "Solr no renombra campos: hay que agregar el campo nuevo al esquema y reindexar los documentos.": [
   "crates/drivers/solr/src/rename.rs"
  ],
@@ -22835,6 +22884,9 @@
  "activar las versiones del sistema (SYSTEM_VERSIONING)": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "activá «Permitir celulares» primero": [
+  "src-tauri/src/link.rs"
+ ],
  "actualizá git a 2.27 o confirmá tus cambios antes del Pull": [
   "src-tauri/src/commands/projects_git.rs"
  ],
@@ -23057,6 +23109,9 @@
  "caído": [
   "crates/drivers/solr/src/monitor.rs"
  ],
+ "celular no vinculado": [
+  "crates/dbine-link/src/lib.rs"
+ ],
  "cerrar conexiones de otros clientes": [
   "crates/drivers/redis/src/processes.rs"
  ],
@@ -23182,6 +23237,18 @@
  ],
  "con ROW MOVEMENT": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
+ ],
+ "con comillas escapadas en el filtro o en el nombre, ClickHouse no ordena en el servidor": [
+  "crates/drivers/clickhouse/src/schema.rs"
+ ],
+ "con comillas escapadas en el filtro, BigQuery no ordena en el servidor": [
+  "crates/drivers/bigquery/src/ddl.rs"
+ ],
+ "con comillas escapadas en el filtro, Databricks no ordena en el servidor": [
+  "crates/drivers/databricks/src/ddl.rs"
+ ],
+ "con comillas escapadas en el filtro, este motor no ordena en el servidor": [
+  "crates/drivers/odbc/src/design.rs"
  ],
  "con error": [
   "crates/drivers/redis/src/monitor.rs"
@@ -23958,6 +24025,15 @@
  "el contenido de sus columnas grandes (TEXTIMAGE_ON)": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "el código es de otra versión de DBine: actualizá la app": [
+  "crates/dbine-link/src/lib.rs"
+ ],
+ "el código está dañado": [
+  "crates/dbine-link/src/lib.rs"
+ ],
+ "el código está incompleto": [
+  "crates/dbine-link/src/lib.rs"
+ ],
  "el databank": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -24426,6 +24502,9 @@
  "el puerto tiene que estar entre 1024 y 65535": [
   "src-tauri/src/mcp/commands.rs"
  ],
+ "el puerto {0} está en uso por otro programa: elegí otro": [
+  "src-tauri/src/link.rs"
+ ],
  "el puerto {0} está ocupado por otro programa: elegí otro en Configuración › MCP": [
   "src-tauri/src/mcp/mod.rs"
  ],
@@ -24555,6 +24634,9 @@
   "crates/drivers/libsql/src/hrana.rs",
   "crates/drivers/libsql/src/transfer.rs"
  ],
+ "el servidor no respondió en {0} s": [
+  "src-tauri/src/link.rs"
+ ],
  "el servidor no respondió en {0} s leyendo la estructura{1}. Puede estar bloqueado por una transacción o un cambio de estructura en curso; se canceló la consulta, volvé a intentar.": [
   "src-tauri/src/state.rs"
  ],
@@ -24566,6 +24648,9 @@
  ],
  "el servidor no tiene cursores (Hrana 3) y la tabla no tiene rowid": [
   "crates/drivers/libsql/src/transfer.rs"
+ ],
+ "el servidor para celulares no está funcionando": [
+  "src-tauri/src/link.rs"
  ],
  "el servidor perdió el resultado; reconectá": [
   "crates/drivers/phoenix/src/lib.rs",
@@ -24868,6 +24953,9 @@
  ],
  "elegí un modelo integrado": [
   "crates/dbine-ai/src/embedded.rs"
+ ],
+ "elegí un puerto de 1024 en adelante": [
+  "src-tauri/src/link.rs"
  ],
  "elegí una base de datos, un esquema o una tabla: no hay permisos sobre todo el servidor en este motor": [
   "crates/drivers/odbc/src/security.rs"
@@ -25362,6 +25450,9 @@
  "esta base no informa roles (el emulador de Spanner no tiene el control de acceso detallado): {0}": [
   "crates/drivers/spanner/src/security.rs"
  ],
+ "esta computadora no está conectada a una red": [
+  "src-tauri/src/link.rs"
+ ],
  "esta conexión usa solo el protocolo simple de consultas: copiar o comparar datos necesita el protocolo extendido. Si el servidor lo acepta, cambiá «Protocolo de consultas» a Automático en la conexión": [
   "crates/drivers/postgres/src/session.rs"
  ],
@@ -25423,6 +25514,9 @@
  ],
  "este Solr no tiene seguridad configurada (security.json con los plugins de autenticación y autorización)": [
   "crates/drivers/solr/src/security.rs"
+ ],
+ "este celular no tiene permiso para terminar sesiones: se habilita en DBine, Configuración › Dispositivos": [
+  "src-tauri/src/link.rs"
  ],
  "este host incluye varios drivers: indicá cuál con --package": [
   "crates/dbine-plugin-host/src/main.rs"
@@ -26252,6 +26346,12 @@
  "hana: no se pudo cancelar la sentencia: {0}": [
   "crates/drivers/hana/src/lib.rs"
  ],
+ "handshake inválido": [
+  "crates/dbine-link/src/lib.rs"
+ ],
+ "handshake sin clave": [
+  "crates/dbine-link/src/lib.rs"
+ ],
  "hay bytes que no son texto UTF-8 y la columna destino es de texto: no se pueden cargar sin cambiarlos": [
   "crates/drivers/bigquery/src/transfer.rs"
  ],
@@ -26485,6 +26585,9 @@
  ],
  "ksqlDB no tiene DELETE: una fila de una tabla se borra con un tombstone (un registro con valor nulo para su clave) escrito directamente en el topic de Kafka, y los streams solo admiten agregar eventos": [
   "crates/drivers/ksqldb/src/lib.rs"
+ ],
+ "ksqlDB no tiene ORDER BY: las consultas devuelven los eventos en el orden en que llegan; se ordenan las filas cargadas": [
+  "crates/drivers/ksqldb/src/ddl.rs"
  ],
  "ksqlDB no tiene enteros sin signo: BIGINT sin signo como DECIMAL(20, 0).": [
   "crates/dbine-schema/src/dialect/ksqldb.rs"
@@ -26810,6 +26913,9 @@
   "crates/drivers/sqlserver/src/delta.rs"
  ],
  "la columna tiene el elemento completo: se filtra por sus propiedades": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "la columna tiene el elemento completo: se ordena por sus propiedades": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
  "la columna {0} tiene un valor en una fila sin clave de clustering; solo las columnas estáticas pueden tenerlo": [
@@ -27667,6 +27773,9 @@
  "las vistas de CouchDB no filtran por campo: se filtra en la grilla": [
   "crates/drivers/couchdb/src/ddl.rs"
  ],
+ "las vistas de CouchDB vienen ordenadas por su clave: se ordena en la grilla": [
+  "crates/drivers/couchdb/src/ddl.rs"
+ ],
  "las vistas de CouchDB viven en documentos de diseño; se generan con la tabla _all_docs": [
   "crates/drivers/couchdb/src/ddl.rs"
  ],
@@ -27941,6 +28050,9 @@
  "mensaje de {0} bytes: el canal con el driver está roto": [
   "crates/dbine-plugin/src/proto.rs"
  ],
+ "mensaje inválido": [
+  "crates/dbine-link/src/lib.rs"
+ ],
  "mientras se creaba la tabla de paso": [
   "crates/dbine-transfer/src/retry.rs"
  ],
@@ -28119,6 +28231,9 @@
  ],
  "no es un archivo de texto UTF-8": [
   "src-tauri/src/commands/projects.rs"
+ ],
+ "no es un código de DBine": [
+  "crates/dbine-link/src/lib.rs"
  ],
  "no es un número": [
   "crates/drivers/athena/src/transfer.rs",
@@ -28307,6 +28422,9 @@
  ],
  "no hay un catálogo seleccionado": [
   "crates/drivers/databricks/src/lib.rs"
+ ],
+ "no hay un código de vinculación abierto": [
+  "crates/dbine-link/src/lib.rs"
  ],
  "no hay un dataset seleccionado": [
   "crates/drivers/bigquery/src/lib.rs"
@@ -28528,6 +28646,7 @@
   "src-tauri/src/sync.rs"
  ],
  "no se pudo abrir el puerto {0}: {1}": [
+  "src-tauri/src/link.rs",
   "src-tauri/src/mcp/mod.rs"
  ],
  "no se pudo abrir la transacción de lectura: {0}": [
@@ -28566,7 +28685,19 @@
   "crates/drivers/tdengine/src/lib.rs"
  ],
  "no se pudo agregar el orden a la consulta de este objeto": [
-  "crates/dbine-driver/src/lib.rs"
+  "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/bigquery/src/ddl.rs",
+  "crates/drivers/clickhouse/src/schema.rs",
+  "crates/drivers/couchbase/src/ddl.rs",
+  "crates/drivers/databricks/src/ddl.rs",
+  "crates/drivers/elasticsearch/src/ddl.rs",
+  "crates/drivers/influxdb/src/v1.rs",
+  "crates/drivers/influxdb/src/v2.rs",
+  "crates/drivers/influxdb/src/v3.rs",
+  "crates/drivers/iotdb/src/lib.rs",
+  "crates/drivers/mongodb/src/ddl.rs",
+  "crates/drivers/neo4j/src/ddl.rs",
+  "crates/drivers/odbc/src/design.rs"
  ],
  "no se pudo ajustar la identidad «{0}» ({1})": [
   "crates/drivers/sqlserver/src/delta.rs"
@@ -29523,6 +29654,12 @@
  "p. ej. UTC o America/Argentina/Buenos_Aires. Vacío: el valor del servidor (RESET).": [
   "crates/drivers/postgres/src/properties.rs"
  ],
+ "pairing refused (no open invite or too many attempts)": [
+  "src-tauri/src/link.rs"
+ ],
+ "pairing: no confirmation": [
+  "src-tauri/src/link.rs"
+ ],
  "par de claves": [
   "crates/drivers/snowflake/src/security.rs"
  ],
@@ -29788,6 +29925,9 @@
  ],
  "reanudando el warehouse": [
   "crates/drivers/snowflake/src/processes.rs"
+ ],
+ "rechazado o sin respuesta en la computadora": [
+  "src-tauri/src/link.rs"
  ],
  "rechazado por el usuario: no se ejecutó nada": [
   "src-tauri/src/mcp/write.rs"

@@ -30,6 +30,7 @@ import LintSettings from './LintSettings.vue';
 import SnippetSettings from './SnippetSettings.vue';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
+import DevicesSettings from './DevicesSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 import { ALL_ROWS } from '../composables/queryControls';
 
@@ -357,6 +358,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <button :class="{ on: section === 'general' }" @click="section = 'general'"><el-icon><ei-setting /></el-icon>{{ $t('settings:nav.general') }}</button>
         <button :class="{ on: section === 'sync' }" @click="section = 'sync'"><el-icon><ei-upload-filled /></el-icon>{{ $t('settings:nav.sync') }}</button>
         <button :class="{ on: section === 'mcp' }" @click="section = 'mcp'"><el-icon><ei-cpu /></el-icon>{{ $t('mcp:nav') }}</button>
+        <button :class="{ on: section === 'devices' }" @click="section = 'devices'"><el-icon><ei-iphone /></el-icon>{{ $t('devices:nav') }}</button>
         <button :class="{ on: section === 'lint' }" @click="section = 'lint'"><el-icon><ei-circle-check /></el-icon>{{ $t('lint:nav') }}</button>
         <button :class="{ on: section === 'snippets' }" @click="section = 'snippets'"><el-icon><ei-document-copy /></el-icon>{{ $t('snippets:nav') }}</button>
         <button :class="{ on: section === 'mail' }" @click="section = 'mail'"><el-icon><ei-message /></el-icon>{{ $t('mail:nav') }}</button>
@@ -407,6 +409,11 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <!-- The local MCP server (docs/mcp.md) -->
       <section v-else-if="section === 'mcp'" class="st-body">
         <McpSettings />
+      </section>
+
+      <!-- The phone app (docs/mobile-companion.md) -->
+      <section v-else-if="section === 'devices'" class="st-body">
+        <DevicesSettings />
       </section>
 
       <!-- The mail server of the scheduled tasks -->
