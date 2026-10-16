@@ -1,5 +1,12 @@
 # Flathub
 
+> **Status:** DBine isn't on Flathub. The submission was declined, so the
+> workflow's "Pull request on Flathub" step is turned off (`if: false && …`
+> in `.github/workflows/flathub.yml`). Everything else still runs: the
+> manifest is rendered and linted, and the downloadable `.flatpak` bundles
+> are attached to every release. The rest of this page describes the setup
+> for a future submission.
+
 DBine is published on Flathub as `io.addlayer.dbine`. Flathub builds the app
 on its own infrastructure from a manifest kept in
 [flathub/io.addlayer.dbine](https://github.com/flathub/io.addlayer.dbine).

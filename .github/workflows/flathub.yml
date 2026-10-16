@@ -153,8 +153,11 @@ jobs:
           docker run --rm -v "$OUT:/r:ro" --entrypoint appstreamcli ghcr.io/flathub/flatpak-builder-lint:latest \
             validate --no-net --explain "/r/$APP_ID.metainfo.xml"
 
+      # Off while DBine isn't on Flathub (the submission was declined, see
+      # docs/flathub.md): the downloadable .flatpak below still ships with
+      # every release. To submit again, drop `false &&`.
       - name: Pull request on Flathub
-        if: steps.tag.outputs.dry_run != 'true'
+        if: false && steps.tag.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ secrets.FLATHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
