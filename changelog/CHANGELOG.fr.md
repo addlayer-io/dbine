@@ -1,5 +1,13 @@
 # Modifications
 
+## [0.1.14] - 2026-10-17
+
+### Nouveautés
+- **DBine sur votre téléphone (Android) :** dans **Paramètres › Appareils**, activez **Autoriser les téléphones** et associez l'application DBine du téléphone en scannant un code QR, puis confirmez sur l'ordinateur que les deux écrans affichent le même code. Depuis le téléphone, vous voyez le Monitor de chaque connexion, qui bloque qui, les sessions en cours et le bilan de santé d'une base de données ; dans **Activité**, les requêtes que vous exécutez dans l'éditeur de DBine et les tâches planifiées, avec leur détail. Si vous autorisez ce téléphone, terminer une session, annuler une requête, ou exécuter ou annuler une tâche se fait chaque fois avec votre empreinte, votre visage ou votre code PIN. Le téléphone vous avertit quand une requête longue se termine et quand une tâche échoue ou comporte une alerte, même application fermée (toutes les 15 minutes). Vos connexions et vos mots de passe ne quittent jamais l'ordinateur : le téléphone interroge DBine par un canal chiffré de bout en bout.
+- **Accès du téléphone depuis l'extérieur de votre réseau :** désactivé par défaut (réseau local uniquement). Activez-le dans **Paramètres › Appareils › Hors du réseau local**, via votre propre serveur de relais ou les serveurs publics d'iroh, qui voient les adresses IP mais jamais le contenu. Comment il est protégé : [dbine.com/fr/phone-security](https://dbine.com/fr/phone-security).
+- **Les requêtes longues gardent l'ordinateur éveillé :** tant qu'une requête de l'éditeur s'exécute depuis 30 secondes ou plus, DBine empêche l'ordinateur de se mettre en veille, afin que la connexion ne soit pas coupée.
+- **Téléchargement de l'application du téléphone :** l'application du téléphone (Android) est publiée à chaque version et sur dbine.com.
+
 ## [0.1.13] - 2026-10-16
 
 ### Améliorations

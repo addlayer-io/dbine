@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-10-17
+
 ### New
 - **DBine on your phone (Android):** in **Settings › Devices**, turn on **Allow phones** and pair the DBine phone app by scanning a QR code, then confirm on the computer that both screens show the same code. From the phone you see each connection's Monitor, who is blocking whom, the sessions running now and a database's health check; in **Activity**, the queries you run in DBine's editor and the scheduled tasks, with their detail. If you allow that phone, you end a session, cancel a query, or run or cancel a task, each time with your fingerprint, face or PIN. The phone notifies you when a long query finishes and when a task fails or alerts, also with the app closed (every 15 minutes). Your connections and passwords never leave the computer: the phone asks DBine over an end-to-end encrypted channel.
 - **Phone access from outside your network:** off by default (local network only). Turn it on in **Settings › Devices › Outside the local network**, through your own relay server or iroh's public servers, which see IP addresses but never the content. How it's protected: [dbine.com/phone-security](https://dbine.com/en/phone-security).

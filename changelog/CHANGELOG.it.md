@@ -1,5 +1,13 @@
 # Modifiche
 
+## [0.1.14] - 2026-10-17
+
+### Novità
+- **DBine sul tuo telefono (Android):** in **Impostazioni › Dispositivi**, attiva **Consenti telefoni** e associa l'app DBine del telefono scansionando un codice QR; poi conferma sul computer che entrambi gli schermi mostrino lo stesso codice. Dal telefono vedi il Monitor di ogni connessione, chi blocca chi, le sessioni in corso e il controllo di salute di un database; in **Attività**, le query che esegui nell'editor di DBine e le attività pianificate, con il loro dettaglio. Se consenti quel telefono, terminare una sessione, annullare una query, o eseguire o annullare un'attività richiede ogni volta la tua impronta, il volto o il PIN. Il telefono ti avvisa quando termina una query lunga e quando un'attività fallisce o ha un allarme, anche con l'app chiusa (ogni 15 minuti). Le tue connessioni e password non escono dal computer: il telefono chiede a DBine tramite un canale cifrato end-to-end.
+- **Accesso del telefono da fuori della tua rete:** disattivato per impostazione predefinita (solo rete locale). Attivalo in **Impostazioni › Dispositivi › Fuori dalla rete locale**, tramite il tuo server di relay o i server pubblici di iroh, che vedono gli indirizzi IP ma mai il contenuto. Come è protetto: [dbine.com/it/phone-security](https://dbine.com/it/phone-security).
+- **Le query lunghe tengono sveglio il computer:** finché una query dell'editor è in esecuzione da 30 secondi o più, DBine impedisce al computer di andare in stop, così la connessione non cade.
+- **Download dell'app del telefono:** l'app del telefono (Android) viene pubblicata a ogni versione e su dbine.com.
+
 ## [0.1.13] - 2026-10-16
 
 ### Miglioramenti
