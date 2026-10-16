@@ -1,5 +1,13 @@
 # Alterações
 
+## [0.1.14] - 2026-10-17
+
+### Novidades
+- **DBine no seu celular (Android):** em **Configurações › Dispositivos**, ative **Permitir celulares** e vincule o aplicativo do DBine no celular escaneando um código QR; depois confirme no computador que as duas telas mostram o mesmo código. Pelo celular você vê o Monitor de cada conexão, quem está bloqueando quem, as sessões em andamento e a verificação de saúde de um banco de dados; em **Atividade**, as consultas que você executa no editor do DBine e as tarefas agendadas, com seus detalhes. Se você permitir esse celular, encerrar uma sessão, cancelar uma consulta, ou executar ou cancelar uma tarefa exige sempre a sua digital, o rosto ou o PIN. O celular avisa quando uma consulta longa termina e quando uma tarefa falha ou tem um alerta, também com o aplicativo fechado (a cada 15 minutos). Suas conexões e senhas não saem do computador: o celular pergunta ao DBine por um canal criptografado de ponta a ponta.
+- **Acesso do celular de fora da sua rede:** desativado por padrão (somente rede local). Ative em **Configurações › Dispositivos › Fora da rede local**, por meio do seu próprio servidor de retransmissão ou dos servidores públicos do iroh, que veem endereços IP, mas nunca o conteúdo. Como está protegido: [dbine.com/pt/phone-security](https://dbine.com/pt/phone-security).
+- **Consultas longas mantêm o computador ativo:** enquanto uma consulta do editor está em execução há 30 segundos ou mais, o DBine impede que o computador entre em modo de suspensão, para que a conexão não caia.
+- **Download do aplicativo do celular:** o aplicativo do celular (Android) é publicado a cada versão e no dbine.com.
+
 ## [0.1.13] - 2026-10-16
 
 ### Melhorias
