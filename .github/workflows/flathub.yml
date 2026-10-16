@@ -216,6 +216,9 @@ jobs:
         - /usr/share/dotnet:/host/dotnet
         - /usr/local/lib/android:/host/android
         - /opt/ghc:/host/ghc
+        # A host folder for the swap file: swap can't live on the
+        # container's overlay filesystem.
+        - /var/lib/dbine-swap:/host/swap
     timeout-minutes: 300
     env:
       TAG: ${{ needs.manifest.outputs.tag }}
@@ -225,6 +228,17 @@ jobs:
           df -h / || true
           rm -rf /host/dotnet/* /host/android/* /host/ghc/* || true
           df -h / || true
+
+      # The final link (fat LTO, one codegen unit, every driver) needs more
+      # memory than the ARM runner has, and the kernel kills rustc without
+      # it. Swap only slows that link; the binary is the same.
+      - name: Swap
+        run: |
+          fallocate -l 16G /host/swap/swapfile
+          chmod 600 /host/swap/swapfile
+          mkswap /host/swap/swapfile
+          swapon /host/swap/swapfile
+          free -h
 
       - name: Bundle name
         id: name
