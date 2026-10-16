@@ -6,6 +6,8 @@
 - **Apoiar o projeto:** o botão de coração (**Apoiar o projeto**), seu lembrete e **Ajuda › Apoiar o projeto** abrem o Buy Me a Coffee.
 - **Script com dados de tabelas escolhidas:** em **Gerar script do banco**, com **Dados (INSERT)** marcado, você pode manter os dados de todas as tabelas ou escolher quais os recebem, a partir de uma lista com filtro (**Escolher tabelas…**), de modo que o script leve a estrutura de todo o banco e as linhas de apenas algumas tabelas.
 - **Menu do banco:** **Exportar banco…** foi removido. Abria o mesmo diálogo que **Gerar script…**, que continua e faz tudo o que fazia (estrutura, dados e salvar em um arquivo).
+- **Estatísticas de uso:** quando o servidor de estatísticas não responde ou falha, o DBine tenta de novo por até uma hora em vez de descartar o evento. Nada mais do que é enviado muda, e desativar as estatísticas interrompe qualquer nova tentativa pendente.
+- **Download para Flatpak:** cada versão agora inclui um arquivo `.flatpak` para Linux (`x86_64` e `aarch64`), que se instala com `flatpak install --user ./dbine-X.Y.Z-x86_64.flatpak`; o Flatpak baixa sozinho o runtime do GNOME do Flathub. Ele não se atualiza sozinho: instale o arquivo da versão seguinte da mesma forma.
 
 ## [0.1.12] - 2026-10-15
 
