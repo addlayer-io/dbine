@@ -1,6 +1,6 @@
 # Mobile companion (design)
 
-Status: **first version built, on the same network only**. Agreed with the
+Status: **built**: on the local network, and from anywhere through iroh. Agreed with the
 owner on 2026-10-16. What's built is in [First version](#first-version); the
 rest of this page is the design it grows into.
 
@@ -69,11 +69,35 @@ rest of this page is the design it grows into.
   `systemd-inhibit` on Linux, `SetThreadExecutionState` on Windows. Only idle
   sleep is held off: the display still turns off, and closing the lid or
   choosing Sleep still sleeps. Released when no long query runs.
-- **Not yet:** reaching DBine from outside the local network (the paths and
-  the signaling below), alerts as native pushes, the phone's key in the
+- **Outside the local network (iroh):** Configuración › Dispositivos ›
+  **Fuera de la red local** chooses how phones reach DBine when they aren't
+  on its network:
+  - **iroh's public servers** (default): free, run by n0, best effort, no
+    availability guarantee. iroh tries a direct connection first (hole
+    punching, the router's port mapping, IPv6) and goes through a relay when
+    the networks don't allow it; its address lookup finds DBine by its id.
+  - **Own server:** the URL of an `iroh-relay` of one's own (https), one or
+    more. Only that is used: no public relay, no lookup service. The phone
+    dials DBine through it.
+  - **Solo red local:** no iroh endpoint at all.
+
+  DBine's iroh id (its own key, in the vault, `link-iroh-key`) and the own
+  relays go in the QR code (`Invite.remote`); `hello` returns them again, so
+  a phone follows a change of relays without pairing again. The phone tries
+  the local addresses first (2 seconds each) and then iroh, and shows how it
+  got there ("Red local" / "Por internet"). **What a relay sees:** encrypted
+  QUIC packets; the channel's Noise handshake and frames run on top, with
+  the QR code's keys, exactly as on the local network, so a relay (public or
+  own) can't read or forge anything. `crates/dbine-link/src/net.rs`; the
+  end-to-end check over the public relays is
+  `cargo run -p dbine-link --features iroh --example remote` (a plain
+  program: under the test harness iroh's network report doesn't complete on
+  some machines).
+- **Not yet:** alerts as native pushes, the phone's key in the
   Android Keystore / iOS Keychain (today it's in the app's private folder),
   finding DBine again when the computer's address changes (pair again), and
-  iOS builds (only Android is built).
+  iOS builds (only Android is built). The Drive-based design below stays
+  as an alternative for a setup with no relay at all.
 
 Build the APK (Android SDK, NDK 27 and JDK 17):
 
@@ -92,13 +116,17 @@ minute, without remote-desktop software.
 - **The connections never leave the computer.** The phone holds no hosts,
   users, passwords or connection strings. It asks DBine to do something;
   DBine does it with its own sessions and returns the result.
-- **No AddLayer servers.** The only intermediary is the Google Drive or
-  OneDrive account the user already uses for [cloud sync](sync.md), and it
-  only ever sees encrypted bytes. Anything else in the middle (a STUN server)
-  is optional and off by default.
+- **No AddLayer servers.** On the local network nothing is in the middle.
+  Outside it, by default, a phone that can't reach DBine directly goes
+  through **iroh's public relays, run by n0** (a third party): they forward
+  encrypted packets and can't read or forge them, but they do see the IP
+  addresses of both ends and when and how much traffic flows. Anyone who
+  doesn't want that picks their own `iroh-relay` or **Solo red local** in
+  Configuración › Dispositivos. (The original design used the user's Drive
+  as the only intermediary; it stays below as an alternative.)
 - **End-to-end encrypted.** Keys are exchanged through the QR code, so
-  neither Google, Microsoft nor anyone on the network can read or forge
-  traffic, not even with full access to the Drive folder.
+  neither a relay, nor Google or Microsoft, nor anyone on the network can
+  read or forge traffic.
 - **Same rules as MCP.** Each paired phone is a client with its own access
   level per connection, the `prod` and read-only caps, and every action in
   the activity log ([mcp.md](mcp.md)).

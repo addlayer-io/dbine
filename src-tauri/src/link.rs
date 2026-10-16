@@ -22,17 +22,20 @@ use dbine_link::proto::{
     Call, ConnectionItem, EventRow, Events, HealthRow, HealthView, Hello, LockRow, MetricRow, MonitorView, PairResult, ProcessRow, QueriesView, QueryRow, Request, Response, RunRow,
     StepRow, TaskItem,
 };
-use dbine_link::{Accepted, Invite, Keys};
+use dbine_link::net::Relays;
+use dbine_link::{Accepted, BoxIo, Invite, Keys, Remote};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 const SETTING: &str = "local.link";
 const KEYS: &str = "link-keys";
+/// DBine's iroh key (its id from outside the local network).
+const IROH_KEY: &str = "link-iroh-key";
 pub const DEFAULT_PORT: u16 = 27518;
 /// An invite (the QR code) is good for this long, and for one phone.
 const INVITE_LIFE: Duration = Duration::from_secs(120);
@@ -84,11 +87,37 @@ pub struct LinkSettings {
     pub port: u16,
     #[serde(default)]
     pub devices: Vec<Device>,
+    /// Reaching DBine from outside the local network.
+    #[serde(default)]
+    pub remote: RemoteSetting,
 }
 
 impl Default for LinkSettings {
     fn default() -> Self {
-        LinkSettings { enabled: false, port: DEFAULT_PORT, devices: Vec::new() }
+        LinkSettings { enabled: false, port: DEFAULT_PORT, devices: Vec::new(), remote: RemoteSetting::default() }
+    }
+}
+
+/// How phones reach DBine from outside the local network (iroh).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum RemoteSetting {
+    /// iroh's public relays (free, best effort, run by n0).
+    #[default]
+    Public,
+    /// The user's own relays (`iroh-relay`), nothing else.
+    Own { relays: Vec<String> },
+    /// Only the local network.
+    Off,
+}
+
+impl RemoteSetting {
+    fn relays(&self) -> Option<Relays> {
+        match self {
+            RemoteSetting::Public => Some(Relays::Public),
+            RemoteSetting::Own { relays } => Some(Relays::Own(relays.clone())),
+            RemoteSetting::Off => None,
+        }
     }
 }
 
@@ -106,6 +135,13 @@ struct Running {
     task: tauri::async_runtime::JoinHandle<()>,
 }
 
+/// The iroh side: its endpoint once bound, and the loop taking phones.
+struct RunningRemote {
+    setting: RemoteSetting,
+    endpoint: Arc<Mutex<Option<iroh::Endpoint>>>,
+    task: tauri::async_runtime::JoinHandle<()>,
+}
+
 pub struct LinkRuntime {
     inner: Arc<Inner>,
 }
@@ -115,6 +151,8 @@ struct Inner {
     app: Mutex<Option<AppHandle>>,
     server: Mutex<Option<Running>>,
     last_error: Mutex<Option<String>>,
+    remote: Mutex<Option<RunningRemote>>,
+    remote_error: Arc<Mutex<Option<String>>>,
     invite: Mutex<Option<OpenInvite>>,
     /// The pairing waiting for the user's answer.
     pending: Mutex<Option<oneshot::Sender<bool>>>,
@@ -268,6 +306,8 @@ impl LinkRuntime {
                 app: Mutex::new(None),
                 server: Mutex::new(None),
                 last_error: Mutex::new(None),
+                remote: Mutex::new(None),
+                remote_error: Arc::new(Mutex::new(None)),
                 invite: Mutex::new(None),
                 pending: Mutex::new(None),
                 attempts: Mutex::new(VecDeque::new()),
@@ -363,11 +403,12 @@ impl LinkRuntime {
         let keys = self.inner.keys()?;
         let secret: [u8; 32] = dbine_link::random()?;
         let addrs: Vec<String> = lan_address().into_iter().map(|ip| std::net::SocketAddr::new(ip, s.port).to_string()).collect();
-        if addrs.is_empty() {
+        let remote = self.inner.remote_info();
+        if addrs.is_empty() && remote.is_none() {
             return Err("esta computadora no está conectada a una red".into());
         }
         *self.inner.invite.lock().unwrap() = Some(OpenInvite { secret, until: Instant::now() + INVITE_LIFE });
-        Ok(Invite { v: dbine_link::VERSION, key: keys.public, secret: secret.to_vec(), addrs, name: computer_name() }.encode())
+        Ok(Invite { v: dbine_link::VERSION, key: keys.public, secret: secret.to_vec(), addrs, name: computer_name(), remote }.encode())
     }
 
     pub fn cancel_invite(&self) {
@@ -504,6 +545,93 @@ impl Inner {
     /// Listen or stop as the settings say.
     fn apply(self: &Arc<Self>) {
         let s = self.settings();
+        self.apply_local(&s);
+        self.apply_remote(&s);
+    }
+
+    /// Outside the local network: an iroh endpoint while turned on, with
+    /// the chosen relays.
+    fn apply_remote(self: &Arc<Self>, s: &LinkSettings) {
+        let want = s.enabled.then(|| s.remote.clone()).filter(|r| *r != RemoteSetting::Off);
+        let mut remote = self.remote.lock().unwrap();
+        if remote.as_ref().map(|r| &r.setting) == want.as_ref() {
+            return;
+        }
+        if let Some(r) = remote.take() {
+            r.task.abort();
+            if let Some(ep) = r.endpoint.lock().unwrap().take() {
+                tauri::async_runtime::spawn(async move { ep.close().await });
+            }
+        }
+        *self.remote_error.lock().unwrap() = None;
+        let Some(setting) = want else { return };
+        let Some(relays) = setting.relays() else { return };
+        let secret = match self.iroh_secret() {
+            Ok(k) => k,
+            Err(e) => {
+                *self.remote_error.lock().unwrap() = Some(e);
+                return;
+            }
+        };
+        let endpoint = Arc::new(Mutex::new(None));
+        let (me, slot, errors) = (self.clone(), endpoint.clone(), self.remote_error.clone());
+        let task = tauri::async_runtime::spawn(async move {
+            let ep = match dbine_link::net::endpoint(secret, &relays, true).await {
+                Ok(ep) => ep,
+                Err(e) => {
+                    tracing::warn!("phone link (internet) not started: {e}");
+                    *errors.lock().unwrap() = Some(e);
+                    return;
+                }
+            };
+            tracing::info!(id = %ep.id(), "phone link listening through iroh");
+            *slot.lock().unwrap() = Some(ep.clone());
+            while let Some(next) = dbine_link::net::next(&ep).await {
+                let me = me.clone();
+                tauri::async_runtime::spawn(async move {
+                    match next {
+                        Ok(stream) => {
+                            if let Err(e) = me.serve(Box::new(stream)).await {
+                                tracing::info!("phone link connection (internet) closed: {e}");
+                            }
+                        }
+                        Err(e) => tracing::info!("phone link connection (internet) refused: {e}"),
+                    }
+                });
+            }
+        });
+        *remote = Some(RunningRemote { setting, endpoint, task });
+    }
+
+    /// DBine's iroh key, made the first time.
+    fn iroh_secret(&self) -> Result<[u8; 32], String> {
+        use base64::Engine;
+        let b64e = base64::engine::general_purpose::STANDARD;
+        if let Some(k) = dbine_core::secrets::get_raw(IROH_KEY).map_err(|e| e.to_string())?.and_then(|t| b64e.decode(t).ok()).and_then(|v| <[u8; 32]>::try_from(v).ok()) {
+            return Ok(k);
+        }
+        let k = dbine_link::net::new_secret();
+        dbine_core::secrets::set_raw(IROH_KEY, &b64e.encode(k)).map_err(|e| e.to_string())?;
+        Ok(k)
+    }
+
+    /// How a phone reaches DBine from anywhere, while it can.
+    fn remote_info(&self) -> Option<Remote> {
+        let r = self.remote.lock().unwrap();
+        let r = r.as_ref()?;
+        let ep = r.endpoint.lock().unwrap().clone()?;
+        Some(Remote { node: ep.id().to_string(), relays: r.setting.relays().map(|x| x.urls()).unwrap_or_default() })
+    }
+
+    /// The relay DBine is reachable through now, for the settings.
+    fn remote_status(&self) -> (Option<String>, Option<String>) {
+        let ep = self.remote.lock().unwrap().as_ref().and_then(|r| r.endpoint.lock().unwrap().clone());
+        (ep.as_ref().and_then(dbine_link::net::home_relay), self.remote_error.lock().unwrap().clone())
+    }
+
+    /// The local network: the TCP listener while turned on.
+    fn apply_local(self: &Arc<Self>, s: &LinkSettings) {
+        let s = s.clone();
         let mut server = self.server.lock().unwrap();
         let same = server.as_ref().is_some_and(|r| r.port == s.port);
         if s.enabled && same {
@@ -547,7 +675,7 @@ impl Inner {
                 let _ = stream.set_nodelay(true);
                 let me = me.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = me.serve(stream).await {
+                    if let Err(e) = me.serve(Box::new(stream)).await {
                         tracing::info!(%from, "phone link connection closed: {e}");
                     }
                 });
@@ -570,7 +698,7 @@ impl Inner {
         true
     }
 
-    async fn serve(self: Arc<Self>, stream: TcpStream) -> Result<(), String> {
+    async fn serve(self: Arc<Self>, mut stream: BoxIo) -> Result<(), String> {
         let keys = self.keys()?;
         let secret = {
             let mut inv = self.invite.lock().unwrap();
@@ -587,14 +715,12 @@ impl Inner {
                 base64::engine::general_purpose::STANDARD.decode(&d.key).ok()
             })
             .collect();
-        // Rate-limit only what could be a pairing: peek the mode byte.
-        let mut peek = [0u8; 1];
-        stream.peek(&mut peek).await.map_err(|e| e.to_string())?;
-        let pairing = peek[0] == 1;
+        // Rate-limit only what could be a pairing, before any crypto runs.
+        let pairing = dbine_link::read_mode(&mut stream).await?;
         if pairing && (secret.is_none() || !self.allow_pairing()) {
             return Err("pairing refused (no open invite or too many attempts)".into());
         }
-        match dbine_link::accept(stream, &keys, secret.as_ref().map(|s| s.as_slice()), |k| known.iter().any(|x| x == k)).await? {
+        match dbine_link::accept_mode(stream, pairing, &keys, secret.as_ref().map(|s| s.as_slice()), |k| known.iter().any(|x| x == k)).await? {
             Accepted::Paired { channel, hello } => self.pair(channel, hello).await,
             Accepted::Connected(channel) => {
                 let id = dbine_link::fingerprint(&channel.peer);
@@ -613,7 +739,7 @@ impl Inner {
         }
     }
 
-    async fn pair(self: Arc<Self>, mut channel: dbine_link::Channel<TcpStream>, hello: Vec<u8>) -> Result<(), String> {
+    async fn pair(self: Arc<Self>, mut channel: dbine_link::Channel<BoxIo>, hello: Vec<u8>) -> Result<(), String> {
         // The phone proves it read the code: with a wrong secret it can't
         // decrypt our reply and never sends this.
         let ready = tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.map_err(|_| "pairing: no confirmation".to_string())??;
@@ -657,7 +783,7 @@ impl Inner {
         Ok(())
     }
 
-    async fn session(self: Arc<Self>, mut channel: dbine_link::Channel<TcpStream>, id: &str) -> Result<(), String> {
+    async fn session(self: Arc<Self>, mut channel: dbine_link::Channel<BoxIo>, id: &str) -> Result<(), String> {
         let touch = |me: &Arc<Self>| {
             let mut s = me.settings();
             if let Some(d) = s.devices.iter_mut().find(|d| d.id == id) {
@@ -690,7 +816,13 @@ impl Inner {
         Ok(match call {
             Call::Hello => Response::ok(
                 0,
-                &Hello { desktop: computer_name(), version: env!("CARGO_PKG_VERSION").into(), can_kill: device.can_kill, can_run_tasks: device.can_run_tasks },
+                &Hello {
+                    desktop: computer_name(),
+                    version: env!("CARGO_PKG_VERSION").into(),
+                    can_kill: device.can_kill,
+                    can_run_tasks: device.can_run_tasks,
+                    remote: self.remote_info(),
+                },
             ),
             Call::Events { after, boot } => {
                 let ev = self.events.lock().unwrap();
@@ -913,12 +1045,27 @@ pub mod commands {
         pub error: Option<String>,
         pub fingerprint: String,
         pub devices: Vec<Device>,
+        pub remote: RemoteSetting,
+        /// The relay DBine is reachable through now (outside the network).
+        pub remote_relay: Option<String>,
+        pub remote_error: Option<String>,
     }
 
     fn status(rt: &LinkRuntime) -> CommandResult<LinkStatus> {
         let s = rt.settings();
         let (running, error) = rt.status();
-        Ok(LinkStatus { enabled: s.enabled, port: s.port, running, error, fingerprint: rt.desktop_fingerprint().map_err(CommandError::Internal)?, devices: s.devices })
+        let (remote_relay, remote_error) = rt.inner.remote_status();
+        Ok(LinkStatus {
+            enabled: s.enabled,
+            port: s.port,
+            running,
+            error,
+            fingerprint: rt.desktop_fingerprint().map_err(CommandError::Internal)?,
+            devices: s.devices,
+            remote: s.remote,
+            remote_relay,
+            remote_error,
+        })
     }
 
     #[tauri::command(rename_all = "camelCase")]
@@ -930,6 +1077,8 @@ pub mod commands {
     pub struct ConfigureArgs {
         pub enabled: bool,
         pub port: u16,
+        #[serde(default)]
+        pub remote: Option<RemoteSetting>,
     }
 
     #[tauri::command(rename_all = "camelCase")]
@@ -937,9 +1086,18 @@ pub mod commands {
         if args.port < 1024 {
             return Err(CommandError::BadRequest("elegí un puerto de 1024 en adelante".into()));
         }
+        if let Some(RemoteSetting::Own { relays }) = &args.remote {
+            if relays.is_empty() {
+                return Err(CommandError::BadRequest("indicá al menos un servidor de paso".into()));
+            }
+            dbine_link::net::check_relays(relays).map_err(CommandError::BadRequest)?;
+        }
         rt.save(|s| {
             s.enabled = args.enabled;
             s.port = args.port;
+            if let Some(r) = args.remote {
+                s.remote = r;
+            }
         })
         .map_err(CommandError::Internal)?;
         status(&rt)
@@ -1010,12 +1168,13 @@ pub mod commands {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::net::TcpStream;
     use dbine_core::state::SavedConnection;
     use dbine_core::StateStore;
     use dbine_driver::ConnectionConfig;
     use dbine_link::proto::{Call, ConnectionItem, Hello, PairResult, Request, Response};
 
-    async fn ask(ch: &mut dbine_link::Channel<TcpStream>, id: u64, call: Call) -> Response {
+    async fn ask<S: dbine_link::Io>(ch: &mut dbine_link::Channel<S>, id: u64, call: Call) -> Response {
         ch.send_json(&Request { id, call }).await.unwrap();
         let r: Response = ch.recv_json().await.unwrap();
         assert_eq!(r.id, id);
@@ -1053,6 +1212,9 @@ mod tests {
         rt.save(|s| {
             s.enabled = true;
             s.port = port;
+            // The internet path has its own check (dbine-link's `remote`
+            // example): this test stays on this machine.
+            s.remote = RemoteSetting::Off;
         })
         .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;

@@ -8,6 +8,7 @@ export interface Status {
   paired: boolean;
   desktop: string | null;
   fingerprint: string | null;
+  via: 'local' | 'internet' | null;
 }
 
 export interface Hello {

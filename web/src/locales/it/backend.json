@@ -10224,5 +10224,20 @@
   "--why=Una consulta está en curso": "--why=Una query è in corso",
   "Terminó en {0} · {1}": "Terminata in {0} · {1}",
   "este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos": "questo telefono non è autorizzato ad annullare query: abilitalo in DBine, Impostazioni › Dispositivi",
-  "la consulta ya terminó": "la query è già terminata"
+  "la consulta ya terminó": "la query è già terminata",
+  "DBine no respondió por internet": "DBine non ha risposto tramite internet",
+  "el código de DBine no es válido: {0}": "il codice di DBine non è valido: {0}",
+  "el servidor de paso {0} tiene que usar https": "il server di relay {0} deve usare https",
+  "indicá al menos un servidor de paso": "indica almeno un server di relay",
+  "sin stream": "nessuno stream",
+  "«{0}» no es una URL de servidor de paso válida: {1}": "«{0}» non è un URL di server di relay valido: {1}",
+  "no se pudo llegar a DBine ni en la red local ni por internet ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo.": "impossibile raggiungere DBine né sulla rete locale né via internet ({0}). Verifica che DBine sia aperto, con «Consenti telefoni» attivo.",
+  "no se pudo llegar a DBine ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo, y que el celular esté en la misma red.": "impossibile raggiungere DBine ({0}). Verifica che DBine sia aperto, con «Consenti telefoni» attivo, e che il telefono sia sulla stessa rete.",
+  "DBine no aceptó el código: puede haber vencido. Generá uno nuevo en la computadora.": "DBine non ha accettato il codice: potrebbe essere scaduto. Generane uno nuovo sul computer.",
+  "DBine rechazó la conexión: puede que hayan quitado este celular. Vinculalo de nuevo.": "DBine ha rifiutato la connessione: questo telefono potrebbe essere stato rimosso. Collegalo di nuovo.",
+  "este celular no está vinculado": "questo telefono non è collegato",
+  "la computadora no respondió a tiempo": "il computer non ha risposto in tempo",
+  "no hay direcciones": "nessun indirizzo",
+  "se rechazó la vinculación en la computadora": "il collegamento è stato rifiutato sul computer",
+  "{0}. No se reintentó: revisá en DBine si la sesión terminó.": "{0}. Non è stato ritentato: controlla in DBine se la sessione è terminata."
 }

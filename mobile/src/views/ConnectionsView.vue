@@ -13,6 +13,7 @@ const canKill = ref(false);
 const error = ref('');
 const loading = ref(false);
 const filter = ref('');
+const via = ref<'local' | 'internet' | null>(null);
 
 async function load() {
   loading.value = true;
@@ -21,6 +22,7 @@ async function load() {
     const hello = await api.hello();
     canKill.value = hello.can_kill;
     list.value = await api.connections();
+    via.value = (await api.status()).via;
   } catch (e) {
     error.value = errorText(e);
   } finally {
@@ -39,6 +41,7 @@ onMounted(load);
   <div>
     <div class="bar">
       <h1>{{ desktop }}</h1>
+      <span v-if="via" class="via" :class="via">{{ $t(`connections.via.${via}`) }}</span>
       <button :disabled="loading" @click="load">↻</button>
     </div>
     <div class="page">
@@ -68,5 +71,7 @@ onMounted(load);
 .conn { display: flex; align-items: center; gap: 10px; text-align: left; padding: 14px; border: 1px solid var(--border); }
 .conn .name { flex: 1; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.via { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: var(--bg-elev); color: var(--text-dim); white-space: nowrap; }
+.via.internet { color: var(--accent); }
 .foot { margin-top: 24px; display: flex; flex-direction: column; gap: 8px; }
 </style>

@@ -7,7 +7,7 @@
     "connecting": "Connexion…",
     "step1": "Sur l'ordinateur, ouvrez DBine › Paramètres › Appareils.",
     "step2": "Activez « Autoriser les téléphones » et touchez « Associer un téléphone ».",
-    "step3": "Scannez le code qui s'affiche. Le téléphone doit être sur le même réseau.",
+    "step3": "Scannez le code qui s'affiche. Si le téléphone n'est pas sur le même réseau, il se connecte par internet (si DBine l'autorise dans « Hors du réseau local »).",
     "confirmOn": "Confirmez sur « {{desktop}} ».",
     "compare": "Vérifiez que l'ordinateur affiche ce même code :",
     "noCamera": "Sans autorisation d'utiliser l'appareil photo, le code ne peut pas être lu."
@@ -18,7 +18,11 @@
     "loading": "Chargement…",
     "thisPhone": "Ce téléphone : {{code}}",
     "unpair": "Dissocier",
-    "unpairConfirm": "Dissocier ce téléphone ? Pour le réutiliser, il faudra scanner un nouveau code."
+    "unpairConfirm": "Dissocier ce téléphone ? Pour le réutiliser, il faudra scanner un nouveau code.",
+    "via": {
+      "local": "Réseau local",
+      "internet": "Par internet"
+    }
   },
   "conn": {
     "monitor": "Monitor",

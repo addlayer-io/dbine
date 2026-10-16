@@ -5223,6 +5223,9 @@
  "DATETIME guarda milisegundos: se pierden {0} decimales de segundo.": [
   "crates/dbine-schema/src/dialect/graph.rs"
  ],
+ "DBine no aceptó el código: puede haber vencido. Generá uno nuevo en la computadora.": [
+  "mobile/src-tauri/src/lib.rs"
+ ],
  "DBine no administra usuarios ni permisos de este motor por ODBC": [
   "crates/drivers/odbc/src/security.rs"
  ],
@@ -5236,7 +5239,11 @@
   "crates/drivers/dremio/src/security.rs"
  ],
  "DBine no respondió": [
-  "crates/dbine-link/src/lib.rs"
+  "crates/dbine-link/src/lib.rs",
+  "mobile/src-tauri/src/lib.rs"
+ ],
+ "DBine no respondió por internet": [
+  "crates/dbine-link/src/net.rs"
  ],
  "DBine no se pudo verificar: no es la computadora vinculada": [
   "crates/dbine-link/src/lib.rs"
@@ -5247,6 +5254,9 @@
  ],
  "DBine rechazó la conexión": [
   "crates/dbine-link/src/lib.rs"
+ ],
+ "DBine rechazó la conexión: puede que hayan quitado este celular. Vinculalo de nuevo.": [
+  "mobile/src-tauri/src/lib.rs"
  ],
  "DBine se está ejecutando desde la imagen de disco o desde una copia temporal de macOS: movelo a Aplicaciones y abrilo desde ahí para programar tareas.": [
   "src-tauri/src/tasks/os.rs"
@@ -24041,6 +24051,9 @@
  "el contenido de sus columnas grandes (TEXTIMAGE_ON)": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "el código de DBine no es válido: {0}": [
+  "crates/dbine-link/src/net.rs"
+ ],
  "el código es de otra versión de DBine: actualizá la app": [
   "crates/dbine-link/src/lib.rs"
  ],
@@ -24595,6 +24608,9 @@
  ],
  "el servidor de correo {0} rechazó la conexión: revisá el puerto (587 con STARTTLS, 465 con SSL/TLS, 25 sin cifrado)": [
   "src-tauri/src/tasks/mail.rs"
+ ],
+ "el servidor de paso {0} tiene que usar https": [
+  "crates/dbine-link/src/net.rs"
  ],
  "el servidor está corriendo pero no hay modelos cargados": [
   "crates/dbine-ai/src/detect.rs"
@@ -25530,6 +25546,9 @@
  ],
  "este Solr no tiene seguridad configurada (security.json con los plugins de autenticación y autorización)": [
   "crates/drivers/solr/src/security.rs"
+ ],
+ "este celular no está vinculado": [
+  "mobile/src-tauri/src/lib.rs"
  ],
  "este celular no tiene permiso para cancelar consultas: se habilita en DBine, Configuración › Dispositivos": [
   "src-tauri/src/link.rs"
@@ -26489,6 +26508,9 @@
  "inactiva en transacción": [
   "crates/drivers/postgres/src/processes.rs"
  ],
+ "indicá al menos un servidor de paso": [
+  "src-tauri/src/link.rs"
+ ],
  "indicá al menos una región": [
   "crates/drivers/cassandra/src/create_db.rs"
  ],
@@ -27017,6 +27039,9 @@
  ],
  "la compresión": [
   "crates/drivers/iotdb/src/sync.rs"
+ ],
+ "la computadora no respondió a tiempo": [
+  "mobile/src-tauri/src/lib.rs"
  ],
  "la conexión de archivos muestra cada archivo como una vista de solo lectura: las tablas se crean en una base DuckDB.": [
   "crates/dbine-schema/src/dialect/duckdb.rs"
@@ -28419,6 +28444,9 @@
  "no hay de dónde buscar actualizaciones de drivers": [
   "crates/dbine-plugin/src/updater.rs"
  ],
+ "no hay direcciones": [
+  "mobile/src-tauri/src/lib.rs"
+ ],
  "no hay driver '{0}'": [
   "crates/dbine-drivers/src/lib.rs",
   "src-tauri/src/commands/data_compare.rs",
@@ -28508,6 +28536,7 @@
   "crates/drivers/postgres/src/profiler.rs"
  ],
  "no respondió": [
+  "mobile/src-tauri/src/lib.rs",
   "src-tauri/src/tasks/headless.rs"
  ],
  "no respondió en 20 s": [
@@ -29187,6 +29216,12 @@
  ],
  "no se pudo llegar a ADFS: {0}": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "no se pudo llegar a DBine ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo, y que el celular esté en la misma red.": [
+  "mobile/src-tauri/src/lib.rs"
+ ],
+ "no se pudo llegar a DBine ni en la red local ni por internet ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo.": [
+  "mobile/src-tauri/src/lib.rs"
  ],
  "no se pudo llegar a Microsoft Entra ID: {0}": [
   "crates/drivers/sqlserver/src/entra.rs",
@@ -30346,6 +30381,9 @@
  "se quitan las opciones del índice «{0}»: {1}": [
   "crates/dbine-schema/src/convert.rs"
  ],
+ "se rechazó la vinculación en la computadora": [
+  "mobile/src-tauri/src/lib.rs"
+ ],
  "se suspende a los {0} s": [
   "crates/drivers/snowflake/src/health.rs"
  ],
@@ -30489,6 +30527,9 @@
  ],
  "sin signo ": [
   "crates/dbine-schema/src/logical.rs"
+ ],
+ "sin stream": [
+  "crates/dbine-link/src/net.rs"
  ],
  "sin valor por defecto": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
@@ -32465,6 +32506,9 @@
  "{0}. No se pudo confirmar si la última sentencia de la carga terminó: puede confirmarse igual y dejar filas en la tabla. Revisala; la versión Delta anterior a la carga es la {1} (RESTORE TABLE {2} TO VERSION AS OF {3}).": [
   "crates/drivers/databricks/src/transfer.rs"
  ],
+ "{0}. No se reintentó: revisá en DBine si la sesión terminó.": [
+  "mobile/src-tauri/src/lib.rs"
+ ],
  "{0}. OpenSearch no puede agregar a una lista vacía: cargá la primera entrada desde la consola, con PATCH {1} y [{\"op\": \"add\", \"path\": \"/{2}\", \"value\": [ … ]}]": [
   "crates/drivers/elasticsearch/src/security.rs"
  ],
@@ -33522,6 +33566,9 @@
  ],
  "«{0}» no es un valor {1}": [
   "crates/drivers/ksqldb/src/transfer.rs"
+ ],
+ "«{0}» no es una URL de servidor de paso válida: {1}": [
+  "crates/dbine-link/src/net.rs"
  ],
  "«{0}» no es una acción válida de MongoDB (find, insert, update, remove…)": [
   "crates/drivers/mongodb/src/security.rs"
