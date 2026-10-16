@@ -10,7 +10,11 @@
     "step3": "Scannez le code qui s'affiche. Si le téléphone n'est pas sur le même réseau, il se connecte par internet (si DBine l'autorise dans « Hors du réseau local »).",
     "confirmOn": "Confirmez sur « {{desktop}} ».",
     "compare": "Vérifiez que l'ordinateur affiche ce même code :",
-    "noCamera": "Sans autorisation d'utiliser l'appareil photo, le code ne peut pas être lu."
+    "noCamera": "Sans autorisation d'utiliser l'appareil photo, le code ne peut pas être lu.",
+    "fromLink": "Vous allez associer ce téléphone avec « {{desktop}} ». Ensuite, vous confirmez sur cet ordinateur que le code est le même.",
+    "pairLink": "Associer",
+    "scanInstead": "Scanner un autre code",
+    "alreadyPaired": "Ce téléphone est déjà associé avec « {{desktop}} ». Pour l'associer à un autre ordinateur, dissociez-le d'abord."
   },
   "connections": {
     "filter": "Rechercher une connexion",
@@ -92,5 +96,9 @@
     "done": "Terminée avec succès",
     "startedAt": "Démarrée le {{at}}",
     "hint": "Ici apparaissent les requêtes que vous exécutez dans l'éditeur de DBine pendant qu'elles tournent, et celles qui ont duré plus de 10 secondes une fois terminées. Si vous l'autorisez, le téléphone vous avertit quand elles se terminent : application ouverte, aussitôt ; application fermée, à la prochaine vérification d'Android (toutes les 15 minutes). Tant qu'une requête dure plus de 30 secondes, DBine empêche l'ordinateur de se mettre en veille."
+  },
+  "update": {
+    "available": "Une nouvelle version de DBine est disponible ({{version}}).",
+    "download": "Télécharger"
   }
 }

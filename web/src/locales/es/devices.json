@@ -18,7 +18,7 @@
   "remove": "Quitar",
   "removeConfirm": "¿Quitar «{{name}}»? Se desconecta ahora y para volver a usarlo hay que vincularlo de nuevo.",
   "pairTitle": "Vincular un celular",
-  "scan": "En la app de DBine del celular, tocá «Vincular» y escaneá este código.",
+  "scan": "Escanealo con la cámara del celular o desde la app de DBine (Vincular). Si todavía no tenés la app, el código te lleva a descargarla.",
   "expires": "El código vence en {{seconds}} s y sirve para un solo celular.",
   "sameNetwork": "Si el celular está en otra red, se conecta por internet según «Fuera de la red local».",
   "askText": "«{{name}}» quiere vincularse con esta computadora.",

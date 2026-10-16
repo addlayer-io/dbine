@@ -10,7 +10,11 @@
     "step3": "Scansiona il codice che appare. Se il telefono non è sulla stessa rete, si connette tramite internet (se DBine lo permette in «Fuori dalla rete locale»).",
     "confirmOn": "Conferma su «{{desktop}}».",
     "compare": "Controlla che il computer mostri lo stesso codice:",
-    "noCamera": "Senza il permesso di usare la fotocamera non è possibile leggere il codice."
+    "noCamera": "Senza il permesso di usare la fotocamera non è possibile leggere il codice.",
+    "fromLink": "Stai per associare questo telefono con «{{desktop}}». Poi confermi su quel computer che il codice è lo stesso.",
+    "pairLink": "Associa",
+    "scanInstead": "Scansiona un altro codice",
+    "alreadyPaired": "Questo telefono è già associato con «{{desktop}}». Per associarlo a un altro computer, dissocialo prima."
   },
   "connections": {
     "filter": "Cerca connessione",
@@ -92,5 +96,9 @@
     "done": "Terminata con successo",
     "startedAt": "Iniziata il {{at}}",
     "hint": "Qui compaiono le query che esegui nell'editor di DBine mentre sono in corso, e quelle che hanno richiesto più di 10 secondi quando terminano. Se lo permetti, il telefono ti avvisa quando terminano: con l'app aperta, subito; con l'app chiusa, al successivo controllo di Android (ogni 15 minuti). Finché una query dura più di 30 secondi, DBine impedisce al computer di andare in standby."
+  },
+  "update": {
+    "available": "È disponibile una nuova versione di DBine ({{version}}).",
+    "download": "Scarica"
   }
 }

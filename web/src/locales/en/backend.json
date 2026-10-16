@@ -10239,5 +10239,6 @@
   "la computadora no respondió a tiempo": "the computer didn't respond in time",
   "no hay direcciones": "no addresses",
   "se rechazó la vinculación en la computadora": "the link was rejected on the computer",
-  "{0}. No se reintentó: revisá en DBine si la sesión terminó.": "{0}. It was not retried: check in DBine whether the session ended."
+  "{0}. No se reintentó: revisá en DBine si la sesión terminó.": "{0}. It was not retried: check in DBine whether the session ended.",
+  "solo se abren las versiones de DBine": "Only DBine versions are opened"
 }

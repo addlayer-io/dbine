@@ -18,7 +18,7 @@
   "remove": "Remover",
   "removeConfirm": "Remover «{{name}}»? Ele é desconectado agora e, para voltar a usá-lo, é preciso vinculá-lo de novo.",
   "pairTitle": "Vincular um celular",
-  "scan": "No aplicativo do DBine no celular, toque em «Vincular» e escaneie este código.",
+  "scan": "Escaneie com a câmera do celular ou pelo aplicativo do DBine (Vincular). Se você ainda não tem o aplicativo, o código leva você a baixá-lo.",
   "expires": "O código expira em {{seconds}} s e vale para um único celular.",
   "sameNetwork": "Se o celular estiver em outra rede, ele se conecta pela internet conforme «Fora da rede local».",
   "askText": "«{{name}}» quer se vincular a este computador.",
