@@ -346,6 +346,13 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
         e.offset = e.offset.map(|o| pos.at(o));
     }
     out.elapsed_ms = started.elapsed().as_millis() as u64;
+    // A long run from the editor tells the paired phones when it ends.
+    if args.record && args.plan == PlanMode::None && started.elapsed() >= crate::link::LONG_QUERY {
+        use tauri::Manager;
+        if let Some(link) = app.try_state::<crate::link::LinkRuntime>() {
+            link.query_ended(&args.connection_id, &args.database, &out);
+        }
+    }
     if args.record {
         let origin = crate::commands::history::Origin { query_id: args.query_id.clone(), project_id: args.project_id.clone(), file_path: args.file_path.clone() };
         crate::commands::history::record(&state, &args.connection_id, &args.database, &args.sql, started_at, &out, origin);

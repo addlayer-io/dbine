@@ -24,6 +24,7 @@
     "monitor": "Monitor",
     "locks": "Bloqueos",
     "processes": "En curso",
+    "health": "Salud",
     "unsupported": "{{engine}} no informa su estado, bloqueos ni procesos.",
     "noLocks": "No hay sesiones bloqueadas.",
     "noProcesses": "No hay consultas ejecutándose.",
@@ -38,5 +39,46 @@
     "killed": "Se terminó la sesión {{id}}.",
     "notAllowed": "Para terminar sesiones desde este celular, habilitalo en DBine › Configuración › Dispositivos.",
     "engineCantKill": "Esta conexión no permite terminar sesiones (es de solo lectura o el motor no lo admite)."
+  },
+  "nav": {
+    "connections": "Conexiones",
+    "tasks": "Tareas",
+    "news": "Avisos"
+  },
+  "tasks": {
+    "title": "Tareas programadas",
+    "none": "DBine no tiene tareas programadas.",
+    "neverRan": "Todavía no se ejecutó.",
+    "next": "Próxima: {{at}}",
+    "disabled": "Desactivada",
+    "runNow": "Ejecutar ahora",
+    "runConfirm": "¿Ejecutar «{{name}}» ahora en la computadora?",
+    "runReason": "Ejecutar «{{name}}»",
+    "notConfirmed": "No se confirmó: la tarea no se ejecutó.",
+    "started": "La tarea arrancó en la computadora. Cuando termine aparece acá.",
+    "needsApproval": "Esta tarea cambia datos y tiene pasos sin aprobar: se aprueba en DBine, en la computadora.",
+    "notAllowed": "Para ejecutar tareas desde este celular, habilitalo en DBine › Configuración › Dispositivos.",
+    "status": {
+      "running": "En curso",
+      "ok": "Bien",
+      "partial": "Con errores",
+      "failed": "Falló"
+    }
+  },
+  "news": {
+    "title": "Avisos",
+    "intro": "Mientras la app esté abierta o en segundo plano, DBine te avisa cuando termina una consulta que llevó más de 10 segundos y cuando una tarea falla o tiene una alerta. Con la app cerrada no llegan.",
+    "none": "Sin avisos por ahora.",
+    "kind": {
+      "query": "Consulta",
+      "task": "Tarea"
+    }
+  },
+  "health": {
+    "run": "Revisar la base",
+    "running": "Revisando…",
+    "allGood": "No se encontraron problemas.",
+    "fine_one": "{{count}} revisión sin problemas",
+    "fine_other": "{{count}} revisiones sin problemas"
   }
 }

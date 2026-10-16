@@ -10,6 +10,7 @@ export interface Device {
   paired_at: string;
   last_seen: string | null;
   can_kill: boolean;
+  can_run_tasks: boolean;
 }
 
 export interface LinkStatus {
@@ -44,4 +45,5 @@ export const devicesApi = {
   answer: (accept: boolean) => invoke<void>('link_answer', { args: { accept } }),
   remove: (id: string) => invoke<LinkStatus>('link_remove_device', { args: { id } }),
   setCanKill: (id: string, canKill: boolean) => invoke<LinkStatus>('link_set_device', { args: { id, can_kill: canKill } }),
+  setCanRunTasks: (id: string, v: boolean) => invoke<LinkStatus>('link_set_device', { args: { id, can_run_tasks: v } }),
 };

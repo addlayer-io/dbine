@@ -43,6 +43,17 @@ pub enum Call {
     Monitor { connection_id: String },
     /// End a session. The phone asks its user first (biometrics or PIN).
     Kill { connection_id: String, database: String, session_id: String },
+    /// What happened since the phone's last look: long queries that ended,
+    /// task runs. `after: None` only asks where the list is.
+    Events { after: Option<u64>, boot: Option<String> },
+    /// The scheduled tasks, with their last run.
+    Tasks,
+    /// A task's last runs.
+    TaskRuns { task_id: String },
+    /// "Ejecutar ahora". The phone asks its user first.
+    RunTask { task_id: String },
+    /// A database's health check.
+    Health { connection_id: String, database: String },
 }
 
 /// DBine's answer: `ok` or `error`.
@@ -74,6 +85,80 @@ pub struct Hello {
     pub version: String,
     /// It may end sessions (Configuración › Dispositivos).
     pub can_kill: bool,
+    /// It may run scheduled tasks (absent from a DBine before it).
+    #[serde(default)]
+    pub can_run_tasks: bool,
+}
+
+/// Something the phone notifies.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventRow {
+    pub seq: u64,
+    /// "query" or "task".
+    pub kind: String,
+    pub title: String,
+    pub body: String,
+    /// It ended well (no error, no alert).
+    pub ok: bool,
+    pub at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Events {
+    pub events: Vec<EventRow>,
+    /// The newest `seq` (0: none yet).
+    pub last: u64,
+    /// This DBine run: when it changes, `seq` started over.
+    pub boot: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskItem {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub next_run: Option<String>,
+    pub last: Option<RunRow>,
+    /// It changes data and those steps changed since they were approved:
+    /// it only runs after approving it on the computer.
+    pub needs_approval: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunRow {
+    pub id: String,
+    /// "running", "ok", "partial" or "failed".
+    pub status: String,
+    pub trigger: String,
+    pub started_at: String,
+    pub finished_at: String,
+    pub error: Option<String>,
+    pub steps: Vec<StepRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StepRow {
+    pub kind: String,
+    pub status: String,
+    pub summary: String,
+    pub alert: Option<String>,
+}
+
+/// One finding of a health check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HealthRow {
+    pub category: String,
+    pub title: String,
+    /// "ok", "info", "warning" or "critical".
+    pub severity: String,
+    pub detail: Option<String>,
+    pub objects: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HealthView {
+    pub checks: Vec<HealthRow>,
+    pub skipped: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

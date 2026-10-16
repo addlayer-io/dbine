@@ -24,6 +24,7 @@
     "monitor": "Monitor",
     "locks": "Blocchi",
     "processes": "In corso",
+    "health": "Stato",
     "unsupported": "{{engine}} non riporta il suo stato, i blocchi né i processi.",
     "noLocks": "Non ci sono sessioni bloccate.",
     "noProcesses": "Nessuna query in esecuzione.",
@@ -39,5 +40,47 @@
     "killed": "La sessione {{id}} è stata terminata.",
     "notAllowed": "Per terminare sessioni da questo telefono, abilitalo in DBine › Impostazioni › Dispositivi.",
     "engineCantKill": "Questa connessione non consente di terminare sessioni (è in sola lettura o il motore non lo supporta)."
+  },
+  "nav": {
+    "connections": "Connessioni",
+    "tasks": "Attività",
+    "news": "Avvisi"
+  },
+  "tasks": {
+    "title": "Attività pianificate",
+    "none": "DBine non ha attività pianificate.",
+    "neverRan": "Non è ancora stata eseguita.",
+    "next": "Prossima: {{at}}",
+    "disabled": "Disattivata",
+    "runNow": "Esegui ora",
+    "runConfirm": "Eseguire «{{name}}» ora sul computer?",
+    "runReason": "Esegui «{{name}}»",
+    "notConfirmed": "Non confermato: l'attività non è stata eseguita.",
+    "started": "L'attività è partita sul computer. Quando termina compare qui.",
+    "needsApproval": "Questa attività modifica dati e ha passaggi non approvati: si approva in DBine, sul computer.",
+    "notAllowed": "Per eseguire attività da questo telefono, abilitalo in DBine › Impostazioni › Dispositivi.",
+    "status": {
+      "running": "In corso",
+      "ok": "Riuscita",
+      "partial": "Con errori",
+      "failed": "Fallita"
+    }
+  },
+  "news": {
+    "title": "Avvisi",
+    "intro": "Finché l'app è aperta o in background, DBine ti avvisa quando termina una query che ha richiesto più di 10 secondi e quando un'attività fallisce o ha un allarme. Con l'app chiusa non arrivano.",
+    "none": "Nessun avviso per ora.",
+    "kind": {
+      "query": "Query",
+      "task": "Attività"
+    }
+  },
+  "health": {
+    "run": "Controlla il database",
+    "running": "Controllo in corso…",
+    "allGood": "Nessun problema trovato.",
+    "fine_one": "{{count}} controllo senza problemi",
+    "fine_many": "{{count}} di controlli senza problemi",
+    "fine_other": "{{count}} controlli senza problemi"
   }
 }

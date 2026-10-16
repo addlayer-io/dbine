@@ -8817,10 +8817,15 @@
  "Fallos de página": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
+ "Falló después de {0}: {1}": [
+  "src-tauri/src/link.rs"
+ ],
  "Falló.": [
+  "src-tauri/src/link.rs",
   "src-tauri/src/tasks/mod.rs"
  ],
  "Falló: {0}": [
+  "src-tauri/src/link.rs",
   "src-tauri/src/tasks/mod.rs"
  ],
  "False": [
@@ -20620,10 +20625,21 @@
   "crates/drivers/sqlserver/src/backup.rs"
  ],
  "Terminó bien.": [
+  "src-tauri/src/link.rs",
   "src-tauri/src/tasks/mod.rs"
  ],
  "Terminó con errores. {0}": [
+  "src-tauri/src/link.rs",
   "src-tauri/src/tasks/mod.rs"
+ ],
+ "Terminó en {0}": [
+  "src-tauri/src/link.rs"
+ ],
+ "Terminó en {0} · {1} filas": [
+  "src-tauri/src/link.rs"
+ ],
+ "Terminó en {0} · {1} filas afectadas": [
+  "src-tauri/src/link.rs"
  ],
  "Text": [
   "crates/drivers/sqlserver/src/entra.rs"
@@ -25514,6 +25530,9 @@
  ],
  "este Solr no tiene seguridad configurada (security.json con los plugins de autenticación y autorización)": [
   "crates/drivers/solr/src/security.rs"
+ ],
+ "este celular no tiene permiso para ejecutar tareas: se habilita en DBine, Configuración › Dispositivos": [
+  "src-tauri/src/link.rs"
  ],
  "este celular no tiene permiso para terminar sesiones: se habilita en DBine, Configuración › Dispositivos": [
   "src-tauri/src/link.rs"

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { api, duration, errorText, type ConnectionItem, type LockRow, type MonitorView, type ProcessRow } from '../api';
 import MonitorPanel from './MonitorPanel.vue';
+import HealthPanel from './HealthPanel.vue';
 
 // One connection: who blocks whom (the heads first, with what waits on
 // them) and the statements running now, refreshed every few seconds. A
@@ -13,7 +14,7 @@ const props = defineProps<{ conn: ConnectionItem; canKill: boolean }>();
 const emit = defineEmits<{ back: [] }>();
 const { t } = useTranslation();
 
-type Tab = 'monitor' | 'locks' | 'processes';
+type Tab = 'monitor' | 'locks' | 'processes' | 'health';
 const tab = ref<Tab>(props.conn.monitor ? 'monitor' : props.conn.locks ? 'locks' : 'processes');
 const monitor = ref<MonitorView | null>(null);
 const monitorAt = ref(0);
@@ -38,7 +39,7 @@ const chains = computed(() => {
 });
 
 async function load() {
-  if (busy.value) return;
+  if (busy.value || tab.value === 'health') return;
   busy.value = true;
   try {
     if (tab.value === 'monitor') {
@@ -98,6 +99,7 @@ onBeforeUnmount(() => {
       <button :class="{ on: tab === 'monitor' }" :disabled="!conn.monitor" @click="pick('monitor')">{{ $t('conn.monitor') }}</button>
       <button :class="{ on: tab === 'locks' }" :disabled="!conn.locks" @click="pick('locks')">{{ $t('conn.locks') }}</button>
       <button :class="{ on: tab === 'processes' }" :disabled="!conn.processes" @click="pick('processes')">{{ $t('conn.processes') }}</button>
+      <button :class="{ on: tab === 'health' }" @click="pick('health')">{{ $t('conn.health') }}</button>
     </div>
     <div class="page">
       <p v-if="error" class="error">{{ error }}</p>
@@ -105,6 +107,7 @@ onBeforeUnmount(() => {
       <p v-if="!conn.monitor && !conn.locks && !conn.processes" class="muted">{{ $t('conn.unsupported', { engine: conn.engine }) }}</p>
 
       <MonitorPanel v-if="tab === 'monitor'" :view="monitor" :at="monitorAt" />
+      <HealthPanel v-if="tab === 'health'" :connection-id="conn.id" />
 
       <template v-if="tab === 'locks' && locks">
         <p v-if="!chains.length" class="muted">{{ $t('conn.noLocks') }}</p>
@@ -151,7 +154,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .tabs { display: flex; gap: 8px; padding: 10px 16px 0; }
-.tabs button { flex: 1; padding: 10px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); }
+.tabs { overflow-x: auto; }
+.tabs button { flex: 1; padding: 10px 8px; white-space: nowrap; border: 1px solid var(--border); background: transparent; color: var(--text-dim); }
 .tabs button.on { background: var(--bg-elev); color: var(--text-strong); border-color: var(--accent); }
 .chain { display: flex; flex-direction: column; gap: 6px; }
 .head { display: flex; align-items: flex-start; gap: 10px; }

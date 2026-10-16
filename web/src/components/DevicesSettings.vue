@@ -98,6 +98,14 @@ async function remove(d: Device) {
   }
 }
 
+async function setCanRunTasks(d: Device, v: boolean) {
+  try {
+    status.value = await devicesApi.setCanRunTasks(d.id, v);
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  }
+}
+
 async function setCanKill(d: Device, v: boolean) {
   try {
     status.value = await devicesApi.setCanKill(d.id, v);
@@ -150,7 +158,10 @@ onBeforeUnmount(() => {
           <span>{{ $t('devices:pairedAt', { at: d.paired_at }) }}<template v-if="d.last_seen"> · {{ $t('devices:lastSeen', { at: d.last_seen }) }}</template></span>
           <span class="dv-fp">{{ d.id }}</span>
         </div>
-        <el-checkbox :model-value="d.can_kill" @update:model-value="(v: any) => setCanKill(d, !!v)">{{ $t('devices:canKill') }}</el-checkbox>
+        <div class="dv-perms">
+          <el-checkbox :model-value="d.can_kill" @update:model-value="(v: any) => setCanKill(d, !!v)">{{ $t('devices:canKill') }}</el-checkbox>
+          <el-checkbox :model-value="d.can_run_tasks" @update:model-value="(v: any) => setCanRunTasks(d, !!v)">{{ $t('devices:canRunTasks') }}</el-checkbox>
+        </div>
         <el-button size="small" text type="danger" @click="remove(d)">{{ $t('devices:remove') }}</el-button>
       </div>
       <p class="dv-muted">{{ $t('devices:canKillHelp') }}</p>
@@ -194,6 +205,8 @@ onBeforeUnmount(() => {
 .dv-device { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--nm-border-soft); }
 .dv-device:first-of-type { margin-top: 10px; }
 .dv-phone { font-size: 20px; color: var(--nm-text-dim); }
+.dv-perms { display: flex; flex-direction: column; }
+.dv-perms .el-checkbox { height: 24px; }
 .dv-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dv-info span { font-size: 12px; color: var(--nm-text-dim); }
 .dv-fp { font-family: var(--nm-mono); font-size: 11px !important; }

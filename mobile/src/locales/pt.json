@@ -24,6 +24,7 @@
     "monitor": "Monitor",
     "locks": "Bloqueios",
     "processes": "Em andamento",
+    "health": "Saúde",
     "unsupported": "{{engine}} não informa seu estado, bloqueios nem processos.",
     "noLocks": "Não há sessões bloqueadas.",
     "noProcesses": "Não há consultas em execução.",
@@ -39,5 +40,47 @@
     "killed": "A sessão {{id}} foi encerrada.",
     "notAllowed": "Para encerrar sessões deste celular, habilite em DBine › Configurações › Dispositivos.",
     "engineCantKill": "Esta conexão não permite encerrar sessões (é somente leitura ou o motor não oferece suporte)."
+  },
+  "nav": {
+    "connections": "Conexões",
+    "tasks": "Tarefas",
+    "news": "Avisos"
+  },
+  "tasks": {
+    "title": "Tarefas agendadas",
+    "none": "O DBine não tem tarefas agendadas.",
+    "neverRan": "Ainda não foi executada.",
+    "next": "Próxima: {{at}}",
+    "disabled": "Desativada",
+    "runNow": "Executar agora",
+    "runConfirm": "Executar «{{name}}» agora no computador?",
+    "runReason": "Executar «{{name}}»",
+    "notConfirmed": "Não foi confirmado: a tarefa não foi executada.",
+    "started": "A tarefa começou no computador. Quando terminar, aparece aqui.",
+    "needsApproval": "Esta tarefa altera dados e tem etapas sem aprovação: aprove no DBine, no computador.",
+    "notAllowed": "Para executar tarefas deste celular, habilite em DBine › Configurações › Dispositivos.",
+    "status": {
+      "running": "Em andamento",
+      "ok": "Ok",
+      "partial": "Com erros",
+      "failed": "Falhou"
+    }
+  },
+  "news": {
+    "title": "Avisos",
+    "intro": "Enquanto o app estiver aberto ou em segundo plano, o DBine avisa quando termina uma consulta que levou mais de 10 segundos e quando uma tarefa falha ou tem um alerta. Com o app fechado, os avisos não chegam.",
+    "none": "Sem avisos por enquanto.",
+    "kind": {
+      "query": "Consulta",
+      "task": "Tarefa"
+    }
+  },
+  "health": {
+    "run": "Verificar o banco",
+    "running": "Verificando…",
+    "allGood": "Nenhum problema encontrado.",
+    "fine_one": "{{count}} verificação sem problemas",
+    "fine_many": "{{count}} de verificações sem problemas",
+    "fine_other": "{{count}} verificações sem problemas"
   }
 }

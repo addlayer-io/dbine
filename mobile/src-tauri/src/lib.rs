@@ -3,7 +3,7 @@
 //! it). Every request goes to that DBine over `dbine-link`'s encrypted
 //! channel; no connection, host or password ever lives on the phone.
 
-use dbine_link::proto::{Call, PairResult, Request, Response};
+use dbine_link::proto::{Call, EventRow, Events, PairResult, Request, Response};
 use dbine_link::{Channel, Invite, Keys};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -17,8 +17,13 @@ const CONNECT_LIMIT: Duration = Duration::from_secs(5);
 /// The user on the computer has this long to accept the phone (DBine waits
 /// 2 minutes; a bit more here so its answer always arrives).
 const PAIR_ANSWER: Duration = Duration::from_secs(135);
-/// A request waits at most this long (DBine's own limit is 30 s).
-const CALL_LIMIT: Duration = Duration::from_secs(40);
+/// A request waits at most this long (DBine's own limit is 60 s).
+const CALL_LIMIT: Duration = Duration::from_secs(70);
+/// How often the app asks DBine for news (long queries that ended, task
+/// runs) while it's running, in front or behind.
+const NEWS_EVERY: Duration = Duration::from_secs(20);
+/// Notices kept for the "Avisos" screen.
+const NEWS_KEPT: usize = 50;
 
 /// What the phone keeps (in its private app folder).
 #[derive(Clone, Serialize, Deserialize)]
@@ -34,6 +39,11 @@ struct App {
     pairing: Option<Pairing>,
     channel: Option<Channel<TcpStream>>,
     next_id: u64,
+    /// Where the phone is in DBine's list of notices.
+    news_after: Option<u64>,
+    news_boot: Option<String>,
+    /// The latest notices, newest first.
+    news: Vec<EventRow>,
 }
 
 type Shared = Mutex<App>;
@@ -179,18 +189,73 @@ async fn call(state: State<'_, Shared>, call: Call) -> Result<serde_json::Value,
     }
 }
 
+/// The notices received while the app runs, newest first.
+#[tauri::command]
+async fn news(state: State<'_, Shared>) -> Result<Vec<EventRow>, String> {
+    Ok(state.lock().await.news.clone())
+}
+
+/// Ask DBine what's new and turn it into notifications. The first look
+/// after starting (or after DBine restarted) only learns where the list is:
+/// old news isn't news.
+async fn check_news(app: &AppHandle) {
+    use tauri_plugin_notification::NotificationExt;
+    let state = app.state::<Shared>();
+    let mut s = state.lock().await;
+    if s.pairing.is_none() {
+        return;
+    }
+    let call = Call::Events { after: s.news_after, boot: s.news_boot.clone() };
+    let r = match tokio::time::timeout(CALL_LIMIT, ask(&mut s, &call)).await {
+        Ok(Ok(r)) => r,
+        _ => {
+            s.channel = None;
+            return;
+        }
+    };
+    let Some(ev) = r.ok.and_then(|v| serde_json::from_value::<Events>(v).ok()) else { return };
+    let fresh = s.news_boot.as_deref() == Some(ev.boot.as_str());
+    s.news_after = Some(ev.last);
+    s.news_boot = Some(ev.boot);
+    if !fresh {
+        return;
+    }
+    for e in &ev.events {
+        let _ = app.notification().builder().title(&e.title).body(&e.body).show();
+    }
+    let mut all: Vec<EventRow> = ev.events.into_iter().rev().collect();
+    all.append(&mut s.news);
+    all.truncate(NEWS_KEPT);
+    s.news = all;
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init()).plugin(tauri_plugin_biometric::init());
     builder
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let pairing = load(app.handle());
             app.manage::<Shared>(Mutex::new(App { pairing, ..Default::default() }));
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Android 13 and later ask the user once.
+                {
+                    use tauri_plugin_notification::{NotificationExt, PermissionState};
+                    if !matches!(handle.notification().permission_state(), Ok(PermissionState::Granted)) {
+                        let _ = handle.notification().request_permission();
+                    }
+                }
+                loop {
+                    check_news(&handle).await;
+                    tokio::time::sleep(NEWS_EVERY).await;
+                }
+            });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, pair, unpair, call])
+        .invoke_handler(tauri::generate_handler![status, pair, unpair, call, news])
         .run(tauri::generate_context!())
         .expect("error while running DBine mobile");
 }
