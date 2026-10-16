@@ -1,0 +1,187 @@
+# Mobile companion (design)
+
+Status: **design, not built**. Agreed with the owner on 2026-10-16.
+
+A phone app, paired with DBine by scanning a QR code, that lets you look at
+a server and act on it while you're away from the computer: the typical case
+is a blocking alert that arrives while you're out and has to be answered in a
+minute, without remote-desktop software.
+
+## Principles
+
+- **The connections never leave the computer.** The phone holds no hosts,
+  users, passwords or connection strings. It asks DBine to do something;
+  DBine does it with its own sessions and returns the result.
+- **No AddLayer servers.** The only intermediary is the Google Drive or
+  OneDrive account the user already uses for [cloud sync](sync.md), and it
+  only ever sees encrypted bytes. Anything else in the middle (a STUN server)
+  is optional and off by default.
+- **End-to-end encrypted.** Keys are exchanged through the QR code, so
+  neither Google, Microsoft nor anyone on the network can read or forge
+  traffic, not even with full access to the Drive folder.
+- **Same rules as MCP.** Each paired phone is a client with its own access
+  level per connection, the `prod` and read-only caps, and every action in
+  the activity log ([mcp.md](mcp.md)).
+- **Approved on the phone.** **Kill** and every other action that changes
+  something are confirmed on the phone itself, with the device's biometrics
+  or PIN, not in DBine: the point is acting when nobody is at the computer.
+  The activity log records the phone that approved it.
+- **It only works while DBine is open.** Closing DBine closes the door.
+
+## What the phone does
+
+First version, in this order:
+
+1. **Locks:** the blocking tree of a connection and **Kill**, with
+   confirmation (the [Locks](locks.md) panel, which already works on every
+   engine that has locks).
+2. **Processes and long-running statements** ([processes.md](processes.md)).
+3. **Health check** results ([health-check.md](health-check.md)).
+4. **Saved queries:** run one and see the result.
+5. **Scheduled tasks:** last runs and their result.
+
+Free-form query editing comes later, if ever: it isn't what a phone is for.
+
+## Pairing
+
+1. DBine: **Settings › Phone › Pair a phone** shows a QR code.
+2. The phone scans it. The code carries:
+   - DBine's device public key;
+   - a one-time pairing secret that expires in 2 minutes;
+   - DBine's local addresses and port;
+   - the sync provider (Google or Microsoft).
+3. If the phone isn't signed in yet, **Continue with Google / Microsoft**,
+   with the same account as the sync. This is a single tap, done once.
+4. Both sides prove possession of the pairing secret and store each other's
+   public key. From then on, the secret is useless.
+
+A paired phone appears in DBine with a name and can be revoked; revoking it
+cuts any open session and stops it from connecting.
+
+The phone app opens with the device's biometrics or PIN.
+
+## Connecting
+
+The phone and DBine don't need to know where the other one is. Each time the
+phone opens a session, both sides try every path at once and keep the best
+one that answers:
+
+| Order | Path | When it works |
+|---|---|---|
+| 1 | **Same network**: the last known local address, or discovery on the LAN (mDNS) | Same Wi-Fi |
+| 2 | **Direct over IPv6** | Both sides have IPv6 |
+| 3 | **Direct through a port the home router opened** (UPnP / NAT-PMP / PCP) | The router allows it, which most home routers do |
+| 4 | **Direct with simultaneous open** (hole punching) over IPv4 | Most home and office networks; often not on mobile carriers' shared IPv4 |
+| 5 | **Drive mailbox**: requests and responses as encrypted files in the app's folder | Always, with a few seconds per round trip |
+
+### Signaling through Drive
+
+When the phone isn't on the same network, the two sides introduce themselves
+through the app's private folder in the user's account: Google's
+`appDataFolder` or OneDrive's `Apps/DBine`, the same scopes sync already asks
+for (`drive.appdata`, `Files.ReadWrite.AppFolder`).
+
+- The phone writes an **offer**: its candidate addresses, a session id and an
+  epoch number, encrypted and signed with the paired keys.
+- DBine reads it, answers with its own candidates, and both start trying
+  paths 2 to 4 at the same moment.
+- The records are short-lived and deleted after use.
+
+How fast DBine notices an offer depends on how often it reads the folder:
+about every 20 seconds while idle and every 2 seconds while a phone session
+is open or reconnecting. Neither provider can notify a desktop app without a
+public web endpoint, so DBine reads; the quotas leave plenty of room for this.
+
+The provider's sync client (the Drive or OneDrive folder on disk) isn't
+used: it can lag for minutes. Both sides use the provider's API.
+
+### The channel
+
+One protocol on every path: **QUIC** (the `quinn` crate), with each side's
+certificate pinned to the public key from the pairing, not to any
+certificate authority. The Drive mailbox carries the same messages, sealed
+with XChaCha20-Poly1305 under the session keys, as cloud sync already does.
+
+The phone app is built with Tauri 2, so the networking code, the crypto and
+the message types are the same Rust code on both ends.
+
+## Changing networks
+
+Pair at home on Wi-Fi, walk out, the phone jumps to mobile data: the session
+must survive it without the user doing anything.
+
+- **The session isn't tied to a path.** Its identity is the paired keys and
+  the session id, not an address. Changing paths doesn't mean logging in
+  again or losing what was on screen.
+- **QUIC migrates on its own** when only the phone's address changed and the
+  new address can still reach DBine (for example, IPv6 on both networks): the
+  connection carries on with the same keys, no new handshake.
+- **When the old path dies:**
+  - The phone hears about the network change from the system (iOS
+    `NWPathMonitor`, Android `ConnectivityManager`) and doesn't wait for a
+    timeout. Without that signal, three missed keepalives (one every 5
+    seconds) mark the path as dead.
+  - It immediately starts using the **Drive mailbox**, so requests keep
+    flowing, only slower.
+  - At the same time, it writes a new offer with a higher epoch. DBine
+    answers with fresh candidates and both try paths 2 to 4 again.
+  - When a direct path answers, traffic moves back to it. The mailbox stays
+    as the fallback.
+- **DBine can move too** (a laptop that changes networks): the same
+  mechanism works the other way round, and DBine publishes its new
+  candidates.
+- **Nothing runs twice and nothing is lost:**
+  - Every request has an id. DBine runs each id at most once and keeps its
+    result for 10 minutes.
+  - After reconnecting, the phone asks for the results of the ids it didn't
+    receive, instead of sending them again.
+  - This matters most for **Kill**: a reconnect never kills a second
+    session, and the phone shows whether the kill it asked for happened.
+- **The user sees the path:** "Same network", "Direct", "Through Drive
+  (slower)" or "Reconnecting…", so a slower answer has an explanation.
+
+## Alerts
+
+Native push needs a server that holds AddLayer's Apple and Google signing
+keys, which can't ship inside open-source code. Without AddLayer servers,
+alerts go through channels the user already has:
+
+- a **Watch** step for scheduled tasks (they already run with DBine closed)
+  that checks rules per connection and raises an alert:
+  - a session blocking others for more than N seconds;
+  - a statement running for more than N minutes;
+  - the connection not answering;
+  - free space under a threshold;
+  - a failed server job or backup;
+  - replication lag over N seconds;
+- delivered by **email** (the existing SMTP step), **Teams**, **Slack** or
+  **Telegram**;
+- once when the problem starts and once when it clears, never once a minute
+  while it lasts;
+- with a summary only: connection, rule, duration, sessions affected. The
+  statement text is opt-in, because the message goes through that channel's
+  servers.
+
+Each rule exists only on the engines that have the capability, as with every
+feature ([engine-support.md](engine-support.md)).
+
+From the alert, the user opens the phone app, which connects as above.
+
+## Order of work
+
+1. The **Watch** step and its channels: useful on its own, with or without
+   the phone.
+2. The pairing and the channel in DBine, with the Drive mailbox first: it
+   always works, and it's the fallback everything else relies on.
+3. The phone app (iOS and Android) with locks and Kill.
+4. The direct paths (LAN, IPv6, router port, hole punching) and network
+   changes.
+5. The rest of the views.
+
+## To verify before building
+
+- That an iOS/Android OAuth client in the same Google Cloud project shares
+  `appDataFolder` with the desktop client, and the same for one Microsoft app
+  registration across platforms.
+- Drive and Graph API quotas for a 2-second read while a session is open.
+- App Store and Play Store review for an app that controls a desktop app.
