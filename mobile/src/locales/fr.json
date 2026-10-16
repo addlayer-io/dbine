@@ -56,7 +56,8 @@
       "client": "Client",
       "object": "Objet",
       "waitsFor": "Attend"
-    }
+    },
+    "loading": "Interrogation de {{engine}}…"
   },
   "nav": {
     "connections": "Connexions",
