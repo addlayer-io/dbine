@@ -448,7 +448,7 @@ jobs:
           zipalign -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/aligned.apk"
           apksigner sign --ks "$KEYSTORE" --ks-key-alias "$ANDROID_KEY_ALIAS" \
             --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
-            --v2-signing-enabled true --v3-signing-enabled true \
+            --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false \
             --out "$APK" "$RUNNER_TEMP/aligned.apk"
           zipalign -c -p 4 "$APK"
           apksigner verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/verify.txt"
@@ -461,7 +461,8 @@ jobs:
             exit 1
           fi
           # The phone app compares its versionName with the release's tag.
-          BADGING="$(aapt2 dump badging "$APK" | head -1)"
+          # sed, not head: head would close the pipe early and fail under pipefail.
+          BADGING="$(aapt2 dump badging "$APK" | sed -n 1p)"
           echo "$BADGING"
           if ! grep -q "package: name='io.addlayer.dbine.mobile' .*versionName='$VERSION'" <<< "$BADGING"; then
             echo "::error::The APK isn't io.addlayer.dbine.mobile with versionName $VERSION."

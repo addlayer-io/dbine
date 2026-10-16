@@ -101,12 +101,46 @@ rest of this page is the design it grows into.
   iOS builds (only Android is built). The Drive-based design below stays
   as an alternative for a setup with no relay at all.
 
-Build the APK (Android SDK, NDK 27 and JDK 17):
+Build the APK (JDK 17, Android SDK platform and build-tools 36, NDK
+27.2.12479018, the Rust target `aarch64-linux-android` and `tauri-cli`
+2.12, since Gradle calls back `cargo tauri`). `mobile/` is its own cargo
+workspace; its frontend build reads `web/src/locales`, so it needs the whole
+repo:
 
 ```sh
-cd mobile && npm install
+cd mobile && npm ci
 JAVA_HOME=… ANDROID_HOME=… NDK_HOME=… cargo tauri android build --debug --apk --target aarch64
 ```
+
+**Releases.** Every release publishes the phone app with the desktop
+installers (`.github/workflows/release.yml`, jobs `android` and
+`android-upload`):
+
+- `cargo tauri android build --apk --target aarch64 --config '{"version":"X.Y.Z"}'`
+  from `mobile/` (release, arm64 only), with the tag's version: the APK's
+  `versionName` is the tag's version, which the app's update check compares.
+  Gradle leaves it unsigned at
+  `mobile/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk`.
+- It is signed outside Gradle: `zipalign -p 4`, then `apksigner sign` (v2 and
+  v3) with the keystore from the secrets `ANDROID_KEYSTORE_BASE64`,
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`dbine`) and
+  `ANDROID_KEY_PASSWORD`, decoded into the runner's temp folder only for that
+  step.
+- `apksigner verify --print-certs` must show a single signer whose
+  certificate SHA-256 is
+  `12:C1:C2:51:1A:1F:B9:57:A6:39:4D:E7:2E:99:86:55:8C:04:0D:F1:1E:34:6F:6A:07:7B:87:02:9E:BC:83:42`
+  (the one in dbine.com's `/.well-known/assetlinks.json`, which App Links
+  check), and `aapt2 dump badging` must show `io.addlayer.dbine.mobile` with
+  the tag's `versionName`; otherwise the job fails and the release stays a
+  draft.
+- The asset is `DBine-<version>-android.apk`, uploaded to the release's
+  draft once the desktop builds created it. The app looks for an asset
+  ending in `-android.apk` in GitHub's latest release, and
+  `dbine.com/download/android` redirects to it. A manual run keeps it as the
+  workflow artifact `dbine-android`.
+- Changing the signing key breaks updates over installed apps (Android
+  refuses an APK signed by another key) and the App Links: the fingerprint
+  changes here, in `release.yml` and in dbine.com's Worker together.
 
 A phone app, paired with DBine by scanning a QR code, that lets you look at
 a server and act on it while you're away from the computer: the typical case
