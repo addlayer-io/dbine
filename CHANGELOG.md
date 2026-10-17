@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-10-17
+
+### Improvements
+- **Signed on macOS:** the macOS app is signed with an Apple Developer ID and notarized by Apple, so it opens without the "can't verify the developer" warning or any terminal command. The first time the signed version opens, macOS asks once whether DBine may use its key in the keychain: choose **Always Allow**.
+
+### Fixes
+- **Server monitor:** its figures, tables and notes are translated in every engine, instead of showing some labels in Spanish.
+- **AI assistant and optimizer:** the instructions to the model are in the interface's language, so a local model answers in that language instead of in Spanish. The line that tells what was sent to the model is translated too.
+
 ## [0.1.14] - 2026-10-17
 
 ### New

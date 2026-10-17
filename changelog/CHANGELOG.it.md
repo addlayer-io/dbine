@@ -1,5 +1,14 @@
 # Modifiche
 
+## [0.1.15] - 2026-10-17
+
+### Miglioramenti
+- **Firmata su macOS:** l'app per macOS è firmata con un Apple Developer ID e notarizzata da Apple, quindi si apre senza l'avviso «impossibile verificare lo sviluppatore» né alcun comando da terminale. La prima volta che si apre la versione firmata, macOS chiede una sola volta se DBine può usare la propria chiave nel portachiavi: scegli **Consenti sempre**.
+
+### Correzioni
+- **Monitor del server:** le sue cifre, tabelle e note sono tradotte in tutti i motori, invece di mostrare alcune etichette in spagnolo.
+- **Assistente IA e ottimizzatore:** le istruzioni al modello sono nella lingua dell'interfaccia, così un modello locale risponde in quella lingua invece che in spagnolo. Anche la riga che indica cosa è stato inviato al modello è tradotta.
+
 ## [0.1.14] - 2026-10-17
 
 ### Novità
