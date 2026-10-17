@@ -1242,19 +1242,26 @@ mod tests {
             .unwrap();
         let rt = LinkRuntime::new(state);
         *rt.inner.keys.lock().unwrap() = Some(Keys::generate().unwrap());
-        let port = { std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port() };
-
         // Off: no invite, nothing listening.
         assert!(rt.invite().is_err());
-        rt.save(|s| {
-            s.enabled = true;
-            s.port = port;
-            // The internet path has its own check (dbine-link's `remote`
-            // example): this test stays on this machine.
-            s.remote = RemoteSetting::Off;
-        })
-        .unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // A free port can be taken by another process before DBine binds
+        // it: try another one then.
+        let mut port = 0;
+        for _ in 0..5 {
+            port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+            rt.save(|s| {
+                s.enabled = true;
+                s.port = port;
+                // The internet path has its own check (dbine-link's `remote`
+                // example): this test stays on this machine.
+                s.remote = RemoteSetting::Off;
+            })
+            .unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if rt.status().0 {
+                break;
+            }
+        }
         assert!(rt.status().0, "{:?}", rt.status());
         let invite = Invite::decode(&rt.invite().unwrap()).unwrap();
         let addr = format!("127.0.0.1:{port}");
