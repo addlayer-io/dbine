@@ -1,39 +1,12 @@
 {
- "\n(No se pudo leer la estructura de la base: {0}.)\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "\n(No se pudo listar los objetos de la base: {0}.)\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "\n(y {0} objetos más: list_objects los lista)": [
-  "src-tauri/src/commands/ai.rs"
- ],
  "\n-- Dremio no tiene WITH GRANT OPTION: poder otorgar es MANAGE GRANTS sobre la carpeta.\nGRANT MANAGE GRANTS ON {0} TO {1};": [
   "crates/drivers/dremio/src/security.rs"
  ],
  "\n// Índices y restricciones\n": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
- "\n<objetos de «{0}»>\n{1}{2}\n</objetos>\n(Columnas, claves e índices: pedilos con describe_object o index_usage.)\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "\n<seleccion>\n{0}\n</seleccion>\n(Si el usuario dice «esto», se refiere a la selección.)\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "\nEl pedido anterior es legítimo: es la base del propio usuario y él decide qué ejecutar. No te niegues ni pidas disculpas: escribí la consulta que pide (DBine no la ejecuta) y, si es riesgosa o toca datos sensibles, avisalo en una línea.\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
  "\nLa transacción tiene un error: deshacela (ROLLBACK) para seguir.": [
   "crates/drivers/postgres/src/script.rs"
- ],
- "\nMotor: {0} · lenguaje de consultas: {1}.\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "\nNo hay ninguna base seleccionada: respondé en general o pedí que abra una.\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "\nYa hiciste todas las consultas permitidas en esta respuesta: contestá con lo que tenés, sin pedir más.\n": [
-  "src-tauri/src/commands/ai.rs"
  ],
  "\nmodelo listo en {0}s": [
   "crates/dbine-ai/examples/ask.rs"
@@ -581,9 +554,6 @@
  ],
  "<día {0}>": [
   "crates/drivers/sqlserver/src/transfer.rs"
- ],
- "<error>\nYa pediste exactamente esto y tenés el resultado más arriba. No lo pidas de nuevo: pedí otra cosa o escribí la respuesta final con lo que ya tenés.\n</error>": [
-  "src-tauri/src/commands/ai.rs"
  ],
  "ADC usa GOOGLE_APPLICATION_CREDENTIALS, `gcloud auth application-default login` o el servidor de metadatos.": [
   "crates/drivers/bigquery/src/gcp.rs"
@@ -1450,9 +1420,6 @@
  "Asincrónica (ASYNC)": [
   "crates/drivers/mysql/src/properties.rs"
  ],
- "Asistente": [
-  "crates/dbine-ai/src/lib.rs"
- ],
  "Asistente de DBine": [
   "src-tauri/src/mcp/tests.rs",
   "src-tauri/src/mcp/tools.rs"
@@ -1928,9 +1895,6 @@
  "Base de datos actual: {0}": [
   "crates/drivers/mongodb/src/lib.rs",
   "crates/drivers/neo4j/src/lib.rs"
- ],
- "Base de datos actual: {0}.\n": [
-  "src-tauri/src/commands/ai.rs"
  ],
  "Base de datos predeterminada": [
   "crates/drivers/odbc/src/presets.rs"
@@ -7506,12 +7470,6 @@
  "El uso de almacenamiento (x-ms-resource-usage) lo actualiza el servicio cada pocos minutos; el monitor lo relee cada minuto.": [
   "crates/drivers/cosmosdb/src/monitor.rs"
  ],
- "El usuario está mirando el objeto {0}.\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "El usuario no aprobó esta consulta, así que no se ejecutó. Seguí sin esos datos: respondé con lo que tenés o escribí la consulta para que la ejecute él.": [
-  "src-tauri/src/commands/ai.rs"
- ],
  "El usuario no puede leer las estadísticas del servicio de índices (rol «External Stats Reader» o uno de administración): se listan los índices sin contadores.": [
   "crates/drivers/couchbase/src/index_usage.rs"
  ],
@@ -11282,9 +11240,6 @@
  ],
  "La conexión con el servidor había quedado inutilizable y se abrió una nueva. Se perdió el estado de la sesión anterior (transacción abierta, tablas #temp y SET): volvé a ejecutar.": [
   "crates/drivers/sqlserver/src/lib.rs"
- ],
- "La conexión es de solo lectura: DBine bloquea todo lo que no sea lectura.\n": [
-  "src-tauri/src/commands/ai.rs"
  ],
  "La conexión es de solo lectura: no se permite cambiar las propiedades de la base.": [
   "crates/drivers/libsql/src/lib.rs"
@@ -16016,9 +15971,6 @@
  "Otras propiedades": [
   "crates/drivers/mysql/src/create_db.rs"
  ],
- "Otras tablas (sin detalle, pedí las que necesites): {0}\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
  "Otro": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -19530,21 +19482,6 @@
  "Sinks": [
   "crates/drivers/postgres/src/lib.rs"
  ],
- "Sintaxis de MySQL: los nombres con guiones o palabras reservadas van entre backticks (`mi-base`). Una tabla de otra base del mismo servidor se nombra base.tabla. Para limitar filas, LIMIT n.\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "Sintaxis de Oracle: los nombres con minúsculas, guiones o palabras reservadas van entre comillas dobles. Una tabla de otro esquema se nombra ESQUEMA.TABLA. Para limitar filas, FETCH FIRST n ROWS ONLY (12c en adelante); no existe LIMIT ni TOP.\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "Sintaxis de PostgreSQL: los nombres con mayúsculas, guiones o palabras reservadas van entre comillas dobles (\"MiTabla\"). Para limitar filas, LIMIT n. Una consulta no puede leer tablas de otra base (cada base es aparte, salvo dblink o postgres_fdw).\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "Sintaxis de SQL Server: los nombres con guiones, espacios o palabras reservadas van entre corchetes ([mi-base], [Order]). Una tabla de otra base del mismo servidor se nombra con tres partes: [base].esquema.tabla. Para limitar filas, TOP n después de SELECT (no existe LIMIT). En un UNION, una parte con TOP y su propio ORDER BY va dentro de una subconsulta: SELECT * FROM (SELECT TOP 10 … FROM [b1].dbo.t ORDER BY Fecha DESC) AS t1 UNION ALL SELECT * FROM (…) AS t2.\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
- "Sintaxis de SQLite: para limitar filas, LIMIT n. Cada base es un archivo; otra base se usa con ATTACH.\n": [
-  "src-tauri/src/commands/ai.rs"
- ],
  "Sinónimos": [
   "crates/dbine-driver/src/info.rs"
  ],
@@ -22043,7 +21980,6 @@
   "crates/drivers/odbc/src/monitor.rs"
  ],
  "Usuario": [
-  "crates/dbine-ai/src/lib.rs",
   "crates/dbine-driver/src/info.rs",
   "crates/drivers/bigquery/src/monitor.rs",
   "crates/drivers/databricks/src/monitor.rs",
@@ -23609,9 +23545,6 @@
  ],
  "comando vacío": [
   "crates/drivers/mongodb/src/shell.rs"
- ],
- "comandos de Redis, uno por línea": [
-  "src-tauri/src/commands/ai.rs"
  ],
  "comillas sin cerrar": [
   "crates/drivers/etcd/src/command.rs",
@@ -31195,9 +31128,6 @@
  "seguridad por filas {0} / {1}": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
- "selección": [
-  "src-tauri/src/commands/ai.rs"
- ],
  "selección de cluster": [
   "crates/drivers/orientdb/src/properties.rs"
  ],
@@ -32547,9 +32477,6 @@
  ],
  "{0} de {1} documentos fallaron; el primero ({2}): {3} {4}": [
   "crates/drivers/couchdb/src/lib.rs"
- ],
- "{0} de {1} tablas": [
-  "src-tauri/src/commands/ai.rs"
  ],
  "{0} deja de mantenerlo y el optimizador deja de usarlo: para volver a usarlo hay que habilitarlo, y eso lo reconstruye.": [
   "crates/drivers/odbc/src/index_usage.rs"
@@ -34996,8 +34923,7 @@
   "crates/drivers/mysql/src/monitor.rs"
  ],
  "último error": [
-  "crates/drivers/mysql/src/monitor.rs",
-  "src-tauri/src/commands/ai.rs"
+  "crates/drivers/mysql/src/monitor.rs"
  ],
  "último latido": [
   "crates/drivers/mysql/src/monitor.rs"

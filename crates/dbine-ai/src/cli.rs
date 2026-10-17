@@ -197,7 +197,7 @@ pub async fn claude(req: &ChatRequest, on_delta: OnDelta<'_>) -> Result<String> 
         args.push("--model".into());
         args.push(m.clone());
     }
-    run(&bin, &args, &scratch.0, &transcript(&req.messages), parse_claude, on_delta, "Claude Code").await
+    run(&bin, &args, &scratch.0, &transcript(&req.messages, req.lang), parse_claude, on_delta, "Claude Code").await
 }
 
 pub async fn codex(req: &ChatRequest, on_delta: OnDelta<'_>) -> Result<String> {
@@ -216,9 +216,10 @@ pub async fn codex(req: &ChatRequest, on_delta: OnDelta<'_>) -> Result<String> {
     // instructions go first.
     args.push("-".into());
     let prompt = format!(
-        "<instrucciones>\n{}\n</instrucciones>\n\nNo ejecutes comandos ni leas archivos: respondé solo con texto.\n\n{}",
+        "<instructions>\n{}\n</instructions>\n\n{}\n\n{}",
         req.system,
-        transcript(&req.messages)
+        crate::prompts::get(req.lang).text("cli.codex_rule"),
+        transcript(&req.messages, req.lang)
     );
     run(&bin, &args, &scratch.0, &prompt, parse_codex, on_delta, "Codex").await
 }

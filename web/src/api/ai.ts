@@ -44,10 +44,18 @@ export interface ChatContext {
   approve_reads?: boolean;
 }
 
+/** One part of what went as context with a question (the UI words it). */
+export type ChatContextItem =
+  | { kind: 'engine' | 'database'; name: string }
+  | { kind: 'objects'; count: number }
+  | { kind: 'tables'; shown: number; total: number }
+  | { kind: 'editor' | 'selection' | 'last_error' };
+
 export const aiApi = {
   detect: () => invoke<AiDetect>('ai_detect'),
-  chat: (chatId: string, provider: AiProviderKind, model: string | null, messages: ChatMessage[], context: ChatContext) =>
-    invoke<{ text: string; context_summary: string }>('ai_chat', { args: { chat_id: chatId, provider, model, messages, context } }),
+  /** `uiLanguage`: the instructions to the model go in it. */
+  chat: (chatId: string, provider: AiProviderKind, model: string | null, messages: ChatMessage[], context: ChatContext, uiLanguage: string) =>
+    invoke<{ text: string; context: ChatContextItem[] }>('ai_chat', { args: { chat_id: chatId, provider, model, messages, context, ui_language: uiLanguage } }),
   cancel: (id: string) => invoke<void>('ai_cancel', { args: { id } }),
   /** The user's answer to a read the assistant asked for. */
   approve: (requestId: string, decision: 'approve' | 'approve_all' | 'reject') =>

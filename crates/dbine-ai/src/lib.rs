@@ -14,6 +14,7 @@ pub mod embedded;
 pub mod env;
 pub mod ollama;
 pub mod openai;
+pub mod prompts;
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -62,6 +63,9 @@ pub struct ChatRequest {
     pub model: Option<String>,
     pub system: String,
     pub messages: Vec<ChatMessage>,
+    /// The language of what DBine adds around the chat (the CLIs' framing),
+    /// as [`prompts::lang`] gives it: the UI language.
+    pub lang: &'static str,
 }
 
 /// A piece of the answer as it arrives.
@@ -134,17 +138,18 @@ pub async fn chat(req: &ChatRequest, endpoints: &Endpoints, on_delta: OnDelta<'_
 
 /// A chat's messages as one prompt, for the CLIs (they take a single
 /// prompt; the conversation so far goes in front of the new message).
-pub fn transcript(messages: &[ChatMessage]) -> String {
+pub fn transcript(messages: &[ChatMessage], lang: &str) -> String {
     let Some((last, before)) = messages.split_last() else { return String::new() };
     if before.is_empty() {
         return last.content.clone();
     }
-    let mut out = String::from("<conversacion_previa>\n");
+    let p = prompts::get(lang);
+    let mut out = String::from("<previous_conversation>\n");
     for m in before {
-        let who = if m.role == "assistant" { "Asistente" } else { "Usuario" };
+        let who = p.text(if m.role == "assistant" { "transcript.assistant" } else { "transcript.user" });
         out.push_str(&format!("[{who}]\n{}\n\n", m.content.trim()));
     }
-    out.push_str("</conversacion_previa>\n\n");
+    out.push_str("</previous_conversation>\n\n");
     out.push_str(&last.content);
     out
 }
@@ -156,10 +161,12 @@ mod tests {
     #[test]
     fn transcript_puts_history_before_the_question() {
         let m = |r: &str, c: &str| ChatMessage { role: r.into(), content: c.into() };
-        assert_eq!(transcript(&[m("user", "hola")]), "hola");
-        let t = transcript(&[m("user", "a"), m("assistant", "b"), m("user", "c")]);
-        assert!(t.starts_with("<conversacion_previa>\n[Usuario]\na\n\n[Asistente]\nb\n\n</conversacion_previa>"));
+        assert_eq!(transcript(&[m("user", "hola")], "es"), "hola");
+        let t = transcript(&[m("user", "a"), m("assistant", "b"), m("user", "c")], "es");
+        assert!(t.starts_with("<previous_conversation>\n[Usuario]\na\n\n[Asistente]\nb\n\n</previous_conversation>"));
         assert!(t.ends_with("\n\nc"));
+        let t = transcript(&[m("user", "a"), m("assistant", "b"), m("user", "c")], "en");
+        assert!(t.starts_with("<previous_conversation>\n[User]\na\n\n[Assistant]\nb"), "{t}");
     }
 
     #[tokio::test]

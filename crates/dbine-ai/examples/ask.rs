@@ -40,6 +40,7 @@ async fn main() {
                  Respondé con un bloque ```sql y una línea de explicación."
             .into(),
         messages: vec![ChatMessage { role: "user".into(), content: question }],
+        lang: "es",
     };
     let t = std::time::Instant::now();
     let first = std::sync::Mutex::new(None::<f64>);

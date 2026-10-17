@@ -11,7 +11,19 @@
   "context": {
     "noDatabase": "Nessun database selezionato",
     "openQuery": "query aperta",
-    "sent": "contesto: {{context}}"
+    "sent": "contesto: {{context}}",
+    "objects_one": "{{count}} oggetto",
+    "objects_many": "{{count}} oggetti",
+    "objects_other": "{{count}} oggetti",
+    "tables_one": "{{count}} tabella",
+    "tables_many": "{{count}} tabelle",
+    "tables_other": "{{count}} tabelle",
+    "tablesOf_one": "{{shown}} di {{count}} tabella",
+    "tablesOf_many": "{{shown}} di {{count}} tabelle",
+    "tablesOf_other": "{{shown}} di {{count}} tabelle",
+    "editor": "editor",
+    "selection": "selezione",
+    "lastError": "ultimo errore"
   },
   "suggest": {
     "whyFails": "Perché l'ultima esecuzione fallisce? Correggila.",

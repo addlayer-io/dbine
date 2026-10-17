@@ -231,9 +231,11 @@ pub async fn optimizer_ai(state: State<'_, AppState>, ai: State<'_, AiRuntime>, 
     let result = async {
         let mut sent = Vec::new();
         let budget = if args.provider.local() { 12_000 } else { 60_000 };
+        // The instructions go in the UI language (English when unknown).
+        let p = dbine_ai::prompts::get(args.ui_language.as_deref().unwrap_or(""));
         let structure_text = match structure(&state, &args.connection_id, &args.database).await {
             Ok(t) => {
-                let s = prompts::structure(&t, &args.sql, budget);
+                let s = prompts::structure(&t, &args.sql, budget, p);
                 if !s.is_empty() {
                     sent.push(format!("{} tablas", s.lines().filter(|l| !l.starts_with("  ")).count()));
                 }
@@ -249,10 +251,10 @@ pub async fn optimizer_ai(state: State<'_, AppState>, ai: State<'_, AiRuntime>, 
             sent.push("plan".into());
         }
         let language = match info.language {
-            Language::Sql => format!("SQL, dialecto {}", info.dialect),
+            Language::Sql => p.fill("assistant.language_sql", &[("dialect", info.dialect)]),
             Language::Cql => "CQL".into(),
-            Language::Json => "comandos JSON / mongosh".into(),
-            Language::Redis => "comandos".into(),
+            Language::Json => p.text("optimizer.language_json").into(),
+            Language::Redis => p.text("optimizer.language_redis").into(),
             Language::Flux => "Flux".into(),
             Language::Cypher => "Cypher".into(),
         };
@@ -262,12 +264,13 @@ pub async fn optimizer_ai(state: State<'_, AppState>, ai: State<'_, AiRuntime>, 
         let req = ChatRequest {
             kind: args.provider,
             model: args.model.clone(),
-            system: prompts::system_prompt(info.name, &language, prompts::answer_language(args.ui_language.as_deref().unwrap_or("es"))),
+            system: prompts::system_prompt(p, info.name, &language),
             messages: vec![ChatMessage { role: "user".into(), content: prompts::user_prompt(&args.sql, &structure_text, &plan) }],
+            lang: p.lang(),
         };
         let text = dbine_ai::chat(&req, &ai.endpoints, &|_| {}, &cancel).await?;
         let first = prompts::parse(&text, &args.sql);
-        let none = first.is_empty() && text.to_uppercase().contains("NINGUNA");
+        let none = first.is_empty() && prompts::says_none(&text);
 
         // Only alternatives that compile reach the user; the others go back
         // to the AI once, with the engine's error, to be fixed.
@@ -283,7 +286,7 @@ pub async fn optimizer_ai(state: State<'_, AppState>, ai: State<'_, AiRuntime>, 
         if !failed.is_empty() {
             let mut req = req;
             req.messages.push(ChatMessage { role: "assistant".into(), content: text });
-            req.messages.push(ChatMessage { role: "user".into(), content: prompts::repair_prompt(&failed) });
+            req.messages.push(ChatMessage { role: "user".into(), content: prompts::repair_prompt(p, &failed) });
             let fixed_text = dbine_ai::chat(&req, &ai.endpoints, &|_| {}, &cancel).await?;
             let fixed: Vec<Candidate> = prompts::parse(&fixed_text, &args.sql)
                 .into_iter()

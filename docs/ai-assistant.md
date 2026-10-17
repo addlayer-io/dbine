@@ -43,8 +43,8 @@ indexes are unused in any database?"). It does not receive everything up
 front (it would not fit in the context): it asks for it as it needs it.
 
 - **How it asks:** the prompt explains a DBine-specific format. The model
-  answers only with `<herramienta>{"name": …, "arguments": {…}}</herramienta>`,
-  DBine serves it and returns `<resultado>…</resultado>` (or `<error>`), and
+  answers only with `<tool>{"name": …, "arguments": {…}}</tool>`,
+  DBine serves it and returns `<result>…</result>` (or `<error>`), and
   the model goes on. This format is used instead of each model's native tools
   because in the test Qwen2.5-Coder with llama.cpp did not generate native
   calls; the own format works the same with the three local providers.
@@ -77,13 +77,13 @@ front (it would not fit in the context): it asks for it as it needs it.
   Each result is trimmed to 12,000 characters.
 - **In the chat:** while it reads you see "Querying the connection: structure
   of ventas.clientes in tenant-compras…", and below the answer, folded, the
-  list of what it queried. The `<herramienta>` lines are not shown.
+  list of what it queried. The `<tool>` lines are not shown.
 - **Models:** it is available with any. With the request "analyze the indexes
   of the databases and tell me which one is redundant", the 32B and the 7B
   listed the databases, read each one's index usage and answered correctly;
   the 3B used the tools but went off on tangents (plans of invented queries).
-- **How it recognizes the request:** besides `<herramienta>`, it accepts
-  `<tool_call>`, a ```` ```json ```` block or a loose `{"name", "arguments"}`
+- **How it recognizes the request:** besides `<tool>`, it accepts
+  `<herramienta>` (what earlier versions asked for), `<tool_call>`, a ```` ```json ```` block or a loose `{"name", "arguments"}`
   object after text, which is what small models sometimes write; that text is
   not shown in the chat. `index_usage` without `object` summarizes the whole
   database (up to 400 tables or 2 minutes).
@@ -175,6 +175,15 @@ Each answer is a new process that runs in an empty temporary folder.
 ## Context that goes with each question
 
 It is built in `src-tauri/src/commands/ai.rs`:
+
+- **Language:** every instruction to the model (the rules, the tools, the
+  hints, the optimizer's format, the Claude Code and Codex framing) is in the
+  UI language: one file per language in `crates/dbine-ai/prompts/<lang>.json`
+  (Spanish is the source; a test checks that every language has the same
+  keys, placeholders and tags). Unknown languages get English. The model is
+  told to answer in that language unless the user writes in another one. The
+  tags DBine reads the answer by (`<tool>`, `<alternative>`…) are the same in
+  every language.
 
 - **Engine and language:** SQL with its dialect, CQL, JSON/Mongo, Redis, Flux
   or Cypher. Also the current database and whether the connection is

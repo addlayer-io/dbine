@@ -1,8 +1,8 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { listen } from '@tauri-apps/api/event';
 import { errorKind, errorMessage } from '../api/client';
-import { aiApi, type AiDetect, type AiProvider, type AiProviderKind, type ChatMessage } from '../api/ai';
-import { t } from '../i18n';
+import { aiApi, type AiDetect, type AiProvider, type AiProviderKind, type ChatContextItem, type ChatMessage } from '../api/ai';
+import { language, t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { readJson, writeJson } from './storage';
 import { useSettingsStore } from './settings';
@@ -83,6 +83,23 @@ function writeArchive(list: SavedChat[]) {
       keep = keep.slice(0, Math.floor(keep.length / 2));
     }
   }
+}
+
+/** The "what was sent" line ("PostgreSQL · ventas · 42 tables · editor"), in the UI language. */
+function contextLine(items: ChatContextItem[]): string {
+  return items
+    .map((c) => {
+      switch (c.kind) {
+        case 'engine':
+        case 'database': return c.name;
+        case 'objects': return t('ai:context.objects', { count: c.count });
+        case 'tables': return c.shown === c.total ? t('ai:context.tables', { count: c.total }) : t('ai:context.tablesOf', { shown: c.shown, count: c.total });
+        case 'editor': return t('ai:context.editor');
+        case 'selection': return t('ai:context.selection');
+        case 'last_error': return t('ai:context.lastError');
+      }
+    })
+    .join(' · ');
 }
 
 function titleOf(messages: UiMessage[]): string {
@@ -263,11 +280,11 @@ export const useAiStore = defineStore('ai', {
           selection: b?.selection() || null,
           last_error: b?.lastError() ?? null,
           approve_reads: this.approveReads,
-        });
+        }, language.value);
         // Gone (a new conversation) or stopped: what comes back is dropped.
         const m = this.messages.find((x) => x.id === answer.id);
         if (m?.pending && !m.content) m.content = r.text;
-        if (m?.pending) user.context = tb(r.context_summary);
+        if (m?.pending) user.context = contextLine(r.context);
       } catch (e) {
         const m = this.messages.find((x) => x.id === answer.id);
         if (m?.pending) m.error = errorKind(e) === 'cancelled' ? t('core:ai.stopped') : errorMessage(e);

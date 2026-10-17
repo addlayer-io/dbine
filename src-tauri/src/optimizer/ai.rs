@@ -5,41 +5,23 @@
 //! any other, and nothing runs unless the user clicks.
 
 use super::{Candidate, Source};
+use dbine_ai::prompts::Prompts;
 use dbine_driver::TableSchema;
 
 /// At most this many alternatives are taken from an answer.
 pub const MAX: usize = 3;
 
-/// The UI language's name, for "write the title and explanation in …".
-pub fn answer_language(code: &str) -> &'static str {
-    match code.split(['-', '_']).next().unwrap_or("") {
-        "en" => "inglés",
-        "pt" => "portugués",
-        "fr" => "francés",
-        "it" => "italiano",
-        _ => "español",
-    }
+/// What the model is told: the rules and the answer's format, in the UI
+/// language (`prompts/<lang>.json` in dbine-ai).
+pub fn system_prompt(p: &Prompts, engine: &str, language: &str) -> String {
+    p.fill("optimizer.system", &[("engine", engine), ("language", language), ("max", &MAX.to_string())])
 }
 
-pub fn system_prompt(engine: &str, language: &str, answer: &str) -> String {
-    format!(
-        "Sos un experto en rendimiento de {engine}. Te paso una consulta ({language}), la estructura de las tablas que usa y un resumen de su plan de ejecución.\n\
-         Proponé como máximo {MAX} reescrituras EQUIVALENTES que puedan ser más rápidas en {engine}:\n\
-         - Equivalente quiere decir que devuelve exactamente las mismas filas y columnas, en el mismo orden de columnas, y en el mismo orden de filas si la original tiene ORDER BY. \
-           Cuidá los NULL, los duplicados y los tipos.\n\
-         - No agregues ni quites filtros, no cambies límites de filas, no uses tablas o columnas que no estén en la estructura.\n\
-         - No propongas crear índices ni cambiar la estructura: solo reescrituras de la consulta.\n\
-         - Si no ves ninguna mejora real, respondé solo NINGUNA.\n\
-         Respondé SOLO con este formato, sin texto antes ni después:\n\
-         <alternativa>\n<titulo>qué cambia, en pocas palabras</titulo>\n<explicacion>por qué puede ser más rápida, en una o dos oraciones</explicacion>\n<consulta>\nla consulta completa\n</consulta>\n</alternativa>\n\
-         Escribí el título y la explicación en {answer}."
-    )
-}
-
+/// The query, the structure and the plan, in tags (the same in every language).
 pub fn user_prompt(query: &str, structure: &str, plan: &str) -> String {
-    let mut s = format!("<consulta_original>\n{}\n</consulta_original>\n", query.trim());
+    let mut s = format!("<original_query>\n{}\n</original_query>\n", query.trim());
     if !structure.trim().is_empty() {
-        s.push_str(&format!("\n<estructura>\n{structure}</estructura>\n"));
+        s.push_str(&format!("\n<structure>\n{structure}</structure>\n"));
     }
     if !plan.trim().is_empty() {
         s.push_str(&format!("\n<plan>\n{plan}\n</plan>\n"));
@@ -48,7 +30,7 @@ pub fn user_prompt(query: &str, structure: &str, plan: &str) -> String {
 }
 
 /// The tables the query names (as whole words), with columns, keys and indexes.
-pub fn structure(tables: &[TableSchema], query: &str, budget: usize) -> String {
+pub fn structure(tables: &[TableSchema], query: &str, budget: usize, p: &Prompts) -> String {
     let q = query.to_lowercase();
     let named = |t: &TableSchema| {
         let n = t.name.to_lowercase();
@@ -61,7 +43,7 @@ pub fn structure(tables: &[TableSchema], query: &str, budget: usize) -> String {
     };
     let mut out = String::new();
     for t in tables.iter().filter(|t| named(t)) {
-        let line = table_line(t);
+        let line = table_line(t, p);
         if out.len() + line.len() > budget {
             break;
         }
@@ -70,7 +52,7 @@ pub fn structure(tables: &[TableSchema], query: &str, budget: usize) -> String {
     out
 }
 
-fn table_line(t: &TableSchema) -> String {
+fn table_line(t: &TableSchema, p: &Prompts) -> String {
     let pk: Vec<&str> = t.primary_key.as_ref().map(|k| k.columns.iter().map(String::as_str).collect()).unwrap_or_default();
     let cols: Vec<String> = t
         .columns
@@ -92,7 +74,8 @@ fn table_line(t: &TableSchema) -> String {
     let mut line = format!("{name}({})\n", cols.join(", "));
     for ix in &t.indexes {
         line.push_str(&format!(
-            "  índice {}{} ({}){}\n",
+            "  {} {}{} ({}){}\n",
+            p.text("optimizer.index"),
             ix.name,
             if ix.unique { " UNIQUE" } else { "" },
             ix.columns.join(", "),
@@ -102,25 +85,33 @@ fn table_line(t: &TableSchema) -> String {
     line
 }
 
-fn tag<'a>(text: &'a str, name: &str) -> Option<&'a str> {
-    let open = format!("<{name}>");
-    let close = format!("</{name}>");
-    let a = text.find(&open)? + open.len();
-    let b = text[a..].find(&close).map_or(text.len(), |b| a + b);
-    Some(text[a..b].trim())
+/// The text in `<name>…</name>`; `names` are the tag and its older Spanish
+/// name (an answer to the Spanish-only prompt).
+fn tag<'a>(text: &'a str, names: [&str; 2]) -> Option<&'a str> {
+    names.iter().find_map(|name| {
+        let open = format!("<{name}>");
+        let close = format!("</{name}>");
+        let a = text.find(&open)? + open.len();
+        let b = text[a..].find(&close).map_or(text.len(), |b| a + b);
+        Some(text[a..b].trim())
+    })
 }
 
 /// The follow-up when some alternatives don't compile: each one with the
 /// engine's error, to be fixed in the same format or left out.
-pub fn repair_prompt(failed: &[(Candidate, String)]) -> String {
-    let mut s = String::from(
-        "Estas alternativas fallan al compilarlas en la base (sin ejecutarlas). Corregilas para que sean válidas y sigan siendo EQUIVALENTES a la original; \
-         una que no puedas corregir, omitila. Respondé SOLO con el mismo formato, solo con las corregidas, o NINGUNA.\n",
-    );
+pub fn repair_prompt(p: &Prompts, failed: &[(Candidate, String)]) -> String {
+    let mut s = format!("{}\n", p.text("optimizer.repair"));
     for (c, error) in failed {
-        s.push_str(&format!("\n<fallida>\n<consulta>\n{}\n</consulta>\n<error>{}</error>\n</fallida>\n", c.sql.trim(), error.trim()));
+        s.push_str(&format!("\n<failed>\n<query>\n{}\n</query>\n<error>{}</error>\n</failed>\n", c.sql.trim(), error.trim()));
     }
     s
+}
+
+/// The model answered that it sees no improvement ("NONE"; "NINGUNA" is
+/// what the Spanish-only prompt asked for).
+pub fn says_none(answer: &str) -> bool {
+    let a = answer.to_uppercase();
+    a.contains("NONE") || a.contains("NINGUNA")
 }
 
 /// Code fences the model wrapped the query in.
@@ -142,9 +133,11 @@ fn normalized(s: &str) -> String {
 pub fn parse(answer: &str, original: &str) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = Vec::new();
     let mut seen = vec![normalized(original)];
-    for chunk in answer.split("<alternativa>").skip(1) {
-        let chunk = chunk.split("</alternativa>").next().unwrap_or(chunk);
-        let Some(query) = tag(chunk, "consulta").map(unfence).filter(|q| !q.is_empty()) else { continue };
+    let open = if answer.contains("<alternative>") { "<alternative>" } else { "<alternativa>" };
+    for chunk in answer.split(open).skip(1) {
+        let end = ["</alternative>", "</alternativa>"].iter().filter_map(|c| chunk.find(c)).min().unwrap_or(chunk.len());
+        let chunk = &chunk[..end];
+        let Some(query) = tag(chunk, ["query", "consulta"]).map(unfence).filter(|q| !q.is_empty()) else { continue };
         let n = normalized(&query);
         if seen.contains(&n) {
             continue;
@@ -155,8 +148,8 @@ pub fn parse(answer: &str, original: &str) -> Vec<Candidate> {
             source: Source::Ai,
             rule: None,
             params: Default::default(),
-            title: tag(chunk, "titulo").map(str::to_string).filter(|t| !t.is_empty()),
-            explanation: tag(chunk, "explicacion").map(str::to_string).filter(|t| !t.is_empty()),
+            title: tag(chunk, ["title", "titulo"]).map(str::to_string).filter(|t| !t.is_empty()),
+            explanation: tag(chunk, ["explanation", "explicacion"]).map(str::to_string).filter(|t| !t.is_empty()),
             sql: query,
             verify: true,
         });
@@ -171,23 +164,28 @@ pub fn parse(answer: &str, original: &str) -> Vec<Candidate> {
 mod tests {
     use super::*;
     use crate::optimizer::catalog::tests::table;
+    use dbine_ai::prompts;
 
     #[test]
     fn answers_are_read_strictly() {
-        let answer = "Claro:\n<alternativa>\n<titulo>EXISTS</titulo>\n<explicacion>Corta antes.</explicacion>\n<consulta>\n```sql\nSELECT 1 FROM t WHERE EXISTS (SELECT 1 FROM u)\n```\n</consulta>\n</alternativa>\n\
-             <alternativa><titulo>igual</titulo><consulta>select *  from t;</consulta></alternativa>\
-             <alternativa><titulo>sin consulta</titulo></alternativa>\
-             <alternativa><consulta>SELECT 2</consulta></alternativa>\
-             <alternativa><consulta>SELECT 3</consulta></alternativa>\
-             <alternativa><consulta>SELECT 4</consulta></alternativa>";
+        let answer = "Sure:\n<alternative>\n<title>EXISTS</title>\n<explanation>Stops early.</explanation>\n<query>\n```sql\nSELECT 1 FROM t WHERE EXISTS (SELECT 1 FROM u)\n```\n</query>\n</alternative>\n\
+             <alternative><title>same</title><query>select *  from t;</query></alternative>\
+             <alternative><title>no query</title></alternative>\
+             <alternative><query>SELECT 2</query></alternative>\
+             <alternative><query>SELECT 3</query></alternative>\
+             <alternative><query>SELECT 4</query></alternative>";
         let c = parse(answer, "SELECT * FROM t");
         assert_eq!(c.len(), 3);
         assert_eq!(c[0].sql, "SELECT 1 FROM t WHERE EXISTS (SELECT 1 FROM u)");
         assert_eq!(c[0].title.as_deref(), Some("EXISTS"));
-        assert_eq!(c[0].explanation.as_deref(), Some("Corta antes."));
+        assert_eq!(c[0].explanation.as_deref(), Some("Stops early."));
         assert_eq!(c[1].sql, "SELECT 2");
         assert!(c.iter().all(|x| x.source == Source::Ai && x.verify));
-        assert!(parse("NINGUNA", "x").is_empty());
+        assert!(parse("NONE", "x").is_empty());
+        assert!(says_none("NONE") && says_none("ninguna") && !says_none("<alternative>"));
+        // The tags the Spanish-only prompt asked for still read.
+        let old = parse("<alternativa><titulo>EXISTS</titulo><explicacion>Corta antes.</explicacion><consulta>SELECT 9</consulta></alternativa>", "x");
+        assert_eq!((old[0].sql.as_str(), old[0].title.as_deref(), old[0].explanation.as_deref()), ("SELECT 9", Some("EXISTS"), Some("Corta antes.")));
     }
 
     #[test]
@@ -196,21 +194,29 @@ mod tests {
             table(Some("dbo"), "orders", &[("id", "int", false), ("note", "text", true)], &["id"], &[(&["note"], false)]),
             table(None, "order_items", &[("id", "int", false)], &[], &[]),
         ];
-        let s = structure(&ts, "SELECT * FROM dbo.Orders o", 10_000);
+        let es = prompts::get("es");
+        let s = structure(&ts, "SELECT * FROM dbo.Orders o", 10_000, es);
         assert_eq!(s, "dbo.orders(id int PK, note text)\n  índice ix0 (note)\n");
-        assert_eq!(structure(&ts, "SELECT * FROM orders", 5), "");
+        assert_eq!(structure(&ts, "SELECT * FROM orders", 5, es), "");
+        assert!(structure(&ts, "SELECT * FROM orders", 10_000, prompts::get("en")).contains("  index ix0 (note)"));
     }
 
     #[test]
     fn prompts_carry_query_structure_and_plan() {
         let u = user_prompt("SELECT 1", "t(a int)\n", "Seq Scan on t");
-        assert!(u.contains("<consulta_original>\nSELECT 1\n</consulta_original>") && u.contains("<estructura>") && u.contains("<plan>\nSeq Scan on t"));
+        assert!(u.contains("<original_query>\nSELECT 1\n</original_query>") && u.contains("<structure>") && u.contains("<plan>\nSeq Scan on t"));
         assert!(!user_prompt("SELECT 1", "", "").contains("<plan>"));
-        let sys = system_prompt("PostgreSQL", "SQL", answer_language("en-US"));
-        assert!(sys.contains("como máximo 3") && sys.contains("en inglés."));
-        assert_eq!(answer_language("xx"), "español");
-        let c = parse("<alternativa><consulta>SELECT b FROM t</consulta></alternativa>", "SELECT a FROM t");
-        let r = repair_prompt(&[(c[0].clone(), "Invalid column name 'b'.".into())]);
-        assert!(r.contains("<consulta>\nSELECT b FROM t\n</consulta>\n<error>Invalid column name 'b'.</error>"));
+        let sys = system_prompt(prompts::get("es"), "PostgreSQL", "SQL");
+        assert!(sys.contains("como máximo 3") && sys.contains("en español."));
+        // The UI language's file: the rules and the answer language in it.
+        let en = system_prompt(prompts::get("en-US"), "PostgreSQL", "SQL");
+        assert!(en.contains("PostgreSQL") && en.contains("English") && !en.contains("Respondé"), "{en}");
+        for l in prompts::LANGS {
+            let s = system_prompt(prompts::get(l), "PostgreSQL", "SQL");
+            assert!(["<alternative>", "<title>", "<explanation>", "<query>", "NONE", " 3 "].iter().all(|t| s.contains(t)), "{l}: {s}");
+        }
+        let c = parse("<alternative><query>SELECT b FROM t</query></alternative>", "SELECT a FROM t");
+        let r = repair_prompt(prompts::get("en"), &[(c[0].clone(), "Invalid column name 'b'.".into())]);
+        assert!(r.contains("<query>\nSELECT b FROM t\n</query>\n<error>Invalid column name 'b'.</error>") && r.contains("NONE"));
     }
 }

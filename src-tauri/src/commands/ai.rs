@@ -8,6 +8,7 @@ use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dashmap::DashMap;
 use dbine_ai::embedded::{self, CatalogModel};
+use dbine_ai::prompts::{self, Prompts};
 use dbine_ai::{AiError, Cancel, ChatMessage, ChatRequest, Delta, Endpoints, ProviderInfo, ProviderKind};
 use dbine_driver::{Language, TableSchema};
 use serde::{Deserialize, Serialize};
@@ -139,6 +140,10 @@ pub struct ChatArgs {
     pub messages: Vec<ChatMessage>,
     #[serde(default)]
     pub context: ChatContext,
+    /// The UI language ("en", "pt"…): the instructions to the model go in
+    /// it (English when unknown).
+    #[serde(default)]
+    pub ui_language: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -195,8 +200,24 @@ struct StatusEvent<'a> {
 #[derive(Serialize)]
 pub struct ChatOut {
     pub text: String,
-    /// What went as context (for the UI's "what was sent" line).
-    pub context_summary: String,
+    /// What went as context, for the UI's "what was sent" line (the UI
+    /// words it in its language).
+    pub context: Vec<ContextItem>,
+}
+
+/// One part of what went as context.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextItem {
+    Engine { name: String },
+    Database { name: String },
+    /// The object names a local model got.
+    Objects { count: usize },
+    /// The structure: tables with columns, of all of them.
+    Tables { shown: usize, total: usize },
+    Editor,
+    Selection,
+    LastError,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -205,7 +226,8 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, A
     ai.chats.insert(args.chat_id.clone(), cancel.clone());
     let id = args.chat_id.clone();
     let result = async {
-        let (system, summary) = build_system(&app, &state, &ai, &args).await;
+        let p = prompts::get(args.ui_language.as_deref().unwrap_or(""));
+        let (system, summary) = build_system(&app, &state, &ai, &args, p).await;
         // The built-in model's engine, the first time (models downloaded
         // before it came separately).
         if args.provider == ProviderKind::Embedded {
@@ -217,19 +239,19 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, A
             embedded::ensure_engine(&ai.endpoints.models_dir, &progress, &cancel).await?;
         }
         let _ = app.emit("ai-status", StatusEvent { chat_id: &id, phase: "thinking", note: None });
-        let mut req = ChatRequest { kind: args.provider, model: args.model.clone(), system, messages: args.messages.clone() };
+        let mut req = ChatRequest { kind: args.provider, model: args.model.clone(), system, messages: args.messages.clone(), lang: p.lang() };
         let emit = |d: Delta| {
             let _ = app.emit("ai-delta", DeltaEvent { chat_id: &id, delta: d });
         };
         // A local model may read the tab's whole connection through DBine's
         // read-only tools (the MCP server's code): it asks with a
-        // <herramienta> line, DBine answers, and it goes on. Remote models
+        // <tool> line, DBine answers, and it goes on. Remote models
         // (Claude Code, Codex) don't get them.
         let conn = args.context.connection_id.as_deref().and_then(|c| state.store.get_connection(c).ok().flatten());
         let tools_on = args.provider.local() && conn.is_some();
         if tools_on {
             let name = conn.as_ref().map(|c| c.name.as_str()).unwrap_or("");
-            req.system.push_str(&tools_prompt(name, args.context.database.as_deref().unwrap_or("")));
+            req.system.push_str(&tools_prompt(p, name, args.context.database.as_deref().unwrap_or("")));
         }
         let mut steps = 0;
         let mut approve_all = args.context.approve_reads;
@@ -279,7 +301,7 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, A
             let conn = conn.as_ref().expect("tools_on");
             if !asked.insert(format!("{name}{targs}")) {
                 req.messages.push(ChatMessage { role: "assistant".into(), content: format!("{TOOL_OPEN}{}{TOOL_CLOSE}", serde_json::json!({ "name": name, "arguments": targs })) });
-                req.messages.push(ChatMessage { role: "user".into(), content: REPEATED.into() });
+                req.messages.push(ChatMessage { role: "user".into(), content: format!("<error>\n{}\n</error>", p.text("assistant.repeated")) });
                 continue;
             }
             let mut label = tool_label(&name, &targs);
@@ -317,7 +339,7 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, A
                                 approve_all = true;
                                 None
                             }
-                            _ => Some(REFUSED_READ.to_string()),
+                            _ => Some(p.text("assistant.refused_read").to_string()),
                         }
                     }
                 }
@@ -338,10 +360,10 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, A
             };
             let _ = app.emit("ai-tool", ToolEvent { chat_id: &id, label: &label, ok: !failed });
             req.messages.push(ChatMessage { role: "assistant".into(), content: format!("{TOOL_OPEN}{}{TOOL_CLOSE}", serde_json::json!({ "name": name, "arguments": targs })) });
-            let tag = if failed { "error" } else { "resultado" };
-            req.messages.push(ChatMessage { role: "user".into(), content: format!("<{tag}>\n{}\n</{tag}>", truncate(&result, TOOL_RESULT_MAX)) });
+            let tag = if failed { "error" } else { "result" };
+            req.messages.push(ChatMessage { role: "user".into(), content: format!("<{tag}>\n{}\n</{tag}>", truncate(&result, TOOL_RESULT_MAX, p)) });
             if steps == MAX_TOOL_STEPS {
-                req.system.push_str("\nYa hiciste todas las consultas permitidas en esta respuesta: contestá con lo que tenés, sin pedir más.\n");
+                req.system.push_str(&format!("\n{}\n", p.text("assistant.max_steps")));
             }
         };
         // Small local models sometimes refuse a legitimate ask: once, the
@@ -349,10 +371,10 @@ pub async fn ai_chat(app: AppHandle, state: State<'_, AppState>, ai: State<'_, A
         // the refusal it showed on "retry".
         if refused(&text) {
             let _ = app.emit("ai-status", StatusEvent { chat_id: &id, phase: "retry", note: None });
-            req.system.push_str(AFTER_REFUSAL);
+            req.system.push_str(&format!("\n{}\n", p.text("assistant.after_refusal")));
             text = dbine_ai::chat(&req, &ai.endpoints, &emit, &cancel).await?;
         }
-        Ok(ChatOut { text, context_summary: summary })
+        Ok(ChatOut { text, context: summary })
     }
     .await;
     ai.chats.remove(&args.chat_id);
@@ -442,48 +464,38 @@ fn schema_budget(kind: ProviderKind) -> usize {
     }
 }
 
-async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &ChatArgs) -> (String, String) {
+async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &ChatArgs, p: &Prompts) -> (String, Vec<ContextItem>) {
     let ctx = &args.context;
-    let mut s = String::from(
-        "Sos el asistente de DBine, un gestor de bases de datos de escritorio. Ayudás a escribir, explicar, optimizar y corregir consultas y a entender la estructura de la base.\n\n\
-         Reglas:\n\
-         - Usá solo tablas, colecciones y columnas que existan en la estructura de abajo. Si falta algo o no hay estructura, decilo y pedí el dato en vez de inventarlo.\n\
-         - Poné el código en bloques de código con la sintaxis exacta del motor.\n\
-         - Sé breve: primero el código, después una explicación corta si hace falta.\n\
-         - Si algo modifica o borra datos o estructura (UPDATE, DELETE, DROP, TRUNCATE, ALTER…), avisalo claramente y sugerí probarlo antes (un SELECT equivalente o una transacción).\n\
-         - No podés ejecutar nada ni conectarte a la base: solo escribís código. La ejecución es siempre del usuario. Si te pide ejecutar, borrar, crear o cambiar algo («borrá la tabla X»), escribí la consulta que lo hace; DBine la agrega al final de la query que tiene abierta y él decide si la ejecuta. Nunca digas que ejecutaste algo ni inventes resultados.\n\
-         - Si te pide revisar o corregir lo que hay en el editor, devolvé el contenido completo corregido en un solo bloque de código (DBine le ofrece reemplazar el editor con él) y explicá brevemente qué cambiaste.\n\
-         - Respondé en el idioma en que te escriben.\n",
-    );
-    let mut summary: Vec<String> = Vec::new();
+    let mut s = format!("{}\n", p.text("assistant.system"));
+    let mut summary: Vec<ContextItem> = Vec::new();
     let conn = ctx.connection_id.as_deref().and_then(|id| state.store.get_connection(id).ok().flatten());
     if let Some(conn) = &conn {
         let info = dbine_drivers::find(&conn.config.driver).map(|d| d.info());
         let db = ctx.database.clone().unwrap_or_default();
         if let Some(info) = info {
             let lang = match info.language {
-                Language::Sql => format!("SQL, dialecto {}", info.dialect),
+                Language::Sql => p.fill("assistant.language_sql", &[("dialect", info.dialect)]),
                 Language::Cql => "CQL (Cassandra)".into(),
-                Language::Json => "comandos / documentos JSON".into(),
-                Language::Redis => "comandos de Redis, uno por línea".into(),
+                Language::Json => p.text("assistant.language_json").into(),
+                Language::Redis => p.text("assistant.language_redis").into(),
                 Language::Flux => "Flux (InfluxDB)".into(),
                 Language::Cypher => "Cypher".into(),
             };
-            s.push_str(&format!("\nMotor: {} · lenguaje de consultas: {lang}.\n", info.name));
+            s.push_str(&format!("\n{}\n", p.fill("assistant.engine", &[("engine", info.name), ("language", &lang)])));
             if let Some(hint) = dialect_hint(info.dialect) {
-                s.push_str(hint);
+                s.push_str(&format!("{}\n", p.text(hint)));
             }
-            summary.push(info.name.to_string());
+            summary.push(ContextItem::Engine { name: info.name.to_string() });
         }
         if !db.is_empty() {
-            s.push_str(&format!("Base de datos actual: {db}.\n"));
-            summary.push(db.clone());
+            s.push_str(&format!("{}\n", p.fill("assistant.database", &[("database", &db)])));
+            summary.push(ContextItem::Database { name: db.clone() });
         }
         if conn.config.read_only {
-            s.push_str("La conexión es de solo lectura: DBine bloquea todo lo que no sea lectura.\n");
+            s.push_str(&format!("{}\n", p.text("assistant.read_only")));
         }
         if let Some(o) = &ctx.object {
-            s.push_str(&format!("El usuario está mirando el objeto {o}.\n"));
+            s.push_str(&format!("{}\n", p.fill("assistant.object", &[("object", o)])));
         }
         if args.provider.local() {
             // A local model reads details through the catalog tools: it gets
@@ -499,11 +511,15 @@ async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &
                         })
                         .collect();
                     let shown = names.len().min(SUMMARY_NAMES);
-                    let more = if names.len() > shown { format!("\n(y {} objetos más: list_objects los lista)", names.len() - shown) } else { String::new() };
-                    s.push_str(&format!("\n<objetos de «{db}»>\n{}{more}\n</objetos>\n(Columnas, claves e índices: pedilos con describe_object o index_usage.)\n", names[..shown].join("\n")));
-                    summary.push(format!("{} objetos", names.len()));
+                    let more = if names.len() > shown { format!("\n{}", p.fill("assistant.objects_more", &[("count", &(names.len() - shown).to_string())])) } else { String::new() };
+                    s.push_str(&format!(
+                        "\n<objects database=\"{db}\">\n{}{more}\n</objects>\n{}\n",
+                        names[..shown].join("\n"),
+                        p.text("assistant.objects_hint")
+                    ));
+                    summary.push(ContextItem::Objects { count: names.len() });
                 }
-                Err(e) => s.push_str(&format!("\n(No se pudo listar los objetos de la base: {e}.)\n")),
+                Err(e) => s.push_str(&format!("\n{}\n", p.fill("assistant.objects_failed", &[("error", &e.to_string())]))),
             }
         } else {
             // Claude Code and Codex have no tools: the structure goes as context.
@@ -512,65 +528,45 @@ async fn build_system(app: &AppHandle, state: &AppState, ai: &AiRuntime, args: &
                 Ok(tables) => {
                     let question = args.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
                     let hint = format!("{question}\n{}\n{}", ctx.editor_sql.as_deref().unwrap_or(""), ctx.object.as_deref().unwrap_or(""));
-                    let (text, shown, total) = compact_schema(&tables, &hint, schema_budget(args.provider));
-                    s.push_str(&format!("\n<estructura>\n{text}</estructura>\n"));
-                    summary.push(if shown == total { format!("{total} tablas") } else { format!("{shown} de {total} tablas") });
+                    let (text, shown, total) = compact_schema(&tables, &hint, schema_budget(args.provider), p);
+                    s.push_str(&format!("\n<structure>\n{text}</structure>\n"));
+                    summary.push(ContextItem::Tables { shown, total });
                 }
                 Err(e) => {
-                    s.push_str(&format!("\n(No se pudo leer la estructura de la base: {e}.)\n"));
+                    s.push_str(&format!("\n{}\n", p.fill("assistant.structure_failed", &[("error", &e.to_string())])));
                     let _ = app.emit("ai-status", StatusEvent { chat_id: &args.chat_id, phase: "schema", note: Some(format!("sin estructura: {e}")) });
                 }
             }
         }
     } else {
-        s.push_str("\nNo hay ninguna base seleccionada: respondé en general o pedí que abra una.\n");
+        s.push_str(&format!("\n{}\n", p.text("assistant.no_database")));
     }
     if let Some(sql) = ctx.editor_sql.as_deref().filter(|t| !t.trim().is_empty()) {
-        s.push_str(&format!("\n<editor>\n{}\n</editor>\n", truncate(sql, 20_000)));
-        summary.push("editor".into());
+        s.push_str(&format!("\n<editor>\n{}\n</editor>\n", truncate(sql, 20_000, p)));
+        summary.push(ContextItem::Editor);
     }
     if let Some(sel) = ctx.selection.as_deref().filter(|t| !t.trim().is_empty()) {
-        s.push_str(&format!("\n<seleccion>\n{}\n</seleccion>\n(Si el usuario dice «esto», se refiere a la selección.)\n", truncate(sel, 10_000)));
-        summary.push("selección".into());
+        s.push_str(&format!("\n<selection>\n{}\n</selection>\n{}\n", truncate(sel, 10_000, p), p.text("assistant.selection_hint")));
+        summary.push(ContextItem::Selection);
     }
     if let Some(err) = ctx.last_error.as_deref().filter(|t| !t.trim().is_empty()) {
-        s.push_str(&format!("\n<ultimo_error>\n{}\n</ultimo_error>\n", truncate(err, 4_000)));
-        summary.push("último error".into());
+        s.push_str(&format!("\n<last_error>\n{}\n</last_error>\n", truncate(err, 4_000, p)));
+        summary.push(ContextItem::LastError);
     }
     // Small models follow what comes last, and an example, best.
-    s.push_str(
-        "\nRecordá: vos no ejecutás nada, solo escribís la consulta. Nunca digas que hiciste algo («borré», «borró», «se borró», «ejecuté», «eliminé», «creé»): \
-         decí qué hace la consulta y que el usuario la ejecuta cuando quiera.\n\n\
-         Ejemplo. Usuario: «borrá la tabla ventas». Respuesta:\n\
-         ```sql\nDROP TABLE ventas;\n```\n\
-         Esta consulta borra la tabla `ventas` con todos sus datos y no se puede deshacer. No se ejecutó: revisala y ejecutala vos cuando estés seguro.\n",
-    );
-    (s, summary.join(" · "))
+    s.push_str(&format!("\n{}\n", p.text("assistant.reminder")));
+    (s, summary)
 }
 
 /// What small models get wrong most in each dialect: quoting, naming another
-/// database, limiting rows.
+/// database, limiting rows. The prompt key of its hint.
 fn dialect_hint(dialect: &str) -> Option<&'static str> {
     Some(match dialect {
-        "mssql" | "sybase" => {
-            "Sintaxis de SQL Server: los nombres con guiones, espacios o palabras reservadas van entre corchetes ([mi-base], [Order]). \
-             Una tabla de otra base del mismo servidor se nombra con tres partes: [base].esquema.tabla. \
-             Para limitar filas, TOP n después de SELECT (no existe LIMIT). En un UNION, una parte con TOP y su propio ORDER BY va dentro de una subconsulta: \
-             SELECT * FROM (SELECT TOP 10 … FROM [b1].dbo.t ORDER BY Fecha DESC) AS t1 UNION ALL SELECT * FROM (…) AS t2.\n"
-        }
-        "postgres" => {
-            "Sintaxis de PostgreSQL: los nombres con mayúsculas, guiones o palabras reservadas van entre comillas dobles (\"MiTabla\"). \
-             Para limitar filas, LIMIT n. Una consulta no puede leer tablas de otra base (cada base es aparte, salvo dblink o postgres_fdw).\n"
-        }
-        "mysql" => {
-            "Sintaxis de MySQL: los nombres con guiones o palabras reservadas van entre backticks (`mi-base`). \
-             Una tabla de otra base del mismo servidor se nombra base.tabla. Para limitar filas, LIMIT n.\n"
-        }
-        "oracle" => {
-            "Sintaxis de Oracle: los nombres con minúsculas, guiones o palabras reservadas van entre comillas dobles. \
-             Una tabla de otro esquema se nombra ESQUEMA.TABLA. Para limitar filas, FETCH FIRST n ROWS ONLY (12c en adelante); no existe LIMIT ni TOP.\n"
-        }
-        "sqlite" => "Sintaxis de SQLite: para limitar filas, LIMIT n. Cada base es un archivo; otra base se usa con ATTACH.\n",
+        "mssql" | "sybase" => "assistant.dialect_mssql",
+        "postgres" => "assistant.dialect_postgres",
+        "mysql" => "assistant.dialect_mysql",
+        "oracle" => "assistant.dialect_oracle",
+        "sqlite" => "assistant.dialect_sqlite",
         _ => return None,
     })
 }
@@ -590,50 +586,31 @@ fn refused(text: &str) -> bool {
     SIGNS.iter().any(|s| t.contains(s))
 }
 
-const TOOL_OPEN: &str = "<herramienta>";
-const TOOL_CLOSE: &str = "</herramienta>";
+/// The line a local model asks for a tool with. The same in every language:
+/// DBine reads the answer by it.
+const TOOL_OPEN: &str = "<tool>";
+const TOOL_CLOSE: &str = "</tool>";
 /// Reads per answer: enough for a few databases' structure, bounded so a
 /// confused model can't loop.
 const MAX_TOOL_STEPS: usize = 12;
 /// Tools that read rows: each one waits for the user's approval.
 const READS_ROWS: &[&str] = &["sample_rows", "run_query", "explain"];
-const REFUSED_READ: &str = "El usuario no aprobó esta consulta, así que no se ejecutó. Seguí sin esos datos: respondé con lo que tenés o escribí la consulta para que la ejecute él.";
-const REPEATED: &str = "<error>\nYa pediste exactamente esto y tenés el resultado más arriba. No lo pidas de nuevo: pedí otra cosa o escribí la respuesta final con lo que ya tenés.\n</error>";
 /// A tool's answer, cut for a small model's context.
 const TOOL_RESULT_MAX: usize = 12_000;
 
 /// How a local model reads the connection: one tool per answer, in a line
 /// DBine recognizes (models' own tool formats vary and small ones misuse
 /// them; this works the same on the built-in model, Ollama and LM Studio).
-fn tools_prompt(connection: &str, database: &str) -> String {
-    format!(
-        "\nTENÉS ACCESO a la conexión «{connection}» de la pestaña: a todas sus bases, no solo a «{database}». Nunca digas que no tenés acceso ni le pidas al usuario que use una herramienta: \
-         usala vos. DBine lee lo que le pidas y te contesta.\n\
-         Para pedir algo, respondé SOLO con una línea así, sin nada antes ni después:\n\
-         {TOOL_OPEN}{{\"name\": \"NOMBRE\", \"arguments\": {{…}}}}{TOOL_CLOSE}\n\
-         DBine te contesta con <resultado>…</resultado> (o <error>…</error>) y seguís. Herramientas:\n\
-         - list_databases {{}}: las bases de la conexión.\n\
-         - list_objects {{\"database\": \"…\"}}: tablas, vistas y rutinas de una base.\n\
-         - describe_object {{\"database\": \"…\", \"object\": \"esquema.tabla\"}}: columnas, claves e índices.\n\
-         - index_usage {{\"database\": \"…\", \"object\": \"esquema.tabla\"}}: los índices de una tabla y cuánto se usan. Sin \"object\", revisa todas las tablas de la base \
-           y resume los índices sin uso, deshabilitados y nunca leídos.\n\
-         - sample_rows {{\"database\": \"…\", \"object\": \"esquema.tabla\", \"limit\": 20}}: las primeras filas de una tabla.\n\
-         - run_query {{\"database\": \"…\", \"query\": \"SELECT …\"}}: una consulta de solo lectura (las que escriben se rechazan); devuelve las filas.\n\
-         - explain {{\"database\": \"…\", \"query\": \"SELECT …\"}}: el plan estimado de una consulta.\n\
-         Las tres últimas leen datos: el usuario ve la consulta y la aprueba antes de que corra; si la rechaza, recibís <error> y seguís sin esos datos.\n\
-         Pedí de a una herramienta por respuesta y solo lo que necesites. Cuando tengas lo suficiente, escribí la respuesta final (el código en un bloque). Nada de esto ejecuta cambios: vos solo leés.\n\
-         Ejemplo. Usuario: «¿qué índices sobran en las bases?». Respuesta:\n\
-         {TOOL_OPEN}{{\"name\": \"list_databases\", \"arguments\": {{}}}}{TOOL_CLOSE}\n\
-         y después, con cada base que devuelva:\n\
-         {TOOL_OPEN}{{\"name\": \"index_usage\", \"arguments\": {{\"database\": \"ventas\"}}}}{TOOL_CLOSE}\n"
-    )
+fn tools_prompt(p: &Prompts, connection: &str, database: &str) -> String {
+    format!("\n{}\n", p.fill("assistant.tools", &[("connection", connection), ("database", database)]))
 }
 
 /// The tool a model's answer asks for, wherever it wrote it: our
-/// <herramienta> line, Qwen's own <tool_call> tags, a ```json block, or a bare
+/// <tool> line (or <herramienta>, what the Spanish-only prompt asked
+/// for), Qwen's own <tool_call> tags, a ```json block, or a bare
 /// {"name": …, "arguments": …} object after some text (small models mix them).
 fn tool_call(out: &str) -> Option<(String, serde_json::Value)> {
-    let tagged = [(TOOL_OPEN, TOOL_CLOSE), ("<tool_call>", "</tool_call>")]
+    let tagged = [(TOOL_OPEN, TOOL_CLOSE), ("<herramienta>", "</herramienta>"), ("<tool_call>", "</tool_call>")]
         .iter()
         .filter_map(|(open, close)| {
             let a = out.find(open)? + open.len();
@@ -720,11 +697,7 @@ fn tool_label(name: &str, args: &serde_json::Value) -> String {
     }
 }
 
-/// Added to the prompt on the second try after a refusal.
-const AFTER_REFUSAL: &str = "\nEl pedido anterior es legítimo: es la base del propio usuario y él decide qué ejecutar. \
-     No te niegues ni pidas disculpas: escribí la consulta que pide (DBine no la ejecuta) y, si es riesgosa o toca datos sensibles, avisalo en una línea.\n";
-
-fn truncate(s: &str, max: usize) -> String {
+fn truncate(s: &str, max: usize, p: &Prompts) -> String {
     if s.len() <= max {
         return s.to_string();
     }
@@ -732,7 +705,7 @@ fn truncate(s: &str, max: usize) -> String {
     while !s.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}\n… (recortado)", &s[..end])
+    format!("{}\n{}", &s[..end], p.text("truncated"))
 }
 
 async fn schema_for(state: &AppState, ai: &AiRuntime, connection_id: &str, database: &str) -> CommandResult<Arc<Vec<TableSchema>>> {
@@ -755,7 +728,7 @@ fn qualified(t: &TableSchema) -> String {
     }
 }
 
-fn table_line(t: &TableSchema) -> String {
+fn table_line(t: &TableSchema, p: &Prompts) -> String {
     let pk: Vec<&str> = t.primary_key.as_ref().map(|k| k.columns.iter().map(String::as_str).collect()).unwrap_or_default();
     let cols: Vec<String> = t
         .columns
@@ -780,7 +753,7 @@ fn table_line(t: &TableSchema) -> String {
         line.push_str(&format!("\n  FK ({}) -> {target}({})", fk.columns.join(", "), fk.ref_columns.join(", ")));
     }
     if let Some(c) = t.comment.as_deref().filter(|c| !c.is_empty()) {
-        line.push_str(&format!("\n  -- {}", truncate(c, 200)));
+        line.push_str(&format!("\n  -- {}", truncate(c, 200, p)));
     }
     line.push('\n');
     line
@@ -790,7 +763,7 @@ fn table_line(t: &TableSchema) -> String {
 /// in `hint` (the question, the editor) go first and whole; the rest whole
 /// while they fit, then by name only. Returns (text, tables with columns,
 /// total).
-fn compact_schema(tables: &[TableSchema], hint: &str, budget: usize) -> (String, usize, usize) {
+fn compact_schema(tables: &[TableSchema], hint: &str, budget: usize, p: &Prompts) -> (String, usize, usize) {
     let hint = hint.to_lowercase();
     let mentioned = |t: &TableSchema| {
         let n = t.name.to_lowercase();
@@ -808,7 +781,7 @@ fn compact_schema(tables: &[TableSchema], hint: &str, budget: usize) -> (String,
     let mut names_only: Vec<String> = Vec::new();
     let mut shown = 0;
     for t in order {
-        let line = table_line(t);
+        let line = table_line(t, p);
         if out.len() + line.len() <= budget {
             out.push_str(&line);
             shown += 1;
@@ -817,9 +790,9 @@ fn compact_schema(tables: &[TableSchema], hint: &str, budget: usize) -> (String,
         }
     }
     if !names_only.is_empty() {
-        let mut rest = format!("Otras tablas (sin detalle, pedí las que necesites): {}\n", names_only.join(", "));
+        let mut rest = format!("{}\n", p.fill("assistant.other_tables", &[("names", &names_only.join(", "))]));
         if out.len() + rest.len() > budget + 20_000 {
-            rest = truncate(&rest, 20_000);
+            rest = truncate(&rest, 20_000, p);
         }
         out.push_str(&rest);
     }
@@ -832,12 +805,13 @@ mod tests {
 
     #[test]
     fn tool_calls() {
-        let (n, a) = tool_call("<herramienta>{\"name\": \"describe_object\", \"arguments\": {\"database\": \"b\", \"object\": \"ventas.clientes\"}}</herramienta>").unwrap();
+        let (n, a) = tool_call("<tool>{\"name\": \"describe_object\", \"arguments\": {\"database\": \"b\", \"object\": \"ventas.clientes\"}}</tool>").unwrap();
         assert_eq!(n, "describe_object");
         assert_eq!(a["object"], "ventas.clientes");
-        assert_eq!(tool_call("Primero listo las bases.\n<herramienta>{\"name\": \"list_databases\", \"arguments\": {}}</herramienta>").unwrap().0, "list_databases");
+        assert_eq!(tool_call("Primero listo las bases.\n<herramienta>{\"name\": \"list_databases\", \"arguments\": {}}</herramienta>").unwrap().0, "list_databases", "the old tag");
+        assert_eq!(tool_call("First the databases.\n<tool>{\"name\": \"list_databases\", \"arguments\": {}}</tool>").unwrap().0, "list_databases");
         assert_eq!(tool_call("{\"name\": \"list_databases\", \"arguments\": {}}").unwrap().0, "list_databases", "bare JSON");
-        assert!(tool_call("<herramienta>{\"name\": \"execute\", \"arguments\": {}}</herramienta>").is_none(), "never a write");
+        assert!(tool_call("<tool>{\"name\": \"execute\", \"arguments\": {}}</tool>").is_none(), "never a write");
         assert!(tool_call("```sql\nSELECT 1;\n```").is_none());
         // What the 3B wrote in the owner's test: prose, then the JSON.
         let owner = "Como no tengo acceso a la conexión, podés usar index_usage:\n{\"name\": \"index_usage\", \"arguments\": {\"database\": \"tenant-compras\"}}";
@@ -860,9 +834,43 @@ mod tests {
 
     #[test]
     fn dialect_hints() {
-        assert!(dialect_hint("mssql").unwrap().contains("[base].esquema.tabla"));
-        assert!(dialect_hint("postgres").unwrap().contains("LIMIT"));
+        let p = prompts::get("es");
+        assert!(p.text(dialect_hint("mssql").unwrap()).contains("[base].esquema.tabla"));
+        assert!(p.text(dialect_hint("sybase").unwrap()).contains("TOP n"));
+        assert!(p.text(dialect_hint("postgres").unwrap()).contains("LIMIT"));
+        assert!(prompts::get("en").text(dialect_hint("oracle").unwrap()).contains("FETCH FIRST n ROWS ONLY"));
         assert!(dialect_hint("standard").is_none());
+    }
+
+    /// Every text that goes to the model comes from the UI language's file;
+    /// the tags DBine reads the answer by are the same in all of them.
+    #[test]
+    fn instructions_follow_the_ui_language() {
+        for l in prompts::LANGS {
+            let p = prompts::get(l);
+            let tools = tools_prompt(p, "c1", "b1");
+            assert!(tools.contains(TOOL_OPEN) && tools.contains(TOOL_CLOSE), "{l}");
+            // The example in the prompt is a call DBine recognizes.
+            let example = tools.lines().find(|x| x.starts_with(TOOL_OPEN) && x.contains("list_databases")).unwrap();
+            assert_eq!(tool_call(example).unwrap().0, "list_databases", "{l}");
+            for k in ["assistant.dialect_mssql", "assistant.dialect_postgres", "assistant.dialect_mysql", "assistant.dialect_oracle", "assistant.dialect_sqlite"] {
+                assert!(!p.text(k).is_empty(), "{l}: {k}");
+            }
+        }
+        let en = prompts::get("en");
+        assert!(en.text("assistant.system").contains("English"));
+        assert!(!en.text("assistant.system").contains("Respondé"));
+        assert!(prompts::get("es").text("assistant.system").contains("español"));
+        let (_, shown, _) = compact_schema(&[table("t", &["id"])], "", 1, en);
+        assert_eq!(shown, 0);
+        let (text, _, _) = compact_schema(&[table("t", &["id"])], "", 1, en);
+        assert!(!text.contains("Otras tablas"), "{text}");
+    }
+
+    #[test]
+    fn context_items_serialize_for_the_ui() {
+        let v = serde_json::to_value(vec![ContextItem::Engine { name: "PostgreSQL".into() }, ContextItem::Tables { shown: 3, total: 10 }, ContextItem::LastError]).unwrap();
+        assert_eq!(v, serde_json::json!([{"kind": "engine", "name": "PostgreSQL"}, {"kind": "tables", "shown": 3, "total": 10}, {"kind": "last_error"}]));
     }
     use dbine_driver::{ColumnDef, ForeignKeyDef, KeyDef};
 
@@ -890,7 +898,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             ..Default::default()
         });
-        let (text, shown, total) = compact_schema(&[p], "", 10_000);
+        let (text, shown, total) = compact_schema(&[p], "", 10_000, prompts::get("es"));
         assert_eq!((shown, total), (1, 1));
         assert_eq!(text, "dbo.pedidos(id int PK, cliente_id int)\n  FK (cliente_id) -> dbo.clientes(id)\n");
     }
@@ -899,13 +907,13 @@ mod tests {
     fn mentioned_tables_come_first_when_it_doesnt_fit() {
         let mut tables: Vec<TableSchema> = (0..200).map(|i| table(&format!("tabla_{i:03}"), &["id", "a", "b", "c"])).collect();
         tables.push(table("facturas", &["id", "total"]));
-        let (text, shown, total) = compact_schema(&tables, "sumá el total de FACTURAS por mes", 2_000);
+        let (text, shown, total) = compact_schema(&tables, "sumá el total de FACTURAS por mes", 2_000, prompts::get("es"));
         assert_eq!(total, 201);
         assert!(shown < total);
         assert!(text.starts_with("dbo.facturas("), "{}", &text[..60]);
         assert!(text.contains("Otras tablas (sin detalle"));
         // "id" in the question doesn't pull every table.
-        let (t2, _, _) = compact_schema(&tables, "where id = 1", 2_000);
+        let (t2, _, _) = compact_schema(&tables, "where id = 1", 2_000, prompts::get("es"));
         assert!(t2.starts_with("dbo.tabla_000("));
     }
 }

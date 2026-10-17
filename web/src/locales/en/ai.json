@@ -11,7 +11,19 @@
   "context": {
     "noDatabase": "No database selected",
     "openQuery": "open query",
-    "sent": "context: {{context}}"
+    "sent": "context: {{context}}",
+    "objects_one": "{{count}} object",
+    "objects_many": "{{count}} objects",
+    "objects_other": "{{count}} objects",
+    "tables_one": "{{count}} table",
+    "tables_many": "{{count}} tables",
+    "tables_other": "{{count}} tables",
+    "tablesOf_one": "{{shown}} of {{count}} table",
+    "tablesOf_many": "{{shown}} of {{count}} tables",
+    "tablesOf_other": "{{shown}} of {{count}} tables",
+    "editor": "editor",
+    "selection": "selection",
+    "lastError": "last error"
   },
   "suggest": {
     "whyFails": "Why does the last run fail? Fix it.",

@@ -680,6 +680,7 @@ mod tests {
             model: Some(m.id.into()),
             system: "Respondé solo con SQL.".into(),
             messages: vec![crate::ChatMessage { role: "user".into(), content: "Contá las filas de la tabla clientes.".into() }],
+            lang: "es",
         };
         let pieces = std::sync::Mutex::new(0);
         let text = chat(&dir, &req, &|_| *pieces.lock().unwrap() += 1, &cancel).await.unwrap();

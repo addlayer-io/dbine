@@ -67,7 +67,7 @@ const providers = state === 'setup'
           emit('ai-delta', { chat_id: id, delta: { kind: 'text', text: piece } });
           await new Promise((r) => setTimeout(r, 15));
         }
-        return { text: ANSWER, context_summary: 'SQL Server · ventas · 42 tablas · editor' };
+        return { text: ANSWER, context: [{ kind: 'engine', name: 'SQL Server' }, { kind: 'database', name: 'ventas' }, { kind: 'tables', shown: 42, total: 42 }, { kind: 'editor' }] };
       }
       default: return null;
     }
