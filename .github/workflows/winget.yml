@@ -157,6 +157,7 @@ jobs:
               --release-notes-url "$notes" --dry-run --skip-pr-check --output "$out" < /dev/null
           fi
           dir="$out/manifests/a/${PACKAGE_ID//.//}/$VERSION"
+          python3 packaging/winget/strip_display_version.py "$dir"
           ls -la "$dir"
           for f in "$dir"/*.yaml; do echo "::group::$(basename "$f")"; cat "$f"; echo "::endgroup::"; done
           echo "DIR=$dir" >> "$GITHUB_ENV"

@@ -109,6 +109,8 @@ def main():
     for entry in arp:
         if str(entry.get("DisplayVersion")) != version:
             sys.exit(f"the setup's DisplayVersion is {entry.get('DisplayVersion')}, not {version}")
+    # Equal to PackageVersion, so winget's bots ask to leave it out.
+    arp = [e for e in ({k: v for k, v in entry.items() if k != "DisplayVersion"} for entry in arp) if e]
 
     out = pathlib.Path(args.out) / "manifests" / "a" / "AddLayer" / "DBine" / version
     out.mkdir(parents=True, exist_ok=True)
