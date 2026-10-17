@@ -197,6 +197,49 @@ UNITS = ["páginas", "bloques", "filas", "bytes", "documentos", "claves"]
 PROMPT_FILES = {"src-tauri/src/optimizer/ai.rs"}
 
 
+# The server monitor's labels (metric labels and groups, table titles and
+# columns, info labels, notes) are short and often lack a Spanish-looking
+# word ("WAL generado", "Pedidos HTTP", "estado"), so the filter above drops
+# them. They're taken by where they're used instead.
+_LIT = r'"((?:[^"\\]|\\.)*)"'
+_MONITOR = [
+    # Metric::new(key, label, group, …) and the drivers' helpers with that shape.
+    (re.compile(r"\b(?:Metric::new|metric|m)\(\s*" + _LIT + r"\s*,\s*" + _LIT + r"\s*,\s*" + _LIT), (2, 3)),
+    (re.compile(r"(?:\.info\(|\binfo\.push\(\()\s*" + _LIT), (1,)),
+    (re.compile(r"(?:\.note\(|\bnotes\.push\()\s*(?:format!\(\s*)?" + _LIT), (1,)),
+]
+# MonitorTable::new(key, title, &[columns]) and helpers; a column may be a
+# (source, label) pair.
+_TABLE = re.compile(r"\b(?:MonitorTable::new|table)\(\s*" + _LIT + r"\s*,\s*" + _LIT + r"\s*,\s*&\[([^\]]*)\]")
+_PAIR = re.compile(r"\(\s*(?:&\[[^\]]*\]|" + _LIT + r")\s*,\s*" + _LIT + r"\s*\)")
+
+
+def _unescape(s: str) -> str:
+    return re.sub(r"\\(.)", lambda m: {"n": "\n", "t": "\t"}.get(m.group(1), m.group(1)), s)
+
+
+def monitor_labels(src: str):
+    for pat, groups in _MONITOR:
+        for m in pat.finditer(src):
+            for g in groups:
+                yield _unescape(m.group(g))
+    for m in _TABLE.finditer(src):
+        yield _unescape(m.group(2))
+        cols = m.group(3)
+        pairs = _PAIR.findall(cols)
+        for lit in [label for _, label in pairs] if pairs else re.findall(_LIT, cols):
+            yield _unescape(lit)
+
+
+def monitor_label(s: str) -> bool:
+    text = PLACEHOLDER.sub("", s).strip()
+    if not re.search(r"[a-záéíóúñ]", text):
+        return False  # acronyms ("CPU", "WAL", "RAM"): the same in every language
+    if "_" in text and " " not in text:
+        return False  # server parameter names (instance_memory)
+    return True
+
+
 def main():
     msgs: dict[str, set[str]] = {}
     for u in UNITS:
@@ -210,6 +253,9 @@ def main():
         src = strip_tests(f.read_text(encoding="utf-8"))
         for lit in literals(src):
             if user_facing(lit):
+                msgs.setdefault(normalize(lit), set()).add(str(f.relative_to(ROOT)))
+        for lit in monitor_labels(src):
+            if monitor_label(lit):
                 msgs.setdefault(normalize(lit), set()).add(str(f.relative_to(ROOT)))
     out = {m: sorted(v) for m, v in sorted(msgs.items())}
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
