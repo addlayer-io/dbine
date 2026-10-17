@@ -263,6 +263,21 @@ jobs:
             exit 1
           fi
 
+      - name: Apple signing secrets present
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CERT" ] || [ -z "$IDENTITY" ] || [ -z "$APPLE_ID" ] || [ -z "$PASSWORD" ] || [ -z "$TEAM" ]; then
+            echo "::error::Missing APPLE_* secrets: the macOS app can't be signed and notarized."
+            exit 1
+          fi
+
       # The app below is built without the downloadable drivers' crates
       # (`--no-default-features`); this checks every crate it does compile
       # gets the same features as in a build with every driver, so leaving
@@ -282,6 +297,15 @@ jobs:
           # their .sig files; the public key is in tauri.conf.json.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS: Developer ID signing (hardened runtime, in
+          # tauri.updater.conf.json) and notarization with a stapled ticket.
+          # Only the macOS runners get these secrets.
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
           # Cloud sync app registrations (docs/sync.md); empty
           # when the secrets aren't set: the providers show as unavailable.
           DBINE_GOOGLE_CLIENT_ID: ${{ secrets.DBINE_GOOGLE_CLIENT_ID }}
@@ -309,6 +333,18 @@ jobs:
           # jobs; Windows updates through the NSIS installer.
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      # The .app is signed with the Developer ID, notarized and stapled, and
+      # Gatekeeper accepts it as a downloaded app.
+      - name: Check macOS signature and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app=$(ls -d target/${{ matrix.target }}/release/bundle/macos/*.app | head -1)
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dvv "$app" 2>&1 | grep -E "^(Authority|TeamIdentifier|Runtime)"
+          xcrun stapler validate "$app"
+          spctl -a -vv -t exec "$app"
 
       - name: Keep drivers as artifacts (manual runs and local releases)
         if: ${{ needs.route.outputs.publish != 'true' }}
@@ -556,10 +592,8 @@ jobs:
 
           Version 0.1.4 and later receive it through the automatic update.
 
-          The binaries aren't signed by Apple or Microsoft:
-
-          - **macOS**: the first time, it warns that it can't verify the developer. Open System Settings › Privacy & Security › "Open Anyway", or run in the terminal: `xattr -dr com.apple.quarantine /Applications/DBine.app`.
-          - **Windows**: SmartScreen may ask for "More info" › "Run anyway".
+          - **macOS**: signed with an Apple Developer ID and notarized by Apple, so it opens without warnings.
+          - **Windows**: not signed yet; SmartScreen may ask for "More info" › "Run anyway".
           - Each engine's driver (except SQLite) is downloaded the first time you connect.
           EOF
           } > notes.md
