@@ -15,7 +15,10 @@
     "size": "Tamanho por célula",
     "sizeHelp": "Uma prévia maior é cortada mesmo com menos linhas.",
     "resultsCap": "Linhas por DataFrame",
-    "resultsCapHelp": "Quantas linhas do resultado de cada célula uma célula DataFrame SQL carrega (em memória, nunca no disco)."
+    "resultsCapHelp": "Quantas linhas do resultado de cada célula uma célula DataFrame SQL carrega (em memória, nunca no disco).",
+    "awsProfile": "Perfil da AWS",
+    "awsProfileHelp": "O perfil de ~/.aws com o qual as células DataFrame SQL leem s3://. Vazio: AWS_PROFILE ou «default».",
+    "awsProfilePlaceholder": "default"
   },
   "target": {
     "none": "Escolha onde executar",
@@ -170,7 +173,8 @@
     "changedMany_other": "{{files}} arquivos mudaram desde a última execução",
     "sidecars_one": "+ {{files}} arquivo associado",
     "sidecars_many": "+ {{files}} arquivos associados",
-    "sidecars_other": "+ {{files}} arquivos associados"
+    "sidecars_other": "+ {{files}} arquivos associados",
+    "remote": "baixada da rede"
   },
   "fileAccess": {
     "title": "Ler arquivos locais",
@@ -190,7 +194,10 @@
     "denied_other": "Não foi permitido ler estes arquivos: {{files}}",
     "sidecars_one": "+ {{count}} arquivo associado",
     "sidecars_many": "+ {{count}} arquivos associados",
-    "sidecars_other": "+ {{count}} arquivos associados"
+    "sidecars_other": "+ {{count}} arquivos associados",
+    "titleRemote": "Ler arquivos da rede",
+    "remoteTag": "Da rede",
+    "remoteNote": "O DBine baixa o que você permitir para uma pasta temporária privada, lê e apaga. Apenas servidores públicos por https:// e armazenamento da AWS, Google Cloud e Azure, com a sessão deste computador: as credenciais nunca vão no notebook."
   },
   "fileGrants": {
     "title": "Arquivos que os notebooks podem ler",

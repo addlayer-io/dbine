@@ -15,7 +15,10 @@
     "size": "Taille par cellule",
     "sizeHelp": "Un aperçu plus grand est coupé même s'il a moins de lignes.",
     "resultsCap": "Lignes par DataFrame",
-    "resultsCapHelp": "Combien de lignes du résultat de chaque cellule une cellule DataFrame SQL charge (en mémoire, jamais sur le disque)."
+    "resultsCapHelp": "Combien de lignes du résultat de chaque cellule une cellule DataFrame SQL charge (en mémoire, jamais sur le disque).",
+    "awsProfile": "Profil AWS",
+    "awsProfileHelp": "Le profil de ~/.aws avec lequel les cellules DataFrame SQL lisent s3://. Vide : AWS_PROFILE ou « default ».",
+    "awsProfilePlaceholder": "default"
   },
   "target": {
     "none": "Choisissez où exécuter",
@@ -170,7 +173,8 @@
     "changedMany_other": "{{files}} fichiers modifiés depuis la dernière exécution",
     "sidecars_one": "+ {{files}} fichier associé",
     "sidecars_many": "+ {{files}} fichiers associés",
-    "sidecars_other": "+ {{files}} fichiers associés"
+    "sidecars_other": "+ {{files}} fichiers associés",
+    "remote": "téléchargée depuis le réseau"
   },
   "fileAccess": {
     "title": "Lire des fichiers locaux",
@@ -190,7 +194,10 @@
     "denied_other": "La lecture de ces fichiers n'a pas été autorisée : {{files}}",
     "sidecars_one": "+ {{count}} fichier associé",
     "sidecars_many": "+ {{count}} fichiers associés",
-    "sidecars_other": "+ {{count}} fichiers associés"
+    "sidecars_other": "+ {{count}} fichiers associés",
+    "titleRemote": "Lire des fichiers du réseau",
+    "remoteTag": "Depuis le réseau",
+    "remoteNote": "DBine télécharge ce que vous autorisez dans un dossier temporaire privé, le lit puis le supprime. Uniquement des serveurs publics en https:// et le stockage AWS, Google Cloud et Azure, avec la session de cet ordinateur : les identifiants ne figurent jamais dans le notebook."
   },
   "fileGrants": {
     "title": "Fichiers que les notebooks peuvent lire",
