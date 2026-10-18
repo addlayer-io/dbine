@@ -5,18 +5,36 @@ use crate::{
 };
 use std::{fmt::Display, sync::Arc};
 
+/// A user-defined type's name, from its column metadata.
+pub(crate) fn udt_name_of(ty: &TypeInfo) -> Option<String> {
+    match ty {
+        TypeInfo::Udt(info) => Some(info.type_name.clone()),
+        _ => None,
+    }
+}
+
 /// A column of data from a query.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Column {
     pub(crate) name: String,
     pub(crate) column_type: ColumnType,
+    /// For a CLR user-defined type column, the type's name (`geometry`,
+    /// `geography`, `hierarchyid`…).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub(crate) udt_name: Option<String>,
 }
 
 impl Column {
     /// Construct a new Column.
     pub fn new(name: String, column_type: ColumnType) -> Self {
-        Self { name, column_type }
+        Self { name, column_type, udt_name: None }
+    }
+
+    /// The name of a user-defined type column's type (`geometry`,
+    /// `geography`, `hierarchyid`…); `None` for other columns.
+    pub fn udt_name(&self) -> Option<&str> {
+        self.udt_name.as_deref()
     }
 
     /// The name of the column.

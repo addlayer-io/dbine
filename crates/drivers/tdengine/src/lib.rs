@@ -27,7 +27,7 @@ use dbine_driver::plan::tree_from_indented_text;
 use dbine_driver::sql::split_statements;
 use dbine_driver::sql::Quote;
 use dbine_driver::{
-    async_trait, json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
+    async_trait, json_bytes, json_i64, json_spatial_bytes, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, Metric, MetricUnit,
     MonitorSnapshot, MonitorTable, ObjectKindInfo, ObjectRef, Plan, PlanNode, QueryOutcome, Result, ResultColumn, RowChange,
     Session, TableSchema,
@@ -359,6 +359,8 @@ fn cell(v: Value, ty: &str) -> Value {
         Value::String(s) if ty == "TIMESTAMP" => Value::String(timestamp(&s)),
         Value::String(s) if ty == "VARBINARY" || ty == "GEOMETRY" => {
             match (0..s.len()).step_by(2).map(|i| s.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok())).collect::<Option<Vec<u8>>>() {
+                // GEOMETRY is WKB, whole: the map view reads it.
+                Some(b) if ty == "GEOMETRY" => json_spatial_bytes(&b),
                 Some(b) => json_bytes(&b),
                 None => Value::String(s),
             }

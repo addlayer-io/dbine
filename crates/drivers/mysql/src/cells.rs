@@ -4,7 +4,7 @@
 //! over the binary protocol, whose typed values are written the way the
 //! text protocol would send them.
 
-use dbine_driver::{json_bytes, json_f64, json_i64, json_u64};
+use dbine_driver::{json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64};
 use mysql_async::consts::{ColumnFlags, ColumnType};
 use mysql_async::{Column, Value};
 use serde_json::Value as Json;
@@ -40,7 +40,9 @@ pub fn cell(col: &Column, v: Value) -> Json {
             let s = text();
             s.parse::<f64>().map_or_else(|_| s.into(), json_f64)
         }
-        MYSQL_TYPE_BIT | MYSQL_TYPE_GEOMETRY => json_bytes(&b),
+        MYSQL_TYPE_BIT => json_bytes(&b),
+        // SRID + WKB, whole: the map view reads it.
+        MYSQL_TYPE_GEOMETRY => json_spatial_bytes(&b),
         MYSQL_TYPE_TINY_BLOB | MYSQL_TYPE_MEDIUM_BLOB | MYSQL_TYPE_LONG_BLOB | MYSQL_TYPE_BLOB
         | MYSQL_TYPE_STRING | MYSQL_TYPE_VAR_STRING | MYSQL_TYPE_VARCHAR
             if col.character_set() == BINARY_CHARSET =>

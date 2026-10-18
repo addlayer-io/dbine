@@ -574,6 +574,45 @@ pub fn json_bytes(b: &[u8]) -> serde_json::Value {
     s.into()
 }
 
+/// A spatial value's bytes (WKB, EWKB, MySQL's SRID + WKB, SQL Server's
+/// geometry serialization, SpatiaLite / GeoPackage blobs) as `0x…` hex,
+/// whole: the results' map view decodes them in the UI, so they aren't cut at
+/// 1 KiB like other binary. Past 16 MiB they are cut like binary (`…`), and
+/// the map counts them as unreadable.
+pub fn json_spatial_bytes(b: &[u8]) -> serde_json::Value {
+    const MAX: usize = 16 * 1024 * 1024;
+    let mut s = String::with_capacity(2 + b.len().min(MAX) * 2);
+    s.push_str("0x");
+    for byte in b.iter().take(MAX) {
+        use std::fmt::Write;
+        let _ = write!(s, "{byte:02X}");
+    }
+    if b.len() > MAX {
+        s.push('…');
+    }
+    s.into()
+}
+
+/// A column type that holds geometries in some engine (`geometry`,
+/// `geography`, `POINT`, `ST_GEOMETRY(4326)`, `MULTIPOLYGON`…).
+pub fn is_spatial_type(name: &str) -> bool {
+    let n = name.trim().to_ascii_lowercase();
+    let base = n.split(|c: char| c == '(' || c == ' ').next().unwrap_or("");
+    matches!(
+        base,
+        "geometry" | "geography" | "point" | "linestring" | "polygon" | "multipoint" | "multilinestring"
+            | "multipolygon" | "geometrycollection" | "geomcollection" | "st_geometry" | "st_point"
+    )
+}
+
+/// A blob that is a SpatiaLite or GeoPackage geometry (by its header and,
+/// for SpatiaLite, its markers): SQLite has no spatial column type to go by.
+pub fn is_spatial_blob(b: &[u8]) -> bool {
+    let spatialite = b.len() >= 44 && b[0] == 0x00 && b[1] <= 1 && b[38] == 0x7C && b[b.len() - 1] == 0xFE;
+    let geopackage = b.len() >= 8 && b[0] == b'G' && b[1] == b'P' && b[2] == 0;
+    spatialite || geopackage
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -739,6 +778,33 @@ mod tests {
     #[test]
     fn binary_is_hex() {
         assert_eq!(json_bytes(&[0xde, 0xad]), serde_json::json!("0xDEAD"));
+    }
+
+    #[test]
+    fn spatial_bytes_are_whole() {
+        let b = vec![0xabu8; 3000];
+        let v = json_spatial_bytes(&b);
+        let s = v.as_str().unwrap();
+        assert_eq!(s.len(), 2 + 6000);
+        assert!(!s.ends_with('…'));
+        assert!(json_bytes(&b).as_str().unwrap().ends_with('…'));
+    }
+
+    #[test]
+    fn spatial_types_and_blobs() {
+        for t in ["geometry", "GEOGRAPHY", "POINT", "ST_GEOMETRY(4326)", "MultiPolygon", "geometry(Point,4326)"] {
+            assert!(is_spatial_type(t), "{t}");
+        }
+        for t in ["Udt", "BLOB", "pointer", "varchar(10)", ""] {
+            assert!(!is_spatial_type(t), "{t}");
+        }
+        let mut sl = vec![0u8; 60];
+        sl[1] = 1;
+        sl[38] = 0x7C;
+        sl[59] = 0xFE;
+        assert!(is_spatial_blob(&sl));
+        assert!(is_spatial_blob(b"GP\x00\x01\xE6\x10\x00\x00\x01"));
+        assert!(!is_spatial_blob(&[0xCA, 0xFE]));
     }
 }
 

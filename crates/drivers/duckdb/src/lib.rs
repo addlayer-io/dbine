@@ -24,7 +24,7 @@ use dbine_driver::sql::{
     StatementKind,
 };
 use dbine_driver::{
-    json_bytes, json_f64, json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
+    json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef,
     QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema, TxState,
 };
@@ -984,7 +984,9 @@ fn nested(v: Value) -> serde_json::Value {
         Value::Decimal(d) => d.to_string().into(),
         Value::Timestamp(unit, t) => timestamp(unit.to_micros(t)).into(),
         Value::Text(s) | Value::Enum(s) => s.into(),
-        Value::Blob(b) | Value::Geometry(b) => json_bytes(&b),
+        Value::Blob(b) => json_bytes(&b),
+        // WKB, whole: the map view reads it.
+        Value::Geometry(b) => json_spatial_bytes(&b),
         Value::Date32(d) => chrono::DateTime::from_timestamp(d as i64 * 86_400, 0)
             .map_or_else(|| d.to_string(), |t| t.format("%Y-%m-%d").to_string())
             .into(),

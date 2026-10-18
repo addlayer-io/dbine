@@ -27,7 +27,7 @@ mod variant;
 
 use dbine_driver::sql::{qualified_name, select_top, Limit, Quote};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
+    async_trait, json_bytes, json_f64, json_i64, json_spatial_bytes, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
     ConnectFailure, ConnectFailureKind, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, ObjectRef, QueryOutcome, ResultColumn, Result, Session, TableSchema,
 };
 #[cfg(test)]
@@ -623,6 +623,15 @@ fn parse_host(host: &str, port: u16) -> (&str, Option<&str>, u16) {
     match host.split_once(',') {
         Some((h, p)) => (h, instance, p.trim().parse().unwrap_or(port)),
         None => (host, instance, port),
+    }
+}
+
+/// A result cell: a geometry / geography column's value (SQL Server's own
+/// serialization) goes whole, for the map view; anything else as [`cell`].
+pub(crate) fn spatial_cell(data: ColumnData<'static>, spatial: bool) -> serde_json::Value {
+    match data {
+        ColumnData::Binary(Some(b)) if spatial => json_spatial_bytes(&b),
+        d => cell(d),
     }
 }
 
