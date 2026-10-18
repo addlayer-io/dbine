@@ -222,5 +222,63 @@
     "toolbar": "File permissions…",
     "toolbarTip": "The local files this notebook can read without asking",
     "dialogTitle": "File permissions"
+  },
+  "params": {
+    "title": "Parameters",
+    "toolbar": "Parameters",
+    "toolbarTip": "Values asked for when running, used by cells as {{example}}",
+    "valuesTip": "The values in use: click to change them",
+    "add": "Add parameter",
+    "remove": "Remove the parameter",
+    "hint": "Use them in cells as {{example}}. The value always goes as data (text, number, date), never as a table or column name.",
+    "name": {
+      "label": "Name",
+      "invalid": "\"{{name}}\" is not valid as a name: a letter or _, then letters, numbers or _",
+      "taken": "There is already a parameter \"{{name}}\""
+    },
+    "type": "Type",
+    "types": {
+      "text": "Text",
+      "number": "Number",
+      "date": "Date",
+      "datetime": "Date and time",
+      "boolean": "Boolean",
+      "list": "List of values"
+    },
+    "default": "Default value",
+    "noDefault": "No value",
+    "required": "Required",
+    "description": "Description",
+    "descriptionPlaceholder": "What it is for (optional)",
+    "options": "List values",
+    "optionsPlaceholder": "One value per line",
+    "noOptions": "The list has no values",
+    "usage_one": "used by {{count}} cell",
+    "usage_many": "used by {{count}} cells",
+    "usage_other": "used by {{count}} cells",
+    "unused": "no cell uses it",
+    "usageTip": "Cells use it by writing {{example}}",
+    "true": "True",
+    "false": "False",
+    "dialogTitle": "Parameter values",
+    "dialogIntro": "The cells you are about to run use these parameters. Fill in the required ones (*).",
+    "dialogEditIntro": "The values the next runs of this notebook use. They are not saved in the file.",
+    "emptyIsNull": "Empty: NULL",
+    "notUsedHere": "These cells don't use it",
+    "apply": "Apply",
+    "problem": {
+      "required": "The value is missing: it is required",
+      "number": "Must be a number (for example 12 or -3.5)",
+      "date": "Must be a date YYYY-MM-DD",
+      "datetime": "Must be a date and time YYYY-MM-DD HH:MM",
+      "boolean": "Must be true or false",
+      "list": "Must be one of the values in the list"
+    },
+    "resultTip": "Parameter values it was obtained with: {{values}}",
+    "stale": "stale",
+    "staleTip": "The values of the parameters this cell uses have changed: run it again to see the result with the current ones.",
+    "inUse": "Values in use:",
+    "missing": "missing",
+    "requiredPlaceholder": "Enter a value"
   }
 }

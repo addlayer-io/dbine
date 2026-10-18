@@ -222,5 +222,63 @@
     "toolbar": "Autorisations de fichiers…",
     "toolbarTip": "Les fichiers locaux que ce notebook peut lire sans demander",
     "dialogTitle": "Autorisations de fichiers"
+  },
+  "params": {
+    "title": "Paramètres",
+    "toolbar": "Paramètres",
+    "toolbarTip": "Valeurs demandées à l'exécution et utilisées par les cellules comme {{example}}",
+    "valuesTip": "Les valeurs utilisées : cliquez pour les modifier",
+    "add": "Ajouter un paramètre",
+    "remove": "Retirer le paramètre",
+    "hint": "Utilisez-les dans les cellules comme {{example}}. La valeur est toujours passée comme donnée (texte, nombre, date), jamais comme nom de table ou de colonne.",
+    "name": {
+      "label": "Nom",
+      "invalid": "« {{name}} » n'est pas valable comme nom : une lettre ou _, puis des lettres, chiffres ou _",
+      "taken": "Il existe déjà un paramètre « {{name}} »"
+    },
+    "type": "Type",
+    "types": {
+      "text": "Texte",
+      "number": "Nombre",
+      "date": "Date",
+      "datetime": "Date et heure",
+      "boolean": "Booléen",
+      "list": "Liste de valeurs"
+    },
+    "default": "Valeur par défaut",
+    "noDefault": "Sans valeur",
+    "required": "Obligatoire",
+    "description": "Description",
+    "descriptionPlaceholder": "À quoi il sert (facultatif)",
+    "options": "Valeurs de la liste",
+    "optionsPlaceholder": "Une valeur par ligne",
+    "noOptions": "La liste n'a pas de valeurs",
+    "usage_one": "utilisé par {{count}} cellule",
+    "usage_many": "utilisé par {{count}} cellules",
+    "usage_other": "utilisé par {{count}} cellules",
+    "unused": "aucune cellule ne l'utilise",
+    "usageTip": "Les cellules l'utilisent en écrivant {{example}}",
+    "true": "Vrai",
+    "false": "Faux",
+    "dialogTitle": "Valeurs des paramètres",
+    "dialogIntro": "Les cellules que vous allez exécuter utilisent ces paramètres. Renseignez les obligatoires (*).",
+    "dialogEditIntro": "Les valeurs utilisées par les prochaines exécutions de ce notebook. Elles ne sont pas enregistrées dans le fichier.",
+    "emptyIsNull": "Vide : NULL",
+    "notUsedHere": "Ces cellules ne l'utilisent pas",
+    "apply": "Appliquer",
+    "problem": {
+      "required": "La valeur est manquante : elle est obligatoire",
+      "number": "Doit être un nombre (par exemple 12 ou -3.5)",
+      "date": "Doit être une date AAAA-MM-JJ",
+      "datetime": "Doit être une date et heure AAAA-MM-JJ HH:MM",
+      "boolean": "Doit être vrai ou faux",
+      "list": "Doit être l'une des valeurs de la liste"
+    },
+    "resultTip": "Valeurs des paramètres avec lesquelles il a été obtenu : {{values}}",
+    "stale": "périmé",
+    "staleTip": "Les valeurs des paramètres utilisés par la cellule ont changé : exécutez-la à nouveau pour voir le résultat avec les valeurs actuelles.",
+    "inUse": "Valeurs utilisées :",
+    "missing": "manquant",
+    "requiredPlaceholder": "Saisissez une valeur"
   }
 }

@@ -222,5 +222,63 @@
     "toolbar": "Permissões de arquivos…",
     "toolbarTip": "Os arquivos locais que este notebook pode ler sem perguntar",
     "dialogTitle": "Permissões de arquivos"
+  },
+  "params": {
+    "title": "Parâmetros",
+    "toolbar": "Parâmetros",
+    "toolbarTip": "Valores pedidos ao executar e usados pelas células como {{example}}",
+    "valuesTip": "Os valores em uso: clique para alterá-los",
+    "add": "Adicionar parâmetro",
+    "remove": "Remover o parâmetro",
+    "hint": "Use-os nas células como {{example}}. O valor sempre vai como dado (texto, número, data), nunca como nome de tabela ou coluna.",
+    "name": {
+      "label": "Nome",
+      "invalid": "\"{{name}}\" não serve como nome: uma letra ou _, depois letras, números ou _",
+      "taken": "Já existe um parâmetro \"{{name}}\""
+    },
+    "type": "Tipo",
+    "types": {
+      "text": "Texto",
+      "number": "Número",
+      "date": "Data",
+      "datetime": "Data e hora",
+      "boolean": "Booleano",
+      "list": "Lista de valores"
+    },
+    "default": "Valor padrão",
+    "noDefault": "Sem valor",
+    "required": "Obrigatório",
+    "description": "Descrição",
+    "descriptionPlaceholder": "Para que serve (opcional)",
+    "options": "Valores da lista",
+    "optionsPlaceholder": "Um valor por linha",
+    "noOptions": "A lista não tem valores",
+    "usage_one": "usado por {{count}} célula",
+    "usage_many": "usado por {{count}} células",
+    "usage_other": "usado por {{count}} células",
+    "unused": "nenhuma célula o usa",
+    "usageTip": "As células o usam escrevendo {{example}}",
+    "true": "Verdadeiro",
+    "false": "Falso",
+    "dialogTitle": "Valores dos parâmetros",
+    "dialogIntro": "As células que você vai executar usam estes parâmetros. Preencha os obrigatórios (*).",
+    "dialogEditIntro": "Os valores que as próximas execuções deste notebook usam. Não são salvos no arquivo.",
+    "emptyIsNull": "Vazio: NULL",
+    "notUsedHere": "Estas células não o usam",
+    "apply": "Aplicar",
+    "problem": {
+      "required": "Falta o valor: é obrigatório",
+      "number": "Precisa ser um número (por exemplo 12 ou -3.5)",
+      "date": "Precisa ser uma data AAAA-MM-DD",
+      "datetime": "Precisa ser uma data e hora AAAA-MM-DD HH:MM",
+      "boolean": "Precisa ser verdadeiro ou falso",
+      "list": "Precisa ser um dos valores da lista"
+    },
+    "resultTip": "Valores dos parâmetros com que foi obtido: {{values}}",
+    "stale": "desatualizado",
+    "staleTip": "Os valores dos parâmetros que a célula usa mudaram: execute-a de novo para ver o resultado com os atuais.",
+    "inUse": "Valores em uso:",
+    "missing": "falta",
+    "requiredPlaceholder": "Digite um valor"
   }
 }
