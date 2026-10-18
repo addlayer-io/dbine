@@ -549,7 +549,14 @@ async function runCell(cell: NotebookCell, sql: string | null = null): Promise<b
     return await runHeld(cell, sql, null);
   } finally {
     lock.release();
+    revealResult(cell.id);
   }
+}
+
+/** After a single run: the result in view, even when ⇧↵ already moved the
+ *  focus (and the view) to the next cell before the rows arrived. */
+function revealResult(id: string) {
+  void nextTick(() => requestAnimationFrame(() => cellViews.get(id)?.revealResult()));
 }
 
 /** The run itself, with the lock held. `asked`: the confirm_run targets

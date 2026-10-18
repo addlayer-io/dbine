@@ -72,6 +72,7 @@ const emit = defineEmits<{
 
 const editor = ref<InstanceType<typeof CodeEditor> | null>(null);
 const textarea = ref<{ focus: () => void } | null>(null);
+const root = ref<HTMLElement | null>(null);
 
 defineExpose({
   focus: () => {
@@ -80,6 +81,14 @@ defineExpose({
   },
   selectionText: () => editor.value?.selectionText() ?? '',
   replaceAll: (code: string) => { if (editor.value) editor.value.replaceAll(code); else emit('source', code); },
+  /** Scrolls just enough for the cell's result to show (its top first when taller than the view). */
+  revealResult: () => {
+    const el = root.value?.querySelector<HTMLElement>('.nr');
+    if (!el) return;
+    const view = el.closest<HTMLElement>('.nb-body');
+    // Taller than the view: its top; else just enough for all of it.
+    el.scrollIntoView({ block: view && el.offsetHeight > view.clientHeight ? 'start' : 'nearest' });
+  },
 });
 
 const html = computed(() => (props.cell.kind === 'markdown' ? renderMarkdown(props.cell.source) : ''));
@@ -135,6 +144,7 @@ function endRename(save: boolean) {
 
 <template>
   <div
+    ref="root"
     class="nc"
     :class="[cell.kind, { active, running }]"
     @focusin="emit('activate')"
