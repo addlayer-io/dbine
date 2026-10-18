@@ -4,6 +4,8 @@
 works with relational, analytical, document, key-value, graph, time-series and
 search databases. It runs on Windows, macOS and Linux.
 
+![DBine: the explorer with PostgreSQL, SQL Server, Redis and Elasticsearch connections, the SQL editor and results](flatpak/screenshots/workbench.png)
+
 It is built with **Tauri 2**, a **Rust** core and a **Vue 3 + Element Plus**
 UI. The interface is a VS Code-style workbench. Each engine is its own crate
 and queries are organized inside each database.
