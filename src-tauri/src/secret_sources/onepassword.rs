@@ -24,7 +24,7 @@ pub async fn read(reference: &str, account: &str) -> Result<String, String> {
     let mut cmd = tokio::process::Command::new(op);
     cmd.arg("read").arg(reference.trim());
     if !account.is_empty() {
-        cmd.arg("--account").arg(account);
+        cmd.arg(format!("--account={account}"));
     }
     match exec::run(cmd, LIMIT).await {
         Ok(out) => Ok(exec::trim_newline(out)),

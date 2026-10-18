@@ -200,7 +200,7 @@ impl SecretSource {
                 if !r.starts_with("op://") || r.len() <= "op://".len() || !no_control(r) {
                     return Err(bad("la referencia de 1Password tiene que empezar con op:// (op://bóveda/elemento/campo)"));
                 }
-                if !account.is_empty() && !account.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '@')) {
+                if !account.is_empty() && (account.starts_with('-') || !account.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '@'))) {
                     return Err(bad("la cuenta de 1Password no es válida"));
                 }
             }
@@ -230,7 +230,7 @@ impl SecretSource {
                 if !region.trim().is_empty() && !valid_aws_region(region.trim()) {
                     return Err(bad(format!("la región de AWS «{}» no es válida", region.trim())));
                 }
-                if !profile.is_empty() && !profile.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '@' | '+')) {
+                if !profile.is_empty() && (profile.starts_with('-') || !profile.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '@' | '+'))) {
                     return Err(bad("el perfil de AWS no es válido"));
                 }
             }
@@ -483,6 +483,10 @@ mod tests {
         }
         let aws = |r: &str| SecretSource::Aws { secret_id: "x".into(), region: r.into(), profile: String::new(), json_key: String::new(), fill_username: false };
         assert!(aws("eu-west-1").validate().is_ok());
+        let profile = SecretSource::Aws { secret_id: "x".into(), region: String::new(), profile: "--debug".into(), json_key: String::new(), fill_username: false };
+        assert!(profile.validate().is_err(), "nothing that reads as a flag");
+        let account = SecretSource::OnePassword { reference: "op://a/b/c".into(), account: "--debug".into(), json_key: String::new() };
+        assert!(account.validate().is_err());
         assert!(aws("evil.com/").validate().is_err());
         let gcp = |p: &str, v: &str| SecretSource::Gcp { project: p.into(), secret: "pw".into(), version: v.into(), json_key: String::new() };
         assert!(gcp("my-proj", "").validate().is_ok());
