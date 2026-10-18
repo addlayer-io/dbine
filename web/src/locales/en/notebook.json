@@ -166,7 +166,10 @@
     "changed": "changed since the last run ({{before}} → {{after}})",
     "changedMany_one": "{{files}} file changed since the last run",
     "changedMany_many": "{{files}} files changed since the last run",
-    "changedMany_other": "{{files}} files changed since the last run"
+    "changedMany_other": "{{files}} files changed since the last run",
+    "sidecars_one": "+ {{files}} associated file",
+    "sidecars_many": "+ {{files}} associated files",
+    "sidecars_other": "+ {{files}} associated files"
   },
   "fileAccess": {
     "title": "Read local files",
@@ -183,7 +186,10 @@
     "alwaysUnsaved": "Save the notebook to remember it",
     "denied_one": "Reading {{files}} was not allowed",
     "denied_many": "Reading these files was not allowed: {{files}}",
-    "denied_other": "Reading these files was not allowed: {{files}}"
+    "denied_other": "Reading these files was not allowed: {{files}}",
+    "sidecars_one": "+ {{count}} associated file",
+    "sidecars_many": "+ {{count}} associated files",
+    "sidecars_other": "+ {{count}} associated files"
   },
   "fileGrants": {
     "title": "Files notebooks can read",

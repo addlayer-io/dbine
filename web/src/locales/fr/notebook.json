@@ -166,7 +166,10 @@
     "changed": "modifié depuis la dernière exécution ({{before}} → {{after}})",
     "changedMany_one": "{{files}} fichier modifié depuis la dernière exécution",
     "changedMany_many": "{{files}} fichiers modifiés depuis la dernière exécution",
-    "changedMany_other": "{{files}} fichiers modifiés depuis la dernière exécution"
+    "changedMany_other": "{{files}} fichiers modifiés depuis la dernière exécution",
+    "sidecars_one": "+ {{files}} fichier associé",
+    "sidecars_many": "+ {{files}} fichiers associés",
+    "sidecars_other": "+ {{files}} fichiers associés"
   },
   "fileAccess": {
     "title": "Lire des fichiers locaux",
@@ -183,7 +186,10 @@
     "alwaysUnsaved": "Enregistrez le notebook pour le mémoriser",
     "denied_one": "La lecture de {{files}} n'a pas été autorisée",
     "denied_many": "La lecture de ces fichiers n'a pas été autorisée : {{files}}",
-    "denied_other": "La lecture de ces fichiers n'a pas été autorisée : {{files}}"
+    "denied_other": "La lecture de ces fichiers n'a pas été autorisée : {{files}}",
+    "sidecars_one": "+ {{count}} fichier associé",
+    "sidecars_many": "+ {{count}} fichiers associés",
+    "sidecars_other": "+ {{count}} fichiers associés"
   },
   "fileGrants": {
     "title": "Fichiers que les notebooks peuvent lire",
