@@ -4,6 +4,12 @@
 //! read in place (a query always sees their current contents) and never
 //! copied. The folder is also the `file_search_path`, so `FROM 'otro.csv'`
 //! works in queries.
+//!
+//! With "Sólo este archivo" (`single`) the connection is one file instead of
+//! its folder: what opening a data file from the OS gives (Finder, a drop,
+//! File › Open…). A single file may also be an Excel workbook (`.xlsx`, its
+//! first sheet), read by DuckDB's `excel` extension, which DuckDB fetches the
+//! first time; folders leave workbooks out so connecting never needs it.
 
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{kinds, DriverInfo, Family, Field, FieldKind, Language, ObjectKindInfo};
@@ -11,6 +17,9 @@ use std::path::{Path, PathBuf};
 
 /// Files per folder turned into views (the rest can be queried by path).
 const MAX_FILES: usize = 500;
+
+/// The option that opens one file instead of its folder.
+pub const SINGLE: &str = "single";
 
 pub fn info() -> DriverInfo {
     DriverInfo {
@@ -31,6 +40,9 @@ pub fn info() -> DriverInfo {
             Field::new("recursive", "Incluir subcarpetas", FieldKind::Bool)
                 .help("Las vistas de las subcarpetas se llaman carpeta/archivo.")
                 .advanced(),
+            Field::new(SINGLE, "Sólo este archivo", FieldKind::Bool)
+                .help("Abre únicamente el archivo elegido (también un .xlsx), no toda la carpeta.")
+                .advanced(),
             Field::read_only(),
         ],
         databases_label: "",
@@ -49,6 +61,8 @@ pub enum Format {
     Tsv,
     Parquet,
     Json,
+    /// An Excel workbook's first sheet (single files only).
+    Xlsx,
 }
 
 /// The format of a data file by its extension (`.csv.gz` counts as CSV).
@@ -63,6 +77,7 @@ pub fn format_of(path: &Path) -> Option<(Format, String)> {
         (".json", Format::Json),
         (".jsonl", Format::Json),
         (".ndjson", Format::Json),
+        (".xlsx", Format::Xlsx),
     ]
     .iter()
     .find(|(ext, _)| base.ends_with(ext))
@@ -99,7 +114,7 @@ pub fn scan(dir: &Path, recursive: bool) -> std::io::Result<Vec<(String, PathBuf
                 if recursive {
                     walk(&path, &format!("{prefix}{name}/"), recursive, out)?;
                 }
-            } else if let Some((format, stem)) = format_of(&path) {
+            } else if let Some((format, stem)) = format_of(&path).filter(|(f, _)| *f != Format::Xlsx) {
                 out.push((format!("{prefix}{stem}"), path, format));
             }
         }
@@ -115,6 +130,7 @@ pub fn scan(dir: &Path, recursive: bool) -> std::io::Result<Vec<(String, PathBuf
                 Format::Tsv => "_tsv",
                 Format::Parquet => "_parquet",
                 Format::Json => "_json",
+                Format::Xlsx => "_xlsx",
             });
         }
     }
@@ -133,8 +149,16 @@ pub fn view_sql(name: &str, path: &Path, format: Format) -> String {
         Format::Tsv => format!("read_csv_auto({p}, delim = '\\t')"),
         Format::Parquet => format!("read_parquet({p})"),
         Format::Json => format!("read_json_auto({p})"),
+        Format::Xlsx => format!("read_xlsx({p})"),
     };
     format!("CREATE OR REPLACE VIEW {} AS SELECT * FROM {reader}", quote_ident(Quote::Double, name))
+}
+
+/// The one file of a "Sólo este archivo" connection: (view name, file,
+/// format), the view named after the file without its extension.
+pub fn single(path: &Path) -> Option<(String, PathBuf, Format)> {
+    let (format, stem) = format_of(path)?;
+    Some((stem, path.to_path_buf(), format))
 }
 
 /// Settings for a session on the folder.
@@ -168,6 +192,26 @@ mod tests {
         assert_eq!(names(false), ["a_csv", "a_parquet", "b"]);
         assert_eq!(names(true), ["a_csv", "a_parquet", "b", "sub/c"]);
         assert_eq!(folder(&dir.join("b.json").to_string_lossy()), dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn single_files_and_workbooks() {
+        assert_eq!(single(Path::new("/d/Ventas 2024.csv")), Some(("Ventas 2024".into(), "/d/Ventas 2024.csv".into(), Format::Csv)));
+        assert_eq!(single(Path::new("/d/libro.XLSX")).map(|s| s.2), Some(Format::Xlsx));
+        assert_eq!(single(Path::new("/d/notas.txt")), None);
+        assert_eq!(
+            view_sql("o\"k", Path::new("/d/it's.xlsx"), Format::Xlsx),
+            "CREATE OR REPLACE VIEW \"o\"\"k\" AS SELECT * FROM read_xlsx('/d/it''s.xlsx')"
+        );
+        // A folder leaves workbooks out (connecting never fetches the extension).
+        let dir = std::env::temp_dir().join(format!("dbine-files-xlsx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["a.csv", "b.xlsx"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        assert_eq!(scan(&dir, false).unwrap().into_iter().map(|(n, _, _)| n).collect::<Vec<_>>(), ["a"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
