@@ -6,13 +6,26 @@ import { api, errorMessage } from '../api/client';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import {
-  BITWARDEN_CLOUDS, isExternal, MASTER_SOURCES, missingInputs, SOURCE_KINDS, sourceFrom, typedTokens, VAULT_AUTHS, ZOHO_DATA_CENTERS, type DraftKind, type SourceDraft,
+  BITWARDEN_CLOUDS, BROWSE, FILLS_USER, isExternal, MASTER_SOURCES, missingForBrowse, missingInputs, orderedKinds, sourceFrom, typedTokens, userFromSource,
+  VAULT_AUTHS, ZOHO_DATA_CENTERS, applyBrowse, type DraftKind, type SourceDraft,
 } from '../composables/secretSources';
+import type { SecretBrowseEntry } from '../api/types';
+import SecretBrowseDialog from './SecretBrowseDialog.vue';
 
-// Where one secret field takes its value (docs/secret-sources.md): the
-// selector, the chosen provider's inputs and "Probar", which resolves it and
-// shows only how many characters came back. With "saved" (or "ask") the
-// field's own input, which the parent renders, is used as before.
+// Where one secret field takes its value (docs/secret-sources.md): a
+// selector first, then that source's inputs in the form's own grid (same
+// label column and widths), "Examinar" next to the item where the source
+// can list, and "Probar", which resolves it and shows only how many
+// characters came back.
+//
+// - `credentials`: the database user and password. With a local option
+//   (kept, asked every time) the parent's user and password inputs show
+//   (slot `local`); with a manager they go, and the user input comes back
+//   (slot `user`) only when the manager doesn't give the user too.
+// - `field`: any other secret (a token, an API key, the SSH password): the
+//   selector next to the field's own input (slot `local`), which the
+//   source's inputs replace.
+// The root is a two-column grid that spans the parent's grid.
 
 const draft = defineModel<SourceDraft>({ required: true });
 const props = defineProps<{
@@ -26,10 +39,16 @@ const props = defineProps<{
   driver: string;
   /** The connection is saved: a token typed before is kept for this field. */
   editing: boolean;
+  mode?: 'credentials' | 'field';
+  /** `field` mode: the field's label, and whether its local input is required. */
+  label?: string;
+  required?: boolean;
 }>();
-const { t } = useTranslation();
+const { t, i18next } = useTranslation();
 
-const kinds = computed(() => SOURCE_KINDS.filter((k) => k !== 'ask' || props.allowAsk));
+/** Local options first, then the managers by name in the UI's language. */
+const kinds = computed(() => orderedKinds((k) => t(`connection:source.kind.${k}`), i18next.language || 'es', props.allowAsk));
+const credentials = computed(() => props.mode === 'credentials');
 const testing = ref(false);
 const result = ref<{ ok: boolean; text: string } | null>(null);
 watch(draft, () => { result.value = null; }, { deep: true });
@@ -97,20 +116,56 @@ async function test() {
   }
 }
 
+/** The password's source can give the user too ("Usar también el usuario de la entrada"). */
+const canFillUser = computed(() => props.field === 'password' && FILLS_USER.includes(draft.value.kind));
+/** What the option says about where the user comes from, per source. */
+const fillUserHint = computed(() => {
+  const k = draft.value.kind;
+  return t(k === 'aws' || k === 'ssm' ? 'connection:source.input.fill_username' : `connection:source.input.fill_username_${k}`);
+});
+const userShown = computed(() => !userFromSource(draft.value));
+
+// ---- "Examinar" ----------------------------------------------------------------
+const browsable = computed(() => !!BROWSE[draft.value.kind]);
+const browseMissing = computed(() => missingForBrowse(draft.value));
+const browseTitle = computed(() => browseMissing.value.length
+  ? t('connection:source.browse.fillFirst', { fields: browseMissing.value.map((k) => t(`connection:source.input.${k}`)).join(', ') })
+  : t('connection:source.browse.button'));
+const browsing = ref<{ source: Record<string, unknown>; tokens: Record<string, string> } | null>(null);
+function openBrowse() {
+  if (browseMissing.value.length) return;
+  const source = sourceFrom(draft.value, props.field);
+  if (!source) return;
+  const tokens = typedTokens(draft.value);
+  if (hasMaster.value && draft.value.master === 'ask' && asked.value) tokens[''] = asked.value;
+  browsing.value = { source: source as unknown as Record<string, unknown>, tokens };
+}
+function picked(entry: SecretBrowseEntry, field: string | null) {
+  applyBrowse(draft.value, entry, field);
+}
+
 /** The chosen provider can't do without this input (as it's set now). */
 const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft.value, [k]: '' } as SourceDraft).includes(k);
 </script>
 
 <template>
-  <div class="ss" :class="{ external }">
-    <div class="ss-pick">
-      <span class="ss-label">{{ $t('connection:source.label') }}</span>
-      <el-select :model-value="draft.kind" size="small" class="ss-select" :data-field="field" @update:model-value="setKind">
-        <el-option v-for="k in kinds" :key="k" :value="k" :label="$t(`connection:source.kind.${k}`)" />
-      </el-select>
-      <span v-if="draft.kind === 'ask'" class="ss-note">{{ $t('connection:source.askHelp') }}</span>
-    </div>
-    <div v-if="external" class="ss-body">
+  <div class="ss" :class="[mode ?? 'field', { external }]">
+    <el-form-item :label="credentials ? $t('connection:source.credentials') : label" class="ss-pick-item ss-wide" :required="!credentials && required && !external">
+      <div class="ss-pick">
+        <el-select :model-value="draft.kind" class="ss-select" :data-field="field" @update:model-value="setKind">
+          <el-option-group :label="$t('connection:source.group.local')">
+            <el-option v-for="k in kinds.local" :key="k" :value="k" :label="$t(`connection:source.kind.${k}`)" />
+          </el-option-group>
+          <el-option-group :label="$t('connection:source.group.managers')">
+            <el-option v-for="k in kinds.managers" :key="k" :value="k" :label="$t(`connection:source.kind.${k}`)" />
+          </el-option-group>
+        </el-select>
+        <div v-if="!credentials && !external" class="ss-inline"><slot name="local" /></div>
+      </div>
+      <div v-if="draft.kind === 'ask'" class="ss-help">{{ $t('connection:source.askHelp') }}</div>
+    </el-form-item>
+    <template v-if="credentials && !external"><slot name="local" /></template>
+    <template v-if="external">
       <template v-if="draft.kind === 'command'">
         <el-form-item :label="$t('connection:source.input.command')" :required="req('command')" class="ss-wide">
           <el-input v-model="draft.command" class="ss-mono" :placeholder="$t('connection:source.placeholder.command')" spellcheck="false" />
@@ -119,7 +174,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
       <template v-else-if="draft.kind === 'onepassword'">
         <el-form-item :label="$t('connection:source.input.reference')" :required="req('reference')" class="ss-wide">
-          <el-input v-model="draft.reference" class="ss-mono" placeholder="op://Private/Database/password" spellcheck="false" />
+          <el-input v-model="draft.reference" class="ss-mono" placeholder="op://Private/Database/password" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
           <div class="ss-help">{{ $t('connection:source.help.onepassword') }}</div>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.account')">
@@ -131,7 +190,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           <el-input v-model="draft.address" placeholder="https://vault.example.com:8200" spellcheck="false" />
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.path')" :required="req('path')">
-          <el-input v-model="draft.path" class="ss-mono" placeholder="secret/myapp/db" spellcheck="false" />
+          <el-input v-model="draft.path" class="ss-mono" placeholder="secret/myapp/db" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.key')" :required="req('key')">
           <el-input v-model="draft.key" class="ss-mono" placeholder="password" spellcheck="false" />
@@ -157,7 +220,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
       <template v-else-if="draft.kind === 'aws'">
         <el-form-item :label="$t('connection:source.input.secret_id')" :required="req('secret_id')" class="ss-wide">
-          <el-input v-model="draft.secret_id" class="ss-mono" placeholder="prod/myapp/db" spellcheck="false" />
+          <el-input v-model="draft.secret_id" class="ss-mono" placeholder="prod/myapp/db" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.region')">
           <el-input v-model="draft.region" placeholder="us-east-1" />
@@ -165,7 +232,6 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         <el-form-item :label="$t('connection:source.input.profile')">
           <el-input v-model="draft.profile" placeholder="default" />
         </el-form-item>
-        <el-checkbox v-if="field === 'password'" v-model="draft.fill_username" class="ss-wide">{{ $t('connection:source.input.fill_username') }}</el-checkbox>
         <div class="ss-help ss-wide">{{ $t('connection:source.help.aws') }}</div>
       </template>
       <template v-else-if="draft.kind === 'azure'">
@@ -173,7 +239,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           <el-input v-model="draft.vault_url" placeholder="https://my-vault.vault.azure.net" spellcheck="false" />
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.name')" :required="req('name')">
-          <el-input v-model="draft.name" class="ss-mono" placeholder="db-password" spellcheck="false" />
+          <el-input v-model="draft.name" class="ss-mono" placeholder="db-password" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.version')">
           <el-input v-model="draft.version" :placeholder="$t('connection:source.placeholder.latest')" />
@@ -185,7 +255,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           <el-input v-model="draft.project" placeholder="my-project" spellcheck="false" />
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.secret')" :required="req('secret')">
-          <el-input v-model="draft.secret" class="ss-mono" placeholder="db-password" spellcheck="false" />
+          <el-input v-model="draft.secret" class="ss-mono" placeholder="db-password" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.version')">
           <el-input v-model="draft.version" placeholder="latest" />
@@ -201,7 +275,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.entry')" :required="req('entry')" class="ss-wide">
-          <el-input v-model="draft.entry" class="ss-mono" placeholder="Databases/Prod/pg-main" spellcheck="false" />
+          <el-input v-model="draft.entry" class="ss-mono" placeholder="Databases/Prod/pg-main" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
           <div class="ss-help">{{ $t('connection:source.help.entry') }}</div>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.attribute')">
@@ -222,7 +300,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           </el-select>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.secret_name')" :required="req('secret_name')">
-          <el-input v-model="draft.secret_name" class="ss-mono" placeholder="pg-main" spellcheck="false" />
+          <el-input v-model="draft.secret_name" class="ss-mono" placeholder="pg-main" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.attribute')">
           <el-input v-model="draft.attribute" class="ss-mono" placeholder="password" spellcheck="false" />
@@ -251,7 +333,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           <el-input v-model="draft.mount" class="ss-mono" placeholder="database" spellcheck="false" />
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.role')" :required="req('role')">
-          <el-input v-model="draft.role" class="ss-mono" placeholder="readonly" spellcheck="false" />
+          <el-input v-model="draft.role" class="ss-mono" placeholder="readonly" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
         </el-form-item>
         <el-checkbox v-model="draft.static_role" class="ss-wide">{{ $t('connection:source.input.static_role') }}</el-checkbox>
         <el-form-item :label="$t('connection:source.input.namespace')">
@@ -277,7 +363,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           <el-input v-model="draft.login" class="ss-mono" placeholder="host/apps/dbine" spellcheck="false" />
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.variable')" :required="req('variable')">
-          <el-input v-model="draft.variable" class="ss-mono" placeholder="db/prod/password" spellcheck="false" />
+          <el-input v-model="draft.variable" class="ss-mono" placeholder="db/prod/password" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item v-if="field === 'password'" :label="$t('connection:source.input.username_variable')">
           <el-input v-model="draft.username_variable" class="ss-mono" placeholder="db/prod/username" spellcheck="false" />
@@ -346,7 +436,6 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
             </template>
           </el-input>
         </el-form-item>
-        <el-checkbox v-if="field === 'password'" v-model="draft.fill_username" class="ss-wide">{{ $t('connection:source.input.fill_username_ccp') }}</el-checkbox>
         <div class="ss-help ss-wide">{{ $t('connection:source.help.ccp') }}</div>
       </template>
       <template v-else-if="draft.kind === 'delinea'">
@@ -363,7 +452,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           <el-input v-model="draft.domain" class="ss-mono" spellcheck="false" />
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.secret_name')" :required="req('secret_name')">
-          <el-input v-model="draft.secret_name" class="ss-mono" placeholder="pg-prod" spellcheck="false" />
+          <el-input v-model="draft.secret_name" class="ss-mono" placeholder="pg-prod" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.attribute')">
           <el-input v-model="draft.attribute" class="ss-mono" placeholder="password" spellcheck="false" />
@@ -412,7 +505,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </el-form-item>
         <template v-if="draft.kind === 'bitwarden'">
           <el-form-item :label="$t('connection:source.input.item')" :required="req('item')">
-            <el-input v-model="draft.item" class="ss-mono" placeholder="pg-main" spellcheck="false" />
+            <el-input v-model="draft.item" class="ss-mono" placeholder="pg-main" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
           </el-form-item>
           <el-form-item :label="$t('connection:source.input.attribute')">
             <el-input v-model="draft.attribute" class="ss-mono" placeholder="password" spellcheck="false" />
@@ -429,7 +526,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </template>
         <template v-else>
           <el-form-item :label="$t('connection:source.input.secret_uuid')" :required="req('secret')" class="ss-wide">
-            <el-input v-model="draft.secret" class="ss-mono" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" />
+            <el-input v-model="draft.secret" class="ss-mono" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
           </el-form-item>
           <el-form-item :label="$t('connection:source.input.access_token')" class="ss-wide">
             <el-input
@@ -442,7 +543,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
       <template v-else-if="draft.kind === 'ssm'">
         <el-form-item :label="$t('connection:source.input.parameter')" :required="req('parameter')" class="ss-wide">
-          <el-input v-model="draft.parameter" class="ss-mono" placeholder="/prod/myapp/db/password" spellcheck="false" />
+          <el-input v-model="draft.parameter" class="ss-mono" placeholder="/prod/myapp/db/password" spellcheck="false">
+            <template #append>
+              <el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button>
+            </template>
+          </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.version')">
           <el-input v-model="draft.version" :placeholder="$t('connection:source.placeholder.ssmVersion')" />
@@ -456,7 +561,6 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         <el-form-item :label="$t('connection:source.input.profile')">
           <el-input v-model="draft.profile" placeholder="default" />
         </el-form-item>
-        <el-checkbox v-if="field === 'password'" v-model="draft.fill_username" class="ss-wide">{{ $t('connection:source.input.fill_username') }}</el-checkbox>
         <div class="ss-help ss-wide">{{ $t('connection:source.help.ssm') }}</div>
       </template>
       <template v-if="hasMaster">
@@ -474,38 +578,40 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         <el-form-item v-else-if="draft.master === 'command'" :label="$t('connection:source.input.master_command')" :required="req('master_command')">
           <el-input v-model="draft.master_command" class="ss-mono" :placeholder="$t('connection:source.placeholder.command')" spellcheck="false" />
         </el-form-item>
-        <el-checkbox v-if="field === 'password'" v-model="draft.fill_username" class="ss-wide">
-          {{ $t(`connection:source.input.fill_username_${draft.kind}`) }}
-        </el-checkbox>
         <div class="ss-help ss-wide">{{ $t(`connection:source.help.${draft.kind}`) }}</div>
       </template>
       <el-form-item v-if="!['vault', 'keepass', 'zoho', 'vault_db', 'ccp', 'delinea'].includes(draft.kind)" :label="$t('connection:source.input.json_key')">
         <el-input v-model="draft.json_key" class="ss-mono" placeholder="password" spellcheck="false" />
         <div class="ss-help">{{ $t('connection:source.help.json_key') }}</div>
       </el-form-item>
+      <el-checkbox v-if="canFillUser" v-model="draft.fill_username" class="ss-wide ss-fill" :title="fillUserHint">{{ $t('connection:source.fillUser') }}</el-checkbox>
+      <template v-if="credentials && userShown"><slot name="user" /></template>
       <div class="ss-test ss-wide">
         <el-button size="small" :loading="testing" @click="test">{{ $t('connection:source.test') }}</el-button>
         <span v-if="result" class="ss-result" :class="result.ok ? 'ok' : 'bad'" role="status">{{ result.text }}</span>
       </div>
-    </div>
+    </template>
+    <SecretBrowseDialog
+      v-if="browsing" :kind="draft.kind" :source="browsing.source" :tokens="browsing.tokens" :field="field" :connection-id="connectionId" :driver="driver"
+      @pick="picked" @close="browsing = null"
+    />
   </div>
 </template>
 
 <style scoped>
-.ss { width: 100%; }
-.ss-pick { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.ss-label { font-size: 11.5px; color: var(--nm-text-dim); }
-.ss-select { width: 210px; }
-.ss-note { font-size: 11.5px; color: var(--nm-text-dim); }
-.ss-body {
-  display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; margin-top: 4px; padding: 10px 12px 4px;
-  border: 1px solid var(--nm-border-soft); border-radius: 4px; background: var(--nm-bg-elev);
-}
+/* The parent's grid, again: two columns, the same gap, no padding, so the
+   source's inputs line up with the rest of the form. */
+.ss { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; width: 100%; }
 .ss-wide { grid-column: 1 / -1; }
-.ss-body :deep(.el-form-item) { margin-bottom: 10px; }
+/* The selector in the left column; a local field's own input in the right. */
+.ss-pick { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; align-items: center; width: 100%; }
+.ss-select { width: 100%; }
+.ss-inline { flex: 1; min-width: 0; display: flex; }
+.ss-inline > :deep(*) { flex: 1; min-width: 0; }
 .ss-mono :deep(input) { font-family: var(--nm-font-mono, ui-monospace, monospace); font-size: 12px; }
 .ss-help { font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.4; margin: 2px 0 8px; }
-.ss-test { display: flex; align-items: center; gap: 10px; margin: 2px 0 8px; min-width: 0; }
+.ss > .el-checkbox { margin: -2px 0 12px; height: auto; }
+.ss-test { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; min-width: 0; }
 .ss-result { font-size: 12px; min-width: 0; white-space: pre-wrap; word-break: break-word; }
 .ss-result.ok { color: var(--nm-success); }
 .ss-result.bad { color: var(--nm-danger); }

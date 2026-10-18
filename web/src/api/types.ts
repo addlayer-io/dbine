@@ -270,6 +270,30 @@ export interface SecretSourceTest {
   username: boolean;
 }
 
+/** One thing a source's "Examinar" lists (src-tauri: secret_sources::browse::Entry). */
+export interface SecretBrowseEntry {
+  /** What goes in the form's input (a group: the `path` to list next). */
+  id: string;
+  name: string;
+  /** Where it is, `/`-separated (absent: at the top). */
+  path?: string;
+  kind: 'group' | 'item';
+  /** Secondary text (an ID, a UUID, a type). */
+  detail?: string;
+}
+
+/** What `browse_secret_source` returns: names only, never a value. */
+export interface SecretBrowseListing {
+  entries: SecretBrowseEntry[];
+  /** The chosen item's field names (or its JSON keys). */
+  fields?: string[];
+  /** Everything below the path came at once (the UI walks the groups). */
+  complete: boolean;
+  truncated: boolean;
+  /** The provider searches by text (`query`). */
+  search: boolean;
+}
+
 /** Fields of the form that map to typed config fields (the rest are options). */
 export const TYPED_FIELDS = [
   'host', 'port', 'database', 'username', 'password', 'encrypt', 'trust_server_certificate', 'read_only',

@@ -75,6 +75,7 @@ import RenameDialog from '../components/RenameDialog.vue';
 import { installRenamePreview } from './rename-samples';
 import { applyThemeClass } from '../composables/appearance';
 import { mapPreview } from './map-samples';
+import { browseSample, sourceConnection } from './source-samples';
 
 const params = new URLSearchParams(location.search);
 // &theme=light previews the light theme.
@@ -348,6 +349,8 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
       if (cmd === 'profiler_stop') return null;
       if (cmd === 'get_dependents' && view !== 'compare') return sampleDependents;
       if (cmd === 'test_connection') return { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
+      if (cmd === 'browse_secret_source') return browseSample(a?.args as { source: { kind: string }; item?: string; path?: string });
+      if (cmd === 'test_secret_source') return { chars: 24, username: false };
       if (view === 'query') {
         if (cmd === 'save_query') return (a?.args as { query: unknown }).query;
         if (cmd === 'lint_script') return [];
@@ -368,8 +371,20 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
   if (view === 'connection') {
     const ui = useUiStore();
     const engine = params.get('engine');
-    ui.newConnection(null);
-    if (engine) setTimeout(() => document.querySelector<HTMLButtonElement>(`[data-engine="${engine}"]`)?.click(), 200);
+    // &source=keepass|vault_db|bitwarden|…: a saved connection whose password
+    // (and, &tab=ssh, the tunnel's password) comes from that source;
+    // &browse=1 opens "Examinar".
+    const source = params.get('source');
+    if (source) {
+      conns.list.push(sourceConnection(source, engine ?? 'postgres'));
+      ui.editConnection('c-src');
+    } else {
+      ui.newConnection(null);
+      if (engine) setTimeout(() => document.querySelector<HTMLButtonElement>(`[data-engine="${engine}"]`)?.click(), 200);
+    }
+    const tab = params.get('tab');
+    if (tab) setTimeout(() => [...document.querySelectorAll<HTMLButtonElement>('.cd-tab')].find((b) => b.textContent?.trim().toLowerCase().startsWith(tab))?.click(), 400);
+    if (params.get('browse')) setTimeout(() => document.querySelector<HTMLButtonElement>('.ss-browse:not(.is-disabled)')?.click(), 700);
   }
 }
 function connectionTab() {

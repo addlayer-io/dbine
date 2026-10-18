@@ -10837,5 +10837,20 @@
   "parámetros de Argon2 no válidos: {0}": "paramètres Argon2 non valides : {0}",
   "Bitwarden: no hay un elemento «{0}» (parecidos: {1})": "Bitwarden : il n'y a pas d'élément « {0} » (similaires : {1})",
   "Bitwarden: no hay un elemento «{0}» ({1} elementos no se pudieron descifrar)": "Bitwarden : il n'y a pas d'élément « {0} » ({1} éléments n'ont pas pu être déchiffrés)",
-  "Bitwarden: no hay un elemento «{0}» (parecidos: {1}; {2} elementos no se pudieron descifrar)": "Bitwarden : il n'y a pas d'élément « {0} » (similaires : {1} ; {2} éléments n'ont pas pu être déchiffrés)"
+  "Bitwarden: no hay un elemento «{0}» (parecidos: {1}; {2} elementos no se pudieron descifrar)": "Bitwarden : il n'y a pas d'élément « {0} » (similaires : {1} ; {2} éléments n'ont pas pu être déchiffrés)",
+  "1Password no tiene la bóveda «{0}»": "1Password n'a pas de coffre «{0}»",
+  "Azure Key Vault: permiso denegado para listar los secretos (hace falta un rol o una directiva de acceso que permita list): {0}": "Azure Key Vault : autorisation refusée pour lister les secrets (il faut un rôle ou une stratégie d'accès qui autorise list) : {0}",
+  "Bitwarden no dijo de qué organización es la cuenta de máquina": "Bitwarden n'a pas indiqué à quelle organisation appartient le compte machine",
+  "Conjur: permiso denegado para listar las variables": "Conjur : autorisation refusée pour lister les variables",
+  "Google Secret Manager: no existe el proyecto «{0}»": "Google Secret Manager : le projet «{0}» n'existe pas",
+  "Google Secret Manager: permiso denegado para listar los secretos (hace falta el rol «Secret Manager Viewer»): {0}": "Google Secret Manager : autorisation refusée pour lister les secrets (il faut le rôle «Secret Manager Viewer») : {0}",
+  "Parameters": "Parameters",
+  "Secret Server no devolvió la plantilla del secreto": "Secret Server n'a pas renvoyé le modèle du secret",
+  "Vault: permiso denegado para listar los roles de «{0}» (la política tiene que permitir list en {1}/{2})": "Vault : autorisation refusée pour lister les rôles de «{0}» (la politique doit autoriser list sur {1}/{2})",
+  "el origen no es válido: {0}": "la source n'est pas valide : {0}",
+  "este origen no tiene una lista para examinar": "cette source n'a pas de liste à parcourir",
+  "la lista de 1Password es demasiado larga": "la liste de 1Password est trop longue",
+  "la respuesta de 1Password no es texto": "la réponse de 1Password n'est pas du texte",
+  "no se pudo examinar {0}: {1}": "impossible de parcourir {0} : {1}",
+  "«op» no devolvió JSON": "«op» n'a pas renvoyé de JSON"
 }

@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
   AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
-  ExecuteResponse, FilteredBrowse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
+  ExecuteResponse, FilteredBrowse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
 import type { MultiDbResponse } from './types';
@@ -57,6 +57,12 @@ export const api = {
   /** Resolve one field's source as the form has it; says only how long the value is. */
   testSecretSource: (connectionId: string | null, driver: string, field: string, source: SecretSource, tokens: Record<string, string>) =>
     invoke<SecretSourceTest>('test_secret_source', { args: { connection_id: connectionId, driver, field, source, tokens } }),
+  /** "Examinar": a source's groups and items (`path`), or an item's field
+   *  names (`item`); names only. `source` may leave its item input empty. */
+  browseSecretSource: (
+    connectionId: string | null, driver: string, field: string, source: Record<string, unknown>, tokens: Record<string, string>,
+    at: { path?: string; item?: string; query?: string } = {},
+  ) => invoke<SecretBrowseListing>('browse_secret_source', { args: { connection_id: connectionId, driver, field, source, tokens, ...at } }),
   /** A master password asked for a saved connection's field: kept in memory for this run. */
   unlockSecretSource: (connectionId: string, field: string, value: string) =>
     invoke<void>('unlock_secret_source', { args: { connection_id: connectionId, field, value } }),

@@ -13,7 +13,7 @@ import EngineIcon from '../components/EngineIcon.vue';
 import FolderPicker from '../components/FolderPicker.vue';
 import SshTunnelSection, { type SshValues } from '../components/SshTunnelSection.vue';
 import SecretSourcePicker from '../components/SecretSourcePicker.vue';
-import { draftFrom, isExternal, missingInputs, readSources, sourceFrom, tokenKey, typedTokens, writeSources, type SourceDraft } from '../composables/secretSources';
+import { draftFrom, isExternal, missingInputs, readSources, sourceFrom, tokenKey, typedTokens, userFromSource, writeSources, type SourceDraft } from '../composables/secretSources';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import { addTrusted, askTrustSshHost } from '../composables/sshTrust';
@@ -268,8 +268,18 @@ function defaultName(): string {
   return where ? `${driver.value!.name} · ${where}` : driver.value!.name;
 }
 
-/** The user comes from the password's AWS secret ("Tomar también el usuario"). */
-const userFromSecret = computed(() => drafts.password?.kind === 'aws' && drafts.password.fill_username);
+/** The user comes from the password's source ("Usar también el usuario de
+ *  la entrada", Vault database credentials). */
+const userFromSecret = computed(() => userFromSource(drafts.password));
+
+/** The tab shows the password: "Credenciales" there, with the user in it. */
+function credentialsIn(s: Section): boolean {
+  return fieldsIn(s).some((f) => f.key === 'password' && f.secret);
+}
+/** The user field of the tab's credentials, if the engine has one there. */
+function userField(s: Section): Field | undefined {
+  return credentialsIn(s) ? fieldsIn(s).find((f) => f.key === 'username') : undefined;
+}
 
 const missing = computed(() => {
   const out: { label: string; section: Section }[] = shownFields.value
@@ -519,49 +529,107 @@ function selectOptions(f: Field): [string, string][] {
         <SshTunnelSection v-if="section === 'ssh'" v-model="ssh" :editing="!!editing" :drafts="drafts" :connection-id="editing?.id ?? null" :driver="driver?.id ?? ''" />
         <template v-else>
           <div class="cd-fields">
-            <el-form-item
-              v-for="f in fieldsIn(section)"
-              :key="f.key"
-              :label="f.kind.type === 'bool' ? '' : tb(f.label)"
-              :required="f.required && !(f.secret && (editing || drafts[f.key]?.kind !== 'saved'))"
-              :class="{ 'cd-wide': ['textarea', 'file'].includes(f.kind.type) || f.key === 'host' || controllers.has(f.key) || (f.secret && isExternal(drafts[f.key])), 'cd-bool': f.kind.type === 'bool' }"
-            >
+            <template v-for="f in fieldsIn(section)" :key="f.key">
+              <!-- The user and the password: "Credenciales" first, then the
+                   local inputs or the chosen manager's. -->
               <SecretSourcePicker
-                v-if="f.secret && drafts[f.key]"
-                v-model="drafts[f.key]"
-                :field="f.key"
-                :allow-ask="f.key === 'password'"
+                v-if="f.key === 'password' && f.secret && drafts.password"
+                v-model="drafts.password"
+                class="cd-wide"
+                mode="credentials"
+                field="password"
+                :allow-ask="true"
                 :connection-id="editing?.id ?? null"
                 :driver="driver.id"
                 :editing="!!editing"
-              />
-              <template v-if="!(f.secret && isExternal(drafts[f.key]))">
-              <el-checkbox v-if="f.kind.type === 'bool'" v-model="values[f.key] as boolean">{{ tb(f.label) }}</el-checkbox>
-              <el-select v-else-if="f.kind.type === 'select'" v-model="values[f.key] as string" style="width: 100%">
-                <el-option v-for="[v, l] in selectOptions(f)" :key="v" :label="tb(l)" :value="v" />
-              </el-select>
-              <el-input
-                v-else-if="f.kind.type === 'textarea'"
-                v-model="values[f.key] as string"
-                type="textarea"
-                :rows="4"
-                :placeholder="f.secret && editing ? $t('connection:form.secretKeptMasc') : tb(f.placeholder)"
-              />
-              <el-input
-                v-else
-                v-model="values[f.key] as string"
-                :type="isMaskedField(f) ? 'password' : 'text'"
-                :show-password="isMaskedField(f)"
-                :autocomplete="isMaskedField(f) ? 'new-password' : undefined"
-                :placeholder="f.secret && drafts[f.key]?.kind === 'ask' ? $t('connection:source.askPlaceholder') : f.secret && editing ? $t('connection:form.secretKeptFem') : f.key === 'port' ? String(driver.default_port || '') : tb(f.placeholder)"
               >
-                <template v-if="f.kind.type === 'file'" #append>
-                  <el-button @click="browse(f)"><el-icon><ei-folder-opened /></el-icon></el-button>
+                <template #local>
+                  <el-form-item v-if="userField(section)" :label="tb(userField(section)!.label)" :required="userField(section)!.required">
+                    <el-input v-model="values.username as string" :placeholder="tb(userField(section)!.placeholder)" />
+                    <div v-if="userField(section)!.help" class="cd-help">{{ tb(userField(section)!.help) }}</div>
+                  </el-form-item>
+                  <el-form-item :label="tb(f.label)" :required="f.required && !(editing || drafts.password?.kind !== 'saved')">
+                    <el-input
+                      v-model="values.password as string"
+                      type="password"
+                      show-password
+                      autocomplete="new-password"
+                      :placeholder="drafts.password?.kind === 'ask' ? $t('connection:source.askPlaceholder') : editing ? $t('connection:form.secretKeptFem') : tb(f.placeholder)"
+                    />
+                    <div v-if="f.help" class="cd-help">{{ tb(f.help) }}</div>
+                  </el-form-item>
                 </template>
-              </el-input>
-              </template>
-              <div v-if="f.help" class="cd-help">{{ tb(f.help) }}</div>
-            </el-form-item>
+                <template #user>
+                  <el-form-item v-if="userField(section)" :label="tb(userField(section)!.label)" :required="userField(section)!.required">
+                    <el-input v-model="values.username as string" :placeholder="tb(userField(section)!.placeholder)" />
+                  </el-form-item>
+                </template>
+              </SecretSourcePicker>
+              <template v-else-if="f.key === 'username' && credentialsIn(section)" />
+              <!-- Another secret (a token, a key): a small selector, then its input or the source's. -->
+              <SecretSourcePicker
+                v-else-if="f.secret && drafts[f.key]"
+                v-model="drafts[f.key]"
+                class="cd-wide"
+                mode="field"
+                :label="tb(f.label)"
+                :required="f.required && !editing && drafts[f.key]?.kind === 'saved'"
+                :field="f.key"
+                :allow-ask="false"
+                :connection-id="editing?.id ?? null"
+                :driver="driver.id"
+                :editing="!!editing"
+              >
+                <template #local>
+                  <el-input
+                    v-if="f.kind.type === 'textarea'"
+                    v-model="values[f.key] as string"
+                    type="textarea"
+                    :rows="4"
+                    :placeholder="editing ? $t('connection:form.secretKeptMasc') : tb(f.placeholder)"
+                  />
+                  <el-input
+                    v-else
+                    v-model="values[f.key] as string"
+                    :type="isMaskedField(f) ? 'password' : 'text'"
+                    :show-password="isMaskedField(f)"
+                    :autocomplete="isMaskedField(f) ? 'new-password' : undefined"
+                    :placeholder="editing ? $t('connection:form.secretKeptFem') : tb(f.placeholder)"
+                  />
+                </template>
+              </SecretSourcePicker>
+              <el-form-item
+                v-else
+                :label="f.kind.type === 'bool' ? '' : tb(f.label)"
+                :required="f.required"
+                :class="{ 'cd-wide': ['textarea', 'file'].includes(f.kind.type) || f.key === 'host' || controllers.has(f.key), 'cd-bool': f.kind.type === 'bool' }"
+              >
+                <el-checkbox v-if="f.kind.type === 'bool'" v-model="values[f.key] as boolean">{{ tb(f.label) }}</el-checkbox>
+                <el-select v-else-if="f.kind.type === 'select'" v-model="values[f.key] as string" style="width: 100%">
+                  <el-option v-for="[v, l] in selectOptions(f)" :key="v" :label="tb(l)" :value="v" />
+                </el-select>
+                <el-input
+                  v-else-if="f.kind.type === 'textarea'"
+                  v-model="values[f.key] as string"
+                  type="textarea"
+                  :rows="4"
+                  :placeholder="tb(f.placeholder)"
+                />
+                <el-input
+                  v-else
+                  v-model="values[f.key] as string"
+                  :type="isMaskedField(f) ? 'password' : 'text'"
+                  :show-password="isMaskedField(f)"
+                  :autocomplete="isMaskedField(f) ? 'new-password' : undefined"
+                  :placeholder="f.key === 'port' ? String(driver.default_port || '') : tb(f.placeholder)"
+                >
+                  <template v-if="f.kind.type === 'file'" #append>
+                    <el-button @click="browse(f)"><el-icon><ei-folder-opened /></el-icon></el-button>
+                  </template>
+                </el-input>
+                <div v-if="f.help" class="cd-help">{{ tb(f.help) }}</div>
+              </el-form-item>
+            </template>
           </div>
           <div v-if="section !== 'general' && !fieldsIn(section).length" class="cd-empty">{{ $t('tunnel:tabs.empty') }}</div>
         </template>

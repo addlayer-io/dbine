@@ -119,9 +119,9 @@
   "source": {
     "label": "Origen",
     "kind": {
-      "saved": "Guardada en el llavero",
+      "saved": "Guardar en el llavero",
       "ask": "Preguntar cada vez",
-      "command": "Comando",
+      "command": "Línea de comandos",
       "onepassword": "1Password",
       "vault": "HashiCorp Vault",
       "aws": "AWS Secrets Manager",
@@ -280,16 +280,42 @@
       "zoho": "La conexión «{{name}}» toma «{{field}}» de Zoho Vault. Escribí la frase de contraseña maestra (no se guarda):",
       "wrong": "La contraseña que escribiste no la abrió.",
       "empty": "Escribí la contraseña maestra",
-      "delinea": "La conexión «{{name}}» toma «{{field}}» de Delinea Secret Server. Escribí la contraseña (no se guarda):"
+      "delinea": "La conexión «{{name}}» toma «{{field}}» de Delinea Secret Server. Escribí la contraseña (no se guarda):",
+      "bitwarden": "La conexión «{{name}}» toma «{{field}}» de Bitwarden. Escribí la contraseña maestra (no se guarda):",
+      "titles": {
+        "keepass": "Contraseña maestra",
+        "bitwarden": "Contraseña maestra",
+        "zoho": "Frase de contraseña maestra",
+        "delinea": "Contraseña"
+      }
     },
     "vaultAuth": {
       "token": "Token",
-      "approle": "AppRole",
-      "bitwarden": "La conexión «{{name}}» toma «{{field}}» de Bitwarden. Escribí la contraseña maestra (no se guarda):"
+      "approle": "AppRole"
     },
     "bitwardenCloud": {
       "com": "Estados Unidos ({{domain}})",
       "eu": "Europa ({{domain}})"
+    },
+    "credentials": "Credenciales",
+    "group": {
+      "local": "En esta computadora",
+      "managers": "Gestores de secretos"
+    },
+    "fillUser": "Usar también el usuario de la entrada",
+    "browse": {
+      "button": "Examinar",
+      "title": "Examinar {{source}}",
+      "search": "Filtrar",
+      "searchServer": "Buscar en el servidor",
+      "empty": "No hay nada acá.",
+      "truncated": "La lista se cortó porque hay más. Filtrá para encontrar el que buscás.",
+      "pickField": "Elegí el campo:",
+      "wholeValue": "El valor entero",
+      "noFields": "Este elemento no tiene campos para elegir.",
+      "useItem": "Usar este",
+      "namesOnly": "Solo se muestran nombres, nunca valores.",
+      "fillFirst": "Completá primero: {{fields}}"
     }
   }
 }
