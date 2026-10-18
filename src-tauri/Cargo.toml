@@ -83,6 +83,11 @@ keepass = "0.15.2"
 aes = "0.8"
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 rsa = { version = "=0.10.0-rc.18", default-features = false, features = ["std", "encoding", "sha2"] }
+# Bitwarden's vault (secret_sources/bitwarden.rs): its Argon2id KDF and the
+# organization keys' RSA-OAEP-SHA1. The versions already in the tree
+# (dbine-sync's argon2, rsa's sha1).
+argon2 = "0.5"
+sha1 = { version = "0.11", default-features = false, features = ["oid"] }
 
 
 # Release builds (`plugins`) don't compile the downloadable drivers, but

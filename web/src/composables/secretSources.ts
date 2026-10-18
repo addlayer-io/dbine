@@ -6,14 +6,15 @@ import type { SecretSource, SecretSourceKind } from '../api/types';
 // connection's options as JSON (`secret_sources`); a Vault token (or a KeePass
 // / Zoho Vault master password) typed in the form goes as
 // `source_token:<field>`, Zoho's client secret and refresh token as
-// `source_token:<field>#<slot>`, and the backend moves them to the keychain.
+// `source_token:<field>#<slot>` (Bitwarden's client secret too), and the
+// backend moves them to the keychain.
 // Pure functions: the form (ConnectionView, SshTunnelSection) and the tests.
 
 export const SOURCES_OPTION = 'secret_sources';
 export const TOKEN_PREFIX = 'source_token:';
 
 /** What the picker offers, in order. `ask` only for the password. */
-export const SOURCE_KINDS = ['saved', 'ask', 'command', 'onepassword', 'vault', 'aws', 'azure', 'gcp', 'keepass', 'zoho', 'ssm'] as const;
+export const SOURCE_KINDS = ['saved', 'ask', 'command', 'onepassword', 'vault', 'aws', 'azure', 'gcp', 'keepass', 'zoho', 'bitwarden', 'bitwarden_sm', 'ssm'] as const;
 export type DraftKind = (typeof SOURCE_KINDS)[number];
 
 /** Where a KeePass / Zoho Vault master password comes from. */
@@ -25,6 +26,9 @@ export const ZOHO_DATA_CENTERS: [string, string][] = [
   ['com', 'zoho.com'], ['eu', 'zoho.eu'], ['in', 'zoho.in'], ['com.au', 'zoho.com.au'], ['jp', 'zoho.jp'], ['ca', 'zohocloud.ca'],
   ['sa', 'zoho.sa'], ['uk', 'zoho.uk'], ['ae', 'zoho.ae'], ['sg', 'zoho.sg'], ['com.cn', 'zoho.com.cn'],
 ];
+
+/** Bitwarden's clouds (dbine_core::secret_sources::BITWARDEN_CLOUDS); else a self-hosted URL. */
+export const BITWARDEN_CLOUDS = ['bitwarden.com', 'bitwarden.eu'] as const;
 
 /** The keychain key of a field's token (`slot` empty: the main one). */
 export function tokenKey(field: string, slot = ''): string {
@@ -70,6 +74,9 @@ export interface SourceDraft {
   /** Typed now, like `token` (never read back). */
   client_secret: string;
   refresh_token: string;
+  /** Bitwarden (and Secrets Manager): `bitwarden.com`, `bitwarden.eu` or a URL. */
+  server: string;
+  item: string;
   /** AWS Parameter Store. */
   parameter: string;
   list_index: string;
@@ -80,7 +87,7 @@ export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
     kind, command: '', json_key: '', reference: '', account: '', address: '', path: '', key: '', namespace: '', kv_version: 'auto',
     ca_file: '', token: '', secret_id: '', region: '', profile: '', fill_username: false, vault_url: '', name: '', version: '', project: '', secret: '',
     file: '', entry: '', attribute: '', key_file: '', master: 'keychain', master_command: '', data_center: '', secret_name: '', client_id: '',
-    client_secret: '', refresh_token: '', parameter: '', list_index: '',
+    client_secret: '', refresh_token: '', server: '', item: '', parameter: '', list_index: '',
   };
 }
 
@@ -148,6 +155,12 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
       master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
       fill_username: field === 'password' && d.fill_username,
     }) as SecretSource;
+    case 'bitwarden': return opt({
+      kind: 'bitwarden' as const, server: t(d.server), item: t(d.item), attribute: t(d.attribute), json_key: t(d.json_key), client_id: t(d.client_id),
+      master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
+      fill_username: field === 'password' && d.fill_username,
+    }) as SecretSource;
+    case 'bitwarden_sm': return opt({ kind: 'bitwarden_sm' as const, server: t(d.server), secret: t(d.secret), json_key: t(d.json_key) });
     case 'ssm': return opt({
       kind: 'ssm' as const, parameter: t(d.parameter), version: t(d.version), region: t(d.region), profile: t(d.profile), list_index: t(d.list_index),
       json_key: t(d.json_key), fill_username: field === 'password' && d.fill_username,
@@ -166,6 +179,8 @@ export const REQUIRED: Record<SecretSourceKind, (keyof SourceDraft)[]> = {
   gcp: ['project', 'secret'],
   keepass: ['file', 'entry'],
   zoho: ['data_center', 'secret_name', 'client_id'],
+  bitwarden: ['item', 'client_id'],
+  bitwarden_sm: ['secret'],
   ssm: ['parameter'],
 };
 
@@ -174,19 +189,21 @@ export const REQUIRED: Record<SecretSourceKind, (keyof SourceDraft)[]> = {
 export function missingInputs(d: SourceDraft | undefined): (keyof SourceDraft)[] {
   if (!d || !isExternal(d)) return [];
   const need = [...REQUIRED[d.kind as SecretSourceKind]];
-  if (d.kind === 'keepass' || d.kind === 'zoho') {
+  if (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'bitwarden') {
     if (d.master === 'command') need.push('master_command');
     if (d.kind === 'keepass' && d.master === 'none') need.push('key_file');
   }
   return need.filter((k) => String(d[k] ?? '').trim() === '');
 }
 
-/** What a draft typed for the keychain, by slot: the Vault token or the
- *  master password kept there (`''`), Zoho's client secret and refresh token. */
+/** What a draft typed for the keychain, by slot: the Vault token, the
+ *  Secrets Manager access token or the master password kept there (`''`),
+ *  Zoho's client secret and refresh token, Bitwarden's client secret. */
 export function typedTokens(d: SourceDraft): Record<string, string> {
   const out: Record<string, string> = {};
-  const keepsMaster = (d.kind === 'keepass' || d.kind === 'zoho') && d.master === 'keychain';
-  if ((d.kind === 'vault' || keepsMaster) && d.token) out[''] = d.token;
+  const keepsMaster = (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'bitwarden') && d.master === 'keychain';
+  if ((d.kind === 'vault' || d.kind === 'bitwarden_sm' || keepsMaster) && d.token) out[''] = d.token;
+  if (d.kind === 'bitwarden' && d.client_secret) out.client_secret = d.client_secret;
   if (d.kind === 'zoho') {
     if (d.client_secret) out.client_secret = d.client_secret;
     if (d.refresh_token) out.refresh_token = d.refresh_token;
@@ -200,7 +217,7 @@ export function sourceRows(s: SecretSource): [string, string][] {
   const order = [
     'command', 'reference', 'account', 'address', 'path', 'key', 'namespace', 'kv_version', 'ca_file', 'secret_id', 'region', 'profile', 'vault_url', 'name',
     'project', 'secret', 'version', 'file', 'entry', 'data_center', 'secret_name', 'client_id', 'attribute', 'key_file', 'master', 'master_command', 'json_key',
-    'fill_username', 'parameter', 'list_index',
+    'fill_username', 'server', 'item', 'parameter', 'list_index',
   ];
   const rec = s as unknown as Record<string, unknown>;
   return order.filter((k) => rec[k] !== undefined && rec[k] !== '' && rec[k] !== false).map((k) => [k, String(rec[k])]);

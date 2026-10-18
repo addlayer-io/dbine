@@ -45,8 +45,8 @@ and queries are organized inside each database.
 - **Passwords from a command or a secret manager:** any secret field of any
   engine, and the SSH tunnel's, can come from a command, 1Password, HashiCorp
   Vault (or OpenBao), AWS Secrets Manager, AWS Parameter Store, Azure Key
-  Vault, Google Secret Manager, a KeePass database or Zoho Vault, resolved at
-  each connection and kept in
+  Vault, Google Secret Manager, a KeePass database, Zoho Vault, Bitwarden or
+  Bitwarden Secrets Manager, resolved at each connection and kept in
   memory only. A definition that came
   from elsewhere (an import, a restored backup) runs only after it's
   confirmed on the computer. Details:

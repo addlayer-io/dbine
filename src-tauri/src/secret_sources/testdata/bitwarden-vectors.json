@@ -1,0 +1,100 @@
+{
+  "vault": {
+    "pbkdf2": {
+      "password": "dummy-master-ñ-1",
+      "salt": "pbkdf2@dbine.test",
+      "iterations": 5000,
+      "master": "92f435620d0bfe4bb39e1c7839e27263840836276f4466804e9e6d187bc64bd2",
+      "stretched": "ebs6ZwwPRDPYNZV3TfRocTPz3uHjnjfmfkW1D+S6kMko1CgLVAhwjmTexSc+1alY7cOHNi1xFdOiYcN2fnqTWQ=="
+    },
+    "argon2id": {
+      "password": "dummy-master-2",
+      "salt": "argon2@dbine.test",
+      "iterations": 2,
+      "memory": 16,
+      "parallelism": 2,
+      "master": "298509623ba9c5e6784b70a31898be8c926e27ee91ff2a0dbdf8d9ecb1df9b15"
+    },
+    "user_key": "3FuUnl/qtbkltSi3paD8Ubp9aJh+20cStjLYgTSPqkZSRKZ+cE/tIoNNJYd93T+nK5rveBPBJkYY90yhg7u/ag==",
+    "protected_user_key": "2.MjIyMjIyMjIyMjIyMjIyMg==|NEPJVxMGm2btyLdBbtb0VC6jpc8tR/GbYR1eFvhAvRzYbA6Nsvc3soj1gSNA8N5dtqxO8kItlIu9c0YbYutNLWc70pn2+X7bHU+SrsCZyoY=|GmHlNTPx7FCIfWruL4/I4fSMAB6EzbWtesl6b3WZdps=",
+    "item_with_cipher_key": {
+      "object": "cipherDetails",
+      "id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "type": 1,
+      "organizationId": null,
+      "deletedDate": null,
+      "key": "2.KCgoKCgoKCgoKCgoKCgoKA==|/o9fieUbjLQTHYm2crnwSnBHLujHBBOMDaKwtqCnAl4mQkbtWmaso8/sIdI1oLRG2gHljeCy0xO+lu0ZpqDJOjerjTrg7+HHRxUpcOKfAoY=|WW6IlaF2tf97GEgwVje1FtaWH1FlDyU1WWfxkUaaa3s=",
+      "name": "2.KSkpKSkpKSkpKSkpKSkpKQ==|L+3yQb2yOZZyGdGaZKbnrQ==|I2s+vJuD1v1U95Cjr1h3oLSSSlsu4yg6U+IwG5l3fbQ=",
+      "notes": null,
+      "login": {
+        "username": "2.KioqKioqKioqKioqKioqKg==|aBtj2hAb2rwmJny5Dd1wDA==|0cSik2BXZAClu9mEKFK26S+nL3fBkcZIhlZM9VijKDs=",
+        "password": "2.KysrKysrKysrKysrKysrKw==|3BDHHq09Ti87+eHIrt8GCg==|ZwRVvZmJ1DB++eSNK9elLrDsg9mwQSyj9EAX3QQPEPg=",
+        "totp": null,
+        "uris": []
+      },
+      "fields": [
+        {
+          "name": "2.LCwsLCwsLCwsLCwsLCwsLA==|5tYhzgj1g5OUZbXLHcIgoA==|qYcyIGOEcyLa+Zqzy4Tpe3GngLRrgAopbxKvxYV3pjs=",
+          "value": null,
+          "type": 3,
+          "linkedId": 101
+        }
+      ]
+    }
+  },
+  "note": "Dummy values only. Made with Node crypto as described in bitwarden-vectors.mjs; the official @bitwarden/sdk-napi decrypted every Secrets Manager secret back against a mock of the API.",
+  "access_token": "0.7b1d1c26-3f5e-4c8a-9a0b-2f3e4d5c6b7a.dummyClientSecretAbCdEf0123456789xy:AAECAwQFBgcICQoLDA0ODw==",
+  "token_key": "VlYhpAfupv4gyis7ZRhjX6G6Mnw/AQ3I5SKinkyT0UuKGOPCxvOzPMjn8rCk7eKF7nZqudu3bTX+ARBCaa0PmQ==",
+  "organization_id": "a0a1a2a3-b0b1-4c0c-9d0d-e0e1e2e3e4e5",
+  "organization_key": "0c3sajA2uyZhbT0lQruF7hM99JWDhzg/b6jSvlm2bHTzfWo5ES5t5YrWEoNSG4AEgZrp5/t22TRRy+aP0YqV8Q==",
+  "token_response": {
+    "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3YjFkMWMyNi0zZjVlLTRjOGEtOWEwYi0yZjNlNGQ1YzZiN2EiLCJvcmdhbml6YXRpb24iOiJhMGExYTJhMy1iMGIxLTRjMGMtOWQwZC1lMGUxZTJlM2U0ZTUiLCJleHAiOjQxMDI0NDQ4MDAsImlzcyI6Im1vY2siLCJjbGllbnRfaWQiOiI3YjFkMWMyNi0zZjVlLTRjOGEtOWEwYi0yZjNlNGQ1YzZiN2EiLCJzY29wZSI6WyJhcGkuc2VjcmV0cyJdfQ.c2lnbmF0dXJl",
+    "expires_in": 3600,
+    "token_type": "Bearer",
+    "scope": "api.secrets",
+    "encrypted_payload": "2.AQEBAQEBAQEBAQEBAQEBAQ==|39MojSNx85VlIMTdD1qHTIHzkkxZgGUBmNTPjtNBpsrmVeLvTKlHy8x+cfxrnnaes29640Q0bGU68F0tqfHHJZSCqL6/jkmNrQAyEw9mucU1L4q7JikX2MiMfBL/1sL8xLLZGe9+VfJNudWSphfdJA==|7dextS29QIRI/Ld1LBBJqx/9eM0hlEvG5GRsH4uh+uQ="
+  },
+  "secrets": [
+    {
+      "object": "secret",
+      "id": "1c9d6c0e-55aa-4b6f-8a43-0a1b2c3d4e5f",
+      "organizationId": "a0a1a2a3-b0b1-4c0c-9d0d-e0e1e2e3e4e5",
+      "projectId": null,
+      "key": "2.CgoKCgoKCgoKCgoKCgoKCg==|ySFnGEpg+B7LsMoCKM/btg==|YjDlAQ2aL2rXTJesKRbDlHBYFh7KD4gBgzeEXw3qP/A=",
+      "value": "2.FBQUFBQUFBQUFBQUFBQUFA==|OeUoI+Irkd2rCVvEgM8hG9cV6myrFWzH3lG4CrZKK9xwXDg/AdgUE8IBHzCpsTuy|9n+y6I+AAVWXRb2L7LDP1n/hwBJT7Re44q3sluabb80=",
+      "note": "2.Hh4eHh4eHh4eHh4eHh4eHg==|V2OoXBPuaNRIsURnsmzTkF/kbvgAI0hdPWcWdzDAfHg=|oEbiMdTiMEnmYHzHEUgK4oxBPkXS1ic3FARdGWyVsvo=",
+      "creationDate": "2026-10-18T10:00:00Z",
+      "revisionDate": "2026-10-18T10:00:00Z"
+    },
+    {
+      "object": "secret",
+      "id": "2d0e7d1f-66bb-4c70-9b54-1b2c3d4e5f60",
+      "organizationId": "a0a1a2a3-b0b1-4c0c-9d0d-e0e1e2e3e4e5",
+      "projectId": null,
+      "key": "2.CwsLCwsLCwsLCwsLCwsLCw==|eBAx69zRkbWznJe7Fw5KHQ==|wsbazGWH/WRz9j60r38k503TG+wFDbtE6bS6Pueb9d8=",
+      "value": "2.FRUVFRUVFRUVFRUVFRUVFQ==|0kH5vtpLPR/fEbk2XYjnezxp3iDamBTKnTL7F8iYzMUxHlRLBEeFWj11KFWsa9vQSAsxoXLmW2mObGE8bjjBIQ==|Kv0FwClj2X7Zh/u5u7cC3YZL94RGiwGsfJcBkYnrc+s=",
+      "note": "2.Hx8fHx8fHx8fHx8fHx8fHw==|CVKH1NAiZNLSBz3jlz2MeQ==|9m0RxXEsldUeaYoUJGGjbfIj32aXViA2pDllDuGcDrg=",
+      "creationDate": "2026-10-18T10:00:00Z",
+      "revisionDate": "2026-10-18T10:00:00Z"
+    }
+  ],
+  "plain": [
+    {
+      "id": "1c9d6c0e-55aa-4b6f-8a43-0a1b2c3d4e5f",
+      "key": "dbine/pg",
+      "value": "{\"username\":\"postgres\",\"password\":\"pw\"}",
+      "note": "the test database"
+    },
+    {
+      "id": "2d0e7d1f-66bb-4c70-9b54-1b2c3d4e5f60",
+      "key": "plain",
+      "value": "ünïcödé € a value longer than one block 0123456789",
+      "note": ""
+    }
+  ],
+  "sdk_requests": [
+    "POST /identity/connect/token",
+    "GET /api/secrets/1c9d6c0e-55aa-4b6f-8a43-0a1b2c3d4e5f",
+    "GET /api/secrets/2d0e7d1f-66bb-4c70-9b54-1b2c3d4e5f60"
+  ]
+}

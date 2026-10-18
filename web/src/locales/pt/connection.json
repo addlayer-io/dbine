@@ -129,6 +129,8 @@
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
       "zoho": "Zoho Vault",
+      "bitwarden": "Bitwarden",
+      "bitwarden_sm": "Bitwarden Secrets Manager",
       "ssm": "AWS Parameter Store"
     },
     "askHelp": "É pedida ao conectar e não é salva.",
@@ -171,14 +173,22 @@
       "refresh_token": "Token de atualização",
       "fill_username_keepass": "Usar também o usuário desta entrada (seu campo «UserName»)",
       "fill_username_zoho": "Usar também o usuário deste segredo (seu campo «username»)",
+      "server": "Servidor",
+      "item": "Item (ID ou nome)",
+      "secret_uuid": "ID do segredo",
+      "access_token": "Token de acesso",
       "parameter": "Nome ou ARN do parâmetro",
-      "list_index": "Item da lista (opcional)"
+      "list_index": "Item da lista (opcional)",
+      "master_bitwarden": "Senha mestra",
+      "master_value_bitwarden": "Senha mestra",
+      "fill_username_bitwarden": "Usar também o usuário deste item (seu nome de usuário)"
     },
     "placeholder": {
       "command": "pass show bancos/producao",
       "token": "VAULT_TOKEN ou ~/.vault-token",
       "latest": "a mais recente",
       "data_center": "O da sua conta do Zoho",
+      "server": "bitwarden.com, bitwarden.eu ou https://bitwarden.exemplo.com",
       "ssmVersion": "a mais recente (ou um número, ou um rótulo)"
     },
     "kvAuto": "Detectar",
@@ -193,6 +203,9 @@
       "entry": "Grupo/Subgrupo/Título, só o título se não se repetir, ou o UUID da entrada.",
       "keepass": "O banco é lido neste computador, sem programas externos (KDBX 3.1 e 4). A senha mestra digitada é salva no chaveiro do sistema; com «Perguntar ao conectar» ela é pedida na primeira vez que você conecta e fica só na memória até você fechar o DBine.",
       "zoho": "Com um cliente próprio («Self Client») do console de API do Zoho e um token de atualização com as permissões ZohoVault.secrets.READ e ZohoVault.user.READ. Os valores são descriptografados neste computador com a frase secreta mestra; o segredo do cliente, o token e a frase digitados são salvos no chaveiro do sistema.",
+      "server": "bitwarden.com, bitwarden.eu ou a URL do seu servidor próprio (https://; http:// somente neste computador).",
+      "bitwarden": "Com uma chave de API pessoal (Configurações da conta › Segurança › Chaves: client_id e client_secret). O cofre é descriptografado neste computador com a senha mestra, sem programas externos. Campo: password, username, notes ou o nome de um campo personalizado; se o valor for JSON (por exemplo, as notas), informe a chave dele. O client_secret e a senha digitados são salvos no chaveiro do sistema.",
+      "bitwarden_sm": "Com o token de acesso de uma conta de máquina; o segredo é descriptografado neste computador. Sem token, usa-se BWS_ACCESS_TOKEN. O token digitado é salvo no chaveiro do sistema.",
       "ssm": "Com as credenciais da AWS deste computador, como o AWS Secrets Manager. SecureString é descriptografado (é necessário kms:Decrypt); de uma StringList usa-se o item indicado (1 é o primeiro)."
     },
     "test": "Testar",
@@ -228,7 +241,12 @@
       "keepass": "A conexão «{{name}}» obtém «{{field}}» de um banco do KeePass. Digite a senha mestra dele (ela não é salva):",
       "zoho": "A conexão «{{name}}» obtém «{{field}}» do Zoho Vault. Digite a frase secreta mestra (ela não é salva):",
       "wrong": "A senha digitada não abriu o banco.",
-      "empty": "Digite a senha mestra"
+      "empty": "Digite a senha mestra",
+      "bitwarden": "A conexão «{{name}}» obtém «{{field}}» do Bitwarden. Digite a senha mestra (ela não é salva):"
+    },
+    "bitwardenCloud": {
+      "com": "Estados Unidos ({{domain}})",
+      "eu": "Europa ({{domain}})"
     }
   }
 }

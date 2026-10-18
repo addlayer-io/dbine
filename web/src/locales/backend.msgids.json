@@ -733,7 +733,8 @@
   "crates/drivers/orientdb/src/lib.rs",
   "crates/drivers/orientdb/src/transfer.rs",
   "crates/drivers/snowflake/src/lib.rs",
-  "crates/drivers/snowflake/src/transfer.rs"
+  "crates/drivers/snowflake/src/transfer.rs",
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "Acceso": [
   "crates/drivers/cosmosdb/src/security.rs",
@@ -1415,6 +1416,9 @@
  ],
  "Argentina": [
   "src-tauri/src/commands/datagen.rs"
+ ],
+ "Argon2 falló: {0}": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "Argument": [
   "crates/drivers/odbc/src/plan.rs"
@@ -2235,6 +2239,99 @@
  "Bitmap": [
   "crates/drivers/dsql/src/plan.rs",
   "crates/drivers/postgres/src/plan.rs"
+ ],
+ "Bitwarden": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "Bitwarden Secrets Manager respondió {0}": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden Secrets Manager respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden Secrets Manager: no hay un secreto con el ID {0} (o la cuenta de máquina no tiene acceso a su proyecto)": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden devolvió parámetros de Argon2 fuera de rango": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden devolvió un valor cifrado de un tipo que DBine no lee ({0})": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden devolvió una cantidad de iteraciones de PBKDF2 fuera de rango ({0})": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden necesita la contraseña maestra": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "Bitwarden no devolvió el correo de la cuenta": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden no devolvió el perfil de la cuenta": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden no devolvió la clave de la organización con el token": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden no devolvió un token de acceso": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden no permite tantos inicios de sesión seguidos; probá en unos minutos": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden rechazó el inicio de sesión: {0}": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden rechazó el pedido (¿la clave es de otro tipo de cuenta?)": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden rechazó el token de acceso": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden rechazó el token de acceso de la cuenta de máquina": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden rechazó el token de acceso de la cuenta de máquina (¿se revocó o es de otro servidor?)": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden rechazó la clave de API (client_id o client_secret): revisala en Configuración › Seguridad › Claves": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden respondió {0} al iniciar sesión": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden respondió {0} al iniciar sesión: {1}": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden respondió {0} al leer la bóveda": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden respondió {0} al leer la bóveda: {1}": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden respondió {0} al pedir los parámetros de la cuenta": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden tiene {0} elementos «{1}» (IDs: {2}): indicá el ID del que corresponde": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden usa una derivación de clave que DBine no conoce ({0})": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden: no hay un elemento con el ID {0} (o la cuenta no tiene acceso)": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden: no hay un elemento «{0}»": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden: no hay un elemento «{0}» (parecidos: {1})": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden: no hay un elemento «{0}» (parecidos: {1}; {2} elementos no se pudieron descifrar)": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "Bitwarden: no hay un elemento «{0}» ({1} elementos no se pudieron descifrar)": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "Block cache": [
   "crates/drivers/phoenix/src/monitor.rs"
@@ -13156,6 +13253,7 @@
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/mysql/src/session.rs",
   "src-tauri/src/secret_sources/aws.rs",
+  "src-tauri/src/secret_sources/bitwarden.rs",
   "src-tauri/src/secret_sources/ssm.rs"
  ],
  "Metacomando de psql ignorado: {0} (DBine ejecuta solo SQL)": [
@@ -24585,11 +24683,17 @@
  "el campo de la entrada de KeePass no es válido": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "el campo del elemento de Bitwarden no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "el campo del secreto de Zoho Vault no es válido": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "el campo «{0}» de la colección de destino no se guarda (stored=false y sin docValues): Solr aceptaría el valor y lo descartaría, así que después se leería como NULL. Cambiá el campo a stored=true o dejalo fuera de la carga.": [
   "crates/drivers/solr/src/transfer.rs"
+ ],
+ "el campo «{0}» del elemento «{1}» de Bitwarden está vacío": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "el campo «{0}» es de un tipo de Solr que DBine no conoce: no se puede verificar que el número {1} se guarde sin cambios, así que no se carga.": [
   "crates/drivers/solr/src/transfer.rs"
@@ -24771,6 +24875,9 @@
  "el del historial, o 1": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
+ "el descifrado de la bóveda de Bitwarden se interrumpió: {0}": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
  "el destino": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs",
   "crates/drivers/mysql/src/backup.rs",
@@ -24878,6 +24985,12 @@
  ],
  "el elemento no trae su id": [
   "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "el elemento «{0}» de Bitwarden no tiene el campo «{1}» (tiene: {2})": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "el elemento «{0}» de Bitwarden no tiene usuario": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "el emulador de Spanner no implementa SPANNER_SYS ni cancel_query: no hay consultas en curso que listar": [
   "crates/drivers/spanner/src/processes.rs"
@@ -25312,6 +25425,9 @@
  "el secreto binario de AWS no es texto": [
   "src-tauri/src/secret_sources/aws.rs"
  ],
+ "el secreto de Bitwarden Secrets Manager no tiene valor": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
  "el secreto es compartido, pero Zoho Vault no devolvió la clave de la organización para este usuario": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
@@ -25353,6 +25469,12 @@
  ],
  "el servidor cortó la lectura antes de terminar": [
   "crates/drivers/libsql/src/transfer.rs"
+ ],
+ "el servidor de Bitwarden no es válido": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "el servidor de Bitwarden tiene que ser bitwarden.com, bitwarden.eu o la URL https:// del servidor propio": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "el servidor de correo rechazó el mail: {0}": [
   "src-tauri/src/tasks/mail.rs"
@@ -25530,6 +25652,9 @@
  ],
  "el token de Zoho no tiene los permisos necesarios: generalo con ZohoVault.secrets.READ y ZohoVault.user.READ": [
   "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "el token de acceso de Bitwarden Secrets Manager no tiene el formato esperado (0.<id>.<secreto>:<clave>)": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "el token de actualización de Zoho no es válido, venció o se revocó: generá uno nuevo": [
   "src-tauri/src/secret_sources/zoho.rs"
@@ -26284,6 +26409,9 @@
  "esta conexión usa solo el protocolo simple de consultas: no se puede asegurar una sola sentencia de solo lectura": [
   "crates/drivers/postgres/src/session.rs"
  ],
+ "esta cuenta de Bitwarden usa el formato de cifrado nuevo (v2), que DBine todavía no lee": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
  "esta replicación está definida en el documento «{0}» de {1}: se detiene borrando o editando ese documento": [
   "crates/drivers/couchdb/src/processes.rs"
  ],
@@ -26807,6 +26935,12 @@
  "falta el ID del proyecto": [
   "crates/drivers/bigquery/src/lib.rs"
  ],
+ "falta el ID del secreto de Bitwarden Secrets Manager (un UUID)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "falta el ID o el nombre del elemento de Bitwarden": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "falta el SQL warehouse": [
   "crates/drivers/databricks/src/lib.rs"
  ],
@@ -26844,6 +26978,12 @@
  ],
  "falta el catálogo": [
   "crates/drivers/databricks/src/backup.rs"
+ ],
+ "falta el client_id de la clave de API de Bitwarden (user.xxxxxxxx-…)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "falta el client_secret de la clave de API de Bitwarden: escribilo en el formulario": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "falta el comando que devuelve el secreto": [
   "crates/dbine-core/src/secret_sources.rs"
@@ -26950,6 +27090,9 @@
  "falta el token de acceso (PAT)": [
   "crates/drivers/snowflake/src/lib.rs"
  ],
+ "falta el token de acceso de la cuenta de máquina: escribilo en el formulario (o definí BWS_ACCESS_TOKEN)": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
  "falta el usuario": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
@@ -27027,6 +27170,9 @@
  ],
  "falta la contraseña maestra": [
   "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "falta la contraseña maestra de Bitwarden": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "falta la contraseña maestra de la base de KeePass": [
   "src-tauri/src/secret_sources/keepass.rs"
@@ -27831,6 +27977,9 @@
  "la clave del documento (META().id) no es un campo y no se puede renombrar": [
   "crates/drivers/couchbase/src/rename.rs"
  ],
+ "la clave del elemento de Bitwarden no es válida": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
  "la clave del servidor SSH {0}:{1} cambió: ahora presenta la huella {2} y la aceptada en DBine es {3}. Puede ser otro servidor haciéndose pasar por él. Si el servidor cambió de clave, olvidalo en los servidores SSH verificados de la conexión (Túnel SSH) y volvé a conectarte para verificar la huella nueva.": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
@@ -28127,6 +28276,9 @@
  "la consulta {0} ya terminó o no existe": [
   "crates/drivers/couchbase/src/processes.rs"
  ],
+ "la contraseña maestra de Bitwarden no es la correcta": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
  "la contraseña maestra o el archivo de clave no abren la base de KeePass": [
   "src-tauri/src/secret_sources/keepass.rs"
  ],
@@ -28155,11 +28307,17 @@
  "la cuenta de 1Password no es válida": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "la cuenta de Bitwarden no tiene contraseña maestra (¿inicia sesión con SSO o un conector de claves?): DBine no puede abrir su bóveda": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
  "la cuenta de Google Cloud «{0}» no es válida": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "la cuenta es federada pero ADFS no publica sus metadatos (MEX)": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "la cuenta no tiene la clave de la organización {0} de Bitwarden": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "la cuenta {0} no es federada (no inicia sesión con ADFS), así que la autenticación integrada no está disponible. Usá «Microsoft Entra ID: interactivo (MFA)» o «Microsoft Entra ID: predeterminada».": [
   "crates/drivers/sqlserver/src/entra.rs"
@@ -30030,6 +30188,9 @@
  "no se pudo conectar con Azure Key Vault: {0}": [
   "src-tauri/src/secret_sources/azure.rs"
  ],
+ "no se pudo conectar con Bitwarden ({0}): {1}": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
  "no se pudo conectar con Google Secret Manager: {0}": [
   "src-tauri/src/secret_sources/gcp.rs"
  ],
@@ -30148,8 +30309,26 @@
  "no se pudo descifrar el campo «{0}» del secreto «{1}» de Zoho Vault (¿la frase de contraseña maestra es la correcta?)": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
+ "no se pudo descifrar el secreto de Bitwarden Secrets Manager (¿es de otra organización que la cuenta de máquina?)": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
  "no se pudo descifrar la clave de la organización de Zoho Vault": [
   "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "no se pudo descifrar la clave de la organización {0} de Bitwarden": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "no se pudo descifrar la clave del elemento de Bitwarden": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "no se pudo descifrar la clave privada de la cuenta de Bitwarden": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "no se pudo descifrar la clave que acompaña al token de Bitwarden Secrets Manager": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "no se pudo descifrar un campo del elemento «{0}» de Bitwarden": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "no se pudo describir {0}": [
   "crates/drivers/ksqldb/src/lib.rs"
@@ -31039,6 +31218,9 @@
  ],
  "parámetro": [
   "crates/drivers/postgres/src/properties.rs"
+ ],
+ "parámetros de Argon2 no válidos: {0}": [
+  "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "parámetros de clave inválidos: {0}": [
   "crates/dbine-sync/src/crypto.rs"

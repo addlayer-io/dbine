@@ -6,7 +6,7 @@ import { api, errorMessage } from '../api/client';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import {
-  isExternal, MASTER_SOURCES, missingInputs, SOURCE_KINDS, sourceFrom, typedTokens, ZOHO_DATA_CENTERS, type DraftKind, type SourceDraft,
+  BITWARDEN_CLOUDS, isExternal, MASTER_SOURCES, missingInputs, SOURCE_KINDS, sourceFrom, typedTokens, ZOHO_DATA_CENTERS, type DraftKind, type SourceDraft,
 } from '../composables/secretSources';
 
 // Where one secret field takes its value (docs/secret-sources.md): the
@@ -41,6 +41,9 @@ function setKind(k: DraftKind) {
   draft.value.kind = k;
   // Zoho Vault always needs its passphrase.
   if (k === 'zoho' && draft.value.master === 'none') draft.value.master = 'keychain';
+  // Bitwarden too; its server starts as the US cloud.
+  if (k === 'bitwarden' && draft.value.master === 'none') draft.value.master = 'keychain';
+  if ((k === 'bitwarden' || k === 'bitwarden_sm') && !draft.value.server) draft.value.server = BITWARDEN_CLOUDS[0];
 }
 
 async function browse(input: 'ca_file' | 'file' | 'key_file') {
@@ -51,9 +54,9 @@ async function browse(input: 'ca_file' | 'file' | 'key_file') {
   } catch { /* no dialog outside Tauri */ }
 }
 
-/** KeePass / Zoho Vault: where the master password comes from. */
+/** KeePass / Zoho Vault / Bitwarden: where the master password comes from. */
 const masters = computed(() => MASTER_SOURCES.filter((m) => m !== 'none' || draft.value.kind === 'keepass'));
-const hasMaster = computed(() => draft.value.kind === 'keepass' || draft.value.kind === 'zoho');
+const hasMaster = computed(() => draft.value.kind === 'keepass' || draft.value.kind === 'zoho' || draft.value.kind === 'bitwarden');
 /** A master password asked while testing ("ask"): this picker's tests only. */
 const asked = ref('');
 
@@ -247,6 +250,46 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
             :placeholder="editing ? $t('connection:form.secretKeptMasc') : '1000.…'"
           />
         </el-form-item>
+      </template>
+      <template v-else-if="draft.kind === 'bitwarden' || draft.kind === 'bitwarden_sm'">
+        <el-form-item :label="$t('connection:source.input.server')" class="ss-wide">
+          <el-select
+            v-model="draft.server" filterable allow-create default-first-option style="width: 100%"
+            :placeholder="$t('connection:source.placeholder.server')"
+          >
+            <el-option v-for="c in BITWARDEN_CLOUDS" :key="c" :value="c" :label="$t(`connection:source.bitwardenCloud.${c.replace('bitwarden.', '')}`, { domain: c })" />
+          </el-select>
+          <div class="ss-help">{{ $t('connection:source.help.server') }}</div>
+        </el-form-item>
+        <template v-if="draft.kind === 'bitwarden'">
+          <el-form-item :label="$t('connection:source.input.item')" :required="req('item')">
+            <el-input v-model="draft.item" class="ss-mono" placeholder="pg-main" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.attribute')">
+            <el-input v-model="draft.attribute" class="ss-mono" placeholder="password" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.client_id')" :required="req('client_id')">
+            <el-input v-model="draft.client_id" class="ss-mono" placeholder="user.xxxxxxxx-xxxx-…" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.client_secret')">
+            <el-input
+              v-model="draft.client_secret" type="password" show-password autocomplete="new-password"
+              :placeholder="editing ? $t('connection:form.secretKeptMasc') : ''"
+            />
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item :label="$t('connection:source.input.secret_uuid')" :required="req('secret')" class="ss-wide">
+            <el-input v-model="draft.secret" class="ss-mono" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.access_token')" class="ss-wide">
+            <el-input
+              v-model="draft.token" type="password" show-password autocomplete="new-password"
+              :placeholder="editing ? $t('connection:form.secretKeptMasc') : 'BWS_ACCESS_TOKEN'"
+            />
+          </el-form-item>
+          <div class="ss-help ss-wide">{{ $t('connection:source.help.bitwarden_sm') }}</div>
+        </template>
       </template>
       <template v-else-if="draft.kind === 'ssm'">
         <el-form-item :label="$t('connection:source.input.parameter')" :required="req('parameter')" class="ss-wide">

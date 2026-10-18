@@ -25,6 +25,7 @@ mod keepass;
 mod onepassword;
 mod vault;
 mod zoho;
+mod bitwarden;
 mod ssm;
 
 use crate::error::{CommandError, CommandResult};
@@ -43,7 +44,7 @@ use tauri::State;
 pub struct Resolved {
     pub value: String,
     /// The `username` of the same secret (AWS, KeePass, Zoho Vault,
-    /// Parameter Store, when asked to fill it).
+    /// Bitwarden, Parameter Store, when asked to fill it).
     pub username: Option<String>,
 }
 
@@ -107,7 +108,7 @@ pub struct Unlock {
     pub connection_name: String,
     pub field: String,
     pub field_label: String,
-    /// `keepass` or `zoho`.
+    /// `keepass`, `zoho` or `bitwarden`.
     pub kind: &'static str,
     pub wrong: bool,
 }
@@ -165,6 +166,8 @@ fn provider(src: &SecretSource) -> &'static str {
         SecretSource::Gcp { .. } => "Google Secret Manager",
         SecretSource::KeePass { .. } => "KeePass",
         SecretSource::Zoho { .. } => "Zoho Vault",
+        SecretSource::Bitwarden { .. } => "Bitwarden",
+        SecretSource::BitwardenSm { .. } => "Bitwarden Secrets Manager",
         SecretSource::Ssm { .. } => "AWS Systems Manager",
     }
 }
@@ -191,7 +194,7 @@ pub fn field_tokens(tokens: &Secrets, field: &str) -> Secrets {
 /// (typed this run, else [`NEEDS_MASTER`]), a command's output, or none.
 async fn master_password(src: &SecretSource, slots: &Secrets) -> Result<Option<String>, String> {
     let (master, command) = match src {
-        SecretSource::KeePass { master, master_command, .. } | SecretSource::Zoho { master, master_command, .. } => (*master, master_command),
+        SecretSource::KeePass { master, master_command, .. } | SecretSource::Zoho { master, master_command, .. } | SecretSource::Bitwarden { master, master_command, .. } => (*master, master_command),
         _ => return Ok(None),
     };
     let typed = slots.get("").filter(|t| !t.is_empty()).cloned();
@@ -214,7 +217,7 @@ fn asks_again(src: &SecretSource, message: &str) -> Option<bool> {
     }
     match message {
         NEEDS_MASTER => Some(false),
-        keepass::WRONG_KEY | zoho::WRONG_PASSPHRASE => Some(true),
+        keepass::WRONG_KEY | zoho::WRONG_PASSPHRASE | bitwarden::WRONG_PASSWORD => Some(true),
         _ => None,
     }
 }
@@ -261,6 +264,23 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
         let r = zoho::read(&req, &creds).await;
         return finish(src, r);
     }
+    if let SecretSource::Bitwarden { server, item, attribute, client_id, fill_username, .. } = src {
+        let password = master_password(src, slots).await?.unwrap_or_default();
+        let creds = bitwarden::Creds { client_id: client_id.trim().to_string(), client_secret: slots.get("client_secret").cloned().unwrap_or_default(), password };
+        let req = bitwarden::Request { server, item, attribute, username: *fill_username };
+        // The notes (or any field) may be JSON: its key.
+        let r = bitwarden::read(&req, &creds).await.and_then(|(mut raw, mut username)| {
+            let picked = defs::pick_json(&raw, src.json_key()).map_err(|e| e.to_string());
+            defs::wipe(&mut raw);
+            if picked.is_err() {
+                if let Some(u) = &mut username {
+                    defs::wipe(u);
+                }
+            }
+            picked.map(|v| (v, username))
+        });
+        return finish(src, r);
+    }
     let mut raw = match src {
         SecretSource::Command { command, .. } => exec::run(exec::shell_command(command), exec::COMMAND_LIMIT).await.map(exec::trim_newline).map_err(command_failure)?,
         SecretSource::OnePassword { reference, account, .. } => onepassword::read(reference, account).await?,
@@ -271,8 +291,9 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
         SecretSource::Aws { secret_id, region, profile, .. } => aws::get_secret(secret_id, region, profile).await?,
         SecretSource::Azure { vault_url, name, version, .. } => azure::get_secret(vault_url, name, version).await?,
         SecretSource::Gcp { project, secret, version, .. } => gcp::get_secret(project, secret, version).await?,
+        SecretSource::BitwardenSm { server, secret, .. } => bitwarden::read_secret(server, secret, token).await?,
         SecretSource::Ssm { parameter, version, region, profile, list_index, .. } => ssm::get_parameter(&ssm::Request { parameter, version, region, profile, list_index }).await?,
-        SecretSource::KeePass { .. } | SecretSource::Zoho { .. } => unreachable!("resolved above"),
+        SecretSource::KeePass { .. } | SecretSource::Zoho { .. } | SecretSource::Bitwarden { .. } => unreachable!("resolved above"),
     };
     let picked = defs::pick_json(&raw, src.json_key()).map_err(|e| e.to_string());
     let username = match src {

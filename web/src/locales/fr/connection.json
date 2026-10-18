@@ -129,6 +129,8 @@
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
       "zoho": "Zoho Vault",
+      "bitwarden": "Bitwarden",
+      "bitwarden_sm": "Bitwarden Secrets Manager",
       "ssm": "AWS Parameter Store"
     },
     "askHelp": "Demandé à la connexion et non enregistré.",
@@ -171,14 +173,22 @@
       "refresh_token": "Jeton d'actualisation",
       "fill_username_keepass": "Prendre aussi l'utilisateur de cette entrée (son champ « UserName »)",
       "fill_username_zoho": "Prendre aussi l'utilisateur de ce secret (son champ « username »)",
+      "server": "Serveur",
+      "item": "Élément (ID ou nom)",
+      "secret_uuid": "ID du secret",
+      "access_token": "Jeton d'accès",
       "parameter": "Nom ou ARN du paramètre",
-      "list_index": "Élément de la liste (facultatif)"
+      "list_index": "Élément de la liste (facultatif)",
+      "master_bitwarden": "Mot de passe principal",
+      "master_value_bitwarden": "Mot de passe principal",
+      "fill_username_bitwarden": "Prendre aussi l'utilisateur de cet élément (son nom d'utilisateur)"
     },
     "placeholder": {
       "command": "pass show bases/production",
       "token": "VAULT_TOKEN ou ~/.vault-token",
       "latest": "la plus récente",
       "data_center": "Celui de votre compte Zoho",
+      "server": "bitwarden.com, bitwarden.eu ou https://bitwarden.exemple.com",
       "ssmVersion": "la plus récente (ou un numéro, ou une étiquette)"
     },
     "kvAuto": "Détecter",
@@ -193,6 +203,9 @@
       "entry": "Groupe/Sous-groupe/Titre, le titre seul s'il n'est pas répété, ou l'UUID de l'entrée.",
       "keepass": "La base est lue sur cet ordinateur, sans programme externe (KDBX 3.1 et 4). Le mot de passe principal saisi est enregistré dans le trousseau du système ; avec « Demander à la connexion », il est demandé la première fois que vous vous connectez et reste en mémoire seulement jusqu'à la fermeture de DBine.",
       "zoho": "Avec un client propre (« Self Client ») de la console d'API de Zoho et un jeton d'actualisation disposant des autorisations ZohoVault.secrets.READ et ZohoVault.user.READ. Les valeurs sont déchiffrées sur cet ordinateur avec la phrase secrète principale ; le secret du client, le jeton et la phrase saisis sont enregistrés dans le trousseau du système.",
+      "server": "bitwarden.com, bitwarden.eu ou l'URL de votre propre serveur (https:// ; http:// seulement sur cet ordinateur).",
+      "bitwarden": "Avec une clé d'API personnelle (Paramètres du compte › Sécurité › Clés : client_id et client_secret). Le coffre est déchiffré sur cet ordinateur avec le mot de passe principal, sans programme externe. Champ : password, username, notes ou le nom d'un champ personnalisé ; si la valeur est du JSON (par exemple, les notes), indiquez sa clé. Le client_secret et le mot de passe saisis sont enregistrés dans le trousseau du système.",
+      "bitwarden_sm": "Avec le jeton d'accès d'un compte machine ; le secret est déchiffré sur cet ordinateur. Sans jeton, on utilise BWS_ACCESS_TOKEN. Le jeton saisi est enregistré dans le trousseau du système.",
       "ssm": "Avec les identifiants AWS de cet ordinateur, comme AWS Secrets Manager. SecureString est déchiffré (kms:Decrypt est nécessaire) ; pour une StringList, on utilise l'élément indiqué (1 est le premier)."
     },
     "test": "Tester",
@@ -228,7 +241,12 @@
       "keepass": "La connexion « {{name}} » obtient « {{field}} » d'une base KeePass. Saisissez son mot de passe principal (il n'est pas enregistré) :",
       "zoho": "La connexion « {{name}} » obtient « {{field}} » de Zoho Vault. Saisissez la phrase secrète principale (elle n'est pas enregistrée) :",
       "wrong": "Le mot de passe saisi n'a pas ouvert la base.",
-      "empty": "Saisissez le mot de passe principal"
+      "empty": "Saisissez le mot de passe principal",
+      "bitwarden": "La connexion « {{name}} » obtient « {{field}} » de Bitwarden. Saisissez le mot de passe principal (il n'est pas enregistré) :"
+    },
+    "bitwardenCloud": {
+      "com": "États-Unis ({{domain}})",
+      "eu": "Europe ({{domain}})"
     }
   }
 }

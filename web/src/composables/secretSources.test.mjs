@@ -113,11 +113,33 @@ test('the confirmation shows a KeePass definition', () => {
   assert.deepEqual(rows.map((r) => r[0]), ['file', 'entry', 'master', 'master_command']);
 });
 
-test('AWS Parameter Store', () => {
-  const c = { kind: 'ssm', parameter: '/prod/db', version: 'current', region: 'eu-west-1', profile: 'prod', list_index: '2', json_key: 'password', fill_username: true };
-  assert.deepEqual(sourceFrom(draftFrom(c), 'password'), c);
-  assert.equal(sourceFrom(draftFrom(c), 'api_key').fill_username, undefined);
+test('Bitwarden, Bitwarden Secrets Manager and Parameter Store', () => {
+  const cases = [
+    { kind: 'bitwarden', server: 'bitwarden.eu', item: 'pg-main', attribute: 'notes', json_key: 'password', client_id: 'user.6a2f40a5-d692-4c8e-953c-5271ccb77291', master: 'ask', fill_username: true },
+    { kind: 'bitwarden', server: 'https://vault.example.com', item: 'pg-main', client_id: 'user.6a2f40a5-d692-4c8e-953c-5271ccb77291', master: 'command', master_command: 'pass show bw' },
+    { kind: 'bitwarden_sm', server: 'bitwarden.com', secret: '1c9d6c0e-55aa-4b6f-8a43-0a1b2c3d4e5f', json_key: 'password' },
+    { kind: 'ssm', parameter: '/prod/db', version: 'current', region: 'eu-west-1', profile: 'prod', list_index: '2', json_key: 'password', fill_username: true },
+  ];
+  for (const c of cases) assert.deepEqual(sourceFrom(draftFrom(c), 'password'), c, c.kind);
+  assert.deepEqual(missingInputs(emptyDraft('bitwarden')), ['item', 'client_id']);
+  assert.deepEqual(missingInputs(emptyDraft('bitwarden_sm')), ['secret']);
   assert.deepEqual(missingInputs(emptyDraft('ssm')), ['parameter']);
+  const bw = draftFrom(cases[0]);
+  bw.master = 'command';
+  assert.deepEqual(missingInputs(bw), ['master_command']);
+  bw.master = 'none';
+  assert.equal(sourceFrom(bw, 'password').master, undefined, 'Bitwarden always has a master password');
+  // The keychain: the master password and the client secret; the access token.
+  const typed = emptyDraft('bitwarden');
+  Object.assign(typed, { token: 'master', client_secret: 'cs' });
+  assert.deepEqual(typedTokens(typed), { '': 'master', client_secret: 'cs' });
+  typed.master = 'ask';
+  assert.deepEqual(typedTokens(typed), { client_secret: 'cs' }, 'an asked password is never kept');
+  const sm = emptyDraft('bitwarden_sm');
+  sm.token = '0.id.secret:key';
+  assert.deepEqual(typedTokens(sm), { '': '0.id.secret:key' });
   assert.deepEqual(typedTokens(emptyDraft('ssm')), {});
-  assert.deepEqual(sourceRows(c).map((r) => r[0]), ['region', 'profile', 'version', 'json_key', 'fill_username', 'parameter', 'list_index']);
+  // The confirmation shows the server and the item.
+  assert.deepEqual(sourceRows(cases[1]).map((r) => r[0]), ['client_id', 'master', 'master_command', 'server', 'item']);
+  assert.equal(sourceFrom(draftFrom(cases[3]), 'api_key').fill_username, undefined);
 });

@@ -129,6 +129,8 @@
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
       "zoho": "Zoho Vault",
+      "bitwarden": "Bitwarden",
+      "bitwarden_sm": "Bitwarden Secrets Manager",
       "ssm": "AWS Parameter Store"
     },
     "askHelp": "Asked for when connecting and not saved.",
@@ -171,14 +173,22 @@
       "refresh_token": "Refresh token",
       "fill_username_keepass": "Also take the user from this entry (its «UserName» field)",
       "fill_username_zoho": "Also take the user from this secret (its «username» field)",
+      "server": "Server",
+      "item": "Item (ID or name)",
+      "secret_uuid": "Secret ID",
+      "access_token": "Access token",
       "parameter": "Parameter name or ARN",
-      "list_index": "List item (optional)"
+      "list_index": "List item (optional)",
+      "master_bitwarden": "Master password",
+      "master_value_bitwarden": "Master password",
+      "fill_username_bitwarden": "Also take the user from this item (its username)"
     },
     "placeholder": {
       "command": "pass show databases/production",
       "token": "VAULT_TOKEN or ~/.vault-token",
       "latest": "the latest",
       "data_center": "The one for your Zoho account",
+      "server": "bitwarden.com, bitwarden.eu or https://bitwarden.example.com",
       "ssmVersion": "the latest (or a number, or a label)"
     },
     "kvAuto": "Detect",
@@ -193,6 +203,9 @@
       "entry": "Group/Subgroup/Title, the title alone if it isn't repeated, or the entry's UUID.",
       "keepass": "The database is read on this computer, with no external programs (KDBX 3.1 and 4). The master password you type is saved in the system keychain; with «Ask when connecting» it is asked the first time you connect and stays in memory only until you close DBine.",
       "zoho": "With your own client («Self Client») from the Zoho API console and a refresh token with the ZohoVault.secrets.READ and ZohoVault.user.READ scopes. Values are decrypted on this computer with the master passphrase; the client secret, the token and the passphrase you type are saved in the system keychain.",
+      "server": "bitwarden.com, bitwarden.eu or the URL of your own server (https://; http:// only on this computer).",
+      "bitwarden": "With a personal API key (Account settings › Security › Keys: client_id and client_secret). The vault is decrypted on this computer with the master password, with no external programs. Field: password, username, notes or the name of a custom field; if the value is JSON (for example, the notes), give its key. The client_secret and the password you type are saved in the system keychain.",
+      "bitwarden_sm": "With the access token of a machine account; the secret is decrypted on this computer. Without a token, BWS_ACCESS_TOKEN is used. The token you type is saved in the system keychain.",
       "ssm": "With this computer's AWS credentials, like AWS Secrets Manager. SecureString is decrypted (kms:Decrypt is required); for a StringList, the item you indicate is used (1 is the first)."
     },
     "test": "Test",
@@ -228,7 +241,12 @@
       "keepass": "The connection «{{name}}» takes «{{field}}» from a KeePass database. Type its master password (it isn't saved):",
       "zoho": "The connection «{{name}}» takes «{{field}}» from Zoho Vault. Type the master passphrase (it isn't saved):",
       "wrong": "The password you typed didn't open it.",
-      "empty": "Type the master password"
+      "empty": "Type the master password",
+      "bitwarden": "The connection «{{name}}» takes «{{field}}» from Bitwarden. Type the master password (it isn't saved):"
+    },
+    "bitwardenCloud": {
+      "com": "United States ({{domain}})",
+      "eu": "Europe ({{domain}})"
     }
   }
 }
