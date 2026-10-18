@@ -216,7 +216,7 @@ pub async fn list(src: &SecretSource, slots: &Secrets, at: At<'_>) -> Result<Lis
         }
         SecretSource::Delinea { url, platform_url, username, domain, .. } => {
             let mut password = master_password(src, slots).await?.unwrap_or_default();
-            let req = delinea::Request { url, platform_url, username, domain, secret: "", field: "", fill_username: false };
+            let req = delinea::Request { url, platform_url, username, domain, secret: "", field: "", fill_username: false, user_field: "" };
             let r = delinea::browse(&req, &password, at).await;
             wipe(&mut password);
             r

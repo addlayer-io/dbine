@@ -10852,5 +10852,10 @@
   "la lista de 1Password es demasiado larga": "la liste de 1Password est trop longue",
   "la respuesta de 1Password no es texto": "la réponse de 1Password n'est pas du texte",
   "no se pudo examinar {0}: {1}": "impossible de parcourir {0} : {1}",
-  "«op» no devolvió JSON": "«op» n'a pas renvoyé de JSON"
+  "«op» no devolvió JSON": "«op» n'a pas renvoyé de JSON",
+  "el campo del usuario no es válido": "le champ de l'utilisateur n'est pas valide",
+  "el elemento de 1Password no tiene usuario ({0})": "l'élément 1Password n'a pas d'utilisateur ({0})",
+  "el secreto «{0}» de Secret Server no tiene usuario ({1})": "le secret « {0} » de Secret Server n'a pas d'utilisateur ({1})",
+  "el secreto «{0}» de Zoho Vault no tiene usuario ({1})": "le secret « {0} » de Zoho Vault n'a pas d'utilisateur ({1})",
+  "la entrada «{0}» de KeePass no tiene usuario ({1})": "l'entrée « {0} » de KeePass n'a pas d'utilisateur ({1})"
 }

@@ -268,14 +268,14 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
         let req = cyberark::Ccp { url, app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file, username: *fill_username };
         return finish(src, cyberark::ccp_read(&req, token).await);
     }
-    if let SecretSource::Delinea { url, platform_url, username, domain, secret_name, attribute, fill_username, .. } = src {
+    if let SecretSource::Delinea { url, platform_url, username, domain, secret_name, attribute, fill_username, user_field, .. } = src {
         let mut password = master_password(src, slots).await?.unwrap_or_default();
-        let req = delinea::Request { url, platform_url, username, domain, secret: secret_name, field: attribute, fill_username: *fill_username };
+        let req = delinea::Request { url, platform_url, username, domain, secret: secret_name, field: attribute, fill_username: *fill_username, user_field };
         let r = delinea::read(&req, &password).await;
         defs::wipe(&mut password);
         return finish(src, r);
     }
-    if let SecretSource::KeePass { file, entry, attribute, key_file, fill_username, .. } = src {
+    if let SecretSource::KeePass { file, entry, attribute, key_file, fill_username, user_field, .. } = src {
         let mut master = master_password(src, slots).await?;
         let req = keepass::Request {
             file: expand_home(file.trim()),
@@ -283,11 +283,12 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
             attribute: attribute.clone(),
             key_file: Some(key_file.trim()).filter(|k| !k.is_empty()).map(expand_home),
             username: *fill_username,
+            user_field: user_field.clone(),
         };
         let r = keepass::read(req, master.take()).await;
         return finish(src, r);
     }
-    if let SecretSource::Zoho { data_center, secret_name, attribute, client_id, fill_username, .. } = src {
+    if let SecretSource::Zoho { data_center, secret_name, attribute, client_id, fill_username, user_field, .. } = src {
         let passphrase = master_password(src, slots).await?.unwrap_or_default();
         let creds = zoho::Creds {
             client_id: client_id.trim().to_string(),
@@ -295,14 +296,14 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
             refresh_token: slots.get("refresh_token").cloned().unwrap_or_default(),
             passphrase,
         };
-        let req = zoho::Request { data_center, secret: secret_name, attribute, username: *fill_username };
+        let req = zoho::Request { data_center, secret: secret_name, attribute, username: *fill_username, user_field };
         let r = zoho::read(&req, &creds).await;
         return finish(src, r);
     }
-    if let SecretSource::Bitwarden { server, item, attribute, client_id, fill_username, .. } = src {
+    if let SecretSource::Bitwarden { server, item, attribute, client_id, fill_username, user_field, .. } = src {
         let password = master_password(src, slots).await?.unwrap_or_default();
         let creds = bitwarden::Creds { client_id: client_id.trim().to_string(), client_secret: slots.get("client_secret").cloned().unwrap_or_default(), password };
-        let req = bitwarden::Request { server, item, attribute, username: *fill_username };
+        let req = bitwarden::Request { server, item, attribute, username: *fill_username, user_field };
         // The notes (or any field) may be JSON: its key.
         let r = bitwarden::read(&req, &creds).await.and_then(|(mut raw, mut username)| {
             let picked = defs::pick_json(&raw, src.json_key()).map_err(|e| e.to_string());
@@ -318,7 +319,29 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
     }
     let mut raw = match src {
         SecretSource::Command { command, .. } => exec::run(exec::shell_command(command), exec::COMMAND_LIMIT).await.map(exec::trim_newline).map_err(command_failure)?,
-        SecretSource::OnePassword { reference, account, .. } => onepassword::read(reference, account).await?,
+        SecretSource::OnePassword { reference, account, fill_username, user_field, .. } => {
+            let value = onepassword::read(reference, account).await?;
+            if *fill_username {
+                let user_ref = onepassword::user_reference(reference, user_field);
+                match onepassword::read(&user_ref, account).await {
+                    Ok(u) if !u.is_empty() => {
+                        let picked = defs::pick_json(&value, src.json_key()).map_err(|e| e.to_string());
+                        let mut value = value;
+                        defs::wipe(&mut value);
+                        return finish(src, picked.map(|v| (v, Some(u))));
+                    }
+                    other => {
+                        let mut value = value;
+                        defs::wipe(&mut value);
+                        if let Ok(mut u) = other {
+                            defs::wipe(&mut u);
+                        }
+                        return Err(format!("el elemento de 1Password no tiene usuario ({user_ref})"));
+                    }
+                }
+            }
+            value
+        }
         SecretSource::Vault { address, path, key, namespace, kv_version, ca_file, auth, approle_mount, role_id } => {
             let req = vault::Request { address, path, key, namespace, kv_version: *kv_version, ca_file };
             vault::read(&req, &vault::Auth::of(*auth, approle_mount, role_id, slots)).await?
@@ -742,6 +765,7 @@ pub(crate) mod tests {
             master,
             master_command: command.into(),
             fill_username: true,
+            user_field: String::new(),
         }
     }
 
@@ -976,6 +1000,7 @@ pub(crate) mod tests {
             master: MasterSource::Ask,
             master_command: String::new(),
             fill_username: false,
+            user_field: String::new(),
         };
         let mut cfg = ConnectionConfig { driver: "postgres".into(), ..Default::default() };
         defs::write(&mut cfg, &[("password".to_string(), src.clone())].into());
@@ -1128,6 +1153,7 @@ pub(crate) mod tests {
             master: MasterSource::Keychain,
             master_command: String::new(),
             fill_username: true,
+            user_field: String::new(),
         };
         tries.push(("keepass", keepass, [(token_key("password"), "dummy-master".to_string())].into()));
         if let Ok(addr) = std::env::var("DBINE_TEST_VAULT") {

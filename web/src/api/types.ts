@@ -198,7 +198,7 @@ export interface ConnectionConfig {
  *  Stored as JSON in the `secret_sources` option, by field key. */
 export type SecretSource =
   | { kind: 'command'; command: string; json_key?: string }
-  | { kind: 'onepassword'; reference: string; account?: string; json_key?: string }
+  | { kind: 'onepassword'; reference: string; account?: string; json_key?: string; fill_username?: boolean; user_field?: string }
   | {
     kind: 'vault'; address: string; path: string; key: string; namespace?: string; kv_version?: '1' | '2'; ca_file?: string;
     auth?: 'approle'; approle_mount?: string; role_id?: string;
@@ -208,11 +208,11 @@ export type SecretSource =
   | { kind: 'gcp'; project: string; secret: string; version?: string; json_key?: string }
   | {
     kind: 'keepass'; file: string; entry: string; attribute?: string; key_file?: string;
-    master?: 'ask' | 'command' | 'none'; master_command?: string; fill_username?: boolean;
+    master?: 'ask' | 'command' | 'none'; master_command?: string; fill_username?: boolean; user_field?: string;
   }
   | {
     kind: 'zoho'; data_center: string; secret_name: string; attribute?: string; client_id: string;
-    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean;
+    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean; user_field?: string;
   }
   | {
     kind: 'vault_db'; address: string; mount?: string; role: string; static_role?: boolean; namespace?: string; ca_file?: string;
@@ -227,11 +227,11 @@ export type SecretSource =
   }
   | {
     kind: 'delinea'; url: string; platform_url?: string; username: string; domain?: string; secret_name: string; attribute?: string;
-    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean;
+    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean; user_field?: string;
   }
   | {
     kind: 'bitwarden'; server?: string; item: string; attribute?: string; json_key?: string; client_id: string;
-    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean;
+    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean; user_field?: string;
   }
   | { kind: 'bitwarden_sm'; server?: string; secret: string; json_key?: string }
   | {
