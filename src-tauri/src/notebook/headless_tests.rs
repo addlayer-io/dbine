@@ -97,6 +97,7 @@ fn write_nb(path: &Path, cells: Vec<NotebookCell>) {
         save_results: true,
         save_results_set: true,
         cells,
+        parameters: vec![],
         origin: "dbine".into(),
         extra_metadata: json!({}),
         warnings: vec![],
@@ -250,11 +251,34 @@ async fn notebook_headless_names_resolve_or_ask_in_the_editor() {
 
 #[test]
 fn notebook_headless_parameters_and_write_cells_hooks() {
-    let nb = Notebook { target: None, save_results: true, save_results_set: true, cells: vec![cell("c1", "c1", None, "SELECT 1")], origin: "dbine".into(), extra_metadata: json!({}), warnings: vec![] };
-    assert_eq!(executable_sources(&nb, &BTreeMap::new()).unwrap()["c1"], "SELECT 1");
+    let mut nb = Notebook {
+        target: None,
+        save_results: true,
+        save_results_set: true,
+        cells: vec![cell("c1", "c1", None, "SELECT 1")],
+        parameters: vec![],
+        origin: "dbine".into(),
+        extra_metadata: json!({}),
+        warnings: vec![],
+    };
+    let sqlite = |_: &NotebookCell| dbine_drivers::find("sqlite").cloned();
+    assert_eq!(executable_sources(&nb, &BTreeMap::new(), &sqlite).unwrap()["c1"], "SELECT 1");
     // A value for a parameter the notebook doesn't declare is refused.
     let params = BTreeMap::from([("desde".to_string(), json!("2026-01-01"))]);
-    assert!(executable_sources(&nb, &params).unwrap_err().to_string().contains("desde"));
+    assert!(executable_sources(&nb, &params, &sqlite).unwrap_err().to_string().contains("desde"));
+    // Declared: the step's value, as the engine's literal; a required one missing fails.
+    nb.parameters = vec![crate::notebook::params::NotebookParameter {
+        name: "desde".into(),
+        kind: crate::notebook::params::ParamType::Date,
+        default: None,
+        description: None,
+        required: true,
+        options: vec![],
+    }];
+    nb.cells[0].source = "SELECT * FROM t WHERE d >= {{desde}}".into();
+    assert_eq!(executable_sources(&nb, &params, &sqlite).unwrap()["c1"], "SELECT * FROM t WHERE d >= '2026-01-01'");
+    assert_eq!(declared_parameters(&nb), vec!["desde"]);
+    assert!(executable_sources(&nb, &BTreeMap::new(), &sqlite).unwrap_err().to_string().contains("obligatorios"));
     // A write cell runs only as authorized: same cell, target and mode.
     let wc = WriteCell { cell_id: "c9".into(), name: "c9".into(), target: "dbo.resumen".into(), mode: "replace".into() };
     let auth = |t: &str, m: &str| vec![WriteAuth { cell_id: "c9".into(), target: t.into(), mode: m.into() }];
@@ -487,4 +511,42 @@ async fn notebook_headless_live_postgres_sqlserver() {
     assert_eq!(joined[0][0], json!("Ana"));
     assert_eq!(joined[0][1].as_f64().or_else(|| joined[0][1].as_str().and_then(|s| s.parse().ok())), Some(13.5));
     assert_eq!(ran.notebook.cells[1].result.as_ref().unwrap().engine.as_deref(), Some("sqlserver"));
+}
+
+/// The "Ejecutar notebook" step with parameter values: each cell gets them
+/// (bound on SQLite, a value made to escape its literal stays data), a
+/// DataFrame SQL cell too, and each result records the values it used.
+#[tokio::test(flavor = "multi_thread")]
+async fn notebook_headless_runs_with_the_steps_parameter_values() {
+    use crate::notebook::params::{NotebookParameter, ParamType};
+    let w = world("params", vec![]);
+    let path = w.dir.join("param.ipynb");
+    let nb = Notebook {
+        target: None,
+        save_results: true,
+        save_results_set: true,
+        cells: vec![
+            cell("c1", "c1", on("Ventas"), "SELECT id, total, {{nota}} AS nota FROM ventas WHERE total > {{minimo}} ORDER BY id, total"),
+            cell("c2", "c2", dataframes(), "SELECT count(*) AS n FROM c1 WHERE total > {{minimo}}"),
+        ],
+        parameters: vec![
+            NotebookParameter { name: "minimo".into(), kind: ParamType::Number, default: Some(json!(1)), description: None, required: false, options: vec![] },
+            NotebookParameter { name: "nota".into(), kind: ParamType::Text, default: None, description: None, required: true, options: vec![] },
+        ],
+        origin: "dbine".into(),
+        extra_metadata: json!({}),
+        warnings: vec![],
+    };
+    std::fs::write(&path, serialize(&nb, PreviewLimits::default())).unwrap();
+    let mut o = opts(&path);
+    o.params = BTreeMap::from([("nota".to_string(), json!("'; DROP TABLE ventas; --")), ("minimo".to_string(), json!(3.5))]);
+    let ran = run(&w.state, "t:params", &o, Policy::default()).await.unwrap();
+    assert!(ran.failure.is_none(), "{:?}", ran.failure);
+    let c = &ran.notebook.cells;
+    assert_eq!(rows(&c[0]), vec![vec![json!(1), json!(4.0), json!("'; DROP TABLE ventas; --")], vec![json!(1), json!(10.5), json!("'; DROP TABLE ventas; --")]]);
+    assert_eq!(c[0].result.as_ref().unwrap().params.as_ref().unwrap()["minimo"], json!(3.5));
+    assert_eq!(rows(&c[1])[0][0].as_i64(), Some(2));
+    // A required value missing: the run fails before any cell.
+    o.params.remove("nota");
+    assert!(run(&w.state, "t:params2", &o, Policy::default()).await.unwrap_err().to_string().contains("nota"));
 }

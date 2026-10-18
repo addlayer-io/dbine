@@ -193,6 +193,7 @@ fn previews_only_when_asked() {
         engine: Some("postgres".into()),
         target_label: Some("Ventas PG › ventas".into()),
         truncated: false,
+        params: None,
     });
     let clean: Value = serde_json::from_str(&python(&nb, &conns, &PyExport::default())).unwrap();
     assert!(clean["cells"].as_array().unwrap().iter().all(|c| c.get("outputs").is_none_or(|o| o.as_array().unwrap().is_empty())));
@@ -360,6 +361,34 @@ fn parameters_go_first_and_are_bound() {
     assert_eq!(p["metadata"]["tags"], json!(["parameters"]));
     assert_eq!(sources(&v)[1], "region = \"norte\"");
     assert!(sources(&v)[3].contains("v = pd.read_sql(text(\"\"\"SELECT * FROM v WHERE region = :region AND t::date > '2026-01-01'\"\"\"), engine_ventas_pg, params={\"region\": region})"), "{}", sources(&v)[3]);
+}
+
+/// The notebook's own parameters (`{{name}}`): their defaults in the
+/// parameters cell, `:name` binds in SQLAlchemy cells; another client's
+/// cell says it doesn't map them.
+#[test]
+fn notebook_parameters_become_binds() {
+    use crate::notebook::params::{NotebookParameter, ParamType};
+    let mut nb = empty_nb();
+    nb.parameters = vec![
+        NotebookParameter { name: "region".into(), kind: ParamType::Text, default: Some(json!("norte")), description: None, required: false, options: vec![] },
+        NotebookParameter { name: "tope".into(), kind: ParamType::Number, default: None, description: None, required: true, options: vec![] },
+    ];
+    nb.cells = vec![
+        cell("q", CellKind::Sql, "SELECT * FROM v WHERE region = {{region}} LIMIT {{ tope }}", on("Ventas PG"), Some("v")),
+        cell("m", CellKind::Sql, "db.c.find({\"r\": {{region}}})", on("Mongo"), Some("m")),
+    ];
+    let conns = HashMap::from([
+        ("q".to_string(), conn("Ventas PG", cfg("postgres", "pg", 5432, "d", "u", &[]))),
+        ("m".to_string(), conn("Mongo", cfg("mongodb", "mongo", 27017, "geo", "u", &[]))),
+    ]);
+    let opts = PyExport { parameters: parameters(&nb), ..Default::default() };
+    let v: Value = serde_json::from_str(&python(&nb, &conns, &opts)).unwrap();
+    let s = sources(&v);
+    assert_eq!(s[1], "region = \"norte\"\ntope = None");
+    let all = s.join("\n");
+    assert!(all.contains("WHERE region = :region LIMIT :tope\"\"\"), engine_ventas_pg, params={\"region\": region, \"tope\": tope})"), "{all}");
+    assert!(all.contains("only mapped to SQLAlchemy binds"), "{all}");
 }
 
 #[test]

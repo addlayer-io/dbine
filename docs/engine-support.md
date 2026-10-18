@@ -881,6 +881,41 @@ Pending: for every engine in the last row that has a read-only mode the
 server enforces, implementing `run_read_only` in its driver is an explicit
 pending item; until then its reads are approved by the user.
 
+## Notebook parameters
+
+A notebook's `{{name}}` values ([notebooks.md](notebooks.md#parameters))
+reach every engine, never as raw text. Where the driver binds
+(`Session::execute_bound`) the value goes apart from the statement with the
+driver's placeholders; everywhere else it is written as a literal by the
+driver's quoting (`Driver::param_literal`, by default
+`dbine_driver::params::literal` for the driver's language and dialect). A
+driver that can't bind a statement says so before running anything, and the
+app sends it with literals.
+
+| Engine | How the value goes | Notes |
+|---|---|---|
+| SQL Server, Azure SQL, Fabric, Babelfish | Bound: `sp_executesql` with `@P1`, `@P2`… (NVARCHAR, BIGINT, DECIMAL, DATE, DATETIME2, BIT) | A batch that changes the session (`USE`, a session `SET`, a `#temp` table), `GO N` or several batches in one unit go with literals (`N'…'`): `sp_executesql` would undo the change when it ends |
+| MySQL, MariaDB, Aurora MySQL, Cloud SQL for MySQL, TiDB, SingleStore, OceanBase | Bound: prepared statement with `?` | A unit with `DELIMITER` goes with literals |
+| StarRocks, Doris, VeloDB, Databend, Manticore, GreptimeDB | Literals (`''` and `\\`) | Their prepared statements don't behave as MySQL's |
+| Oracle | Bound: `:1`, `:2`… (VARCHAR2, NUMBER, DATE / TIMESTAMP, 1/0 for booleans) | DDL and SQL*Plus commands go with literals (Oracle binds no values in DDL) |
+| SQLite | Bound: `?1`, `?2`… | |
+| PostgreSQL and its variants | Literals: `E'…'` where `standard_conforming_strings` may be off, Redshift's backslash escapes, `DATE '…'` / `TIMESTAMP '…'` | The session reads results over the simple query protocol (text), which takes no bound values. Binding needs the extended protocol with binary results decoded per type: explicit pending item |
+| ClickHouse | Literals with backslash escapes (the driver's own) | |
+| DataFrame SQL cells (DuckDB) | Literals (standard strings) | A cell above that runs again on its connection gets its own engine's literals |
+| MongoDB, FerretDB, DocumentDB | Literals: JSON strings, `ISODate("…")` for dates | |
+| Redis, Valkey, Dragonfly | Literals: redis-cli quoting (`"…"` with `\xHH`) | NULL is refused: Redis has no null |
+| InfluxDB (Flux) | Literals: Flux strings (`\${` escaped), RFC 3339 times | NULL is refused |
+| Neo4j, Memgraph, Neptune | Literals: Cypher strings, `date('…')` / `localdatetime('…')` | Binding Cypher's `$name` parameters: explicit pending item |
+| Every other engine | Literals of its language and dialect | Binding in the drivers whose client takes bound values (Snowflake, BigQuery, Trino, Cassandra, Spanner, DuckDB…): explicit pending item |
+
+A driver downloaded before this version doesn't know `ExecuteBound` or
+`ParamLiteral`: the first answers `Unsupported` (literals), the second falls
+back to the contract's literal for the driver's dialect.
+
+**Tested against real servers** (`params_live_tests.rs`): PostgreSQL,
+SQL Server, MySQL, Oracle, SQLite, MongoDB and Redis, each with a value made
+to break out of its literal (`'; DROP TABLE …; --`), which stays data.
+
 ## Format code
 
 The **Format** button of the query (⇧⌥F) formats the selection, or everything

@@ -1073,6 +1073,8 @@ export interface CellResult {
   target_label: string | null;
   /** The stored messages or error were cut to fit the cell's byte cap. */
   truncated?: boolean;
+  /** The notebook parameters' values that produced it (those its cell uses). */
+  params?: Record<string, string | number | boolean | null> | null;
 }
 export interface NotebookCell {
   /** Stable id (nbformat 4.5 cell id). */
@@ -1102,6 +1104,9 @@ export interface Notebook {
    *  in a git project then gets the project's default, without results). */
   save_results_set?: boolean;
   cells: NotebookCell[];
+  /** Values asked for when it runs, used by the cells as `{{name}}`
+   *  (src-tauri/src/notebook/params.rs). Older files: absent. */
+  parameters?: NotebookParameter[];
   /** How it was read: "dbine" | "ads" | "jupyter". */
   origin: string;
   /** Notebook-level metadata DBine doesn't own, kept on save. */
@@ -1110,6 +1115,23 @@ export interface Notebook {
   warnings: string[];
 }
 export interface NotebookRead { notebook: Notebook; text_hash: string }
+/** A notebook parameter's type: texto, número, fecha, fecha y hora, booleano, lista fija. */
+export type NotebookParamType = 'text' | 'number' | 'date' | 'datetime' | 'boolean' | 'list';
+export type NotebookParamValue = string | number | boolean | null;
+export interface NotebookParameter {
+  name: string;
+  type: NotebookParamType;
+  default?: NotebookParamValue;
+  description?: string | null;
+  required?: boolean;
+  /** `list`: the values offered (text). */
+  options?: string[];
+}
+/** What a cell's run sends with its text (`{{name}}` in it). */
+export interface RunParams {
+  definitions: NotebookParameter[];
+  values: Record<string, NotebookParamValue>;
+}
 
 // "DataFrame SQL" (src-tauri/src/notebook/local.rs): a cell's DuckDB
 // SQL over the results of the cells above.

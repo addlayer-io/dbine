@@ -134,6 +134,113 @@ cells on that session:
 - Closing while a cell runs asks first; the run is cancelled only if the
   close goes on.
 
+## Parameters
+
+Values asked for when the notebook runs and used by every cell: the month
+of a report, a customer, a date range. Each cell writes them as
+`{{name}}`:
+
+```sql
+SELECT cliente, sum(total) AS total
+FROM ventas
+WHERE mes = {{mes}} AND region = {{region}}
+LIMIT {{tope}}
+```
+
+### Defining them
+
+**Parameters** in the notebook's toolbar opens a panel at the top with one
+row per parameter:
+
+| Field | |
+|---|---|
+| Name | A letter or `_`, then letters, digits or `_` (case doesn't matter, as in `{{MES}}`). Renaming one renames its `{{name}}` in the cells |
+| Type | Text, number, date, date and time, boolean, or a fixed list of values |
+| Default | Used when the run gives no value; optional |
+| Required | The run can't go on without a value (given or the default) |
+| Description | Shown when the value is asked for |
+
+They are saved in the file, in `metadata.dbine.parameters`, defaults
+included. A default is never a credential or a connection's details: one
+under a name like `password` or `token`, or one that looks like a
+connection string, is dropped when the file is read and when it is written
+(with the notice about ignored credentials). A file without parameters
+opens as before.
+
+```json
+"metadata": {
+  "dbine": {
+    "version": 1,
+    "parameters": [
+      { "name": "mes", "type": "text", "required": true, "description": "AAAA-MM" },
+      { "name": "region", "type": "list", "options": ["Norte", "Sur"], "default": "Norte" },
+      { "name": "tope", "type": "number", "default": 100 }
+    ]
+  }
+}
+```
+
+### Using them in cells
+
+- `{{name}}` goes **where a value goes**, in SQL cells on any connection, in
+  DataFrame SQL cells and in the other languages (MongoDB, Redis, Cypher,
+  Flux, CQL…). Completion offers the parameters after `{{` (and with
+  Ctrl+Space).
+- **Never inside a string**: `'%{{x}}%'` is refused, with the way to write
+  it (`'%' || {{x}} || '%'`), because the value already goes as text.
+- **Never as a name**: a parameter where a table, column, schema or function
+  goes (`FROM {{t}}`, `t.{{c}}`, `{{f}}(…)`, `tabla_{{mes}}`, `ORDER BY
+  {{c}}`, `"{{x}}"`, a MongoDB key or collection, a Redis command) is refused
+  with a clear message. Identifiers aren't parameterizable.
+- **In a comment** it stays as it is.
+- In a SQL cell, `{{name}}` with no parameter of that name is an error. In
+  other languages it stays as text (an Elasticsearch search template has its
+  own `{{x}}`).
+
+Why `{{name}}`: it means nothing in any engine's own syntax outside strings.
+`@x` is a T-SQL variable, `:x` a PostgreSQL cast and an Oracle bind, `$1`
+PostgreSQL's placeholder and `?` an operator in several engines.
+
+### How a value reaches the engine
+
+Never as raw text. Each value goes **bound** (the driver sends it apart from
+the statement, with its own placeholders) where the driver binds, and
+otherwise **as a literal written by the engine's own quoting**:
+`E'O''Brien'` in PostgreSQL, `N'…'` in SQL Server, `ISODate("…")` in
+MongoDB, redis-cli quoting in Redis. Numbers, dates and booleans are checked
+against their type before anything runs, so they can't hold anything but
+themselves. Which engines bind and which get literals:
+[engine-support.md](engine-support.md#notebook-parameters).
+
+### Running
+
+- **Run all** and **Run cell** ask for the values that are missing (a
+  required parameter the cells use with no value), in one dialog prefilled
+  with this session's values and the defaults.
+- The values in use are shown under the toolbar; a click changes them.
+  They belong to the open notebook (this session): the file keeps only the
+  defaults.
+- Each result records the values that produced it (those of the parameters
+  its cell used; a DataFrame SQL cell also those of the cells it read) in its
+  output metadata, `metadata.dbine.params`, and its summary line shows them
+  (also on GitHub and in the exports). When a value its cell uses changes,
+  the result is marked **outdated** until the cell runs again.
+- A DataFrame SQL cell reuses a cell's rows from this session only if they
+  came from the values in use; otherwise that cell's query runs again with
+  them.
+
+### Without the UI
+
+`notebook::params::prepare_notebook(notebook, values, driver_of)` turns a
+notebook and a map of values into each code cell's executable form: the text
+with the values as literals, and per statement the bound form for the
+drivers that bind. Missing values take their defaults; a required one with
+neither, or a parameter used where it can't go, fails before anything runs.
+`notebook::params::run_prepared` runs one such cell on a session as the
+editor does. The scheduled **Run a notebook** step uses it with the values
+it stores ([scheduled-tasks.md](scheduled-tasks.md)): each cell's values are
+bound or quoted as in the editor, and each result records them.
+
 ## DataFrame SQL cells (cross-engine)
 
 Each cell's result is a **DataFrame** with the cell's name (`c1`,
@@ -726,10 +833,11 @@ AI proposes, the user runs.
 - **Results** are left out (a clean notebook) unless **Incluir vistas
   previas** is checked: then each cell's stored preview is its output, with
   the limits in Settings › Notebooks.
-- **Parameters** (once notebooks have them): the export already writes
-  them as a first cell tagged `parameters` (papermill) with their defaults,
-  bound in the SQLAlchemy queries as `:name` with `params=`; the notebook
-  model doesn't carry them yet (`notebook::python::parameters`). Write
+- **[Parameters](#parameters)**: a first cell tagged `parameters`
+  (papermill) with their defaults (`None` without one), and each cell's
+  `{{name}}` as a `:name` bind with `params=` in the SQLAlchemy queries.
+  A cell on another client (MongoDB, Redis, DuckDB…) that uses one is left
+  commented, saying so: binding them there is a pending item. Write
   cells, when there are any, are to become a commented `to_sql(…)` with a
   warning, never run by default.
 - A cell whose target isn't a connection on this computer, or whose text
@@ -814,9 +922,10 @@ caps them), with each client's own types.
 **Version 1 (this one):** the file format, SQL and text cells, targets (connection,
 database or project environment), running, previews with their limits, the
 three AI actions, notebooks from elsewhere, export to HTML, Markdown and a
-Python notebook, and
+Python notebook,
 [DataFrame SQL cells](#dataframe-sql-cells-cross-engine): cells that join the
-results of cells on different engines and local files.
+results of cells on different engines and local files, and
+[parameters](#parameters).
 
 **Run a notebook** as a step of a [scheduled task](scheduled-tasks.md#run-a-notebook),
 followed by **Send an email**, turns a notebook into a periodic report: it
@@ -828,4 +937,3 @@ and environments with confirmation need the step's opt-in.
 - **Run notebook** as a step of a [scheduled task](scheduled-tasks.md),
   followed by **Send an email**, which turns a notebook into a periodic
   report.
-- Notebook **parameters** (values the cells use, asked for when running).

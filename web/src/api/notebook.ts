@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { FileDecision, FileGrant, LocalSource, Notebook, NotebookRead, RunLocalResponse } from './types';
+import type { FileDecision, FileGrant, LocalSource, Notebook, NotebookRead, RunLocalResponse, RunParams } from './types';
 
 // Notebooks (docs/notebooks.md): reading and writing Jupyter .ipynb files.
 // Mirrors src-tauri/src/commands/notebook.rs (args in camelCase). Project
@@ -55,8 +55,14 @@ export const notebookApi = {
    *  (`nbx:<tabId>`, closed with the tab; cancel_query stops it). */
   /** `notebookPath`: the notebook's file (relative paths in `read_csv('…')` are read from its folder). */
   /** `approval`: the token of the file approval just answered (the run may read those files). */
-  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null; approval?: string | null; awsProfile?: string | null }) =>
+  /** `params`: the notebook's parameters (`{{name}}` in `sql` and in the sources' SQL). */
+  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null; approval?: string | null; awsProfile?: string | null; params?: RunParams | null }) =>
     invoke<RunLocalResponse>('notebook_run_local', { args: a }),
+  /** A cell's text with the parameters' values as the engine's literals
+   *  (connection null: DataFrame SQL), for what runs it again (whole-result
+   *  charts, full exports). */
+  renderParams: (sql: string, connectionId: string | null, params: RunParams) =>
+    invoke<string>('notebook_render_params', { args: { sql, connectionId, params } }),
   /** The answer to a run's `approval` request. */
   decideFiles: (token: string, decision: FileDecision) => invoke<void>('notebook_file_decision', { args: { token, decision } }),
   /** The files notebooks may read: one notebook's (its file), or every one. */

@@ -31,6 +31,8 @@ export interface CellContext {
   /** Files this notebook may already read, suggested inside a reader's
    *  quotes (those in folders with credentials never are). Empty for now. */
   grantedFiles?: string[];
+  /** The notebook's parameters, offered by completion as `{{name}}`. */
+  params?: { name: string; detail?: string }[];
 }
 
 const props = defineProps<{
@@ -49,6 +51,8 @@ const props = defineProps<{
   title: string;
   /** A "DataFrame SQL" cell's run here: the tables it loaded. */
   loaded?: LoadedTable[] | null;
+  /** The result came from other parameter values than the ones in use. */
+  stale?: boolean;
 }>();
 const emit = defineEmits<{
   activate: [];
@@ -225,6 +229,7 @@ function endRename(save: boolean) {
             :file-readers="!!ctx.localFiles"
             :granted-files="ctx.grantedFiles ?? []"
             :pick-file="ctx.localFiles ? pickDataFile : null"
+            :params="ctx.params ?? []"
             :placeholder="$t('notebook:cell.sqlPlaceholder')"
             run-actions
             @update:model-value="(v: string) => emit('source', v)"
@@ -247,6 +252,7 @@ function endRename(save: boolean) {
           :title="title"
           :chart="cell.chart"
           :loaded="loaded ?? null"
+          :stale="!!stale"
           @group="emit('group')"
           @explain="emit('explain')"
           @chart="(c: Record<string, unknown>) => emit('chart', c)"

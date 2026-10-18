@@ -938,6 +938,17 @@ impl Session for SqlServerSession {
         }
     }
 
+    /// One batch with its values bound (`sp_executesql`, see
+    /// [`SqlServerSession::run_bound`]).
+    async fn execute_bound(&mut self, statement: &dbine_driver::BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        self.cancelled.store(false, Ordering::SeqCst);
+        let res = self.run_bound(statement, max_rows, out).await;
+        match res {
+            Err(_) if self.cancelled.swap(false, Ordering::SeqCst) => Err(Error::Cancelled),
+            other => other,
+        }
+    }
+
     /// Estimated: `SET SHOWPLAN_XML ON` (nothing runs). Actual: `SET
     /// STATISTICS XML ON`, the script runs once and each statement's plan
     /// comes back with actual rows and times.

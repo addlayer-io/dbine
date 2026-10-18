@@ -2729,7 +2729,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-clickhouse"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "async-trait",
  "dbine-driver",
@@ -3006,7 +3006,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-mysql"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "dbine-driver",
  "futures",
@@ -3052,7 +3052,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-oracle"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "dbine-driver",
  "oracledb",
@@ -3092,7 +3092,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-postgres"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "dbine-driver",
  "futures",
@@ -3160,7 +3160,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlite"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "dbine-driver",
  "rusqlite",
@@ -3171,7 +3171,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlserver"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "base64 0.22.1",
  "chrono",

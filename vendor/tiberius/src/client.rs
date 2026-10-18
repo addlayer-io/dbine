@@ -322,6 +322,30 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
         Ok(crate::MessageStream::new(ts.try_unfold()))
     }
 
+    /// PATCH(dbine): [`simple_query_messages`] with parameters: the batch
+    /// runs through `sp_executesql` (like [`query`]) with `@P1`, `@P2`…
+    /// bound to `params`, and its whole answer streams in order as a
+    /// [`crate::MessageStream`]. Read it to the end (or drop it) before the
+    /// connection is used again.
+    ///
+    /// [`simple_query_messages`]: #method.simple_query_messages
+    /// [`query`]: #method.query
+    pub async fn query_messages<'a, 'b>(
+        &'a mut self,
+        query: impl Into<Cow<'b, str>>,
+        params: &'b [&'b dyn ToSql],
+    ) -> crate::Result<crate::MessageStream<'a>>
+    where
+        'a: 'b,
+    {
+        self.connection.flush_stream().await?;
+        let rpc_params = Self::rpc_params(query);
+        let params = params.iter().map(|p| p.to_sql());
+        self.rpc_perform_query(RpcProcId::ExecuteSQL, rpc_params, params).await?;
+        let ts = TokenStream::new_messages(&mut self.connection);
+        Ok(crate::MessageStream::new(ts.try_unfold()))
+    }
+
     /// PATCH(dbine): run a batch (like [`simple_query`]) and stream its rows
     /// as raw TDS bytes (see [`crate::RawRowStream`]), for piping into
     /// [`BulkLoadRequest::send_raw_rows`] without decoding and re-encoding

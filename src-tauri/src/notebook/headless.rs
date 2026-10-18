@@ -102,24 +102,40 @@ pub struct Options {
 // ---------------------------------------------------------------------------
 // Hooks for the notebook features that come in other branches
 
-/// The parameters the notebook declares (names), for the task editor.
-/// Notebook parameters (`nb-params`) fill this; until then a notebook
-/// declares none.
-pub fn declared_parameters(_nb: &Notebook) -> Vec<String> {
-    Vec::new()
+/// The parameters the notebook declares (names), for the task editor
+/// (`metadata.dbine.parameters`, see [`super::params`]).
+pub fn declared_parameters(nb: &Notebook) -> Vec<String> {
+    nb.parameters.iter().map(|p| p.name.clone()).collect()
 }
 
-/// Each SQL cell's text as it runs (cell id → text), with the step's
-/// parameter values applied. Notebook parameters (`nb-params`) replace the
-/// body with their function; until then a value for a parameter the
-/// notebook doesn't declare is refused, so a report never runs with a
-/// value silently ignored.
-pub fn executable_sources(nb: &Notebook, params: &BTreeMap<String, Value>) -> CommandResult<HashMap<String, String>> {
+/// Each SQL cell ready to run (cell id → prepared cell), with the step's
+/// parameter values: missing ones take their defaults; a required one with
+/// neither, a value of the wrong type or a parameter used where it can't go
+/// fails the run before anything runs ([`super::params::prepare_notebook`]).
+/// A value for a parameter the notebook doesn't declare is refused too, so
+/// a report never runs with a value silently ignored. `driver_of`: each
+/// connection cell's driver (an unresolved cell is left out: the run
+/// reports its target).
+pub fn executable_cells(
+    nb: &Notebook,
+    params: &BTreeMap<String, Value>,
+    driver_of: &dyn Fn(&NotebookCell) -> Option<Arc<dyn dbine_driver::Driver>>,
+) -> CommandResult<HashMap<String, super::params::PreparedCell>> {
     let declared = declared_parameters(nb);
-    if let Some(name) = params.keys().find(|k| !declared.contains(k)) {
+    if let Some(name) = params.keys().find(|k| !declared.iter().any(|d| d.eq_ignore_ascii_case(k))) {
         return Err(CommandError::BadRequest(format!("el notebook no tiene el parámetro «{name}»: quitalo del paso")));
     }
-    Ok(nb.cells.iter().filter(|c| c.kind == CellKind::Sql).map(|c| (c.id.clone(), c.source.clone())).collect())
+    Ok(super::params::prepare_notebook(nb, params, driver_of)?.into_iter().map(|c| (c.id.clone(), c)).collect())
+}
+
+/// Each SQL cell's text as it runs (cell id → text, the values as the
+/// engine's literals); see [`executable_cells`].
+pub fn executable_sources(
+    nb: &Notebook,
+    params: &BTreeMap<String, Value>,
+    driver_of: &dyn Fn(&NotebookCell) -> Option<Arc<dyn dbine_driver::Driver>>,
+) -> CommandResult<HashMap<String, String>> {
+    Ok(executable_cells(nb, params, driver_of)?.into_iter().map(|(id, c)| (id, c.prepared.text)).collect())
 }
 
 /// A cell that writes a DataFrame to a table (`nb-write`): its target table
@@ -315,6 +331,14 @@ impl Context {
     }
 
     /// Where `cell` runs, with the step's choices.
+    /// A connection cell's driver (none for DataFrame SQL or an unresolved target).
+    pub fn driver_of(&self, state: &AppState, cell: &NotebookCell, nb: &Notebook, bindings: &BTreeMap<String, Binding>) -> Option<Arc<dyn dbine_driver::Driver>> {
+        match self.resolve(cell, nb, bindings) {
+            Ok(Where::Connection(r)) => crate::commands::schema::driver_of(state, &r.connection_id).ok().cloned(),
+            _ => None,
+        }
+    }
+
     pub fn resolve(&self, cell: &NotebookCell, nb: &Notebook, bindings: &BTreeMap<String, Binding>) -> Result<Where, Problem> {
         let pick = |t: &Option<NotebookTarget>| t.clone().filter(|t| !empty(t));
         if let Some(t) = pick(&cell.target).or_else(|| pick(&nb.target)) {
@@ -464,7 +488,7 @@ pub fn plan(state: &AppState, opts: &Options, policy: Policy) -> CommandResult<P
 pub fn writing_cells(state: &AppState, opts: &Options) -> Vec<(String, Resolved, String, String)> {
     let Ok(nb) = read_notebook(&opts.path) else { return Vec::new() };
     let Ok(ctx) = Context::new(state, Path::new(opts.path.trim())) else { return Vec::new() };
-    let sources = executable_sources(&nb, &BTreeMap::new()).unwrap_or_default();
+    let sources = executable_sources(&nb, &opts.params, &|c| ctx.driver_of(state, c, &nb, &opts.targets)).unwrap_or_default();
     let mut out = Vec::new();
     for c in nb.cells.iter().filter(|c| c.kind == CellKind::Sql) {
         let sql = sources.get(&c.id).cloned().unwrap_or_else(|| c.source.clone());
@@ -555,6 +579,7 @@ pub fn outcome_to_result(o: &QueryOutcome, script: &str, ran_at: &str, engine: O
         engine,
         target_label,
         truncated: false,
+        params: None,
     }
 }
 
@@ -608,8 +633,9 @@ pub fn preview_limits(state: &AppState) -> super::PreviewLimits {
 pub async fn run(state: &AppState, key: &str, opts: &Options, policy: Policy) -> CommandResult<Ran> {
     let path = opts.path.trim().to_string();
     let mut nb = read_notebook(&path)?;
-    let sources = executable_sources(&nb, &opts.params)?;
     let ctx = Context::new(state, Path::new(&path))?;
+    let cells = executable_cells(&nb, &opts.params, &|c| ctx.driver_of(state, c, &nb, &opts.targets))?;
+    let sources: HashMap<String, String> = cells.iter().map(|(id, c)| (id.clone(), c.prepared.text.clone())).collect();
     let max_rows = setting_u64(state, "query.maxRows").unwrap_or(5000) as usize;
     let cap = setting_u64(state, "notebook.resultsRowCap").unwrap_or(local::DEFAULT_ROW_CAP);
     let tab = format!("{key}:nb");
@@ -694,7 +720,10 @@ pub async fn run(state: &AppState, key: &str, opts: &Options, policy: Policy) ->
                         }
                     };
                     let o = match entry {
-                        Ok(e) => crate::commands::query::run_on_entry(driver.as_ref(), &e, &script, None, max_rows).await,
+                        Ok(e) => {
+                            let prepared = cells.get(&cell.id).map(|c| &c.prepared).filter(|p| p.text.trim() == script);
+                            crate::commands::query::run_on_entry(driver.as_ref(), &e, &script, None, max_rows, prepared).await
+                        }
                         Err(e) => QueryOutcome { error: Some(e.to_string()), elapsed_ms: started.elapsed().as_millis() as u64, ..Default::default() },
                     };
                     (o, Some(driver.info().id.to_string()), Some(r.label.clone()), Some((r.connection_id, r.database)))
@@ -711,6 +740,10 @@ pub async fn run(state: &AppState, key: &str, opts: &Options, policy: Policy) ->
             let c = &mut nb.cells[i];
             c.execution_count = Some(counter);
             c.result = Some(outcome_to_result(&outcome, &script, &ran_at, engine, label));
+            // The values that produced it (those of the parameters it used).
+            if let (Some(r), Some(p)) = (c.result.as_mut(), cells.get(&cell.id).filter(|p| !p.values.is_empty())) {
+                r.params = Some(p.values.clone());
+            }
             if failed(&outcome) {
                 let msg = c.result.as_ref().and_then(|r| r.error.clone()).unwrap_or_default();
                 failure = Some((name, msg));

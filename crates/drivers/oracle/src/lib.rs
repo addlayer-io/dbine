@@ -29,7 +29,7 @@ mod transfer;
 
 use dbine_driver::sql::{select_top, Limit, Quote};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
+    async_trait, json_bytes, json_f64, json_i64, kinds, BoundStatement, ParamValue, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, Message,
     MessageLevel, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptDefaults, ScriptDialect,
     ScriptError, ScriptMode, Session, StatementEnd, TableSchema, TxState,
@@ -979,7 +979,7 @@ impl Session for OracleSession {
         let (local, result, last_compiled) = self
             .run(move |c| {
                 let mut local = fork;
-                let mut cx = Ctx { text: &text, autocommit, serveroutput: &shared.serveroutput, killed: &shared.killed, last_compiled };
+                let mut cx = Ctx { text: &text, autocommit, serveroutput: &shared.serveroutput, killed: &shared.killed, last_compiled, binds: &[] };
                 let result = run_script(c, &statements, max_rows, &mut cx, &mut local);
                 Ok((local, result, cx.last_compiled))
             })
@@ -1002,6 +1002,42 @@ impl Session for OracleSession {
                 }
                 Err(e) => tracing::debug!("oracle: reading CURRENT_SCHEMA failed: {e}"),
             }
+        }
+        result
+    }
+
+    /// One SQL statement or PL/SQL block with its values bound (`:1`,
+    /// `:2`…), run as `execute` runs it (DBMS_OUTPUT, autocommit, the
+    /// schema it switches to). A SQL*Plus command, DDL (Oracle binds no
+    /// values there) or more than one statement: `Unsupported`, before
+    /// anything runs, and the app sends literals.
+    async fn execute_bound(&mut self, bound: &BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let text = bound.numbered(":");
+        let statements = script::split(&text);
+        let ddl = |s: &script::Statement| {
+            matches!(script::first_word(&s.text).as_str(), "CREATE" | "ALTER" | "DROP" | "GRANT" | "REVOKE" | "TRUNCATE" | "COMMENT" | "RENAME" | "AUDIT")
+        };
+        match statements.as_slice() {
+            [s] if s.command.is_none() && !ddl(s) => {}
+            _ => return Err(Error::Unsupported("Oracle recibe los parámetros de una sentencia por vez (sin DDL)".into())),
+        }
+        let autocommit = self.autocommit;
+        let last_compiled = self.last_compiled.clone();
+        let shared = self.shared.clone();
+        let values = bound.values.clone();
+        let fork = out.fork();
+        let (local, result, last_compiled) = self
+            .run(move |c| {
+                let mut local = fork;
+                let mut cx = Ctx { text: &text, autocommit, serveroutput: &shared.serveroutput, killed: &shared.killed, last_compiled, binds: &values };
+                let result = run_script(c, &statements, max_rows, &mut cx, &mut local);
+                Ok((local, result, cx.last_compiled))
+            })
+            .await?;
+        self.last_compiled = last_compiled;
+        out.merge(local);
+        if result.is_err() && self.shared.killed.load(Ordering::SeqCst) {
+            return Err(Error::Cancelled);
         }
         result
     }
@@ -1322,6 +1358,8 @@ struct Ctx<'a> {
     /// The interrupter killed the session: the script stops there.
     killed: &'a AtomicBool,
     last_compiled: Option<script::Object>,
+    /// `execute_bound`: the values of the statement's `:1`, `:2`…
+    binds: &'a [ParamValue],
 }
 
 const SERVEROUTPUT_ON: &str = "BEGIN DBMS_OUTPUT.ENABLE(NULL); END;";
@@ -1429,7 +1467,7 @@ fn run_unit(c: &Connection, s: &script::Statement, max_rows: usize, cx: &mut Ctx
         Some(Command::Unsupported) => out.warning(format!("SQL*Plus: DBine no ejecuta «{}»; se omite.", s.text)),
         None => {
             let before = out.results.len();
-            run_statement(c, &s.text, max_rows, cx.autocommit, out).map_err(|e| statement_error(&e, cx.text, s))?;
+            run_statement(c, &s.text, max_rows, cx.autocommit, out, cx.binds).map_err(|e| statement_error(&e, cx.text, s))?;
             let tag = script::tag(&s.text);
             for r in &mut out.results[before..] {
                 r.tag.get_or_insert_with(|| tag.clone());
@@ -1649,8 +1687,9 @@ fn run_statement(
     max_rows: usize,
     autocommit: bool,
     out: &mut QueryOutcome,
+    binds: &[ParamValue],
 ) -> std::result::Result<(), oracledb::Error> {
-    match run_statement_with(c, sql, max_rows, autocommit, out, true) {
+    match run_statement_with(c, sql, max_rows, autocommit, out, true, binds) {
         // The thin client keeps a statement whose parse failed in its cache,
         // with a cursor the server never opened: running it again reports
         // ORA-01003 instead of the real error. Taking it out of the cache
@@ -1658,7 +1697,7 @@ fn run_statement(
         // retry then parses it afresh.
         Err(e) if db_code(&e) == Some(1003) => {
             drop(c.statement(sql).map(|b| b.exclude_from_cache()).and_then(|b| b.build()));
-            run_statement_with(c, sql, max_rows, autocommit, out, false)
+            run_statement_with(c, sql, max_rows, autocommit, out, false, binds)
         }
         other => other,
     }
@@ -1671,7 +1710,11 @@ fn run_statement_with(
     autocommit: bool,
     out: &mut QueryOutcome,
     cached: bool,
+    binds: &[ParamValue],
 ) -> std::result::Result<(), oracledb::Error> {
+    let owned: Vec<Box<dyn oracledb::ToDbValue>> = binds.iter().map(bind_value).collect();
+    let params: Vec<&dyn oracledb::ToDbValue> = owned.iter().map(|b| b.as_ref()).collect();
+    let params = params.as_slice();
     // The client looks for binds in DDL too, so a trigger's `:new.x` would
     // ask for bind values: hand such DDL to EXECUTE IMMEDIATE as a string.
     let is_ddl = matches!(script::first_word(sql).as_str(), "CREATE" | "ALTER");
@@ -1684,19 +1727,19 @@ fn run_statement_with(
     if stmt.is_query() {
         // Object columns (SDO_GEOMETRY…): the client can't read them, the
         // query runs again with them converted on the server.
-        let cursor = match stmt.query(&[]) {
+        let cursor = match stmt.query(params) {
             Ok(cursor) => cursor,
-            Err(e) if is_object_error(&e) => return run_converted(c, sql, max_rows, out, Some(e)),
+            Err(e) if is_object_error(&e) => return run_converted(c, sql, max_rows, out, Some(e), params),
             Err(e) => return Err(e),
         };
         if cursor.columns().iter().any(|m| is_object_type(m.db_type())) {
             drop(cursor);
-            return run_converted(c, sql, max_rows, out, None);
+            return run_converted(c, sql, max_rows, out, None, params);
         }
         return fetch(c, sql, cursor, max_rows, out);
     }
     let (dml, plsql) = (stmt.is_dml(), stmt.is_plsql());
-    let res = stmt.execute(&[])?;
+    let res = stmt.execute(params)?;
     if dml {
         out.push_affected(res.rows_affected());
     } else {
@@ -1708,6 +1751,35 @@ fn run_statement_with(
         c.commit()?;
     }
     Ok(())
+}
+
+/// A parameter as the thin client sends it: text as VARCHAR2, numbers as
+/// NUMBER (exact), dates as DATE / TIMESTAMP, booleans as 1 / 0 (BOOLEAN
+/// is only 23ai's), NULL as a NULL VARCHAR2.
+fn bind_value(v: &ParamValue) -> Box<dyn oracledb::ToDbValue> {
+    let part = |s: &str, a: usize, b: usize| s.get(a..b).and_then(|x| x.parse::<u32>().ok()).unwrap_or(0);
+    match v {
+        ParamValue::Null => Box::new(None::<String>),
+        ParamValue::Text(s) => Box::new(s.clone()),
+        ParamValue::Number(n) => match n.parse::<OracleNumber>() {
+            Ok(n) => Box::new(n),
+            Err(_) => Box::new(n.clone()),
+        },
+        ParamValue::Bool(b) => Box::new(*b as i64),
+        ParamValue::Date(d) => Box::new(OracleTimestamp::new_date(part(d, 0, 4) as i16, part(d, 5, 7) as u8, part(d, 8, 10) as u8)),
+        ParamValue::DateTime(d) => {
+            let nanos = d.get(20..).map(|f| format!("{f:0<9}")[..9].parse::<u32>().unwrap_or(0)).unwrap_or(0);
+            Box::new(OracleTimestamp::new_timestamp(
+                part(d, 0, 4) as i16,
+                part(d, 5, 7) as u8,
+                part(d, 8, 10) as u8,
+                part(d, 11, 13) as u8,
+                part(d, 14, 16) as u8,
+                part(d, 17, 19) as u8,
+                nanos,
+            ))
+        }
+    }
 }
 
 /// A query's rows into `out`. Columns that are geometries converted to
@@ -1761,6 +1833,7 @@ fn run_converted(
     max_rows: usize,
     out: &mut QueryOutcome,
     original: Option<oracledb::Error>,
+    params: &[&dyn oracledb::ToDbValue],
 ) -> std::result::Result<(), oracledb::Error> {
     let mut stmt = c.statement(sql).and_then(|b| b.exclude_from_cache().build())?;
     stmt.ensure_fully_parsed()?;
@@ -1773,13 +1846,13 @@ fn run_converted(
         return match original {
             Some(e) => Err(e),
             None => {
-                let cursor = c.statement(sql).and_then(|b| b.exclude_from_cache().build()).and_then(|s| s.query(&[]))?;
+                let cursor = c.statement(sql).and_then(|b| b.exclude_from_cache().build()).and_then(|s| s.query(params))?;
                 fetch(c, sql, cursor, max_rows, out)
             }
         };
     }
     let wrapped = spatial::wrap(sql, &columns);
-    let run = c.statement(&wrapped).and_then(|b| b.exclude_from_cache().build()).and_then(|s| s.query(&[]));
+    let run = c.statement(&wrapped).and_then(|b| b.exclude_from_cache().build()).and_then(|s| s.query(params));
     match run {
         Ok(cursor) => {
             fetch(c, &wrapped, cursor, max_rows, out)?;
@@ -1848,7 +1921,7 @@ fn explain_script(
             return Ok(());
         }
         if explainable && stats {
-            run_statement(c, &s.text, max_rows, autocommit, out).map_err(err)?;
+            run_statement(c, &s.text, max_rows, autocommit, out, &[]).map_err(err)?;
             match cursor_plan(c, &s.text) {
                 Ok(Some(p)) => {
                     if !p.actual {
@@ -1868,9 +1941,9 @@ fn explain_script(
             }
         } else if explainable {
             out.plans.push(estimated_plan(c, &s.text, autocommit)?);
-            run_statement(c, &s.text, max_rows, autocommit, out).map_err(err)?;
+            run_statement(c, &s.text, max_rows, autocommit, out, &[]).map_err(err)?;
         } else {
-            let r = run_statement(c, &s.text, max_rows, autocommit, out).map_err(err);
+            let r = run_statement(c, &s.text, max_rows, autocommit, out, &[]).map_err(err);
             if s.plsql {
                 drain_output(c, out);
             }

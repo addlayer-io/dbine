@@ -126,7 +126,7 @@ impl SqlServerSession {
                 if self.cancelled.load(Ordering::SeqCst) {
                     return Err(Error::Cancelled);
                 }
-                let r = self.run_batch(&u.text, u.line, max_rows, out, plans.as_deref_mut()).await;
+                let r = self.run_batch(&u.text, u.line, max_rows, out, plans.as_deref_mut(), None).await;
                 if matches!(r, Err(Error::Cancelled)) || self.cancelled.load(Ordering::SeqCst) {
                     return Err(Error::Cancelled);
                 }
@@ -153,13 +153,16 @@ impl SqlServerSession {
     /// One batch, starting at line `line` of the text the driver got. Every
     /// error goes into `out`; the call fails with the first (or the one
     /// that ended the connection).
-    async fn run_batch(
+    /// `params`: the batch runs through `sp_executesql` with `@P1`, `@P2`…
+    /// bound to them (notebook parameters, see [`Self::run_bound`]).
+    pub(crate) async fn run_batch(
         &mut self,
         text: &str,
         line: u32,
         max_rows: usize,
         out: &mut QueryOutcome,
         mut plans: Option<&mut Vec<String>>,
+        params: Option<&[&dyn tiberius::ToSql]>,
     ) -> Result<()> {
         let variant = self.variant;
         let mut first: Option<ScriptError> = None;
@@ -168,7 +171,11 @@ impl SqlServerSession {
         let mut database: Option<String> = None;
         let mut had_result = false;
         let unsent = 'read: {
-            let mut stream = match self.client.simple_query_messages(text).await {
+            let sent = match params {
+                Some(p) => self.client.query_messages(text, p).await,
+                None => self.client.simple_query_messages(text).await,
+            };
+            let mut stream = match sent {
                 Ok(s) => s,
                 Err(e) => break 'read Some(e),
             };
@@ -313,6 +320,26 @@ impl SqlServerSession {
         Ok(())
     }
 
+    /// One batch with its values bound (`@P1`, `@P2`…), run through
+    /// `sp_executesql`. What `sp_executesql` would undo when it ends (a
+    /// `USE`, a session `SET`, a `#temp` table the next cells read) stays
+    /// out: such a batch, `GO` lines or more than one batch answer
+    /// `Unsupported` before anything runs, and the app sends literals.
+    pub(crate) async fn run_bound(&mut self, st: &dbine_driver::BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let sql = st.numbered("@P");
+        let units = batches(&sql);
+        if units.len() != 1 || units[0].repeat > 1 || units[0].error.is_some() {
+            return Err(Error::Unsupported("SQL Server recibe los parámetros de un lote por vez".into()));
+        }
+        if changes_session(&units[0].text) {
+            return Err(Error::Unsupported("el lote cambia la sesión (USE, SET o una tabla #temporal): va con los valores escritos en el texto".into()));
+        }
+        let data: Vec<tiberius::ColumnData<'static>> = st.values.iter().map(bind_value).collect();
+        let refs: Vec<&dyn tiberius::ToSql> = data.iter().map(|d| d as &dyn tiberius::ToSql).collect();
+        let text = units[0].text.clone();
+        self.run_batch(&text, units[0].line, max_rows, out, None, Some(&refs)).await
+    }
+
     /// The connection broke under a batch: a new one is opened for the next
     /// run and the script stops (its session state is gone).
     async fn connection_lost(&mut self, out: &mut QueryOutcome, e: tiberius::error::Error) -> Error {
@@ -324,6 +351,62 @@ impl SqlServerSession {
     }
 }
 
+/// Whether a batch changes the session in a way `sp_executesql` would undo
+/// at its end: `USE`, a `SET` of a session option (not `SET @v = …`), or a
+/// `#temp` table it creates (`CREATE TABLE #t`, `SELECT … INTO #t`).
+pub(crate) fn changes_session(batch: &str) -> bool {
+    use dbine_driver::sql::{name_tokens, TokenKind};
+    let toks = name_tokens(batch, &ScriptDialect::tsql());
+    let word = |i: usize, w: &str| toks.get(i).is_some_and(|t| t.kind == TokenKind::Name && t.text.eq_ignore_ascii_case(w) && !batch[t.start..].starts_with('['));
+    let starts = |i: usize| i == 0 || toks[i - 1].text == ";" || word(i - 1, "begin") || word(i - 1, "end") || word(i - 1, "go");
+    let temp_after = |i: usize| toks.get(i + 1).is_some_and(|t| t.text.starts_with('#') || batch[t.start..].starts_with('#'));
+    (0..toks.len()).any(|i| {
+        (word(i, "use") && starts(i))
+            || (word(i, "set") && starts(i) && toks.get(i + 1).is_some_and(|t| t.kind == TokenKind::Name && !t.text.starts_with('@') && !batch[t.start..].starts_with('@')))
+            || ((word(i, "into") || word(i, "table")) && temp_after(i))
+    })
+}
+
+/// A parameter as tiberius sends it: text as NVARCHAR, integers as BIGINT,
+/// other numbers as DECIMAL (exact), dates as DATE / DATETIME2, booleans
+/// as BIT.
+fn bind_value(v: &dbine_driver::ParamValue) -> tiberius::ColumnData<'static> {
+    use dbine_driver::ParamValue as P;
+    use tiberius::ColumnData as C;
+    use tiberius::IntoSql;
+    match v {
+        P::Null => C::String(None),
+        P::Text(s) => C::String(Some(s.clone().into())),
+        P::Number(n) => match n.parse::<i64>() {
+            Ok(i) => C::I64(Some(i)),
+            Err(_) => decimal(n).map(|d| C::Numeric(Some(d))).unwrap_or_else(|| C::F64(n.parse().ok())),
+        },
+        P::Bool(b) => C::Bit(Some(*b)),
+        P::Date(d) => match chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d") {
+            Ok(d) => d.into_sql(),
+            Err(_) => C::String(Some(d.clone().into())),
+        },
+        P::DateTime(d) => match chrono::NaiveDateTime::parse_from_str(d, "%Y-%m-%dT%H:%M:%S%.f") {
+            Ok(d) => d.into_sql(),
+            Err(_) => C::String(Some(d.clone().into())),
+        },
+    }
+}
+
+/// `-12.345` as a DECIMAL (no exponent; at most 38 digits).
+fn decimal(n: &str) -> Option<tiberius::numeric::Numeric> {
+    if n.contains(['e', 'E']) {
+        return None;
+    }
+    let (int, frac) = n.split_once('.').unwrap_or((n, ""));
+    let digits = format!("{int}{frac}");
+    if digits.trim_start_matches('-').len() > 38 {
+        return None;
+    }
+    let value: i128 = digits.parse().ok()?;
+    Some(tiberius::numeric::Numeric::new_with_scale(value, frac.len() as u8))
+}
+
 fn is_io(e: &tiberius::error::Error) -> bool {
     matches!(e, tiberius::error::Error::Io { .. })
 }
@@ -331,6 +414,24 @@ fn is_io(e: &tiberius::error::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batches_that_change_the_session_are_not_bound() {
+        for yes in ["USE ventas; SELECT @P1", "SET NOCOUNT ON; SELECT @P1", "SELECT * INTO #t FROM x WHERE a = @P1", "CREATE TABLE #t (a int)", "begin use x end"] {
+            assert!(changes_session(yes), "{yes}");
+        }
+        for no in ["SELECT * FROM t WHERE a = @P1", "DECLARE @x int; SET @x = @P1; SELECT @x", "SELECT 'USE x; SET NOCOUNT ON' AS t", "UPDATE t SET a = @P1", "SELECT [use] FROM t", "-- USE x\nSELECT 1"] {
+            assert!(!changes_session(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn decimals_bind_exactly() {
+        let n = decimal("-12.345").unwrap();
+        assert_eq!((n.value(), n.scale()), (-12345, 3));
+        assert_eq!(decimal(".5").map(|n| (n.value(), n.scale())), Some((5, 1)));
+        assert!(decimal("1e3").is_none());
+    }
 
     fn msg(number: u32, class: u8, line: u32, procedure: &str) -> ServerMessage {
         ServerMessage {

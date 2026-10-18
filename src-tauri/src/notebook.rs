@@ -17,6 +17,7 @@ pub mod export;
 pub mod files;
 pub mod headless;
 pub mod local;
+pub mod params;
 pub mod python;
 pub mod remote;
 
@@ -117,6 +118,10 @@ pub struct CellResult {
     /// The stored messages or error were cut to fit the cell's byte cap.
     #[serde(default)]
     pub truncated: bool,
+    /// The notebook parameters' values that produced it (the ones its cell
+    /// uses), by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<Map<String, Value>>,
 }
 
 fn yes() -> bool {
@@ -172,6 +177,10 @@ pub struct Notebook {
     pub save_results_set: bool,
     #[serde(default)]
     pub cells: Vec<NotebookCell>,
+    /// Values asked for when it runs, used by the cells as `{{name}}`
+    /// (`metadata.dbine.parameters`; see [`params`]).
+    #[serde(default)]
+    pub parameters: Vec<params::NotebookParameter>,
     /// "dbine" | "ads" | "jupyter": how it was read.
     #[serde(default)]
     pub origin: String,
@@ -379,12 +388,16 @@ pub fn parse(text: &str) -> Result<Notebook, String> {
         "jupyter"
     };
 
-    let (target, saved) = match dbine {
+    let (target, saved, parameters) = match dbine {
         Some(d) => {
             flag_credentials(d, &mut w);
-            (read_target(d.get("target"), &mut w), d.get("save_results").and_then(Value::as_bool))
+            let (parameters, dropped) = params::read_parameters(d.get("parameters"));
+            if dropped {
+                w.credentials = true;
+            }
+            (read_target(d.get("target"), &mut w), d.get("save_results").and_then(Value::as_bool), parameters)
         }
-        None => (None, None),
+        None => (None, None, Vec::new()),
     };
 
     // Ours, rewritten on save.
@@ -409,6 +422,7 @@ pub fn parse(text: &str) -> Result<Notebook, String> {
         save_results: saved.unwrap_or(true),
         save_results_set: saved.is_some(),
         cells,
+        parameters,
         origin: origin.into(),
         extra_metadata: extra,
         warnings: w.into_messages(),
@@ -586,8 +600,27 @@ fn read_outputs(outputs: Option<&Value>, run: Option<&Map<String, Value>>, w: &m
         res.engine = str_of(&i, "engine").map(String::from);
         res.target_label = str_of(&i, "target_label").map(String::from);
         res.truncated = i.get("truncated").and_then(Value::as_bool).unwrap_or(false);
+        res.params = read_params(i.get("params"), w);
     }
     Some(res)
+}
+
+/// A result's parameter values: scalars under valid names; a credential's
+/// name drops the value, with the warning.
+fn read_params(v: Option<&Value>, w: &mut Warnings) -> Option<Map<String, Value>> {
+    let m = v?.as_object()?;
+    let mut out = Map::new();
+    for (k, v) in m {
+        if !params::valid_name(k) || !(v.is_null() || v.is_string() || v.is_number() || v.is_boolean()) {
+            continue;
+        }
+        if is_credential_key(k) && !v.is_null() && !matches!(k.to_ascii_lowercase().as_str(), "user" | "username" | "login" | "port") {
+            w.credentials = true;
+            continue;
+        }
+        out.insert(k.clone(), v.clone());
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 /// A cell value as the model keeps it: null, bool, number or string.
@@ -803,6 +836,9 @@ pub fn summary_line(s: &StoredStatement, r: &CellResult) -> String {
     if let Some(t) = r.target_label.as_deref().filter(|t| !t.is_empty()) {
         parts.push(t.to_string());
     }
+    if let Some(p) = r.params.as_ref().filter(|p| !p.is_empty()) {
+        parts.push(p.iter().map(|(k, v)| format!("{k} = {}", display_value(v))).collect::<Vec<_>>().join(", "));
+    }
     parts.join(" · ")
 }
 
@@ -947,6 +983,9 @@ pub(crate) fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_
             "rows_affected": s.rows_affected,
             "statement": s.statement,
         });
+        if let Some(p) = r.params.as_ref().filter(|p| !p.is_empty()) {
+            md["params"] = Value::Object(p.clone());
+        }
         let mut data = Map::new();
         if keep && !s.columns.is_empty() {
             let (names, renamed) = unique_names(&s.columns);
@@ -1116,6 +1155,9 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
                 Some(r) => {
                     let p = preview(r, keep, limits, c.execution_count);
                     let mut run = json!({ "ran_at": r.ran_at, "duration_ms": r.duration_ms, "engine": r.engine, "target_label": r.target_label });
+                    if let Some(p) = r.params.as_ref().filter(|p| !p.is_empty()) {
+                        run["params"] = Value::Object(p.clone());
+                    }
                     if p.cut {
                         run["truncated"] = Value::Bool(true);
                     }
@@ -1154,6 +1196,9 @@ pub fn to_value(nb: &Notebook, limits: PreviewLimits) -> Value {
         dbine.insert("target".into(), t);
     }
     dbine.insert("save_results".into(), Value::Bool(nb.save_results));
+    if !nb.parameters.is_empty() {
+        dbine.insert("parameters".into(), params::parameters_json(&nb.parameters));
+    }
     let mut meta = Map::new();
     meta.insert("kernelspec".into(), json!({ "name": "sql", "display_name": "SQL", "language": "sql" }));
     meta.insert("language_info".into(), json!({ "name": "sql" }));
@@ -1224,6 +1269,7 @@ mod tests {
             engine: Some("postgres".into()),
             target_label: Some("Ventas prod › ventas".into()),
             truncated: false,
+            params: None,
         }
     }
 
@@ -1233,6 +1279,7 @@ mod tests {
             save_results: true,
             save_results_set: true,
             cells,
+            parameters: vec![],
             origin: "dbine".into(),
             extra_metadata: json!({}),
             warnings: vec![],

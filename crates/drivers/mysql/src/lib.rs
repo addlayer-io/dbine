@@ -63,6 +63,15 @@ pub(crate) enum Variant {
 }
 
 impl Variant {
+    /// Prepared statements with bound values behave as MySQL's
+    /// (`Session::execute_bound`); the rest get the values as literals.
+    pub(crate) fn binds(self) -> bool {
+        matches!(
+            self,
+            Variant::MySql | Variant::MariaDb | Variant::AuroraMySql | Variant::CloudSqlMySql | Variant::TiDb | Variant::SingleStore | Variant::OceanBase
+        )
+    }
+
     const ALL: [Variant; 13] = [
         Variant::MySql,
         Variant::MariaDb,

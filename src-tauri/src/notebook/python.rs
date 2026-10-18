@@ -1216,6 +1216,14 @@ fn http_request(src: &str, flavor: Http, database: &str) -> Result<(String, Stri
 
 /// A SQL cell as Python: the code, or (commented) why it can't be mapped.
 fn query_code(kind: Kind, client: &str, var: &str, c: &PyConn, source: &str, params: &[(String, Value)], imports: &mut BTreeSet<&'static str>) -> Result<String, String> {
+    // The notebook's `{{name}}`: SQLAlchemy binds (`:name`); no other client maps them.
+    let names: Vec<String> = params.iter().map(|(n, _)| n.clone()).collect();
+    let marked = super::params::mentioned_names(source, &names);
+    if !marked.is_empty() && kind != Kind::Sa {
+        return Err(format!("the notebook's parameters ({}) are only mapped to SQLAlchemy binds: write their values here", marked.join(", ")));
+    }
+    let bound_source = super::params::to_named_binds(source, &names);
+    let source = bound_source.as_str();
     let lit = py_block(source);
     Ok(match kind {
         Kind::Sa => {
@@ -1369,11 +1377,10 @@ pub struct PyExport {
     pub parameters: Vec<(String, Value)>,
 }
 
-/// The notebook's parameters, for [`PyExport::parameters`]. Notebooks have
-/// none yet (docs/notebooks.md › Version 1 and later): when they do, they
-/// are returned here and the export binds them.
-pub fn parameters(_nb: &Notebook) -> Vec<(String, Value)> {
-    Vec::new()
+/// The notebook's parameters (name, default; null without one), for
+/// [`PyExport::parameters`]: the cells' `{{name}}` become `:name` binds.
+pub fn parameters(nb: &Notebook) -> Vec<(String, Value)> {
+    nb.parameters.iter().map(|p| (p.name.clone(), p.default.clone().unwrap_or(Value::Null))).collect()
 }
 
 fn empty_target(t: Option<&NotebookTarget>) -> bool {

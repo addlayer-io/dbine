@@ -133,6 +133,14 @@ impl Driver for ClickHouseDriver {
         &self.info
     }
 
+    /// Text with ClickHouse's backslash escapes ([`schema::string_literal`]).
+    fn param_literal(&self, value: &dbine_driver::ParamValue) -> dbine_driver::Result<String> {
+        match value {
+            dbine_driver::ParamValue::Text(s) => Ok(schema::string_literal(s)),
+            other => dbine_driver::params::literal(self.info.language, self.info.dialect, self.info.id, other),
+        }
+    }
+
     /// "Nueva base de datos"'s options (see [`create_db`]).
     fn create_database_fields(&self) -> Vec<Field> {
         create_db::fields(self.flavor)

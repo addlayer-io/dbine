@@ -143,6 +143,30 @@ async fn sqlite_through_the_host_answers_the_same() {
     if ra.is_ok() {
         assert!(wa.is_err(), "a write through run_read_only must fail");
     }
+
+    // Notebook parameters: a bound statement and a parameter's literal
+    // cross the host with the same answer (a value made to break out of
+    // its literal stays data on both sides).
+    use dbine_driver::{BoundPart, BoundStatement, ParamValue};
+    let evil = ParamValue::Text("'; DROP TABLE clientes; --".into());
+    let bound = BoundStatement {
+        parts: vec![
+            BoundPart::Text("SELECT id FROM clientes WHERE nombre = ".into()),
+            BoundPart::Param(0),
+            BoundPart::Text(" OR alta = ".into()),
+            BoundPart::Param(1),
+            BoundPart::Text(" ORDER BY id".into()),
+        ],
+        values: vec![evil.clone(), ParamValue::Date("2025-05-06".into())],
+    };
+    let (mut oa, mut ob) = (QueryOutcome::default(), QueryOutcome::default());
+    a.execute_bound(&bound, 10, &mut oa).await.unwrap();
+    b.execute_bound(&bound, 10, &mut ob).await.unwrap();
+    assert_eq!(oa.results.iter().map(|r| &r.rows).collect::<Vec<_>>(), ob.results.iter().map(|r| &r.rows).collect::<Vec<_>>());
+    assert_eq!(ob.results[0].rows, vec![vec![serde_json::json!(3)]]);
+    for v in [evil, ParamValue::Number("-2.5".into()), ParamValue::Bool(true), ParamValue::DateTime("2026-10-18T14:30:00".into()), ParamValue::Null] {
+        assert_eq!(local.param_literal(&v).unwrap(), remote.param_literal(&v).unwrap());
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

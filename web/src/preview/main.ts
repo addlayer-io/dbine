@@ -12,6 +12,7 @@
 // |nbxresults[&dialog=1] (cells on three engines and a "DataFrame SQL" cell joining them: preview/nbx-samples.ts)
 // |schedule[&set=report|problems] (the "Ejecutar notebook" step and the mail with its HTML body: preview/schedule-samples.ts)
 // |nbperm[&set=one|many|glob|unsaved|sidecars|remote|settings|notebook] (a notebook's file approval dialog and the grants lists: preview/nbperm-samples.ts)
+// |nbparams[&open=panel|dialog|edit] (a notebook's parameters: the panel, the run's dialog, a stale result: preview/nbparams-samples.ts)
 // |zoho-wizard[&step=1..4][&filled=1][&result=ok][&error=expired|mismatch] ("Conectar Zoho Vault", each step)
 // |connection&source=zoho|zoho-manual|zoho-missing (the Zoho block: an account, the inline sign-in, an account not on this computer)
 // |account-wizard&kind=<bitwarden|bitwarden_sm|vault|delinea|conjur|ccp|onepassword|aws|azure|gcp|keepass>[&step=n][&result=ok][&error=1][&detect=none|missing]
@@ -87,6 +88,7 @@ import { chartPreview, installWholeMock, notebookCellPreview } from './chart-sam
 import { notebookResultsPreview } from './nbx-samples';
 import { installNbPermMock, nbPermPreview } from './nbperm-samples';
 import { installScheduleMock, schedulePreview, setupScheduleConnections } from './schedule-samples';
+import { notebookParamsPreview } from './nbparams-samples';
 import { browseSample, sourceConnection, SAMPLE_ACCOUNTS } from './source-samples';
 import ZohoConnectWizard from '../components/ZohoConnectWizard.vue';
 import AccountConnectWizard from '../components/AccountConnectWizard.vue';
@@ -306,6 +308,7 @@ const app = createApp({
         : view === 'nbxresults' ? notebookResultsPreview(params)
         : view === 'nbperm' ? nbPermPreview(params)
         : view === 'schedule' ? schedulePreview(params)
+        : view === 'nbparams' ? notebookParamsPreview(params)
         : view === 'filters' ? filtersView()
         : view === 'fkjump' ? fkJumpView()
         : view === 'docs-edit' ? docsEditView()

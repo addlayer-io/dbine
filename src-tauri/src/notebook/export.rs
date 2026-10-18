@@ -533,6 +533,7 @@ mod tests {
             engine: Some("postgres".into()),
             target_label: Some("<script>t</script>".into()),
             truncated: false,
+            params: None,
         };
         let mut nb = parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[]}"#).unwrap();
         nb.cells = vec![
