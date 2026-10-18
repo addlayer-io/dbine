@@ -22,6 +22,7 @@ mod rename;
 mod script;
 mod search;
 mod security;
+mod spatial;
 mod stats;
 mod structure;
 mod transfer;
@@ -628,6 +629,24 @@ impl OracleSession {
     fn owner(&self, obj: &ObjectRef) -> String {
         obj.schema().unwrap_or(&self.schema).to_string()
     }
+
+    /// The columns of a table or view for its browse query (name, whether
+    /// it is `SDO_GEOMETRY`). `None` (a plain `SELECT *`) when the
+    /// connection is busy or being replaced, or the lookup fails.
+    fn browse_columns(&self, owner: &str, name: &str) -> Option<Vec<(String, bool)>> {
+        if self.shared.killed.load(Ordering::SeqCst) {
+            return None;
+        }
+        let conn = self.shared.conn.try_lock().ok()?;
+        let rows = conn.query(spatial::BROWSE_COLUMNS, &[&owner, &name]).ok()?;
+        let mut out = Vec::new();
+        for row in rows {
+            let row = row.ok()?;
+            let geo: i64 = row.get(1).ok()?;
+            out.push((row.get::<String>(0).ok()?, geo == 1));
+        }
+        Some(out)
+    }
 }
 
 /// `"NAME"`, doubling embedded quotes.
@@ -934,8 +953,16 @@ impl Session for OracleSession {
         .await
     }
 
+    /// `SELECT *`, or with the `SDO_GEOMETRY` columns as EWKT when the
+    /// object has some (the client can't read object types; `spatial`).
+    /// The contract's method is synchronous: the columns are read here on
+    /// the caller's thread, as the plugin proxy does for this call.
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        select_top(Quote::Double, Limit::FetchFirst, Some(obj.schema().unwrap_or(&self.schema)), &obj.name, limit)
+        let owner = obj.schema().unwrap_or(&self.schema);
+        let plain = select_top(Quote::Double, Limit::FetchFirst, Some(owner), &obj.name, limit);
+        let columns = self.browse_columns(owner, &obj.name);
+        let table = dbine_driver::sql::qualified_name(Quote::Double, Some(owner), &obj.name);
+        columns.and_then(|c| spatial::browse(&table, &c, limit)).unwrap_or(plain)
     }
 
     /// SQL*Plus-like: statements end at `;` or a `/` line, PL/SQL units at a
@@ -1655,22 +1682,18 @@ fn run_statement_with(
     }
     let mut stmt = c.statement(sql).map(|b| if cached { b } else { b.exclude_from_cache() }).and_then(|b| b.build())?;
     if stmt.is_query() {
-        let cursor = stmt.query(&[])?;
-        let types: Vec<&'static oracledb::DbType> = cursor.columns().iter().map(|m| m.db_type()).collect();
-        // WITH LOCAL TIME ZONE values come in the database's time zone.
-        let dbtz = if types.iter().any(|t| t.name() == "DB_TYPE_TIMESTAMP_LTZ") { db_time_zone(c) } else { None };
-        out.begin_result(
-            cursor
-                .columns()
-                .iter()
-                .map(|m| ResultColumn { name: m.name().to_string(), type_name: m.data_type() })
-                .collect(),
-        );
-        for row in cursor {
-            let row = row?;
-            out.push_row(types.iter().enumerate().map(|(i, t)| cell_in(&row, i, t, dbtz)).collect(), max_rows);
+        // Object columns (SDO_GEOMETRY…): the client can't read them, the
+        // query runs again with them converted on the server.
+        let cursor = match stmt.query(&[]) {
+            Ok(cursor) => cursor,
+            Err(e) if is_object_error(&e) => return run_converted(c, sql, max_rows, out, Some(e)),
+            Err(e) => return Err(e),
+        };
+        if cursor.columns().iter().any(|m| is_object_type(m.db_type())) {
+            drop(cursor);
+            return run_converted(c, sql, max_rows, out, None);
         }
-        return Ok(());
+        return fetch(c, sql, cursor, max_rows, out);
     }
     let (dml, plsql) = (stmt.is_dml(), stmt.is_plsql());
     let res = stmt.execute(&[])?;
@@ -1685,6 +1708,113 @@ fn run_statement_with(
         c.commit()?;
     }
     Ok(())
+}
+
+/// A query's rows into `out`. Columns that are geometries converted to
+/// text (`spatial::converted`) are typed `SDO_GEOMETRY` and come whole.
+fn fetch(c: &Connection, sql: &str, cursor: Cursor, max_rows: usize, out: &mut QueryOutcome) -> std::result::Result<(), oracledb::Error> {
+    let types: Vec<&'static oracledb::DbType> = cursor.columns().iter().map(|m| m.db_type()).collect();
+    let names: Vec<&str> = cursor.columns().iter().map(|m| m.name()).collect();
+    let geo = spatial::converted(sql, &names);
+    // WITH LOCAL TIME ZONE values come in the database's time zone.
+    let dbtz = if types.iter().any(|t| t.name() == "DB_TYPE_TIMESTAMP_LTZ") { db_time_zone(c) } else { None };
+    out.begin_result(
+        cursor
+            .columns()
+            .iter()
+            .zip(&geo)
+            .map(|(m, g)| ResultColumn {
+                name: m.name().to_string(),
+                type_name: if *g { spatial::TYPE_NAME.into() } else { m.data_type() },
+            })
+            .collect(),
+    );
+    for row in cursor {
+        let row = row?;
+        out.push_row(
+            types
+                .iter()
+                .enumerate()
+                .map(|(i, t)| if geo[i] { geometry_text(&row, i) } else { cell_in(&row, i, t, dbtz) })
+                .collect(),
+            max_rows,
+        );
+    }
+    Ok(())
+}
+
+fn is_object_type(t: &oracledb::DbType) -> bool {
+    t.name() == "DB_TYPE_OBJECT"
+}
+
+/// The client's "unsupported database type DB_TYPE_OBJECT".
+fn is_object_error(e: &oracledb::Error) -> bool {
+    matches!(e.kind(), oracledb::ErrorKind::UnsupportedDbType(t) if is_object_type(t))
+}
+
+/// A query with object columns, again as `spatial::wrap`: its SDO_GEOMETRY
+/// columns as EWKT. Any other object type fails the conversion: the
+/// client's error, with a message on what to select instead.
+fn run_converted(
+    c: &Connection,
+    sql: &str,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+    original: Option<oracledb::Error>,
+) -> std::result::Result<(), oracledb::Error> {
+    let mut stmt = c.statement(sql).and_then(|b| b.exclude_from_cache().build())?;
+    stmt.ensure_fully_parsed()?;
+    let columns: Vec<(String, bool)> =
+        stmt.out_metadata().iter().map(|m| (m.name().to_string(), is_object_type(m.db_type()))).collect();
+    drop(stmt);
+    let objects: Vec<String> = columns.iter().filter(|(_, o)| *o).map(|(n, _)| n.clone()).collect();
+    if objects.is_empty() {
+        // Not described as objects after all: run it as it is.
+        return match original {
+            Some(e) => Err(e),
+            None => {
+                let cursor = c.statement(sql).and_then(|b| b.exclude_from_cache().build()).and_then(|s| s.query(&[]))?;
+                fetch(c, sql, cursor, max_rows, out)
+            }
+        };
+    }
+    let wrapped = spatial::wrap(sql, &columns);
+    let run = c.statement(&wrapped).and_then(|b| b.exclude_from_cache().build()).and_then(|s| s.query(&[]));
+    match run {
+        Ok(cursor) => {
+            fetch(c, &wrapped, cursor, max_rows, out)?;
+            out.info(format!(
+                "{}: SDO_GEOMETRY como texto (EWKT, con SDO_UTIL.TO_WKTGEOMETRY), porque el cliente de Oracle no lee tipos de objeto.",
+                objects.join(", ")
+            ));
+            Ok(())
+        }
+        Err(e) => {
+            tracing::debug!("oracle: converting object columns failed: {e}");
+            out.warning(spatial::hint(&objects));
+            Err(original.unwrap_or(e))
+        }
+    }
+}
+
+/// A geometry converted to EWKT / WKT text: whole, up to
+/// `spatial::TEXT_CAP`.
+fn geometry_text(row: &Row, i: usize) -> Value {
+    match row.get::<Option<String>>(i) {
+        Ok(Some(mut s)) => {
+            if s.len() > spatial::TEXT_CAP {
+                let mut end = spatial::TEXT_CAP;
+                while !s.is_char_boundary(end) {
+                    end -= 1;
+                }
+                s.truncate(end);
+                s.push('…');
+            }
+            s.into()
+        }
+        Ok(None) => Value::Null,
+        Err(e) => format!("<{e}>").into(),
+    }
 }
 
 // ------------------------------------------------------------------ plans

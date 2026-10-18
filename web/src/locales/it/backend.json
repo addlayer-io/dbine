@@ -10523,5 +10523,7 @@
   "{0} — identidad: {1}": "{0} — identità: {1}",
   "{0} (perfil {1})": "{0} (profilo {1})",
   "AWS IAM: clave {0}": "AWS IAM: chiave {0}",
-  "Microsoft Entra ID: identidad {0}": "Microsoft Entra ID: identità {0}"
+  "Microsoft Entra ID: identidad {0}": "Microsoft Entra ID: identità {0}",
+  "El cliente de Oracle que usa DBine no lee tipos de objeto ({0}). Las columnas SDO_GEOMETRY se convierten solas; para otros tipos, seleccioná sus atributos, o convertí las geometrías con SDO_UTIL.TO_WKTGEOMETRY(columna).": "Il client Oracle usato da DBine non legge i tipi oggetto ({0}). Le colonne SDO_GEOMETRY vengono convertite automaticamente; per gli altri tipi, seleziona i loro attributi oppure converti le geometrie con SDO_UTIL.TO_WKTGEOMETRY(colonna).",
+  "{0}: SDO_GEOMETRY como texto (EWKT, con SDO_UTIL.TO_WKTGEOMETRY), porque el cliente de Oracle no lee tipos de objeto.": "{0}: SDO_GEOMETRY come testo (EWKT, con SDO_UTIL.TO_WKTGEOMETRY), perché il client Oracle non legge i tipi oggetto."
 }

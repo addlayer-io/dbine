@@ -6912,6 +6912,9 @@
  "El cliente de Oracle no pudo leer la respuesta ({0}). Si el resultado tiene TIMESTAMP WITH TIME ZONE con región, convertilo con TO_CHAR(…, 'YYYY-MM-DD HH24:MI:SS.FF TZR').": [
   "crates/drivers/oracle/src/lib.rs"
  ],
+ "El cliente de Oracle que usa DBine no lee tipos de objeto ({0}). Las columnas SDO_GEOMETRY se convierten solas; para otros tipos, seleccioná sus atributos, o convertí las geometrías con SDO_UTIL.TO_WKTGEOMETRY(columna).": [
+  "crates/drivers/oracle/src/spatial.rs"
+ ],
  "El clon copia el índice «{0}»: según su tamaño tarda y ocupa espacio en disco (en el mismo nodo suele usar enlaces duros y es rápido). Mientras dura, «{1}» no acepta escrituras.": [
   "crates/drivers/elasticsearch/src/rename.rs"
  ],
@@ -33703,6 +33706,9 @@
  ],
  "{0}: REPLACE COLUMNS no funciona con columnas date en Athena; usá timestamp.": [
   "crates/drivers/athena/src/sync.rs"
+ ],
+ "{0}: SDO_GEOMETRY como texto (EWKT, con SDO_UTIL.TO_WKTGEOMETRY), porque el cliente de Oracle no lee tipos de objeto.": [
+  "crates/drivers/oracle/src/lib.rs"
  ],
  "{0}: SingleStore no cambia {1} con ALTER; hay que recrear la tabla.": [
   "crates/drivers/mysql/src/design.rs"
