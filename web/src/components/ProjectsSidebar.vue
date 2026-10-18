@@ -195,8 +195,10 @@ const empty = computed(() => projects.loaded && !projects.list.length);
       <div v-if="empty" class="ps-empty">
         <p>{{ $t('projects:empty.lead') }}</p>
         <p class="ps-muted">{{ $t('projects:empty.help') }}</p>
-        <el-button size="small" type="primary" @click="link">{{ $t('projects:link.action') }}</el-button>
-        <el-button size="small" @click="clone">{{ $t('projects:clone.action') }}</el-button>
+        <div class="ps-empty-actions">
+          <el-button size="small" type="primary" @click="link">{{ $t('projects:link.action') }}</el-button>
+          <el-button size="small" @click="clone">{{ $t('projects:clone.action') }}</el-button>
+        </div>
       </div>
 
       <section v-for="p in projects.list" :key="p.id" class="ps-proj" :class="{ flash: flash === p.id }" :data-project="p.id">
@@ -316,6 +318,9 @@ const empty = computed(() => projects.loaded && !projects.list.length);
 .ps-list { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
 .ps-empty { padding: 10px 16px; line-height: 1.5; color: var(--nm-text); }
 .ps-empty p { margin: 0 0 8px; }
+/* Wraps under each other on a narrow sidebar, aligned to the left. */
+.ps-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ps-empty-actions .el-button { margin: 0; }
 .ps-muted { color: var(--nm-text-dim); font-size: 12px; }
 .ps-proj { border-top: 1px solid var(--nm-border); }
 .ps-proj:first-of-type { border-top: 0; }
