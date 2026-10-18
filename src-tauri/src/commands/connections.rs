@@ -79,9 +79,22 @@ pub async fn list_drivers() -> CommandResult<Vec<DriverDescriptor>> {
         .collect())
 }
 
+/// A connection as the explorer lists it.
+#[derive(Serialize)]
+pub struct ListedConnection {
+    #[serde(flatten)]
+    pub connection: SavedConnection,
+    /// A file opened from the OS, not saved (src/open_files.rs).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub temporary: bool,
+}
+
+/// The saved connections, after the files opened in this run (temporary).
 #[tauri::command]
-pub async fn list_connections(state: State<'_, AppState>) -> CommandResult<Vec<SavedConnection>> {
-    Ok(state.store.list_connections()?)
+pub async fn list_connections(state: State<'_, AppState>) -> CommandResult<Vec<ListedConnection>> {
+    let temporary = state.store.list_temporary_connections()?.into_iter().map(|connection| ListedConnection { connection, temporary: true });
+    let saved = state.store.list_connections()?.into_iter().map(|connection| ListedConnection { connection, temporary: false });
+    Ok(temporary.chain(saved).collect())
 }
 
 #[derive(Deserialize)]
@@ -123,16 +136,22 @@ pub async fn save_connection(state: State<'_, AppState>, args: SaveConnectionArg
             secrets::set(&conn.id, &ssh)?;
         }
     }
+    // An opened file saved as it is ("Guardar conexión") keeps its sessions.
+    let mut keep_sessions = false;
     // Pointed at another server, database or login: its cached tree is
     // someone else's.
     if let Some(old) = state.store.get_connection(&conn.id)? {
+        keep_sessions = state.store.is_temporary_connection(&conn.id)?
+            && serde_json::to_value(&old.config).ok() == serde_json::to_value(&conn.config).ok();
         let (a, b) = (&old.config, &conn.config);
         if a.driver != b.driver || a.host != b.host || a.port != b.port || a.database != b.database || a.username != b.username || a.options != b.options {
             state.cache_forget(&conn.id);
         }
     }
     // Settings changed: open sessions would keep using the old ones.
-    state.close_connection_sessions(&conn.id);
+    if !keep_sessions {
+        state.close_connection_sessions(&conn.id);
+    }
     state.typed_secrets.remove(&conn.id);
     state.keychain_cache.remove(&conn.id);
     Ok(state.store.save_connection(&conn)?)

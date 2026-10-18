@@ -24,8 +24,10 @@ import LibraryDialogs from './components/LibraryDialogs.vue';
 import OutputPanel from './components/OutputPanel.vue';
 import StatusBar from './components/StatusBar.vue';
 import FeedbackDialog from './components/FeedbackDialog.vue';
+import FileDropOverlay from './components/FileDropOverlay.vue';
 import { errorMessage } from './api/client';
 import { newQuery } from './composables/actions';
+import { pickAndOpen } from './composables/openFiles';
 import { ownsShortcut, useAppMenu } from './composables/appMenu';
 import { useCrossWindow } from './composables/crossWindow';
 import { useProjectWatch } from './composables/projectWatch';
@@ -164,7 +166,7 @@ function newQueryHere() {
   newQuery(tab.connectionId, tab.database);
 }
 
-// ⌘B explorer, ⌘J panel, ⌘W close tab, ⌘N new query (as in VS Code).
+// ⌘B explorer, ⌘J panel, ⌘W close tab, ⌘N new query, ⌘O open a file (as in VS Code).
 function onKey(e: KeyboardEvent) {
   if (!(e.metaKey || e.ctrlKey) || ownsShortcut(e)) return;
   const k = e.key.toLowerCase();
@@ -172,6 +174,7 @@ function onKey(e: KeyboardEvent) {
   if (k === 'j') { e.preventDefault(); panelOpen.value = !panelOpen.value; }
   if (k === 'w' && tabs.activeId) { e.preventDefault(); tabs.close(tabs.activeId); }
   if (k === 'n') { e.preventDefault(); newQueryHere(); }
+  if (k === 'o' && !e.shiftKey) { e.preventDefault(); void pickAndOpen(); }
   if (k === ',') { e.preventDefault(); ui.openSettings(); }
   if (k === 'i' && !e.shiftKey) { e.preventDefault(); ui.aiOpen = !ui.aiOpen; }
 }
@@ -294,6 +297,7 @@ watch(
     <SettingsDialog />
     <McpApprovals />
     <FeedbackDialog v-model="feedbackOpen" />
+    <FileDropOverlay />
   </div>
   </el-config-provider>
 </template>

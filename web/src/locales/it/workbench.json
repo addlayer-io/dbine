@@ -38,7 +38,9 @@
       "time_series": "Serie temporali",
       "streaming": "Streaming",
       "graph": "A grafo"
-    }
+    },
+    "openFile": "Apri file…",
+    "openFileTitle": "SQLite, DuckDB, CSV, TSV, Parquet, JSON o Excel (⌘O)"
   },
   "output": {
     "title": "Output",

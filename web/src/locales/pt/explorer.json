@@ -4,7 +4,8 @@
     "newConnection": "Nova conexão",
     "newFolder": "Nova pasta",
     "importConnections": "Importar conexões do DBeaver ou DbGate",
-    "reload": "Recarregar conexões"
+    "reload": "Recarregar conexões",
+    "openFile": "Abrir um arquivo (SQLite, DuckDB, CSV, Parquet, JSON, Excel)"
   },
   "filter": {
     "placeholder": "Filtrar (ou tag:prod)",
@@ -14,7 +15,8 @@
     "tagTitle": "Mostrar só as conexões com a tag «{{tag}}»"
   },
   "empty": {
-    "noConnections": "Ainda não há conexões."
+    "noConnections": "Ainda não há conexões.",
+    "openFile": "Abrir um arquivo…"
   },
   "tree": {
     "queries": "Consultas",
@@ -48,7 +50,9 @@
     "noProjects": "Sem projetos: clique com o botão direito › Vincular projeto…",
     "projectChanges_one": "{{count}} alteração sem commit",
     "projectChanges_other": "{{count}} alterações sem commit",
-    "projectChanges_many": "{{count}} alterações sem commit"
+    "projectChanges_many": "{{count}} alterações sem commit",
+    "file": "Arquivo",
+    "fileTitle": "Aberto de {{path}}. Não fica salvo ao fechar o DBine: clique direito › Salvar conexão para mantê-lo."
   },
   "confirm": {
     "deleteConnection": "Excluir a conexão \"{{name}}\"?\n\nSuas consultas salvas e sua senha no chaveiro também são excluídas.",
@@ -101,7 +105,9 @@
     "linkProject": "Vincular projeto…",
     "cloneProject": "Clonar repositório…",
     "openInProjects": "Abrir em Projetos",
-    "useThisDatabase": "Usar este banco"
+    "useThisDatabase": "Usar este banco",
+    "saveConnection": "Salvar conexão",
+    "closeFile": "Fechar arquivo"
   },
   "keySearch": {
     "placeholderPrefix": "Prefixo, por exemplo /config/",

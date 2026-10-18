@@ -6,6 +6,7 @@ import i18next, { t } from '../i18n';
 import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { checkForUpdateNow } from './updates';
+import { pickAndOpen } from './openFiles';
 import { requestQuit } from './quitGuard';
 import { isMac } from './shortcuts';
 
@@ -57,6 +58,7 @@ function menus() {
     ] },
     { label: t('menu:file.title'), items: [
       item('file.newConnection'), item('file.newQuery', 'n'), item('file.newWindow', 'Shift+N'), sep,
+      item('file.open', 'o'), sep,
       item('file.closeTab', 'w'),
     ] },
     // Without these, ⌘C / ⌘V / ⌘Z don't reach the webview on macOS.
@@ -104,6 +106,7 @@ export function useAppMenu(actions: AppMenuActions) {
     'app.quit': () => { requestQuit(); },
     'file.newConnection': () => ui.newConnection(),
     'file.newQuery': actions.newQuery,
+    'file.open': () => { void pickAndOpen(); },
     'file.closeTab': () => { if (tabs.activeId) tabs.close(tabs.activeId); },
     'view.explorer': actions.toggleExplorer,
     'view.output': actions.toggleOutput,

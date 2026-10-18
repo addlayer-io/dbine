@@ -458,6 +458,15 @@ impl StateStore {
             )
             .map_err(db_err)?;
         }
+        // A file opened from the OS (Finder, a drop, File › Open…): a
+        // connection for this run only, until "Guardar conexión"
+        // (`add_temporary_connection`).
+        let has_temporary: bool = conn
+            .query_row("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'temporary'", [], |r| r.get(0))
+            .map_err(db_err)?;
+        if !has_temporary {
+            conn.execute_batch("ALTER TABLE connections ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0").map_err(db_err)?;
+        }
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS query_history_by_query ON query_history(query_id) WHERE query_id IS NOT NULL;
              CREATE INDEX IF NOT EXISTS query_history_by_file ON query_history(project_id, file_path) WHERE project_id IS NOT NULL;
@@ -554,14 +563,26 @@ impl StateStore {
 
     // -- connections --------------------------------------------------------
 
+    /// The saved connections (not the temporary ones: see
+    /// [`Self::list_temporary_connections`]).
     pub fn list_connections(&self) -> Result<Vec<SavedConnection>> {
+        self.query_connections("WHERE temporary = 0", [])
+    }
+
+    /// A connection by id, saved or temporary.
+    pub fn get_connection(&self, id: &str) -> Result<Option<SavedConnection>> {
+        Ok(self.query_connections("WHERE id = ?1", [id])?.into_iter().next())
+    }
+
+    fn query_connections<P: rusqlite::Params>(&self, filter: &str, params: P) -> Result<Vec<SavedConnection>> {
         let c = self.lock()?;
-        let mut stmt = c.prepare(
-            "SELECT id, name, color, config_json, save_password, updated_at, folder_id, tags_json, mcp_level
-               FROM connections ORDER BY sort_order, name COLLATE NOCASE",
-            )
+        let mut stmt = c
+            .prepare(&format!(
+                "SELECT id, name, color, config_json, save_password, updated_at, folder_id, tags_json, mcp_level
+                   FROM connections {filter} ORDER BY sort_order, name COLLATE NOCASE"
+            ))
             .map_err(db_err)?;
-        let rows = stmt.query_map([], |r| {
+        let rows = stmt.query_map(params, |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -583,8 +604,49 @@ impl StateStore {
         .collect()
     }
 
-    pub fn get_connection(&self, id: &str) -> Result<Option<SavedConnection>> {
-        Ok(self.list_connections()?.into_iter().find(|c| c.id == id))
+    // -- temporary connections ------------------------------------------------
+    // A file opened from the OS gets a connection for this run only. It is a
+    // row like any other (its queries need one), marked `temporary`: left out
+    // of `list_connections`, so backups, sync, MCP and the phone never see
+    // it, and not a change to sync (no `touch()`). Saving it
+    // (`save_connection`) makes it a regular one; the app drops the rest when
+    // it starts (`purge_temporary_connections`), their queries with them.
+
+    /// Add a temporary connection, at the top level.
+    pub fn add_temporary_connection(&self, conn: &SavedConnection) -> Result<SavedConnection> {
+        let mut config = conn.config.clone();
+        config.password = None;
+        let json = serde_json::to_string(&config)?;
+        let ts = now();
+        self.lock()?
+            .execute(
+                "INSERT INTO connections (id, name, color, config_json, save_password, created_at, updated_at, folder_id, tags_json, mcp_level, sort_order, temporary)
+                 VALUES (?1, ?2, NULL, ?3, 0, ?4, ?4, NULL, NULL, NULL, 0, 1)",
+                params![conn.id, conn.name, json, ts],
+            )
+            .map_err(db_err)?;
+        self.notify(StateChange::new("connection", Some(&conn.id)));
+        Ok(SavedConnection { config, updated_at: ts, color: None, save_password: false, folder_id: None, tags: Vec::new(), mcp_level: None, ..conn.clone() })
+    }
+
+    pub fn list_temporary_connections(&self) -> Result<Vec<SavedConnection>> {
+        self.query_connections("WHERE temporary = 1", [])
+    }
+
+    pub fn is_temporary_connection(&self, id: &str) -> Result<bool> {
+        let n: i64 = self
+            .lock()?
+            .query_row("SELECT COUNT(*) FROM connections WHERE id = ?1 AND temporary = 1", [id], |r| r.get(0))
+            .map_err(db_err)?;
+        Ok(n > 0)
+    }
+
+    /// Drop the temporary connections a previous run left (with their
+    /// queries and migrations). Only the app calls it, when it starts: a
+    /// scheduled task opening the store meanwhile must not.
+    pub fn purge_temporary_connections(&self) -> Result<usize> {
+        let n = self.lock()?.execute("DELETE FROM connections WHERE temporary = 1", []).map_err(db_err)?;
+        Ok(n)
     }
 
     /// Insert or update; the password in `config` is dropped (store it with
@@ -601,7 +663,8 @@ impl StateStore {
                      (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM connections WHERE folder_id IS ?7))
              ON CONFLICT(id) DO UPDATE SET name = ?2, color = ?3, config_json = ?4,
                  save_password = ?5, updated_at = ?6, folder_id = ?7, tags_json = ?8, mcp_level = ?9,
-                 sort_order = CASE WHEN folder_id IS ?7 THEN sort_order ELSE excluded.sort_order END",
+                 sort_order = CASE WHEN folder_id IS ?7 AND temporary = 0 THEN sort_order ELSE excluded.sort_order END,
+                 temporary = 0",
             params![conn.id, conn.name, conn.color, json, conn.save_password, ts, conn.folder_id, tags_json(&conn.tags)?, conn.mcp_level],
         )
         .map_err(db_err)?;
@@ -871,7 +934,10 @@ impl StateStore {
     fn all_migrations(&self) -> Result<Vec<SavedMigration>> {
         let c = self.lock()?;
         let mut stmt = c
-            .prepare("SELECT id, connection_id, database, name, config_json, run_ids_json, created_at, updated_at FROM migrations ORDER BY id")
+            .prepare(
+                "SELECT id, connection_id, database, name, config_json, run_ids_json, created_at, updated_at FROM migrations
+                  WHERE connection_id NOT IN (SELECT id FROM connections WHERE temporary = 1) ORDER BY id",
+            )
             .map_err(db_err)?;
         let rows = stmt.query_map([], row_to_migration).map_err(db_err)?;
         rows.collect::<rusqlite::Result<_>>().map_err(db_err)
@@ -1417,7 +1483,10 @@ impl StateStore {
         let queries = {
             let c = self.lock()?;
             let mut stmt = c
-                .prepare("SELECT id, connection_id, database, name, sql, updated_at, last_run_at FROM queries ORDER BY id")
+                .prepare(
+                    "SELECT id, connection_id, database, name, sql, updated_at, last_run_at FROM queries
+                      WHERE connection_id NOT IN (SELECT id FROM connections WHERE temporary = 1) ORDER BY id",
+                )
                 .map_err(db_err)?;
             let rows = stmt.query_map([], row_to_query).map_err(db_err)?;
             rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_err)?
@@ -1719,6 +1788,42 @@ mod tests {
 
     fn kinds(seen: &Arc<Mutex<Vec<StateChange>>>) -> Vec<String> {
         seen.lock().unwrap().drain(..).map(|c| c.kind).collect()
+    }
+
+    #[test]
+    fn temporary_connections_stay_out_of_the_saved_state() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("saved")).unwrap();
+        let rev = s.revision().unwrap();
+        let tmp = s.add_temporary_connection(&conn("tmp")).unwrap();
+        assert!(!tmp.save_password && tmp.config.password.is_none());
+        // Not a change to sync.
+        assert_eq!(s.revision().unwrap(), rev);
+        let q = |id: &str, conn: &str| SavedQuery {
+            id: id.into(), connection_id: conn.into(), database: String::new(), name: id.into(), sql: "SELECT 1".into(),
+            updated_at: String::new(), last_run_at: None,
+        };
+        s.save_query(&q("q-saved", "saved")).unwrap();
+        s.save_query(&q("q-tmp", "tmp")).unwrap();
+        let ids = |v: Vec<SavedConnection>| v.into_iter().map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids(s.list_connections().unwrap()), ["saved"]);
+        assert_eq!(ids(s.list_temporary_connections().unwrap()), ["tmp"]);
+        assert!(s.get_connection("tmp").unwrap().is_some());
+        assert!(s.is_temporary_connection("tmp").unwrap() && !s.is_temporary_connection("saved").unwrap());
+        // Backups never carry it nor its queries.
+        let snap = s.snapshot().unwrap();
+        assert_eq!(ids(snap.connections), ["saved"]);
+        assert_eq!(snap.queries.iter().map(|q| q.id.as_str()).collect::<Vec<_>>(), ["q-saved"]);
+        // The next start drops it, its queries with it.
+        assert_eq!(s.purge_temporary_connections().unwrap(), 1);
+        assert!(s.get_connection("tmp").unwrap().is_none());
+        assert!(s.list_queries("tmp", "").unwrap().is_empty());
+        // "Guardar conexión": a temporary one saved becomes a regular one, last.
+        s.add_temporary_connection(&conn("t2")).unwrap();
+        s.save_connection(&conn("t2")).unwrap();
+        assert!(!s.is_temporary_connection("t2").unwrap());
+        assert_eq!(ids(s.list_connections().unwrap()), ["saved", "t2"]);
+        assert_eq!(s.purge_temporary_connections().unwrap(), 0);
     }
 
     #[test]

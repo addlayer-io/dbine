@@ -13,7 +13,8 @@
     "newConnection": "Nuova connessione",
     "newQuery": "Nuova query",
     "newWindow": "Nuova finestra",
-    "closeTab": "Chiudi scheda"
+    "closeTab": "Chiudi scheda",
+    "open": "Apri file…"
   },
   "edit": {
     "title": "Modifica",

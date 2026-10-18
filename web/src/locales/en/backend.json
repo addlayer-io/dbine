@@ -10472,5 +10472,10 @@
   "usuarios activos": "active users",
   "valor": "value",
   "vgroups": "vgroups",
-  "vnodes": "vnodes"
+  "vnodes": "vnodes",
+  "Abre únicamente el archivo elegido (también un .xlsx), no toda la carpeta.": "Opens only the chosen file (an .xlsx too), not the whole folder.",
+  "DBine no abre este tipo de archivo: «{0}»": "DBine doesn't open this kind of file: “{0}”",
+  "Sólo este archivo": "Only this file",
+  "no es un archivo de datos: «{0}»": "not a data file: “{0}”",
+  "no existe el archivo «{0}»": "the file “{0}” doesn't exist"
 }

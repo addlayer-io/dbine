@@ -669,6 +669,9 @@
  "Abortos": [
   "crates/drivers/spanner/src/monitor.rs"
  ],
+ "Abre únicamente el archivo elegido (también un .xlsx), no toda la carpeta.": [
+  "crates/drivers/duckdb/src/files.rs"
+ ],
  "Abstracta": [
   "crates/drivers/orientdb/src/ddl.rs"
  ],
@@ -5243,6 +5246,9 @@
  ],
  "DATETIME guarda milisegundos: se pierden {0} decimales de segundo.": [
   "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "DBine no abre este tipo de archivo: «{0}»": [
+  "src-tauri/src/open_files.rs"
  ],
  "DBine no aceptó el código: puede haber vencido. Generá uno nuevo en la computadora.": [
   "mobile/src-tauri/src/lib.rs"
@@ -20213,6 +20219,9 @@
  "Sí: sus tablas están en otro servidor o catálogo": [
   "crates/drivers/clickhouse/src/properties.rs"
  ],
+ "Sólo este archivo": [
+  "crates/drivers/duckdb/src/files.rs"
+ ],
  "TABLE ACCESS FULL de tabla grande (~{0} filas)": [
   "crates/drivers/oracle/src/plan.rs"
  ],
@@ -28855,6 +28864,9 @@
  "no es true ni false": [
   "crates/drivers/athena/src/transfer.rs"
  ],
+ "no es un archivo de datos: «{0}»": [
+  "crates/drivers/duckdb/src/lib.rs"
+ ],
  "no es un archivo de texto UTF-8": [
   "src-tauri/src/commands/projects.rs"
  ],
@@ -28898,6 +28910,10 @@
  ],
  "no existe el archivo adjunto {0}": [
   "src-tauri/src/tasks/mail.rs"
+ ],
+ "no existe el archivo «{0}»": [
+  "crates/drivers/duckdb/src/lib.rs",
+  "src-tauri/src/open_files.rs"
  ],
  "no existe el esquema «{0}»": [
   "crates/drivers/hana/src/properties.rs"
