@@ -110,6 +110,17 @@ pub async fn notebook_write(args: WriteArgs) -> CommandResult<()> {
     tauri::async_runtime::spawn_blocking(move || write(&args)).await.map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
+/// A chart the UI rendered for the export: the cell it belongs to, its title
+/// and the PNG (base64).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportImage {
+    pub cell_id: String,
+    #[serde(default)]
+    pub title: String,
+    pub png: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportArgs {
@@ -121,16 +132,91 @@ pub struct ExportArgs {
     pub rows_per_cell: Option<u32>,
     #[serde(default)]
     pub bytes_per_cell: Option<u64>,
+    /// Each cell's charts as images (optional; older callers send none).
+    #[serde(default)]
+    pub images: Vec<ExportImage>,
+    /// Markdown with images: the .md file to write (absolute). The images go
+    /// in `<name>_files/` next to it, named by DBine. Without it, the text is
+    /// only returned (and images aren't accepted).
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+/// Images per export, at most (with MAX_IMAGES_PER_CELL per cell).
+const MAX_EXPORT_IMAGES: usize = 500;
+
+fn decode_images(list: &[ExportImage]) -> CommandResult<export::CellImages> {
+    if list.len() > MAX_EXPORT_IMAGES {
+        return Err(CommandError::BadRequest("demasiados gráficos para exportar".into()));
+    }
+    let mut out = export::CellImages::new();
+    for i in list {
+        let png = export::decode_png(&i.png).map_err(CommandError::BadRequest)?;
+        let title: String = i.title.chars().filter(|c| !c.is_control()).take(200).collect();
+        out.entry(i.cell_id.clone()).or_default().push(export::ChartImage { title, png });
+    }
+    Ok(out)
+}
+
+/// Only an absolute `.md` / `.markdown` path in an existing folder.
+fn markdown_path(path: &str) -> CommandResult<&Path> {
+    let p = Path::new(path);
+    let ext_ok = p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"));
+    if !(p.is_absolute() && ext_ok && p.parent().is_some_and(Path::is_dir)) {
+        return Err(CommandError::BadRequest(format!("«{path}» no es un archivo Markdown (.md) válido")));
+    }
+    Ok(p)
+}
+
+/// The Markdown and its images written: `<name>_files/` (created, never
+/// followed when it's a link or a file) gets each image, then the .md.
+fn write_markdown(path: &Path, text: &str, files: &export::ExportFiles) -> CommandResult<()> {
+    if !files.is_empty() {
+        let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| CommandError::BadRequest("la ruta no es válida".into()))?;
+        let dir = path.with_file_name(export::files_dir_name(name));
+        match std::fs::symlink_metadata(&dir) {
+            Ok(m) if m.is_dir() => {}
+            Ok(_) => return Err(CommandError::BadRequest(format!("«{}» existe y no es una carpeta", dir.display()))),
+            Err(_) => std::fs::create_dir(&dir).map_err(|e| CommandError::Internal(format!("no se pudo crear «{}»: {e}", dir.display())))?,
+        }
+        for (file, bytes) in files {
+            // Names come from export::markdown_with ("chart-<cell>-<n>.png"); checked anyway.
+            if file.contains(['/', '\\']) || file.contains("..") {
+                return Err(CommandError::Internal(format!("nombre de imagen inválido: {file}")));
+            }
+            let target = dir.join(file);
+            if std::fs::symlink_metadata(&target).is_ok_and(|m| m.file_type().is_symlink()) {
+                return Err(CommandError::BadRequest(format!("«{}» es un enlace: no se sobrescribe", target.display())));
+            }
+            atomic_write(&target, bytes)?;
+        }
+    }
+    atomic_write(path, text.as_bytes())
+}
+
+pub fn export_notebook(args: &ExportArgs) -> CommandResult<String> {
+    let limits = PreviewLimits::new(args.rows_per_cell, args.bytes_per_cell);
+    let images = decode_images(&args.images)?;
+    match args.format.as_str() {
+        "html" => Ok(export::html_with(&args.notebook, limits, &images)),
+        "markdown" | "md" => match args.path.as_deref() {
+            Some(path) => {
+                let p = markdown_path(path)?;
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("notebook.md");
+                let (text, files) = export::markdown_with(&args.notebook, limits, &images, &export::files_dir_name(name));
+                write_markdown(p, &text, &files)?;
+                Ok(text)
+            }
+            None if images.is_empty() => Ok(export::markdown(&args.notebook, limits)),
+            None => Err(CommandError::BadRequest("una exportación Markdown con gráficos necesita la ruta del archivo".into())),
+        },
+        f => Err(CommandError::BadRequest(format!("formato de exportación desconocido: «{f}»"))),
+    }
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notebook_export(args: ExportArgs) -> CommandResult<String> {
-    let limits = PreviewLimits::new(args.rows_per_cell, args.bytes_per_cell);
-    match args.format.as_str() {
-        "html" => Ok(export::html(&args.notebook, limits)),
-        "markdown" | "md" => Ok(export::markdown(&args.notebook, limits)),
-        f => Err(CommandError::BadRequest(format!("formato de exportación desconocido: «{f}»"))),
-    }
+    tauri::async_runtime::spawn_blocking(move || export_notebook(&args)).await.map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
 #[cfg(test)]
@@ -153,6 +239,48 @@ mod tests {
         // Too big: refused before reading it.
         assert!(matches!(read_capped(&path, 10), Err(CommandError::BadRequest(m)) if m.contains("64 MB")));
         assert!(read_capped(&path, 1 << 20).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    const PNG_1PX: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+    fn export_args(format: &str, path: Option<String>, images: Vec<ExportImage>) -> ExportArgs {
+        let nb = notebook::parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","id":"c1","metadata":{"dbine":{"keep_result":true}},"outputs":[],"source":"SELECT 1"}]}"#).unwrap();
+        ExportArgs { notebook: nb, format: format.into(), rows_per_cell: None, bytes_per_cell: None, images, path }
+    }
+
+    #[test]
+    fn markdown_with_charts_writes_the_images_next_to_it() {
+        let dir = std::env::temp_dir().join(format!("dbine-nb-export-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let md = dir.join("Mi informe.md");
+        let img = |title: &str| ExportImage { cell_id: "c1".into(), title: title.into(), png: PNG_1PX.into() };
+        let text = export_notebook(&export_args("markdown", Some(md.to_string_lossy().into_owned()), vec![img("Ventas"), img("Mapa\u{7}")])).unwrap();
+        assert!(text.contains("![Ventas](Mi%20informe_files/chart-1-1.png)"), "{text}");
+        assert!(text.contains("![Mapa](Mi%20informe_files/chart-1-2.png)"), "control characters dropped: {text}");
+        assert_eq!(std::fs::read_to_string(&md).unwrap(), text);
+        let png = std::fs::read(dir.join("Mi informe_files").join("chart-1-1.png")).unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+        // Again: the folder is reused, the files replaced.
+        export_notebook(&export_args("markdown", Some(md.to_string_lossy().into_owned()), vec![img("Ventas")])).unwrap();
+        // HTML embeds them and writes nothing.
+        let html = export_notebook(&export_args("html", None, vec![img("Ventas")])).unwrap();
+        assert!(html.contains("data:image/png;base64,"));
+        // Refused: not a PNG, a relative or non-.md path, images without a path,
+        // and a `_files` that's a file.
+        let bad = ExportImage { cell_id: "c1".into(), title: String::new(), png: "PHN2Zz4=".into() };
+        assert!(matches!(export_notebook(&export_args("html", None, vec![bad])), Err(CommandError::BadRequest(_))));
+        assert!(matches!(export_notebook(&export_args("markdown", Some("rel.md".into()), vec![img("x")])), Err(CommandError::BadRequest(_))));
+        let txt = dir.join("x.txt").to_string_lossy().into_owned();
+        assert!(matches!(export_notebook(&export_args("markdown", Some(txt), vec![img("x")])), Err(CommandError::BadRequest(_))));
+        let missing = dir.join("no-such-dir").join("a.md").to_string_lossy().into_owned();
+        assert!(matches!(export_notebook(&export_args("markdown", Some(missing), vec![img("x")])), Err(CommandError::BadRequest(_))));
+        assert!(matches!(export_notebook(&export_args("markdown", None, vec![img("x")])), Err(CommandError::BadRequest(_))));
+        std::fs::write(dir.join("b_files"), "x").unwrap();
+        let b = dir.join("b.md").to_string_lossy().into_owned();
+        assert!(matches!(export_notebook(&export_args("markdown", Some(b), vec![img("x")])), Err(CommandError::BadRequest(_))));
+        // Without images and path: the text only, as before.
+        assert!(export_notebook(&export_args("markdown", None, vec![])).unwrap().contains("```sql"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

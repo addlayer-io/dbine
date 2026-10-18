@@ -15,7 +15,7 @@ import AddDocumentDialog from './AddDocumentDialog.vue';
 import JsonTreeView from './JsonTreeView.vue';
 import PlanView from './PlanView.vue';
 import ChartView from './ChartView.vue';
-import type { ChartSettings, ChartState } from '../composables/chartSettings';
+import type { AggregateInfo, ChartPoints, ChartSettings, ChartState, MapSettings } from '../composables/chartSettings';
 import { detectSpatial } from '../composables/geo';
 // Leaflet and the base map load only when a map is shown.
 const MapView = defineAsyncComponent(() => import('./MapView.vue'));
@@ -70,10 +70,18 @@ const props = defineProps<{
   /** Chart settings to start from (by column name); `update:chartSettings`
    *  emits the user's changes with the plotted points. */
   chartSettings?: ChartSettings | null;
+  /** Points kept with those settings (a whole-result aggregate) and how they were computed. */
+  chartPoints?: ChartPoints | null;
+  chartAggregate?: AggregateInfo | null;
+  /** Changes when the chart shown is another one (a notebook cell's charts). */
+  chartKey?: string | number;
+  /** The map view's source to start from (by column name). */
+  mapSettings?: MapSettings | null;
 }>();
 const emit = defineEmits<{
   'update:view': [view: View];
   'update:chartSettings': [state: ChartState];
+  'update:mapSettings': [settings: MapSettings];
   /** "Agregar a la query": the generated DELETE / UPDATE code. */
   script: [code: string];
   filter: [column: string, state: FilterState | null];
@@ -879,6 +887,8 @@ const statusText = computed(() => {
         <button :class="{ on: view === 'chart' }" :title="$t('results:view.chart')" @click="setView('chart')"><el-icon><ei-histogram /></el-icon></button>
         <button v-if="spatial" :class="{ on: view === 'map' }" :title="$t('results:view.map')" @click="setView('map')"><el-icon><ei-map-location /></el-icon></button>
       </div>
+      <!-- A notebook cell's charts (add, rename, remove, switch). -->
+      <slot v-if="current && view === 'chart'" name="chartTabs" />
       <span v-if="stats" class="rp-status rp-stats" :title="statsTitle">{{ statsText }}</span>
       <template v-if="!hideStatus">
         <span v-if="running" class="rp-status"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('results:running') }}</span>
@@ -913,13 +923,24 @@ const statusText = computed(() => {
       </div>
       <ChartView
         v-if="view === 'chart'"
-        :key="active"
+        :key="`${active}:${chartKey ?? ''}`"
         :columns="current.columns"
         :rows="current.rows"
         :settings="chartSettings"
+        :stored-points="chartPoints"
+        :stored-aggregate="chartAggregate"
+        :source="source"
         @update:settings="(s: ChartState) => emit('update:chartSettings', s)"
       />
-      <MapView v-else-if="view === 'map'" :key="`map-${active}`" :columns="current.columns" :rows="current.rows" :detected="spatial" />
+      <MapView
+        v-else-if="view === 'map'"
+        :key="`map-${active}`"
+        :columns="current.columns"
+        :rows="current.rows"
+        :detected="spatial"
+        :settings="mapSettings"
+        @update:settings="(m: MapSettings) => emit('update:mapSettings', m)"
+      />
       <JsonTreeView
         v-else-if="view === 'tree'"
         :columns="current.columns"

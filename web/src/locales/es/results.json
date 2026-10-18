@@ -229,7 +229,12 @@
       "line": "Líneas",
       "area": "Área",
       "pie": "Torta",
-      "scatter": "Dispersión"
+      "scatter": "Dispersión",
+      "combo": "Barras + líneas",
+      "histogram": "Histograma",
+      "heatmap": "Mapa de calor",
+      "box": "Diagrama de caja",
+      "kpi": "Indicador (KPI)"
     },
     "agg": {
       "none": "Sin agrupar",
@@ -258,7 +263,36 @@
     },
     "noNumeric": "Este resultado no tiene columnas numéricas para graficar.",
     "pickValues": "Elegí al menos una columna en «Valores».",
-    "tooMany": "Demasiadas categorías ({{n}}): agrupá por otra columna o elegí una agregación."
+    "tooMany": "Demasiadas categorías ({{n}}): agrupá por otra columna o elegí una agregación.",
+    "yAxis": "Eje Y",
+    "value": "Valor",
+    "noCategory": "Sin categoría",
+    "bins": "Intervalos",
+    "binsTitle": "Cantidad de intervalos del histograma",
+    "binsAuto": "Automático",
+    "pickYAxis": "Elegí una columna para el «Eje Y».",
+    "kpiRows_one": "sobre {{rows}} fila",
+    "kpiRows_other": "sobre {{rows}} filas",
+    "kpiRows_many": "sobre {{rows}} filas",
+    "whole": {
+      "label": "Calcular sobre todo el resultado",
+      "title": "Vuelve a ejecutar la consulta agrupada (solo lectura) para graficar todas sus filas, no solo las cargadas",
+      "needsRun": "Ejecutá la consulta para calcular el gráfico sobre todo el resultado",
+      "unsupported": "Este gráfico no se puede calcular sobre todo el resultado (dispersión, sin agrupar, o suma y promedio en un indicador)",
+      "running": "Calculando sobre todo el resultado…",
+      "failed": "No se pudo calcular sobre todo el resultado: {{error}}. Se muestran las filas cargadas.",
+      "retry": "Reintentar",
+      "refresh": "Recalcular",
+      "server": "Agregado en el servidor",
+      "client_one": "Agregado en DBine sobre {{rows}} fila",
+      "client_other": "Agregado en DBine sobre {{rows}} filas",
+      "client_many": "Agregado en DBine sobre {{rows}} filas",
+      "clientNoCount": "Agregado en DBine",
+      "capped": "Agregado en DBine sobre las primeras {{rows}} filas (el máximo que lee)",
+      "truncated": "solo los primeros grupos",
+      "stored": "guardado con el notebook",
+      "cancelled": "Cálculo cancelado: se muestran las filas cargadas."
+    }
   },
   "insert": {
     "addRow": "Agregar fila",

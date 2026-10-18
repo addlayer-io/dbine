@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
-import * as echarts from 'echarts/core';
-import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
-import { DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
-import { CanvasRenderer } from 'echarts/renderers';
 import { useTranslation } from 'i18next-vue';
-import type { Cell, ResultColumn } from '../api/types';
+import type { Cell, ChartAggregate, ResultColumn } from '../api/types';
+import { chartApi } from '../api/chart';
+import { errorKind, errorMessage } from '../api/client';
 import { locale } from '../i18n';
 import { saveBinaryFile } from '../composables/files';
 import { resolvedTheme } from '../composables/appearance';
-import { chartPoints, resolveChartSettings, type ChartAgg, type ChartKind, type ChartSettings, type ChartSort, type ChartState } from '../composables/chartSettings';
+import {
+  CHART_KINDS, HISTOGRAM_BINS, NEEDS_X, ONE_VALUE, SPLITS, resolveChartSettings, sameJson,
+  type AggregateInfo, type ChartAgg, type ChartKind, type ChartPoints, type ChartSettings, type ChartSort, type ChartState,
+} from '../composables/chartSettings';
+import { dateColumns, num, numericColumns, shapeFromPoints, shapePoints, shapeRows, MAX_SERIES, type ResolvedChart } from '../composables/chartShape';
+import { chartOption, INKS } from '../composables/chartOption';
+import { chartLabels, echarts, fmtNumber, kpiCaption } from '../composables/chartRender';
+import { aggregateRequest, shapeFromAggregate } from '../composables/chartWhole';
 
 // A chart of a result set, for any engine (it works on the grid's rows).
 // The form comes from the data: a date column → lines, a text column →
-// bars, two numeric columns → dispersion; the user can change any choice.
-// Colors: the reference categorical palette, dark steps, validated against
-// the editor surface (#1e1e1e); assigned in fixed order, never cycled. The
-// ink (text, axes, tooltip) follows the theme.
-
-echarts.use([BarChart, LineChart, PieChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer]);
+// bars, two numeric columns → dispersion, one row → a KPI, one numeric
+// column alone → a histogram; the user can change any choice. The shapes
+// are in composables/chartShape.ts, the ECharts option in chartOption.ts.
 
 const props = defineProps<{
   columns: ResultColumn[];
@@ -26,44 +28,31 @@ const props = defineProps<{
   /** Settings to start from (by column name); defaults where they don't fit.
    *  Absent: changes are emitted only once the user makes one. */
   settings?: ChartSettings | null;
+  /** Points kept with the settings (a notebook's whole-result aggregate):
+   *  shown while "Calcular sobre todo el resultado" is on and not recomputed. */
+  storedPoints?: ChartPoints | null;
+  storedAggregate?: AggregateInfo | null;
+  /** What produced the rows (a run made here): "Calcular sobre todo el
+   *  resultado" runs that query again, aggregated. Absent: not offered
+   *  (stored whole-result points still show). */
+  source?: { connectionId: string; database: string; sql: string } | null;
 }>();
 /** The user changed the chart (or its data changed after they did). */
 const emit = defineEmits<{ 'update:settings': [state: ChartState] }>();
-
-const PALETTE = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
-const INKS = {
-  dark: { primary: '#e7e7e7', secondary: '#9d9d9d', muted: '#6f6f6f', grid: '#2b2b2b', axis: '#3c3c3c', surface: '#1e1e1e', tip: '#252526', tipBorder: '#454545', other: '#5a5a5a', otherLine: '#6f6f6f', shadow: 'rgba(255,255,255,0.04)' },
-  light: { primary: '#1f1f1f', secondary: '#646464', muted: '#8a8a8a', grid: '#e5e5e5', axis: '#d4d4d4', surface: '#ffffff', tip: '#f8f8f8', tipBorder: '#c8c8c8', other: '#b4b4b4', otherLine: '#8a8a8a', shadow: 'rgba(0,0,0,0.04)' },
-};
-/** Pie and scatter compare every pair of colors: past three, fold to "Otros". */
-const ALL_PAIRS_CAP = 3;
 
 type Kind = ChartKind;
 type Agg = ChartAgg;
 
 const { t } = useTranslation();
-const KINDS = computed<{ id: Kind; label: string }[]>(() =>
-  (['bar', 'hbar', 'stacked', 'line', 'area', 'pie', 'scatter'] as Kind[]).map((id) => ({ id, label: t(`results:chart.kind.${id}`) })));
+const KINDS = computed<{ id: Kind; label: string }[]>(() => CHART_KINDS.map((id) => ({ id, label: t(`results:chart.kind.${id}`) })));
 const AGGS = computed<{ id: Agg; label: string }[]>(() =>
-  (['none', 'sum', 'avg', 'count', 'min', 'max'] as Agg[]).map((id) => ({ id, label: t(`results:chart.agg.${id}`) })));
-/** The "Otros" slice / series (past the palette's cap). */
-const others = () => t('results:chart.others');
+  (['none', 'sum', 'avg', 'count', 'min', 'max'] as Agg[]).filter((id) => id !== 'none' || !['heatmap', 'kpi'].includes(kind.value))
+    .map((id) => ({ id, label: t(`results:chart.agg.${id}`) })));
 
 // -- column typing -------------------------------------------------------------------
-function num(v: Cell): number | null {
-  if (typeof v === 'number') return v;
-  if (typeof v === 'boolean') return v ? 1 : 0;
-  if (typeof v === 'string' && v.trim() !== '' && /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i.test(v.trim())) return Number(v);
-  return null;
-}
-const sample = computed(() => props.rows.slice(0, 200));
-function share(i: number, test: (v: Cell) => boolean) {
-  const vals = sample.value.map((r) => r[i]).filter((v) => v !== null);
-  return vals.length ? vals.filter(test).length / vals.length : 0;
-}
-const numericCols = computed(() => props.columns.map((_, i) => i).filter((i) => share(i, (v) => num(v) !== null) >= 0.8));
-const dateCols = computed(() =>
-  props.columns.map((_, i) => i).filter((i) => share(i, (v) => typeof v === 'string' && /^\d{4}-\d{2}(-\d{2})?([ T]|$)/.test(v)) >= 0.8));
+const numericCols = computed(() => numericColumns(props.rows, props.columns.length));
+const dateCols = computed(() => dateColumns(props.rows, props.columns.length));
+const textCols = computed(() => props.columns.map((_, i) => i).filter((i) => !numericCols.value.includes(i)));
 
 // -- settings (defaults picked from the data) -------------------------------------------
 const kind = ref<Kind>('bar');
@@ -71,15 +60,38 @@ const xCol = ref<number>(0);
 const yCols = ref<number[]>([]);
 const agg = ref<Agg>('none');
 const sortBy = ref<ChartSort>('none');
-/** One series per distinct value of this column (a pivot), or none. */
+/** One series per distinct value of this column (a pivot); a heatmap's Y. */
 const splitCol = ref<number | null>(null);
-/** Series past this fold into "Otros" (fixed palette order, never cycled). */
-const MAX_SERIES = 7;
+const bins = ref<number>(0);
+/** "Calcular sobre todo el resultado". */
+const whole = ref(false);
 
 function pickDefaults() {
   const nums = numericCols.value;
   const dates = dateCols.value;
-  const text = props.columns.map((_, i) => i).find((i) => !nums.includes(i));
+  const text = textCols.value[0];
+  bins.value = 0;
+  whole.value = false;
+  if (props.rows.length === 1 && nums.length && !dates.length) {
+    // One row: its first number, big.
+    kind.value = 'kpi';
+    xCol.value = text ?? 0;
+    yCols.value = [nums[0]];
+    agg.value = 'sum';
+    sortBy.value = 'none';
+    splitCol.value = null;
+    return;
+  }
+  if (nums.length === 1 && text === undefined) {
+    // One numeric column alone: how its values spread.
+    kind.value = 'histogram';
+    xCol.value = nums[0];
+    yCols.value = [nums[0]];
+    agg.value = 'none';
+    sortBy.value = 'none';
+    splitCol.value = null;
+    return;
+  }
   if (dates.length) {
     xCol.value = dates[0];
     kind.value = 'line';
@@ -91,6 +103,7 @@ function pickDefaults() {
     kind.value = 'scatter';
   } else {
     xCol.value = 0;
+    kind.value = 'bar';
   }
   // Only measures of comparable size share the axis (never a second axis):
   // the first numeric column, plus others within 10× of it.
@@ -102,7 +115,7 @@ function pickDefaults() {
     return ratio <= 10 && ratio >= 0.1;
   }).slice(0, 3);
   // A second text column with a few values: one series per value.
-  const splitCandidate = props.columns.map((_, i) => i).find((i) => i !== xCol.value && !nums.includes(i) &&
+  const splitCandidate = textCols.value.find((i) => i !== xCol.value &&
     new Set(props.rows.slice(0, 1000).map((r) => r[i])).size <= MAX_SERIES + 1);
   splitCol.value = kind.value !== 'scatter' && splitCandidate !== undefined && yCols.value.length ? splitCandidate : null;
   if (splitCol.value !== null) yCols.value = yCols.value.slice(0, 1);
@@ -111,227 +124,194 @@ function pickDefaults() {
   agg.value = kind.value !== 'scatter' && distinct < props.rows.length * 0.8 ? 'sum' : 'none';
   sortBy.value = 'none';
 }
-const settingsNow = computed<ChartSettings>(() => ({
-  kind: kind.value,
-  x: props.columns[xCol.value]?.name ?? null,
-  y: yCols.value.map((i) => props.columns[i]?.name).filter((n): n is string => n !== undefined),
-  agg: agg.value,
-  sort: sortBy.value,
-  split: splitCol.value === null ? null : props.columns[splitCol.value]?.name ?? null,
-}));
+/** Group charts, histograms, box plots and KPIs can be computed over the
+ *  whole result (not scatters, nor a value per row). */
+const wholeApplies = computed(() => ['histogram', 'box', 'kpi'].includes(kind.value) || (kind.value !== 'scatter' && agg.value !== 'none'));
+const name = (i: number | null) => (i === null || i < 0 ? null : props.columns[i]?.name ?? null);
+const settingsNow = computed<ChartSettings>(() => {
+  const s: ChartSettings = {
+    kind: kind.value,
+    x: kind.value === 'histogram' || kind.value === 'kpi' ? null : name(xCol.value),
+    y: yCols.value.map((i) => props.columns[i]?.name).filter((n): n is string => n !== undefined),
+    agg: agg.value,
+    sort: sortBy.value,
+    split: SPLITS.includes(kind.value) || kind.value === 'heatmap' ? name(splitCol.value) : null,
+  };
+  if (kind.value === 'histogram' && bins.value > 0) s.bins = bins.value;
+  if (whole.value && wholeApplies.value) s.whole = true;
+  return s;
+});
 /** The defaults' settings, and whether the chart is emitted: once the user
  *  changes it, or always when the parent keeps settings (passes the prop,
  *  even null: it then gets the defaults and their points on mount). */
 let defaultsKey = '';
 let chosen = props.settings !== undefined;
+let applying = false;
 function applyColumns() {
+  applying = true;
   pickDefaults();
   defaultsKey = JSON.stringify(settingsNow.value);
   const r = props.settings ? resolveChartSettings(props.settings, props.columns.map((c) => c.name), numericCols.value) : null;
-  if (!r) return;
-  kind.value = r.kind;
-  xCol.value = r.x;
-  yCols.value = r.y;
-  agg.value = r.agg;
-  sortBy.value = r.sort;
-  splitCol.value = r.split;
-  chosen = true;
+  if (r) {
+    kind.value = r.kind;
+    if (r.x >= 0) xCol.value = r.x;
+    else if (r.kind === 'box') xCol.value = -1;
+    yCols.value = r.y;
+    agg.value = r.agg;
+    sortBy.value = r.sort;
+    splitCol.value = r.split;
+    bins.value = r.bins;
+    whole.value = !!props.settings?.whole;
+    chosen = true;
+  }
+  queueMicrotask(() => { applying = false; });
 }
 watch(() => props.columns, applyColumns, { immediate: true });
 // Splitting shows one measure (one series per value).
-watch(splitCol, (v) => { if (v !== null && yCols.value.length > 1) yCols.value = yCols.value.slice(0, 1); });
+watch(splitCol, (v) => { if (v !== null && SPLITS.includes(kind.value) && yCols.value.length > 1) yCols.value = yCols.value.slice(0, 1); });
+// A new kind: what it needs from the current choices.
+watch(kind, (k) => {
+  if (applying) return;
+  if (ONE_VALUE.includes(k) && yCols.value.length > 1) yCols.value = yCols.value.slice(0, 1);
+  if (!yCols.value.length && numericCols.value.length) yCols.value = [numericCols.value.find((i) => i !== xCol.value) ?? numericCols.value[0]];
+  if ((k === 'heatmap' || k === 'kpi') && agg.value === 'none') agg.value = k === 'kpi' ? 'sum' : 'count';
+  if (NEEDS_X.includes(k) && (xCol.value < 0 || xCol.value >= props.columns.length)) xCol.value = textCols.value[0] ?? 0;
+  if (k === 'box' && xCol.value >= 0 && numericCols.value.includes(xCol.value)) xCol.value = textCols.value[0] ?? -1;
+  if (k === 'heatmap' && (splitCol.value === null || splitCol.value === xCol.value)) {
+    splitCol.value = textCols.value.find((i) => i !== xCol.value) ?? null;
+  }
+  if (!SPLITS.includes(k) && k !== 'heatmap') splitCol.value = null;
+});
 
 // -- data shaping ------------------------------------------------------------------------
-const label = (v: Cell) => (v === null ? t('results:chart.null') : String(v));
+const resolved = computed<ResolvedChart>(() => ({
+  kind: kind.value,
+  x: kind.value === 'histogram' || kind.value === 'kpi' ? -1 : xCol.value,
+  y: yCols.value,
+  agg: agg.value,
+  sort: sortBy.value,
+  split: SPLITS.includes(kind.value) || kind.value === 'heatmap' ? splitCol.value : null,
+  bins: bins.value,
+}));
+const labels = computed(() => { void locale(); return chartLabels(); });
+const fromRows = computed(() => shapeRows(props.rows, resolved.value, props.columns.map((c) => c.name), labels.value));
 
-const shaped = computed((): { cats: string[]; series: number[][]; names: string[] } => {
-  if (splitCol.value !== null && yCols.value.length) return pivot(splitCol.value, yCols.value[0]);
-  const x = xCol.value;
-  const ys = yCols.value;
-  let cats: string[] = [];
-  let series: number[][] = ys.map(() => []);
-  if (agg.value === 'none') {
-    cats = props.rows.map((r) => label(r[x]));
-    series = ys.map((y) => props.rows.map((r) => num(r[y]) ?? NaN));
-  } else {
-    const groups = new Map<string, number[][]>();
-    for (const r of props.rows) {
-      const k = label(r[x]);
-      const g = groups.get(k) ?? ys.map(() => []);
-      // "Cantidad" counts rows per category; the others reduce the values.
-      ys.forEach((y, j) => { const v = agg.value === 'count' ? 1 : num(r[y]); if (v !== null) g[j].push(v); });
-      groups.set(k, g);
-    }
-    cats = [...groups.keys()];
-    const reduce = (a: number[]): number => {
-      const v = a.filter((n) => !Number.isNaN(n));
-      switch (agg.value) {
-        case 'sum': return v.reduce((s, n) => s + n, 0);
-        case 'avg': return v.length ? v.reduce((s, n) => s + n, 0) / v.length : NaN;
-        case 'min': return v.length ? Math.min(...v) : NaN;
-        case 'max': return v.length ? Math.max(...v) : NaN;
-        default: return a.length;
-      }
-    };
-    series = ys.map((_, j) => cats.map((c) => reduce(groups.get(c)![j])));
-  }
-  if (sortBy.value !== 'none' && series.length) {
-    const idx = cats.map((_, i) => i);
-    if (sortBy.value === 'value') idx.sort((a, b) => (series[0][b] || 0) - (series[0][a] || 0));
-    else idx.sort((a, b) => cats[a].localeCompare(cats[b], undefined, { numeric: true }));
-    cats = idx.map((i) => cats[i]);
-    series = series.map((s) => idx.map((i) => s[i]));
-  }
-  return { cats, series, names: ys.map((_, j) => seriesName(j)) };
+/** The whole-result points in use (stored, for these exact settings). */
+const wholePoints = computed(() => {
+  if (!whole.value || !wholeApplies.value || !props.storedPoints || !props.storedAggregate || !props.settings) return null;
+  return sameJson(settingsNow.value, { ...props.settings, whole: true }) ? props.storedPoints : null;
 });
 
-/** Rows → one series per value of `split` (top values; the rest "Otros"). */
-function pivot(split: number, y: number) {
-  const x = xCol.value;
-  const reduceAgg: Agg = agg.value === 'none' ? 'sum' : agg.value;
-  const totals = new Map<string, number>();
-  for (const r of props.rows) totals.set(label(r[split]), (totals.get(label(r[split])) ?? 0) + Math.abs(num(r[y]) ?? 0));
-  const keep = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_SERIES).map(([k]) => k);
-  const names = totals.size > keep.length ? [...keep, others()] : keep;
-  const cells = new Map<string, Map<string, number[]>>();
-  const cats: string[] = [];
-  for (const r of props.rows) {
-    const c = label(r[x]);
-    if (!cells.has(c)) { cells.set(c, new Map()); cats.push(c); }
-    const sKey = keep.includes(label(r[split])) ? label(r[split]) : others();
-    const v = reduceAgg === 'count' ? 1 : num(r[y]);
-    if (v === null) continue;
-    const m = cells.get(c)!;
-    (m.get(sKey) ?? m.set(sKey, []).get(sKey)!).push(v);
-  }
-  const reduce = (a: number[] | undefined) => {
-    if (!a?.length) return NaN;
-    switch (reduceAgg) {
-      case 'avg': return a.reduce((s, n) => s + n, 0) / a.length;
-      case 'min': return Math.min(...a);
-      case 'max': return Math.max(...a);
-      case 'count': return a.length;
-      default: return a.reduce((s, n) => s + n, 0);
-    }
-  };
-  let order = cats.map((_, i) => i);
-  if (sortBy.value === 'label') order.sort((a, b) => cats[a].localeCompare(cats[b], undefined, { numeric: true }));
-  const series = names.map((nm) => order.map((i) => reduce(cells.get(cats[i])!.get(nm))));
-  if (sortBy.value === 'value') {
-    const tot = order.map((_, k) => series.reduce((s, ser) => s + (Number.isFinite(ser[k]) ? ser[k] : 0), 0));
-    const idx = order.map((_, k) => k).sort((a, b) => tot[b] - tot[a]);
-    order = idx.map((k) => order[k]);
-    return { cats: order.map((i) => cats[i]), series: series.map((ser) => idx.map((k) => ser[k])), names };
-  }
-  return { cats: order.map((i) => cats[i]), series, names };
+// -- the whole result (chart_aggregate) ------------------------------------------------------
+/** The request for the current settings (null: not computable). */
+const request = computed(() => (wholeApplies.value ? aggregateRequest({ ...settingsNow.value, whole: undefined }) : null));
+const canWhole = computed(() => request.value !== null && !!props.source);
+const wholeKey = computed(() => (whole.value && request.value && props.source ? JSON.stringify([request.value, props.source]) : ''));
+const fetched = shallowRef<{ key: string; settings: ChartSettings; data: ChartAggregate } | null>(null);
+const wholeLoading = ref(false);
+const wholeError = ref<string | null>(null);
+const wholeCancelled = ref(false);
+const baseId = `chart-${Math.random().toString(36).slice(2, 10)}`;
+let runId: string | null = null;
+let seq = 0;
+let timer: ReturnType<typeof setTimeout> | null = null;
+function stopRun() {
+  if (timer) { clearTimeout(timer); timer = null; }
+  if (runId) { const id = runId; runId = null; chartApi.cancel(id).catch(() => {}); }
 }
+async function runWhole() {
+  const key = wholeKey.value;
+  const src = props.source;
+  const req = request.value;
+  if (!key || !src || !req) return;
+  stopRun();
+  const n = ++seq;
+  const id = `${baseId}-${n}`;
+  runId = id;
+  const settings = { ...settingsNow.value };
+  wholeLoading.value = true;
+  wholeError.value = null;
+  wholeCancelled.value = false;
+  try {
+    const data = await chartApi.aggregate({ chartId: id, connectionId: src.connectionId, database: src.database, query: src.sql, chart: req });
+    if (n === seq) fetched.value = { key, settings, data };
+  } catch (e) {
+    if (n !== seq) return;
+    if (errorKind(e) === 'cancelled') { wholeCancelled.value = true; whole.value = false; } else wholeError.value = errorMessage(e);
+  } finally {
+    if (n === seq) { wholeLoading.value = false; if (runId === id) runId = null; }
+  }
+}
+function cancelWhole() {
+  seq++;
+  stopRun();
+  wholeLoading.value = false;
+  wholeCancelled.value = true;
+  whole.value = false;
+}
+// A change of settings or of the query: computed again (shortly after the
+// last change). On mount, points kept for these settings are shown as they are.
+let mountedKey = true;
+watch(wholeKey, (k) => {
+  const first = mountedKey;
+  mountedKey = false;
+  wholeError.value = null;
+  if (!k) { seq++; stopRun(); wholeLoading.value = false; return; }
+  if (first && wholePoints.value) return;
+  if (fetched.value?.key === k) return;
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => { timer = null; void runWhole(); }, 250);
+}, { immediate: true });
+watch(whole, (on) => { if (on) wholeCancelled.value = false; });
+onBeforeUnmount(() => { seq++; stopRun(); });
+
+const fresh = computed(() => (fetched.value && fetched.value.key === wholeKey.value ? fetched.value : null));
+/** How the shown whole-result points were computed. */
+const aggregateInfo = computed<AggregateInfo | null>(() => {
+  const f = fresh.value;
+  if (f) return { method: f.data.method, rows_scanned: f.data.rows_scanned, rows_capped: f.data.rows_capped, groups_truncated: f.data.groups_truncated };
+  return wholePoints.value ? props.storedAggregate ?? null : null;
+});
+const shaped = computed(() => {
+  const f = fresh.value;
+  if (f) return shapeFromAggregate(f.settings, f.data, labels.value);
+  return wholePoints.value ? shapeFromPoints(kind.value, wholePoints.value) : fromRows.value;
+});
+const usingWhole = computed(() => !!fresh.value || !!wholePoints.value);
+const n = (v: number) => v.toLocaleString(locale());
+const wholeNote = computed(() => {
+  const a = aggregateInfo.value;
+  if (!a) return '';
+  const parts = [a.method === 'server' ? t('results:chart.whole.server')
+    : a.rows_scanned === null ? t('results:chart.whole.clientNoCount')
+    : a.rows_capped ? t('results:chart.whole.capped', { rows: n(a.rows_scanned) })
+    : t('results:chart.whole.client', { count: a.rows_scanned, rows: n(a.rows_scanned) })];
+  if (a.groups_truncated) parts.push(t('results:chart.whole.truncated'));
+  if (!fresh.value) parts.push(t('results:chart.whole.stored'));
+  return parts.join(' · ');
+});
+const wholeTitle = computed(() => (!request.value ? t('results:chart.whole.unsupported')
+  : !props.source ? t('results:chart.whole.needsRun') : t('results:chart.whole.title')));
 
 // -- ECharts option -------------------------------------------------------------------------
-const fmt = (v: number) => (Number.isFinite(v) ? v.toLocaleString(locale(), { maximumFractionDigits: 2 }) : '—');
-const seriesName = (j: number) => {
-  const c = props.columns[yCols.value[j]]?.name ?? '';
-  return agg.value === 'none' ? c : t('results:chart.seriesName', { agg: AGGS.value.find((a) => a.id === agg.value)!.label, column: c });
-};
-
-const option = computed(() => {
-  const INK = INKS[resolvedTheme.value];
-  const { cats, series, names } = shaped.value;
-  const many = cats.length > 40;
-  const axisLabel = { color: INK.secondary, fontSize: 11, hideOverlap: true };
-  const axisLine = { lineStyle: { color: INK.axis } };
-  const splitLine = { lineStyle: { color: INK.grid } };
-  const base = {
-    backgroundColor: 'transparent',
-    color: PALETTE,
-    animationDuration: 250,
-    textStyle: { fontFamily: getComputedStyle(document.body).fontFamily, color: INK.primary },
-    tooltip: {
-      backgroundColor: INK.tip, borderColor: INK.tipBorder, textStyle: { color: INK.primary, fontSize: 12 },
-      valueFormatter: (v: unknown) => (typeof v === 'number' ? fmt(v) : String(v)),
-    },
-    legend: series.length >= 2 || kind.value === 'pie'
-      ? { top: 0, textStyle: { color: INK.secondary }, icon: 'roundRect', itemWidth: 12, itemHeight: 8 }
-      : undefined,
-  };
-
-  if (kind.value === 'pie') {
-    // One measure; slices past the cap fold into "Otros" (all-pairs palette limit).
-    const pairs = cats.map((c, i) => ({ name: c, value: series[0]?.[i] ?? 0 }))
-      .filter((p) => Number.isFinite(p.value) && p.value > 0)
-      .sort((a, b) => b.value - a.value);
-    const cap = Math.max(ALL_PAIRS_CAP, 7);
-    const top = pairs.slice(0, cap);
-    const rest = pairs.slice(cap).reduce((s, p) => s + p.value, 0);
-    if (rest > 0) top.push({ name: others(), value: rest });
-    return {
-      ...base,
-      tooltip: { ...base.tooltip, trigger: 'item', formatter: (p: { name: string; value: number; percent: number }) => `${p.name}<br/><b>${fmt(p.value)}</b> (${p.percent}%)` },
-      series: [{
-        type: 'pie', radius: ['45%', '72%'], center: ['50%', '55%'],
-        itemStyle: { borderColor: INK.surface, borderWidth: 2, borderRadius: 4 },
-        label: { color: INK.secondary, formatter: '{b}: {d}%' },
-        labelLine: { lineStyle: { color: INK.axis } },
-        data: top.map((d, i) => (d.name === others() ? { ...d, itemStyle: { color: INK.other } } : { ...d, itemStyle: { color: PALETTE[i % PALETTE.length] } })),
-      }],
-    };
-  }
-
-  if (kind.value === 'scatter') {
-    const xs = props.rows.map((r) => num(r[xCol.value]));
-    return {
-      ...base,
-      tooltip: { ...base.tooltip, trigger: 'item' },
-      grid: { left: 56, right: 24, top: series.length >= 2 ? 36 : 16, bottom: 40 },
-      xAxis: { type: 'value', name: props.columns[xCol.value]?.name, nameLocation: 'middle', nameGap: 28, nameTextStyle: { color: INK.secondary }, axisLabel, axisLine, splitLine },
-      yAxis: { type: 'value', axisLabel, axisLine, splitLine },
-      series: series.slice(0, ALL_PAIRS_CAP).map((s, j) => ({
-        type: 'scatter', name: names[j], symbolSize: 8,
-        itemStyle: { borderColor: INK.surface, borderWidth: 1, opacity: 0.9 },
-        data: s.map((v, i) => [xs[i], v]).filter(([a, b]) => a !== null && Number.isFinite(b as number)),
-      })),
-    };
-  }
-
-  const horizontal = kind.value === 'hbar';
-  const catAxis = { type: 'category', data: cats, axisLabel: { ...axisLabel, rotate: !horizontal && cats.length > 12 ? 35 : 0 }, axisLine, axisTick: { show: false } };
-  const valAxis = { type: 'value', axisLabel: { ...axisLabel, formatter: (v: number) => fmt(v) }, axisLine: { show: false }, splitLine };
-  const isBar = ['bar', 'hbar', 'stacked'].includes(kind.value);
-  return {
-    ...base,
-    tooltip: { ...base.tooltip, trigger: 'axis', axisPointer: { type: isBar ? 'shadow' : 'line', lineStyle: { color: INK.muted }, shadowStyle: { color: INK.shadow } } },
-    grid: { left: horizontal ? 120 : 56, right: 24, top: series.length >= 2 ? 36 : 16, bottom: many ? 64 : 40, containLabel: horizontal },
-    xAxis: horizontal ? valAxis : catAxis,
-    yAxis: horizontal ? { ...catAxis, inverse: true } : valAxis,
-    dataZoom: many ? [{ type: 'inside', [horizontal ? 'yAxisIndex' : 'xAxisIndex']: 0 }, { type: 'slider', height: 18, bottom: 8, borderColor: INK.axis, textStyle: { color: INK.muted }, [horizontal ? 'yAxisIndex' : 'xAxisIndex']: 0 }] : undefined,
-    series: series.map((s, j) => ({
-      color: names[j] === others() ? INK.otherLine : PALETTE[j % PALETTE.length],
-      type: isBar ? 'bar' : 'line',
-      name: names[j],
-      data: s.map((v) => (Number.isFinite(v) ? v : null)),
-      stack: kind.value === 'stacked' ? 'total' : undefined,
-      barMaxWidth: 36,
-      barGap: '8%',
-      itemStyle: isBar
-        ? { borderRadius: kind.value === 'stacked' ? 0 : horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0], borderColor: kind.value === 'stacked' ? INK.surface : undefined, borderWidth: kind.value === 'stacked' ? 1 : 0 }
-        : undefined,
-      lineStyle: isBar ? undefined : { width: 2 },
-      symbol: 'circle',
-      symbolSize: 8,
-      showSymbol: !isBar && cats.length <= 30,
-      smooth: false,
-      areaStyle: kind.value === 'area' ? { opacity: 0.18 } : undefined,
-      emphasis: { focus: 'series' },
-    })),
-  };
-});
+const option = computed(() => chartOption({
+  kind: kind.value,
+  shaped: shaped.value,
+  theme: resolvedTheme.value,
+  fontFamily: getComputedStyle(document.body).fontFamily,
+  fmt: fmtNumber,
+  others: labels.value.others,
+  xName: props.columns[xCol.value]?.name ?? '',
+  kpiCaption: kpiCaption(shaped.value),
+}));
 
 /** What the chart plots (aggregated, capped): a notebook keeps it. */
-const points = computed(() => chartPoints(shaped.value.cats, shaped.value.series, shaped.value.names));
-defineExpose({ points, settings: settingsNow });
-watch([settingsNow, points], ([s, p]) => {
+const points = computed(() => shapePoints(shaped.value));
+defineExpose({ points, settings: settingsNow, option });
+watch([settingsNow, points, aggregateInfo], ([s, p]) => {
   if (!chosen && JSON.stringify(s) === defaultsKey) return;
   chosen = true;
-  emit('update:settings', { ...s, points: p });
+  emit('update:settings', { ...s, points: p, aggregate: usingWhole.value ? aggregateInfo.value : null });
 }, { immediate: true });
 
 // -- rendering ----------------------------------------------------------------------------
@@ -349,60 +329,111 @@ onBeforeUnmount(() => { ro?.disconnect(); chart.value?.dispose(); });
 watch(option, (o) => chart.value?.setOption(o, true));
 
 const canChart = computed(() => yCols.value.length > 0 && shaped.value.cats.length > 0);
-const tooMany = computed(() => ['pie', 'scatter'].includes(kind.value) ? false : shaped.value.cats.length > 5000);
+const tooMany = computed(() => ['pie', 'scatter', 'kpi', 'heatmap', 'box', 'histogram'].includes(kind.value) ? false : shaped.value.cats.length > 5000);
+const needsYCat = computed(() => kind.value === 'heatmap' && splitCol.value === null);
 
 async function exportPng() {
   const url = chart.value?.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: INKS[resolvedTheme.value].surface });
   if (url) await saveBinaryFile(url.split(',', 2)[1], `${t('results:chart.fileName')}.png`, [{ name: 'PNG', extensions: ['png'] }]);
 }
+
+const showX = computed(() => NEEDS_X.includes(kind.value) || kind.value === 'box');
+const xLabel = computed(() => (kind.value === 'pie' || kind.value === 'box' ? t('results:chart.category') : t('results:chart.xAxis')));
+const valueLimit = computed(() => (ONE_VALUE.includes(kind.value) || (splitCol.value !== null && SPLITS.includes(kind.value)) ? 1 : kind.value === 'scatter' ? 3 : 8));
+const showAgg = computed(() => !['scatter', 'histogram', 'box'].includes(kind.value));
+const showSort = computed(() => !['scatter', 'pie', 'kpi', 'histogram', 'heatmap'].includes(kind.value));
+const BIN_OPTIONS = computed(() => HISTOGRAM_BINS.map((b) => ({ value: b, label: b === 0 ? t('results:chart.binsAuto') : String(b) })));
 </script>
 
 <template>
   <div class="ch">
     <div class="ch-controls">
-      <el-select v-model="kind" size="small" style="width: 160px" :title="$t('results:chart.kindTitle')">
+      <el-select v-model="kind" size="small" style="width: 170px" :title="$t('results:chart.kindTitle')">
         <el-option v-for="k in KINDS" :key="k.id" :label="k.label" :value="k.id" />
       </el-select>
-      <span class="ch-lbl">{{ kind === 'pie' ? $t('results:chart.category') : $t('results:chart.xAxis') }}</span>
-      <el-select v-model="xCol" size="small" filterable style="width: 160px">
-        <el-option v-for="(c, i) in columns" :key="i" :label="c.name" :value="i" />
-      </el-select>
-      <span class="ch-lbl">{{ $t('results:chart.values') }}</span>
+      <template v-if="showX">
+        <span class="ch-lbl">{{ xLabel }}</span>
+        <el-select v-model="xCol" size="small" filterable style="width: 160px" :clearable="kind === 'box'" :placeholder="kind === 'box' ? $t('results:chart.noCategory') : undefined" @clear="xCol = -1">
+          <el-option v-for="(c, i) in columns" :key="i" :label="c.name" :value="i" />
+        </el-select>
+      </template>
+      <template v-if="kind === 'heatmap'">
+        <span class="ch-lbl">{{ $t('results:chart.yAxis') }}</span>
+        <el-select v-model="splitCol" size="small" filterable style="width: 150px">
+          <el-option v-for="(c, i) in columns" v-show="i !== xCol" :key="i" :label="c.name" :value="i" />
+        </el-select>
+      </template>
+      <span class="ch-lbl">{{ kind === 'histogram' || kind === 'box' || kind === 'kpi' || kind === 'heatmap' ? $t('results:chart.value') : $t('results:chart.values') }}</span>
       <el-select
         v-model="yCols"
         size="small"
         multiple
         collapse-tags
         collapse-tags-tooltip
-        :multiple-limit="kind === 'pie' || splitCol !== null ? 1 : kind === 'scatter' ? 3 : 8"
-        style="width: 220px"
+        :multiple-limit="valueLimit"
+        style="width: 200px"
         :placeholder="$t('results:chart.numericColumns')"
       >
         <el-option v-for="i in numericCols" :key="i" :label="columns[i].name" :value="i" />
       </el-select>
-      <template v-if="kind !== 'scatter' && kind !== 'pie'">
+      <template v-if="SPLITS.includes(kind)">
         <span class="ch-lbl">{{ $t('results:chart.splitBy') }}</span>
         <el-select v-model="splitCol" size="small" clearable placeholder="—" style="width: 140px" :title="$t('results:chart.splitByTitle')">
           <el-option v-for="(c, i) in columns" v-show="i !== xCol && !numericCols.includes(i)" :key="i" :label="c.name" :value="i" />
         </el-select>
       </template>
-      <el-select v-if="kind !== 'scatter'" v-model="agg" size="small" style="width: 130px" :title="$t('results:chart.aggTitle')">
+      <el-select v-if="showAgg" v-model="agg" size="small" style="width: 130px" :title="$t('results:chart.aggTitle')">
         <el-option v-for="a in AGGS" :key="a.id" :label="a.label" :value="a.id" />
       </el-select>
-      <el-select v-if="kind !== 'scatter' && kind !== 'pie'" v-model="sortBy" size="small" style="width: 150px">
+      <template v-if="kind === 'histogram'">
+        <span class="ch-lbl">{{ $t('results:chart.bins') }}</span>
+        <el-select v-model="bins" size="small" style="width: 100px" :title="$t('results:chart.binsTitle')">
+          <el-option v-for="b in BIN_OPTIONS" :key="b.value" :label="b.label" :value="b.value" />
+        </el-select>
+      </template>
+      <el-select v-if="showSort" v-model="sortBy" size="small" style="width: 150px">
         <el-option :label="$t('results:chart.sort.none')" value="none" />
         <el-option :label="$t('results:chart.sort.value')" value="value" />
         <el-option :label="$t('results:chart.sort.label')" value="label" />
       </el-select>
+      <el-checkbox
+        v-if="wholeApplies && (canWhole || whole)"
+        v-model="whole"
+        size="small"
+        class="ch-whole"
+        :disabled="!canWhole && !whole"
+        :title="wholeTitle"
+      >
+        {{ $t('results:chart.whole.label') }}
+      </el-checkbox>
       <div class="nm-spacer" />
       <el-button size="small" :disabled="!canChart" @click="exportPng">
         <el-icon><ei-download /></el-icon>&nbsp;PNG
       </el-button>
     </div>
+    <div v-if="whole && wholeApplies && (wholeLoading || wholeError || wholeNote)" class="ch-note" :class="{ err: !!wholeError }">
+      <template v-if="wholeLoading">
+        <el-icon class="is-loading"><ei-loading /></el-icon>
+        <span>{{ $t('results:chart.whole.running') }}</span>
+        <button class="ch-link" @click="cancelWhole">{{ $t('common:cancel') }}</button>
+      </template>
+      <template v-else-if="wholeError">
+        <el-icon><ei-warning-filled /></el-icon>
+        <span class="ch-note-text nm-selectable">{{ $t('results:chart.whole.failed', { error: wholeError }) }}</span>
+        <button v-if="canWhole" class="ch-link" @click="runWhole">{{ $t('results:chart.whole.retry') }}</button>
+      </template>
+      <template v-else>
+        <el-icon><ei-data-analysis /></el-icon>
+        <span class="ch-note-text">{{ wholeNote }}</span>
+        <button v-if="canWhole" class="ch-link" @click="runWhole">{{ $t('results:chart.whole.refresh') }}</button>
+      </template>
+    </div>
+    <div v-else-if="wholeCancelled" class="ch-note">{{ $t('results:chart.whole.cancelled') }}</div>
     <div v-if="!numericCols.length" class="ch-empty nm-muted">
       {{ $t('results:chart.noNumeric') }}
     </div>
     <div v-else-if="!yCols.length" class="ch-empty nm-muted">{{ $t('results:chart.pickValues') }}</div>
+    <div v-else-if="needsYCat" class="ch-empty nm-muted">{{ $t('results:chart.pickYAxis') }}</div>
     <div v-else-if="tooMany" class="ch-empty nm-muted">
       {{ $t('results:chart.tooMany', { n: shaped.cats.length.toLocaleString(locale()) }) }}
     </div>
@@ -416,4 +447,14 @@ async function exportPng() {
 .ch-lbl { font-size: 11.5px; color: var(--nm-text-dim); margin-left: 4px; }
 .ch-canvas { flex: 1; min-height: 160px; margin: 8px 12px 6px; }
 .ch-empty { padding: 16px; }
+.ch-whole { margin-left: 6px; height: 24px; }
+.ch-whole :deep(.el-checkbox__label) { font-size: 11.5px; color: var(--nm-text-dim); }
+.ch-note {
+  display: flex; align-items: center; gap: 6px; padding: 3px 12px; font-size: 11.5px; color: var(--nm-text-dim);
+  border-bottom: 1px solid var(--nm-border-soft); font-variant-numeric: tabular-nums;
+}
+.ch-note.err { color: var(--nm-warning); }
+.ch-note-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-link { flex-shrink: 0; border: 0; padding: 0; background: none; font: inherit; color: var(--nm-accent); cursor: pointer; }
+.ch-link:hover { text-decoration: underline; }
 </style>

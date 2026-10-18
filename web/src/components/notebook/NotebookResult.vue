@@ -4,15 +4,19 @@ import { useTranslation } from 'i18next-vue';
 import type { CellResult, QueryOutcome } from '../../api/types';
 import { locale } from '../../i18n';
 import { tb } from '../../i18n/backend';
-import { ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp, rowCounts } from '../../composables/notebookModel';
-import { cellChart, readCellChart, sameJson, storablePoints, type ChartState } from '../../composables/chartSettings';
+import { BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp, rowCounts } from '../../composables/notebookModel';
+import {
+  readCellCharts, sameJson, storableCharts, writeCellCharts, type CellCharts, type ChartState, type MapSettings, type StoredChart,
+} from '../../composables/chartSettings';
 import { useSettingsStore } from '../../stores/settings';
 import ResultsPane, { type View } from '../ResultsPane.vue';
+import ChartTabs from './ChartTabs.vue';
 
 // A SQL cell's result: the summary line ("100 de 100.000.000 filas · 18/10
 // 14:32 · 41 s · Ventas prod › ventas") and, under it, the editor's results
 // pane — with every row of a run made here, or the preview the file kept.
-// The pane opens in the view the cell keeps (`chart`), with its chart.
+// The pane opens in the view the cell keeps (`chart`), with its charts (one
+// or more, each with its title and settings) and its map source.
 
 const props = defineProps<{
   result: CellResult | null;
@@ -27,7 +31,7 @@ const props = defineProps<{
   source: { connectionId: string; database: string; sql: string } | null;
   dialect: string;
   title: string;
-  /** The cell's stored chart: { view, type, x, y, agg, sort, split, points }. */
+  /** The cell's stored charts: { view, active, charts: [{ title, type, x, y, agg, sort, split, points… }], map }. */
   chart: unknown | null;
 }>();
 const emit = defineEmits<{ group: []; explain: []; chart: [chart: Record<string, unknown>] }>();
@@ -72,23 +76,60 @@ const height = computed(() => {
   const rows = Math.max(0, ...(outcome.value?.results ?? []).map((r) => r.rows.length));
   return Math.min(380, Math.max(150, 96 + rows * 24));
 });
-const stored = computed(() => readCellChart(props.chart));
+const stored = computed(() => readCellCharts(props.chart));
 const VIEWS: View[] = ['table', 'chart', 'tree', 'map'];
 const initialView = computed(() => VIEWS.find((v) => v === stored.value.view));
-const storedPoints = () => (props.chart as { points?: ChartState['points'] } | null)?.points ?? null;
+const EMPTY: StoredChart = { title: '', settings: null, points: null, aggregate: null };
+/** At least one chart (a cell that never showed one gets it on first view). */
+const charts = computed(() => (stored.value.charts.length ? stored.value.charts : [EMPTY]));
+const active = computed(() => Math.min(stored.value.active, charts.value.length - 1));
+const activeChart = computed(() => charts.value[active.value]);
+/** Changes when another chart is shown (ChartView starts over with its settings). */
+const chartKey = computed(() => `${active.value}/${charts.value.length}`);
 const settingsStore = useSettingsStore();
-/** The file keeps at most the cell's rows of points. */
+/** The file keeps at most the cell's rows of points, and all the charts'
+ *  points together within the cell's bytes. */
 const maxPoints = () => clamp(settingsStore.get<number>(ROWS_SETTING, ROWS_DEFAULT), ROWS_RANGE);
-function onView(v: View) {
-  emit('chart', cellChart(v, stored.value.settings, storablePoints(stored.value.settings, storedPoints(), maxPoints())));
+const maxBytes = () => clamp(settingsStore.get<number>(BYTES_SETTING, BYTES_DEFAULT), BYTES_RANGE);
+/** Store `next` when it differs from what the cell has (an older file's
+ *  one-chart format isn't rewritten until something changes). */
+function commit(next: CellCharts) {
+  const json = writeCellCharts({ ...next, charts: storableCharts(next.charts, maxPoints(), maxBytes()) });
+  if (!sameJson(json, writeCellCharts(stored.value))) emit('chart', json);
 }
-/** The chart changed. Its points come from a run made here; on a stored
- *  preview they'd be from cut rows: the stored ones stay while the settings
- *  are the same, and go when they change (they'd no longer match). Only
- *  aggregated points are kept (storablePoints). */
-function onChart({ points, ...settings }: ChartState) {
-  const pts = props.live ? points : sameJson(settings, stored.value.settings) ? storedPoints() : null;
-  emit('chart', cellChart('chart', settings, storablePoints(settings, pts, maxPoints())));
+function onView(v: View) {
+  commit({ ...stored.value, view: v });
+}
+/** The chart changed. Its points come from a run made here, or from the
+ *  whole result (computed on the server); on a stored preview they'd be
+ *  from cut rows: the stored ones stay while the settings are the same, and
+ *  go when they change (they'd no longer match). Only aggregated points are
+ *  kept (storablePoints). */
+function onChart({ points, aggregate, ...settings }: ChartState) {
+  const cur = activeChart.value;
+  const same = sameJson(settings, cur.settings);
+  const pts = aggregate || props.live ? points : same ? cur.points : null;
+  const agg = aggregate ?? (same && !props.live ? cur.aggregate : null);
+  const list = charts.value.map((c, i) => (i === active.value ? { ...c, settings, points: pts, aggregate: agg } : c));
+  commit({ ...stored.value, view: 'chart', active: active.value, charts: list });
+}
+function onMap(m: MapSettings) {
+  commit({ ...stored.value, view: 'map', map: m });
+}
+const titles = computed(() => charts.value.map((c) => c.title));
+function selectChart(i: number) {
+  commit({ ...stored.value, charts: charts.value, active: i });
+}
+function addChart() {
+  commit({ ...stored.value, view: 'chart', charts: [...charts.value, EMPTY], active: charts.value.length });
+}
+function renameChart(i: number, title: string) {
+  commit({ ...stored.value, charts: charts.value.map((c, k) => (k === i ? { ...c, title } : c)), active: active.value });
+}
+function removeChart(i: number) {
+  if (charts.value.length < 2) return;
+  const list = charts.value.filter((_, k) => k !== i);
+  commit({ ...stored.value, charts: list, active: Math.min(i <= active.value && active.value > 0 ? active.value - 1 : active.value, list.length - 1) });
 }
 /** The preview was cut: the summary offers an aggregated version. */
 const cut = computed(() => !!counts.value?.truncated && !props.running);
@@ -121,10 +162,19 @@ const cut = computed(() => !!counts.value?.truncated && !props.running);
         :dialect="dialect"
         hide-status
         :initial-view="initialView"
-        :chart-settings="stored.settings"
+        :chart-settings="activeChart.settings"
+        :chart-points="activeChart.points"
+        :chart-aggregate="activeChart.aggregate"
+        :chart-key="chartKey"
+        :map-settings="stored.map"
         @update:view="onView"
         @update:chart-settings="onChart"
-      />
+        @update:map-settings="onMap"
+      >
+        <template #chartTabs>
+          <ChartTabs :titles="titles" :active="active" @select="selectChart" @add="addChart" @rename="renameChart" @remove="removeChart" />
+        </template>
+      </ResultsPane>
     </div>
   </div>
 </template>

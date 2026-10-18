@@ -977,15 +977,18 @@ fn target_json(t: &NotebookTarget) -> Option<Value> {
 
 /// A chart's stored points: aggregated data only. Dropped when the rows
 /// aren't kept, for a scatter or without aggregation (they'd be the raw
-/// rows), and when they don't fit in what the cell's byte cap leaves after
-/// `used`; otherwise at most `limits.rows` per series, labels cut like cell
-/// values.
-fn chart_points(m: &mut Map<String, Value>, keep: bool, limits: PreviewLimits, used: usize) {
+/// rows; histograms, box plots and KPIs are always summaries), and when they
+/// don't fit in what the cell's byte cap leaves after `used`; otherwise at
+/// most `limits.rows` per series, labels cut like cell values. Returns the
+/// bytes the kept points take.
+fn chart_points(m: &mut Map<String, Value>, keep: bool, limits: PreviewLimits, used: usize) -> usize {
     m.remove("data");
     let kind = m.get("type").and_then(Value::as_str).unwrap_or("");
     let agg = m.get("agg").and_then(Value::as_str).unwrap_or("none");
-    let raw = kind == "scatter" || agg == "none";
-    let Some(pts) = m.get_mut("points") else { return };
+    let summary = matches!(kind, "histogram" | "box" | "kpi");
+    let raw = !summary && (kind == "scatter" || agg == "none");
+    let Some(pts) = m.get_mut("points") else { return 0 };
+    let mut size = 0;
     let ok = keep && !raw && pts.is_object() && {
         let max = limits.rows as usize;
         let label = |v: &mut Value| *v = cut_value(v);
@@ -1005,11 +1008,32 @@ fn chart_points(m: &mut Map<String, Value>, keep: bool, limits: PreviewLimits, u
                 }
             }
         }
-        let size = serde_json::to_vec(pts).map(|v| v.len()).unwrap_or(usize::MAX);
+        size = serde_json::to_vec(pts).map(|v| v.len()).unwrap_or(usize::MAX);
         (used.saturating_add(size)) as u64 <= limits.bytes
     };
-    if !ok {
+    if ok {
+        size
+    } else {
         m.remove("points");
+        m.remove("aggregate");
+        0
+    }
+}
+
+/// A cell's charts: the older one-chart object, or `{ charts: [...] }`; all
+/// the charts' points together within the cell's byte cap, in order.
+fn cell_chart_points(m: &mut Map<String, Value>, keep: bool, limits: PreviewLimits, used: usize) {
+    if let Some(list) = m.get_mut("charts").and_then(Value::as_array_mut) {
+        let mut used = used;
+        for c in list.iter_mut() {
+            if let Some(cm) = c.as_object_mut() {
+                used = used.saturating_add(chart_points(cm, keep, limits, used));
+            }
+        }
+        m.remove("points");
+        m.remove("data");
+    } else {
+        chart_points(m, keep, limits, used);
     }
 }
 
@@ -1061,7 +1085,7 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
                 if let Some(m) = chart.as_object_mut() {
                     // The points count toward the cell's byte cap: dropped when they don't fit.
                     let used = serde_json::to_vec(&outputs).map(|v| v.len()).unwrap_or(usize::MAX);
-                    chart_points(m, keep, limits, used);
+                    cell_chart_points(m, keep, limits, used);
                 }
                 d.insert("chart".into(), chart);
             }
@@ -1487,6 +1511,42 @@ mod tests {
         let out = write(json!({ "type": "bar", "agg": "sum", "points": pts(1000, &"x".repeat(200)) }), big);
         assert!(out.get("points").is_none());
         assert_eq!(write(json!({ "type": "bar", "agg": "count", "points": pts(5, "a") }), big)["points"]["categories"].as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn several_charts_share_the_cells_byte_cap() {
+        let pts = |n: usize| json!({ "categories": (0..n).map(|i| format!("c{i}")).collect::<Vec<_>>(), "series": [{ "name": "v", "values": (0..n).collect::<Vec<_>>() }] });
+        let write = |chart: Value, limits: PreviewLimits| {
+            let mut c = sql_cell("c", "SELECT", Some(result(vec![stmt(&["id", "name"], rows(3), 3)])));
+            c.chart = Some(chart);
+            to_value(&notebook(vec![c]), limits)["cells"][0]["metadata"]["dbine"]["chart"].clone()
+        };
+        let one = serde_json::to_vec(&pts(300)).unwrap().len() as u64;
+        let limits = PreviewLimits::new(Some(1000), Some(64 * 1024));
+        let out = write(json!({ "view": "chart", "active": 0, "points": pts(3), "charts": [
+            { "title": "a", "type": "bar", "agg": "sum", "points": pts(300) },
+            { "title": "raw", "type": "scatter", "agg": "sum", "points": pts(3) },
+            { "title": "h", "type": "histogram", "agg": "none", "points": pts(5) },
+            { "title": "k", "type": "kpi", "agg": "none", "points": pts(1), "whole": true, "aggregate": { "method": "server" } },
+            { "title": "line", "type": "line", "agg": "none", "points": pts(3) },
+        ] }), limits);
+        let list = out["charts"].as_array().unwrap();
+        assert!(out.get("points").is_none(), "no stray top-level points");
+        assert_eq!(list[0]["points"]["categories"].as_array().unwrap().len(), 300);
+        assert!(list[1].get("points").is_none() && list[4].get("points").is_none(), "raw rows aren't kept");
+        assert!(list[2].get("points").is_some() && list[3].get("points").is_some(), "histograms and KPIs are summaries");
+        assert_eq!(list[3]["aggregate"]["method"], "server");
+        // ~40 KB each under a 64 KB cap: the first keeps its points, the second doesn't.
+        let wide = json!({ "categories": (0..1000).map(|i| format!("{i:0>36}")).collect::<Vec<_>>(), "series": [{ "name": "v", "values": (0..1000).collect::<Vec<_>>() }] });
+        let out = write(json!({ "charts": [{ "type": "bar", "agg": "sum", "points": wide.clone() }, { "type": "bar", "agg": "sum", "points": wide }] }), limits);
+        let list = out["charts"].as_array().unwrap();
+        assert!(list[0].get("points").is_some() && list[1].get("points").is_none(), "{one}");
+        // Rows not kept: no chart keeps points.
+        let mut c = sql_cell("c", "SELECT", Some(result(vec![stmt(&["id"], rows(3), 3)])));
+        c.keep_result = false;
+        c.chart = Some(json!({ "charts": [{ "type": "bar", "agg": "sum", "points": pts(3) }] }));
+        let out = to_value(&notebook(vec![c]), limits)["cells"][0]["metadata"]["dbine"]["chart"].clone();
+        assert!(out["charts"][0].get("points").is_none());
     }
 
     #[test]

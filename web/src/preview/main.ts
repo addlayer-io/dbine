@@ -8,6 +8,7 @@
 // |timeline[&tab=tq|tf|to] (the history sidebar's "Esta pestaña" next to a stand-in editor: preview/timeline-samples.ts)
 // |rename[&prod=0][&name=<nuevo>][&fail=1] ("Renombrar…" over a fake impact and script: preview/rename-samples.ts)
 // |map[&set=points|shapes|latlon|oracle][&theme=light] (the results' map view over the offline base map: preview/map-samples.ts)
+// |chart[&kind=…]|nbcell[&set=charts|map|latlon] (charts of every kind; a notebook cell's charts and map: preview/chart-samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -25,7 +26,6 @@ import 'element-plus/dist/index.css';
 import 'element-plus/theme-chalk/dark/css-vars.css';
 import '../styles/global.scss';
 import PlanView from '../components/PlanView.vue';
-import ChartView from '../components/ChartView.vue';
 import JsonTreeView from '../components/JsonTreeView.vue';
 import ResultsPane from '../components/ResultsPane.vue';
 import ResultGrid from '../components/ResultGrid.vue';
@@ -75,6 +75,7 @@ import RenameDialog from '../components/RenameDialog.vue';
 import { installRenamePreview } from './rename-samples';
 import { applyThemeClass } from '../composables/appearance';
 import { mapPreview } from './map-samples';
+import { chartPreview, installWholeMock, notebookCellPreview } from './chart-samples';
 import { browseSample, sourceConnection } from './source-samples';
 
 const params = new URLSearchParams(location.search);
@@ -247,6 +248,7 @@ function multiDbView() {
   ];
 }
 if (view === 'multidb') installTauriMock();
+if (view === 'nbcell' && params.get('set') === 'whole') installWholeMock(params);
 if (view === 'feedback') {
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
     transformCallback: () => 0,
@@ -280,7 +282,8 @@ const app = createApp({
       view === 'compare' ? h(CompareView, { tab: { id: 'cmp', kind: 'compare', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'profiler' ? h(ProfilerView, { tab: { id: 'p', kind: 'profiler', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'settings' ? h(SettingsDialog) : view.startsWith('diagram') ? diagram() : ['script', 'import', 'run'].includes(view) ? dialogView() : view === 'designer' ? designer() : view === 'chart'
-        ? h(ChartView, { columns: sampleResult.columns, rows: sampleResult.rows })
+        ? chartPreview(params)
+        : view === 'nbcell' ? notebookCellPreview(params)
         : view === 'filters' ? filtersView()
         : view === 'fkjump' ? fkJumpView()
         : view === 'docs-edit' ? docsEditView()

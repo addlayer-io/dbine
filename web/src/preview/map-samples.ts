@@ -56,7 +56,7 @@ function rng(seed: number) {
   };
 }
 
-function points(): { columns: ResultColumn[]; rows: Cell[][] } {
+export function points(): { columns: ResultColumn[]; rows: Cell[][] } {
   const r = rng(7);
   const rows: Cell[][] = [];
   let id = 1;
@@ -82,7 +82,7 @@ function points(): { columns: ResultColumn[]; rows: Cell[][] } {
   };
 }
 
-function shapes(): { columns: ResultColumn[]; rows: Cell[][] } {
+export function shapes(): { columns: ResultColumn[]; rows: Cell[][] } {
   const poly = (ring: [number, number][]) => `SRID=4326;POLYGON((${[...ring, ring[0]].map(([x, y]) => `${x} ${y}`).join(', ')}))`;
   return {
     columns: [
@@ -126,7 +126,7 @@ function oracle(): { columns: ResultColumn[]; rows: Cell[][] } {
   };
 }
 
-function latLon(): { columns: ResultColumn[]; rows: Cell[][] } {
+export function latLon(): { columns: ResultColumn[]; rows: Cell[][] } {
   return {
     columns: [
       { name: 'ciudad', type_name: 'varchar' },

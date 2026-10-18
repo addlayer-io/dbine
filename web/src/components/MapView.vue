@@ -10,6 +10,7 @@ import { loadBasemap, type Basemap, type Place } from '../composables/basemap';
 import { DEFAULT_TILES, TILE_SETTINGS, tileLayerSpec, type TileSettings } from '../composables/mapTiles';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore } from '../stores/ui';
+import type { MapSettings } from '../composables/chartSettings';
 
 // The results' "Mapa" view: the result's geometries (a spatial column, or a
 // latitude / longitude pair) over a base map. Everything is drawn here from
@@ -22,7 +23,12 @@ const props = defineProps<{
   rows: Cell[][];
   /** What detectSpatial found (the parent computed it to show the toggle). */
   detected?: SpatialColumns | null;
+  /** The source to start from (a notebook cell keeps it), by column name;
+   *  what's detected where it doesn't fit. */
+  settings?: MapSettings | null;
 }>();
+/** The user picked another source (by column name). */
+const emit = defineEmits<{ 'update:settings': [settings: MapSettings] }>();
 
 const { t } = useTranslation();
 const settings = useSettingsStore();
@@ -32,9 +38,18 @@ const found = computed(() => props.detected ?? detectSpatial(props.columns, prop
 
 // -- source: a geometry column or a latitude / longitude pair ------------------------
 const LATLON = -1;
-const column = ref<number>(found.value.geometry[0] ?? LATLON);
-const latCol = ref<number | null>(found.value.lat);
-const lonCol = ref<number | null>(found.value.lon);
+const at = (n: string | null | undefined) => (n ? props.columns.findIndex((c) => c.name === n) : -1);
+const keptGeometry = at(props.settings?.column);
+const keptLat = at(props.settings?.lat);
+const keptLon = at(props.settings?.lon);
+const keptLatLon = !props.settings?.column && keptLat >= 0 && keptLon >= 0;
+const column = ref<number>(found.value.geometry.includes(keptGeometry) ? keptGeometry : keptLatLon ? LATLON : found.value.geometry[0] ?? LATLON);
+const latCol = ref<number | null>(keptLatLon ? keptLat : found.value.lat);
+const lonCol = ref<number | null>(keptLatLon ? keptLon : found.value.lon);
+watch([column, latCol, lonCol], ([c, la, lo]) => {
+  const nm = (i: number | null) => (i === null || i < 0 ? null : props.columns[i]?.name ?? null);
+  emit('update:settings', c === LATLON ? { column: null, lat: nm(la), lon: nm(lo) } : { column: nm(c), lat: null, lon: null });
+});
 const numericCols = computed(() => props.columns.map((c, i) => ({ c, i })));
 const source = computed<MapSource | null>(() => {
   if (column.value !== LATLON) return { kind: 'geometry', column: column.value };

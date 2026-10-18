@@ -4,12 +4,21 @@
 //! HTML: every text the user or a server wrote is escaped; Markdown cells go
 //! through a small renderer that escapes first and only then adds headings,
 //! emphasis, code, lists and http(s) links. No raw HTML gets through.
+//!
+//! Charts: the UI renders each cell's charts to PNG and passes them in; they
+//! are checked to be PNG and re-encoded here. HTML embeds them as data: URIs;
+//! Markdown references them in a `<name>_files/` folder next to the file,
+//! with names DBine makes (`chart-<cell>-<n>.png`). A cell whose result isn't
+//! kept ("No guardar el resultado", or a notebook that saves no results)
+//! exports no charts either: they show its data.
 
 use super::{
     display_value, escape_html, html_table, preview, summary_line, CellKind, CellResult, Notebook, NotebookCell, NotebookTarget,
     Preview, PreviewLimits, StoredStatement,
 };
+use base64::Engine;
 use serde_json::Value;
+use std::collections::HashMap;
 
 const CSS: &str = r#"
 :root { --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de; --code: #f6f8fa; --err: #cf222e; --head: #f6f8fa; }
@@ -33,8 +42,71 @@ th { background: var(--head); }
 td i { color: var(--muted); }
 .error { color: var(--err); white-space: pre-wrap; }
 .messages { color: var(--muted); }
+figure.chart { margin: 4px 0 12px; }
+figure.chart img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+figure.chart figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
 a { color: inherit; }
 "#;
+
+/// A chart rendered by the UI: its title and PNG bytes (checked).
+#[derive(Debug, Clone)]
+pub struct ChartImage {
+    pub title: String,
+    pub png: Vec<u8>,
+}
+
+/// Each cell's charts by cell id, in the order they show.
+pub type CellImages = HashMap<String, Vec<ChartImage>>;
+
+/// One chart image at most this big, and at most this many per cell.
+pub const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_IMAGES_PER_CELL: usize = 20;
+const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+/// A chart image from the UI (base64, with or without a `data:image/png;base64,`
+/// prefix): the bytes when they're a PNG within the size cap.
+pub fn decode_png(b64: &str) -> Result<Vec<u8>, String> {
+    let raw = b64.strip_prefix("data:image/png;base64,").unwrap_or(b64);
+    if raw.len() > MAX_IMAGE_BYTES / 3 * 4 + 4 {
+        return Err("la imagen del gráfico es demasiado grande".into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(raw.trim()).map_err(|e| format!("imagen de gráfico inválida: {e}"))?;
+    if !bytes.starts_with(PNG_SIGNATURE) || bytes.len() > MAX_IMAGE_BYTES {
+        return Err("la imagen del gráfico no es un PNG válido".into());
+    }
+    Ok(bytes)
+}
+
+/// The folder a Markdown export's images go in, next to it: `<stem>_files`.
+pub fn files_dir_name(md_file_name: &str) -> String {
+    let stem = md_file_name.rsplit_once('.').map(|(s, _)| s).filter(|s| !s.is_empty()).unwrap_or(md_file_name);
+    format!("{stem}_files")
+}
+
+/// A path segment for a Markdown link: everything but unreserved characters
+/// percent-encoded (spaces, parentheses, brackets…).
+fn url_segment(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// The images a cell may export: none when its result isn't kept.
+fn cell_images<'a>(c: &NotebookCell, nb: &Notebook, images: &'a CellImages) -> &'a [ChartImage] {
+    if c.kind != CellKind::Sql || !(nb.save_results && c.keep_result) {
+        return &[];
+    }
+    images.get(&c.id).map(|v| &v[..v.len().min(MAX_IMAGES_PER_CELL)]).unwrap_or(&[])
+}
+
+/// A Markdown export's files: (name inside the `_files` folder, PNG bytes).
+pub type ExportFiles = Vec<(String, Vec<u8>)>;
 
 fn target_text(t: &NotebookTarget) -> String {
     [&t.environment, &t.connection, &t.database].iter().filter_map(|v| v.as_deref()).filter(|v| !v.is_empty()).collect::<Vec<_>>().join(" › ")
@@ -72,8 +144,14 @@ fn title(nb: &Notebook) -> String {
         .unwrap_or_else(|| "Notebook".into())
 }
 
-/// The notebook as one HTML page.
+/// The notebook as one HTML page (without charts).
+#[cfg(test)]
 pub fn html(nb: &Notebook, limits: PreviewLimits) -> String {
+    html_with(nb, limits, &CellImages::new())
+}
+
+/// The notebook as one HTML page, each cell's charts embedded (data: URIs).
+pub fn html_with(nb: &Notebook, limits: PreviewLimits, images: &CellImages) -> String {
     let mut body = String::new();
     for c in &nb.cells {
         match c.kind {
@@ -109,13 +187,21 @@ pub fn html(nb: &Notebook, limits: PreviewLimits) -> String {
                         body.push_str(&format!("<pre class=\"error\">{}</pre>", escape_html(e)));
                     }
                 }
+                for img in cell_images(c, nb, images) {
+                    let data = base64::engine::general_purpose::STANDARD.encode(&img.png);
+                    let caption = if img.title.is_empty() { String::new() } else { format!("<figcaption>{}</figcaption>", escape_html(&img.title)) };
+                    body.push_str(&format!(
+                        "<figure class=\"chart\"><img alt=\"{}\" src=\"data:image/png;base64,{data}\">{caption}</figure>",
+                        escape_html(&img.title)
+                    ));
+                }
                 body.push_str("</section>\n");
             }
         }
     }
     format!(
         "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
-         <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\">\n\
+         <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:\">\n\
          <meta name=\"generator\" content=\"DBine\">\n<title>{}</title>\n<style>{CSS}</style>\n</head>\n<body>\n<main>\n{body}</main>\n</body>\n</html>\n",
         escape_html(&title(nb))
     )
@@ -350,8 +436,15 @@ fn md_table(s: &StoredStatement) -> String {
 
 /// The notebook as Markdown.
 pub fn markdown(nb: &Notebook, limits: PreviewLimits) -> String {
+    markdown_with(nb, limits, &CellImages::new(), "").0
+}
+
+/// The notebook as Markdown, each cell's charts as `![title](<dir>/chart-<cell>-<n>.png)`;
+/// with the files to write in `dir` (a folder next to the .md file).
+pub fn markdown_with(nb: &Notebook, limits: PreviewLimits, images: &CellImages, dir: &str) -> (String, ExportFiles) {
     let mut out = String::new();
-    for c in &nb.cells {
+    let mut files = ExportFiles::new();
+    for (ci, c) in nb.cells.iter().enumerate() {
         match c.kind {
             CellKind::Markdown => {
                 out.push_str(c.source.trim_end());
@@ -379,10 +472,15 @@ pub fn markdown(nb: &Notebook, limits: PreviewLimits) -> String {
                         out.push_str(&fenced(e, "text"));
                     }
                 }
+                for (k, img) in cell_images(c, nb, images).iter().enumerate() {
+                    let name = format!("chart-{}-{}.png", ci + 1, k + 1);
+                    out.push_str(&format!("![{}]({}/{name})\n\n", md_text(&img.title), url_segment(dir)));
+                    files.push((name, img.png.clone()));
+                }
             }
         }
     }
-    out.trim_end().to_string() + "\n"
+    (out.trim_end().to_string() + "\n", files)
 }
 
 #[cfg(test)]
@@ -479,6 +577,66 @@ mod tests {
         assert_eq!(markdown_to_html("[a](javascript:alert(1))"), "<p>[a](javascript:alert(1))</p>\n");
         assert_eq!(markdown_to_html("1. uno\n2. dos"), "<ol><li>uno</li><li>dos</li></ol>\n");
         assert_eq!(markdown_to_html("## T\nx `a*b*` *c*"), "<h2>T</h2>\n<p>x <code>a*b*</code> <em>c</em></p>\n");
+    }
+
+    const PNG_1PX: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+    fn images(cell: &str, titles: &[&str]) -> CellImages {
+        let png = decode_png(PNG_1PX).unwrap();
+        CellImages::from([(cell.to_string(), titles.iter().map(|t| ChartImage { title: t.to_string(), png: png.clone() }).collect())])
+    }
+
+    #[test]
+    fn chart_images_must_be_png() {
+        let png = decode_png(PNG_1PX).unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+        assert_eq!(decode_png(&format!("data:image/png;base64,{PNG_1PX}")).unwrap(), png);
+        // Not base64, or not a PNG (an SVG, HTML…): refused.
+        assert!(decode_png("%%%").is_err());
+        let svg = base64::engine::general_purpose::STANDARD.encode("<svg onload=alert(1)>");
+        assert!(decode_png(&svg).is_err());
+        assert!(decode_png(&format!("data:image/svg+xml;base64,{svg}")).is_err());
+    }
+
+    #[test]
+    fn html_embeds_each_cells_charts() {
+        let nb = nb_with_script();
+        let h = html_with(&nb, PreviewLimits::default(), &images("c", &["Ventas <b>2026</b>", ""]));
+        assert_eq!(h.matches("<img ").count(), 2);
+        assert!(h.contains(&format!("src=\"data:image/png;base64,{PNG_1PX}\"")));
+        assert!(h.contains("<figcaption>Ventas &lt;b&gt;2026&lt;/b&gt;</figcaption>"));
+        assert!(!h.contains("<b>2026"));
+        // The page's policy lets data: images in (and nothing else).
+        assert!(h.contains("default-src 'none'; style-src 'unsafe-inline'; img-src data:"));
+        // Images of another (or no) cell: ignored. A cell whose result isn't kept: no charts.
+        assert!(!html_with(&nb, PreviewLimits::default(), &images("m", &["x"])).contains("<img"));
+        let mut dropped = nb_with_script();
+        dropped.cells[1].keep_result = false;
+        assert!(!html_with(&dropped, PreviewLimits::default(), &images("c", &["x"])).contains("<img"));
+        let mut none = nb_with_script();
+        none.save_results = false;
+        assert!(!html_with(&none, PreviewLimits::default(), &images("c", &["x"])).contains("<img"));
+    }
+
+    #[test]
+    fn markdown_links_charts_in_the_files_folder() {
+        let nb = nb_with_script();
+        let dir = files_dir_name("Informe (final) v2.md");
+        assert_eq!(dir, "Informe (final) v2_files");
+        assert_eq!(files_dir_name("notas"), "notas_files");
+        assert_eq!(files_dir_name(".md"), ".md_files");
+        let (md, files) = markdown_with(&nb, PreviewLimits::default(), &images("c", &["Por [mes]", "otro"]), &dir);
+        // The SQL cell is the second one: chart-2-<n>.png, linked relatively.
+        assert!(md.contains("![Por \\[mes\\]](Informe%20%28final%29%20v2_files/chart-2-1.png)"), "{md}");
+        assert!(md.contains("![otro](Informe%20%28final%29%20v2_files/chart-2-2.png)"));
+        assert_eq!(files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["chart-2-1.png", "chart-2-2.png"]);
+        assert!(files.iter().all(|(n, b)| !n.contains('/') && !n.contains("..") && b.starts_with(b"\x89PNG")));
+        // Without images: exactly the plain export.
+        assert_eq!(markdown_with(&nb, PreviewLimits::default(), &CellImages::new(), &dir).0, markdown(&nb, PreviewLimits::default()));
+        // At most MAX_IMAGES_PER_CELL per cell.
+        let many: Vec<String> = (0..MAX_IMAGES_PER_CELL + 5).map(|i| i.to_string()).collect();
+        let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+        assert_eq!(markdown_with(&nb, PreviewLimits::default(), &images("c", &refs), &dir).1.len(), MAX_IMAGES_PER_CELL);
     }
 
     #[test]
