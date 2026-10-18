@@ -469,7 +469,7 @@ onBeforeUnmount(() => { if (columnsTimer) clearTimeout(columnsTimer); });
 /** This session's runs, with every row (the file keeps only a preview). Not deep. */
 /** `source`: null for a "DataFrame SQL" cell (no connection);
  *  `run`: the run counter it got; `loaded`: such a cell's tables. */
-interface LiveRun { outcome: QueryOutcome; source: { connectionId: string; database: string; sql: string } | null; run?: number; loaded?: LoadedTable[] }
+interface LiveRun { outcome: QueryOutcome; source: { connectionId: string; database: string; sql: string; notebookTab?: string } | null; run?: number; loaded?: LoadedTable[] }
 const live = shallowReactive<Record<string, LiveRun>>({});
 /** A run's id, unique in this app session (unlike the [n] counter, never
  *  reset nor repeated when the view mounts again): what the backend's cached
@@ -715,7 +715,8 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
     }
     const o = r.outcome;
     cell.execution_count = ++counter;
-    live[cell.id] = { outcome: markRaw(o), source: null, run: nextRunId(), loaded: markRaw(r.loaded) };
+    // Its chart over the whole result: DuckDB, on this tab's session, over the tables this run read.
+    live[cell.id] = { outcome: markRaw(o), source: { connectionId: '', database: '', sql: script, notebookTab: props.tab.id }, run: nextRunId(), loaded: markRaw(r.loaded) };
     cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }));
     const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
     const failed = !!o.error || !!o.errors?.length;

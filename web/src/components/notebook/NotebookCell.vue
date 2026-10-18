@@ -45,7 +45,7 @@ const props = defineProps<{
   ctx: CellContext;
   live: QueryOutcome | null;
   fallback: QueryOutcome | null;
-  source: { connectionId: string; database: string; sql: string } | null;
+  source: { connectionId: string; database: string; sql: string; notebookTab?: string } | null;
   title: string;
   /** A "DataFrame SQL" cell's run here: the tables it loaded. */
   loaded?: LoadedTable[] | null;

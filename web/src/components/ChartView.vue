@@ -34,8 +34,9 @@ const props = defineProps<{
   storedAggregate?: AggregateInfo | null;
   /** What produced the rows (a run made here): "Calcular sobre todo el
    *  resultado" runs that query again, aggregated. Absent: not offered
-   *  (stored whole-result points still show). */
-  source?: { connectionId: string; database: string; sql: string } | null;
+   *  (stored whole-result points still show). `notebookTab`: a DataFrame
+   *  SQL cell's run, aggregated by that tab's DuckDB session. */
+  source?: { connectionId: string; database: string; sql: string; notebookTab?: string } | null;
 }>();
 /** The user changed the chart (or its data changed after they did). */
 const emit = defineEmits<{ 'update:settings': [state: ChartState] }>();
@@ -207,7 +208,7 @@ const wholePoints = computed(() => {
 const request = computed(() => (wholeApplies.value ? aggregateRequest({ ...settingsNow.value, whole: undefined }) : null));
 const canWhole = computed(() => request.value !== null && !!props.source);
 const wholeKey = computed(() => (whole.value && request.value && props.source ? JSON.stringify([request.value, props.source]) : ''));
-const fetched = shallowRef<{ key: string; settings: ChartSettings; data: ChartAggregate } | null>(null);
+const fetched = shallowRef<{ key: string; settings: ChartSettings; data: ChartAggregate; local: boolean } | null>(null);
 const wholeLoading = ref(false);
 const wholeError = ref<string | null>(null);
 const wholeCancelled = ref(false);
@@ -215,9 +216,12 @@ const baseId = `chart-${Math.random().toString(36).slice(2, 10)}`;
 let runId: string | null = null;
 let seq = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
+/** Stop the pending run. A DataFrame SQL cell's chart runs on the notebook's
+ *  session, which a cell may be using: only an explicit cancel stops it there
+ *  (`cancelWhole`); a superseded one finishes and is ignored. */
 function stopRun() {
   if (timer) { clearTimeout(timer); timer = null; }
-  if (runId) { const id = runId; runId = null; chartApi.cancel(id).catch(() => {}); }
+  if (runId) { const id = runId; runId = null; if (!props.source?.notebookTab) chartApi.cancel(id).catch(() => {}); }
 }
 async function runWhole() {
   const key = wholeKey.value;
@@ -233,8 +237,8 @@ async function runWhole() {
   wholeError.value = null;
   wholeCancelled.value = false;
   try {
-    const data = await chartApi.aggregate({ chartId: id, connectionId: src.connectionId, database: src.database, query: src.sql, chart: req });
-    if (n === seq) fetched.value = { key, settings, data };
+    const data = await chartApi.aggregate({ chartId: id, connectionId: src.connectionId, database: src.database, query: src.sql, chart: req, notebookTab: src.notebookTab });
+    if (n === seq) fetched.value = { key, settings, data, local: !!src.notebookTab };
   } catch (e) {
     if (n !== seq) return;
     if (errorKind(e) === 'cancelled') { wholeCancelled.value = true; whole.value = false; } else wholeError.value = errorMessage(e);
@@ -244,6 +248,8 @@ async function runWhole() {
 }
 function cancelWhole() {
   seq++;
+  const tab = runId ? props.source?.notebookTab : undefined;
+  if (tab) chartApi.cancelNotebook(tab).catch(() => {});
   stopRun();
   wholeLoading.value = false;
   wholeCancelled.value = true;
@@ -269,7 +275,10 @@ const fresh = computed(() => (fetched.value && fetched.value.key === wholeKey.va
 /** How the shown whole-result points were computed. */
 const aggregateInfo = computed<AggregateInfo | null>(() => {
   const f = fresh.value;
-  if (f) return { method: f.data.method, rows_scanned: f.data.rows_scanned, rows_capped: f.data.rows_capped, groups_truncated: f.data.groups_truncated };
+  if (f) {
+    const info: AggregateInfo = { method: f.data.method, rows_scanned: f.data.rows_scanned, rows_capped: f.data.rows_capped, groups_truncated: f.data.groups_truncated };
+    return f.local ? { ...info, engine: 'duckdb' } : info;
+  }
   return wholePoints.value ? props.storedAggregate ?? null : null;
 });
 const shaped = computed(() => {
@@ -282,7 +291,9 @@ const n = (v: number) => v.toLocaleString(locale());
 const wholeNote = computed(() => {
   const a = aggregateInfo.value;
   if (!a) return '';
-  const parts = [a.method === 'server' ? t('results:chart.whole.server')
+  const duck = a.engine === 'duckdb' && a.method === 'server';
+  const parts = [duck ? (a.rows_scanned === null ? t('results:chart.whole.duckdbNoCount') : t('results:chart.whole.duckdb', { count: a.rows_scanned, rows: n(a.rows_scanned) }))
+    : a.method === 'server' ? t('results:chart.whole.server')
     : a.rows_scanned === null ? t('results:chart.whole.clientNoCount')
     : a.rows_capped ? t('results:chart.whole.capped', { rows: n(a.rows_scanned) })
     : t('results:chart.whole.client', { count: a.rows_scanned, rows: n(a.rows_scanned) })];
@@ -291,7 +302,8 @@ const wholeNote = computed(() => {
   return parts.join(' · ');
 });
 const wholeTitle = computed(() => (!request.value ? t('results:chart.whole.unsupported')
-  : !props.source ? t('results:chart.whole.needsRun') : t('results:chart.whole.title')));
+  : !props.source ? t('results:chart.whole.needsRun')
+  : props.source.notebookTab ? t('results:chart.whole.titleDuckdb') : t('results:chart.whole.title')));
 
 // -- ECharts option -------------------------------------------------------------------------
 const option = computed(() => chartOption({

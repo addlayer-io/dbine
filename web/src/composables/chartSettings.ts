@@ -41,6 +41,8 @@ export interface AggregateInfo {
   rows_scanned: number | null;
   rows_capped: boolean;
   groups_truncated: boolean;
+  /** Aggregated by the notebook's DuckDB (a DataFrame SQL cell's chart). */
+  engine?: 'duckdb';
 }
 /** What ChartView emits: its settings and what it plots. */
 export type ChartState = ChartSettings & { points: ChartPoints; aggregate?: AggregateInfo | null };
@@ -180,6 +182,7 @@ function readAggregate(v: unknown): AggregateInfo | null {
     rows_scanned: typeof o.rows_scanned === 'number' && Number.isFinite(o.rows_scanned) ? o.rows_scanned : null,
     rows_capped: o.rows_capped === true,
     groups_truncated: o.groups_truncated === true,
+    ...(o.engine === 'duckdb' ? { engine: 'duckdb' as const } : {}),
   };
 }
 

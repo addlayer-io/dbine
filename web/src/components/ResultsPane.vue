@@ -36,8 +36,9 @@ import { jumpFilters, linksFor, openFiltered, relationsSchema, type FkLink, type
 const props = defineProps<{
   outcome: QueryOutcome | null;
   running: boolean;
-  /** What produced the outcome, so an export can run it again for every row. */
-  source?: { connectionId: string; database: string; sql: string } | null;
+  /** What produced the outcome, so an export can run it again for every row
+   *  (not a DataFrame SQL cell's, `notebookTab`: only its chart uses it). */
+  source?: { connectionId: string; database: string; sql: string; notebookTab?: string } | null;
   /** Base name for exported files. */
   title?: string;
   /** Driver's SQL dialect (identifier quoting of SQL exports). */
@@ -691,8 +692,10 @@ async function copyCode() {
 
 // -- export ---------------------------------------------------------------------------------
 const exporting = ref<{ format: ExportFormat } | null>(null);
+/** The source an export runs again (a connection's query). */
+const runSource = computed(() => (props.source?.notebookTab ? null : props.source ?? null));
 const exportSource = computed(() =>
-  props.source && typeof active.value === 'number' ? { ...props.source, resultIndex: active.value } : null);
+  runSource.value && typeof active.value === 'number' ? { ...runSource.value, resultIndex: active.value } : null);
 
 /** Quick export: the rows already loaded, straight to a file. */
 async function quickExport(format: ExportFormat) {
@@ -705,7 +708,7 @@ async function quickExport(format: ExportFormat) {
   } catch { /* outside Tauri */ }
   if (!path) return;
   try {
-    const res = await exportApi.rows(path, defaultOptions(format, props.title ?? t('results:defaultTableName'), props.dialect ?? ''), r.columns, r.rows, props.source?.connectionId ?? props.editSource?.connectionId);
+    const res = await exportApi.rows(path, defaultOptions(format, props.title ?? t('results:defaultTableName'), props.dialect ?? ''), r.columns, r.rows, runSource.value?.connectionId ?? props.editSource?.connectionId);
     ElMessage.success({
       message: r.truncated
         ? t('results:export.doneLoaded', { count: res.rows, rows: res.rows.toLocaleString(locale()) })

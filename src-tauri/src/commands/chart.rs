@@ -15,6 +15,9 @@
 //! query nor in the statement DBine built (SQL and CQL; the other engines
 //! enforce the session's read-only mode in their drivers). Not offered to
 //! MCP or the AI assistant.
+//!
+//! A notebook's DataFrame SQL cell aggregates on its tab's DuckDB session
+//! instead (`notebook_tab`, see `notebook::local::aggregate_local`).
 
 use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};
@@ -37,8 +40,16 @@ pub struct ChartAggregateArgs {
     /// Names this run's session (`chart:<chart_id>`): `cancel_query` with
     /// that id stops it.
     pub chart_id: String,
+    #[serde(default)]
     pub connection_id: String,
+    #[serde(default)]
     pub database: String,
+    /// A DataFrame SQL cell's chart: the notebook tab whose DuckDB session
+    /// (`nbx:<tab>`) aggregates it, instead of a connection
+    /// ([`crate::notebook::local::aggregate_local`]; `cancel_query` on
+    /// that session stops it).
+    #[serde(default)]
+    pub notebook_tab: Option<String>,
     /// The query the chart is drawn from (the cell's or the editor's).
     pub query: String,
     /// What to aggregate (`kind`: `group`, `histogram` or `box`).
@@ -48,6 +59,9 @@ pub struct ChartAggregateArgs {
 /// The chart's data over the whole result of `query`.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn chart_aggregate(state: State<'_, AppState>, args: ChartAggregateArgs) -> CommandResult<ChartAggregate> {
+    if let Some(tab) = args.notebook_tab.as_deref().filter(|t| !t.is_empty()) {
+        return crate::notebook::local::aggregate_local(&state, tab, &args.query, &args.chart).await;
+    }
     let driver = driver_of(&state, &args.connection_id)?;
     let key = format!("chart:{}", args.chart_id);
     let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;

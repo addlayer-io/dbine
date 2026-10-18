@@ -34,10 +34,11 @@
 //!   before running ([`super::files::refused`]).
 
 use super::files::{self, DataFile, FileRead};
-use crate::commands::chart::{read, Fail, Stop};
+use crate::commands::chart::{aggregate_on, read, Fail, Stop, CLIENT_ROW_CAP};
 use crate::commands::projects::sha256_hex;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
+use dbine_driver::aggregate::{from_grouped, AggFn, AggregateMethod, AggregateSpec, ChartAggregate, ChartKind, Measure};
 use dbine_driver::sql::{name_tokens, quote_ident, Quote, ScriptDialect, TokenKind};
 use dbine_driver::transfer::{BatchSource, Cell, LoadSpec, RowBatch, TransferColumn};
 use dbine_driver::{ConnectionConfig, ObjectRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef, ScriptError, Session};
@@ -530,6 +531,25 @@ pub(crate) struct Loaded {
 struct Catalog {
     entry: Weak<SessionEntry>,
     tables: HashMap<String, Loaded>,
+    /// The last successful run of each cell's SQL (as the UI sent it), for
+    /// "Calcular sobre todo el resultado" ([`aggregate_local`]).
+    runs: HashMap<String, CellRun>,
+}
+
+/// What a cell's run read: its SQL as it ran (reader calls replaced by
+/// their tables) and the tables it names, with their keys then.
+#[derive(Debug, Clone)]
+struct CellRun {
+    sql: String,
+    tables: Vec<(String, String)>,
+}
+
+impl CellRun {
+    fn of(sql: &str, tables: &HashMap<String, Loaded>) -> Self {
+        let known: Vec<String> = tables.keys().cloned().collect();
+        let used = references(sql, &known).into_iter().filter_map(|n| tables.get(&n).map(|l| (n, l.key.clone()))).collect();
+        CellRun { sql: sql.to_string(), tables: used }
+    }
 }
 
 static CATALOGS: LazyLock<Mutex<HashMap<String, Catalog>>> = LazyLock::new(Default::default);
@@ -1217,9 +1237,18 @@ pub async fn run_local(
     };
     let base = notebook_path.filter(|p| !p.trim().is_empty()).and_then(|p| std::path::Path::new(p).parent()).map(std::path::Path::to_path_buf);
     let prepared = prepare(&mut **s, &mut tables, &present, sql, sources, cap, base.as_deref(), &access, &mut out, Some(&entry.cancel), rerun).await;
+    let snapshot = match &prepared {
+        Ok(Prepared::Ready(rewritten, _)) => Some(CellRun::of(rewritten, &tables)),
+        _ => None,
+    };
     if let Ok(mut all) = CATALOGS.lock() {
-        all.insert(key.clone(), Catalog { entry: Arc::downgrade(&entry), tables });
+        let runs = match all.remove(&key) {
+            Some(c) if c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry)) => c.runs,
+            _ => HashMap::new(),
+        };
+        all.insert(key.clone(), Catalog { entry: Arc::downgrade(&entry), tables, runs });
     }
+    let cell_sql = sql;
     let (sql, loaded) = match prepared? {
         Prepared::Ready(sql, loaded) => (sql, loaded),
         Prepared::Ask(files) => {
@@ -1243,11 +1272,72 @@ pub async fn run_local(
         Some(Ok(())) => {}
     }
     let error = run.error.take().or_else(|| run.errors.first().map(|e| e.message.clone()));
+    if let (None, Some(snapshot), Ok(mut all)) = (&error, snapshot, CATALOGS.lock()) {
+        if let Some(c) = all.get_mut(&key).filter(|c| c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry))) {
+            c.runs.insert(cell_sql.to_string(), snapshot);
+        }
+    }
     // The loading notes first, then what the run said.
     out.absorb(run);
     out.error = error;
     out.elapsed_ms = started.elapsed().as_millis() as u64;
     Ok(RunLocalResponse { outcome: out, loaded, approval: None })
+}
+
+// ---------------------------------------------------------------------------
+// The chart over the whole result
+
+/// "Calcular sobre todo el resultado" for a DataFrame SQL cell: `chart`
+/// aggregated by DuckDB over every row of the cell's SQL, on the tab's own
+/// session (`nbx:<tab>`, still locked down) and over the very tables its
+/// last run read. The SQL is checked again with the cell's refusals, then
+/// goes through the whole-result charts' path ([`aggregate_on`] with the
+/// DuckDB driver: a `GROUP BY` around it; histograms and box plots read
+/// its rows from that session). Nothing is loaded here: no files are read
+/// and no query runs again. When the session is gone, the cell hasn't run
+/// in it, or a table it read was loaded again since, it asks to run the
+/// cell first.
+pub async fn aggregate_local(state: &AppState, tab: &str, sql: &str, chart: &ChartKind) -> CommandResult<ChartAggregate> {
+    let sql = sql.trim();
+    if sql.is_empty() {
+        return Err(CommandError::BadRequest("no hay consulta para el gráfico".into()));
+    }
+    if let Some(e) = files::refused(sql) {
+        return Err(CommandError::BadRequest(e));
+    }
+    let not_run = || CommandError::BadRequest("Ejecutá la celda para calcular el gráfico sobre todo su resultado".into());
+    let key = session_key(tab);
+    let entry = state.sessions.get(&key).map(|e| e.clone()).ok_or_else(not_run)?;
+    let mut s = entry.session.lock().await;
+    entry.cancelled.store(false, Ordering::SeqCst);
+    let (run, tables) = {
+        let all = CATALOGS.lock().map_err(|_| CommandError::Internal("tablas del notebook".into()))?;
+        let c = all.get(&key).filter(|c| c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry))).ok_or_else(not_run)?;
+        (c.runs.get(sql).cloned().ok_or_else(not_run)?, c.tables.clone())
+    };
+    if let Some(e) = files::refused(&run.sql) {
+        return Err(CommandError::BadRequest(e));
+    }
+    let present = existing_tables(&mut **s).await?;
+    if run.tables.iter().any(|(t, k)| !present.contains(t) || tables.get(t).map(|l| &l.key) != Some(k)) {
+        return Err(CommandError::BadRequest(
+            "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para calcular el gráfico sobre todo su resultado".into(),
+        ));
+    }
+    let driver = dbine_drivers::find("duckdb").ok_or_else(|| CommandError::Internal("esta versión no incluye el driver de DuckDB".into()))?;
+    let stop = Stop { cancel: &entry.cancel, cancelled: &entry.cancelled, interrupter: entry.interrupter.as_ref() };
+    let mut a = aggregate_on(driver.as_ref(), &mut **s, &run.sql, chart, CLIENT_ROW_CAP, &stop).await?;
+    if a.rows_scanned.is_none() && a.method == AggregateMethod::Server {
+        // Groups were cut: the rows they cover, counted by DuckDB too.
+        let spec = AggregateSpec { x: None, split: None, measures: vec![Measure { column: None, func: AggFn::Count }], max_groups: 1 };
+        if let Ok(count) = driver.aggregate_query(&run.sql, &spec) {
+            if let Ok((out, _)) = read(driver.as_ref(), &mut **s, &run.sql, &count, 2, None, None, &stop).await {
+                let rows = out.results.iter().find(|r| !r.columns.is_empty()).map(|r| r.rows.as_slice()).unwrap_or_default();
+                a.rows_scanned = from_grouped(&spec, rows).ok().and_then(|t| t.rows_scanned);
+            }
+        }
+    }
+    Ok(a)
 }
 
 #[cfg(test)]

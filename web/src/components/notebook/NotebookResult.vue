@@ -28,7 +28,7 @@ const props = defineProps<{
   dropped: boolean;
   /** Only for a run made here: a full export re-runs exactly that query
    *  (a stored preview exports just its rows). */
-  source: { connectionId: string; database: string; sql: string } | null;
+  source: { connectionId: string; database: string; sql: string; notebookTab?: string } | null;
   dialect: string;
   title: string;
   /** The cell's stored charts: { view, active, charts: [{ title, type, x, y, agg, sort, split, points… }], map }. */

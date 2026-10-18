@@ -328,6 +328,103 @@ async fn notebook_local_a_write_is_never_run_again() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// -- the chart over the whole result ---------------------------------------------------------
+
+fn test_state() -> AppState {
+    AppState::new(dbine_core::StateStore::open_in_memory().unwrap())
+}
+
+/// `ventas` (60 rows: total 1..=60, cliente 10 for the even ones, 20 for
+/// the odd ones) and `clientes` (10 Ana, 20 Luis), both from their runs.
+fn chart_sources(run: u64, rows: u64) -> Vec<LocalSource> {
+    let ventas = with_rows(
+        src("ventas", "SELECT * FROM ventas"),
+        run,
+        vec![col("id", "int4"), col("cliente", "int4"), col("total", "int4")],
+        (1..=rows).map(|i| vec![json!(i), json!(if i % 2 == 0 { 10 } else { 20 }), json!(i)]).collect(),
+    );
+    let clientes = with_rows(src("clientes", "SELECT id, nombre FROM clientes"), 1, vec![col("id", "int"), col("nombre", "varchar")], vec![vec![json!(10), json!("Ana")], vec![json!(20), json!("Luis")]]);
+    vec![ventas, clientes]
+}
+
+const CHART_CELL: &str = "SELECT c.nombre, v.total FROM ventas v JOIN clientes c ON c.id = v.cliente";
+
+fn group(x: Option<&str>, measures: Vec<(Option<&str>, AggFn)>) -> ChartKind {
+    ChartKind::Group(AggregateSpec { x: x.map(String::from), split: None, measures: measures.into_iter().map(|(c, f)| Measure { column: c.map(String::from), func: f }).collect(), max_groups: 1_000 })
+}
+
+#[tokio::test]
+async fn notebook_local_whole_result_chart_aggregates_in_duckdb() {
+    let state = test_state();
+    let tab = "chart-tab";
+    // The cell shows 5 rows of its 60.
+    let r = run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(1, 60), None, None, super::super::access::Policy::default()).await.unwrap();
+    assert!(r.outcome.error.is_none(), "{:?}", r.outcome.error);
+    assert_eq!(r.outcome.results.iter().find(|x| !x.columns.is_empty()).unwrap().rows.len(), 5);
+
+    // Grouped: DuckDB's GROUP BY over every row.
+    let a = aggregate_local(&state, tab, CHART_CELL, &group(Some("nombre"), vec![(Some("total"), AggFn::Sum), (None, AggFn::Count)])).await.unwrap();
+    assert_eq!(a.method, AggregateMethod::Server);
+    assert_eq!(a.rows_scanned, Some(60));
+    assert_eq!(a.categories, vec![Some("Ana".to_string()), Some("Luis".to_string())]);
+    assert_eq!(a.series[0].values, vec![Some(930.0), Some(900.0)]);
+    assert_eq!(a.series[1].values, vec![Some(30.0), Some(30.0)]);
+
+    // Total (a KPI): one row of measures.
+    let a = aggregate_local(&state, tab, CHART_CELL, &group(None, vec![(Some("total"), AggFn::Sum), (Some("total"), AggFn::Count)])).await.unwrap();
+    assert_eq!((a.method, a.rows_scanned), (AggregateMethod::Server, Some(60)));
+    assert_eq!(a.series.iter().map(|x| x.values[0]).collect::<Vec<_>>(), vec![Some(1830.0), Some(60.0)]);
+
+    // Groups cut: the rows are still counted by DuckDB.
+    let mut cut = group(Some("total"), vec![(None, AggFn::Count)]);
+    if let ChartKind::Group(spec) = &mut cut {
+        spec.max_groups = 10;
+    }
+    let a = aggregate_local(&state, tab, CHART_CELL, &cut).await.unwrap();
+    assert!(a.groups_truncated);
+    assert_eq!(a.rows_scanned, Some(60));
+
+    // Histogram and box plot: every row, read from the same session.
+    let a = aggregate_local(&state, tab, CHART_CELL, &ChartKind::Histogram { column: "total".into(), bins: 6 }).await.unwrap();
+    let h = a.histogram.expect("histogram");
+    assert_eq!(h.counts.iter().sum::<u64>(), 60);
+    assert_eq!((h.edges[0], *h.edges.last().unwrap()), (1.0, 60.0));
+    assert_eq!((a.rows_scanned, a.rows_capped), (Some(60), false));
+    let a = aggregate_local(&state, tab, CHART_CELL, &ChartKind::Box { column: "total".into(), by: Some("nombre".into()), max_groups: 50 }).await.unwrap();
+    let boxes = a.boxes.expect("boxes");
+    assert_eq!(boxes.iter().map(|b| (b.category.clone(), b.count, b.min, b.max)).collect::<Vec<_>>(), vec![(Some("Ana".into()), 30, 2.0, 60.0), (Some("Luis".into()), 30, 1.0, 59.0)]);
+    assert_eq!(boxes[0].median, 31.0);
+}
+
+#[tokio::test]
+async fn notebook_local_whole_result_chart_refuses_and_asks_to_run() {
+    let state = test_state();
+    let tab = "chart-tab-2";
+    let kpi = group(None, vec![(None, AggFn::Count)]);
+    // Nothing ran in this tab: no session.
+    let e = aggregate_local(&state, tab, CHART_CELL, &kpi).await.unwrap_err();
+    assert!(e.to_string().contains("Ejecutá la celda"), "{e}");
+    run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(1, 60), None, None, super::super::access::Policy::default()).await.unwrap();
+    // A cell that didn't run in it.
+    let e = aggregate_local(&state, tab, "SELECT * FROM ventas", &kpi).await.unwrap_err();
+    assert!(e.to_string().contains("Ejecutá la celda"), "{e}");
+    // The same refusals as a run, before anything is wrapped.
+    let e = aggregate_local(&state, tab, "COPY (SELECT * FROM ventas) TO '/tmp/dbine-nbx-chart.csv'", &kpi).await.unwrap_err();
+    assert!(matches!(e, CommandError::BadRequest(_)), "{e}");
+    assert!(!std::path::Path::new("/tmp/dbine-nbx-chart.csv").exists());
+    // Another cell loaded `ventas` again (its source ran again): asked to run this one again.
+    run_local(&state, tab, "SELECT count(*) FROM ventas", 5, 1_000, &chart_sources(2, 80), None, None, super::super::access::Policy::default()).await.unwrap();
+    let e = aggregate_local(&state, tab, CHART_CELL, &kpi).await.unwrap_err();
+    assert!(e.to_string().contains("cambiaron"), "{e}");
+    run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(2, 80), None, None, super::super::access::Policy::default()).await.unwrap();
+    let a = aggregate_local(&state, tab, CHART_CELL, &kpi).await.unwrap();
+    assert_eq!(a.rows_scanned, Some(80));
+    // The tab closed (its session with it).
+    state.sessions.remove(&session_key(tab));
+    let e = aggregate_local(&state, tab, CHART_CELL, &kpi).await.unwrap_err();
+    assert!(e.to_string().contains("Ejecutá la celda"), "{e}");
+}
+
 // -- live: several engines into one DuckDB join ------------------------------------------------
 
 fn url(env: &str, default: &str) -> String {

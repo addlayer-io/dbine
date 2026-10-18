@@ -197,9 +197,19 @@ GROUP BY ALL
 - **Its own result** is like any other cell's: table, chart and map views,
   the preview caps when saved, export. The assistant gets its query, columns
   and counts, never its rows. Charts plot the cell's rows (all of them up to
-  the query row limit); **Calcular sobre todo el resultado** isn't offered
-  for these cells (their result is already in memory: a `GROUP BY` in the
-  cell does the same), and a full export exports the rows shown.
+  the query row limit), and a full export exports the rows shown.
+- **Calcular sobre todo el resultado.** The cell's full result can be larger
+  than what it shows (the query row limit). With the switch on, the chart is
+  computed by DuckDB over every row: the cell's SQL, checked again with the
+  same refusals as a run (`COPY`, `ATTACH`, `SET`…), is wrapped in a
+  `GROUP BY` (or, without X, the totals) on the notebook's own in-memory
+  session, still locked down, and over the very DataFrames its last run read.
+  Histograms and box plots read the rows from that same session and DBine
+  computes them (up to 1,000,000 rows). Nothing is loaded for it: no source
+  runs again, no file is read, nothing reaches the network or the disk. The
+  note says *Agregado en DuckDB sobre N filas*. If the notebook's session is
+  gone, the cell hasn't run in it, or a DataFrame it reads was loaded again
+  since (its source ran again), it asks to run the cell first.
 
 ### Reading local files
 

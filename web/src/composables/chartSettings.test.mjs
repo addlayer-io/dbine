@@ -65,6 +65,10 @@ test('cell charts round-trip in the new format', () => {
   const w = readCellCharts({ charts: [{ ...writeCellCharts(cc).charts[0], whole: true, aggregate: { method: 'server', rows_scanned: 10, rows_capped: false, groups_truncated: true } }] });
   assert.deepEqual(w.charts[0].aggregate, { method: 'server', rows_scanned: 10, rows_capped: false, groups_truncated: true });
   assert.equal(readCellCharts({ charts: [{ ...writeCellCharts(cc).charts[0], aggregate: { method: 'server' } }] }).charts[0].aggregate, null);
+  // A DataFrame SQL cell's chart, aggregated by DuckDB, keeps saying so.
+  const duck = { method: 'server', rows_scanned: 60, rows_capped: false, groups_truncated: false, engine: 'duckdb' };
+  assert.deepEqual(readCellCharts({ charts: [{ ...writeCellCharts(cc).charts[0], whole: true, aggregate: duck }] }).charts[0].aggregate, duck);
+  assert.equal(readCellCharts({ charts: [{ ...writeCellCharts(cc).charts[0], whole: true, aggregate: { ...duck, engine: 'x' } }] }).charts[0].aggregate.engine, undefined);
 });
 
 test('the old one-chart format reads as a list of one', () => {

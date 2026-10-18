@@ -6984,6 +6984,9 @@
  "Ejecución vectorizada (vectorize)": [
   "crates/drivers/postgres/src/properties.rs"
  ],
+ "Ejecutá la celda para calcular el gráfico sobre todo su resultado": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "El $lookup recorre la colección externa sin índice": [
   "crates/drivers/mongodb/src/plan.rs"
  ],
@@ -26750,6 +26753,9 @@
   "src-tauri/src/mcp/write.rs",
   "src-tauri/src/state.rs"
  ],
+ "esta versión no incluye el driver de DuckDB": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "esta versión se compiló sin el modelo integrado": [
   "crates/dbine-ai/src/detect.rs"
  ],
@@ -29695,6 +29701,9 @@
  "longitud inválida": [
   "crates/drivers/clickhouse/src/transfer.rs"
  ],
+ "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para calcular el gráfico sobre todo su resultado": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "los adjuntos suman {0} MB y el máximo es {1} MB: la mayoría de los servidores rechazan mails más grandes": [
   "src-tauri/src/tasks/mail.rs"
  ],
@@ -30304,7 +30313,8 @@
   "crates/dbine-core/src/conn_import/jetbrains.rs"
  ],
  "no hay consulta para el gráfico": [
-  "src-tauri/src/commands/chart.rs"
+  "src-tauri/src/commands/chart.rs",
+  "src-tauri/src/notebook/local.rs"
  ],
  "no hay cómo vaciarla": [
   "crates/dbine-transfer/src/engine.rs"
