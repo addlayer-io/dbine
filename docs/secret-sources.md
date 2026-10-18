@@ -371,7 +371,7 @@ credentials, the form asks for:
 | Field | |
 |---|---|
 | Cuenta | One of this computer's Zoho Vault accounts, or **Conectar cuenta…**, which opens the wizard below and selects the new account. |
-| Secret name or ID | The secret's exact name (else ignoring case), or its numeric ID. The 🔍 button lists the account's secrets once an account is chosen. |
+| Secret name or ID | The secret's exact name (else ignoring case), or its numeric ID. A name is looked for in the account's secrets list, page by page, up to the first 5,000 (Zoho's API has no name filter it accepts); an ID is read directly. The 🔍 button lists the account's secrets once an account is chosen. |
 | Password field, user field | Under **Configuración avanzada**: `password` and `username` by default; any of the secret's fields, custom fields included. |
 
 ### Connecting an account

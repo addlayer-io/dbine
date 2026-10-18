@@ -10939,5 +10939,10 @@
   "«az account list» no devolvió JSON": "«az account list» não retornou JSON",
   "«az account show» no devolvió JSON": "«az account show» não retornou JSON",
   "«gcloud config list» no devolvió JSON": "«gcloud config list» não retornou JSON",
-  "«op whoami» no dijo con qué cuenta inició sesión": "«op whoami» não disse com qual conta está logado"
+  "«op whoami» no dijo con qué cuenta inició sesión": "«op whoami» não disse com qual conta está logado",
+  "Zoho Vault no acepta tantos pedidos seguidos; probá en unos minutos ({0})": "O Zoho Vault não aceita tantos pedidos seguidos; tente novamente em alguns minutos ({0})",
+  "Zoho Vault rechazó el pedido ({0})": "O Zoho Vault rejeitou o pedido ({0})",
+  "Zoho Vault rechazó el pedido ({0}): esta versión de DBine le pide algo que Zoho no acepta": "O Zoho Vault rejeitou o pedido ({0}): esta versão do DBine pede algo que o Zoho não aceita",
+  "Zoho Vault rechazó el pedido ({0}): {1}": "O Zoho Vault rejeitou o pedido ({0}): {1}",
+  "Zoho Vault: no hay un secreto «{0}» entre los primeros {1} (indicá su ID)": "Zoho Vault: não há um segredo «{0}» entre os primeiros {1} (informe o ID)"
 }
