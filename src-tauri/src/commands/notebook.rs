@@ -4,8 +4,9 @@
 
 use crate::commands::projects::{atomic_write, sha256_hex};
 use crate::error::{CommandError, CommandResult};
-use crate::notebook::{self, export, Notebook, PreviewLimits};
+use crate::notebook::{self, export, python, Notebook, PreviewLimits};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -125,7 +126,7 @@ pub struct ExportImage {
 #[serde(rename_all = "camelCase")]
 pub struct ExportArgs {
     pub notebook: Notebook,
-    /// "html" | "markdown".
+    /// "html" | "markdown" | "python" (a Python .ipynb).
     pub format: String,
     /// The previews' limits, as when saving (Settings › Notebooks).
     #[serde(default)]
@@ -140,6 +141,35 @@ pub struct ExportArgs {
     /// only returned (and images aren't accepted).
     #[serde(default)]
     pub path: Option<String>,
+    /// "python": each SQL cell's connection (cell id → its resolved target).
+    #[serde(default)]
+    pub targets: HashMap<String, ExportTarget>,
+    /// "python": each cell's stored preview as its output.
+    #[serde(default)]
+    pub previews: bool,
+}
+
+/// A cell's connection, as the UI resolved it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportTarget {
+    pub connection_id: String,
+    #[serde(default)]
+    pub database: String,
+}
+
+/// The export's view of each cell's connection: its non-secret fields only
+/// (notebook::python::PyConn). A connection that no longer exists is left
+/// out (its cells are exported commented).
+fn python_connections(store: &dbine_core::StateStore, targets: &HashMap<String, ExportTarget>) -> CommandResult<HashMap<String, python::PyConn>> {
+    let mut out = HashMap::new();
+    for (cell, t) in targets {
+        let Some(saved) = store.get_connection(&t.connection_id).map_err(|e| CommandError::Internal(e.to_string()))? else { continue };
+        let info = dbine_drivers::find(&saved.config.driver).map(|d| d.info());
+        let key = format!("{}\u{0}{}", saved.id, t.database);
+        out.insert(cell.clone(), python::PyConn::new(&key, &saved.name, &saved.config, info, &t.database));
+    }
+    Ok(out)
 }
 
 /// Images per export, at most (with MAX_IMAGES_PER_CELL per cell).
@@ -194,8 +224,13 @@ fn write_markdown(path: &Path, text: &str, files: &export::ExportFiles) -> Comma
     atomic_write(path, text.as_bytes())
 }
 
-pub fn export_notebook(args: &ExportArgs) -> CommandResult<String> {
+pub fn export_notebook(args: &ExportArgs, store: &dbine_core::StateStore) -> CommandResult<String> {
     let limits = PreviewLimits::new(args.rows_per_cell, args.bytes_per_cell);
+    if args.format == "python" {
+        let conns = python_connections(store, &args.targets)?;
+        let opts = python::PyExport { previews: args.previews, limits, parameters: python::parameters(&args.notebook) };
+        return Ok(python::python(&args.notebook, &conns, &opts));
+    }
     let images = decode_images(&args.images)?;
     match args.format.as_str() {
         "html" => Ok(export::html_with(&args.notebook, limits, &images)),
@@ -215,8 +250,9 @@ pub fn export_notebook(args: &ExportArgs) -> CommandResult<String> {
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_export(args: ExportArgs) -> CommandResult<String> {
-    tauri::async_runtime::spawn_blocking(move || export_notebook(&args)).await.map_err(|e| CommandError::Internal(e.to_string()))?
+pub async fn notebook_export(state: tauri::State<'_, crate::state::AppState>, args: ExportArgs) -> CommandResult<String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || export_notebook(&args, &store)).await.map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
 // -- "DataFrame SQL" (notebook::local) -----------------------------------------------
@@ -375,7 +411,34 @@ mod tests {
 
     fn export_args(format: &str, path: Option<String>, images: Vec<ExportImage>) -> ExportArgs {
         let nb = notebook::parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","id":"c1","metadata":{"dbine":{"keep_result":true}},"outputs":[],"source":"SELECT 1"}]}"#).unwrap();
-        ExportArgs { notebook: nb, format: format.into(), rows_per_cell: None, bytes_per_cell: None, images, path }
+        ExportArgs { notebook: nb, format: format.into(), rows_per_cell: None, bytes_per_cell: None, images, path, targets: HashMap::new(), previews: false }
+    }
+
+    fn export_notebook(args: &ExportArgs) -> CommandResult<String> {
+        super::export_notebook(args, &dbine_core::StateStore::open_in_memory().unwrap())
+    }
+
+    #[test]
+    fn python_export_reads_connections_without_their_secrets() {
+        let store = dbine_core::StateStore::open_in_memory().unwrap();
+        let mut config = dbine_driver::ConnectionConfig { driver: "postgres".into(), host: "pg.example.com".into(), port: 5432, database: "ventas".into(), username: Some("app".into()), ..Default::default() };
+        // Whatever the saved config holds: the export keeps only names.
+        for (k, v) in [("ssh.enabled", "true"), ("ssh.host", "bastion"), ("ssh.password", "ZQXSECRET1"), ("source_token:password:token", "ZQXSECRET2"), ("secret_sources", r#"{"password":{"kind":"vault","path":"kv/ZQXSECRET3"}}"#)] {
+            config.options.insert(k.into(), v.into());
+        }
+        let saved = store
+            .save_connection(&dbine_core::SavedConnection { id: "c-1".into(), name: "Ventas PG".into(), color: None, config, save_password: true, folder_id: None, tags: vec![], mcp_level: None, updated_at: String::new() })
+            .unwrap();
+        let mut args = export_args("python", None, vec![]);
+        args.notebook.cells[0].name = Some("ventas".into());
+        args.targets.insert("c1".into(), ExportTarget { connection_id: saved.id.clone(), database: "ventas".into() });
+        args.targets.insert("gone".into(), ExportTarget { connection_id: "no-such".into(), database: String::new() });
+        let text = super::export_notebook(&args, &store).unwrap();
+        assert!(!text.contains("ZQXSECRET"), "{text}");
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["metadata"]["kernelspec"]["name"], "python3");
+        assert!(text.contains("DBINE_VENTAS_PG_PASSWORD") && text.contains("ventas = pd.read_sql(text("), "{text}");
+        assert!(text.contains("SSH tunnel") && text.contains("secret manager"));
     }
 
     #[test]

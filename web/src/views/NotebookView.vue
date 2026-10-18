@@ -922,8 +922,12 @@ watch(() => saveState.value === 'dirty' || saveState.value === 'error' || lock.h
 onBeforeUnmount(() => closeGuards.delete(props.tab.id));
 
 // -- export ---------------------------------------------------------------------------------------
-async function exportAs(format: 'html' | 'markdown') {
+async function exportAs(format: 'html' | 'markdown' | 'python') {
   if (!nb.value) return;
+  if (format === 'python') {
+    pyExport.value = { previews: false };
+    return;
+  }
   try {
     const n = nb.value;
     const base = title.value.replace(/\.ipynb$/i, '');
@@ -940,6 +944,29 @@ async function exportAs(format: 'html' | 'markdown') {
     }
     const text = await notebookApi.export(n, format, limits(), format === 'html' ? images : []);
     await saveTextFile(text, `${base}.${format === 'html' ? 'html' : 'md'}`, [{ name: format === 'html' ? 'HTML' : 'Markdown', extensions: [format === 'html' ? 'html' : 'md'] }]);
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  }
+}
+
+/** "Notebook de Python (.ipynb)": asks whether to include the previews. */
+const pyExport = ref<{ previews: boolean } | null>(null);
+async function exportPython() {
+  const n = nb.value;
+  const opts = pyExport.value;
+  if (!n || !opts) return;
+  pyExport.value = null;
+  try {
+    // Each SQL cell's connection as it resolves here (DataFrame SQL cells have none).
+    const targets: Record<string, { connectionId: string; database: string }> = {};
+    for (const c of n.cells) {
+      if (c.kind !== 'sql' || isLocal(c)) continue;
+      const r = resolved(c);
+      if (r.ok) targets[c.id] = { connectionId: r.target.connectionId, database: r.target.database };
+    }
+    const text = await notebookApi.exportPython(n, targets, opts.previews, limits());
+    const base = title.value.replace(/\.ipynb$/i, '');
+    await saveTextFile(text, `${base} (Python).ipynb`, [{ name: t('notebook:pyExport.filter'), extensions: ['ipynb'] }]);
   } catch (e) {
     ElMessage.error(errorMessage(e));
   }
@@ -1093,6 +1120,7 @@ const breadcrumbDir = computed(() => {
           <el-dropdown-menu>
             <el-dropdown-item command="html">{{ $t('notebook:toolbar.exportHtml') }}</el-dropdown-item>
             <el-dropdown-item command="markdown">{{ $t('notebook:toolbar.exportMarkdown') }}</el-dropdown-item>
+            <el-dropdown-item command="python">{{ $t('notebook:toolbar.exportPython') }}</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -1178,6 +1206,21 @@ const breadcrumbDir = computed(() => {
     <el-dialog v-model="grantsOpen" :title="$t('notebook:fileGrants.dialogTitle')" width="640px" append-to-body destroy-on-close>
       <NotebookFileGrants :notebook="notebookFile ?? ''" :unsaved="!notebookFile" />
       <template #footer><el-button @click="grantsOpen = false">{{ $t('common:close') }}</el-button></template>
+    </el-dialog>
+
+    <el-dialog
+      :model-value="!!pyExport"
+      :title="$t('notebook:pyExport.title')"
+      width="480px"
+      append-to-body
+      @update:model-value="(v: boolean) => { if (!v) pyExport = null; }"
+    >
+      <p class="nb-dialog-text">{{ $t('notebook:pyExport.text') }}</p>
+      <el-checkbox v-if="pyExport" v-model="pyExport.previews">{{ $t('notebook:pyExport.previews') }}</el-checkbox>
+      <template #footer>
+        <el-button @click="pyExport = null">{{ $t('common:cancel') }}</el-button>
+        <el-button type="primary" @click="exportPython">{{ $t('notebook:pyExport.export') }}</el-button>
+      </template>
     </el-dialog>
 
     <el-dialog
