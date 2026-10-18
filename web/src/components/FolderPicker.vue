@@ -37,7 +37,7 @@ const options = computed(() => {
   >
     <el-option v-for="o in options" :key="o.id" :label="o.id === ROOT ? o.label : conns.folderPath(o.id)" :value="o.id">
       <span :style="{ paddingLeft: o.depth * 14 + 'px' }">
-        <el-icon v-if="o.id !== ROOT" style="vertical-align: -2px; color: #c5a46d"><ei-folder /></el-icon>
+        <el-icon v-if="o.id !== ROOT" style="vertical-align: -2px; color: var(--nm-folder)"><ei-folder /></el-icon>
         {{ o.label }}
       </span>
     </el-option>

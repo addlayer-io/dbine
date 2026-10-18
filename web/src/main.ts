@@ -10,8 +10,7 @@ import I18NextVue from 'i18next-vue';
 import i18next from './i18n';
 import { loadBackendCatalog } from './i18n/backend';
 import { installNativeBehavior, showWindow } from './native';
-
-document.documentElement.classList.add('dark');
+import { installAppearance } from './composables/appearance';
 
 const app = createApp(App);
 app.config.errorHandler = (err, _vm, info) => {
@@ -21,6 +20,8 @@ app.config.errorHandler = (err, _vm, info) => {
     .catch(() => {});
 };
 app.use(createPinia());
+// Theme, zoom and font sizes, before the first paint.
+installAppearance();
 app.use(ElementPlus, { size: 'small' });
 app.use(I18NextVue, { i18next });
 loadBackendCatalog();

@@ -277,7 +277,7 @@ function openAsQuery() {
           <el-table-column prop="name" :label="$t('query:object.name')" min-width="180">
             <template #default="{ row }">
               <span class="ov-col">
-                <el-icon v-if="row.primary_key" color="#d7ba7d" :title="$t('query:object.primaryKey')"><ei-key /></el-icon>
+                <el-icon v-if="row.primary_key" color="var(--nm-syn-code)" :title="$t('query:object.primaryKey')"><ei-key /></el-icon>
                 {{ row.name }}
               </span>
             </template>

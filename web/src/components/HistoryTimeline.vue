@@ -326,15 +326,15 @@ defineExpose({ load });
 /* The timeline's line, through the dots. */
 .tl-item::before { content: ''; position: absolute; left: 20px; top: 0; bottom: 0; width: 1px; background: var(--nm-border-soft); }
 .tl-dot { position: relative; flex: none; width: 9px; height: 9px; margin-top: 4px; border-radius: 50%; border: 2px solid var(--nm-text-dim); background: var(--ide-sidebar); }
-.tl-dot.version { border-color: #3794ff; }
-.tl-dot.run { border-color: #73c991; }
+.tl-dot.version { border-color: var(--nm-accent); }
+.tl-dot.run { border-color: var(--nm-git-added); }
 .tl-item.err .tl-dot { border-color: var(--nm-danger); }
-.tl-dot.commit { border-color: #e5c07b; border-radius: 2px; }
+.tl-dot.commit { border-color: var(--nm-yellow); border-radius: 2px; }
 .tl-main { flex: 1; min-width: 0; }
 .tl-row { display: flex; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
 .tl-label { color: var(--nm-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tl-stats { font-family: var(--nm-mono); font-size: 11px; }
-.tl-stats .add { color: #73c991; }
+.tl-stats .add { color: var(--nm-git-added); }
 .tl-stats .del { color: var(--nm-danger); }
 .tl-meta { font-size: 11px; color: var(--nm-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tl-bad { color: var(--nm-danger); display: inline-flex; }

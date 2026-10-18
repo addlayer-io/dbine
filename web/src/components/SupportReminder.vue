@@ -67,7 +67,7 @@ watch(() => settings.loaded, (l) => { if (l) evaluate(); }, { immediate: true })
 
 <style scoped>
 .sr-body { text-align: center; padding: 4px 8px 0; }
-.sr-heart { font-size: 28px; color: #f14c4c; line-height: 1; }
+.sr-heart { font-size: 28px; color: var(--nm-danger); line-height: 1; }
 .sr-body h3 { margin: 8px 0 10px; font-size: 16px; color: var(--nm-text-strong); }
 .sr-body p { margin: 0 0 8px; line-height: 1.55; }
 .sr-muted { color: var(--nm-text-muted); font-size: 12.5px; }

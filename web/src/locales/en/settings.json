@@ -14,7 +14,23 @@
     "maxRows": "Max rows per query",
     "maxRowsHelp": "Row limit each run fetches in the editor.",
     "groupBySchema": "Group by schema",
-    "groupBySchemaHelp": "In the explorer, each schema is a folder with its objects. When off, objects go in a single list with the schema before the name."
+    "groupBySchemaHelp": "In the explorer, each schema is a folder with its objects. When off, objects go in a single list with the schema before the name.",
+    "theme": "Theme",
+    "themeHelp": "DBine's colors. \"Same as system\" switches when the operating system's does.",
+    "themes": {
+      "system": "Same as system",
+      "dark": "Dark",
+      "light": "Light"
+    },
+    "zoom": "Interface zoom",
+    "zoomHelp": "The size of the whole window. Also with {{mod}} + \"+\", \"−\" and \"0\", or {{mod}} + mouse wheel.",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "zoomReset": "Back to 100 %",
+    "editorFontSize": "Editor font size",
+    "editorFontSizeHelp": "The text of the SQL and script editor.",
+    "gridFontSize": "Grid font size",
+    "gridFontSizeHelp": "The cells of the results grid; rows grow with the text."
   },
   "sync": {
     "folderDialogTitle": "Folder for the DBine backup",

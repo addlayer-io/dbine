@@ -14,7 +14,23 @@
     "maxRows": "Filas máximas por query",
     "maxRowsHelp": "Tope de filas que trae cada ejecución en el editor.",
     "groupBySchema": "Agrupar por esquema",
-    "groupBySchemaHelp": "En el explorador, cada esquema es una carpeta con sus objetos. Apagado, los objetos van en una sola lista con el esquema antes del nombre."
+    "groupBySchemaHelp": "En el explorador, cada esquema es una carpeta con sus objetos. Apagado, los objetos van en una sola lista con el esquema antes del nombre.",
+    "theme": "Tema",
+    "themeHelp": "Los colores de DBine. «Igual que el sistema» cambia solo cuando cambia el del sistema operativo.",
+    "themes": {
+      "system": "Igual que el sistema",
+      "dark": "Oscuro",
+      "light": "Claro"
+    },
+    "zoom": "Zoom de la interfaz",
+    "zoomHelp": "El tamaño de toda la ventana. También con {{mod}} + «+», «−» y «0», o {{mod}} + rueda del mouse.",
+    "zoomIn": "Acercar",
+    "zoomOut": "Alejar",
+    "zoomReset": "Volver al 100 %",
+    "editorFontSize": "Tamaño de letra del editor",
+    "editorFontSizeHelp": "El texto del editor de SQL y de los scripts.",
+    "gridFontSize": "Tamaño de letra de la grilla",
+    "gridFontSizeHelp": "Las celdas de la grilla de resultados; las filas crecen con la letra."
   },
   "sync": {
     "folderDialogTitle": "Carpeta para el backup de DBine",

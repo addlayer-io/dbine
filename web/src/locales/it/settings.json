@@ -14,7 +14,23 @@
     "maxRows": "Righe massime per query",
     "maxRowsHelp": "Limite di righe che ogni esecuzione recupera nell'editor.",
     "groupBySchema": "Raggruppa per schema",
-    "groupBySchemaHelp": "Nell'esplora risorse, ogni schema è una cartella con i suoi oggetti. Disattivato, gli oggetti sono in un unico elenco con lo schema prima del nome."
+    "groupBySchemaHelp": "Nell'esplora risorse, ogni schema è una cartella con i suoi oggetti. Disattivato, gli oggetti sono in un unico elenco con lo schema prima del nome.",
+    "theme": "Tema",
+    "themeHelp": "I colori di DBine. «Come il sistema» cambia quando cambia quello del sistema operativo.",
+    "themes": {
+      "system": "Come il sistema",
+      "dark": "Scuro",
+      "light": "Chiaro"
+    },
+    "zoom": "Zoom dell'interfaccia",
+    "zoomHelp": "La dimensione dell'intera finestra. Anche con {{mod}} + «+», «−» e «0», o {{mod}} + rotellina del mouse.",
+    "zoomIn": "Ingrandisci",
+    "zoomOut": "Riduci",
+    "zoomReset": "Torna al 100 %",
+    "editorFontSize": "Dimensione del carattere dell'editor",
+    "editorFontSizeHelp": "Il testo dell'editor SQL e degli script.",
+    "gridFontSize": "Dimensione del carattere della griglia",
+    "gridFontSizeHelp": "Le celle della griglia dei risultati; le righe crescono con il carattere."
   },
   "sync": {
     "folderDialogTitle": "Cartella per il backup di DBine",

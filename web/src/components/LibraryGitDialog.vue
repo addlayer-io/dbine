@@ -283,7 +283,7 @@ const STATE: Record<string, { label: string; cls: string }> = {
   color: var(--nm-text); border: 1px solid var(--nm-border-soft);
 }
 .lg-count { font-size: 11.5px; color: var(--nm-warning); white-space: nowrap; }
-.lg-link { border: 0; background: none; padding: 0; font: inherit; font-size: 12px; cursor: pointer; color: var(--nm-link, #3794ff); }
+.lg-link { border: 0; background: none; padding: 0; font: inherit; font-size: 12px; cursor: pointer; color: var(--nm-link); }
 .lg-link:disabled { opacity: 0.5; cursor: default; }
 .lg-last { margin-top: 4px; font-size: 11.5px; color: var(--nm-text-dim); }
 .lg-alert { margin-top: 10px; }
@@ -294,8 +294,8 @@ const STATE: Record<string, { label: string; cls: string }> = {
 }
 .lg-change { display: flex; gap: 8px; padding: 2px 10px; font-size: 12px; }
 .lg-state { width: 12px; font-family: var(--nm-mono); font-weight: 600; text-align: center; }
-.lg-state.add { color: #89d185; }
-.lg-state.mod { color: #d7ba7d; }
+.lg-state.add { color: var(--nm-success); }
+.lg-state.mod { color: var(--nm-syn-code); }
 .lg-state.del { color: var(--nm-danger); }
 .lg-path { font-family: var(--nm-mono); font-size: 12px; color: var(--nm-text); overflow-wrap: anywhere; }
 .lg-none { padding: 6px 10px; font-size: 12px; color: var(--nm-text-dim); }

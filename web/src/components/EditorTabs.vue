@@ -274,9 +274,9 @@ function onGroupContext(e: MouseEvent, g: Extract<Row, { type: 'group' }>) {
 .et-tab {
   position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 220px;
   padding: 0 6px 0 10px; background: var(--ide-tab); border-right: 1px solid var(--ide-tabs);
-  color: #969696; cursor: pointer; user-select: none; flex-shrink: 0; font-size: 13px;
+  color: var(--ide-tab-fg); cursor: pointer; user-select: none; flex-shrink: 0; font-size: 13px;
 }
-.et-tab.active { background: var(--ide-tab-active); color: #ffffff; }
+.et-tab.active { background: var(--ide-tab-active); color: var(--ide-tab-fg-active); }
 .et-tab.active::before {
   content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px;
   background: var(--tab-color, var(--ide-focus));
@@ -287,16 +287,16 @@ function onGroupContext(e: MouseEvent, g: Extract<Row, { type: 'group' }>) {
 }
 .et-tab.preview .et-name { font-style: italic; }
 .et-icon { font-size: 14px; flex-shrink: 0; }
-.et-icon.query { color: #75beff; }
-.et-icon.object { color: #4ec9b0; }
-.et-icon.file { color: #e5c07b; }
-.et-icon.fileDiff { color: #e5c07b; }
+.et-icon.query { color: var(--nm-accent-2); }
+.et-icon.object { color: var(--nm-syn-type); }
+.et-icon.file { color: var(--nm-yellow); }
+.et-icon.fileDiff { color: var(--nm-yellow); }
 .et-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .et-dirty { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--nm-text-strong); opacity: 0.85; }
 .et-dirty.error { background: var(--nm-danger); opacity: 1; }
 .et-rename {
   width: 150px; height: 20px; padding: 0 4px; box-sizing: border-box; border: 1px solid var(--ide-focus, var(--nm-accent)); border-radius: 2px;
-  background: var(--ide-input, #1e1e1e); color: var(--nm-text-strong); font: inherit; outline: none;
+  background: var(--ide-input); color: var(--nm-text-strong); font: inherit; outline: none;
 }
 .et-close { opacity: 0; color: inherit; }
 .et-tab:hover .et-close, .et-tab.active .et-close { opacity: 1; }
@@ -306,9 +306,9 @@ function onGroupContext(e: MouseEvent, g: Extract<Row, { type: 'group' }>) {
    under the header and all its tabs. */
 .et-group {
   position: relative; display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 190px;
-  padding: 0 10px 0 12px; border: 0; border-left: 1px solid rgba(255, 255, 255, 0.07); cursor: pointer;
+  padding: 0 10px 0 12px; border: 0; border-left: 1px solid var(--nm-overlay-code); cursor: pointer;
   background: transparent; font: 600 12px/1 inherit; white-space: nowrap;
-  color: color-mix(in srgb, var(--g) 75%, #ffffff);
+  color: color-mix(in srgb, var(--g) 75%, var(--nm-text-max));
 }
 .et-group:first-child { border-left: 0; }
 .et-group::after {

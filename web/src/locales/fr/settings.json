@@ -14,7 +14,23 @@
     "maxRows": "Lignes max. par requête",
     "maxRowsHelp": "Nombre maximal de lignes ramenées par chaque exécution dans l'éditeur.",
     "groupBySchema": "Grouper par schéma",
-    "groupBySchemaHelp": "Dans l'explorateur, chaque schéma est un dossier contenant ses objets. Désactivé, les objets sont dans une seule liste avec le schéma avant le nom."
+    "groupBySchemaHelp": "Dans l'explorateur, chaque schéma est un dossier contenant ses objets. Désactivé, les objets sont dans une seule liste avec le schéma avant le nom.",
+    "theme": "Thème",
+    "themeHelp": "Les couleurs de DBine. « Comme le système » change quand celui du système d'exploitation change.",
+    "themes": {
+      "system": "Comme le système",
+      "dark": "Sombre",
+      "light": "Clair"
+    },
+    "zoom": "Zoom de l'interface",
+    "zoomHelp": "La taille de toute la fenêtre. Aussi avec {{mod}} + « + », « − » et « 0 », ou {{mod}} + molette de la souris.",
+    "zoomIn": "Agrandir",
+    "zoomOut": "Réduire",
+    "zoomReset": "Revenir à 100 %",
+    "editorFontSize": "Taille de police de l'éditeur",
+    "editorFontSizeHelp": "Le texte de l'éditeur SQL et de scripts.",
+    "gridFontSize": "Taille de police de la grille",
+    "gridFontSizeHelp": "Les cellules de la grille de résultats ; les lignes grandissent avec la police."
   },
   "sync": {
     "folderDialogTitle": "Dossier pour la sauvegarde de DBine",

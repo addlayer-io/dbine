@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus';
 import dagre from '@dagrejs/dagre';
 import type { ColumnDef, ForeignKeyDef, TableSchema } from '../api/schema-types';
 import { usePanZoom } from '../composables/usePanZoom';
+import { resolvedTheme } from '../composables/appearance';
 import { useTranslation } from 'i18next-vue';
 import { language } from '../i18n';
 
@@ -575,9 +576,19 @@ const markerDefs = (id: string, color: string, bg: string) => `
   <marker id="${id}-one" viewBox="-22 -8 24 16" refX="0" refY="0" markerWidth="24" markerHeight="16" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
     <path d="M -6 -6 L -6 6 M -10 -6 L -10 6" fill="none" stroke="${color}" stroke-width="1.3"/>
   </marker>`;
-const EDGE = '#666a72';
-const EDGE_HOT = '#3794ff';
-const CANVAS = '#1b1c1f';
+/** Colours for SVG markup (markers, the exported image), per theme; the
+ *  live cards use CSS tokens. */
+const INKS = {
+  dark: {
+    edge: '#666a72', hot: '#3794ff', canvas: '#1b1c1f', card: '#232428', head: '#2a2c31', line: '#34363c',
+    dim: '#8b9098', text: '#eceef1', col: '#cccccc', type: '#7f848c', faint: '#6f7379', pk: '#e2c08d', fk: '#75beff', nn: '#9da2aa',
+  },
+  light: {
+    edge: '#9aa0a8', hot: '#005fb8', canvas: '#f6f7f9', card: '#ffffff', head: '#f1f3f5', line: '#dfe2e6',
+    dim: '#636a74', text: '#1f2328', col: '#3b3b3b', type: '#6b717b', faint: '#8a9099', pk: '#895503', fk: '#0070c1', nn: '#8a9099',
+  },
+};
+const ink = computed(() => INKS[resolvedTheme.value]);
 
 /** A standalone SVG of the diagram as it is now (visible tables, current positions). */
 function buildSvg(): string {
@@ -585,32 +596,33 @@ function buildSvg(): string {
   const M = 32;
   const W = Math.ceil(b.width + M * 2);
   const H = Math.ceil(b.height + M * 2);
+  const k = ink.value;
   const o = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="${b.x - M} ${b.y - M} ${W} ${H}" font-family='${SANS}'>`,
-    `<defs>${markerDefs('x', EDGE, '#232428')}</defs>`,
-    `<rect x="${b.x - M}" y="${b.y - M}" width="${W}" height="${H}" fill="${CANVAS}"/>`];
-  if (props.title) o.push(`<text x="${b.x}" y="${b.y - 12}" font-size="12" fill="#8b9098">${esc(props.title)}</text>`);
-  for (const e of edges.value) o.push(`<path d="${e.d}" fill="none" stroke="${EDGE}" stroke-width="1.4" marker-start="url(#x-${e.many})" marker-end="url(#x-one)"/>`);
+    `<defs>${markerDefs('x', k.edge, k.card)}</defs>`,
+    `<rect x="${b.x - M}" y="${b.y - M}" width="${W}" height="${H}" fill="${k.canvas}"/>`];
+  if (props.title) o.push(`<text x="${b.x}" y="${b.y - 12}" font-size="12" fill="${k.dim}">${esc(props.title)}</text>`);
+  for (const e of edges.value) o.push(`<path d="${e.d}" fill="none" stroke="${k.edge}" stroke-width="1.4" marker-start="url(#x-${e.many})" marker-end="url(#x-one)"/>`);
   for (const n of visible.value) {
     const p = pos[n.key];
     const v = views.value.get(n.key)!;
     const w = n.w;
     o.push(`<g transform="translate(${p.x} ${p.y})">`);
-    o.push(`<rect width="${w}" height="${v.h}" rx="8" fill="#232428" stroke="#34363c"/>`);
-    o.push(`<path d="M0 8 A8 8 0 0 1 8 0 H${w - 8} A8 8 0 0 1 ${w} 8 V${HEAD} H0 Z" fill="#2a2c31"/>`);
+    o.push(`<rect width="${w}" height="${v.h}" rx="8" fill="${k.card}" stroke="${k.line}"/>`);
+    o.push(`<path d="M0 8 A8 8 0 0 1 8 0 H${w - 8} A8 8 0 0 1 ${w} 8 V${HEAD} H0 Z" fill="${k.head}"/>`);
     if (n.color) o.push(`<path d="M0 8 A8 8 0 0 1 8 0 H${w - 8} A8 8 0 0 1 ${w} 8 V3 H0 Z" fill="${n.color}" opacity="0.9"/>`);
-    o.push(`<line x1="0" y1="${HEAD}" x2="${w}" y2="${HEAD}" stroke="#34363c"/>`);
+    o.push(`<line x1="0" y1="${HEAD}" x2="${w}" y2="${HEAD}" stroke="${k.line}"/>`);
     const schemaTxt = n.t.schema ? `${n.t.schema}.` : '';
     const nameMax = w - 24 - (schemaTxt ? textW(schemaTxt, F_SCHEMA) : 0);
-    o.push(`<text x="12" y="${HEAD / 2 + 4.5}" font-size="12.5">${schemaTxt ? `<tspan fill="#8b9098">${esc(schemaTxt)}</tspan>` : ''}<tspan fill="#eceef1" font-weight="600">${esc(fitText(n.t.name, F_HEAD, nameMax))}</tspan></text>`);
+    o.push(`<text x="12" y="${HEAD / 2 + 4.5}" font-size="12.5">${schemaTxt ? `<tspan fill="${k.dim}">${esc(schemaTxt)}</tspan>` : ''}<tspan fill="${k.text}" font-weight="600">${esc(fitText(n.t.name, F_HEAD, nameMax))}</tspan></text>`);
     v.rows.forEach((c, i) => {
       const y = HEAD + i * ROW;
       const typeW = Math.min(textW(c.c.data_type, F_TYPE), w * 0.45);
-      o.push(`<g transform="translate(10 ${y + ROW / 2 - 6})">${c.pk ? GLYPH.key('#e2c08d') : ''}${c.fk ? `<g transform="translate(${c.pk ? 13 : 0} 0)">${GLYPH.link('#75beff')}</g>` : ''}${!c.pk && !c.fk ? (c.c.nullable ? GLYPH.null('#6f7379') : GLYPH.nn('#9da2aa')) : ''}</g>`);
-      o.push(`<text x="38" y="${y + ROW / 2 + 4}" font-size="12" fill="${c.pk ? '#eceef1' : '#cccccc'}"${c.pk ? ' font-weight="600"' : ''}>${esc(fitText(c.c.name, F_COL, w - 38 - typeW - 22))}</text>`);
-      o.push(`<text x="${w - 10}" y="${y + ROW / 2 + 4}" font-size="11" font-family='${MONO}' fill="#7f848c" text-anchor="end">${esc(fitText(c.c.data_type, F_TYPE, w * 0.45))}</text>`);
+      o.push(`<g transform="translate(10 ${y + ROW / 2 - 6})">${c.pk ? GLYPH.key(k.pk) : ''}${c.fk ? `<g transform="translate(${c.pk ? 13 : 0} 0)">${GLYPH.link(k.fk)}</g>` : ''}${!c.pk && !c.fk ? (c.c.nullable ? GLYPH.null(k.faint) : GLYPH.nn(k.nn)) : ''}</g>`);
+      o.push(`<text x="38" y="${y + ROW / 2 + 4}" font-size="12" fill="${c.pk ? k.text : k.col}"${c.pk ? ' font-weight="600"' : ''}>${esc(fitText(c.c.name, F_COL, w - 38 - typeW - 22))}</text>`);
+      o.push(`<text x="${w - 10}" y="${y + ROW / 2 + 4}" font-size="11" font-family='${MONO}' fill="${k.type}" text-anchor="end">${esc(fitText(c.c.data_type, F_TYPE, w * 0.45))}</text>`);
     });
-    if (!n.cols.length) o.push(`<text x="12" y="${HEAD + ROW / 2 + 4}" font-size="11.5" fill="#6f7379" font-style="italic">${esc(t('diagram:card.noColumns'))}</text>`);
-    if (v.hidden) o.push(`<text x="12" y="${HEAD + v.rows.length * ROW + FOOT / 2 + 4}" font-size="11" fill="#8b9098">${esc(t('diagram:card.moreColumns', { count: v.hidden }))}</text>`);
+    if (!n.cols.length) o.push(`<text x="12" y="${HEAD + ROW / 2 + 4}" font-size="11.5" fill="${k.faint}" font-style="italic">${esc(t('diagram:card.noColumns'))}</text>`);
+    if (v.hidden) o.push(`<text x="12" y="${HEAD + v.rows.length * ROW + FOOT / 2 + 4}" font-size="11" fill="${k.dim}">${esc(t('diagram:card.moreColumns', { count: v.hidden }))}</text>`);
     o.push('</g>');
   }
   o.push('</svg>');
@@ -730,7 +742,7 @@ const fmtRules = (f: ForeignKeyDef) =>
             :height="bounds.height + 200"
             :viewBox="`${bounds.x - 100} ${bounds.y - 100} ${bounds.width + 200} ${bounds.height + 200}`"
           >
-            <defs v-html="markerDefs('dd', EDGE, '#1b1c1f') + markerDefs('ddh', EDGE_HOT, '#1b1c1f')" />
+            <defs v-html="markerDefs('dd', ink.edge, ink.canvas) + markerDefs('ddh', ink.hot, ink.canvas)" />
             <g
               v-for="e in edges"
               :key="e.r.id"
@@ -781,12 +793,12 @@ const fmtRules = (f: ForeignKeyDef) =>
               @pointerleave="hoverCol = null"
             >
               <span class="dd-ic">
-                <svg v-if="c.pk" viewBox="0 0 12 12" width="12" height="12"><title>{{ $t('diagram:primaryKey') }}</title><g fill="none" stroke="#e2c08d" stroke-width="1.4" stroke-linecap="round"><circle cx="3.6" cy="6" r="2.4" /><path d="M6 6 H11 M9 6 V8.4 M11 6 V8" /></g></svg>
-                <svg v-if="c.fk" viewBox="0 0 12 12" width="12" height="12"><title>{{ $t('diagram:foreignKey') }}</title><g fill="none" stroke="#75beff" stroke-width="1.3"><rect x="0.8" y="3.8" width="6" height="4.4" rx="2.2" /><rect x="5.2" y="3.8" width="6" height="4.4" rx="2.2" /></g></svg>
+                <svg v-if="c.pk" viewBox="0 0 12 12" width="12" height="12"><title>{{ $t('diagram:primaryKey') }}</title><g fill="none" style="stroke: var(--nm-git-modified)" stroke-width="1.4" stroke-linecap="round"><circle cx="3.6" cy="6" r="2.4" /><path d="M6 6 H11 M9 6 V8.4 M11 6 V8" /></g></svg>
+                <svg v-if="c.fk" viewBox="0 0 12 12" width="12" height="12"><title>{{ $t('diagram:foreignKey') }}</title><g fill="none" style="stroke: var(--nm-accent-2)" stroke-width="1.3"><rect x="0.8" y="3.8" width="6" height="4.4" rx="2.2" /><rect x="5.2" y="3.8" width="6" height="4.4" rx="2.2" /></g></svg>
                 <svg v-if="!c.pk && !c.fk" viewBox="0 0 12 12" width="12" height="12">
                   <title>{{ c.c.nullable ? $t('diagram:card.nullable') : 'NOT NULL' }}</title>
-                  <path v-if="c.c.nullable" d="M6 3.2 L8.8 6 L6 8.8 L3.2 6 Z" fill="none" stroke="#6f7379" stroke-width="1.1" />
-                  <path v-else d="M6 2.8 L9.2 6 L6 9.2 L2.8 6 Z" fill="#9da2aa" />
+                  <path v-if="c.c.nullable" d="M6 3.2 L8.8 6 L6 8.8 L3.2 6 Z" fill="none" style="stroke: var(--nm-card-faint)" stroke-width="1.1" />
+                  <path v-else d="M6 2.8 L9.2 6 L6 9.2 L2.8 6 Z" style="fill: var(--dd-nn)" />
                 </svg>
               </span>
               <span class="dd-col" :title="c.c.comment ?? c.c.name">{{ c.c.name }}</span>
@@ -928,12 +940,14 @@ const fmtRules = (f: ForeignKeyDef) =>
 
 <style scoped>
 .dd {
-  --dd-card: #232428;
-  --dd-head: #2a2c31;
-  --dd-line: #34363c;
+  --dd-card: var(--nm-card);
+  --dd-head: var(--nm-card-head);
+  --dd-line: var(--nm-card-line);
   --dd-edge: #666a72;
-  --dd-hot: #3794ff;
+  --dd-hot: var(--nm-accent);
   --dd-match: #e8a33d;
+  --dd-mini-match: #a8772c;
+  --dd-nn: #9da2aa;
   display: flex; flex-direction: column; height: 100%; min-height: 0;
 }
 
@@ -957,8 +971,8 @@ const fmtRules = (f: ForeignKeyDef) =>
 .dd-body { flex: 1; min-height: 0; display: flex; }
 .dd-viewport {
   position: relative; flex: 1; min-width: 0; overflow: hidden; outline: none; cursor: grab;
-  background-color: #1b1c1f;
-  background-image: radial-gradient(circle, #2c2e33 1px, transparent 1.2px);
+  background-color: var(--nm-canvas);
+  background-image: radial-gradient(circle, var(--nm-canvas-dot) 1px, transparent 1.2px);
   background-size: 20px 20px;
 }
 .dd-viewport.panning { cursor: grabbing; }
@@ -981,33 +995,33 @@ const fmtRules = (f: ForeignKeyDef) =>
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.22);
   cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s, opacity 0.12s;
 }
-.dd-card:hover { border-color: #4a4d55; }
+.dd-card:hover { border-color: var(--nm-card-hover); }
 .dd-card.match { border-color: rgba(232, 163, 61, 0.7); }
 .dd-card.current { box-shadow: 0 0 0 2px rgba(232, 163, 61, 0.55), 0 4px 14px rgba(0, 0, 0, 0.3); }
-.dd-card.sel { border-color: var(--ide-focus); box-shadow: 0 0 0 2px rgba(0, 127, 212, 0.45), 0 4px 14px rgba(0, 0, 0, 0.3); }
+.dd-card.sel { border-color: var(--ide-focus); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ide-focus) 45%, transparent), 0 4px 14px rgba(0, 0, 0, 0.3); }
 .dd-card.dim { opacity: 0.4; }
 .dd-head {
   flex-shrink: 0; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px;
   background: var(--dd-head); border-bottom: 1px solid var(--dd-line);
 }
-.dd-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: #eceef1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dd-sch { font-weight: 400; color: #8b9098; }
-.dd-kind { flex-shrink: 0; font-size: 10px; padding: 0 6px; line-height: 16px; border-radius: 8px; background: #33363c; color: var(--nm-text-dim); }
+.dd-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--nm-card-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-sch { font-weight: 400; color: var(--nm-card-dim); }
+.dd-kind { flex-shrink: 0; font-size: 10px; padding: 0 6px; line-height: 16px; border-radius: 8px; background: var(--nm-card-chip); color: var(--nm-text-dim); }
 .dd-row {
   flex-shrink: 0; display: flex; align-items: center; gap: 0; height: 22px; padding: 0 10px; font-size: 12px; color: var(--nm-text);
 }
-.dd-row.pk .dd-col { color: #eceef1; font-weight: 600; }
-.dd-row.hot { background: rgba(55, 148, 255, 0.16); }
-.dd-row.hot .dd-col { color: #fff; }
+.dd-row.pk .dd-col { color: var(--nm-card-text); font-weight: 600; }
+.dd-row.hot { background: color-mix(in srgb, var(--nm-accent) 16%, transparent); }
+.dd-row.hot .dd-col { color: var(--nm-text-max); }
 .dd-ic { width: 28px; flex-shrink: 0; display: inline-flex; align-items: center; gap: 1px; }
 .dd-col { flex: 1 1 auto; min-width: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dd-type { flex: 0 0 auto; max-width: 62%; margin-left: 12px; font-family: var(--nm-mono); font-size: 11px; color: #7f848c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dd-nocols { color: #6f7379; font-style: italic; font-size: 11.5px; }
+.dd-type { flex: 0 0 auto; max-width: 62%; margin-left: 12px; font-family: var(--nm-mono); font-size: 11px; color: var(--nm-card-type); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-nocols { color: var(--nm-card-faint); font-style: italic; font-size: 11.5px; }
 .dd-foot {
   flex-shrink: 0; height: 24px; margin: 0; padding: 0 12px; text-align: left; font: inherit; font-size: 11px;
-  color: #8b9098; background: transparent; border: none; border-top: 1px dashed var(--dd-line); cursor: pointer;
+  color: var(--nm-card-dim); background: transparent; border: none; border-top: 1px dashed var(--dd-line); cursor: pointer;
 }
-.dd-foot:hover { color: #75beff; }
+.dd-foot:hover { color: var(--nm-accent-2); }
 .dd-world.lod .dd-row > *, .dd-world.lod .dd-foot { visibility: hidden; }
 
 /* overlays */
@@ -1016,50 +1030,50 @@ const fmtRules = (f: ForeignKeyDef) =>
   color: var(--nm-text-dim); font-size: 12.5px; pointer-events: none;
 }
 .dd-empty strong { color: var(--nm-text-strong); font-size: 13.5px; font-weight: 600; }
-.dd-empty-ic { font-size: 34px; color: #4a4d55; margin-bottom: 6px; }
+.dd-empty-ic { font-size: 34px; color: var(--nm-card-hover); margin-bottom: 6px; }
 .dd-banner {
   position: absolute; left: 50%; top: 12px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
   max-width: calc(100% - 40px); padding: 6px 12px; font-size: 12px; color: var(--nm-text);
-  background: rgba(37, 37, 38, 0.94); border: 1px solid #3c3c3c; border-left: 3px solid var(--nm-info); border-radius: 6px;
+  background: var(--nm-banner-bg); border: 1px solid var(--nm-border); border-left: 3px solid var(--nm-info); border-radius: 6px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); cursor: default;
 }
 .dd-banner .el-icon { color: var(--nm-info); flex-shrink: 0; }
 .dd-tip {
   position: absolute; z-index: 5; display: flex; flex-direction: column; gap: 3px; max-width: 420px; padding: 7px 10px;
   font-size: 12px; color: var(--nm-text); pointer-events: none;
-  background: #252526; border: 1px solid #454545; border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  background: var(--ide-widget); border: 1px solid var(--ide-widget-border); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 .dd-tip strong { color: var(--nm-text-strong); font-weight: 600; }
-.dd-tip code { font-size: 11px; color: #9cdcfe; word-break: break-all; }
+.dd-tip code { font-size: 11px; color: var(--nm-syn-var); word-break: break-all; }
 .dd-tip span { font-size: 11px; color: var(--nm-text-dim); }
 
 /* floating controls (same as the plan view) */
 .dd-zoom {
   position: absolute; left: 12px; bottom: 12px; display: flex; align-items: center; gap: 1px; padding: 3px;
-  background: rgba(37, 37, 38, 0.92); border: 1px solid #3c3c3c; border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  background: var(--nm-float-bg); border: 1px solid var(--nm-border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 .dd-zoom button {
   display: inline-flex; align-items: center; justify-content: center; height: 26px; min-width: 26px; padding: 0 6px;
   border: none; border-radius: 5px; background: transparent; color: var(--nm-text); cursor: pointer; font: inherit; font-size: 12px;
 }
-.dd-zoom button:hover { background: rgba(255, 255, 255, 0.08); }
-.dd-zoom button.on { color: #75beff; }
+.dd-zoom button:hover { background: var(--nm-overlay-hover); }
+.dd-zoom button.on { color: var(--nm-accent-2); }
 .dd-zoom-pct { min-width: 48px !important; font-variant-numeric: tabular-nums; }
-.dd-zoom-sep { width: 1px; height: 16px; background: #3c3c3c; margin: 0 3px; }
+.dd-zoom-sep { width: 1px; height: 16px; background: var(--nm-border); margin: 0 3px; }
 .dd-mini {
-  position: absolute; right: 12px; bottom: 12px; background: rgba(30, 31, 34, 0.94);
-  border: 1px solid #3c3c3c; border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); cursor: crosshair; overflow: hidden;
+  position: absolute; right: 12px; bottom: 12px; background: var(--nm-mini-bg);
+  border: 1px solid var(--nm-border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); cursor: crosshair; overflow: hidden;
 }
-.dd-mini-node { fill: #3a3d44; }
-.dd-mini-node.match { fill: #a8772c; }
-.dd-mini-node.sel { fill: #3794ff; }
-.dd-mini-view { fill: rgba(0, 127, 212, 0.12); stroke: #3794ff; stroke-width: 1; }
-.dd-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 11px; color: #6c7078; pointer-events: none; white-space: nowrap; }
+.dd-mini-node { fill: var(--nm-mini-node); }
+.dd-mini-node.match { fill: var(--dd-mini-match); }
+.dd-mini-node.sel { fill: var(--nm-accent); }
+.dd-mini-view { fill: color-mix(in srgb, var(--ide-focus) 12%, transparent); stroke: var(--nm-accent); stroke-width: 1; }
+.dd-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 11px; color: var(--nm-card-hint); pointer-events: none; white-space: nowrap; }
 
 /* properties panel */
 .dd-props { width: 330px; flex-shrink: 0; border-left: 1px solid var(--nm-border); overflow: auto; background: var(--ide-sidebar); }
 .dd-props-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 14px; position: sticky; top: 0; background: var(--ide-sidebar); border-bottom: 1px solid var(--nm-border-soft); z-index: 1; }
-.dd-props-ic { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 6px; font-size: 17px; background: rgba(55, 148, 255, 0.16); color: #75beff; }
+.dd-props-ic { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 6px; font-size: 17px; background: color-mix(in srgb, var(--nm-accent) 16%, transparent); color: var(--nm-accent-2); }
 .dd-props-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .dd-props-title strong { font-size: 13.5px; color: var(--nm-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dd-props-title span { font-size: 11.5px; color: var(--nm-text-dim); }
@@ -1071,22 +1085,32 @@ const fmtRules = (f: ForeignKeyDef) =>
 .dd-pcol-flags { grid-row: span 2; display: flex; flex-direction: column; gap: 2px; padding-top: 1px; }
 .dd-pcol-name { color: var(--nm-text-strong); word-break: break-all; }
 .dd-pcol.pk .dd-pcol-name { font-weight: 600; }
-.dd-pcol-type { font-family: var(--nm-mono); font-size: 11px; color: #7f848c; }
-.dd-pcol-def { grid-column: 2; font-family: var(--nm-mono); font-size: 11px; color: #ce9178; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-pcol-type { font-family: var(--nm-mono); font-size: 11px; color: var(--nm-card-type); }
+.dd-pcol-def { grid-column: 2; font-family: var(--nm-mono); font-size: 11px; color: var(--nm-syn-string); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dd-flag { display: inline-block; font-size: 9.5px; font-weight: 700; line-height: 14px; padding: 0 4px; border-radius: 3px; text-align: center; }
-.dd-flag.pk { background: rgba(226, 192, 141, 0.16); color: #e2c08d; }
-.dd-flag.fk { background: rgba(117, 190, 255, 0.14); color: #75beff; }
-.dd-flag.uq { margin-left: 6px; background: rgba(78, 201, 176, 0.14); color: #4ec9b0; font-weight: 600; }
+.dd-flag.pk { background: color-mix(in srgb, var(--nm-git-modified) 16%, transparent); color: var(--nm-git-modified); }
+.dd-flag.fk { background: color-mix(in srgb, var(--nm-accent-2) 14%, transparent); color: var(--nm-accent-2); }
+.dd-flag.uq { margin-left: 6px; background: color-mix(in srgb, var(--nm-syn-type) 14%, transparent); color: var(--nm-syn-type); font-weight: 600; }
 .dd-idx { display: flex; flex-direction: column; gap: 1px; padding: 3px 0; font-size: 12px; }
 .dd-idx-name { color: var(--nm-text-strong); word-break: break-all; }
 .dd-idx-kind { margin-left: 6px; font-size: 10.5px; color: var(--nm-text-dim); }
-.dd-idx code, .dd-fk code { font-size: 11px; color: #9cdcfe; }
+.dd-idx code, .dd-fk code { font-size: 11px; color: var(--nm-syn-var); }
 .dd-idx-filter { font-family: var(--nm-mono); font-size: 11px; color: var(--nm-text-dim); }
 .dd-fk { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; padding: 4px 0; font-size: 12px; }
 .dd-fk code.dim { color: var(--nm-text-dim); }
 .dd-arrow { color: var(--nm-text-muted); }
-.dd-link { color: #75beff; cursor: pointer; }
+.dd-link { color: var(--nm-accent-2); cursor: pointer; }
 .dd-link:hover { text-decoration: underline; }
 .dd-ext { color: var(--nm-text); }
 .dd-fk-meta { flex-basis: 100%; font-size: 11px; color: var(--nm-text-dim); }
+</style>
+
+<style>
+/* Light theme: the diagram's own colours (the rest are tokens, global.scss). */
+html.light .dd {
+  --dd-edge: #9aa0a8;
+  --dd-match: #d4861c;
+  --dd-mini-match: #e0b56a;
+  --dd-nn: #8a9099;
+}
 </style>

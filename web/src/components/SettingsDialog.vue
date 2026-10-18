@@ -33,6 +33,11 @@ import McpSettings from './McpSettings.vue';
 import DevicesSettings from './DevicesSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 import { ALL_ROWS } from '../composables/queryControls';
+import { isMac } from '../composables/shortcuts';
+import {
+  FONT_SIZES, ZOOM_LEVELS, editorFontSize, gridFontSize, setEditorFontSize, setGridFontSize, setThemePref, themePref, zoom, zoomStep,
+  type ThemePref,
+} from '../composables/appearance';
 
 // Configuración (⌘,): preferences and the cloud backup (docs/sync.md).
 
@@ -85,6 +90,13 @@ const appVersion = ref('');
 if ('__TAURI_INTERNALS__' in window) {
   import('@tauri-apps/api/app').then(({ getVersion }) => getVersion()).then((v) => { appVersion.value = v; }).catch(() => {});
 }
+/** Appearance: applied at once (composables/appearance.ts). */
+const THEMES: ThemePref[] = ['system', 'dark', 'light'];
+const theme = computed({ get: () => themePref.value, set: (v: ThemePref) => setThemePref(v) });
+const editorFont = computed({ get: () => editorFontSize.value, set: (v: number) => setEditorFontSize(v) });
+const gridFont = computed({ get: () => gridFontSize.value, set: (v: number) => setGridFontSize(v) });
+const zoomPct = computed(() => `${Math.round(zoom.value * 100)} %`);
+const zoomMod = isMac ? '⌘' : 'Ctrl';
 /** Explorer: schemas as a tree level (ExplorerSidebar) or one qualified list. */
 const groupBySchema = computed({
   get: () => settings.get<boolean>('explorer.groupBySchema', true),
@@ -380,6 +392,32 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
           </el-select>
         </div>
         <div class="st-row">
+          <div><strong>{{ $t('settings:general.theme') }}</strong><span>{{ $t('settings:general.themeHelp') }}</span></div>
+          <el-select v-model="theme" style="width: 240px; flex-shrink: 0">
+            <el-option v-for="th in THEMES" :key="th" :label="$t(`settings:general.themes.${th}`)" :value="th" />
+          </el-select>
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.zoom') }}</strong><span>{{ $t('settings:general.zoomHelp', { mod: zoomMod }) }}</span></div>
+          <div class="st-zoom">
+            <el-button :disabled="zoom <= ZOOM_LEVELS[0]" :title="$t('settings:general.zoomOut')" @click="zoomStep(-1)"><el-icon><ei-minus /></el-icon></el-button>
+            <el-button class="st-zoom-pct" :title="$t('settings:general.zoomReset')" @click="zoomStep(0)">{{ zoomPct }}</el-button>
+            <el-button :disabled="zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]" :title="$t('settings:general.zoomIn')" @click="zoomStep(1)"><el-icon><ei-plus /></el-icon></el-button>
+          </div>
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.editorFontSize') }}</strong><span>{{ $t('settings:general.editorFontSizeHelp') }}</span></div>
+          <el-select v-model="editorFont" style="width: 240px">
+            <el-option v-for="n in FONT_SIZES" :key="n" :label="`${n} px`" :value="n" />
+          </el-select>
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.gridFontSize') }}</strong><span>{{ $t('settings:general.gridFontSizeHelp') }}</span></div>
+          <el-select v-model="gridFont" style="width: 240px">
+            <el-option v-for="n in FONT_SIZES" :key="n" :label="`${n} px`" :value="n" />
+          </el-select>
+        </div>
+        <div class="st-row">
           <div><strong>{{ $t('settings:general.copyFormat') }}</strong><span>{{ $t('settings:general.copyFormatHelp') }}</span></div>
           <el-select v-model="copyFormat" style="width: 240px">
             <el-option v-for="f in COPY_FORMATS" :key="f.id" :label="f.name" :value="f.id" />
@@ -607,6 +645,9 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
 </template>
 
 <style scoped>
+.st-row > .st-zoom { flex-direction: row; flex-shrink: 0; gap: 4px; width: 240px; }
+.st-zoom .el-button + .el-button { margin-left: 0; }
+.st-zoom-pct { flex: 1; font-variant-numeric: tabular-nums; }
 .st { display: flex; min-height: 480px; max-height: 70vh; margin: -10px -20px -20px; }
 .st-nav { width: 180px; flex: none; padding: 10px 8px; border-right: 1px solid var(--nm-border); display: flex; flex-direction: column; gap: 2px; }
 .st-nav button {
@@ -616,7 +657,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
 .st-nav button:hover { background: var(--ide-hover); color: var(--nm-text-strong); }
 .st-nav button.on { background: var(--ide-selection); color: var(--nm-text-strong); }
 .st-nav .st-support { margin-top: auto; }
-.st-heart { width: 16px; text-align: center; color: #f14c4c; }
+.st-heart { width: 16px; text-align: center; color: var(--nm-danger); }
 .st-body { flex: 1; min-width: 0; overflow: hidden auto; padding: 14px 22px 22px; }
 .st-body h3 { margin: 0 0 4px; font-size: 16px; color: var(--nm-text-strong); }
 .st-body h4 { margin: 20px 0 8px; font-size: 13px; color: var(--nm-text-strong); }

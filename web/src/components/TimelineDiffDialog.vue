@@ -57,7 +57,7 @@ const stats = computed(() => ({
 }
 .tld-heads > div { padding: 4px 12px 4px 52px; }
 .tld-stats { font-family: var(--nm-mono); text-transform: none; margin-left: 6px; }
-.tld-stats .add { color: #73c991; }
+.tld-stats .add { color: var(--nm-git-added); }
 .tld-stats .del { color: var(--nm-danger); }
 .tld-empty { padding: 24px; color: var(--nm-text-dim); }
 </style>

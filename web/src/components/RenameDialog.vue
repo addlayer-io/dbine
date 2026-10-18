@@ -384,11 +384,11 @@ defineExpose({ name, loadImpact });
 .rn-edit, .rn-unres { display: grid; grid-template-columns: 64px 1fr; gap: 2px 8px; font-size: 12px; margin: 2px 0 2px 26px; }
 .rn-edit code, .rn-unres code { font-family: var(--nm-mono); white-space: pre-wrap; word-break: break-word; }
 .rn-before { grid-column: 2; color: var(--nm-danger); text-decoration: line-through; opacity: .85; }
-.rn-after { grid-column: 2; color: var(--nm-success, #4ec9b0); }
+.rn-after { grid-column: 2; color: var(--nm-success); }
 .rn-line { color: var(--nm-text-dim); grid-row: span 2; }
-.rn-unres code { color: var(--nm-warning, #d7ba7d); }
+.rn-unres code { color: var(--nm-warning); }
 .rn-carried { font-size: 12px; margin: 2px 0 2px 26px; }
-.rn-why { color: var(--nm-warning, #d7ba7d); font-size: 12px; grid-column: 2; }
+.rn-why { color: var(--nm-warning); font-size: 12px; grid-column: 2; }
 .rn-head .rn-why { grid-column: auto; }
 .rn-script-head { margin-top: 10px; font-weight: 600; font-size: 13px; color: var(--nm-text-strong); }
 .rn-script {

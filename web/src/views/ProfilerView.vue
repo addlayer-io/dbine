@@ -636,7 +636,7 @@ const status = computed(() => {
   font-size: 11px; padding: 1px 7px; border-radius: 9px; white-space: nowrap;
   border: 1px solid var(--nm-border-soft); color: var(--nm-text-dim);
 }
-.pv-mode.complete { color: var(--nm-success, #89d185); border-color: color-mix(in srgb, var(--nm-success, #89d185) 45%, transparent); }
+.pv-mode.complete { color: var(--nm-success); border-color: color-mix(in srgb, var(--nm-success) 45%, transparent); }
 .pv-mode.sampled { color: var(--nm-warning); border-color: color-mix(in srgb, var(--nm-warning) 45%, transparent); }
 .pv-status { font-size: 11.5px; color: var(--nm-text-dim); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .pv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--nm-text-dim); }
@@ -668,7 +668,7 @@ const status = computed(() => {
 }
 .pv-table tbody tr { cursor: default; }
 .pv-table tbody tr:hover td { background: var(--nm-bg-hover, color-mix(in srgb, var(--nm-text) 6%, transparent)); }
-.pv-table tbody tr.sel td { background: color-mix(in srgb, var(--nm-accent, #0e639c) 30%, transparent); }
+.pv-table tbody tr.sel td { background: color-mix(in srgb, var(--nm-accent) 30%, transparent); }
 .pv-table tbody tr.err .c-text { color: var(--nm-danger); }
 .c-time { width: 100px; font-variant-numeric: tabular-nums; }
 .c-dur, .c-rows, .c-metric { width: 74px; text-align: right !important; font-variant-numeric: tabular-nums; }
@@ -681,14 +681,14 @@ const status = computed(() => {
 .c-app { width: 150px; }
 .pv-same {
   display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 2px 0 8px; font-size: 11.5px; font-weight: 400;
-  border-radius: 3px; color: var(--nm-text); background: color-mix(in srgb, var(--nm-accent, #0e639c) 28%, transparent);
-  border: 1px solid color-mix(in srgb, var(--nm-accent, #0e639c) 70%, transparent);
+  border-radius: 3px; color: var(--nm-text); background: color-mix(in srgb, var(--nm-accent) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nm-accent) 70%, transparent);
 }
 .pv-same > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--nm-mono); }
 .pv-stats {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding: 6px 14px; flex-shrink: 0; font-size: 12px;
   color: var(--nm-text-dim); border-top: 1px solid var(--nm-border-soft);
-  background: color-mix(in srgb, var(--nm-accent, #0e639c) 10%, transparent);
+  background: color-mix(in srgb, var(--nm-accent) 10%, transparent);
 }
 .pv-stats b { color: var(--nm-text-strong); font-weight: 600; font-variant-numeric: tabular-nums; }
 .pv-stats-title { color: var(--nm-text); font-weight: 600; }
@@ -698,7 +698,7 @@ const status = computed(() => {
 .pv-none { color: var(--nm-text-dim); text-align: center; padding: 24px !important; }
 
 .pv-sash { height: 5px; flex-shrink: 0; cursor: row-resize; border-top: 1px solid var(--nm-border-soft); }
-.pv-sash:hover { background: color-mix(in srgb, var(--nm-accent, #0e639c) 45%, transparent); }
+.pv-sash:hover { background: color-mix(in srgb, var(--nm-accent) 45%, transparent); }
 .pv-detail { flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; background: var(--nm-bg-elev); }
 .pv-detail-bar { display: flex; align-items: center; gap: 4px; padding: 4px 8px 4px 14px; }
 .pv-detail-meta { font-size: 11.5px; color: var(--nm-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -711,20 +711,22 @@ const status = computed(() => {
   color: var(--nm-text); background: var(--nm-bg); border: 1px solid var(--nm-border-soft); border-radius: 3px; outline: none;
 }
 .pv-filter::placeholder { color: color-mix(in srgb, var(--nm-text-dim) 70%, transparent); }
-.pv-filter:focus { border-color: var(--nm-accent, #0e639c); }
+.pv-filter:focus { border-color: var(--nm-accent); }
 .pv-pick { width: 100%; }
 .pv-pick :deep(.el-select__wrapper) { min-height: 22px; padding: 0 6px; background: var(--nm-bg); box-shadow: 0 0 0 1px var(--nm-border-soft) inset; }
-.pv-pick.on :deep(.el-select__wrapper) { box-shadow: 0 0 0 1px color-mix(in srgb, var(--nm-accent, #0e639c) 70%, transparent) inset; }
-.pv-filter.on { border-color: color-mix(in srgb, var(--nm-accent, #0e639c) 70%, transparent); }
+.pv-pick.on :deep(.el-select__wrapper) { box-shadow: 0 0 0 1px color-mix(in srgb, var(--nm-accent) 70%, transparent) inset; }
+.pv-filter.on { border-color: color-mix(in srgb, var(--nm-accent) 70%, transparent); }
 .pv-foot {
   flex-shrink: 0; display: flex; gap: 4px; align-items: center; padding: 4px 14px;
   font-size: 11.5px; color: var(--nm-text-dim); border-top: 1px solid var(--nm-border-soft);
 }
-.pv-follow { margin-left: auto; color: var(--nm-link, #3794ff); cursor: pointer; }
+.pv-follow { margin-left: auto; color: var(--nm-link); cursor: pointer; }
 </style>
 
 <style>
 /* The server-change detail (a tooltip, outside the component). */
 .pv-changes-tip { max-width: 520px; line-height: 1.5; overflow-wrap: anywhere; }
 .pv-changes-tip div + div { margin-top: 4px; }
+/* Light theme: the slow-duration orange, darker for contrast. */
+html.light .pv-table td.c-dur.slow-2 { color: #b85400; }
 </style>

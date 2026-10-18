@@ -1156,7 +1156,7 @@ function runOverflow(i: number) {
   font-size: 12px; color: var(--nm-text); border-bottom: 1px solid var(--nm-border-soft);
 }
 .qv-file > * { flex-shrink: 0; }
-.qv-file-ic { color: #c5a46d; }
+.qv-file-ic { color: var(--nm-folder); }
 .qv-path { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--nm-text-strong); }
 .qv-sep { color: var(--nm-text-muted); }
 .qv-crumb { border: 0; padding: 0; background: none; font: inherit; color: var(--nm-text-dim); cursor: pointer; }

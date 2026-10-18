@@ -10,6 +10,7 @@ import { nextSort } from '../composables/gridSort';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import CellViewer from './CellViewer.vue';
 import { columnKind, describe, menuFor, parseFilter, type ColumnFilter, type FilterMenuEntry, type FilterState } from '../composables/gridFilter';
+import { gridFontSize } from '../composables/appearance';
 import { COPY_FORMATS, defaultCopyFormat, formatRows, setDefaultCopyFormat, type CopyContext, type CopyFormat } from '../composables/copyFormats';
 
 // Virtualized result grid: only the rows in view are in the DOM, so tens of
@@ -62,7 +63,9 @@ const emit = defineEmits<{
   sort: [keys: SortKey[]];
 }>();
 
-const ROW_H = 22;
+/** Row height for the grid font size (Configuración › General): 22px at 12px. */
+const ROW_H_AT_12 = 22;
+const rowH = computed(() => Math.round((gridFontSize.value * ROW_H_AT_12) / 12));
 const NUM_W = 52;
 /** Header rows above the data: the names, and the filters. */
 const HEAD = computed(() => (props.filterable ? 2 : 1));
@@ -93,7 +96,7 @@ function clearExtras() {
 const hiddenNames = ref<Set<string>>(new Set());
 
 function measure(text: string) {
-  return Math.min(360, Math.max(64, text.length * 7.2 + 20));
+  return Math.min(360 * (gridFontSize.value / 12), Math.max(64, text.length * 7.2 * (gridFontSize.value / 12) + 20));
 }
 
 watch(
@@ -123,6 +126,9 @@ watch(
   { immediate: true },
 );
 
+// Another grid font size: the columns keep their proportions at the new size.
+watch(gridFontSize, (n, o) => { widths.value = widths.value.map((w) => Math.round((w * n) / o)); });
+
 const isHidden = (c: number) => hiddenNames.value.has(props.columns[c]?.name);
 /** Width of the columns before `c` (or all of them), hidden ones left out. */
 const widthUpTo = (c: number) => widths.value.slice(0, c).reduce((a, w, i) => (isHidden(i) ? a : a + w), 0);
@@ -132,8 +138,8 @@ function step(c: number, d: number) {
   for (let x = c + d; x >= 0 && x < props.columns.length; x += d) if (!isHidden(x)) return x;
   return c;
 }
-const first = computed(() => Math.max(0, Math.floor(scrollTop.value / ROW_H) - 10));
-const last = computed(() => Math.min(props.rows.length, Math.ceil((scrollTop.value + viewH.value) / ROW_H) + 10));
+const first = computed(() => Math.max(0, Math.floor(scrollTop.value / rowH.value) - 10));
+const last = computed(() => Math.min(props.rows.length, Math.ceil((scrollTop.value + viewH.value) / rowH.value) + 10));
 const visible = computed(() => props.rows.slice(first.value, last.value).map((r, k) => ({ r, i: first.value + k })));
 
 let ro: ResizeObserver | null = null;
@@ -333,8 +339,8 @@ function onKey(e: KeyboardEvent) {
   selection.value = { r, c };
   const el = scroller.value;
   if (el) {
-    const top = r * ROW_H;
-    const below = ROW_H * (HEAD.value + 1);
+    const top = r * rowH.value;
+    const below = rowH.value * (HEAD.value + 1);
     if (top < el.scrollTop) el.scrollTop = top;
     else if (top + below > el.scrollTop + el.clientHeight) el.scrollTop = top + below - el.clientHeight;
   }
@@ -415,8 +421,8 @@ watch(() => props.rows, () => { editing.value = null; });
 function editRow(r: number) {
   const el = scroller.value;
   if (el) {
-    const top = r * ROW_H;
-    const below = ROW_H * (HEAD.value + 1);
+    const top = r * rowH.value;
+    const below = rowH.value * (HEAD.value + 1);
     if (top < el.scrollTop || top + below > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top + below - el.clientHeight);
   }
   const c = isHidden(0) ? step(0, 1) : 0;
@@ -752,11 +758,12 @@ function columnsMenu(e: MouseEvent) {
     ref="scroller"
     class="rg"
     tabindex="0"
+    :style="{ '--rg-row': rowH + 'px' }"
     @scroll="scrollTop = ($event.target as HTMLDivElement).scrollTop; hideSoon(0)"
     @keydown="hideSoon(0); onKey($event)"
     @mousedown="hideSoon(0)"
   >
-    <div class="rg-inner" :style="{ width: totalW + 'px', height: (rows.length + HEAD) * ROW_H + 'px' }">
+    <div class="rg-inner" :style="{ width: totalW + 'px', height: (rows.length + HEAD) * rowH + 'px' }">
       <div class="rg-head" :style="{ width: totalW + 'px' }" @contextmenu="columnsMenu">
         <div class="rg-num rg-hcell" :style="{ width: NUM_W + 'px' }">#</div>
         <div
@@ -811,7 +818,7 @@ function columnsMenu(e: MouseEvent) {
         class="rg-row"
         :class="{ odd: i % 2 === 1, selected: rowSelected(i), deleted: isDeleted(i), added: isAdded(i) }"
         :title="isDeleted(i) ? $t('results:grid.markedDelete') : isAdded(i) ? $t('results:grid.newRow') : undefined"
-        :style="{ top: (i + HEAD) * ROW_H + 'px', width: totalW + 'px' }"
+        :style="{ top: (i + HEAD) * rowH + 'px', width: totalW + 'px' }"
       >
         <div class="rg-num" :style="{ width: NUM_W + 'px' }" @click="selectRow(i, $event)" @contextmenu="onContext($event, i, null)">
           {{ isAdded(i) ? '+' : i + 1 }}
@@ -837,7 +844,7 @@ function columnsMenu(e: MouseEvent) {
       ref="editInput"
       v-model="editing.text"
       class="rg-editor"
-      :style="{ top: (editing.r + HEAD) * ROW_H + 'px', left: editLeft + 'px', width: Math.max(widths[editing.c], 120) + 'px' }"
+      :style="{ top: (editing.r + HEAD) * rowH + 'px', left: editLeft + 'px', width: Math.max(widths[editing.c], 120) + 'px' }"
       spellcheck="false"
       @keydown="onEditKey"
       @blur="commitEdit()"
@@ -875,7 +882,7 @@ function columnsMenu(e: MouseEvent) {
   overflow: auto;
   outline: none;
   font-family: var(--nm-mono);
-  font-size: 12px;
+  font-size: var(--nm-grid-font-size);
   background: var(--ide-editor);
 }
 .rg-inner { position: relative; }
@@ -884,7 +891,7 @@ function columnsMenu(e: MouseEvent) {
   top: 0;
   z-index: 2;
   display: flex;
-  height: 22px;
+  height: var(--rg-row);
   background: var(--ide-sidebar);
   border-bottom: 1px solid var(--nm-border);
 }
@@ -896,7 +903,7 @@ function columnsMenu(e: MouseEvent) {
   padding: 0 8px;
   font-family: var(--nm-font);
   font-weight: 600;
-  font-size: 11.5px;
+  font-size: calc(var(--nm-grid-font-size) - 0.5px);
   color: var(--nm-text-strong);
   border-right: 1px solid var(--nm-border-soft);
   overflow: hidden;
@@ -925,10 +932,10 @@ function columnsMenu(e: MouseEvent) {
 .rg-resize:hover { background: var(--ide-focus); }
 .rg-filters {
   position: sticky;
-  top: 22px;
+  top: var(--rg-row);
   z-index: 2;
   display: flex;
-  height: 22px;
+  height: var(--rg-row);
   background: var(--ide-sidebar);
   border-bottom: 1px solid var(--nm-border);
 }
@@ -952,7 +959,7 @@ function columnsMenu(e: MouseEvent) {
   color: var(--nm-text-strong);
   font: inherit;
   font-family: var(--nm-font);
-  font-size: 11.5px;
+  font-size: calc(var(--nm-grid-font-size) - 0.5px);
 }
 .rg-finput::placeholder { color: var(--nm-text-muted); opacity: 0.6; }
 .rg-finput:focus { box-shadow: inset 0 0 0 1px var(--ide-focus); background: var(--ide-input, transparent); }
@@ -976,9 +983,9 @@ function columnsMenu(e: MouseEvent) {
   position: absolute;
   left: 0;
   display: flex;
-  height: 22px;
+  height: var(--rg-row);
 }
-.rg-row.odd { background: rgba(255, 255, 255, 0.018); }
+.rg-row.odd { background: var(--nm-overlay-row); }
 .rg-row:hover { background: var(--ide-hover); }
 .rg-row.selected { background: var(--ide-selection-focus); }
 .rg-num {
@@ -999,12 +1006,12 @@ function columnsMenu(e: MouseEvent) {
 .rg-cell {
   flex-shrink: 0;
   padding: 0 8px;
-  line-height: 22px;
+  line-height: var(--rg-row);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   border-right: 1px solid var(--nm-border-soft);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--nm-overlay-line);
 }
 .rg-cell.ranged { background: var(--ide-selection); }
 .rg-cell.active { outline: 1px solid var(--ide-focus); outline-offset: -1px; background: var(--ide-selection); }
@@ -1016,7 +1023,7 @@ function columnsMenu(e: MouseEvent) {
 .rg-row.deleted .rg-num { color: var(--nm-danger); box-shadow: inset 2px 0 0 var(--nm-danger); }
 .rg-cell.edited { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); box-shadow: inset 2px 0 0 var(--nm-warning); }
 .rg-editor {
-  position: absolute; z-index: 5; height: 22px; box-sizing: border-box; padding: 0 5px; border: 1px solid var(--ide-focus, var(--nm-accent));
-  background: var(--ide-input, #1e1e1e); color: var(--nm-text-strong); font: inherit; font-family: var(--nm-mono); font-size: 12px; outline: none;
+  position: absolute; z-index: 5; height: var(--rg-row); box-sizing: border-box; padding: 0 5px; border: 1px solid var(--ide-focus, var(--nm-accent));
+  background: var(--ide-input); color: var(--nm-text-strong); font: inherit; font-family: var(--nm-mono); font-size: var(--nm-grid-font-size); outline: none;
 }
 </style>
