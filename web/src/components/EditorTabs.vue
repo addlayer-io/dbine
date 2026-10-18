@@ -10,13 +10,25 @@ import { useScheduledStore } from '../stores/scheduled';
 import { useUiStore } from '../stores/ui';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
+import { MAX_GROUPS } from '../stores/editorGroups';
+import { isMac } from '../composables/shortcuts';
 
 // Editor tab strip, like open files in VS Code. Preview tabs show their
 // title in italics until pinned (double-click or edit). With tabs of more
 // than one connection open, each connection's tabs are a group (as in
 // Chrome): a chip with its name and color, which collapses the group.
+// Split editor: one strip per editor group (`group`); its tabs can be
+// dragged to reorder them, to another group's strip, or onto the editor
+// area (EditorArea.vue) to split it.
 
+const props = defineProps<{ group?: string }>();
 const tabs = useTabsStore();
+/** This strip's editor group (the first one when not given). */
+const gid = computed(() => props.group ?? tabs.groups[0].id);
+const mine = computed(() => tabs.tabsOf(gid.value));
+const activeId = computed(() => tabs.activeOf(gid.value));
+/** Whether this group has the focus (its active tab is the app's active tab). */
+const focused = computed(() => tabs.focused === gid.value);
 const conns = useConnectionsStore();
 const ui = useUiStore();
 const projects = useProjectsStore();
@@ -95,24 +107,25 @@ function groupColor(connectionId: string): string {
 
 /** Groups show once tabs of two connections are open (the new-connection
  *  form belongs to none). */
-const grouping = computed(() => new Set(tabs.tabs.map((t) => t.connectionId).filter(Boolean)).size > 1);
+const grouping = computed(() => new Set(mine.value.map((t) => t.connectionId).filter(Boolean)).size > 1);
 
 type Row =
   | { type: 'group'; connectionId: string; name: string; driver: string; color: string; count: number; collapsed: boolean }
   | { type: 'tab'; t: Tab; title: string; tooltip: string; color: string | null; icon: string };
 
 const rows = computed<Row[]>(() => {
-  const titles = tabs.tabs.map(title);
+  const list = mine.value;
+  const titles = list.map(title);
   const out: Row[] = [];
   let group: string | null = null;
-  tabs.tabs.forEach((t, i) => {
+  list.forEach((t, i) => {
     const inGroup = grouping.value && !!t.connectionId;
     if (inGroup && t.connectionId !== group) {
       const c = conns.byId(t.connectionId);
       const color = groupColor(t.connectionId);
       out.push({
         type: 'group', connectionId: t.connectionId, name: c?.name ?? tr('workbench:tabs.connection'), driver: c?.config.driver ?? '',
-        color, count: tabs.tabs.filter((x) => x.connectionId === t.connectionId).length,
+        color, count: list.filter((x) => x.connectionId === t.connectionId).length,
         collapsed: tabs.collapsed.includes(t.connectionId),
       });
     }
@@ -140,7 +153,7 @@ const renameInput = ref<HTMLInputElement[] | null>(null);
 let renameTimer: ReturnType<typeof setTimeout> | undefined;
 
 function onTabClick(t: Tab) {
-  if (t.id !== tabs.activeId) {
+  if (t.id !== activeId.value || !focused.value) {
     tabs.activate(t.id);
     return;
   }
@@ -182,12 +195,15 @@ function onContext(e: MouseEvent, t: Tab) {
         ? { label: tr('workbench:tabs.revealInProjects'), shortcut: tr('workbench:tabs.doubleClick'), action: () => reveal(t) }
         : { label: tr('workbench:tabs.revealInExplorer'), shortcut: tr('workbench:tabs.doubleClick'), action: () => reveal(t) },
       ...(t.connectionId ? [{ label: tr('workbench:tabs.goToDatabase'), action: () => ui.revealInExplorer({ connectionId: t.connectionId, database: t.database, menu: true }) }] : []),
+      { label: tr('split:right'), shortcut: splitKey, disabled: !canSplit.value, action: () => tabs.splitEditor('row', t.id), divided: true },
+      { label: tr('split:down'), disabled: !canSplit.value, action: () => tabs.splitEditor('column', t.id) },
+      ...otherGroups(t),
       { label: tr('common:close'), action: () => tabs.close(t.id), divided: true },
       { label: tr('workbench:tabs.closeOthers'), action: () => tabs.closeOthers(t.id) },
       ...(grouping.value && t.connectionId
-        ? [{ label: tr('workbench:tabs.closeConnection'), action: () => tabs.closeGroup(t.connectionId) }]
+        ? [{ label: tr('workbench:tabs.closeConnection'), action: () => tabs.closeGroup(t.connectionId, gid.value) }]
         : []),
-      { label: tr('workbench:tabs.closeAll'), action: () => tabs.closeAll() },
+      { label: tr('workbench:tabs.closeAll'), action: () => tabs.closeAll(false, gid.value) },
       ...(t.preview ? [{ label: tr('workbench:tabs.pin'), action: () => tabs.pin(t.id), divided: true }] : []),
     ],
   };
@@ -199,17 +215,79 @@ function onGroupContext(e: MouseEvent, g: Extract<Row, { type: 'group' }>) {
     items: [
       { label: g.collapsed ? tr('workbench:tabs.expandGroup') : tr('workbench:tabs.collapseGroup'), action: () => tabs.toggleGroup(g.connectionId) },
       { label: tr('workbench:tabs.revealConnection'), action: () => ui.revealInExplorer({
-        connectionId: g.connectionId, database: tabs.tabs.find((t) => t.connectionId === g.connectionId)?.database ?? '',
+        connectionId: g.connectionId, database: mine.value.find((t) => t.connectionId === g.connectionId)?.database ?? '',
       }) },
-      { label: tr('workbench:tabs.closeGroup', { n: g.count }), divided: true, action: () => tabs.closeGroup(g.connectionId) },
-      { label: tr('workbench:tabs.closeOtherGroups'), action: () => tabs.closeOtherGroups(g.connectionId) },
+      { label: tr('workbench:tabs.closeGroup', { n: g.count }), divided: true, action: () => tabs.closeGroup(g.connectionId, gid.value) },
+      { label: tr('workbench:tabs.closeOtherGroups'), action: () => tabs.closeOtherGroups(g.connectionId, gid.value) },
     ],
   };
+}
+
+// -- split editor
+/** ⌘\ on macOS, Ctrl+\ elsewhere. */
+const splitKey = isMac ? '⌘\\' : 'Ctrl+\\';
+const canSplit = computed(() => tabs.groups.length < MAX_GROUPS);
+/** "Mover al grupo de la izquierda / derecha / arriba / abajo". */
+function otherGroups(t: Tab): MenuItem[] {
+  const i = tabs.groups.findIndex((g) => g.id === gid.value);
+  const row = tabs.split === 'row';
+  return [
+    ...(i > 0 ? [{ label: tr(row ? 'split:moveLeft' : 'split:moveUp'), action: () => tabs.moveTab(t.id, tabs.groups[i - 1].id) }] : []),
+    ...(i < tabs.groups.length - 1 ? [{ label: tr(row ? 'split:moveRight' : 'split:moveDown'), action: () => tabs.moveTab(t.id, tabs.groups[i + 1].id) }] : []),
+  ];
+}
+/** The button at the end of the strip: split right (⌥: down, as in VS Code). */
+function splitFromButton(e: MouseEvent) {
+  tabs.splitEditor(e.altKey ? 'column' : 'row', activeId.value);
+}
+
+// -- drag: a tab dragged onto a strip lands before the tab under the
+// pointer (or after it, on its right half), or at the strip's end.
+const DRAG_TYPE = 'application/x-dbine-tab';
+const dropAt = ref<{ id: string | null; after: boolean } | null>(null);
+function onDragStart(e: DragEvent, t: Tab) {
+  if (renaming.value?.id === t.id || !e.dataTransfer) return;
+  e.dataTransfer.setData(DRAG_TYPE, t.id);
+  e.dataTransfer.effectAllowed = 'move';
+  // After the browser took the drag image: the drop zones show over the editors.
+  setTimeout(() => { tabs.dragTab = t.id; });
+}
+function onDragEnd() {
+  tabs.dragTab = null;
+  dropAt.value = null;
+}
+const isTabDrag = (e: DragEvent) => !!e.dataTransfer?.types.includes(DRAG_TYPE);
+function onDragOver(e: DragEvent) {
+  if (!isTabDrag(e)) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  const el = (e.target as Element).closest<HTMLElement>('[data-tab]');
+  if (!el) { dropAt.value = { id: null, after: false }; return; }
+  const r = el.getBoundingClientRect();
+  dropAt.value = { id: el.dataset.tab!, after: e.clientX > r.left + r.width / 2 };
+}
+function onDragLeave(e: DragEvent) {
+  if (!(e.currentTarget as Element).contains(e.relatedTarget as Node | null)) dropAt.value = null;
+}
+function onDrop(e: DragEvent) {
+  const id = e.dataTransfer?.getData(DRAG_TYPE);
+  const at = dropAt.value;
+  dropAt.value = null;
+  tabs.dragTab = null;
+  if (!id || !at) return;
+  e.preventDefault();
+  let before: string | null = at.id;
+  if (at.id && at.after) {
+    const list = mine.value;
+    before = list[list.findIndex((x) => x.id === at.id) + 1]?.id ?? null;
+  }
+  if (before === id) return;
+  tabs.moveTab(id, gid.value, before);
 }
 </script>
 
 <template>
-  <div class="et" role="tablist">
+  <div class="et" :class="{ unfocused: !focused, dropping: dropAt && !dropAt.id }" role="tablist" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
     <template v-for="r in rows" :key="r.type === 'tab' ? r.t.id : `g:${r.connectionId}`">
       <button
         v-if="r.type === 'group'"
@@ -228,9 +306,16 @@ function onGroupContext(e: MouseEvent, g: Extract<Row, { type: 'group' }>) {
       <div
         v-else
         class="et-tab"
-        :class="{ active: r.t.id === tabs.activeId, preview: r.t.preview, grouped: grouping && !!r.t.connectionId }"
+        :class="{
+          active: r.t.id === activeId, preview: r.t.preview, grouped: grouping && !!r.t.connectionId,
+          'drop-before': dropAt?.id === r.t.id && !dropAt.after, 'drop-after': dropAt?.id === r.t.id && dropAt.after,
+        }"
         role="tab"
-        :aria-selected="r.t.id === tabs.activeId"
+        :aria-selected="r.t.id === activeId"
+        :data-tab="r.t.id"
+        :draggable="renaming?.id !== r.t.id"
+        @dragstart="onDragStart($event, r.t)"
+        @dragend="onDragEnd"
         :title="r.tooltip"
         :style="r.color ? { '--tab-color': r.color } : undefined"
         @click="onTabClick(r.t)"
@@ -264,6 +349,26 @@ function onGroupContext(e: MouseEvent, g: Extract<Row, { type: 'group' }>) {
       </div>
     </template>
     <div class="et-fill" />
+    <div class="et-actions">
+      <button
+        v-if="canSplit && mine.length"
+        class="ide-icon-btn et-split"
+        :title="$t('split:button', { key: splitKey, alt: isMac ? '⌥' : 'Alt' })"
+        :aria-label="$t('split:right')"
+        @click="splitFromButton"
+      >
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1" fill="none" stroke="currentColor" /><path d="M8 2.5v11" stroke="currentColor" /></svg>
+      </button>
+      <button
+        v-if="tabs.groups.length > 1"
+        class="ide-icon-btn"
+        :title="$t('split:closeGroup')"
+        :aria-label="$t('split:closeGroup')"
+        @click="tabs.closeEditorGroup(gid)"
+      >
+        <el-icon :size="13"><ei-close /></el-icon>
+      </button>
+    </div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
   </div>
 </template>
@@ -319,4 +424,13 @@ function onGroupContext(e: MouseEvent, g: Extract<Row, { type: 'group' }>) {
 .et-group-name { overflow: hidden; text-overflow: ellipsis; }
 .et-group-count { font-weight: 500; color: var(--nm-text-muted); }
 .et-tab.grouped::after { opacity: 1; }
+/* Split editor: the strip of a group without the focus dims its active tab
+   (as VS Code); drop markers while a tab is dragged. */
+.et.unfocused .et-tab.active { color: #b4b4b4; }
+.et.unfocused .et-tab.active::before { opacity: 0.35; }
+.et-tab.drop-before { box-shadow: inset 2px 0 0 var(--ide-focus); }
+.et-tab.drop-after { box-shadow: inset -2px 0 0 var(--ide-focus); }
+.et.dropping .et-fill { box-shadow: inset 2px 0 0 var(--ide-focus); background: color-mix(in srgb, var(--ide-focus) 12%, transparent); }
+.et-actions { position: sticky; right: 0; display: flex; align-items: center; gap: 2px; padding: 0 6px; flex-shrink: 0; background: var(--ide-tabs); }
+.et-split { color: var(--nm-text-muted); }
 </style>

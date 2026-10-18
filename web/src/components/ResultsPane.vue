@@ -20,6 +20,7 @@ import type { FilterState } from '../composables/gridFilter';
 import { EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat } from '../composables/export';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
 import { bindingLabel, registerCommand } from '../composables/commands';
+import { inFocusedEditor } from '../stores/editorGroups';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // What a run produced: one sub-tab per result set, "Plan de ejecución" when
@@ -641,7 +642,7 @@ const root = ref<HTMLDivElement | null>(null);
 function onKey(e: KeyboardEvent) {
   if (isSaveShortcut(e)) saveShortcut(e);
 }
-const unregisterExport = registerCommand('results.export', () => { exporting.value = { format: 'csv' }; }, () => !!current.value && !!root.value?.offsetParent);
+const unregisterExport = registerCommand('results.export', () => { exporting.value = { format: 'csv' }; }, () => !!current.value && inFocusedEditor(root.value));
 onMounted(() => window.addEventListener('keydown', onKey));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); unregisterExport(); });
 
@@ -652,7 +653,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); unregister
 async function saveShortcut(e: KeyboardEvent) {
   if (inCodeEditor(e)) return;
   e.preventDefault();
-  if (applyOpen.value || modalOpen() || show.value === 'chart' || !current.value || !root.value?.offsetParent) return;
+  if (applyOpen.value || modalOpen() || show.value === 'chart' || !current.value || !inFocusedEditor(root.value)) return;
   // A cell being edited commits on the key (ResultGrid); its code is
   // generated now instead of after the debounce.
   await nextTick();

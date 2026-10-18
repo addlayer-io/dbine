@@ -1,0 +1,11 @@
+{
+  "right": "Dividir a la derecha",
+  "down": "Dividir abajo",
+  "moveLeft": "Mover al grupo de la izquierda",
+  "moveRight": "Mover al grupo de la derecha",
+  "moveUp": "Mover al grupo de arriba",
+  "moveDown": "Mover al grupo de abajo",
+  "button": "Dividir el editor ({{key}}) · {{alt}}+clic: abajo",
+  "closeGroup": "Cerrar el grupo",
+  "empty": "Grupo vacío: la próxima pestaña que abras se abre acá. También podés arrastrar una pestaña hasta este lugar."
+}

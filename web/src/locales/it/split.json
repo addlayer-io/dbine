@@ -1,0 +1,11 @@
+{
+  "right": "Dividi a destra",
+  "down": "Dividi in basso",
+  "moveLeft": "Sposta nel gruppo a sinistra",
+  "moveRight": "Sposta nel gruppo a destra",
+  "moveUp": "Sposta nel gruppo in alto",
+  "moveDown": "Sposta nel gruppo in basso",
+  "button": "Dividi l'editor ({{key}}) · {{alt}}+clic: in basso",
+  "closeGroup": "Chiudi il gruppo",
+  "empty": "Gruppo vuoto: la prossima scheda che apri si aprirà qui. Puoi anche trascinare una scheda in quest'area."
+}

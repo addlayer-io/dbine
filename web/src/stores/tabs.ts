@@ -9,6 +9,8 @@ import { t as tr } from '../i18n';
 import { readJson, writeJson } from './storage';
 import { initWindowRole, windowRole } from '../composables/windowRole';
 import type { ParamValue } from '../composables/queryParams';
+import * as eg from './editorGroups';
+import type { EditorGroup, SplitDir } from './editorGroups';
 
 // Editor tabs. A query tab points at a saved query (its text lives in the
 // state store, not here), so reopening a query focuses its tab instead of
@@ -17,6 +19,8 @@ import type { ParamValue } from '../composables/queryParams';
 // single-click replaces (as in VS Code); editing or double-clicking pins it.
 // Tabs stay together by connection (Chrome-style groups): a new tab opens
 // in its connection's group, and a group can be collapsed.
+// Split editor: the tabs are spread over editor groups (./editorGroups.ts);
+// `activeId` / `active` are the focused group's, and new tabs open there.
 
 export type ObjectView = 'data' | 'structure' | 'definition';
 
@@ -25,6 +29,8 @@ interface TabBase {
   connectionId: string;
   database: string;
   preview: boolean;
+  /** Its editor group (split editor); absent in tabs saved before them: the first group. */
+  group?: string;
 }
 
 export interface QueryTab extends TabBase {
@@ -268,29 +274,90 @@ function grouped(tabs: Tab[]): Tab[] {
 export const useTabsStore = defineStore('tabs', {
   state: () => {
     followPromotion();
-    const empty = { tabs: [] as Tab[], activeId: null as string | null };
-    const saved = LABEL === 'main'
-      ? readJson<{ tabs: Tab[]; activeId: string | null; collapsed?: string[] }>(KEY, empty)
-      : { ...empty, collapsed: [] as string[] };
+    const saved = LABEL === 'main' ? readJson<eg.SavedLayout<Tab>>(KEY, {}) : {};
+    // Older saves have no editor groups: their tabs make the one group.
+    const layout = eg.restoreLayout({ ...saved, tabs: grouped(saved.tabs ?? []) }, newId());
     return {
-      tabs: grouped(saved.tabs),
-      activeId: saved.activeId,
-      /** Connections whose tab group is collapsed. */
-      // Groups that still have tabs, never the active tab's.
-      collapsed: (saved.collapsed ?? []).filter((c) => saved.tabs.some((t) => t.connectionId === c) &&
-        saved.tabs.find((t) => t.id === saved.activeId)?.connectionId !== c),
+      tabs: layout.tabs,
+      /** The focused editor group's active tab. */
+      activeId: layout.activeId,
+      /** Connections whose tab group is collapsed (never a shown tab's). */
+      collapsed: layout.collapsed,
+      /** Editor groups (split editor), in the order they're laid out. */
+      groups: layout.groups as EditorGroup[],
+      /** The group new tabs open in; `activeId` is its active tab. */
+      focused: layout.focused,
+      /** Groups side by side ('row') or one above the other ('column'). */
+      split: layout.split as SplitDir,
+      /** The tab being dragged (not saved): drop targets show while it's set. */
+      dragTab: null as string | null,
     };
   },
   getters: {
     active: (s) => s.tabs.find((t) => t.id === s.activeId) ?? null,
+    /** A group's tabs, in order. */
+    tabsOf: (s) => (gid: string) => eg.tabsOf(s, gid),
+    /** A group's active tab id (the focused group's is `activeId`). */
+    activeOf: (s) => (gid: string) => eg.activeOf(s, gid),
+    /** The editor group a tab is in. */
+    groupOf: (s) => (t: Tab) => eg.groupOf(s, t),
+    /** The tab is the one its group shows. */
+    isShown: (s) => (t: Tab) => eg.isShown(s, t),
   },
   actions: {
     persist() {
       if (!ownsSavedState()) return;
-      writeJson(KEY, { tabs: this.tabs, activeId: this.activeId, collapsed: this.collapsed });
+      writeJson(KEY, {
+        tabs: this.tabs, activeId: this.activeId, collapsed: this.collapsed,
+        groups: eg.savedGroups(this), focused: this.focused, split: this.split,
+      });
+    },
+
+    /** Give an editor group the focus: new tabs go there, and it's the one
+     *  the status bar, the assistant… speak about. */
+    focusGroup(gid: string) {
+      if (gid === this.focused) return;
+      eg.focusGroup(this, gid);
+      this.persist();
+    },
+
+    /** "Dividir a la derecha / abajo" (⌘\): tab `id` (the focused one by
+     *  default) moves to a new group beside its own; alone in its group, a
+     *  new empty group opens beside it for the next tab. */
+    splitEditor(dir: SplitDir, id?: string | null) {
+      if (eg.splitTab(this, dir, newId(), id === undefined ? this.activeId : id)) this.persist();
+    },
+
+    /** A tab dropped on group `gid`'s strip (before `beforeId`, or at its end). */
+    moveTab(id: string, gid: string, beforeId: string | null = null) {
+      eg.moveTab(this, id, gid, beforeId);
+      this.persist();
+    },
+
+    /** A tab dropped on the right / bottom half of group `gid`: a new group there. */
+    moveToNewGroup(id: string, gid: string, dir: SplitDir) {
+      if (eg.splitInto(this, dir, gid, newId(), id)) this.persist();
+    },
+
+    /** Close an editor group: its tabs close (asking about guarded ones);
+     *  an empty one just goes. */
+    closeEditorGroup(gid: string) {
+      if (!eg.tabsOf(this, gid).length) {
+        eg.removeGroup(this, gid);
+        return this.persist();
+      }
+      this.closeAsking((t) => eg.groupOf(this, t) === gid);
+    },
+
+    /** The divider before group `i` was dragged to `frac` of the two groups. */
+    resizeGroups(i: number, frac: number, save = false) {
+      eg.resizeGroups(this, i, frac);
+      if (save) this.persist();
     },
 
     activate(id: string) {
+      const tab = this.tabs.find((t) => t.id === id);
+      if (tab) eg.focusGroup(this, eg.groupOf(this, tab));
       this.activeId = id;
       // A tab shown is never hidden in a collapsed group.
       const c = this.tabs.find((t) => t.id === id)?.connectionId;
@@ -298,14 +365,11 @@ export const useTabsStore = defineStore('tabs', {
       this.persist();
     },
 
-    /** Where a new tab goes: next to the active tab of its connection, else
-     *  at the end of its connection's group, else at the end. */
-    slotFor(connectionId: string): number {
-      const at = this.tabs.findIndex((t) => t.id === this.activeId);
-      if (at >= 0 && this.tabs[at].connectionId === connectionId) return at + 1;
-      let last = -1;
-      this.tabs.forEach((t, i) => { if (t.connectionId === connectionId) last = i; });
-      return last >= 0 ? last + 1 : this.tabs.length;
+    /** Where a new tab goes in editor group `gid` (the focused one): next to
+     *  the active tab of its connection, else at the end of its connection's
+     *  group, else at the end. */
+    slotFor(connectionId: string, gid?: string): number {
+      return eg.slotFor(this, connectionId, gid ?? this.focused);
     },
 
     /** Collapse or expand a connection's group. Collapsing the group of the
@@ -317,23 +381,27 @@ export const useTabsStore = defineStore('tabs', {
         this.collapsed = this.collapsed.filter((c) => c !== connectionId);
         return this.persist();
       }
-      if (this.active?.connectionId === connectionId) {
-        const at = this.tabs.findIndex((t) => t.id === this.activeId);
-        const outside = (t: Tab) => t.connectionId !== connectionId && !this.collapsed.includes(t.connectionId);
+      // In every editor group that shows a tab of it.
+      for (const g of this.groups) {
+        const activeId = eg.activeOf(this, g.id);
+        const at = this.tabs.findIndex((t) => t.id === activeId);
+        if (at < 0 || this.tabs[at].connectionId !== connectionId) continue;
+        const outside = (t: Tab) => eg.groupOf(this, t) === g.id && t.connectionId !== connectionId && !this.collapsed.includes(t.connectionId);
         const after = this.tabs.slice(at + 1).find(outside);
         const before = this.tabs.slice(0, at).reverse().find(outside);
-        this.activeId = (after ?? before)?.id ?? null;
+        eg.setActive(this, g.id, (after ?? before)?.id ?? null);
       }
       this.collapsed = [...this.collapsed, connectionId];
       this.persist();
     },
 
-    closeGroup(connectionId: string) {
-      this.closeAsking((t) => t.connectionId === connectionId);
+    /** Close a connection's tabs (in editor group `gid` only, when given). */
+    closeGroup(connectionId: string, gid?: string) {
+      this.closeAsking((t) => t.connectionId === connectionId && (!gid || eg.groupOf(this, t) === gid));
     },
 
-    closeOtherGroups(connectionId: string) {
-      this.closeAsking((t) => t.connectionId !== connectionId);
+    closeOtherGroups(connectionId: string, gid?: string) {
+      this.closeAsking((t) => t.connectionId !== connectionId && (!gid || eg.groupOf(this, t) === gid));
     },
 
     /** Close the tabs that match, after the guarded ones agree. */
@@ -433,10 +501,11 @@ export const useTabsStore = defineStore('tabs', {
       this.place({ id: newId(), kind: 'object', connectionId, database, object, view, preview });
     },
 
-    /** Add a tab: in place of the preview tab when it's one, else after the
-     *  active tab. */
+    /** Add a tab to the focused editor group: in place of its preview tab
+     *  when it's one, else after the active tab. */
     place(tab: Tab) {
-      const previewIdx = tab.preview ? this.tabs.findIndex((t) => t.preview) : -1;
+      tab.group = this.focused;
+      const previewIdx = tab.preview ? this.tabs.findIndex((t) => t.preview && eg.groupOf(this, t) === this.focused) : -1;
       if (previewIdx >= 0 && this.tabs[previewIdx].connectionId === tab.connectionId) {
         this.release(this.tabs[previewIdx]);
         this.tabs.splice(previewIdx, 1, tab);
@@ -622,7 +691,7 @@ export const useTabsStore = defineStore('tabs', {
       t.connectionId = connectionId;
       t.database = database;
       // Another connection: into that connection's group.
-      this.tabs.splice(moved ? this.slotFor(connectionId) : i, 0, t);
+      this.tabs.splice(moved ? this.slotFor(connectionId, eg.groupOf(this, t)) : i, 0, t);
       this.persist();
     },
 
@@ -636,31 +705,35 @@ export const useTabsStore = defineStore('tabs', {
       const i = this.tabs.findIndex((t) => t.id === id);
       if (i < 0) return;
       const gone = this.tabs[i];
+      const gid = eg.groupOf(this, gone);
       this.release(gone);
       this.tabs.splice(i, 1);
-      if (this.activeId === id) {
-        // Next the neighbor of the same connection, else any shown tab.
-        const near = [this.tabs[i], this.tabs[i - 1]].filter((t): t is Tab => !!t);
-        const shown = (t: Tab) => !this.collapsed.includes(t.connectionId);
-        this.activeId = (near.find((t) => t.connectionId === gone.connectionId) ?? near.find(shown) ?? this.tabs.find(shown) ?? near[0])?.id ?? null;
-      }
+      // Next its group's neighbor of the same connection, else any shown tab
+      // of the group; the group closes with its last tab.
+      eg.afterLeaving(this, gone, i, gid);
       if (!this.tabs.some((t) => t.connectionId === gone.connectionId)) this.collapsed = this.collapsed.filter((c) => c !== gone.connectionId);
       this.persist();
     },
 
+    /** Close the other tabs of `id`'s editor group. */
     closeOthers(id: string, force = false) {
-      const others = this.tabs.filter((x) => x.id !== id).map((t) => t.id);
+      const tab = this.tabs.find((x) => x.id === id);
+      if (!tab) return;
+      const gid = eg.groupOf(this, tab);
+      const others = eg.tabsOf(this, gid).filter((x) => x.id !== id).map((t) => t.id);
       if (!force && others.some((x) => closeGuards.has(x))) {
         confirmClose(others).then((ok) => { if (ok) this.closeOthers(id, true); });
         return;
       }
-      for (const t of this.tabs.filter((x) => x.id !== id)) this.release(t);
-      this.tabs = this.tabs.filter((x) => x.id === id);
-      this.collapsed = [];
+      for (const t of this.tabs.filter((x) => others.includes(x.id))) this.release(t);
+      this.tabs = this.tabs.filter((x) => !others.includes(x.id));
+      this.collapsed = this.collapsed.filter((c) => this.tabs.some((t) => t.connectionId === c && t.id !== id));
       this.activate(id);
     },
 
-    closeAll(force = false) {
+    /** Close every tab (of editor group `gid` only, when given). */
+    closeAll(force = false, gid?: string) {
+      if (gid && this.groups.length > 1) return this.closeEditorGroup(gid);
       const ids = this.tabs.map((t) => t.id);
       if (!force && ids.some((x) => closeGuards.has(x))) {
         confirmClose(ids).then((ok) => { if (ok) this.closeAll(true); });
@@ -670,6 +743,7 @@ export const useTabsStore = defineStore('tabs', {
       this.tabs = [];
       this.activeId = null;
       this.collapsed = [];
+      this.groups = [{ id: this.focused, activeId: null, size: 1 }];
       this.persist();
     },
 

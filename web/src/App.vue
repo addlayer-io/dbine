@@ -13,7 +13,7 @@ import DatabaseDialogs from './components/DatabaseDialogs.vue';
 import SettingsDialog from './components/SettingsDialog.vue';
 import McpApprovals from './components/McpApprovals.vue';
 import AiSidebar from './components/AiSidebar.vue';
-import EditorTabs from './components/EditorTabs.vue';
+import EditorArea from './components/EditorArea.vue';
 import ExplorerSidebar from './components/ExplorerSidebar.vue';
 import LibrarySidebar from './components/LibrarySidebar.vue';
 import HistorySidebar from './components/HistorySidebar.vue';
@@ -252,18 +252,17 @@ watch(
       </div>
 
       <div class="ide-editor-col">
-        <EditorTabs v-if="tabs.tabs.length" />
-        <main class="ide-editor">
-          <!-- Restored tabs need their connection loaded before they run anything. -->
-          <template v-for="t in conns.loaded ? tabs.tabs : []" :key="t.id">
-            <div v-show="t.id === tabs.activeId" class="ide-tab-view">
+        <!-- Editor groups (split editor). Restored tabs need their connection loaded before they run anything. -->
+        <EditorArea class="ide-editor" :ready="conns.loaded">
+          <template #default="{ tab: t, shown }">
+            <div class="ide-tab-view">
               <QueryView v-if="t.kind === 'query' || t.kind === 'file'" :tab="t" />
               <FileDiffView v-else-if="t.kind === 'fileDiff'" :tab="t" />
               <ObjectView v-else-if="t.kind === 'object'" :tab="t" />
               <DesignerTabView v-else-if="t.kind === 'designer'" :tab="t" />
               <DiagramTabView v-else-if="t.kind === 'diagram'" :tab="t" />
               <QueryBuilderView v-else-if="t.kind === 'queryBuilder'" :tab="t" />
-              <MonitorView v-else-if="t.kind === 'monitor'" :tab="t" :active="t.id === tabs.activeId" />
+              <MonitorView v-else-if="t.kind === 'monitor'" :tab="t" :active="shown" />
               <ProfilerView v-else-if="t.kind === 'profiler'" :tab="t" />
               <MigrationView v-else-if="t.kind === 'migration'" :tab="t" />
               <CompareView v-else-if="t.kind === 'compare'" :tab="t" />
@@ -280,8 +279,8 @@ watch(
               <ConnectionView v-else-if="t.kind === 'connection'" :tab="t" />
             </div>
           </template>
-          <WelcomeView v-if="!tabs.active" />
-        </main>
+          <template #empty><WelcomeView /></template>
+        </EditorArea>
         <template v-if="panelOpen">
           <div class="ide-sash-y" @pointerdown.prevent="drag($event, 'y')" />
           <OutputPanel :style="{ height: panelHeight + 'px' }" @close="panelOpen = false" />

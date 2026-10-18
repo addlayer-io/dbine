@@ -1,0 +1,11 @@
+{
+  "right": "Diviser à droite",
+  "down": "Diviser en bas",
+  "moveLeft": "Déplacer vers le groupe de gauche",
+  "moveRight": "Déplacer vers le groupe de droite",
+  "moveUp": "Déplacer vers le groupe du haut",
+  "moveDown": "Déplacer vers le groupe du bas",
+  "button": "Diviser l'éditeur ({{key}}) · {{alt}}+clic : en bas",
+  "closeGroup": "Fermer le groupe",
+  "empty": "Groupe vide : le prochain onglet que vous ouvrez s'ouvrira ici. Vous pouvez aussi faire glisser un onglet jusqu'ici."
+}
