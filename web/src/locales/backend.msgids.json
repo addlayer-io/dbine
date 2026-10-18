@@ -2114,7 +2114,8 @@
   "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "Basic {0}": [
-  "crates/drivers/elasticsearch/src/http.rs"
+  "crates/drivers/elasticsearch/src/http.rs",
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Bearer": [
   "src-tauri/src/mcp/server.rs"
@@ -23391,6 +23392,7 @@
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho Vault necesita la frase de contraseña maestra": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "Zoho Vault no devolvió la clave de la organización": [
@@ -23403,6 +23405,9 @@
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho Vault rechazó el token de acceso (¿el cliente tiene acceso a Zoho Vault en este centro de datos?)": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault rechazó el token: generá el código con los permisos {0}": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho Vault respondió {0}": [
@@ -23426,13 +23431,28 @@
  "Zoho no devolvió un token de acceso": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
+ "Zoho no devolvió un token de actualización: generá un código nuevo y volvé a intentar": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "Zoho no permite pedir tokens tan seguido; probá en unos minutos ({0})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho no reconoce ese ID de cliente en ningún centro de datos: copiá el «Client ID» de la pestaña «Client Secret» de tu Self Client": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho rechazó el ID o el secreto del cliente (¿son de este centro de datos?)": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
+ "Zoho rechazó el código: {0}": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "Zoho rechazó el pedido del token de acceso: {0}": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho rechazó el secreto del cliente: copiá de nuevo el «Client Secret» de tu Self Client": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho respondió {0}": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho respondió {0} al pedir el token de acceso": [
@@ -23530,6 +23550,9 @@
  ],
  "a la clave le faltan client_email o private_key": [
   "crates/drivers/bigquery/src/gcp.rs"
+ ],
+ "a la cuenta de Zoho Vault le faltan datos en el llavero: reconectala en Configuración › Gestores de secretos": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "acceso a la API REST de seguridad (all_access o security_rest_api_access)": [
   "crates/drivers/elasticsearch/src/permissions.rs"
@@ -24088,6 +24111,9 @@
  ],
  "con una carpeta, el nombre es solo el del archivo (sin carpetas)": [
   "crates/drivers/firebird/src/create_db.rs"
+ ],
+ "con una cuenta de Zoho Vault, el centro de datos, el cliente y la frase son los de la cuenta": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "con vencimiento": [
   "crates/drivers/redis/src/monitor.rs"
@@ -24752,8 +24778,15 @@
  "el DDL depende de la base detrás del servidor Avatica": [
   "crates/drivers/phoenix/src/lib.rs"
  ],
+ "el ID de la cuenta no es válido": [
+  "crates/dbine-core/src/secret_accounts.rs",
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "el ID de la variable de Conjur no es válido": [
   "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "el ID del cliente de Zoho no es válido (1000.XXXX)": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "el ID del proyecto": [
   "crates/drivers/spanner/src/lib.rs"
@@ -24904,6 +24937,7 @@
   "crates/drivers/trino/src/security.rs"
  ],
  "el centro de datos de Zoho «{0}» no es válido": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs",
   "src-tauri/src/secret_sources/zoho.rs"
  ],
@@ -25037,6 +25071,7 @@
   "src-tauri/src/secret_sources/mod.rs"
  ],
  "el comando tiene que ser una sola línea": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "el commit no es válido": [
@@ -25050,6 +25085,9 @@
  ],
  "el código de DBine no es válido: {0}": [
   "crates/dbine-link/src/net.rs"
+ ],
+ "el código de Zoho venció o ya se usó: generá un código nuevo en la pestaña «Generate Code»": [
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "el código es de otra versión de DBine: actualizá la app": [
   "crates/dbine-link/src/lib.rs"
@@ -25398,6 +25436,9 @@
  ],
  "el nombre de la base tiene que tener entre 1 y 63 caracteres": [
   "crates/drivers/mongodb/src/ddl.rs"
+ ],
+ "el nombre de la cuenta no es válido": [
+  "crates/dbine-core/src/secret_accounts.rs"
  ],
  "el nombre de la regla solo puede tener letras, números, «-» y «_»": [
   "src-tauri/src/commands/azure_firewall.rs"
@@ -25913,6 +25954,9 @@
  ],
  "el uso más reciente puede no figurar todavía, así que un índice recién creado o recién usado puede verse sin uso hasta el próximo volcado, y la última lectura es la hora del volcado que la registró, no la del acceso.": [
   "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "el usuario de la cuenta no es válido": [
+  "crates/dbine-core/src/secret_accounts.rs"
  ],
  "el usuario que lo creó": [
   "crates/drivers/sqlserver/src/clone.rs"
@@ -27184,6 +27228,7 @@
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el ID del cliente de Zoho (1000.XXXX)": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el ID del proyecto": [
@@ -27246,7 +27291,9 @@
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el comando que devuelve la contraseña maestra": [
-  "crates/dbine-core/src/secret_sources.rs"
+  "crates/dbine-core/src/secret_accounts.rs",
+  "crates/dbine-core/src/secret_sources.rs",
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "falta el código a ejecutar («code» está vacío)": [
   "src-tauri/src/mcp/write.rs"
@@ -27302,6 +27349,9 @@
  ],
  "falta el nombre de la colección": [
   "crates/drivers/mongodb/src/ddl.rs"
+ ],
+ "falta el nombre de la cuenta": [
+  "crates/dbine-core/src/secret_accounts.rs"
  ],
  "falta el nombre de la tabla nueva": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -27527,11 +27577,17 @@
  "falta un valor": [
   "crates/drivers/elasticsearch/src/transfer.rs"
  ],
+ "faltan el ID del cliente, el secreto del cliente o el código de Zoho": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "faltan el access key ID o el secret access key": [
   "crates/drivers/dynamodb/src/aws.rs"
  ],
  "faltan el client ID o el client secret": [
   "crates/drivers/databricks/src/lib.rs"
+ ],
+ "faltan el secreto del cliente o el código de Zoho": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "faltan el secreto del cliente y el token de actualización de Zoho: escribilos en el formulario": [
   "src-tauri/src/secret_sources/zoho.rs"
@@ -28501,6 +28557,9 @@
  "la computadora no respondió a tiempo": [
   "mobile/src-tauri/src/lib.rs"
  ],
+ "la conexión con Zoho expiró: volvé a generar el código": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "la conexión de archivos muestra cada archivo como una vista de solo lectura: las tablas se crean en una base DuckDB.": [
   "crates/dbine-schema/src/dialect/duckdb.rs"
  ],
@@ -28619,6 +28678,7 @@
   "src-tauri/src/secret_sources/keepass.rs"
  ],
  "la contraseña maestra: {0}": [
+  "src-tauri/src/secret_sources/accounts.rs",
   "src-tauri/src/secret_sources/mod.rs"
  ],
  "la copia de las filas no terminó": [
@@ -28649,17 +28709,29 @@
  "la cuenta de Google Cloud «{0}» no es válida": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
+ "la cuenta de Zoho Vault de esta conexión no está en esta computadora: elegí o conectá una cuenta de Zoho Vault en la conexión": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
+ "la cuenta de Zoho Vault no es válida": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "la cuenta del Central Credential Provider no tiene usuario (UserName)": [
   "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "la cuenta es federada pero ADFS no publica sus metadatos (MEX)": [
   "crates/drivers/sqlserver/src/entra.rs"
  ],
+ "la cuenta no se guardó": [
+  "crates/dbine-core/src/secret_accounts.rs"
+ ],
  "la cuenta no tiene la clave de la organización {0} de Bitwarden": [
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "la cuenta {0} no es federada (no inicia sesión con ADFS), así que la autenticación integrada no está disponible. Usá «Microsoft Entra ID: interactivo (MFA)» o «Microsoft Entra ID: predeterminada».": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "la cuenta «{0}» no se pudo leer: {1}": [
+  "crates/dbine-core/src/secret_accounts.rs"
  ],
  "la definición de la vista «{0}»": [
   "crates/drivers/athena/src/rename.rs",
@@ -28755,6 +28827,9 @@
  ],
  "la frase de contraseña maestra de Zoho Vault no es la correcta": [
   "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "la frase no coincide con la frase de contraseña maestra de esta cuenta de Zoho Vault": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "la frase no es correcta": [
   "crates/dbine-tunnel/src/lib.rs"
@@ -30035,6 +30110,9 @@
   "src-tauri/src/commands/multi_db.rs",
   "src-tauri/src/state.rs"
  ],
+ "no existe la cuenta «{0}»": [
+  "crates/dbine-core/src/secret_accounts.rs"
+ ],
  "no existe la sesión {0}": [
   "crates/drivers/postgres/src/processes.rs"
  ],
@@ -30378,6 +30456,7 @@
   "src-tauri/src/commands/feedback.rs",
   "src-tauri/src/commands/settings.rs",
   "src-tauri/src/commands/updates.rs",
+  "src-tauri/src/secret_sources/accounts.rs",
   "src-tauri/src/sync.rs"
  ],
  "no se pudo abrir el puerto {0}: {1}": [
@@ -30613,6 +30692,9 @@
  ],
  "no se pudo consultar GitHub: {0}": [
   "src-tauri/src/commands/updates.rs"
+ ],
+ "no se pudo consultar a Zoho en {0}: revisá la conexión a internet y volvé a intentar": [
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "no se pudo contar las filas de {0}: {1}": [
   "crates/drivers/phoenix/src/transfer.rs"
@@ -30899,6 +30981,9 @@
  ],
  "no se pudo leer la contraseña de «{0}» del llavero: {1}": [
   "crates/dbine-sync/src/engine.rs"
+ ],
+ "no se pudo leer la cuenta de Zoho Vault del llavero: {0}": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "no se pudo leer la definición de la clave primaria; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -32964,6 +33049,9 @@
  ],
  "true: agrega los campos nuevos al mapping": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "tu cuenta de Zoho está en un centro de datos ({0}) donde DBine no conoce la dirección de Zoho Vault": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "tu usuario no tiene el privilegio ALTER SYSTEM para cancelar la consulta: {0}": [
   "crates/drivers/oracle/src/processes.rs"

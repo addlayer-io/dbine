@@ -9,6 +9,8 @@
 // |rename[&prod=0][&name=<nuevo>][&fail=1] ("Renombrar…" over a fake impact and script: preview/rename-samples.ts)
 // |map[&set=points|shapes|latlon|oracle][&theme=light] (the results' map view over the offline base map: preview/map-samples.ts)
 // |chart[&kind=…]|nbcell[&set=charts|map|latlon] (charts of every kind; a notebook cell's charts and map: preview/chart-samples.ts)
+// |zoho-wizard[&step=1..4][&filled=1][&result=ok][&error=expired|mismatch] ("Conectar Zoho Vault", each step)
+// |connection&source=zoho|zoho-manual|zoho-missing (the Zoho block: an account, the inline sign-in, an account not on this computer)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -76,7 +78,9 @@ import { installRenamePreview } from './rename-samples';
 import { applyThemeClass } from '../composables/appearance';
 import { mapPreview } from './map-samples';
 import { chartPreview, installWholeMock, notebookCellPreview } from './chart-samples';
-import { browseSample, sourceConnection } from './source-samples';
+import { browseSample, sourceConnection, SAMPLE_ACCOUNTS } from './source-samples';
+import ZohoConnectWizard from '../components/ZohoConnectWizard.vue';
+import { tb } from '../i18n/backend';
 
 const params = new URLSearchParams(location.search);
 // &theme=light previews the light theme.
@@ -281,6 +285,7 @@ const app = createApp({
       view === 'dependencies' ? h(DependenciesView, { tab: { id: 'dep', kind: 'dependencies', connectionId: 'c1', database: 'ventas', object: { kind: 'table', schema: 'dbo', name: 'Clientes' }, column: 'Pepe', preview: false } }) :
       view === 'compare' ? h(CompareView, { tab: { id: 'cmp', kind: 'compare', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'profiler' ? h(ProfilerView, { tab: { id: 'p', kind: 'profiler', connectionId: 'c1', database: 'ventas', preview: false } }) :
+      view === 'zoho-wizard' ? zohoWizardPreview() :
       view === 'settings' ? h(SettingsDialog) : view.startsWith('diagram') ? diagram() : ['script', 'import', 'run'].includes(view) ? dialogView() : view === 'designer' ? designer() : view === 'chart'
         ? chartPreview(params)
         : view === 'nbcell' ? notebookCellPreview(params)
@@ -354,6 +359,7 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
       if (cmd === 'test_connection') return { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
       if (cmd === 'browse_secret_source') return browseSample(a?.args as { source: { kind: string }; item?: string; path?: string });
       if (cmd === 'test_secret_source') return { chars: 24, username: false };
+      if (cmd === 'list_secret_accounts') return SAMPLE_ACCOUNTS;
       if (view === 'query') {
         if (cmd === 'save_query') return (a?.args as { query: unknown }).query;
         if (cmd === 'lint_script') return [];
@@ -390,6 +396,23 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
     if (params.get('browse')) setTimeout(() => document.querySelector<HTMLButtonElement>('.ss-browse:not(.is-disabled)')?.click(), 700);
   }
 }
+/** "Conectar Zoho Vault" at one step, with what that step would show. */
+function zohoWizardPreview() {
+  const step = Number(params.get('step') ?? 1) as 1 | 2 | 3 | 4;
+  const filled = params.get('filled') === '1' || step > 2;
+  const err = params.get('error');
+  const preview = {
+    ...(filled ? { client_id: '1000.XMDEG1KBDO9SE2IFTMDFSRPYYJ5L0U', client_secret: 'dummy-client-secret', code: '1000.6c1d4e0b9a7e1d2f.3c4b5a69' } : {}),
+    ...(step >= 3 && err !== 'expired' ? { pending: 'p', data_center: 'eu', identity: 'ana@example.com', label: 'Zoho Vault · ana@example.com' } : {}),
+    ...(step === 4 && filled ? { passphrase: 'dummy-passphrase' } : {}),
+    result: params.get('result') === 'ok' ? 'ok' as const : undefined,
+    error: err === 'expired' ? tb('el código de Zoho venció o ya se usó: generá un código nuevo en la pestaña «Generate Code»')
+      : err === 'mismatch' ? tb('la frase no coincide con la frase de contraseña maestra de esta cuenta de Zoho Vault') : undefined,
+  };
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { transformCallback: () => 0, invoke: async () => null };
+  return h(ZohoConnectWizard, { initialStep: step, preview });
+}
+
 function connectionTab() {
   const t = useTabsStore().tabs.find((x) => x.kind === 'connection');
   return t && t.kind === 'connection' ? h(ConnectionView, { tab: t }) : null;

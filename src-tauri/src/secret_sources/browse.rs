@@ -283,13 +283,12 @@ pub async fn browse_secret_source(state: State<'_, AppState>, args: BrowseSecret
     let info = driver.as_deref().and_then(|d| driver_info(d).ok());
     let origin = Origin::Form { id, name: &name };
     may_browse(&state.store, saved.as_ref(), info, &args.field, &src)?;
-    let mut slots = form_slots(&state, id, &args.field, &src, args.tokens.unwrap_or_default(), None);
+    let slots = form_slots(&state, id, &args.field, &src, args.tokens.unwrap_or_default(), None);
     let at = At { path: args.path.as_deref().unwrap_or("").trim(), item: args.item.as_deref().map(str::trim).filter(|i| !i.is_empty()), query: args.query.as_deref().unwrap_or("").trim() };
-    let r = list(&src, &slots, at).await;
-    for v in slots.values_mut() {
-        wipe(v);
-    }
-    r.map_err(|m| match asks_again(&src, &m) {
+    // A definition naming an account browses with the account's sign-in.
+    let x = super::accounts::expand(&state.store, &src, slots).map_err(|m| CommandError::SecretSource(format!("no se pudo examinar {}: {m}", provider(&src))))?;
+    let r = list(&x.src, &x.slots, at).await;
+    r.map_err(|m| match asks_again(&x.src, &m) {
         Some(wrong) => unlock_error(origin, info, &args.field, &src, wrong),
         None => CommandError::SecretSource(format!("no se pudo examinar {}: {m}", provider(&src))),
     })

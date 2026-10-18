@@ -3,7 +3,7 @@
 // strips the TypeScript types itself). Not part of the app's build.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftFrom, emptyDraft, isExternal, missingInputs, readSources, sourceFrom, sourceRows, SOURCES_OPTION, tokenKey, typedTokens, writeSources } from './secretSources.ts';
+import { draftFrom, emptyDraft, isExternal, missingForBrowse, missingInputs, readSources, sourceFrom, sourceRows, SOURCES_OPTION, tokenKey, typedTokens, writeSources } from './secretSources.ts';
 
 test('definitions round-trip through the options', () => {
   const options = { sslmode: 'require' };
@@ -83,8 +83,10 @@ test('KeePass and Zoho Vault: the master password choice', () => {
   assert.equal(sourceFrom(kp, 'password').master, 'ask');
   kp.master = 'keychain';
   assert.equal(sourceFrom(kp, 'password').master, undefined, 'the default is left out, as the backend stores it');
-  assert.deepEqual(missingInputs(emptyDraft('zoho')), ['data_center', 'secret_name', 'client_id']);
+  assert.deepEqual(missingInputs(emptyDraft('zoho')), ['zoho_account', 'secret_name'], 'a new Zoho source names an account');
+  assert.deepEqual(missingInputs({ ...emptyDraft('zoho'), manual: true }), ['data_center', 'secret_name', 'client_id']);
   const zo = emptyDraft('zoho');
+  zo.manual = true;
   zo.master = 'none';
   assert.equal(sourceFrom(Object.assign(zo, { data_center: 'eu', secret_name: 's', client_id: 'c' }), 'password').master, undefined, 'Zoho always has a passphrase');
 });
@@ -100,6 +102,8 @@ test('what goes to the keychain, by slot', () => {
   assert.deepEqual(typedTokens(kp), {}, 'an asked password is never kept');
   const zo = emptyDraft('zoho');
   Object.assign(zo, { token: 'pass', client_secret: 'cs', refresh_token: 'rt' });
+  assert.deepEqual(typedTokens(zo), {}, 'through an account: the account keeps them');
+  zo.manual = true;
   assert.deepEqual(typedTokens(zo), { '': 'pass', client_secret: 'cs', refresh_token: 'rt' });
   zo.master = 'command';
   assert.deepEqual(typedTokens(zo), { client_secret: 'cs', refresh_token: 'rt' });
@@ -272,4 +276,29 @@ test('entries give the user: fields, 1Password references, older definitions', a
   assert.equal(userFromSource(op), true);
   assert.equal(sourceFrom(op, 'password').fill_username, true);
   assert.equal(fieldsQuery(emptyDraft('keepass')), null, 'no entry yet');
+});
+
+test('Zoho: an account, or the inline sign-in (manual mode)', () => {
+  // Through an account: only the account, the secret and its fields.
+  const acct = { kind: 'zoho', secret_name: 'pg-main', fill_username: true, account: '6f1c2d4e-0000-4000-8000-000000000001' };
+  const d = draftFrom(acct);
+  assert.equal(d.manual, false);
+  assert.equal(d.zoho_account, acct.account);
+  assert.equal(d.account, '', "1Password's account input stays empty");
+  assert.deepEqual(sourceFrom(d, 'password'), acct);
+  assert.deepEqual(missingInputs(d), []);
+  assert.deepEqual(missingForBrowse(d), [], 'browsing needs the account only, nothing typed');
+  assert.deepEqual(missingForBrowse({ ...d, zoho_account: '' }), ['zoho_account']);
+  // Inline (older definitions): the same JSON back, in manual mode.
+  const inline = { kind: 'zoho', data_center: 'eu', secret_name: 'pg-main', client_id: '1000.ABC', master: 'command', master_command: 'pass show zoho' };
+  const m = draftFrom(inline);
+  assert.equal(m.manual, true);
+  assert.deepEqual(sourceFrom(m, 'password'), inline);
+  assert.deepEqual(missingForBrowse(m), ['client_secret', 'refresh_token'], 'a new form types what signs in');
+  // Switching modes: nothing of the other mode is written.
+  m.manual = false;
+  m.zoho_account = 'a-1';
+  assert.deepEqual(sourceFrom(m, 'password'), { kind: 'zoho', secret_name: 'pg-main', account: 'a-1' });
+  // The confirmation dialog lists the account.
+  assert.ok(sourceRows(acct).some(([k, v]) => k === 'account' && v === acct.account));
 });

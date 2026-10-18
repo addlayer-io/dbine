@@ -32,6 +32,7 @@ mod vault_db;
 mod bitwarden;
 mod ssm;
 pub mod browse;
+pub mod accounts;
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::{driver_info, field_applies, AppState};
@@ -132,6 +133,11 @@ fn cache_key(connection_id: &str, digest: &str) -> String {
 pub fn forget_cached(connection_id: &str) {
     let prefix = format!("{connection_id}\u{0}");
     CACHE.lock().unwrap_or_else(|e| e.into_inner()).retain(|k, _| !k.starts_with(&prefix));
+}
+
+/// Drop every resolved value (an account changed or was removed).
+pub fn forget_all_cached() {
+    CACHE.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
 fn cached(key: &str) -> Option<Arc<Resolved>> {
@@ -480,7 +486,12 @@ pub async fn fill(store: &StateStore, cfg: &mut ConnectionConfig, sources: &Secr
             }
             Some(r) => r,
             None => {
-                let fetched = fetch(src, &field_tokens(tokens, field)).await.map_err(|m| match asks_again(src, &m) {
+                // A definition naming an account runs with the account's sign-in.
+                let x = accounts::expand(store, src, field_tokens(tokens, field))
+                    .map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))))?;
+                let r = fetch(&x.src, &x.slots).await;
+                accounts::after_run(&x, r.as_ref().map(|_| ()).map_err(String::as_str));
+                let fetched = r.map_err(|m| match asks_again(&x.src, &m) {
                     Some(wrong) => unlock_error(origin, info, field, src, wrong),
                     None => CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))),
                 })?;
@@ -585,12 +596,12 @@ pub async fn test_secret_source(state: State<'_, AppState>, args: TestSecretSour
     let info = driver.as_deref().and_then(|d| driver_info(d).ok());
     let origin = Origin::Form { id, name: &name };
     check_trust(&state.store, origin, info, &args.field, &args.source)?;
-    let mut slots = form_slots(&state, id, &args.field, &args.source, args.tokens.unwrap_or_default(), args.token);
-    let r = fetch(&args.source, &slots).await;
-    for v in slots.values_mut() {
-        defs::wipe(v);
-    }
-    let r = r.map_err(|m| match asks_again(&args.source, &m) {
+    let slots = form_slots(&state, id, &args.field, &args.source, args.tokens.unwrap_or_default(), args.token);
+    let label = field_label(info, &args.field);
+    let x = accounts::expand(&state.store, &args.source, slots).map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(&args.source))))?;
+    let r = fetch(&x.src, &x.slots).await;
+    accounts::after_run(&x, r.as_ref().map(|_| ()).map_err(String::as_str));
+    let r = r.map_err(|m| match asks_again(&x.src, &m) {
         Some(wrong) => unlock_error(origin, info, &args.field, &args.source, wrong),
         None => CommandError::SecretSource(format!("no se pudo obtener «{}» de {}: {m}", field_label(info, &args.field), provider(&args.source))),
     })?;

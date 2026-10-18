@@ -28,7 +28,7 @@ managers sorted by name in the interface's language:
 | **HashiCorp Vault** | A key of a KV secret (v1 or v2). |
 | **HashiCorp Vault (database credentials)** | A user and a password Vault makes for this connection (database secrets engine), revoked when it closes. |
 | **KeePass** | A field of an entry of a `.kdbx` file, read by DBine itself. |
-| **Zoho Vault** | A field of a secret, decrypted by DBine with your master passphrase. |
+| **Zoho Vault** | A field of a secret, decrypted by DBine with your master passphrase, through a Zoho account connected once on this computer. |
 
 ## The form
 
@@ -40,8 +40,9 @@ managers sorted by name in the interface's language:
   away and that source's inputs take their place, in the form's own two
   columns. Each source asks first for what signs in to it, then for the item:
   KeePass: database file → key file → master password → entry; Bitwarden:
-  server → client ID and secret → master password → item; Zoho Vault: data
-  centre → client ID, secret and refresh token → passphrase → secret; Vault:
+  server → client ID and secret → master password → item; Zoho Vault:
+  account → secret (manual mode: data centre → client ID, secret and refresh
+  token → passphrase → secret); Vault:
   address → namespace and CA → sign-in → path (or role); AWS and Parameter
   Store: region → profile → secret or parameter; Azure, Google, Conjur,
   Delinea and 1Password likewise. **Browse** stays disabled, its tooltip
@@ -267,13 +268,89 @@ of the database is dropped. Entries in the recycle bin don't count.
 
 ## Zoho Vault
 
+Zoho Vault is used through an **account** connected once on this computer;
+any number of connections then use it. With **Zoho Vault** chosen as the
+credentials, the form asks for:
+
+| Field | |
+|---|---|
+| Cuenta | One of this computer's Zoho Vault accounts, or **Conectar cuenta…**, which opens the wizard below and selects the new account. |
+| Secret name or ID | The secret's exact name (else ignoring case), or its numeric ID. The 🔍 button lists the account's secrets once an account is chosen. |
+| Password field, user field | Under **Configuración avanzada**: `password` and `username` by default; any of the secret's fields, custom fields included. |
+
+### Connecting an account
+
+**Conectar Zoho Vault** (from the form, or Settings › **Gestores de
+secretos**) walks through Zoho's own Self Client set-up. Zoho's API
+labels are quoted as Zoho shows them.
+
+1. **Cliente.** **Abrir la consola de API de Zoho** opens
+   <https://api-console.zoho.com/>. There: **GET STARTED** (or **ADD
+   CLIENT**, top right, if you already have clients) → **Self Client** →
+   **CREATE NOW** → **CREATE** → **OK**. In the **Client Secret** tab, copy
+   the **Client ID** and the **Client Secret** into the wizard. An existing
+   Self Client can be reused.
+2. **Código.** In the Self Client's **Generate Code** tab: **Scope**
+   `ZohoVault.secrets.READ,ZohoVault.user.READ` (the wizard has a copy
+   button), **Time Duration** 10 minutes, **Scope Description** `DBine`,
+   then **CREATE**. If Zoho asks for the app and the portal or organization,
+   choose Zoho Vault and yours, and **CREATE** again. Paste the code.
+3. **Conexión.** DBine exchanges the code for a refresh token itself
+   (`POST <accounts server>/oauth/v2/token`, `grant_type=authorization_code`).
+   You never choose the data centre: a Self Client exists only in its
+   owner's data centre, so DBine tries Zoho's accounts servers in turn until
+   one doesn't answer `invalid_client`, and uses that data centre's Vault
+   host. It then reads the account (`GET_LOGIN`) for its e-mail, offered as
+   the account's name.
+4. **Frase.** The master passphrase and where it comes from: **Guardada en
+   el llavero** (default), **Preguntar al conectar** (then asked once per
+   run, for all the account's connections) or **De un comando**. It's
+   checked against the account right away: the wizard ends with **Cuenta
+   conectada**, or says the passphrase doesn't match.
+
+Each step is checked before the next and has **Atrás**. Nothing is kept
+until the last step: cancelling leaves nothing in the keychain (the refresh
+token the code gave is revoked at Zoho). Errors say what to do: an expired
+or already used code (codes last the minutes chosen in **Time Duration**)
+sends you back to generate a new one; a wrong client ID or secret, to the
+first step.
+
+Settings › **Gestores de secretos** (*Cuentas de gestores de secretos*) lists
+the accounts:
+**Renombrar**, **Reconectar…** (the wizard again with a new code, keeping
+the account, so its connections go on) and **Quitar** (its keychain items
+and its cached access token are deleted; connections that use it then ask to
+choose or connect an account).
+
+### What is stored where
+
+| What | Where |
+|---|---|
+| The account: name, e-mail, data centre, client ID, passphrase choice (and its command) | The local state DB (`secret_accounts` table). This computer only: **never** in an export, a cloud backup or a restore. |
+| Client secret, refresh token, the master passphrase when kept | The system keychain, as `secret_account:<id>#client_secret`, `#refresh_token`, `#passphrase`. |
+| The connection's definition | `{"kind":"zoho","secret_name":…,"account":"<id>"}` in the connection's settings: it travels with the connection, but the account it names doesn't. |
+| Access tokens | Memory only, one per account, shared by all its connections (Zoho allows 10 token requests per 10 minutes). |
+
+A connection imported or restored on a computer that doesn't have its
+account shows **Elegí o conectá una cuenta de Zoho Vault** in the form, and
+connecting says the same instead of failing obscurely. Like any definition
+from elsewhere, it is confirmed before it first runs.
+
+### Manual mode
+
+Under **Configuración avanzada**, **Usar un cliente propio sin cuenta
+guardada (modo manual)** switches to the inline fields, for whoever needs a
+sign-in for one connection only. Connections saved before accounts existed
+open in this mode and keep working unchanged (their definition and its
+confirmation are the same):
+
 | Field | |
 |---|---|
 | Data centre | The one of your Zoho account: `zoho.com` (US), `zoho.eu`, `zoho.in`, `zoho.com.au`, `zoho.jp`, `zohocloud.ca`, `zoho.sa`, `zoho.uk`, `zoho.ae`, `zoho.sg` or `zoho.com.cn`. |
-| Secret name or ID | The secret's exact name (else ignoring case), or its numeric ID. |
-| Password field, user field | Under **Configuración avanzada**: `password` and `username` by default; any of the secret's fields, custom fields included. |
-| Client ID, client secret, refresh token | A **Self Client** from Zoho's API console and a refresh token generated with the scopes `ZohoVault.secrets.READ` and `ZohoVault.user.READ`. The client secret and the token are kept in the system keychain. |
+| Client ID, client secret, refresh token | A **Self Client** and a refresh token generated with the scopes `ZohoVault.secrets.READ` and `ZohoVault.user.READ`. The client secret and the token are kept in the system keychain, for this connection's field. |
 | Master passphrase | **Saved in the keychain**, **Ask when connecting** or **From a command**, as for KeePass. |
+
+### How values are read
 
 Zoho Vault encrypts every value on the client with your master passphrase:
 its API only returns ciphertext. DBine does what Zoho's own clients do,
@@ -292,15 +369,30 @@ without any Zoho program installed:
    key, which DBine decrypts with your RSA private key, itself decrypted with
    the master key.
 
-Tokens only go to the two hosts of the data centre chosen in the form
-(`accounts.` and `vault.` of that domain), over HTTPS, and no redirect is
-followed. Errors: client ID or secret rejected (wrong data centre?), refresh
-token invalid or revoked, missing scopes, too many token requests, secret
-not found (with similar names), field not found, wrong master passphrase.
+Codes, client secrets and tokens only go to Zoho's own hosts: while
+connecting an account, the accounts servers of Zoho's data centres (the
+table above, plus `accounts.zohohq.in`, which Zoho lists but where DBine
+doesn't know a Vault host, so an account there gets a clear error); after
+that, the two hosts of the account's data centre (`accounts.` and `vault.`).
+Always over HTTPS, and no redirect is followed. Errors: client ID or secret
+rejected, code expired or used, refresh token invalid or revoked, missing
+scopes, too many token requests, secret not found (with similar names),
+field not found, wrong master passphrase.
 
-This integration follows Zoho Vault's REST API v1 documentation and the
-encryption its web client uses; it was tested against recorded vectors and a
-mock of the API, not against a live Zoho account.
+### With Zoho's command-line tool
+
+If you already use Zoho Vault's official CLI (`zv`), the **Línea de
+comandos** source works with it: a command that prints the secret's value
+(see [Command line](#command-line)). Zoho's help documents signing in
+(`zv login`, then `zv unlock`) and a `get` command that shows a password's
+details, but not the exact options to print a single field, so check
+`zv get -h` for the command that prints only the value. The CLI keeps its own
+session; DBine only runs the command and reads what it prints.
+
+This integration follows Zoho Vault's REST API v1 documentation, Zoho's
+OAuth Self Client documentation and the encryption its web client uses; it
+was tested against recorded vectors and mocks of Zoho's accounts and Vault
+APIs, not against a live Zoho account.
 
 ## HashiCorp Vault: database credentials
 
@@ -488,7 +580,7 @@ or restored from a cloud backup. The first time such a connection needs it
 (connecting, **Test connection**, the field's **Test**), DBine shows the connection,
 the field and the exact definition (the whole command, the reference, the
 Vault address and path, the KeePass file and entry, the Zoho data centre and
-client, the Bitwarden server…) and runs it only if you confirm.
+client or the Zoho account, the Bitwarden server…) and runs it only if you confirm.
 
 - The confirmation is kept on this computer only, next to the state
   (`secret-source-approvals.json`), never in the cloud backup or an export.
@@ -532,13 +624,20 @@ reads files the sandbox can see (your home folder).
   stored as JSON in the connection option `secret_sources`, by field key;
   validation, the confirmation digests, JSON keys, Zoho's data centres). A
   Vault token or a master password typed in the form travels as the option
-  `source_token:<field>`, Zoho's client secret and refresh token as
-  `source_token:<field>#client_secret` / `#refresh_token` (Bitwarden's
+  `source_token:<field>`, Zoho's client secret and refresh token (manual
+  mode) as `source_token:<field>#client_secret` / `#refresh_token` (Bitwarden's
   client secret as `#client_secret`; a Secrets Manager access token is the
   main slot), and
   `save_connection` moves to the keychain the slots the definition keeps
   (`SecretSource::token_slots`: none for a master password that's asked or
   comes from a command).
+- Accounts: `crates/dbine-core/src/secret_accounts.rs` (the local-only
+  `secret_accounts` table, the keychain names `secret_account:<id>#<slot>`,
+  `AccountConfig` tagged by kind) and `src-tauri/src/secret_sources/accounts.rs`
+  (the wizard's commands `zoho_connect_exchange` / `_finish` / `_cancel`,
+  rename and remove, and `expand`, which turns a definition naming an
+  account into the inline one right before it runs, after its confirmation
+  is checked).
 - Resolution: `src-tauri/src/secret_sources/` (`fill`, called by
   `AppState::connect_config` before the tunnel and the driver; the providers;
   the command runner; `keepass.rs` with the `keepass` crate, `zoho.rs` with
