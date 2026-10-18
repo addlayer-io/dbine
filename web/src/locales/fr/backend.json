@@ -10620,7 +10620,6 @@
   "no se pudo conectar con Zoho ({0}): {1}": "impossible de se connecter à Zoho ({0}) : {1}",
   "no se pudo conectar con Zoho Vault ({0}): {1}": "impossible de se connecter à Zoho Vault ({0}) : {1}",
   "no se pudo descifrar el campo «{0}» del secreto «{1}» de Zoho Vault (¿la frase de contraseña maestra es la correcta?)": "impossible de déchiffrer le champ « {0} » du secret « {1} » de Zoho Vault (la phrase secrète principale est-elle la bonne ?)",
-  "no se pudo descifrar la clave de la organización de Zoho Vault": "impossible de déchiffrer la clé de l'organisation de Zoho Vault",
   "no se pudo leer el archivo de KeePass «{0}»: {1}": "impossible de lire le fichier KeePass « {0} » : {1}",
   "no se pudo leer el archivo de clave «{0}»: {1}": "impossible de lire le fichier de clé « {0} » : {1}",
   "se necesita la contraseña maestra": "le mot de passe principal est nécessaire",
@@ -10944,5 +10943,9 @@
   "Zoho Vault rechazó el pedido ({0})": "Zoho Vault a rejeté la demande ({0})",
   "Zoho Vault rechazó el pedido ({0}): esta versión de DBine le pide algo que Zoho no acepta": "Zoho Vault a rejeté la demande ({0}) : cette version de DBine demande quelque chose que Zoho n'accepte pas",
   "Zoho Vault rechazó el pedido ({0}): {1}": "Zoho Vault a rejeté la demande ({0}) : {1}",
-  "Zoho Vault: no hay un secreto «{0}» entre los primeros {1} (indicá su ID)": "Zoho Vault : il n'y a pas de secret « {0} » parmi les {1} premiers (indiquez son ID)"
+  "Zoho Vault: no hay un secreto «{0}» entre los primeros {1} (indicá su ID)": "Zoho Vault : il n'y a pas de secret « {0} » parmi les {1} premiers (indiquez son ID)",
+  "la frase de contraseña maestra no abre la clave privada de la organización de Zoho Vault": "la phrase secrète principale n'ouvre pas la clé privée de l'organisation de Zoho Vault",
+  "la clave privada de la organización de Zoho Vault tiene un formato que DBine no reconoce": "la clé privée de l'organisation de Zoho Vault a un format que DBine ne reconnaît pas",
+  "la clave de la organización de Zoho Vault viene cifrada en un formato que DBine no reconoce": "la clé de l'organisation de Zoho Vault est chiffrée dans un format que DBine ne reconnaît pas",
+  "la clave de la organización de Zoho Vault no se pudo descifrar con la clave privada": "impossible de déchiffrer la clé de l'organisation de Zoho Vault avec la clé privée"
 }

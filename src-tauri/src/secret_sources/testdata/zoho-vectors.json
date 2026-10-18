@@ -1,5 +1,5 @@
 {
-  "note": "Dummy values only. AES ciphertexts from zohovault.js (Zoho Vault web crypto) AES.encrypt(plain, key, 256); master = PBKDF2-HMAC-SHA256(passphrase, salt, iterations, 32) as hex (Node crypto); legacy = zohovault.js hash(passphrase); RSA vectors from OpenSSL.",
+  "note": "Dummy values only. AES ciphertexts from zohovault.js (Zoho Vault web crypto) AES.encrypt(plain, key, 256); master = PBKDF2-HMAC-SHA256(passphrase, salt, iterations, 32) as hex (Node crypto); legacy = zohovault.js hash(passphrase); RSA_1024 organization key as Zoho's jsbn RSAKey (jsbn@1.1.0 BigInteger), RSA_4096 as WebCrypto RSA-OAEP SHA-256. See zoho-vectors.mjs.",
   "passphrase": "dummy-passphrase-ñ",
   "salt": "Qx7dummysaltR2v9",
   "iterations": 1000,
@@ -7,39 +7,40 @@
   "legacy_passphrase": "dummy-legacy-pass",
   "legacy_master": "0831bd65a8ba87d45318b63e623cf6121a535752c689642bf617a29e74c796ec",
   "legacy_passauth": "60896f146d076deff47601dea3310e277306e4b37608c1c1fb6a49167730a638",
-  "passphrase_check": "nAAaylug1GoKrYTU/8imCi7tRn69C5Kbk5riFwZwDbeR8eg/Owknfp/Iww==",
+  "passphrase_check": "gwMMness1WrNZHTBVX0waV+41obRt1Y62wpp94Az/ajDWFjytva4iCFBlA==",
   "aes": [
     {
       "key": "aed8cfc0e88418bd06a0b5c024fd93f6a6bb323fff0a7d49755b555f24edede9",
       "plain": "pg-secret-1",
-      "cipher": "mwAR9Fug1Grz+DsjcFRkrnKNLQ=="
+      "cipher": "ggPI2uss1WpzCNA9NNPFAfvSuQ=="
     },
     {
       "key": "aed8cfc0e88418bd06a0b5c024fd93f6a6bb323fff0a7d49755b555f24edede9",
       "plain": "x",
-      "cipher": "mwCO1Vug1GpD"
+      "cipher": "gwOlv+ss1Wq3"
     },
     {
       "key": "aed8cfc0e88418bd06a0b5c024fd93f6a6bb323fff0a7d49755b555f24edede9",
       "plain": "a value longer than one block: 0123456789abcdef0123456789",
-      "cipher": "mwCYgFug1GoRrfKpON5wA8bJClSKDQdgknjRQpVWko5tjo7fBJ35BZzEtW+gRbKR5IMrU27T90+X2lMfm/6pU1c="
+      "cipher": "gwN9u+ss1WqKHIz6jlcK4mW184mrTMYWtWA/7Hk+k6nMiBCJXbycjCpDlzZlMGHAwpDhPVZUuH2ekl/HGU5+K6E="
     },
     {
       "key": "aed8cfc0e88418bd06a0b5c024fd93f6a6bb323fff0a7d49755b555f24edede9",
       "plain": "ünïcödé € ok",
-      "cipher": "mwAv2Fug1GoUogWZzEcJ1e1IAHYqvZjAIZY="
+      "cipher": "gwOnxuss1WosiGjPcxqjLcxPLjEqXgmvM2w="
     },
     {
       "key": "0831bd65a8ba87d45318b63e623cf6121a535752c689642bf617a29e74c796ec",
       "plain": "legacy-secret",
-      "cipher": "nABZv1ug1GoXgVlNP+GvUS5sIWqn"
+      "cipher": "gwPA++ss1WoixXFlT0zAesKpK7pI"
     }
   ],
   "org_key": "dummy-org-key-0123456789abcdef0123456789abcdef",
-  "private_key": "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",
-  "shared_key_oaep": "gKfZz7ybhtwJsQIBtZD0QcDy6bN0Xq1WE+u/2JikXLOeqkgflpMQA+UzuXBQCHKIAp6PXxM7m9R2ICwM8kA5Pz9vtVMT9YUDKs1RJmjuth0Ek03Ip1rdofclJF+9H+VUvupgmLEuux3aUA/Yk6vfxHWb1YGXUjLCVgigeLqGkuxuV3ZGHedA7eANB4tVCinzWD2w1vH7eJ5kqcTpORXYfWVdJ76aeubQ5gsh3T7sU7MHpVrNJxDgcyACUJB9hD4OAhHCTH5zJl28Y5IbKmbRhutDSsS9JlYQEMKTXHaC2U2hzYdrsTyr84JItwAxEsT2sZv22TyBENlJhDGAvzsGMA==",
-  "shared_key_pkcs1": "A1sbcaemM4NWIMbbaTUhPW5hfrZLfzxKt1FJbe0tugoiDjomjtloBSKpVTBWqwogfpPnTw61ZN2ctQUbpaDGMI0OQsLkckI1Tjm3IHbAJ/Vbnxx8OyWnjm3puVdBPHifJJt3cQtgRiNd3sJT5ZMmpD4zArF+QyESOg8+q1T1Cbketn2NvhbrYF96LiomHqAJ7eUYW2TZB34xikwMtl1wO1m+EsMHFB8a4vnIExQP9XR8vPbL4Cj+zvyCmsg3VMRiH8oovKkcT1XABVSVDDnCqD72ugVI5DT414kJ3jHrISrZ/LSOhD8NE8L4sTnfHUBrW7zJKh7Gjnszoc0kwu/xBw==",
-  "personal_secret_data": "{\"username\":\"nQBLyFug1GqMOzuZ20x8iQ==\",\"password\":\"nQDRalug1GolG6hkIY91NnaLQQ==\",\"file\":\"\"}",
-  "shared_secret_data": "{\"username\":\"nQBXyFug1GrmvF2KP+0zpw==\",\"password\":\"nQAoclug1GpBORSSSJSlKtqtQ64=\"}",
-  "shared_custom_column": "eyJjdXN0b21jb2wiOlt7ImNvbG5hbWUiOiJQb3J0IiwidmFsdWUiOiJuUUM4Z0Z1ZzFHb2l6aXhYIiwidHlwZSI6InRleHQiLCJpZCI6ImN1c3RDb2xEaXZfMCJ9XX0="
+  "rsa1024_private_key": "rgPzcuss1WpXokIlU1w78CW6mQMrpBT05fTDU16z2tYF39NZ8Plzzbh2swMa5WFmvPeYK+WUVrRWUTDrORvrTC6mowD0f1Vq6GWx36qILTATHxe8mLZ2HneLT0f0S93k7xTuStQrsI/EvalsfknXw35Nr+x1+b31S7KotM1JJD1O/rz3soCtlRiIQ3PdGUUgJZXofvETm/D5bhIZv5MiC1ISTPkqX9bCzPYQE1EDLMh5RmW6X5nqN+Bz3iHSx+1fbJkfmgw9kqmS5XhQMttRlAh6R0FZMbwbWWeh49NTdJ1quMg6sz9A5JhyRinjH+RCp/JX4d2H3uW+1dOFA9TiYoyHW9d3m5Phl0QD9lQKJzK8qtEmjc/lDEbaVeqlGXy7prCIhzJe7Nqi7e3zVoX4Xvg2hCwcgmvH/ZURSK871D+nLQCXphdEpiRLgOLeKOAdJRZjW3SwzKWMvXNxmzXXAy5m/Bbn5q77Q+b1cfl3w6TJ8a024fEZ0cBJiRbe/AUl9vPLUbivA2FZOfep0A72Av3n9uKQ3FO6qbKfs2c9Sc0/mJaPCjAqViU/SfoEkMCHEyFMwaXpkJhaqmlkzKYwUkm6Y/rGNPez2oQdb9PR47HEBZsyRRBxF9/8/53RNLWEJbimiQsvuvD97SD7u32J9fwAE0xTnyszyeHOBG2ybJxrxt5Fi4/9BzM/7WiHKoliYEOWaMY2pyNvYk3TbIcZ8kPbcYiRf7ljC7Zp7GeIclntfzkJ9YXxkljZYqiCp/6r4qrTf0i0CwdrZzBSuKBfnh2RqVU7ftuIGfL4+erWQAclvZ+DUjQm6W0lXJfbzFkqNs9dNlSlUaevGBrmwkOU5I/K6+DTcJWcIOHYdmJRqFSQEbJPQ4dT3PmWd7H4vVIS+RSBevEdPZ3yvoL+BuUZF8C+gANmxmOqjWDyNs6AT65clEiPmZWFuVUcvp7AWJI/D8XaRo7hI1ksp7k0TQvkBSjiBYL3g3T/B4n19HyKym4kKvquk1xnuc4yCnU6ayN2K/ZTr2e8ed78C+K+M85pxf5ezdhI8CvcaGg1IW7nJBHAWhOTjoyjljzTZ2XElVKb/f7Xd6pqjEeUp2wZ4FkQED54brzcJJWtQ1c6HGU/gmdAa1n441QDwAtKIEt6NNbCXb1q/JcZS8xSutUb3onBrLFLrLB47yaFf2VLAyMBRaASRJ29IpwpLmKser8wZmf5/ingaFS1jQHapOU47ouxxUtrznLbKtC9e13oBrykd3f430Ryvy7wcu7LXdNl2yYVIBRPAJCHF4INdNaMq6rXjmjSswjkoy0+5mGAn70/OTRT7lVQ/4G3fQqu25nlv4Pl81eZ2CEUIsWNIrWPR7YAz6iS3SsLXpj8CyYRp+NLhaSRTn39TRIRhM80lSBIse+8zm2AvOlQswg1G8yCH7HXMHtABIG8J99OwmfHrAUikvJQ18nqWhkv+QjG2bL6ma2TfcrUYtKj109Vh8UqdWqyX7iEmnKi518xAUBOv1b3rX+DHe0gFR+/IyCen4rQgLUffpnxZaP6RvKtF4+GJ0+MOr6457Y=",
+  "rsa1024_shared_key": "08377d95656146add48ab4020db392d5cd9d752da618ac9cf1112db5b8c78f0392c9aa0906f480487ffe0307d171c6a12de6b86e6b7278f212f1d5e8e56fd4d445fafede6cb7d5b875bcc58b0d0d96bf86f806b96062a0440b4c17e48b2e4986951547fe24f6cb7eb2243b430fe5bdbe695682c97b26aa88df50c9d1cf85c4c0",
+  "rsa4096_private_key": "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",
+  "rsa4096_shared_key": "HqzqZfpkNx5KCzg+y7nlqlGXrWf5kUKAZOIeVGwOw0pQKNXHK1tGYg14cmrv0G88v0MADQffiPuioIQpFibs7/f1w40s4eU8gk6OdRKFRwmrnVFD9MH8KKQbAvJeRkX+11aSqiCfAqnNUXuLkcxZOIa3NWkIv+iS5FsacSKyxwytrBRtvoXpZ11uLAymLYbkxKLPfVM7iCGkKVSr0J9S6NzaM4XDKdKWYjTyrc12zlEyogR93qQfoCHXAtWpNTZFBnSOQD7jDqK3g8IRCC2jYZpIC8ODVJWTh1ApuyHJHV96RdxjBt9SCvr4JDh0AS+OvMmi7BM5Kvh9N0d5Us9fDQ==",
+  "personal_secret_data": "{\"username\":\"rwMNJ+ss1WpkkJ+pS0oowQ==\",\"password\":\"rwNWNOss1WqRiG4L5KJk93V7ZQ==\",\"file\":\"\"}",
+  "shared_secret_data": "{\"username\":\"rwN+sOss1Wqzm8nVUiQNFw==\",\"password\":\"rwNubess1Wr85V0CRsZNyLqoqZ0=\"}",
+  "shared_custom_column": "eyJjdXN0b21jb2wiOlt7ImNvbG5hbWUiOiJQb3J0IiwidmFsdWUiOiJyd01tb09zczFXclRXa2lEIiwidHlwZSI6InRleHQiLCJpZCI6ImN1c3RDb2xEaXZfMCJ9XX0="
 }
