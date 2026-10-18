@@ -2963,7 +2963,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-oracle"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "dbine-driver",
  "oracledb",

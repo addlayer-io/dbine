@@ -415,8 +415,19 @@ function onDelete(rows: number[], mark: boolean) {
   else delete deletes[active.value];
 }
 
+/** Columns the grid doesn't edit: Oracle's SDO_GEOMETRY, which the driver
+ *  sends as EWKT text for the map (writing that text back would fail). */
+const readOnlyColumns = computed<Record<number, string>>(() => {
+  const out: Record<number, string> = {};
+  current.value?.columns.forEach((c, i) => {
+    if (/^sdo_geometry$/i.test(c.type_name)) out[i] = t('results:edit.convertedSpatial', { column: c.name });
+  });
+  return out;
+});
+
 function onEdit(r: number, c: number, value: Cell | undefined) {
   if (typeof active.value !== 'number' || applying.value) return;
+  if (value !== undefined && readOnlyColumns.value[c]) return;
   const base = current.value?.rows.length ?? 0;
   if (r >= base) {
     const cells = added[active.value]?.[r - base];
@@ -917,6 +928,7 @@ const statusText = computed(() => {
         :copy-context="{ table: table ?? null, dialect: dialect ?? '', keyColumns }"
         :editable="canEdit && !applying"
         :no-edit-reason="noEditReason"
+        :read-only-columns="readOnlyColumns"
         :edits="gridEdits"
         :deleted="currentDeletes"
         :deletable="canDelete && !applying"

@@ -10530,5 +10530,7 @@
   "DBine no abre este tipo de archivo: «{0}»": "O DBine não abre este tipo de arquivo: «{0}»",
   "Sólo este archivo": "Só este arquivo",
   "no es un archivo de datos: «{0}»": "não é um arquivo de dados: «{0}»",
-  "no existe el archivo «{0}»": "o arquivo «{0}» não existe"
+  "no existe el archivo «{0}»": "o arquivo «{0}» não existe",
+  "El cliente de Oracle que usa DBine no lee tipos de objeto ({0}). Las columnas SDO_GEOMETRY se convierten solas; para otros tipos, seleccioná sus atributos, o convertí las geometrías con SDO_UTIL.TO_WKTGEOMETRY(columna).": "O cliente Oracle usado pelo DBine não lê tipos de objeto ({0}). As colunas SDO_GEOMETRY são convertidas automaticamente; para outros tipos, selecione seus atributos ou converta as geometrias com SDO_UTIL.TO_WKTGEOMETRY(coluna).",
+  "{0}: SDO_GEOMETRY como texto (EWKT, con SDO_UTIL.TO_WKTGEOMETRY), porque el cliente de Oracle no lee tipos de objeto.": "{0}: SDO_GEOMETRY como texto (EWKT, com SDO_UTIL.TO_WKTGEOMETRY), porque o cliente Oracle não lê tipos de objeto."
 }
