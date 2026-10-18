@@ -128,7 +128,8 @@
       "azure": "Azure Key Vault",
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
-      "zoho": "Zoho Vault"
+      "zoho": "Zoho Vault",
+      "ssm": "AWS Parameter Store"
     },
     "askHelp": "Se pide al conectar y no se guarda.",
     "askPlaceholder": "(solo para probar; se pide al conectar)",
@@ -169,13 +170,16 @@
       "client_secret": "Secreto del cliente",
       "refresh_token": "Token de actualización",
       "fill_username_keepass": "Tomar también el usuario de esta entrada (su campo «UserName»)",
-      "fill_username_zoho": "Tomar también el usuario de este secreto (su campo «username»)"
+      "fill_username_zoho": "Tomar también el usuario de este secreto (su campo «username»)",
+      "parameter": "Nombre o ARN del parámetro",
+      "list_index": "Elemento de la lista (opcional)"
     },
     "placeholder": {
       "command": "pass show bases/produccion",
       "token": "VAULT_TOKEN o ~/.vault-token",
       "latest": "la más reciente",
-      "data_center": "El de tu cuenta de Zoho"
+      "data_center": "El de tu cuenta de Zoho",
+      "ssmVersion": "la más reciente (o un número, o una etiqueta)"
     },
     "kvAuto": "Detectar",
     "help": {
@@ -188,7 +192,8 @@
       "gcp": "Con tu sesión de gcloud («gcloud auth login») o las credenciales predeterminadas de la aplicación.",
       "entry": "Grupo/Subgrupo/Título, el título solo si no se repite, o el UUID de la entrada.",
       "keepass": "La base se lee en esta computadora, sin programas externos (KDBX 3.1 y 4). La contraseña maestra que escribas se guarda en el llavero del sistema; con «Preguntar al conectar» se pide la primera vez que conectás y queda solo en memoria hasta que cerrás DBine.",
-      "zoho": "Con un cliente propio («Self Client») de la consola de API de Zoho y un token de actualización con los permisos ZohoVault.secrets.READ y ZohoVault.user.READ. Los valores se descifran en esta computadora con la frase de contraseña maestra; el secreto del cliente, el token y la frase que escribas se guardan en el llavero del sistema."
+      "zoho": "Con un cliente propio («Self Client») de la consola de API de Zoho y un token de actualización con los permisos ZohoVault.secrets.READ y ZohoVault.user.READ. Los valores se descifran en esta computadora con la frase de contraseña maestra; el secreto del cliente, el token y la frase que escribas se guardan en el llavero del sistema.",
+      "ssm": "Con las credenciales de AWS de esta computadora, como AWS Secrets Manager. SecureString se descifra (hace falta kms:Decrypt); de una StringList se usa el elemento indicado (1 es el primero)."
     },
     "test": "Probar",
     "testOk": "OK · {{n}} caracteres",

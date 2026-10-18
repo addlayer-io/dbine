@@ -210,6 +210,10 @@ export type SecretSource =
   | {
     kind: 'zoho'; data_center: string; secret_name: string; attribute?: string; client_id: string;
     master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean;
+  }
+  | {
+    kind: 'ssm'; parameter: string; version?: string; region?: string; profile?: string; list_index?: string; json_key?: string;
+    fill_username?: boolean;
   };
 export type SecretSourceKind = SecretSource['kind'];
 

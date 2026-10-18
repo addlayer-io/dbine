@@ -128,7 +128,8 @@
       "azure": "Azure Key Vault",
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
-      "zoho": "Zoho Vault"
+      "zoho": "Zoho Vault",
+      "ssm": "AWS Parameter Store"
     },
     "askHelp": "Demandé à la connexion et non enregistré.",
     "askPlaceholder": "(pour tester seulement ; demandé à la connexion)",
@@ -169,13 +170,16 @@
       "client_secret": "Secret du client",
       "refresh_token": "Jeton d'actualisation",
       "fill_username_keepass": "Prendre aussi l'utilisateur de cette entrée (son champ « UserName »)",
-      "fill_username_zoho": "Prendre aussi l'utilisateur de ce secret (son champ « username »)"
+      "fill_username_zoho": "Prendre aussi l'utilisateur de ce secret (son champ « username »)",
+      "parameter": "Nom ou ARN du paramètre",
+      "list_index": "Élément de la liste (facultatif)"
     },
     "placeholder": {
       "command": "pass show bases/production",
       "token": "VAULT_TOKEN ou ~/.vault-token",
       "latest": "la plus récente",
-      "data_center": "Celui de votre compte Zoho"
+      "data_center": "Celui de votre compte Zoho",
+      "ssmVersion": "la plus récente (ou un numéro, ou une étiquette)"
     },
     "kvAuto": "Détecter",
     "help": {
@@ -188,7 +192,8 @@
       "gcp": "Utilise votre session gcloud (« gcloud auth login ») ou les identifiants par défaut de l'application.",
       "entry": "Groupe/Sous-groupe/Titre, le titre seul s'il n'est pas répété, ou l'UUID de l'entrée.",
       "keepass": "La base est lue sur cet ordinateur, sans programme externe (KDBX 3.1 et 4). Le mot de passe principal saisi est enregistré dans le trousseau du système ; avec « Demander à la connexion », il est demandé la première fois que vous vous connectez et reste en mémoire seulement jusqu'à la fermeture de DBine.",
-      "zoho": "Avec un client propre (« Self Client ») de la console d'API de Zoho et un jeton d'actualisation disposant des autorisations ZohoVault.secrets.READ et ZohoVault.user.READ. Les valeurs sont déchiffrées sur cet ordinateur avec la phrase secrète principale ; le secret du client, le jeton et la phrase saisis sont enregistrés dans le trousseau du système."
+      "zoho": "Avec un client propre (« Self Client ») de la console d'API de Zoho et un jeton d'actualisation disposant des autorisations ZohoVault.secrets.READ et ZohoVault.user.READ. Les valeurs sont déchiffrées sur cet ordinateur avec la phrase secrète principale ; le secret du client, le jeton et la phrase saisis sont enregistrés dans le trousseau du système.",
+      "ssm": "Avec les identifiants AWS de cet ordinateur, comme AWS Secrets Manager. SecureString est déchiffré (kms:Decrypt est nécessaire) ; pour une StringList, on utilise l'élément indiqué (1 est le premier)."
     },
     "test": "Tester",
     "testOk": "OK · {{n}} caractères",

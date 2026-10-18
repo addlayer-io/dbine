@@ -10681,5 +10681,22 @@
   "se necesita la contraseña maestra": "serve la password principale",
   "sin contraseña maestra, la base de KeePass necesita un archivo de clave": "senza password principale, il database di KeePass ha bisogno di un file chiave",
   "«{0}» es de una versión de KeePass que no se puede leer (se leen KDBX 3.1 y 4)": "«{0}» è di una versione di KeePass che non si può leggere (si leggono KDBX 3.1 e 4)",
-  "«{0}» no es una base de KeePass (.kdbx) válida: {1}": "«{0}» non è un database di KeePass (.kdbx) valido: {1}"
+  "«{0}» no es una base de KeePass (.kdbx) válida: {1}": "«{0}» non è un database di KeePass (.kdbx) valido: {1}",
+  "AWS Systems Manager no devolvió el parámetro «{0}»": "AWS Systems Manager non ha restituito il parametro «{0}»",
+  "AWS Systems Manager no devolvió un valor para «{0}»": "AWS Systems Manager non ha restituito un valore per «{0}»",
+  "AWS Systems Manager respondió {0}": "AWS Systems Manager ha risposto {0}",
+  "AWS Systems Manager respondió {0}: {1}": "AWS Systems Manager ha risposto {0}: {1}",
+  "AWS Systems Manager: el parámetro no tiene la versión o etiqueta pedida («{0}»)": "AWS Systems Manager: il parametro non ha la versione o l'etichetta richiesta («{0}»)",
+  "AWS Systems Manager: no existe el parámetro «{0}» en esa región": "AWS Systems Manager: il parametro «{0}» non esiste in quella regione",
+  "AWS no pudo descifrar el parámetro con su clave KMS: {0}": "AWS non è riuscito a decifrare il parametro con la sua chiave KMS: {0}",
+  "AWS_ENDPOINT_URL no es una URL http(s)://host[:puerto]": "AWS_ENDPOINT_URL non è un URL http(s)://host[:porta]",
+  "Parameter": "Parameter",
+  "el elemento de la lista tiene que ser un número desde 1": "l'elemento dell'elenco deve essere un numero a partire da 1",
+  "el parámetro «{0}» es una StringList de {1} elementos: indicá cuál usar (de 1 a {2})": "il parametro «{0}» è una StringList di {1} elementi: indica quale usare (da 1 a {2})",
+  "el parámetro «{0}» es {1}, no una StringList: dejá vacío el elemento de la lista": "il parametro «{0}» è {1}, non una StringList: lascia vuoto l'elemento dell'elenco",
+  "el parámetro «{0}» tiene {1} elementos: el {2} no existe": "il parametro «{0}» ha {1} elementi: il {2} non esiste",
+  "falta el nombre o el ARN del parámetro de AWS (/prod/db/password)": "manca il nome o l'ARN del parametro di AWS (/prod/db/password)",
+  "falta la región de AWS: indicala en el formulario (o usá el ARN del parámetro)": "manca la regione di AWS: indicala nel modulo (o usa l'ARN del parametro)",
+  "la versión del parámetro tiene que ser un número o una etiqueta": "la versione del parametro deve essere un numero o un'etichetta",
+  "no se pudo conectar con AWS Systems Manager: {0}": "non è stato possibile connettersi ad AWS Systems Manager: {0}"
 }

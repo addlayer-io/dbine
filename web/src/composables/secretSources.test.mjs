@@ -112,3 +112,12 @@ test('the confirmation shows a KeePass definition', () => {
   const rows = sourceRows({ kind: 'keepass', file: '/tmp/x.kdbx', entry: 'a/b', master: 'command', master_command: 'curl x | sh' });
   assert.deepEqual(rows.map((r) => r[0]), ['file', 'entry', 'master', 'master_command']);
 });
+
+test('AWS Parameter Store', () => {
+  const c = { kind: 'ssm', parameter: '/prod/db', version: 'current', region: 'eu-west-1', profile: 'prod', list_index: '2', json_key: 'password', fill_username: true };
+  assert.deepEqual(sourceFrom(draftFrom(c), 'password'), c);
+  assert.equal(sourceFrom(draftFrom(c), 'api_key').fill_username, undefined);
+  assert.deepEqual(missingInputs(emptyDraft('ssm')), ['parameter']);
+  assert.deepEqual(typedTokens(emptyDraft('ssm')), {});
+  assert.deepEqual(sourceRows(c).map((r) => r[0]), ['region', 'profile', 'version', 'json_key', 'fill_username', 'parameter', 'list_index']);
+});

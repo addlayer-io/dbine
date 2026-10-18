@@ -128,7 +128,8 @@
       "azure": "Azure Key Vault",
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
-      "zoho": "Zoho Vault"
+      "zoho": "Zoho Vault",
+      "ssm": "AWS Parameter Store"
     },
     "askHelp": "Asked for when connecting and not saved.",
     "askPlaceholder": "(for testing only; asked for when connecting)",
@@ -169,13 +170,16 @@
       "client_secret": "Client secret",
       "refresh_token": "Refresh token",
       "fill_username_keepass": "Also take the user from this entry (its «UserName» field)",
-      "fill_username_zoho": "Also take the user from this secret (its «username» field)"
+      "fill_username_zoho": "Also take the user from this secret (its «username» field)",
+      "parameter": "Parameter name or ARN",
+      "list_index": "List item (optional)"
     },
     "placeholder": {
       "command": "pass show databases/production",
       "token": "VAULT_TOKEN or ~/.vault-token",
       "latest": "the latest",
-      "data_center": "The one for your Zoho account"
+      "data_center": "The one for your Zoho account",
+      "ssmVersion": "the latest (or a number, or a label)"
     },
     "kvAuto": "Detect",
     "help": {
@@ -188,7 +192,8 @@
       "gcp": "Uses your gcloud session («gcloud auth login») or the application default credentials.",
       "entry": "Group/Subgroup/Title, the title alone if it isn't repeated, or the entry's UUID.",
       "keepass": "The database is read on this computer, with no external programs (KDBX 3.1 and 4). The master password you type is saved in the system keychain; with «Ask when connecting» it is asked the first time you connect and stays in memory only until you close DBine.",
-      "zoho": "With your own client («Self Client») from the Zoho API console and a refresh token with the ZohoVault.secrets.READ and ZohoVault.user.READ scopes. Values are decrypted on this computer with the master passphrase; the client secret, the token and the passphrase you type are saved in the system keychain."
+      "zoho": "With your own client («Self Client») from the Zoho API console and a refresh token with the ZohoVault.secrets.READ and ZohoVault.user.READ scopes. Values are decrypted on this computer with the master passphrase; the client secret, the token and the passphrase you type are saved in the system keychain.",
+      "ssm": "With this computer's AWS credentials, like AWS Secrets Manager. SecureString is decrypted (kms:Decrypt is required); for a StringList, the item you indicate is used (1 is the first)."
     },
     "test": "Test",
     "testOk": "OK · {{n}} characters",

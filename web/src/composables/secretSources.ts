@@ -13,7 +13,7 @@ export const SOURCES_OPTION = 'secret_sources';
 export const TOKEN_PREFIX = 'source_token:';
 
 /** What the picker offers, in order. `ask` only for the password. */
-export const SOURCE_KINDS = ['saved', 'ask', 'command', 'onepassword', 'vault', 'aws', 'azure', 'gcp', 'keepass', 'zoho'] as const;
+export const SOURCE_KINDS = ['saved', 'ask', 'command', 'onepassword', 'vault', 'aws', 'azure', 'gcp', 'keepass', 'zoho', 'ssm'] as const;
 export type DraftKind = (typeof SOURCE_KINDS)[number];
 
 /** Where a KeePass / Zoho Vault master password comes from. */
@@ -70,6 +70,9 @@ export interface SourceDraft {
   /** Typed now, like `token` (never read back). */
   client_secret: string;
   refresh_token: string;
+  /** AWS Parameter Store. */
+  parameter: string;
+  list_index: string;
 }
 
 export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
@@ -77,7 +80,7 @@ export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
     kind, command: '', json_key: '', reference: '', account: '', address: '', path: '', key: '', namespace: '', kv_version: 'auto',
     ca_file: '', token: '', secret_id: '', region: '', profile: '', fill_username: false, vault_url: '', name: '', version: '', project: '', secret: '',
     file: '', entry: '', attribute: '', key_file: '', master: 'keychain', master_command: '', data_center: '', secret_name: '', client_id: '',
-    client_secret: '', refresh_token: '',
+    client_secret: '', refresh_token: '', parameter: '', list_index: '',
   };
 }
 
@@ -145,6 +148,10 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
       master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
       fill_username: field === 'password' && d.fill_username,
     }) as SecretSource;
+    case 'ssm': return opt({
+      kind: 'ssm' as const, parameter: t(d.parameter), version: t(d.version), region: t(d.region), profile: t(d.profile), list_index: t(d.list_index),
+      json_key: t(d.json_key), fill_username: field === 'password' && d.fill_username,
+    });
     default: return null;
   }
 }
@@ -159,6 +166,7 @@ export const REQUIRED: Record<SecretSourceKind, (keyof SourceDraft)[]> = {
   gcp: ['project', 'secret'],
   keepass: ['file', 'entry'],
   zoho: ['data_center', 'secret_name', 'client_id'],
+  ssm: ['parameter'],
 };
 
 /** The required inputs a draft left empty (with what its master password
@@ -192,7 +200,7 @@ export function sourceRows(s: SecretSource): [string, string][] {
   const order = [
     'command', 'reference', 'account', 'address', 'path', 'key', 'namespace', 'kv_version', 'ca_file', 'secret_id', 'region', 'profile', 'vault_url', 'name',
     'project', 'secret', 'version', 'file', 'entry', 'data_center', 'secret_name', 'client_id', 'attribute', 'key_file', 'master', 'master_command', 'json_key',
-    'fill_username',
+    'fill_username', 'parameter', 'list_index',
   ];
   const rec = s as unknown as Record<string, unknown>;
   return order.filter((k) => rec[k] !== undefined && rec[k] !== '' && rec[k] !== false).map((k) => [k, String(rec[k])]);

@@ -248,6 +248,25 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           />
         </el-form-item>
       </template>
+      <template v-else-if="draft.kind === 'ssm'">
+        <el-form-item :label="$t('connection:source.input.parameter')" :required="req('parameter')" class="ss-wide">
+          <el-input v-model="draft.parameter" class="ss-mono" placeholder="/prod/myapp/db/password" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.version')">
+          <el-input v-model="draft.version" :placeholder="$t('connection:source.placeholder.ssmVersion')" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.list_index')">
+          <el-input v-model="draft.list_index" placeholder="1" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.region')">
+          <el-input v-model="draft.region" placeholder="us-east-1" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.profile')">
+          <el-input v-model="draft.profile" placeholder="default" />
+        </el-form-item>
+        <el-checkbox v-if="field === 'password'" v-model="draft.fill_username" class="ss-wide">{{ $t('connection:source.input.fill_username') }}</el-checkbox>
+        <div class="ss-help ss-wide">{{ $t('connection:source.help.ssm') }}</div>
+      </template>
       <template v-if="hasMaster">
         <el-form-item :label="$t(`connection:source.input.master_${draft.kind}`)">
           <el-select v-model="draft.master" style="width: 100%">

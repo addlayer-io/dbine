@@ -16,6 +16,7 @@ has an **Origin** selector in the connection form:
 | **Google Secret Manager** | A secret version of a project. |
 | **KeePass** | A field of an entry of a `.kdbx` file, read by DBine itself. |
 | **Zoho Vault** | A field of a secret, decrypted by DBine with your master passphrase. |
+| **AWS Parameter Store** | A parameter of AWS Systems Manager Parameter Store (SecureString, String or StringList). |
 
 DBine resolves the value right before each connection opens, before the SSH
 tunnel and the engine's driver get the settings, so it works the same way on
@@ -35,8 +36,9 @@ Secrets are often a JSON object (`{"username": "app", "password": "…"}`).
 and booleans as written). If the key isn't there, the error lists the keys
 the secret has (never their values). With AWS Secrets Manager, **Take the
 user from this secret too** also fills the connection's user from the
-secret's `username` key; KeePass and Zoho Vault have the same option (the
-entry's `UserName`, the secret's `username`).
+secret's `username` key; KeePass, Zoho Vault and AWS Parameter Store have
+the same option (the entry's `UserName`, the secret's `username`, the value's
+`username` key).
 
 ## Command
 
@@ -81,6 +83,9 @@ DBine talks to Vault's HTTP API itself (no `vault` CLI needed). The token
 only goes in the `X-Vault-Token` header to the address in the form, and no
 redirect is followed. Errors: permission denied (the token's policy, or it
 expired), secret not found, key not in the secret, Vault sealed.
+
+OpenBao speaks the same KV API: use this source with its address (and its
+token, or `VAULT_TOKEN`).
 
 ## AWS Secrets Manager
 
@@ -181,6 +186,21 @@ This integration follows Zoho Vault's REST API v1 documentation and the
 encryption its web client uses; it was tested against recorded vectors and a
 mock of the API, not against a live Zoho account.
 
+## AWS Parameter Store
+
+Parameter name (`/prod/myapp/db/password`) or ARN, version (optional: a
+number or a label; empty: the latest), list element (optional, for a
+`StringList`: 1 is the first), region and profile (optional, as for AWS
+Secrets Manager). DBine signs `GetParameter` with `WithDecryption` itself
+(SigV4), with the same credential chain as AWS Secrets Manager. SecureString
+values come decrypted (the credentials need `kms:Decrypt` on the key); a
+`StringList` without an element chosen is an error that says how many it
+has. The request goes to `ssm.<region>.amazonaws.com`, or to the endpoint in
+`AWS_ENDPOINT_URL_SSM` / `AWS_ENDPOINT_URL` when set (the AWS tools' standard
+variables, e.g. for LocalStack). Errors: parameter or version not found,
+access denied (`ssm:GetParameter`, `kms:Decrypt`), credentials rejected or
+expired.
+
 ## Connections that come from elsewhere
 
 A source runs a program or sends your credentials to a service, so a
@@ -223,9 +243,9 @@ and travels with them (backup, export, import). Its value never does.
 The Flathub build runs commands inside its sandbox, which doesn't have the
 system's programs (`op`, `pass`, `aws`, `az`, `gcloud`): the 1Password, AWS
 CLI, Azure and Google steps answer that they aren't available in the
-sandbox. Vault and Zoho Vault work (plain HTTPS), AWS Secrets Manager works
-with keys from the environment or `~/.aws/credentials`, and KeePass reads
-files the sandbox can see (your home folder).
+sandbox. Vault and Zoho Vault work (plain HTTPS), AWS Secrets Manager and Parameter Store work with keys from
+the environment or `~/.aws/credentials`, and KeePass reads files the sandbox
+can see (your home folder).
 
 ## For developers
 
@@ -241,15 +261,19 @@ files the sandbox can see (your home folder).
 - Resolution: `src-tauri/src/secret_sources/` (`fill`, called by
   `AppState::connect_config` before the tunnel and the driver; the providers;
   the command runner; `keepass.rs` with the `keepass` crate, `zoho.rs` with
-  Zoho's AES-CTR, PBKDF2 and RSA). The cloud credential chains and SigV4 come
+  Zoho's AES-CTR, PBKDF2 and RSA, `ssm.rs` with SigV4). The cloud credential chains and SigV4 come
   from `crates/drivers/postgres/src/cloud_auth.rs`, included with `#[path]`.
 - Tests: KDBX 4 databases are written by the tests (Argon2d/Argon2id, AES,
   ChaCha20, Twofish, key files); `src-tauri/src/secret_sources/testdata/` has
   KDBX 3.1 files from other writers and the Zoho vectors
   (`zoho-vectors.json`, made with Zoho's web crypto, Node and OpenSSL as
-  `zoho-vectors.mjs` says). `secret_sources::tests::live_postgres` connects
-  to `dbine-test-postgres` with a password from a command, a KeePass file and
-  (if running) Vault.
+  `zoho-vectors.mjs` says).
+  `secret_sources::tests::live_postgres` connects to `dbine-test-postgres`
+  with a password from a command, a KeePass file and (if running) Vault;
+  `secret_sources::ssm::tests::live_localstack` (container
+  `dbine-test-localstack`, `localstack/localstack:4.9` with
+  `SERVICES=secretsmanager,ssm,kms`; parameters made with `awslocal ssm
+  put-parameter`) does the same with Parameter Store.
 - Commands (`args` in snake_case):
 
 | Command | args | Returns |

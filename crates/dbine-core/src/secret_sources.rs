@@ -1,7 +1,8 @@
 //! Where a connection's secret field takes its value from when it isn't
 //! kept in the keychain (docs/secret-sources.md): a command's output, a
 //! 1Password reference, HashiCorp Vault, AWS Secrets Manager, Azure Key
-//! Vault, Google Secret Manager, a KeePass database or Zoho Vault.
+//! Vault, Google Secret Manager, a KeePass database, Zoho Vault or AWS
+//! Systems Manager Parameter Store.
 //!
 //! The definition (the command, the `op://` reference, the Vault path…) is
 //! not secret: it lives in the connection's options under [`OPTION`], as
@@ -216,6 +217,26 @@ pub enum SecretSource {
         #[serde(default, skip_serializing_if = "is_false")]
         fill_username: bool,
     },
+    /// AWS Systems Manager Parameter Store (`GetParameter`, decrypted).
+    Ssm {
+        /// The parameter's name (`/prod/db/password`) or ARN.
+        parameter: String,
+        /// A version number or a label; empty: the latest.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        version: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        region: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        profile: String,
+        /// For a `StringList`, which element (1 is the first).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        list_index: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        json_key: String,
+        /// The connection's user comes from the value's `username` key.
+        #[serde(default, skip_serializing_if = "is_false")]
+        fill_username: bool,
+    },
 }
 
 pub type SecretSources = BTreeMap<String, SecretSource>;
@@ -271,6 +292,7 @@ impl SecretSource {
             Self::Gcp { .. } => "gcp",
             Self::KeePass { .. } => "keepass",
             Self::Zoho { .. } => "zoho",
+            Self::Ssm { .. } => "ssm",
         }
     }
 
@@ -300,7 +322,8 @@ impl SecretSource {
             | Self::OnePassword { json_key, .. }
             | Self::Aws { json_key, .. }
             | Self::Azure { json_key, .. }
-            | Self::Gcp { json_key, .. } => json_key.trim(),
+            | Self::Gcp { json_key, .. }
+            | Self::Ssm { json_key, .. } => json_key.trim(),
             Self::Vault { .. } | Self::KeePass { .. } | Self::Zoho { .. } => "",
         }
     }
@@ -416,8 +439,46 @@ impl SecretSource {
                 }
                 check_master_command(*master, master_command)?;
             }
+            Self::Ssm { parameter, version, region, profile, list_index, .. } => {
+                if !valid_ssm_parameter(parameter.trim()) {
+                    return Err(bad("falta el nombre o el ARN del parámetro de AWS (/prod/db/password)"));
+                }
+                let v = version.trim();
+                if !v.is_empty() && (v.len() > 100 || !v.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))) {
+                    return Err(bad("la versión del parámetro tiene que ser un número o una etiqueta"));
+                }
+                if !region.trim().is_empty() && !valid_aws_region(region.trim()) {
+                    return Err(bad(format!("la región de AWS «{}» no es válida", region.trim())));
+                }
+                if !profile.is_empty() && (profile.starts_with('-') || !profile.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '@' | '+'))) {
+                    return Err(bad("el perfil de AWS no es válido"));
+                }
+                let i = list_index.trim();
+                if !i.is_empty() && !i.parse::<usize>().is_ok_and(|n| (1..=10_000).contains(&n)) {
+                    return Err(bad("el elemento de la lista tiene que ser un número desde 1"));
+                }
+            }
         }
         Ok(())
+    }
+}
+
+/// `/prod/db/password`, `db-password`, or its ARN
+/// (`arn:aws:ssm:<region>:<account>:parameter/…`).
+pub fn valid_ssm_parameter(p: &str) -> bool {
+    let name_ok = |n: &str| !n.is_empty() && n.len() <= 2048 && n.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-' | '/')) && !n.contains("//");
+    match p.strip_prefix("arn:") {
+        Some(rest) => {
+            let parts: Vec<&str> = rest.splitn(5, ':').collect();
+            parts.len() == 5
+                && parts[0].starts_with("aws")
+                && parts[1] == "ssm"
+                && valid_aws_region(parts[2])
+                && parts[3].len() == 12
+                && parts[3].chars().all(|c| c.is_ascii_digit())
+                && parts[4].strip_prefix("parameter").is_some_and(|n| n.starts_with('/') && name_ok(n))
+        }
+        None => name_ok(p),
     }
 }
 
@@ -864,5 +925,39 @@ mod tests {
         assert!(!snapshot.contains("hunter2-resolved"));
         assert_eq!(back.config.password, None);
         assert_eq!(read(&back.config).unwrap()["password"], cmd("printf hunter2"));
+    }
+
+    #[test]
+    fn ssm_parses_and_validates() {
+        let json = r#"{
+            "c": {"kind":"ssm","parameter":"/prod/db/password","version":"3","region":"eu-west-1","list_index":"2"},
+            "d": {"kind":"ssm","parameter":"arn:aws:ssm:us-east-1:123456789012:parameter/prod/db","version":"current","json_key":"password"}
+        }"#;
+        let mut cfg = ConnectionConfig::default();
+        cfg.options.insert(OPTION.into(), json.into());
+        let s = read(&cfg).unwrap();
+        for (k, v) in &s {
+            v.validate().unwrap_or_else(|e| panic!("{k}: {e}"));
+        }
+        assert_eq!(s["c"].kind(), "ssm");
+        assert_eq!((s["c"].json_key(), s["d"].json_key()), ("", "password"));
+        assert!(s["c"].token_slots().is_empty());
+        let mut back = ConnectionConfig::default();
+        write(&mut back, &s);
+        assert_eq!(read(&back).unwrap(), s);
+        let ssm = |p: &str, v: &str, i: &str| SecretSource::Ssm {
+            parameter: p.into(),
+            version: v.into(),
+            region: String::new(),
+            profile: String::new(),
+            list_index: i.into(),
+            json_key: String::new(),
+            fill_username: false,
+        };
+        assert!(ssm("db-password", "", "").validate().is_ok());
+        assert!(ssm("/a/b", "my_label", "1").validate().is_ok());
+        for (p, v, i) in [("", "", ""), ("/a b", "", ""), ("/a?x", "", ""), ("/a", "3:4", ""), ("/a", "", "0"), ("/a", "", "x"), ("arn:aws:ssm:evil:1:parameter/a", "", "")] {
+            assert!(ssm(p, v, i).validate().is_err(), "{p} {v} {i}");
+        }
     }
 }

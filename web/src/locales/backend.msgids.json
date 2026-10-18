@@ -672,11 +672,36 @@
  "AWS Secrets Manager: no existe el secreto «{0}» en esa región": [
   "src-tauri/src/secret_sources/aws.rs"
  ],
+ "AWS Systems Manager no devolvió el parámetro «{0}»": [
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
+ "AWS Systems Manager no devolvió un valor para «{0}»": [
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
+ "AWS Systems Manager respondió {0}": [
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
+ "AWS Systems Manager respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
+ "AWS Systems Manager: el parámetro no tiene la versión o etiqueta pedida («{0}»)": [
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
+ "AWS Systems Manager: no existe el parámetro «{0}» en esa región": [
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
+ "AWS no pudo descifrar el parámetro con su clave KMS: {0}": [
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
  "AWS no pudo descifrar el secreto con su clave KMS: {0}": [
   "src-tauri/src/secret_sources/aws.rs"
  ],
  "AWS rechazó las credenciales (¿vencieron? probá «aws sso login»): {0}": [
-  "src-tauri/src/secret_sources/aws.rs"
+  "src-tauri/src/secret_sources/aws.rs",
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
+ "AWS_ENDPOINT_URL no es una URL http(s)://host[:puerto]": [
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "Abierta hace (s)": [
   "crates/drivers/firebird/src/monitor.rs"
@@ -13130,7 +13155,8 @@
  "Message": [
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/mysql/src/session.rs",
-  "src-tauri/src/secret_sources/aws.rs"
+  "src-tauri/src/secret_sources/aws.rs",
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "Metacomando de psql ignorado: {0} (DBine ejecuta solo SQL)": [
   "crates/drivers/postgres/src/session.rs"
@@ -13756,7 +13782,8 @@
   "crates/drivers/neo4j/src/plan.rs",
   "crates/drivers/odbc/src/blocking.rs",
   "crates/drivers/odbc/src/processes.rs",
-  "crates/drivers/sqlserver/src/plan.rs"
+  "crates/drivers/sqlserver/src/plan.rs",
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "Namespace": [
   "crates/drivers/odbc/src/monitor.rs"
@@ -16257,6 +16284,9 @@
  "Parallel {0}": [
   "crates/drivers/dsql/src/plan.rs",
   "crates/drivers/postgres/src/plan.rs"
+ ],
+ "Parameter": [
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "Parcial": [
   "crates/drivers/sqlserver/src/backup.rs"
@@ -20209,7 +20239,8 @@
   "crates/dbine-schema/src/dialect/clickhouse.rs",
   "crates/drivers/clickhouse/src/schema.rs",
   "crates/drivers/clickhouse/src/transfer.rs",
-  "crates/drivers/redis/src/ddl.rs"
+  "crates/drivers/redis/src/ddl.rs",
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "String de ClickHouse no limita el largo.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
@@ -21596,7 +21627,8 @@
   "crates/drivers/influxdb/src/plan.rs",
   "crates/drivers/iotdb/src/monitor.rs",
   "crates/drivers/mysql/src/session.rs",
-  "crates/drivers/odbc/src/plan.rs"
+  "crates/drivers/odbc/src/plan.rs",
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "Tyrell": [
   "src-tauri/src/commands/datagen.rs"
@@ -22586,7 +22618,8 @@
   "crates/drivers/postgres/src/properties.rs"
  ],
  "Value": [
-  "crates/drivers/dynamodb/src/admin.rs"
+  "crates/drivers/dynamodb/src/admin.rs",
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "Van en PROPERTIES tal como las escribís.": [
   "crates/drivers/mysql/src/create_db.rs"
@@ -24840,6 +24873,9 @@
  "el día del mes tiene que estar entre 1 y 28": [
   "crates/dbine-core/src/tasks.rs"
  ],
+ "el elemento de la lista tiene que ser un número desde 1": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "el elemento no trae su id": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
@@ -25131,6 +25167,15 @@
  ],
  "el particionado": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
+ ],
+ "el parámetro «{0}» es una StringList de {1} elementos: indicá cuál usar (de 1 a {2})": [
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
+ "el parámetro «{0}» es {1}, no una StringList: dejá vacío el elemento de la lista": [
+  "src-tauri/src/secret_sources/ssm.rs"
+ ],
+ "el parámetro «{0}» tiene {1} elementos: el {2} no existe": [
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "el paso necesita las dos bases": [
   "src-tauri/src/tasks/steps.rs"
@@ -26864,6 +26909,9 @@
  "falta el nombre del secreto de Google Secret Manager (o no es válido)": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "falta el nombre o el ARN del parámetro de AWS (/prod/db/password)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "falta el nombre o el ARN del secreto de AWS": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
@@ -27015,6 +27063,9 @@
  ],
  "falta la región de AWS (no se pudo deducir del endpoint): indicala en el formulario": [
   "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "falta la región de AWS: indicala en el formulario (o usá el ARN del parámetro)": [
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "falta la región de AWS: indicala en el formulario (o usá el ARN del secreto)": [
   "src-tauri/src/secret_sources/aws.rs"
@@ -28388,7 +28439,8 @@
  "la región de AWS «{0}» no es válida": [
   "crates/dbine-core/src/secret_sources.rs",
   "crates/drivers/postgres/src/cloud_auth.rs",
-  "src-tauri/src/secret_sources/aws.rs"
+  "src-tauri/src/secret_sources/aws.rs",
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "la región principal no se puede vaciar: para que la base deje de ser multirregión, quitá sus regiones (la principal, la última)": [
   "crates/drivers/postgres/src/properties.rs"
@@ -28652,6 +28704,9 @@
  ],
  "la versión de Flathub de DBine no puede usar «{0}»: el sandbox de Flatpak no tiene acceso a los programas del sistema. Usá la versión de DBine de dbine.com, o un token como contraseña": [
   "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "la versión del parámetro tiene que ser un número o una etiqueta": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "la versión del secreto de Azure Key Vault no es válida": [
   "crates/dbine-core/src/secret_sources.rs"
@@ -29968,6 +30023,9 @@
  ],
  "no se pudo conectar con AWS Secrets Manager: {0}": [
   "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "no se pudo conectar con AWS Systems Manager: {0}": [
+  "src-tauri/src/secret_sources/ssm.rs"
  ],
  "no se pudo conectar con Azure Key Vault: {0}": [
   "src-tauri/src/secret_sources/azure.rs"
