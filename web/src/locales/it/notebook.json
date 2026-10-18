@@ -162,6 +162,43 @@
     "modified": "modificato {{when}}",
     "cached": "già caricata",
     "capped": "tagliata al tetto per tabella",
-    "asText": "alcune colonne come testo"
+    "asText": "alcune colonne come testo",
+    "changed": "modificato dall'ultima esecuzione ({{before}} → {{after}})",
+    "changedMany_one": "{{files}} file modificato dall'ultima esecuzione",
+    "changedMany_many": "{{files}} file modificati dall'ultima esecuzione",
+    "changedMany_other": "{{files}} file modificati dall'ultima esecuzione"
+  },
+  "fileAccess": {
+    "title": "Leggi file locali",
+    "lead_one": "Questo notebook vuole leggere questo file:",
+    "lead_many": "Questo notebook vuole leggere questi file:",
+    "lead_other": "Questo notebook vuole leggere questi file:",
+    "pattern": "Pattern",
+    "noteSaved": "«Consenti» vale solo per questa esecuzione. «Consenti sempre» lo ricorda su questo computer per questo notebook (non nel file): un altro file, o un altro notebook, chiede di nuovo.",
+    "noteUnsaved": "«Consenti» vale solo per questa esecuzione. Per ricordarlo, salva il notebook.",
+    "deny": "Nega",
+    "once": "Consenti",
+    "always": "Consenti sempre",
+    "alwaysTip": "Questo notebook potrà leggere questi file (e i nuovi con lo stesso pattern) senza chiedere di nuovo",
+    "alwaysUnsaved": "Salva il notebook per ricordarlo",
+    "denied_one": "La lettura di {{files}} non è stata consentita",
+    "denied_many": "La lettura di questi file non è stata consentita: {{files}}",
+    "denied_other": "La lettura di questi file non è stata consentita: {{files}}"
+  },
+  "fileGrants": {
+    "title": "File che i notebook possono leggere",
+    "help": "Quelli consentiti con «Consenti sempre», su questo computer. Se sposti o rinomini un notebook, chiede di nuovo.",
+    "helpOne": "Quelli che questo notebook può leggere senza chiedere, su questo computer. Se lo sposti o lo rinomini, chiede di nuovo.",
+    "empty": "Nessun file ancora consentito.",
+    "unsaved": "Un notebook non salvato non ricorda i file: salvalo per poterli consentire sempre.",
+    "granted": "consentito il {{when}}",
+    "remove": "Rimuovi",
+    "clearAll": "Rimuovi tutti",
+    "clearConfirm_one": "Rimuovere il permesso? Il notebook chiederà di nuovo prima di leggere quel file.",
+    "clearConfirm_many": "Rimuovere i {{count}} permessi? I notebook chiederanno di nuovo prima di leggere quei file.",
+    "clearConfirm_other": "Rimuovere i {{count}} permessi? I notebook chiederanno di nuovo prima di leggere quei file.",
+    "toolbar": "Permessi dei file…",
+    "toolbarTip": "I file locali che questo notebook può leggere senza chiedere",
+    "dialogTitle": "Permessi dei file"
   }
 }

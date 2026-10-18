@@ -162,6 +162,43 @@
     "modified": "modified {{when}}",
     "cached": "already loaded",
     "capped": "cut at the per-table cap",
-    "asText": "some columns as text"
+    "asText": "some columns as text",
+    "changed": "changed since the last run ({{before}} → {{after}})",
+    "changedMany_one": "{{files}} file changed since the last run",
+    "changedMany_many": "{{files}} files changed since the last run",
+    "changedMany_other": "{{files}} files changed since the last run"
+  },
+  "fileAccess": {
+    "title": "Read local files",
+    "lead_one": "This notebook wants to read this file:",
+    "lead_many": "This notebook wants to read these files:",
+    "lead_other": "This notebook wants to read these files:",
+    "pattern": "Pattern",
+    "noteSaved": "“Allow” applies to this run only. “Always allow” remembers it on this computer for this notebook (not in the file): another file, or another notebook, asks again.",
+    "noteUnsaved": "“Allow” applies to this run only. To remember it, save the notebook.",
+    "deny": "Deny",
+    "once": "Allow",
+    "always": "Always allow",
+    "alwaysTip": "This notebook will be able to read these files (and new ones matching the same pattern) without asking again",
+    "alwaysUnsaved": "Save the notebook to remember it",
+    "denied_one": "Reading {{files}} was not allowed",
+    "denied_many": "Reading these files was not allowed: {{files}}",
+    "denied_other": "Reading these files was not allowed: {{files}}"
+  },
+  "fileGrants": {
+    "title": "Files notebooks can read",
+    "help": "The ones allowed with “Always allow”, on this computer. If you move or rename a notebook, it asks again.",
+    "helpOne": "The ones this notebook can read without asking, on this computer. If you move or rename it, it asks again.",
+    "empty": "No files allowed yet.",
+    "unsaved": "An unsaved notebook doesn't remember files: save it to always allow them.",
+    "granted": "allowed on {{when}}",
+    "remove": "Remove",
+    "clearAll": "Remove all",
+    "clearConfirm_one": "Remove the permission? The notebook will ask again before reading that file.",
+    "clearConfirm_many": "Remove all {{count}} permissions? Notebooks will ask again before reading those files.",
+    "clearConfirm_other": "Remove all {{count}} permissions? Notebooks will ask again before reading those files.",
+    "toolbar": "File permissions…",
+    "toolbarTip": "The local files this notebook can read without asking",
+    "dialogTitle": "File permissions"
   }
 }

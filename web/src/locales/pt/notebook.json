@@ -162,6 +162,43 @@
     "modified": "modificado {{when}}",
     "cached": "já carregada",
     "capped": "cortada no limite por tabela",
-    "asText": "algumas colunas como texto"
+    "asText": "algumas colunas como texto",
+    "changed": "mudou desde a última execução ({{before}} → {{after}})",
+    "changedMany_one": "{{files}} arquivo mudou desde a última execução",
+    "changedMany_many": "{{files}} arquivos mudaram desde a última execução",
+    "changedMany_other": "{{files}} arquivos mudaram desde a última execução"
+  },
+  "fileAccess": {
+    "title": "Ler arquivos locais",
+    "lead_one": "Este notebook quer ler este arquivo:",
+    "lead_many": "Este notebook quer ler estes arquivos:",
+    "lead_other": "Este notebook quer ler estes arquivos:",
+    "pattern": "Padrão",
+    "noteSaved": "“Permitir” vale só para esta execução. “Permitir sempre” lembra neste computador para este notebook (não no arquivo): outro arquivo, ou outro notebook, pergunta de novo.",
+    "noteUnsaved": "“Permitir” vale só para esta execução. Para lembrar, salve o notebook.",
+    "deny": "Negar",
+    "once": "Permitir",
+    "always": "Permitir sempre",
+    "alwaysTip": "Este notebook poderá ler estes arquivos (e os novos do mesmo padrão) sem perguntar de novo",
+    "alwaysUnsaved": "Salve o notebook para lembrar",
+    "denied_one": "Não foi permitido ler {{files}}",
+    "denied_many": "Não foi permitido ler estes arquivos: {{files}}",
+    "denied_other": "Não foi permitido ler estes arquivos: {{files}}"
+  },
+  "fileGrants": {
+    "title": "Arquivos que os notebooks podem ler",
+    "help": "Os permitidos com “Permitir sempre”, neste computador. Se você mover ou renomear um notebook, ele pergunta de novo.",
+    "helpOne": "Os que este notebook pode ler sem perguntar, neste computador. Se você o mover ou renomear, ele pergunta de novo.",
+    "empty": "Nenhum arquivo permitido ainda.",
+    "unsaved": "Um notebook não salvo não lembra arquivos: salve-o para poder permiti-los sempre.",
+    "granted": "permitido em {{when}}",
+    "remove": "Remover",
+    "clearAll": "Remover todos",
+    "clearConfirm_one": "Remover a permissão? O notebook voltará a perguntar antes de ler esse arquivo.",
+    "clearConfirm_many": "Remover as {{count}} permissões? Os notebooks voltarão a perguntar antes de ler esses arquivos.",
+    "clearConfirm_other": "Remover as {{count}} permissões? Os notebooks voltarão a perguntar antes de ler esses arquivos.",
+    "toolbar": "Permissões de arquivos…",
+    "toolbarTip": "Os arquivos locais que este notebook pode ler sem perguntar",
+    "dialogTitle": "Permissões de arquivos"
   }
 }

@@ -162,6 +162,43 @@
     "modified": "modifié {{when}}",
     "cached": "déjà chargée",
     "capped": "coupée au plafond par table",
-    "asText": "certaines colonnes en texte"
+    "asText": "certaines colonnes en texte",
+    "changed": "modifié depuis la dernière exécution ({{before}} → {{after}})",
+    "changedMany_one": "{{files}} fichier modifié depuis la dernière exécution",
+    "changedMany_many": "{{files}} fichiers modifiés depuis la dernière exécution",
+    "changedMany_other": "{{files}} fichiers modifiés depuis la dernière exécution"
+  },
+  "fileAccess": {
+    "title": "Lire des fichiers locaux",
+    "lead_one": "Ce notebook veut lire ce fichier :",
+    "lead_many": "Ce notebook veut lire ces fichiers :",
+    "lead_other": "Ce notebook veut lire ces fichiers :",
+    "pattern": "Motif",
+    "noteSaved": "« Autoriser » ne vaut que pour cette exécution. « Toujours autoriser » le mémorise sur cet ordinateur pour ce notebook (pas dans le fichier) : un autre fichier, ou un autre notebook, redemande.",
+    "noteUnsaved": "« Autoriser » ne vaut que pour cette exécution. Pour le mémoriser, enregistrez le notebook.",
+    "deny": "Refuser",
+    "once": "Autoriser",
+    "always": "Toujours autoriser",
+    "alwaysTip": "Ce notebook pourra lire ces fichiers (et les nouveaux du même motif) sans redemander",
+    "alwaysUnsaved": "Enregistrez le notebook pour le mémoriser",
+    "denied_one": "La lecture de {{files}} n'a pas été autorisée",
+    "denied_many": "La lecture de ces fichiers n'a pas été autorisée : {{files}}",
+    "denied_other": "La lecture de ces fichiers n'a pas été autorisée : {{files}}"
+  },
+  "fileGrants": {
+    "title": "Fichiers que les notebooks peuvent lire",
+    "help": "Ceux autorisés avec « Toujours autoriser », sur cet ordinateur. Si vous déplacez ou renommez un notebook, il redemande.",
+    "helpOne": "Ceux que ce notebook peut lire sans demander, sur cet ordinateur. Si vous le déplacez ou le renommez, il redemande.",
+    "empty": "Aucun fichier autorisé pour l'instant.",
+    "unsaved": "Un notebook non enregistré ne mémorise pas les fichiers : enregistrez-le pour pouvoir les autoriser en permanence.",
+    "granted": "autorisé le {{when}}",
+    "remove": "Retirer",
+    "clearAll": "Tout retirer",
+    "clearConfirm_one": "Retirer l'autorisation ? Le notebook redemandera avant de lire ce fichier.",
+    "clearConfirm_many": "Retirer les {{count}} autorisations ? Les notebooks redemanderont avant de lire ces fichiers.",
+    "clearConfirm_other": "Retirer les {{count}} autorisations ? Les notebooks redemanderont avant de lire ces fichiers.",
+    "toolbar": "Autorisations de fichiers…",
+    "toolbarTip": "Les fichiers locaux que ce notebook peut lire sans demander",
+    "dialogTitle": "Autorisations de fichiers"
   }
 }
