@@ -35,8 +35,6 @@
     "tagsPlaceholder": "prod, dev, qa… (digite uma nova e Enter)",
     "secretKeptMasc": "(salvo; deixe vazio para mantê-lo)",
     "secretKeptFem": "(salva; deixe vazia para mantê-la)",
-    "savePassword": "Salvar {{fields}} no chaveiro do sistema",
-    "and": " e ",
     "couldNotConnect": "Não foi possível conectar",
     "testConnection": "Testar conexão",
     "connectionOk": "Conexão bem-sucedida",
@@ -117,5 +115,66 @@
     },
     "couldNotConnect": "Não foi possível conectar a {{name}}: {{error}}",
     "ipMismatch": "O servidor informou outro IP ({{server}}): não coincide com seu IP público, então não é usado."
+  },
+  "source": {
+    "label": "Origem",
+    "kind": {
+      "saved": "Salva no chaveiro",
+      "ask": "Perguntar toda vez",
+      "command": "Comando",
+      "onepassword": "1Password",
+      "vault": "HashiCorp Vault",
+      "aws": "AWS Secrets Manager",
+      "azure": "Azure Key Vault",
+      "gcp": "Google Secret Manager"
+    },
+    "askHelp": "É pedida ao conectar e não é salva.",
+    "askPlaceholder": "(somente para testar; é pedida ao conectar)",
+    "input": {
+      "command": "Comando",
+      "json_key": "Chave JSON (opcional)",
+      "reference": "Referência",
+      "account": "Conta (opcional)",
+      "address": "Endereço",
+      "path": "Caminho do segredo",
+      "key": "Chave",
+      "namespace": "Namespace (opcional)",
+      "kv_version": "Versão do KV",
+      "ca_file": "Certificado da CA (opcional)",
+      "token": "Token (opcional)",
+      "secret_id": "Nome ou ARN do segredo",
+      "region": "Região (opcional)",
+      "profile": "Perfil da AWS (opcional)",
+      "fill_username": "Usar também o usuário deste segredo (sua chave «username»)",
+      "vault_url": "URL do cofre",
+      "name": "Nome do segredo",
+      "version": "Versão (opcional)",
+      "project": "Projeto",
+      "secret": "Segredo"
+    },
+    "placeholder": {
+      "command": "pass show bancos/producao",
+      "token": "VAULT_TOKEN ou ~/.vault-token",
+      "latest": "a mais recente"
+    },
+    "kvAuto": "Detectar",
+    "help": {
+      "command": "É executado com o shell de login, sem entrada e por no máximo 30 s; o que ele imprime (sem a quebra de linha final) é o segredo.",
+      "json_key": "Se o segredo for um objeto JSON, a chave a ser usada.",
+      "onepassword": "É lido com a CLI do 1Password («op read»): ela precisa estar instalada e com a sessão iniciada.",
+      "vault": "Sem token, usa-se VAULT_TOKEN ou o de «vault login» (~/.vault-token). O token digitado é salvo no chaveiro do sistema.",
+      "aws": "Usa as credenciais da AWS deste computador: variáveis de ambiente, ~/.aws ou a CLI da AWS (SSO, roles).",
+      "azure": "Usa a sessão da CLI do Azure («az login»), do Azure Developer CLI ou a identidade gerenciada.",
+      "gcp": "Usa a sessão do gcloud («gcloud auth login») ou as credenciais padrão do aplicativo."
+    },
+    "test": "Testar",
+    "testOk": "OK · {{n}} caracteres",
+    "testOkUser": "OK · {{n}} caracteres, com usuário",
+    "approval": {
+      "title": "Confirmar a origem de um segredo",
+      "body": "A conexão «{{name}}» obtém «{{field}}» desta origem, que veio de fora deste computador (uma importação ou um backup restaurado). O DBine vai usá-la exatamente assim:",
+      "warning": "Confirme somente se você a reconhece: um comando é executado com as suas permissões e um gerenciador de segredos recebe as suas credenciais.",
+      "confirm": "Confirmar e usar"
+    }
   }
 }

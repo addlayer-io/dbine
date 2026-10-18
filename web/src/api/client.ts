@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
   AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
-  ExecuteResponse, FilteredBrowse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
+  ExecuteResponse, FilteredBrowse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretSource, SecretSourceApproval, SecretSourceTest, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
 import type { MultiDbResponse } from './types';
@@ -15,6 +15,8 @@ export interface CommandErrorShape {
   message: string;
   /** Connect and login failures: why, when the backend could tell. */
   detail?: ConnectDetail;
+  /** `secret_source_approval`: what to show and confirm. */
+  approval?: SecretSourceApproval;
 }
 
 /** An error's message in the app's language (the backend writes Spanish). */
@@ -50,6 +52,12 @@ export const api = {
   /** Trust an SSH tunnel server's key for a saved connection (docs/ssh-tunnels.md). */
   trustSshHost: (connectionId: string, fingerprint: string) =>
     invoke<void>('trust_ssh_host', { args: { connection_id: connectionId, fingerprint } }),
+  /** Resolve one field's source as the form has it; says only how long the value is. */
+  testSecretSource: (connectionId: string | null, driver: string, field: string, source: SecretSource, token: string | null) =>
+    invoke<SecretSourceTest>('test_secret_source', { args: { connection_id: connectionId, driver, field, source, token } }),
+  /** The user confirmed a source that came from outside (the dialog showed `source`). */
+  approveSecretSource: (connectionId: string | null, field: string, source: SecretSource) =>
+    invoke<void>('approve_secret_source', { args: { connection_id: connectionId, field, source } }),
   testConnection: (config: ConnectionConfig, connectionId: string | null) =>
     invoke<TestResult>('test_connection', { args: { config, connection_id: connectionId } }),
   connect: (connectionId: string, password: string | null = null) =>

@@ -121,7 +121,7 @@ pub async fn save_connection(state: State<'_, AppState>, args: SaveConnectionArg
     let mut sources = source_defs::read(&conn.config).map_err(|e| CommandError::BadRequest(e.to_string()))?;
     sources.retain(|k, _| info.fields.iter().any(|f| f.secret && f.key == k) || crate::tunnels::SECRETS.contains(&k.as_str()));
     for (field, src) in &sources {
-        src.validate().map_err(|e| CommandError::BadRequest(format!("{}: {e}", crate::secret_sources::field_label(Some(info), field))))?;
+        src.validate().map_err(|e| CommandError::BadRequest(format!("el origen de «{}» no es válido: {e}", crate::secret_sources::field_label(Some(info), field))))?;
     }
     source_defs::write(&mut conn.config, &sources);
     let typed = extract_secrets(&mut conn.config, info);

@@ -118,6 +118,9 @@ available in the sandbox. AWS keys in the environment or in
 ## Secrets
 
 Tokens and cloud credentials live in the memory of the driver process only.
+The same credential chains also read passwords from AWS Secrets Manager,
+Azure Key Vault and Google Secret Manager
+([`secret-sources.md`](secret-sources.md)).
 They are never written to the state file, the keychain or the logs, never
 shown in an error, and the phone app and MCP clients never receive them
 (they only reach the database's login). The connection keeps the method and

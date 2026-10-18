@@ -516,6 +516,9 @@
  "1: una etapa": [
   "crates/drivers/tdengine/src/create_db.rs"
  ],
+ "1Password no encontró «{0}»: {1}": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
  "2 días": [
   "crates/drivers/bigquery/src/properties.rs"
  ],
@@ -656,6 +659,24 @@
  ],
  "AUTO_SHRINK está apagado": [
   "crates/drivers/sqlserver/src/health.rs"
+ ],
+ "AWS Secrets Manager no devolvió un valor para «{0}»": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "AWS Secrets Manager respondió {0}": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "AWS Secrets Manager respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "AWS Secrets Manager: no existe el secreto «{0}» en esa región": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "AWS no pudo descifrar el secreto con su clave KMS: {0}": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "AWS rechazó las credenciales (¿vencieron? probá «aws sso login»): {0}": [
+  "src-tauri/src/secret_sources/aws.rs"
  ],
  "Abierta hace (s)": [
   "crates/drivers/firebird/src/monitor.rs"
@@ -1647,6 +1668,24 @@
  ],
  "Azure Developer CLI no dijo cuándo vence el token": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "Azure Key Vault no devolvió un valor para «{0}»": [
+  "src-tauri/src/secret_sources/azure.rs"
+ ],
+ "Azure Key Vault rechazó el token (¿«az login» con la cuenta correcta?): {0}": [
+  "src-tauri/src/secret_sources/azure.rs"
+ ],
+ "Azure Key Vault respondió {0}": [
+  "src-tauri/src/secret_sources/azure.rs"
+ ],
+ "Azure Key Vault respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/azure.rs"
+ ],
+ "Azure Key Vault: no existe el secreto «{0}»": [
+  "src-tauri/src/secret_sources/azure.rs"
+ ],
+ "Azure Key Vault: permiso denegado (hace falta el rol «Key Vault Secrets User» o una directiva de acceso que permita get): {0}": [
+  "src-tauri/src/secret_sources/azure.rs"
  ],
  "Azure SQL Database corta las demás sesiones conectadas a «{0}» al renombrarla.": [
   "crates/drivers/sqlserver/src/rename.rs"
@@ -4773,6 +4812,9 @@
  ],
  "Contraseña de las credenciales específicas del servicio.": [
   "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "Contraseña del túnel SSH": [
+  "src-tauri/src/secret_sources/mod.rs"
  ],
  "Contraseña del wallet": [
   "crates/drivers/oracle/src/lib.rs"
@@ -9472,6 +9514,9 @@
  "Francia": [
   "src-tauri/src/commands/datagen.rs"
  ],
+ "Frase de paso de la clave SSH": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
  "Frecuencia de checkpoint (barreras)": [
   "crates/drivers/postgres/src/create_db.rs",
   "crates/drivers/postgres/src/properties.rs"
@@ -9582,6 +9627,24 @@
  "Google": [
   "crates/drivers/bigquery/src/gcp.rs",
   "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "Google Secret Manager no devolvió un valor para «{0}»": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
+ "Google Secret Manager respondió {0}": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
+ "Google Secret Manager respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
+ "Google Secret Manager: no existe el secreto «{0}» (o esa versión) en el proyecto «{1}»": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
+ "Google Secret Manager: permiso denegado (hace falta el rol «Secret Manager Secret Accessor»): {0}": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
+ "Google rechazó el token (¿«gcloud auth login»?): {0}": [
+  "src-tauri/src/secret_sources/gcp.rs"
  ],
  "Google rechazó las credenciales: {0}": [
   "crates/drivers/bigquery/src/gcp.rs"
@@ -13065,7 +13128,8 @@
  ],
  "Message": [
   "crates/drivers/mysql/src/backup.rs",
-  "crates/drivers/mysql/src/session.rs"
+  "crates/drivers/mysql/src/session.rs",
+  "src-tauri/src/secret_sources/aws.rs"
  ],
  "Metacomando de psql ignorado: {0} (DBine ejecuta solo SQL)": [
   "crates/drivers/postgres/src/session.rs"
@@ -17642,6 +17706,9 @@
  ],
  "Resolución de conflictos (conflictResolutionType)": [
   "crates/drivers/couchbase/src/properties.rs"
+ ],
+ "Resolved": [
+  "src-tauri/src/secret_sources/mod.rs"
  ],
  "Respuesta inesperada": [
   "crates/drivers/sqlserver/src/entra.rs"
@@ -22535,6 +22602,27 @@
  "Varios miembros separados por coma: host1:27017,host2:27017.": [
   "crates/drivers/mongodb/src/lib.rs"
  ],
+ "Vault está sellado o no disponible": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault no devolvió datos para «{0}»": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault respondió con una redirección: usá la dirección del servidor activo": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault respondió {0}": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault: no existe el secreto «{0}»": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault: permiso denegado para leer «{0}» (el token venció o su política no lo permite)": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
  "Ve la información del sistema": [
   "crates/drivers/tdengine/src/security.rs"
  ],
@@ -24433,6 +24521,9 @@
  "el certificado de CA «{0}» no es un PEM válido: {1}": [
   "crates/drivers/postgres/src/lib.rs"
  ],
+ "el certificado de la CA no es válido: {0}": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
  "el cliente necesita un nombre": [
   "src-tauri/src/mcp/mod.rs"
  ],
@@ -24530,6 +24621,30 @@
  ],
  "el clon usaría los mismos archivos que el original ({0} = {1}): lo que se escribiera en uno aparecería en el otro": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
+ ],
+ "el comando devolvió más de 64 KB": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "el comando no devolvió nada": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "el comando no terminó en {0} s y se detuvo": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "el comando terminó con el código {0}, sin mensaje de error": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "el comando terminó con el código {0}: {1}": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "el comando terminó por una señal": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "el comando terminó por una señal: {0}": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "el comando tiene que ser una sola línea": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "el commit no es válido": [
   "src-tauri/src/commands/projects_git.rs"
@@ -24671,6 +24786,9 @@
  ],
  "el entorno «{0}» no está definido en .dbine.json": [
   "src-tauri/src/commands/projects.rs"
+ ],
+ "el espacio de nombres de Vault no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "el esquema de partición {0}({1})": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -24864,6 +24982,9 @@
  "el nombre de una base no puede pasar de 128 caracteres": [
   "crates/drivers/sqlserver/src/rename.rs"
  ],
+ "el nombre del secreto de Azure Key Vault no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "el nombre es demasiado largo para ClickHouse: en la base «{0}» admite hasta {1} y mide {2} (las letras con tilde, la ñ y los símbolos cuentan como varios); elegí uno más corto": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
  ],
@@ -24908,6 +25029,10 @@
  "el orden local (LOCALSORT BY)": [
   "crates/drivers/dremio/src/sync.rs"
  ],
+ "el origen de «{0}» no es válido: {1}": [
+  "src-tauri/src/commands/connections.rs",
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
  "el origen es una vista": [
   "crates/drivers/sqlite/src/transfer.rs"
  ],
@@ -24950,6 +25075,9 @@
  ],
  "el paso no tiene conexión": [
   "src-tauri/src/tasks/steps.rs"
+ ],
+ "el perfil de AWS no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "el permiso para «{0}» no tiene privilegios": [
   "src-tauri/src/commands/schemas.rs"
@@ -25067,6 +25195,24 @@
  ],
  "el script supera los 20 MB: generalo a un archivo (\"Guardar en archivo…\")": [
   "src-tauri/src/commands/scripts.rs"
+ ],
+ "el secreto binario de AWS no es base64 válido": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "el secreto binario de AWS no es texto": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "el secreto no es un objeto JSON, así que no tiene la clave «{0}»": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "el secreto no tiene la clave «{0}» (tiene: {1})": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "el secreto «{0}» de Vault no tiene la clave «{1}» (tiene: {2})": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "el secreto «{0}» está borrado o no tiene datos": [
+  "src-tauri/src/secret_sources/vault.rs"
  ],
  "el servidor SSH del túnel de «{0}» no está verificado: el usuario tiene que conectarse una vez desde DBine": [
   "src-tauri/src/mcp/tools.rs"
@@ -25306,11 +25452,26 @@
  "el valor binario no es texto UTF-8": [
   "crates/drivers/ksqldb/src/transfer.rs"
  ],
+ "el valor de 1Password es demasiado largo": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
+ "el valor de 1Password no es texto": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
+ "el valor de Google Secret Manager no es base64 válido": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
+ "el valor de Google Secret Manager no es texto": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
  "el valor de «{0}»": [
   "crates/drivers/influxdb/src/transfer.rs"
  ],
  "el valor editado no es un nodo o relación en JSON": [
   "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "el valor está vacío": [
+  "src-tauri/src/secret_sources/mod.rs"
  ],
  "el valor no es WKB": [
   "crates/drivers/hana/src/transfer.rs"
@@ -26553,6 +26714,9 @@
  "falta el catálogo": [
   "crates/drivers/databricks/src/backup.rs"
  ],
+ "falta el comando que devuelve el secreto": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "falta el código a ejecutar («code» está vacío)": [
   "src-tauri/src/mcp/write.rs"
  ],
@@ -26607,6 +26771,15 @@
  ],
  "falta el nombre de la tabla nueva": [
   "crates/dbine-transfer/src/clone_table.rs"
+ ],
+ "falta el nombre del secreto de Google Secret Manager (o no es válido)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "falta el nombre o el ARN del secreto de AWS": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "falta el proyecto de Google Cloud (o no es válido)": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el puerto del servidor de correo": [
   "src-tauri/src/tasks/mail.rs"
@@ -26697,6 +26870,9 @@
  "falta la clave JSON de la cuenta de servicio": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
+ "falta la clave del secreto de Vault (password)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "falta la clave privada": [
   "crates/drivers/snowflake/src/lib.rs"
  ],
@@ -26733,11 +26909,17 @@
  "falta la región de AWS (no se pudo deducir del endpoint): indicala en el formulario": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
+ "falta la región de AWS: indicala en el formulario (o usá el ARN del secreto)": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
  "falta la ruta": [
   "src-tauri/src/commands/project_paths.rs"
  ],
  "falta la ruta del archivo SQLite": [
   "crates/drivers/sqlite/src/lib.rs"
+ ],
+ "falta la ruta del secreto en Vault (secret/miapp/db)": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta la tabla del trigger para renombrarlo": [
   "crates/drivers/postgres/src/rename.rs"
@@ -27268,6 +27450,12 @@
  "ksqlDB solo admite claves de texto en los mapas.": [
   "crates/dbine-schema/src/dialect/ksqldb.rs"
  ],
+ "la CLI de 1Password («op») no está instalada: instalala desde 1password.com/downloads/command-line": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
+ "la CLI de 1Password no tiene una sesión iniciada: ejecutá «op signin» o activá la integración de la CLI en la app de 1Password (Ajustes › Desarrollador)": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
  "la CLI de Azure (az) no terminó en {0} s": [
   "src-tauri/src/commands/azure_firewall.rs"
  ],
@@ -27288,6 +27476,10 @@
  ],
  "la SGA (V$SGAINFO)": [
   "crates/drivers/oracle/src/monitor.rs"
+ ],
+ "la URL del almacén tiene que ser https://<nombre>.vault.azure.net": [
+  "crates/dbine-core/src/secret_sources.rs",
+  "src-tauri/src/secret_sources/azure.rs"
  ],
  "la actualización todavía no se descargó": [
   "src-tauri/src/commands/updates.rs"
@@ -27526,6 +27718,12 @@
  "la clave «{0}» aparece más de una vez en los datos a cargar: Solr guardaría solo el último documento, y la carga nunca escribe sobre documentos ya cargados.": [
   "crates/drivers/solr/src/transfer.rs"
  ],
+ "la clave «{0}» del secreto de Vault no es un texto": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "la clave «{0}» del secreto no es un texto": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "la clave «{0}» está repetida en el JSON y solo quedaría su último valor": [
   "crates/drivers/cassandra/src/transfer.rs"
  ],
@@ -27717,6 +27915,9 @@
  "la conexión «{0}» tiene el nivel «{1}» por MCP y {2} necesita «{3}».{4}": [
   "src-tauri/src/mcp/write.rs"
  ],
+ "la conexión «{0}» toma un secreto ({1}) de un origen que todavía no se confirmó en esta computadora: abrila en DBine para revisarlo": [
+  "src-tauri/src/error.rs"
+ ],
  "la configuración": [
   "crates/drivers/duckdb/src/monitor.rs"
  ],
@@ -27775,6 +27976,9 @@
  "la copia no informó la tabla": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "la cuenta de 1Password no es válida": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "la cuenta de Google Cloud «{0}» no es válida": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
@@ -27805,6 +28009,9 @@
  ],
  "la descarga quedó incompleta ({0} de {1} bytes): reintentá para retomarla": [
   "crates/dbine-ai/src/embedded.rs"
+ ],
+ "la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "la ejecución terminó sin respuesta": [
   "src-tauri/src/commands/multi_db.rs"
@@ -28038,8 +28245,13 @@
  "la rama no existe en el remoto: hacé Push": [
   "src-tauri/src/commands/projects_git.rs"
  ],
+ "la referencia de 1Password tiene que empezar con op:// (op://bóveda/elemento/campo)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "la región de AWS «{0}» no es válida": [
-  "crates/drivers/postgres/src/cloud_auth.rs"
+  "crates/dbine-core/src/secret_sources.rs",
+  "crates/drivers/postgres/src/cloud_auth.rs",
+  "src-tauri/src/secret_sources/aws.rs"
  ],
  "la región principal no se puede vaciar: para que la base deje de ser multirregión, quitá sus regiones (la principal, la última)": [
   "crates/drivers/postgres/src/properties.rs"
@@ -28080,6 +28292,9 @@
  "la ruta del archivo": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "la ruta del certificado de la CA no es válida": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "la ruta es demasiado larga": [
   "src-tauri/src/commands/project_paths.rs"
  ],
@@ -28101,6 +28316,9 @@
  ],
  "la ruta «{0}» tiene comillas sin cerrar o texto después de una parte entre comillas": [
   "crates/drivers/dremio/src/security.rs"
+ ],
+ "la salida del comando no es texto": [
+  "src-tauri/src/secret_sources/mod.rs"
  ],
  "la secuencia": [
   "src-tauri/src/commands/compare.rs"
@@ -28294,6 +28512,12 @@
  ],
  "la versión de Flathub de DBine no puede usar «{0}»: el sandbox de Flatpak no tiene acceso a los programas del sistema. Usá la versión de DBine de dbine.com, o un token como contraseña": [
   "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "la versión del secreto de Azure Key Vault no es válida": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "la versión del secreto de Google tiene que ser un número o latest": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "la vista": [
   "crates/drivers/mysql/src/rename_db.rs",
@@ -28611,6 +28835,9 @@
   "crates/drivers/sqlserver/src/babelfish.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "los orígenes de los secretos no se pudieron leer: {0}": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "los paquetes de red": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
@@ -28904,6 +29131,9 @@
  "no _id: {0}": [
   "src-tauri/src/commands/grid_new_rows_live_tests.rs"
  ],
+ "no accounts configured": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
  "no acepta esa clave": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
@@ -29190,6 +29420,9 @@
  ],
  "no hay un ticket de Kerberos vigente": [
   "crates/drivers/sqlserver/src/lib.rs"
+ ],
+ "no hay un token de Vault: escribilo en el formulario, definí VAULT_TOKEN o iniciá sesión con «vault login» (~/.vault-token)": [
+  "src-tauri/src/secret_sources/vault.rs"
  ],
  "no hay un usuario ni un rol «{0}» en «{1}»": [
   "crates/drivers/mongodb/src/security.rs"
@@ -29581,12 +29814,24 @@
  "no se pudo conectar al servidor SSH {0}:{1}: {2}": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
+ "no se pudo conectar con AWS Secrets Manager: {0}": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "no se pudo conectar con Azure Key Vault: {0}": [
+  "src-tauri/src/secret_sources/azure.rs"
+ ],
+ "no se pudo conectar con Google Secret Manager: {0}": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
  "no se pudo conectar con InfluxDB: {0}": [
   "crates/drivers/influxdb/src/http.rs"
  ],
  "no se pudo conectar con IoTDB: {0}": [
   "crates/drivers/iotdb/src/lib.rs",
   "crates/drivers/iotdb/src/transfer.rs"
+ ],
+ "no se pudo conectar con Vault en {0}: {1}": [
+  "src-tauri/src/secret_sources/vault.rs"
  ],
  "no se pudo conectar con el remoto ({0})": [
   "src-tauri/src/commands/git_cli.rs"
@@ -29686,6 +29931,9 @@
  ],
  "no se pudo describir {0}": [
   "crates/drivers/ksqldb/src/lib.rs"
+ ],
+ "no se pudo ejecutar el comando: {0}": [
+  "src-tauri/src/secret_sources/mod.rs"
  ],
  "no se pudo ejecutar git: {0}": [
   "src-tauri/src/commands/git_cli.rs"
@@ -29797,6 +30045,9 @@
  ],
  "no se pudo leer el certificado de CA «{0}»: {1}": [
   "crates/drivers/postgres/src/lib.rs"
+ ],
+ "no se pudo leer el certificado de la CA {0}: {1}": [
+  "src-tauri/src/secret_sources/vault.rs"
  ],
  "no se pudo leer el contador del IDENTITY; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -29973,6 +30224,9 @@
  ],
  "no se pudo obtener un token de {0}. Se probó:\n{1}": [
   "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "no se pudo obtener «{0}» de {1}: {2}": [
+  "src-tauri/src/secret_sources/mod.rs"
  ],
  "no se pudo pausar la consulta {0}: {1}": [
   "crates/drivers/ksqldb/src/processes.rs"
@@ -31129,6 +31383,9 @@
   "crates/dbine-sync/src/lib.rs",
   "crates/drivers/trino/src/transfer.rs"
  ],
+ "se canceló el desbloqueo de 1Password": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
  "se cargaron las filas pero no se pudo mover la secuencia de «{0}» más allá del máximo cargado: {1}": [
   "crates/drivers/dsql/src/transfer.rs"
  ],
@@ -31950,6 +32207,9 @@
  ],
  "un campo no se puede renombrar a una ruta dentro de sí mismo, ni al revés": [
   "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "un comando": [
+  "src-tauri/src/secret_sources/mod.rs"
  ],
  "un decimal de más de {0} dígitos no se copia (sería enorme sin exponente)": [
   "crates/drivers/cassandra/src/transfer.rs"
@@ -34050,6 +34310,18 @@
  ],
  "«analysis» tiene que ser un objeto JSON (analyzer, tokenizer, filter…).": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "«op» falló sin explicar por qué": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
+ "«op» falló: {0}": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
+ "«op» no respondió en {0} s (¿quedó esperando que desbloquees 1Password?)": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
+ "«op» no se pudo ejecutar: {0}": [
+  "src-tauri/src/secret_sources/onepassword.rs"
  ],
  "«out» e «in» de una arista no se renombran: son sus extremos": [
   "crates/drivers/orientdb/src/rename.rs"

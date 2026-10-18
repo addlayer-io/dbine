@@ -139,7 +139,7 @@ pub fn applies(info: Option<&DriverInfo>, cfg: &ConnectionConfig, field: &str) -
 /// The provider's name, for messages.
 fn provider(src: &SecretSource) -> &'static str {
     match src {
-        SecretSource::Command { .. } => "comando",
+        SecretSource::Command { .. } => "un comando",
         SecretSource::OnePassword { .. } => "1Password",
         SecretSource::Vault { .. } => "HashiCorp Vault",
         SecretSource::Aws { .. } => "AWS Secrets Manager",
@@ -234,7 +234,7 @@ pub async fn fill(store: &StateStore, cfg: &mut ConnectionConfig, sources: &Secr
             continue;
         }
         let label = field_label(info, field);
-        src.validate().map_err(|e| CommandError::SecretSource(format!("{label} ({}): {e}", provider(src))))?;
+        src.validate().map_err(|e| CommandError::SecretSource(format!("el origen de «{label}» no es válido: {e}")))?;
         check_trust(store, origin, info, field, src)?;
         let digest = defs::digest(origin.id(), field, src);
         let key = cache_key(origin.id(), &digest);
@@ -242,7 +242,7 @@ pub async fn fill(store: &StateStore, cfg: &mut ConnectionConfig, sources: &Secr
         let resolved = match cached(&key).filter(|_| saved) {
             Some(r) => r,
             None => {
-                let r = Arc::new(fetch(src, tokens.get(&token_key(field)).map(String::as_str)).await.map_err(|m| CommandError::SecretSource(format!("{label} ({}): {m}", provider(src))))?);
+                let r = Arc::new(fetch(src, tokens.get(&token_key(field)).map(String::as_str)).await.map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))))?);
                 if saved {
                     CACHE.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (Instant::now(), r.clone()));
                 }
@@ -282,6 +282,9 @@ pub struct TestSecretSourceArgs {
     pub source: SecretSource,
     /// A Vault token typed in the form (else the kept one).
     pub token: Option<String>,
+    /// The form's engine, for the field's name in messages.
+    #[serde(default)]
+    pub driver: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -303,7 +306,8 @@ pub async fn test_secret_source(state: State<'_, AppState>, args: TestSecretSour
         None => None,
     };
     let name = saved.as_ref().map(|c| c.name.clone()).unwrap_or_default();
-    let info = saved.as_ref().and_then(|c| driver_info(&c.config.driver).ok());
+    let driver = args.driver.clone().or_else(|| saved.as_ref().map(|c| c.config.driver.clone()));
+    let info = driver.as_deref().and_then(|d| driver_info(d).ok());
     check_trust(&state.store, Origin::Form { id, name: &name }, info, &args.field, &args.source)?;
     let mut token = args.token.filter(|t| !t.is_empty());
     if token.is_none() && matches!(args.source, SecretSource::Vault { .. }) {
@@ -315,7 +319,7 @@ pub async fn test_secret_source(state: State<'_, AppState>, args: TestSecretSour
     if let Some(t) = &mut token {
         defs::wipe(t);
     }
-    let r = r.map_err(|m| CommandError::SecretSource(format!("{} ({}): {m}", field_label(info, &args.field), provider(&args.source))))?;
+    let r = r.map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{}» de {}: {m}", field_label(info, &args.field), provider(&args.source))))?;
     Ok(TestSecretSourceResult { chars: r.value.chars().count(), username: r.username.is_some() })
 }
 
