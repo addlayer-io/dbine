@@ -246,16 +246,20 @@ impl Access<'_> {
         self.approved.iter().any(|a| a == path) || self.grants.iter().any(|g| if g.pattern { pattern_matches(&g.target, path) } else { g.target == path })
     }
 
-    /// `files` if every one may be read; else why not (blocked first).
+    /// `files` if every one may be read; else why not (blocked first). A
+    /// file's sidecars go with it: each one is checked against the blocked
+    /// list, and the file is pending until it and all its sidecars are
+    /// granted or approved.
     pub fn gate(&self, files: &[DataFile]) -> Result<Vec<DataFile>, Gate> {
-        let blocked: Vec<String> = files.iter().filter_map(|f| self.policy.blocked(Path::new(&f.path)).map(|why| format!("«{}» ({why})", f.path))).collect();
+        let blocked: Vec<String> =
+            files.iter().flat_map(|f| f.all()).filter_map(|f| self.policy.blocked(Path::new(&f.path)).map(|why| format!("«{}» ({why})", f.path))).collect();
         if !blocked.is_empty() {
             return Err(Gate::Blocked(format!(
                 "DBine nunca deja que un notebook lea {}: son credenciales, claves, historial o configuración del sistema",
                 blocked.join(", ")
             )));
         }
-        let pending: Vec<DataFile> = files.iter().filter(|f| !self.granted(&f.path)).cloned().collect();
+        let pending: Vec<DataFile> = files.iter().filter(|f| !f.all().all(|x| self.granted(&x.path))).cloned().collect();
         if pending.is_empty() {
             Ok(files.to_vec())
         } else {
@@ -326,7 +330,8 @@ pub enum Decision {
 
 /// What "Permitir siempre" stores for `files`: a file found by a glob
 /// whose canonical path is under that glob is granted as the pattern;
-/// any other file as itself.
+/// any other file as itself; each sidecar as itself (a sidecar that shows
+/// up later asks again).
 pub fn grant_targets(files: &[DataFile]) -> Vec<(String, bool)> {
     let mut out: Vec<(String, bool)> = Vec::new();
     for f in files {
@@ -334,8 +339,10 @@ pub fn grant_targets(files: &[DataFile]) -> Vec<(String, bool)> {
             Some(p) if pattern_matches(p, &f.path) => (p.clone(), true),
             _ => (f.path.clone(), false),
         };
-        if !out.contains(&t) {
-            out.push(t);
+        for t in std::iter::once(t).chain(f.sidecars.iter().map(|s| (s.path.clone(), false))) {
+            if !out.contains(&t) {
+                out.push(t);
+            }
         }
     }
     out
@@ -372,7 +379,7 @@ pub fn take(token: &str, tab: &str, notebook: Option<&str>) -> CommandResult<Vec
     if !ok {
         return Err(CommandError::BadRequest("la aprobación de los archivos ya no vale: ejecutá la celda de nuevo".into()));
     }
-    Ok(all.remove(token).map(|p| p.files.into_iter().map(|f| f.path).collect()).unwrap_or_default())
+    Ok(all.remove(token).map(|p| p.files.iter().flat_map(|f| f.all()).map(|f| f.path.clone()).collect()).unwrap_or_default())
 }
 
 // ---------------------------------------------------------------------------

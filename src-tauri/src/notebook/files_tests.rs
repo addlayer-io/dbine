@@ -204,7 +204,7 @@ fn a_plan_rebuilds_the_call_with_resolved_paths() {
 }
 
 fn data(path: &str) -> DataFile {
-    DataFile { path: path.into(), display: path.into(), size: 1, mtime_ms: 1, pattern: None, previous_mtime_ms: None }
+    DataFile { path: path.into(), display: path.into(), size: 1, mtime_ms: 1, pattern: None, previous_mtime_ms: None, sidecars: Vec::new() }
 }
 
 #[test]
@@ -425,7 +425,7 @@ async fn notebook_files_reader_session_gets_exactly_its_files() {
     write(&dir.join("a.csv"), "x\n1\n");
     write(&dir.join("b.csv"), "x\n2\n");
     let a = plan("SELECT * FROM read_csv('a.csv')", Some(&dir), None, 10).unwrap();
-    let mut r = open_reader(&a[0].files, false).await.unwrap();
+    let mut r = open_reader(&reader_paths(&a[0]), None).await.unwrap();
     assert_eq!(rows_of(r.as_mut(), &format!("SELECT * FROM {}", a[0].text)).await, vec![vec![json!(1)]]);
     let b = lit(&dir.join("b.csv").to_string_lossy());
     assert!(fails(r.as_mut(), &format!("SELECT * FROM read_csv({b})")).await.contains("disabled"));
@@ -537,3 +537,4 @@ async fn notebook_files_a_glob_grant_covers_new_files_of_its_pattern() {
     assert!(matches!(r, Prepared::Ask(ref f) if f.len() == 1), "{r:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+

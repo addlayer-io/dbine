@@ -549,6 +549,9 @@
  ":param {0} necesita un mapa.": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
+ "; con su esquema: esquema.tabla": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "; faltan en el clon: {0}": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
@@ -27174,6 +27177,9 @@
  "expresión regular sin cerrar": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
+ "extensión desconocida «{0}»": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "extensión máxima de retención": [
   "crates/drivers/snowflake/src/create_db.rs"
  ],
@@ -29522,6 +29528,9 @@
  "las filas no cumplen la restricción CHECK {0} (ORA-02293)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
+ "las funciones geográficas (ST_…) de esta celda": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "las métricas (V$SYSMETRIC)": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
@@ -29598,14 +29607,23 @@
  "lectura (ms)": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
+ "lectura de «{0}»: {1}": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "lectura sin pedido": [
   "crates/drivers/couchdb/src/transfer.rs"
  ],
  "lecturas": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
+ "leer archivos geográficos (st_read)": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "leer el archivo": [
   "src-tauri/src/commands/projects.rs"
+ ],
+ "leer el libro": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "leer la carpeta": [
   "src-tauri/src/commands/projects.rs"
@@ -30099,6 +30117,9 @@
  ],
  "no es una conexión Bolt": [
   "crates/drivers/neo4j/src/transfer.rs"
+ ],
+ "no es una lectura de SQLite": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "no es una librería de DuckDB": [
   "crates/drivers/duckdb/src/loader.rs"
@@ -30698,7 +30719,7 @@
  "no se pudo cargar DuckDB ({0}): {1}": [
   "crates/drivers/duckdb/src/loader.rs"
  ],
- "no se pudo cargar la extensión excel de DuckDB para leer el libro: {0}": [
+ "no se pudo cargar la extensión {0} de DuckDB para {1}: {2}": [
   "src-tauri/src/notebook/files.rs"
  ],
  "no se pudo cerrar el archivo: {0}": [
@@ -30798,6 +30819,9 @@
  ],
  "no se pudo copiar el comentario {0} «{1}» al clon: {2}": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
+ ],
+ "no se pudo copiar «{0}»: {1}": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "no se pudo crear el entorno ODBC": [
   "crates/drivers/odbc/src/odbc.rs"
@@ -31144,6 +31168,9 @@
  "no se pudo leer la sesión propia": [
   "crates/drivers/sqlserver/src/profiler.rs"
  ],
+ "no se pudo leer la tabla «{0}» de «{1}»: {2}": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "no se pudo leer la versión Delta actual de la tabla en DESCRIBE HISTORY": [
   "crates/drivers/databricks/src/transfer.rs"
  ],
@@ -31227,6 +31254,9 @@
  ],
  "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
+ ],
+ "no se pudo preparar la copia de «{0}»: {1}": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "no se pudo preparar la lectura de archivos: {0}": [
   "src-tauri/src/notebook/files.rs"
@@ -35370,11 +35400,44 @@
  "«out» e «in» de una arista no se renombran: son sus extremos": [
   "crates/drivers/orientdb/src/rename.rs"
  ],
- "«read_xlsx» lee un solo archivo y «{0}» son {1}": [
+ "«read_duckdb» lleva el archivo y la tabla: read_duckdb('archivo.duckdb', 'tabla') o 'esquema.tabla' (o table_name = '…', schema_name = '…')": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«read_duckdb» necesita la tabla: read_duckdb('archivo.duckdb', 'tabla')": [
   "src-tauri/src/notebook/files.rs"
  ],
  "«select into/bulkcopy/pllsort» está activo": [
   "crates/drivers/odbc/src/health.rs"
+ ],
+ "«sqlite_scan» lleva el archivo y el nombre de la tabla: sqlite_scan('archivo.db', 'tabla')": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read» lee comprimido solo un shapefile «.shp.zip» o «.shz»: descomprimí «{0}» y leé el archivo de adentro": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read» lee un archivo: después de la ruta van solo opciones con nombre (layer = '…')": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read» no acepta «{0}» en estas celdas (sí: {1})": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read» no lee archivos «.{0}» en estas celdas: apuntan a otros archivos o a la red (un VRT, un GML…)": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read» no lee «.{0}» en estas celdas (sí: {1})": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read»: el valor de «{0}» no puede ser una ruta ni una dirección": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read»: el valor de «{0}» tiene que ser un texto, un número, true/false o una lista de textos escritos tal cual": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read»: la opción de GDAL «{0}» no se puede usar en estas celdas (sí: {1})": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read»: «{0}» no lleva ese valor": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "«system» usa los certificados del sistema; en Linux, la ruta del archivo .cer de NetSuite.": [
   "crates/drivers/odbc/src/presets.rs"
@@ -35469,6 +35532,9 @@
  "«{0}» es una ruta relativa: guardá el notebook para leerla desde su carpeta, o escribí la ruta completa": [
   "src-tauri/src/notebook/files.rs"
  ],
+ "«{0}» es una ruta virtual de GDAL (/vsi…): estas celdas leen solo archivos locales, escritos con su ruta": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "«{0}» es una subtabla: sus columnas y tags son los de su supertabla. Los tags se renombran en la supertabla.": [
   "crates/drivers/tdengine/src/rename.rs"
  ],
@@ -35503,6 +35569,9 @@
   "src-tauri/src/notebook/files.rs"
  ],
  "«{0}» lee más de {1} archivos": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«{0}» lee un solo archivo y «{1}» son {2}": [
   "src-tauri/src/notebook/files.rs"
  ],
  "«{0}» llegó al tope de filas por tabla: no se copian todas las que cuelgan.": [
@@ -36172,6 +36241,9 @@
  ],
  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": [
   "src-tauri/src/notebook/local.rs"
+ ],
+ "«{0}»: «{1}» no es un nombre de tabla válido (letras, números, _, $, - o espacios{2})": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "µs por llamada": [
   "crates/drivers/redis/src/monitor.rs"

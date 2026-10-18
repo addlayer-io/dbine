@@ -138,6 +138,10 @@ pub enum DuckType {
     TimestampTz,
     Uuid,
     Json,
+    /// A geometry, as WKB in `0x…` hex (what DuckDB's driver gives for a
+    /// `GEOMETRY`, e.g. `st_read`'s): loaded as text, then rebuilt with
+    /// `ST_GeomFromWKB` ([`load_rows`]).
+    Geometry,
     Varchar,
 }
 
@@ -155,6 +159,7 @@ impl DuckType {
             DuckType::TimestampTz => "TIMESTAMPTZ".into(),
             DuckType::Uuid => "UUID".into(),
             DuckType::Json => "JSON".into(),
+            DuckType::Geometry => "GEOMETRY".into(),
             DuckType::Varchar => "VARCHAR".into(),
         }
     }
@@ -204,6 +209,7 @@ fn hint(type_name: &str) -> Option<DuckType> {
         "timestamptz" | "timestamp with time zone" | "timestamp with local time zone" | "datetimeoffset" => DuckType::TimestampTz,
         "uuid" | "uniqueidentifier" | "guid" => DuckType::Uuid,
         "json" | "jsonb" | "document" | "object" | "array" | "map" | "struct" | "variant" | "list" => DuckType::Json,
+        "geometry" => DuckType::Geometry,
         _ => DuckType::Varchar,
     })
 }
@@ -225,6 +231,10 @@ fn looks_timestamp(s: &str) -> bool {
         && s.is_char_boundary(10)
         && looks_date(&s[..10])
         && (s.len() == 10 || ((at(s, 10, b' ') || at(s, 10, b'T')) && s.is_char_boundary(11) && looks_time(&s[11..])))
+}
+/// `0x…` hex, whole (a value cut at the driver's limit ends in `…`).
+fn looks_wkb(s: &str) -> bool {
+    s.strip_prefix("0x").is_some_and(|h| h.len() >= 10 && h.len() % 2 == 0 && h.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 fn looks_uuid(s: &str) -> bool {
     s.len() == 36 && s.char_indices().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { c == '-' } else { c.is_ascii_hexdigit() })
@@ -292,6 +302,7 @@ fn fits<'a>(ty: DuckType, mut values: impl Iterator<Item = &'a Value>) -> bool {
                 DuckType::Timestamp | DuckType::TimestampTz => v.as_str().is_some_and(looks_timestamp),
                 DuckType::Uuid => v.as_str().is_some_and(looks_uuid),
                 DuckType::Json => is_json(v),
+                DuckType::Geometry => v.as_str().is_some_and(looks_wkb),
                 DuckType::Varchar => true,
             }
     })
@@ -576,12 +587,38 @@ pub fn session_key(tab_id: &str) -> String {
 /// option: apart from every other DuckDB database of the app), locked
 /// down. The first use downloads DuckDB (or its driver) as opening a
 /// DuckDB connection does.
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn open_sandboxed() -> CommandResult<Box<dyn Session>> {
+    open_sandboxed_with(false).await
+}
+
+/// [`open_sandboxed`], with DuckDB's `spatial` extension loaded before the
+/// lockdown when `spatial` (a cell uses `ST_Contains`, `ST_Point`…): it
+/// can't be loaded once the session is locked.
+pub async fn open_sandboxed_with(spatial: bool) -> CommandResult<Box<dyn Session>> {
     let mut cfg = ConnectionConfig { driver: "duckdb".into(), host: ":memory:".into(), ..Default::default() };
     cfg.options.insert("isolated".into(), "true".into());
     let mut s = dbine_drivers::open_session(&cfg, None).await?;
+    if spatial {
+        files::load_extension(s.as_mut(), "spatial", "las funciones geográficas (ST_…) de esta celda").await?;
+    }
     sandbox(s.as_mut()).await?;
     Ok(s)
+}
+
+/// Whether DuckDB's `spatial` extension is loaded in `s`.
+pub(crate) async fn has_spatial(s: &mut dyn Session) -> bool {
+    let mut out = QueryOutcome::default();
+    // (duckdb_extensions() lists the extensions folder, which a locked session can't.)
+    s.execute("SELECT count(*) FROM duckdb_functions() WHERE lower(function_name) = 'st_point'", 1, &mut out).await.is_ok()
+        && first_value(&out).and_then(Value::as_u64).is_some_and(|n| n > 0)
+}
+
+/// Whether `sql` (a results cell, or the results cells it uses) needs the
+/// `spatial` extension in the notebook's session: it calls an `ST_…`
+/// function (outside strings and comments).
+pub fn uses_spatial(sql: &str) -> bool {
+    name_tokens(sql, &dialect()).iter().any(|t| t.kind == TokenKind::Name && !sql[t.start..].starts_with('"') && t.text.len() > 3 && t.text[..3].eq_ignore_ascii_case("st_"))
 }
 
 /// [`SANDBOX`], then a check that it holds.
@@ -604,12 +641,16 @@ pub async fn sandbox(s: &mut dyn Session) -> CommandResult<()> {
     Ok(())
 }
 
-/// The tab's DuckDB session, opened (and locked down) the first time.
-async fn duck_entry(state: &AppState, key: &str) -> CommandResult<Arc<SessionEntry>> {
+/// The tab's DuckDB session, opened (and locked down) the first time. When
+/// a cell needs `spatial` and the session was opened without it, it is
+/// opened again with it (its tables are loaded again as needed).
+async fn duck_entry(state: &AppState, key: &str, spatial: bool) -> CommandResult<Arc<SessionEntry>> {
     if let Some(e) = state.sessions.get(key).map(|e| e.clone()) {
-        return Ok(e);
+        if !spatial || has_spatial(&mut **e.session.lock().await).await {
+            return Ok(e);
+        }
     }
-    let session = open_sandboxed().await?;
+    let session = open_sandboxed_with(spatial).await?;
     let entry = Arc::new(SessionEntry {
         connection_id: String::new(),
         database: String::new(),
@@ -687,38 +728,60 @@ async fn load_table(s: &mut dyn Session, name: &str, columns: &[ResultColumn], r
 
 /// Load rows with their inferred types. If DuckDB refuses a value (a date
 /// it can't read…), they're loaded as text and each column is cast to its
-/// type where every value converts; the others stay text. Returns the rows
-/// and the columns left as text.
+/// type where every value converts; the others stay text. A geometry
+/// column (WKB hex) is loaded as text and rebuilt as `GEOMETRY` with
+/// `ST_GeomFromWKB` (DuckDB's own, no extension needed) when every value
+/// converts. Returns the rows and the columns left as text.
 async fn load_rows(s: &mut dyn Session, name: &str, columns: &[ResultColumn], rows: &[Vec<Value>]) -> CommandResult<(u64, Vec<String>)> {
-    let types: Vec<DuckType> = (0..columns.len()).map(|i| infer(&columns[i].type_name, rows.iter().map(move |r| r.get(i).unwrap_or(&Value::Null)))).collect();
-    let first = match load_table(s, name, columns, rows, &types).await {
-        Ok(n) => return Ok((n, Vec::new())),
-        Err(CommandError::Cancelled) => return Err(CommandError::Cancelled),
-        Err(e) if types.iter().all(|t| *t == DuckType::Varchar) => return Err(e),
-        Err(e) => e,
-    };
-    tracing::debug!(%first, "notebook results: «{name}» loaded as text, then cast");
-    let stage = format!("{name}__dbine_text");
-    let text = vec![DuckType::Varchar; columns.len()];
-    let n = load_table(s, &stage, columns, rows, &text).await?;
+    let inferred: Vec<DuckType> = (0..columns.len()).map(|i| infer(&columns[i].type_name, rows.iter().map(move |r| r.get(i).unwrap_or(&Value::Null)))).collect();
+    let types: Vec<DuckType> = inferred.iter().map(|t| if *t == DuckType::Geometry { DuckType::Varchar } else { *t }).collect();
     let names = column_names(columns);
     let q = |n: &str| quote_ident(Quote::Double, n);
-    let mut select = Vec::new();
-    let mut as_text = Vec::new();
-    for (c, t) in names.iter().zip(&types) {
-        let ok = *t == DuckType::Varchar || {
-            let bad = exec(s, &format!("SELECT count(*) FROM main.{} WHERE {c} IS NOT NULL AND TRY_CAST({c} AS {ty}) IS NULL", q(&stage), c = q(c), ty = t.sql())).await?;
-            first_value(&bad).and_then(Value::as_u64) == Some(0)
+    let (n, mut as_text) = 'load: {
+        let first = match load_table(s, name, columns, rows, &types).await {
+            Ok(n) => break 'load (n, Vec::new()),
+            Err(CommandError::Cancelled) => return Err(CommandError::Cancelled),
+            Err(e) if types.iter().all(|t| *t == DuckType::Varchar) => return Err(e),
+            Err(e) => e,
         };
-        if ok {
-            select.push(format!("CAST({c} AS {ty}) AS {c}", c = q(c), ty = t.sql()));
-        } else {
-            select.push(q(c));
-            as_text.push(c.clone());
+        tracing::debug!(%first, "notebook results: «{name}» loaded as text, then cast");
+        let stage = format!("{name}__dbine_text");
+        let text = vec![DuckType::Varchar; columns.len()];
+        let n = load_table(s, &stage, columns, rows, &text).await?;
+        let mut select = Vec::new();
+        let mut as_text = Vec::new();
+        for (c, t) in names.iter().zip(&types) {
+            let ok = *t == DuckType::Varchar || {
+                let bad = exec(s, &format!("SELECT count(*) FROM main.{} WHERE {c} IS NOT NULL AND TRY_CAST({c} AS {ty}) IS NULL", q(&stage), c = q(c), ty = t.sql())).await?;
+                first_value(&bad).and_then(Value::as_u64) == Some(0)
+            };
+            if ok {
+                select.push(format!("CAST({c} AS {ty}) AS {c}", c = q(c), ty = t.sql()));
+            } else {
+                select.push(q(c));
+                as_text.push(c.clone());
+            }
+        }
+        exec(s, &format!("CREATE OR REPLACE TABLE main.{} AS SELECT {} FROM main.{}", q(name), select.join(", "), q(&stage))).await?;
+        exec(s, &format!("DROP TABLE main.{}", q(&stage))).await?;
+        (n, as_text)
+    };
+    // Geometries: from WKB hex to GEOMETRY.
+    let mut geo = Vec::new();
+    for (c, t) in names.iter().zip(&inferred) {
+        if *t != DuckType::Geometry {
+            continue;
+        }
+        let wkb = format!("TRY(ST_GeomFromWKB(unhex(substr({}, 3))))", q(c));
+        let bad = exec(s, &format!("SELECT count(*) FROM main.{} WHERE {} IS NOT NULL AND {wkb} IS NULL", q(name), q(c))).await;
+        match bad {
+            Ok(bad) if first_value(&bad).and_then(Value::as_u64) == Some(0) => geo.push(format!("{wkb} AS {}", q(c))),
+            _ => as_text.push(c.clone()),
         }
     }
-    exec(s, &format!("CREATE OR REPLACE TABLE main.{} AS SELECT {} FROM main.{}", q(name), select.join(", "), q(&stage))).await?;
-    exec(s, &format!("DROP TABLE main.{}", q(&stage))).await?;
+    if !geo.is_empty() {
+        exec(s, &format!("CREATE OR REPLACE TABLE main.{t} AS SELECT * REPLACE ({}) FROM main.{t}", geo.join(", "), t = q(name))).await?;
+    }
     Ok((n, as_text))
 }
 
@@ -883,6 +946,13 @@ where
 /// The rows of a reader call, read on the reader session: up to `cap`,
 /// and whether there were more. A cancel of the run interrupts it.
 async fn read_file(reader: &mut dyn Session, r: &FileRead, cap: u64, cancel: Option<&Notify>) -> CommandResult<Fetched> {
+    // In a transaction of its own: `st_read` needs one open while its rows
+    // are fetched (the session is dropped after this read).
+    let mut begin = QueryOutcome::default();
+    reader.execute("BEGIN TRANSACTION", 1, &mut begin).await?;
+    if let Some(e) = begin.error {
+        return Err(CommandError::Sql(format!("«{}»: {e}", r.display)));
+    }
     let sql = format!("SELECT * FROM {} LIMIT {}", r.text, cap.saturating_add(1));
     let max = usize::try_from(cap.saturating_add(1)).unwrap_or(usize::MAX);
     let interrupt = reader.interrupter();
@@ -915,10 +985,40 @@ async fn read_file(reader: &mut dyn Session, r: &FileRead, cap: u64, cancel: Opt
     Ok((res.columns, rows, capped))
 }
 
+/// The rows of a `sqlite_scan`, read by DBine off the async runtime
+/// ([`files::read_sqlite`]); a cancel of the run interrupts it.
+async fn read_sqlite(r: &FileRead, cap: u64, cancel: Option<&Notify>) -> CommandResult<Fetched> {
+    let handle: Arc<Mutex<Option<rusqlite::InterruptHandle>>> = Arc::default();
+    let (job, h) = (r.clone(), handle.clone());
+    let task = tokio::task::spawn_blocking(move || {
+        files::read_sqlite(&job, cap, &|i| {
+            if let Ok(mut g) = h.lock() {
+                *g = Some(i);
+            }
+        })
+    });
+    let never = Notify::new();
+    tokio::select! {
+        done = task => match done {
+            Ok(Ok(f)) => Ok(f),
+            Ok(Err(e)) if e.contains("interrupted") => Err(CommandError::Cancelled),
+            Ok(Err(e)) => Err(CommandError::Sql(e)),
+            Err(e) => Err(CommandError::Internal(format!("lectura de «{}»: {e}", r.display))),
+        },
+        _ = cancel.unwrap_or(&never).notified() => {
+            if let Some(i) = handle.lock().ok().and_then(|mut g| g.take()) {
+                i.interrupt();
+            }
+            Err(CommandError::Cancelled)
+        }
+    }
+}
+
 /// Load the files `reads` read into `s` as tables (each one once; again
-/// only when its key changed), reading them on a reader session granted
-/// exactly `allowed` ([`files::open_reader`]), opened only if something
-/// has to be read.
+/// only when its key changed). Each call is read in a reader session of
+/// its own, granted only its files and their sidecars, those of them in
+/// `allowed` ([`files::open_reader`]), opened only if it has to be read; a
+/// SQLite file is read by DBine ([`read_sqlite`]).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn load_files(
     s: &mut dyn Session,
@@ -932,7 +1032,6 @@ pub(crate) async fn load_files(
 ) -> CommandResult<Vec<LoadedTable>> {
     let mut loaded = Vec::new();
     let mut seen = HashSet::new();
-    let mut reader: Option<Box<dyn Session>> = None;
     for r in reads {
         if !seen.insert(r.table.clone()) {
             continue;
@@ -942,11 +1041,18 @@ pub(crate) async fn load_files(
             loaded.push(LoadedTable { name: r.display.clone(), rows: l.rows, capped: l.capped, cached: true, origin: "file", as_text: l.as_text, elapsed_ms: 0, files: r.files.clone() });
             continue;
         }
-        if reader.is_none() {
-            let excel = reads.iter().any(|r| r.call.function == "read_xlsx");
-            reader = Some(files::open_reader(allowed, excel).await?);
+        // Only what `allowed_files` let through is ever granted.
+        let ok: HashSet<&str> = allowed.iter().flat_map(|f| f.all()).map(|f| f.path.as_str()).collect();
+        if let Some(f) = r.files.iter().flat_map(|f| f.all()).find(|f| !ok.contains(f.path.as_str())) {
+            return Err(CommandError::BadRequest(format!("no se permitió leer «{}»", f.display)));
         }
-        let (columns, rows, capped) = read_file(reader.as_deref_mut().expect("reader"), r, cap, cancel).await?;
+        let (columns, rows, capped) = match &r.kind {
+            files::ReadKind::Sqlite { .. } => read_sqlite(r, cap, cancel).await?,
+            files::ReadKind::Duck { extension } => {
+                let mut reader = files::open_reader(&files::reader_paths(r), *extension).await?;
+                read_file(reader.as_mut(), r, cap, cancel).await?
+            }
+        };
         let (n, text) = load_rows(s, &r.table, &columns, &rows).await?;
         if !text.is_empty() {
             out.warning(format!("«{}»: sus columnas {} tienen valores que no son de su tipo y se cargaron como texto", r.display, text.join(", ")));
@@ -1031,12 +1137,19 @@ where
     if let Some(f) = wanted.iter().find(|f| !allowed.iter().any(|a| a.path == f.path)) {
         return Err(CommandError::BadRequest(format!("no se permitió leer «{}»", f.display)));
     }
-    let seen = super::access::changes(access, &allowed).await;
+    // The change notice covers each file and its sidecars.
+    let every: Vec<DataFile> = allowed.iter().flat_map(|f| f.all()).cloned().collect();
+    let seen = super::access::changes(access, &every).await;
     let mut from_files = if reads.is_empty() { Vec::new() } else { load_files(s, tables, present, &reads, &allowed, cap, out, cancel).await? };
     super::access::remember(access, &seen);
     // The change notice, on each file whose content changed.
+    let before = |path: &str| seen.iter().find(|x| x.path == path).and_then(|x| x.previous_mtime_ms);
     for f in from_files.iter_mut().flat_map(|l| l.files.iter_mut()) {
-        f.previous_mtime_ms = seen.iter().find(|x| x.path == f.path).and_then(|x| x.previous_mtime_ms);
+        for c in f.sidecars.iter_mut() {
+            c.previous_mtime_ms = before(&c.path);
+        }
+        // A sidecar that changed is the file's content changing too.
+        f.previous_mtime_ms = before(&f.path).or_else(|| f.sidecars.iter().find_map(|c| c.previous_mtime_ms));
     }
     let mut loaded = materialize(s, tables, present, sql, &sources, cap, out, rerun).await?;
     loaded.extend(from_files);
@@ -1080,7 +1193,9 @@ pub async fn run_local(
     let access = super::access::Access { policy, notebook: notebook.clone(), grants, approved, store: Some(state.store.as_ref()) };
     let started = std::time::Instant::now();
     let key = session_key(tab);
-    let entry = duck_entry(state, &key).await?;
+    // Spatial functions in the cell, or in a results cell it uses.
+    let spatial = uses_spatial(sql) || needed(sql, sources).iter().any(|&i| sources[i].local && uses_spatial(&sources[i].sql));
+    let entry = duck_entry(state, &key, spatial).await?;
     entry.cancelled.store(false, Ordering::SeqCst);
 
     // What's loaded, if it's still the same session.

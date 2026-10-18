@@ -1,6 +1,6 @@
-// view=nbperm[&set=one|many|glob|unsaved|settings|notebook] (preview/main.ts):
+// view=nbperm[&set=one|many|glob|unsaved|sidecars|settings|notebook] (preview/main.ts):
 // "Este notebook quiere leer estos archivos" with one file, several, a
-// glob, an unsaved notebook; the "Archivos que los notebooks pueden leer"
+// glob, an unsaved notebook, a shapefile with its sidecars; the "Archivos que los notebooks pueden leer"
 // list of Configuración › Notebooks and of one notebook, over a fake backend.
 import { h } from 'vue';
 import type { DataFile, FileApprovalRequest, FileGrant } from '../api/types';
@@ -30,6 +30,20 @@ const REQUESTS: Record<string, FileApprovalRequest> = {
       file('/Users/ana/exports/ventas_2026-08.csv', 1_204_332, '2026-09-01T07:00:00', GLOB),
       file('/Users/ana/exports/ventas_2026-09.csv', 1_350_870, '2026-10-01T07:00:00', GLOB),
       file('/Users/ana/exports/ventas_2026-10.csv', 402_118, '2026-10-18T07:00:00', GLOB),
+    ],
+  },
+  sidecars: {
+    token: 't5', saved: true, files: [
+      {
+        ...file('/Users/ana/geo/zonas.shp', 1_482_204, '2026-10-14T10:05:00'),
+        sidecars: [
+          file('/Users/ana/geo/zonas.cpg', 5, '2026-10-14T10:05:00'),
+          file('/Users/ana/geo/zonas.dbf', 88_410, '2026-10-14T10:05:00'),
+          file('/Users/ana/geo/zonas.prj', 145, '2026-10-14T10:05:00'),
+          file('/Users/ana/geo/zonas.shx', 1_220, '2026-10-14T10:05:00'),
+        ],
+      },
+      file('/Users/ana/Proyectos/crm/crm.db', 3_145_728, '2026-10-18T09:40:00'),
     ],
   },
   unsaved: { token: 't4', saved: false, files: [file('/Users/ana/Downloads/CustomerTest.csv', 48_213, '2026-10-17T09:12:00'), file('/Users/ana/Downloads/precios.parquet', 92_311, '2026-10-15T16:20:00')] },

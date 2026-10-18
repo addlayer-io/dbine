@@ -1,9 +1,11 @@
-// view=nbxresults[&theme=light][&dialog=1][&full=1]
+// view=nbxresults[&theme=light][&dialog=1][&full=1][&set=geo]
 //   A notebook's cells (NotebookCell.vue) querying three engines, and a
 //   "Resultados del notebook" cell joining their results in DuckDB, with
 //   the tables it loaded. dialog=1: the target dialog with that option.
 //   full=1: the whole NotebookView over an untitled draft of those cells
-//   (the last one never run), for its editor's completion.
+//   (the last one never run), for its editor's completion. set=geo: a
+//   results cell joining a shapefile (st_read) with a cell, its geometry
+//   in the map view and the shapefile with its sidecars in «Tablas:».
 import { h } from 'vue';
 import NotebookView from '../views/NotebookView.vue';
 import { notebookDraftKey, type NotebookTab } from '../stores/tabs';
@@ -81,8 +83,63 @@ function fullNotebook(params: URLSearchParams) {
   return h('div', { style: `width: ${params.get('w') ?? 1100}px; height: ${params.get('h') ?? 900}px; display: flex; background: var(--ide-editor)` }, [h(NotebookView, { tab })]);
 }
 
+/** WKB (little-endian) of a polygon's one ring, as `0x…` hex: what DuckDB
+ *  gives for a GEOMETRY column. */
+function wkbPolygon(ring: [number, number][]): string {
+  const buf = new DataView(new ArrayBuffer(9 + 4 + ring.length * 16));
+  buf.setUint8(0, 1);
+  buf.setUint32(1, 3, true);
+  buf.setUint32(5, 1, true);
+  buf.setUint32(9, ring.length, true);
+  ring.forEach(([x, y], i) => { buf.setFloat64(13 + i * 16, x, true); buf.setFloat64(21 + i * 16, y, true); });
+  return `0x${[...new Uint8Array(buf.buffer)].map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+const box = (w: number, s: number, e: number, n: number) => wkbPolygon([[w, s], [e, s], [e, n], [w, n], [w, s]]);
+
+const GEO = {
+  source: "SELECT z.nombre AS zona, sum(v.total) AS total, count(*) AS ventas, z.geom\nFROM st_read('~/geo/zonas.shp') z\nJOIN ventas_pg v ON ST_Contains(z.geom, ST_Point(v.lon, v.lat))\nGROUP BY ALL\nORDER BY total DESC",
+  columns: [{ name: 'zona', type_name: 'VARCHAR' }, { name: 'total', type_name: 'DECIMAL(38,2)' }, { name: 'ventas', type_name: 'BIGINT' }, { name: 'geom', type_name: 'GEOMETRY' }],
+  rows: [
+    ['Norte', '18250.00', 41, box(-68.5, -28, -62, -22)],
+    ['Centro', '15410.50', 37, box(-66, -35, -58.5, -28)],
+    ['Cuyo', '9120.75', 18, box(-70.5, -37, -66, -28)],
+    ['Patagonia', '6480.00', 12, box(-72, -50, -63, -37)],
+  ] as Cell[][],
+};
+const at = (s: string) => new Date(s).getTime();
+const GEO_LOADED: LoadedTable[] = [
+  { name: 'ventas_pg', rows: 4, capped: false, cached: false, origin: 'run', as_text: false, elapsed_ms: 3 },
+  {
+    name: '~/geo/zonas.shp', rows: 4, capped: false, cached: false, origin: 'file', as_text: false, elapsed_ms: 58,
+    files: [{
+      path: '/Users/ana/geo/zonas.shp', display: '~/geo/zonas.shp', size: 1_482_204, mtime_ms: at('2026-10-14T10:05:00'),
+      sidecars: ['cpg', 'dbf', 'prj', 'shx'].map((e, i) => ({ path: `/Users/ana/geo/zonas.${e}`, display: `~/geo/zonas.${e}`, size: [5, 88_410, 145, 1_220][i], mtime_ms: at('2026-10-14T10:05:00') })),
+    }],
+  },
+];
+
+/** set=geo: a results cell over a shapefile, in the map view. */
+function geoCell(params: URLSearchParams) {
+  const ran = new Date('2026-10-18T14:32:05Z');
+  const o = outcome(GEO.columns, GEO.rows, 92);
+  const cell = cellOf({ name: 'zonas', source: GEO.source, language: 'sql' }, 2, true);
+  cell.result = outcomeToResult(o, { script: GEO.source, ranAt: ran, engine: 'duckdb', targetLabel: 'Resultados del notebook' });
+  cell.chart = { view: 'map' };
+  const ctx: CellContext = {
+    language: 'sql', dialect: 'standard', schema: { ventas_pg: ['id', 'cliente', 'total', 'lon', 'lat'] },
+    snippets: [], target: 'Resultados del notebook', overridden: true, unresolved: false, localFiles: true, grantedFiles: [],
+  };
+  return h('div', { style: `width: ${params.get('w') ?? 1100}px; padding: 8px 18px 20px 6px; background: var(--ide-editor); display: flex; flex-direction: column; gap: 10px` }, [
+    h(NotebookCellView, {
+      cell, index: 0, count: 1, active: true, running: false, busy: false, editing: false,
+      ctx, live: o, fallback: null, source: null, title: 'Zonas', loaded: GEO_LOADED,
+    }),
+  ]);
+}
+
 export function notebookResultsPreview(params: URLSearchParams) {
   if (params.get('full')) return fullNotebook(params);
+  if (params.get('set') === 'geo') return geoCell(params);
   const ran = new Date('2026-10-18T14:32:05Z');
   const rows = SAMPLES.map((s, i) => {
     const o = outcome(s.columns, s.rows, s.ms);

@@ -204,8 +204,9 @@ export function nameCompletion(ctx: CompletionContext, tree: NameNode, quote: (l
 
 // -- DuckDB's file readers ("Resultados del notebook" cells) ----------------------------------------
 /** The readers a results cell may call, as src-tauri/src/notebook/files.rs
- *  READERS; `format` is what the list shows next to each. */
-export const FILE_READERS: { name: string; format: string }[] = [
+ *  READERS; `format` is what the list shows next to each; `table`: it
+ *  reads a table of a database file (`sqlite_scan('x.db', 'tabla')`). */
+export const FILE_READERS: { name: string; format: string; table?: boolean }[] = [
   { name: 'read_csv', format: 'CSV' },
   { name: 'read_csv_auto', format: 'CSV' },
   { name: 'read_parquet', format: 'Parquet' },
@@ -215,10 +216,16 @@ export const FILE_READERS: { name: string; format: string }[] = [
   { name: 'read_ndjson', format: 'NDJSON' },
   { name: 'read_ndjson_auto', format: 'NDJSON' },
   { name: 'read_xlsx', format: 'Excel' },
+  { name: 'st_read', format: 'GeoJSON, Shapefile, GeoPackage…' },
+  { name: 'sqlite_scan', format: 'SQLite', table: true },
+  { name: 'read_duckdb', format: 'DuckDB', table: true },
 ];
 
-/** What picking a reader inserts: a snippet with the cursor between the quotes. */
-export const readerSnippet = (name: string) => `${name}('\${}')`;
+/** What picking a reader inserts: a snippet with the cursor between the
+ *  quotes; a database reader also gets the table's quotes, the next field
+ *  (Tab). */
+export const readerSnippet = (name: string) =>
+  FILE_READERS.find((r) => r.name === name)?.table ? `${name}('\${1}', '\${2}')` : `${name}('\${}')`;
 
 /** The readers, in a table position of a results cell (or ⌃Space there). */
 export function readerCompletion(ctx: CompletionContext, make: (name: string, format: string) => Completion): CompletionResult | null {

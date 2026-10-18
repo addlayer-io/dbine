@@ -108,12 +108,17 @@ test('only a results cell gets the readers and the file entries', () => {
 test('the readers are exactly what the backend lets a results cell call', () => {
   assert.deepEqual(FILE_READERS.map((r) => r.name), [
     'read_csv', 'read_csv_auto', 'read_parquet', 'parquet_scan', 'read_json', 'read_json_auto', 'read_ndjson', 'read_ndjson_auto', 'read_xlsx',
+    'st_read', 'sqlite_scan', 'read_duckdb',
   ]);
 });
 
 test("a reader's snippet leaves the cursor between the quotes", () => {
   assert.equal(readerSnippet('read_csv'), "read_csv('${}')");
   assert.equal(readerSnippet('read_xlsx'), "read_xlsx('${}')");
+  assert.equal(readerSnippet('st_read'), "st_read('${}')");
+  // A database file's reader: the file first, then its table (Tab).
+  assert.equal(readerSnippet('sqlite_scan'), "sqlite_scan('${1}', '${2}')");
+  assert.equal(readerSnippet('read_duckdb'), "read_duckdb('${1}', '${2}')");
 });
 
 test('inside the quotes: "Elegir archivo…" and the granted files, never a sensitive one', () => {
@@ -129,6 +134,12 @@ test('inside the quotes: "Elegir archivo…" and the granted files, never a sens
   assert.ok(readerPathCompletion(ctxOf("FROM read_parquet(['a.parquet', '|"), [], pick));
   assert.equal(readerPathCompletion(ctxOf("SELECT 'x|'"), granted, pick), null);
   assert.equal(readerPathCompletion(ctxOf("FROM read_csv('a.csv', delim = '|')"), granted, pick), null);
+  // The new readers: the file's quotes offer files, never the table's.
+  assert.ok(readerPathCompletion(ctxOf("FROM st_read('~/geo/zo|')"), [], pick));
+  assert.ok(readerPathCompletion(ctxOf("FROM sqlite_scan('|', 'clientes')"), [], pick));
+  assert.ok(readerPathCompletion(ctxOf("FROM read_duckdb('|')"), [], pick));
+  assert.equal(readerPathCompletion(ctxOf("FROM sqlite_scan('a.db', '|')"), granted, pick), null);
+  assert.equal(readerPathCompletion(ctxOf("FROM read_duckdb('a.duckdb', 'ven|')"), granted, pick), null);
 });
 
 test('folders and files with credentials are sensitive', () => {

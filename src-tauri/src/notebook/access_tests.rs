@@ -15,7 +15,7 @@ fn write(path: &Path, text: &str) {
 }
 
 fn data(path: &str) -> DataFile {
-    DataFile { path: path.into(), display: path.into(), size: 1, mtime_ms: 1, pattern: None, previous_mtime_ms: None }
+    DataFile { path: path.into(), display: path.into(), size: 1, mtime_ms: 1, pattern: None, previous_mtime_ms: None, sidecars: Vec::new() }
 }
 
 #[test]
@@ -193,7 +193,7 @@ async fn the_hash_is_computed_only_when_size_or_time_changed() {
     let file = |p: &Path| {
         let m = std::fs::metadata(p).unwrap();
         let mtime_ms = m.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
-        DataFile { path: p.to_string_lossy().to_string(), display: String::new(), size: m.len(), mtime_ms, pattern: None, previous_mtime_ms: None }
+        DataFile { path: p.to_string_lossy().to_string(), display: String::new(), size: m.len(), mtime_ms, pattern: None, previous_mtime_ms: None, sidecars: Vec::new() }
     };
     let key = path.to_string_lossy().to_string();
 

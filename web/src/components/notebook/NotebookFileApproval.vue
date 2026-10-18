@@ -8,8 +8,10 @@ import { locale } from '../../i18n';
 // in full (canonical path, size, modification time), the files of a glob
 // under their pattern. One answer covers them all: Permitir (this run),
 // Permitir siempre (this notebook, on this machine; not for an unsaved
-// notebook) or Denegar. The backend checks the answer against the files
-// it resolved; this dialog only relays it.
+// notebook) or Denegar. A file read with its sidecars (a shapefile's .shx,
+// .dbf…) shows "+ N archivos asociados", listed in its tooltip; the same
+// answer covers them. The backend checks the answer against the files it
+// resolved; this dialog only relays it.
 
 const props = defineProps<{ request: FileApprovalRequest }>();
 const emit = defineEmits<{ decide: [decision: FileDecision] }>();
@@ -25,6 +27,8 @@ function formatBytes(b: number): string {
 }
 const when = (ms: number) => new Date(ms).toLocaleString(locale(), { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 const detail = (f: DataFile) => `${formatBytes(f.size)} · ${when(f.mtime_ms)}`;
+/** A file's sidecars (a shapefile's .shx, .dbf…), one per line with their details. */
+const sidecarTip = (f: DataFile) => (f.sidecars ?? []).map((s) => `${s.path} · ${detail(s)}`).join('\n');
 
 /** The files written out first, then each glob with its files. */
 const groups = computed(() => {
@@ -58,6 +62,10 @@ const groups = computed(() => {
         </div>
         <div v-for="f in g.files" :key="f.path" class="nfa-file" :class="{ nested: !!g.pattern }">
           <code class="nm-selectable">{{ f.path }}</code>
+          <el-tooltip v-if="f.sidecars?.length" placement="top" :show-after="200" popper-class="nfa-sidecar-tip">
+            <template #content><div class="nfa-sidecar-list">{{ sidecarTip(f) }}</div></template>
+            <span class="nfa-tag nfa-sidecars">{{ $t('notebook:fileAccess.sidecars', { count: f.sidecars.length }) }}</span>
+          </el-tooltip>
           <span class="nfa-meta">{{ detail(f) }}</span>
         </div>
       </div>
@@ -102,4 +110,6 @@ const groups = computed(() => {
 .nfa-footer { display: flex; align-items: center; gap: 8px; }
 .nfa-footer .el-button + .el-button { margin-left: 0; }
 .nfa-always { display: inline-flex; }
+.nfa-sidecars { cursor: default; white-space: nowrap; }
+.nfa-sidecar-list { white-space: pre-line; font-family: var(--nm-mono); font-size: 11.5px; }
 </style>

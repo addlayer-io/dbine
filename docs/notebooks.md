@@ -211,6 +211,8 @@ JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
   `read_xlsx` (an Excel workbook, one file; DuckDB's `excel` extension is
   fetched the first time, as for `.xlsx` data-file connections). Their
   options work as in DuckDB (`read_csv('x.csv', delim = ';', header = true)`).
+  Also geographic files with `st_read` and tables of SQLite and DuckDB
+  database files with `sqlite_scan` and `read_duckdb` (below).
 - **The path** is the reader's first argument, written as text: `'a.csv'`,
   a glob (`'exports/ventas_*.csv'`, `'**/*.parquet'`) or a list
   (`['a.csv', 'b.csv']`). `~` is the home folder; a relative path is read
@@ -247,14 +249,122 @@ JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
   and `CHECKPOINT`.
 - **Completion:** after `FROM`, `JOIN` or a comma in a `FROM` list, the
   editor offers the cells above (a cell that hasn't run too, without
-  columns) and these readers; picking a reader writes `read_csv('')` with
-  the cursor between the quotes, where "Elegir archivo…" opens the system's
+  columns) and these readers (`st_read`, `sqlite_scan` and `read_duckdb`
+  too); picking a reader writes `read_csv('')` with the cursor between the
+  quotes (`sqlite_scan('', '')` and `read_duckdb('', '')`: Tab goes to the
+  table's quotes, where no file is offered), where "Elegir archivo…" opens the system's
   file dialog and writes the chosen path. The editor never lists a folder:
   choosing or typing a path grants nothing: the file is approved when the cell runs. After `name.` or an alias come
   the cell's columns, and the select list offers the columns of the tables
   the statement reads.
 - **Approval:** a notebook reads no file the user hasn't allowed (see
   [Approving the files a notebook reads](#approving-the-files-a-notebook-reads)).
+
+#### Geographic files (`st_read`)
+
+```sql
+SELECT z.name, sum(v.total)
+FROM st_read('~/geo/zonas.shp') z
+JOIN ventas v ON ST_Contains(z.geom, ST_Point(v.lon, v.lat))
+GROUP BY ALL
+```
+
+- **What it reads:** one local file, through DuckDB's `spatial` extension
+  (GDAL), fetched the first time like `excel`: GeoJSON (`.geojson`,
+  `.json`), GeoJSON sequences (`.geojsonl`, `.geojsons`), TopoJSON,
+  Shapefile (`.shp`, a lone `.dbf`, and zipped as `.shp.zip` or `.shz`,
+  which GDAL opens by itself), GeoPackage (`.gpkg`), KML, GPX, FlatGeobuf
+  (`.fgb`), CSV (with a WKT column or coordinate columns, through
+  `open_options`) and DXF. GDAL may only use the drivers for those formats:
+  DBine always passes `allowed_drivers` itself, so a file is never opened
+  by another driver whatever its name or content says (a VRT renamed
+  `.geojson` is not read as a VRT).
+- **Sidecars:** a Shapefile's `.shx`, `.dbf`, `.prj`, `.cpg`, `.sbn`,
+  `.sbx`, `.qix`, `.fix`, `.qpj` and `.shp.xml` (same stem, any case) and a
+  CSV's `.csvt` and `.prj` are found next to the file and read with it.
+  They are part of the read: each one is checked against the always-blocked
+  list, granted to the reader session with the file and approved with it
+  (the dialog shows the file with *"+ N archivos asociados"*, listed in its
+  tooltip; one answer covers them; *Permitir siempre* grants each one, so a
+  sidecar that appears later asks again), and a change in any of them reads
+  the file again and raises the change notice. The *Tablas:* line shows the
+  file with *"+ N archivos asociados"*, and its tooltip lists them.
+- **Parameters:** `layer`, `keep_wkb`, `max_batch_size` and
+  `open_options`, with literal values. `open_options` takes only these GDAL
+  options, whose values can't contain `/`, `\`, `:` or `vsi`:
+  `X_POSSIBLE_NAMES`, `Y_POSSIBLE_NAMES`, `Z_POSSIBLE_NAMES`,
+  `GEOM_POSSIBLE_NAMES`, `KEEP_GEOM_COLUMNS`, `SEPARATOR`, `HEADERS`,
+  `AUTODETECT_TYPE`, `AUTODETECT_WIDTH`, `AUTODETECT_SIZE_LIMIT`,
+  `QUOTED_FIELDS_AS_STRING`, `EMPTY_STRING_AS_NULL`, `MAX_LINE_SIZE`,
+  `ENCODING`, `ADJUST_TYPE`, `ADJUST_GEOM_TYPE`,
+  `FLATTEN_NESTED_ATTRIBUTES`, `NESTED_ATTRIBUTE_SEPARATOR`,
+  `ARRAY_AS_STRING`, `DATE_AS_STRING` and `LIST_ALL_TABLES`. Anything else
+  is refused before running: `allowed_drivers` and `sibling_files` (DBine's
+  own), GeoPackage's `PRELUDE_STATEMENTS` (SQL), GeoJSON's
+  `FEATURE_SERVER_PAGING` (network), and any other parameter or option.
+- **Refused paths and formats:** GDAL virtual paths (`/vsizip/`,
+  `/vsicurl/`, `/vsis3/`, `/vsigzip/`, `/vsimem/`… any path segment
+  `vsi…`), URLs (anything with `://`, also GDAL's `WFS:http://…`), a glob or
+  a list, and the formats that point GDAL at other files or the network:
+  `.vrt`, `.xml`, `.gml`, `.xsd`, `.gfs`, `.tab`, `.map`, `.osm`, `.pbf`,
+  `.ovr`, `.wfs`, `.mbtiles`, `.pmtiles`. A `.zip` other than a zipped
+  shapefile is refused with a message to unzip it and read the file inside.
+  The GDAL drivers left out are `OGR_VRT`, `GML`, `SQLite` (SQLite virtual
+  tables over other sources), `MapInfo File`, `OSM` (temporary files) and
+  every network driver.
+- **Geometry:** the geometry column (DuckDB's `GEOMETRY`) comes into the
+  notebook's database as WKB and is rebuilt there as `GEOMETRY`
+  (`ST_GeomFromWKB`, part of DuckDB itself), so the cell's spatial
+  functions work on it and the result's map view draws it. The same goes
+  for a `GEOMETRY` column of a cell above (another DuckDB result); a value
+  that isn't WKB keeps the column as text, and the cell says so.
+- **Spatial functions in the cell** (`ST_Contains`, `ST_Point`…) need the
+  `spatial` extension in the notebook's database too: when a cell (or a
+  results cell it uses) calls an `ST_…` function or `st_read`, the
+  notebook's database is opened with `spatial` loaded before the lockdown
+  (a database opened without it is opened again, and its tables are loaded
+  again as needed). If the extension can't be fetched, the cell says so.
+
+#### Database files (`sqlite_scan`, `read_duckdb`)
+
+```sql
+SELECT c.nombre, z.zona
+FROM sqlite_scan('~/crm/crm.db', 'clientes') c
+JOIN read_duckdb('~/datos/ventas.duckdb', 'arch.zonas') z ON z.cliente = c.id
+```
+
+- **`sqlite_scan('file.db', 'tabla')`**: one SQLite file and one table.
+  DBine reads it itself through SQLite, never with DuckDB's sqlite
+  extension (whose SQLite opens files outside DuckDB's `allowed_paths`
+  and, for a database in WAL mode, creates `-wal` and `-shm` files next to
+  it). The file is opened read-only and `immutable`, so nothing is locked,
+  created or changed next to it, with `trusted_schema` off. A file with a
+  pending, non-empty `-wal` or `-journal` (open in another program, or left
+  mid-write) isn't the whole database by itself: that journal is a sidecar
+  of the file (approved, blocked and cached like a shapefile's), and the
+  file and its journal are copied into a private folder in the temp folder,
+  the copy is read and the folder is removed. The original files are never
+  written.
+- **`read_duckdb('file.duckdb', 'tabla')`** (or `'esquema.tabla'`, or
+  `table_name = '…'`, `schema_name = '…'`): DuckDB's own `read_duckdb`
+  (present in the bundled DuckDB 1.5), which attaches the file read-only,
+  run in a reader session granted that file. Globs and lists work as for
+  the other readers. DuckDB looks for the file's write-ahead log
+  (`file.duckdb.wal`): that path is granted too; when it exists it is a
+  sidecar of the file. Other `read_duckdb` parameters are refused. The
+  notebook's database never attaches anything (`ATTACH` stays refused).
+- **Table names** are letters, digits, `_`, `$`, `-` and spaces
+  (`esquema.tabla` at most, and no schema for SQLite), checked before
+  running and passed as strings, never written into SQL.
+- **DBine's own databases** (its state and cache) are in its own folders,
+  which are always blocked.
+
+#### One reader session per call
+
+Each reader call is read in a DuckDB session of its own, granted only that
+call's files and their sidecars, with only the extension it needs (`excel`,
+`spatial`); `sqlite_scan` doesn't use DuckDB at all. A file's content can't
+reach another call's files.
 
 #### Approving the files a notebook reads
 
@@ -347,7 +457,9 @@ in one place (`allowed_files` in `src-tauri/src/notebook/files.rs`, rules in
 - **Sandbox.** Before anything is loaded, the session switches off external
   access, extension autoloading and installing, community extensions and
   spilling to a temp directory, then locks the configuration, and checks
-  that it holds (the cell refuses to run otherwise). The cell's SQL can't
+  that it holds (the cell refuses to run otherwise). The one extension it
+  may have is `spatial`, loaded before that when a cell uses spatial
+  functions (see [Geographic files](#geographic-files-st_read)). The cell's SQL can't
   use it to write files or reach the network on the user's behalf:
   `SELECT * FROM 'file.csv'`, `read_text('/…')`, `COPY … TO`, `ATTACH`,
   `EXPORT DATABASE`, `INSTALL` / `LOAD`, URLs and `SET` are all refused.

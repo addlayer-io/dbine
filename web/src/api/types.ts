@@ -1142,7 +1142,7 @@ export interface LoadedTable {
   /** The files read (`origin: 'file'`). */
   files?: DataFile[];
 }
-/** A local file a results cell read (`read_csv('…')`…), as it was then. */
+/** A local file a results cell read (`read_csv('…')`, `st_read('…')`, `sqlite_scan('…', '…')`…), as it was then. */
 export interface DataFile {
   /** Canonical path. */
   path: string;
@@ -1154,6 +1154,9 @@ export interface DataFile {
   pattern?: string;
   /** Its content changed since this notebook last read it: its modification time then. */
   previous_mtime_ms?: number;
+  /** Files read with it (a shapefile's .shx, .dbf, .prj…; a SQLite file's
+   *  pending -wal): approved and granted with it. */
+  sidecars?: DataFile[];
 }
 /** "Este notebook quiere leer estos archivos" (`notebook::access::ApprovalRequest`). */
 export interface FileApprovalRequest {
