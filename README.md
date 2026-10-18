@@ -34,6 +34,12 @@ and queries are organized inside each database.
   into the state file or the logs. Everything opened on a connection shares a
   single tunnel, which reopens by itself if it drops. Details:
   [`docs/ssh-tunnels.md`](docs/ssh-tunnels.md).
+- **Cloud sign-in** for managed PostgreSQL and MySQL: AWS IAM (RDS, Aurora),
+  Google Cloud IAM (Cloud SQL, AlloyDB) and Microsoft Entra ID (Azure
+  Database). DBine makes a new token before every connection from the
+  computer's own credentials (AWS profiles and SSO, gcloud, az), so short-lived
+  tokens are never pasted; they stay in memory only. Details:
+  [`docs/cloud-authentication.md`](docs/cloud-authentication.md).
 - **Database context menu:**
   - new query, new table with a designer (and modify an existing one), new objects from templates;
   - ER diagram, generate script, export or import the database, run a script

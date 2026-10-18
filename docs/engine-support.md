@@ -2882,6 +2882,53 @@ Sign in with the domain account instead of a database user
   current user (SSPI and Kerberos), NTLM and MongoDB's Kerberos were not
   tested against a real server.
 
+## Cloud sign-in (AWS IAM, Google Cloud IAM, Entra ID)
+
+A token that DBine makes before every connection and reconnect instead of
+a password ([`cloud-authentication.md`](cloud-authentication.md)).
+
+| Engine | What there is |
+|---|---|
+| PostgreSQL | **AWS IAM** (RDS for PostgreSQL), **Google Cloud IAM** (Cloud SQL by IP), **Microsoft Entra ID** (Azure Database for PostgreSQL). |
+| Amazon Aurora PostgreSQL | **AWS IAM**. |
+| Cloud SQL for PostgreSQL | **Google Cloud IAM** (Cloud SQL login token). |
+| AlloyDB for PostgreSQL | **Google Cloud IAM** (OAuth access token). |
+| MySQL | **AWS IAM** (RDS for MySQL), **Google Cloud IAM** (Cloud SQL by IP), **Microsoft Entra ID** (Azure Database for MySQL). |
+| MariaDB | **AWS IAM** (RDS for MariaDB). |
+| Amazon Aurora MySQL | **AWS IAM**. |
+| Cloud SQL for MySQL | **Google Cloud IAM**. |
+| Amazon Aurora DSQL | Already signs in with IAM (its own driver, AWS SDK). |
+| SQL Server, Azure SQL Database, Microsoft Fabric | Already have Microsoft Entra ID, with more methods ([`integrated-authentication.md`](integrated-authentication.md#microsoft-entra-id-sql-server-azure-sql-database-microsoft-fabric)). |
+| BigQuery, Spanner, Athena, DynamoDB, Cosmos DB, Snowflake, Databricks and other cloud services | They already use the cloud identity in their own form (service accounts, AWS profiles, Entra ID). |
+
+### Engines without cloud sign-in
+
+| Engine | Reason |
+|---|---|
+| Amazon Redshift | Pending. Its IAM sign-in isn't a locally signed token: the credentials come from a call to the Redshift API (`GetClusterCredentials`, or `GetCredentials` in Redshift Serverless), which the PostgreSQL driver has no AWS client for. In the meantime, paste the temporary password those calls return. |
+| Azure Cosmos DB for PostgreSQL | Pending. It takes Entra ID tokens for another audience (`https://token.postgres.cosmos.azure.com`); the PostgreSQL option asks for Azure Database for PostgreSQL's. |
+| Oracle, Oracle Autonomous | Pending. The thin client DBine uses (`oracledb`) only does the password login (O5LOGON); OCI IAM database tokens also need the client to prove it holds the token's key. |
+| MongoDB (Atlas with AWS IAM) | Pending. It is a SASL mechanism of its own (`MONGODB-AWS`, a signed STS request), not a token as the password; the MongoDB client has it behind a feature DBine doesn't build yet. |
+| Redis (Amazon ElastiCache / MemoryDB with IAM, Google Memorystore with IAM, Azure Cache for Redis with Entra ID) | Pending. Each one takes a token as the `AUTH` password (an ElastiCache SigV4 token, a Google or Entra ID access token); the Redis driver doesn't make them yet. |
+| Elasticsearch, OpenSearch (Amazon OpenSearch Service with IAM) | Pending. Every HTTP request is signed with SigV4 (no login token); the driver's HTTP client doesn't sign requests yet. |
+| Cassandra (Amazon Keyspaces with IAM) | Pending. It takes SigV4 through its own authenticator (`SigV4AuthProvider`), which the client (scylla) doesn't bring. |
+| TiDB, OceanBase, SingleStore, StarRocks, Doris, VeloDB, Databend, GreptimeDB, Manticore and the other MySQL-protocol engines | The engine or its managed service has no cloud IAM database sign-in. |
+| CockroachDB, YugabyteDB, TimescaleDB, Greenplum, EDB, KingbaseES and the other PostgreSQL-protocol engines | Same: no cloud IAM database sign-in (their managed services use passwords or certificates). When one is deployed on RDS or Azure as plain PostgreSQL, the PostgreSQL engine offers it. |
+| SQLite, DuckDB, libSQL and other local-file engines | There is no server to sign in to. |
+| The other engines (ClickHouse, Neo4j, Couchbase, CouchDB, Firebird…) | The engine or its managed service has no token sign-in tied to an AWS, Google or Entra ID identity. |
+
+### Tested
+
+- Unit: SigV4 presigning against the AWS signing test suite, RDS tokens
+  identical to the AWS CLI's, region parsing, `~/.aws` profiles and
+  `credential_process`, the CLIs' output, the fields each variant offers and
+  the refusal over an unverified server.
+- Against real servers: the password sign-in stays the same
+  (`dbine-test-postgres`, `dbine-test-mysql`, `dbine-test-mariadb`).
+- On this machine: Azure CLI returns an `oss-rdbms` token and its identity.
+- **Not tested end to end**: there are no RDS, Cloud SQL, AlloyDB or Azure
+  databases in the test environment.
+
 ## Processes
 
 The Monitor's process list ([`processes.md`](processes.md)). Each engine
