@@ -1,0 +1,60 @@
+{
+  "source": "Dados",
+  "latLon": "Latitude / longitude",
+  "lat": "Latitude",
+  "lon": "Longitude",
+  "pick": "Escolha uma coluna",
+  "count_one": "{{shown}} elemento",
+  "count_other": "{{shown}} elementos",
+  "fit": "Ajustar",
+  "openSettings": "Configurar o mapa",
+  "privacy": "O provedor do mapa vê qual área você está olhando (não os dados)",
+  "notice": {
+    "cap": "São desenhados os primeiros {{cap}} elementos; outras {{rest}} linhas não são desenhadas.",
+    "srid_one": "{{rows}} linha com SRID {{srid}} não é desenhada: o mapa mostra WGS 84 (4326) e Web Mercator (3857).",
+    "srid_other": "{{rows}} linhas com SRID {{srid}} não são desenhadas: o mapa mostra WGS 84 (4326) e Web Mercator (3857).",
+    "range_one": "{{rows}} linha sem SRID tem coordenadas que não são graus: não é desenhada.",
+    "range_other": "{{rows}} linhas sem SRID têm coordenadas que não são graus: não são desenhadas.",
+    "unreadable_one": "{{rows}} valor não pôde ser lido como geometria.",
+    "unreadable_other": "{{rows}} valores não puderam ser lidos como geometria.",
+    "basemap": "Não foi possível carregar o mapa base incluído."
+  },
+  "attribution": {
+    "offline": "Mapa base: Natural Earth (domínio público), offline",
+    "custom": "Blocos: provedor personalizado"
+  },
+  "popup": {
+    "row": "Linha {{row}}",
+    "rows_one": "Linha {{row}} e mais {{more}} neste ponto",
+    "rows_other": "Linha {{row}} e mais {{more}} neste ponto",
+    "geometry": "(geometria)"
+  },
+  "settings": {
+    "nav": "Mapas",
+    "title": "Mapas",
+    "help": "O mapa dos resultados desenha as geometrias nesta máquina: os dados das linhas nunca saem daqui.",
+    "offline": "Mapa base offline",
+    "offlineHelp": "Países, províncias e estados, litorais, lagos e cidades do Natural Earth (domínio público), incluídos no DBine.",
+    "online": "Blocos online",
+    "onlineHelp": "Usa um provedor de blocos com ruas e relevo. Desativado, o mapa não faz nenhuma requisição à internet.",
+    "noticeTitle": "Blocos online",
+    "noticeOk": "Ativar",
+    "provider": "Provedor",
+    "providers": {
+      "osm": "OpenStreetMap (padrão)",
+      "maptiler": "MapTiler (com chave)",
+      "stadia": "Stadia Maps (com chave)",
+      "custom": "Personalizado (modelo XYZ)"
+    },
+    "osmPolicy": "Os blocos da Fundação OpenStreetMap são um serviço comunitário com uma política de uso (operations.osmfoundation.org/policies/tiles): servem para uso leve. Para uso intenso, use outro provedor ou seu próprio servidor.",
+    "url": "Modelo de URL",
+    "urlHelp": "https com {z}, {x} e {y}; {key} é substituído pela chave. http só para um servidor nesta máquina (localhost).",
+    "urlInvalid": "O modelo precisa ser https (ou http para localhost) e conter {z}, {x} e {y}.",
+    "attribution": "Atribuição",
+    "attributionHelp": "O texto que o provedor pede; aparece no canto do mapa.",
+    "key": "Chave de API",
+    "keyHelp": "Fica só nesta máquina: não vai com a sincronização.",
+    "needUrl": "Falta um modelo de URL válido: enquanto isso o mapa usa o mapa base offline.",
+    "needKey": "Falta a chave de API: enquanto isso o mapa usa o mapa base offline."
+  }
+}

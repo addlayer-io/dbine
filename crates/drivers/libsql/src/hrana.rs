@@ -7,7 +7,7 @@
 
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
-use dbine_driver::{json_bytes, json_f64, json_i64, Error, Result};
+use dbine_driver::{is_spatial_blob, json_bytes, json_f64, json_i64, json_spatial_bytes, Error, Result};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -111,6 +111,8 @@ pub fn cell(v: &Value) -> Value {
         Some("float") => v.get("value").and_then(Value::as_f64).map_or(Value::Null, json_f64),
         Some("text") => v.get("value").cloned().unwrap_or(Value::Null),
         Some("blob") => match v.get("base64").and_then(Value::as_str).map(|b| B64.decode(b)) {
+            // SpatiaLite / GeoPackage geometries go whole, for the map view.
+            Some(Ok(bytes)) if is_spatial_blob(&bytes) => json_spatial_bytes(&bytes),
             Some(Ok(bytes)) => json_bytes(&bytes),
             _ => Value::Null,
         },

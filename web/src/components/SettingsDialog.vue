@@ -32,6 +32,7 @@ import ShortcutSettings from './ShortcutSettings.vue';
 import { VIM_SETTING } from '../composables/commands';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
+import MapSettings from './MapSettings.vue';
 import DevicesSettings from './DevicesSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 import { ALL_ROWS } from '../composables/queryControls';
@@ -385,6 +386,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
           <el-icon><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" /></svg></el-icon>{{ $t('shortcuts:nav') }}
         </button>
         <button :class="{ on: section === 'mail' }" @click="section = 'mail'"><el-icon><ei-message /></el-icon>{{ $t('mail:nav') }}</button>
+        <button :class="{ on: section === 'maps' }" @click="section = 'maps'"><el-icon><ei-map-location /></el-icon>{{ $t('map:settings.nav') }}</button>
         <button v-if="driverPackages" :class="{ on: section === 'drivers' }" @click="section = 'drivers'"><el-icon><ei-connection /></el-icon>{{ $t('settings:nav.drivers') }}</button>
         <!-- Voluntary support: opens Buy Me a Coffee in the browser. -->
         <button class="st-support" :title="$t('settings:nav.supportHint')" @click="openSupport">
@@ -472,6 +474,11 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <!-- The mail server of the scheduled tasks -->
       <section v-else-if="section === 'mail'" class="st-body">
         <MailSettings />
+      </section>
+
+      <!-- The results' map view: base map and online tiles (composables/mapTiles.ts) -->
+      <section v-else-if="section === 'maps'" class="st-body">
+        <MapSettings />
       </section>
 
       <!-- The query editor's linter -->

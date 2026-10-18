@@ -3,7 +3,7 @@
 //! `STATISTICS IO/TIME` messages, "(N filas afectadas)" per statement
 //! (unless `SET NOCOUNT ON`), every error with its line, and `USE`.
 
-use super::{cell, err, is_desync, is_plan_column, ResultColumn, SqlServerSession};
+use super::{cell, err, spatial_cell, is_desync, is_plan_column, ResultColumn, SqlServerSession};
 use dbine_driver::sql::{split_script, ScriptDialect, ScriptStatement, StatementKind};
 use dbine_driver::{Error, Message, MessageLevel, QueryOutcome, Result, ScriptError};
 use futures::TryStreamExt;
@@ -177,6 +177,8 @@ impl SqlServerSession {
             // is the grid's, not "(N filas afectadas)".
             let mut in_result = false;
             let mut merged: Option<String> = None;
+            // The result's geometry / geography columns (their values go whole).
+            let mut spatial: Vec<bool> = Vec::new();
             loop {
                 let item = match stream.try_next().await {
                     Ok(Some(item)) => item,
@@ -204,9 +206,14 @@ impl SqlServerSession {
                         if cols.len() == 1 && [FOR_XML, FOR_JSON].iter().any(|n| cols[0].name().eq_ignore_ascii_case(n)) {
                             merged = Some(String::new());
                         }
+                        spatial = cols.iter().map(|c| matches!(c.udt_name(), Some("geometry" | "geography"))).collect();
                         out.begin_result(
                             cols.iter()
-                                .map(|c| ResultColumn { name: c.name().to_string(), type_name: format!("{:?}", c.column_type()) })
+                                .map(|c| ResultColumn {
+                                    name: c.name().to_string(),
+                                    // A UDT by its name: `geometry`, `geography`, `hierarchyid`.
+                                    type_name: c.udt_name().map_or_else(|| format!("{:?}", c.column_type()), str::to_string),
+                                })
                                 .collect(),
                         );
                     }
@@ -224,7 +231,10 @@ impl SqlServerSession {
                                 buf.push_str(&s);
                             }
                         }
-                        None => out.push_row(row.into_iter().map(cell).collect(), max_rows),
+                        None => out.push_row(
+                            row.into_iter().enumerate().map(|(i, d)| spatial_cell(d, spatial.get(i).copied().unwrap_or(false))).collect(),
+                            max_rows,
+                        ),
                     },
                     MessageItem::Info(m) => info(out, &m),
                     MessageItem::Error(m) => {

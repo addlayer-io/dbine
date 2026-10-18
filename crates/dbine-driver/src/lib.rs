@@ -55,7 +55,7 @@ pub use filter::{ColumnFilter, FilterOp};
 pub use sort::SortKey;
 pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
 pub use model::{
-    json_bytes, json_f64, json_i64, json_u64, ColumnInfo, DbObject, Message, MessageLevel, MessageSinkRef, ObjectRef, Plan,
+    is_spatial_blob, is_spatial_type, json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64, ColumnInfo, DbObject, Message, MessageLevel, MessageSinkRef, ObjectRef, Plan,
     PlanNode, ProgressSinkRef, QueryOutcome, ResultColumn, RowSink, RowSinkRef, ScriptError, StatementEnd, StatementResult,
     TxState, RowChange, SchemaInfo,
 };

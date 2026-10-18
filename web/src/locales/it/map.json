@@ -1,0 +1,60 @@
+{
+  "source": "Dati",
+  "latLon": "Latitudine / longitudine",
+  "lat": "Latitudine",
+  "lon": "Longitudine",
+  "pick": "Scegli una colonna",
+  "count_one": "{{shown}} elemento",
+  "count_other": "{{shown}} elementi",
+  "fit": "Adatta",
+  "openSettings": "Impostazioni della mappa",
+  "privacy": "Il fornitore della mappa vede quale zona stai guardando (non i dati)",
+  "notice": {
+    "cap": "Vengono disegnati i primi {{cap}} elementi; altre {{rest}} righe no.",
+    "srid_one": "{{rows}} riga con SRID {{srid}} non viene disegnata: la mappa mostra WGS 84 (4326) e Web Mercator (3857).",
+    "srid_other": "{{rows}} righe con SRID {{srid}} non vengono disegnate: la mappa mostra WGS 84 (4326) e Web Mercator (3857).",
+    "range_one": "{{rows}} riga senza SRID ha coordinate che non sono gradi: non viene disegnata.",
+    "range_other": "{{rows}} righe senza SRID hanno coordinate che non sono gradi: non vengono disegnate.",
+    "unreadable_one": "{{rows}} valore non è stato letto come geometria.",
+    "unreadable_other": "{{rows}} valori non sono stati letti come geometrie.",
+    "basemap": "Impossibile caricare la mappa di base inclusa."
+  },
+  "attribution": {
+    "offline": "Mappa di base: Natural Earth (pubblico dominio), offline",
+    "custom": "Tasselli: fornitore personalizzato"
+  },
+  "popup": {
+    "row": "Riga {{row}}",
+    "rows_one": "Riga {{row}} e altre {{more}} in questo punto",
+    "rows_other": "Riga {{row}} e altre {{more}} in questo punto",
+    "geometry": "(geometria)"
+  },
+  "settings": {
+    "nav": "Mappe",
+    "title": "Mappe",
+    "help": "La mappa dei risultati disegna le geometrie su questa macchina: i dati delle righe non ne escono mai.",
+    "offline": "Mappa di base offline",
+    "offlineHelp": "Paesi, province e stati, coste, laghi e città di Natural Earth (pubblico dominio), inclusi in DBine.",
+    "online": "Tasselli online",
+    "onlineHelp": "Usa un fornitore di tasselli con strade e rilievo. Disattivata, la mappa non fa nessuna richiesta a internet.",
+    "noticeTitle": "Tasselli online",
+    "noticeOk": "Attiva",
+    "provider": "Fornitore",
+    "providers": {
+      "osm": "OpenStreetMap (standard)",
+      "maptiler": "MapTiler (con chiave)",
+      "stadia": "Stadia Maps (con chiave)",
+      "custom": "Personalizzato (modello XYZ)"
+    },
+    "osmPolicy": "I tasselli della Fondazione OpenStreetMap sono un servizio comunitario con una politica d'uso (operations.osmfoundation.org/policies/tiles): vanno bene per un uso leggero. Per un uso intenso, scegli un altro fornitore o un tuo server.",
+    "url": "Modello di URL",
+    "urlHelp": "https con {z}, {x} e {y}; {key} viene sostituito dalla chiave. http solo per un server su questa macchina (localhost).",
+    "urlInvalid": "Il modello deve essere https (o http verso localhost) e contenere {z}, {x} e {y}.",
+    "attribution": "Attribuzione",
+    "attributionHelp": "Il testo richiesto dal fornitore; appare nell'angolo della mappa.",
+    "key": "Chiave API",
+    "keyHelp": "Resta solo su questa macchina: non viaggia con la sincronizzazione.",
+    "needUrl": "Manca un modello di URL valido: nel frattempo la mappa usa la mappa di base offline.",
+    "needKey": "Manca la chiave API: nel frattempo la mappa usa la mappa di base offline."
+  }
+}

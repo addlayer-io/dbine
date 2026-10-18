@@ -17,8 +17,8 @@ pub mod transfer;
 
 use dbine_driver::sql::{leading_keyword, quote_ident, select_top, split_statements, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
-    DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef,
+    async_trait, is_spatial_blob, is_spatial_type, json_bytes, json_f64, json_i64, json_spatial_bytes, kinds, Capabilities,
+    ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef,
     QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema, TxState,
 };
 use rusqlite::types::ValueRef;
@@ -617,15 +617,16 @@ fn run_stmt(c: &Connection, stmt: &mut rusqlite::Statement<'_>, sql: &str, max_r
     {
         let n = stmt.column_count();
         if n > 0 {
-            out.begin_result(
-                stmt.columns()
-                    .into_iter()
-                    .map(|c| ResultColumn { name: c.name().to_string(), type_name: c.decl_type().unwrap_or("").to_string() })
-                    .collect(),
-            );
+            let columns: Vec<ResultColumn> = stmt
+                .columns()
+                .into_iter()
+                .map(|c| ResultColumn { name: c.name().to_string(), type_name: c.decl_type().unwrap_or("").to_string() })
+                .collect();
+            let spatial: Vec<bool> = columns.iter().map(|c| is_spatial_type(&c.type_name)).collect();
+            out.begin_result(columns);
             let mut rows = stmt.raw_query();
             while let Some(row) = rows.next().map_err(|e| stmt_err(e, sql))? {
-                out.push_row((0..n).map(|i| cell(row.get_ref_unwrap(i))).collect(), max_rows);
+                out.push_row((0..n).map(|i| result_cell(row.get_ref_unwrap(i), spatial[i])).collect(), max_rows);
             }
         } else {
             // changes() keeps the last DML's count across DDL; only trust it
@@ -666,6 +667,15 @@ fn total_changes(c: &Connection) -> Result<i64> {
     c.query_row("SELECT total_changes()", [], |r| r.get(0)).map_err(err)
 }
 
+/// A result cell. Spatial blobs (a column declared GEOMETRY, POINT…, or a
+/// SpatiaLite / GeoPackage blob anywhere) go whole, for the map view.
+fn result_cell(v: ValueRef<'_>, spatial: bool) -> serde_json::Value {
+    match v {
+        ValueRef::Blob(b) if spatial || is_spatial_blob(b) => json_spatial_bytes(b),
+        v => cell(v),
+    }
+}
+
 fn cell(v: ValueRef<'_>) -> serde_json::Value {
     match v {
         ValueRef::Null => serde_json::Value::Null,
@@ -701,6 +711,35 @@ mod tests {
         assert_eq!(r[3].rows, vec![vec![serde_json::json!(1), "0xCAFE".into(), serde_json::json!(1.5), "x".into()]]);
         assert_eq!(r[3].total_rows, 2);
         assert!(r[3].truncated);
+    }
+
+    #[test]
+    fn spatial_blobs_come_whole() {
+        let c = Connection::open_in_memory().unwrap();
+        let mut out = QueryOutcome::default();
+        // 2 KiB of WKB-like bytes in a GEOMETRY column, a SpatiaLite-shaped
+        // blob in a plain BLOB column, and other binary (cut at 1 KiB).
+        let wkb = format!("01{}", "00".repeat(2047));
+        let mut sl = vec![0u8; 2000];
+        sl[1] = 1;
+        sl[38] = 0x7C;
+        sl[1999] = 0xFE;
+        let sl: String = sl.iter().map(|b| format!("{b:02X}")).collect();
+        run_script(
+            &c,
+            &format!(
+                "CREATE TABLE g (geom GEOMETRY, b BLOB, other BLOB);
+                 INSERT INTO g VALUES (x'{wkb}', x'{sl}', x'{wkb}');
+                 SELECT geom, b, other FROM g;"
+            ),
+            10,
+            &mut out,
+        )
+        .unwrap();
+        let row = &out.results[2].rows[0];
+        assert_eq!(row[0].as_str().unwrap().len(), 2 + 4096);
+        assert_eq!(row[1].as_str().unwrap().len(), 2 + 4000);
+        assert!(row[2].as_str().unwrap().ends_with('…'));
     }
 
     #[test]

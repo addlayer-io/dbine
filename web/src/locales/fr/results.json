@@ -13,6 +13,7 @@
     "label": "Affichage du résultat",
     "table": "Tableau",
     "chart": "Graphique",
+    "map": "Carte",
     "tree": "JSON (arbre)"
   },
   "export": {

@@ -473,6 +473,7 @@ impl<'a> TokenColMetaData<'a> {
         self.columns.iter().map(|x| Column {
             name: x.col_name.to_string(),
             column_type: ColumnType::from(&x.base.ty),
+            udt_name: crate::row::udt_name_of(&x.base.ty),
         })
     }
 }

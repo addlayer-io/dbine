@@ -27,7 +27,7 @@ mod transfer;
 
 use dbine_driver::sql::{leading_keyword, select_top, Limit, Quote, ScriptDefaults, ScriptDialect};
 use dbine_driver::{
-    async_trait, json_bytes, json_f64, json_i64, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
+    async_trait, json_bytes, json_f64, json_i64, json_spatial_bytes, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language, MonitorSnapshot, ObjectKindInfo,
     Message, MessageLevel, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TxState,
 };
@@ -942,7 +942,9 @@ async fn cell(v: HdbValue<'static>) -> Value {
         HdbValue::STRING(s) => s.into(),
         HdbValue::STR(s) => s.into(),
         HdbValue::DBSTRING(b) => String::from_utf8_lossy(&b).into_owned().into(),
-        HdbValue::BINARY(b) | HdbValue::GEOMETRY(b) | HdbValue::POINT(b) => json_bytes(&b),
+        HdbValue::BINARY(b) => json_bytes(&b),
+        // WKB, whole: the map view reads it.
+        HdbValue::GEOMETRY(b) | HdbValue::POINT(b) => json_spatial_bytes(&b),
         HdbValue::LONGDATE(d) => iso(&d.to_string()).into(),
         HdbValue::SECONDDATE(d) => iso(&d.to_string()).into(),
         HdbValue::DAYDATE(d) => d.to_string().into(),
