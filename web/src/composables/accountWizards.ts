@@ -155,6 +155,20 @@ export function filterTenants(list: AzureTenant[], query: string): AzureTenant[]
   return list.filter((t) => [t.id, t.display_name, t.default_domain].some((v) => v.toLowerCase().includes(q)));
 }
 
+/** The select's options: the listed tenants matching what's typed, then
+ *  what's typed itself as one more option, only when it's a well-formed
+ *  tenant (valid_azure_tenant) that no listed tenant's ID or domain equals.
+ *  It goes last, so Enter (the first option) picks a listed tenant whenever
+ *  one matches. `selected`: a typed tenant chosen before stays an option. */
+export function tenantChoices(list: AzureTenant[], query: string, selected = ''): (AzureTenant & { typed?: boolean })[] {
+  const out: (AzureTenant & { typed?: boolean })[] = [...filterTenants(list, query)];
+  const known = (v: string) => list.some((t) => [t.id, t.default_domain].some((x) => x && x.toLowerCase() === v.toLowerCase()));
+  for (const v of [query.trim(), query.trim() ? '' : selected.trim()]) {
+    if (v && validTenant(v) && !known(v) && !out.some((t) => t.id.toLowerCase() === v.toLowerCase())) out.push({ id: v, display_name: '', default_domain: '', typed: true });
+  }
+  return out;
+}
+
 /** A tenant in the select once chosen: its name and domain, else its ID. */
 export function tenantLabel(t: AzureTenant): string {
   return [t.display_name, t.default_domain].filter(Boolean).join(' · ') || t.id;

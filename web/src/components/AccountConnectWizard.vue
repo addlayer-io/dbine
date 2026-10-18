@@ -9,8 +9,8 @@ import type { SecretAccount } from '../api/types';
 import { tb } from '../i18n/backend';
 import { loadSecretAccounts, PROVIDER } from '../composables/secretAccounts';
 import {
-  azureTenants, back, configOf, destinations, emptyForm, filterTenants, formFromAccount, isLast, keepsSecrets, SECRET_INPUTS, secretsOf, stepForError, stepProblems, STEPS,
-  suggestedLabel, tenantLabel, tenantSignIn, type WizardForm, type WizardKind,
+  azureTenants, back, configOf, destinations, emptyForm, formFromAccount, isLast, keepsSecrets, SECRET_INPUTS, secretsOf, stepForError, stepProblems, STEPS,
+  suggestedLabel, tenantChoices, tenantLabel, tenantSignIn, type WizardForm, type WizardKind,
 } from '../composables/accountWizards';
 
 // "Conectar <gestor>" (docs/secret-sources.md, "Accounts") for every secret
@@ -116,7 +116,7 @@ function profileRegion(name: string): string {
 const tenants = computed(() => azureTenants(detected.value));
 const currentTenant = computed(() => (typeof detected.value?.tenant === 'string' ? detected.value.tenant : '').toLowerCase());
 const tenantQuery = ref('');
-const tenantOptions = computed(() => filterTenants(tenants.value, tenantQuery.value));
+const tenantOptions = computed(() => tenantChoices(tenants.value, tenantQuery.value, s.tenant));
 watch(() => s.profile, (p, old) => {
   const r = profileRegion(p);
   if (r && (!s.region || s.region === profileRegion(old))) s.region = r;
@@ -496,7 +496,7 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
           </el-form-item>
           <el-form-item :label="$t('secretAccounts:acct.input.tenant')">
             <el-select
-              v-model="s.tenant" filterable allow-create default-first-option clearable style="width: 100%" data-tenant
+              v-model="s.tenant" filterable default-first-option clearable style="width: 100%" data-tenant
               :filter-method="(q: string) => (tenantQuery = q)" popper-class="aw-tenant-popper"
               :placeholder="tenants.length ? $t('secretAccounts:acct.azure.vault.tenantPlaceholder') : 'contoso.onmicrosoft.com'"
               @visible-change="(open: boolean) => { if (!open) tenantQuery = ''; }"
@@ -504,11 +504,11 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
               <el-option v-for="tn in tenantOptions" :key="tn.id" :value="tn.id" :label="tenantLabel(tn)">
                 <div class="aw-tenant-opt">
                   <span class="aw-tenant-name">
-                    <span>{{ tn.display_name || tn.default_domain || tn.id }}</span>
+                    <span :class="{ 'aw-tenant-typed': tn.typed }">{{ tn.display_name || tn.default_domain || tn.id }}</span>
                     <span v-if="tn.display_name && tn.default_domain" class="aw-tenant-domain">{{ tn.default_domain }}</span>
                     <span v-if="tn.id.toLowerCase() === currentTenant" class="aw-tenant-current">{{ $t('secretAccounts:acct.azure.vault.current') }}</span>
                   </span>
-                  <span class="aw-tenant-id">{{ tn.id }}</span>
+                  <span v-if="!tn.typed" class="aw-tenant-id">{{ tn.id }}</span>
                 </div>
               </el-option>
             </el-select>
@@ -664,5 +664,6 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
 .aw-tenant-current {
   font-size: 10.5px; padding: 0 5px; border-radius: 3px; color: var(--el-color-primary); border: 1px solid var(--el-color-primary-light-5); font-weight: normal;
 }
+.aw-tenant-typed { font-family: var(--nm-font-mono, ui-monospace, monospace); font-size: 12px; }
 .aw-tenant-id { font-family: var(--nm-font-mono, ui-monospace, monospace); font-size: 11px; color: var(--nm-text-dim); font-weight: normal; }
 </style>

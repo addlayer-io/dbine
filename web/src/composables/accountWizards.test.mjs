@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  azureTenants, back, canAdvance, configOf, emptyForm, filterTenants, formFromAccount, isLast, keepsSecrets, next, secretsOf, serviceUrl, stepForError, stepProblems, STEPS,
+  azureTenants, back, canAdvance, configOf, emptyForm, filterTenants, tenantChoices, formFromAccount, isLast, keepsSecrets, next, secretsOf, serviceUrl, stepForError, stepProblems, STEPS,
   tenantLabel, tenantSignIn, validTenant, WIZARD_KINDS,
 } from './accountWizards.ts';
 
@@ -176,4 +176,26 @@ test('Azure: no sign-in in the tenant names the command, in any language', () =>
   assert.equal(tenantSignIn('el token es del inquilino 9, no de 1'), null);
   assert.equal(tenantSignIn('no se pudo obtener un token (¿falta az login?)'), null);
   assert.equal(stepForError('azure', es), 1, 'back to the vault step to pick another tenant');
+});
+
+test('Azure: the typed tenant is an option only when well formed and unlisted, after the matches', () => {
+  const C = '11111111-2222-4333-8444-555555555555';
+  const list = azureTenants({ tenant: C, tenants: [
+    { id: C, display_name: 'Contoso', default_domain: 'contoso.onmicrosoft.com' },
+    { id: '33333333-2222-4333-8444-555555555555', display_name: 'Northwind Traders', default_domain: 'northwind.onmicrosoft.com' },
+  ] });
+  const ids = (q, sel) => tenantChoices(list, q, sel).map((t) => (t.typed ? `typed:${t.id}` : t.id));
+  // A listed tenant matches: it comes first (what Enter picks), the typed text after it.
+  assert.deepEqual(ids('northwind'), ['33333333-2222-4333-8444-555555555555', 'typed:northwind']);
+  // Equal to a listed ID or domain: no typed duplicate.
+  assert.deepEqual(ids('northwind.onmicrosoft.com'), ['33333333-2222-4333-8444-555555555555']);
+  assert.deepEqual(ids(C.toUpperCase()), [C]);
+  // Not listed and well formed: the only option.
+  assert.deepEqual(ids('fabrikam.onmicrosoft.com'), ['typed:fabrikam.onmicrosoft.com']);
+  // Not well formed: never offered.
+  assert.deepEqual(ids('--debug'), []);
+  assert.deepEqual(ids('a b'), []);
+  // A typed tenant chosen before stays an option once the query is cleared.
+  assert.deepEqual(ids('', 'fabrikam.onmicrosoft.com'), [C, '33333333-2222-4333-8444-555555555555', 'typed:fabrikam.onmicrosoft.com']);
+  assert.deepEqual(ids('', C), [C, '33333333-2222-4333-8444-555555555555']);
 });
