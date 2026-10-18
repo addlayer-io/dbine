@@ -377,14 +377,18 @@ jobs:
           xcrun stapler validate "$app"
           spctl -a -vv -t exec "$app"
 
-      # The installer and the app it carries are signed by Certum's
-      # certificate with a timestamp, and Windows accepts the signature.
+      # The installer and the app it installs are signed by Certum's
+      # certificate with a timestamp, and Windows accepts the signature. The
+      # app is checked as installed (silently, in a temporary folder): that's
+      # the copy users get.
       - name: Check Windows signature
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $bundle = "target/${{ matrix.target }}/release/bundle"
-          $files = @(Get-ChildItem "$bundle/nsis/*-setup.exe") + @(Get-Item "target/${{ matrix.target }}/release/dbine.exe")
+          $setup = Get-ChildItem "target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP "dbine-installed"
+          Start-Process -FilePath $setup.FullName -ArgumentList "/S", "/D=$dir" -Wait
+          $files = @($setup) + @(Get-Item (Join-Path $dir "dbine.exe"))
           foreach ($f in $files) {
             $s = Get-AuthenticodeSignature $f.FullName
             "{0}: {1} · {2} · timestamp: {3}" -f $f.Name, $s.Status, $s.SignerCertificate.Subject, ($null -ne $s.TimeStamperCertificate)
