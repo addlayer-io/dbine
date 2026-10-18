@@ -297,6 +297,65 @@ pub struct RunLocalArgs {
     /// environment's or `default`.
     #[serde(default)]
     pub aws_profile: Option<String>,
+    /// The notebook's parameters (`{{name}}` in the cell and in the cells
+    /// it reads): each value as the engine's literal (DuckDB's here, each
+    /// source's own engine for the ones that run again).
+    #[serde(default)]
+    pub params: Option<crate::commands::query::RunParams>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderParamsArgs {
+    pub sql: String,
+    /// The cell's connection; none: a DataFrame SQL cell (DuckDB).
+    #[serde(default)]
+    pub connection_id: Option<String>,
+    pub params: crate::commands::query::RunParams,
+}
+
+/// A cell's text with each parameter's value as the engine's literal: what
+/// a whole-result chart or a full export runs again (the run itself binds
+/// where the driver can, see `execute_query`).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_render_params(state: tauri::State<'_, crate::state::AppState>, args: RenderParamsArgs) -> CommandResult<String> {
+    use notebook::params::{self, Engine};
+    let values = params::resolve(&args.params.definitions, &args.params.values)?;
+    let driver = match args.connection_id.as_deref() {
+        Some(id) => Some(
+            state.store.get_connection(id).ok().flatten().and_then(|c| dbine_drivers::find(&c.config.driver)).ok_or_else(|| CommandError::NotFound("la conexión no existe".into()))?,
+        ),
+        None => None,
+    };
+    let engine = match driver {
+        Some(d) => Engine::Driver(d.as_ref()),
+        None => Engine::DataFrames,
+    };
+    Ok(params::prepare_text(&args.sql, &engine, &args.params.definitions, &values, None)?.text)
+}
+
+/// `args`' texts with the parameters' values in them (see
+/// [`RunLocalArgs::params`]).
+fn with_params(state: &crate::state::AppState, args: &mut RunLocalArgs) -> CommandResult<()> {
+    use notebook::params::{self, Engine};
+    let Some(p) = args.params.take() else { return Ok(()) };
+    let values = params::resolve(&p.definitions, &p.values)?;
+    args.sql = params::prepare_text(&args.sql, &Engine::DataFrames, &p.definitions, &values, None)?.text;
+    for s in &mut args.sources {
+        let driver = match (&s.local, &s.connection_id) {
+            (true, _) => None,
+            (false, Some(id)) => state.store.get_connection(id).ok().flatten().and_then(|c| dbine_drivers::find(&c.config.driver)),
+            // Not read by this run: its text stays as it is.
+            (false, None) => continue,
+        };
+        let engine = match driver {
+            Some(d) => Engine::Driver(d.as_ref()),
+            None if s.local => Engine::DataFrames,
+            None => continue,
+        };
+        s.sql = params::prepare_text(&s.sql, &engine, &p.definitions, &values, Some(&s.name))?.text;
+    }
+    Ok(())
 }
 
 /// DBine's own folders (state, data, cache, logs, downloaded components):
@@ -317,7 +376,8 @@ pub(crate) fn app_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
 /// UI asks, answers with [`notebook_file_decision`] and runs again with the
 /// token.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_run_local(app: tauri::AppHandle, state: tauri::State<'_, crate::state::AppState>, args: RunLocalArgs) -> CommandResult<notebook::local::RunLocalResponse> {
+pub async fn notebook_run_local(app: tauri::AppHandle, state: tauri::State<'_, crate::state::AppState>, mut args: RunLocalArgs) -> CommandResult<notebook::local::RunLocalResponse> {
+    with_params(&state, &mut args)?;
     let cap = args.row_cap.unwrap_or(notebook::local::DEFAULT_ROW_CAP);
     let policy = notebook::access::Policy::current(&app_dirs(&app));
     notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources, args.notebook_path.as_deref(), args.approval.as_deref(), policy, notebook::remote::Net::current(args.aws_profile.as_deref())).await

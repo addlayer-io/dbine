@@ -573,6 +573,7 @@ pub fn run() {
             commands::notebook::notebook_open_link,
             commands::notebook::notebook_local_refs,
             commands::notebook::notebook_run_local,
+            commands::notebook::notebook_render_params,
             commands::notebook::notebook_file_decision,
             commands::notebook::notebook_write_target,
             commands::notebook::notebook_write_prepare,

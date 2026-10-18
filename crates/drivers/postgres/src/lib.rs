@@ -394,6 +394,18 @@ pub struct PgDriver {
 
 #[async_trait]
 impl Driver for PgDriver {
+    /// Text the way this variant reads it (`E'…'` where
+    /// `standard_conforming_strings` may be off, Redshift's backslashes);
+    /// the rest as the contract writes it. Values go as literals: the
+    /// session reads results over the simple protocol, which takes no
+    /// bound values (docs/engine-support.md).
+    fn param_literal(&self, value: &dbine_driver::ParamValue) -> dbine_driver::Result<String> {
+        match value {
+            dbine_driver::ParamValue::Text(s) => Ok(crate::catalog::lit(self.variant, s)),
+            other => dbine_driver::params::literal(self.info.language, self.info.dialect, self.info.id, other),
+        }
+    }
+
     /// Loading explicit ids leaves identity / serial sequences behind the
     /// data: move each past the loaded maximum.
     fn data_load_wrap(&self, table: &dbine_driver::TableSchema) -> (String, String) {

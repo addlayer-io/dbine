@@ -316,5 +316,63 @@
       "write_many": "Scrivi {{rows}} righe",
       "write_other": "Scrivi {{rows}} righe"
     }
+  },
+  "params": {
+    "title": "Parametri",
+    "toolbar": "Parametri",
+    "toolbarTip": "Valori richiesti all'esecuzione e usati dalle celle come {{example}}",
+    "valuesTip": "I valori in uso: clic per modificarli",
+    "add": "Aggiungi parametro",
+    "remove": "Rimuovi il parametro",
+    "hint": "Usali nelle celle come {{example}}. Il valore va sempre come dato (testo, numero, data), mai come nome di tabella o colonna.",
+    "name": {
+      "label": "Nome",
+      "invalid": "«{{name}}» non è valido come nome: una lettera o _, poi lettere, numeri o _",
+      "taken": "Esiste già un parametro «{{name}}»"
+    },
+    "type": "Tipo",
+    "types": {
+      "text": "Testo",
+      "number": "Numero",
+      "date": "Data",
+      "datetime": "Data e ora",
+      "boolean": "Booleano",
+      "list": "Elenco di valori"
+    },
+    "default": "Valore predefinito",
+    "noDefault": "Nessun valore",
+    "required": "Obbligatorio",
+    "description": "Descrizione",
+    "descriptionPlaceholder": "A cosa serve (facoltativo)",
+    "options": "Valori dell'elenco",
+    "optionsPlaceholder": "Un valore per riga",
+    "noOptions": "L'elenco non ha valori",
+    "usage_one": "usato da {{count}} cella",
+    "usage_many": "usato da {{count}} celle",
+    "usage_other": "usato da {{count}} celle",
+    "unused": "nessuna cella lo usa",
+    "usageTip": "Le celle lo usano scrivendo {{example}}",
+    "true": "Vero",
+    "false": "Falso",
+    "dialogTitle": "Valori dei parametri",
+    "dialogIntro": "Le celle che stai per eseguire usano questi parametri. Compila quelli obbligatori (*).",
+    "dialogEditIntro": "I valori usati dalle prossime esecuzioni di questo notebook. Non vengono salvati nel file.",
+    "emptyIsNull": "Vuoto: NULL",
+    "notUsedHere": "Queste celle non lo usano",
+    "apply": "Applica",
+    "problem": {
+      "required": "Manca il valore: è obbligatorio",
+      "number": "Deve essere un numero (ad esempio 12 o -3.5)",
+      "date": "Deve essere una data AAAA-MM-GG",
+      "datetime": "Deve essere una data e ora AAAA-MM-GG HH:MM",
+      "boolean": "Deve essere vero o falso",
+      "list": "Deve essere uno dei valori dell'elenco"
+    },
+    "resultTip": "Valori dei parametri con cui è stato ottenuto: {{values}}",
+    "stale": "non aggiornato",
+    "staleTip": "I valori dei parametri usati dalla cella sono cambiati: eseguila di nuovo per vedere il risultato con quelli attuali.",
+    "inUse": "Valori in uso:",
+    "missing": "manca",
+    "requiredPlaceholder": "Scrivi un valore"
   }
 }

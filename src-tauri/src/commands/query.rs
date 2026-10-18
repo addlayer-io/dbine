@@ -52,6 +52,20 @@ pub struct ExecuteArgs {
     /// automatic. `None`: leave the session as it is.
     #[serde(default)]
     pub autocommit: Option<bool>,
+    /// A notebook cell: `sql` uses the notebook's parameters as `{{name}}`
+    /// (`notebook::params`). Each value is bound by the driver, or written
+    /// as its literal, never pasted as text.
+    #[serde(default)]
+    pub params: Option<RunParams>,
+}
+
+/// The parameters of a notebook run: their definitions and the values given.
+#[derive(Deserialize, Default, Clone)]
+pub struct RunParams {
+    #[serde(default)]
+    pub definitions: Vec<crate::notebook::params::NotebookParameter>,
+    #[serde(default)]
+    pub values: crate::notebook::params::Values,
 }
 
 /// How `execute_query` runs a script.
@@ -146,16 +160,28 @@ pub enum PlanMode {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: ExecuteArgs) -> CommandResult<ExecuteResponse> {
     let driver = state.store.get_connection(&args.connection_id).ok().flatten().and_then(|c| dbine_drivers::find(&c.config.driver));
+    // A notebook cell's parameters: from here on `sql` has each value as
+    // the engine's literal (what the checks, the history and a driver that
+    // doesn't bind see); `prepared` keeps them apart for the ones that do.
+    let prepared = match (&args.params, driver) {
+        (Some(p), Some(d)) => {
+            use crate::notebook::params;
+            let values = params::resolve(&p.definitions, &p.values)?;
+            Some(params::prepare_text(&args.sql, &params::Engine::Driver(d.as_ref()), &p.definitions, &values, None)?)
+        }
+        _ => None,
+    };
+    let sql: &str = prepared.as_ref().map_or(args.sql.as_str(), |p| p.text.as_str());
     let units = match (args.plan, driver) {
-        (PlanMode::None, Some(d)) => script_units(args.mode, d.as_ref(), &args.sql),
+        (PlanMode::None, Some(d)) => script_units(args.mode, d.as_ref(), sql),
         _ => None,
     };
     let editor = args.mode != RunMode::Whole;
-    let pos = Utf16::new(&args.sql);
+    let pos = Utf16::new(sql);
     // The actual plan runs the script too (EXPLAIN ANALYZE, SET STATISTICS
     // XML…): only the estimated one is exempt.
     if let (Some(d), false, true) = (driver, args.confirmed_unsafe, args.plan != PlanMode::Estimated) {
-        let found = if editor { unsafe_dml(d.as_ref(), &args.sql) } else { Vec::new() };
+        let found = if editor { unsafe_dml(d.as_ref(), sql) } else { Vec::new() };
         if !found.is_empty() {
             let needs_confirmation =
                 found.into_iter().map(|u| UnsafeDml { keyword: u.keyword, start: pos.at(u.start), end: pos.at(u.end), line: u.line }).collect();
@@ -226,7 +252,7 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
         out.message_sink = Some(MessageSinkRef(Arc::new(move |m: &Message| {
             let _ = app2.emit("query-message", QueryMessage { session_id: id.clone(), message: m.clone() });
         })));
-        let (app2, id, sql) = (app.clone(), args.session_id.clone(), Arc::new(args.sql.clone()));
+        let (app2, id, sql) = (app.clone(), args.session_id.clone(), Arc::new(sql.to_string()));
         out.progress_sink = Some(ProgressSinkRef(Arc::new(move |p: &StatementEnd| {
             let pos = Utf16::new(&sql);
             let at = pos.at(p.offset);
@@ -283,12 +309,15 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
     let run = async {
         match (args.plan, &shared_units) {
             (PlanMode::None, Some(units)) => {
-                let script = ScriptRun { units, continue_on_error, max_rows, cancelled: &entry.cancelled, progress: &progress };
+                let script = ScriptRun { units, continue_on_error, max_rows, cancelled: &entry.cancelled, progress: &progress, bound: prepared.as_ref() };
                 run_script(&mut **session, script, &mut out).await
             }
-            (PlanMode::None, None) => session.execute(&args.sql, max_rows, &mut out).await,
-            (PlanMode::Estimated, _) => session.explain(&args.sql, false, max_rows, &mut out).await,
-            (PlanMode::Actual, _) => session.explain(&args.sql, true, max_rows, &mut out).await,
+            (PlanMode::None, None) => match prepared.as_ref().filter(|p| p.bound.len() == 1).and_then(|p| p.bound_unit(0)) {
+                Some(b) => execute_bound_or_literal(&mut **session, b, sql, max_rows, &mut out).await,
+                None => session.execute(sql, max_rows, &mut out).await,
+            },
+            (PlanMode::Estimated, _) => session.explain(sql, false, max_rows, &mut out).await,
+            (PlanMode::Actual, _) => session.explain(sql, true, max_rows, &mut out).await,
         }
     };
     let registered = || state.sessions.get(&args.session_id).is_some_and(|e| Arc::ptr_eq(&e, &entry));
@@ -359,7 +388,7 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
     }
     if args.record {
         let origin = crate::commands::history::Origin { query_id: args.query_id.clone(), project_id: args.project_id.clone(), file_path: args.file_path.clone() };
-        crate::commands::history::record(&state, &args.connection_id, &args.database, &args.sql, started_at, &out, origin);
+        crate::commands::history::record(&state, &args.connection_id, &args.database, sql, started_at, &out, origin);
     }
     Ok(ExecuteResponse { outcome: out, needs_confirmation: Vec::new(), session_closed })
 }
@@ -478,6 +507,25 @@ struct ScriptRun<'a> {
     /// `cancel_query` was called: no further statement starts.
     cancelled: &'a AtomicBool,
     progress: &'a (dyn Fn(Progress<'_>) + Send + Sync),
+    /// A notebook cell's units with their parameters apart (by index of
+    /// `units`), for the driver to bind.
+    bound: Option<&'a crate::notebook::params::Prepared>,
+}
+
+/// `bound` with its values bound; a driver that can't bind it (it says so
+/// before running anything) gets `literal`, the same statement with the
+/// values as its literals.
+async fn execute_bound_or_literal(
+    session: &mut dyn Session,
+    bound: &dbine_driver::BoundStatement,
+    literal: &str,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> dbine_driver::Result<()> {
+    match session.execute_bound(bound, max_rows, out).await {
+        Err(Error::Unsupported(_)) => session.execute(literal, max_rows, out).await,
+        r => r,
+    }
 }
 
 /// A unit (or one run of a `GO N` batch) ended.
@@ -528,7 +576,10 @@ async fn run_script(session: &mut dyn Session, run: ScriptRun<'_>, out: &mut Que
             }
             let (r0, l0, e0) = (out.results.len(), out.log.len(), out.errors.len());
             let started = std::time::Instant::now();
-            let r = session.execute(&unit.text, run.max_rows, out).await;
+            let r = match run.bound.and_then(|p| p.bound_unit(idx)) {
+                Some(b) => execute_bound_or_literal(session, b, &unit.text, run.max_rows, out).await,
+                None => session.execute(&unit.text, run.max_rows, out).await,
+            };
             out.adopt_plain_messages();
             let elapsed_ms = started.elapsed().as_millis() as u64;
             // Errors go in as the driver placed them (the live sink moves
@@ -626,7 +677,7 @@ pub(crate) async fn run_unattended(
 ) -> CommandResult<QueryOutcome> {
     let driver = crate::commands::schema::driver_of(state, connection_id)?;
     let entry = state.dedicated_session(key, connection_id, database, false).await?;
-    let out = run_on_entry(driver.as_ref(), &entry, sql, continue_on_error, max_rows).await;
+    let out = run_on_entry(driver.as_ref(), &entry, sql, continue_on_error, max_rows, None).await;
     state.sessions.remove(key);
     Ok(out)
 }
@@ -635,7 +686,16 @@ pub(crate) async fn run_unattended(
 /// runs its cells on one session per connection and database, as the
 /// notebook tab does): split as the editor's Auto mode does, each
 /// statement committed. Every failure ends up in `errors`.
-pub(crate) async fn run_on_entry(driver: &dyn Driver, entry: &SessionEntry, sql: &str, continue_on_error: Option<bool>, max_rows: usize) -> QueryOutcome {
+/// `bound`: a notebook cell's parameters apart (`sql` is then its literal
+/// form), for the driver to bind unit by unit.
+pub(crate) async fn run_on_entry(
+    driver: &dyn Driver,
+    entry: &SessionEntry,
+    sql: &str,
+    continue_on_error: Option<bool>,
+    max_rows: usize,
+    bound: Option<&crate::notebook::params::Prepared>,
+) -> QueryOutcome {
     let units = script_units(RunMode::Auto, driver, sql);
     let continue_on_error = continue_on_error.unwrap_or_else(|| driver.script_defaults().continue_on_error);
     let mut out = QueryOutcome::default();
@@ -646,12 +706,15 @@ pub(crate) async fn run_on_entry(driver: &dyn Driver, entry: &SessionEntry, sql:
             ready?;
             match &units {
                 Some(units) => {
-                    let script = ScriptRun { units, continue_on_error, max_rows, cancelled: &entry.cancelled, progress: &|_| {} };
+                    let script = ScriptRun { units, continue_on_error, max_rows, cancelled: &entry.cancelled, progress: &|_| {}, bound };
                     run_script(&mut **session, script, &mut out).await
                 }
                 None => {
                     out.continue_on_error = Some(continue_on_error);
-                    session.execute(sql, max_rows, &mut out).await
+                    match bound.filter(|p| p.bound.len() == 1).and_then(|p| p.bound_unit(0)) {
+                        Some(b) => execute_bound_or_literal(&mut **session, b, sql, max_rows, &mut out).await,
+                        None => session.execute(sql, max_rows, &mut out).await,
+                    }
                 }
             }
         };
@@ -1142,7 +1205,7 @@ mod tests {
         let mut out = QueryOutcome::default();
         let seen = std::sync::Mutex::new(Vec::new());
         let progress = |p: Progress<'_>| seen.lock().unwrap().push((p.statement, p.iteration, p.errors.len()));
-        let run = ScriptRun { units: &units, continue_on_error, max_rows: 10, cancelled: &cancel, progress: &progress };
+        let run = ScriptRun { units: &units, continue_on_error, max_rows: 10, cancelled: &cancel, progress: &progress, bound: None };
         let result = run_script(&mut s, run, &mut out).await;
         Ran { result, ran: s.ran, out, progress: seen.into_inner().unwrap() }
     }
@@ -1254,7 +1317,7 @@ select
         let cancel = Arc::new(AtomicBool::new(false));
         let mut s = Scripted { ran: Vec::new(), cancel: cancel.clone() };
         let progress = |_: Progress<'_>| {};
-        let run = ScriptRun { units: &units, continue_on_error: true, max_rows: 10, cancelled: &cancel, progress: &progress };
+        let run = ScriptRun { units: &units, continue_on_error: true, max_rows: 10, cancelled: &cancel, progress: &progress, bound: None };
         run_script(&mut s, run, &mut out).await.unwrap();
         // The error is on line 4 of the script, live and in the outcome.
         let live: Vec<_> = seen.lock().unwrap().iter().filter(|(l, _)| *l == MessageLevel::Error).map(|x| x.1).collect();

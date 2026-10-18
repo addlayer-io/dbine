@@ -5,6 +5,7 @@ import type { CellResult, LoadedTable, QueryOutcome } from '../../api/types';
 import { locale } from '../../i18n';
 import { tb } from '../../i18n/backend';
 import { BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp, rowCounts } from '../../composables/notebookModel';
+import { formatParamValues } from '../../composables/notebookParams';
 import {
   readCellCharts, sameJson, storableCharts, writeCellCharts, type CellCharts, type ChartState, type MapSettings, type StoredChart,
 } from '../../composables/chartSettings';
@@ -35,6 +36,8 @@ const props = defineProps<{
   chart: unknown | null;
   /** A "DataFrame SQL" cell's run here: the tables it loaded. */
   loaded?: LoadedTable[] | null;
+  /** It came from other parameter values than the ones in use now. */
+  stale?: boolean;
 }>();
 const emit = defineEmits<{ group: []; explain: []; chart: [chart: Record<string, unknown>]; writeTo: [] }>();
 const { t } = useTranslation();
@@ -65,6 +68,8 @@ const summary = computed(() => {
   if (r.target_label) parts.push(r.target_label);
   return parts.join(' · ');
 });
+/** The parameters' values that produced it: "mes = 2026-10 · tope = 10". */
+const paramsText = computed(() => formatParamValues(props.result?.params, t('notebook:params.true'), t('notebook:params.false')));
 
 const outcome = computed(() => props.live ?? props.fallback);
 /** The pane only when there's something in it (rows, messages, an error). */
@@ -190,6 +195,8 @@ const cut = computed(() => !!counts.value?.truncated && !props.running);
         <el-icon v-if="result.error"><ei-circle-close-filled /></el-icon>
         <el-icon v-else class="ok"><ei-circle-check-filled /></el-icon>
         <span class="nr-text nm-selectable">{{ summary }}</span>
+        <span v-if="paramsText" class="nr-params nm-selectable" :class="{ stale }" :title="$t('notebook:params.resultTip', { values: paramsText })">{{ paramsText }}</span>
+        <span v-if="stale" class="nr-badge warn" :title="$t('notebook:params.staleTip')">{{ $t('notebook:params.stale') }}</span>
         <span v-if="!live && !dropped" class="nr-badge" :title="$t('notebook:summary.storedTip')">{{ $t('notebook:summary.stored') }}</span>
         <span v-if="dropped" class="nr-badge" :title="$t('notebook:summary.droppedTip')">{{ $t('notebook:summary.dropped') }}</span>
         <button v-if="cut" class="nr-link" :title="$t('notebook:ai.groupTip')" @click="emit('group')">{{ $t('notebook:ai.group') }}</button>
@@ -242,6 +249,12 @@ const cut = computed(() => !!counts.value?.truncated && !props.running);
   flex-shrink: 0; padding: 0 6px; border-radius: 8px; font-size: 11px; line-height: 16px;
   border: 1px solid var(--nm-border); color: var(--nm-text-dim);
 }
+.nr-badge.warn { color: var(--nm-warning); border-color: color-mix(in srgb, var(--nm-warning) 55%, transparent); }
+.nr-params {
+  flex-shrink: 1; min-width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; border-radius: 3px;
+  font-family: var(--nm-mono); font-size: 11px; line-height: 16px; color: var(--nm-text); background: color-mix(in srgb, var(--nm-accent) 9%, transparent);
+}
+.nr-params.stale { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--nm-warning) 70%, transparent); }
 .nr-tables { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 0 10px 4px; font-size: 11.5px; color: var(--nm-text-dim); font-variant-numeric: tabular-nums; }
 .nr-tables-lbl { color: var(--nm-text-muted); }
 .nr-table code { font-family: var(--nm-mono); font-size: 11px; color: var(--nm-text); }

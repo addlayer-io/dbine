@@ -83,9 +83,12 @@ const props = withDefaults(defineProps<{
   grantedFiles?: string[];
   /** The native file dialog: the chosen path, or null. */
   pickFile?: (() => Promise<string | null>) | null;
+  /** A notebook's parameters: completion offers them as `{{name}}`
+   *  (after `{{`, or with ⌃Space outside strings and comments). */
+  params?: { name: string; detail?: string }[];
 }>(), {
   language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null,
-  fileReaders: false, grantedFiles: () => [], pickFile: null,
+  fileReaders: false, grantedFiles: () => [], pickFile: null, params: () => [],
 });
 
 const emit = defineEmits<{
@@ -308,6 +311,25 @@ const snippetSource = (ctx: CompletionContext): CompletionResult | null => {
   };
 };
 
+/** A notebook's parameters as `{{name}}`: after a typed `{{` (the closing
+ *  braces the editor added are replaced too), or on ⌃Space in code. */
+const paramSource = (ctx: CompletionContext): CompletionResult | null => {
+  // Never inside a string or a comment: a parameter there doesn't run.
+  if (!props.params.length || props.readOnly || inStringOrComment(ctx.state, ctx.pos)) return null;
+  const typed = ctx.matchBefore(/\{\{[ \t]*\w*$/);
+  if (!typed && !ctx.explicit) return null;
+  const word = typed ?? ctx.matchBefore(/\w*$/);
+  const from = word?.from ?? ctx.pos;
+  const closing = ctx.state.sliceDoc(ctx.pos, ctx.pos + 2);
+  const to = typed && closing === '}}' ? ctx.pos + 2 : typed && closing.startsWith('}') ? ctx.pos + 1 : ctx.pos;
+  return {
+    from,
+    to,
+    options: props.params.map((p) => ({ label: `{{${p.name}}}`, apply: `{{${p.name}}}`, detail: p.detail, type: 'variable', boost: typed ? 99 : 1 })),
+    validFor: typed ? /^\{\{[ \t]*\w*$/ : /^\w*$/,
+  };
+};
+
 // -- ⌘/Ctrl+click on a name ---------------------------------------------------------------------
 const setLink = StateEffect.define<{ from: number; to: number } | null>();
 const linkMark = Decoration.mark({ class: 'cm-dbine-link' });
@@ -439,7 +461,7 @@ onMounted(() => {
           if (u.docChanged) emit('update:modelValue', u.state.doc.toString());
         }),
         openTableList,
-        EditorState.languageData.of(() => [{ autocomplete: snippetSource }]),
+        EditorState.languageData.of(() => [{ autocomplete: snippetSource }, { autocomplete: paramSource }]),
         links,
         insertHints,
         insertTheme,

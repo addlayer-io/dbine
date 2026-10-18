@@ -322,7 +322,7 @@ impl Call {
             | Processes { session } | CancelQuery { session, .. } | CreateDatabaseChoices { session }
             | CreateDatabaseWith { session, .. } | DatabaseProperties { session, .. } | AlterDatabase { session, .. }
             | SearchCode { session, .. } | HealthChecks { session, .. } | RowEstimates { session } | ObjectComments { session } | UnmappedLogins { session }
-            | RunReadOnly { session, .. } => Some(*session),
+            | RunReadOnly { session, .. } | ExecuteBound { session, .. } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
             CopyNative { from, .. } => Some(*from),
@@ -438,6 +438,7 @@ impl State {
             Call::TableDdl { driver, table, parts } => Reply::Text(self.driver(&driver)?.table_ddl(&table, parts)?),
             Call::InsertScript { driver, target, columns, rows } => Reply::Text(self.driver(&driver)?.insert_script(&target, &columns, &rows)?),
             Call::FilteredBrowse { driver, browse, filters } => Reply::Text(self.driver(&driver)?.filtered_browse(&browse, &filters)?),
+            Call::ParamLiteral { driver, value } => Reply::Text(self.driver(&driver)?.param_literal(&value)?),
             Call::SortedBrowse { driver, query, sort } => Reply::Text(self.driver(&driver)?.sorted_browse(&query, &sort)?),
             Call::AggregateQuery { driver, query, spec } => Reply::Text(self.driver(&driver)?.aggregate_query(&query, &spec)?),
             Call::UpdateScript { driver, target, changes } => Reply::Text(self.driver(&driver)?.update_script(&target, &changes)?),
@@ -489,6 +490,12 @@ impl State {
                 let slot = self.slot(session)?;
                 let mut out = self.outcome(id, sink, &sink_failed);
                 let r = slot.session.lock().await.explain(&text, analyze, max_rows as usize, &mut out).await;
+                run_reply(out, r)
+            }
+            Call::ExecuteBound { session, statement, max_rows, sink } => {
+                let slot = self.slot(session)?;
+                let mut out = self.outcome(id, sink, &sink_failed);
+                let r = slot.session.lock().await.execute_bound(&statement, max_rows as usize, &mut out).await;
                 run_reply(out, r)
             }
             Call::RunReadOnly { session, statement, max_rows, sink } => {

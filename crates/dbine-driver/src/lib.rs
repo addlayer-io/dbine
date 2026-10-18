@@ -25,6 +25,7 @@ pub mod keys;
 pub mod filter;
 pub mod model;
 pub mod monitor;
+pub mod params;
 pub mod permissions;
 pub mod security;
 pub mod sort;
@@ -65,6 +66,7 @@ pub use model::{
 
 pub use security::{Grant, Principal, PrincipalKind, SchemaOwnerKinds, SchemaSpec, SecurityAction, SecuritySpec};
 pub use monitor::{BlockedSession, Metric, MetricUnit, MonitorSnapshot, MonitorTable, ServerProcess};
+pub use params::{BoundPart, BoundStatement, ParamValue};
 pub use permissions::{Access, Permissions};
 pub use profiler::{ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted};
 pub use schema::{
@@ -507,6 +509,20 @@ pub trait Driver: Send + Sync {
         sql::split_script(text, &self.script_dialect())
     }
 
+    /// A parameter's value as a literal of the engine's language (notebook
+    /// parameters on a driver that doesn't bind them, see
+    /// [`Session::execute_bound`]). By default [`params::literal`] for
+    /// [`DriverInfo::language`] and [`DriverInfo::dialect`]; drivers whose
+    /// strings depend on more than the dialect (PostgreSQL's variants)
+    /// write their own. A plugin driver's override reaches the app through
+    /// its host (`ParamLiteral`); a host published before that call leaves
+    /// the app with this default. Never raw text: the result is always one
+    /// literal, whatever the value holds.
+    fn param_literal(&self, value: &params::ParamValue) -> Result<String> {
+        let i = self.info();
+        params::literal(i.language, i.dialect, i.id, value)
+    }
+
     /// How the app runs an editor script on this engine (see
     /// [`sql::ScriptMode`]). `Whole` by default: the driver gets the script
     /// in one `execute`, as before. Drivers switch to `PerStatement` /
@@ -693,6 +709,18 @@ pub trait Session: Send {
     /// answer `Unsupported`, and the app asks the user to approve each read
     /// instead. The read-only guard ([`read_only`]) is checked first by the
     /// caller, as defense in depth only.
+    /// Run one statement (or batch) with its parameters bound: the values
+    /// go to the server apart from the text (the driver writes its own
+    /// placeholders: `@P1`, `?`, `:1`…), as `execute` otherwise. A driver
+    /// that can't bind them, or not this statement, answers `Unsupported`
+    /// **before running anything**: the app then runs it with the values as
+    /// literals ([`Driver::param_literal`]). Notebook parameters
+    /// (docs/notebooks.md#parameters).
+    async fn execute_bound(&mut self, statement: &params::BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let _ = (statement, max_rows, out);
+        Err(Error::Unsupported("este motor no recibe parámetros aparte del texto".into()))
+    }
+
     async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let _ = (statement, max_rows, out);
         Err(Error::Unsupported("este motor no asegura lecturas de solo lectura en el servidor".into()))

@@ -163,9 +163,13 @@ as **Run all** does in its tab, and stops at the first cell that fails. With
   cell runs on this machine. A connection name the file uses that no local
   connection has, or that several share, is chosen here; the step stores
   only that choice (the connection's id), never hosts or credentials.
-- **Parameters:** the values for the parameters the notebook declares,
-  with [variables](#variables). The step refuses a value for a parameter
-  the notebook doesn't declare.
+- **Parameters:** the values for the parameters the notebook declares
+  ([notebooks.md](notebooks.md#parameters)), with [variables](#variables).
+  A parameter without a value takes its default; a required one with
+  neither fails the run before any cell runs, and so does a value for a
+  parameter the notebook doesn't declare. Each value is bound by the driver
+  or written as the engine's literal, and each result records the values
+  that produced it.
 - **Executed notebook:** a copy with this run's results: **Don't save it**,
   **Next to the original** or **In a folder**, named **File name** (default
   `{notebook}-{datetime}`, `{notebook}` being the notebook's name without
@@ -443,10 +447,10 @@ Tasks add no methods to the drivers: each step type uses what already exists.
   `notebook::export`. What the tab does in TypeScript (resolving targets,
   turning a run into a cell's result) is done again there, the same way.
   Command: `scheduled_notebook_plan` (what the step's editor shows; it runs
-  nothing). Notebook parameters come in through a hook there
-  (`executable_sources`); write cells through `write_cell` (what the editor
-  shows and authorizes) and `write_unattended` (`notebook::write`'s prepare
-  and run).
+  nothing). Notebook parameters come in through `executable_cells`
+  (`notebook::params::prepare_notebook`); write cells through `write_cell`
+  (what the editor shows and authorizes) and `write_unattended`
+  (`notebook::write`'s prepare and run).
 - **Send an email:** it does not use the driver; it sends over SMTP with the
   server from **Settings › Mail**. Commands: `mail_settings_get`,
   `mail_settings_save` and `mail_test`.

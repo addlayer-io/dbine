@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
   AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
-  ExecuteResponse, FilteredBrowse, RunMode, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
+  ExecuteResponse, FilteredBrowse, RunMode, RunParams, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
 import type { MultiDbResponse } from './types';
@@ -145,6 +145,9 @@ export const api = {
     /** The project file being run (its timeline); omitted: the one open in
      *  the session's tab, if any (`runFiles`). */
     file?: RunFile | null;
+    /** A notebook cell: `sql` uses these parameters as `{{name}}`; the
+     *  backend binds each value or writes it as the engine's literal. */
+    params?: RunParams | null;
   }) => {
     const file = a.file ?? (a.record ? runFiles.get(a.sessionId) : undefined) ?? null;
     return invoke<ExecuteResponse>('execute_query', {
@@ -153,7 +156,7 @@ export const api = {
         sql: a.sql, max_rows: a.maxRows ?? null, query_id: a.queryId ?? null, plan: a.plan ?? 'none',
         record: a.record ?? false, mode: a.mode ?? 'whole', continue_on_error: a.continueOnError ?? null,
         confirmed_unsafe: a.confirmedUnsafe ?? false, autocommit: a.autocommit ?? null,
-        project_id: file?.projectId ?? null, file_path: file?.path ?? null,
+        project_id: file?.projectId ?? null, file_path: file?.path ?? null, params: a.params ?? null,
       },
     });
   },

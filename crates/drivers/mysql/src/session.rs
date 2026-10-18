@@ -7,7 +7,7 @@ use crate::plan::{self, Flavor, StmtKind};
 use crate::{err, stmt_err, Variant};
 use dbine_driver::sql::{leading_keyword, quote_ident, select_top, Limit, Quote};
 use dbine_driver::{
-    async_trait, kinds, ColumnDef, MonitorSnapshot, ColumnInfo, DbObject, Error, ForeignKeyDef, IndexDef, KeyDef, ObjectRef, Plan,
+    async_trait, kinds, BoundStatement, ParamValue, ColumnDef, MonitorSnapshot, ColumnInfo, DbObject, Error, ForeignKeyDef, IndexDef, KeyDef, ObjectRef, Plan,
     Message, MessageLevel, QueryOutcome, ResultColumn, Result, Session, StatementKind, TableSchema, TxState,
 };
 use mysql_async::consts::StatusFlags;
@@ -476,6 +476,31 @@ impl MySqlSession {
             .filter(|u| u.kind != StatementKind::ClientCommand)
             .map(|u| u.text)
             .collect()
+    }
+}
+
+/// A parameter as mysql_async sends it: integers as integers (`LIMIT ?`
+/// takes no text), other numbers as their text (exact; the server
+/// converts), dates as DATE / DATETIME values.
+fn bind_value(v: &ParamValue) -> mysql_async::Value {
+    use mysql_async::Value as V;
+    let date = |d: &str| -> (u16, u8, u8) { (d[0..4].parse().unwrap_or(0), d[5..7].parse().unwrap_or(0), d[8..10].parse().unwrap_or(0)) };
+    match v {
+        ParamValue::Null => V::NULL,
+        ParamValue::Text(s) => V::Bytes(s.as_bytes().to_vec()),
+        ParamValue::Number(n) => n.parse::<i64>().map(V::Int).unwrap_or_else(|_| V::Bytes(n.as_bytes().to_vec())),
+        ParamValue::Bool(b) => V::Int(*b as i64),
+        ParamValue::Date(d) => {
+            let (y, m, dd) = date(d);
+            V::Date(y, m, dd, 0, 0, 0, 0)
+        }
+        ParamValue::DateTime(dt) => {
+            let (y, m, dd) = date(dt);
+            let t = &dt[11..];
+            let (h, mi, sec) = (t[0..2].parse().unwrap_or(0), t[3..5].parse().unwrap_or(0), t[6..8].parse().unwrap_or(0));
+            let micro = t.get(9..).map(|f| format!("{f:0<6}")[..6].parse().unwrap_or(0)).unwrap_or(0);
+            V::Date(y, m, dd, h, mi, sec, micro)
+        }
     }
 }
 
@@ -1343,6 +1368,42 @@ impl Session for MySqlSession {
                     }
                 }
             }
+        }
+        res
+    }
+
+    /// One statement as a prepared statement with its values bound (`?`),
+    /// on the engines whose prepared statements behave as MySQL's; the
+    /// emulations that don't (Manticore, the OLAP engines) answer
+    /// `Unsupported` and get literals. More than one statement or a
+    /// `DELIMITER`: `Unsupported`, before anything runs.
+    async fn execute_bound(&mut self, statement: &BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        if !self.variant.binds() {
+            return Err(Error::Unsupported(format!("{} no recibe parámetros aparte del texto desde DBine", Variant::info(self.variant).name)));
+        }
+        let (sql, values) = statement.positional();
+        if has_delimiter_command(&sql) || self.statements(&sql).len() != 1 {
+            return Err(Error::Unsupported("MySQL recibe los parámetros de una sentencia por vez".into()));
+        }
+        self.settle_dropped_read().await?;
+        self.cancelled.store(false, Ordering::SeqCst);
+        let params = mysql_async::Params::Positional(values.into_iter().map(bind_value).collect());
+        let res = async {
+            let stmt = self.conn.prep(sql.as_str()).await.map_err(|e| stmt_err(&sql, e))?;
+            let read = match self.conn.exec_iter(&stmt, params).await {
+                Ok(result) => read_results(result, &sql, max_rows, out).await,
+                Err(e) => Err(stmt_err(&sql, e)),
+            };
+            if let Err(e) = self.conn.close(stmt).await {
+                tracing::debug!("mysql: closing a prepared statement: {e}");
+            }
+            let warned = read?;
+            self.report_warnings(warned, out).await;
+            Ok(())
+        }
+        .await;
+        if self.cancelled.swap(false, Ordering::SeqCst) {
+            return Err(Error::Cancelled);
         }
         res
     }

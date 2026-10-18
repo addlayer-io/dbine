@@ -17,7 +17,7 @@ pub mod transfer;
 
 use dbine_driver::sql::{leading_keyword, quote_ident, select_top, split_statements, Limit, Quote, ScriptDefaults, ScriptDialect, ScriptMode};
 use dbine_driver::{
-    async_trait, is_spatial_blob, is_spatial_type, json_bytes, json_f64, json_i64, json_spatial_bytes, kinds, Capabilities,
+    async_trait, BoundStatement, ParamValue, is_spatial_blob, is_spatial_type, json_bytes, json_f64, json_i64, json_spatial_bytes, kinds, Capabilities,
     ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef,
     QueryOutcome, ResultColumn, Result, ScriptError, Session, TableSchema, TxState,
 };
@@ -379,6 +379,29 @@ impl Session for SqliteSession {
         res
     }
 
+    /// One statement with its values bound (`?1`, `?2`…): text as TEXT,
+    /// numbers as INTEGER or REAL, dates as their ISO text (what SQLite's
+    /// date functions read), booleans as 1 / 0. More than one statement:
+    /// `Unsupported`, before anything runs.
+    async fn execute_bound(&mut self, statement: &BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let sql = statement.numbered("?");
+        if split_statements(&sql).len() != 1 {
+            return Err(Error::Unsupported("SQLite recibe los parámetros de una sentencia por vez".into()));
+        }
+        let values: Vec<rusqlite::types::Value> = statement.values.iter().map(bind_value).collect();
+        let manual = self.manual;
+        let fork = out.fork();
+        let (local, res) = self
+            .with(move |c| {
+                let mut local = fork;
+                let res = run_bound(c, &sql, &values, max_rows, manual, &mut local);
+                Ok((local, res))
+            })
+            .await?;
+        out.merge(local);
+        res
+    }
+
     /// One statement on a connection that can't write, under an authorizer
     /// that only lets it read (see [`read_only`]).
     async fn run_read_only(&mut self, statement: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -620,6 +643,42 @@ fn run_script_tx(c: &Connection, sql: &str, max_rows: usize, manual: bool, out: 
     Ok(())
 }
 
+fn bind_value(v: &ParamValue) -> rusqlite::types::Value {
+    use rusqlite::types::Value as V;
+    match v {
+        ParamValue::Null => V::Null,
+        ParamValue::Text(s) => V::Text(s.clone()),
+        ParamValue::Number(n) => n.parse::<i64>().map(V::Integer).unwrap_or_else(|_| n.parse::<f64>().map(V::Real).unwrap_or_else(|_| V::Text(n.clone()))),
+        ParamValue::Bool(b) => V::Integer(*b as i64),
+        // `2026-10-18 14:30:00`: the form SQLite's date functions write.
+        ParamValue::Date(d) => V::Text(d.clone()),
+        ParamValue::DateTime(d) => V::Text(d.replacen('T', " ", 1)),
+    }
+}
+
+/// [`run_script_tx`] for one prepared statement with its values bound.
+fn run_bound(c: &Connection, sql: &str, values: &[rusqlite::types::Value], max_rows: usize, manual: bool, out: &mut QueryOutcome) -> Result<()> {
+    let mut stmt = c.prepare(sql).map_err(|e| stmt_err(e, sql))?;
+    for (i, v) in values.iter().enumerate() {
+        stmt.raw_bind_parameter(i + 1, v).map_err(|e| stmt_err(e, sql))?;
+    }
+    let opened = manual && c.is_autocommit() && !stmt.readonly() && !outside_transaction(sql);
+    if opened {
+        c.execute_batch("BEGIN").map_err(err)?;
+    }
+    let before = out.results.len();
+    let r = run_stmt(c, &mut stmt, sql, max_rows, out);
+    if r.is_err() {
+        if out.results.len() > before && out.results[before..].iter().all(|r| r.total_rows == 0 && r.rows_affected.is_none()) {
+            out.results.truncate(before);
+        }
+        if opened && !c.is_autocommit() {
+            let _ = c.execute_batch("ROLLBACK");
+        }
+    }
+    r
+}
+
 /// Statements SQLite refuses inside a transaction (`VACUUM`, `ATTACH`,
 /// `DETACH`) or that manage it themselves: manual mode doesn't open one
 /// for them.
@@ -706,6 +765,28 @@ fn cell(v: ValueRef<'_>) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bound_values_stay_data() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE x (id INTEGER, name TEXT); INSERT INTO x VALUES (1, 'a'), (2, '''; DROP TABLE x; --');").unwrap();
+        let evil = ParamValue::Text("'; DROP TABLE x; --".into());
+        let stmt = BoundStatement {
+            parts: vec![
+                dbine_driver::BoundPart::Text("SELECT id FROM x WHERE name = ".into()),
+                dbine_driver::BoundPart::Param(0),
+                dbine_driver::BoundPart::Text(" OR id = ".into()),
+                dbine_driver::BoundPart::Param(1),
+            ],
+            values: vec![evil, ParamValue::Number("7".into())],
+        };
+        let values: Vec<_> = stmt.values.iter().map(bind_value).collect();
+        let mut out = QueryOutcome::default();
+        run_bound(&c, &stmt.numbered("?"), &values, 10, false, &mut out).unwrap();
+        assert_eq!(out.results[0].rows, vec![vec![serde_json::json!(2)]]);
+        // The table is still there.
+        assert_eq!(c.query_row("SELECT count(*) FROM x", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+    }
 
     #[test]
     fn script_yields_one_result_per_statement() {

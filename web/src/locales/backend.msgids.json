@@ -7485,6 +7485,9 @@
  "El nombre «{0}» no sirve para un alias: va en minúsculas, no puede empezar con -, _ o + ni tener espacios, comas ni \\ / * ? \" < > | # :": [
   "crates/drivers/elasticsearch/src/rename.rs"
  ],
+ "El notebook no tiene un parámetro «{0}»{1}: definilo en Parámetros o quitá las llaves": [
+  "src-tauri/src/notebook/params.rs"
+ ],
  "El número de backup tiene que ser 1 o más.": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -7540,6 +7543,15 @@
  ],
  "El paquete de CA de Amazon RDS/DocumentDB (global-bundle.pem), descargable desde la documentación de AWS.": [
   "crates/drivers/mongodb/src/lib.rs"
+ ],
+ "El parámetro «{0}» está dentro de un texto entre comillas{1}: escribilo sin comillas, el valor va como texto (por ejemplo, '%' || {{{2}}} || '%')": [
+  "src-tauri/src/notebook/params.rs"
+ ],
+ "El parámetro «{0}» está donde va un nombre (tabla, columna o función){1}: los parámetros solo reemplazan valores, no nombres": [
+  "src-tauri/src/notebook/params.rs"
+ ],
+ "El parámetro «{0}»{1}: {2}": [
+  "src-tauri/src/notebook/params.rs"
  ],
  "El perfil fija límites de recursos y de contraseña: puede cortar sesiones que los superen o hacer vencer la contraseña.": [
   "crates/drivers/oracle/src/properties.rs"
@@ -7762,6 +7774,9 @@
  ],
  "El validador no controla el tipo de los elementos ({0}).": [
   "crates/dbine-schema/src/dialect/mongodb.rs"
+ ],
+ "El valor del parámetro «{0}» no es válido: {1}": [
+  "src-tauri/src/notebook/params.rs"
  ],
  "El valor no es un JSON válido: {0}": [
   "crates/drivers/redis/src/ddl.rs"
@@ -9334,6 +9349,9 @@
  "Faltan permisos para parte de las vistas de monitoreo: asigná el rol MONITORING (o CATALOG READ) al usuario.": [
   "crates/drivers/hana/src/monitor.rs"
  ],
+ "Faltan valores para los parámetros obligatorios: {0}": [
+  "src-tauri/src/notebook/params.rs"
+ ],
  "Familia de HBase de la columna (no aplica a la clave primaria). Vacío = la predeterminada.": [
   "crates/drivers/phoenix/src/ddl.rs"
  ],
@@ -9628,6 +9646,7 @@
   "crates/drivers/flightsql/src/lib.rs"
  ],
  "Flux": [
+  "crates/dbine-driver/src/params.rs",
   "src-tauri/src/commands/optimizer.rs"
  ],
  "Flux no puede borrar puntos: se borran con la API de borrado (/api/v2/delete), con un rango de tiempo y un predicado sobre los tags.": [
@@ -13795,6 +13814,9 @@
  "MySQL no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/mysql.rs"
  ],
+ "MySQL recibe los parámetros de una sentencia por vez": [
+  "crates/drivers/mysql/src/session.rs"
+ ],
  "MySQL solo renombra tablas y vistas; las rutinas y los triggers se crean con el nombre nuevo": [
   "crates/drivers/mysql/src/rename.rs"
  ],
@@ -16204,6 +16226,9 @@
  "Oracle no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
+ "Oracle recibe los parámetros de una sentencia por vez (sin DDL)": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
  "Oracle renombra vistas, secuencias y sinónimos solo en el esquema del usuario conectado: el script se detiene si la conexión no es la de {0}.": [
   "crates/drivers/oracle/src/rename.rs"
  ],
@@ -17601,6 +17626,7 @@
   "crates/drivers/tdengine/src/lib.rs"
  ],
  "Redis": [
+  "crates/dbine-driver/src/params.rs",
   "crates/drivers/redis/src/lib.rs",
   "crates/drivers/redis/src/monitor.rs"
  ],
@@ -18591,6 +18617,9 @@
  "SQL Server no tiene intervalos: queda como texto.": [
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
+ "SQL Server recibe los parámetros de un lote por vez": [
+  "crates/drivers/sqlserver/src/script.rs"
+ ],
  "SQL*Plus: DBine no ejecuta «{0}»; se omite.": [
   "crates/drivers/oracle/src/lib.rs"
  ],
@@ -18659,6 +18688,9 @@
  ],
  "SQLite no tiene versión de fila automática.": [
   "crates/dbine-schema/src/dialect/sqlite.rs"
+ ],
+ "SQLite recibe los parámetros de una sentencia por vez": [
+  "crates/drivers/sqlite/src/lib.rs"
  ],
  "SQream no expone CPU, GPU ni memoria por SQL: se ven con sus herramientas de monitoreo (Studio / métricas del worker).": [
   "crates/drivers/odbc/src/monitor.rs"
@@ -25424,6 +25456,9 @@
  "el line protocol no admite una barra invertida al final de un nombre o valor de tag": [
   "crates/drivers/influxdb/src/transfer.rs"
  ],
+ "el lote cambia la sesión (USE, SET o una tabla #temporal): va con los valores escritos en el texto": [
+  "crates/drivers/sqlserver/src/script.rs"
+ ],
  "el lote no se aplicó": [
   "crates/drivers/cosmosdb/src/transfer.rs"
  ],
@@ -25993,6 +26028,12 @@
  ],
  "el tamaño de los archivos": [
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "el texto es demasiado largo": [
+  "src-tauri/src/notebook/params.rs"
+ ],
+ "el texto tiene un carácter nulo (\\0)": [
+  "src-tauri/src/notebook/params.rs"
  ],
  "el tiempo activo": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -27119,6 +27160,9 @@
   "crates/drivers/mysql/src/session.rs"
  ],
  "este motor no permite ver las consultas de otros clientes": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
+ "este motor no recibe parámetros aparte del texto": [
   "crates/dbine-driver/src/lib.rs"
  ],
  "este motor no renombra bases de datos": [
@@ -28810,6 +28854,9 @@
  ],
  "la conexión no es a un servidor de Azure SQL (*.database.windows.net)": [
   "src-tauri/src/commands/azure_firewall.rs"
+ ],
+ "la conexión no existe": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "la conexión quedó compartida": [
   "src-tauri/src/commands/clone_table.rs",
@@ -33337,8 +33384,26 @@
  "tiene más dígitos de los que el tipo guarda": [
   "crates/drivers/solr/src/transfer.rs"
  ],
+ "tiene que ser un número (por ejemplo 12 o -3.5)": [
+  "src-tauri/src/notebook/params.rs"
+ ],
  "tiene que ser un objeto JSON": [
   "crates/drivers/couchdb/src/properties.rs"
+ ],
+ "tiene que ser un texto": [
+  "src-tauri/src/notebook/params.rs"
+ ],
+ "tiene que ser una fecha AAAA-MM-DD": [
+  "src-tauri/src/notebook/params.rs"
+ ],
+ "tiene que ser una fecha y hora AAAA-MM-DD HH:MM[:SS]": [
+  "src-tauri/src/notebook/params.rs"
+ ],
+ "tiene que ser uno de los valores de la lista": [
+  "src-tauri/src/notebook/params.rs"
+ ],
+ "tiene que ser verdadero o falso": [
+  "src-tauri/src/notebook/params.rs"
  ],
  "tiene un valor semiestructurado con «{0}» ({1}), que JSON no puede representar; pasarlo como texto o como null cambiaría el dato, así que la tabla no se copia. Convertí esos valores en el origen (por ejemplo con un filtro) antes de copiarla": [
   "crates/drivers/snowflake/src/transfer.rs"
@@ -34551,6 +34616,9 @@
  "{0} no puede tener espacios, comillas, comas ni «;».": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "{0} no recibe parámetros aparte del texto desde DBine": [
+  "crates/drivers/mysql/src/session.rs"
+ ],
  "{0} no registra cuántas veces se usa cada índice: se listan la clave primaria, los índices de salto y las proyecciones con su tamaño, sin contadores. Para ver cuántos gránulos descarta cada índice en una consulta, usá EXPLAIN indexes = 1.": [
   "crates/drivers/clickhouse/src/index_usage.rs"
  ],
@@ -34730,6 +34798,9 @@
  ],
  "{0} no tiene transacciones": [
   "crates/drivers/odbc/src/lib.rs"
+ ],
+ "{0} no tiene un valor nulo: el parámetro necesita un valor": [
+  "crates/dbine-driver/src/params.rs"
  ],
  "{0} no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/dremio.rs",

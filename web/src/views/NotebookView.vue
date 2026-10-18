@@ -6,8 +6,8 @@ import { api, errorMessage } from '../api/client';
 import { notebookApi, type PreviewLimits } from '../api/notebook';
 import { projectsApi } from '../api/projects';
 import type {
-  FileApprovalRequest, FileDecision, FileStat, LoadedTable, LocalSource, Notebook, NotebookCell, NotebookTarget, QueryOutcome, TxState, UnsafeDml,
-  WriteCell, WriteMode, WritePlan, WriteTargetInfo,
+  FileApprovalRequest, FileDecision, FileStat, LoadedTable, LocalSource, Notebook, NotebookCell, NotebookParameter, NotebookParamValue, NotebookTarget, QueryOutcome, RunParams,
+  TxState, UnsafeDml, WriteCell, WriteMode, WritePlan, WriteTargetInfo,
 } from '../api/types';
 import type { WriteArgs } from '../api/notebook';
 import { t } from '../i18n';
@@ -19,6 +19,11 @@ import NotebookFileGrants from '../components/notebook/NotebookFileGrants.vue';
 import NotebookWriteCell, { type FrameColumn } from '../components/notebook/NotebookWriteCell.vue';
 import NotebookWriteConfirm from '../components/notebook/NotebookWriteConfirm.vue';
 import { isProdConnection } from '../composables/tags';
+import NotebookParamsPanel from '../components/notebook/NotebookParams.vue';
+import NotebookParamsDialog from '../components/notebook/NotebookParamsDialog.vue';
+import {
+  effectiveValues, mentionedParams, missingRequired, paramValueProblem, resultIsStale, usedValues, valuesKey,
+} from '../composables/notebookParams';
 import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { saveTextFile } from '../composables/files';
 import { chartImages } from '../composables/notebookExport';
@@ -265,6 +270,108 @@ const saveWithout = computed({
   get: () => !(nb.value?.save_results ?? true),
   set: (v: boolean) => { if (nb.value) { nb.value.save_results = !v; touch(); } },
 });
+
+// -- parameters (docs/notebooks.md#parameters) ---------------------------------------------------
+/** Values asked for when running, used by the cells as `{{name}}`. */
+const parameters = computed<NotebookParameter[]>(() => nb.value?.parameters ?? []);
+/** The "Parámetros" panel at the top. */
+const paramsOpen = ref(false);
+/** This session's values (never saved): what the runs use, and what the
+ *  dialog shows next time. The defaults fill the rest. */
+const paramValues = reactive<Record<string, NotebookParamValue>>({});
+function setParameters(list: NotebookParameter[]) {
+  if (!nb.value) return;
+  nb.value.parameters = list;
+  for (const k of Object.keys(paramValues)) if (!list.some((p) => p.name === k)) delete paramValues[k];
+  touch();
+}
+/** A parameter renamed: each `{{old}}` of the cells becomes `{{new}}`. */
+function renameParam(from: string, to: string) {
+  const re = new RegExp(`\\{\\{([ \\t]*)${from}([ \\t]*)\\}\\}`, 'gi');
+  for (const c of nb.value?.cells ?? []) {
+    if (c.kind !== 'sql') continue;
+    const next = c.source.replace(re, (_m, a: string, b: string) => `{{${a}${to}${b}}}`);
+    if (next !== c.source) c.source = next;
+  }
+  if (from in paramValues) { paramValues[to] = paramValues[from]; delete paramValues[from]; }
+  touch();
+}
+/** How many cells use each parameter. */
+const paramUsage = computed(() => {
+  const out: Record<string, number> = {};
+  for (const c of nb.value?.cells ?? []) {
+    if (c.kind !== 'sql') continue;
+    for (const n of mentionedParams(c.source, parameters.value)) out[n] = (out[n] ?? 0) + 1;
+  }
+  return out;
+});
+/** How a cell uses one, for the toolbar's tip. */
+const PARAM_EXAMPLE = '{{mes}}';
+/** The values in use, under the toolbar: a required one without a value says so. */
+const paramChips = computed(() => {
+  const values = effectiveValues(parameters.value, paramValues);
+  return parameters.value.map((p) => {
+    const v = values[p.name];
+    const missing = !!p.required && v === null;
+    const text = v === null ? (missing ? t('notebook:params.missing') : 'NULL')
+      : v === true || v === 'true' ? t('notebook:params.true') : v === false || v === 'false' ? t('notebook:params.false') : String(v);
+    return { name: p.name, text, missing, description: p.description ?? '' };
+  });
+});
+/** What a run sends: the definitions and the values in use (the backend
+ *  binds or quotes each one). */
+function runParams(): RunParams | null {
+  return parameters.value.length ? { definitions: parameters.value, values: effectiveValues(parameters.value, paramValues) } : null;
+}
+/** The parameters a run of `cells` uses: their own, and for a DataFrame
+ *  SQL cell those of the cells above it (it may run them again). */
+function usedBy(cells: NotebookCell[]): string[] {
+  const all = nb.value?.cells ?? [];
+  const out = new Set<string>();
+  for (const c of cells) {
+    const texts = [c.source];
+    if (isLocal(c)) texts.push(...all.slice(0, all.indexOf(c)).filter((x) => x.kind === 'sql').map((x) => x.source));
+    for (const text of texts) for (const n of mentionedParams(text, parameters.value)) out.add(n);
+  }
+  return [...out];
+}
+/** The values a cell's result records: those of the parameters its run used. */
+function recordedValues(names: string[]) {
+  return usedValues(parameters.value, paramValues, names);
+}
+type ParamAsk = { names: string[] | null; mode: 'run' | 'edit'; resolve: (ok: boolean) => void };
+const paramAsk = ref<ParamAsk | null>(null);
+function askParams(names: string[] | null, mode: 'run' | 'edit'): Promise<boolean> {
+  paramAsk.value?.resolve(false);
+  return new Promise((resolve) => { paramAsk.value = { names, mode, resolve }; });
+}
+function answerParams(values: Record<string, NotebookParamValue> | null) {
+  const a = paramAsk.value;
+  paramAsk.value = null;
+  if (values) Object.assign(paramValues, values);
+  a?.resolve(!!values);
+}
+onBeforeUnmount(() => paramAsk.value?.resolve(false));
+/** Before a run: the required values its cells use, and valid ones; what's
+ *  missing is asked (prefilled with this session's values and the defaults).
+ *  False: the user cancelled. */
+async function ensureParams(cells: NotebookCell[]): Promise<boolean> {
+  const defs = parameters.value;
+  const used = defs.length ? usedBy(cells) : [];
+  if (!used.length) return true;
+  const values = effectiveValues(defs, paramValues);
+  const bad = missingRequired(defs, paramValues, used).length > 0 || defs.some((p) => used.includes(p.name) && !!paramValueProblem(p, values[p.name]));
+  return !bad || askParams(used, 'run');
+}
+/** `script` with the values in use as the engine's literals (null: DataFrame SQL). */
+async function rendered(script: string, connectionId: string | null): Promise<string> {
+  const p = runParams();
+  if (!p) return script;
+  return notebookApi.renderParams(script, connectionId, p).catch(() => script);
+}
+function editParams() {
+  void askParams(null, 'edit');
+}
 
 // -- targets ------------------------------------------------------------------------------------
 /** The target a cell runs on as the file says it: its own, else the
@@ -630,6 +737,8 @@ function localSchema(cell: NotebookCell): Record<string, string[]> {
   }
   return out;
 }
+/** Completion offers the parameters as `{{name}}`. */
+const paramCompletions = computed(() => parameters.value.map((p) => ({ name: p.name, detail: p.description || t(`notebook:params.types.${p.type}`) })));
 const contexts = computed<Record<string, CellContext>>(() => {
   const out: Record<string, CellContext> = {};
   for (const c of nb.value?.cells ?? []) {
@@ -639,7 +748,7 @@ const contexts = computed<Record<string, CellContext>>(() => {
       out[c.id] = {
         language: 'sql', dialect: duck?.dialect, schema: localSchema(c), snippets: snippetsFor(duck, userSnippets.value),
         target: t('notebook:target.dataframeSql'), overridden: !emptyTarget(c.target), unresolved: false,
-        localFiles: true, grantedFiles: grantedFiles.value,
+        localFiles: true, grantedFiles: grantedFiles.value, params: paramCompletions.value,
       };
       continue;
     }
@@ -653,6 +762,7 @@ const contexts = computed<Record<string, CellContext>>(() => {
       target: r.ok ? r.target.label : r.problem === 'none' ? t('notebook:target.none') : r.problem === 'connection' ? t('notebook:target.unknown', { name: r.name ?? '' }) : t('notebook:target.unboundEnv', { env: r.name ?? '' }),
       overridden: !emptyTarget(c.target),
       unresolved: !r.ok,
+      params: paramCompletions.value,
     };
   }
   return out;
@@ -706,7 +816,7 @@ onBeforeUnmount(() => { if (columnsTimer) clearTimeout(columnsTimer); });
 /** This session's runs, with every row (the file keeps only a preview). Not deep. */
 /** `source`: null for a "DataFrame SQL" cell (no connection);
  *  `run`: the run counter it got; `loaded`: such a cell's tables. */
-interface LiveRun { outcome: QueryOutcome; source: { connectionId: string; database: string; sql: string; notebookTab?: string } | null; run?: number; loaded?: LoadedTable[] }
+interface LiveRun { outcome: QueryOutcome; source: { connectionId: string; database: string; sql: string; notebookTab?: string; text?: string } | null; run?: number; loaded?: LoadedTable[]; params?: string }
 const live = shallowReactive<Record<string, LiveRun>>({});
 /** A run's id, unique in this app session (unlike the [n] counter, never
  *  reset nor repeated when the view mounts again): what the backend's cached
@@ -795,6 +905,7 @@ const lock = reactive(new RunLock());
 async function runCell(cell: NotebookCell, sql: string | null = null): Promise<boolean> {
   if ((cell.kind !== 'sql' && cell.kind !== 'write') || !lock.take()) return false;
   try {
+    if (!(await ensureParams([cell]))) return false;
     if (cell.kind === 'write') return await runWrite(cell, null);
     return await runHeld(cell, sql, null);
   } finally {
@@ -839,7 +950,7 @@ async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string
     for (;;) {
       const o = await api.executeQuery({
         sessionId, connectionId, database, sql: script, maxRows: settingsMaxRows.value, record: true, mode: 'auto', confirmedUnsafe: confirmed,
-        autocommit: driver?.supports_manual_transactions ? true : null,
+        autocommit: driver?.supports_manual_transactions ? true : null, params: runParams(),
       }).finally(() => { ui.historySeq++; });
       if (o.needs_confirmation?.length && !confirmed) {
         // Nothing ran: the previous result stays while the user decides.
@@ -851,8 +962,11 @@ async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string
       if (o.session_closed && txWasOpen) ElMessage.warning({ message: t('query:tx.lostOnCancel'), duration: 5000 });
       setTx(sessionId, o.transaction ?? null, txInfo);
       cell.execution_count = ++counter;
-      live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: script }, run: nextRunId() };
-      cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }));
+      const params = recordedValues(mentionedParams(script, parameters.value));
+      // What runs it again (a whole-result chart, a full export): the text with the values as literals.
+      const again = params ? await rendered(script, connectionId) : script;
+      live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: again, text: script }, run: nextRunId(), params: valuesKey(params) };
+      cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }), params });
       const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
       const failed = !!o.error || !!o.errors?.length;
       if (failed) output.add('error', `${firstLine}\n${tb(o.error ?? o.errors?.[0]?.message ?? '')}`, { where, elapsedMs: o.elapsed_ms });
@@ -864,8 +978,9 @@ async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string
     const message = errorMessage(e);
     const o: QueryOutcome = { results: [], messages: [], error: message, elapsed_ms: Date.now() - ranAt.getTime(), plans: [] };
     cell.execution_count = ++counter;
-    live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: script }, run: nextRunId() };
-    cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }));
+    const params = recordedValues(mentionedParams(script, parameters.value));
+    live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: script, text: script }, run: nextRunId(), params: valuesKey(params) };
+    cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }), params });
     output.add('error', message, { where });
     void conns.recheckAfter(connectionId, e);
   } finally {
@@ -905,11 +1020,14 @@ watch([notebookFile, grantsOpen], () => void loadGrantedFiles(), { immediate: tr
 /** The SQL cells above `cell` as DataFrame sources of `script`: the ones it
  *  needs get their target resolved and connected (and their complete run
  *  here). Null: the user gave up on a target. */
-async function sourcesFor(cell: NotebookCell, script: string, asked: Set<string> | null): Promise<LocalSource[] | null> {
+/** The DataFrames above `cell` that `script` reads, ready for the backend; `read`
+ *  gets those cells' SQL (what the result's parameters come from). */
+async function sourcesFor(cell: NotebookCell, script: string, asked: Set<string> | null, read: string[] = []): Promise<LocalSource[] | null> {
   const cells = nb.value!.cells;
   const above = cells.slice(0, indexOf(cell.id)).filter((c) => c.kind === 'sql' && c.name && c.source.trim());
   const base: LocalSource[] = above.map((c) => ({ name: c.name!, local: isLocal(c), sql: c.source.trim(), connection_id: null, database: null, run: null, rows: null }));
   const needed = new Set((await notebookApi.localRefs(script, base)).map((n) => n.toLowerCase()));
+  read.push(...above.filter((c) => needed.has(c.name!.toLowerCase())).map((c) => c.source));
   const sources: LocalSource[] = [];
   for (const [k, c] of above.entries()) {
     const s = { ...base[k] };
@@ -921,7 +1039,9 @@ async function sourcesFor(cell: NotebookCell, script: string, asked: Set<string>
       s.database = target.database;
       // Its run here, if it was of this very query on this target and nothing cut it.
       const l = live[c.id];
-      const rows = l?.source && l.source.sql === s.sql && l.source.connectionId === target.connectionId && l.source.database === target.database ? completeRows(l.outcome) : null;
+      // ...and with the parameters' values in use now.
+      const sameValues = (l?.params ?? '') === valuesKey(recordedValues(mentionedParams(c.source, parameters.value)));
+      const rows = l?.source && sameValues && (l.source.text ?? l.source.sql) === s.sql && l.source.connectionId === target.connectionId && l.source.database === target.database ? completeRows(l.outcome) : null;
       if (rows) { s.rows = rows; s.run = l!.run ?? null; }
     }
     sources.push(s);
@@ -940,12 +1060,16 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
   const where = t('notebook:target.dataframeSql');
   cell.language = 'sql';
   let ok = false;
+  let usedNames: string[] = [];
   try {
-    const sources = await sourcesFor(cell, script, asked);
+    const read: string[] = [];
+    const sources = await sourcesFor(cell, script, asked, read);
     if (!sources) return false;
     const rowCap = clamp(settings.get<number>(RESULTS_CAP_SETTING, RESULTS_CAP_DEFAULT), RESULTS_CAP_RANGE);
     const awsProfile = settings.get<string>(AWS_PROFILE_SETTING, '').trim() || null;
-    const args = { tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources, notebookPath: notebookFile.value, awsProfile };
+    const args = { tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources, notebookPath: notebookFile.value, awsProfile, params: runParams() };
+    // What the result records: its own parameters and those of the cells it read.
+    usedNames = [...new Set([script, ...read].flatMap((x) => mentionedParams(x, parameters.value)))];
     let r = await notebookApi.runLocal(args);
     // Files nobody allowed yet: nothing ran. Ask, tell the backend, and run
     // again with the answer's token (the backend checks it against the
@@ -963,9 +1087,11 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
     }
     const o = r.outcome;
     cell.execution_count = ++counter;
+    const params = recordedValues(usedNames);
     // Its chart over the whole result: DuckDB, on this tab's session, over the tables this run read.
-    live[cell.id] = { outcome: markRaw(o), source: { connectionId: '', database: '', sql: script, notebookTab: props.tab.id }, run: nextRunId(), loaded: markRaw(r.loaded) };
-    cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }));
+    const again = params ? await rendered(script, null) : script;
+    live[cell.id] = { outcome: markRaw(o), source: { connectionId: '', database: '', sql: again, notebookTab: props.tab.id, text: script }, run: nextRunId(), loaded: markRaw(r.loaded), params: valuesKey(params) };
+    cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }), params });
     const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
     const failed = !!o.error || !!o.errors?.length;
     if (failed) output.add('error', `${firstLine}\n${tb(o.error ?? o.errors?.[0]?.message ?? '')}`, { where, elapsedMs: o.elapsed_ms });
@@ -975,8 +1101,9 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
     const message = errorMessage(e);
     const o: QueryOutcome = { results: [], messages: [], error: message, elapsed_ms: Date.now() - ranAt.getTime(), plans: [] };
     cell.execution_count = ++counter;
-    live[cell.id] = { outcome: markRaw(o), source: null, run: nextRunId() };
-    cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }));
+    const params = recordedValues(usedNames.length ? usedNames : mentionedParams(script, parameters.value));
+    live[cell.id] = { outcome: markRaw(o), source: null, run: nextRunId(), params: valuesKey(params) };
+    cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }), params });
     output.add('error', message, { where });
   } finally {
     runningId.value = null;
@@ -993,6 +1120,7 @@ async function runFrom(from: number) {
   stopRequested = false;
   const asked = new Set<string>();
   try {
+    if (!(await ensureParams(nb.value.cells.slice(from).filter((c) => c.kind === 'sql' && c.source.trim())))) return;
     for (const cell of nb.value.cells.slice(from)) {
       if (cell.kind === 'write') {
         // Every write asks first (its confirmation can stop the whole run).
@@ -1351,6 +1479,13 @@ const breadcrumbDir = computed(() => {
       <el-button :disabled="lock.held" @click="clearResults">
         <el-icon><ei-delete /></el-icon><span class="nb-lbl">&nbsp;{{ $t('notebook:toolbar.clear') }}</span>
       </el-button>
+      <el-tooltip :content="$t('notebook:params.toolbarTip', { example: PARAM_EXAMPLE })" placement="bottom" :show-after="300">
+        <el-button :class="{ 'nb-on': paramsOpen }" :disabled="!nb" :aria-pressed="paramsOpen" :aria-label="$t('notebook:params.toolbar')" @click="paramsOpen = !paramsOpen">
+          <el-icon><ei-set-up /></el-icon><span class="nb-lbl">&nbsp;{{ $t('notebook:params.toolbar') }}</span>
+          <span v-if="parameters.length" class="nb-count">{{ parameters.length }}</span>
+        </el-button>
+      </el-tooltip>
+
       <el-tooltip :content="$t('notebook:toolbar.withoutResultsTip')" placement="bottom" :show-after="300">
         <el-checkbox v-model="saveWithout" size="small" class="nb-check"><span class="nb-lbl">{{ $t('notebook:toolbar.withoutResults') }}</span></el-checkbox>
       </el-tooltip>
@@ -1383,6 +1518,26 @@ const breadcrumbDir = computed(() => {
         </el-button>
       </el-tooltip>
     </div>
+
+    <!-- The values in use (this session's, else the defaults): a click changes them. -->
+    <div v-if="nb && parameters.length" class="nb-pvals" role="group" :aria-label="$t('notebook:params.inUse')">
+      <span class="nb-pvals-lbl">{{ $t('notebook:params.inUse') }}</span>
+      <button
+        v-for="c in paramChips" :key="c.name" class="nb-pval" :class="{ missing: c.missing }" :disabled="lock.held"
+        :title="c.description ? `${c.description} — ${$t('notebook:params.valuesTip')}` : $t('notebook:params.valuesTip')" @click="editParams"
+      >
+        <code>{{ c.name }}</code><span class="nb-pval-eq">=</span><span class="nb-pval-v">{{ c.text }}</span>
+      </button>
+    </div>
+
+    <NotebookParamsPanel
+      v-if="nb && paramsOpen"
+      :parameters="parameters"
+      :usage="paramUsage"
+      :disabled="lock.held"
+      @change="setParameters"
+      @rename="renameParam"
+    />
 
     <div v-if="nb" class="nb-body">
       <template v-for="(cell, i) in nb.cells" :key="cell.id">
@@ -1436,6 +1591,7 @@ const breadcrumbDir = computed(() => {
           :source="cell.kind === 'sql' ? sourceOf(cell) : null"
           :title="`${title.replace(/\.ipynb$/i, '')} ${i + 1}`"
           :loaded="live[cell.id]?.loaded ?? null"
+          :stale="resultIsStale(cell, parameters, paramValues)"
           @rename="(name: string) => renameCell(cell, name)"
           @activate="activeId = cell.id"
           @source="(v: string) => setSource(cell, v)"
@@ -1500,6 +1656,15 @@ const breadcrumbDir = computed(() => {
 
     <NotebookFileApproval v-if="fileAsk" :request="fileAsk.request" @decide="answerFiles" />
     <NotebookWriteConfirm v-if="writeAsk" :plan="writeAsk.plan" :mode="writeAsk.mode" :prod="writeAsk.prod" :run-all="writeAsk.runAll" @decide="answerWrite" />
+    <NotebookParamsDialog
+      v-if="paramAsk"
+      :parameters="parameters"
+      :values="paramValues"
+      :names="paramAsk.names"
+      :mode="paramAsk.mode"
+      @submit="answerParams"
+      @cancel="answerParams(null)"
+    />
     <el-dialog v-model="grantsOpen" :title="$t('notebook:fileGrants.dialogTitle')" width="640px" append-to-body destroy-on-close>
       <NotebookFileGrants :notebook="notebookFile ?? ''" :unsaved="!notebookFile" />
       <template #footer><el-button @click="grantsOpen = false">{{ $t('common:close') }}</el-button></template>
@@ -1564,6 +1729,28 @@ const breadcrumbDir = computed(() => {
 .nb-bar :deep(.el-button) { white-space: nowrap; }
 .nb-bar > .el-button + .el-button { margin-left: 0; }
 .nb-check { margin: 0 4px; }
+.nb-bar .el-button.nb-on { color: var(--nm-accent); border-color: color-mix(in srgb, var(--nm-accent) 65%, transparent); background: color-mix(in srgb, var(--nm-accent) 12%, transparent); }
+.nb-count {
+  margin-left: 5px; min-width: 16px; padding: 0 4px; border-radius: 8px; font-size: 10.5px; line-height: 16px; text-align: center;
+  background: color-mix(in srgb, var(--nm-accent) 22%, transparent); color: var(--nm-text-strong);
+}
+/* The values in use: one chip per parameter, a click changes them. */
+.nb-pvals {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; padding: 4px 10px; font-size: 12px;
+  border-bottom: 1px solid var(--nm-border-soft); background: var(--ide-editor, var(--nm-bg));
+}
+.nb-pvals-lbl { color: var(--nm-text-muted); font-size: 11.5px; }
+.nb-pval {
+  display: inline-flex; align-items: baseline; gap: 4px; max-width: 280px; height: 22px; padding: 0 8px; border: 1px solid var(--nm-border); border-radius: 11px;
+  background: color-mix(in srgb, var(--nm-accent) 7%, transparent); font: inherit; font-size: 12px; line-height: 20px; color: var(--nm-text); cursor: pointer;
+}
+.nb-pval code { font-family: var(--nm-mono); font-size: 11.5px; color: var(--nm-text-dim); }
+.nb-pval-eq { color: var(--nm-text-muted); }
+.nb-pval-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--nm-mono); font-size: 11.5px; color: var(--nm-text-strong); }
+.nb-pval.missing { border-color: color-mix(in srgb, var(--nm-warning) 60%, transparent); background: color-mix(in srgb, var(--nm-warning) 10%, transparent); }
+.nb-pval.missing .nb-pval-v { color: var(--nm-warning); font-family: inherit; font-style: italic; }
+.nb-pval:hover:not(:disabled) { border-color: var(--nm-border-hover); }
+.nb-pval:disabled { opacity: 0.6; cursor: default; }
 @container (max-width: 760px) { .nb-lbl { display: none; } }
 .nb-target {
   display: inline-flex; align-items: center; gap: 5px; max-width: 320px; height: 26px; padding: 0 8px; overflow: hidden;

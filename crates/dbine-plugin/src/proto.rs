@@ -245,6 +245,15 @@ pub enum Call {
     /// (`Driver::aggregate_query`). A host published before it answers
     /// `Unsupported`: the app aggregates the rows itself.
     AggregateQuery { driver: String, query: String, spec: dbine_driver::AggregateSpec },
+    /// `Session::execute_bound`: one statement with its parameters bound
+    /// (notebook parameters). Replies `Run` like `Execute`. A host published
+    /// before it answers `Unsupported`: the app runs the statement with the
+    /// values as literals.
+    ExecuteBound { session: u64, statement: dbine_driver::BoundStatement, max_rows: u64, sink: bool },
+    /// `Driver::param_literal`: a parameter's value as a literal of the
+    /// engine. A host published before it answers `Unsupported`: the app
+    /// uses the contract's default for the driver's dialect.
+    ParamLiteral { driver: String, value: dbine_driver::ParamValue },
 }
 
 /// Host → app.
@@ -761,6 +770,20 @@ mod tests {
                 },
                 "AggregateQuery",
             ),
+            (
+                32,
+                Call::ExecuteBound {
+                    session: 3,
+                    statement: dbine_driver::BoundStatement {
+                        parts: vec![dbine_driver::BoundPart::Text("SELECT ".into()), dbine_driver::BoundPart::Param(0)],
+                        values: vec![dbine_driver::ParamValue::Text("x".into())],
+                    },
+                    max_rows: 10,
+                    sink: false,
+                },
+                "ExecuteBound",
+            ),
+            (33, Call::ParamLiteral { driver: "postgres".into(), value: dbine_driver::ParamValue::Date("2026-10-18".into()) }, "ParamLiteral"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());

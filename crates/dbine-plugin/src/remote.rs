@@ -675,6 +675,20 @@ impl Driver for RemoteDriver {
             _ => dbine_driver::sql::split_script(text, &self.script_dialect()),
         }
     }
+    /// The host's own literal (PostgreSQL's variants write theirs); a host
+    /// published before the call, or one that can't answer, leaves the
+    /// contract's default for the dialect, which is safe for every engine
+    /// of it (it errs only where the language has no way to write the
+    /// value).
+    fn param_literal(&self, value: &dbine_driver::ParamValue) -> Result<String> {
+        match self.blocking(Call::ParamLiteral { driver: self.id(), value: value.clone() }) {
+            Ok(Reply::Text(t)) => Ok(t),
+            _ => {
+                let i = &self.meta.info;
+                dbine_driver::params::literal(i.language, i.dialect, i.id, value)
+            }
+        }
+    }
     fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
         self.meta.script_defaults.unwrap_or_else(|| dbine_driver::ScriptDefaults::for_language(self.meta.info.language))
     }
@@ -1081,6 +1095,12 @@ impl Session for RemoteSession {
         // A host published before the call answers `Unsupported` (see
         // `proto::unknown_call`): the app then asks the user to approve the read.
         let call = Call::RunReadOnly { session: self.id, statement: statement.to_string(), max_rows: max_rows as u64, sink: out.sink.is_some() };
+        self.run(call, out).await
+    }
+    async fn execute_bound(&mut self, statement: &dbine_driver::BoundStatement, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        // A host published before the call answers `Unsupported`: the app
+        // then runs the statement with the values as literals.
+        let call = Call::ExecuteBound { session: self.id, statement: statement.clone(), max_rows: max_rows as u64, sink: out.sink.is_some() };
         self.run(call, out).await
     }
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {

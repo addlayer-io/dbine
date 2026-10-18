@@ -173,6 +173,13 @@ files kept). Every changed site is marked `PATCH(dbine)` in the source.
 * **Bracketed column names in `INSERT BULK`** (`[name]`, `]` -> `]]`) — done
   upstream in `Display for MetaDataColumn`; kept a test for it.
 
+10. **A parameterized batch's whole answer** — `src/client.rs`:
+    `Client::query_messages(sql, params)` is `simple_query_messages` through
+    `sp_executesql` with `@P1`, `@P2`… bound (what `Client::query` sends),
+    returning the same `MessageStream`. DBine's SQL Server driver uses it
+    for notebook parameters (`Session::execute_bound`). Live tests in
+    `crates/drivers/sqlserver/src/script_live.rs`.
+
 ## Not vendored: TLS test fixtures
 
 `docker/` (the upstream Dockerfiles and the self-signed test CA, server
