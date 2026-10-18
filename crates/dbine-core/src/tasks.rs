@@ -22,6 +22,7 @@ pub mod kinds {
     pub const BACKUP: &str = "backup";
     pub const DOCUMENT: &str = "document";
     pub const SEND_MAIL: &str = "send_mail";
+    pub const RUN_NOTEBOOK: &str = "run_notebook";
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

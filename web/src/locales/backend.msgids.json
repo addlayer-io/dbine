@@ -12487,6 +12487,9 @@
  "Los enteros son de 8 bytes: el valor queda como FLOAT y pierde precisión pasados los 15 dígitos.": [
   "crates/dbine-schema/src/dialect/graph.rs"
  ],
+ "Los gráficos se incluyen al exportar desde la app.": [
+  "src-tauri/src/tasks/steps.rs"
+ ],
  "Los hints que nombran el índice (/*+ INDEX(…) */) son comentarios y no se actualizan: hay que revisarlos a mano.": [
   "crates/drivers/oracle/src/rename.rs"
  ],
@@ -25106,6 +25109,12 @@
  "el contenido de sus columnas grandes (TEXTIMAGE_ON)": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "el cuerpo HTML {0} no es un archivo": [
+  "src-tauri/src/tasks/mail.rs"
+ ],
+ "el cuerpo HTML {0} pasa de {1} MB: adjuntalo en lugar de ponerlo en el cuerpo": [
+  "src-tauri/src/tasks/mail.rs"
+ ],
  "el código de DBine no es válido: {0}": [
   "crates/dbine-link/src/net.rs"
  ],
@@ -25256,6 +25265,9 @@
  ],
  "el emulador de Spanner no implementa SPANNER_SYS: no hay consultas que ver": [
   "crates/drivers/spanner/src/profiler.rs"
+ ],
+ "el entorno «{0}» del proyecto no tiene una base asignada en esta máquina: asignala en el proyecto": [
+  "src-tauri/src/notebook/headless.rs"
  ],
  "el entorno «{0}» no está definido en .dbine.json": [
   "src-tauri/src/commands/projects.rs"
@@ -25514,8 +25526,14 @@
  "el nombre «{0}» tiene caracteres de control": [
   "crates/drivers/mongodb/src/security.rs"
  ],
+ "el notebook lee archivos que no tienen «Permitir siempre» para él en esta máquina: {0}. Abrilo en DBine, ejecutá la celda y elegí «Permitir siempre»; la tarea no pregunta ni los lee": [
+  "src-tauri/src/notebook/headless.rs"
+ ],
  "el notebook no está en UTF-8": [
   "src-tauri/src/commands/notebook.rs"
+ ],
+ "el notebook no tiene el parámetro «{0}»: quitalo del paso": [
+  "src-tauri/src/notebook/headless.rs"
  ],
  "el notebook no usa la versión 4 del formato de Jupyter (nbformat 4)": [
   "src-tauri/src/notebook.rs"
@@ -25589,6 +25607,10 @@
   "src-tauri/src/tasks/steps.rs"
  ],
  "el paso no tiene conexión": [
+  "src-tauri/src/tasks/steps.rs"
+ ],
+ "el paso no tiene notebook": [
+  "src-tauri/src/notebook/headless.rs",
   "src-tauri/src/tasks/steps.rs"
  ],
  "el perfil de AWS no es válido": [
@@ -26730,6 +26752,9 @@
  "esta replicación está definida en el documento «{0}» de {1}: se detiene borrando o editando ese documento": [
   "crates/drivers/couchdb/src/processes.rs"
  ],
+ "esta versión de DBine no ejecuta celdas de escritura en tareas": [
+  "src-tauri/src/notebook/headless.rs"
+ ],
  "esta versión de DBine no sabe ejecutar pasos «{0}»": [
   "src-tauri/src/tasks/steps.rs"
  ],
@@ -27847,6 +27872,9 @@
  "guarda la lista de roles de cada usuario (set-user-role la reemplaza)": [
   "crates/drivers/solr/src/security.rs"
  ],
+ "guardado en {0}": [
+  "src-tauri/src/tasks/steps.rs"
+ ],
  "guardar el archivo": [
   "src-tauri/src/commands/projects.rs"
  ],
@@ -27909,6 +27937,9 @@
  ],
  "hay varias conexiones llamadas «{0}»: indicá su id (list_connections)": [
   "src-tauri/src/mcp/tools.rs"
+ ],
+ "hay varias conexiones «{0}» en esta máquina: elegí cuál es en el paso de la tarea": [
+  "src-tauri/src/notebook/headless.rs"
  ],
  "hay {0} entradas «{1}» en la base de KeePass ({2}): indicá la ruta del grupo o el UUID": [
   "src-tauri/src/secret_sources/keepass.rs"
@@ -28418,8 +28449,17 @@
  "la carpeta {0} no existe": [
   "crates/dbine-sync/src/folder.rs"
  ],
+ "la celda escribe en «{0}» ({1}) y la tarea no la autorizó: abrí la tarea y autorizala en el paso": [
+  "src-tauri/src/notebook/headless.rs"
+ ],
+ "la celda no tiene dónde ejecutarse: elegí la base del notebook en DBine y guardalo": [
+  "src-tauri/src/notebook/headless.rs"
+ ],
  "la celda «{0}» falló al volver a ejecutarse: {1}": [
   "src-tauri/src/notebook/local.rs"
+ ],
+ "la celda «{0}» falló: {1}": [
+  "src-tauri/src/tasks/steps.rs"
  ],
  "la celda «{0}» no devolvió un resultado con columnas": [
   "src-tauri/src/notebook/local.rs"
@@ -28806,6 +28846,9 @@
  ],
  "la copia directa necesita que origen y destino usen el mismo driver": [
   "crates/dbine-plugin/src/remote.rs"
+ ],
+ "la copia ejecutada tendría el mismo nombre que el notebook: cambiá el nombre del archivo (el original no se sobrescribe)": [
+  "src-tauri/src/tasks/steps.rs"
  ],
  "la copia lee {0} columnas y carga {1}": [
   "crates/drivers/cosmosdb/src/transfer.rs",
@@ -30176,6 +30219,9 @@
  "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET": [
   "crates/drivers/sqlserver/src/entra.rs"
  ],
+ "no existe el archivo HTML del cuerpo {0}": [
+  "src-tauri/src/tasks/mail.rs"
+ ],
  "no existe el archivo adjunto {0}": [
   "src-tauri/src/tasks/mail.rs"
  ],
@@ -30335,6 +30381,9 @@
  ],
  "no hay ninguna conexión «{0}» disponible por MCP (list_connections muestra las que hay)": [
   "src-tauri/src/mcp/tools.rs"
+ ],
+ "no hay ninguna conexión «{0}» en esta máquina: elegí cuál es en el paso de la tarea": [
+  "src-tauri/src/notebook/headless.rs"
  ],
  "no hay ninguna operación en curso": [
   "src-tauri/src/commands/projects_git.rs"
@@ -31085,6 +31134,9 @@
  ],
  "no se pudo leer el contador del IDENTITY; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
+ "no se pudo leer el cuerpo HTML {0}: {1}": [
+  "src-tauri/src/tasks/mail.rs"
  ],
  "no se pudo leer el encabezado CREATE TRIGGER de «{0}»": [
   "crates/drivers/sqlite/src/rename.rs"
@@ -32406,6 +32458,7 @@
   "src-tauri/src/tasks/headless.rs"
  ],
  "script de {0}": [
+  "src-tauri/src/notebook/headless.rs",
   "src-tauri/src/tasks/mod.rs"
  ],
  "script en uso": [
@@ -35497,6 +35550,9 @@
  "«{0}» deja de ser la predeterminada cuando otra política pasa a serlo: marcá esa otra como predeterminada.": [
   "crates/drivers/influxdb/src/properties.rs"
  ],
+ "«{0}» es de producción y una tarea no puede confirmar: abrí la tarea y marcá «Permitir ejecutar en {1} sin confirmar» en el paso": [
+  "src-tauri/src/notebook/headless.rs"
+ ],
  "«{0}» es de producción: escribí «{1}» para confirmar la copia": [
   "src-tauri/src/commands/subset/mod.rs"
  ],
@@ -36162,6 +36218,9 @@
  ],
  "«{0}» pasa a ser la primera columna: en TDengine la marca de tiempo es la clave (una fila por instante; repetir uno sobrescribe la fila).": [
   "crates/dbine-schema/src/dialect/tdengine.rs"
+ ],
+ "«{0}» pide confirmación antes de ejecutar y una tarea no puede confirmar: abrí la tarea y marcá «Permitir ejecutar en {1} sin confirmar» en el paso": [
+  "src-tauri/src/notebook/headless.rs"
  ],
  "«{0}» repite el campo «{1}», que ya tiene su propia columna": [
   "crates/drivers/elasticsearch/src/transfer.rs"

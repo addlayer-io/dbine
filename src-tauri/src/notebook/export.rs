@@ -155,6 +155,18 @@ pub fn html(nb: &Notebook, limits: PreviewLimits) -> String {
 
 /// The notebook as one HTML page, each cell's charts embedded (data: URIs).
 pub fn html_with(nb: &Notebook, limits: PreviewLimits, images: &CellImages) -> String {
+    html_with_note(nb, limits, images, None)
+}
+
+/// A cell with a chart but no image for it (a scheduled run renders no
+/// charts): `chart_note` under its result, when given.
+fn chart_missing<'a>(c: &NotebookCell, nb: &Notebook, images: &CellImages, chart_note: Option<&'a str>) -> Option<&'a str> {
+    let kept = nb.save_results && c.keep_result;
+    (kept && c.chart.is_some() && c.result.is_some() && cell_images(c, nb, images).is_empty()).then_some(chart_note).flatten()
+}
+
+/// [`html_with`], with `chart_note` where a chart has no image.
+pub fn html_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellImages, chart_note: Option<&str>) -> String {
     let mut body = String::new();
     for c in &nb.cells {
         match c.kind {
@@ -189,6 +201,9 @@ pub fn html_with(nb: &Notebook, limits: PreviewLimits, images: &CellImages) -> S
                     if let Some(e) = &p.error {
                         body.push_str(&format!("<pre class=\"error\">{}</pre>", escape_html(e)));
                     }
+                }
+                if let Some(note) = chart_missing(c, nb, images, chart_note) {
+                    body.push_str(&format!("<p class=\"summary\">{}</p>", escape_html(note)));
                 }
                 for img in cell_images(c, nb, images) {
                     let data = base64::engine::general_purpose::STANDARD.encode(&img.png);
@@ -445,6 +460,11 @@ pub fn markdown(nb: &Notebook, limits: PreviewLimits) -> String {
 /// The notebook as Markdown, each cell's charts as `![title](<dir>/chart-<cell>-<n>.png)`;
 /// with the files to write in `dir` (a folder next to the .md file).
 pub fn markdown_with(nb: &Notebook, limits: PreviewLimits, images: &CellImages, dir: &str) -> (String, ExportFiles) {
+    markdown_with_note(nb, limits, images, dir, None)
+}
+
+/// [`markdown_with`], with `chart_note` where a chart has no image.
+pub fn markdown_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellImages, dir: &str, chart_note: Option<&str>) -> (String, ExportFiles) {
     let mut out = String::new();
     let mut files = ExportFiles::new();
     for (ci, c) in nb.cells.iter().enumerate() {
@@ -474,6 +494,9 @@ pub fn markdown_with(nb: &Notebook, limits: PreviewLimits, images: &CellImages, 
                         out.push_str("**Error**\n\n");
                         out.push_str(&fenced(e, "text"));
                     }
+                }
+                if let Some(note) = chart_missing(c, nb, images, chart_note) {
+                    out.push_str(&format!("*{}*\n\n", md_text(note)));
                 }
                 for (k, img) in cell_images(c, nb, images).iter().enumerate() {
                     let name = format!("chart-{}-{}.png", ci + 1, k + 1);

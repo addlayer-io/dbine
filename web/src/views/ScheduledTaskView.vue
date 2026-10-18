@@ -19,7 +19,7 @@ const { t } = useTranslation();
 const store = useScheduledStore();
 const tabs = useTabsStore();
 
-const KINDS: StepKind[] = ['run_script', 'export', 'compare_schemas', 'backup', 'document', 'send_mail'];
+const KINDS: StepKind[] = ['run_script', 'export', 'compare_schemas', 'backup', 'document', 'run_notebook', 'send_mail'];
 const DAYS = [1, 2, 3, 4, 5, 6, 7];
 
 const task = ref<ScheduledTask>(newTask());
@@ -244,9 +244,9 @@ const stepLabel = (id: string) => {
     <el-dialog :model-value="!!approval" :title="$t('scheduled:approve.title')" width="560px" @close="answer(false)">
       <p>{{ $t('scheduled:approve.text') }}</p>
       <ul class="st-scope">
-        <li v-for="w in approval?.scope ?? []" :key="w.step_id">
+        <li v-for="(w, i) in approval?.scope ?? []" :key="`${w.step_id}-${i}`">
           <span v-if="w.production" class="st-prod">PROD</span>
-          <strong>{{ stepLabel(w.step_id) }}</strong>: {{ w.what }} · {{ w.connection }}<template v-if="w.database"> › {{ w.database }}</template>
+          <strong>{{ stepLabel(w.step_id) }}</strong><template v-if="w.cell"> · {{ $t('scheduled:notebook.cell', { name: w.cell }) }}</template>: {{ w.what }} · {{ w.connection }}<template v-if="w.database"> › {{ w.database }}</template>
         </li>
       </ul>
       <el-alert v-if="approval?.scope.some((w) => w.production)" type="error" :closable="false" show-icon :title="$t('scheduled:approve.production')" />

@@ -92,7 +92,7 @@ fn run_logged(task_id: &str, dir: &std::path::Path, data_dir: &std::path::Path) 
     let run = rt.block_on(async {
         // The saved passwords first, each with a time limit: a keychain
         // prompt nobody answers must fail the run, not hang it.
-        for conn in crate::tasks::connections_of(&task) {
+        for conn in crate::tasks::connections_of(&state, &task) {
             let saved = state.store.get_connection(&conn).ok().flatten();
             if !saved.as_ref().is_some_and(|c| c.save_password) {
                 continue;

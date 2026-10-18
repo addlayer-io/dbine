@@ -3283,12 +3283,13 @@ responses.
 
 ## Scheduled tasks
 
-Scheduled tasks ([`scheduled-tasks.md`](scheduled-tasks.md)) work in **all engines**, with the six step types: run a script, export to file, compare schemas, backup, document the database and send an email. They add nothing to the driver: each step uses what the engine already offers for that function.
+Scheduled tasks ([`scheduled-tasks.md`](scheduled-tasks.md)) work in **all engines**, with the seven step types: run a script, export to file, compare schemas, backup, document the database, run a notebook and send an email. They add nothing to the driver: each step uses what the engine already offers for that function.
 
 - **Run a script and Export:** as far as each engine's script execution and export go. Export always runs read-only.
 - **Compare schemas:** as far as each engine's comparison goes, which does not change by being a task (see [Compare schemas](#compare-schemas)). The sync script is saved to a file and never run.
 - **Backup:** the **Engine backup** only exists in engines that have their own backups (see [Backups](#backups)). The others offer only the **DBine copy**, so all engines can be backed up.
 - **Document the database:** as far as the feature goes (see [Document the database](#document-the-database)); it runs in a read-only session.
+- **Run a notebook:** as far as each engine's notebook cells go (see [`notebooks.md`](notebooks.md)): connection cells run with the engine's script execution and DataFrame SQL cells load any engine's rows. Tested with SQLite and DuckDB in the automated tests and live with PostgreSQL and SQL Server (`dbine-test-*`).
 - **Send an email:** it does not use the driver, so it does not depend on the engine: it sends over SMTP with the server from **Settings › Mail**.
 
 Tested: the task steps have automated tests with SQLite databases (change approval, export, comparison, DBine copy, stop or continue on error). For the other engines there are no tests of the tasks themselves: each step uses the same code as the app's equivalent feature, with the support and the tests against servers listed in their sections.

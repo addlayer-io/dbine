@@ -625,9 +625,19 @@ pub(crate) async fn run_unattended(
     max_rows: usize,
 ) -> CommandResult<QueryOutcome> {
     let driver = crate::commands::schema::driver_of(state, connection_id)?;
-    let units = script_units(RunMode::Auto, driver.as_ref(), sql);
-    let continue_on_error = continue_on_error.unwrap_or_else(|| driver.script_defaults().continue_on_error);
     let entry = state.dedicated_session(key, connection_id, database, false).await?;
+    let out = run_on_entry(driver.as_ref(), &entry, sql, continue_on_error, max_rows).await;
+    state.sessions.remove(key);
+    Ok(out)
+}
+
+/// [`run_unattended`] on a session the caller keeps (a scheduled notebook
+/// runs its cells on one session per connection and database, as the
+/// notebook tab does): split as the editor's Auto mode does, each
+/// statement committed. Every failure ends up in `errors`.
+pub(crate) async fn run_on_entry(driver: &dyn Driver, entry: &SessionEntry, sql: &str, continue_on_error: Option<bool>, max_rows: usize) -> QueryOutcome {
+    let units = script_units(RunMode::Auto, driver, sql);
+    let continue_on_error = continue_on_error.unwrap_or_else(|| driver.script_defaults().continue_on_error);
     let mut out = QueryOutcome::default();
     let finished = {
         let mut session = entry.session.lock().await;
@@ -650,7 +660,9 @@ pub(crate) async fn run_unattended(
             _ = entry.cancel.notified() => None,
         }
     };
-    state.sessions.remove(key);
+    if finished.as_ref().is_some_and(|r| r.is_ok()) {
+        entry.autocommit.store(true, Ordering::SeqCst);
+    }
     match finished {
         Some(Ok(())) => {}
         Some(Err(e)) if units.is_some() && !matches!(e, Error::Cancelled) => {}
@@ -659,7 +671,7 @@ pub(crate) async fn run_unattended(
         None => out.push_error(ScriptError::new("Ejecución cancelada.")),
     }
     out.current_statement = None;
-    Ok(out)
+    out
 }
 
 /// The driver already put this error in the outcome (`out.push_error`) and

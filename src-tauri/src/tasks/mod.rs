@@ -12,6 +12,10 @@ pub mod notify;
 pub mod os;
 mod steps;
 
+/// What a scheduled notebook export says where a chart would be.
+#[cfg(test)]
+pub(crate) use steps::CHART_NOTE;
+
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_core::tasks::{self, kinds, Notify, OnError, RunStatus, ScheduledTask, Step, StepRun, TaskRun};
@@ -43,8 +47,15 @@ pub struct WriteScope {
     /// The first statement that writes (`DELETE`, `ALTER`…), or why it
     /// counts as one ("script de MongoDB").
     pub what: String,
-    /// The connection carries a production tag.
+    /// The connection carries a production tag (or, for a notebook's
+    /// cell, its environment asks before running).
     pub production: bool,
+    /// A notebook step's cell that writes (its name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cell: Option<String>,
+    /// The script that writes (the fingerprint covers it).
+    #[serde(skip)]
+    pub script: String,
 }
 
 /// Tags that mark a production connection.
@@ -58,39 +69,68 @@ fn text<'a>(config: &'a Value, key: &str) -> &'a str {
     config.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-/// The steps of `task` that change data or structure. Only scripts can: an
-/// export reads, a comparison writes its script to a file and a backup
-/// doesn't change the database.
+/// The steps of `task` that change data or structure. Only scripts and
+/// notebooks' cells can: an export reads, a comparison writes its script to
+/// a file and a backup doesn't change the database.
 pub fn write_scope(state: &AppState, task: &ScheduledTask) -> Vec<WriteScope> {
     let mut out = Vec::new();
-    for step in task.steps.iter().filter(|s| s.kind == kinds::RUN_SCRIPT) {
-        let t = target(step);
-        let Ok(Some(conn)) = state.store.get_connection(&t.connection_id) else { continue };
-        // A read-only connection stays read-only: nothing to approve.
-        if conn.config.read_only {
-            continue;
+    for step in &task.steps {
+        match step.kind.as_str() {
+            kinds::RUN_SCRIPT => script_scope(state, step, &mut out),
+            kinds::RUN_NOTEBOOK => notebook_scope(state, step, &mut out),
+            _ => {}
         }
-        let sql = text(&step.config, "sql");
-        let what = match dbine_drivers::find(&conn.config.driver) {
-            Some(d) if d.info().language == dbine_driver::Language::Sql => {
-                dbine_driver::read_only::first_write_in(sql, &d.script_dialect())
-            }
-            // Not SQL: no reliable way to tell a read from a write.
-            Some(d) => (!sql.trim().is_empty()).then(|| format!("script de {}", d.info().name)),
-            None => None,
-        };
-        let Some(what) = what else { continue };
-        let production = conn.tags.iter().any(|t| PROD_TAGS.contains(&t.trim().to_lowercase().as_str()));
-        out.push(WriteScope {
-            step_id: step.id.clone(),
-            connection_id: t.connection_id,
-            connection: conn.name,
-            database: t.database,
-            what,
-            production,
-        });
     }
     out
+}
+
+/// A notebook step's cells that write: the notebook as it is now on disk,
+/// so editing those cells asks for the approval again.
+fn notebook_scope(state: &AppState, step: &Step, out: &mut Vec<WriteScope>) {
+    let Ok(opts) = serde_json::from_value::<crate::notebook::headless::Options>(step.config.clone()) else { return };
+    for (cell, r, what, sql) in crate::notebook::headless::writing_cells(state, &opts) {
+        let connection = state.store.get_connection(&r.connection_id).ok().flatten().map(|c| c.name).unwrap_or_default();
+        out.push(WriteScope {
+            step_id: step.id.clone(),
+            connection_id: r.connection_id.clone(),
+            connection,
+            database: r.database.clone(),
+            what,
+            production: r.needs_opt_in(),
+            cell: Some(cell),
+            script: format!("{}\u{0}{sql}", opts.path.trim()),
+        });
+    }
+}
+
+fn script_scope(state: &AppState, step: &Step, out: &mut Vec<WriteScope>) {
+    let t = target(step);
+    let Ok(Some(conn)) = state.store.get_connection(&t.connection_id) else { return };
+    // A read-only connection stays read-only: nothing to approve.
+    if conn.config.read_only {
+        return;
+    }
+    let sql = text(&step.config, "sql");
+    let what = match dbine_drivers::find(&conn.config.driver) {
+        Some(d) if d.info().language == dbine_driver::Language::Sql => {
+            dbine_driver::read_only::first_write_in(sql, &d.script_dialect())
+        }
+        // Not SQL: no reliable way to tell a read from a write.
+        Some(d) => (!sql.trim().is_empty()).then(|| format!("script de {}", d.info().name)),
+        None => None,
+    };
+    let Some(what) = what else { return };
+    let production = conn.tags.iter().any(|t| PROD_TAGS.contains(&t.trim().to_lowercase().as_str()));
+    out.push(WriteScope {
+        step_id: step.id.clone(),
+        connection_id: t.connection_id,
+        connection: conn.name,
+        database: t.database,
+        what,
+        production,
+        cell: None,
+        script: sql.to_string(),
+    });
 }
 
 /// The fingerprint of what writes: connection, database and script of each
@@ -102,9 +142,7 @@ pub fn write_fingerprint(state: &AppState, task: &ScheduledTask) -> Option<Strin
     }
     let mut h = Sha256::new();
     for w in &scope {
-        let step = task.steps.iter().find(|s| s.id == w.step_id);
-        let sql = step.map(|s| text(&s.config, "sql")).unwrap_or("");
-        for part in [w.step_id.as_str(), &w.connection_id, &w.database, sql] {
+        for part in [w.step_id.as_str(), &w.connection_id, &w.database, &w.script] {
             h.update(part.as_bytes());
             h.update([0u8]);
         }
@@ -128,10 +166,13 @@ pub fn secret_option_keys(connection_id: &str, state: &AppState) -> Vec<&'static
 }
 
 /// The connections a task's steps use (to read their secrets up front).
-pub fn connections_of(task: &ScheduledTask) -> Vec<String> {
+pub fn connections_of(state: &AppState, task: &ScheduledTask) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for step in &task.steps {
         let ids = match step.kind.as_str() {
+            kinds::RUN_NOTEBOOK => serde_json::from_value::<crate::notebook::headless::Options>(step.config.clone())
+                .map(|o| crate::notebook::headless::connections(state, &o))
+                .unwrap_or_default(),
             kinds::COMPARE_SCHEMAS => ["source", "target"]
                 .iter()
                 .filter_map(|k| step.config.get(*k).and_then(|t| t.get("connection_id")).and_then(Value::as_str).map(str::to_string))
@@ -204,7 +245,9 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 if state.store.get_setting(&key).ok().flatten().is_some() {
                     cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
-                    let keys: Vec<String> = state.sessions.iter().map(|e| e.key().clone()).filter(|k| k.starts_with(&prefix)).collect();
+                    // A notebook step's DuckDB session is `nbx:<prefix>…`.
+                    let duck = format!("nbx:{prefix}");
+                    let keys: Vec<String> = state.sessions.iter().map(|e| e.key().clone()).filter(|k| k.starts_with(&prefix) || k.starts_with(&duck)).collect();
                     for k in keys {
                         crate::commands::query::cancel_session(&state, &k);
                     }
@@ -495,7 +538,7 @@ mod tests {
     #[test]
     fn secrets_stay_out_of_the_config() {
         let t = task(vec![step("s", kinds::BACKUP, json!({"connection_id": "a", "options": {"password": "x"}}))]);
-        assert_eq!(connections_of(&t), ["a"]);
+        assert_eq!(connections_of(&AppState::new(StateStore::open_in_memory().unwrap()), &t), ["a"]);
         assert_eq!(step_secret_name("t", "s"), "task-secret:t:s");
     }
 }

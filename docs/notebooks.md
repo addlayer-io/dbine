@@ -588,10 +588,13 @@ three AI actions, notebooks from elsewhere, export to HTML and Markdown, and
 [DataFrame SQL cells](#dataframe-sql-cells-cross-engine): cells that join the
 results of cells on different engines and local files.
 
+**Run a notebook** as a step of a [scheduled task](scheduled-tasks.md#run-a-notebook),
+followed by **Send an email**, turns a notebook into a periodic report: it
+runs every cell with DBine closed, saves the executed copy and exports it
+(tables, without charts), and asks nothing: files need **Permitir siempre**
+and environments with confirmation need the step's opt-in.
+
 **Later:**
-- **Run notebook** as a step of a [scheduled task](scheduled-tasks.md),
-  followed by **Send an email**, which turns a notebook into a periodic
-  report.
 - **Export as a Python notebook**: each SQL cell becomes `pd.read_sql(…)`,
   with the connection as an environment variable and no password.
 - Notebook **parameters** (values the cells use, asked for when running).

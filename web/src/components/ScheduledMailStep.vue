@@ -25,6 +25,7 @@ onMounted(async () => {
 
 if (!Array.isArray(props.config.attachments)) props.config.attachments = [];
 if (!props.config.when) props.config.when = 'always';
+if (props.config.html_body == null) props.config.html_body = '';
 
 function addAttachment(path = '') {
   props.config.attachments.push(path);
@@ -63,6 +64,12 @@ async function browse(i: number | null) {
     </el-form-item>
     <el-form-item :label="$t('scheduled:mail.body')">
       <el-input v-model="config.body" type="textarea" :autosize="{ minRows: 4, maxRows: 12 }" @input="emit('change')" />
+    </el-form-item>
+    <el-form-item :label="$t('scheduled:mail.htmlBody')">
+      <div class="sm-files">
+        <el-input v-model="config.html_body" placeholder="{steps.1.html}" @input="emit('change')" />
+        <p class="sm-hint">{{ $t('scheduled:mail.htmlBodyHint') }}</p>
+      </div>
     </el-form-item>
     <el-form-item :label="$t('scheduled:mail.attachments')">
       <div class="sm-files">

@@ -209,3 +209,17 @@ pub fn resync_all(state: &AppState) {
         }
     }
 }
+
+/// What the "Ejecutar notebook" step's editor shows for a notebook: where
+/// each cell runs here, the targets that need "Permitir ejecutar … sin
+/// confirmar", the files it reads (and which lack "Permitir siempre"), its
+/// write cells and parameters. Reads the file; runs nothing.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduled_notebook_plan(app: AppHandle, state: State<'_, AppState>, args: crate::notebook::headless::Options) -> CommandResult<crate::notebook::headless::Plan> {
+    let mut dirs = crate::notebook::headless::own_dirs();
+    dirs.extend(crate::commands::notebook::app_dirs(&app));
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::notebook::headless::plan(&state, &args, crate::notebook::access::Policy::current(&dirs)))
+        .await
+        .map_err(|e| CommandError::Internal(e.to_string()))?
+}

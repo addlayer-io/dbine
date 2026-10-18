@@ -104,6 +104,9 @@ pub struct Outgoing {
     pub cc: Vec<String>,
     pub subject: String,
     pub body: String,
+    /// An HTML version of the body (a notebook's HTML export): the mail
+    /// carries both, and clients show the HTML one.
+    pub html: Option<String>,
     pub attachments: Vec<PathBuf>,
 }
 
@@ -170,9 +173,15 @@ pub fn build(settings: &MailSettings, mail: &Outgoing) -> Result<Message, String
         ));
     }
     let message = if mail.attachments.is_empty() {
-        b.header(ContentType::TEXT_PLAIN).body(mail.body.clone())
+        match &mail.html {
+            Some(html) => b.multipart(MultiPart::alternative_plain_html(mail.body.clone(), html.clone())),
+            None => b.header(ContentType::TEXT_PLAIN).body(mail.body.clone()),
+        }
     } else {
-        let mut parts = MultiPart::mixed().singlepart(SinglePart::plain(mail.body.clone()));
+        let mut parts = match &mail.html {
+            Some(html) => MultiPart::mixed().multipart(MultiPart::alternative_plain_html(mail.body.clone(), html.clone())),
+            None => MultiPart::mixed().singlepart(SinglePart::plain(mail.body.clone())),
+        };
         for p in &mail.attachments {
             let bytes = std::fs::read(p).map_err(|e| format!("no se pudo leer el adjunto {}: {e}", p.display()))?;
             parts = parts.singlepart(Attachment::new(file_name(p)).body(bytes, content_type(p)));
@@ -304,6 +313,30 @@ struct MailConfig {
     /// Paths; empty lines are ignored.
     #[serde(default)]
     attachments: Vec<String>,
+    /// An HTML file whose content goes in the mail as its HTML body (a
+    /// notebook's export: `{steps.1.html}`); empty: plain text only.
+    #[serde(default)]
+    html_body: String,
+}
+
+/// An HTML body read from a file, at most this big.
+const MAX_HTML_BODY: u64 = 10 * 1024 * 1024;
+
+/// The HTML body the step names (a path, with variables), read.
+fn html_body(c: &MailConfig, vars: &Vars) -> Result<Option<String>, String> {
+    let path = expand(c.html_body.trim(), vars);
+    if path.is_empty() {
+        return Ok(None);
+    }
+    let p = Path::new(&path);
+    let meta = std::fs::metadata(p).map_err(|_| format!("no existe el archivo HTML del cuerpo {path}"))?;
+    if !meta.is_file() {
+        return Err(format!("el cuerpo HTML {path} no es un archivo"));
+    }
+    if meta.len() > MAX_HTML_BODY {
+        return Err(format!("el cuerpo HTML {path} pasa de {} MB: adjuntalo en lugar de ponerlo en el cuerpo", MAX_HTML_BODY / 1048576));
+    }
+    std::fs::read_to_string(p).map(Some).map_err(|e| format!("no se pudo leer el cuerpo HTML {path}: {e}"))
 }
 
 fn outgoing(c: &MailConfig, vars: &Vars) -> Outgoing {
@@ -312,6 +345,7 @@ fn outgoing(c: &MailConfig, vars: &Vars) -> Outgoing {
         cc: c.cc.expanded(vars),
         subject: expand(&c.subject, vars),
         body: expand(&c.body, vars),
+        html: None,
         attachments: c.attachments.iter().map(|a| expand(a.trim(), vars)).filter(|a| !a.is_empty()).map(PathBuf::from).collect(),
     }
 }
@@ -321,7 +355,8 @@ pub(super) async fn step(state: &AppState, step: &Step, vars: &Vars) -> CommandR
     let Some(settings) = load(state)? else {
         return Err(CommandError::BadRequest("falta configurar el servidor de correo en Configuración › Correo".into()));
     };
-    let mail = outgoing(&c, vars);
+    let mut mail = outgoing(&c, vars);
+    mail.html = html_body(&c, vars).map_err(CommandError::BadRequest)?;
     let password = if settings.user.trim().is_empty() { None } else { password()? };
     let summary = deliver(&settings, password, &mail).await.map_err(CommandError::BadRequest)?;
     let mut done = StepDone { summary, ..Default::default() };
@@ -395,6 +430,7 @@ mod tests {
             cc: vec!["beto@example.com".into()],
             subject: "Reporte del año: ñandú ✓".into(),
             body: "Hola, adjunto el reporte.\nSaludos".into(),
+            html: None,
             attachments: vec![csv.clone()],
         };
         let raw = text(&build(&server(), &mail).unwrap());
@@ -409,6 +445,32 @@ mod tests {
         // Without attachments: one plain part.
         let plain = text(&build(&server(), &Outgoing { attachments: vec![], ..mail }).unwrap());
         assert!(!plain.contains("multipart") && plain.contains("Content-Type: text/plain; charset=utf-8"), "{plain}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn html_body_from_a_notebook_export() {
+        let dir = std::env::temp_dir().join(format!("dbine-mail-html-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let page = dir.join("reporte.html");
+        std::fs::write(&page, "<!doctype html><html><body><h1>Ventas</h1><table><tr><td>mate</td></tr></table></body></html>").unwrap();
+        let mut vars = Vars::new();
+        vars.insert("steps.1.html".into(), page.to_string_lossy().into_owned());
+        vars.insert("steps.1.file".into(), page.to_string_lossy().into_owned());
+        let c: MailConfig = serde_json::from_value(json!({"to": "a@example.com", "body": "Va el reporte.", "html_body": "{steps.1.html}", "attachments": ["{steps.1.file}"]})).unwrap();
+        let mut m = outgoing(&c, &vars);
+        m.html = html_body(&c, &vars).unwrap();
+        let raw = text(&build(&server(), &m).unwrap());
+        assert!(raw.contains("multipart/mixed") && raw.contains("multipart/alternative"), "{raw}");
+        assert!(raw.contains("Content-Type: text/html") && raw.contains("Content-Type: text/plain"), "{raw}");
+        assert!(raw.contains("Content-Disposition: attachment"), "{raw}");
+        // Without attachments: just the two versions of the body.
+        m.attachments.clear();
+        let raw = text(&build(&server(), &m).unwrap());
+        assert!(raw.contains("multipart/alternative") && !raw.contains("multipart/mixed"), "{raw}");
+        // A missing file fails the step, naming it.
+        let missing: MailConfig = serde_json::from_value(json!({"to": "a@example.com", "html_body": "/no/existe.html"})).unwrap();
+        assert!(html_body(&missing, &vars).unwrap_err().contains("/no/existe.html"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -457,6 +519,7 @@ mod tests {
             cc: vec!["beto@example.com".into()],
             subject: subject.clone(),
             body: "Hola: va el reporte.".into(),
+            html: None,
             attachments: vec![csv],
         };
         let summary = deliver(&server(), None, &mail).await.unwrap();

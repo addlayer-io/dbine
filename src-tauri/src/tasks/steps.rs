@@ -25,6 +25,7 @@ pub(super) async fn run(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResul
         kinds::BACKUP => backup(ctx, step, vars).await,
         kinds::DOCUMENT => document(ctx, step, vars).await,
         kinds::SEND_MAIL => super::mail::step(ctx.state, step, vars).await,
+        kinds::RUN_NOTEBOOK => run_notebook(ctx, step, vars).await,
         other => Err(CommandError::BadRequest(format!("esta versión de DBine no sabe ejecutar pasos «{other}»"))),
     }
 }
@@ -446,6 +447,121 @@ async fn document(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<Step
     };
     done.outputs.insert("file".into(), shown(&path));
     done.outputs.insert("tables".into(), built.tables.to_string());
+    Ok(done)
+}
+
+// -- run a notebook ----------------------------------------------------------
+
+/// Where the executed notebook goes: `none`, `beside` the original or in a
+/// `folder`, named `file_name` (default `{notebook}-{datetime}`).
+#[derive(Deserialize, Default)]
+struct NotebookSave {
+    #[serde(default)]
+    mode: String,
+    #[serde(default)]
+    folder: String,
+    #[serde(default)]
+    file_name: String,
+}
+
+/// The export: `none`, `html` or `markdown`; in `folder` (empty: where the
+/// copy goes, else next to the notebook).
+#[derive(Deserialize, Default)]
+struct NotebookExport {
+    #[serde(default)]
+    format: String,
+    #[serde(default)]
+    folder: String,
+    #[serde(default)]
+    file_name: String,
+}
+
+#[derive(Deserialize)]
+struct NotebookConfig {
+    #[serde(flatten)]
+    run: crate::notebook::headless::Options,
+    #[serde(default)]
+    save: NotebookSave,
+    #[serde(default)]
+    export: NotebookExport,
+}
+
+/// What an export says where a chart would be: the charts are drawn by the
+/// app's window, which a scheduled run doesn't have.
+pub(crate) const CHART_NOTE: &str = "Los gráficos se incluyen al exportar desde la app.";
+
+fn notebook_policy(ctx: &Ctx<'_>) -> crate::notebook::access::Policy {
+    let mut dirs = crate::notebook::headless::own_dirs();
+    if let Some(app) = ctx.app {
+        dirs.extend(crate::commands::notebook::app_dirs(app));
+    }
+    crate::notebook::access::Policy::current(&dirs)
+}
+
+async fn run_notebook(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDone> {
+    use crate::notebook::{export, headless};
+    let c: NotebookConfig = config(step)?;
+    let original = PathBuf::from(c.run.path.trim());
+    if c.run.path.trim().is_empty() {
+        return Err(CommandError::BadRequest("el paso no tiene notebook".into()));
+    }
+    let key = format!("{}:{}", ctx.run_key, step.id);
+    let ran = headless::run(ctx.state, &key, &c.run, notebook_policy(ctx)).await?;
+    let limits = headless::preview_limits(ctx.state);
+    let mut vars = vars.clone();
+    let stem = original.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "notebook".into());
+    vars.insert("notebook".into(), stem);
+    let default_name = "{notebook}-{datetime}";
+    let beside = original.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut done = StepDone::default();
+    let mut parts = vec![format!("{} ejecutadas", plural(ran.ran as u64, "celda", "celdas"))];
+
+    let mut copy_folder: Option<String> = None;
+    let save_folder = match c.save.mode.as_str() {
+        "beside" => Some(beside.clone()),
+        "folder" => Some(c.save.folder.clone()),
+        _ => None,
+    };
+    if let Some(folder) = save_folder {
+        let name = if c.save.file_name.trim().is_empty() { default_name } else { c.save.file_name.as_str() };
+        let path = out_path(&folder, name, "ipynb", &vars)?;
+        let same = std::fs::canonicalize(&original).ok().zip(std::fs::canonicalize(&path).ok()).is_some_and(|(a, b)| a == b) || path == original;
+        if same {
+            return Err(CommandError::BadRequest("la copia ejecutada tendría el mismo nombre que el notebook: cambiá el nombre del archivo (el original no se sobrescribe)".into()));
+        }
+        let text = crate::notebook::serialize(&ran.notebook, limits);
+        crate::commands::projects::atomic_write(&path, text.as_bytes())?;
+        parts.push(format!("guardado en {}", shown(&path)));
+        done.outputs.insert("notebook".into(), shown(&path));
+        done.outputs.insert("file".into(), shown(&path));
+        copy_folder = path.parent().map(|p| p.to_string_lossy().into_owned());
+    }
+    let format = c.export.format.as_str();
+    if format == "html" || format == "markdown" {
+        let folder = if !c.export.folder.trim().is_empty() { c.export.folder.clone() } else { copy_folder.unwrap_or(beside) };
+        let name = if c.export.file_name.trim().is_empty() { default_name } else { c.export.file_name.as_str() };
+        let ext = if format == "html" { "html" } else { "md" };
+        let path = out_path(&folder, name, ext, &vars)?;
+        let images = export::CellImages::new();
+        let text = if format == "html" {
+            export::html_with_note(&ran.notebook, limits, &images, Some(CHART_NOTE))
+        } else {
+            export::markdown_with_note(&ran.notebook, limits, &images, "", Some(CHART_NOTE)).0
+        };
+        crate::commands::projects::atomic_write(&path, text.as_bytes())?;
+        parts.push(format!("exportado a {}", shown(&path)));
+        done.outputs.insert(ext.into(), shown(&path));
+        done.outputs.insert("file".into(), shown(&path));
+    }
+    done.outputs.insert("cells".into(), ran.ran.to_string());
+    if let Some((cell, why)) = ran.failure {
+        let mut msg = format!("la celda «{cell}» falló: {why}");
+        if done.outputs.contains_key("file") {
+            msg.push_str(&format!(" ({})", parts[1..].join("; ")));
+        }
+        return Err(CommandError::Sql(msg));
+    }
+    done.summary = format!("Notebook {}: {}.", original.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), parts.join("; "));
     Ok(done)
 }
 

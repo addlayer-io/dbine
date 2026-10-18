@@ -15,6 +15,7 @@
 pub mod access;
 pub mod export;
 pub mod files;
+pub mod headless;
 pub mod local;
 
 use serde::{Deserialize, Serialize};

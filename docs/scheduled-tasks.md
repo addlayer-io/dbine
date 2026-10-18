@@ -2,7 +2,8 @@
 
 A task runs on its own, at the time you choose, **with DBine closed**: it runs
 a script, exports a query, compares two schemas, makes a backup, documents a
-database or sends an email, and notifies you with a system notification.
+database, runs a notebook or sends an email, and notifies you with a system
+notification.
 
 ## Where it is
 
@@ -150,6 +151,86 @@ dependencies and diagram).
 - Produces `file` and `tables`.
 - If the task does not send its texts, the document comes out in Spanish.
 
+### Run a notebook
+
+Runs a saved notebook ([`notebooks.md`](notebooks.md)) from top to bottom,
+as **Run all** does in its tab, and stops at the first cell that fails. With
+**Send an email** after it, a notebook becomes a periodic report.
+
+- **Notebook:** the `.ipynb` file, standalone or inside a project (a
+  project's notebook uses that project's environments, as in the app).
+- **Cells:** the step's editor reads the notebook and lists where each SQL
+  cell runs on this machine. A connection name the file uses that no local
+  connection has, or that several share, is chosen here; the step stores
+  only that choice (the connection's id), never hosts or credentials.
+- **Parameters:** the values for the parameters the notebook declares,
+  with [variables](#variables). The step refuses a value for a parameter
+  the notebook doesn't declare.
+- **Executed notebook:** a copy with this run's results: **Don't save it**,
+  **Next to the original** or **In a folder**, named **File name** (default
+  `{notebook}-{datetime}`, `{notebook}` being the notebook's name without
+  the extension). It keeps the preview limits of **Settings › Notebooks**
+  and the notebook's own **Don't save result** / **Save without results**,
+  as the app's save and export do. The original is never written: a copy
+  that would have its name fails the step.
+- **Export:** **HTML** or **Markdown**, as the notebook's export in the app,
+  to the **Folder** chosen (empty: where the copy goes, else next to the
+  notebook). **Charts are not in a scheduled export:** the app's window
+  draws them and a task has none; where a cell has a chart, the export says
+  *"Los gráficos se incluyen al exportar desde la app."* Tables, text and
+  messages are all there.
+- Produces `file` (the export, else the copy), `html` (the HTML export),
+  `markdown` (the Markdown export), `notebook` (the copy) and `cells` (the
+  cells that ran). The next **Send an email** attaches `{steps.N.file}` or
+  `{steps.N.notebook}`, and can put `{steps.N.html}` as its HTML body.
+- If a cell fails, the copy and the export are still written (with the
+  error under that cell; the cells after it have no result, so nothing old
+  passes as new) and the step fails with the cell and the reason.
+
+How cells run:
+
+- **Connection cells** run on one session per connection and database for
+  the whole run (a transaction a cell opens stays open for the next ones,
+  as in the tab; one still open at the end is rolled back when the session
+  closes), split as the editor's Auto mode does, each statement committed.
+  The connection's **read-only** setting holds.
+- **DataFrame SQL cells** run as in the app: the same DuckDB lockdown, the
+  same refused statements, the same row cap per DataFrame (**Settings ›
+  Notebooks**) and the same always-blocked folders. Their sources are the
+  cells above, with the rows of their run in this task when complete, else
+  their query run again read-only.
+- **Credentials** come from the connections, as in the app: the keychain or
+  the connection's secret manager. Nothing new is stored. A secret-source
+  definition not yet confirmed on this computer fails the cell with the
+  usual message (open DBine and connect once to confirm it).
+
+Nobody is there to answer, so the step **never asks**:
+
+- **Files:** a DataFrame SQL cell reads only the files this notebook may
+  **always** read on this machine (**Permitir siempre** in the app, see
+  [Approving the files a notebook reads](notebooks.md#approving-the-files-a-notebook-reads)).
+  Any other file fails the cell with the list of files to approve from the
+  app, and nothing is read. The step's editor lists those files beforehand,
+  with **Open the notebook** to run that cell in the app and allow them.
+- **Confirmations:** in the app, an environment with confirmation
+  (`confirm_run`) asks before running, and connections tagged as production
+  are marked PROD. A task can't confirm, so each of those connections and
+  databases that the notebook uses needs the opt-in **Permitir ejecutar en
+  <target> sin confirmar** in the step; without it, the cell fails. A
+  DataFrame SQL cell that loads a source from one of them needs it too.
+- **Changes:** cells whose SQL changes data or structure (on connections
+  that aren't read-only) join the task's approval, like **Run a script**:
+  saving shows each one with its cell, and the task doesn't run them until
+  approved. The approval covers the notebook as it is: editing one of those
+  cells in the notebook voids it (see [Changes are approved](#changes-are-approved)).
+- **Write cells** (cells that write a DataFrame to a table) run only when
+  the step authorizes each one, as the editor shows it: the cell, its target
+  table and its mode. A change in any of them voids the authorization; an
+  unauthorized write cell fails the step at that cell.
+- The opt-ins and authorizations are stored in the task (this machine's
+  state); the MCP server and the assistant have no tools for scheduled
+  tasks, and the phone app can only run a saved task, never edit it.
+
 ### Send an email
 
 Sends an email with the server configured in
@@ -157,9 +238,13 @@ Sends an email with the server configured in
 
 - **To** and **CC**: addresses separated by commas, semicolons or lines.
 - **Subject** and **Body**.
+- **HTML body** (optional): an HTML file whose content goes as the email's
+  HTML body, with **Body** as the plain-text version for clients that don't
+  show HTML. `{steps.1.html}` is the HTML export of a **Run a notebook**
+  step 1. Up to 10 MB; a missing file fails the step.
 - **Attachments**: file paths. With variables, `{steps.1.file}` attaches the
   file that step 1 produced (the schema comparison, an export, a backup, the
-  documentation). If an attachment does not exist or is not a file, the step
+  documentation, a notebook's export or copy). If an attachment does not exist or is not a file, the step
   fails. **Attachments can add up to 20 MB.**
 - **Only if…**: see [above](#only-if). With **A previous step failed**, the
   step that fails must continue with the next one.
@@ -200,6 +285,7 @@ What each step produces:
 | Compare schemas | `differences`, `file` |
 | DBine copy | `file`, `rows` |
 | Document the database | `file`, `tables` |
+| Run a notebook | `file`, `html`, `markdown`, `notebook`, `cells` |
 | Send an email | `recipients` |
 
 Example: a step 1 that exports and a step 2 that saves a copy as
@@ -221,18 +307,20 @@ nothing more.
 
 ## Changes are approved
 
-A task with **Run a script** steps that **change data or structure** runs on
-its own, with nobody watching. That is why it has to be approved.
+A task with **Run a script** steps, or notebook cells, that **change data or
+structure** runs on its own, with nobody watching. That is why it has to be
+approved.
 
 - When saving, DBine shows **This task changes data or structure**, with each
-  step, its connection › database and the first statement it writes
-  (`DELETE`, `ALTER`…). **Approve and save** leaves it ready.
+  step (and, for a notebook, each cell), its connection › database and the
+  first statement it writes (`DELETE`, `ALTER`…). **Approve and save**
+  leaves it ready.
 - In engines that do not use SQL, a read cannot be told apart from a write:
   **any script counts** as a change.
 - Connections tagged `prod`, `production`, `producción` or `prd` are marked
   as **PROD**.
-- If the connection, the database or the script of one of those steps is
-  edited afterwards, the task **does not run them** until it is approved
+- If the connection, the database or the script of one of those steps (or
+  the notebook file or the text of one of those cells) is edited afterwards, the task **does not run them** until it is approved
   again. The list shows **There are unapproved changes** and the run fails
   saying that the task must be opened and saved again. Changing the time, the
   name or the other steps does not require approving again.
@@ -339,6 +427,16 @@ Tasks add no methods to the drivers: each step type uses what already exists.
   **DBine copy:** `list_objects` and script generation.
 - **Document the database:** the same as the feature
   ([`database-docs.md`](database-docs.md)), in a read-only session.
+- **Run a notebook:** the notebook's own paths, run without a window
+  (`src-tauri/src/notebook/headless.rs`): connection cells through the
+  scheduled scripts' runner on a session per connection and database,
+  DataFrame SQL cells through `notebook::local::run_local` (the function
+  behind the app's `notebook_run_local`), the export through
+  `notebook::export`. What the tab does in TypeScript (resolving targets,
+  turning a run into a cell's result) is done again there, the same way.
+  Command: `scheduled_notebook_plan` (what the step's editor shows; it runs
+  nothing). Notebook parameters and write cells come in through two hooks
+  there (`executable_sources`, `write_cell`).
 - **Send an email:** it does not use the driver; it sends over SMTP with the
   server from **Settings › Mail**. Commands: `mail_settings_get`,
   `mail_settings_save` and `mail_test`.

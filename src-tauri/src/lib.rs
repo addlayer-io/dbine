@@ -467,6 +467,7 @@ pub fn run() {
             commands::scheduled::scheduled_task_enable,
             commands::scheduled::scheduled_task_run_now,
             commands::scheduled::scheduled_task_runs,
+            commands::scheduled::scheduled_notebook_plan,
             commands::mail::mail_settings_get,
             commands::mail::mail_settings_save,
             commands::mail::mail_test,

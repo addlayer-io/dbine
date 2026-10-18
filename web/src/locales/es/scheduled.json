@@ -66,6 +66,7 @@
     "compare_schemas": "Comparar esquemas",
     "backup": "Backup",
     "document": "Documentar la base",
+    "run_notebook": "Ejecutar notebook",
     "send_mail": "Enviar un mail"
   },
   "step": {
@@ -105,6 +106,8 @@
     "cc": "CC",
     "subject": "Asunto",
     "body": "Texto",
+    "htmlBody": "Cuerpo HTML",
+    "htmlBodyHint": "Opcional: un archivo HTML que va como cuerpo del mail (el texto queda para los programas que no muestran HTML). {steps.1.html} es la exportación HTML de un paso «Ejecutar notebook».",
     "attachments": "Adjuntos",
     "addAttachment": "Agregar adjunto",
     "pickFile": "Elegir archivo",
@@ -148,5 +151,52 @@
     "text": "Estos pasos van a ejecutarse solos, sin que nadie los revise antes. Revisá a qué base apuntan:",
     "production": "Hay pasos sobre conexiones de producción.",
     "ok": "Aprobar y guardar"
+  },
+  "notebook": {
+    "file": "Notebook",
+    "pick": "Elegir notebook",
+    "pickTitle": "Notebook a ejecutar",
+    "filter": "Notebooks",
+    "hint": "Ejecuta todas las celdas en orden, como «Ejecutar todo», y se detiene en la primera que falla. No pregunta nada: lo que en la app pide confirmación tiene que estar permitido acá.",
+    "loading": "Leyendo el notebook…",
+    "cells": "Celdas",
+    "noCells": "El notebook no tiene celdas SQL.",
+    "cell": "celda «{{name}}»",
+    "dataframes": "DataFrame SQL",
+    "choose": "Elegí la conexión",
+    "writes": "Cambia datos ({{what}}): se aprueba al guardar la tarea.",
+    "readOnly": "solo lectura",
+    "confirmTitle": "Sin confirmación",
+    "confirmHint": "En la app, estas bases piden confirmación antes de ejecutar (entorno con confirmación o conexión de producción). Una tarea no puede confirmar: sin el permiso, la celda falla.",
+    "allowUnconfirmed": "Permitir ejecutar en {{where}} sin confirmar",
+    "confirmEnv": "entorno {{env}}",
+    "confirmProd": "producción",
+    "filesTitle": "Archivos",
+    "filesOk_one": "Lee {{count}} archivo con «Permitir siempre» para este notebook.",
+    "filesOk_other": "Lee {{count}} archivos con «Permitir siempre» para este notebook.",
+    "filesPending": "Estos archivos no tienen «Permitir siempre» para este notebook en esta máquina. La tarea no pregunta ni los lee: el paso va a fallar hasta que abras el notebook, ejecutes la celda y elijas «Permitir siempre».",
+    "openNotebook": "Abrir el notebook",
+    "writeTitle": "Celdas que escriben",
+    "writeHint": "Una tarea ejecuta una celda que escribe en una tabla solo si la autorizás acá. Si cambia la tabla o el modo, hay que volver a autorizarla.",
+    "writeAllow": "Autorizar «{{name}}»: {{target}} ({{mode}})",
+    "params": "Parámetros",
+    "paramsHint": "Valores para los parámetros del notebook en cada ejecución. Aceptan variables ({date}…).",
+    "save": "Notebook ejecutado",
+    "saveModes": {
+      "none": "No guardarlo",
+      "beside": "Al lado del original",
+      "folder": "En una carpeta"
+    },
+    "saveHint": "Una copia con los resultados de esta ejecución (con los límites de vista previa de Configuración › Notebooks). El original no se modifica.",
+    "export": "Exportar",
+    "formats": {
+      "none": "No exportar",
+      "html": "HTML",
+      "markdown": "Markdown"
+    },
+    "exportFolderHint": "Vacío: donde va la copia o, si no se guarda, al lado del notebook.",
+    "chartsHint": "En una tarea se exportan las tablas: los gráficos se incluyen al exportar desde la app.",
+    "outputsHint": "En los pasos siguientes: {steps.N.file} es la exportación (o la copia), {steps.N.html} la exportación HTML (para el cuerpo de un mail) y {steps.N.notebook} la copia.",
+    "planError": "No se pudo leer el notebook: {{error}}"
   }
 }

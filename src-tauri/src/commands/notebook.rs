@@ -261,7 +261,7 @@ pub struct RunLocalArgs {
 
 /// DBine's own folders (state, data, cache, logs, downloaded components):
 /// no notebook reads files in them.
-fn app_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
+pub(crate) fn app_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
     use tauri::Manager;
     let p = app.path();
     let mut dirs: Vec<std::path::PathBuf> = [p.app_config_dir(), p.app_data_dir(), p.app_local_data_dir(), p.app_cache_dir(), p.app_log_dir()].into_iter().flatten().collect();
