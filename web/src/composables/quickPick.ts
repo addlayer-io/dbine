@@ -14,6 +14,14 @@ export interface QuickPickItem {
   /** Marked as the one in use (a check, and selected when it opens). */
   current?: boolean;
   disabled?: boolean;
+  /** An Element Plus icon before the label (`ei-grid`). */
+  icon?: string;
+  /** A shortcut, shown at the right (already formatted: ⇧⌘P). */
+  keybinding?: string;
+  /** The label's characters to highlight (what the filter matched). */
+  matches?: number[];
+  /** Starts a group: its name at the right and a line above (not on the first row). */
+  group?: string;
 }
 
 export interface QuickPickOptions {
@@ -24,6 +32,14 @@ export interface QuickPickOptions {
   busy?: () => boolean;
   /** Shown when nothing is left after filtering. */
   empty?: string;
+  /** Text already in the box when it opens. */
+  value?: string;
+  /** Filters and orders the items for the text typed (default: the label
+   *  or the description contains it). */
+  filter?: (items: QuickPickItem[], text: string) => QuickPickItem[];
+  /** Called as the text changes; returning true hands over to another quick
+   *  pick (VS Code's `>` in "Ir a…" opens the commands). */
+  onText?: (text: string) => boolean;
 }
 
 export interface QuickInputOptions {

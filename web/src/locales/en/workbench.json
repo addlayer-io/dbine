@@ -27,6 +27,8 @@
     "keyExplorer": "explorer",
     "keyOutput": "output",
     "keyClose": "closes the tab",
+    "keyPalette": "commands",
+    "keyGoTo": "go to…",
     "engines": "Available engines ({{n}})",
     "family": {
       "relational": "Relational",

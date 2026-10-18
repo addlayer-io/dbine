@@ -1,0 +1,104 @@
+{
+  "cmd": {
+    "file": {
+      "newConnection": "Nova conexão…",
+      "newFolder": "Nova pasta de conexões…",
+      "newScheduledTask": "Nova tarefa agendada",
+      "closeOtherTabs": "Fechar as outras abas",
+      "closeAllTabs": "Fechar todas as abas"
+    },
+    "palette": {
+      "open": "Mostrar todos os comandos"
+    },
+    "goto": {
+      "open": "Ir para…"
+    },
+    "view": {
+      "showExplorer": "Mostrar o explorador",
+      "showProjects": "Mostrar Projetos",
+      "showLibrary": "Mostrar a biblioteca de scripts",
+      "showHistory": "Mostrar o histórico",
+      "showScheduled": "Mostrar as tarefas agendadas",
+      "revealActive": "Mostrar a aba no explorador"
+    },
+    "editor": {
+      "runSelection": "Executar a seleção",
+      "cancel": "Cancelar a execução",
+      "optimize": "Otimizar a consulta",
+      "runMultiDb": "Executar em vários bancos…",
+      "saveToLibrary": "Salvar na biblioteca",
+      "showProblems": "Mostrar os problemas",
+      "commit": "Confirmar a transação",
+      "rollback": "Desfazer a transação",
+      "toggleManualTx": "Ativar ou desativar as transações manuais",
+      "toggleContinueOnError": "Ativar ou desativar \"Continuar se houver erro\""
+    },
+    "database": {
+      "reveal": "Mostrar no explorador",
+      "search": "Pesquisar no banco…",
+      "healthCheck": "Verificação de saúde",
+      "designer": "Abrir o designer de tabelas",
+      "newFromTemplate": "Novo objeto a partir de um modelo…",
+      "diagram": "Diagrama do banco",
+      "queryBuilder": "Criar consulta visualmente…",
+      "document": "Documentar o banco…",
+      "profiler": "Profiler",
+      "scriptGenerator": "Gerar script…",
+      "migrate": "Migrar…",
+      "compareSchemas": "Comparar esquemas…",
+      "compareData": "Comparar dados…",
+      "usersAndPermissions": "Usuários e permissões…",
+      "backups": "Backups…",
+      "importData": "Importar dados…",
+      "runScriptFile": "Executar arquivo de script…",
+      "linkProject": "Vincular projeto…"
+    },
+    "connection": {
+      "connect": "Conectar",
+      "disconnect": "Desconectar",
+      "monitor": "Monitor do servidor",
+      "serverBackups": "Backups do servidor…",
+      "newDatabase": "Novo banco de dados…",
+      "edit": "Editar conexão…",
+      "duplicate": "Duplicar conexão"
+    },
+    "settings": {
+      "sync": "Sincronização",
+      "drivers": "Drivers",
+      "mcp": "Clientes MCP (assistentes de IA)",
+      "devices": "Telefones vinculados",
+      "mail": "E-mail",
+      "lint": "Regras do analisador de código",
+      "snippets": "Trechos de código",
+      "shortcuts": "Atalhos de teclado"
+    },
+    "help": {
+      "checkUpdates": "Verificar atualizações…",
+      "support": "Apoiar o projeto",
+      "feedback": "Enviar comentários"
+    }
+  },
+  "commands": {
+    "placeholder": "Digite o nome de um comando",
+    "empty": "Nenhum comando corresponde",
+    "recent": "usado recentemente",
+    "other": "outros comandos"
+  },
+  "goto": {
+    "placeholder": "Pesquise uma conexão, banco, tabela, visão, rotina, consulta ou aba (\">\" para os comandos)",
+    "empty": "Nada com esse nome",
+    "tabs": "abas abertas",
+    "connections": "conexões",
+    "tab": "Aba",
+    "connection": "Conexão",
+    "database": "Banco",
+    "query": "Consulta"
+  },
+  "pick": {
+    "connection": "Escolha a conexão",
+    "database": "Escolha o banco de {{connection}}",
+    "noConnection": "Nenhuma conexão oferece esta ação",
+    "noDatabases": "Não há bancos para escolher",
+    "template": "Escolha o modelo"
+  }
+}

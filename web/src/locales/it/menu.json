@@ -40,5 +40,11 @@
     "title": "Aiuto",
     "checkUpdates": "Verifica aggiornamenti…",
     "support": "Sostieni il progetto"
+  },
+  "palette": {
+    "open": "Tavolozza dei comandi…"
+  },
+  "goto": {
+    "open": "Vai a…"
   }
 }

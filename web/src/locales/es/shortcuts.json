@@ -15,7 +15,11 @@
     "general": "General",
     "view": "Vista",
     "editor": "Editor",
-    "results": "Resultados"
+    "results": "Resultados",
+    "database": "Base de datos",
+    "connection": "Conexión",
+    "settings": "Preferencias",
+    "help": "Ayuda"
   },
   "cmd": {
     "file": {

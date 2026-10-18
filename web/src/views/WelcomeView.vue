@@ -36,7 +36,7 @@ const families = computed(() => {
         <li><i18next :translation="$t('workbench:welcome.tip1')"><template #queries><strong>{{ $t('workbench:welcome.queries') }}</strong></template></i18next></li>
         <li><i18next :translation="$t('workbench:welcome.tip2')"><template #newQuery><strong>{{ $t('workbench:welcome.newQuery') }}</strong></template></i18next></li>
         <li>{{ $t('workbench:welcome.tip3') }}</li>
-        <li><kbd>{{ bindingLabel('editor.run') }}</kbd> {{ $t('workbench:welcome.keyRun') }} · <kbd>{{ bindingLabel('view.explorer') }}</kbd> {{ $t('workbench:welcome.keyExplorer') }} · <kbd>{{ bindingLabel('view.output') }}</kbd> {{ $t('workbench:welcome.keyOutput') }} · <kbd>{{ bindingLabel('file.closeTab') }}</kbd> {{ $t('workbench:welcome.keyClose') }}.</li>
+        <li><kbd>{{ bindingLabel('editor.run') }}</kbd> {{ $t('workbench:welcome.keyRun') }} · <kbd>{{ bindingLabel('view.explorer') }}</kbd> {{ $t('workbench:welcome.keyExplorer') }} · <kbd>{{ bindingLabel('view.output') }}</kbd> {{ $t('workbench:welcome.keyOutput') }} · <kbd>{{ bindingLabel('file.closeTab') }}</kbd> {{ $t('workbench:welcome.keyClose') }} · <kbd>{{ bindingLabel('palette.open') }}</kbd> {{ $t('workbench:welcome.keyPalette') }} · <kbd>{{ bindingLabel('goto.open') }}</kbd> {{ $t('workbench:welcome.keyGoTo') }}.</li>
       </ul>
     </div>
     <div class="nm-card">

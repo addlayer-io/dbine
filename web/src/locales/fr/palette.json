@@ -1,0 +1,104 @@
+{
+  "cmd": {
+    "file": {
+      "newConnection": "Nouvelle connexion…",
+      "newFolder": "Nouveau dossier de connexions…",
+      "newScheduledTask": "Nouvelle tâche planifiée",
+      "closeOtherTabs": "Fermer les autres onglets",
+      "closeAllTabs": "Fermer tous les onglets"
+    },
+    "palette": {
+      "open": "Afficher toutes les commandes"
+    },
+    "goto": {
+      "open": "Aller à…"
+    },
+    "view": {
+      "showExplorer": "Afficher l’explorateur",
+      "showProjects": "Afficher les projets",
+      "showLibrary": "Afficher la bibliothèque de scripts",
+      "showHistory": "Afficher l’historique",
+      "showScheduled": "Afficher les tâches planifiées",
+      "revealActive": "Révéler l’onglet dans l’explorateur"
+    },
+    "editor": {
+      "runSelection": "Exécuter la sélection",
+      "cancel": "Annuler l’exécution",
+      "optimize": "Optimiser la requête",
+      "runMultiDb": "Exécuter sur plusieurs bases…",
+      "saveToLibrary": "Enregistrer dans la bibliothèque",
+      "showProblems": "Afficher les problèmes",
+      "commit": "Valider la transaction",
+      "rollback": "Annuler la transaction",
+      "toggleManualTx": "Activer ou désactiver les transactions manuelles",
+      "toggleContinueOnError": "Activer ou désactiver « Continuer en cas d’erreur »"
+    },
+    "database": {
+      "reveal": "Révéler dans l’explorateur",
+      "search": "Rechercher dans la base…",
+      "healthCheck": "Bilan de santé",
+      "designer": "Ouvrir le concepteur de tables",
+      "newFromTemplate": "Nouvel objet à partir d’un modèle…",
+      "diagram": "Diagramme de la base",
+      "queryBuilder": "Concevoir une requête…",
+      "document": "Documenter la base…",
+      "profiler": "Profileur",
+      "scriptGenerator": "Générer un script…",
+      "migrate": "Migrer…",
+      "compareSchemas": "Comparer les schémas…",
+      "compareData": "Comparer les données…",
+      "usersAndPermissions": "Utilisateurs et autorisations…",
+      "backups": "Sauvegardes…",
+      "importData": "Importer des données…",
+      "runScriptFile": "Exécuter un fichier de script…",
+      "linkProject": "Lier un projet…"
+    },
+    "connection": {
+      "connect": "Se connecter",
+      "disconnect": "Se déconnecter",
+      "monitor": "Moniteur du serveur",
+      "serverBackups": "Sauvegardes du serveur…",
+      "newDatabase": "Nouvelle base de données…",
+      "edit": "Modifier la connexion…",
+      "duplicate": "Dupliquer la connexion"
+    },
+    "settings": {
+      "sync": "Synchronisation",
+      "drivers": "Pilotes",
+      "mcp": "Clients MCP (assistants IA)",
+      "devices": "Téléphones associés",
+      "mail": "E-mail",
+      "lint": "Règles de l’analyseur de code",
+      "snippets": "Extraits de code",
+      "shortcuts": "Raccourcis clavier"
+    },
+    "help": {
+      "checkUpdates": "Rechercher des mises à jour…",
+      "support": "Soutenir le projet",
+      "feedback": "Envoyer des commentaires"
+    }
+  },
+  "commands": {
+    "placeholder": "Tapez le nom d’une commande",
+    "empty": "Aucune commande correspondante",
+    "recent": "récemment utilisé",
+    "other": "autres commandes"
+  },
+  "goto": {
+    "placeholder": "Cherchez une connexion, base, table, vue, routine, requête ou onglet (« > » pour les commandes)",
+    "empty": "Rien de ce nom",
+    "tabs": "onglets ouverts",
+    "connections": "connexions",
+    "tab": "Onglet",
+    "connection": "Connexion",
+    "database": "Base",
+    "query": "Requête"
+  },
+  "pick": {
+    "connection": "Choisissez la connexion",
+    "database": "Choisissez la base de {{connection}}",
+    "noConnection": "Aucune connexion ne propose cette action",
+    "noDatabases": "Aucune base à choisir",
+    "template": "Choisissez le modèle"
+  }
+}

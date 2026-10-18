@@ -6,7 +6,7 @@
 // &sidebar=explorer starts on the Explorer.
 
 import type {
-  ChangeMark, FileChange, FileStat, FolderInspect, FsEntry, ProjectBinding, ProjectInfo, ProjectStatus, SavedConnection,
+  ChangeMark, DbObject, FileChange, FileStat, FolderInspect, FsEntry, ProjectBinding, ProjectInfo, ProjectStatus, SavedConnection,
 } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { sampleDrivers } from './monitor-samples';
@@ -56,6 +56,32 @@ const git: Record<string, { ahead: number; behind: number; branch: string; remot
   p1: { ahead: 1, behind: 2, branch: 'main', remote: true, conflict: false },
   p2: { ahead: 0, behind: 0, branch: 'main', remote: false, conflict: false },
 };
+
+// &palette=1: the explorer cache and saved queries "Ir a…" (⌘P) searches.
+const palette = new URLSearchParams(location.search).get('palette') === '1';
+const CACHED_OBJECTS: DbObject[] = [
+  ...['clientes', 'pedidos', 'pedidos_detalle', 'productos', 'facturas', 'vendedores', 'stock_movimientos'].map((name) => ({ kind: 'table', schema: 'public', name, parent: null })),
+  ...['v_ventas_mensuales', 'v_clientes_activos'].map((name) => ({ kind: 'view', schema: 'public', name, parent: null })),
+  ...['total_cliente', 'recalcular_stock'].map((name) => ({ kind: 'function', schema: 'public', name, parent: null })),
+  { kind: 'procedure', schema: 'ventas', name: 'cerrar_mes', parent: null },
+];
+const PALETTE_KINDS = [
+  { id: 'table', label: 'Tablas', has_columns: true, browsable: true, has_definition: true },
+  { id: 'view', label: 'Vistas', has_columns: true, browsable: true, has_definition: true },
+  { id: 'function', label: 'Funciones', has_columns: false, browsable: false, has_definition: true },
+  { id: 'procedure', label: 'Procedimientos', has_columns: false, browsable: false, has_definition: true },
+];
+function paletteCached(connectionId: string, database: string, kind: string): unknown {
+  if (kind === 'databases') return DATABASES[connectionId] ?? null;
+  if (kind === 'objects') return database === 'postgres' ? null : CACHED_OBJECTS;
+  return null;
+}
+function paletteQueries(connectionId: string, database: string) {
+  if (connectionId !== 'c1' || database !== 'ventas') return [];
+  return ['Ventas por vendedor', 'Clientes sin pedidos', 'Pedidos pendientes de facturar'].map((name, i) => ({
+    id: `pq${i}`, connection_id: connectionId, database, name, sql: 'select 1;', updated_at: now, last_run_at: null,
+  }));
+}
 
 const binding = (b: Partial<ProjectBinding>): ProjectBinding => ({ direct: null, environments: {}, active_environment: null, ...b });
 let projects: ProjectInfo[] = [
@@ -306,13 +332,16 @@ export function installProjectsPreview() {
         case 'plugin:event|listen': return ++cb;
         case 'plugin:event|unlisten': return null;
         case 'plugin:dialog|open': return '/Users/demo/code/inventario';
-        case 'list_drivers': return sampleDrivers;
+        case 'list_drivers': return palette ? sampleDrivers.map((d) => ({ ...d, object_kinds: PALETTE_KINDS })) : sampleDrivers;
         case 'list_connections': return CONNECTIONS;
-        case 'list_folders': case 'list_queries': case 'list_saved_migrations': case 'list_library': case 'list_history': return [];
+        case 'get_query': if (palette) return { ...paletteQueries('c1', 'ventas').find((q) => q.id === a.id), sql: 'select vendedor, sum(total)\nfrom pedidos\ngroup by vendedor;' };
+          throw { kind: 'preview', message: '"get_query" no está disponible en la vista previa' };
+        case 'list_queries': return palette ? paletteQueries(String(a.connection_id), String(a.database)) : [];
+        case 'list_folders': case 'list_saved_migrations': case 'list_library': case 'list_history': return [];
         case 'list_database_objects': return { objects: [{ kind: 'table', schema: 'public', name: 'clientes' }, { kind: 'table', schema: 'public', name: 'pedidos' }], schemas: null };
         case 'list_settings': case 'get_settings': return { 'telemetry.noticeSeen': true, 'telemetry.consent': false, 'import.suggested': true, 'support.next': '2099-01-01T00:00:00Z' };
         case 'set_setting': return null;
-        case 'get_cached': return null;
+        case 'get_cached': return palette ? paletteCached(String(a.connection_id), String(a.database), String(a.kind)) : null;
         case 'execute_query': {
           await wait(300);
           return {

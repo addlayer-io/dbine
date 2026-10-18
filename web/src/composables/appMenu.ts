@@ -7,7 +7,7 @@ import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { checkForUpdateNow } from './updates';
 import { requestQuit } from './quitGuard';
-import { bindingAccelerator, bindingOf, keyOfEvent, matchesCommand, recordingKeys } from './commands';
+import { bindingAccelerator, bindingOf, keyOfEvent, matchesCommand, recordingKeys, runCommand } from './commands';
 
 // The native menu bar (macOS only: Windows and Linux have none, as VS Code).
 // Its labels follow the app's language, so the UI builds it and sends it to
@@ -69,6 +69,7 @@ function menus() {
       native('cut', 'edit.cut'), native('copy', 'edit.copy'), native('paste', 'edit.paste'), native('selectAll', 'edit.selectAll'),
     ] },
     { label: t('menu:view.title'), items: [
+      item('palette.open', true), item('goto.open', true), sep,
       item('view.explorer', true), item('view.output', true), item('view.ai', true), sep,
       native('fullscreen', 'view.fullscreen'),
     ] },
@@ -78,7 +79,7 @@ function menus() {
 }
 
 /** The commands whose menu items carry their keys (`item(id, true)` above). */
-const menuCommands = ['app.settings', 'app.quit', 'file.newQuery', 'file.newWindow', 'file.closeTab', 'view.explorer', 'view.output', 'view.ai'];
+const menuCommands = ['palette.open', 'goto.open', 'app.settings', 'app.quit', 'file.newQuery', 'file.newWindow', 'file.closeTab', 'view.explorer', 'view.output', 'view.ai'];
 
 let installed = false;
 
@@ -109,6 +110,9 @@ export function useAppMenu(actions: AppMenuActions) {
     'view.explorer': actions.toggleExplorer,
     'view.output': actions.toggleOutput,
     'view.ai': () => { ui.aiOpen = !ui.aiOpen; },
+    // The command palette and "Ir a…" (composables/workbenchCommands.ts).
+    'palette.open': () => { runCommand('palette.open'); },
+    'goto.open': () => { runCommand('goto.open'); },
     'help.checkUpdates': () => { checkForUpdateNow(); },
     'help.support': () => { invoke('open_support_page').catch(() => {}); },
   };
