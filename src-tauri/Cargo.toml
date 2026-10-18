@@ -83,6 +83,10 @@ keepass = "0.15.2"
 aes = "0.8"
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 rsa = { version = "=0.10.0-rc.18", default-features = false, features = ["std", "encoding", "sha2"] }
+# CyberArk's Central Credential Provider: a client certificate in a PKCS#12
+# file, or a PEM key encrypted with a passphrase (PKCS#8).
+p12-keystore = "0.4"
+pkcs8 = { version = "0.11", features = ["encryption", "pem", "std"] }
 
 
 # Release builds (`plugins`) don't compile the downloadable drivers, but
@@ -219,3 +223,5 @@ flatpak = ["all-drivers"]
 keepass = { version = "0.15.2", features = ["save_kdbx4"] }
 # A mock of Zoho Vault's API (secret_sources/zoho.rs).
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "form"] }
+# A test CA and client certificates for the CCP mock (secret_sources/cyberark.rs).
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }

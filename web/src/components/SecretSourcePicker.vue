@@ -6,7 +6,7 @@ import { api, errorMessage } from '../api/client';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import {
-  isExternal, MASTER_SOURCES, missingInputs, SOURCE_KINDS, sourceFrom, typedTokens, ZOHO_DATA_CENTERS, type DraftKind, type SourceDraft,
+  isExternal, MASTER_SOURCES, missingInputs, SOURCE_KINDS, sourceFrom, typedTokens, VAULT_AUTHS, ZOHO_DATA_CENTERS, type DraftKind, type SourceDraft,
 } from '../composables/secretSources';
 
 // Where one secret field takes its value (docs/secret-sources.md): the
@@ -39,11 +39,11 @@ const missing = computed(() => missingInputs(draft.value));
 
 function setKind(k: DraftKind) {
   draft.value.kind = k;
-  // Zoho Vault always needs its passphrase.
-  if (k === 'zoho' && draft.value.master === 'none') draft.value.master = 'keychain';
+  // Zoho Vault always needs its passphrase, Delinea its password.
+  if ((k === 'zoho' || k === 'delinea') && draft.value.master === 'none') draft.value.master = 'keychain';
 }
 
-async function browse(input: 'ca_file' | 'file' | 'key_file') {
+async function browse(input: 'ca_file' | 'file' | 'key_file' | 'client_cert' | 'client_key') {
   try {
     const filters = input === 'file' ? [{ name: 'KeePass', extensions: ['kdbx'] }] : undefined;
     const p = await openFile({ multiple: false, directory: false, filters });
@@ -53,7 +53,9 @@ async function browse(input: 'ca_file' | 'file' | 'key_file') {
 
 /** KeePass / Zoho Vault: where the master password comes from. */
 const masters = computed(() => MASTER_SOURCES.filter((m) => m !== 'none' || draft.value.kind === 'keepass'));
-const hasMaster = computed(() => draft.value.kind === 'keepass' || draft.value.kind === 'zoho');
+const hasMaster = computed(() => ['keepass', 'zoho', 'delinea'].includes(draft.value.kind));
+/** HashiCorp Vault (KV or database credentials): its sign-in. */
+const isVault = computed(() => draft.value.kind === 'vault' || draft.value.kind === 'vault_db');
 /** A master password asked while testing ("ask"): this picker's tests only. */
 const asked = ref('');
 
@@ -141,15 +143,6 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.namespace')">
           <el-input v-model="draft.namespace" placeholder="admin/team" />
-        </el-form-item>
-        <el-form-item :label="$t('connection:source.input.token')">
-          <el-input
-            v-model="draft.token"
-            type="password"
-            show-password
-            autocomplete="new-password"
-            :placeholder="editing ? $t('connection:form.secretKeptMasc') : $t('connection:source.placeholder.token')"
-          />
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.ca_file')">
           <el-input v-model="draft.ca_file" placeholder="~/vault-ca.pem">
@@ -248,6 +241,163 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           />
         </el-form-item>
       </template>
+      <template v-else-if="draft.kind === 'vault_db'">
+        <el-form-item :label="$t('connection:source.input.address')" :required="req('address')" class="ss-wide">
+          <el-input v-model="draft.address" placeholder="https://vault.example.com:8200" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.mount')">
+          <el-input v-model="draft.mount" class="ss-mono" placeholder="database" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.role')" :required="req('role')">
+          <el-input v-model="draft.role" class="ss-mono" placeholder="readonly" spellcheck="false" />
+        </el-form-item>
+        <el-checkbox v-model="draft.static_role" class="ss-wide">{{ $t('connection:source.input.static_role') }}</el-checkbox>
+        <el-form-item :label="$t('connection:source.input.namespace')">
+          <el-input v-model="draft.namespace" placeholder="admin/team" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.ca_file')">
+          <el-input v-model="draft.ca_file" placeholder="~/vault-ca.pem">
+            <template #append>
+              <el-button @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <div class="ss-help ss-wide">{{ $t('connection:source.help.vault_db') }}</div>
+      </template>
+      <template v-else-if="draft.kind === 'conjur'">
+        <el-form-item :label="$t('connection:source.input.url')" :required="req('url')" class="ss-wide">
+          <el-input v-model="draft.url" placeholder="https://conjur.example.com" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.conjur_account')" :required="req('conjur_account')">
+          <el-input v-model="draft.conjur_account" class="ss-mono" placeholder="myorg" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.login')" :required="req('login')">
+          <el-input v-model="draft.login" class="ss-mono" placeholder="host/apps/dbine" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.variable')" :required="req('variable')">
+          <el-input v-model="draft.variable" class="ss-mono" placeholder="db/prod/password" spellcheck="false" />
+        </el-form-item>
+        <el-form-item v-if="field === 'password'" :label="$t('connection:source.input.username_variable')">
+          <el-input v-model="draft.username_variable" class="ss-mono" placeholder="db/prod/username" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.api_key')">
+          <el-input
+            v-model="draft.token" type="password" show-password autocomplete="new-password"
+            :placeholder="editing ? $t('connection:form.secretKeptFem') : ''"
+          />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.ca_file')">
+          <el-input v-model="draft.ca_file" placeholder="~/conjur-ca.pem">
+            <template #append>
+              <el-button @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <div class="ss-help ss-wide">{{ $t('connection:source.help.conjur') }}</div>
+      </template>
+      <template v-else-if="draft.kind === 'ccp'">
+        <el-form-item :label="$t('connection:source.input.url')" :required="req('url')" class="ss-wide">
+          <el-input v-model="draft.url" placeholder="https://ccp.example.com" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.app_id')" :required="req('app_id')">
+          <el-input v-model="draft.app_id" class="ss-mono" placeholder="DBine" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.safe')">
+          <el-input v-model="draft.safe" class="ss-mono" placeholder="Databases" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.object')" :required="req('object')">
+          <el-input v-model="draft.object" class="ss-mono" placeholder="pg-prod" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.folder')">
+          <el-input v-model="draft.folder" class="ss-mono" placeholder="Root" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.account_user')">
+          <el-input v-model="draft.account_user" class="ss-mono" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.account_address')">
+          <el-input v-model="draft.account_address" class="ss-mono" placeholder="db.example.com" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.client_cert')">
+          <el-input v-model="draft.client_cert" placeholder="~/dbine.p12" spellcheck="false">
+            <template #append>
+              <el-button @click="browse('client_cert')"><el-icon><ei-folder-opened /></el-icon></el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.client_key')">
+          <el-input v-model="draft.client_key" placeholder="~/dbine.key" spellcheck="false" :disabled="!draft.client_cert.trim()">
+            <template #append>
+              <el-button :disabled="!draft.client_cert.trim()" @click="browse('client_key')"><el-icon><ei-folder-opened /></el-icon></el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.cert_passphrase')">
+          <el-input
+            v-model="draft.token" type="password" show-password autocomplete="new-password"
+            :placeholder="editing ? $t('connection:form.secretKeptFem') : ''"
+          />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.ca_file')">
+          <el-input v-model="draft.ca_file" placeholder="~/ccp-ca.pem">
+            <template #append>
+              <el-button @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-checkbox v-if="field === 'password'" v-model="draft.fill_username" class="ss-wide">{{ $t('connection:source.input.fill_username_ccp') }}</el-checkbox>
+        <div class="ss-help ss-wide">{{ $t('connection:source.help.ccp') }}</div>
+      </template>
+      <template v-else-if="draft.kind === 'delinea'">
+        <el-form-item :label="$t('connection:source.input.url')" :required="req('url')" class="ss-wide">
+          <el-input v-model="draft.url" placeholder="https://mytenant.secretservercloud.com" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.platform_url')" class="ss-wide">
+          <el-input v-model="draft.platform_url" placeholder="https://mytenant.delinea.app" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.username')" :required="req('username')">
+          <el-input v-model="draft.username" class="ss-mono" placeholder="svc_dbine" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.domain')">
+          <el-input v-model="draft.domain" class="ss-mono" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.secret_name')" :required="req('secret_name')">
+          <el-input v-model="draft.secret_name" class="ss-mono" placeholder="pg-prod" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.attribute')">
+          <el-input v-model="draft.attribute" class="ss-mono" placeholder="password" spellcheck="false" />
+        </el-form-item>
+      </template>
+      <template v-if="isVault">
+        <el-form-item :label="$t('connection:source.input.auth')">
+          <el-select v-model="draft.auth" style="width: 100%">
+            <el-option v-for="a in VAULT_AUTHS" :key="a" :value="a" :label="$t(`connection:source.vaultAuth.${a}`)" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="draft.auth !== 'approle'" :label="$t('connection:source.input.token')">
+          <el-input
+            v-model="draft.token"
+            type="password"
+            show-password
+            autocomplete="new-password"
+            :placeholder="editing ? $t('connection:form.secretKeptMasc') : $t('connection:source.placeholder.token')"
+          />
+        </el-form-item>
+        <template v-else>
+          <el-form-item :label="$t('connection:source.input.role_id')" :required="req('role_id')">
+            <el-input v-model="draft.role_id" class="ss-mono" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.approle_secret_id')">
+            <el-input
+              v-model="draft.approle_secret_id" type="password" show-password autocomplete="new-password"
+              :placeholder="editing ? $t('connection:form.secretKeptMasc') : ''"
+            />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.approle_mount')">
+            <el-input v-model="draft.approle_mount" class="ss-mono" placeholder="approle" spellcheck="false" />
+          </el-form-item>
+          <div class="ss-help ss-wide">{{ $t('connection:source.help.approle') }}</div>
+        </template>
+      </template>
       <template v-if="hasMaster">
         <el-form-item :label="$t(`connection:source.input.master_${draft.kind}`)">
           <el-select v-model="draft.master" style="width: 100%">
@@ -268,7 +418,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </el-checkbox>
         <div class="ss-help ss-wide">{{ $t(`connection:source.help.${draft.kind}`) }}</div>
       </template>
-      <el-form-item v-if="!['vault', 'keepass', 'zoho'].includes(draft.kind)" :label="$t('connection:source.input.json_key')">
+      <el-form-item v-if="!['vault', 'keepass', 'zoho', 'vault_db', 'ccp', 'delinea'].includes(draft.kind)" :label="$t('connection:source.input.json_key')">
         <el-input v-model="draft.json_key" class="ss-mono" placeholder="password" spellcheck="false" />
         <div class="ss-help">{{ $t('connection:source.help.json_key') }}</div>
       </el-form-item>

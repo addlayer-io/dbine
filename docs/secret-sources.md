@@ -16,6 +16,10 @@ has an **Origin** selector in the connection form:
 | **Google Secret Manager** | A secret version of a project. |
 | **KeePass** | A field of an entry of a `.kdbx` file, read by DBine itself. |
 | **Zoho Vault** | A field of a secret, decrypted by DBine with your master passphrase. |
+| **HashiCorp Vault (database credentials)** | A user and a password Vault makes for this connection (database secrets engine), revoked when it closes. |
+| **CyberArk Conjur** | A variable, read with a host's or user's API key. |
+| **CyberArk Central Credential Provider** | An account's password (and user), usually with a client certificate. |
+| **Delinea Secret Server** | A field of a secret, on premises or Secret Server Cloud (also through Delinea Platform). |
 
 DBine resolves the value right before each connection opens, before the SSH
 tunnel and the engine's driver get the settings, so it works the same way on
@@ -76,6 +80,7 @@ or field not found.
 | Namespace | Vault Enterprise / HCP namespace (`X-Vault-Namespace`), optional. |
 | Token | Optional. Without it: `VAULT_TOKEN`, then `~/.vault-token` (what `vault login` writes). A token typed here is kept in the system keychain, like a password. |
 | CA certificate | PEM file of the CA that signed Vault's certificate, when it isn't a public one. |
+| Vault sign-in | **Token** (above) or **AppRole**: the role ID, the secret ID (kept in the system keychain) and AppRole's path (`approle` by default). DBine signs in (`auth/<path>/login`), reads, and revokes that token. |
 
 DBine talks to Vault's HTTP API itself (no `vault` CLI needed). The token
 only goes in the `X-Vault-Token` header to the address in the form, and no
@@ -181,6 +186,110 @@ This integration follows Zoho Vault's REST API v1 documentation and the
 encryption its web client uses; it was tested against recorded vectors and a
 mock of the API, not against a live Zoho account.
 
+## HashiCorp Vault: database credentials
+
+| Field | |
+|---|---|
+| Address, namespace, CA certificate, Vault sign-in | As for [HashiCorp Vault](#hashicorp-vault): a token (typed, `VAULT_TOKEN` or `~/.vault-token`) or AppRole. |
+| Database engine | The secrets engine's path: `database` by default. |
+| Role | The role whose credentials are asked for (`<engine>/creds/<role>`). |
+| Static role | A role with a fixed user whose password Vault rotates (`<engine>/static-creds/<role>`). |
+
+Vault's database secrets engine makes a user and a password for whoever
+asks, with a lease. Both come from the same response, so the source fills
+the connection's **user** too (the form's user is replaced).
+
+How long the credentials live:
+
+- They belong to the connection while it's open: every session it opens
+  (explorer, editor tabs, a reconnect) uses the same user and password, kept
+  in memory only, never on disk (neither are the lease ID or the token).
+- DBine renews the lease before it ends (a third of its duration before, at
+  most five minutes before) while the connection has a session open (if it
+  has none by then, the lease is revoked instead), and the AppRole
+  token that made it too, up to the role's maximum TTL. When the lease can't
+  be renewed any more, the next session gets new credentials; the old lease
+  is kept until the connection closes, because sessions opened with it may
+  still be using it.
+- Disconnecting, editing or deleting the connection, or closing DBine,
+  revokes every lease of it (`sys/leases/revoke`) and the AppRole token: Vault
+  then removes the database user. If DBine can't reach Vault at that moment
+  (or is killed), the lease ends at its TTL anyway.
+- **Test** next to the field asks for credentials and revokes them at once;
+  **Test connection** revokes them two minutes after the test.
+- A static role has no lease: its credentials are reused until shortly
+  before Vault's next rotation, and nothing is revoked.
+
+The token needs `read` on `<engine>/creds/<role>` (or `static-creds`) and
+`update` on `sys/leases/renew` and `sys/leases/revoke`. Errors: permission
+denied, role not found, AppRole's role ID or secret ID rejected.
+
+## CyberArk Conjur
+
+| Field | |
+|---|---|
+| URL | Conjur's appliance URL (`https://conjur.example.com`); Conjur Cloud: `https://<subdomain>.secretsmgr.cyberark.cloud/api`. |
+| Account | Conjur's account (`conjur` in Conjur Cloud). |
+| Login | `host/<id>` for a workload, or a user's name. |
+| Variable ID | `db/prod/password`. |
+| Variable with the user | Optional (the password field only): another variable whose value is the connection's user. |
+| API key | The host's or user's API key, kept in the system keychain. |
+| CA certificate | Optional: PEM file of the CA that signed Conjur's certificate. |
+
+DBine trades the API key for a short-lived access token
+(`POST /authn/<account>/<login>/authenticate`) and reads the variables with
+it (`GET /secrets/<account>/variable/<id>`); the token lives in memory for
+that read only. **JSON key** works as for the other sources. HTTPS only
+(plain HTTP only to this computer), and no redirect is followed. Errors:
+login or API key rejected, account not found, no `execute` privilege on the
+variable, variable not found or without a value.
+
+## CyberArk Central Credential Provider
+
+| Field | |
+|---|---|
+| URL | The CCP's server (`https://ccp.example.com`): DBine calls `/AIMWebService/api/Accounts`. With a path (`https://ccp.example.com/AIMWebServiceProd`), `/api/Accounts` goes after it. |
+| AppID | The application's ID in CyberArk. |
+| Safe, Folder | Optional. |
+| Object | The account's name in the safe; or, instead or as well, the account's **user** and **address**. |
+| Client certificate | Optional (usually required by the CCP): a PEM file with the certificate (and its key, or the key in **Private key**), or a PKCS#12 file (`.p12`/`.pfx`). |
+| Passphrase | Of the PKCS#12 file or of an encrypted PKCS#8 key; kept in the system keychain. |
+| CA certificate | Optional: PEM file of the CA that signed the CCP's certificate. |
+| Take the user too | The connection's user comes from the account's `UserName`. |
+
+The CCP answers the account's `Content` (the password) and `UserName`. HTTPS
+only (plain HTTP only to this computer), and no redirect is followed. A PEM
+key encrypted the old OpenSSL way (`Proc-Type: 4,ENCRYPTED`) isn't read:
+convert it with `openssl pkcs8 -topk8`. Errors: CyberArk's codes and
+messages (`APPAP004E`: no account matches; authentication failed for the
+AppID), the certificate refused, the passphrase wrong.
+
+## Delinea Secret Server
+
+| Field | |
+|---|---|
+| URL | Secret Server's address: on premises (`https://ss.example.com/SecretServer`) or Secret Server Cloud (`https://<tenant>.secretservercloud.com`, `.eu` and the other regions' domains). |
+| Delinea Platform URL | Optional: `https://<tenant>.delinea.app`, to sign in through the platform. |
+| User | A Secret Server user or application account; with Delinea Platform, a service user's client ID. |
+| Domain | Optional: the user's domain. |
+| Secret ID or name | Its numeric ID, or its exact name (else ignoring case); more than one secret with that name is an error listing their IDs. |
+| Field | Optional: the field's slug (`password` by default; `username`, `server`, …) or its name. |
+| Password | **Saved in the keychain**, **Ask when connecting** or **From a command**, as for KeePass. With Delinea Platform, the client secret. |
+| Take the user too | The connection's user comes from the secret's `username` field. |
+
+DBine gets an OAuth2 access token from Secret Server (`POST /oauth2/token`,
+the password grant, with the domain if given) or, with Delinea Platform, from
+the tenant (`/identity/api/oauth2/token/xpmplatform`, client credentials),
+then reads the secret (`GET /api/v1/secrets/<id>`). The password only goes to
+those two URLs, over HTTPS (plain HTTP only to this computer to Secret Server),
+and no redirect is followed. Secrets that need a comment, a check-out, an
+approval or a double lock can't be read this way, and the error says so.
+Other errors: user or password rejected (with **Ask when connecting** it asks
+again), permission denied, secret not found, field not found or a file.
+
+This integration follows Delinea's REST API documentation; it was tested
+against a mock of the API, not against a live Secret Server.
+
 ## Connections that come from elsewhere
 
 A source runs a program or sends your credentials to a service, so a
@@ -223,7 +332,7 @@ and travels with them (backup, export, import). Its value never does.
 The Flathub build runs commands inside its sandbox, which doesn't have the
 system's programs (`op`, `pass`, `aws`, `az`, `gcloud`): the 1Password, AWS
 CLI, Azure and Google steps answer that they aren't available in the
-sandbox. Vault and Zoho Vault work (plain HTTPS), AWS Secrets Manager works
+sandbox. Vault, Zoho Vault, CyberArk and Delinea work (plain HTTPS), AWS Secrets Manager works
 with keys from the environment or `~/.aws/credentials`, and KeePass reads
 files the sandbox can see (your home folder).
 
@@ -250,6 +359,35 @@ files the sandbox can see (your home folder).
   `zoho-vectors.mjs` says). `secret_sources::tests::live_postgres` connects
   to `dbine-test-postgres` with a password from a command, a KeePass file and
   (if running) Vault.
+- Vault database credentials: the lease store is `vault_db.rs` (held by
+  connection, renewer task, `release` from `AppState::close_connection_sessions`,
+  `release_all` from `exit_cleanup`). `secret_sources::tests::live_vault_database`
+  needs Vault in dev mode with the engine pointing at `dbine-test-postgres`:
+
+  ```sh
+  docker run -d --name dbine-test-vault-db -p 28201:8200 -e VAULT_DEV_ROOT_TOKEN_ID=dbine-root --cap-add IPC_LOCK hashicorp/vault
+  docker exec dbine-test-postgres psql -U postgres -c "CREATE ROLE static_app LOGIN PASSWORD 'initial'"
+  V() { docker exec -i -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=dbine-root dbine-test-vault-db vault "$@"; }
+  V secrets enable database
+  V write database/config/pg plugin_name=postgresql-database-plugin allowed_roles="ro,static-app" \
+    connection_url="postgresql://{{username}}:{{password}}@host.docker.internal:25010/postgres?sslmode=disable" username=postgres password=pw
+  V write database/roles/ro db_name=pg default_ttl=1h max_ttl=24h \
+    "creation_statements=CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT pg_read_all_data TO \"{{name}}\";"
+  V write database/static-roles/static-app db_name=pg username=static_app rotation_period=86400
+  V auth enable approle
+  printf 'path "database/creds/ro" { capabilities = ["read"] }\npath "sys/leases/*" { capabilities = ["update"] }\n' | V policy write dbine-db -
+  V write auth/approle/role/dbine token_policies=dbine-db token_ttl=20m
+  echo "$(V read -field=role_id auth/approle/role/dbine/role-id):$(V write -f -field=secret_id auth/approle/role/dbine/secret-id)"  # DBINE_TEST_VAULT_APPROLE
+  ```
+
+- CyberArk Conjur: `secret_sources::tests::live_conjur` runs against Conjur
+  Open Source (`cyberark/conjur` as `dbine-test-conjur`, `postgres:16` as
+  `dbine-test-conjur-db` on a network of their own, `CONJUR_AUTHENTICATORS=authn`,
+  account `myorg`, a policy with the host `apps/dbine` and the variables
+  `db/prod/password` = `pw`, `db/prod/username` = `postgres` and an unpermitted
+  `db/forbidden`). The CCP's test (`cyberark.rs`) makes a CA and client
+  certificates with `rcgen` and serves the Accounts API over TLS that requires
+  them; Delinea's runs against a mock of its API.
 - Commands (`args` in snake_case):
 
 | Command | args | Returns |

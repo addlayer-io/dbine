@@ -13,10 +13,13 @@ export const SOURCES_OPTION = 'secret_sources';
 export const TOKEN_PREFIX = 'source_token:';
 
 /** What the picker offers, in order. `ask` only for the password. */
-export const SOURCE_KINDS = ['saved', 'ask', 'command', 'onepassword', 'vault', 'aws', 'azure', 'gcp', 'keepass', 'zoho'] as const;
+export const SOURCE_KINDS = ['saved', 'ask', 'command', 'onepassword', 'vault', 'aws', 'azure', 'gcp', 'keepass', 'zoho', 'vault_db', 'conjur', 'ccp', 'delinea'] as const;
 export type DraftKind = (typeof SOURCE_KINDS)[number];
 
-/** Where a KeePass / Zoho Vault master password comes from. */
+/** How DBine signs in to HashiCorp Vault (KV and database credentials). */
+export const VAULT_AUTHS = ['token', 'approle'] as const;
+
+/** Where a KeePass / Zoho Vault master password (a Delinea password) comes from. */
 export const MASTER_SOURCES = ['keychain', 'ask', 'command', 'none'] as const;
 export type MasterKind = (typeof MASTER_SOURCES)[number];
 
@@ -70,6 +73,34 @@ export interface SourceDraft {
   /** Typed now, like `token` (never read back). */
   client_secret: string;
   refresh_token: string;
+  /** Vault: a token, or AppRole (the role ID here; its secret ID typed below). */
+  auth: 'token' | 'approle';
+  approle_mount: string;
+  role_id: string;
+  /** Typed now, like `token` (kept in the `secret_id` slot). */
+  approle_secret_id: string;
+  /** Vault database credentials. */
+  mount: string;
+  role: string;
+  static_role: boolean;
+  /** CyberArk Conjur, CCP and Delinea: the service's URL. */
+  url: string;
+  conjur_account: string;
+  login: string;
+  variable: string;
+  username_variable: string;
+  app_id: string;
+  safe: string;
+  folder: string;
+  object: string;
+  account_user: string;
+  account_address: string;
+  client_cert: string;
+  client_key: string;
+  /** Delinea. */
+  platform_url: string;
+  username: string;
+  domain: string;
 }
 
 export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
@@ -77,7 +108,9 @@ export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
     kind, command: '', json_key: '', reference: '', account: '', address: '', path: '', key: '', namespace: '', kv_version: 'auto',
     ca_file: '', token: '', secret_id: '', region: '', profile: '', fill_username: false, vault_url: '', name: '', version: '', project: '', secret: '',
     file: '', entry: '', attribute: '', key_file: '', master: 'keychain', master_command: '', data_center: '', secret_name: '', client_id: '',
-    client_secret: '', refresh_token: '',
+    client_secret: '', refresh_token: '', auth: 'token', approle_mount: '', role_id: '', approle_secret_id: '', mount: '', role: '', static_role: false, url: '',
+    conjur_account: '', login: '', variable: '', username_variable: '', app_id: '', safe: '', folder: '', object: '', account_user: '', account_address: '',
+    client_cert: '', client_key: '', platform_url: '', username: '', domain: '',
   };
 }
 
@@ -105,9 +138,10 @@ export function draftFrom(source: SecretSource | undefined, ask = false): Source
   const d = emptyDraft(source.kind);
   for (const [k, v] of Object.entries(source)) {
     if (k === 'kind' || !(k in d)) continue;
-    (d as unknown as Record<string, unknown>)[k] = k === 'fill_username' ? v === true : String(v ?? '');
+    (d as unknown as Record<string, unknown>)[k] = k === 'fill_username' || k === 'static_role' ? v === true : String(v ?? '');
   }
   if (!['auto', '1', '2'].includes(d.kv_version)) d.kv_version = 'auto';
+  if (!(VAULT_AUTHS as readonly string[]).includes(d.auth)) d.auth = 'token';
   if (!(MASTER_SOURCES as readonly string[]).includes(d.master)) d.master = 'keychain';
   return d;
 }
@@ -127,7 +161,7 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
     case 'onepassword': return opt({ kind: 'onepassword' as const, reference: t(d.reference), account: t(d.account), json_key: t(d.json_key) });
     case 'vault': return opt({
       kind: 'vault' as const, address: t(d.address), path: t(d.path), key: t(d.key), namespace: t(d.namespace),
-      kv_version: d.kv_version === 'auto' ? '' : d.kv_version, ca_file: t(d.ca_file),
+      kv_version: d.kv_version === 'auto' ? '' : d.kv_version, ca_file: t(d.ca_file), ...vaultAuth(d),
     }) as SecretSource;
     case 'aws': return opt({
       kind: 'aws' as const, secret_id: t(d.secret_id), region: t(d.region), profile: t(d.profile), json_key: t(d.json_key),
@@ -145,8 +179,33 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
       master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
       fill_username: field === 'password' && d.fill_username,
     }) as SecretSource;
+    case 'vault_db': return opt({
+      kind: 'vault_db' as const, address: t(d.address), mount: t(d.mount), role: t(d.role), static_role: d.static_role, namespace: t(d.namespace),
+      ca_file: t(d.ca_file), ...vaultAuth(d),
+    }) as SecretSource;
+    case 'conjur': return opt({
+      kind: 'conjur' as const, url: t(d.url), conjur_account: t(d.conjur_account), login: t(d.login), variable: t(d.variable),
+      username_variable: field === 'password' ? t(d.username_variable) : '', json_key: t(d.json_key), ca_file: t(d.ca_file),
+    }) as SecretSource;
+    case 'ccp': return opt({
+      kind: 'ccp' as const, url: t(d.url), app_id: t(d.app_id), safe: t(d.safe), folder: t(d.folder), object: t(d.object),
+      account_user: t(d.account_user), account_address: t(d.account_address), client_cert: t(d.client_cert),
+      client_key: t(d.client_cert) ? t(d.client_key) : '', ca_file: t(d.ca_file), fill_username: field === 'password' && d.fill_username,
+    }) as SecretSource;
+    case 'delinea': return opt({
+      kind: 'delinea' as const, url: t(d.url), platform_url: t(d.platform_url), username: t(d.username), domain: t(d.domain),
+      secret_name: t(d.secret_name), attribute: t(d.attribute),
+      master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
+      fill_username: field === 'password' && d.fill_username,
+    }) as SecretSource;
     default: return null;
   }
+}
+
+/** Vault's sign-in inputs: none for a token (the default), else AppRole's. */
+function vaultAuth(d: SourceDraft): Record<string, string> {
+  if (d.auth !== 'approle') return {};
+  return { auth: 'approle', approle_mount: d.approle_mount.trim(), role_id: d.role_id.trim() };
 }
 
 /** Inputs each kind can't do without, for "Falta completar". */
@@ -159,6 +218,10 @@ export const REQUIRED: Record<SecretSourceKind, (keyof SourceDraft)[]> = {
   gcp: ['project', 'secret'],
   keepass: ['file', 'entry'],
   zoho: ['data_center', 'secret_name', 'client_id'],
+  vault_db: ['address', 'role'],
+  conjur: ['url', 'conjur_account', 'login', 'variable'],
+  ccp: ['url', 'app_id'],
+  delinea: ['url', 'username', 'secret_name'],
 };
 
 /** The required inputs a draft left empty (with what its master password
@@ -166,10 +229,13 @@ export const REQUIRED: Record<SecretSourceKind, (keyof SourceDraft)[]> = {
 export function missingInputs(d: SourceDraft | undefined): (keyof SourceDraft)[] {
   if (!d || !isExternal(d)) return [];
   const need = [...REQUIRED[d.kind as SecretSourceKind]];
-  if (d.kind === 'keepass' || d.kind === 'zoho') {
+  if (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'delinea') {
     if (d.master === 'command') need.push('master_command');
     if (d.kind === 'keepass' && d.master === 'none') need.push('key_file');
   }
+  if ((d.kind === 'vault' || d.kind === 'vault_db') && d.auth === 'approle') need.push('role_id');
+  // The CCP needs an account to ask for: its object, or its user or address.
+  if (d.kind === 'ccp' && ![d.object, d.account_user, d.account_address].some((v) => v.trim())) need.push('object');
   return need.filter((k) => String(d[k] ?? '').trim() === '');
 }
 
@@ -177,8 +243,11 @@ export function missingInputs(d: SourceDraft | undefined): (keyof SourceDraft)[]
  *  master password kept there (`''`), Zoho's client secret and refresh token. */
 export function typedTokens(d: SourceDraft): Record<string, string> {
   const out: Record<string, string> = {};
-  const keepsMaster = (d.kind === 'keepass' || d.kind === 'zoho') && d.master === 'keychain';
-  if ((d.kind === 'vault' || keepsMaster) && d.token) out[''] = d.token;
+  const keepsMaster = (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'delinea') && d.master === 'keychain';
+  const vault = d.kind === 'vault' || d.kind === 'vault_db';
+  // Vault's token, a master password, Conjur's API key, the CCP key's passphrase.
+  if (((vault && d.auth !== 'approle') || keepsMaster || d.kind === 'conjur' || d.kind === 'ccp') && d.token) out[''] = d.token;
+  if (vault && d.auth === 'approle' && d.approle_secret_id) out.secret_id = d.approle_secret_id;
   if (d.kind === 'zoho') {
     if (d.client_secret) out.client_secret = d.client_secret;
     if (d.refresh_token) out.refresh_token = d.refresh_token;
@@ -192,7 +261,8 @@ export function sourceRows(s: SecretSource): [string, string][] {
   const order = [
     'command', 'reference', 'account', 'address', 'path', 'key', 'namespace', 'kv_version', 'ca_file', 'secret_id', 'region', 'profile', 'vault_url', 'name',
     'project', 'secret', 'version', 'file', 'entry', 'data_center', 'secret_name', 'client_id', 'attribute', 'key_file', 'master', 'master_command', 'json_key',
-    'fill_username',
+    'fill_username', 'mount', 'role', 'static_role', 'auth', 'approle_mount', 'role_id', 'url', 'platform_url', 'conjur_account', 'login', 'variable',
+    'username_variable', 'app_id', 'safe', 'folder', 'object', 'account_user', 'account_address', 'client_cert', 'client_key', 'username', 'domain',
   ];
   const rec = s as unknown as Record<string, unknown>;
   return order.filter((k) => rec[k] !== undefined && rec[k] !== '' && rec[k] !== false).map((k) => [k, String(rec[k])]);

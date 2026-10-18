@@ -72,6 +72,17 @@ pub fn set_app_handle(app: tauri::AppHandle) {
     let _ = APP.set(app);
 }
 
+/// Whether a connection has an open session; `None` before the app is set
+/// up (tests). Vault's database leases aren't renewed for a connection that
+/// has none (secret_sources/vault_db.rs).
+pub fn connection_in_use(connection_id: &str) -> Option<bool> {
+    use tauri::Manager;
+    let app = APP.get()?;
+    let state = app.try_state::<AppState>()?;
+    let open = state.sessions.iter().any(|e| e.connection_id == connection_id);
+    Some(open)
+}
+
 pub fn meta_key(connection_id: &str, database: &str) -> String {
     format!("meta:{connection_id}:{database}")
 }
@@ -403,6 +414,8 @@ impl AppState {
     pub fn close_connection_sessions(&self, connection_id: &str) {
         // Resolved secrets of its sources: the next connect asks again.
         crate::secret_sources::forget_cached(connection_id);
+        // Vault's database credentials: their leases are revoked.
+        crate::secret_sources::release_leases(connection_id);
         self.sessions.retain(|_, e| {
             let keep = e.connection_id != connection_id;
             if !keep {

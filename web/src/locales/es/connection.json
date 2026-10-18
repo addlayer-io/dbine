@@ -128,7 +128,11 @@
       "azure": "Azure Key Vault",
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
-      "zoho": "Zoho Vault"
+      "zoho": "Zoho Vault",
+      "vault_db": "HashiCorp Vault (credenciales de base de datos)",
+      "conjur": "CyberArk Conjur",
+      "ccp": "CyberArk Central Credential Provider",
+      "delinea": "Delinea Secret Server"
     },
     "askHelp": "Se pide al conectar y no se guarda.",
     "askPlaceholder": "(solo para probar; se pide al conectar)",
@@ -169,7 +173,36 @@
       "client_secret": "Secreto del cliente",
       "refresh_token": "Token de actualización",
       "fill_username_keepass": "Tomar también el usuario de esta entrada (su campo «UserName»)",
-      "fill_username_zoho": "Tomar también el usuario de este secreto (su campo «username»)"
+      "fill_username_zoho": "Tomar también el usuario de este secreto (su campo «username»)",
+      "auth": "Inicio de sesión en Vault",
+      "role_id": "Role ID",
+      "approle_secret_id": "Secret ID",
+      "approle_mount": "Ruta de AppRole (opcional)",
+      "mount": "Motor de bases de datos (opcional)",
+      "role": "Rol",
+      "static_role": "Rol estático (un usuario fijo cuya contraseña rota Vault)",
+      "url": "URL",
+      "conjur_account": "Cuenta",
+      "login": "Login (host/<id> o un usuario)",
+      "variable": "ID de la variable",
+      "username_variable": "Variable con el usuario (opcional)",
+      "api_key": "Clave de API",
+      "app_id": "AppID",
+      "safe": "Safe (opcional)",
+      "folder": "Carpeta (opcional)",
+      "object": "Objeto",
+      "account_user": "Usuario de la cuenta (opcional)",
+      "account_address": "Dirección de la cuenta (opcional)",
+      "client_cert": "Certificado de cliente (opcional)",
+      "client_key": "Clave privada (opcional)",
+      "cert_passphrase": "Frase de contraseña de la clave o del PKCS#12 (opcional)",
+      "fill_username_ccp": "Tomar también el usuario de esta cuenta (su «UserName»)",
+      "platform_url": "URL de Delinea Platform (opcional)",
+      "username": "Usuario (o ID del cliente)",
+      "domain": "Dominio (opcional)",
+      "master_delinea": "Contraseña",
+      "master_value_delinea": "Contraseña (o secreto del cliente)",
+      "fill_username_delinea": "Tomar también el usuario de este secreto (su campo «username»)"
     },
     "placeholder": {
       "command": "pass show bases/produccion",
@@ -188,7 +221,12 @@
       "gcp": "Con tu sesión de gcloud («gcloud auth login») o las credenciales predeterminadas de la aplicación.",
       "entry": "Grupo/Subgrupo/Título, el título solo si no se repite, o el UUID de la entrada.",
       "keepass": "La base se lee en esta computadora, sin programas externos (KDBX 3.1 y 4). La contraseña maestra que escribas se guarda en el llavero del sistema; con «Preguntar al conectar» se pide la primera vez que conectás y queda solo en memoria hasta que cerrás DBine.",
-      "zoho": "Con un cliente propio («Self Client») de la consola de API de Zoho y un token de actualización con los permisos ZohoVault.secrets.READ y ZohoVault.user.READ. Los valores se descifran en esta computadora con la frase de contraseña maestra; el secreto del cliente, el token y la frase que escribas se guardan en el llavero del sistema."
+      "zoho": "Con un cliente propio («Self Client») de la consola de API de Zoho y un token de actualización con los permisos ZohoVault.secrets.READ y ZohoVault.user.READ. Los valores se descifran en esta computadora con la frase de contraseña maestra; el secreto del cliente, el token y la frase que escribas se guardan en el llavero del sistema.",
+      "vault_db": "Vault crea un usuario y una contraseña para esta conexión con el motor de bases de datos (o da los de un rol estático), y el usuario de la conexión se toma de ahí. Las credenciales se reusan mientras la conexión está abierta, se renuevan antes de vencer y se revocan al desconectar o al cerrar DBine. Sin token se usa VAULT_TOKEN o el de «vault login».",
+      "approle": "DBine inicia sesión con AppRole (auth/<ruta>/login) y revoca ese token cuando termina. El secret ID que escribas se guarda en el llavero del sistema.",
+      "conjur": "Con la clave de API de un host o un usuario de Conjur, que se guarda en el llavero del sistema. Conjur Cloud: https://<subdominio>.secretsmgr.cyberark.cloud/api y la cuenta «conjur». Solo HTTPS (HTTP solo para esta computadora).",
+      "ccp": "Pide la cuenta al Central Credential Provider de CyberArk (AIMWebService) con el AppID y, si el proveedor lo exige, un certificado de cliente: PEM (con la clave en el mismo archivo o aparte) o PKCS#12 (.p12/.pfx). La frase de contraseña que escribas se guarda en el llavero del sistema. Solo HTTPS.",
+      "delinea": "Inicia sesión con OAuth2 en Secret Server (un usuario o una cuenta de aplicación) y lee el campo del secreto por su slug. Con Delinea Platform, el token se pide al inquilino (https://<inquilino>.delinea.app) con el ID y el secreto de un usuario de servicio. El ID o el nombre del secreto: si hay más de uno con ese nombre, usá el ID. Solo HTTPS."
     },
     "test": "Probar",
     "testOk": "OK · {{n}} caracteres",
@@ -223,7 +261,12 @@
       "keepass": "La conexión «{{name}}» toma «{{field}}» de una base de KeePass. Escribí su contraseña maestra (no se guarda):",
       "zoho": "La conexión «{{name}}» toma «{{field}}» de Zoho Vault. Escribí la frase de contraseña maestra (no se guarda):",
       "wrong": "La contraseña que escribiste no la abrió.",
-      "empty": "Escribí la contraseña maestra"
+      "empty": "Escribí la contraseña maestra",
+      "delinea": "La conexión «{{name}}» toma «{{field}}» de Delinea Secret Server. Escribí la contraseña (no se guarda):"
+    },
+    "vaultAuth": {
+      "token": "Token",
+      "approle": "AppRole"
     }
   }
 }

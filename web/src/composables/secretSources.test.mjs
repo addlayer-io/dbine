@@ -112,3 +112,54 @@ test('the confirmation shows a KeePass definition', () => {
   const rows = sourceRows({ kind: 'keepass', file: '/tmp/x.kdbx', entry: 'a/b', master: 'command', master_command: 'curl x | sh' });
   assert.deepEqual(rows.map((r) => r[0]), ['file', 'entry', 'master', 'master_command']);
 });
+
+test('Vault database credentials, CyberArk and Delinea round-trip', () => {
+  const cases = [
+    { kind: 'vault_db', address: 'http://127.0.0.1:8200', role: 'readonly' },
+    { kind: 'vault_db', address: 'https://v:8200', mount: 'pg/prod', role: 'app', static_role: true, namespace: 'team', auth: 'approle', role_id: 'r-1', approle_mount: 'ar' },
+    { kind: 'vault', address: 'https://v', path: 'secret/x', key: 'pw', auth: 'approle', role_id: 'r-1' },
+    { kind: 'conjur', url: 'https://conjur', conjur_account: 'myorg', login: 'host/apps/dbine', variable: 'db/pw', username_variable: 'db/user', ca_file: '~/ca.pem' },
+    { kind: 'ccp', url: 'https://ccp', app_id: 'DBine', safe: 'DB', object: 'pg prod', client_cert: '~/c.p12', fill_username: true },
+    { kind: 'ccp', url: 'https://ccp', app_id: 'DBine', account_user: 'app', account_address: 'db.example.com', client_cert: '~/c.crt', client_key: '~/c.key' },
+    { kind: 'delinea', url: 'https://acme.secretservercloud.com', username: 'svc', secret_name: 'pg-prod', master: 'ask', fill_username: true },
+    { kind: 'delinea', url: 'https://acme.secretservercloud.eu', platform_url: 'https://acme.delinea.app', username: 'client-1', domain: 'CORP', secret_name: '42', attribute: 'username' },
+  ];
+  for (const c of cases) assert.deepEqual(sourceFrom(draftFrom(c), 'password'), c, c.kind);
+  // A token Vault definition has no sign-in inputs (as the backend stores it).
+  const v = draftFrom({ kind: 'vault', address: 'https://v', path: 'p', key: 'k' });
+  Object.assign(v, { role_id: 'left-over' });
+  assert.equal(sourceFrom(v, 'password').role_id, undefined);
+  // The user only fills from the password's source.
+  assert.equal(sourceFrom(draftFrom(cases[3]), 'api_key').username_variable, undefined);
+  assert.equal(sourceFrom(draftFrom(cases[4]), 'api_key').fill_username, undefined);
+});
+
+test('what the new kinds need, and what they keep', () => {
+  assert.deepEqual(missingInputs(emptyDraft('vault_db')), ['address', 'role']);
+  const ar = emptyDraft('vault_db');
+  Object.assign(ar, { address: 'https://v', role: 'ro', auth: 'approle' });
+  assert.deepEqual(missingInputs(ar), ['role_id']);
+  Object.assign(ar, { token: 'not-used', approle_secret_id: 'sid' });
+  assert.deepEqual(typedTokens(ar), { secret_id: 'sid' }, 'AppRole keeps the secret ID, not a token');
+  ar.auth = 'token';
+  assert.deepEqual(typedTokens(ar), { '': 'not-used' });
+  assert.deepEqual(missingInputs(emptyDraft('conjur')), ['url', 'conjur_account', 'login', 'variable']);
+  const cj = emptyDraft('conjur');
+  cj.token = 'api-key';
+  assert.deepEqual(typedTokens(cj), { '': 'api-key' });
+  const ccp = emptyDraft('ccp');
+  Object.assign(ccp, { url: 'https://ccp', app_id: 'A' });
+  assert.deepEqual(missingInputs(ccp), ['object'], 'an account to ask for');
+  ccp.account_address = 'db.example.com';
+  assert.deepEqual(missingInputs(ccp), []);
+  const dl = emptyDraft('delinea');
+  assert.deepEqual(missingInputs(dl), ['url', 'username', 'secret_name']);
+  dl.token = 'pw';
+  assert.deepEqual(typedTokens(dl), { '': 'pw' });
+  dl.master = 'ask';
+  assert.deepEqual(typedTokens(dl), {}, 'an asked password is never kept');
+  dl.master = 'command';
+  assert.ok(missingInputs(dl).includes('master_command'));
+  const rows = sourceRows({ kind: 'ccp', url: 'https://ccp', app_id: 'DBine', object: 'pg', client_cert: '/c.p12' });
+  assert.deepEqual(rows.map((r) => r[0]), ['url', 'app_id', 'object', 'client_cert']);
+});
