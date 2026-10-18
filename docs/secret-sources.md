@@ -30,6 +30,10 @@ managers sorted by name in the interface's language:
 | **KeePass** | A field of an entry of a `.kdbx` file, read by DBine itself. |
 | **Zoho Vault** | A field of a secret, decrypted by DBine with your master passphrase, through a Zoho account connected once on this computer. |
 
+Every secret manager signs in through an **account** connected once on this
+computer and used by any number of connections ([Accounts](#accounts)); the
+sign-in can still be typed for one connection only (manual mode).
+
 ## The form
 
 - **Local sources** (Save in the keychain, Ask every time): the user and
@@ -38,7 +42,12 @@ managers sorted by name in the interface's language:
   no selector.
 - **A command line or a secret manager**: the user and password fields go
   away and that source's inputs take their place, in the form's own two
-  columns. Each source asks first for what signs in to it, then for the item:
+  columns. A secret manager asks first for its **Cuenta** (one of this
+  computer's accounts of that manager, or **Conectar cuenta…**), then for
+  the item with 🔍, **Probar**, and **Configuración avanzada** collapsed at
+  the bottom, which also switches to manual mode. In manual mode (and for
+  connections saved before accounts) each source asks first for what signs
+  in to it, then for the item:
   KeePass: database file → key file → master password → entry; Bitwarden:
   server → client ID and secret → master password → item; Zoho Vault:
   account → secret (manual mode: data centre → client ID, secret and refresh
@@ -221,7 +230,8 @@ expired (`aws sso login`).
 
 Vault URL (`https://<name>.vault.azure.net`; also the China, US Government
 and Germany clouds' suffixes), secret name and version (optional: the
-current one). The Entra ID token comes from the same chain as the Entra ID
+current one), and the Microsoft Entra tenant (optional: its ID or domain,
+passed to the CLI as `--tenant`; empty: the CLI's current one). The Entra ID token comes from the same chain as the Entra ID
 sign-in ([`cloud-authentication.md`](cloud-authentication.md#azure)): Azure
 CLI (`az login`), Azure Developer CLI, managed identity, for the vault's
 cloud. A URL that isn't a Key Vault host is refused, so the token never goes
@@ -265,6 +275,92 @@ of the database is dropped. Entries in the recycle bin don't count.
   UUID), field not found (with the entry's field names).
 - The path points at a file on this computer, so a definition that came from
   elsewhere needs the same confirmation as a command.
+
+## Accounts
+
+Every secret manager is used through an **account** connected once on this
+computer; any number of connections then name it. Settings › **Gestores de
+secretos** lists them grouped by manager, with **Conectar cuenta…** (a menu
+of every manager), and for each account **Renombrar**, **Reconectar…** (the
+wizard again, keeping the account so its connections go on) and **Quitar**
+(its keychain items and any cached access token are deleted; connections
+that name it then ask to choose or connect an account).
+
+In the connection form, a manager's block is the same for all of them:
+**Cuenta** (this computer's accounts of that manager, or **Conectar
+cuenta…**, which opens its wizard and selects the new account) → the item
+with 🔍 → **Probar** → **Configuración avanzada**, collapsed, which holds
+**modo manual**: the inline sign-in for one connection only. Connections
+saved before accounts open in manual mode and work unchanged. HashiCorp
+Vault's KV and database credentials share Vault accounts; AWS Secrets
+Manager and Parameter Store share AWS accounts. With an account, a Vault
+definition only names its path and key (or the role), an AWS one only the
+secret or parameter, and so on.
+
+### What is stored where
+
+| What | Where |
+|---|---|
+| The account: name, who signed in, its manager and what isn't secret (server, client ID, role ID, profile, region, tenant, vault URL, project, file paths, where a master password comes from) | The local state DB (`secret_accounts` table). This computer only: **never** in an export, a cloud backup or a restore. |
+| Its secrets | The system keychain, as `secret_account:<id>#<slot>`: `client_secret` (Bitwarden, Zoho), `refresh_token` (Zoho), `passphrase` (a master password kept for Bitwarden, KeePass or Zoho; a CCP key's passphrase), `token` (Vault, Secrets Manager), `secret_id` (AppRole), `password` (Delinea) and `api_key` (Conjur). A master password set to "ask" or to a command is never kept. |
+| Nothing at all | 1Password, AWS, Azure and Google Cloud accounts: they name a target (a CLI account, a profile and region, a tenant and vault, a project); the credentials stay with the provider's own tools. |
+| The connection's definition | `{"kind":"vault","path":…,"key":…,"secret_account":"<id>"}` in the connection's settings (Zoho Vault: `"account"`). It travels with the connection; the account it names doesn't. |
+
+A connection imported or restored on a computer that doesn't have its
+account shows **Elegí o conectá una cuenta de <manager>** in the form, and
+connecting says the same. Like any definition from elsewhere, it is
+confirmed before it first runs; the confirmation dialog shows the account by
+its name.
+
+### The wizards
+
+Every wizard checks each step before the next, has **Atrás** on every step
+and keeps nothing until the last one, **Conectar**: it shows where the
+credentials will go, checks the account live against the manager and only
+if that works writes the keychain and the account (**Cuenta conectada**, with
+who signed in). Cancelling sends nothing (nothing is sent before the last
+step) and wipes what was typed. Reconnecting fills the wizard again without
+its secrets: one left empty keeps the saved one, but only while the account
+still points to the same server, user and file; otherwise it's typed again.
+Errors send you back to the step that fixes them.
+
+The providers' labels below are quoted as their interfaces show them
+(checked against their documentation in October 2026).
+
+| Manager | Steps | Where the values are | The check | Network destinations |
+|---|---|---|---|---|
+| Bitwarden | Server (US cloud, EU cloud or self-hosted URL) → API key → master password (keychain, ask, command) | Web app: **Settings → Security → Keys → View API key** (asks for the master password; shows `client_id` and `client_secret`) | Logs in with the API key (`client_credentials`), syncs and opens the user key with the master password; shows the e-mail | `identity.bitwarden.com` and `api.bitwarden.com` (or `.eu`), or the self-hosted server's `/identity` and `/api` |
+| Bitwarden Secrets Manager | Server → access token | Secrets Manager: **Machine accounts** → the account → **Access tokens** tab → **Create access token** (**Name**, **Expires**); shown once | Gets the token's session and lists the secrets the machine account can read (names only) | The same server's `/identity` and `/api` |
+| HashiCorp Vault / OpenBao | Address, namespace, CA file → token or AppRole (role ID, secret ID, mount) | `vault login` / `vault token create`; `vault read auth/approle/role/<role>/role-id`, `vault write -f auth/approle/role/<role>/secret-id`. An empty token uses `VAULT_TOKEN` or `~/.vault-token` | `auth/token/lookup-self` (an AppRole login first, its token revoked right after); shows the display name and policies | The address typed (HTTPS; HTTP only to this computer) |
+| Delinea | Secret Server URL (and Delinea Platform's tenant URL) → user and domain (or the platform's client ID) and password | Delinea Platform: **Access → Users → More → Add service user** | `POST /oauth2/token` (or the platform's `/identity/api/oauth2/token/xpmplatform`), then `GET /api/v1/users/current` | The Secret Server URL and `https://<tenant>.delinea.app` |
+| CyberArk Conjur | URL, account, CA file → login and API key | The API key Conjur shows when the policy that creates the host is loaded, or when an administrator rotates it | `POST /authn/{account}/{login}/authenticate`, then `GET /whoami` | The Conjur URL |
+| CyberArk Central Credential Provider | URL, AppID, CA file → client certificate, key and passphrase | The AppID and certificate the CyberArk administrator set up for DBine | The CCP has no request that reads nothing (every Accounts query hands out a password), so the check is the TLS handshake with the client certificate and a request to the server's root, **without the AppID**; the AppID is tested with **Probar** in a connection | The CCP URL |
+| 1Password | The CLI account (sign-in address or ID) | Detected with `op account list`; if there are none: the 1Password app's **Settings → Developer → Integrate with 1Password CLI** (on Linux first **Settings → Security → Unlock using system authentication**), or `op account add` | `op whoami --account …`; shows the e-mail | None from DBine: the `op` CLI talks to 1Password |
+| AWS | Profile (detected from `~/.aws/config` and `~/.aws/credentials`, or the default chain) and region | `aws configure`, `aws configure sso` | `sts:GetCallerIdentity`, signed with SigV4; shows the ARN | `sts.<region>.amazonaws.com` (`.amazonaws.com.cn` in China), or `AWS_ENDPOINT_URL_STS` / `AWS_ENDPOINT_URL` when set |
+| Azure Key Vault | Vault URL and tenant (detected with `az account show`) | Azure portal, the key vault's **Overview → Vault URI** | A token for Key Vault from the Azure CLI (`az account get-access-token --resource https://vault.azure.net --tenant …`); shows who it's for, and refuses a token of another tenant | None from DBine: `az` signs in; connections then go to the `*.vault.azure.net` host only |
+| Google Secret Manager | Project (detected with `gcloud config list`) | `gcloud auth login` or `gcloud auth application-default login` | A token from gcloud (or the application default credentials, or the metadata server); shows the account | None from DBine: gcloud signs in; connections then go to `secretmanager.googleapis.com` |
+| KeePass | Database file and key file → master password (keychain, ask, command, none) | — | Opens the database; says how many entries it has | None: a local file |
+
+Vault's OIDC and userpass sign-ins aren't account modes of their own: they
+need a browser round trip (OIDC's address comes from Vault's answer) or a
+human password kept in the keychain, for what a token already covers. Sign
+in with `vault login -method=oidc` (or `-method=userpass`) and leave the
+token empty: the account then uses that token, as the CLI does.
+
+### Security
+
+- Credentials only go to the account's own endpoint or the provider's fixed
+  hosts (the table above): HTTPS only, plain HTTP only to this computer
+  (`localhost`, `127.x`, `[::1]`), no redirect followed, and nothing sent to
+  a host taken from a server's answer. Vault and Delinea accounts are
+  stricter than inline definitions: no plain HTTP to another computer.
+- Secrets never go to the state DB, the logs, the error messages, telemetry,
+  MCP, the phone, exports or backups. The checks wipe them from memory when
+  done, and a failed check drops any access token it got.
+- The commands (`op`, `az`, `gcloud`, a master password command) run as for
+  inline definitions, never with a secret on their command line.
+- The account commands are the connection form's and Settings' only: MCP,
+  the assistant and the phone have no way to them.
 
 ## Zoho Vault
 
@@ -506,7 +602,7 @@ against a mock of the API, not against a live Secret Server.
 | Item | The item's ID, or its exact name (else ignoring case). Items in the trash don't count. |
 | Password field, user field | Under **Configuración avanzada**: the login's password and username by default; `notes`, `totp`, or the name of a custom field (text, hidden, boolean, or linked to the username or password). |
 | JSON key | Optional: when the field holds JSON (often the notes), the key to use. |
-| client_id, client_secret | Your **personal API key** (web vault: *Account settings › Security › Keys › View API key*). The `client_id` (`user.…`) is part of the definition; the `client_secret` is kept in the system keychain. |
+| client_id, client_secret | Your **personal API key** (web app: *Settings › Security › Keys › View API key*). The `client_id` (`user.…`) is part of the definition; the `client_secret` is kept in the system keychain. |
 | Master password | **Saved in the keychain**, **Ask when connecting** or **From a command**, as for KeePass. |
 
 Bitwarden encrypts every value on the client: its API only returns
@@ -580,7 +676,8 @@ or restored from a cloud backup. The first time such a connection needs it
 (connecting, **Test connection**, the field's **Test**), DBine shows the connection,
 the field and the exact definition (the whole command, the reference, the
 Vault address and path, the KeePass file and entry, the Zoho data centre and
-client or the Zoho account, the Bitwarden server…) and runs it only if you confirm.
+client, the Bitwarden server, or the saved account it names, by its name…)
+and runs it only if you confirm.
 
 - The confirmation is kept on this computer only, next to the state
   (`secret-source-approvals.json`), never in the cloud backup or an export.
@@ -633,11 +730,31 @@ reads files the sandbox can see (your home folder).
   comes from a command).
 - Accounts: `crates/dbine-core/src/secret_accounts.rs` (the local-only
   `secret_accounts` table, the keychain names `secret_account:<id>#<slot>`,
-  `AccountConfig` tagged by kind) and `src-tauri/src/secret_sources/accounts.rs`
-  (the wizard's commands `zoho_connect_exchange` / `_finish` / `_cancel`,
-  rename and remove, and `expand`, which turns a definition naming an
-  account into the inline one right before it runs, after its confirmation
-  is checked).
+  `AccountConfig` tagged by kind: `zoho`, `bitwarden`, `bitwarden_sm`,
+  `vault`, `delinea`, `conjur`, `ccp`, `onepassword`, `aws`, `azure`, `gcp`,
+  `keepass`) and `src-tauri/src/secret_sources/accounts.rs` (Zoho's wizard
+  commands `zoho_connect_exchange` / `_finish` / `_cancel`; every other
+  manager's `connect_secret_account`, which checks live and only then saves,
+  and `detect_secret_account`; `open_secret_manager_page` with a fixed list
+  of pages; rename and remove; and `expand`, which turns a definition naming
+  an account into the inline one right before it runs, after its
+  confirmation is checked). A definition names its account in
+  `secret_account` (Zoho Vault's in `account`, which came first); the
+  sign-in fields it leaves to the account are optional in the JSON and left
+  out, so an inline definition's JSON and its confirmation digest are the
+  same as before accounts (`inline_definitions_of_every_kind_are_unchanged`
+  pins the digests). Each provider module has the check its wizard runs
+  (`whoami`, `sm_whoami`, `conjur_whoami`, `ccp_handshake`,
+  `caller_identity`, `keepass::verify`…). The UI: `AccountConnectWizard.vue`
+  over `composables/accountWizards.ts` (steps, checks, what is sent; tests in
+  `accountWizards.test.mjs`), `SecretAccountsSettings.vue`, and the account
+  block of `SecretSourcePicker.vue`. The live test
+  `secret_sources::accounts::tests::live_accounts` checks the Vault,
+  Bitwarden, Conjur and AWS wizards against `dbine-test-vault`,
+  `dbine-test-vaultwarden`, `dbine-test-conjur` and `dbine-test-localstack`
+  (with `sts` among its services) and connects to `dbine-test-postgres`
+  through those accounts; `fake_clis_for_the_wizards`
+  runs the 1Password, Azure and Google wizards against fake CLIs on `PATH`.
 - Resolution: `src-tauri/src/secret_sources/` (`fill`, called by
   `AppState::connect_config` before the tunnel and the driver; the providers;
   the command runner; `keepass.rs` with the `keepass` crate, `zoho.rs` with
