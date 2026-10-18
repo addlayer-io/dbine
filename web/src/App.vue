@@ -332,7 +332,7 @@ watch(
 .ide-sash-ai { position: absolute; left: -2px; top: 0; bottom: 0; width: 5px; cursor: col-resize; z-index: 5; }
 .ide-sash-ai:hover { background: var(--ide-focus); }
 .ide-editor-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--ide-editor); }
-.ide-editor { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.ide-editor { flex: 1; min-height: 0; overflow: hidden; }  /* EditorArea: its own grid (EditorArea.vue) */
 .ide-tab-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ide-tab-view > * { flex: 1; min-height: 0; }
 .ide-sash-y { height: 4px; margin-top: -2px; margin-bottom: -2px; cursor: row-resize; z-index: 10; position: relative; }
