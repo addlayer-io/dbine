@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
@@ -15,6 +15,9 @@ import AddDocumentDialog from './AddDocumentDialog.vue';
 import JsonTreeView from './JsonTreeView.vue';
 import PlanView from './PlanView.vue';
 import ChartView from './ChartView.vue';
+import { detectSpatial } from '../composables/geo';
+// Leaflet and the base map load only when a map is shown.
+const MapView = defineAsyncComponent(() => import('./MapView.vue'));
 import ExportDialog from './ExportDialog.vue';
 import type { FilterState } from '../composables/gridFilter';
 import { EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat } from '../composables/export';
@@ -76,7 +79,7 @@ const sets = computed(() => (props.outcome?.results ?? []).map((r, i) => ({ ...r
 const active = ref<number | 'messages' | 'plan'>(0);
 /** How the current result set is shown. Document engines remember table or
  *  JSON tree between results (a per-viewer preference). */
-type View = 'table' | 'chart' | 'tree';
+type View = 'table' | 'chart' | 'tree' | 'map';
 const VIEW_KEY = 'dbine.resultsView.json';
 const documents = computed(() => props.editSource?.language === 'json');
 function savedView(): View {
@@ -87,7 +90,7 @@ const show = ref<View>(savedView());
 watch(documents, (d) => { if (d && show.value === 'table') show.value = savedView(); });
 function setView(v: View) {
   show.value = v;
-  if (documents.value && v !== 'chart') {
+  if (documents.value && v !== 'chart' && v !== 'map') {
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage off */ }
   }
 }
@@ -116,6 +119,16 @@ watch(
 );
 
 const current = computed(() => (typeof active.value === 'number' ? props.outcome?.results[active.value] ?? null : null));
+/** The result's spatial columns (or a latitude / longitude pair): the "Mapa"
+ *  view is offered only when there's one. */
+const spatial = computed(() => {
+  const c = current.value;
+  if (!c?.rows.length) return null;
+  const d = detectSpatial(c.columns, c.rows);
+  return d.geometry.length || d.lat !== null ? d : null;
+});
+/** The map view asked for on a result without anything to map: the grid. */
+const view = computed<View>(() => (show.value === 'map' && !spatial.value ? 'table' : show.value));
 
 // -- editing (the changes become DELETE / UPDATE code; nothing runs) --------------------
 const edits = reactive<Record<number, Edits>>({});
@@ -295,7 +308,7 @@ watch(
 const canInsert = computed(() => !!insertTarget.value && !insertReason.value && !applying.value);
 const grid = ref<InstanceType<typeof ResultGrid> | null>(null);
 /** Totals of the cells selected in the grid (two or more). */
-const stats = computed(() => (show.value === 'table' ? grid.value?.selectionStats ?? null : null));
+const stats = computed(() => (view.value === 'table' ? grid.value?.selectionStats ?? null : null));
 const fmtNum = (x: number) => x.toLocaleString(locale(), { maximumFractionDigits: 4 });
 const statsText = computed(() => {
   const s = stats.value;
@@ -653,7 +666,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 async function saveShortcut(e: KeyboardEvent) {
   if (inCodeEditor(e)) return;
   e.preventDefault();
-  if (applyOpen.value || modalOpen() || show.value === 'chart' || !current.value || !root.value?.offsetParent) return;
+  if (applyOpen.value || modalOpen() || view.value === 'chart' || view.value === 'map' || !current.value || !root.value?.offsetParent) return;
   // A cell being edited commits on the key (ResultGrid); its code is
   // generated now instead of after the debounce.
   await nextTick();
@@ -796,9 +809,10 @@ const statusText = computed(() => {
         </template>
       </el-dropdown>
       <div v-if="current" class="rp-mode" role="group" :aria-label="$t('results:view.label')">
-        <button :class="{ on: show === 'table' }" :title="$t('results:view.table')" @click="setView('table')"><el-icon><ei-grid /></el-icon></button>
-        <button :class="{ on: show === 'tree' }" :title="$t('results:view.tree')" @click="setView('tree')"><span class="rp-json">{ }</span></button>
-        <button :class="{ on: show === 'chart' }" :title="$t('results:view.chart')" @click="setView('chart')"><el-icon><ei-histogram /></el-icon></button>
+        <button :class="{ on: view === 'table' }" :title="$t('results:view.table')" @click="setView('table')"><el-icon><ei-grid /></el-icon></button>
+        <button :class="{ on: view === 'tree' }" :title="$t('results:view.tree')" @click="setView('tree')"><span class="rp-json">{ }</span></button>
+        <button :class="{ on: view === 'chart' }" :title="$t('results:view.chart')" @click="setView('chart')"><el-icon><ei-histogram /></el-icon></button>
+        <button v-if="spatial" :class="{ on: view === 'map' }" :title="$t('results:view.map')" @click="setView('map')"><el-icon><ei-map-location /></el-icon></button>
       </div>
       <span v-if="stats" class="rp-status rp-stats" :title="statsTitle">{{ statsText }}</span>
       <template v-if="!hideStatus">
@@ -807,7 +821,7 @@ const statusText = computed(() => {
       </template>
     </div>
 
-    <div v-if="pending && (show !== 'chart' || !current)" class="rp-edits">
+    <div v-if="pending && ((view !== 'chart' && view !== 'map') || !current)" class="rp-edits">
       <div class="rp-edits-bar">
         <el-icon><ei-edit /></el-icon>
         <span>{{ summary }}</span>
@@ -832,9 +846,10 @@ const statusText = computed(() => {
       <div v-if="current.truncated" class="rp-trunc">
         {{ $t('results:truncated', { shown: current.rows.length.toLocaleString(locale()), total: current.total_rows.toLocaleString(locale()) }) }}
       </div>
-      <ChartView v-if="show === 'chart'" :key="active" :columns="current.columns" :rows="current.rows" />
+      <ChartView v-if="view === 'chart'" :key="active" :columns="current.columns" :rows="current.rows" />
+      <MapView v-else-if="view === 'map'" :key="`map-${active}`" :columns="current.columns" :rows="current.rows" :detected="spatial" />
       <JsonTreeView
-        v-else-if="show === 'tree'"
+        v-else-if="view === 'tree'"
         :columns="current.columns"
         :rows="gridRows"
         :edits="gridEdits"

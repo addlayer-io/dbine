@@ -1,0 +1,60 @@
+{
+  "source": "Données",
+  "latLon": "Latitude / longitude",
+  "lat": "Latitude",
+  "lon": "Longitude",
+  "pick": "Choisissez une colonne",
+  "count_one": "{{shown}} élément",
+  "count_other": "{{shown}} éléments",
+  "fit": "Ajuster",
+  "openSettings": "Paramètres de la carte",
+  "privacy": "Le fournisseur de la carte voit quelle zone vous regardez (pas les données)",
+  "notice": {
+    "cap": "Les {{cap}} premiers éléments sont dessinés ; {{rest}} lignes de plus ne le sont pas.",
+    "srid_one": "{{rows}} ligne avec le SRID {{srid}} n'est pas dessinée : la carte affiche WGS 84 (4326) et Web Mercator (3857).",
+    "srid_other": "{{rows}} lignes avec le SRID {{srid}} ne sont pas dessinées : la carte affiche WGS 84 (4326) et Web Mercator (3857).",
+    "range_one": "{{rows}} ligne sans SRID a des coordonnées qui ne sont pas des degrés : elle n'est pas dessinée.",
+    "range_other": "{{rows}} lignes sans SRID ont des coordonnées qui ne sont pas des degrés : elles ne sont pas dessinées.",
+    "unreadable_one": "{{rows}} valeur n'a pas pu être lue comme géométrie.",
+    "unreadable_other": "{{rows}} valeurs n'ont pas pu être lues comme géométries.",
+    "basemap": "Impossible de charger le fond de carte inclus."
+  },
+  "attribution": {
+    "offline": "Fond de carte : Natural Earth (domaine public), hors ligne",
+    "custom": "Tuiles : fournisseur personnalisé"
+  },
+  "popup": {
+    "row": "Ligne {{row}}",
+    "rows_one": "Ligne {{row}} et {{more}} autre à cet endroit",
+    "rows_other": "Ligne {{row}} et {{more}} autres à cet endroit",
+    "geometry": "(géométrie)"
+  },
+  "settings": {
+    "nav": "Cartes",
+    "title": "Cartes",
+    "help": "La carte des résultats dessine les géométries sur cette machine : les données des lignes n'en sortent jamais.",
+    "offline": "Fond de carte hors ligne",
+    "offlineHelp": "Pays, provinces et États, côtes, lacs et villes de Natural Earth (domaine public), inclus dans DBine.",
+    "online": "Tuiles en ligne",
+    "onlineHelp": "Utilise un fournisseur de tuiles avec rues et relief. Désactivée, la carte n'envoie aucune requête sur Internet.",
+    "noticeTitle": "Tuiles en ligne",
+    "noticeOk": "Activer",
+    "provider": "Fournisseur",
+    "providers": {
+      "osm": "OpenStreetMap (standard)",
+      "maptiler": "MapTiler (avec une clé)",
+      "stadia": "Stadia Maps (avec une clé)",
+      "custom": "Personnalisé (modèle XYZ)"
+    },
+    "osmPolicy": "Les tuiles de la Fondation OpenStreetMap sont un service communautaire avec une politique d'utilisation (operations.osmfoundation.org/policies/tiles) : elles conviennent à un usage léger. Pour un usage intensif, choisissez un autre fournisseur ou votre propre serveur.",
+    "url": "Modèle d'URL",
+    "urlHelp": "https avec {z}, {x} et {y} ; {key} est remplacé par la clé. http seulement pour un serveur sur cette machine (localhost).",
+    "urlInvalid": "Le modèle doit être en https (ou http vers localhost) et contenir {z}, {x} et {y}.",
+    "attribution": "Attribution",
+    "attributionHelp": "Le texte demandé par le fournisseur ; il s'affiche dans le coin de la carte.",
+    "key": "Clé d'API",
+    "keyHelp": "Gardée sur cette machine uniquement : elle ne part pas avec la synchronisation.",
+    "needUrl": "Il manque un modèle d'URL valide : en attendant, la carte utilise le fond hors ligne.",
+    "needKey": "Il manque la clé d'API : en attendant, la carte utilise le fond hors ligne."
+  }
+}

@@ -7,6 +7,7 @@
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 // |timeline[&tab=tq|tf|to] (the history sidebar's "Esta pestaña" next to a stand-in editor: preview/timeline-samples.ts)
 // |rename[&prod=0][&name=<nuevo>][&fail=1] ("Renombrar…" over a fake impact and script: preview/rename-samples.ts)
+// |map[&set=points|shapes|latlon][&theme=light] (the results' map view over the offline base map: preview/map-samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -70,6 +71,7 @@ import { sampleLive, sampleMultiDbResponse, sampleTenantDatabases } from './mult
 import { EDITOR_SAMPLE_SQL, installEditorSample } from './editor-samples';
 import RenameDialog from '../components/RenameDialog.vue';
 import { installRenamePreview } from './rename-samples';
+import { mapPreview } from './map-samples';
 
 document.documentElement.classList.add('dark');
 const params = new URLSearchParams(location.search);
@@ -240,6 +242,7 @@ const app = createApp({
         ]),
         h(StatusBar, { panelOpen: false }),
       ]) :
+      view === 'map' ? mapPreview(params) :
       view === 'support' ? h(SupportReminder) :
       view === 'feedback' ? h(FeedbackDialog, { modelValue: true }) :
       view === 'multidb' ? multiDbView() :

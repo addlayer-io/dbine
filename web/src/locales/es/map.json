@@ -1,0 +1,60 @@
+{
+  "source": "Datos",
+  "latLon": "Latitud / longitud",
+  "lat": "Latitud",
+  "lon": "Longitud",
+  "pick": "Elegí una columna",
+  "count_one": "{{shown}} elemento",
+  "count_other": "{{shown}} elementos",
+  "fit": "Ajustar",
+  "openSettings": "Configurar el mapa",
+  "privacy": "El proveedor del mapa ve qué zona estás mirando (no los datos)",
+  "notice": {
+    "cap": "Se dibujan los primeros {{cap}} elementos; {{rest}} filas más no se dibujan.",
+    "srid_one": "{{rows}} fila con SRID {{srid}} no se dibuja: el mapa muestra WGS 84 (4326) y Web Mercator (3857).",
+    "srid_other": "{{rows}} filas con SRID {{srid}} no se dibujan: el mapa muestra WGS 84 (4326) y Web Mercator (3857).",
+    "range_one": "{{rows}} fila sin SRID tiene coordenadas que no son grados: no se dibuja.",
+    "range_other": "{{rows}} filas sin SRID tienen coordenadas que no son grados: no se dibujan.",
+    "unreadable_one": "{{rows}} valor no se pudo leer como geometría.",
+    "unreadable_other": "{{rows}} valores no se pudieron leer como geometría.",
+    "basemap": "No se pudo cargar el mapa base incluido."
+  },
+  "attribution": {
+    "offline": "Mapa base: Natural Earth (dominio público), sin conexión",
+    "custom": "Mosaicos: proveedor personalizado"
+  },
+  "popup": {
+    "row": "Fila {{row}}",
+    "rows_one": "Fila {{row}} y {{more}} más en este punto",
+    "rows_other": "Fila {{row}} y {{more}} más en este punto",
+    "geometry": "(geometría)"
+  },
+  "settings": {
+    "nav": "Mapas",
+    "title": "Mapas",
+    "help": "El mapa de los resultados dibuja las geometrías en esta máquina: los datos de las filas nunca salen de acá.",
+    "offline": "Mapa base sin conexión",
+    "offlineHelp": "Países, provincias y estados, costas, lagos y ciudades de Natural Earth (dominio público), incluidos en DBine.",
+    "online": "Mosaicos en línea",
+    "onlineHelp": "Usa un proveedor de mosaicos con calles y relieve. Desactivado, el mapa no hace ningún pedido a internet.",
+    "noticeTitle": "Mosaicos en línea",
+    "noticeOk": "Activar",
+    "provider": "Proveedor",
+    "providers": {
+      "osm": "OpenStreetMap (estándar)",
+      "maptiler": "MapTiler (con clave)",
+      "stadia": "Stadia Maps (con clave)",
+      "custom": "Personalizado (plantilla XYZ)"
+    },
+    "osmPolicy": "Los mosaicos de la Fundación OpenStreetMap son un servicio comunitario con una política de uso (operations.osmfoundation.org/policies/tiles): sirven para un uso liviano. Para uso intensivo, usá otro proveedor o tu propio servidor.",
+    "url": "Plantilla de URL",
+    "urlHelp": "https con {z}, {x} e {y}; {key} se reemplaza por la clave. http solo para un servidor en esta máquina (localhost).",
+    "urlInvalid": "La plantilla tiene que ser https (o http a localhost) y llevar {z}, {x} e {y}.",
+    "attribution": "Atribución",
+    "attributionHelp": "El texto que pide el proveedor; se muestra en la esquina del mapa.",
+    "key": "Clave de API",
+    "keyHelp": "Se guarda solo en esta máquina: no viaja con la sincronización.",
+    "needUrl": "Falta una plantilla de URL válida: mientras tanto el mapa usa el mapa base sin conexión.",
+    "needKey": "Falta la clave de API: mientras tanto el mapa usa el mapa base sin conexión."
+  }
+}

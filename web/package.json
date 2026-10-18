@@ -29,6 +29,7 @@
     "i18next": "^26.4.2",
     "i18next-vue": "^5.4.0",
     "js-beautify": "^2.0.3",
+    "leaflet": "1.9.4",
     "pinia": "^2.3.0",
     "sql-formatter": "^15.9.0",
     "vue": "^3.5.0"

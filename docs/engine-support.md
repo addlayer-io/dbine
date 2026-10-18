@@ -139,6 +139,84 @@ scatter. In addition, "Split by" builds one series per value of a column, and
 there are aggregations (sum, average, count, minimum, maximum) and export to
 PNG.
 
+## Result map
+
+The "Mapa" button in the results bar (next to table, JSON and chart) draws a
+result's geometries over a base map. It shows only when the result has a
+spatial column or a latitude / longitude pair (columns named `lat`,
+`latitude`, `latitud`, `lon`, `lng`, `longitude`, `longitud`…; any two
+columns can be picked). Points are clustered when there are more than 250,
+lines and polygons are drawn, a click on a feature shows its row's values,
+and "Ajustar" fits the map to the features. Up to 10,000 features are drawn,
+with a notice for the rest.
+
+The geometries are always decoded and drawn on the machine, from the cell
+values (`web/src/composables/geo.ts`); no row data leaves it. The base map is
+bundled and offline: Natural Earth (public domain) countries, admin-1
+boundaries, coastlines, lakes and populated places, about 2 MB of TopoJSON
+(0.6 MB gzipped, `web/public/basemap/`, rebuilt with
+`scripts/basemap/build.sh`). Online tiles (OpenStreetMap, MapTiler, Stadia
+Maps or a custom XYZ template) are off by default and are turned on in
+Configuración › Mapas, after a notice that the provider sees which area is
+being looked at. An API key stays on the machine (not in the state file nor
+in the sync).
+
+**Coordinate systems:** WGS 84 (4326, and the geographic systems that match
+it at map scale: 4258, 4269, 4283, 4674, 5340 POSGAR 2007, 4979…) is drawn
+as is, Web Mercator (3857, 900913, 102100) is converted. Other SRIDs (a
+projected UTM or Gauss-Krüger system) are not reprojected: those rows are
+counted in a notice. Values without an SRID are drawn when their
+coordinates are degrees.
+
+**Formats read:** WKB, EWKB and ISO WKB (Z / M dropped), MySQL's internal
+format (SRID + WKB), SQL Server's geometry / geography serialization
+(versions 1 and 2; arcs drawn through their points), SpatiaLite and
+GeoPackage blobs, WKT and EWKT (curves included), GeoJSON (also as text, and
+Elasticsearch's lower-case types and `envelope`), `{lat, lon}` objects,
+`"lat,lon"` text and `[lon, lat]` arrays in columns whose type or name says
+point / geo / location, Neo4j points (`{srid, x, y}`) and ClickHouse's
+`Point`, `Ring`, `LineString`, `MultiLineString`, `Polygon` and
+`MultiPolygon`.
+
+Spatial values are not cut at 1 KiB like other binary: the drivers that
+return them as bytes send them whole (`json_spatial_bytes` in the contract,
+up to 16 MiB).
+
+| Engine | Spatial types | How the value arrives |
+|---|---|---|
+| PostgreSQL + PostGIS (also Timescale, Cloudberry / Greengage, YugabyteDB, CockroachDB) | `geometry`, `geography` | Hex EWKB text, whole (the driver reads text) |
+| CrateDB | `geo_point`, `geo_shape` | Through the PostgreSQL driver as text: `geo_shape` (GeoJSON) is drawn; `geo_point`'s text form is not verified yet |
+| MySQL, MariaDB, TiDB, other MySQL-protocol engines | `GEOMETRY`, `POINT`, `POLYGON`… | `0x` + SRID + WKB, whole; MySQL stores longitude first also for 4326 |
+| SQL Server, Azure SQL, Babelfish | `geometry`, `geography` | `0x` + SQL Server's serialization, whole; the column's type is now its UDT name (`geometry`, `geography`, `hierarchyid`) instead of `Udt`, which tells geography's latitude-first order apart |
+| SQLite (SpatiaLite, GeoPackage) | blobs | `0x` + the blob, whole when the column is declared `GEOMETRY`, `POINT`… or the blob is SpatiaLite / GeoPackage |
+| libSQL / Turso | blobs | Same as SQLite for SpatiaLite / GeoPackage blobs (no declared types in the protocol) |
+| DuckDB (spatial) | `GEOMETRY` | `0x` + WKB, whole |
+| SAP HANA | `ST_GEOMETRY`, `ST_POINT` | `0x` + WKB, whole |
+| TDengine | `GEOMETRY` | `0x` + WKB, whole |
+| Oracle | `SDO_GEOMETRY` | Partial: the Oracle client library DBine uses doesn't decode object types, so the raw column isn't drawn. `SELECT SDO_UTIL.TO_WKTGEOMETRY(geom)` (or `TO_GEOJSON`) is drawn (text, up to 64 KB per value) |
+| ClickHouse | `Point`, `Ring`, `LineString`, `MultiLineString`, `Polygon`, `MultiPolygon` | Nested arrays with the type name |
+| BigQuery | `GEOGRAPHY` | WKT |
+| Snowflake | `GEOGRAPHY`, `GEOMETRY` | GeoJSON (the session's default output format) |
+| Databricks | `GEOMETRY`, `GEOGRAPHY` | Text (WKT / EWKT) |
+| Trino, Presto, Athena | `Geometry`, `SphericalGeography` | WKT text |
+| MongoDB, FerretDB, Cosmos DB, Couchbase, CouchDB | GeoJSON fields (2dsphere) | GeoJSON documents as text; legacy `[lon, lat]` pairs in fields named location / coordinates / geo… |
+| Elasticsearch, OpenSearch | `geo_point`, `geo_shape` | `{lat, lon}`, `"lat,lon"`, `[lon, lat]`, WKT or GeoJSON, as indexed; geohash strings are not read |
+| Solr | `location`, `location_rpt` | `"lat,lon"` (fields named location / geo…) or WKT |
+| Neo4j, Memgraph | `Point` | `{srid, x, y}`; 4326 / 4979 drawn, cartesian points (7203, 9157) counted as another SRID |
+| ODBC | Whatever the source has | SQL Server's UDTs come as hex text (no `0x`), whole; other sources as text or bytes |
+| Redis, Valkey, Dragonfly | GEO sets | Not applicable: GEO members are sorted-set members whose score is a geohash, not a column; `GEOPOS` replies aren't tabular |
+| Cassandra, ScyllaDB, DynamoDB, Spanner, Firebird, InfluxDB, IoTDB, ksqlDB, etcd, Phoenix, Dremio, Drill, Flight SQL, Aurora DSQL, OrientDB | None (or not exposed by the protocol) | Not applicable, except latitude / longitude columns, which work in every engine |
+
+Tested against real servers: PostGIS 3.4 (`postgres/tests/spatial.rs`),
+MySQL 8.4 and MariaDB 11.8 (`mysql/tests/spatial.rs`) and SQL Server 2022
+(`sqlserver/tests/spatial.rs`), each with a point and a 241-vertex polygon
+(past 1 KiB); the values they returned are decoded by the UI's parser
+(`web/src/composables/geo.test.mjs` holds vectors taken from those servers).
+SQLite has a unit test for whole spatial blobs. DuckDB, HANA, TDengine,
+ClickHouse, BigQuery, Snowflake, Databricks, Trino, MongoDB, Elasticsearch,
+Solr and Neo4j are read from the formats documented for each driver above,
+not yet checked against a live server.
+
 ## Execution plans
 
 The editor has three actions:

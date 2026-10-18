@@ -30,6 +30,7 @@ import LintSettings from './LintSettings.vue';
 import SnippetSettings from './SnippetSettings.vue';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
+import MapSettings from './MapSettings.vue';
 import DevicesSettings from './DevicesSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 import { ALL_ROWS } from '../composables/queryControls';
@@ -362,6 +363,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <button :class="{ on: section === 'lint' }" @click="section = 'lint'"><el-icon><ei-circle-check /></el-icon>{{ $t('lint:nav') }}</button>
         <button :class="{ on: section === 'snippets' }" @click="section = 'snippets'"><el-icon><ei-document-copy /></el-icon>{{ $t('snippets:nav') }}</button>
         <button :class="{ on: section === 'mail' }" @click="section = 'mail'"><el-icon><ei-message /></el-icon>{{ $t('mail:nav') }}</button>
+        <button :class="{ on: section === 'maps' }" @click="section = 'maps'"><el-icon><ei-map-location /></el-icon>{{ $t('map:settings.nav') }}</button>
         <button v-if="driverPackages" :class="{ on: section === 'drivers' }" @click="section = 'drivers'"><el-icon><ei-connection /></el-icon>{{ $t('settings:nav.drivers') }}</button>
         <!-- Voluntary support: opens Buy Me a Coffee in the browser. -->
         <button class="st-support" :title="$t('settings:nav.supportHint')" @click="openSupport">
@@ -419,6 +421,11 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <!-- The mail server of the scheduled tasks -->
       <section v-else-if="section === 'mail'" class="st-body">
         <MailSettings />
+      </section>
+
+      <!-- The results' map view: base map and online tiles (composables/mapTiles.ts) -->
+      <section v-else-if="section === 'maps'" class="st-body">
+        <MapSettings />
       </section>
 
       <!-- The query editor's linter -->

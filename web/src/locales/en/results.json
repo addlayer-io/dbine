@@ -13,6 +13,7 @@
     "label": "Result view",
     "table": "Table",
     "chart": "Chart",
+    "map": "Map",
     "tree": "JSON (tree)"
   },
   "export": {
