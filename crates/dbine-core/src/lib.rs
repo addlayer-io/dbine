@@ -5,6 +5,7 @@ pub mod cache;
 pub mod conn_import;
 pub mod export;
 pub mod import;
+pub mod secret_sources;
 pub mod secrets;
 pub mod state;
 pub mod tasks;

@@ -1,5 +1,6 @@
 use crate::error::{CommandError, CommandResult};
 use crate::state::{apply_secrets, driver_info, extract_secrets, meta_key, AppState};
+use dbine_core::secret_sources as source_defs;
 use dbine_core::secrets;
 use dbine_core::SavedConnection;
 use dbine_driver::{ConnectionConfig, DriverInfo};
@@ -115,25 +116,48 @@ pub async fn save_connection(state: State<'_, AppState>, args: SaveConnectionArg
     }
     crate::mcp::check_override(conn.mcp_level.as_deref())?;
     let info = driver_info(&conn.config.driver)?;
+    // Where secret fields come from (docs/secret-sources.md): only fields
+    // that are secret here, each definition complete.
+    let mut sources = source_defs::read(&conn.config).map_err(|e| CommandError::BadRequest(e.to_string()))?;
+    sources.retain(|k, _| info.fields.iter().any(|f| f.secret && f.key == k) || crate::tunnels::SECRETS.contains(&k.as_str()));
+    for (field, src) in &sources {
+        src.validate().map_err(|e| CommandError::BadRequest(format!("{}: {e}", crate::secret_sources::field_label(Some(info), field))))?;
+    }
+    source_defs::write(&mut conn.config, &sources);
     let typed = extract_secrets(&mut conn.config, info);
-    if conn.save_password {
+    // What the keychain keeps: the driver's secret fields (the password
+    // only with `save_password`), the SSH tunnel's (there's no prompt for
+    // them) and the Vault tokens of fields that use Vault. Never a field
+    // whose value comes from a source.
+    let keep = |k: &str| {
+        if sources.contains_key(k) {
+            return false;
+        }
+        if let Some(field) = k.strip_prefix(source_defs::TOKEN_PREFIX) {
+            return matches!(sources.get(field), Some(source_defs::SecretSource::Vault { .. }));
+        }
+        crate::tunnels::SECRETS.contains(&k) || info.fields.iter().any(|f| f.secret && f.key == k && (k != "password" || conn.save_password))
+    };
+    let typed: secrets::Secrets = typed.into_iter().filter(|(k, _)| keep(k)).collect();
+    let has_vault = sources.values().any(|s| matches!(s, source_defs::SecretSource::Vault { .. }));
+    // The keychain is only touched when there's something to keep.
+    if conn.save_password || !typed.is_empty() || crate::tunnels::enabled(&conn.config) || has_vault || info.fields.iter().any(|f| f.secret && f.key != "password") {
         let mut stored = secrets::get(&conn.id).unwrap_or_default();
-        // Drop secrets of fields the driver no longer has (driver changed).
-        stored.retain(|k, _| info.fields.iter().any(|f| f.secret && f.key == k) || crate::tunnels::SECRETS.contains(&k.as_str()));
+        // Drops what the driver no longer has (driver changed) too.
+        stored.retain(|k, _| keep(k));
         stored.extend(typed);
         secrets::set(&conn.id, &stored)?;
     } else {
-        // Not keeping the database password; the SSH tunnel's secrets are
-        // kept all the same (there's no prompt for them). The keychain is
-        // only touched when there's a tunnel secret to keep.
-        let ssh_typed: secrets::Secrets = typed.into_iter().filter(|(k, _)| crate::tunnels::SECRETS.contains(&k.as_str())).collect();
-        if ssh_typed.is_empty() && !crate::tunnels::enabled(&conn.config) {
-            secrets::delete(&conn.id)?;
-        } else {
-            let mut ssh: secrets::Secrets = secrets::get(&conn.id).unwrap_or_default();
-            ssh.retain(|k, _| crate::tunnels::SECRETS.contains(&k.as_str()));
-            ssh.extend(ssh_typed);
-            secrets::set(&conn.id, &ssh)?;
+        secrets::delete(&conn.id)?;
+    }
+    // Typed in this form on this computer: confirmed. A definition that
+    // came from outside (an import, a restored backup) and was left as it
+    // was, or copied, isn't: it's confirmed when it first runs.
+    let saved_now = state.store.list_connections()?;
+    for (field, src) in &sources {
+        let digest = source_defs::digest(&conn.id, field, src);
+        if !source_defs::is_approved(&digest) && !source_defs::from_outside(&saved_now, field, src) {
+            source_defs::approve(&digest)?;
         }
     }
     // An opened file saved as it is ("Guardar conexión") keeps its sessions.
@@ -190,6 +214,11 @@ pub struct IdArgs {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn delete_connection(state: State<'_, AppState>, args: IdArgs) -> CommandResult<()> {
+    // Its confirmations go too.
+    if let Some(old) = state.store.get_connection(&args.id)? {
+        let digests: Vec<String> = source_defs::read(&old.config).unwrap_or_default().iter().map(|(f, s)| source_defs::digest(&args.id, f, s)).collect();
+        let _ = source_defs::forget(&digests);
+    }
     state.close_connection_sessions(&args.id);
     state.typed_secrets.remove(&args.id);
     state.keychain_cache.remove(&args.id);
@@ -216,14 +245,34 @@ pub struct TestResult {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn test_connection(state: State<'_, AppState>, args: TestConnectionArgs) -> CommandResult<TestResult> {
     let mut cfg = args.config;
-    if let Some(id) = &args.connection_id {
+    // The form's sources (resolved below) and Vault tokens it typed.
+    let sources = match source_defs::take(&mut cfg) {
+        Ok(s) => s,
+        Err(e) => return Ok(TestResult { ok: false, message: e.to_string() }),
+    };
+    let mut tokens = crate::secret_sources::take_tokens(&mut cfg);
+    let id = args.connection_id.as_deref().filter(|i| !i.is_empty());
+    let mut name = String::new();
+    if let Some(id) = id {
         let mut known = secrets::get(id).unwrap_or_default();
         if let Some(t) = state.typed_secrets.get(id) {
             known.extend(t.clone());
         }
-        // Only fill what the form left empty.
+        for (k, v) in crate::secret_sources::tokens_of(&known) {
+            tokens.entry(k).or_insert(v);
+        }
+        // Only fill what the form left empty, and nothing a source gives.
+        known.retain(|k, _| !k.starts_with(source_defs::TOKEN_PREFIX) && !sources.contains_key(k));
         known.retain(|k, _| if k == "password" { cfg.password.as_deref().unwrap_or("").is_empty() } else { cfg.option(k).is_none() });
         apply_secrets(&mut cfg, &known);
+        name = state.store.get_connection(id)?.map(|c| c.name).unwrap_or_default();
+    }
+    // A definition that came from outside asks first (an error the UI
+    // answers); one that fails is a failed test.
+    match crate::secret_sources::fill(&state.store, &mut cfg, &sources, &tokens, crate::secret_sources::Origin::Form { id, name: &name }).await {
+        Ok(()) => {}
+        Err(e @ CommandError::SecretSourceApproval(_)) => return Err(e),
+        Err(e) => return Ok(TestResult { ok: false, message: e.to_string() }),
     }
     // The tunnel lives until the test ends. An unknown SSH server is an
     // error (the UI asks to trust it), not a failed test.

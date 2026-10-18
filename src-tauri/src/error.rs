@@ -60,6 +60,18 @@ pub enum CommandError {
     /// and, if the user trusts it, saves it (`trust_ssh_host`) and retries.
     #[error("el servidor SSH {host}:{port} no es conocido. Verificá que su huella sea {fingerprint} y aceptala para conectarte.")]
     SshUnknownHost { host: String, port: u16, fingerprint: String },
+
+    /// A secret field's command or secret manager failed (not found, not
+    /// signed in, permission denied, timeout…): the message says which and why.
+    #[error("{0}")]
+    SecretSource(String),
+
+    /// A secret field's source came from outside this computer and wasn't
+    /// confirmed: the UI shows `approval` (the exact definition), and if the
+    /// user confirms it (`approve_secret_source`) it retries. The message
+    /// (all MCP and the phone get) never has the definition's text.
+    #[error("la conexión «{}» toma un secreto ({}) de un origen que todavía no se confirmó en esta computadora: abrila en DBine para revisarlo", .0.connection_name, .0.field_label)]
+    SecretSourceApproval(Box<crate::secret_sources::Approval>),
 }
 
 impl CommandError {
@@ -79,18 +91,24 @@ impl CommandError {
             Self::Sync(_) => "sync",
             Self::Internal(_) => "internal",
             Self::SshUnknownHost { .. } => "ssh_unknown_host",
+            Self::SecretSource(_) => "secret_source",
+            Self::SecretSourceApproval(_) => "secret_source_approval",
         }
     }
 }
 
 impl Serialize for CommandError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("CommandError", 3)?;
+        let mut s = serializer.serialize_struct("CommandError", 4)?;
         s.serialize_field("kind", self.kind())?;
         s.serialize_field("message", &self.to_string())?;
         match self.detail() {
             Some(d) => s.serialize_field("detail", &d)?,
             None => s.skip_field("detail")?,
+        }
+        match self {
+            Self::SecretSourceApproval(a) => s.serialize_field("approval", a)?,
+            _ => s.skip_field("approval")?,
         }
         s.end()
     }

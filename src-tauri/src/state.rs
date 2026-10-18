@@ -1,5 +1,6 @@
 use crate::error::{CommandError, CommandResult};
 use dashmap::DashMap;
+use dbine_core::secret_sources::SecretSources;
 use dbine_core::secrets::{self, Secrets};
 use dbine_core::StateStore;
 use dbine_driver::{ConnectionConfig, DriverInfo, Session};
@@ -81,6 +82,24 @@ pub fn driver_info(id: &str) -> CommandResult<&'static DriverInfo> {
         .ok_or_else(|| CommandError::BadRequest(format!("esta versión no incluye el driver '{id}'")))
 }
 
+/// A saved connection's config with its stored secrets, and what's left
+/// to resolve at connect time.
+struct StoredConfig {
+    name: String,
+    config: ConnectionConfig,
+    sources: SecretSources,
+    /// Vault tokens kept for the fields (`source_token:<field>`).
+    tokens: Secrets,
+}
+
+/// The driver has secret fields besides the password in use here, without
+/// a source: they're kept in the keychain even if the password isn't.
+fn other_secret_fields(cfg: &ConnectionConfig, sources: &SecretSources) -> bool {
+    driver_info(&cfg.driver)
+        .map(|i| i.fields.iter().any(|f| f.secret && f.key != "password" && !sources.contains_key(f.key) && field_applies(&i.fields, cfg, f.key)))
+        .unwrap_or(false)
+}
+
 /// Put secret values where the driver reads them: `password` in its field,
 /// the rest in `options`.
 pub fn apply_secrets(cfg: &mut ConnectionConfig, secrets: &Secrets) {
@@ -109,6 +128,8 @@ pub fn extract_secrets(cfg: &mut ConnectionConfig, info: &DriverInfo) -> Secrets
             out.insert(key.to_string(), v);
         }
     }
+    // Vault tokens typed for a field's source.
+    out.extend(crate::secret_sources::take_tokens(cfg));
     out
 }
 
@@ -147,29 +168,67 @@ impl AppState {
         }
     }
 
-    /// The saved connection's config with its secrets filled in.
+    /// The saved connection's config with its stored secrets filled in.
+    /// Secrets that come from a command or a secret manager aren't there
+    /// yet: [`Self::connect_config`] resolves them.
     pub fn resolve_config(&self, connection_id: &str) -> CommandResult<ConnectionConfig> {
+        Ok(self.stored_config(connection_id)?.config)
+    }
+
+    /// What a session opens with: the stored secrets and those of the
+    /// fields' sources, resolved now (crate::secret_sources).
+    pub async fn connect_config(&self, connection_id: &str) -> CommandResult<ConnectionConfig> {
+        let mut s = self.stored_config(connection_id)?;
+        let origin = crate::secret_sources::Origin::Saved { id: connection_id, name: &s.name };
+        crate::secret_sources::fill(&self.store, &mut s.config, &s.sources, &s.tokens, origin).await?;
+        Ok(s.config)
+    }
+
+    fn stored_config(&self, connection_id: &str) -> CommandResult<StoredConfig> {
         let saved = self
             .store
             .get_connection(connection_id)?
             .ok_or_else(|| CommandError::NotFound(format!("no existe la conexión '{connection_id}'")))?;
         let mut cfg = saved.config;
-        if let Some(s) = self.typed_secrets.get(connection_id) {
-            apply_secrets(&mut cfg, &s);
-        } else if saved.save_password {
-            let stored = self.keychain_secrets(connection_id, &cfg)?;
-            apply_secrets(&mut cfg, &stored);
-        } else if needs_password(&cfg)? {
-            return Err(CommandError::PasswordRequired(None));
+        // The definitions never reach the driver.
+        let sources = dbine_core::secret_sources::take(&mut cfg).map_err(|e| CommandError::BadRequest(e.to_string()))?;
+        let typed = self.typed_secrets.get(connection_id).map(|s| s.clone());
+        // The keychain holds the saved password and also what's kept
+        // whether or not it is: the tunnel's secrets, Vault tokens, the
+        // driver's other secret fields. A typed password with
+        // `save_password` means the keychain refused: not asked again.
+        let wants_keychain = if saved.save_password {
+            typed.is_none()
+        } else {
+            crate::tunnels::enabled(&cfg) || !sources.is_empty() || other_secret_fields(&cfg, &sources)
+        };
+        let mut stored = Secrets::new();
+        if wants_keychain {
+            match self.keychain_secrets(connection_id, &cfg, &sources) {
+                Ok(s) => stored = s,
+                Err(e) if typed.is_some() || !saved.save_password => tracing::warn!(%e, "keychain read refused"),
+                Err(e) => return Err(e),
+            }
         }
-        Ok(cfg)
+        if !saved.save_password {
+            stored.remove("password");
+        }
+        let tokens = crate::secret_sources::tokens_of(&stored);
+        stored.retain(|k, _| !k.starts_with(dbine_core::secret_sources::TOKEN_PREFIX) && !sources.contains_key(k));
+        apply_secrets(&mut cfg, &stored);
+        match typed {
+            Some(t) => apply_secrets(&mut cfg, &t),
+            None if !saved.save_password && needs_password(&cfg, &sources)? => return Err(CommandError::PasswordRequired(None)),
+            None => {}
+        }
+        Ok(StoredConfig { name: saved.name, config: cfg, sources, tokens })
     }
 
     /// The connection's secrets from the keychain (cached for the run). When
     /// the keychain refuses (macOS asks the user, and a development build
     /// asks again after every rebuild because its signature changes), the
     /// UI is asked for the password instead of failing.
-    fn keychain_secrets(&self, connection_id: &str, cfg: &ConnectionConfig) -> CommandResult<Secrets> {
+    fn keychain_secrets(&self, connection_id: &str, cfg: &ConnectionConfig, sources: &SecretSources) -> CommandResult<Secrets> {
         if let Some(s) = self.keychain_cache.get(connection_id) {
             return Ok(s.clone());
         }
@@ -178,7 +237,7 @@ impl AppState {
                 self.keychain_cache.insert(connection_id.to_string(), s.clone());
                 Ok(s)
             }
-            Err(e) if needs_password(cfg)? => {
+            Err(e) if needs_password(cfg, sources)? => {
                 tracing::warn!(%e, "keychain read refused");
                 Err(CommandError::PasswordRequired(Some(format!(
                     "No se pudo leer la contraseña guardada en el llavero del sistema ({e}). \
@@ -239,7 +298,7 @@ impl AppState {
     }
 
     async fn open_session(&self, key: &str, connection_id: &str, database: &str) -> CommandResult<Arc<SessionEntry>> {
-        let mut cfg = self.resolve_config(connection_id)?;
+        let mut cfg = self.connect_config(connection_id).await?;
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
         let session = dbine_drivers::open_session(&cfg, db).await?;
@@ -313,7 +372,7 @@ impl AppState {
         database: &str,
         read_only: bool,
     ) -> CommandResult<Arc<SessionEntry>> {
-        let mut cfg = self.resolve_config(connection_id)?;
+        let mut cfg = self.connect_config(connection_id).await?;
         cfg.read_only |= read_only;
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
@@ -336,6 +395,8 @@ impl AppState {
     /// window hears it (`state-changed`, kind `sessions-closed`): a tab of
     /// another window on that connection is now disconnected too.
     pub fn close_connection_sessions(&self, connection_id: &str) {
+        // Resolved secrets of its sources: the next connect asks again.
+        crate::secret_sources::forget_cached(connection_id);
         self.sessions.retain(|_, e| {
             let keep = e.connection_id != connection_id;
             if !keep {
@@ -358,7 +419,11 @@ impl AppState {
 /// password field that applies to this connection (not with a sign-in
 /// that takes none, like a cloud token or Entra ID) and the connection
 /// names a user.
-fn needs_password(cfg: &ConnectionConfig) -> CommandResult<bool> {
+/// A password that comes from a command or a secret manager isn't asked.
+fn needs_password(cfg: &ConnectionConfig, sources: &SecretSources) -> CommandResult<bool> {
+    if sources.contains_key("password") {
+        return Ok(false);
+    }
     let info = driver_info(&cfg.driver)?;
     Ok(password_applies(&info.fields, cfg) && cfg.username.as_deref().is_some_and(|u| !u.is_empty()))
 }
@@ -366,13 +431,27 @@ fn needs_password(cfg: &ConnectionConfig) -> CommandResult<bool> {
 /// The password field is there and its `when` holds (the controlling
 /// option as saved, or that field's default).
 fn password_applies(fields: &[dbine_driver::Field], cfg: &ConnectionConfig) -> bool {
-    let Some(f) = fields.iter().find(|f| f.key == "password") else { return false };
-    let Some(when) = &f.when else { return true };
-    let value = cfg
-        .option(when.key)
-        .or_else(|| fields.iter().find(|c| c.key == when.key).map(|c| c.default))
-        .unwrap_or("");
-    when.values.contains(&value)
+    field_applies(fields, cfg, "password")
+}
+
+/// The field `key` is there and its `when` holds, and so does the `when`
+/// of the field it depends on (the controlling option as saved, or that
+/// field's default), as the connection form shows it.
+pub fn field_applies(fields: &[dbine_driver::Field], cfg: &ConnectionConfig, key: &str) -> bool {
+    let mut key = key;
+    for _ in 0..8 {
+        let Some(f) = fields.iter().find(|f| f.key == key) else { return false };
+        let Some(when) = &f.when else { return true };
+        let value = cfg
+            .option(when.key)
+            .or_else(|| fields.iter().find(|c| c.key == when.key).map(|c| c.default))
+            .unwrap_or("");
+        if !when.values.contains(&value) {
+            return false;
+        }
+        key = when.key;
+    }
+    true
 }
 
 #[cfg(test)]

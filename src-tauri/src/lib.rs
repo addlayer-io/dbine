@@ -15,6 +15,7 @@ mod mcp;
 mod menu;
 mod open_files;
 mod optimizer;
+mod secret_sources;
 mod state;
 mod sync;
 mod tasks;
@@ -295,6 +296,8 @@ pub fn run() {
             commands::connections::save_connection,
             commands::connections::delete_connection,
             commands::connections::trust_ssh_host,
+            secret_sources::test_secret_source,
+            secret_sources::approve_secret_source,
             commands::history::history_list,
             commands::history::history_of,
             commands::history::history_delete,
