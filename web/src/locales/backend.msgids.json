@@ -23394,6 +23394,9 @@
   "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "Zoho Vault no acepta tantos pedidos seguidos; probá en unos minutos ({0})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "Zoho Vault no devolvió la clave de la organización": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
@@ -23401,6 +23404,15 @@
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho Vault no devolvió los datos de la cuenta (GET_LOGIN)": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault rechazó el pedido ({0})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault rechazó el pedido ({0}): esta versión de DBine le pide algo que Zoho no acepta": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault rechazó el pedido ({0}): {1}": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho Vault rechazó el token de acceso (¿el cliente tiene acceso a Zoho Vault en este centro de datos?)": [
@@ -23428,6 +23440,9 @@
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho Vault: no hay un secreto «{0}» (parecidos: {1})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault: no hay un secreto «{0}» entre los primeros {1} (indicá su ID)": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho no devolvió un token de acceso": [
@@ -28427,6 +28442,12 @@
  "la clave de la cuenta no es base64 válido": [
   "crates/drivers/cosmosdb/src/lib.rs"
  ],
+ "la clave de la organización de Zoho Vault no se pudo descifrar con la clave privada": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "la clave de la organización de Zoho Vault viene cifrada en un formato que DBine no reconoce": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "la clave del documento (META().id) no es un campo y no se puede renombrar": [
   "crates/drivers/couchbase/src/rename.rs"
  ],
@@ -28480,6 +28501,9 @@
  ],
  "la clave privada cifrada no es válida": [
   "src-tauri/src/secret_sources/https.rs"
+ ],
+ "la clave privada de la organización de Zoho Vault tiene un formato que DBine no reconoce": [
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "la clave privada está cifrada: escribí su frase de contraseña": [
   "src-tauri/src/secret_sources/https.rs"
@@ -28926,6 +28950,9 @@
   "src-tauri/src/secret_sources/https.rs"
  ],
  "la frase de contraseña maestra de Zoho Vault no es la correcta": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "la frase de contraseña maestra no abre la clave privada de la organización de Zoho Vault": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "la frase no coincide con la frase de contraseña maestra de esta cuenta de Zoho Vault": [
@@ -30897,9 +30924,6 @@
  ],
  "no se pudo descifrar el secreto de Bitwarden Secrets Manager (¿es de otra organización que la cuenta de máquina?)": [
   "src-tauri/src/secret_sources/bitwarden.rs"
- ],
- "no se pudo descifrar la clave de la organización de Zoho Vault": [
-  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "no se pudo descifrar la clave de la organización {0} de Bitwarden": [
   "src-tauri/src/secret_sources/bitwarden.rs"

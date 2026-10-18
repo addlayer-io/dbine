@@ -17,6 +17,7 @@ import AccountConnectWizard from './AccountConnectWizard.vue';
 import { accountsOf, loadSecretAccounts, PROVIDER, secretAccounts, secretAccountsLoaded } from '../composables/secretAccounts';
 import type { WizardKind } from '../composables/accountWizards';
 import type { SecretAccount } from '../api/types';
+import { useUiStore } from '../stores/ui';
 
 // Where one secret field takes its value (docs/secret-sources.md): a
 // selector first, then that source's inputs in the form's own grid (same
@@ -149,6 +150,9 @@ const accountMissing = computed(() => acctMode.value && secretAccountsLoaded.val
 const accountValue = computed(() => (accountMissing.value ? '' : draft.value.account_id));
 const providerName = computed(() => (acctKind.value ? PROVIDER[acctKind.value] : ''));
 const CONNECT_ACCOUNT = '__connect__';
+/** The last option: Settings › Gestores de secretos (rename, edit, remove). */
+const MANAGE_ACCOUNTS = '__manage__';
+const ui = useUiStore();
 const wizardOpen = ref(false);
 watch(() => draft.value.kind, async (k) => {
   const ak = accountKindOf(k);
@@ -160,6 +164,7 @@ watch(() => draft.value.kind, async (k) => {
 }, { immediate: true });
 function pickAccount(v: string) {
   if (v === CONNECT_ACCOUNT) wizardOpen.value = true;
+  else if (v === MANAGE_ACCOUNTS) ui.openSettings('secrets');
   else draft.value.account_id = v;
 }
 function accountConnected(a: SecretAccount) {
@@ -331,6 +336,9 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           </el-option>
           <el-option :value="CONNECT_ACCOUNT" :label="$t('secretAccounts:picker.connect')" class="ss-opt-connect">
             <el-icon><ei-plus /></el-icon><span>{{ $t('secretAccounts:picker.connect') }}</span>
+          </el-option>
+          <el-option v-if="kindAccounts.length" :value="MANAGE_ACCOUNTS" :label="$t('secretAccounts:picker.manage')" class="ss-opt-connect">
+            <el-icon><ei-setting /></el-icon><span>{{ $t('secretAccounts:picker.manage') }}</span>
           </el-option>
         </el-select>
         <div v-if="accountMissing" class="ss-missing" role="alert"><el-icon><ei-warning-filled /></el-icon>{{ $t('secretAccounts:picker.missingAny', { provider: providerName }) }}</div>

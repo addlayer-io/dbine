@@ -10620,7 +10620,6 @@
   "no se pudo conectar con Zoho ({0}): {1}": "couldn't connect to Zoho ({0}): {1}",
   "no se pudo conectar con Zoho Vault ({0}): {1}": "couldn't connect to Zoho Vault ({0}): {1}",
   "no se pudo descifrar el campo «{0}» del secreto «{1}» de Zoho Vault (¿la frase de contraseña maestra es la correcta?)": "couldn't decrypt the field «{0}» of the Zoho Vault secret «{1}» (is the master passphrase the right one?)",
-  "no se pudo descifrar la clave de la organización de Zoho Vault": "couldn't decrypt the Zoho Vault organization key",
   "no se pudo leer el archivo de KeePass «{0}»: {1}": "couldn't read the KeePass file «{0}»: {1}",
   "no se pudo leer el archivo de clave «{0}»: {1}": "couldn't read the key file «{0}»: {1}",
   "se necesita la contraseña maestra": "the master password is needed",
@@ -10939,5 +10938,14 @@
   "«az account list» no devolvió JSON": "«az account list» did not return JSON",
   "«az account show» no devolvió JSON": "«az account show» did not return JSON",
   "«gcloud config list» no devolvió JSON": "«gcloud config list» did not return JSON",
-  "«op whoami» no dijo con qué cuenta inició sesión": "«op whoami» did not say which account is signed in"
+  "«op whoami» no dijo con qué cuenta inició sesión": "«op whoami» did not say which account is signed in",
+  "Zoho Vault no acepta tantos pedidos seguidos; probá en unos minutos ({0})": "Zoho Vault doesn't accept this many requests in a row; try again in a few minutes ({0})",
+  "Zoho Vault rechazó el pedido ({0})": "Zoho Vault rejected the request ({0})",
+  "Zoho Vault rechazó el pedido ({0}): esta versión de DBine le pide algo que Zoho no acepta": "Zoho Vault rejected the request ({0}): this version of DBine asks for something Zoho doesn't accept",
+  "Zoho Vault rechazó el pedido ({0}): {1}": "Zoho Vault rejected the request ({0}): {1}",
+  "Zoho Vault: no hay un secreto «{0}» entre los primeros {1} (indicá su ID)": "Zoho Vault: there is no secret «{0}» among the first {1} (give its ID)",
+  "la frase de contraseña maestra no abre la clave privada de la organización de Zoho Vault": "the master passphrase doesn't open the Zoho Vault organization's private key",
+  "la clave privada de la organización de Zoho Vault tiene un formato que DBine no reconoce": "the Zoho Vault organization's private key has a format DBine doesn't recognize",
+  "la clave de la organización de Zoho Vault viene cifrada en un formato que DBine no reconoce": "the Zoho Vault organization key is encrypted in a format DBine doesn't recognize",
+  "la clave de la organización de Zoho Vault no se pudo descifrar con la clave privada": "the Zoho Vault organization key couldn't be decrypted with the private key"
 }

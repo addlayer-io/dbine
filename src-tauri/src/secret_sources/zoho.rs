@@ -8,10 +8,13 @@
 //! 3. The master key: PBKDF2-HMAC-SHA256(passphrase, salt, iterations) as hex
 //!    (`PBKDF2_AES` accounts), or SHA-256(passphrase) as hex (older
 //!    `SHA256` accounts).
-//! 4. The secret, by ID or by name. A personal secret is encrypted with the
+//! 4. The secret, by ID, or by name looked for in the secrets list (read
+//!    with its paging arguments only: Zoho refuses `passwordName` with
+//!    EXTRA_PARAM_FOUND). A personal secret is encrypted with the
 //!    master key; a shared one (`isshared: YES`) with the organization key,
 //!    which is RSA-encrypted for the user with a private key that is itself
-//!    encrypted with the master key (`/user/orgkey`).
+//!    encrypted with the master key (`/user/orgkey`): jsbn's hex key and
+//!    PKCS#1 v1.5 (`RSA_1024`, the default) or PKCS#8 and OAEP (`RSA_4096`).
 //! 5. Each value: base64 of an 8-byte nonce and AES-256 in counter mode, the
 //!    cipher key being the first 16 bytes of the key text encrypted with
 //!    AES-256 under itself, twice (Zoho's web client uses Chris Veness'
@@ -376,14 +379,28 @@ async fn get(client: &reqwest::Client, ep: &Endpoints, token: &str, path_and_que
     Ok(json)
 }
 
+/// One sentence from Zoho's failed result: its `error_code` once (Zoho
+/// often repeats it as the message), its message only when it says more.
 pub fn api_error(status: u16, code: &str, msg: &str) -> String {
-    let msg = super::exec::first_lines(msg, 300);
-    match code {
+    let code = super::exec::first_lines(code.trim(), 100);
+    let msg = super::exec::first_lines(msg.trim(), 300);
+    let more = !msg.is_empty() && !msg.eq_ignore_ascii_case(&code) && !msg.contains(code.as_str());
+    match code.as_str() {
         "INVALID_OAUTHSCOPE" | "OAUTH_SCOPE_MISMATCH" => "el token de Zoho no tiene los permisos necesarios: generalo con ZohoVault.secrets.READ y ZohoVault.user.READ".into(),
-        "NO_PERMISSION" | "PERMISSION_DENIED" => format!("Zoho Vault: permiso denegado: {msg}"),
-        _ if !code.is_empty() => format!("Zoho Vault respondió {code}: {msg}"),
-        _ if msg.is_empty() => format!("Zoho Vault respondió {status}"),
-        _ => format!("Zoho Vault respondió {status}: {msg}"),
+        "NO_PERMISSION" | "PERMISSION_DENIED" if more => format!("Zoho Vault: permiso denegado ({code}): {msg}"),
+        "NO_PERMISSION" | "PERMISSION_DENIED" => format!("Zoho Vault: permiso denegado ({code})"),
+        // Zoho's request filter: an argument it doesn't take, or one it
+        // doesn't accept that way. DBine asked wrong, not the user.
+        "EXTRA_PARAM_FOUND" | "PATTERN_NOT_MATCHED" | "LESS_THAN_MIN_OCCURANCE" | "MORE_THAN_MAX_OCCURANCE" | "URL_RULE_NOT_CONFIGURED" => {
+            format!("Zoho Vault rechazó el pedido ({code}): esta versión de DBine le pide algo que Zoho no acepta")
+        }
+        "URL_ROLLING_THROTTLES_LIMIT_EXCEEDED" | "URL_FIXED_THROTTLES_LIMIT_EXCEEDED" | "URL_RATE_LIMIT_EXCEEDED" | "TOO_MANY_REQUESTS" => {
+            format!("Zoho Vault no acepta tantos pedidos seguidos; probá en unos minutos ({code})")
+        }
+        "" if msg.is_empty() => format!("Zoho Vault respondió {status}"),
+        "" => format!("Zoho Vault respondió {status}: {msg}"),
+        _ if more => format!("Zoho Vault rechazó el pedido ({code}): {msg}"),
+        _ => format!("Zoho Vault rechazó el pedido ({code})"),
     }
 }
 
@@ -400,10 +417,6 @@ async fn api(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, path_and_q
         }
     }
     Err("Zoho Vault rechazó el token de acceso (¿el cliente tiene acceso a Zoho Vault en este centro de datos?)".into())
-}
-
-fn uri_encode(s: &str) -> String {
-    super::cloud_auth::uri_encode(s)
 }
 
 /// `(value, username)` of the secret, talking to `ep`.
@@ -476,17 +489,71 @@ pub fn pbkdf2_key(passphrase: &str, salt: &str, iterations: u32) -> String {
     key
 }
 
-/// The secret's JSON: by ID (digits), else by exact name.
+/// Secrets one list page asks for (`rowPerPage`).
+const PAGE: usize = 100;
+/// Pages read at most: one past the browse limit, so a cut list is known.
+const MAX_PAGES: usize = super::browse::MAX_ENTRIES / PAGE + 1;
+
+/// Every secret the user sees, page by page, each handed to `each` once.
+/// Only the list's documented paging arguments go (`isAsc`, `pageNum`,
+/// `rowPerPage`): Zoho refuses any other with `EXTRA_PARAM_FOUND`, and
+/// `passwordName`, although documented, is refused that way too. It stops
+/// on a short page, on the second page in a row with nothing new (one is
+/// skipped: if `pageNum` starts at 1, 0 may repeat it) or after
+/// [`MAX_PAGES`]; `Ok(true)` when it was cut there.
+async fn each_secret(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, mut each: impl FnMut(Value)) -> Result<bool, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut stale = 0;
+    for page in 0..MAX_PAGES {
+        let json = api(client, ep, creds, &format!("/api/rest/json/v1/secrets?isAsc=true&pageNum={page}&rowPerPage={PAGE}")).await?;
+        let list = match json.pointer("/operation/Details") {
+            Some(Value::Array(a)) => a.clone(),
+            _ => Vec::new(),
+        };
+        let n = list.len();
+        let mut new = 0;
+        for s in list {
+            let id = id_of(&s);
+            if id.is_empty() || seen.insert(id) {
+                new += 1;
+                each(s);
+            }
+        }
+        stale = if new == 0 { stale + 1 } else { 0 };
+        if n < PAGE || stale == 2 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// The secret's JSON: by ID (digits), else by name, looked for in the list
+/// (Zoho has no name filter it accepts): exactly, else ignoring case.
 async fn find_secret(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, wanted: &str) -> Result<Value, String> {
     let wanted = wanted.trim();
     if !wanted.is_empty() && wanted.chars().all(|c| c.is_ascii_digit()) {
         let json = api(client, ep, creds, &format!("/api/rest/json/v1/secrets/{wanted}")).await?;
         return first_detail(&json).ok_or_else(|| format!("Zoho Vault: no existe el secreto con el ID {wanted}"));
     }
-    let q = format!("/api/rest/json/v1/secrets?isAsc=true&pageNum=0&rowPerPage=100&passwordName={}", uri_encode(wanted));
-    let json = api(client, ep, creds, &q).await?;
-    let list: Vec<Value> = json.pointer("/operation/Details").and_then(Value::as_array).cloned().unwrap_or_default();
-    pick_by_name(list, wanted)
+    let lower = wanted.to_lowercase();
+    // The ones with that name, whole; the similar ones, by name only (for
+    // the message), not their ciphertext.
+    let mut kept: Vec<Value> = Vec::new();
+    let mut similar = 0;
+    let cut = each_secret(client, ep, creds, |s| {
+        let name = name_of(&s).to_lowercase();
+        if name == lower {
+            kept.push(s);
+        } else if similar < 8 && !name.is_empty() && !lower.is_empty() && (name.contains(&lower) || lower.contains(&name)) {
+            similar += 1;
+            kept.push(serde_json::json!({ "secretname": name_of(&s) }));
+        }
+    })
+    .await?;
+    if cut && !kept.iter().any(|s| name_of(s).to_lowercase() == lower) {
+        return Err(format!("Zoho Vault: no hay un secreto «{wanted}» entre los primeros {} (indicá su ID)", super::browse::MAX_ENTRIES));
+    }
+    pick_by_name(kept, wanted)
 }
 
 fn first_detail(json: &Value) -> Option<Value> {
@@ -513,7 +580,8 @@ fn id_of(v: &Value) -> String {
 /// search's results.
 pub fn pick_by_name(list: Vec<Value>, wanted: &str) -> Result<Value, String> {
     let exact: Vec<&Value> = list.iter().filter(|s| name_of(s) == wanted).collect();
-    let found = if exact.is_empty() { list.iter().filter(|s| name_of(s).eq_ignore_ascii_case(wanted)).collect() } else { exact };
+    let lower = wanted.to_lowercase();
+    let found = if exact.is_empty() { list.iter().filter(|s| name_of(s).to_lowercase() == lower).collect() } else { exact };
     match found.len() {
         1 => Ok(found[0].clone()),
         0 => {
@@ -540,26 +608,138 @@ async fn org_key(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, master
     let d = first_detail(&json).ok_or("Zoho Vault no devolvió la clave de la organización")?;
     let private = d.get("privateKey").and_then(Value::as_str).filter(|s| !s.is_empty() && *s != "null");
     let shared = d.get("sharedKey").and_then(Value::as_str).filter(|s| !s.is_empty() && *s != "null");
+    let kind = d.get("rsaKeyType").and_then(Value::as_str).unwrap_or("");
     match (private, shared) {
-        (Some(p), Some(s)) => decrypt_org_key(p, s, master),
+        (Some(p), Some(s)) => decrypt_org_key(p, s, kind, master),
         _ => Err("el secreto es compartido, pero Zoho Vault no devolvió la clave de la organización para este usuario".into()),
     }
 }
 
-pub fn decrypt_org_key(private_key: &str, shared_key: &str, master: &str) -> Result<String, String> {
+/// The master passphrase opened the account but not the organization's
+/// private key.
+pub const ORG_PASSPHRASE: &str = "la frase de contraseña maestra no abre la clave privada de la organización de Zoho Vault";
+/// The private key decrypted, but isn't any format Zoho's clients write.
+pub const ORG_PRIVATE_FORMAT: &str = "la clave privada de la organización de Zoho Vault tiene un formato que DBine no reconoce";
+/// The RSA-encrypted organization key isn't hex or base64 as expected.
+pub const ORG_SHARED_FORMAT: &str = "la clave de la organización de Zoho Vault viene cifrada en un formato que DBine no reconoce";
+/// RSA refused the shared key with that private key.
+pub const ORG_RSA: &str = "la clave de la organización de Zoho Vault no se pudo descifrar con la clave privada";
+
+/// The organization key from `/user/orgkey`'s `privateKey` and `sharedKey`.
+/// Zoho's clients (the browser extension's VaultLogin.decryptOrgKey and
+/// BgZCrypt) write two kinds, told apart here by the decrypted private key
+/// (`rsaKeyType`, `RSA_1024` when absent, only goes to the log):
+///
+/// - `RSA_1024`: the private key is the text `n,e,d,p,q,dmp1,dmq1,coeff`
+///   in hex (jsbn's `RSAKey.setPrivateEx`), the shared key RSA PKCS#1 v1.5
+///   ciphertext in hex (`RSAKey.decrypt`).
+/// - `RSA_4096`: the private key is base64 PKCS#8, the shared key base64
+///   RSA-OAEP with SHA-256 (WebCrypto's `RSA-OAEP`, hash `SHA-256`).
+///
+/// Each stage fails with its own message, and the log says where it stopped
+/// with lengths and shapes only: never a key, a value or plaintext.
+pub fn decrypt_org_key(private_key: &str, shared_key: &str, key_type: &str, master: &str) -> Result<String, String> {
     use rsa::pkcs8::DecodePrivateKey;
-    let bad_key = || "no se pudo descifrar la clave de la organización de Zoho Vault".to_string();
-    let mut b64 = decrypt(private_key, master).ok().and_then(|b| String::from_utf8(b).ok()).ok_or_else(bad_key)?;
-    let der = base64::engine::general_purpose::STANDARD.decode(b64.trim().as_bytes());
-    wipe(&mut b64);
-    let mut der = der.map_err(|_| bad_key())?;
-    let key = rsa::RsaPrivateKey::from_pkcs8_der(&der);
-    wipe_bytes(&mut der);
-    let key = key.map_err(|_| bad_key())?;
-    let ct = base64::engine::general_purpose::STANDARD.decode(shared_key.trim().as_bytes()).map_err(|_| bad_key())?;
-    // OAEP with SHA-256 (what current clients write), else PKCS#1 v1.5.
-    let plain = key.decrypt(rsa::Oaep::<rsa::sha2::Sha256>::new(), &ct).or_else(|_| key.decrypt(rsa::Pkcs1v15Encrypt, &ct)).map_err(|_| bad_key())?;
-    String::from_utf8(plain).map_err(|_| bad_key())
+    use rsa::traits::PublicKeyParts;
+    // Zoho's label, not the text Zoho sent (it goes to the log).
+    let kind = match key_type {
+        "" => "(none: RSA_1024)",
+        "RSA_1024" => "RSA_1024",
+        "RSA_4096" => "RSA_4096",
+        _ => "(another)",
+    };
+    let stop = |stage: &str, msg: &str| {
+        tracing::warn!(rsa_key_type = kind, private_key_len = private_key.len(), shared_key_len = shared_key.len(), "zoho org key: {stage}");
+        msg.to_string()
+    };
+    let Ok(mut bytes) = decrypt(private_key, master) else {
+        return Err(stop("privateKey is not base64 of a nonce and ciphertext", ORG_PRIVATE_FORMAT));
+    };
+    // The key text is ASCII either way; anything else is another key's garbage.
+    if !bytes.iter().all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace()) {
+        let n = bytes.len();
+        wipe_bytes(&mut bytes);
+        return Err(stop(&format!("privateKey decrypted to {n} bytes that are not text: the master key does not open it"), ORG_PASSPHRASE));
+    }
+    let mut text = String::from_utf8(bytes).unwrap_or_default();
+    let parts = text.trim().split(',').count();
+    let key = if parts > 1 {
+        let key = jsbn_private_key(&text);
+        let shape = format!("privateKey decrypted: {} chars, comma-separated: {parts} parts", text.trim().len());
+        wipe(&mut text);
+        let Some(key) = key else {
+            return Err(stop(&format!("{shape}, not 8 hex parts of an RSA key"), ORG_PRIVATE_FORMAT));
+        };
+        tracing::debug!("zoho org key: {shape} (jsbn RSAKey)");
+        let Some(mut ct) = unhex(shared_key.trim()) else {
+            return Err(stop("sharedKey is not hex (RSA_1024)", ORG_SHARED_FORMAT));
+        };
+        let plain = left_pad(&ct, key.size()).and_then(|c| key.decrypt(rsa::Pkcs1v15Encrypt, &c).ok());
+        wipe_bytes(&mut ct);
+        plain.ok_or_else(|| stop(&format!("sharedKey: {} hex chars, RSA PKCS#1 v1.5 refused it", shared_key.trim().len()), ORG_RSA))?
+    } else {
+        let der = base64::engine::general_purpose::STANDARD.decode(text.trim().as_bytes());
+        let shape = format!("privateKey decrypted: {} chars, without commas", text.trim().len());
+        wipe(&mut text);
+        let Ok(mut der) = der else {
+            return Err(stop(&format!("{shape}, not base64"), ORG_PRIVATE_FORMAT));
+        };
+        let key = rsa::RsaPrivateKey::from_pkcs8_der(&der);
+        let der_len = der.len();
+        wipe_bytes(&mut der);
+        let Ok(key) = key else {
+            return Err(stop(&format!("{shape}, base64 of {der_len} bytes that are not a PKCS#8 RSA key"), ORG_PRIVATE_FORMAT));
+        };
+        tracing::debug!("zoho org key: {shape} (PKCS#8, {der_len} bytes)");
+        let Ok(mut ct) = base64::engine::general_purpose::STANDARD.decode(shared_key.trim().as_bytes()) else {
+            return Err(stop("sharedKey is not base64 (RSA_4096)", ORG_SHARED_FORMAT));
+        };
+        let plain = left_pad(&ct, key.size()).and_then(|c| key.decrypt(rsa::Oaep::<rsa::sha2::Sha256>::new(), &c).ok());
+        let ct_len = ct.len();
+        wipe_bytes(&mut ct);
+        plain.ok_or_else(|| stop(&format!("sharedKey: base64 of {ct_len} bytes, RSA-OAEP SHA-256 refused it"), ORG_RSA))?
+    };
+    String::from_utf8(key).map_err(|e| {
+        wipe_bytes(&mut e.into_bytes());
+        stop("sharedKey decrypted to bytes that are not UTF-8", ORG_RSA)
+    })
+}
+
+/// jsbn's `setPrivateEx(n, e, d, p, q, dmp1, dmq1, coeff)` from its hex
+/// text. Like jsbn's CRT decryption, only `p`, `q` and `e` make the key
+/// (`n` must agree); the rest is derived again.
+fn jsbn_private_key(text: &str) -> Option<rsa::RsaPrivateKey> {
+    use rsa::traits::PublicKeyParts;
+    let mut parts: Vec<Vec<u8>> = text.trim().split(',').map(|p| unhex(p.trim())).collect::<Option<_>>()?;
+    let trim = |b: &[u8]| b[b.iter().position(|x| *x != 0).unwrap_or(b.len())..].to_vec();
+    let key = (parts.len() == 8).then(|| {
+        let e = rsa::BoxedUint::from_be_slice_vartime(&parts[1]);
+        let (p, q) = (rsa::BoxedUint::from_be_slice_vartime(&parts[3]), rsa::BoxedUint::from_be_slice_vartime(&parts[4]));
+        rsa::RsaPrivateKey::from_p_q(p, q, e).ok().filter(|k| trim(&k.n().as_ref().to_be_bytes()) == trim(&parts[0]))
+    });
+    parts.iter_mut().for_each(|p| wipe_bytes(p));
+    key.flatten()
+}
+
+/// Hex digits (either case; an odd count gets a leading zero, as jsbn
+/// writes numbers) as bytes.
+fn unhex(s: &str) -> Option<Vec<u8>> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let padded = if s.len() % 2 == 1 { format!("0{s}") } else { s.to_string() };
+    padded.as_bytes().chunks(2).map(|c| u8::from_str_radix(std::str::from_utf8(c).ok()?, 16).ok()).collect()
+}
+
+/// The ciphertext as the modulus' length: jsbn drops leading zero bytes.
+fn left_pad(ct: &[u8], size: usize) -> Option<Vec<u8>> {
+    let start = ct.iter().position(|b| *b != 0).unwrap_or(ct.len());
+    let ct = &ct[start..];
+    (ct.len() <= size).then(|| {
+        let mut out = vec![0u8; size - ct.len()];
+        out.extend_from_slice(ct);
+        out
+    })
 }
 
 /// The secret's data: `secretData` (a JSON object, or its text) plus the
@@ -650,7 +830,7 @@ pub async fn browse(data_center: &str, creds: &Creds, at: super::browse::At<'_>)
 }
 
 pub async fn browse_with(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
-    use super::browse::{unique_names, wipe_json, Entry, Listing, MAX_ENTRIES};
+    use super::browse::{unique_names, wipe_json, Entry, Listing};
     if let Some(item) = at.item {
         let mut secret = find_secret(client, ep, creds, item).await?;
         let mut names: Vec<String> = fields_of(&secret).into_iter().map(|(mut k, mut v)| {
@@ -661,18 +841,9 @@ pub async fn browse_with(client: &reqwest::Client, ep: &Endpoints, creds: &Creds
         names.dedup();
         return Ok(Listing::fields(names));
     }
-    const PAGE: usize = 100;
+    // Names and IDs only; the rest (ciphertext) isn't kept.
     let mut all: Vec<Value> = Vec::new();
-    for page in 0.. {
-        let json = api(client, ep, creds, &format!("/api/rest/json/v1/secrets?isAsc=true&pageNum={page}&rowPerPage={PAGE}")).await?;
-        let list: Vec<Value> = json.pointer("/operation/Details").and_then(Value::as_array).cloned().unwrap_or_default();
-        let n = list.len();
-        // Names and IDs only; the rest (ciphertext) isn't kept.
-        all.extend(list.iter().map(|s| serde_json::json!({ "secretname": name_of(s), "secretid": id_of(s) })));
-        if n < PAGE || all.len() > MAX_ENTRIES {
-            break;
-        }
-    }
+    let cut = each_secret(client, ep, creds, |s| all.push(serde_json::json!({ "secretname": name_of(&s), "secretid": id_of(&s) }))).await?;
     let unique = unique_names(all.iter().map(name_of));
     let mut out: Vec<Entry> = all
         .iter()
@@ -683,7 +854,9 @@ pub async fn browse_with(client: &reqwest::Client, ep: &Endpoints, creds: &Creds
         })
         .collect();
     out.sort_by_key(|e| e.name.to_lowercase());
-    Ok(Listing::complete(out))
+    let mut listing = Listing::complete(out);
+    listing.truncated |= cut;
+    Ok(listing)
 }
 
 // ---- Zoho's AES-CTR ------------------------------------------------------------
@@ -797,9 +970,53 @@ mod tests {
     #[test]
     fn organization_key_vectors() {
         let v = vectors();
-        assert_eq!(decrypt_org_key(s(&v, "private_key"), s(&v, "shared_key_oaep"), s(&v, "master")).unwrap(), s(&v, "org_key"));
-        assert_eq!(decrypt_org_key(s(&v, "private_key"), s(&v, "shared_key_pkcs1"), s(&v, "master")).unwrap(), s(&v, "org_key"));
-        assert!(decrypt_org_key(s(&v, "private_key"), s(&v, "shared_key_oaep"), s(&v, "legacy_master")).is_err(), "another master key");
+        let (master, org) = (s(&v, "master"), s(&v, "org_key"));
+        // RSA_1024 (jsbn: hex components, hex PKCS#1 v1.5), with or without
+        // rsaKeyType: the data says which.
+        assert_eq!(decrypt_org_key(s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"), "", master).unwrap(), org);
+        assert_eq!(decrypt_org_key(s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"), "RSA_1024", master).unwrap(), org);
+        assert_eq!(decrypt_org_key(s(&v, "rsa1024_private_key"), &s(&v, "rsa1024_shared_key").to_uppercase(), "", master).unwrap(), org, "hex in either case");
+        // RSA_4096 (WebCrypto: base64 PKCS#8, base64 OAEP SHA-256).
+        assert_eq!(decrypt_org_key(s(&v, "rsa4096_private_key"), s(&v, "rsa4096_shared_key"), "RSA_4096", master).unwrap(), org);
+        // The organization key opens the shared secrets.
+        let shared = secret("org-db", "2", true, s(&v, "shared_secret_data"));
+        let key = decrypt_org_key(s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"), "", master).unwrap();
+        let r = Request { data_center: "eu", secret: "org-db", attribute: "", username: true, user_field: "" };
+        assert_eq!(values(&shared, &key, &r).unwrap(), ("org-secret-9".to_string(), Some("org_user".to_string())));
+    }
+
+    /// Each stage of the organization key fails with its own message, and
+    /// none carries a key, a value or plaintext.
+    #[test]
+    fn organization_key_stages() {
+        // `cargo test organization_key_stages -- --nocapture` shows the log lines.
+        let _ = tracing_subscriber::fmt().with_test_writer().with_max_level(tracing::Level::DEBUG).try_init();
+        let v = vectors();
+        let (master, org) = (s(&v, "master"), s(&v, "org_key"));
+        let (p1024, s1024) = (s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"));
+        let (p4096, s4096) = (s(&v, "rsa4096_private_key"), s(&v, "rsa4096_shared_key"));
+        let fails = |p: &str, sk: &str, m: &str| decrypt_org_key(p, sk, "", m).unwrap_err();
+        // The master key doesn't open the private key.
+        assert_eq!(fails(p1024, s1024, s(&v, "legacy_master")), ORG_PASSPHRASE);
+        assert_eq!(fails(p4096, s4096, s(&v, "legacy_master")), ORG_PASSPHRASE);
+        // The private key isn't any format Zoho writes.
+        assert_eq!(fails("not base64!", s1024, master), ORG_PRIVATE_FORMAT);
+        assert_eq!(fails(&encrypt("a1,b2,c3", master, [1; 8]), s1024, master), ORG_PRIVATE_FORMAT, "too few parts");
+        assert_eq!(fails(&encrypt("a1,b2,c3,d4,e5,f6,a7,zz", master, [1; 8]), s1024, master), ORG_PRIVATE_FORMAT, "not hex");
+        assert_eq!(fails(&encrypt("a1,10001,c3,d5,e5,f7,a7,b9", master, [1; 8]), s1024, master), ORG_PRIVATE_FORMAT, "not an RSA key");
+        assert_eq!(fails(&encrypt("!!no-commas!!", master, [1; 8]), s4096, master), ORG_PRIVATE_FORMAT);
+        assert_eq!(fails(&encrypt("AAAA", master, [1; 8]), s4096, master), ORG_PRIVATE_FORMAT, "base64, not PKCS#8");
+        // The shared key isn't the encoding that key type uses.
+        assert_eq!(fails(p1024, s4096, master), ORG_SHARED_FORMAT, "base64 for a jsbn key");
+        assert_eq!(fails(p4096, "%%%", master), ORG_SHARED_FORMAT);
+        // RSA refuses it: encrypted for another key, or tampered with.
+        let other = format!("{}{}", &s1024[..10], if &s1024[10..11] == "0" { "1" } else { "0" }) + &s1024[11..];
+        assert_eq!(fails(p1024, &other, master), ORG_RSA);
+        assert_eq!(fails(p4096, &base64::engine::general_purpose::STANDARD.encode([7u8; 256]), master), ORG_RSA);
+        assert_eq!(fails(p1024, &"ff".repeat(200), master), ORG_RSA, "longer than the modulus");
+        for m in [ORG_PASSPHRASE, ORG_PRIVATE_FORMAT, ORG_SHARED_FORMAT, ORG_RSA] {
+            assert!(!m.contains(org) && !m.contains(master), "{m}");
+        }
     }
 
     fn secret(name: &str, id: &str, shared: bool, data: &str) -> Value {
@@ -845,7 +1062,12 @@ mod tests {
         assert_eq!(oauth_error(500, "", ""), "Zoho respondió 500 al pedir el token de acceso");
         assert!(api_error(200, "INVALID_OAUTHSCOPE", "").contains("ZohoVault.secrets.READ"));
         assert_eq!(api_error(500, "", ""), "Zoho Vault respondió 500");
-        assert_eq!(api_error(200, "SOMETHING", "went wrong"), "Zoho Vault respondió SOMETHING: went wrong");
+        assert_eq!(api_error(200, "SOMETHING", "went wrong"), "Zoho Vault rechazó el pedido (SOMETHING): went wrong");
+        assert_eq!(api_error(200, "SECRET_NOT_FOUND", "SECRET_NOT_FOUND"), "Zoho Vault rechazó el pedido (SECRET_NOT_FOUND)", "the code once");
+        let e = api_error(400, "EXTRA_PARAM_FOUND", "EXTRA_PARAM_FOUND");
+        assert!(e.starts_with("Zoho Vault rechazó el pedido (EXTRA_PARAM_FOUND)") && e.matches("EXTRA_PARAM_FOUND").count() == 1, "{e}");
+        assert!(api_error(200, "URL_ROLLING_THROTTLES_LIMIT_EXCEEDED", "").contains("probá en unos minutos"));
+        assert_eq!(api_error(200, "NO_PERMISSION", "no access to this secret"), "Zoho Vault: permiso denegado (NO_PERMISSION): no access to this secret");
     }
 
     #[test]
@@ -873,6 +1095,22 @@ mod tests {
         bad_auth: Mutex<u32>,
         /// Answer the first API call with INVALID_OAUTHTOKEN.
         expire_once: Mutex<bool>,
+        /// Secrets named `aaa-filler-NNNN` listed before the others.
+        filler: Mutex<usize>,
+        /// `pageNum` counts from 1 (0 is the first page too).
+        one_based: Mutex<bool>,
+        /// Calls to the secrets list.
+        list_calls: Mutex<u32>,
+    }
+
+    /// Zoho's request filter: an argument the URL doesn't declare is
+    /// refused (EXTRA_PARAM_FOUND, the code repeated as the message), and so
+    /// is a missing mandatory one.
+    fn refused(q: &HashMap<String, String>, allowed: &[&str], required: &[&str]) -> Option<Json<Value>> {
+        if q.keys().any(|k| !allowed.contains(&k.as_str())) {
+            return Some(failed("EXTRA_PARAM_FOUND"));
+        }
+        required.iter().any(|r| !q.contains_key(*r)).then(|| failed("LESS_THAN_MIN_OCCURANCE"))
     }
 
     fn authorized(h: &HeaderMap, m: &Mock) -> bool {
@@ -917,6 +1155,9 @@ mod tests {
                         if std::mem::take(&mut *m.expire_once.lock().unwrap()) {
                             return failed("INVALID_OAUTHTOKEN");
                         }
+                        if let Some(e) = refused(&q, &["OPERATION_NAME"], &["OPERATION_NAME"]) {
+                            return e;
+                        }
                         if !authorized(&h, &m) || q.get("OPERATION_NAME").map(String::as_str) != Some("GET_LOGIN") {
                             return failed("INVALID_TICKET");
                         }
@@ -934,25 +1175,42 @@ mod tests {
                         if !authorized(&h, &m) {
                             return failed("INVALID_OAUTHTOKEN");
                         }
-                        let name = q.get("passwordName").cloned().unwrap_or_default();
+                        // The documented arguments but `passwordName`, which
+                        // the real Zoho refuses with EXTRA_PARAM_FOUND.
+                        let allowed = ["isAsc", "pageNum", "rowPerPage", "filter", "passwordType", "chamberId"];
+                        if let Some(e) = refused(&q, &allowed, &["isAsc", "pageNum", "rowPerPage"]) {
+                            return e;
+                        }
+                        *m.list_calls.lock().unwrap() += 1;
                         let mut shared = secret("org-db", "2000000000002", true, s(&v, "shared_secret_data"));
                         shared["customcolumn"] = json!(s(&v, "shared_custom_column"));
-                        let all = vec![
+                        let mut all: Vec<Value> = (0..*m.filler.lock().unwrap()).map(|i| secret(&format!("aaa-filler-{i:04}"), &format!("{}", 3000000000000u64 + i as u64), false, "{}")).collect();
+                        all.extend([
                             secret("pg-main", "2000000000001", false, s(&v, "personal_secret_data")),
                             shared,
                             secret("twin", "2000000000003", false, "{}"),
                             secret("twin", "2000000000004", false, "{}"),
-                        ];
-                        let hits: Vec<Value> = all.into_iter().filter(|s| name_of(s).to_lowercase().contains(&name.to_lowercase())).collect();
+                            secret("AZURE - BRAZIL- PROD - SQL - ADMIN", "2000000000005", false, s(&v, "personal_secret_data")),
+                        ]);
+                        all.sort_by_key(|s| name_of(s).to_lowercase());
+                        let rows: usize = q["rowPerPage"].parse().unwrap();
+                        let mut page: usize = q["pageNum"].parse().unwrap();
+                        if *m.one_based.lock().unwrap() {
+                            page = page.saturating_sub(1);
+                        }
+                        let hits: Vec<Value> = all.into_iter().skip(page * rows).take(rows).collect();
                         Json(json!({ "operation": { "result": { "status": "Success", "message": "" }, "name": "GET_SECRETS", "Details": hits } }))
                     }
                 }),
             )
             .route(
                 "/api/rest/json/v1/secrets/{id}",
-                aget(move |State(m): State<Arc<Mock>>, h: HeaderMap, AxPath(id): AxPath<String>| {
+                aget(move |State(m): State<Arc<Mock>>, h: HeaderMap, AxPath(id): AxPath<String>, Query(q): Query<HashMap<String, String>>| {
                     let v = v3.clone();
                     async move {
+                        if let Some(e) = refused(&q, &[], &[]) {
+                            return e;
+                        }
                         if !authorized(&h, &m) {
                             return failed("INVALID_OAUTHTOKEN");
                         }
@@ -966,13 +1224,16 @@ mod tests {
             )
             .route(
                 "/api/rest/json/v1/user/orgkey",
-                aget(|State(m): State<Arc<Mock>>, h: HeaderMap| async move {
+                aget(|State(m): State<Arc<Mock>>, h: HeaderMap, Query(q): Query<HashMap<String, String>>| async move {
+                    if let Some(e) = refused(&q, &[], &[]) {
+                        return e;
+                    }
                     if !authorized(&h, &m) {
                         return failed("INVALID_OAUTHTOKEN");
                     }
                     let v = vectors();
                     Json(json!({ "operation": { "result": { "status": "Success", "message": "" }, "Details": {
-                        "privateKey": v["private_key"], "sharedKey": v["shared_key_oaep"], "rsaKeyType": "RSA_4096"
+                        "privateKey": v["rsa1024_private_key"], "sharedKey": v["rsa1024_shared_key"]
                     } } }))
                 }),
             )
@@ -1041,7 +1302,7 @@ mod tests {
         let c = creds("", "1000.dummy-refresh");
         let l = browse_with(&client, &ep, &c, Default::default()).await.unwrap();
         let ids: Vec<&str> = l.entries.iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ids, ["org-db", "pg-main", "2000000000003", "2000000000004"]);
+        assert_eq!(ids, ["AZURE - BRAZIL- PROD - SQL - ADMIN", "org-db", "pg-main", "2000000000003", "2000000000004"]);
         let at = crate::secret_sources::browse::At { item: Some("pg-main"), ..Default::default() };
         let l = browse_with(&client, &ep, &c, at).await.unwrap();
         let fields = l.fields.clone().unwrap();
@@ -1049,6 +1310,74 @@ mod tests {
         let v = vectors();
         let json = serde_json::to_string(&l).unwrap();
         assert!(!json.contains(s(&v, "personal_secret_data")), "{json}");
+        forget_token(&token_cache_key(&ep, &c));
+    }
+
+    /// The browse's search text is the UI's filter, never a Zoho argument;
+    /// picking a name with spaces and hyphens lists its fields (the
+    /// owner's EXTRA_PARAM_FOUND), and connecting by it reads the value.
+    #[tokio::test]
+    async fn a_searched_name_with_spaces_and_hyphens() {
+        let (base, _) = mock_server().await;
+        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let client = reqwest::Client::new();
+        let name = "AZURE - BRAZIL- PROD - SQL - ADMIN";
+        let c = creds("", "1000.dummy-refresh");
+        let at = crate::secret_sources::browse::At { query: "AZURE - BRAZIL- PROD", ..Default::default() };
+        let l = browse_with(&client, &ep, &c, at).await.unwrap();
+        assert!(l.complete && l.entries.iter().any(|e| e.id == name), "{:?}", l.entries);
+        let at = crate::secret_sources::browse::At { item: Some(name), query: "AZURE - BRAZIL- PROD", ..Default::default() };
+        let fields = browse_with(&client, &ep, &c, at).await.unwrap().fields.unwrap();
+        assert!(fields.contains(&"password".to_string()), "{fields:?}");
+        forget_token(&token_cache_key(&ep, &c));
+        let v = vectors();
+        let c = creds(s(&v, "passphrase"), "1000.dummy-refresh");
+        let r = |secret: &'static str| Request { data_center: "eu", secret, attribute: "", username: true, user_field: "" };
+        assert_eq!(read_with(&client, &ep, &r(name), &c).await.unwrap(), ("pg-secret-1".into(), Some("app_user".into())));
+        assert_eq!(read_with(&client, &ep, &r("azure - brazil- prod - sql - admin"), &c).await.unwrap().0, "pg-secret-1", "ignoring case");
+        let e = read_with(&client, &ep, &r("AZURE - BRAZIL"), &c).await.unwrap_err();
+        assert!(e.contains("no hay un secreto «AZURE - BRAZIL»") && e.contains(name), "similar names: {e}");
+        forget_token(&token_cache_key(&ep, &c));
+    }
+
+    /// By name across pages: the list is read with the paging arguments
+    /// only, until a short page; twins on different pages are still seen.
+    #[tokio::test]
+    async fn by_name_across_pages() {
+        let (base, mock) = mock_server().await;
+        *mock.filler.lock().unwrap() = 250;
+        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let client = reqwest::Client::new();
+        let v = vectors();
+        let c = creds(s(&v, "passphrase"), "1000.dummy-refresh");
+        let r = |secret: &'static str| Request { data_center: "eu", secret, attribute: "", username: false, user_field: "" };
+        assert_eq!(read_with(&client, &ep, &r("pg-main"), &c).await.unwrap().0, "pg-secret-1");
+        assert_eq!(*mock.list_calls.lock().unwrap(), 3, "255 secrets: pages 0, 1 and 2");
+        assert_eq!(read_with(&client, &ep, &r("org-db"), &c).await.unwrap().0, "org-secret-9", "shared, on the last page");
+        let e = read_with(&client, &ep, &r("twin"), &c).await.unwrap_err();
+        assert!(e.contains("2 secretos «twin»"), "{e}");
+        let l = browse_with(&client, &ep, &c, Default::default()).await.unwrap();
+        assert_eq!(l.entries.len(), 255);
+        assert!(!l.truncated);
+        // If pageNum counted from 1, page 0 would repeat page 1: nothing twice.
+        *mock.one_based.lock().unwrap() = true;
+        let l = browse_with(&client, &ep, &c, Default::default()).await.unwrap();
+        assert_eq!(l.entries.len(), 255, "no repeated page");
+        assert_eq!(read_with(&client, &ep, &r("pg-main"), &c).await.unwrap().0, "pg-secret-1");
+        forget_token(&token_cache_key(&ep, &c));
+    }
+
+    /// The mock refuses what Zoho refuses, and the message says it once.
+    #[tokio::test]
+    async fn an_unknown_argument_is_refused() {
+        let (base, _) = mock_server().await;
+        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let client = reqwest::Client::new();
+        let c = creds("", "1000.dummy-refresh");
+        let e = api(&client, &ep, &c, "/api/rest/json/v1/secrets?isAsc=true&pageNum=0&rowPerPage=100&passwordName=x").await.unwrap_err();
+        assert!(e.starts_with("Zoho Vault rechazó el pedido (EXTRA_PARAM_FOUND)") && e.matches("EXTRA_PARAM_FOUND").count() == 1, "{e}");
+        assert!(api(&client, &ep, &c, "/api/rest/json/v1/user/orgkey?x=1").await.unwrap_err().contains("EXTRA_PARAM_FOUND"));
+        assert!(api(&client, &ep, &c, "/api/rest/json/v1/secrets?pageNum=0").await.unwrap_err().contains("LESS_THAN_MIN_OCCURANCE"));
         forget_token(&token_cache_key(&ep, &c));
     }
 
