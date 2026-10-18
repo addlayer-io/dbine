@@ -12,6 +12,7 @@
 //!   fields it knows, targets are names, and anything that looks like a
 //!   credential or a connection's details is dropped, with a warning.
 
+pub mod access;
 pub mod export;
 pub mod files;
 pub mod local;

@@ -423,6 +423,25 @@ impl StateStore {
                  created_at  TEXT NOT NULL,
                  updated_at  TEXT NOT NULL
              );
+             -- Local files notebooks may read, and what each one was like
+             -- when last read (file_grants.rs): this machine's only, never in
+             -- the snapshot, no revision bump.
+             CREATE TABLE IF NOT EXISTS notebook_file_grants (
+                 notebook   TEXT NOT NULL,
+                 target     TEXT NOT NULL,
+                 pattern    INTEGER NOT NULL DEFAULT 0,
+                 granted_at TEXT NOT NULL,
+                 PRIMARY KEY (notebook, target)
+             );
+             CREATE TABLE IF NOT EXISTS notebook_file_reads (
+                 notebook TEXT NOT NULL,
+                 path     TEXT NOT NULL,
+                 size     INTEGER NOT NULL,
+                 mtime_ms INTEGER NOT NULL,
+                 sha256   TEXT NOT NULL,
+                 read_at  TEXT NOT NULL,
+                 PRIMARY KEY (notebook, path)
+             );
              CREATE TABLE IF NOT EXISTS settings (
                  key   TEXT PRIMARY KEY,
                  value TEXT NOT NULL

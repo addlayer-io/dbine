@@ -158,9 +158,14 @@ const tables = computed(() => (props.running ? [] : props.loaded ?? []).map((l) 
   parts.push(l.cached ? t('notebook:loaded.cached') : t(`notebook:loaded.${l.origin}`));
   if (l.capped) parts.push(t('notebook:loaded.capped'));
   if (l.as_text) parts.push(t('notebook:loaded.asText'));
+  // Its content changed since this notebook last read it (the run went on).
+  const changed = files.filter((f) => f.previous_mtime_ms != null);
+  const changedText = (f: typeof files[number]) => t('notebook:loaded.changed', { before: when(f.previous_mtime_ms!), after: when(f.mtime_ms) });
+  if (changed.length === 1) parts.push(changedText(changed[0]));
+  else if (changed.length) parts.push(t('notebook:loaded.changedMany', { count: changed.length, files: n(changed.length) }));
   // A file's tooltip: each path in full, with its size and date.
-  const tip = files.map((f) => `${f.path} · ${formatBytes(f.size)} · ${when(f.mtime_ms)}`).join('\n');
-  return { key: `${l.origin}:${l.name}`, name: l.name, text: parts.join(' · '), warn: l.capped || l.as_text, tip };
+  const tip = files.map((f) => [f.path, formatBytes(f.size), when(f.mtime_ms), ...(f.previous_mtime_ms != null ? [changedText(f)] : [])].join(' · ')).join('\n');
+  return { key: `${l.origin}:${l.name}`, name: l.name, text: parts.join(' · '), warn: l.capped || l.as_text || changed.length > 0, tip };
 }));
 /** The preview was cut: the summary offers an aggregated version. */
 const cut = computed(() => !!counts.value?.truncated && !props.running);

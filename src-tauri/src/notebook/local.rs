@@ -548,6 +548,20 @@ pub struct LoadedTable {
 pub struct RunLocalResponse {
     pub outcome: QueryOutcome,
     pub loaded: Vec<LoadedTable>,
+    /// Nothing ran: the cell reads files nobody allowed yet, and the UI
+    /// asks ([`super::access`]); it runs again with the request's token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval: Option<super::access::ApprovalRequest>,
+}
+
+/// What [`prepare`] got to.
+#[derive(Debug)]
+pub(crate) enum Prepared {
+    /// The cell's SQL with each reader call replaced by its table, and
+    /// every table loaded.
+    Ready(String, Vec<LoadedTable>),
+    /// Files to ask about; nothing was read or loaded.
+    Ask(Vec<DataFile>),
 }
 
 // ---------------------------------------------------------------------------
@@ -960,7 +974,8 @@ pub(crate) async fn load_files(
 /// sources it uses read (resolved against `base`, the notebook's folder)
 /// loaded as tables, then the sources' tables ([`materialize`]). Returns
 /// the cell's SQL with each reader call replaced by its table, and every
-/// table loaded (the cells' first, then the files).
+/// table loaded (the cells' first, then the files). Files `access` doesn't
+/// let through stop it before anything is read ([`Prepared::Ask`]).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn prepare<F, Fut>(
     s: &mut dyn Session,
@@ -970,10 +985,11 @@ pub(crate) async fn prepare<F, Fut>(
     sources: &[LocalSource],
     cap: u64,
     base: Option<&std::path::Path>,
+    access: &super::access::Access<'_>,
     out: &mut QueryOutcome,
     cancel: Option<&Notify>,
     rerun: F,
-) -> CommandResult<(String, Vec<LoadedTable>)>
+) -> CommandResult<Prepared>
 where
     F: FnMut(usize) -> Fut,
     Fut: std::future::Future<Output = CommandResult<Fetched>>,
@@ -1007,14 +1023,24 @@ where
         }
     }
     // Only what `allowed_files` lets through is ever granted.
-    let allowed = files::allowed_files(&wanted);
+    let allowed = match files::allowed_files(&wanted, access) {
+        Ok(a) => a,
+        Err(super::access::Gate::Blocked(e)) => return Err(CommandError::BadRequest(e)),
+        Err(super::access::Gate::Ask(files)) => return Ok(Prepared::Ask(files)),
+    };
     if let Some(f) = wanted.iter().find(|f| !allowed.iter().any(|a| a.path == f.path)) {
         return Err(CommandError::BadRequest(format!("no se permitió leer «{}»", f.display)));
     }
-    let from_files = if reads.is_empty() { Vec::new() } else { load_files(s, tables, present, &reads, &allowed, cap, out, cancel).await? };
+    let seen = super::access::changes(access, &allowed).await;
+    let mut from_files = if reads.is_empty() { Vec::new() } else { load_files(s, tables, present, &reads, &allowed, cap, out, cancel).await? };
+    super::access::remember(access, &seen);
+    // The change notice, on each file whose content changed.
+    for f in from_files.iter_mut().flat_map(|l| l.files.iter_mut()) {
+        f.previous_mtime_ms = seen.iter().find(|x| x.path == f.path).and_then(|x| x.previous_mtime_ms);
+    }
     let mut loaded = materialize(s, tables, present, sql, &sources, cap, out, rerun).await?;
     loaded.extend(from_files);
-    Ok((files::rewrite(sql, &cell), loaded))
+    Ok(Prepared::Ready(files::rewrite(sql, &cell), loaded))
 }
 
 /// Run `sql` (DuckDB SQL) over the tables of the sources it names and the
@@ -1029,6 +1055,8 @@ pub async fn run_local(
     cap: u64,
     sources: &[LocalSource],
     notebook_path: Option<&str>,
+    approval: Option<&str>,
+    policy: super::access::Policy,
 ) -> CommandResult<RunLocalResponse> {
     let sql = sql.trim();
     if sql.is_empty() {
@@ -1038,6 +1066,18 @@ pub async fn run_local(
     if let Some(bad) = sources.iter().find(|s| !valid_name(&s.name)) {
         return Err(CommandError::BadRequest(format!("«{}» no es un nombre de tabla válido", bad.name)));
     }
+    // What it may read: never the blocked files; the notebook's grants;
+    // the files the user just approved for this run (the token is spent).
+    let notebook = super::access::notebook_key(notebook_path);
+    let approved = match approval {
+        Some(t) => super::access::take(t, tab, notebook.as_deref())?,
+        None => Vec::new(),
+    };
+    let grants = match &notebook {
+        Some(nb) => state.store.list_file_grants(Some(nb))?,
+        None => Vec::new(),
+    };
+    let access = super::access::Access { policy, notebook: notebook.clone(), grants, approved, store: Some(state.store.as_ref()) };
     let started = std::time::Instant::now();
     let key = session_key(tab);
     let entry = duck_entry(state, &key).await?;
@@ -1061,11 +1101,17 @@ pub async fn run_local(
         async move { rerun(state, tab, &src, cap, &duck).await }
     };
     let base = notebook_path.filter(|p| !p.trim().is_empty()).and_then(|p| std::path::Path::new(p).parent()).map(std::path::Path::to_path_buf);
-    let prepared = prepare(&mut **s, &mut tables, &present, sql, sources, cap, base.as_deref(), &mut out, Some(&entry.cancel), rerun).await;
+    let prepared = prepare(&mut **s, &mut tables, &present, sql, sources, cap, base.as_deref(), &access, &mut out, Some(&entry.cancel), rerun).await;
     if let Ok(mut all) = CATALOGS.lock() {
         all.insert(key.clone(), Catalog { entry: Arc::downgrade(&entry), tables });
     }
-    let (sql, loaded) = prepared?;
+    let (sql, loaded) = match prepared? {
+        Prepared::Ready(sql, loaded) => (sql, loaded),
+        Prepared::Ask(files) => {
+            let approval = super::access::ask(tab, notebook.as_deref(), files)?;
+            return Ok(RunLocalResponse { outcome: QueryOutcome::default(), loaded: Vec::new(), approval: Some(approval) });
+        }
+    };
     let sql = sql.as_str();
 
     // The cell's own SQL.
@@ -1086,7 +1132,7 @@ pub async fn run_local(
     out.absorb(run);
     out.error = error;
     out.elapsed_ms = started.elapsed().as_millis() as u64;
-    Ok(RunLocalResponse { outcome: out, loaded })
+    Ok(RunLocalResponse { outcome: out, loaded, approval: None })
 }
 
 #[cfg(test)]

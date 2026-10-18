@@ -245,10 +245,87 @@ JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
   `UPDATE EXTENSIONS`), `CREATE` / `DROP SECRET`, `SET` / `RESET` (except
   `SET VARIABLE`), `PRAGMA` (the `pragma_…()` table functions still work)
   and `CHECKPOINT`.
-- **Coming next:** approving each file before a notebook reads it (a
-  notebook from elsewhere can name any readable file today). One function
-  decides which detected files a run may read (`allowed_files` in
-  `src-tauri/src/notebook/files.rs`); the approval plugs in there.
+- **Approval:** a notebook reads no file the user hasn't allowed (see
+  [Approving the files a notebook reads](#approving-the-files-a-notebook-reads)).
+
+#### Approving the files a notebook reads
+
+A notebook from elsewhere could name any readable file (`~/.aws/credentials`)
+and its result would be shown and saved in the file's preview. So, before
+the reader session runs, every resolved file (canonical path) is checked
+in one place (`allowed_files` in `src-tauri/src/notebook/files.rs`, rules in
+`src-tauri/src/notebook/access.rs`):
+
+- **Always blocked**, never asked: the run is refused with a message naming
+  the path. Checked after canonicalization, so a symlink into one of these
+  is blocked too, and ignoring case (`~/.SSH` is `~/.ssh`):
+  - folders under the home folder: `~/.ssh`, `~/.aws`, `~/.gnupg`,
+    `~/.config`, `~/.kube`, `~/.docker`, `~/.azure`, `~/.gcloud`, `~/.oci`,
+    `~/.password-store`, `~/.mozilla`, `~/.local/share/keyrings`,
+    `~/Library/Keychains`, `~/Library/Cookies`, `~/Library/Safari` and the
+    browsers' profiles under `~/Library/Application Support` (Chrome,
+    Chromium, Brave, Edge, Firefox, Vivaldi, Arc, Opera);
+  - on Windows, `%APPDATA%` / `%LOCALAPPDATA%` (and the same folders under
+    `%USERPROFILE%\AppData`): `Microsoft\Credentials`, `Microsoft\Protect`,
+    `Microsoft\Crypto`, `Microsoft\Vault`, Chrome's, Edge's and Brave's
+    `User Data`, `Mozilla`, Opera's, and `postgresql` (`pgpass.conf`);
+  - the system's `/etc`, `/private/etc`, `/var` and `/private/var` (the
+    temp folder of macOS is under `/var` too);
+  - DBine's own folders (state, data, cache, logs, downloaded components);
+  - shell history and rc files directly in the home folder: `~/.*_history`,
+    `~/.zsh*`, `~/.bash*`, `~/.profile`, `~/.zprofile`, `~/.zlogin`,
+    `~/.zlogout`, `~/.history`, `~/.lesshst`, `~/.viminfo` (when one is a
+    symlink, its target is blocked too);
+  - credential files anywhere: `.netrc` / `_netrc`, `.npmrc`, `.pypirc`,
+    `.git-credentials`, `.pgpass` / `pgpass.conf`, `.my.cnf`, and any
+    `.env` or `.env.*`.
+
+  The list is kept in one place (`HOME_DIRS`, `SYSTEM_DIRS`,
+  `CREDENTIAL_NAMES` and the name rules in `access.rs`) and tested.
+- **Not allowed yet:** the run stops before anything is read and the
+  notebook shows *"Este notebook quiere leer estos archivos:"* with every
+  pending file in full (canonical path, size and modification time) and,
+  for a glob, its pattern above its files. One dialog per run; one answer
+  covers all of them:
+  - **Permitir**: this run only; nothing is remembered.
+  - **Denegar**: the cell doesn't run; its result is an error naming the
+    files.
+  - **Permitir siempre**: it runs, and this machine remembers that this
+    notebook may read these files. The grant is the pair (notebook file,
+    file), both canonical: a new file asks again, and so does another
+    notebook. A file found by a glob is granted as the pattern resolved to
+    its folder (`/Users/ana/exports/ventas_*.csv`), so new files of that
+    same pattern don't ask again (a file the glob found that resolves
+    outside that folder, through a symlink, is granted as itself). For an
+    unsaved notebook it is disabled ("guardá el notebook para recordarlo").
+- **Enforced in the backend:** a run that needs approval returns a
+  one-time token for exactly the files it asked about; the dialog's answer
+  goes to `notebook_file_decision` (the only command that writes a grant,
+  and only for that token's files), and the run that follows brings the
+  token back. The backend resolves the files again and reads only if the
+  grants and that token's files cover every one of them (a new file is
+  asked about again); the token works once, for that tab and notebook, for
+  15 minutes. A blocked file is refused whatever the token says. No MCP
+  tool or assistant tool runs a results cell.
+- **Content change notice** (it doesn't stop the run): each run keeps, for
+  each file read, its size, modification time and SHA-256, per notebook.
+  The hash is computed only when the size or the modification time changed
+  since the stored record (no big file is hashed on every run). When a file
+  read before has a different hash, the result's *Tablas:* line says
+  *"cambió desde la última ejecución (fecha anterior → fecha nueva)"*. An
+  unsaved notebook keeps no records.
+- **Where it lives:** the grants and the records are in DBine's local
+  state on this machine (the `notebook_file_grants` and
+  `notebook_file_reads` tables of the state database), never in the
+  `.ipynb`, and they aren't part of the cloud backup or the export. They
+  are keyed by the notebook's path: a notebook moved or renamed asks again
+  (its old grants stay listed until removed). A project's notebook is
+  keyed by its path on disk (the project's folder + its path).
+- **Managing them:** Configuración › Notebooks › *Archivos que los
+  notebooks pueden leer* lists every grant (notebook → file or pattern,
+  when it was granted), each one with its remove button, and *Quitar
+  todos*. A notebook's toolbar has *Permisos de archivos…* with that
+  notebook's grants.
 
 ### The DuckDB database
 

@@ -5519,6 +5519,9 @@
   "crates/dbine-core/src/conn_import/dbgate.rs",
   "crates/dbine-core/src/conn_import/mod.rs"
  ],
+ "DBine nunca deja que un notebook lea {0}: son credenciales, claves, historial o configuración del sistema": [
+  "src-tauri/src/notebook/access.rs"
+ ],
  "DBine rechazó la conexión": [
   "crates/dbine-link/src/lib.rs"
  ],
@@ -13723,6 +13726,9 @@
  ],
  "Mover una colección a otra base copia y reescribe sus datos: en colecciones grandes puede tardar bastante.": [
   "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "Mozilla": [
+  "src-tauri/src/notebook/access.rs"
  ],
  "Msg": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
@@ -23694,6 +23700,9 @@
   "crates/drivers/neo4j/src/monitor.rs",
   "crates/drivers/tdengine/src/lib.rs"
  ],
+ "aprobaciones de archivos": [
+  "src-tauri/src/notebook/access.rs"
+ ],
  "archivo": [
   "crates/drivers/couchdb/src/monitor.rs"
  ],
@@ -27597,6 +27606,9 @@
  "falta la ruta del archivo SQLite": [
   "crates/drivers/sqlite/src/lib.rs"
  ],
+ "falta la ruta del notebook": [
+  "crates/dbine-core/src/file_grants.rs"
+ ],
  "falta la ruta del secreto en Vault (secret/miapp/db)": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
@@ -27814,6 +27826,12 @@
  ],
  "guardar el archivo": [
   "src-tauri/src/commands/projects.rs"
+ ],
+ "guardá el notebook": [
+  "src-tauri/src/notebook/access_tests.rs"
+ ],
+ "guardá el notebook para recordar qué archivos puede leer": [
+  "src-tauri/src/notebook/access.rs"
  ],
  "habla el protocolo {0} y esta versión de DBine el {1}": [
   "crates/dbine-plugin/src/remote.rs"
@@ -28211,6 +28229,9 @@
  ],
  "la app se cerró": [
   "crates/dbine-plugin/src/host.rs"
+ ],
+ "la aprobación de los archivos ya no vale: ejecutá la celda de nuevo": [
+  "src-tauri/src/notebook/access.rs"
  ],
  "la autenticación básica de Solr no permite deshabilitar un usuario: cambiale la contraseña o borralo": [
   "crates/drivers/solr/src/security.rs"
@@ -29058,6 +29079,9 @@
  ],
  "la pregunta con la estructura de la base no entra en el modelo: desactivá «Incluir estructura» o usá un modelo más grande": [
   "crates/dbine-ai/src/embedded.rs"
+ ],
+ "la pregunta por los archivos ya no vale: ejecutá la celda de nuevo": [
+  "src-tauri/src/notebook/access.rs"
  ],
  "la página leída no trae el @rid de sus registros": [
   "crates/drivers/orientdb/src/transfer.rs"

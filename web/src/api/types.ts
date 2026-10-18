@@ -1149,8 +1149,31 @@ export interface DataFile {
   display: string;
   size: number;
   mtime_ms: number;
+  /** The glob it was found by, resolved to its folder (`/Users/ana/exports/ventas_*.csv`). */
+  pattern?: string;
+  /** Its content changed since this notebook last read it: its modification time then. */
+  previous_mtime_ms?: number;
 }
-export interface RunLocalResponse { outcome: QueryOutcome; loaded: LoadedTable[] }
+/** "Este notebook quiere leer estos archivos" (`notebook::access::ApprovalRequest`). */
+export interface FileApprovalRequest {
+  /** For notebookApi.decideFiles and the run that follows. */
+  token: string;
+  files: DataFile[];
+  /** The notebook is saved: "Permitir siempre" can be remembered. */
+  saved: boolean;
+}
+export type FileDecision = 'once' | 'always' | 'deny';
+/** A file or pattern a notebook may read (`dbine_core::file_grants::FileGrant`). */
+export interface FileGrant {
+  /** The notebook file (canonical path). */
+  notebook: string;
+  target: string;
+  pattern: boolean;
+  /** RFC 3339. */
+  granted_at: string;
+}
+/** `approval`: nothing ran; the cell reads files nobody allowed yet. */
+export interface RunLocalResponse { outcome: QueryOutcome; loaded: LoadedTable[]; approval?: FileApprovalRequest }
 
 // -- Charts over the whole result (`dbine_driver::aggregate`, chart_aggregate) --
 

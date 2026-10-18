@@ -10,6 +10,7 @@
 // |map[&set=points|shapes|latlon|oracle][&theme=light] (the results' map view over the offline base map: preview/map-samples.ts)
 // |chart[&kind=…]|nbcell[&set=charts|map|latlon] (charts of every kind; a notebook cell's charts and map: preview/chart-samples.ts)
 // |nbxresults[&dialog=1] (cells on three engines and a "Resultados del notebook" cell joining them: preview/nbx-samples.ts)
+// |nbperm[&set=one|many|glob|unsaved|settings|notebook] (a notebook's file approval dialog and the grants lists: preview/nbperm-samples.ts)
 // |zoho-wizard[&step=1..4][&filled=1][&result=ok][&error=expired|mismatch] ("Conectar Zoho Vault", each step)
 // |connection&source=zoho|zoho-manual|zoho-missing (the Zoho block: an account, the inline sign-in, an account not on this computer)
 import './lang';
@@ -80,6 +81,7 @@ import { applyThemeClass } from '../composables/appearance';
 import { mapPreview } from './map-samples';
 import { chartPreview, installWholeMock, notebookCellPreview } from './chart-samples';
 import { notebookResultsPreview } from './nbx-samples';
+import { installNbPermMock, nbPermPreview } from './nbperm-samples';
 import { browseSample, sourceConnection, SAMPLE_ACCOUNTS } from './source-samples';
 import ZohoConnectWizard from '../components/ZohoConnectWizard.vue';
 import { tb } from '../i18n/backend';
@@ -254,6 +256,7 @@ function multiDbView() {
   ];
 }
 if (view === 'multidb') installTauriMock();
+if (view === 'nbperm') installNbPermMock();
 if (view === 'nbcell' && params.get('set') === 'whole') installWholeMock(params);
 if (view === 'feedback') {
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
@@ -292,6 +295,7 @@ const app = createApp({
         ? chartPreview(params)
         : view === 'nbcell' ? notebookCellPreview(params)
         : view === 'nbxresults' ? notebookResultsPreview(params)
+        : view === 'nbperm' ? nbPermPreview(params)
         : view === 'filters' ? filtersView()
         : view === 'fkjump' ? fkJumpView()
         : view === 'docs-edit' ? docsEditView()

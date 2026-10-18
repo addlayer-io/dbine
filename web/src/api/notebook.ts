@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { LocalSource, Notebook, NotebookRead, RunLocalResponse } from './types';
+import type { FileDecision, FileGrant, LocalSource, Notebook, NotebookRead, RunLocalResponse } from './types';
 
 // Notebooks (docs/notebooks.md): reading and writing Jupyter .ipynb files.
 // Mirrors src-tauri/src/commands/notebook.rs (args in camelCase). Project
@@ -46,6 +46,13 @@ export const notebookApi = {
   /** Run a "Resultados del notebook" cell on the tab's DuckDB session
    *  (`nbx:<tabId>`, closed with the tab; cancel_query stops it). */
   /** `notebookPath`: the notebook's file (relative paths in `read_csv('…')` are read from its folder). */
-  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null }) =>
+  /** `approval`: the token of the file approval just answered (the run may read those files). */
+  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null; approval?: string | null }) =>
     invoke<RunLocalResponse>('notebook_run_local', { args: a }),
+  /** The answer to a run's `approval` request. */
+  decideFiles: (token: string, decision: FileDecision) => invoke<void>('notebook_file_decision', { args: { token, decision } }),
+  /** The files notebooks may read: one notebook's (its file), or every one. */
+  fileGrants: (notebook: string | null = null) => invoke<FileGrant[]>('notebook_file_grants', { args: { notebook } }),
+  removeFileGrant: (notebook: string, target: string) => invoke<boolean>('notebook_file_grant_remove', { args: { notebook, target } }),
+  clearFileGrants: (notebook: string | null = null) => invoke<number>('notebook_file_grants_clear', { args: { notebook } }),
 };

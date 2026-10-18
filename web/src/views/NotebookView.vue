@@ -5,11 +5,13 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
 import { notebookApi, type PreviewLimits } from '../api/notebook';
 import { projectsApi } from '../api/projects';
-import type { FileStat, LoadedTable, LocalSource, Notebook, NotebookCell, NotebookTarget, QueryOutcome, TxState, UnsafeDml } from '../api/types';
+import type { FileApprovalRequest, FileDecision, FileStat, LoadedTable, LocalSource, Notebook, NotebookCell, NotebookTarget, QueryOutcome, TxState, UnsafeDml } from '../api/types';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import NotebookCellView, { type CellContext } from '../components/notebook/NotebookCell.vue';
 import NotebookTargetDialog from '../components/notebook/NotebookTargetDialog.vue';
+import NotebookFileApproval from '../components/notebook/NotebookFileApproval.vue';
+import NotebookFileGrants from '../components/notebook/NotebookFileGrants.vue';
 import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { saveTextFile } from '../composables/files';
 import { chartImages } from '../composables/notebookExport';
@@ -68,6 +70,15 @@ const warningsOpen = ref(true);
 
 const project = computed(() => (props.tab.projectId ? projects.byId(props.tab.projectId) : undefined));
 const title = computed(() => notebookTitle(props.tab));
+/** The notebook's file on disk (a project's: its folder + path); null while
+ *  unsaved. Relative paths in read_csv('…') are read from its folder, and
+ *  "Permitir siempre" remembers files for it. */
+const notebookFile = computed<string | null>(() => {
+  if (props.tab.path) return props.tab.path;
+  const root = project.value?.path;
+  if (!root || !props.tab.projectPath) return null;
+  return `${root.replace(/[\\/]+$/, '')}/${props.tab.projectPath}`;
+});
 /** A project in a git repo (not known yet: taken as one): its notebooks are
  *  saved without results unless the file says otherwise. */
 const gitLinked = computed(() => !!props.tab.projectId && (project.value?.is_repo ?? true));
@@ -624,6 +635,19 @@ async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string
  *  targets are resolved and connected here first). A source's rows come
  *  from its complete run here, else its query runs again on its own
  *  connection (read-only; a write is refused there, never re-run). */
+// -- local files: "Este notebook quiere leer estos archivos" --------------------------------
+const fileAsk = ref<{ request: FileApprovalRequest; resolve: (d: FileDecision) => void } | null>(null);
+function askFiles(request: FileApprovalRequest): Promise<FileDecision> {
+  return new Promise((resolve) => { fileAsk.value = { request, resolve }; });
+}
+function answerFiles(d: FileDecision) {
+  const a = fileAsk.value;
+  fileAsk.value = null;
+  a?.resolve(d);
+}
+/** "Permisos de archivos…": this notebook's grants. */
+const grantsOpen = ref(false);
+
 async function runLocal(cell: NotebookCell, script: string, asked: Set<string> | null): Promise<boolean> {
   const cells = nb.value!.cells;
   const above = cells.slice(0, indexOf(cell.id)).filter((c) => c.kind === 'sql' && c.name && c.source.trim());
@@ -657,7 +681,21 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
       sources.push(s);
     }
     const rowCap = clamp(settings.get<number>(RESULTS_CAP_SETTING, RESULTS_CAP_DEFAULT), RESULTS_CAP_RANGE);
-    const r = await notebookApi.runLocal({ tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources, notebookPath: props.tab.path ?? null });
+    const args = { tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources, notebookPath: notebookFile.value };
+    let r = await notebookApi.runLocal(args);
+    // Files nobody allowed yet: nothing ran. Ask, tell the backend, and run
+    // again with the answer's token (the backend checks it against the
+    // files it resolves then; new ones are asked about again).
+    for (let tries = 0; r.approval; tries++) {
+      const req = r.approval;
+      const decision = tries < 3 ? await askFiles(req) : 'deny';
+      if (decision === 'deny') {
+        await notebookApi.decideFiles(req.token, 'deny').catch(() => {});
+        throw new Error(t('notebook:fileAccess.denied', { count: req.files.length, files: req.files.map((f) => f.path).join(', ') }));
+      }
+      await notebookApi.decideFiles(req.token, decision);
+      r = await notebookApi.runLocal({ ...args, approval: req.token });
+    }
     const o = r.outcome;
     cell.execution_count = ++counter;
     live[cell.id] = { outcome: markRaw(o), source: null, run: nextRunId(), loaded: markRaw(r.loaded) };
@@ -1025,6 +1063,11 @@ const breadcrumbDir = computed(() => {
         <el-button size="small" :disabled="lock.held || txBusy" :title="$t('query:tx.rollbackTip')" @click="endTransaction(tx.sessionId, false)">{{ $t('query:tx.rollback') }}</el-button>
       </div>
       <div class="nm-spacer" />
+      <el-tooltip :content="$t('notebook:fileGrants.toolbarTip')" placement="bottom" :show-after="300">
+        <el-button :disabled="!nb" :aria-label="$t('notebook:fileGrants.toolbar')" @click="grantsOpen = true">
+          <el-icon><ei-lock /></el-icon><span class="nb-lbl">&nbsp;{{ $t('notebook:fileGrants.toolbar') }}</span>
+        </el-button>
+      </el-tooltip>
       <el-dropdown trigger="click" placement="bottom-end" @command="exportAs">
         <el-button :disabled="!nb"><el-icon><ei-download /></el-icon><span class="nb-lbl">&nbsp;{{ $t('notebook:toolbar.export') }}</span></el-button>
         <template #dropdown>
@@ -1111,6 +1154,12 @@ const breadcrumbDir = computed(() => {
       @map="onMapped"
       @close="closeDialog"
     />
+
+    <NotebookFileApproval v-if="fileAsk" :request="fileAsk.request" @decide="answerFiles" />
+    <el-dialog v-model="grantsOpen" :title="$t('notebook:fileGrants.dialogTitle')" width="640px" append-to-body destroy-on-close>
+      <NotebookFileGrants :notebook="notebookFile ?? ''" :unsaved="!notebookFile" />
+      <template #footer><el-button @click="grantsOpen = false">{{ $t('common:close') }}</el-button></template>
+    </el-dialog>
 
     <el-dialog
       :model-value="!!txAsk"

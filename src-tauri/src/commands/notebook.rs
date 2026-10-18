@@ -253,14 +253,95 @@ pub struct RunLocalArgs {
     /// `read_csv('…')` are read from); none while it's unsaved.
     #[serde(default)]
     pub notebook_path: Option<String>,
+    /// The token of the file approval the user just answered
+    /// ([`notebook::access`]): this run may read the files it asked about.
+    #[serde(default)]
+    pub approval: Option<String>,
+}
+
+/// DBine's own folders (state, data, cache, logs, downloaded components):
+/// no notebook reads files in them.
+fn app_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
+    use tauri::Manager;
+    let p = app.path();
+    let mut dirs: Vec<std::path::PathBuf> = [p.app_config_dir(), p.app_data_dir(), p.app_local_data_dir(), p.app_cache_dir(), p.app_log_dir()].into_iter().flatten().collect();
+    if let Some(d) = dbine_driver::runtime::components_dir().parent() {
+        dirs.push(d.to_path_buf());
+    }
+    dirs
 }
 
 /// Run a "Resultados del notebook" cell: DuckDB SQL over the results of the
-/// cells above (docs/notebooks.md › Notebook results).
+/// cells above (docs/notebooks.md › Notebook results). A cell that reads
+/// local files nobody allowed yet runs nothing and returns `approval`: the
+/// UI asks, answers with [`notebook_file_decision`] and runs again with the
+/// token.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn notebook_run_local(state: tauri::State<'_, crate::state::AppState>, args: RunLocalArgs) -> CommandResult<notebook::local::RunLocalResponse> {
+pub async fn notebook_run_local(app: tauri::AppHandle, state: tauri::State<'_, crate::state::AppState>, args: RunLocalArgs) -> CommandResult<notebook::local::RunLocalResponse> {
     let cap = args.row_cap.unwrap_or(notebook::local::DEFAULT_ROW_CAP);
-    notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources, args.notebook_path.as_deref()).await
+    let policy = notebook::access::Policy::current(&app_dirs(&app));
+    notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources, args.notebook_path.as_deref(), args.approval.as_deref(), policy).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDecisionArgs {
+    pub token: String,
+    pub decision: notebook::access::Decision,
+}
+
+/// The user's answer to "Este notebook quiere leer estos archivos":
+/// `once`, `always` (remembered for this notebook on this machine) or `deny`.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_file_decision(state: tauri::State<'_, crate::state::AppState>, args: FileDecisionArgs) -> CommandResult<()> {
+    notebook::access::decide(&state.store, &args.token, args.decision)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileGrantsArgs {
+    /// A notebook's file; none: every notebook's grants.
+    #[serde(default)]
+    pub notebook: Option<String>,
+}
+
+/// The files notebooks may read (Configuración › Notebooks; a notebook's
+/// "Permisos de archivos…").
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_file_grants(state: tauri::State<'_, crate::state::AppState>, args: FileGrantsArgs) -> CommandResult<Vec<dbine_core::file_grants::FileGrant>> {
+    match args.notebook.as_deref() {
+        None => Ok(state.store.list_file_grants(None)?),
+        Some(p) => match notebook::access::notebook_key(Some(p)) {
+            Some(nb) => Ok(state.store.list_file_grants(Some(&nb))?),
+            None => Ok(Vec::new()),
+        },
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileGrantRemoveArgs {
+    /// As the list gave it (canonical).
+    pub notebook: String,
+    pub target: String,
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_file_grant_remove(state: tauri::State<'_, crate::state::AppState>, args: FileGrantRemoveArgs) -> CommandResult<bool> {
+    Ok(state.store.remove_file_grant(&args.notebook, &args.target)?)
+}
+
+/// "Quitar todos": a notebook's grants, or every one. How many went.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_file_grants_clear(state: tauri::State<'_, crate::state::AppState>, args: FileGrantsArgs) -> CommandResult<usize> {
+    let nb = match args.notebook.as_deref() {
+        None => None,
+        Some(p) => match notebook::access::notebook_key(Some(p)) {
+            Some(nb) => Some(nb),
+            None => return Ok(0),
+        },
+    };
+    Ok(state.store.clear_file_grants(nb.as_deref())?)
 }
 
 #[cfg(test)]

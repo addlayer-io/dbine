@@ -10,8 +10,10 @@
 //!   is relative to the notebook's folder (refused for an unsaved one),
 //!   globs are expanded here, and every file is canonicalized (symlinks
 //!   resolved, no `..`). URLs are refused: no network.
-//! - **What may be read** is decided in one place, [`allowed_files`]
-//!   (today: every file detected; the per-file approval plugs in there).
+//! - **What may be read** is decided in one place, [`allowed_files`]:
+//!   never a file of the always-blocked list, and otherwise only a file
+//!   the user allowed for this notebook (a grant) or for this run
+//!   ([`super::access`]); any other stops the run and the UI asks.
 //! - **Reading** happens in a DuckDB session of its own ([`open_reader`]):
 //!   in memory, granted exactly those files through `allowed_paths`, then
 //!   locked down like the notebook's ([`super::local::SANDBOX`]). It runs
@@ -238,6 +240,14 @@ pub struct DataFile {
     pub size: u64,
     /// Last modified (ms since the epoch).
     pub mtime_ms: i64,
+    /// The glob it was found by, resolved to its folder
+    /// (`/Users/ana/exports/ventas_*.csv`); none for a file written out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    /// Its content changed since this notebook last read it: the
+    /// modification time it had then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_mtime_ms: Option<i64>,
 }
 
 /// A URL (`https://…`, `s3://…`, `hf://…`): not a local file.
@@ -247,6 +257,11 @@ fn is_url(p: &str) -> bool {
 
 fn has_glob(s: &str) -> bool {
     s.contains(['*', '?', '['])
+}
+
+/// [`plain`], for the access rules.
+pub(crate) fn plain_path(p: PathBuf) -> PathBuf {
+    plain(p)
 }
 
 /// Without Windows' `\\?\` prefix, which DuckDB doesn't take.
@@ -290,8 +305,9 @@ fn wild(pat: &[char], name: &[char]) -> bool {
     }
 }
 
-/// The files `pattern` matches (`**` is any number of folders).
-fn expand(pattern: &Path) -> Result<Vec<PathBuf>, String> {
+/// A glob split into the folder before its first wildcard and the
+/// segments from there on.
+fn glob_root(pattern: &Path) -> (PathBuf, Vec<String>) {
     let mut root = PathBuf::new();
     let mut rest: Vec<String> = Vec::new();
     for c in pattern.components() {
@@ -302,6 +318,43 @@ fn expand(pattern: &Path) -> Result<Vec<PathBuf>, String> {
             rest.push(s);
         }
     }
+    (root, rest)
+}
+
+/// A glob with its folder canonical (`~/x/../exports/v_*.csv` →
+/// `/Users/ana/exports/v_*.csv`): what a "Permitir siempre" stores for it.
+fn canonical_pattern(pattern: &Path) -> Option<String> {
+    let (root, rest) = glob_root(pattern);
+    let mut p = plain(std::fs::canonicalize(&root).ok()?);
+    for seg in rest {
+        p.push(seg);
+    }
+    Some(p.to_string_lossy().to_string())
+}
+
+/// `path` (canonical) matches `pattern` (a [`canonical_pattern`]): segment
+/// by segment, `**` standing for any number of folders.
+pub fn pattern_matches(pattern: &str, path: &str) -> bool {
+    fn segs(p: &str) -> Vec<String> {
+        Path::new(p).components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect()
+    }
+    fn go(pat: &[String], name: &[String]) -> bool {
+        match pat.first().map(String::as_str) {
+            None => name.is_empty(),
+            Some("**") => (0..=name.len()).any(|k| go(&pat[1..], &name[k..])),
+            Some(p) => {
+                let Some(n) = name.first() else { return false };
+                let hit = if has_glob(p) { wild(&p.chars().collect::<Vec<_>>(), &n.chars().collect::<Vec<_>>()) } else { p == n };
+                hit && go(&pat[1..], &name[1..])
+            }
+        }
+    }
+    go(&segs(pattern), &segs(path))
+}
+
+/// The files `pattern` matches (`**` is any number of folders).
+fn expand(pattern: &Path) -> Result<Vec<PathBuf>, String> {
+    let (root, rest) = glob_root(pattern);
     struct Walk {
         out: Vec<PathBuf>,
         scanned: usize,
@@ -358,7 +411,13 @@ fn expand(pattern: &Path) -> Result<Vec<PathBuf>, String> {
 
 /// The files a path as written stands for: `~` expanded, relative to
 /// `base` (the notebook's folder), globs expanded, each one canonical.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn resolve(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+    Ok(resolve_found(raw, base, home)?.0)
+}
+
+/// [`resolve`], with the glob it was (canonical, [`canonical_pattern`]).
+fn resolve_found(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<(Vec<PathBuf>, Option<String>), String> {
     let p = raw.trim();
     if p.is_empty() {
         return Err("la ruta de un archivo está vacía".into());
@@ -382,6 +441,7 @@ pub fn resolve(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<Ve
         }
     };
     let shown = path.display().to_string();
+    let pattern = if has_glob(&shown) { canonical_pattern(&path) } else { None };
     let found = if has_glob(&shown) {
         let found = expand(&path)?;
         if found.is_empty() {
@@ -405,7 +465,7 @@ pub fn resolve(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<Ve
             out.push(canon);
         }
     }
-    Ok(out)
+    Ok((out, pattern))
 }
 
 /// `path` shortened for the cell (see [`DataFile::display`]).
@@ -423,7 +483,7 @@ fn display(path: &Path, base: Option<&Path>, home: Option<&Path>) -> String {
 fn data_file(path: &Path, base: Option<&Path>, home: Option<&Path>) -> Result<DataFile, String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("no se puede leer «{}»: {e}", path.display()))?;
     let mtime_ms = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as i64);
-    Ok(DataFile { path: path.to_string_lossy().to_string(), display: display(path, base, home), size: meta.len(), mtime_ms })
+    Ok(DataFile { path: path.to_string_lossy().to_string(), display: display(path, base, home), size: meta.len(), mtime_ms, pattern: None, previous_mtime_ms: None })
 }
 
 /// The home folder.
@@ -458,10 +518,13 @@ pub fn plan(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64) -> Re
     let mut out = Vec::new();
     for call in reader_calls(sql)? {
         let mut paths = Vec::new();
+        let mut patterns: Vec<Option<String>> = Vec::new();
         for raw in &call.paths {
-            for p in resolve(raw, base, home)? {
+            let (found, pattern) = resolve_found(raw, base, home)?;
+            for p in found {
                 if !paths.contains(&p) {
                     paths.push(p);
+                    patterns.push(pattern.clone());
                 }
             }
         }
@@ -471,7 +534,10 @@ pub fn plan(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64) -> Re
         if call.function == "read_xlsx" && paths.len() != 1 {
             return Err(format!("«read_xlsx» lee un solo archivo y «{}» son {}", call.paths.join(", "), paths.len()));
         }
-        let files = paths.iter().map(|p| data_file(p, base, home)).collect::<Result<Vec<_>, _>>()?;
+        let mut files = paths.iter().map(|p| data_file(p, base, home)).collect::<Result<Vec<_>, _>>()?;
+        for (f, pattern) in files.iter_mut().zip(patterns) {
+            f.pattern = pattern;
+        }
         let single = !call.list && paths.len() == 1 && !call.paths.iter().any(|p| has_glob(p));
         let arg = if single { lit(&files[0].path) } else { format!("[{}]", files.iter().map(|f| lit(&f.path)).collect::<Vec<_>>().join(", ")) };
         let text = format!("{}({arg}{})", call.function, call.rest);
@@ -506,15 +572,12 @@ pub fn rewrite(sql: &str, reads: &[FileRead]) -> String {
 // What may be read
 
 /// The one place that decides which of the files a run detected it may
-/// read; the reader session is granted exactly these, and a run that
-/// needs any other is refused. Today: every file detected (they exist and
-/// were resolved above).
-///
-/// TODO(file-approval): ask before reading a file the user hasn't approved
-/// for this notebook (path + content hash, remembered per notebook), and
-/// return only the approved ones.
-pub fn allowed_files(files: &[DataFile]) -> Vec<DataFile> {
-    files.to_vec()
+/// read; the reader session is granted exactly these. A file of the
+/// always-blocked list refuses the run ([`super::access::Policy`]); a file
+/// neither granted to this notebook nor approved for this run stops it
+/// before anything runs, and the UI asks ([`super::access::Gate::Ask`]).
+pub fn allowed_files(files: &[DataFile], access: &super::access::Access<'_>) -> Result<Vec<DataFile>, super::access::Gate> {
+    access.gate(files)
 }
 
 // ---------------------------------------------------------------------------

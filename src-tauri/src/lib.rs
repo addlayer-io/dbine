@@ -569,6 +569,10 @@ pub fn run() {
             commands::notebook::notebook_open_link,
             commands::notebook::notebook_local_refs,
             commands::notebook::notebook_run_local,
+            commands::notebook::notebook_file_decision,
+            commands::notebook::notebook_file_grants,
+            commands::notebook::notebook_file_grant_remove,
+            commands::notebook::notebook_file_grants_clear,
             open_files::open_files_take,
             open_files::open_file,
         ])

@@ -4,6 +4,7 @@
 pub mod cache;
 pub mod conn_import;
 pub mod export;
+pub mod file_grants;
 pub mod import;
 pub mod secret_accounts;
 pub mod secret_sources;

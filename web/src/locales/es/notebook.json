@@ -162,6 +162,43 @@
     "modified": "modificado {{when}}",
     "cached": "ya cargada",
     "capped": "cortada en el tope por tabla",
-    "asText": "algunas columnas como texto"
+    "asText": "algunas columnas como texto",
+    "changed": "cambió desde la última ejecución ({{before}} → {{after}})",
+    "changedMany_one": "{{files}} archivo cambió desde la última ejecución",
+    "changedMany_many": "{{files}} archivos cambiaron desde la última ejecución",
+    "changedMany_other": "{{files}} archivos cambiaron desde la última ejecución"
+  },
+  "fileAccess": {
+    "title": "Leer archivos locales",
+    "lead_one": "Este notebook quiere leer este archivo:",
+    "lead_many": "Este notebook quiere leer estos archivos:",
+    "lead_other": "Este notebook quiere leer estos archivos:",
+    "pattern": "Patrón",
+    "noteSaved": "«Permitir» vale solo para esta ejecución. «Permitir siempre» lo recuerda en esta computadora para este notebook (no en el archivo): otro archivo, u otro notebook, vuelve a preguntar.",
+    "noteUnsaved": "«Permitir» vale solo para esta ejecución. Para recordarlo, guardá el notebook.",
+    "deny": "Denegar",
+    "once": "Permitir",
+    "always": "Permitir siempre",
+    "alwaysTip": "Este notebook podrá leer estos archivos (y los nuevos del mismo patrón) sin volver a preguntar",
+    "alwaysUnsaved": "Guardá el notebook para recordarlo",
+    "denied_one": "No se permitió leer {{files}}",
+    "denied_many": "No se permitió leer estos archivos: {{files}}",
+    "denied_other": "No se permitió leer estos archivos: {{files}}"
+  },
+  "fileGrants": {
+    "title": "Archivos que los notebooks pueden leer",
+    "help": "Los que se permitieron con «Permitir siempre», en esta computadora. Si movés o renombrás un notebook, vuelve a preguntar.",
+    "helpOne": "Los que este notebook puede leer sin preguntar, en esta computadora. Si lo movés o lo renombrás, vuelve a preguntar.",
+    "empty": "Ningún archivo permitido todavía.",
+    "unsaved": "Un notebook sin guardar no recuerda archivos: guardalo para poder permitirlos siempre.",
+    "granted": "permitido el {{when}}",
+    "remove": "Quitar",
+    "clearAll": "Quitar todos",
+    "clearConfirm_one": "¿Quitar el permiso? El notebook vuelve a preguntar antes de leer ese archivo.",
+    "clearConfirm_many": "¿Quitar los {{count}} permisos? Los notebooks vuelven a preguntar antes de leer esos archivos.",
+    "clearConfirm_other": "¿Quitar los {{count}} permisos? Los notebooks vuelven a preguntar antes de leer esos archivos.",
+    "toolbar": "Permisos de archivos…",
+    "toolbarTip": "Los archivos locales que este notebook puede leer sin preguntar",
+    "dialogTitle": "Permisos de archivos"
   }
 }
