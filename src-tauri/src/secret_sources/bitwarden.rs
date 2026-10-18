@@ -637,6 +637,33 @@ async fn open_vault(client: &reqwest::Client, ep: &Endpoints, creds: &Creds) -> 
     Ok((vault, user))
 }
 
+/// The account wizard's check: log in with the API key, sync, and open the
+/// user key with the master password (a wrong one says so). The account's
+/// e-mail.
+pub async fn whoami(server: &str, creds: &Creds) -> Result<String, String> {
+    let ep = Endpoints::of(server).ok_or("el servidor de Bitwarden no es válido")?;
+    let client = client_for(&ep)?;
+    whoami_with(&client, &ep, creds).await
+}
+
+pub async fn whoami_with(client: &reqwest::Client, ep: &Endpoints, creds: &Creds) -> Result<String, String> {
+    if creds.password.is_empty() {
+        return Err("falta la contraseña maestra de Bitwarden".into());
+    }
+    let (mut vault, _user) = open_vault(client, ep, creds).await?;
+    let email = get(&vault, "profile").and_then(|p| get_str(p, "email")).unwrap_or("").to_string();
+    super::browse::wipe_json(&mut vault);
+    Ok(email)
+}
+
+/// Drop the access token kept for an API key (its account was removed or
+/// reconnected).
+pub fn forget_token_of(server: &str, client_id: &str, client_secret: &str) {
+    if let Some(ep) = Endpoints::of(server) {
+        forget_token(&token_cache_key(&ep.identity, client_id.trim(), client_secret.trim()));
+    }
+}
+
 /// `(value, username)` of the item, talking to `ep`.
 pub async fn read_with(client: &reqwest::Client, ep: &Endpoints, req: &Request<'_>, creds: &Creds) -> Result<(String, Option<String>), String> {
     if creds.password.is_empty() {
@@ -988,6 +1015,37 @@ fn org_key_of(payload: &str, token: &AccessToken) -> Result<SymKey, String> {
     let org = SymKey::from_bytes(&key).filter(|_| key.len() == 64);
     wipe_bytes(&mut key);
     org.ok_or_else(bad)
+}
+
+/// The account wizard's check for a machine account: its access token,
+/// the organization it's for and how many secrets it can read (listed,
+/// never opened). `(organization, secrets)`.
+pub async fn sm_whoami(server: &str, token: &str) -> Result<(String, usize), String> {
+    let ep = Endpoints::of(server).ok_or("el servidor de Bitwarden no es válido")?;
+    let parsed = parse_access_token(token)?;
+    let client = client_for(&ep)?;
+    sm_whoami_with(&client, &ep, &parsed).await
+}
+
+pub async fn sm_whoami_with(client: &reqwest::Client, ep: &Endpoints, token: &AccessToken) -> Result<(String, usize), String> {
+    let (access, _) = sm_session(client, ep, token).await?;
+    let org = token_organization(&access).ok_or("Bitwarden no dijo de qué organización es la cuenta de máquina")?;
+    let (status, mut json, _, _) = sm_get(client, ep, token, &format!("/organizations/{org}/secrets")).await?;
+    if status != 200 {
+        let msg = message_of(&json);
+        return Err(if msg.is_empty() { format!("Bitwarden Secrets Manager respondió {status}") } else { format!("Bitwarden Secrets Manager respondió {status}: {msg}") });
+    }
+    let n = get(&json, "secrets").or_else(|| get(&json, "data")).and_then(Value::as_array).map_or(0, Vec::len);
+    super::browse::wipe_json(&mut json);
+    Ok((org, n))
+}
+
+/// Drop the session kept for a machine account's token.
+pub fn sm_forget(server: &str, token: &str) {
+    let (Some(ep), Ok(t)) = (Endpoints::of(server), parse_access_token(token)) else { return };
+    if let Some((_, mut a, _)) = SM_TOKENS.lock().unwrap_or_else(|e| e.into_inner()).remove(&token_cache_key(&ep.identity, &t.id, &t.secret)) {
+        wipe(&mut a);
+    }
 }
 
 /// The organization a machine account's access token (a JWT) is for.
@@ -1459,6 +1517,7 @@ mod tests {
                 master_command: String::new(),
                 fill_username,
                 user_field: String::new(),
+                secret_account: String::new(),
             };
             let src = bw("dbine-test-postgres", "", "", MasterSource::Keychain, true);
             let tokens: dbine_core::secrets::Secrets = [(defs::token_key("password", ""), s(u, "password").to_string()), (defs::token_key("password", "client_secret"), s(u, "client_secret").to_string())].into();
@@ -1484,5 +1543,29 @@ mod tests {
                 eprintln!("bitwarden ({}): connected, {}", s(u, "email"), sess.server_version().await.unwrap());
             }
         }
+    }
+
+    /// The account wizards' checks against the recorded vault: the API key
+    /// and master password open it (the account's e-mail), a wrong password
+    /// says so; a machine account's token lists its organization's secrets.
+    #[tokio::test]
+    async fn the_account_wizard_checks() {
+        let (base, _) = mock_server(false).await;
+        let ep = endpoints(&base);
+        let client = client_for(&ep).unwrap();
+        let rec = recorded();
+        assert_eq!(whoami_with(&client, &ep, &creds(s(&rec, "password"), "dummy-api-secret")).await.unwrap(), "pbkdf2@dbine.test");
+        assert_eq!(whoami_with(&client, &ep, &creds("wrong", "dummy-api-secret")).await.unwrap_err(), WRONG_PASSWORD);
+        let e = whoami_with(&client, &ep, &creds("x", "nope-secret")).await.unwrap_err();
+        assert!(e.contains("clave de API") && !e.contains("nope-secret"), "{e}");
+        assert!(whoami_with(&client, &ep, &creds("", "dummy-api-secret")).await.is_err(), "no password");
+        forget_token_of(&base, s(&rec, "client_id"), "dummy-api-secret");
+        let v = vectors();
+        let t = parse_access_token(s(&v, "access_token")).unwrap();
+        assert_eq!(sm_whoami_with(&client, &ep, &t).await.unwrap(), (s(&v, "organization_id").to_string(), 2));
+        let wrong = parse_access_token("0.7b1d1c26-3f5e-4c8a-9a0b-2f3e4d5c6b7a.revoked-secret:AAECAwQFBgcICQoLDA0ODw==").unwrap();
+        let e = sm_whoami_with(&client, &ep, &wrong).await.unwrap_err();
+        assert!(e.contains("cuenta de máquina") && !e.contains("revoked-secret"), "{e}");
+        sm_forget(&base, s(&v, "access_token"));
     }
 }

@@ -265,6 +265,21 @@ pub async fn browse(file: PathBuf, key_file: Option<PathBuf>, master: Option<Str
     .map_err(|e| format!("la lectura de la base de KeePass se interrumpió: {e}"))?
 }
 
+/// The account wizard's check: the database opens with this key; how many
+/// entries it has (outside the recycle bin).
+pub async fn verify(file: PathBuf, key_file: Option<PathBuf>, master: Option<String>) -> Result<usize, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut master = master;
+        let r = open(&file, key_file.as_deref(), master.as_deref()).map(|db| db.iter_all_entries().filter(|e| !in_recycle_bin(&db, e)).count());
+        if let Some(m) = &mut master {
+            dbine_core::secret_sources::wipe(m);
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("la lectura de la base de KeePass se interrumpió: {e}"))?
+}
+
 /// The standard fields first, in KeePass' order; then the others by name.
 const STANDARD: [&str; 5] = [fields::TITLE, fields::USERNAME, fields::PASSWORD, fields::URL, fields::NOTES];
 
@@ -539,5 +554,16 @@ pub(crate) mod tests {
         assert_eq!(read_blocking(&r, Some("dummy-master")).unwrap().0, "pg-secret-1");
         r.entry = "pg-main".into();
         assert!(read_blocking(&r, Some("dummy-master")).unwrap_err().contains("hay 2 entradas"));
+    }
+
+    /// The account wizard's check: the database opens (how many entries),
+    /// or the key is wrong.
+    #[tokio::test]
+    async fn the_account_wizard_check() {
+        let n = verify(testdata("kdbx31-keyfile.kdbx"), Some(testdata("kdbx31.keyx")), Some("dummy-master".into())).await.unwrap();
+        assert!(n > 0);
+        assert_eq!(verify(testdata("kdbx31-keyfile.kdbx"), Some(testdata("kdbx31.keyx")), Some("wrong".into())).await.unwrap_err(), WRONG_KEY);
+        assert!(verify(testdata("kdbx31-password.kdbx"), None, Some("demopass".into())).await.is_ok());
+        assert!(verify(testdata("missing.kdbx"), None, Some("x".into())).await.unwrap_err().contains("no existe"));
     }
 }

@@ -198,7 +198,7 @@ pub async fn list(src: &SecretSource, slots: &Secrets, at: At<'_>) -> Result<Lis
         }
         SecretSource::Aws { region, profile, .. } => aws::browse(region, profile, at).await,
         SecretSource::Ssm { region, profile, .. } => ssm::browse(region, profile, at).await,
-        SecretSource::Azure { vault_url, .. } => azure::browse(vault_url, at).await,
+        SecretSource::Azure { vault_url, tenant, .. } => azure::browse(vault_url, tenant, at).await,
         SecretSource::Gcp { project, .. } => gcp::browse(project, at).await,
         SecretSource::Zoho { data_center, client_id, .. } => {
             let creds = zoho::Creds {

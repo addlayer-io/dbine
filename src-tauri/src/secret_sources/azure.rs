@@ -10,9 +10,9 @@ use std::time::Duration;
 
 const API_VERSION: &str = "7.4";
 
-pub async fn get_secret(vault_url: &str, name: &str, version: &str) -> Result<String, String> {
+pub async fn get_secret(vault_url: &str, name: &str, version: &str, tenant: &str) -> Result<String, String> {
     let (host, resource) = dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string())?;
-    let (token, _) = cloud_auth::azure_token_for(resource, None).await.map_err(|e| e.to_string())?;
+    let (token, _) = cloud_auth::azure_token_for(resource, tenant_arg(tenant)?).await.map_err(|e| e.to_string())?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(20))
@@ -20,6 +20,56 @@ pub async fn get_secret(vault_url: &str, name: &str, version: &str) -> Result<St
         .build()
         .map_err(|e| e.to_string())?;
     get_secret_at(&client, &format!("https://{host}"), name.trim(), version.trim(), &token).await
+}
+
+/// The tenant to ask the token for (`None`: the CLI's current one); only a
+/// well-formed one goes to `az` as an argument.
+fn tenant_arg(tenant: &str) -> Result<Option<&str>, String> {
+    let t = tenant.trim();
+    if t.is_empty() {
+        return Ok(None);
+    }
+    if !dbine_core::secret_sources::valid_azure_tenant(t) {
+        return Err("el inquilino de Microsoft Entra no es válido (su ID o su dominio)".into());
+    }
+    Ok(Some(t))
+}
+
+/// Who a token is for (the account wizard's check): the user's name or
+/// the app's ID, and the tenant, from its claims (not verified: Azure's
+/// tools issued it and it only names who signed in).
+pub fn token_identity(token: &str) -> Option<(String, String)> {
+    use base64::Engine;
+    let payload = token.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
+    let claims: Value = serde_json::from_slice(&bytes).ok()?;
+    let s = |k: &str| claims.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
+    let who = s("upn").or_else(|| s("preferred_username")).or_else(|| s("unique_name")).or_else(|| s("appid").map(|a| format!("app {a}")))?;
+    Some((who, s("tid").unwrap_or_default()))
+}
+
+/// The account wizard's check: a token for the vault's cloud from the
+/// Azure CLI chain, for the tenant when one is set. `(who, tenant)`.
+pub async fn whoami(vault_url: &str, tenant: &str) -> Result<(String, String), String> {
+    let (_, resource) = dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string())?;
+    let (mut token, _) = cloud_auth::azure_token_for(resource, tenant_arg(tenant)?).await.map_err(|e| e.to_string())?;
+    let who = token_identity(&token);
+    dbine_core::secret_sources::wipe(&mut token);
+    let (who, tid) = who.ok_or("Microsoft Entra ID no dijo para quién es el token")?;
+    let wanted = tenant.trim();
+    if dbine_core::secret_sources::is_uuid(wanted) && !tid.is_empty() && !tid.eq_ignore_ascii_case(wanted) {
+        return Err(format!("el token es del inquilino {tid}, no de {wanted}"));
+    }
+    Ok((who, tid))
+}
+
+/// What `az account show` says (the wizard's starting point): the tenant,
+/// the user and the subscription's name. Nothing secret.
+pub async fn current_account() -> Result<Value, String> {
+    let out = cloud_auth::run_cli("az", &["account", "show", "--output", "json"], &[], &[], "az login").await.map_err(|e| e.to_string())?;
+    let json: Value = serde_json::from_str(&out).map_err(|_| "«az account show» no devolvió JSON".to_string())?;
+    let s = |p: &str| json.pointer(p).and_then(Value::as_str).unwrap_or("").to_string();
+    Ok(serde_json::json!({ "tenant": s("/tenantId"), "user": s("/user/name"), "subscription": s("/name") }))
 }
 
 pub fn secret_url(base: &str, name: &str, version: &str) -> String {
@@ -57,9 +107,9 @@ pub async fn get_secret_at(client: &reqwest::Client, base: &str, name: &str, ver
 
 /// The vault's secret names (`GET /secrets`, paged), or a secret's JSON
 /// keys (`item`).
-pub async fn browse(vault_url: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+pub async fn browse(vault_url: &str, tenant: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
     let (host, resource) = dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string())?;
-    let (token, _) = cloud_auth::azure_token_for(resource, None).await.map_err(|e| e.to_string())?;
+    let (token, _) = cloud_auth::azure_token_for(resource, tenant_arg(tenant)?).await.map_err(|e| e.to_string())?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(20))
@@ -131,5 +181,17 @@ mod tests {
         assert!(e.contains("no existe el secreto «nope»"), "{e}");
         let l = browse_at(&client, &base, "dummy", Default::default()).await.unwrap();
         assert!(l.entries.iter().any(|e| e.id == "db-pw"), "{:?}", l.entries);
+    }
+
+    #[test]
+    fn who_a_token_is_for() {
+        use base64::Engine;
+        let jwt = |claims: serde_json::Value| format!("x.{}.y", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string()));
+        assert_eq!(token_identity(&jwt(serde_json::json!({ "upn": "ana@contoso.com", "tid": "t-1" }))), Some(("ana@contoso.com".into(), "t-1".into())));
+        assert_eq!(token_identity(&jwt(serde_json::json!({ "appid": "a-1", "tid": "t-1" }))), Some(("app a-1".into(), "t-1".into())));
+        assert_eq!(token_identity("not-a-jwt"), None);
+        assert!(tenant_arg("--debug").is_err());
+        assert_eq!(tenant_arg(" contoso.onmicrosoft.com ").unwrap(), Some("contoso.onmicrosoft.com"));
+        assert_eq!(tenant_arg("").unwrap(), None);
     }
 }

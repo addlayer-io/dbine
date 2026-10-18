@@ -174,6 +174,41 @@ pub async fn call(client: &reqwest::Client, conn: &Conn<'_>, token: &str, method
     (Ok(status), serde_json::from_str(&body).unwrap_or(Value::Null))
 }
 
+/// The account wizard's check: sign in (an AppRole token is revoked right
+/// after) and `auth/token/lookup-self`. `(display name, policies)`; the
+/// answer (it carries the token) is wiped.
+pub async fn whoami(conn: &Conn<'_>, ca_file: &str, auth: &Auth<'_>) -> Result<(String, Vec<String>), String> {
+    let client = client(ca_file)?;
+    whoami_with(&client, conn, auth).await
+}
+
+pub async fn whoami_with(client: &reqwest::Client, conn: &Conn<'_>, auth: &Auth<'_>) -> Result<(String, Vec<String>), String> {
+    let login = login(client, conn, auth).await?;
+    let (status, mut json) = call(client, conn, &login.token, reqwest::Method::GET, "auth/token/lookup-self", None).await;
+    login.done(client, conn).await;
+    let status = status?;
+    let out = match status {
+        200 => {
+            let data = json.get("data");
+            let name = data.and_then(|d| d.get("display_name")).and_then(Value::as_str).unwrap_or("").to_string();
+            let mut policies: Vec<String> = ["policies", "identity_policies"]
+                .iter()
+                .filter_map(|k| data.and_then(|d| d.get(*k)).and_then(Value::as_array))
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+            policies.sort();
+            policies.dedup();
+            Ok((name, policies))
+        }
+        403 => Err("Vault rechazó el token (¿venció, o es de otro servidor o espacio de nombres?)".to_string()),
+        _ => Err(status_error(status, &json, "auth/token/lookup-self")),
+    };
+    super::browse::wipe_json(&mut json);
+    out
+}
+
 /// The path's segments, without empty ones.
 pub(super) fn segments(path: &str) -> Vec<&str> {
     path.split('/').map(str::trim).filter(|s| !s.is_empty()).collect()
@@ -534,5 +569,58 @@ mod tests {
         assert!(read_with(&client, &req("secret/dbine/none", "password", KvVersion::Auto), "dbine-root").await.unwrap_err().contains("no existe"));
         assert!(read_with(&client, &req("secret/dbine/pg", "nope", KvVersion::Auto), "dbine-root").await.unwrap_err().contains("«nope»"));
         assert!(read_with(&client, &req("secret/dbine/pg", "password", KvVersion::Auto), "wrong-token").await.unwrap_err().contains("permiso denegado"));
+    }
+
+    /// The account wizard's check against a mock: a token's lookup-self
+    /// (name and policies, never the token), AppRole's login with its token
+    /// revoked right after, and the refusals.
+    #[tokio::test]
+    async fn whoami_against_a_mock() {
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::{get as aget, post};
+        use axum::{Json, Router};
+        use std::sync::{Arc, Mutex};
+        let revoked = Arc::new(Mutex::new(0u32));
+        let r2 = revoked.clone();
+        let tok = |h: &HeaderMap| h.get("x-vault-token").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        let app = Router::new()
+            .route("/v1/auth/approle/login", post(|Json(b): Json<Value>| async move {
+                if b["role_id"] == "r-1" && b["secret_id"] == "s-1" {
+                    (StatusCode::OK, Json(json!({ "auth": { "client_token": "ar-token", "renewable": true } })))
+                } else {
+                    (StatusCode::BAD_REQUEST, Json(json!({ "errors": ["invalid role or secret ID"] })))
+                }
+            }))
+            .route("/v1/auth/token/lookup-self", aget(move |h: HeaderMap| async move {
+                match tok(&h).as_str() {
+                    "root" => (StatusCode::OK, Json(json!({ "data": { "display_name": "token", "id": "root", "policies": ["root"] } }))),
+                    "ar-token" => (StatusCode::OK, Json(json!({ "data": { "display_name": "approle", "id": "ar-token", "policies": ["default", "dbine"], "identity_policies": ["team", "dbine"] } }))),
+                    _ => (StatusCode::FORBIDDEN, Json(json!({ "errors": ["permission denied"] }))),
+                }
+            }))
+            .route("/v1/auth/token/revoke-self", post(move |h: HeaderMap| {
+                let r = r2.clone();
+                async move {
+                    if tok(&h) == "ar-token" {
+                        *r.lock().unwrap() += 1;
+                    }
+                    StatusCode::NO_CONTENT
+                }
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let c = client("").unwrap();
+        let conn = Conn { address: &addr, namespace: "" };
+        let (name, policies) = whoami_with(&c, &conn, &Auth::Token(Some("root"))).await.unwrap();
+        assert_eq!((name.as_str(), policies), ("token", vec!["root".to_string()]));
+        let e = whoami_with(&c, &conn, &Auth::Token(Some("nope"))).await.unwrap_err();
+        assert!(e.contains("rechazó el token") && !e.contains("nope"), "{e}");
+        let ar = Auth::AppRole { mount: "", role_id: "r-1", secret_id: Some("s-1") };
+        let (name, policies) = whoami_with(&c, &conn, &ar).await.unwrap();
+        assert_eq!((name.as_str(), policies.join(",")), ("approle", "dbine,default,team".to_string()));
+        assert_eq!(*revoked.lock().unwrap(), 1, "AppRole's token is revoked after the check");
+        let e = whoami_with(&c, &conn, &Auth::AppRole { mount: "", role_id: "r-1", secret_id: Some("wrong") }).await.unwrap_err();
+        assert!(e.contains("role_id o el secret_id") && !e.contains("wrong"), "{e}");
     }
 }

@@ -60,6 +60,25 @@ pub async fn read_with(client: &reqwest::Client, req: &Request<'_>, password: &s
     out
 }
 
+/// The account wizard's check: the access token, then who it's for
+/// (`GET /api/v1/users/current`). The user name.
+pub async fn whoami(req: &Request<'_>, password: &str) -> Result<String, String> {
+    let client = https::client(req.url, "Secret Server", "", None)?;
+    if !req.platform_url.trim().is_empty() && delinea_platform_host(req.platform_url).is_none() {
+        return Err("la URL de Delinea Platform tiene que ser https://<inquilino>.delinea.app".into());
+    }
+    whoami_with(&client, req, password).await
+}
+
+pub async fn whoami_with(client: &reqwest::Client, req: &Request<'_>, password: &str) -> Result<String, String> {
+    let mut token = access_token(client, req, password).await?;
+    let r = api(client, req, &token, "/api/v1/users/current").await;
+    wipe(&mut token);
+    let json = r?;
+    let s = |k: &str| json.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
+    Ok(s("userName").or_else(|| s("displayName")).or_else(|| s("emailAddress")).unwrap_or_else(|| req.username.trim().to_string()))
+}
+
 async fn access_token(client: &reqwest::Client, req: &Request<'_>, password: &str) -> Result<String, String> {
     if password.is_empty() {
         return Err("falta la contraseña de Delinea: escribila en el formulario".into());
@@ -322,6 +341,15 @@ mod tests {
                 }),
             )
             .route(
+                "/api/v1/users/current",
+                get(move |h: HeaderMap| async move {
+                    if !ok(&h) {
+                        return (StatusCode::UNAUTHORIZED, Json(json!({ "message": "Authentication failed." })));
+                    }
+                    (StatusCode::OK, Json(json!({ "id": 7, "userName": "svc_dbine", "displayName": "Service DBine", "emailAddress": "svc@example.com" })))
+                }),
+            )
+            .route(
                 "/api/v1/secrets/{id}/summary",
                 get(move |h: HeaderMap, AxPath(id): AxPath<u64>| async move {
                     if !ok(&h) || id != 41 {
@@ -440,5 +468,23 @@ mod tests {
         let mut p = r("https://ss.example.com", "41", "", false);
         p.platform_url = "https://evil.example.com";
         assert!(read(&p, "x").await.unwrap_err().contains("delinea.app"));
+    }
+
+    /// The account wizard's check: the token, then the current user.
+    #[tokio::test]
+    async fn whoami_against_the_mock() {
+        let (url, _) = mock().await;
+        let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
+        assert_eq!(whoami_with(&client, &r(&url, "", "", false), "dummy-pass").await.unwrap(), "svc_dbine");
+        assert_eq!(whoami_with(&client, &r(&url, "", "", false), "nope").await.unwrap_err(), WRONG_PASSWORD);
+        let mut platform = r(&url, "", "", false);
+        platform.platform_url = &url;
+        platform.username = "client-1";
+        assert_eq!(whoami_with(&client, &platform, "dummy-pass").await.unwrap(), "svc_dbine");
+        // The real client: HTTPS only, and only a delinea.app tenant.
+        assert!(whoami(&r("http://ss.example.com", "", "", false), "x").await.unwrap_err().contains("https://"));
+        let mut p = r("https://ss.example.com", "", "", false);
+        p.platform_url = "https://evil.example.com";
+        assert!(whoami(&p, "x").await.unwrap_err().contains("delinea.app"));
     }
 }

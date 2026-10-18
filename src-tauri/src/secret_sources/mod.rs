@@ -270,7 +270,7 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
         defs::wipe(&mut raw);
         return finish(src, picked.map(|v| (v, username)));
     }
-    if let SecretSource::Ccp { url, app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file, fill_username } = src {
+    if let SecretSource::Ccp { url, app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file, fill_username, .. } = src {
         let req = cyberark::Ccp { url, app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file, username: *fill_username };
         return finish(src, cyberark::ccp_read(&req, token).await);
     }
@@ -348,12 +348,12 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
             }
             value
         }
-        SecretSource::Vault { address, path, key, namespace, kv_version, ca_file, auth, approle_mount, role_id } => {
+        SecretSource::Vault { address, path, key, namespace, kv_version, ca_file, auth, approle_mount, role_id, .. } => {
             let req = vault::Request { address, path, key, namespace, kv_version: *kv_version, ca_file };
             vault::read(&req, &vault::Auth::of(*auth, approle_mount, role_id, slots)).await?
         }
         SecretSource::Aws { secret_id, region, profile, .. } => aws::get_secret(secret_id, region, profile).await?,
-        SecretSource::Azure { vault_url, name, version, .. } => azure::get_secret(vault_url, name, version).await?,
+        SecretSource::Azure { vault_url, name, version, tenant, .. } => azure::get_secret(vault_url, name, version, tenant).await?,
         SecretSource::Gcp { project, secret, version, .. } => gcp::get_secret(project, secret, version).await?,
         SecretSource::BitwardenSm { server, secret, .. } => bitwarden::read_secret(server, secret, token).await?,
         SecretSource::Ssm { parameter, version, region, profile, list_index, .. } => ssm::get_parameter(&ssm::Request { parameter, version, region, profile, list_index }).await?,
@@ -384,7 +384,7 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
 
 /// A Vault database role's definition, with the field's kept slots.
 fn vault_db_source<'a>(src: &'a SecretSource, slots: &'a Secrets) -> vault_db::Source<'a> {
-    let SecretSource::VaultDb { address, mount, role, static_role, namespace, ca_file, auth, approle_mount, role_id } = src else {
+    let SecretSource::VaultDb { address, mount, role, static_role, namespace, ca_file, auth, approle_mount, role_id, .. } = src else {
         unreachable!("a vault_db definition")
     };
     vault_db::Source {
@@ -478,9 +478,11 @@ pub async fn fill(store: &StateStore, cfg: &mut ConnectionConfig, sources: &Secr
             // Vault's database credentials: held with their lease while the
             // connection is open (vault_db.rs), not in the minute's cache.
             None if matches!(src, SecretSource::VaultDb { .. }) => {
-                let slots = field_tokens(tokens, field);
+                // Through an account: the account's Vault and sign-in.
+                let x = accounts::expand(store, src, field_tokens(tokens, field))
+                    .map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))))?;
                 let key = if saved { key } else { format!("form:{}\u{0}{digest}", uuid::Uuid::new_v4()) };
-                vault_db::acquire(&key, saved, &vault_db_source(src, &slots))
+                vault_db::acquire(&key, saved, &vault_db_source(&x.src, &x.slots))
                     .await
                     .map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))))?
             }
@@ -777,6 +779,7 @@ pub(crate) mod tests {
             master_command: command.into(),
             fill_username: true,
             user_field: String::new(),
+            secret_account: String::new(),
         }
     }
 
@@ -978,6 +981,7 @@ pub(crate) mod tests {
             auth,
             approle_mount: String::new(),
             role_id: if auth == defs::VaultAuth::Approle { "role-1".into() } else { String::new() },
+            secret_account: String::new(),
         }
     }
 
@@ -1012,6 +1016,7 @@ pub(crate) mod tests {
             master_command: String::new(),
             fill_username: false,
             user_field: String::new(),
+            secret_account: String::new(),
         };
         let mut cfg = ConnectionConfig { driver: "postgres".into(), ..Default::default() };
         defs::write(&mut cfg, &[("password".to_string(), src.clone())].into());
@@ -1165,6 +1170,7 @@ pub(crate) mod tests {
             master_command: String::new(),
             fill_username: true,
             user_field: String::new(),
+            secret_account: String::new(),
         };
         tries.push(("keepass", keepass, [(token_key("password"), "dummy-master".to_string())].into()));
         if let Ok(addr) = std::env::var("DBINE_TEST_VAULT") {
@@ -1178,6 +1184,7 @@ pub(crate) mod tests {
                 auth: Default::default(),
                 approle_mount: String::new(),
                 role_id: String::new(),
+                secret_account: String::new(),
             };
             tries.push(("vault", vault, [(token_key("password"), "dbine-root".to_string())].into()));
         }
@@ -1296,6 +1303,7 @@ pub(crate) mod tests {
             username_variable: "db/prod/username".into(),
             json_key: String::new(),
             ca_file: String::new(),
+            secret_account: String::new(),
         };
         let tokens: Secrets = [(defs::token_key("password", ""), key.clone())].into();
         let mut cfg = ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("someone-else".into()), ..Default::default() };
