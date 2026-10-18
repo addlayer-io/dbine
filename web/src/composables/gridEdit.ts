@@ -77,14 +77,14 @@ export function inferTarget(script: string, resultIndex: number, language: strin
     return name ? { target: { kind: 'collection', schema: null, name }, reason: null } : none(t('core:gridEdit.notFind'));
   }
   if (language !== 'sql' && language !== 'cql') return none(t('core:gridEdit.engineCantEdit'));
-  const selects = statements(script).filter((s) => /^\(?\s*(select|with)\b/i.test(s));
-  const st = selects[resultIndex] ?? (selects.length === 1 ? selects[0] : undefined);
+  const st = pickSelect(script, resultIndex);
   if (!st) return none(t('core:gridEdit.queryNotFound'));
   if (/^\s*with\b/i.test(st)) return none(t('core:gridEdit.usesWith'));
   if (/\b(join|union|intersect|except|group\s+by|having|distinct)\b/i.test(st)) return none(t('core:gridEdit.combinesRows'));
-  const from = /\bfrom\s+/i.exec(st);
-  if (!from) return none(t('core:gridEdit.noTable'));
-  const rest = st.slice(from.index + from[0].length);
+  // The statement's own FROM, not one of a subquery in the column list.
+  const from = topLevelFrom(st);
+  if (from < 0) return none(t('core:gridEdit.noTable'));
+  const rest = st.slice(from + 4).trimStart();
   const m = QUALIFIED.exec(rest);
   if (!m) return none(t('core:gridEdit.tableUnknown'));
   // Another table after a comma (implicit join), or a subquery.
@@ -96,6 +96,87 @@ export function inferTarget(script: string, resultIndex: number, language: strin
   const name = parts[parts.length - 1];
   const schema = parts.length >= 2 ? parts[parts.length - 2] : null;
   return { target: { kind: 'table', schema, name }, reason: null };
+}
+
+/** The SELECT (or WITH) behind the script's `resultIndex`-th result. */
+function pickSelect(script: string, resultIndex: number): string | undefined {
+  const selects = statements(script).filter((s) => /^\(?\s*(select|with)\b/i.test(s));
+  return selects[resultIndex] ?? (selects.length === 1 ? selects[0] : undefined);
+}
+
+/** Splits on commas outside parentheses and quotes. */
+function topLevelItems(list: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let depth = 0;
+  let q: string | null = null;
+  for (const ch of list) {
+    if (q) { cur += ch; if (ch === q) q = null; continue; }
+    if (ch === "'" || ch === '"' || ch === '`' || ch === '[') { q = ch === '[' ? ']' : ch; cur += ch; continue; }
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { out.push(cur.trim()); cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/** Where the statement's own FROM is (not a subquery's), or -1. */
+function topLevelFrom(st: string): number {
+  let depth = 0;
+  let q: string | null = null;
+  for (let i = 0; i < st.length; i++) {
+    const ch = st[i];
+    if (q) { if (ch === q) q = null; continue; }
+    if (ch === "'" || ch === '"' || ch === '`' || ch === '[') { q = ch === '[' ? ']' : ch; continue; }
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (depth === 0 && /^from\s/i.test(st.slice(i, i + 5)) && !/[\p{L}\p{N}_$#@]/u.test(st[i - 1] ?? ' ')) return i;
+  }
+  return -1;
+}
+
+const COLUMN_ITEM = new RegExp(String.raw`^(${IDENT}(?:\s*\.\s*${IDENT}){0,3})(?:\s+(?:as\s+)?(${IDENT}))?$`, 'iu');
+
+/**
+ * Which column of the table `inferTarget` found each result column is, for
+ * the same statement: `*` keeps every name, a plain column (qualified or
+ * not, with or without an alias) is that column, and an expression is none.
+ * A name that could be two things (`*` and an alias of the same name) is
+ * none too. Returns null when the statement can't be read.
+ */
+export function inferColumnSources(script: string, resultIndex: number): ((name: string) => string | null) | null {
+  const st = pickSelect(script, resultIndex);
+  if (!st) return null;
+  const head = /^\(?\s*select\s+(?:all\s+)?(?:top\s*(?:\(\s*\d+\s*\)|\d+)(?:\s+percent)?\s+)?/i.exec(st);
+  const from = topLevelFrom(st);
+  if (!head || from < head[0].length) return null;
+  let star = false;
+  const named = new Map<string, string | null>();
+  // Unquoted names may come back folded (PostgreSQL lowercases them).
+  const put = (name: string, column: string | null) => {
+    const k = name.toLowerCase();
+    named.set(k, named.has(k) ? null : column);
+  };
+  for (const item of topLevelItems(st.slice(head[0].length, from))) {
+    if (/^(?:(?:"[^"]+"|\[[^\]]+\]|`[^`]+`|[\p{L}_][\p{L}\p{N}_$#@]*)\s*\.\s*)*\*$/u.test(item)) { star = true; continue; }
+    const m = COLUMN_ITEM.exec(item);
+    if (m && !/^(as|from)$/i.test(m[2] ?? '')) {
+      const parts = m[1].split(/\s*\.\s*/);
+      const column = unquote(parts[parts.length - 1]);
+      put(m[2] ? unquote(m[2]) : column, column);
+      continue;
+    }
+    // An expression: only its alias is known, and it is no column.
+    const alias = new RegExp(String.raw`\bas\s+(${IDENT})$`, 'iu').exec(item);
+    if (alias) put(unquote(alias[1]), null);
+  }
+  return (name) => {
+    const k = name.toLowerCase();
+    if (named.has(k)) return star ? null : named.get(k)!;
+    return star ? name : null;
+  };
 }
 
 /**

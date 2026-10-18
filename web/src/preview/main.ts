@@ -27,6 +27,7 @@ import PlanView from '../components/PlanView.vue';
 import ChartView from '../components/ChartView.vue';
 import JsonTreeView from '../components/JsonTreeView.vue';
 import ResultsPane from '../components/ResultsPane.vue';
+import ResultGrid from '../components/ResultGrid.vue';
 import CompareView from '../views/CompareView.vue';
 import SupportReminder from '../components/SupportReminder.vue';
 import FeedbackDialog from '../components/FeedbackDialog.vue';
@@ -180,6 +181,27 @@ function docsEditView() {
   });
 }
 
+// view=fkjump: a table's data with foreign keys from and to it ("Ir a la
+// fila referenciada", "Filas que la referencian ›"); a jump is logged.
+function fkJumpView() {
+  const columns = [{ name: 'id', type_name: 'int' }, { name: 'cliente_id', type_name: 'int' }, { name: 'region', type_name: 'nvarchar' }, { name: 'sucursal', type_name: 'int' }, { name: 'total', type_name: 'decimal' }];
+  const rows = [[1001, 17, 'sur', 3, 1520.5], [1002, null, 'norte', 1, 88], [1003, 4, 'sur', 1, 310]];
+  const t = (name: string) => ({ kind: 'table', schema: 'dbo', name });
+  const links = {
+    parents: [
+      { table: t('clientes'), cols: [1], otherColumns: ['id'], name: 'FK_pedidos_clientes' },
+      { table: t('sucursales'), cols: [2, 3], otherColumns: ['region', 'num'], name: 'FK_pedidos_sucursales' },
+    ],
+    children: [
+      { table: t('lineas'), cols: [0], otherColumns: ['pedido_id'], name: 'FK_lineas_pedidos' },
+      { table: t('envios'), cols: [0], otherColumns: ['pedido_id'], name: 'FK_envios_pedidos' },
+    ],
+  };
+  return h('div', { style: 'width: 760px; height: 300px; display: flex; flex-direction: column; background: var(--ide-editor)' }, [
+    h(ResultGrid, { columns, rows, links, onFollow: (l: { table: { name: string } }, r: number) => console.log('follow', l.table.name, r) }),
+  ]);
+}
+
 // view=filters: the column filter row, filtering the sample locally, and
 // the header sort the way a table's data has it (the parent sorts).
 const pvFilters = ref<Record<string, FilterState>>({});
@@ -256,6 +278,7 @@ const app = createApp({
       view === 'settings' ? h(SettingsDialog) : view.startsWith('diagram') ? diagram() : ['script', 'import', 'run'].includes(view) ? dialogView() : view === 'designer' ? designer() : view === 'chart'
         ? h(ChartView, { columns: sampleResult.columns, rows: sampleResult.rows })
         : view === 'filters' ? filtersView()
+        : view === 'fkjump' ? fkJumpView()
         : view === 'docs-edit' ? docsEditView()
         : view === 'docs'
           ? h(ResultsPane, {

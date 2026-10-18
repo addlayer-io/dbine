@@ -18,6 +18,8 @@ export interface MenuItem {
   header?: boolean;
   /** Shows a check mark (the current choice of a group). */
   checked?: boolean;
+  /** A submenu, opened on hover (the item then has no action of its own). */
+  children?: MenuItem[];
 }
 
 const props = defineProps<{ x: number; y: number; items: MenuItem[] }>();
@@ -28,12 +30,31 @@ const pos = ref({ left: props.x, top: props.y });
 
 function close() { emit('close'); }
 function run(item: MenuItem) {
-  if (item.disabled) return;
+  if (item.disabled || item.children) return;
   close();
   item.action?.();
 }
 function onDown(e: MouseEvent) {
   if (el.value && !el.value.contains(e.target as Node)) close();
+}
+// -- submenu: one level, to the right of its item (left when there's no room).
+const sub = ref<{ at: number; left: number; top: number; flip: number } | null>(null);
+const subEl = ref<HTMLDivElement | null>(null);
+async function hover(e: MouseEvent, i: number) {
+  const item = props.items[i];
+  if (!item.children?.length || item.disabled) { sub.value = null; return; }
+  if (sub.value?.at === i) return;
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  sub.value = { at: i, left: r.right - 2, top: r.top - 5, flip: r.left + 2 };
+  await nextTick();
+  const s = subEl.value?.getBoundingClientRect();
+  if (s && sub.value) {
+    sub.value = {
+      ...sub.value,
+      left: sub.value.left + s.width > window.innerWidth - 4 ? Math.max(4, sub.value.flip - s.width) : sub.value.left,
+      top: Math.max(4, Math.min(sub.value.top, window.innerHeight - s.height - 4)),
+    };
+  }
 }
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') close();
@@ -71,14 +92,26 @@ onBeforeUnmount(() => {
         <div
           v-else
           class="cm-item"
-          :class="{ danger: item.danger, disabled: item.disabled }"
+          :class="{ danger: item.danger, disabled: item.disabled, open: sub?.at === i }"
           :title="item.hint"
           @click="run(item)"
+          @mouseenter="hover($event, i)"
         >
           <span><span v-if="item.checked !== undefined" class="cm-check">{{ item.checked ? '✓' : '' }}</span>{{ item.label }}</span>
-          <span v-if="item.shortcut" class="cm-key">{{ item.shortcut }}</span>
+          <span v-if="item.children" class="cm-key">›</span>
+          <span v-else-if="item.shortcut" class="cm-key">{{ item.shortcut }}</span>
         </div>
       </template>
+      <div v-if="sub" ref="subEl" class="cm cm-sub" :style="{ left: sub.left + 'px', top: sub.top + 'px' }">
+        <template v-for="(child, k) in items[sub.at].children" :key="k">
+          <div v-if="child.divided && k > 0" class="cm-sep" />
+          <div v-if="child.header" class="cm-header">{{ child.label }}</div>
+          <div v-else class="cm-item" :class="{ danger: child.danger, disabled: child.disabled }" :title="child.hint" @click="run(child)">
+            <span>{{ child.label }}</span>
+            <span v-if="child.shortcut" class="cm-key">{{ child.shortcut }}</span>
+          </div>
+        </template>
+      </div>
     </div>
   </Teleport>
 </template>
@@ -105,7 +138,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   white-space: nowrap;
 }
-.cm-item:hover { background: var(--ide-selection-focus); color: #fff; }
+.cm-item:hover, .cm-item.open { background: var(--ide-selection-focus); color: #fff; }
 .cm-item.danger { color: var(--nm-error-fg); }
 .cm-item.danger:hover { color: #fff; }
 .cm-item.disabled { opacity: 0.45; cursor: default; background: transparent; }

@@ -11,6 +11,7 @@ import ConnectionState from '../components/ConnectionState.vue';
 import { useConnectionGate } from '../composables/connectionGate';
 import { newQuery } from '../composables/actions';
 import { matchesLocal, type ColumnFilter, type FilterState } from '../composables/gridFilter';
+import { pendingJumps } from '../composables/fkJump';
 import { sortRows } from '../composables/gridSort';
 import { objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
@@ -184,7 +185,19 @@ async function loadDefinition() {
   }
 }
 
+// -- a jump by foreign key (composables/fkJump): the filters it brings -------------------
+function takeJump(): boolean {
+  const f = pendingJumps.get(props.tab.id);
+  if (!f) return false;
+  pendingJumps.delete(props.tab.id);
+  filters.value = { ...f };
+  return true;
+}
+takeJump();
+
 const loaded = new Set<ObjectView>();
+// A jump to this tab while it's open: its filters replace the current ones.
+watch(() => pendingJumps.has(props.tab.id), (has) => { if (has && takeJump() && loaded.has('data')) loadData(); });
 function ensure(v: ObjectView, force = false) {
   if (loaded.has(v) && !force) return;
   loaded.add(v);

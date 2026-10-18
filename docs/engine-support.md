@@ -376,6 +376,81 @@ DynamoDB Local, the Spanner emulator, Elasticsearch 8, Couchbase and Drill.
 LIKE wrongly), Databricks, Snowflake, Cosmos DB, ksqlDB, Phoenix and the
 Hive and Spark ODBC presets.
 
+## Jump by foreign key
+
+In a table's data and in the results of a query on one table, a cell of a
+foreign key column offers **Go to referenced row** (also ⌘/Ctrl+click on
+the cell): it opens the parent table's data filtered by that key. A cell of
+a referenced column (usually the primary key) offers **Rows that reference
+it ›**, with one entry per child table and foreign key, which opens that
+table filtered by the value. Composite keys filter by all their columns,
+and a key with a NULL leads nowhere (the entry is disabled). The other
+table opens in the preview tab (or in its own tab, if it is already open)
+with the grid's column filters set, so the filter shows in the filter row
+and in the filter bar and can be cleared like any other.
+
+In a query's results the jump is offered only when the result maps to the
+columns of one table: a plain `SELECT … FROM one_table` (the same reading
+as cell editing: no joins, unions, grouping, `DISTINCT` or `WITH`) whose
+items are `*` or plain columns, with or without an alias. Expressions, and
+a name that could be two columns (`*` plus an alias of the same name), get
+no jump; the key's columns all have to be in the result.
+
+There is no driver code of its own: the relations are the foreign keys
+`Session::database_schema` reports (the ER diagram's, read once per
+database and kept for five minutes) and the jump is the grid's own
+filtering (`Driver::filtered_browse`). So it is offered on every engine
+whose driver reports foreign keys (`Capabilities::foreign_keys`):
+PostgreSQL and its variants with foreign keys, MySQL, MariaDB and their
+variants with foreign keys, SQL Server, Azure SQL Database, Babelfish,
+Fabric Data Warehouse, Oracle, SQLite, libSQL, DuckDB, Firebird, SAP HANA,
+Spanner, OrientDB (its links), the ODBC presets that report them, and
+BigQuery, Snowflake and Databricks, whose foreign keys are informational
+(declared, not enforced: the jump finds what the data has).
+
+### Engines without the jump
+
+It does not appear where the driver reports no foreign keys:
+
+- **Engines without foreign keys**: Amazon Aurora DSQL, ClickHouse,
+  Databend, Apache Doris, StarRocks, VeloDB, SingleStore, CrateDB,
+  TDengine, GreptimeDB, Machbase, HeavyDB (OmniSciDB), SQream DB, Ocient,
+  Materialize, RisingWave, Timeplus Proton, Apache Ignite 2, Apache Ignite
+  3, Archivos dBase (DBF), InfluxDB 1 (InfluxQL), InfluxDB 2 (Flux),
+  InfluxDB 3 (SQL), Apache IoTDB, TimechoDB, ksqlDB.
+- **Greenplum, Apache Cloudberry, Greengage DB**: they accept `REFERENCES`
+  but do not keep foreign keys as constraints.
+- **Query engines over other sources**: Amazon Athena, Trino, Presto,
+  Starburst, Apache Drill, Dremio, Arrow Flight SQL, Apache Calcite
+  Avatica, Apache Hive, Cloudera CDP (Hive por HTTP), Apache Impala, Apache
+  Kyuubi, Spark Thrift Server, Apache Phoenix, Denodo, Oracle NetSuite
+  (SuiteAnalytics Connect): their catalogs do not report foreign keys.
+- **Document and search engines**: MongoDB, Amazon DocumentDB, FerretDB,
+  Azure Cosmos DB, Couchbase, CouchDB, Elasticsearch, OpenSearch, Open
+  Distro for Elasticsearch, Apache Solr, Manticore Search: references
+  between documents are a convention of the application, not something the
+  engine declares.
+- **Wide-column and key-value engines**: Apache Cassandra, ScyllaDB,
+  Amazon Keyspaces, Amazon DynamoDB, Redis, Valkey, Dragonfly, etcd: no
+  relations between tables or keys.
+- **Graph engines**: Neo4j, Memgraph, Amazon Neptune. Relationships are
+  edges between nodes, not key values in a node's properties, and the grid
+  shows a whole node in one column, so there is no cell whose value leads
+  to other rows; following relationships is a Cypher / Gremlin query.
+
+### Tested against real servers
+
+`tests/fk_jump.rs` in the PostgreSQL, MySQL and SQL Server driver crates
+(`dbine-test-postgres`, `dbine-test-mysql`, `dbine-test-mariadb`,
+`dbine-test-sqlserver`): a parent with a composite primary key `(region,
+num)` and a child whose foreign key lists the columns in another order than
+the table, with a row whose key is NULL. `database_schema` pairs the
+columns in order, the parent filtered by a child row's values (as the
+engine returned them: PostgreSQL returns some numbers as text) gives its
+row, and the child filtered by a parent's key gives the rows that reference
+it. `crates/dbine-drivers/tests/fk_jump_support.rs` checks that every
+engine without foreign keys is listed here.
+
 ## Sort by column
 
 A click on a column header of a table's data sorts by that column
