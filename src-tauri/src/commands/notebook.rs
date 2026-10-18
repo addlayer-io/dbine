@@ -58,12 +58,24 @@ pub struct ReadOut {
     pub text_hash: String,
 }
 
+/// A notebook bigger than this isn't opened (its previews are capped per
+/// cell; a file this size isn't one DBine wrote).
+const MAX_READ_BYTES: u64 = 64 * 1024 * 1024;
+
 pub fn read(path: &str) -> CommandResult<ReadOut> {
+    read_capped(path, MAX_READ_BYTES)
+}
+
+fn read_capped(path: &str, max: u64) -> CommandResult<ReadOut> {
     let p = notebook_path(path)?;
-    let bytes = std::fs::read(p).map_err(|e| match e.kind() {
+    let io = |e: std::io::Error| match e.kind() {
         std::io::ErrorKind::NotFound => CommandError::NotFound(format!("no existe el archivo «{path}»")),
         _ => CommandError::Internal(format!("no se pudo leer «{path}»: {e}")),
-    })?;
+    };
+    if std::fs::metadata(p).map_err(io)?.len() > max {
+        return Err(CommandError::BadRequest(format!("el notebook «{path}» es demasiado grande para abrirlo (más de 64 MB)")));
+    }
+    let bytes = std::fs::read(p).map_err(io)?;
     let text = std::str::from_utf8(&bytes).map_err(|_| CommandError::BadRequest("el notebook no está en UTF-8".into()))?;
     let notebook = notebook::parse(text).map_err(CommandError::BadRequest)?;
     Ok(ReadOut { notebook, text_hash: sha256_hex(&bytes) })
@@ -104,13 +116,19 @@ pub struct ExportArgs {
     pub notebook: Notebook,
     /// "html" | "markdown".
     pub format: String,
+    /// The previews' limits, as when saving (Settings › Notebooks).
+    #[serde(default)]
+    pub rows_per_cell: Option<u32>,
+    #[serde(default)]
+    pub bytes_per_cell: Option<u64>,
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notebook_export(args: ExportArgs) -> CommandResult<String> {
+    let limits = PreviewLimits::new(args.rows_per_cell, args.bytes_per_cell);
     match args.format.as_str() {
-        "html" => Ok(export::html(&args.notebook)),
-        "markdown" | "md" => Ok(export::markdown(&args.notebook)),
+        "html" => Ok(export::html(&args.notebook, limits)),
+        "markdown" | "md" => Ok(export::markdown(&args.notebook, limits)),
         f => Err(CommandError::BadRequest(format!("formato de exportación desconocido: «{f}»"))),
     }
 }
@@ -132,6 +150,9 @@ mod tests {
         assert!(matches!(read(&dir.join("b.ipynb").to_string_lossy()), Err(CommandError::NotFound(_))));
         assert!(matches!(read(&dir.join("x.txt").to_string_lossy()), Err(CommandError::BadRequest(_))));
         assert!(matches!(read("relative.ipynb"), Err(CommandError::BadRequest(_))));
+        // Too big: refused before reading it.
+        assert!(matches!(read_capped(&path, 10), Err(CommandError::BadRequest(m)) if m.contains("64 MB")));
+        assert!(read_capped(&path, 1 << 20).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

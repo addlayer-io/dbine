@@ -10865,5 +10865,6 @@
   "solo se abren enlaces http, https o mailto": "si possono aprire solo link http, https o mailto",
   "«{0}» no es un notebook (.ipynb)": "«{0}» non è un notebook (.ipynb)",
   "Se ignoró la conexión indicada en una celda %%sql: elegí en DBine dónde se ejecuta.": "La connessione indicata in una cella %%sql è stata ignorata: scegli in DBine dove viene eseguita.",
-  "Se ignoró la conexión indicada en {0} celdas %%sql: elegí en DBine dónde se ejecuta.": "La connessione indicata in {0} celle %%sql è stata ignorata: scegli in DBine dove vengono eseguite."
+  "Se ignoró la conexión indicada en {0} celdas %%sql: elegí en DBine dónde se ejecuta.": "La connessione indicata in {0} celle %%sql è stata ignorata: scegli in DBine dove vengono eseguite.",
+  "el notebook «{0}» es demasiado grande para abrirlo (más de 64 MB)": "il notebook «{0}» è troppo grande per essere aperto (oltre 64 MB)"
 }

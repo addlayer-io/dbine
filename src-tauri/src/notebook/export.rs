@@ -7,7 +7,7 @@
 
 use super::{
     display_value, escape_html, html_table, preview, summary_line, CellKind, CellResult, Notebook, NotebookCell, NotebookTarget,
-    PreviewLimits, StoredStatement,
+    Preview, PreviewLimits, StoredStatement,
 };
 use serde_json::Value;
 
@@ -55,11 +55,11 @@ fn cell_label(c: &NotebookCell, nb: &Notebook) -> String {
     parts.join(" ")
 }
 
-/// What the file would keep of a cell's result.
-fn stored<'a>(c: &'a NotebookCell, nb: &Notebook) -> Option<(&'a CellResult, Vec<StoredStatement>, bool)> {
+/// What the file would keep of a cell's result, with the user's limits.
+fn stored<'a>(c: &'a NotebookCell, nb: &Notebook, limits: PreviewLimits) -> Option<(&'a CellResult, Preview, bool)> {
     let r = c.result.as_ref()?;
     let keep = nb.save_results && c.keep_result;
-    Some((r, preview(r, keep, PreviewLimits::default(), c.execution_count), keep))
+    Some((r, preview(r, keep, limits, c.execution_count), keep))
 }
 
 fn title(nb: &Notebook) -> String {
@@ -73,7 +73,7 @@ fn title(nb: &Notebook) -> String {
 }
 
 /// The notebook as one HTML page.
-pub fn html(nb: &Notebook) -> String {
+pub fn html(nb: &Notebook, limits: PreviewLimits) -> String {
     let mut body = String::new();
     for c in &nb.cells {
         match c.kind {
@@ -95,17 +95,17 @@ pub fn html(nb: &Notebook) -> String {
                     body.push_str(&format!("<div class=\"meta\">{}</div>", escape_html(&label)));
                 }
                 body.push_str(&format!("<pre><code>{}</code></pre>", escape_html(&c.source)));
-                if let Some((r, stmts, keep)) = stored(c, nb) {
-                    for s in &stmts {
+                if let Some((r, p, keep)) = stored(c, nb, limits) {
+                    for s in &p.statements {
                         body.push_str(&format!("<div class=\"summary\">{}</div>", escape_html(&summary_line(s, r))));
                         if keep && !s.columns.is_empty() {
                             body.push_str(&format!("<div class=\"scroll\">{}</div>", html_table(&s.columns, &s.rows)));
                         }
                     }
-                    if keep && !r.messages.is_empty() {
-                        body.push_str(&format!("<pre class=\"messages\">{}</pre>", escape_html(&r.messages.join("\n"))));
+                    if !p.messages.is_empty() {
+                        body.push_str(&format!("<pre class=\"messages\">{}</pre>", escape_html(&p.messages.join("\n"))));
                     }
-                    if let Some(e) = &r.error {
+                    if let Some(e) = &p.error {
                         body.push_str(&format!("<pre class=\"error\">{}</pre>", escape_html(e)));
                     }
                 }
@@ -349,7 +349,7 @@ fn md_table(s: &StoredStatement) -> String {
 }
 
 /// The notebook as Markdown.
-pub fn markdown(nb: &Notebook) -> String {
+pub fn markdown(nb: &Notebook, limits: PreviewLimits) -> String {
     let mut out = String::new();
     for c in &nb.cells {
         match c.kind {
@@ -363,18 +363,18 @@ pub fn markdown(nb: &Notebook) -> String {
                 if !label.is_empty() {
                     out.push_str(&format!("{}\n\n", md_text(&label)));
                 }
-                out.push_str(&fenced(&c.source, "sql"));
-                if let Some((r, stmts, keep)) = stored(c, nb) {
-                    for s in &stmts {
+                out.push_str(&fenced(&c.source, c.language.as_deref().unwrap_or("sql")));
+                if let Some((r, p, keep)) = stored(c, nb, limits) {
+                    for s in &p.statements {
                         out.push_str(&format!("*{}*\n\n", md_text(&summary_line(s, r))));
                         if keep && !s.columns.is_empty() {
                             out.push_str(&md_table(s));
                         }
                     }
-                    if keep && !r.messages.is_empty() {
-                        out.push_str(&fenced(&r.messages.join("\n"), "text"));
+                    if !p.messages.is_empty() {
+                        out.push_str(&fenced(&p.messages.join("\n"), "text"));
                     }
-                    if let Some(e) = &r.error {
+                    if let Some(e) = &p.error {
                         out.push_str("**Error**\n\n");
                         out.push_str(&fenced(e, "text"));
                     }
@@ -408,6 +408,7 @@ mod tests {
             duration_ms: 41_000,
             engine: Some("postgres".into()),
             target_label: Some("<script>t</script>".into()),
+            truncated: false,
         };
         let mut nb = parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[]}"#).unwrap();
         nb.cells = vec![
@@ -441,7 +442,7 @@ mod tests {
 
     #[test]
     fn html_export_escapes_everything() {
-        let h = html(&nb_with_script());
+        let h = html(&nb_with_script(), PreviewLimits::default());
         assert!(!h.contains("<script"), "{h}");
         assert!(!h.contains("<b>col"));
         assert!(!h.contains("javascript:alert(1)\""));
@@ -457,6 +458,22 @@ mod tests {
     }
 
     #[test]
+    fn exports_use_the_given_limits() {
+        let mut nb = nb_with_script();
+        let r = nb.cells[1].result.as_mut().unwrap();
+        r.results[0].rows = (0..20).map(|i| vec![json!(format!("fila {i}"))]).collect();
+        r.results[0].rows_total = 20;
+        let one = PreviewLimits::new(Some(1), None);
+        for out in [html(&nb, one), markdown(&nb, one)] {
+            assert!(out.contains("fila 0") && !out.contains("fila 1"), "{out}");
+        }
+        assert!(html(&nb, PreviewLimits::default()).contains("fila 19"));
+        // A cell's language is its fence's.
+        nb.cells[1].language = Some("redis".into());
+        assert!(markdown(&nb, one).contains("```redis\n"));
+    }
+
+    #[test]
     fn markdown_links_are_only_http() {
         assert_eq!(markdown_to_html("[a](https://x.y/z)"), "<p><a href=\"https://x.y/z\" rel=\"noopener noreferrer\">a</a></p>\n");
         assert_eq!(markdown_to_html("[a](javascript:alert(1))"), "<p>[a](javascript:alert(1))</p>\n");
@@ -466,7 +483,7 @@ mod tests {
 
     #[test]
     fn markdown_export_has_fences_and_tables() {
-        let md = markdown(&nb_with_script());
+        let md = markdown(&nb_with_script(), PreviewLimits::default());
         assert!(md.starts_with("# Hola <script>x</script>"), "markdown cells go as they are");
         assert!(md.contains("```sql\nSELECT '<script>s</script>'\n```"));
         assert!(md.contains("| &lt;b&gt;col&lt;/b&gt; |"));
@@ -476,7 +493,7 @@ mod tests {
         // Rows not kept: no table.
         let mut nb = nb_with_script();
         nb.cells[1].keep_result = false;
-        let md = markdown(&nb);
+        let md = markdown(&nb, PreviewLimits::default());
         assert!(!md.contains("alert(1)&lt;") && md.contains("*0 / 2 rows"));
     }
 }

@@ -101,6 +101,9 @@ pub struct CellResult {
     /// "Ventas prod › ventas", for the summary line.
     #[serde(default)]
     pub target_label: Option<String>,
+    /// The stored messages or error were cut to fit the cell's byte cap.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 fn yes() -> bool {
@@ -145,6 +148,10 @@ pub struct Notebook {
     /// false: "Save without results".
     #[serde(default = "yes")]
     pub save_results: bool,
+    /// The file said `save_results` itself (a foreign notebook doesn't: the
+    /// UI then applies the project's default). Not written to the file.
+    #[serde(default)]
+    pub save_results_set: bool,
     #[serde(default)]
     pub cells: Vec<NotebookCell>,
     /// "dbine" | "ads" | "jupyter": how it was read.
@@ -161,7 +168,7 @@ pub struct Notebook {
 /// The preview a cell keeps in the file.
 #[derive(Clone, Copy, Debug)]
 pub struct PreviewLimits {
-    /// Rows per statement result.
+    /// Rows per cell, shared by its statements (the first ones first).
     pub rows: u32,
     /// The whole cell's outputs.
     pub bytes: u64,
@@ -275,8 +282,19 @@ fn read_target(v: Option<&Value>, w: &mut Warnings) -> Option<NotebookTarget> {
         w.credentials = true;
     }
     let name = |k: &str| str_of(m, k).map(str::trim).filter(|s| !s.is_empty()).map(String::from);
-    let t = NotebookTarget { connection: name("connection"), database: name("database"), environment: name("environment") };
+    let mut connection = name("connection");
+    if connection.as_deref().is_some_and(looks_like_connection_string) {
+        w.credentials = true;
+        connection = None;
+    }
+    let t = NotebookTarget { connection, database: name("database"), environment: name("environment") };
     (t != NotebookTarget::default()).then_some(t)
+}
+
+/// A value that is a connection string or URL, not a connection's name:
+/// `scheme://…`, or `key=value` pairs with `;` or `@`.
+fn looks_like_connection_string(v: &str) -> bool {
+    v.contains("://") || (v.contains('=') && (v.contains(';') || v.contains('@')))
 }
 
 fn flag_credentials(m: &Map<String, Value>, w: &mut Warnings) {
@@ -339,12 +357,12 @@ pub fn parse(text: &str) -> Result<Notebook, String> {
         "jupyter"
     };
 
-    let (target, save_results) = match dbine {
+    let (target, saved) = match dbine {
         Some(d) => {
             flag_credentials(d, &mut w);
-            (read_target(d.get("target"), &mut w), d.get("save_results").and_then(Value::as_bool).unwrap_or(true))
+            (read_target(d.get("target"), &mut w), d.get("save_results").and_then(Value::as_bool))
         }
-        None => (None, true),
+        None => (None, None),
     };
 
     // Ours, rewritten on save.
@@ -363,7 +381,15 @@ pub fn parse(text: &str) -> Result<Notebook, String> {
         .map(|a| a.iter().filter(|c| c.is_object()).map(|c| read_cell(c, &ctx, &mut ids, &mut w)).collect())
         .unwrap_or_default();
 
-    Ok(Notebook { target, save_results, cells, origin: origin.into(), extra_metadata: extra, warnings: w.into_messages() })
+    Ok(Notebook {
+        target,
+        save_results: saved.unwrap_or(true),
+        save_results_set: saved.is_some(),
+        cells,
+        origin: origin.into(),
+        extra_metadata: extra,
+        warnings: w.into_messages(),
+    })
 }
 
 struct Ctx {
@@ -520,6 +546,7 @@ fn read_outputs(outputs: Option<&Value>, run: Option<&Map<String, Value>>, w: &m
         res.duration_ms = i.get("duration_ms").and_then(Value::as_u64).unwrap_or(0);
         res.engine = str_of(&i, "engine").map(String::from);
         res.target_label = str_of(&i, "target_label").map(String::from);
+        res.truncated = i.get("truncated").and_then(Value::as_bool).unwrap_or(false);
     }
     Some(res)
 }
@@ -601,17 +628,74 @@ fn cut_value(v: &Value) -> Value {
     }
 }
 
-/// The statements as the file stores them: rows capped per statement, then
-/// the trailing rows dropped until the cell's outputs fit in `bytes` (none
-/// kept when even the header doesn't fit). `keep` false: no rows at all.
-pub fn preview(result: &CellResult, keep: bool, limits: PreviewLimits, execution_count: Option<u32>) -> Vec<StoredStatement> {
+/// What the file keeps of a cell's result.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Preview {
+    pub statements: Vec<StoredStatement>,
+    /// Empty when the rows aren't kept.
+    pub messages: Vec<String>,
+    pub error: Option<String>,
+    /// The messages or the error were cut to fit.
+    pub cut: bool,
+}
+
+/// An error keeps at least this much of its text (chars), whatever the cap.
+const MIN_ERROR_CHARS: usize = 2000;
+
+/// The largest `n` in `lo..=hi` with `ok(n)`, given `ok(lo)` (and that `ok`
+/// is true up to some point and false after it).
+fn largest(lo: usize, hi: usize, ok: impl Fn(usize) -> bool) -> usize {
+    let (mut lo, mut hi) = (lo, hi);
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if ok(mid) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
+}
+
+/// The first `n` chars of the messages (the last one kept ends in "…").
+fn cut_messages(msgs: &[String], n: usize) -> Vec<String> {
+    let mut left = n;
+    let mut out = Vec::new();
+    for m in msgs {
+        if left == 0 {
+            break;
+        }
+        let len = m.chars().count();
+        if len <= left {
+            out.push(m.clone());
+            left -= len;
+        } else {
+            out.push(cut_chars(m, left));
+            break;
+        }
+    }
+    out
+}
+
+/// The result as the file stores it. Rows: one budget per cell
+/// (`limits.rows`), the first statements first. Bytes (`limits.bytes`, the
+/// cell's outputs): the summaries and at least the start of the error
+/// always; then the rest of the error, the rows (the trailing ones dropped)
+/// and the messages, in that order, while they fit. `keep` false: no rows
+/// and no messages.
+pub fn preview(result: &CellResult, keep: bool, limits: PreviewLimits, execution_count: Option<u32>) -> Preview {
+    let mut budget = if keep { limits.rows as usize } else { 0 };
     let capped: Vec<StoredStatement> = result
         .results
         .iter()
-        .map(|s| StoredStatement {
-            rows: if keep { s.rows.iter().take(limits.rows as usize).map(|r| r.iter().map(cut_value).collect()).collect() } else { Vec::new() },
-            rows_total: s.rows_total.max(s.rows.len() as u64),
-            ..s.clone()
+        .map(|s| {
+            let n = s.rows.len().min(budget);
+            budget -= n;
+            StoredStatement {
+                rows: s.rows[..n].iter().map(|r| r.iter().map(cut_value).collect()).collect(),
+                rows_total: s.rows_total.max(s.rows.len() as u64),
+                ..s.clone()
+            }
         })
         .collect();
     let total: usize = capped.iter().map(|s| s.rows.len()).sum();
@@ -629,25 +713,29 @@ pub fn preview(result: &CellResult, keep: bool, limits: PreviewLimits, execution
             })
             .collect()
     };
-    let fits = |stmts: &[StoredStatement]| {
-        let size = serde_json::to_vec(&result_outputs(stmts, result, keep, execution_count)).map(|v| v.len()).unwrap_or(usize::MAX);
+    let messages = if keep { result.messages.clone() } else { Vec::new() };
+    let fits = |p: &Preview| {
+        let size = serde_json::to_vec(&result_outputs(p, result, keep, execution_count)).map(|v| v.len()).unwrap_or(usize::MAX);
         size as u64 <= limits.bytes
     };
-    let all = make(total);
-    if fits(&all) {
-        return all;
+    let full = Preview { statements: make(total), messages: messages.clone(), error: result.error.clone(), cut: false };
+    if fits(&full) {
+        return full;
     }
-    // The largest prefix of the cell's rows that fits.
-    let (mut lo, mut hi) = (0usize, total);
-    while lo < hi {
-        let mid = (lo + hi).div_ceil(2);
-        if fits(&make(mid)) {
-            lo = mid;
-        } else {
-            hi = mid - 1;
-        }
+    let error_at = |n: usize| result.error.as_deref().map(|e| cut_chars(e, n));
+    let error_len = result.error.as_deref().map(|e| e.chars().count()).unwrap_or(0);
+    let mut p = Preview { statements: make(0), messages: Vec::new(), error: error_at(MIN_ERROR_CHARS), cut: true };
+    if error_len > MIN_ERROR_CHARS {
+        let n = largest(MIN_ERROR_CHARS, error_len, |n| fits(&Preview { error: error_at(n), ..p.clone() }));
+        p.error = error_at(n);
     }
-    make(lo)
+    let k = largest(0, total, |k| fits(&Preview { statements: make(k), ..p.clone() }));
+    p.statements = make(k);
+    let chars: usize = messages.iter().map(|m| m.chars().count()).sum();
+    let n = largest(0, chars, |n| fits(&Preview { messages: cut_messages(&messages, n), ..p.clone() }));
+    p.messages = cut_messages(&messages, n);
+    p.cut = p.error != result.error || p.messages != messages;
+    p
 }
 
 /// "412 ms", "41.0 s", "3 min 5 s".
@@ -804,10 +892,10 @@ fn lines(s: &str) -> Value {
     Value::Array(s.split_inclusive('\n').map(|l| Value::String(l.into())).collect())
 }
 
-/// The outputs of a SQL cell's result (statements already previewed).
-fn result_outputs(stmts: &[StoredStatement], r: &CellResult, keep: bool, execution_count: Option<u32>) -> Vec<Value> {
+/// The outputs of a SQL cell's result (already previewed).
+fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_count: Option<u32>) -> Vec<Value> {
     let mut out = Vec::new();
-    for s in stmts {
+    for s in &p.statements {
         let summary = summary_line(s, r);
         let mut md = json!({
             "rows_total": s.rows_total,
@@ -865,10 +953,10 @@ fn result_outputs(stmts: &[StoredStatement], r: &CellResult, keep: bool, executi
             "data": data,
         }));
     }
-    if keep && !r.messages.is_empty() {
-        out.push(json!({ "output_type": "stream", "name": "stdout", "text": lines(&(r.messages.join("\n") + "\n")) }));
+    if !p.messages.is_empty() {
+        out.push(json!({ "output_type": "stream", "name": "stdout", "text": lines(&(p.messages.join("\n") + "\n")) }));
     }
-    if let Some(e) = &r.error {
+    if let Some(e) = &p.error {
         out.push(json!({ "output_type": "error", "ename": "Error", "evalue": e, "traceback": [e] }));
     }
     out
@@ -880,11 +968,49 @@ fn result_outputs(stmts: &[StoredStatement], r: &CellResult, keep: bool, executi
 fn target_json(t: &NotebookTarget) -> Option<Value> {
     let mut m = Map::new();
     for (k, v) in [("connection", &t.connection), ("database", &t.database), ("environment", &t.environment)] {
-        if let Some(v) = v.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(v) = v.as_deref().map(str::trim).filter(|v| !v.is_empty() && !(k == "connection" && looks_like_connection_string(v))) {
             m.insert(k.into(), Value::String(v.into()));
         }
     }
     (!m.is_empty()).then_some(Value::Object(m))
+}
+
+/// A chart's stored points: aggregated data only. Dropped when the rows
+/// aren't kept, for a scatter or without aggregation (they'd be the raw
+/// rows), and when they don't fit in what the cell's byte cap leaves after
+/// `used`; otherwise at most `limits.rows` per series, labels cut like cell
+/// values.
+fn chart_points(m: &mut Map<String, Value>, keep: bool, limits: PreviewLimits, used: usize) {
+    m.remove("data");
+    let kind = m.get("type").and_then(Value::as_str).unwrap_or("");
+    let agg = m.get("agg").and_then(Value::as_str).unwrap_or("none");
+    let raw = kind == "scatter" || agg == "none";
+    let Some(pts) = m.get_mut("points") else { return };
+    let ok = keep && !raw && pts.is_object() && {
+        let max = limits.rows as usize;
+        let label = |v: &mut Value| *v = cut_value(v);
+        if let Some(cats) = pts.get_mut("categories").and_then(Value::as_array_mut) {
+            cats.truncate(max);
+            cats.iter_mut().for_each(label);
+        }
+        if let Some(series) = pts.get_mut("series").and_then(Value::as_array_mut) {
+            series.truncate(max);
+            for s in series.iter_mut() {
+                if let Some(n) = s.get_mut("name") {
+                    label(n);
+                }
+                if let Some(vals) = s.get_mut("values").and_then(Value::as_array_mut) {
+                    vals.truncate(max);
+                    vals.iter_mut().for_each(label);
+                }
+            }
+        }
+        let size = serde_json::to_vec(pts).map(|v| v.len()).unwrap_or(usize::MAX);
+        (used.saturating_add(size)) as u64 <= limits.bytes
+    };
+    if !ok {
+        m.remove("points");
+    }
 }
 
 fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut HashSet<String>) -> Value {
@@ -917,26 +1043,28 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
                 d.insert("target".into(), t);
             }
             d.insert("keep_result".into(), Value::Bool(c.keep_result));
-            if let Some(chart) = c.chart.as_ref().filter(|c| !c.is_null()) {
-                let mut chart = chart.clone();
-                scrub(&mut chart, is_credential_key, false);
-                // The points are data: not saved with the rows.
-                if let (false, Some(m)) = (keep, chart.as_object_mut()) {
-                    m.remove("points");
-                    m.remove("data");
-                }
-                d.insert("chart".into(), chart);
-            }
             let outputs = match &c.result {
                 Some(r) => {
-                    d.insert(
-                        "run".into(),
-                        json!({ "ran_at": r.ran_at, "duration_ms": r.duration_ms, "engine": r.engine, "target_label": r.target_label }),
-                    );
-                    result_outputs(&preview(r, keep, limits, c.execution_count), r, keep, c.execution_count)
+                    let p = preview(r, keep, limits, c.execution_count);
+                    let mut run = json!({ "ran_at": r.ran_at, "duration_ms": r.duration_ms, "engine": r.engine, "target_label": r.target_label });
+                    if p.cut {
+                        run["truncated"] = Value::Bool(true);
+                    }
+                    d.insert("run".into(), run);
+                    result_outputs(&p, r, keep, c.execution_count)
                 }
                 None => Vec::new(),
             };
+            if let Some(chart) = c.chart.as_ref().filter(|c| !c.is_null()) {
+                let mut chart = chart.clone();
+                scrub(&mut chart, is_credential_key, false);
+                if let Some(m) = chart.as_object_mut() {
+                    // The points count toward the cell's byte cap: dropped when they don't fit.
+                    let used = serde_json::to_vec(&outputs).map(|v| v.len()).unwrap_or(usize::MAX);
+                    chart_points(m, keep, limits, used);
+                }
+                d.insert("chart".into(), chart);
+            }
             json!({
                 "cell_type": "code",
                 "execution_count": c.execution_count,
@@ -1025,6 +1153,7 @@ mod tests {
             duration_ms: 412,
             engine: Some("postgres".into()),
             target_label: Some("Ventas prod › ventas".into()),
+            truncated: false,
         }
     }
 
@@ -1032,6 +1161,7 @@ mod tests {
         Notebook {
             target: Some(NotebookTarget { connection: Some("Ventas prod".into()), database: Some("ventas".into()), environment: None }),
             save_results: true,
+            save_results_set: true,
             cells,
             origin: "dbine".into(),
             extra_metadata: json!({}),
@@ -1086,7 +1216,8 @@ mod tests {
         let back = parse(&serialize(&nb, PreviewLimits::new(Some(100), Some(8 * 1024 * 1024)))).unwrap();
         let r = back.cells[0].result.as_ref().unwrap();
         assert_eq!((r.results[0].rows_kept, r.results[0].rows_total, r.results[0].truncated), (100, 100_000, true));
-        assert_eq!((r.results[1].rows_kept, r.results[1].truncated), (50, false));
+        // The row budget is the cell's: the first statement used it all.
+        assert_eq!((r.results[1].rows_kept, r.results[1].rows_total, r.results[1].truncated), (0, 50, true));
         // A small byte budget: trailing rows dropped, the whole cell fits.
         let big: Vec<Vec<Value>> = (0..1000).map(|i| vec![json!(i), json!("x".repeat(300))]).collect();
         let nb = notebook(vec![sql_cell("c", "SELECT", Some(result(vec![stmt(&["id", "name"], big.clone(), 1000), stmt(&["id"], vec![vec![json!(1)]], 1)])))]);
@@ -1281,6 +1412,114 @@ mod tests {
         let src = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1}},"cells":[{"cell_type":"code","id":"c","metadata":{"dbine":{}},"outputs":[{"output_type":"execute_result","metadata":{},"data":{"application/vnd.dataresource+json":{"schema":{"fields":[{"name":"a"},{"name":"b"}]},"data":[[1,{"x":1}]]}}}],"source":"x"}]}"#;
         let nb = parse(src).unwrap();
         assert_eq!(nb.cells[0].result.as_ref().unwrap().results[0].rows, vec![vec![json!(1), json!("{\"x\":1}")]]);
+    }
+
+    #[test]
+    fn the_row_budget_is_shared_by_the_cells_statements() {
+        let r = result(vec![stmt(&["id", "name"], rows(30), 30), stmt(&["id", "name"], rows(30), 30), stmt(&["id"], vec![], 0)]);
+        let p = preview(&r, true, PreviewLimits::new(Some(50), None), Some(1));
+        let kept: Vec<_> = p.statements.iter().map(|s| (s.rows_kept, s.rows.len(), s.truncated)).collect();
+        assert_eq!(kept, [(30, 30, false), (20, 20, true), (0, 0, false)]);
+        assert!(!p.cut);
+        let back = parse(&serialize(&notebook(vec![sql_cell("c", "SELECT", Some(r))]), PreviewLimits::new(Some(50), None))).unwrap();
+        let total: u64 = back.cells[0].result.as_ref().unwrap().results.iter().map(|s| s.rows_kept).sum();
+        assert_eq!(total, 50);
+    }
+
+    #[test]
+    fn messages_and_errors_fit_in_the_byte_cap() {
+        let limits = PreviewLimits::new(Some(1000), Some(64 * 1024));
+        let size = |nb: &Notebook| serde_json::to_vec(&to_value(nb, limits)["cells"][0]["outputs"]).unwrap().len() as u64;
+        // Messages: cut to what's left, marked.
+        let mut r = result(vec![stmt(&["id", "name"], rows(10), 10)]);
+        r.messages = (0..2000).map(|i| format!("NOTICE {i}: {}", "m".repeat(100))).collect();
+        let nb = notebook(vec![sql_cell("c", "SELECT", Some(r.clone()))]);
+        assert!(size(&nb) <= limits.bytes);
+        let back = parse(&serialize(&nb, limits)).unwrap();
+        let b = back.cells[0].result.as_ref().unwrap();
+        assert!(b.truncated && !b.messages.is_empty() && b.messages.len() < 2000);
+        assert!(b.messages.last().unwrap().ends_with('…'));
+        // The rows go before the messages.
+        assert_eq!(b.results[0].rows_kept, 10);
+        // A huge error: cut, but its start is always kept.
+        let mut r = result(vec![]);
+        r.error = Some(format!("ERROR: {}", "e".repeat(200_000)));
+        let nb = notebook(vec![sql_cell("c", "SELECT", Some(r))]);
+        assert!(size(&nb) <= limits.bytes);
+        let back = parse(&serialize(&nb, limits)).unwrap();
+        let b = back.cells[0].result.as_ref().unwrap();
+        let e = b.error.as_deref().unwrap();
+        assert!(b.truncated && e.starts_with("ERROR: ") && e.ends_with('…'));
+        assert!(e.chars().count() >= MIN_ERROR_CHARS && e.chars().count() < 200_000);
+        // Even when nothing else fits, at least the error's first 2,000 chars.
+        let p = preview(&CellResult { error: Some("x".repeat(10_000)), ..result(vec![]) }, true, PreviewLimits { rows: 10, bytes: 10 }, None);
+        assert_eq!(p.error.unwrap().chars().count(), MIN_ERROR_CHARS);
+        // Small ones are untouched.
+        let mut r = result(vec![stmt(&["id"], vec![vec![json!(1)]], 1)]);
+        r.messages = vec!["hola".into()];
+        r.error = Some("boom".into());
+        let p = preview(&r, true, limits, None);
+        assert_eq!((p.messages, p.error.as_deref(), p.cut), (vec!["hola".to_string()], Some("boom"), false));
+    }
+
+    #[test]
+    fn chart_points_are_only_aggregates_within_the_caps() {
+        let pts = |n: usize, label: &str| json!({ "categories": (0..n).map(|i| format!("{label}{i}")).collect::<Vec<_>>(), "series": [{ "name": "total", "values": (0..n).collect::<Vec<_>>() }] });
+        let write = |chart: Value, limits: PreviewLimits| {
+            let mut c = sql_cell("c", "SELECT", Some(result(vec![stmt(&["id", "name"], rows(3), 3)])));
+            c.chart = Some(chart);
+            to_value(&notebook(vec![c]), limits)["cells"][0]["metadata"]["dbine"]["chart"].clone()
+        };
+        let limits = PreviewLimits::new(Some(10), None);
+        // Aggregated: kept, capped to the cell's rows, long labels cut.
+        let long = "l".repeat(5000);
+        let out = write(json!({ "type": "bar", "agg": "sum", "points": pts(50, &long) }), limits);
+        assert_eq!(out["points"]["categories"].as_array().unwrap().len(), 10);
+        assert_eq!(out["points"]["series"][0]["values"].as_array().unwrap().len(), 10);
+        assert_eq!(out["points"]["categories"][0].as_str().unwrap().chars().count(), MAX_VALUE_CHARS + 1);
+        // Raw rows: no aggregation, or a scatter.
+        for chart in [json!({ "type": "bar", "agg": "none", "points": pts(3, "a") }), json!({ "type": "bar", "points": pts(3, "a") }), json!({ "type": "scatter", "agg": "sum", "points": pts(3, "a") })] {
+            let out = write(chart, limits);
+            assert!(out.get("points").is_none() && out.get("type").is_some(), "{out}");
+        }
+        // Points that don't fit in what the byte cap leaves: dropped.
+        let big = PreviewLimits::new(Some(1000), Some(64 * 1024));
+        let out = write(json!({ "type": "bar", "agg": "sum", "points": pts(1000, &"x".repeat(200)) }), big);
+        assert!(out.get("points").is_none());
+        assert_eq!(write(json!({ "type": "bar", "agg": "count", "points": pts(5, "a") }), big)["points"]["categories"].as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn whether_the_file_said_save_results_is_known() {
+        let back = parse(&serialize(&notebook(vec![]), PreviewLimits::default())).unwrap();
+        assert!(back.save_results_set && back.save_results);
+        let text = serialize(&back, PreviewLimits::default());
+        assert!(!text.contains("save_results_set"));
+        let foreign = parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"kernelspec":{"name":"python3"}},"cells":[]}"#).unwrap();
+        assert!(!foreign.save_results_set && foreign.save_results);
+        assert!(!parse(ADS).unwrap().save_results_set);
+        let said = parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1,"save_results":false}},"cells":[]}"#).unwrap();
+        assert!(said.save_results_set && !said.save_results);
+        let unsaid = parse(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1}},"cells":[]}"#).unwrap();
+        assert!(!unsaid.save_results_set);
+    }
+
+    #[test]
+    fn connection_strings_in_a_target_are_dropped() {
+        let src = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1,"target":{"connection":"postgresql://sa:s3cr3t@db/x","database":"ventas"}}},
+          "cells":[{"cell_type":"code","id":"c","metadata":{"dbine":{"target":{"connection":"Server=db;User Id=sa;Password=s3cr3t"}}},"outputs":[],"source":"SELECT 1"},
+                   {"cell_type":"code","id":"d","metadata":{"dbine":{"target":{"connection":"Ventas (prod) = 2"}}},"outputs":[],"source":"SELECT 1"}]}"#;
+        let nb = parse(src).unwrap();
+        assert_eq!(nb.target, Some(NotebookTarget { database: Some("ventas".into()), ..Default::default() }));
+        assert_eq!(nb.cells[0].target, None);
+        // A name with "=" alone is still a name.
+        assert_eq!(nb.cells[1].target.as_ref().unwrap().connection.as_deref(), Some("Ventas (prod) = 2"));
+        assert_eq!(nb.warnings.len(), 1);
+        assert!(!serde_json::to_string(&nb).unwrap().contains("s3cr3t"));
+        // Never written either.
+        let mut nb = notebook(vec![]);
+        nb.target = Some(NotebookTarget { connection: Some("mysql://root:pw@h/db".into()), ..Default::default() });
+        assert!(!serialize(&nb, PreviewLimits::default()).contains("pw@h"));
     }
 
     #[test]

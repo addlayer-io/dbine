@@ -644,23 +644,30 @@ Event: `datagen-progress`, with `{ id, rows, total }`. Cancel:
 | `notebook_serialize` | `{ notebook, rows_per_cell?, bytes_per_cell? }` | the `.ipynb` text |
 | `notebook_read` | `{ path }` | `{ notebook, text_hash }` |
 | `notebook_write` | `{ path, notebook, rows_per_cell?, bytes_per_cell? }` | `()` |
-| `notebook_export` | `{ notebook, format }` (`html` or `markdown`) | the exported text |
+| `notebook_export` | `{ notebook, format, rows_per_cell?, bytes_per_cell? }` (`html` or `markdown`) | the exported text |
 | `notebook_open_link` | `{ url }` | `()` |
 
-- `Notebook`: `{ target, save_results, cells, origin, extra_metadata,
-  warnings }`. A cell is `{ id, kind, source, language, target, keep_result,
+- `Notebook`: `{ target, save_results, save_results_set, cells, origin,
+  extra_metadata, warnings }`. `save_results_set` (read only, never written
+  to the file) says whether the file stated `save_results`; a foreign
+  notebook doesn't, and in a git project the UI then saves it without
+  results. A cell is `{ id, kind, source, language, target, keep_result,
   chart, execution_count, result, raw }`, with `kind` `markdown`, `sql` or
   `foreign` (a cell in another language, kept unchanged). Targets are names:
   `{ connection, database, environment }`.
-- Previews are capped **per cell** when serializing: rows from 1 to 1000
-  (default 100) and bytes from 64 KiB to 8 MiB (default 1,000,000).
+- Previews are capped **per cell** when serializing and exporting: rows
+  from 1 to 1000 (default 100), shared by the cell's statements in order, and
+  bytes from 64 KiB to 8 MiB (default 1,000,000) for all of the cell's
+  outputs, messages, error and chart points included (an error keeps at
+  least its first 2,000 characters; a cut sets `result.truncated`).
   `save_results: false` or a cell's `keep_result: false` keep only the
   summary.
-- Credentials never go in or out: credential-like keys in the metadata and
-  the connection strings of `%%sql` cells are dropped on read, with a
-  message in `warnings`.
+- Credentials never go in or out: credential-like keys in the metadata, a
+  target's `connection` that looks like a connection string or URL, and the
+  connection strings of `%%sql` cells are dropped on read, with a message in
+  `warnings`.
 - `notebook_read` and `notebook_write` only accept absolute paths to
-  `.ipynb` files. Notebooks inside projects use the projects' file commands
+  `.ipynb` files; `notebook_read` refuses files over 64 MB. Notebooks inside projects use the projects' file commands
   with the text from `notebook_serialize`.
 - `notebook_open_link` opens only `http`, `https` and `mailto` addresses.
 - Opening a `.ipynb` from the system (`open_file`, `open_files_take`) returns

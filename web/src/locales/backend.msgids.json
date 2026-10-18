@@ -25422,6 +25422,9 @@
  "el notebook no usa la versión 4 del formato de Jupyter (nbformat 4)": [
   "src-tauri/src/notebook.rs"
  ],
+ "el notebook «{0}» es demasiado grande para abrirlo (más de 64 MB)": [
+  "src-tauri/src/commands/notebook.rs"
+ ],
  "el número {0} tiene {1} dígitos significativos o un exponente fuera de rango, y el Decimal128 de MongoDB admite hasta 34 dígitos": [
   "crates/drivers/mongodb/src/transfer.rs"
  ],
