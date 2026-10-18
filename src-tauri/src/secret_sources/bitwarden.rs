@@ -619,11 +619,8 @@ impl Keys<'_> {
     }
 }
 
-/// `(value, username)` of the item, talking to `ep`.
-pub async fn read_with(client: &reqwest::Client, ep: &Endpoints, req: &Request<'_>, creds: &Creds) -> Result<(String, Option<String>), String> {
-    if creds.password.is_empty() {
-        return Err("falta la contraseña maestra de Bitwarden".into());
-    }
+/// The vault (`/sync`) and the user key the master password opens.
+async fn open_vault(client: &reqwest::Client, ep: &Endpoints, creds: &Creds) -> Result<(Value, SymKey), String> {
     let vault = sync(client, ep, creds).await?;
     let (kdf, salt, wrapped) = unlock_data(client, ep, &vault).await?;
     // The KDF takes its time on purpose: on a blocking thread.
@@ -635,6 +632,15 @@ pub async fn read_with(client: &reqwest::Client, ep: &Endpoints, req: &Request<'
     })
     .await
     .map_err(|e| format!("el descifrado de la bóveda de Bitwarden se interrumpió: {e}"))??;
+    Ok((vault, user))
+}
+
+/// `(value, username)` of the item, talking to `ep`.
+pub async fn read_with(client: &reqwest::Client, ep: &Endpoints, req: &Request<'_>, creds: &Creds) -> Result<(String, Option<String>), String> {
+    if creds.password.is_empty() {
+        return Err("falta la contraseña maestra de Bitwarden".into());
+    }
+    let (vault, user) = open_vault(client, ep, creds).await?;
     let profile = get(&vault, "profile").ok_or("Bitwarden no devolvió el perfil de la cuenta")?;
     let mut keys = Keys { user, profile, private: None, orgs: HashMap::new() };
     let items: Vec<&Value> = get(&vault, "ciphers").and_then(Value::as_array).map(|a| a.iter().filter(|c| get(c, "deletedDate").is_none()).collect()).unwrap_or_default();
@@ -751,6 +757,92 @@ fn field(item: &Value, key: &SymKey, attribute: &str, name: &str) -> Result<Stri
     Err(format!("el elemento «{name}» de Bitwarden no tiene el campo «{want}» (tiene: {})", have.join(", ")))
 }
 
+// ---- browse ------------------------------------------------------------------
+
+/// The vault's items (names decrypted here) by folder or organization, or
+/// an item's field names (`item`, an ID or a name): the standard ones it
+/// has and its custom fields' names. No value is decrypted.
+pub async fn browse(server: &str, creds: &Creds, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    let ep = Endpoints::of(server).ok_or("el servidor de Bitwarden no es válido")?;
+    let client = client_for(&ep)?;
+    browse_with(&client, &ep, creds, at).await
+}
+
+pub async fn browse_with(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{unique_names, Entry, Listing};
+    if creds.password.is_empty() {
+        return Err("falta la contraseña maestra de Bitwarden".into());
+    }
+    let (mut vault, user) = open_vault(client, ep, creds).await?;
+    let out = (|| {
+        let profile = get(&vault, "profile").ok_or("Bitwarden no devolvió el perfil de la cuenta")?;
+        let mut keys = Keys { user: user.clone(), profile, private: None, orgs: HashMap::new() };
+        let items: Vec<&Value> = get(&vault, "ciphers").and_then(Value::as_array).map(|a| a.iter().filter(|c| get(c, "deletedDate").is_none()).collect()).unwrap_or_default();
+        if let Some(wanted) = at.item {
+            let (item, key, name) = find_item(&mut keys, &items, wanted)?;
+            return Ok(Listing::fields(field_names(item, &key, &name)?));
+        }
+        // Folders (the user's key) and organizations (their names are plain).
+        let folders: HashMap<String, String> = get(&vault, "folders")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|f| Some((get_str(f, "id")?.to_lowercase(), decrypt_text(get(f, "name"), &keys.user).ok().flatten()?)))
+            .collect();
+        let orgs: HashMap<String, String> = get(profile, "organizations")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|o| Some((get_str(o, "id")?.to_lowercase(), get_str(o, "name").unwrap_or("").to_string())))
+            .collect();
+        let mut named: Vec<(String, String, String)> = Vec::new();
+        for item in &items {
+            let Ok(key) = keys.of_item(item) else { continue };
+            let Ok(Some(name)) = decrypt_text(get(item, "name"), &key) else { continue };
+            let id = get_str(item, "id").unwrap_or("").to_string();
+            let place = match get_str(item, "organizationId") {
+                Some(o) => orgs.get(&o.to_lowercase()).cloned().unwrap_or_default(),
+                None => get_str(item, "folderId").and_then(|f| folders.get(&f.to_lowercase()).cloned()).unwrap_or_default(),
+            };
+            named.push((name, id, place));
+        }
+        let unique = unique_names(named.iter().map(|(n, _, _)| n.as_str()));
+        let mut out: Vec<Entry> = named
+            .into_iter()
+            .map(|(name, id, place)| {
+                let by_name = !name.trim().is_empty() && !is_uuid(&name) && unique.contains(&name);
+                // Bitwarden nests folders by `/` in their names.
+                Entry::item(if by_name { name.clone() } else { id.clone() }, name, place, id)
+            })
+            .collect();
+        out.sort_by_key(|e| (e.path.to_lowercase(), e.name.to_lowercase()));
+        Ok(Listing::complete(out))
+    })();
+    super::browse::wipe_json(&mut vault);
+    out
+}
+
+/// The names of an item's fields, as [`field`] takes them.
+fn field_names(item: &Value, key: &SymKey, name: &str) -> Result<Vec<String>, String> {
+    let login = get(item, "login");
+    let has = |v: Option<&Value>| matches!(v, Some(Value::String(s)) if !s.is_empty());
+    let mut out: Vec<String> = Vec::new();
+    for (n, v) in [("password", login.and_then(|l| get(l, "password"))), ("username", login.and_then(|l| get(l, "username"))), ("notes", get(item, "notes")), ("totp", login.and_then(|l| get(l, "totp")))] {
+        if has(v) {
+            out.push(n.to_string());
+        }
+    }
+    for f in get(item, "fields").and_then(Value::as_array).into_iter().flatten() {
+        match decrypt_text(get(f, "name"), key) {
+            Ok(Some(n)) if !out.contains(&n) => out.push(n),
+            Ok(_) => {}
+            Err(Fail::Unsupported(t)) => return Err(unsupported(t)),
+            Err(_) => return Err(format!("no se pudo descifrar un campo del elemento «{name}» de Bitwarden")),
+        }
+    }
+    Ok(out)
+}
+
 // ---- Secrets Manager ---------------------------------------------------------
 
 /// A machine account's access token, parsed; wiped on drop.
@@ -823,37 +915,25 @@ pub async fn read_secret(server: &str, secret_id: &str, token: Option<&str>) -> 
 }
 
 pub async fn read_secret_with(client: &reqwest::Client, ep: &Endpoints, secret_id: &str, token: &AccessToken) -> Result<String, String> {
+    match sm_get(client, ep, token, &format!("/secrets/{secret_id}")).await? {
+        (200, json, payload, _) => open_secret(&json, &payload, token),
+        (404, ..) => Err(format!("Bitwarden Secrets Manager: no hay un secreto con el ID {secret_id} (o la cuenta de máquina no tiene acceso a su proyecto)")),
+        (status, json, ..) => {
+            let msg = message_of(&json);
+            Err(if msg.is_empty() { format!("Bitwarden Secrets Manager respondió {status}") } else { format!("Bitwarden Secrets Manager respondió {status}: {msg}") })
+        }
+    }
+}
+
+/// A GET to Secrets Manager's API with the machine account's access token
+/// (cached, or a new one once if it expired): `(status, body, the
+/// token's encrypted payload, the access token)`.
+async fn sm_get(client: &reqwest::Client, ep: &Endpoints, token: &AccessToken, path: &str) -> Result<(u16, Value, String, String), String> {
     let cache = token_cache_key(&ep.identity, &token.id, &token.secret);
     for attempt in 0..2 {
-        let cached = {
-            let mut c = SM_TOKENS.lock().unwrap_or_else(|e| e.into_inner());
-            c.retain(|_, (until, at, _)| {
-                let keep = *until > Instant::now();
-                if !keep {
-                    wipe(at);
-                }
-                keep
-            });
-            c.get(&cache).map(|(_, a, p)| (a.clone(), p.clone()))
-        };
-        let (access, payload) = match cached {
-            Some(v) => v,
-            None => {
-                let form = [("grant_type", "client_credentials"), ("scope", "api.secrets"), ("client_id", token.id.as_str()), ("client_secret", token.secret.as_str())];
-                let (access, expires, json) = identity_token(client, ep, &form, Who::MachineAccount).await?;
-                let payload = get_str(&json, "encrypted_payload").ok_or("Bitwarden no devolvió la clave de la organización con el token")?.to_string();
-                let secs = expires.unwrap_or(3600).clamp(120, 3600);
-                SM_TOKENS.lock().unwrap_or_else(|e| e.into_inner()).insert(cache.clone(), (Instant::now() + Duration::from_secs(secs - 60), access.clone(), payload.clone()));
-                (access, payload)
-            }
-        };
-        match api_get(client, ep, &access, &format!("/secrets/{secret_id}")).await {
-            Ok((200, json)) => return open_secret(&json, &payload, token),
-            Ok((404, _)) => return Err(format!("Bitwarden Secrets Manager: no hay un secreto con el ID {secret_id} (o la cuenta de máquina no tiene acceso a su proyecto)")),
-            Ok((status, json)) => {
-                let msg = message_of(&json);
-                return Err(if msg.is_empty() { format!("Bitwarden Secrets Manager respondió {status}") } else { format!("Bitwarden Secrets Manager respondió {status}: {msg}") });
-            }
+        let (access, payload) = sm_session(client, ep, token).await?;
+        match api_get(client, ep, &access, path).await {
+            Ok((status, json)) => return Ok((status, json, payload, access)),
             Err(Some(e)) => return Err(e),
             Err(None) if attempt == 0 => {
                 if let Some((_, mut a, _)) = SM_TOKENS.lock().unwrap_or_else(|e| e.into_inner()).remove(&cache) {
@@ -866,8 +946,34 @@ pub async fn read_secret_with(client: &reqwest::Client, ep: &Endpoints, secret_i
     Err("Bitwarden rechazó el token de acceso de la cuenta de máquina".into())
 }
 
-/// The organization key (the token's payload), then the secret's value.
-pub fn open_secret(secret: &Value, payload: &str, token: &AccessToken) -> Result<String, String> {
+/// The machine account's access token and encrypted payload: cached while
+/// valid, else asked for.
+async fn sm_session(client: &reqwest::Client, ep: &Endpoints, token: &AccessToken) -> Result<(String, String), String> {
+    let cache = token_cache_key(&ep.identity, &token.id, &token.secret);
+    let cached = {
+        let mut c = SM_TOKENS.lock().unwrap_or_else(|e| e.into_inner());
+        c.retain(|_, (until, at, _)| {
+            let keep = *until > Instant::now();
+            if !keep {
+                wipe(at);
+            }
+            keep
+        });
+        c.get(&cache).map(|(_, a, p)| (a.clone(), p.clone()))
+    };
+    if let Some(v) = cached {
+        return Ok(v);
+    }
+    let form = [("grant_type", "client_credentials"), ("scope", "api.secrets"), ("client_id", token.id.as_str()), ("client_secret", token.secret.as_str())];
+    let (access, expires, json) = identity_token(client, ep, &form, Who::MachineAccount).await?;
+    let payload = get_str(&json, "encrypted_payload").ok_or("Bitwarden no devolvió la clave de la organización con el token")?.to_string();
+    let secs = expires.unwrap_or(3600).clamp(120, 3600);
+    SM_TOKENS.lock().unwrap_or_else(|e| e.into_inner()).insert(cache, (Instant::now() + Duration::from_secs(secs - 60), access.clone(), payload.clone()));
+    Ok((access, payload))
+}
+
+/// The organization key in a token's payload.
+fn org_key_of(payload: &str, token: &AccessToken) -> Result<SymKey, String> {
     let bad = || "no se pudo descifrar la clave que acompaña al token de Bitwarden Secrets Manager".to_string();
     let mut raw = decrypt(payload, &token.key()).map_err(|e| if let Fail::Unsupported(t) = e { unsupported(t) } else { bad() })?;
     let parsed: Option<Value> = serde_json::from_slice(&raw).ok();
@@ -878,7 +984,66 @@ pub fn open_secret(secret: &Value, payload: &str, token: &AccessToken) -> Result
     let mut key = key.map_err(|_| bad())?;
     let org = SymKey::from_bytes(&key).filter(|_| key.len() == 64);
     wipe_bytes(&mut key);
-    let org = org.ok_or_else(bad)?;
+    org.ok_or_else(bad)
+}
+
+/// The organization a machine account's access token (a JWT) is for.
+pub fn token_organization(access: &str) -> Option<String> {
+    let claims = access.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(claims.trim_end_matches('=')).ok()?;
+    let v: Value = serde_json::from_slice(&bytes).ok()?;
+    get_str(&v, "organization").filter(|o| is_uuid(o)).map(str::to_string)
+}
+
+/// The secrets the machine account can read (their keys decrypted here,
+/// never their values), or a secret's JSON keys (`item`, its ID).
+pub async fn browse_secrets(server: &str, token: Option<&str>, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    let ep = Endpoints::of(server).ok_or("el servidor de Bitwarden no es válido")?;
+    let mut t = token
+        .map(str::to_string)
+        .filter(|t| !t.trim().is_empty())
+        .or_else(|| std::env::var("BWS_ACCESS_TOKEN").ok().filter(|t| !t.trim().is_empty()))
+        .ok_or("falta el token de acceso de la cuenta de máquina: escribilo en el formulario (o definí BWS_ACCESS_TOKEN)")?;
+    let parsed = parse_access_token(&t);
+    wipe(&mut t);
+    let client = client_for(&ep)?;
+    browse_secrets_with(&client, &ep, &parsed?, at).await
+}
+
+pub async fn browse_secrets_with(client: &reqwest::Client, ep: &Endpoints, token: &AccessToken, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{Entry, Listing};
+    if let Some(item) = at.item {
+        let raw = read_secret_with(client, ep, item.trim(), token).await?;
+        return Ok(Listing::fields(super::browse::json_keys(raw)));
+    }
+    // The organization is in the access token.
+    let (access, _) = sm_session(client, ep, token).await?;
+    let org = token_organization(&access).ok_or("Bitwarden no dijo de qué organización es la cuenta de máquina")?;
+    let (status, mut json, payload, _) = sm_get(client, ep, token, &format!("/organizations/{org}/secrets")).await?;
+    if status != 200 {
+        let msg = message_of(&json);
+        return Err(if msg.is_empty() { format!("Bitwarden Secrets Manager respondió {status}") } else { format!("Bitwarden Secrets Manager respondió {status}: {msg}") });
+    }
+    let key = org_key_of(&payload, token)?;
+    let mut out: Vec<Entry> = get(&json, "secrets")
+        .or_else(|| get(&json, "data"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|s| {
+            let id = get_str(s, "id")?.to_string();
+            let name = decrypt_text(get(s, "key"), &key).ok().flatten().unwrap_or_else(|| id.clone());
+            Some(Entry::item(id.clone(), name, "", id))
+        })
+        .collect();
+    super::browse::wipe_json(&mut json);
+    out.sort_by_key(|e| e.name.to_lowercase());
+    Ok(Listing::complete(out))
+}
+
+/// The organization key (the token's payload), then the secret's value.
+pub fn open_secret(secret: &Value, payload: &str, token: &AccessToken) -> Result<String, String> {
+    let org = org_key_of(payload, token)?;
     match decrypt_text(get(secret, "value"), &org) {
         Ok(Some(v)) => Ok(v),
         Ok(None) => Err("el secreto de Bitwarden Secrets Manager no tiene valor".into()),
@@ -1096,6 +1261,19 @@ mod tests {
                 }),
             )
             .route(
+                "/api/organizations/{org}/secrets",
+                aget(move |h: HeaderMap, AxPath(org): AxPath<String>| {
+                    let v = vectors();
+                    async move {
+                        if !bearer_ok(&h) || org != s(&v, "organization_id") {
+                            return (StatusCode::NOT_FOUND, Json(json!({ "message": "Resource not found." })));
+                        }
+                        let list: Vec<Value> = v["secrets"].as_array().unwrap().iter().map(|x| json!({ "id": x["id"], "organizationId": x["organizationId"], "key": x["key"] })).collect();
+                        (StatusCode::OK, Json(json!({ "secrets": list, "projects": [] })))
+                    }
+                }),
+            )
+            .route(
                 "/api/secrets/{id}",
                 aget(move |State(m): State<Arc<Mock>>, h: HeaderMap, AxPath(id): AxPath<String>| {
                     let vec = vec.clone();
@@ -1169,6 +1347,34 @@ mod tests {
         forget_token(&token_cache_key(&ep.identity, s(&rec, "client_id"), "dummy-api-secret"));
     }
 
+    /// Browsing the recorded vault: names decrypted (a repeated one by its
+    /// ID), an organization's item under its name, an item's field names;
+    /// never a value.
+    #[tokio::test]
+    async fn browse_the_recorded_vault() {
+        use crate::secret_sources::browse::At;
+        let (base, _) = mock_server(false).await;
+        let ep = endpoints(&base);
+        let client = client_for(&ep).unwrap();
+        let rec = recorded();
+        let c = creds(s(&rec, "password"), "dummy-api-secret");
+        let l = browse_with(&client, &ep, &c, At::default()).await.unwrap();
+        let find = |n: &str| l.entries.iter().filter(|e| e.name == n).collect::<Vec<_>>();
+        assert_eq!(find("dbine-test-postgres")[0].id, "dbine-test-postgres");
+        assert_eq!(find("dbine-test-postgres")[0].detail, rec["items"]["main"].as_str().unwrap());
+        let twins: Vec<&str> = l.entries.iter().filter(|e| e.name == "twin").map(|e| e.id.as_str()).collect();
+        assert_eq!(twins.len(), 2);
+        assert!(twins.iter().all(|t| is_uuid(t)), "a repeated name goes by ID: {twins:?}");
+        assert!(!find("org-db")[0].path.is_empty(), "under its organization");
+        let json = serde_json::to_string(&l).unwrap();
+        assert!(!json.contains("\"pw\"") && !json.contains("org-secret-9"), "{json}");
+        let l = browse_with(&client, &ep, &c, At { item: Some("dbine-test-postgres"), ..Default::default() }).await.unwrap();
+        let f = l.fields.unwrap();
+        assert!(["password", "username", "notes", "Port", "API token"].iter().all(|n| f.iter().any(|x| x == n)), "{f:?}");
+        assert_eq!(browse_with(&client, &ep, &creds("wrong", "dummy-api-secret"), At::default()).await.unwrap_err(), WRONG_PASSWORD);
+        forget_token(&token_cache_key(&ep.identity, s(&rec, "client_id"), "dummy-api-secret"));
+    }
+
     #[tokio::test]
     async fn an_older_server_asks_prelogin() {
         let (base, mock) = mock_server(true).await;
@@ -1199,6 +1405,13 @@ mod tests {
         assert_eq!(*mock.logins.lock().unwrap(), 2, "expired: a new one, once");
         let e = read_secret_with(&client, &ep, "00000000-0000-4000-8000-000000000000", &t).await.unwrap_err();
         assert!(e.contains("no hay un secreto con el ID"), "{e}");
+        // Browsing: the secrets' keys (names), then one's JSON keys.
+        use crate::secret_sources::browse::At;
+        let l = browse_secrets_with(&client, &ep, &t, At::default()).await.unwrap();
+        assert!(l.entries.iter().any(|e| e.id == id0), "{:?}", l.entries);
+        assert!(l.entries.iter().all(|e| !e.name.is_empty() && e.name != e.id), "keys decrypted: {:?}", l.entries);
+        let l = browse_secrets_with(&client, &ep, &t, At { item: Some(id0), ..Default::default() }).await.unwrap();
+        assert!(l.fields.unwrap().contains(&"password".to_string()));
         let wrong = parse_access_token("0.7b1d1c26-3f5e-4c8a-9a0b-2f3e4d5c6b7a.revoked-secret:AAECAwQFBgcICQoLDA0ODw==").unwrap();
         let e = read_secret_with(&client, &ep, id0, &wrong).await.unwrap_err();
         assert!(e.contains("cuenta de máquina") && !e.contains("revoked-secret"), "{e}");

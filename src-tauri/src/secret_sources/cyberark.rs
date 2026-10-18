@@ -112,6 +112,56 @@ pub fn conjur_error(status: u16, body: &str) -> String {
     if msg.is_empty() { format!("Conjur respondió {status}") } else { format!("Conjur respondió {status}: {msg}") }
 }
 
+/// The variables the login can see (`GET /resources/{account}?kind=variable`,
+/// paged), or a variable's JSON keys (`item`; read, keys taken, wiped).
+pub async fn conjur_browse(req: &Conjur<'_>, api_key: Option<&str>, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    let client = https::client(req.url, "Conjur", req.ca_file, None)?;
+    conjur_browse_with(&client, req, api_key, at).await
+}
+
+pub async fn conjur_browse_with(client: &reqwest::Client, req: &Conjur<'_>, api_key: Option<&str>, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{Entry, Listing, MAX_ENTRIES};
+    let key = api_key.map(str::trim).filter(|k| !k.is_empty()).ok_or("falta la clave de API de Conjur: escribila en el formulario")?;
+    let mut token = conjur_token(client, req, key).await?;
+    let out = async {
+        if let Some(item) = at.item {
+            let raw = conjur_variable(client, req, &token, item).await?;
+            return Ok(Listing::fields(super::browse::json_keys(raw)));
+        }
+        const PAGE: usize = 1000;
+        let prefix = format!("{}:variable:", req.account.trim());
+        let mut out = Vec::new();
+        for page in 0.. {
+            let url = format!("{}/resources/{}?kind=variable&limit={PAGE}&offset={}", https::base(req.url), uri_encode(req.account.trim()), page * PAGE);
+            let resp = client
+                .get(url)
+                .header("Authorization", format!("Token token=\"{token}\""))
+                .send()
+                .await
+                .map_err(|e| format!("no se pudo conectar con Conjur en {}: {}", https::base(req.url), e.without_url()))?;
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            match status {
+                200 => {}
+                401 => return Err("Conjur rechazó el token de acceso".into()),
+                403 => return Err("Conjur: permiso denegado para listar las variables".into()),
+                _ => return Err(conjur_error(status, &body)),
+            }
+            let list: Vec<Value> = serde_json::from_str(&body).ok().and_then(|v: Value| v.as_array().cloned()).unwrap_or_default();
+            let n = list.len();
+            out.extend(list.iter().filter_map(|r| r.get("id").and_then(Value::as_str)).filter_map(|id| id.strip_prefix(&prefix)).map(|v| Entry::named(v, "")));
+            if n < PAGE || out.len() > MAX_ENTRIES {
+                break;
+            }
+        }
+        out.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(Listing::complete(out))
+    }
+    .await;
+    wipe(&mut token);
+    out
+}
+
 // ---- Central Credential Provider ---------------------------------------------------
 
 pub struct Ccp<'a> {
@@ -242,6 +292,16 @@ mod tests {
                 }),
             )
             .route(
+                "/resources/{account}",
+                get(|AxPath(account): AxPath<String>, h: HeaderMap| async move {
+                    let want = format!("Token token=\"{}\"", base64::engine::general_purpose::STANDARD.encode(TOKEN_JSON));
+                    if account != "myorg" || h.get("authorization").and_then(|v| v.to_str().ok()) != Some(want.as_str()) {
+                        return (StatusCode::UNAUTHORIZED, String::new());
+                    }
+                    (StatusCode::OK, json!([{ "id": "myorg:variable:db/prod/password" }, { "id": "myorg:variable:db/prod/json" }, { "id": "myorg:variable:top" }]).to_string())
+                }),
+            )
+            .route(
                 "/secrets/{account}/variable/{id}",
                 get(|AxPath((account, id)): AxPath<(String, String)>, h: HeaderMap| async move {
                     let want = format!("Token token=\"{}\"", base64::engine::general_purpose::STANDARD.encode(TOKEN_JSON));
@@ -281,6 +341,15 @@ mod tests {
         assert!(conjur_read(&conjur(&url, "db/forbidden", ""), key).await.unwrap_err().contains("permiso denegado"));
         assert!(conjur_read(&conjur(&url, "db/none", ""), key).await.unwrap_err().contains("no existe la variable «db/none»"));
         assert!(conjur_read(&conjur(&url, "db/prod/password", ""), None).await.unwrap_err().contains("clave de API"));
+        // Browsing: the variables, then one's JSON keys (never values).
+        let l = conjur_browse(&conjur(&url, "", ""), key, Default::default()).await.unwrap();
+        let shown: Vec<(&str, &str, &str)> = l.entries.iter().map(|e| (e.id.as_str(), e.name.as_str(), e.path.as_str())).collect();
+        assert_eq!(shown, [("db/prod/json", "json", "db/prod"), ("db/prod/password", "password", "db/prod"), ("top", "top", "")]);
+        let at = crate::secret_sources::browse::At { item: Some("db/prod/json"), ..Default::default() };
+        let l = conjur_browse(&conjur(&url, "", ""), key, at).await.unwrap();
+        assert_eq!(l.fields.as_deref().unwrap(), ["password", "username"]);
+        let at = crate::secret_sources::browse::At { item: Some("db/prod/password"), ..Default::default() };
+        assert!(conjur_browse(&conjur(&url, "", ""), key, at).await.unwrap().fields.unwrap().is_empty(), "not JSON: no keys");
     }
 
     // ---- a mock of the CCP over TLS with client certificates -----------------------------
