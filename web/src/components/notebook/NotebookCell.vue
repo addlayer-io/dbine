@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import type { Language, NotebookCell, QueryOutcome } from '../../api/types';
+import type { Language, LoadedTable, NotebookCell, QueryOutcome } from '../../api/types';
 import type { Snippet } from '../../composables/snippets';
 import { renderMarkdown } from '../../composables/markdown';
 import { onMarkdownClick } from '../../composables/externalLink';
@@ -40,6 +40,8 @@ const props = defineProps<{
   fallback: QueryOutcome | null;
   source: { connectionId: string; database: string; sql: string } | null;
   title: string;
+  /** A "Resultados del notebook" cell's run here: the tables it loaded. */
+  loaded?: LoadedTable[] | null;
 }>();
 const emit = defineEmits<{
   activate: [];
@@ -64,6 +66,8 @@ const emit = defineEmits<{
   save: [];
   needColumns: [path: string[]];
   needNames: [];
+  /** A new name for the cell (the view checks it). */
+  rename: [name: string];
 }>();
 
 const editor = ref<InstanceType<typeof CodeEditor> | null>(null);
@@ -111,6 +115,22 @@ const foreignOutput = computed(() => {
 });
 
 const counter = computed(() => (props.running ? '*' : props.cell.execution_count ?? ' '));
+
+// The cell's name (its table for "Resultados del notebook" cells): click to edit.
+const naming = ref(false);
+const nameDraft = ref('');
+const nameInput = ref<{ focus: () => void; select?: () => void } | null>(null);
+function startRename() {
+  nameDraft.value = props.cell.name ?? '';
+  naming.value = true;
+  void nextTick(() => { nameInput.value?.focus(); nameInput.value?.select?.(); });
+}
+function endRename(save: boolean) {
+  if (!naming.value) return;
+  naming.value = false;
+  const v = nameDraft.value.trim();
+  if (save && v && v !== props.cell.name) emit('rename', v);
+}
 </script>
 
 <template>
@@ -134,7 +154,21 @@ const counter = computed(() => (props.running ? '*' : props.cell.execution_count
     <div class="nc-main">
       <!-- The cell's actions: on hover and on the active cell. -->
       <div class="nc-bar">
-        <button v-if="cell.kind === 'sql'" class="nc-target" :class="{ own: ctx.overridden, warn: ctx.unresolved }" :title="$t('notebook:cell.targetTip')" @click="emit('target')">
+        <template v-if="cell.kind === 'sql'">
+          <el-input
+            v-if="naming"
+            ref="nameInput"
+            v-model="nameDraft"
+            size="small"
+            class="nc-name-input"
+            :aria-label="$t('notebook:name.label')"
+            @keydown.enter.prevent="endRename(true)"
+            @keydown.esc.prevent="endRename(false)"
+            @blur="endRename(true)"
+          />
+          <button v-else class="nc-name" :title="$t('notebook:name.tip')" @click="startRename">{{ cell.name || '—' }}</button>
+        </template>
+        <button v-if="cell.kind === 'sql'" class="nc-target" :class="{ own: ctx.overridden, warn: ctx.unresolved, results: !!cell.target?.results }" :title="$t('notebook:cell.targetTip')" @click="emit('target')">
           <el-icon><ei-coin /></el-icon>{{ ctx.target }}
         </button>
         <span v-if="cell.kind === 'foreign'" class="nc-lang">{{ cell.language || '?' }}</span>
@@ -192,6 +226,7 @@ const counter = computed(() => (props.running ? '*' : props.cell.execution_count
           :dialect="ctx.dialect ?? ''"
           :title="title"
           :chart="cell.chart"
+          :loaded="loaded ?? null"
           @group="emit('group')"
           @explain="emit('explain')"
           @chart="(c: Record<string, unknown>) => emit('chart', c)"
@@ -251,10 +286,19 @@ const counter = computed(() => (props.running ? '*' : props.cell.execution_count
   border: 0; padding: 1px 6px; border-radius: 3px; background: none; font: inherit; color: var(--nm-text-dim); cursor: pointer;
 }
 .nc-target:hover { background: var(--ide-hover); color: var(--nm-text-strong); }
+.nc-target.results { color: var(--nm-accent); }
+.nc-name {
+  flex-shrink: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 2px;
+  border: 1px solid var(--nm-border-soft); padding: 0 6px; border-radius: 3px; line-height: 16px; background: none;
+  font-family: var(--nm-mono); font-size: 11px; color: var(--nm-text-dim); cursor: text;
+}
+.nc-name:hover { border-color: var(--nm-border-hover); color: var(--nm-text-strong); }
+.nc-name-input { width: 160px; margin-right: 2px; }
+.nc-name-input :deep(input) { font-family: var(--nm-mono); font-size: 11px; }
 .nc-target.own { color: var(--nm-text-strong); }
 .nc-target.warn { color: var(--nm-warning); }
 .nc.sql .nc-bar { visibility: visible; }
-.nc.sql:not(:hover):not(.active) .nc-bar > :not(.nc-target) { visibility: hidden; }
+.nc.sql:not(:hover):not(.active) .nc-bar > :not(.nc-target):not(.nc-name) { visibility: hidden; }
 .nc-lang { margin-right: auto; padding: 0 6px; border-radius: 8px; line-height: 16px; border: 1px solid var(--nm-border); color: var(--nm-text-dim); text-transform: lowercase; }
 .nc-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 20px; border: 0; border-radius: 3px; background: none; color: var(--nm-text-dim); cursor: pointer; }
 .nc-btn:hover:not(:disabled) { background: var(--ide-hover); color: var(--nm-text-strong); }

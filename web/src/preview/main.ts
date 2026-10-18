@@ -9,6 +9,7 @@
 // |rename[&prod=0][&name=<nuevo>][&fail=1] ("Renombrar…" over a fake impact and script: preview/rename-samples.ts)
 // |map[&set=points|shapes|latlon|oracle][&theme=light] (the results' map view over the offline base map: preview/map-samples.ts)
 // |chart[&kind=…]|nbcell[&set=charts|map|latlon] (charts of every kind; a notebook cell's charts and map: preview/chart-samples.ts)
+// |nbxresults[&dialog=1] (cells on three engines and a "Resultados del notebook" cell joining them: preview/nbx-samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -76,6 +77,7 @@ import { installRenamePreview } from './rename-samples';
 import { applyThemeClass } from '../composables/appearance';
 import { mapPreview } from './map-samples';
 import { chartPreview, installWholeMock, notebookCellPreview } from './chart-samples';
+import { notebookResultsPreview } from './nbx-samples';
 import { browseSample, sourceConnection } from './source-samples';
 
 const params = new URLSearchParams(location.search);
@@ -284,6 +286,7 @@ const app = createApp({
       view === 'settings' ? h(SettingsDialog) : view.startsWith('diagram') ? diagram() : ['script', 'import', 'run'].includes(view) ? dialogView() : view === 'designer' ? designer() : view === 'chart'
         ? chartPreview(params)
         : view === 'nbcell' ? notebookCellPreview(params)
+        : view === 'nbxresults' ? notebookResultsPreview(params)
         : view === 'filters' ? filtersView()
         : view === 'fkjump' ? fkJumpView()
         : view === 'docs-edit' ? docsEditView()

@@ -33,6 +33,7 @@ a DBine notebook when it has `metadata.dbine`; any other `.ipynb` opens too
   "metadata": {
     "language": "sql",
     "dbine": {
+      "name": "ventas",
       "target": { "connection": "Ventas prod", "database": "ventas" },
       "chart": { "type": "bar", "x": "region", "y": ["total"] },
       "keep_result": true
@@ -91,6 +92,9 @@ a DBine notebook when it has `metadata.dbine`; any other `.ipynb` opens too
   the **environment** (`dev`, `prod`…) instead of a connection, so the same
   notebook runs on each person's own database for that environment, and
   `confirm_run` asks before running on it.
+- A cell can also run on **Notebook results** instead of a connection (see
+  [Notebook results](#notebook-results-cross-engine)); the file stores that
+  target as `{ "results": true }`, with no connection name.
 - The cell's language follows the target's engine: SQL in each engine's
   dialect, Redis commands, MongoDB's shell syntax, and so on, with that
   engine's completion and highlighting. The file stores it as the cell's
@@ -127,6 +131,90 @@ cells on that session:
   so.
 - Closing while a cell runs asks first; the run is cancelled only if the
   close goes on.
+
+## Notebook results (cross-engine)
+
+A cell whose target is **Resultados del notebook** runs DuckDB SQL over the
+results of the cells above it, each one a table named after its cell. One
+notebook can query PostgreSQL in one cell, SQL Server in another and MongoDB
+in a third, and join them in a fourth:
+
+```sql
+SELECT c.nombre, r.region, sum(v.total) AS total
+FROM ventas_pg v
+JOIN clientes_mssql c ON c.id = v.cliente
+JOIN regiones_mongo r ON r.cliente = v.cliente
+GROUP BY ALL
+```
+
+- **Cell names.** Every SQL cell has a name, shown in its header and edited
+  there with a click: letters, digits and `_`, starting with a letter or `_`,
+  up to 63, not an SQL keyword, unique in the notebook (ignoring case, as
+  DuckDB does). A new cell is named `c<n>` by its place among the SQL cells
+  (the next free number if that one is taken), and it keeps the name when it
+  moves. The file stores it as the cell's `metadata.dbine.name`; a file
+  without names (older ones, Azure Data Studio's, Jupyter's) gets them when
+  it opens, and keeps them once saved.
+- **What gets loaded.** Only the cells the SQL names as tables, read outside
+  strings and comments (`t.c1` is a column, not a table), and only cells
+  above it. A source that is itself on Notebook results is loaded as its
+  query over the tables above it (`CREATE TABLE … AS`), so results cells can
+  build on each other; it must be a single query.
+- **Where the rows come from.** Never from a preview read from the file.
+  - The source's **run in this session**, when it ran exactly its current
+    text on its current target and nothing cut it (not truncated by the
+    row limit, no error): those rows, as they were shown.
+  - Otherwise its query **runs again** on its own connection, through the
+    same read path as the whole-result charts: a read-only session of its
+    own, with the server's read-only mode where the engine has one, else the
+    read-only guard. A statement the guard sees as a write is **never run
+    again**: the cell says so and asks to run that cell first (then its run
+    is used). The source's target is resolved and connected first, as when
+    running it (an environment with `confirm_run` asks).
+- **Every engine as a source.** Rows come through the generic result path,
+  so any driver works: SQL engines, MongoDB, Redis, Cassandra, Elasticsearch…
+  Each column gets a DuckDB type from the source's type name and its values
+  (integers, exact decimals, dates, timestamps, UUIDs, JSON documents);
+  drivers that give no type names (PostgreSQL's results, MongoDB, Redis) are
+  typed from the values. Anything else is `VARCHAR`. If DuckDB refuses a
+  value (a date it can't read), only the columns whose values don't convert
+  stay text, and the cell says which.
+- **Cap.** At most 1,000,000 rows per table (**Settings › Notebooks**, from
+  1,000 to 10,000,000); a table cut at the cap says so in the cell.
+- **Cache.** A table is loaded again only when its source ran again, its
+  text or target changed, the cap changed, or the table is gone (the cell's
+  own SQL may drop it). Otherwise the earlier load is reused.
+- **What the cell shows.** Under its summary, each table it used: rows, how
+  long the load took, and where it came from (its run, its query run again,
+  the tables above, or already loaded); a cap or columns left as text are
+  also warnings in its messages, which the file keeps.
+- **Its own result** is like any other cell's: table, chart and map views,
+  the preview caps when saved, export. The assistant gets its query, columns
+  and counts, never its rows. Charts plot the cell's rows (all of them up to
+  the query row limit); **Calcular sobre todo el resultado** isn't offered
+  for these cells (their result is already in memory: a `GROUP BY` in the
+  cell does the same), and a full export exports the rows shown.
+
+### The DuckDB database
+
+- One per notebook tab, **in memory only**, opened on the first results cell
+  and closed with the tab: nothing is written to disk, and closing the tab
+  drops every loaded table. It is a database of its own (the DuckDB driver's
+  `isolated` option), shared with no DuckDB connection of the app.
+- DuckDB is the one the DuckDB driver uses, downloaded on first use like
+  opening a DuckDB connection (the driver too, in builds that download
+  drivers).
+- **Sandbox.** Before anything is loaded, the session switches off external
+  access, extension autoloading and installing, community extensions and
+  spilling to a temp directory, then locks the configuration, and checks
+  that it holds (the cell refuses to run otherwise). A notebook from
+  elsewhere can't use it to read or write files or reach the network on the
+  user's behalf: `read_csv('/…')`, `SELECT * FROM 'file.csv'`, `COPY … TO`,
+  `ATTACH`, `EXPORT DATABASE`, `INSTALL` / `LOAD`, URLs and `SET` are all
+  refused. Data goes in through the driver's bulk load (DuckDB's appender),
+  never through SQL that reads files. No connection names, hosts or
+  credentials reach it, and the `.ipynb` stores only the cell names and
+  `{ "results": true }`.
 
 ## The result and what is saved
 
@@ -226,15 +314,14 @@ AI proposes, the user runs.
 
 **Version 1 (this one):** the file format, SQL and text cells, targets (connection,
 database or project environment), running, previews with their limits, the
-three AI actions, notebooks from elsewhere, and export to HTML and Markdown.
+three AI actions, notebooks from elsewhere, export to HTML and Markdown, and
+[Notebook results](#notebook-results-cross-engine): cells that join the
+results of cells on different engines.
 
 **Later:**
 - **Run notebook** as a step of a [scheduled task](scheduled-tasks.md),
   followed by **Send an email**, which turns a notebook into a periodic
   report.
-- **Cross-engine results**: a cell queries the previous cells' results as
-  tables (DuckDB), for example a JOIN between a PostgreSQL result and a
-  SQL Server one.
 - **Export as a Python notebook**: each SQL cell becomes `pd.read_sql(…)`,
   with the connection as an environment variable and no password.
 - Notebook **parameters** (values the cells use, asked for when running).

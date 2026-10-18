@@ -14,6 +14,10 @@ export const BYTES_DEFAULT = 1_000_000;
 /** The backend clamps to these too. */
 export const ROWS_RANGE = [1, 1000] as const;
 export const BYTES_RANGE = [64 * 1024, 8 * 1024 * 1024] as const;
+/** Rows per table a "Resultados del notebook" cell loads (src-tauri notebook::local). */
+export const RESULTS_CAP_SETTING = 'notebook.resultsRowCap';
+export const RESULTS_CAP_DEFAULT = 1_000_000;
+export const RESULTS_CAP_RANGE = [1_000, 10_000_000] as const;
 /** "Este archivo incluye una vista previa…" was shown once. */
 export const PREVIEW_NOTICE_SETTING = 'notebook.previewNoticeShown';
 
@@ -25,10 +29,52 @@ export function newCellId(): string {
 
 export function newCell(kind: Exclude<CellKind, 'foreign'>, source = ''): NotebookCell {
   return {
-    id: newCellId(), kind, source, language: kind === 'sql' ? 'sql' : null, target: null, keep_result: true,
+    id: newCellId(), kind, source, language: kind === 'sql' ? 'sql' : null, target: null, name: null, keep_result: true,
     chart: null, execution_count: null, result: null, raw: null,
   };
 }
+
+// -- cell names: tables for "Resultados del notebook" cells ------------------------------------
+
+/** Words a cell can't be named (DuckDB reads them as SQL); as notebook::local::RESERVED. */
+const RESERVED = new Set(('all and any array as asc between both by case cast check collate column constraint create cross current_date '
+  + 'current_time current_timestamp current_user default delete desc distinct do drop else end except exists false fetch for foreign '
+  + 'from full grant group having in inner insert intersect into is join lateral left like limit natural not null offset on only or '
+  + 'order outer pivot primary qualify references returning right select set some table then to true union unique unpivot update '
+  + 'user using values when where window with').split(' '));
+
+/** A name usable as a table: a letter or _, then letters, digits or _, up to 63, not a keyword. */
+export function validCellName(name: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(name) && !RESERVED.has(name.toLowerCase());
+}
+
+/** Why `name` can't be cell `id`'s name: 'invalid', 'taken' (another cell has it, ignoring case), or null. */
+export function cellNameProblem(cells: NotebookCell[], id: string, name: string): 'invalid' | 'taken' | null {
+  if (!validCellName(name)) return 'invalid';
+  const lower = name.toLowerCase();
+  return cells.some((c) => c.id !== id && c.kind === 'sql' && c.name?.toLowerCase() === lower) ? 'taken' : null;
+}
+
+/** The default name of a SQL cell at `at`: `c<n>`, n its place among the SQL
+ *  cells (1-based), the next free one if that's taken. */
+export function defaultCellName(cells: NotebookCell[], at: number): string {
+  const taken = new Set(cells.flatMap((c) => (c.kind === 'sql' && c.name ? [c.name.toLowerCase()] : [])));
+  let n = cells.slice(0, Math.max(0, at)).filter((c) => c.kind === 'sql').length + 1;
+  while (taken.has(`c${n}`)) n++;
+  return `c${n}`;
+}
+
+/** Name the SQL cells that have none (a file from before names, a cell
+ *  that lost a repeated one): stable once saved. */
+export function assignCellNames(cells: NotebookCell[]): NotebookCell[] {
+  cells.forEach((c, i) => {
+    if (c.kind === 'sql' && !(c.name && validCellName(c.name))) c.name = defaultCellName(cells.map((x) => (x === c ? { ...x, name: null } : x)), i);
+  });
+  return cells;
+}
+
+/** The target is "Resultados del notebook". */
+export const isResultsTarget = (t: NotebookTarget | null | undefined) => !!t?.results;
 
 /** A new notebook: one SQL cell. `gitLinked`: a git project's, saved without results by default. */
 export function emptyNotebook(gitLinked: boolean, target: NotebookTarget | null = null): Notebook {
@@ -43,9 +89,10 @@ export function applyProjectDefault(n: Notebook, gitLinked: boolean): Notebook {
 }
 
 export const sameTarget = (a: NotebookTarget | null | undefined, b: NotebookTarget | null | undefined) =>
-  (a?.connection ?? null) === (b?.connection ?? null) && (a?.database ?? null) === (b?.database ?? null) && (a?.environment ?? null) === (b?.environment ?? null);
+  (a?.connection ?? null) === (b?.connection ?? null) && (a?.database ?? null) === (b?.database ?? null) && (a?.environment ?? null) === (b?.environment ?? null)
+  && !!a?.results === !!b?.results;
 
-export const emptyTarget = (t: NotebookTarget | null | undefined) => !t || (!t.connection && !t.environment);
+export const emptyTarget = (t: NotebookTarget | null | undefined) => !t || (!t.connection && !t.environment && !t.results);
 
 // -- results --------------------------------------------------------------------------------
 
@@ -113,6 +160,16 @@ export function resultToOutcome(r: CellResult): QueryOutcome {
     ],
     errors: r.error ? [{ message: r.error, code: null, sqlstate: null, statement: null, offset: null, line: null, fatal: true }] : [],
   };
+}
+
+/** A run's first result set, when it is complete (no row cut it, no error):
+ *  what a "Resultados del notebook" cell can load as that cell's table
+ *  without running its query again. */
+export function completeRows(o: QueryOutcome | null | undefined): { columns: StatementResult['columns']; rows: StatementResult['rows'] } | null {
+  if (!o || o.error || o.errors?.length) return null;
+  const r = o.results.find((x) => x.columns.length);
+  if (!r || r.truncated || r.total_rows > r.rows.length) return null;
+  return { columns: r.columns, rows: r.rows };
 }
 
 /** The rows shown and returned, over the result sets with columns. */

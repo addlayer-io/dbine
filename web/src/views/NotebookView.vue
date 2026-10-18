@@ -5,7 +5,7 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
 import { notebookApi, type PreviewLimits } from '../api/notebook';
 import { projectsApi } from '../api/projects';
-import type { FileStat, Notebook, NotebookCell, NotebookTarget, QueryOutcome, TxState, UnsafeDml } from '../api/types';
+import type { FileStat, LoadedTable, LocalSource, Notebook, NotebookCell, NotebookTarget, QueryOutcome, TxState, UnsafeDml } from '../api/types';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import NotebookCellView, { type CellContext } from '../components/notebook/NotebookCell.vue';
@@ -14,8 +14,9 @@ import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { saveTextFile } from '../composables/files';
 import { chartImages } from '../composables/notebookExport';
 import {
-  BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, EditVersion, PREVIEW_NOTICE_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, RunLock,
-  applyProjectDefault, clamp, describeResult, emptyNotebook, emptyTarget, newCell, outcomeToResult, outline, promptVariant, resultToOutcome,
+  BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, EditVersion, PREVIEW_NOTICE_SETTING, RESULTS_CAP_DEFAULT, RESULTS_CAP_RANGE, RESULTS_CAP_SETTING,
+  ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, RunLock, applyProjectDefault, assignCellNames, cellNameProblem, clamp, completeRows, defaultCellName,
+  describeResult, emptyNotebook, emptyTarget, isResultsTarget, newCell, outcomeToResult, outline, promptVariant, resultToOutcome,
 } from '../composables/notebookModel';
 import {
   moveFileAliases, projectDefaultTarget, rememberAlias, rememberFileAlias, resolveTarget, targetText, type FileKey, type ResolvedTarget,
@@ -41,6 +42,9 @@ import { useUiStore } from '../stores/ui';
 // A cell runs exactly as the query editor runs: same command, same
 // confirmation of dangerous statements, same read-only rules (the backend's),
 // same history. One backend session per connection and database.
+// A cell on "Resultados del notebook" runs DuckDB SQL over the results of
+// the cells above, named as tables by the cells' names, on the tab's own
+// in-memory DuckDB session (notebook_run_local; docs/notebooks.md).
 
 const props = defineProps<{ tab: NotebookTab }>();
 
@@ -94,6 +98,8 @@ async function load() {
     } else {
       nb.value = readJson<Notebook | null>(notebookDraftKey(props.tab.id), null) ?? emptyNotebook(false);
     }
+    // Files from before cell names: each SQL cell gets one (saved with the file).
+    assignCellNames(nb.value.cells);
     // An untitled one's draft is unsaved work: closing it asks.
     saveState.value = props.tab.untitled && nb.value.cells.some((c) => c.source.trim()) ? 'dirty' : 'saved';
     edits = new EditVersion();
@@ -170,8 +176,9 @@ function addCell(kind: 'sql' | 'markdown', at?: number, source = ''): NotebookCe
   const n = nb.value!;
   const cell = newCell(kind, source);
   if (kind === 'sql') cell.language = languageOf(cell);
-  const i = at ?? (activeId.value ? indexOf(activeId.value) + 1 : n.cells.length);
-  n.cells.splice(Math.max(0, Math.min(i, n.cells.length)), 0, cell);
+  const i = Math.max(0, Math.min(at ?? (activeId.value ? indexOf(activeId.value) + 1 : n.cells.length), n.cells.length));
+  if (kind === 'sql') cell.name = defaultCellName(n.cells, i);
+  n.cells.splice(i, 0, cell);
   if (kind === 'markdown' && !source) editing.add(cell.id);
   touch();
   return cell;
@@ -202,11 +209,19 @@ function removeCell(cell: NotebookCell) {
 function changeKind(cell: NotebookCell, kind: 'sql' | 'markdown') {
   cell.kind = kind;
   cell.language = kind === 'sql' ? languageOf(cell) : null;
+  if (kind === 'sql' && !cell.name) cell.name = defaultCellName(nb.value!.cells, indexOf(cell.id));
   if (kind === 'markdown') { cell.result = null; cell.execution_count = null; delete live[cell.id]; editing.add(cell.id); }
   touch();
 }
 function setEditing(cell: NotebookCell, on: boolean) {
   if (on) editing.add(cell.id); else editing.delete(cell.id);
+}
+/** A new name (its table for "Resultados del notebook" cells): a plain identifier, unique in the notebook. */
+function renameCell(cell: NotebookCell, name: string) {
+  const problem = cellNameProblem(nb.value!.cells, cell.id, name);
+  if (problem) { ElMessage.error({ message: t(`notebook:name.${problem}`, { name }), duration: 4000 }); return; }
+  cell.name = name;
+  touch();
 }
 function toggleKeep(cell: NotebookCell) {
   cell.keep_result = !cell.keep_result;
@@ -243,8 +258,13 @@ function resolved(cell: NotebookCell | null) {
   void aliasSeq.value;
   return resolveTarget(storedTarget(cell), props.tab.projectId, fileKey.value);
 }
+/** The cell runs on "Resultados del notebook" (its own target, else the notebook's). */
+function isLocal(cell: NotebookCell | null): boolean {
+  return isResultsTarget(storedTarget(cell));
+}
 /** The language a SQL cell is written in: its target driver's ("sql", "redis"…). */
 function languageOf(cell: NotebookCell): string {
+  if (isLocal(cell)) return 'sql';
   const r = resolved(cell);
   return (r.ok ? conns.driverOf(r.target.connectionId)?.language : null) ?? cell.language ?? 'sql';
 }
@@ -350,10 +370,30 @@ function schemaFor(connectionId: string, database: string): Record<string, strin
   return out;
 }
 const userSnippets = computed(() => settings.get<UserSnippet[]>(SNIPPETS_SETTING, []));
+/** A "Resultados del notebook" cell's completion: the cells above as tables, with their columns. */
+function localSchema(cell: NotebookCell): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const cells = nb.value?.cells ?? [];
+  for (const c of cells.slice(0, Math.max(0, cells.indexOf(cell)))) {
+    if (c.kind !== 'sql' || !c.name) continue;
+    const cols = live[c.id]?.outcome.results.find((r) => r.columns.length)?.columns.map((x) => x.name)
+      ?? c.result?.results.find((r) => r.columns.length)?.columns.map((x) => x.name) ?? [];
+    out[c.name] = cols;
+  }
+  return out;
+}
 const contexts = computed<Record<string, CellContext>>(() => {
   const out: Record<string, CellContext> = {};
   for (const c of nb.value?.cells ?? []) {
     if (c.kind !== 'sql') continue;
+    if (isLocal(c)) {
+      const duck = conns.drivers.find((d) => d.id === 'duckdb');
+      out[c.id] = {
+        language: 'sql', dialect: duck?.dialect, schema: localSchema(c), snippets: snippetsFor(duck, userSnippets.value),
+        target: t('notebook:target.results'), overridden: !emptyTarget(c.target), unresolved: false,
+      };
+      continue;
+    }
     const r = resolved(c);
     const d = r.ok ? conns.driverOf(r.target.connectionId) : undefined;
     out[c.id] = {
@@ -415,7 +455,18 @@ onBeforeUnmount(() => { if (columnsTimer) clearTimeout(columnsTimer); });
 
 // -- running ----------------------------------------------------------------------------------------
 /** This session's runs, with every row (the file keeps only a preview). Not deep. */
-const live = shallowReactive<Record<string, { outcome: QueryOutcome; source: { connectionId: string; database: string; sql: string } }>>({});
+/** `source`: null for a "Resultados del notebook" cell (no connection);
+ *  `run`: the run counter it got; `loaded`: such a cell's tables. */
+interface LiveRun { outcome: QueryOutcome; source: { connectionId: string; database: string; sql: string } | null; run?: number; loaded?: LoadedTable[] }
+const live = shallowReactive<Record<string, LiveRun>>({});
+/** A run's id, unique in this app session (unlike the [n] counter, never
+ *  reset nor repeated when the view mounts again): what the backend's cached
+ *  tables of "Resultados del notebook" cells are keyed by. Microseconds. */
+let lastRunId = 0;
+function nextRunId(): number {
+  lastRunId = Math.max(lastRunId + 1, Math.floor((performance.timeOrigin + performance.now()) * 1000));
+  return lastRunId;
+}
 const runningId = ref<string | null>(null);
 let runningSession: string | null = null;
 const runAll = ref(false);
@@ -506,6 +557,7 @@ async function runCell(cell: NotebookCell, sql: string | null = null): Promise<b
 async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string> | null): Promise<boolean> {
   const script = (sql ?? cell.source).trim();
   if (!script) return true;
+  if (isLocal(cell)) return runLocal(cell, script, asked);
   const target = await ensureTarget(cell);
   if (!target || !(await confirmEnvironment(target, asked))) return false;
   if (!(await ensureConnectedOrTell(target.connectionId))) return false;
@@ -541,9 +593,9 @@ async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string
       // A cancel that closed the session took its open transaction with it.
       if (o.session_closed && txWasOpen) ElMessage.warning({ message: t('query:tx.lostOnCancel'), duration: 5000 });
       setTx(sessionId, o.transaction ?? null, txInfo);
-      live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: script } };
-      cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }));
       cell.execution_count = ++counter;
+      live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: script }, run: nextRunId() };
+      cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }));
       const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
       const failed = !!o.error || !!o.errors?.length;
       if (failed) output.add('error', `${firstLine}\n${tb(o.error ?? o.errors?.[0]?.message ?? '')}`, { where, elapsedMs: o.elapsed_ms });
@@ -554,11 +606,74 @@ async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string
   } catch (e) {
     const message = errorMessage(e);
     const o: QueryOutcome = { results: [], messages: [], error: message, elapsed_ms: Date.now() - ranAt.getTime(), plans: [] };
-    live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: script } };
-    cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }));
     cell.execution_count = ++counter;
+    live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: script }, run: nextRunId() };
+    cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }));
     output.add('error', message, { where });
     void conns.recheckAfter(connectionId, e);
+  } finally {
+    runningId.value = null;
+    runningSession = null;
+    touch();
+  }
+  return ok;
+}
+
+/** A "Resultados del notebook" cell: its DuckDB SQL over the cells above,
+ *  each one it names loaded as a table (the backend says which; their
+ *  targets are resolved and connected here first). A source's rows come
+ *  from its complete run here, else its query runs again on its own
+ *  connection (read-only; a write is refused there, never re-run). */
+async function runLocal(cell: NotebookCell, script: string, asked: Set<string> | null): Promise<boolean> {
+  const cells = nb.value!.cells;
+  const above = cells.slice(0, indexOf(cell.id)).filter((c) => c.kind === 'sql' && c.name && c.source.trim());
+  const base: LocalSource[] = above.map((c) => ({ name: c.name!, local: isLocal(c), sql: c.source.trim(), connection_id: null, database: null, run: null, rows: null }));
+  const sessionId = `nbx:${props.tab.id}`;
+  let set = notebookSessions.get(props.tab.id);
+  if (!set) notebookSessions.set(props.tab.id, (set = new Set()));
+  set.add(sessionId);
+  runningId.value = cell.id;
+  runningSession = sessionId;
+  const ranAt = new Date();
+  const where = t('notebook:target.results');
+  cell.language = 'sql';
+  let ok = false;
+  try {
+    const needed = new Set((await notebookApi.localRefs(script, base)).map((n) => n.toLowerCase()));
+    const sources: LocalSource[] = [];
+    for (const [k, c] of above.entries()) {
+      const s = { ...base[k] };
+      if (!s.local && needed.has(s.name.toLowerCase())) {
+        const target = await ensureTarget(c);
+        if (!target || !(await confirmEnvironment(target, asked))) return false;
+        if (!(await ensureConnectedOrTell(target.connectionId))) return false;
+        s.connection_id = target.connectionId;
+        s.database = target.database;
+        // Its run here, if it was of this very query on this target and nothing cut it.
+        const l = live[c.id];
+        const rows = l?.source && l.source.sql === s.sql && l.source.connectionId === target.connectionId && l.source.database === target.database ? completeRows(l.outcome) : null;
+        if (rows) { s.rows = rows; s.run = l!.run ?? null; }
+      }
+      sources.push(s);
+    }
+    const rowCap = clamp(settings.get<number>(RESULTS_CAP_SETTING, RESULTS_CAP_DEFAULT), RESULTS_CAP_RANGE);
+    const r = await notebookApi.runLocal({ tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources });
+    const o = r.outcome;
+    cell.execution_count = ++counter;
+    live[cell.id] = { outcome: markRaw(o), source: null, run: nextRunId(), loaded: markRaw(r.loaded) };
+    cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }));
+    const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
+    const failed = !!o.error || !!o.errors?.length;
+    if (failed) output.add('error', `${firstLine}\n${tb(o.error ?? o.errors?.[0]?.message ?? '')}`, { where, elapsedMs: o.elapsed_ms });
+    else output.add('info', firstLine, { where, elapsedMs: o.elapsed_ms });
+    ok = !failed;
+  } catch (e) {
+    const message = errorMessage(e);
+    const o: QueryOutcome = { results: [], messages: [], error: message, elapsed_ms: Date.now() - ranAt.getTime(), plans: [] };
+    cell.execution_count = ++counter;
+    live[cell.id] = { outcome: markRaw(o), source: null, run: nextRunId() };
+    cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }));
+    output.add('error', message, { where });
   } finally {
     runningId.value = null;
     runningSession = null;
@@ -803,6 +918,7 @@ function ask(prompt: string) {
 /** The cell's target engine, for the prompts: SQL engines are asked for
  *  SQL (GROUP BY…), the others in their own language. */
 function promptArgs(cell: NotebookCell) {
+  if (isLocal(cell.kind === 'sql' ? cell : activeSql())) return { lang: 'sql', engine: 'DuckDB', native: false };
   const r = resolved(cell.kind === 'sql' ? cell : activeSql());
   const d = r.ok ? conns.driverOf(r.target.connectionId) : undefined;
   const lang = d?.language ?? (cell.kind === 'sql' ? cell.language : null) ?? 'sql';
@@ -843,7 +959,7 @@ function sourceOf(cell: NotebookCell) {
 const notebookTarget = computed(() => {
   void aliasSeq.value;
   const r = resolved(null);
-  return { text: r.ok ? r.target.label : targetText(storedTarget(null)), ok: r.ok, env: r.ok ? r.target.env : null };
+  return { text: r.ok ? r.target.label : targetText(storedTarget(null)), ok: r.ok || isLocal(null), env: r.ok ? r.target.env : null };
 });
 const breadcrumbDir = computed(() => {
   const p = props.tab.projectPath ?? '';
@@ -945,6 +1061,8 @@ const breadcrumbDir = computed(() => {
           :fallback="live[cell.id] ? null : fallbackOf(cell)"
           :source="cell.kind === 'sql' ? sourceOf(cell) : null"
           :title="`${title.replace(/\.ipynb$/i, '')} ${i + 1}`"
+          :loaded="live[cell.id]?.loaded ?? null"
+          @rename="(name: string) => renameCell(cell, name)"
           @activate="activeId = cell.id"
           @source="(v: string) => setSource(cell, v)"
           @run="(sql: string | null, next: boolean) => next ? runAndNext(cell) : runCell(cell, sql)"

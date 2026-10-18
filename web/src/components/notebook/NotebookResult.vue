@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useTranslation } from 'i18next-vue';
-import type { CellResult, QueryOutcome } from '../../api/types';
+import type { CellResult, LoadedTable, QueryOutcome } from '../../api/types';
 import { locale } from '../../i18n';
 import { tb } from '../../i18n/backend';
 import { BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp, rowCounts } from '../../composables/notebookModel';
@@ -33,6 +33,8 @@ const props = defineProps<{
   title: string;
   /** The cell's stored charts: { view, active, charts: [{ title, type, x, y, agg, sort, split, points… }], map }. */
   chart: unknown | null;
+  /** A "Resultados del notebook" cell's run here: the tables it loaded. */
+  loaded?: LoadedTable[] | null;
 }>();
 const emit = defineEmits<{ group: []; explain: []; chart: [chart: Record<string, unknown>] }>();
 const { t } = useTranslation();
@@ -131,6 +133,15 @@ function removeChart(i: number) {
   const list = charts.value.filter((_, k) => k !== i);
   commit({ ...stored.value, charts: list, active: Math.min(i <= active.value && active.value > 0 ? active.value - 1 : active.value, list.length - 1) });
 }
+/** "ventas_pg · 4 filas · 12 ms · de su ejecución" per loaded table. */
+const tables = computed(() => (props.running ? [] : props.loaded ?? []).map((l) => {
+  const parts = [t('notebook:loaded.rows', { count: l.rows, rows: n(l.rows) })];
+  if (!l.cached) parts.push(duration(l.elapsed_ms));
+  parts.push(l.cached ? t('notebook:loaded.cached') : t(`notebook:loaded.${l.origin}`));
+  if (l.capped) parts.push(t('notebook:loaded.capped'));
+  if (l.as_text) parts.push(t('notebook:loaded.asText'));
+  return { name: l.name, text: parts.join(' · '), warn: l.capped || l.as_text };
+}));
 /** The preview was cut: the summary offers an aggregated version. */
 const cut = computed(() => !!counts.value?.truncated && !props.running);
 </script>
@@ -151,6 +162,10 @@ const cut = computed(() => !!counts.value?.truncated && !props.running);
         <div class="nm-spacer" />
         <button class="nr-link" :title="$t('notebook:ai.explainTip')" @click="emit('explain')">{{ $t('notebook:ai.explain') }}</button>
       </template>
+    </div>
+    <div v-if="tables.length" class="nr-tables" :title="$t('notebook:loaded.tip')">
+      <span class="nr-tables-lbl">{{ $t('notebook:loaded.title') }}</span>
+      <span v-for="tbl in tables" :key="tbl.name" class="nr-table" :class="{ warn: tbl.warn }"><code>{{ tbl.name }}</code> {{ tbl.text }}</span>
     </div>
     <div v-if="result?.error && !hasPane && !running" class="nr-error nm-selectable">{{ tb(result.error) }}</div>
     <div v-if="hasPane" class="nr-pane" :style="{ height: `${height}px` }">
@@ -192,6 +207,10 @@ const cut = computed(() => !!counts.value?.truncated && !props.running);
   flex-shrink: 0; padding: 0 6px; border-radius: 8px; font-size: 11px; line-height: 16px;
   border: 1px solid var(--nm-border); color: var(--nm-text-dim);
 }
+.nr-tables { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 0 10px 4px; font-size: 11.5px; color: var(--nm-text-dim); font-variant-numeric: tabular-nums; }
+.nr-tables-lbl { color: var(--nm-text-muted); }
+.nr-table code { font-family: var(--nm-mono); font-size: 11px; color: var(--nm-text); }
+.nr-table.warn { color: var(--nm-warning); }
 .nr-link { flex-shrink: 0; border: 0; padding: 0; background: none; font: inherit; color: var(--nm-accent); cursor: pointer; }
 .nr-link:hover { text-decoration: underline; }
 .nr-error {

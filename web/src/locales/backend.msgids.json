@@ -1272,7 +1272,8 @@
  ],
  "Ana": [
   "src-tauri/src/commands/datagen.rs",
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
+  "src-tauri/src/commands/grid_new_rows_live_tests.rs",
+  "src-tauri/src/notebook/local_tests.rs"
  ],
  "Analizador": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -5947,7 +5948,8 @@
   "src-tauri/src/tasks/os.rs"
  ],
  "Decimal": [
-  "crates/dbine-schema/src/dialect/clickhouse.rs"
+  "crates/dbine-schema/src/dialect/clickhouse.rs",
+  "src-tauri/src/notebook/local_tests.rs"
  ],
  "Decimal como scaled_float con factor 10^{0}: exacto hasta {1} decimales.": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs"
@@ -8928,7 +8930,8 @@
   "crates/drivers/bigquery/src/properties.rs"
  ],
  "Eva": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
+  "src-tauri/src/commands/grid_new_rows_live_tests.rs",
+  "src-tauri/src/notebook/local_tests.rs"
  ],
  "Evento": [
   "crates/drivers/oracle/src/monitor.rs",
@@ -10001,6 +10004,9 @@
  ],
  "Guardarla como carpeta por defecto del cluster": [
   "crates/drivers/solr/src/backup.rs"
+ ],
+ "Guid": [
+  "src-tauri/src/notebook/local_tests.rs"
  ],
  "Gómez": [
   "src-tauri/src/commands/datagen.rs"
@@ -12597,7 +12603,8 @@
   "src-tauri/src/commands/datagen.rs"
  ],
  "Luis": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
+  "src-tauri/src/commands/grid_new_rows_live_tests.rs",
+  "src-tauri/src/notebook/local_tests.rs"
  ],
  "Líder": [
   "crates/drivers/etcd/src/lib.rs"
@@ -23685,7 +23692,8 @@
   "crates/drivers/phoenix/src/transfer.rs"
  ],
  "año": [
-  "crates/dbine-schema/src/logical.rs"
+  "crates/dbine-schema/src/logical.rs",
+  "src-tauri/src/notebook/local_tests.rs"
  ],
  "backup de {0} ({1}), DBine {2}": [
   "crates/dbine-sync/examples/open_backup.rs"
@@ -27142,7 +27150,8 @@
   "crates/drivers/dremio/src/profiler.rs",
   "crates/drivers/postgres/src/backup.rs",
   "crates/drivers/snowflake/src/profiler.rs",
-  "crates/drivers/trino/src/profiler.rs"
+  "crates/drivers/trino/src/profiler.rs",
+  "src-tauri/src/notebook/local_tests.rs"
  ],
  "falló (SQL{0})": [
   "crates/drivers/odbc/src/backup.rs"
@@ -27570,6 +27579,9 @@
   "crates/dbine-driver/src/profiler.rs",
   "crates/drivers/cassandra/src/monitor.rs",
   "crates/drivers/couchbase/src/lib.rs"
+ ],
+ "filas de la celda": [
+  "src-tauri/src/notebook/local.rs"
  ],
  "filas de muestra de {0}": [
   "src-tauri/src/commands/ai.rs"
@@ -28277,6 +28289,24 @@
  "la carpeta {0} no existe": [
   "crates/dbine-sync/src/folder.rs"
  ],
+ "la celda «{0}» falló al volver a ejecutarse: {1}": [
+  "src-tauri/src/notebook/local.rs"
+ ],
+ "la celda «{0}» no devolvió un resultado con columnas": [
+  "src-tauri/src/notebook/local.rs"
+ ],
+ "la celda «{0}» no es solo una lectura: DBine no la vuelve a ejecutar por su cuenta. Ejecutala y volvé a ejecutar esta celda": [
+  "src-tauri/src/notebook/local.rs"
+ ],
+ "la celda «{0}» no tiene dónde ejecutarse: elegí su conexión": [
+  "src-tauri/src/notebook/local.rs"
+ ],
+ "la celda «{0}» tiene varias sentencias: dejá una sola consulta para usarla como tabla": [
+  "src-tauri/src/notebook/local.rs"
+ ],
+ "la celda «{0}»: {1}": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "la clase {0} no tiene la propiedad {1}": [
   "crates/drivers/orientdb/src/rename.rs"
  ],
@@ -28578,6 +28608,7 @@
   "crates/dbine-transfer/src/clone_table/documents.rs"
  ],
  "la consulta está vacía": [
+  "src-tauri/src/notebook/local.rs",
   "src-tauri/src/tasks/steps.rs"
  ],
  "la consulta falló": [
@@ -29907,6 +29938,9 @@
  "no es la primera columna de la clave": [
   "crates/drivers/sqlserver/src/delta.rs"
  ],
+ "no es solo una lectura": [
+  "src-tauri/src/notebook/local_tests.rs"
+ ],
  "no es texto (se reescribiría)": [
   "crates/drivers/athena/src/transfer.rs"
  ],
@@ -30436,6 +30470,9 @@
   "crates/drivers/mongodb/src/ddl.rs",
   "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/odbc/src/design.rs"
+ ],
+ "no se pudo aislar la base de los resultados del notebook: {0}": [
+  "src-tauri/src/notebook/local.rs"
  ],
  "no se pudo ajustar la identidad «{0}» ({1})": [
   "crates/drivers/sqlserver/src/delta.rs"
@@ -32720,6 +32757,9 @@
  "tablas": [
   "crates/drivers/cassandra/src/monitor.rs",
   "crates/drivers/tdengine/src/lib.rs"
+ ],
+ "tablas del notebook": [
+  "src-tauri/src/notebook/local.rs"
  ],
  "tamaño": [
   "crates/drivers/cassandra/src/monitor.rs",
@@ -35150,6 +35190,9 @@
  "«analysis» tiene que ser un objeto JSON (analyzer, tokenizer, filter…).": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
+ "«c1» se cargó con las primeras 4 filas": [
+  "src-tauri/src/notebook/local_tests.rs"
+ ],
  "«op» falló sin explicar por qué": [
   "src-tauri/src/secret_sources/onepassword.rs"
  ],
@@ -35554,6 +35597,9 @@
  "«{0}» no es un nombre de rutina válido": [
   "crates/drivers/postgres/src/security.rs"
  ],
+ "«{0}» no es un nombre de tabla válido": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "«{0}» no es un nombre de trabajo de IBM i (se espera «123456/USUARIO/TRABAJO»)": [
   "crates/drivers/odbc/src/processes.rs"
  ],
@@ -35834,6 +35880,9 @@
  "«{0}» repite el campo «{1}», que ya tiene su propia columna": [
   "crates/drivers/elasticsearch/src/transfer.rs"
  ],
+ "«{0}» se cargó con las primeras {1} filas (el tope por tabla de Configuración › Notebooks)": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "«{0}» se otorga sobre el grafo entero, no sobre una etiqueta o un tipo de relación": [
   "crates/drivers/neo4j/src/security.rs"
  ],
@@ -35934,6 +35983,9 @@
  ],
  "«{0}»: la tabla referenciada no tiene filas para tomar valores": [
   "src-tauri/src/commands/datagen.rs"
+ ],
+ "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": [
+  "src-tauri/src/notebook/local.rs"
  ],
  "µs por llamada": [
   "crates/drivers/redis/src/monitor.rs"

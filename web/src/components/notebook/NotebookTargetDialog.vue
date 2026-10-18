@@ -7,8 +7,9 @@ import { connectionByName, targetOf } from '../../composables/notebookTargets';
 import ProjectTargetPicker from '../ProjectTargetPicker.vue';
 import EngineIcon from '../EngineIcon.vue';
 
-// Where a notebook (or one cell) runs: a connection and database, or the
-// project's environment. `map`: the file names a connection this machine
+// Where a notebook (or one cell) runs: a connection and database, the
+// project's environment, or "Resultados del notebook" (DuckDB over the
+// results of the cells above, on no connection). `map`: the file names a connection this machine
 // doesn't have (or several share that name); the user says which one it
 // is, once.
 
@@ -39,17 +40,19 @@ const conns = useConnectionsStore();
 const projects = useProjectsStore();
 
 const envs = computed(() => (props.projectId ? projects.byId(props.projectId)?.manifest?.environments ?? [] : []));
-type Kind = 'inherit' | 'env' | 'connection';
-const kind = ref<Kind>(props.inherit && !props.initial ? 'inherit' : props.initial?.environment && envs.value.length ? 'env' : envs.value.length && !props.initial ? 'env' : 'connection');
+type Kind = 'inherit' | 'env' | 'connection' | 'results';
+const kind = ref<Kind>(props.initial?.results ? 'results'
+  : props.inherit && !props.initial ? 'inherit' : props.initial?.environment && envs.value.length ? 'env' : envs.value.length && !props.initial ? 'env' : 'connection');
 const env = ref(props.initial?.environment ?? projects.activeTarget(props.projectId ?? '').env?.name ?? envs.value[0]?.name ?? '');
 const direct = ref<ProjectTarget | null>((() => {
   const c = props.initial?.connection ? connectionByName(props.initial.connection, props.file) : undefined;
   return c ? { connection_id: c.id, database: props.initial?.database ?? c.config.database ?? '' } : null;
 })());
 
-const canPick = computed(() => kind.value === 'inherit' || (kind.value === 'env' ? !!env.value : !!direct.value));
+const canPick = computed(() => kind.value === 'inherit' || kind.value === 'results' || (kind.value === 'env' ? !!env.value : !!direct.value));
 function confirmPick() {
   if (kind.value === 'inherit') emit('pick', null);
+  else if (kind.value === 'results') emit('pick', { connection: null, database: null, environment: null, results: true });
   else if (kind.value === 'env') emit('pick', { connection: null, database: null, environment: env.value });
   else if (direct.value) emit('pick', targetOf(direct.value.connection_id, direct.value.database, props.file));
 }
@@ -78,10 +81,11 @@ function detail(id: string): string {
     @update:model-value="(v: boolean) => { if (!v) emit('close'); }"
   >
     <template v-if="mode === 'pick'">
-      <el-radio-group v-if="inherit || envs.length" v-model="kind" class="ntd-kinds">
+      <el-radio-group v-model="kind" class="ntd-kinds">
         <el-radio v-if="inherit" value="inherit">{{ $t('notebook:target.inherit') }}</el-radio>
         <el-radio v-if="envs.length" value="env">{{ $t('notebook:target.environment') }}</el-radio>
         <el-radio value="connection">{{ $t('notebook:target.connection') }}</el-radio>
+        <el-radio value="results">{{ $t('notebook:target.results') }}</el-radio>
       </el-radio-group>
       <div v-if="kind === 'env'" class="ntd-env">
         <el-select v-model="env" style="width: 100%">
@@ -92,6 +96,7 @@ function detail(id: string): string {
         <p class="ntd-dim">{{ $t('notebook:target.environmentHelp') }}</p>
       </div>
       <ProjectTargetPicker v-else-if="kind === 'connection'" v-model="direct" />
+      <p v-else-if="kind === 'results'" class="ntd-dim">{{ $t('notebook:target.resultsHelp') }}</p>
       <p v-else class="ntd-dim">{{ $t('notebook:target.inheritHelp') }}</p>
     </template>
 

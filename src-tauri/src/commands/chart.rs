@@ -70,7 +70,7 @@ pub(crate) struct Stop<'a> {
     pub interrupter: Option<&'a Arc<dyn Fn() + Send + Sync>>,
 }
 
-enum Fail {
+pub(crate) enum Fail {
     Cancelled,
     /// The guard found a write: nothing ran.
     Refused(String),
@@ -149,7 +149,7 @@ fn write_in(driver: &dyn Driver, text: &str) -> Option<String> {
 /// which the guard checks too when the engine can't enforce the read.
 /// Returns the outcome and whether it stopped at the row cap.
 #[allow(clippy::too_many_arguments)]
-async fn read(
+pub(crate) async fn read(
     driver: &dyn Driver,
     s: &mut dyn Session,
     query: &str,

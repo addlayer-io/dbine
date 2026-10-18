@@ -225,7 +225,8 @@ impl Driver for DuckDbDriver {
     }
 
     /// `cfg.host` is the database file (empty or `:memory:` for an in-memory
-    /// one); `database` is an attached catalog to `USE`.
+    /// one; ignored with the `isolated` option, always a new in-memory one);
+    /// `database` is an attached catalog to `USE`.
     async fn connect(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<Box<dyn Session>> {
         loader::ensure().await?;
         if self.files {
@@ -236,9 +237,16 @@ impl Driver for DuckDbDriver {
             p => p.to_string(),
         };
         let read_only = cfg.read_only;
+        // `isolated`: an in-memory database of its own, shared with no other
+        // session (a notebook's results, see the app's `notebook::local`).
+        let isolated = cfg.option("isolated") == Some("true");
         let database = database.filter(|d| !d.is_empty()).map(str::to_string);
         let (db, conn, catalog) = blocking(move || {
-            let db = open_database(&path, read_only)?;
+            let db = if isolated {
+                Arc::new(Database { root: Mutex::new(Connection::open_in_memory().map_err(Error::connect)?) })
+            } else {
+                open_database(&path, read_only)?
+            };
             let conn = db.root.lock().map_err(|_| Error::State("conexión DuckDB envenenada".into()))?.try_clone().map_err(Error::connect)?;
             if let Some(d) = &database {
                 conn.execute_batch(&format!("USE {}", quote_ident(Quote::Double, d))).map_err(Error::query)?;
@@ -1189,6 +1197,27 @@ mod tests {
         assert_eq!(time_of_day(3_723_000_001), "01:02:03.000001");
         assert_eq!(interval(14, 3, 0), "1 years 2 months 3 days");
         assert_eq!(timestamp(0), "1970-01-01 00:00:00");
+    }
+
+    #[tokio::test]
+    async fn isolated_sessions_share_nothing() {
+        loader::ensure().await.unwrap();
+        let [duck, _] = <[_; 2]>::try_from(drivers()).ok().unwrap();
+        let shared = ConnectionConfig { driver: "duckdb".into(), host: ":memory:".into(), ..Default::default() };
+        let mut isolated = shared.clone();
+        isolated.options.insert("isolated".into(), "true".into());
+        let mut a = duck.connect(&isolated, None).await.unwrap();
+        let mut b = duck.connect(&isolated, None).await.unwrap();
+        let mut plain = duck.connect(&shared, None).await.unwrap();
+        let mut out = QueryOutcome::default();
+        a.execute("CREATE TABLE nbx_only_a AS SELECT 1 AS x", 10, &mut out).await.unwrap();
+        for s in [&mut b, &mut plain] {
+            let mut out = QueryOutcome::default();
+            let r = s.execute("SELECT * FROM nbx_only_a", 10, &mut out).await;
+            assert!(r.is_err() || out.error.is_some(), "another session sees the isolated table");
+        }
+        // Nothing on disk: no file named after the host.
+        assert!(!std::path::Path::new(":memory:").exists());
     }
 
     #[tokio::test]

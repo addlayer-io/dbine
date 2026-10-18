@@ -13,6 +13,7 @@
 //!   credential or a connection's details is dropped, with a warning.
 
 pub mod export;
+pub mod local;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -39,6 +40,11 @@ pub struct NotebookTarget {
     /// A project environment's name (`.dbine.json`).
     #[serde(default)]
     pub environment: Option<String>,
+    /// "Resultados del notebook": the cell runs DuckDB SQL over the results
+    /// of the cells above (`notebook::local`), on no connection. Stored as
+    /// `{"results": true}`, with no connection name.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub results: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,6 +130,11 @@ pub struct NotebookCell {
     /// Overrides the notebook's target.
     #[serde(default)]
     pub target: Option<NotebookTarget>,
+    /// SQL cells: its name as a table for the cells on the notebook's
+    /// results (`metadata.dbine.name`; see `local::valid_name`). Files
+    /// without it get one from the UI.
+    #[serde(default)]
+    pub name: Option<String>,
     /// false: "Don't save result" (the summary is kept, the rows aren't).
     #[serde(default = "yes")]
     pub keep_result: bool,
@@ -281,13 +292,17 @@ fn read_target(v: Option<&Value>, w: &mut Warnings) -> Option<NotebookTarget> {
     if m.keys().any(|k| is_credential_key(k)) {
         w.credentials = true;
     }
+    // The notebook's results: nothing else applies.
+    if m.get("results").and_then(Value::as_bool) == Some(true) {
+        return Some(NotebookTarget { results: true, ..Default::default() });
+    }
     let name = |k: &str| str_of(m, k).map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     let mut connection = name("connection");
     if connection.as_deref().is_some_and(looks_like_connection_string) {
         w.credentials = true;
         connection = None;
     }
-    let t = NotebookTarget { connection, database: name("database"), environment: name("environment") };
+    let t = NotebookTarget { connection, database: name("database"), environment: name("environment"), results: false };
     (t != NotebookTarget::default()).then_some(t)
 }
 
@@ -380,6 +395,7 @@ pub fn parse(text: &str) -> Result<Notebook, String> {
         .and_then(Value::as_array)
         .map(|a| a.iter().filter(|c| c.is_object()).map(|c| read_cell(c, &ctx, &mut ids, &mut w)).collect())
         .unwrap_or_default();
+    let cells = unique_cell_names(cells);
 
     Ok(Notebook {
         target,
@@ -423,6 +439,7 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
         execution_count,
         result: None,
         raw: None,
+        name: None,
     };
     let lang = str_of(meta, "language");
     match str_of(m, "cell_type") {
@@ -446,6 +463,7 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
                 cell.kind = CellKind::Sql;
                 cell.language = Some(lang.unwrap_or("sql").to_string());
                 cell.target = read_target(d.get("target"), w);
+                cell.name = str_of(d, "name").map(str::trim).filter(|n| local::valid_name(n)).map(String::from);
                 cell.keep_result = d.get("keep_result").and_then(Value::as_bool).unwrap_or(true);
                 cell.chart = d.get("chart").filter(|c| !c.is_null()).cloned().map(|mut c| {
                     if scrub(&mut c, is_credential_key, false) {
@@ -472,6 +490,20 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
         _ => cell.raw = Some(c.clone()),
     }
     cell
+}
+
+/// A cell name used twice (ignoring case, as DuckDB does): the later
+/// cells lose it (the UI gives them a new one).
+fn unique_cell_names(mut cells: Vec<NotebookCell>) -> Vec<NotebookCell> {
+    let mut seen = HashSet::new();
+    for c in &mut cells {
+        if let Some(n) = &c.name {
+            if !seen.insert(n.to_ascii_lowercase()) {
+                c.name = None;
+            }
+        }
+    }
+    cells
 }
 
 /// Text without tags, for Azure Data Studio's messages ("(1 row affected)").
@@ -966,6 +998,9 @@ fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_count: Opti
 // Writing
 
 fn target_json(t: &NotebookTarget) -> Option<Value> {
+    if t.results {
+        return Some(json!({ "results": true }));
+    }
     let mut m = Map::new();
     for (k, v) in [("connection", &t.connection), ("database", &t.database), ("environment", &t.environment)] {
         if let Some(v) = v.as_deref().map(str::trim).filter(|v| !v.is_empty() && !(k == "connection" && looks_like_connection_string(v))) {
@@ -1066,6 +1101,9 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
             if let Some(t) = c.target.as_ref().and_then(target_json) {
                 d.insert("target".into(), t);
             }
+            if let Some(n) = c.name.as_deref().map(str::trim).filter(|n| local::valid_name(n)) {
+                d.insert("name".into(), Value::String(n.into()));
+            }
             d.insert("keep_result".into(), Value::Bool(c.keep_result));
             let outputs = match &c.result {
                 Some(r) => {
@@ -1165,6 +1203,7 @@ mod tests {
             execution_count: Some(1),
             result,
             raw: None,
+            name: None,
         }
     }
 
@@ -1183,7 +1222,7 @@ mod tests {
 
     fn notebook(cells: Vec<NotebookCell>) -> Notebook {
         Notebook {
-            target: Some(NotebookTarget { connection: Some("Ventas prod".into()), database: Some("ventas".into()), environment: None }),
+            target: Some(NotebookTarget { connection: Some("Ventas prod".into()), database: Some("ventas".into()), environment: None, results: false }),
             save_results: true,
             save_results_set: true,
             cells,
@@ -1202,7 +1241,7 @@ mod tests {
         let mut r = result(vec![stmt(&["id", "name"], rows(3), 3)]);
         r.messages = vec!["NOTICE: hola".into()];
         let mut c = sql_cell("c1", "SELECT id, name\nFROM t", Some(r));
-        c.target = Some(NotebookTarget { connection: None, database: Some("otra".into()), environment: None });
+        c.target = Some(NotebookTarget { connection: None, database: Some("otra".into()), environment: None, results: false });
         c.chart = Some(json!({ "type": "bar", "x": "name", "y": ["id"] }));
         let md = NotebookCell { kind: CellKind::Markdown, source: "# Título\n\nTexto".into(), language: None, execution_count: None, result: None, ..sql_cell("m1", "", None) };
         let mut err = sql_cell("c2", "SELECT nope", Some(CellResult { error: Some("column \"nope\" does not exist".into()), ..result(vec![]) }));
@@ -1401,6 +1440,34 @@ mod tests {
         let orig: Value = serde_json::from_str(py).unwrap();
         assert_eq!(v["cells"][0], orig);
         assert_eq!(serde_json::to_string(&v["cells"][0]).unwrap(), serde_json::to_string(&orig).unwrap());
+    }
+
+    #[test]
+    fn cell_names_and_the_results_target_round_trip() {
+        let mut nb = notebook(vec![sql_cell("a", "SELECT 1", None), sql_cell("b", "SELECT * FROM ventas", None)]);
+        nb.cells[0].name = Some("ventas".into());
+        nb.cells[1].name = Some("c2".into());
+        nb.cells[1].target = Some(NotebookTarget { results: true, ..Default::default() });
+        let text = serialize(&nb, PreviewLimits::default());
+        let v: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["cells"][0]["metadata"]["dbine"]["name"], "ventas");
+        // No connection name is made up for it.
+        assert_eq!(v["cells"][1]["metadata"]["dbine"]["target"], json!({ "results": true }));
+        let back = parse(&text).unwrap();
+        assert_eq!(back.cells[0].name.as_deref(), Some("ventas"));
+        assert_eq!(back.cells[1].name.as_deref(), Some("c2"));
+        assert_eq!(back.cells[1].target, Some(NotebookTarget { results: true, ..Default::default() }));
+        // An older file has no names: read as before.
+        let old = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1}},"cells":[{"cell_type":"code","id":"x","metadata":{"dbine":{"keep_result":true}},"outputs":[],"source":"SELECT 1"}]}"#;
+        assert_eq!(parse(old).unwrap().cells[0].name, None);
+        // Invalid names and repeats (ignoring case) are dropped; "results" wins over a name.
+        let bad = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"dbine":{"version":1}},"cells":[
+          {"cell_type":"code","id":"x","metadata":{"dbine":{"name":"Ventas"}},"outputs":[],"source":"SELECT 1"},
+          {"cell_type":"code","id":"y","metadata":{"dbine":{"name":"ventas"}},"outputs":[],"source":"SELECT 1"},
+          {"cell_type":"code","id":"z","metadata":{"dbine":{"name":"x; DROP TABLE t","target":{"results":true,"connection":"Ventas"}}},"outputs":[],"source":"SELECT 1"}]}"#;
+        let nb = parse(bad).unwrap();
+        assert_eq!(nb.cells.iter().map(|c| c.name.as_deref()).collect::<Vec<_>>(), vec![Some("Ventas"), None, None]);
+        assert_eq!(nb.cells[2].target, Some(NotebookTarget { results: true, ..Default::default() }));
     }
 
     #[test]

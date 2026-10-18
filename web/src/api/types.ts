@@ -1039,6 +1039,8 @@ export interface NotebookTarget {
   database: string | null;
   /** A project environment's name (.dbine.json). */
   environment: string | null;
+  /** "Resultados del notebook": DuckDB SQL over the cells above (no connection). */
+  results?: boolean;
 }
 /** `foreign`: a Python / R… cell from elsewhere, read-only, kept unchanged. */
 export type CellKind = 'markdown' | 'sql' | 'foreign';
@@ -1078,6 +1080,8 @@ export interface NotebookCell {
   language: string | null;
   /** Overrides the notebook's target. */
   target: NotebookTarget | null;
+  /** SQL cells: its name as a table for "Resultados del notebook" cells. */
+  name?: string | null;
   /** false = "No guardar el resultado" (the summary stays, the rows don't). */
   keep_result: boolean;
   /** Chart settings and aggregated points, opaque to the backend. */
@@ -1103,6 +1107,36 @@ export interface Notebook {
   warnings: string[];
 }
 export interface NotebookRead { notebook: Notebook; text_hash: string }
+
+// "Resultados del notebook" (src-tauri/src/notebook/local.rs): a cell's DuckDB
+// SQL over the results of the cells above.
+/** A SQL cell above, as `notebook_run_local` gets it. */
+export interface LocalSource {
+  name: string;
+  /** It runs on the notebook's results too. */
+  local: boolean;
+  sql: string;
+  connection_id: string | null;
+  database: string | null;
+  /** Its last run here (the run counter). */
+  run: number | null;
+  /** That run's rows, when complete and of exactly `sql` (its first result set). */
+  rows: { columns: ResultColumn[]; rows: Cell[][] } | null;
+}
+/** How a table got into the notebook's DuckDB database. */
+export interface LoadedTable {
+  name: string;
+  rows: number;
+  capped: boolean;
+  /** Already there from an earlier run. */
+  cached: boolean;
+  /** `run`: its run here; `query`: its query ran again; `local`: from the tables above. */
+  origin: 'run' | 'query' | 'local';
+  /** Some columns had values not of their type: loaded as text. */
+  as_text: boolean;
+  elapsed_ms: number;
+}
+export interface RunLocalResponse { outcome: QueryOutcome; loaded: LoadedTable[] }
 
 // -- Charts over the whole result (`dbine_driver::aggregate`, chart_aggregate) --
 

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useSettingsStore } from '../../stores/settings';
-import { BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp } from '../../composables/notebookModel';
+import {
+  BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, RESULTS_CAP_DEFAULT, RESULTS_CAP_RANGE, RESULTS_CAP_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp,
+} from '../../composables/notebookModel';
 
 // Configuración › Notebooks: how much of each cell's result a notebook file
 // keeps (docs/notebooks.md › The result and what is saved). The screen
-// always shows the whole result; only the file is cut.
+// always shows the whole result; only the file is cut. Also the rows per
+// table a "Resultados del notebook" cell loads.
 
 const settings = useSettingsStore();
 const MB = 1_000_000;
@@ -18,6 +21,11 @@ const rows = computed({
 const megabytes = computed({
   get: () => settings.get<number>(BYTES_SETTING, BYTES_DEFAULT) / MB,
   set: (v: number | undefined) => settings.set(BYTES_SETTING, clamp((v ?? 1) * MB, BYTES_RANGE)),
+});
+/** Rows per table of the notebook's results (in memory, never on disk). */
+const resultsCap = computed({
+  get: () => settings.get<number>(RESULTS_CAP_SETTING, RESULTS_CAP_DEFAULT),
+  set: (v: number | undefined) => settings.set(RESULTS_CAP_SETTING, clamp(v ?? RESULTS_CAP_DEFAULT, RESULTS_CAP_RANGE)),
 });
 </script>
 
@@ -35,6 +43,10 @@ const megabytes = computed({
         <el-input-number v-model="megabytes" :min="0.0625" :max="8" :step="0.25" controls-position="right" style="width: 160px" />
         <span>MB</span>
       </div>
+    </div>
+    <div class="ns-row">
+      <div><strong>{{ $t('notebook:settings.resultsCap') }}</strong><span>{{ $t('notebook:settings.resultsCapHelp') }}</span></div>
+      <el-input-number v-model="resultsCap" :min="RESULTS_CAP_RANGE[0]" :max="RESULTS_CAP_RANGE[1]" :step="100000" controls-position="right" style="width: 160px" />
     </div>
   </div>
 </template>

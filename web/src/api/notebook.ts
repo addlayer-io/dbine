@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Notebook, NotebookRead } from './types';
+import type { LocalSource, Notebook, NotebookRead, RunLocalResponse } from './types';
 
 // Notebooks (docs/notebooks.md): reading and writing Jupyter .ipynb files.
 // Mirrors src-tauri/src/commands/notebook.rs (args in camelCase). Project
@@ -40,4 +40,11 @@ export const notebookApi = {
     invoke<string>('notebook_export', {
       args: { notebook, format, rowsPerCell: limits.rows, bytesPerCell: limits.bytes, images, path: path ?? null },
     }),
+  /** "Resultados del notebook": the cells above that `sql` needs (their names,
+   *  in loading order, through the "results" cells it names). */
+  localRefs: (sql: string, sources: LocalSource[]) => invoke<string[]>('notebook_local_refs', { args: { sql, sources } }),
+  /** Run a "Resultados del notebook" cell on the tab's DuckDB session
+   *  (`nbx:<tabId>`, closed with the tab; cancel_query stops it). */
+  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[] }) =>
+    invoke<RunLocalResponse>('notebook_run_local', { args: a }),
 };

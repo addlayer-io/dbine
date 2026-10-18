@@ -63,8 +63,10 @@ export type Resolution =
   | { ok: true; target: ResolvedTarget }
   /** `none`: no target at all; `connection`: no local connection by that
    *  name (`name`), or several (`candidates`: their ids); `environment`:
-   *  the project's environment isn't bound here (or doesn't exist). */
-  | { ok: false; problem: 'none' | 'connection' | 'environment'; name: string | null; candidates?: string[] };
+   *  the project's environment isn't bound here (or doesn't exist);
+   *  `results`: "Resultados del notebook", which runs on no connection
+   *  (the notebook view runs it on its DuckDB session). */
+  | { ok: false; problem: 'none' | 'connection' | 'environment' | 'results'; name: string | null; candidates?: string[] };
 
 /** The connection a file's name refers to here (`file`: its per-file choices). */
 export function matchName(name: string, file?: FileKey | null) {
@@ -96,6 +98,7 @@ export function projectDefaultTarget(projectId: string, file?: FileKey | null): 
  *  environments; `file`: the notebook, for names several connections share). */
 export function resolveTarget(target: NotebookTarget | null, projectId?: string | null, file?: FileKey | null): Resolution {
   if (emptyTarget(target)) return { ok: false, problem: 'none', name: null };
+  if (target!.results) return { ok: false, problem: 'results', name: null };
   const conns = useConnectionsStore();
   if (target!.environment) {
     const env = target!.environment;
@@ -118,6 +121,7 @@ export function resolveTarget(target: NotebookTarget | null, projectId?: string 
 /** How a target reads on screen without resolving it ("Ventas prod › ventas", "dev"). */
 export function targetText(target: NotebookTarget | null): string {
   if (emptyTarget(target)) return t('notebook:target.none');
+  if (target!.results) return t('notebook:target.results');
   if (target!.environment) return target!.environment;
   return target!.database ? `${target!.connection} › ${target!.database}` : target!.connection!;
 }

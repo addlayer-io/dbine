@@ -560,6 +560,8 @@ pub fn run() {
             commands::notebook::notebook_write,
             commands::notebook::notebook_export,
             commands::notebook::notebook_open_link,
+            commands::notebook::notebook_local_refs,
+            commands::notebook::notebook_run_local,
             open_files::open_files_take,
             open_files::open_file,
         ])

@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EditVersion, RunLock, applyProjectDefault, emptyNotebook, matchConnection, outline, projectFileOf, promptVariant,
+  EditVersion, RunLock, applyProjectDefault, assignCellNames, cellNameProblem, completeRows, defaultCellName, emptyNotebook, emptyTarget,
+  matchConnection, newCell, outline, projectFileOf, promptVariant, sameTarget, validCellName,
 } from './notebookModel.ts';
 
 const conns = [
@@ -88,4 +89,50 @@ test('prompts per target language; the outline fences each cell in its language'
     { ...emptyNotebook(false).cells[0], source: 'SELECT 1' },
   ];
   assert.equal(outline(cells, 1), '```redis\nGET k\n```\n\n```sql\nSELECT 1\n```');
+});
+
+// -- cell names and "Resultados del notebook" --------------------------------------------------
+
+const sql = (name, source = 'SELECT 1') => ({ ...newCell('sql', source), name });
+const md = () => newCell('markdown', '# t');
+
+test('cell names are plain identifiers, not SQL keywords', () => {
+  for (const ok of ['c1', 'ventas_pg', '_x', 'C2', 'a'.repeat(63)]) assert.ok(validCellName(ok), ok);
+  for (const bad of ['', '1c', 'a-b', 'a b', 'año', 'select', 'From', 'a'.repeat(64)]) assert.ok(!validCellName(bad), bad);
+});
+
+test('a name is unique in the notebook, ignoring case', () => {
+  const cells = [sql('ventas'), sql('c2')];
+  assert.equal(cellNameProblem(cells, cells[1].id, 'VENTAS'), 'taken');
+  assert.equal(cellNameProblem(cells, cells[0].id, 'Ventas'), null);
+  assert.equal(cellNameProblem(cells, cells[1].id, 'x y'), 'invalid');
+  assert.equal(cellNameProblem(cells, cells[1].id, 'clientes'), null);
+});
+
+test('default names follow the SQL cells\' places and skip taken ones', () => {
+  const cells = [sql('c1'), md(), sql('c3')];
+  assert.equal(defaultCellName(cells, 1), 'c2');
+  assert.equal(defaultCellName(cells, 3), 'c4');
+  assert.equal(defaultCellName([sql('c1'), sql('c2')], 1), 'c3');
+  // A file from before names: c1, c2… by position; a kept name stays.
+  const old = [sql(null), md(), sql('ventas'), sql(null), sql('bad name')];
+  assert.deepEqual(assignCellNames(old).map((c) => c.name), ['c1', null, 'ventas', 'c3', 'c4']);
+});
+
+test('only a complete run is loaded as a table without running it again', () => {
+  const r = (o) => ({ columns: [{ name: 'a', type_name: '' }], rows: [[1]], total_rows: 1, truncated: false, rows_affected: null, ...o });
+  const out = (results, error = null) => ({ results, messages: [], error, elapsed_ms: 1, plans: [] });
+  assert.deepEqual(completeRows(out([r()])), { columns: [{ name: 'a', type_name: '' }], rows: [[1]] });
+  assert.equal(completeRows(out([r({ truncated: true })])), null);
+  assert.equal(completeRows(out([r({ total_rows: 10 })])), null);
+  assert.equal(completeRows(out([r()], 'boom')), null);
+  assert.equal(completeRows(out([])), null);
+  assert.equal(completeRows(null), null);
+});
+
+test('the results target is a target of its own, with no connection', () => {
+  const results = { connection: null, database: null, environment: null, results: true };
+  assert.equal(emptyTarget(results), false);
+  assert.equal(sameTarget(results, { connection: null, database: null, environment: null }), false);
+  assert.equal(sameTarget(results, { ...results }), true);
 });

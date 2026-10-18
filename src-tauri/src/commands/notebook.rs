@@ -219,6 +219,46 @@ pub async fn notebook_export(args: ExportArgs) -> CommandResult<String> {
     tauri::async_runtime::spawn_blocking(move || export_notebook(&args)).await.map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
+// -- "Resultados del notebook" (notebook::local) -----------------------------------------------
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRefsArgs {
+    pub sql: String,
+    /// The SQL cells above, in order (their names, text and whether they
+    /// run on the notebook's results).
+    pub sources: Vec<notebook::local::LocalSource>,
+}
+
+/// The cells above that a "results" cell's SQL needs, in loading order
+/// (through the "results" cells it names): the UI resolves and connects
+/// their targets before running it.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_local_refs(args: LocalRefsArgs) -> CommandResult<Vec<String>> {
+    Ok(notebook::local::needed(&args.sql, &args.sources).into_iter().map(|i| args.sources[i].name.clone()).collect())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunLocalArgs {
+    /// The notebook tab (its DuckDB session is `nbx:<tab>`, closed with it).
+    pub tab_id: String,
+    pub sql: String,
+    pub max_rows: usize,
+    /// Rows per loaded table (Settings › Notebooks).
+    #[serde(default)]
+    pub row_cap: Option<u64>,
+    pub sources: Vec<notebook::local::LocalSource>,
+}
+
+/// Run a "Resultados del notebook" cell: DuckDB SQL over the results of the
+/// cells above (docs/notebooks.md › Notebook results).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_run_local(state: tauri::State<'_, crate::state::AppState>, args: RunLocalArgs) -> CommandResult<notebook::local::RunLocalResponse> {
+    let cap = args.row_cap.unwrap_or(notebook::local::DEFAULT_ROW_CAP);
+    notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

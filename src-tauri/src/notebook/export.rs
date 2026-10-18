@@ -521,6 +521,7 @@ mod tests {
                 execution_count: None,
                 result: None,
                 raw: None,
+                name: None,
             },
             NotebookCell {
                 id: "c".into(),
@@ -533,6 +534,7 @@ mod tests {
                 execution_count: Some(1),
                 result: Some(r),
                 raw: None,
+                name: None,
             },
         ];
         nb
