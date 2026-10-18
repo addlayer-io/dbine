@@ -67,10 +67,13 @@ pub struct Measure {
 
 /// A grouped chart: one category per value of `x` (and one series per
 /// value of `split`, when given), each measure aggregated per group.
-/// Columns are named as the query's result names them.
+/// Without `x`, the measures over the whole result: one category (`None`)
+/// and no split (a KPI). Columns are named as the query's result names
+/// them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregateSpec {
-    pub x: String,
+    #[serde(default)]
+    pub x: Option<String>,
     #[serde(default)]
     pub split: Option<String>,
     pub measures: Vec<Measure>,
@@ -150,8 +153,13 @@ pub struct Histogram {
     pub non_numeric: u64,
 }
 
+/// Outlier values a box carries at most (the most extreme ones);
+/// [`BoxStats::outlier_count`] counts them all.
+pub const MAX_BOX_OUTLIERS: usize = 100;
+
 /// One box of a box plot (quartiles by linear interpolation, as NumPy's
-/// default and R's type 7).
+/// default and R's type 7; whiskers as Tukey's, like the chart over the
+/// loaded rows).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BoxStats {
     /// The `by` value (`None`: NULL, or no `by`).
@@ -163,6 +171,15 @@ pub struct BoxStats {
     pub median: f64,
     pub q3: f64,
     pub max: f64,
+    /// Tukey's whiskers: the lowest and highest values within 1.5 IQR of
+    /// the box.
+    pub whisker_low: f64,
+    pub whisker_high: f64,
+    /// Values past the whiskers.
+    pub outlier_count: u64,
+    /// The most extreme of them, at most [`MAX_BOX_OUTLIERS`], ascending.
+    #[serde(default)]
+    pub outliers: Vec<f64>,
 }
 
 /// A chart's data over the whole result of its query.
@@ -279,7 +296,7 @@ fn order_labels(a: &Option<String>, b: &Option<String>) -> Ordering {
 
 /// The spec with its limits applied, or why it can't be charted.
 pub fn validate(spec: &AggregateSpec) -> Result<AggregateSpec> {
-    if spec.x.trim().is_empty() {
+    if spec.x.as_deref().is_some_and(|x| x.trim().is_empty()) {
         return Err(Error::Query("falta la columna del eje X".into()));
     }
     if spec.measures.is_empty() || spec.measures.len() > MAX_MEASURES {
@@ -296,6 +313,9 @@ pub fn validate(spec: &AggregateSpec) -> Result<AggregateSpec> {
     let mut s = spec.clone();
     s.max_groups = s.max_groups.clamp(1, MAX_GROUPS);
     s.split = s.split.filter(|c| !c.trim().is_empty());
+    if s.x.is_none() && s.split.is_some() {
+        return Err(Error::Query("un gráfico sin eje X no se separa en series".into()));
+    }
     Ok(s)
 }
 
@@ -406,7 +426,8 @@ fn has_top(query: &str) -> bool {
 /// `GROUP BY` of `spec`: columns `dbine_g0` (x), `dbine_g1` (split),
 /// `dbine_n` (rows of the group), then `dbine_m0`… (the measures), ordered
 /// by the groups and limited to `max_groups + 1` rows (one more tells the
-/// result was cut).
+/// result was cut). Without `x`: `dbine_n` and the measures over the whole
+/// result, one row, no `GROUP BY`.
 pub fn grouped_sql(shape: &SqlShape, query: &str, spec: &AggregateSpec) -> Result<String> {
     let spec = validate(spec)?;
     let q = |c: &str| quote_ident(shape.quote, c);
@@ -421,8 +442,12 @@ pub fn grouped_sql(shape: &SqlShape, query: &str, spec: &AggregateSpec) -> Resul
             inner = inner[..at].trim_end().to_string();
         }
     }
-    let mut cols = vec![format!("{} AS {}", q(&spec.x), q("dbine_g0"))];
-    let mut keys = vec![q(&spec.x)];
+    let mut cols = Vec::new();
+    let mut keys = Vec::new();
+    if let Some(x) = &spec.x {
+        cols.push(format!("{} AS {}", q(x), q("dbine_g0")));
+        keys.push(q(x));
+    }
     if let Some(s) = &spec.split {
         cols.push(format!("{} AS {}", q(s), q("dbine_g1")));
         keys.push(q(s));
@@ -436,6 +461,10 @@ pub fn grouped_sql(shape: &SqlShape, query: &str, spec: &AggregateSpec) -> Resul
         };
         cols.push(format!("{e} AS {}", q(&format!("dbine_m{i}"))));
     }
+    let alias = if shape.alias_as { "AS dbine_q" } else { "dbine_q" };
+    if keys.is_empty() {
+        return Ok(format!("SELECT {}\nFROM (\n{inner}\n) {alias}", cols.join(", ")));
+    }
     let n = u64::from(spec.max_groups) + 1;
     let head = match shape.limit {
         RowLimit::Top => format!("SELECT TOP {n} "),
@@ -447,7 +476,6 @@ pub fn grouped_sql(shape: &SqlShape, query: &str, spec: &AggregateSpec) -> Resul
         RowLimit::FetchFirst => format!("\nFETCH FIRST {n} ROWS ONLY"),
         _ => String::new(),
     };
-    let alias = if shape.alias_as { "AS dbine_q" } else { "dbine_q" };
     let keys = keys.join(", ");
     Ok(format!("{head}{}\nFROM (\n{inner}\n) {alias}\nGROUP BY {keys}\nORDER BY {keys}{tail}", cols.join(", ")))
 }
@@ -520,7 +548,8 @@ fn shape(mut rows: Vec<GroupRow>, spec: &AggregateSpec, method: AggregateMethod,
 /// columns, by position).
 pub fn from_grouped(spec: &AggregateSpec, rows: &[Vec<Value>]) -> Result<ChartAggregate> {
     let spec = validate(spec)?;
-    let base = 1 + usize::from(spec.split.is_some());
+    let at_split = usize::from(spec.x.is_some());
+    let base = at_split + usize::from(spec.split.is_some());
     let width = base + 1 + spec.measures.len();
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
@@ -528,13 +557,24 @@ pub fn from_grouped(spec: &AggregateSpec, rows: &[Vec<Value>]) -> Result<ChartAg
             return Err(Error::Query("el resultado agrupado no tiene las columnas esperadas".into()));
         }
         out.push(GroupRow {
-            x: label(&r[0]),
-            split: spec.split.as_ref().and_then(|_| label(&r[1])),
+            x: spec.x.as_ref().and_then(|_| label(&r[0])),
+            split: spec.split.as_ref().and_then(|_| label(&r[at_split])),
             n: num(&r[base]).map_or(0, |n| n.max(0.0) as u64),
             values: (0..spec.measures.len()).map(|i| num(&r[base + 1 + i])).collect(),
         });
     }
+    if spec.x.is_none() {
+        out.truncate(1);
+        if out.is_empty() {
+            out.push(empty_total(&spec));
+        }
+    }
     Ok(shape(out, &spec, AggregateMethod::Server, false))
+}
+
+/// The total of no rows, as SQL gives it: counts 0, the rest none.
+fn empty_total(spec: &AggregateSpec) -> GroupRow {
+    GroupRow { x: None, split: None, n: 0, values: spec.measures.iter().map(|m| Acc::default().value(m.func)).collect() }
 }
 
 // -- client: aggregate the rows as they stream in -------------------------------------------
@@ -582,7 +622,7 @@ impl Acc {
 /// Column indices of the result set being aggregated.
 #[derive(Debug, Clone)]
 enum Cols {
-    Group { x: usize, split: Option<usize>, measures: Vec<Option<usize>> },
+    Group { x: Option<usize>, split: Option<usize>, measures: Vec<Option<usize>> },
     Histogram { column: usize },
     Box { column: usize, by: Option<usize> },
 }
@@ -660,7 +700,7 @@ impl Aggregator {
         let find = |name: &str| columns.iter().position(|c| c.name == name).ok_or_else(|| name.to_string());
         Ok(match &self.kind {
             ChartKind::Group(spec) => Cols::Group {
-                x: find(&spec.x)?,
+                x: spec.x.as_deref().map(find).transpose()?,
                 split: spec.split.as_deref().map(find).transpose()?,
                 measures: spec.measures.iter().map(|m| m.column.as_deref().map(find).transpose()).collect::<std::result::Result<_, _>>()?,
             },
@@ -673,7 +713,7 @@ impl Aggregator {
         let cell = |i: usize| row.get(i).unwrap_or(&Value::Null);
         match cols {
             Cols::Group { x, split, measures } => {
-                let key = (label(cell(*x)), split.and_then(|s| label(cell(s))));
+                let key = (x.and_then(|x| label(cell(x))), split.and_then(|s| label(cell(s))));
                 let i = match self.groups.get(&key) {
                     Some(i) => *i,
                     None if self.group_rows.len() >= GROUPS_IN_MEMORY => {
@@ -732,6 +772,9 @@ impl Aggregator {
                     .map(|((x, split), n, accs)| GroupRow { x, split, n, values: accs.iter().zip(&spec.measures).map(|(a, m)| a.value(m.func)).collect() })
                     .collect();
                 rows.sort_by(|a, b| order_labels(&a.x, &b.x).then_with(|| order_labels(&a.split, &b.split)));
+                if spec.x.is_none() && rows.is_empty() {
+                    rows.push(empty_total(spec));
+                }
                 shape(rows, spec, AggregateMethod::Client, self.groups_dropped)
             }
             ChartKind::Histogram { bins, .. } => {
@@ -823,14 +866,39 @@ fn box_stats(category: Option<String>, values: &mut [f64]) -> Option<BoxStats> {
         return None;
     }
     values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    let (q1, q3) = (quantile(values, 0.25), quantile(values, 0.75));
+    let iqr = q3 - q1;
+    let (lo_fence, hi_fence) = (q1 - 1.5 * iqr, q3 + 1.5 * iqr);
+    // Sorted: the outliers are a prefix and a suffix; the whiskers the
+    // values next to them (the box's quartiles are always within).
+    let lo = values.partition_point(|v| *v < lo_fence);
+    let hi = values.partition_point(|v| *v <= hi_fence);
+    let (low, high) = (&values[..lo], &values[hi..]);
+    // The most extreme ones when there are too many: from both ends, the
+    // one further from its quartile first.
+    let (mut i, mut j) = (0, high.len());
+    while i + (high.len() - j) < MAX_BOX_OUTLIERS && (i < low.len() || j > 0) {
+        let take_low = j == 0 || (i < low.len() && q1 - low[i] >= high[j - 1] - q3);
+        if take_low {
+            i += 1;
+        } else {
+            j -= 1;
+        }
+    }
+    let mut outliers = low[..i].to_vec();
+    outliers.extend_from_slice(&high[j..]);
     Some(BoxStats {
         category,
         count: values.len() as u64,
         min: values[0],
-        q1: quantile(values, 0.25),
+        q1,
         median: quantile(values, 0.5),
-        q3: quantile(values, 0.75),
+        q3,
         max: values[values.len() - 1],
+        whisker_low: values[lo],
+        whisker_high: values[hi - 1],
+        outlier_count: (low.len() + high.len()) as u64,
+        outliers,
     })
 }
 
@@ -845,7 +913,7 @@ mod tests {
     }
 
     fn spec(x: &str, split: Option<&str>, measures: Vec<Measure>, max_groups: u32) -> AggregateSpec {
-        AggregateSpec { x: x.into(), split: split.map(Into::into), measures, max_groups }
+        AggregateSpec { x: Some(x.into()), split: split.map(Into::into), measures, max_groups }
     }
 
     fn cols(names: &[&str]) -> Vec<ResultColumn> {
@@ -1058,9 +1126,95 @@ mod tests {
         assert_eq!(b.len(), 1);
         assert_eq!(
             b[0],
-            BoxStats { category: Some("a".into()), count: 4, min: 1.0, q1: 1.75, median: 2.5, q3: 3.25, max: 4.0 }
+            BoxStats {
+                category: Some("a".into()),
+                count: 4,
+                min: 1.0,
+                q1: 1.75,
+                median: 2.5,
+                q3: 3.25,
+                max: 4.0,
+                whisker_low: 1.0,
+                whisker_high: 4.0,
+                outlier_count: 0,
+                outliers: vec![],
+            }
         );
+        // One box over everything: 10 is past the upper fence (4 + 1.5 × 2).
         let out = feed(ChartKind::Box { column: "v".into(), by: None, max_groups: 10 }, 100, &["v", "g"], &rows);
-        assert_eq!(out.boxes.unwrap()[0].median, 3.0);
+        let b = &out.boxes.unwrap()[0];
+        assert_eq!((b.median, b.min, b.max), (3.0, 1.0, 10.0));
+        assert_eq!((b.whisker_low, b.whisker_high, b.outlier_count, b.outliers.clone()), (1.0, 4.0, 1, vec![10.0]));
+    }
+
+    #[test]
+    fn box_whiskers_are_tukeys_and_outliers_are_capped() {
+        // 0..1000 and outliers on both sides: 20 far below, 200 above.
+        let mut v: Vec<f64> = (0..1000).map(f64::from).collect();
+        v.extend((0..20).map(|i| -10_000.0 - f64::from(i)));
+        v.extend((0..200).map(|i| 10_000.0 + f64::from(i)));
+        let b = box_stats(None, &mut v).unwrap();
+        let (q1, q3) = (b.q1, b.q3);
+        let (lo, hi) = (q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1));
+        let inside: Vec<f64> = v.iter().copied().filter(|x| *x >= lo && *x <= hi).collect();
+        assert_eq!(b.whisker_low, inside.iter().copied().fold(f64::INFINITY, f64::min));
+        assert_eq!(b.whisker_high, inside.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+        assert_eq!(b.outlier_count as usize, v.len() - inside.len());
+        assert_eq!(b.outliers.len(), MAX_BOX_OUTLIERS);
+        // Ascending, and the most extreme of each side.
+        assert!(b.outliers.windows(2).all(|w| w[0] <= w[1]));
+        assert_eq!(b.outlier_count, 220);
+        assert_eq!((b.whisker_low, b.whisker_high), (0.0, 999.0));
+        // The lows are further from the box: all 20, then the top 80 highs.
+        assert_eq!(b.outliers.first(), Some(&-10_019.0));
+        assert_eq!(b.outliers[20], 10_120.0);
+        assert_eq!(b.outliers.last(), Some(&10_199.0));
+        // A constant column: no outliers, the whiskers at the value.
+        let b = box_stats(None, &mut [5.0, 5.0, 5.0]).unwrap();
+        assert_eq!((b.whisker_low, b.whisker_high, b.outlier_count), (5.0, 5.0, 0));
+    }
+
+    fn total(measures: Vec<Measure>) -> AggregateSpec {
+        AggregateSpec { x: None, split: None, measures, max_groups: 1000 }
+    }
+
+    #[test]
+    fn a_total_has_no_group_by() {
+        let s = total(vec![m(None, AggFn::Count), m(Some("v"), AggFn::Avg)]);
+        assert_eq!(
+            grouped_sql(&SqlShape::for_dialect("postgres").unwrap(), "SELECT * FROM t", &s).unwrap(),
+            "SELECT COUNT(*) AS \"dbine_n\", COUNT(*) AS \"dbine_m0\", AVG(\"v\") AS \"dbine_m1\"\nFROM (\nSELECT * FROM t\n) AS dbine_q"
+        );
+        // No TOP / FETCH FIRST / FIRST: one row anyway; T-SQL still drops the ORDER BY.
+        let ms = grouped_sql(&SqlShape::for_dialect("mssql").unwrap(), "SELECT v FROM t ORDER BY v", &s).unwrap();
+        assert_eq!(ms, "SELECT COUNT(*) AS [dbine_n], COUNT(*) AS [dbine_m0], AVG([v] * 1.0E0) AS [dbine_m1]\nFROM (\nSELECT v FROM t\n) AS dbine_q");
+        let ora = grouped_sql(&SqlShape::for_dialect("oracle").unwrap(), "SELECT v FROM t", &s).unwrap();
+        assert!(ora.ends_with(") dbine_q") && !ora.contains("FETCH"), "{ora}");
+        assert!(!grouped_sql(&SqlShape::for_dialect("informix").unwrap(), "SELECT v FROM t", &s).unwrap().contains("FIRST"));
+        // A split needs an X.
+        assert!(validate(&AggregateSpec { split: Some("k".into()), ..s.clone() }).is_err());
+        // The UI's JSON: `x` null (or left out).
+        let k: ChartKind = serde_json::from_value(json!({ "kind": "group", "x": null, "split": null, "measures": [{ "column": null, "func": "count" }] })).unwrap();
+        assert_eq!(k, ChartKind::Group(total(vec![m(None, AggFn::Count)])));
+        // The server's one row.
+        let out = from_grouped(&s, &[vec![json!(7), json!(7), json!("2.5")]]).unwrap();
+        assert_eq!(out.categories, vec![None]);
+        assert_eq!((out.series[0].values.clone(), out.series[1].values.clone()), (vec![Some(7.0)], vec![Some(2.5)]));
+        assert_eq!(out.rows_scanned, Some(7));
+    }
+
+    #[test]
+    fn the_client_totals_like_sql() {
+        let s = total(vec![m(None, AggFn::Count), m(Some("v"), AggFn::Count), m(Some("v"), AggFn::Sum), m(Some("v"), AggFn::Avg), m(Some("v"), AggFn::Min), m(Some("v"), AggFn::Max)]);
+        let rows: Vec<Vec<Value>> = [json!(1), json!(null), json!("4"), json!("x"), json!(-2)].into_iter().map(|v| vec![json!("g"), v]).collect();
+        let out = feed(ChartKind::Group(s.clone()), 100, &["g", "v"], &rows);
+        assert_eq!(out.categories, vec![None]);
+        let got: Vec<Option<f64>> = out.series.iter().map(|x| x.values[0]).collect();
+        assert_eq!(got, vec![Some(5.0), Some(4.0), Some(3.0), Some(1.0), Some(-2.0), Some(4.0)]);
+        // No rows: COUNT 0, the rest NULL (as SQL without GROUP BY).
+        let out = feed(ChartKind::Group(s), 100, &["g", "v"], &[]);
+        let got: Vec<Option<f64>> = out.series.iter().map(|x| x.values[0]).collect();
+        assert_eq!(got, vec![Some(0.0), Some(0.0), None, None, None, None]);
+        assert_eq!(out.rows_scanned, Some(0));
     }
 }

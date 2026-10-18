@@ -1115,10 +1115,11 @@ export interface Measure {
   func: AggFn;
 }
 /** A grouped chart: one category per `x` value, one series per measure
- *  (per measure and `split` value with a split). Columns as the query's
- *  result names them. */
+ *  (per measure and `split` value with a split). `x` null: the measures over
+ *  the whole result (a KPI), one category (null) and no split. Columns as
+ *  the query's result names them. */
 export interface AggregateSpec {
-  x: string;
+  x: string | null;
   split: string | null;
   measures: Measure[];
   /** Most groups (x, or x × split pairs) in the answer (1–10000; default 1000). */
@@ -1129,8 +1130,9 @@ export type ChartKind =
   | ({ kind: 'group' } & AggregateSpec)
   /** Equal-width bins (1–200, default 20) between the column's min and max. */
   | { kind: 'histogram'; column: string; bins?: number }
-  /** Min, quartiles (linear interpolation) and max per `by` value (one box
-   *  with `by` null); at most `max_groups` boxes (default 50). */
+  /** Min, quartiles (linear interpolation), max and Tukey's whiskers per
+   *  `by` value (one box with `by` null); at most `max_groups` boxes
+   *  (default 50). */
   | { kind: 'box'; column: string; by: string | null; max_groups?: number };
 /** One series: measure `measure` (index in `measures`) for split value
  *  `split` (null without a split, or the NULL split value); one value per
@@ -1156,6 +1158,13 @@ export interface BoxStats {
   median: number;
   q3: number;
   max: number;
+  /** Tukey's whiskers: the lowest and highest values within 1.5 IQR of the box. */
+  whisker_low: number;
+  whisker_high: number;
+  /** Values past the whiskers. */
+  outlier_count: number;
+  /** The most extreme of them (at most 100), ascending. */
+  outliers: number[];
 }
 /** A chart's data over the whole result of its query. Category and split
  *  labels are the cells as `String(v)` gives them; null is NULL (show the

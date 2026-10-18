@@ -1,33 +1,14 @@
 // A notebook's charts as images for its HTML / Markdown export: each SQL cell
 // shown as a chart gets all its charts rendered (light theme, PNG, twice the
 // pixels) from the run made here, else from what the file kept. The export
-// command embeds them (HTML) or writes them next to the .md file.
-//
-// The invoke below mirrors src-tauri/src/commands/notebook.rs (notebook_export
-// with its optional `images` and `path`); it belongs in web/src/api/notebook.ts
-// (owned by another session while this was written).
+// itself is notebookApi.export (web/src/api/notebook.ts), which embeds them
+// (HTML) or writes them next to the .md file.
 
-import { invoke } from '@tauri-apps/api/core';
 import type { Cell, Notebook, NotebookCell, QueryOutcome, ResultColumn } from '../api/types';
-import type { PreviewLimits } from '../api/notebook';
+import type { ExportImage } from '../api/notebook';
 import { t } from '../i18n';
 import { readCellCharts } from './chartSettings';
 import { chartPng } from './chartRender';
-
-export interface ExportImage {
-  cellId: string;
-  title: string;
-  /** PNG, base64. */
-  png: string;
-}
-
-/** The export (see notebookApi.export) with chart images; `path`: Markdown
- *  with images is written by the command (the .md and its `_files` folder). */
-export function exportNotebook(notebook: Notebook, format: 'html' | 'markdown', limits: PreviewLimits, images: ExportImage[], path?: string) {
-  return invoke<string>('notebook_export', {
-    args: { notebook, format, rowsPerCell: limits.rows, bytesPerCell: limits.bytes, images, path: path ?? null },
-  });
-}
 
 function firstSet(cell: NotebookCell, live: QueryOutcome | null): { columns: ResultColumn[]; rows: Cell[][]; cut: boolean } | null {
   const l = live?.results.find((r) => r.columns.length);

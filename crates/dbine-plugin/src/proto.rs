@@ -743,7 +743,7 @@ mod tests {
                     driver: "postgres".into(),
                     query: "SELECT * FROM t".into(),
                     spec: dbine_driver::AggregateSpec {
-                        x: "a".into(),
+                        x: Some("a".into()),
                         split: None,
                         measures: vec![dbine_driver::Measure { column: None, func: dbine_driver::AggFn::Count }],
                         max_groups: 10,

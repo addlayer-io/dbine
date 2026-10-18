@@ -2,26 +2,31 @@
 // (web/src/api/chart.ts) and its answer as the chart's shape. Pure.
 //
 // Group charts (an aggregation other than "none") go as `group`; histograms
-// and box plots as themselves. A KPI goes as a box over the whole column:
-// its count (COUNT(*) is the rows read), min and max come from there; a sum
-// or an average over the whole result isn't offered (the command has no
-// ungrouped aggregate).
+// and box plots as themselves. A KPI goes as a `group` without X (one row of
+// measures): its aggregate, and COUNT of the column for the "rows with a
+// value" caption.
 
 import type { ChartAggregate, ChartKind as AggregateKind } from '../api/types';
 import { isRawChart, ONE_VALUE, SPLITS, type ChartAgg, type ChartSettings } from './chartSettings';
-import { BOX_MAX_GROUPS, BOX_SERIES, HEATMAP_MAX_X, HEATMAP_MAX_Y, MAX_SERIES, type Shaped, type ShapeLabels } from './chartShape';
+import { BOX_MAX_GROUPS, BOX_MAX_OUTLIERS, BOX_SERIES, HEATMAP_MAX_X, HEATMAP_MAX_Y, MAX_SERIES, type Shaped, type ShapeLabels } from './chartShape';
 
 /** Groups asked for at most (x, or x × split pairs). */
 export const WHOLE_MAX_GROUPS = 2000;
 
 /** The request for these settings; null when the chart can't be computed
- *  over the whole result (a scatter, a value per row, a KPI's sum / average). */
+ *  over the whole result (a scatter, a value per row). */
 export function aggregateRequest(s: ChartSettings): AggregateKind | null {
   const y = s.y[0];
   if (!y) return null;
   if (s.kind === 'histogram') return s.bins ? { kind: 'histogram', column: y, bins: Math.min(200, s.bins) } : { kind: 'histogram', column: y };
   if (s.kind === 'box') return { kind: 'box', column: y, by: s.x, max_groups: BOX_MAX_GROUPS };
-  if (s.kind === 'kpi') return ['count', 'min', 'max'].includes(s.agg) ? { kind: 'box', column: y, by: null, max_groups: 1 } : null;
+  if (s.kind === 'kpi') {
+    const func: Exclude<ChartAgg, 'none'> = s.agg === 'none' ? 'sum' : s.agg;
+    return {
+      kind: 'group', x: null, split: null,
+      measures: [{ column: func === 'count' ? null : y, func }, { column: y, func: 'count' }],
+    };
+  }
   if (isRawChart(s) || !s.x || s.agg === 'none') return null;
   const split = s.kind === 'heatmap' || SPLITS.includes(s.kind) ? s.split : null;
   if (s.kind === 'heatmap' && !split) return null;
@@ -71,23 +76,29 @@ export function shapeFromAggregate(s: ChartSettings, a: ChartAggregate, L: Shape
     return { cats: h.counts.map((_, i) => L.bin(h.edges[i], h.edges[i + 1])), series: [[...h.counts]], names: [y] };
   }
   if (s.kind === 'kpi') {
-    const b = a.boxes?.[0];
-    if (!b) return { cats: [y], series: [[NaN]], names: [L.series(s.agg, y)], count: 0 };
-    const value = s.agg === 'count' ? a.rows_scanned ?? b.count : s.agg === 'min' ? b.min : b.max;
-    return { cats: [y], series: [[value]], names: [L.series(s.agg, y)], count: b.count };
+    const agg: ChartAgg = s.agg === 'none' ? 'sum' : s.agg;
+    const at = (m: number) => nan(a.series.find((x) => x.measure === m)?.values[0]);
+    const value = at(0);
+    // "Cantidad" counts the rows, as over the loaded rows; else the rows with a value.
+    const count = agg === 'count' ? value : at(1);
+    return { cats: [y], series: [[value]], names: [L.series(agg, y)], count: Number.isFinite(count) ? count : 0 };
   }
   if (s.kind === 'box') {
+    // Tukey's whiskers and the points past them, as over the loaded rows.
     const boxes = a.boxes ?? [];
-    const sh: Shaped = {
-      cats: boxes.map((b) => (b.category ?? (s.x ? L.nul : y))),
-      series: BOX_SERIES.map((k) => boxes.map((b) => b[k])),
+    const cats = boxes.map((b) => (b.category ?? (s.x ? L.nul : y)));
+    let order = boxes.map((_, i) => i);
+    if (s.sort === 'value') order = order.sort((p, q) => boxes[q].median - boxes[p].median);
+    else if (s.sort === 'label') order = order.sort((p, q) => cats[p].localeCompare(cats[q], undefined, { numeric: true }));
+    const five = (b: (typeof boxes)[number]) => [b.whisker_low, b.q1, b.median, b.q3, b.whisker_high];
+    const outliers: [number, number][] = [];
+    order.forEach((i, k) => { for (const o of (boxes[i].outliers ?? []).slice(0, BOX_MAX_OUTLIERS)) outliers.push([k, o]); });
+    return {
+      cats: order.map((i) => cats[i]),
+      series: [0, 1, 2, 3, 4].map((j) => order.map((i) => five(boxes[i])[j])),
       names: [...BOX_SERIES],
+      outliers,
     };
-    if (s.sort === 'value') {
-      const idx = sh.cats.map((_, i) => i).sort((p, q) => sh.series[2][q] - sh.series[2][p]);
-      return { ...sh, cats: idx.map((i) => sh.cats[i]), series: sh.series.map((v) => idx.map((i) => v[i])) };
-    }
-    return sortShape(sh, s.sort === 'label' ? 'label' : 'none', false);
   }
   const cats = a.categories.map((c) => c ?? L.nul);
   const split = a.series.some((x) => x.split !== null) || (s.split !== null && (s.kind === 'heatmap' || SPLITS.includes(s.kind)));

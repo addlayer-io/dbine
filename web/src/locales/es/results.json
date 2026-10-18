@@ -278,7 +278,7 @@
       "label": "Calcular sobre todo el resultado",
       "title": "Vuelve a ejecutar la consulta agrupada (solo lectura) para graficar todas sus filas, no solo las cargadas",
       "needsRun": "Ejecutá la consulta para calcular el gráfico sobre todo el resultado",
-      "unsupported": "Este gráfico no se puede calcular sobre todo el resultado (dispersión, sin agrupar, o suma y promedio en un indicador)",
+      "unsupported": "Este gráfico no se puede calcular sobre todo el resultado (dispersión o sin agrupar)",
       "running": "Calculando sobre todo el resultado…",
       "failed": "No se pudo calcular sobre todo el resultado: {{error}}. Se muestran las filas cargadas.",
       "retry": "Reintentar",

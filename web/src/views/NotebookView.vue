@@ -12,7 +12,7 @@ import NotebookCellView, { type CellContext } from '../components/notebook/Noteb
 import NotebookTargetDialog from '../components/notebook/NotebookTargetDialog.vue';
 import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { saveTextFile } from '../composables/files';
-import { chartImages, exportNotebook } from '../composables/notebookExport';
+import { chartImages } from '../composables/notebookExport';
 import {
   BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, EditVersion, PREVIEW_NOTICE_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, RunLock,
   applyProjectDefault, clamp, describeResult, emptyNotebook, emptyTarget, newCell, outcomeToResult, outline, promptVariant, resultToOutcome,
@@ -762,11 +762,11 @@ async function exportAs(format: 'html' | 'markdown') {
       const picked = await saveDialog({ defaultPath: `${base}.md`, filters: [{ name: 'Markdown', extensions: ['md'] }] });
       if (!picked) return;
       const path = /\.(md|markdown)$/i.test(picked) ? picked : `${picked}.md`;
-      await exportNotebook(n, format, limits(), images, path);
+      await notebookApi.export(n, format, limits(), images, path);
       ElMessage.success({ message: t('notebook:toolbar.exportedWithCharts', { count: images.length }), duration: 2500 });
       return;
     }
-    const text = await exportNotebook(n, format, limits(), format === 'html' ? images : []);
+    const text = await notebookApi.export(n, format, limits(), format === 'html' ? images : []);
     await saveTextFile(text, `${base}.${format === 'html' ? 'html' : 'md'}`, [{ name: format === 'html' ? 'HTML' : 'Markdown', extensions: [format === 'html' ? 'html' : 'md'] }]);
   } catch (e) {
     ElMessage.error(errorMessage(e));

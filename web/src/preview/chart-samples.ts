@@ -83,7 +83,7 @@ export function notebookCellPreview(params: URLSearchParams) {
       charts: [
         { title: 'Ventas (todo)', type: 'bar', x: 'ciudad', y: ['total'], agg: 'sum', sort: 'value', split: null, whole: true },
         { title: 'Pedidos', type: 'box', x: 'ciudad', y: ['pedidos'], agg: 'none', sort: 'none', split: null, whole: true },
-        { title: 'Máximo', type: 'kpi', x: null, y: ['total'], agg: 'max', sort: 'none', split: null, whole: true },
+        { title: 'Promedio', type: 'kpi', x: null, y: ['total'], agg: 'avg', sort: 'none', split: null, whole: true },
       ],
     }
     : set === 'charts'
@@ -119,12 +119,26 @@ export function installWholeMock(params: URLSearchParams) {
       cancelled = () => { clearTimeout(t); rej({ kind: 'cancelled', message: 'cancelada' }); };
     });
     if (params.get('fail')) throw { kind: 'query', message: 'relation "ventas" does not exist' };
-    const chart = args.args.chart as { kind: string; measures?: unknown[] };
+    const chart = args.args.chart as { kind: string; x?: string | null; measures?: unknown[] };
     const cities = ['Buenos Aires', 'Córdoba', 'Rosario', 'Mendoza', 'La Plata', 'Tucumán', null];
     if (chart.kind === 'box') {
       return {
         categories: [], series: [], histogram: null, method: 'client', rows_scanned: 1_000_000, rows_capped: true, groups_truncated: false,
-        boxes: cities.map((c, i) => ({ category: c, count: 140_000 + i, min: 10 + i, q1: 80 + i * 4, median: 120 + i * 6, q3: 160 + i * 5, max: 260 + i * 9 })),
+        boxes: cities.map((c, i) => {
+          const [q1, median, q3] = [80 + i * 4, 120 + i * 6, 160 + i * 5];
+          const outliers = [-40 - i * 7, q3 + 140 + i * 3, q3 + 190 + i * 11, 420 + i * 9];
+          return {
+            category: c, count: 140_000 + i, min: outliers[0], q1, median, q3, max: outliers[3],
+            whisker_low: 18 + i, whisker_high: q3 + 95 + i * 2, outlier_count: 2_400 + i * 50, outliers,
+          };
+        }),
+      };
+    }
+    if (chart.kind === 'group' && !chart.x) {
+      // A KPI: one row of measures over the whole result.
+      return {
+        categories: [null], boxes: null, histogram: null, method: 'server', rows_scanned: 1_284_310, rows_capped: false, groups_truncated: false,
+        series: [{ measure: 0, split: null, values: [7_342.55] }, { measure: 1, split: null, values: [1_280_002] }],
       };
     }
     return {

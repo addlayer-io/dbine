@@ -65,7 +65,35 @@ fn spec(x: &str, v: &str, split: Option<&str>) -> AggregateSpec {
     } else {
         vec![m(None, AggFn::Count), m(Some(v), AggFn::Count), m(Some(v), AggFn::Sum), m(Some(v), AggFn::Avg), m(Some(v), AggFn::Min), m(Some(v), AggFn::Max)]
     };
-    AggregateSpec { x: x.into(), split: split.map(Into::into), measures, max_groups: 100 }
+    AggregateSpec { x: Some(x.into()), split: split.map(Into::into), measures, max_groups: 100 }
+}
+
+/// The KPI's total over the whole result: no X, every measure of `v`.
+fn total(v: &str) -> AggregateSpec {
+    AggregateSpec { x: None, ..spec("", v, None) }
+}
+
+/// What `total` should give, from the sample: COUNT(*), COUNT(v), SUM(v),
+/// AVG(v), MIN(v), MAX(v).
+fn expected_total() -> Vec<Option<f64>> {
+    let v: Vec<f64> = (1..=ROWS).filter_map(|i| sample(i).3).map(f64::from).collect();
+    let sum: f64 = v.iter().sum();
+    vec![
+        Some(f64::from(ROWS)),
+        Some(v.len() as f64),
+        Some(sum),
+        Some(sum / v.len() as f64),
+        v.iter().copied().reduce(f64::min),
+        v.iter().copied().reduce(f64::max),
+    ]
+}
+
+fn assert_total(engine: &str, chart: &ChartAggregate) {
+    assert_eq!(chart.categories, vec![None], "{engine}");
+    let got: Vec<Option<f64>> = chart.series.iter().map(|s| s.values[0]).collect();
+    let want = expected_total();
+    assert!(got.len() == want.len() && got.iter().zip(&want).all(|(a, b)| close(*a, *b)), "{engine} total: {got:?} vs {want:?}");
+    assert_eq!(chart.rows_scanned, Some(u64::from(ROWS)), "{engine} total");
 }
 
 /// `chart` (no split) against the hand-written GROUP BY's rows: x, then one
@@ -168,6 +196,12 @@ async fn check(d: &dyn Driver, s: &mut dyn Session, setup: &mut dyn Session, c: 
     few.max_groups = 2;
     let got = run(d, s, c.query, &ChartKind::Group(few)).await;
     assert!(got.groups_truncated && got.categories.len() == 2, "{}: {got:?}", c.engine);
+    // The total (a KPI): no GROUP BY on the server, the same numbers in DBine.
+    let kpi = ChartKind::Group(total(c.v));
+    let got = run(d, s, c.query, &kpi).await;
+    assert_eq!(got.method, want, "{} total", c.engine);
+    assert_total(c.engine, &got);
+    assert_total(&format!("{} (client)", c.engine), &client(s, c.query, &kpi).await);
     // Histogram and box plot (always in DBine) over every row.
     let h = run(d, s, c.query, &ChartKind::Histogram { column: c.v.into(), bins: 5 }).await;
     let hist = h.histogram.unwrap();
@@ -180,6 +214,13 @@ async fn check(d: &dyn Driver, s: &mut dyn Session, setup: &mut dyn Session, c: 
     all.sort_by(f64::total_cmp);
     let norte = boxes.iter().find(|b| b.category.as_deref() == Some("norte")).unwrap();
     assert_eq!((norte.count as usize, norte.min, norte.max), (all.len(), all[0], all[all.len() - 1]), "{}", c.engine);
+    // Tukey's whiskers, as the chart over the loaded rows draws them.
+    let (q1, q3) = (norte.q1, norte.q3);
+    let (lo, hi) = (q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1));
+    let inside: Vec<f64> = all.iter().copied().filter(|v| *v >= lo && *v <= hi).collect();
+    assert_eq!((norte.whisker_low, norte.whisker_high), (inside[0], inside[inside.len() - 1]), "{}", c.engine);
+    assert_eq!(norte.outlier_count as usize, all.len() - inside.len(), "{}", c.engine);
+    assert_eq!(norte.outliers.len(), norte.outlier_count as usize, "{}", c.engine);
 }
 
 fn cfg(engine: &str, env: &str, default_url: &str) -> ConnectionConfig {
@@ -413,7 +454,7 @@ async fn chart_live_redis() {
     let col = out.results.iter().find(|r| !r.columns.is_empty()).map(|r| r.columns.last().unwrap().name.clone()).unwrap();
     eprintln!("[redis] columns: {:?}", out.results[0].columns);
     let chart = ChartKind::Group(AggregateSpec {
-        x: col.clone(),
+        x: Some(col.clone()),
         split: None,
         measures: vec![Measure { column: None, func: AggFn::Count }],
         max_groups: 1000,

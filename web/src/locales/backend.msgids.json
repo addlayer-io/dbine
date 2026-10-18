@@ -33053,6 +33053,9 @@
  "un field tiene": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
  ],
+ "un gráfico sin eje X no se separa en series": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
  "un motor clave-valor no tiene tablas; cada clave es un valor suelto": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],

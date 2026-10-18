@@ -14,6 +14,14 @@ export interface PreviewLimits {
   bytes: number;
 }
 
+/** A chart of a cell, rendered for the export. */
+export interface ExportImage {
+  cellId: string;
+  title: string;
+  /** PNG, base64. */
+  png: string;
+}
+
 export const notebookApi = {
   /** A notebook from .ipynb text (DBine, Azure Data Studio, Jupyter…). */
   parse: (text: string) => invoke<Notebook>('notebook_parse', { args: { text } }),
@@ -24,7 +32,12 @@ export const notebookApi = {
   read: (path: string) => invoke<NotebookRead>('notebook_read', { args: { path } }),
   write: (path: string, notebook: Notebook, limits: PreviewLimits) =>
     invoke<void>('notebook_write', { args: { path, notebook, rowsPerCell: limits.rows, bytesPerCell: limits.bytes } }),
-  /** A self-contained HTML page or Markdown, with the previews the file would keep. */
-  export: (notebook: Notebook, format: 'html' | 'markdown', limits: PreviewLimits) =>
-    invoke<string>('notebook_export', { args: { notebook, format, rowsPerCell: limits.rows, bytesPerCell: limits.bytes } }),
+  /** A self-contained HTML page or Markdown, with the previews the file
+   *  would keep and the cells' chart `images` (embedded in HTML). With
+   *  `path`, Markdown with images is written by the command (the .md and its
+   *  `_files` folder next to it). */
+  export: (notebook: Notebook, format: 'html' | 'markdown', limits: PreviewLimits, images: ExportImage[] = [], path?: string) =>
+    invoke<string>('notebook_export', {
+      args: { notebook, format, rowsPerCell: limits.rows, bytesPerCell: limits.bytes, images, path: path ?? null },
+    }),
 };

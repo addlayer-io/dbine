@@ -39,13 +39,20 @@ test('group charts ask for one measure per value column; count is COUNT(*)', () 
   assert.equal(aggregateRequest({ ...base, kind: 'combo', split: 'kind' }).split, null);
 });
 
-test('raw charts and a KPI sum or average are not computed over the whole result', () => {
+test('raw charts are not computed over the whole result', () => {
   assert.equal(aggregateRequest({ ...base, agg: 'none' }), null);
   assert.equal(aggregateRequest({ ...base, kind: 'scatter' }), null);
-  assert.equal(aggregateRequest({ ...base, kind: 'kpi', x: null, agg: 'sum' }), null);
-  assert.equal(aggregateRequest({ ...base, kind: 'kpi', x: null, agg: 'avg' }), null);
-  assert.deepEqual(aggregateRequest({ ...base, kind: 'kpi', x: null, agg: 'max' }), { kind: 'box', column: 'total', by: null, max_groups: 1 });
   assert.equal(aggregateRequest({ ...base, y: [] }), null);
+});
+
+test('a KPI asks for a total without X: its aggregate and the rows with a value', () => {
+  for (const agg of ['sum', 'avg', 'min', 'max']) {
+    assert.deepEqual(aggregateRequest({ ...base, kind: 'kpi', x: null, agg }), {
+      kind: 'group', x: null, split: null,
+      measures: [{ column: 'total', func: agg }, { column: 'total', func: 'count' }],
+    });
+  }
+  assert.deepEqual(aggregateRequest({ ...base, kind: 'kpi', x: null, agg: 'count' }).measures[0], { column: null, func: 'count' });
 });
 
 test('histograms and box plots ask for themselves', () => {
@@ -79,13 +86,26 @@ test('split answers fold past seven series where the aggregate allows', () => {
 test('histogram, box and KPI answers', () => {
   const h = shapeFromAggregate({ ...base, kind: 'histogram' }, answer({ histogram: { edges: [0, 5, 10], counts: [3, 4], nulls: 0, non_numeric: 0 } }), L);
   assert.deepEqual([h.cats, h.series, h.names], [['0-5', '5-10'], [[3, 4]], ['total']]);
-  const boxes = [{ category: 'b', count: 3, min: 1, q1: 2, median: 9, q3: 10, max: 11 }, { category: null, count: 2, min: 0, q1: 1, median: 2, q3: 3, max: 4 }];
+  const boxes = [
+    { category: 'b', count: 3, min: 1, q1: 2, median: 9, q3: 10, max: 30, whisker_low: 1, whisker_high: 11, outlier_count: 1, outliers: [30] },
+    { category: null, count: 2, min: 0, q1: 1, median: 2, q3: 3, max: 4, whisker_low: 0, whisker_high: 4, outlier_count: 0, outliers: [] },
+  ];
+  // Tukey's whiskers (not min / max) and the outliers, re-indexed with the order.
   const b = shapeFromAggregate({ ...base, kind: 'box', sort: 'label' }, answer({ boxes }), L);
   assert.deepEqual(b.cats, ['(nulo)', 'b']);
   assert.deepEqual(b.series.map((s) => s[1]), [1, 2, 9, 10, 11]);
+  assert.deepEqual(b.outliers, [[1, 30]]);
+  const byValue = shapeFromAggregate({ ...base, kind: 'box', sort: 'value' }, answer({ boxes }), L);
+  assert.deepEqual([byValue.cats, byValue.outliers], [['b', '(nulo)'], [[0, 30]]]);
   const one = shapeFromAggregate({ ...base, kind: 'box', x: null }, answer({ boxes: [{ ...boxes[0], category: null }] }), L);
   assert.deepEqual(one.cats, ['total']);
-  const k = shapeFromAggregate({ ...base, kind: 'kpi', agg: 'count' }, answer({ boxes: [boxes[0]], rows_scanned: 120, method: 'client' }), L);
-  assert.deepEqual([k.series[0][0], k.count], [120, 3]);
-  assert.equal(shapeFromAggregate({ ...base, kind: 'kpi', agg: 'max' }, answer({ boxes: [boxes[0]] }), L).series[0][0], 11);
+  // A KPI: measure 0 is the value, measure 1 the rows with a value.
+  const total = (v, n) => answer({ categories: [null], series: [{ measure: 0, split: null, values: [v] }, { measure: 1, split: null, values: [n] }] });
+  const k = shapeFromAggregate({ ...base, kind: 'kpi', agg: 'count' }, total(120, 100), L);
+  assert.deepEqual([k.series[0][0], k.count, k.names], [120, 120, ['count(total)']]);
+  const avg = shapeFromAggregate({ ...base, kind: 'kpi', agg: 'avg' }, total(12.5, 100), L);
+  assert.deepEqual([avg.series[0][0], avg.count, avg.names], [12.5, 100, ['avg(total)']]);
+  const none = shapeFromAggregate({ ...base, kind: 'kpi', agg: 'sum' }, total(null, 0), L);
+  assert.ok(Number.isNaN(none.series[0][0]));
+  assert.equal(none.count, 0);
 });
