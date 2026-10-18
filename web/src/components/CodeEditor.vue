@@ -1,3 +1,15 @@
+<script lang="ts">
+import type { EditorView as View } from '@codemirror/view';
+import { Vim } from '@replit/codemirror-vim';
+
+// Shared by every editor: Vim's `:w` (defined once, for all of them) saves
+// the editor it was typed in, and the editor that had the focus last runs
+// the editor commands the palette asks for.
+const saveOf = new WeakMap<View, () => void>();
+Vim.defineEx('write', 'w', (cm) => saveOf.get(cm.cm6 as View)?.());
+let lastClaim: (() => void) | null = null;
+</script>
+
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { EditorState, Compartment, StateEffect, StateField, type Extension } from '@codemirror/state';
@@ -7,6 +19,7 @@ import {
   closeCompletion, snippet, snippetCompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult,
 } from '@codemirror/autocomplete';
 import { indentWithTab, redo, selectAll, toggleComment, undo } from '@codemirror/commands';
+import { vim } from '@replit/codemirror-vim';
 import { gotoLine, openSearchPanel } from '@codemirror/search';
 import { syntaxTree } from '@codemirror/language';
 import {
@@ -22,11 +35,20 @@ import { useTranslation } from 'i18next-vue';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import type { Snippet } from '../composables/snippets';
 import { insertColumnAt } from '../composables/insertColumns';
+import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys, registerCommand } from '../composables/commands';
+import { useSettingsStore } from '../stores/settings';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
 // (`language` + `dialect`), `schema` feeds table/column completion.
 // ⌘↵ runs the selection (or everything), ⌘⇧↵ the statement at the cursor,
 // ⌘L shows the estimated plan, ⌘⇧L runs with the actual plan, ⌘S saves.
+// Those keys come from the action registry (composables/commands.ts), so the
+// user can change them; the editor runs its own commands (`editor` scope)
+// before CodeMirror and Vim see the key.
+//
+// "Modo Vim en el editor" (setting `editor.vim`) turns Vim keys on in every
+// editor at once; its status line shows the mode and takes `:` commands, and
+// `:w` saves as ⌘S does.
 
 const props = withDefaults(defineProps<{
   modelValue: string;
@@ -79,6 +101,23 @@ const lang = new Compartment();
 const ro = new Compartment();
 const ph = new Compartment();
 const lintC = new Compartment();
+const vimC = new Compartment();
+
+// -- Vim mode --------------------------------------------------------------------------------
+const settings = useSettingsStore();
+const vimOn = () => settings.get<boolean>(VIM_SETTING, false) === true;
+/** The status line (mode, pending keys, the `:` prompt): small and quiet. */
+const vimTheme = EditorView.theme({
+  '.cm-panels-bottom': { borderTop: '1px solid var(--nm-border)' },
+  '.cm-vim-panel': {
+    padding: '1px 10px', minHeight: '18px', fontFamily: 'var(--nm-mono)', fontSize: '11px', lineHeight: '18px',
+    color: 'var(--nm-text-dim)', display: 'flex', alignItems: 'center',
+  },
+  '.cm-vim-panel input': { fontFamily: 'var(--nm-mono)', fontSize: '12px', color: 'var(--nm-text-strong)' },
+});
+function vimExt(): Extension {
+  return vimOn() ? [vim({ status: true }), vimTheme] : [];
+}
 
 /** Gutter marks and squiggles, a moment after typing stops. */
 function lintExt(): Extension {
@@ -426,13 +465,9 @@ onMounted(() => {
     state: EditorState.create({
       doc: props.modelValue,
       extensions: [
+        // Before the keymaps: Vim sees the keys first (its own `Esc`, `j`…).
+        vimC.of(vimExt()),
         keymap.of([
-          { key: 'Shift-Alt-f', preventDefault: true, run: () => { emit('format'); return true; } },
-          { key: 'Mod-Enter', preventDefault: true, run: (v) => { const r = runnable(v); emit('run', r.text, r.from); return true; } },
-          { key: 'Shift-Mod-Enter', preventDefault: true, run: (v) => { emit('runStatement', v.state.doc.toString(), v.state.selection.main.head); return true; } },
-          { key: 'Mod-l', preventDefault: true, run: (v) => { const r = runnable(v); emit('plan', r.text, false, r.from); return true; } },
-          { key: 'Shift-Mod-l', preventDefault: true, run: (v) => { const r = runnable(v); emit('plan', r.text, true, r.from); return true; } },
-          { key: 'Mod-s', preventDefault: true, run: () => { emit('save'); return true; } },
           { key: 'Tab', run: expandSnippet },
           indentWithTab,
         ]),
@@ -457,9 +492,74 @@ onMounted(() => {
       ],
     }),
   });
+  saveOf.set(view, () => emit('save'));
+  host.value!.addEventListener('keydown', onKeyCapture, true);
+  host.value!.addEventListener('keydown', onKeyBubble);
+  host.value!.addEventListener('focusin', claimCommands);
 });
 
-onBeforeUnmount(() => view?.destroy());
+onBeforeUnmount(() => {
+  releaseCommands();
+  if (lastClaim === releaseCommands) lastClaim = null;
+  view?.destroy();
+});
+
+// -- the editor's commands -----------------------------------------------------------------------
+/** What each `editor` command does in this editor. */
+const editorCommands: Record<string, (v: EditorView) => void> = {
+  'editor.run': (v) => { const r = runnable(v); emit('run', r.text, r.from); },
+  'editor.runStatement': (v) => emit('runStatement', v.state.doc.toString(), v.state.selection.main.head),
+  'editor.planEstimated': (v) => { const r = runnable(v); emit('plan', r.text, false, r.from); },
+  'editor.planActual': (v) => { const r = runnable(v); emit('plan', r.text, true, r.from); },
+  'editor.format': () => emit('format'),
+  'file.save': () => emit('save'),
+  'editor.comment': (v) => { if (!props.readOnly) toggleComment(v); },
+  'editor.find': (v) => { openSearchPanel(v); },
+  'editor.gotoLine': (v) => { gotoLine(v); },
+  'editor.autocomplete': (v) => { startCompletion(v); },
+};
+
+/** Before CodeMirror (and Vim): the registry's editor keys run here, in any
+ *  Vim mode. */
+function onKeyCapture(e: KeyboardEvent) {
+  if (!view || recordingKeys.value) return;
+  const id = commandForEvent(e, 'editor');
+  const run = id ? editorCommands[id] : undefined;
+  if (run) {
+    e.preventDefault();
+    e.stopPropagation();
+    run(view);
+  } else if (freedDefault(e, 'editor')) {
+    // Its action moved to other keys: CodeMirror's own binding stays quiet.
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+
+/** In Vim mode, Esc belongs to the editor (back to NORMAL): it doesn't close
+ *  the dialog or panel around it. */
+function onKeyBubble(e: KeyboardEvent) {
+  if (e.key === 'Escape' && vimOn()) e.stopPropagation();
+}
+
+/** The palette (and any other caller of `runCommand`) runs the editor
+ *  commands on the editor that had the focus last. */
+let releases: (() => void)[] = [];
+function releaseCommands() {
+  releases.forEach((f) => f());
+  releases = [];
+}
+function claimCommands() {
+  if (releases.length || !view) return;
+  const alive = () => !!view && document.body.contains(view.dom) && view.dom.offsetParent !== null;
+  releases = Object.entries(editorCommands).map(([id, run]) => registerCommand(id, () => { if (view) { run(view); view.focus(); } }, alive));
+  // The newest registration wins: give way when another editor takes the focus.
+  lastClaim?.();
+  lastClaim = releaseCommands;
+}
+
+// Vim on or off, in every editor, as soon as the setting changes.
+watch(vimOn, () => view?.dispatch({ effects: vimC.reconfigure(vimExt()) }));
 
 // Theme and font size (Configuración › General) follow at once.
 const themeC = new Compartment();
@@ -491,6 +591,8 @@ const { t } = useTranslation();
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 const isMac = navigator.platform.toLowerCase().includes('mac');
 const key = (k: string) => (isMac ? k : k.replace(/⌘/g, 'Ctrl+').replace(/⇧/g, 'Shift+').replace(/⌥/g, 'Alt+'));
+/** The keys the user gave the command (they may not be the default). */
+const keyOf = (id: string) => bindingLabel(id);
 
 async function copySelection(cut: boolean) {
   if (!view) return;
@@ -529,17 +631,17 @@ function openMenu(e: MouseEvent) {
   if (rw) items.push({ label: t('editor:menu.paste'), shortcut: key('⌘V'), action: paste });
   items.push({ label: t('editor:menu.selectAll'), shortcut: key('⌘A'), action: act(selectAll) });
   if (props.runActions) {
-    items.push({ label: t(empty ? 'editor:menu.runAll' : 'editor:menu.runSelection'), shortcut: key('⌘↵'), divided: true, action: () => { const r = runnable(view!); emit('run', r.text, r.from); } });
-    items.push({ label: t('editor:menu.runStatement'), shortcut: key('⇧⌘↵'), action: () => emit('runStatement', view!.state.doc.toString(), view!.state.selection.main.head) });
-    items.push({ label: t('editor:menu.planEstimated'), shortcut: key('⌘L'), action: () => { const r = runnable(view!); emit('plan', r.text, false, r.from); } });
-    items.push({ label: t('editor:menu.planActual'), shortcut: key('⇧⌘L'), action: () => { const r = runnable(view!); emit('plan', r.text, true, r.from); } });
+    items.push({ label: t(empty ? 'editor:menu.runAll' : 'editor:menu.runSelection'), shortcut: keyOf('editor.run'), divided: true, action: () => { const r = runnable(view!); emit('run', r.text, r.from); } });
+    items.push({ label: t('editor:menu.runStatement'), shortcut: keyOf('editor.runStatement'), action: () => emit('runStatement', view!.state.doc.toString(), view!.state.selection.main.head) });
+    items.push({ label: t('editor:menu.planEstimated'), shortcut: keyOf('editor.planEstimated'), action: () => { const r = runnable(view!); emit('plan', r.text, false, r.from); } });
+    items.push({ label: t('editor:menu.planActual'), shortcut: keyOf('editor.planActual'), action: () => { const r = runnable(view!); emit('plan', r.text, true, r.from); } });
   }
   if (rw) {
-    items.push({ label: t('editor:menu.comment'), shortcut: key('⌘/'), divided: true, action: act(toggleComment) });
-    if (props.runActions) items.push({ label: t('editor:menu.format'), shortcut: key('⇧⌥F'), action: () => emit('format') });
+    items.push({ label: t('editor:menu.comment'), shortcut: keyOf('editor.comment'), divided: true, action: act(toggleComment) });
+    if (props.runActions) items.push({ label: t('editor:menu.format'), shortcut: keyOf('editor.format'), action: () => emit('format') });
   }
-  items.push({ label: t('editor:menu.find'), shortcut: key('⌘F'), divided: !rw, action: act(openSearchPanel) });
-  items.push({ label: t('editor:menu.gotoLine'), shortcut: key('⌘⌥G'), action: act(gotoLine) });
+  items.push({ label: t('editor:menu.find'), shortcut: keyOf('editor.find'), divided: !rw, action: act(openSearchPanel) });
+  items.push({ label: t('editor:menu.gotoLine'), shortcut: keyOf('editor.gotoLine'), action: act(gotoLine) });
   const extra = props.menuItems?.() ?? [];
   if (extra.length) items.push({ ...extra[0], divided: true }, ...extra.slice(1));
   menu.value = { x: e.clientX, y: e.clientY, items };

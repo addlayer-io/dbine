@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { bindingLabel } from '../composables/commands';
 import { computed } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { FAMILY_LABELS, type Family } from '../api/types';
@@ -35,7 +36,7 @@ const families = computed(() => {
         <li><i18next :translation="$t('workbench:welcome.tip1')"><template #queries><strong>{{ $t('workbench:welcome.queries') }}</strong></template></i18next></li>
         <li><i18next :translation="$t('workbench:welcome.tip2')"><template #newQuery><strong>{{ $t('workbench:welcome.newQuery') }}</strong></template></i18next></li>
         <li>{{ $t('workbench:welcome.tip3') }}</li>
-        <li><kbd>⌘↵</kbd> {{ $t('workbench:welcome.keyRun') }} · <kbd>⌘B</kbd> {{ $t('workbench:welcome.keyExplorer') }} · <kbd>⌘J</kbd> {{ $t('workbench:welcome.keyOutput') }} · <kbd>⌘W</kbd> {{ $t('workbench:welcome.keyClose') }}.</li>
+        <li><kbd>{{ bindingLabel('editor.run') }}</kbd> {{ $t('workbench:welcome.keyRun') }} · <kbd>{{ bindingLabel('view.explorer') }}</kbd> {{ $t('workbench:welcome.keyExplorer') }} · <kbd>{{ bindingLabel('view.output') }}</kbd> {{ $t('workbench:welcome.keyOutput') }} · <kbd>{{ bindingLabel('file.closeTab') }}</kbd> {{ $t('workbench:welcome.keyClose') }}.</li>
       </ul>
     </div>
     <div class="nm-card">

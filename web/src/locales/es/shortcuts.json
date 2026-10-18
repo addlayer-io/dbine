@@ -1,0 +1,52 @@
+{
+  "nav": "Atajos de teclado",
+  "help": "Las teclas de cada acción. Hacé clic en una combinación y apretá la nueva (Esc cancela). El cambio se aplica enseguida y viaja con el resto de la configuración.",
+  "search": "Buscar por acción o tecla",
+  "none": "Ninguna acción coincide con la búsqueda.",
+  "resetAll": "Restablecer todos",
+  "reset": "Volver a la combinación original",
+  "remove": "Quitar la combinación",
+  "change": "Cambiar la combinación",
+  "recording": "Apretá la combinación…",
+  "unbound": "Sin atajo",
+  "conflict": "También la usa: {{names}}",
+  "reserved": "Es un atajo del sistema (copiar, pegar, deshacer…): deja de funcionar donde la acción corre.",
+  "group": {
+    "general": "General",
+    "view": "Vista",
+    "editor": "Editor",
+    "results": "Resultados"
+  },
+  "cmd": {
+    "file": {
+      "newQuery": "Nueva consulta",
+      "newWindow": "Nueva ventana",
+      "closeTab": "Cerrar la pestaña",
+      "save": "Guardar"
+    },
+    "app": {
+      "settings": "Configuración",
+      "quit": "Salir de DBine"
+    },
+    "view": {
+      "explorer": "Mostrar u ocultar el explorador",
+      "output": "Mostrar u ocultar el panel inferior",
+      "ai": "Mostrar u ocultar el asistente de IA"
+    },
+    "editor": {
+      "run": "Ejecutar la selección o todo",
+      "runStatement": "Ejecutar la sentencia del cursor",
+      "planEstimated": "Plan estimado",
+      "planActual": "Ejecutar con plan real",
+      "format": "Formatear",
+      "comment": "Comentar o descomentar",
+      "find": "Buscar y reemplazar",
+      "gotoLine": "Ir a la línea…",
+      "autocomplete": "Sugerencias de autocompletado",
+      "toggleVim": "Activar o desactivar el modo Vim"
+    },
+    "results": {
+      "export": "Exportar los resultados…"
+    }
+  }
+}

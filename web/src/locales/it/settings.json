@@ -13,6 +13,8 @@
     "copyFormatHelp": "Cosa copia ⌘C nella griglia dei risultati.",
     "maxRows": "Righe massime per query",
     "maxRowsHelp": "Limite di righe che ogni esecuzione recupera nell'editor.",
+    "vim": "Modalità Vim nell'editor",
+    "vimHelp": "Tasti di Vim (NORMAL, INSERT, VISUAL) negli editor di query, file e routine. La riga di stato dell'editor mostra la modalità e :w salva.",
     "groupBySchema": "Raggruppa per schema",
     "groupBySchemaHelp": "Nell'esplora risorse, ogni schema è una cartella con i suoi oggetti. Disattivato, gli oggetti sono in un unico elenco con lo schema prima del nome.",
     "theme": "Tema",

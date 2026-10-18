@@ -1,12 +1,13 @@
 // Keyboard shortcut helpers shared by the screens that take ⌘S / Ctrl+S.
 
-/** macOS uses ⌘ for shortcuts; Windows and Linux use Ctrl (as CodeMirror's `Mod`). */
-export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+import { matchesCommand } from './commands';
 
-/** ⌘S on macOS, Ctrl+S on Windows / Linux. */
+export { isMac } from './keybindings';
+
+/** "Guardar": ⌘S on macOS, Ctrl+S on Windows / Linux, unless the user gave
+ *  it other keys (Configuración › Atajos de teclado). */
 export function isSaveShortcut(e: KeyboardEvent): boolean {
-  const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-  return mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's';
+  return matchesCommand(e, 'file.save');
 }
 
 /** The key went to a code editor: CodeMirror runs its own ⌘S (`save`). */
