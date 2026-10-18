@@ -572,3 +572,8 @@ Documentation:
 
 The integration tests are in `crates/drivers/*/tests/`, marked `#[ignore]`.
 They read `DBINE_TEST_<ENGINE>_URL` and run against Docker containers.
+
+## Author
+
+DBine is built and maintained by **Marcos Panichella** at
+[AddLayer](https://dbine.com).
