@@ -13,6 +13,8 @@
 //! - CSV / TSV / Parquet / JSON / Excel: the "Archivos" driver with "Sólo este
 //!   archivo", an in-memory DuckDB with the file as a view named after it;
 //!   the UI runs `SELECT * FROM "<name>" LIMIT 1000` in a new query.
+//! - Notebooks (`.ipynb`, a JSON object): no connection; the UI opens the
+//!   path in a notebook tab (crate::notebook).
 //!
 //! Where the paths come from:
 //! - macOS: `RunEvent::Opened` (lib.rs), at launch and while running.
@@ -49,6 +51,8 @@ pub enum Kind {
     Duckdb,
     /// CSV, TSV, Parquet, JSON or an Excel workbook.
     Data,
+    /// A Jupyter notebook: opens in a notebook tab, not as a connection.
+    Notebook,
 }
 
 impl Kind {
@@ -57,6 +61,8 @@ impl Kind {
             Kind::Sqlite => "sqlite",
             Kind::Duckdb => "duckdb",
             Kind::Data => "duckdb_files",
+            // Never a connection (`open` returns before).
+            Kind::Notebook => "",
         }
     }
 }
@@ -100,6 +106,11 @@ pub fn classify(path: &Path) -> Option<Kind> {
         Ok(n)
     });
     let n = read.unwrap_or(0);
+    if ext == "ipynb" {
+        // A JSON object (after a BOM and blanks).
+        let head = head[..n].strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&head[..n]);
+        return (head.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{')).then_some(Kind::Notebook);
+    }
     let db_ext = matches!(ext.as_str(), "sqlite" | "sqlite3" | "db3" | "s3db" | "sl3" | "db" | "duckdb" | "ddb");
     if db_ext && n == 16 && &head == b"SQLite format 3\0" {
         return Some(Kind::Sqlite);
@@ -244,6 +255,8 @@ pub struct OpenedFile {
     pub existing: bool,
     /// Data files: `SELECT * FROM "<view>" LIMIT 1000`.
     pub sql: Option<String>,
+    /// Notebooks: the file's absolute path (`connection_id` is empty).
+    pub path: Option<String>,
 }
 
 /// The connection for `path`: the one it has, or a new temporary one.
@@ -253,17 +266,22 @@ pub fn open(store: &dbine_core::StateStore, path: &Path) -> CommandResult<Opened
     }
     let kind = classify(path).ok_or_else(|| CommandError::BadRequest(format!("DBine no abre este tipo de archivo: «{}»", path.display())))?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if kind == Kind::Notebook {
+        let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+        let path = Some(absolute.to_string_lossy().into_owned());
+        return Ok(OpenedFile { connection_id: String::new(), kind, name, existing: false, sql: None, path });
+    }
     let sql = (kind == Kind::Data).then(|| data_stem(path).map(|v| first_query(&v))).flatten();
     let mut known = store.list_temporary_connections()?;
     known.extend(store.list_connections()?);
     if let Some(c) = existing(&known, path, kind) {
-        return Ok(OpenedFile { connection_id: c.id.clone(), kind, name, existing: true, sql });
+        return Ok(OpenedFile { connection_id: c.id.clone(), kind, name, existing: true, sql, path: None });
     }
     // Absolute, as given (not canonicalized: on Windows that is a `\\?\`
     // path some readers don't take).
     let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     let conn = store.add_temporary_connection(&connection_for(&absolute, kind))?;
-    Ok(OpenedFile { connection_id: conn.id, kind, name, existing: false, sql })
+    Ok(OpenedFile { connection_id: conn.id, kind, name, existing: false, sql, path: None })
 }
 
 #[tauri::command]
@@ -618,6 +636,11 @@ mod tests {
         assert_eq!(classify(&w("h.csv", b"a,b\n1,2\n")), Some(Kind::Data));
         assert_eq!(classify(&w("i.parquet", b"PAR1")), Some(Kind::Data));
         assert_eq!(classify(&w("j.txt", b"x")), None);
+        // Notebooks: a JSON object under .ipynb.
+        assert_eq!(classify(&w("k.ipynb", b"{\n \"cells\": []")), Some(Kind::Notebook));
+        assert_eq!(classify(&w("l.IPYNB", b"\xEF\xBB\xBF  \n{}")), Some(Kind::Notebook));
+        assert_eq!(classify(&w("m.ipynb", b"[1, 2]")), None);
+        assert_eq!(classify(&w("n.ipynb", b"")), None);
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -677,6 +700,15 @@ mod tests {
         assert!(matches!(open(&store, &d.join("nada.csv")), Err(CommandError::NotFound(_))));
         std::fs::write(d.join("leeme.txt"), "x").unwrap();
         assert!(matches!(open(&store, &d.join("leeme.txt")), Err(CommandError::BadRequest(_))));
+        // A notebook opens as itself: no connection.
+        let nb = d.join("análisis.ipynb");
+        std::fs::write(&nb, r#"{"nbformat": 4, "cells": []}"#).unwrap();
+        let before = store.list_temporary_connections().unwrap().len();
+        let opened = open(&store, &nb).unwrap();
+        assert_eq!((opened.kind, opened.connection_id.as_str(), opened.name.as_str()), (Kind::Notebook, "", "análisis.ipynb"));
+        assert_eq!(opened.path.as_deref(), Some(nb.to_string_lossy().as_ref()));
+        assert_eq!(store.list_temporary_connections().unwrap().len(), before);
+        assert_eq!(paths_from_args([nb.to_string_lossy().into_owned()], &d), [nb]);
         let _ = std::fs::remove_dir_all(&d);
     }
 }

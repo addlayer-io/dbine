@@ -12,6 +12,7 @@ mod jumplist_windows;
 mod link;
 mod lint;
 mod mcp;
+mod notebook;
 mod menu;
 mod open_files;
 mod optimizer;
@@ -551,6 +552,11 @@ pub fn run() {
             commands::ai::ai_delete_model,
             commands::ai::ai_start_ollama,
             commands::ai::ai_pull_ollama,
+            commands::notebook::notebook_parse,
+            commands::notebook::notebook_serialize,
+            commands::notebook::notebook_read,
+            commands::notebook::notebook_write,
+            commands::notebook::notebook_export,
             open_files::open_files_take,
             open_files::open_file,
         ])

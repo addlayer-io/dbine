@@ -785,7 +785,7 @@ fn io_err(what: &str, e: std::io::Error) -> CommandError {
     CommandError::Internal(format!("no se pudo {what}: {e}"))
 }
 
-fn sha256_hex(b: &[u8]) -> String {
+pub(crate) fn sha256_hex(b: &[u8]) -> String {
     Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()
 }
 

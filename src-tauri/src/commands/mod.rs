@@ -38,6 +38,7 @@ pub mod db_health;
 pub mod dbdocs;
 pub mod scheduled;
 pub mod mail;
+pub mod notebook;
 pub mod security;
 pub mod backup;
 pub mod feedback;
