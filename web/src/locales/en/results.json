@@ -277,6 +277,7 @@
     "whole": {
       "label": "Compute over the whole result",
       "title": "Re-runs the grouped query (read-only) to chart all its rows, not just the loaded ones",
+      "titleDuckdb": "Computes the chart with DuckDB over all the rows of the cell's result, not just the loaded ones",
       "needsRun": "Run the query to compute the chart over the whole result",
       "unsupported": "This chart can't be computed over the whole result (scatter or ungrouped)",
       "running": "Computing over the whole result…",
@@ -284,6 +285,10 @@
       "retry": "Retry",
       "refresh": "Recompute",
       "server": "Aggregated on the server",
+      "duckdb_one": "Aggregated in DuckDB over {{rows}} row",
+      "duckdb_other": "Aggregated in DuckDB over {{rows}} rows",
+      "duckdb_many": "Aggregated in DuckDB over {{rows}} rows",
+      "duckdbNoCount": "Aggregated in DuckDB",
       "client_one": "Aggregated in DBine over {{rows}} row",
       "client_other": "Aggregated in DBine over {{rows}} rows",
       "client_many": "Aggregated in DBine over {{rows}} rows",

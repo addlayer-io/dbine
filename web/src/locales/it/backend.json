@@ -10971,5 +10971,8 @@
   "«st_read»: «{0}» no lleva ese valor": "«st_read»: «{0}» non accetta questo valore",
   "«{0}» es una ruta virtual de GDAL (/vsi…): estas celdas leen solo archivos locales, escritos con su ruta": "«{0}» è un percorso virtuale di GDAL (/vsi…): queste celle leggono solo file locali, scritti con il loro percorso",
   "«{0}» lee un solo archivo y «{1}» son {2}": "«{0}» legge un solo file e «{1}» sono {2}",
-  "«{0}»: «{1}» no es un nombre de tabla válido (letras, números, _, $, - o espacios{2})": "«{0}»: «{1}» non è un nome di tabella valido (lettere, numeri, _, $, - o spazi{2})"
+  "«{0}»: «{1}» no es un nombre de tabla válido (letras, números, _, $, - o espacios{2})": "«{0}»: «{1}» non è un nome di tabella valido (lettere, numeri, _, $, - o spazi{2})",
+  "Ejecutá la celda para calcular el gráfico sobre todo su resultado": "Esegui la cella per calcolare il grafico su tutto il suo risultato",
+  "esta versión no incluye el driver de DuckDB": "questa versione non include il driver di DuckDB",
+  "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para calcular el gráfico sobre todo su resultado": "i DataFrame letti da questa cella sono cambiati da quando è stata eseguita: eseguila di nuovo per calcolare il grafico su tutto il suo risultato"
 }

@@ -277,6 +277,7 @@
     "whole": {
       "label": "Calcular sobre todo o resultado",
       "title": "Executa novamente a consulta agrupada (somente leitura) para plotar todas as suas linhas, não só as carregadas",
+      "titleDuckdb": "Calcula o gráfico com o DuckDB sobre todas as linhas do resultado da célula, não só as carregadas",
       "needsRun": "Execute a consulta para calcular o gráfico sobre todo o resultado",
       "unsupported": "Este gráfico não pode ser calculado sobre todo o resultado (dispersão ou sem agrupamento)",
       "running": "Calculando sobre todo o resultado…",
@@ -284,6 +285,10 @@
       "retry": "Tentar novamente",
       "refresh": "Recalcular",
       "server": "Agregado no servidor",
+      "duckdb_one": "Agregado no DuckDB sobre {{rows}} linha",
+      "duckdb_other": "Agregado no DuckDB sobre {{rows}} linhas",
+      "duckdb_many": "Agregado no DuckDB sobre {{rows}} linhas",
+      "duckdbNoCount": "Agregado no DuckDB",
       "client_one": "Agregado no DBine sobre {{rows}} linha",
       "client_other": "Agregado no DBine sobre {{rows}} linhas",
       "client_many": "Agregado no DBine sobre {{rows}} linhas",

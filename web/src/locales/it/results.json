@@ -277,6 +277,7 @@
     "whole": {
       "label": "Calcola su tutto il risultato",
       "title": "Riesegue la query raggruppata (sola lettura) per rappresentare tutte le sue righe, non solo quelle caricate",
+      "titleDuckdb": "Calcola il grafico con DuckDB su tutte le righe del risultato della cella, non solo quelle caricate",
       "needsRun": "Esegui la query per calcolare il grafico su tutto il risultato",
       "unsupported": "Questo grafico non può essere calcolato su tutto il risultato (dispersione o non raggruppato)",
       "running": "Calcolo su tutto il risultato…",
@@ -284,6 +285,10 @@
       "retry": "Riprova",
       "refresh": "Ricalcola",
       "server": "Aggregato sul server",
+      "duckdb_one": "Aggregato in DuckDB su {{rows}} riga",
+      "duckdb_other": "Aggregato in DuckDB su {{rows}} righe",
+      "duckdb_many": "Aggregato in DuckDB su {{rows}} righe",
+      "duckdbNoCount": "Aggregato in DuckDB",
       "client_one": "Aggregato in DBine su {{rows}} riga",
       "client_other": "Aggregato in DBine su {{rows}} righe",
       "client_many": "Aggregato in DBine su {{rows}} righe",

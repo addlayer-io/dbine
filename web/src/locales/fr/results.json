@@ -277,6 +277,7 @@
     "whole": {
       "label": "Calculer sur tout le résultat",
       "title": "Réexécute la requête groupée (lecture seule) pour tracer toutes ses lignes, pas seulement celles chargées",
+      "titleDuckdb": "Calcule le graphique avec DuckDB sur toutes les lignes du résultat de la cellule, pas seulement celles chargées",
       "needsRun": "Exécutez la requête pour calculer le graphique sur tout le résultat",
       "unsupported": "Ce graphique ne peut pas être calculé sur tout le résultat (nuage de points ou non groupé)",
       "running": "Calcul sur tout le résultat…",
@@ -284,6 +285,10 @@
       "retry": "Réessayer",
       "refresh": "Recalculer",
       "server": "Agrégé sur le serveur",
+      "duckdb_one": "Agrégé dans DuckDB sur {{rows}} ligne",
+      "duckdb_other": "Agrégé dans DuckDB sur {{rows}} lignes",
+      "duckdb_many": "Agrégé dans DuckDB sur {{rows}} lignes",
+      "duckdbNoCount": "Agrégé dans DuckDB",
       "client_one": "Agrégé dans DBine sur {{rows}} ligne",
       "client_other": "Agrégé dans DBine sur {{rows}} lignes",
       "client_many": "Agrégé dans DBine sur {{rows}} lignes",
