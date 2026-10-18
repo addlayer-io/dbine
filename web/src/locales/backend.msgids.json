@@ -1273,6 +1273,7 @@
  "Ana": [
   "src-tauri/src/commands/datagen.rs",
   "src-tauri/src/commands/grid_new_rows_live_tests.rs",
+  "src-tauri/src/notebook/files_tests.rs",
   "src-tauri/src/notebook/local_tests.rs"
  ],
  "Analizador": [
@@ -5375,6 +5376,15 @@
   "crates/drivers/mysql/src/properties.rs",
   "crates/drivers/oracle/src/properties.rs"
  ],
+ "CustomerID,ciudad\n1,Mendoza\n2,Córdoba\n": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
+ "CustomerID,ciudad\n1,Mendoza\n2,Córdoba\n3,Jujuy\n": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
+ "CustomerID,ciudad\n1,Rosario\n2,Córdoba\n4,Salta\n": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
  "Cuántas purgas recuerda la base para pasarlas a las réplicas y los índices. Por defecto, 1000.": [
   "crates/drivers/couchdb/src/properties.rs"
  ],
@@ -5456,7 +5466,8 @@
   "crates/drivers/bigquery/src/plan.rs"
  ],
  "Córdoba": [
-  "src-tauri/src/commands/datagen.rs"
+  "src-tauri/src/commands/datagen.rs",
+  "src-tauri/src/notebook/files_tests.rs"
  ],
  "DATA VERSION RETENTION TIME, para consultas sobre datos pasados (time travel). 0: sin retención.": [
   "crates/drivers/odbc/src/properties.rs"
@@ -8932,6 +8943,7 @@
  ],
  "Eva": [
   "src-tauri/src/commands/grid_new_rows_live_tests.rs",
+  "src-tauri/src/notebook/files_tests.rs",
   "src-tauri/src/notebook/local_tests.rs"
  ],
  "Evento": [
@@ -12605,6 +12617,7 @@
  ],
  "Luis": [
   "src-tauri/src/commands/grid_new_rows_live_tests.rs",
+  "src-tauri/src/notebook/files_tests.rs",
   "src-tauri/src/notebook/local_tests.rs"
  ],
  "Líder": [
@@ -13311,6 +13324,9 @@
  ],
  "Memtables (heap)": [
   "crates/drivers/cassandra/src/monitor.rs"
+ ],
+ "Mendoza": [
+  "src-tauri/src/notebook/files_tests.rs"
  ],
  "Mensaje": [
   "crates/drivers/hana/src/backup.rs",
@@ -16679,6 +16695,9 @@
  "Permiso inválido: {0}. Elegí READ, WRITE o READWRITE.": [
   "crates/drivers/etcd/src/security.rs"
  ],
+ "Permission": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
  "Permission denied (publickey)": [
   "src-tauri/src/commands/git_cli.rs"
  ],
@@ -18269,7 +18288,8 @@
  ],
  "Rosario": [
   "src-tauri/src/commands/datagen.rs",
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
+  "src-tauri/src/commands/grid_new_rows_live_tests.rs",
+  "src-tauri/src/notebook/files_tests.rs"
  ],
  "Rossi": [
   "src-tauri/src/commands/datagen.rs"
@@ -26503,6 +26523,9 @@
  "es una base de archivos sin servidor: no tiene sesiones que listar": [
   "crates/drivers/odbc/src/processes.rs"
  ],
+ "es una carpeta": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
  "es una columna de clustering": [
   "crates/drivers/bigquery/src/rename.rs"
  ],
@@ -27223,6 +27246,9 @@
  ],
  "false: los guarda sin indexarlos": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "falta cerrar el paréntesis de «{0}»": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "falta configurar el servidor de correo en Configuración › Correo": [
   "src-tauri/src/tasks/mail.rs"
@@ -29096,6 +29122,9 @@
  "la restricción única": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
+ "la ruta de un archivo está vacía": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "la ruta del archivo": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -29915,6 +29944,12 @@
  "ninguno asociado: nadie puede ingresar con este rol": [
   "crates/drivers/dsql/src/security.rs"
  ],
+ "ningún archivo coincide con «": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
+ "ningún archivo coincide con «{0}»": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "nivel de MCP desconocido: {0}": [
   "src-tauri/src/mcp/mod.rs"
  ],
@@ -30028,6 +30063,9 @@
  "no es un archivo de texto UTF-8": [
   "src-tauri/src/commands/projects.rs"
  ],
+ "no es un archivo local": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
  "no es un código de DBine": [
   "crates/dbine-link/src/lib.rs"
  ],
@@ -30078,6 +30116,8 @@
  "no existe el archivo «{0}»": [
   "crates/drivers/duckdb/src/lib.rs",
   "src-tauri/src/commands/notebook.rs",
+  "src-tauri/src/notebook/files.rs",
+  "src-tauri/src/notebook/files_tests.rs",
   "src-tauri/src/open_files.rs"
  ],
  "no existe el esquema «{0}»": [
@@ -30283,6 +30323,9 @@
  "no latest.json in the latest release (or HTTP error), asking GitHub": [
   "src-tauri/src/commands/updates.rs"
  ],
+ "no leen de la red": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
  "no parece una URL ni una cadena de conexión": [
   "crates/dbine-core/src/conn_import/urls.rs"
  ],
@@ -30375,6 +30418,9 @@
  "no se encontró la base «{0}»": [
   "src-tauri/src/commands/rename.rs"
  ],
+ "no se encontró la carpeta personal para «{0}»": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "no se encontró la sesión de la consulta {0}": [
   "crates/drivers/snowflake/src/processes.rs"
  ],
@@ -30424,6 +30470,9 @@
  ],
  "no se leyó la definición de la vista «{0}»": [
   "crates/drivers/spanner/src/rename.rs"
+ ],
+ "no se permitió leer «{0}»": [
+  "src-tauri/src/notebook/local.rs"
  ],
  "no se pudieron agregar al CREATE las familias de columnas o la clave primaria con hash": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
@@ -30643,6 +30692,9 @@
  ],
  "no se pudo cargar DuckDB ({0}): {1}": [
   "crates/drivers/duckdb/src/loader.rs"
+ ],
+ "no se pudo cargar la extensión excel de DuckDB para leer el libro: {0}": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "no se pudo cerrar el archivo: {0}": [
   "src-tauri/src/commands/export.rs",
@@ -31168,6 +31220,9 @@
  "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
+ "no se pudo preparar la lectura de archivos: {0}": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "no se pudo preparar la restricción única sobre ({0}) del clon con un nombre del sistema, como en el original; no se clona": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
@@ -31378,11 +31433,17 @@
  "no se puede identificar el documento a borrar": [
   "crates/drivers/couchbase/src/ddl.rs"
  ],
+ "no se puede leer «{0}»: {1}": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "no se puede mover una carpeta adentro de sí misma": [
   "src-tauri/src/commands/projects.rs"
  ],
  "no se puede tocar la carpeta .git": [
   "src-tauri/src/commands/project_paths.rs"
+ ],
+ "no se puede usar en una celda": [
+  "src-tauri/src/notebook/files_tests.rs"
  ],
  "no se reconoce el encabezado de la definición de la vista «{0}»": [
   "crates/drivers/athena/src/rename.rs",
@@ -32320,6 +32381,9 @@
  "se cargaron las filas pero no se pudo mover la secuencia de «{0}» más allá del máximo cargado: {1}": [
   "crates/drivers/dsql/src/transfer.rs"
  ],
+ "se cargó con las primeras 4 filas": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
  "se cerró antes de estar listo": [
   "crates/dbine-plugin/src/remote.rs"
  ],
@@ -33223,6 +33287,9 @@
  ],
  "un servidor Avatica genérico no informa métricas": [
   "crates/drivers/phoenix/src/lib.rs"
+ ],
+ "un solo archivo": [
+  "src-tauri/src/notebook/files_tests.rs"
  ],
  "un solo documento ocupa más de {0} MiB en la respuesta: no se puede leer con la memoria acotada de la transferencia": [
   "crates/drivers/elasticsearch/src/transfer.rs"
@@ -35269,11 +35336,17 @@
  "{0}log_queries está desactivado para este usuario: las consultas de los usuarios con ese perfil no se registran.": [
   "crates/drivers/clickhouse/src/profiler.rs"
  ],
+ "«CustomerTest.csv» es una ruta relativa": [
+  "src-tauri/src/notebook/files_tests.rs"
+ ],
  "«Expirar documentos» solo vale para series temporales o colecciones agrupadas; para las demás use un índice TTL": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
  "«Transacciones iniciadas» se toma del número de transacción de la base actual: cuenta lecturas y escrituras.": [
   "crates/drivers/neo4j/src/monitor.rs"
+ ],
+ "«a.csv» es una ruta relativa: guardá el notebook": [
+  "src-tauri/src/notebook/files_tests.rs"
  ],
  "«analysis» tiene que ser un objeto JSON (analyzer, tokenizer, filter…).": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -35298,6 +35371,9 @@
  ],
  "«out» e «in» de una arista no se renombran: son sus extremos": [
   "crates/drivers/orientdb/src/rename.rs"
+ ],
+ "«read_xlsx» lee un solo archivo y «{0}» son {1}": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "«select into/bulkcopy/pllsort» está activo": [
   "crates/drivers/odbc/src/health.rs"
@@ -35389,6 +35465,12 @@
  "«{0}» es una carpeta": [
   "src-tauri/src/commands/projects.rs"
  ],
+ "«{0}» es una carpeta: escribí un archivo o un patrón como «carpeta/*.csv»": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«{0}» es una ruta relativa: guardá el notebook para leerla desde su carpeta, o escribí la ruta completa": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "«{0}» es una subtabla: sus columnas y tags son los de su supertabla. Los tags se renombran en la supertabla.": [
   "crates/drivers/tdengine/src/rename.rs"
  ],
@@ -35419,11 +35501,20 @@
  "«{0}» existe y no es una carpeta": [
   "src-tauri/src/commands/notebook.rs"
  ],
+ "«{0}» lee archivos solo con la ruta escrita entre comillas simples: '…' o una lista ['…', '…']": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«{0}» lee más de {1} archivos": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "«{0}» llegó al tope de filas por tabla: no se copian todas las que cuelgan.": [
   "src-tauri/src/commands/subset/mod.rs"
  ],
  "«{0}» no acepta nulos": [
   "src-tauri/src/commands/datagen.rs"
+ ],
+ "«{0}» no devolvió columnas": [
+  "src-tauri/src/notebook/local.rs"
  ],
  "«{0}» no entra en DECIMAL({1}, {2}): admite {3} dígitos enteros": [
   "crates/drivers/ksqldb/src/transfer.rs"
@@ -35469,6 +35560,9 @@
  ],
  "«{0}» no es un archivo Markdown (.md) válido": [
   "src-tauri/src/commands/notebook.rs"
+ ],
+ "«{0}» no es un archivo local: estas celdas no leen de la red (http, s3, gs, azure…)": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "«{0}» no es un arreglo": [
   "crates/drivers/phoenix/src/transfer.rs"
@@ -35931,6 +36025,9 @@
  "«{0}» no se puede usar en un recurso de OrientDB": [
   "crates/drivers/orientdb/src/security.rs"
  ],
+ "«{0}» no se puede usar en una celda de Resultados del notebook: su base solo lee archivos y nunca escribe, adjunta ni configura nada": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "«{0}» no se renombra desde DBine: el nombre de la base tiene caracteres que no son letras, dígitos, «_» ni «-».": [
   "crates/drivers/mongodb/src/rename.rs"
  ],
@@ -36065,6 +36162,9 @@
  ],
  "«{0}»: el UNION no tiene el miembro {1} (tiene {2})": [
   "crates/drivers/flightsql/src/transfer.rs"
+ ],
+ "«{0}»: escribí sus textos entre comillas simples ('…')": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "«{0}»: la lista de valores está vacía": [
   "src-tauri/src/commands/datagen.rs"

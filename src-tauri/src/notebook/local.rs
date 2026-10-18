@@ -23,10 +23,17 @@
 //! - **Sandbox**: the database is opened in memory and, before anything is
 //!   loaded, external access is switched off (no files, no network, no
 //!   extensions, no spilling to a temp directory) and the configuration is
-//!   locked, then checked ([`SANDBOX`]). A foreign `.ipynb` can't read or
-//!   write local files (`read_csv`, `COPY … TO`, `ATTACH`, `INSTALL`) on
-//!   the user's behalf. No credentials or connection details ever reach it.
+//!   locked, then checked ([`SANDBOX`]). A foreign `.ipynb` can't write
+//!   local files or reach the network (`COPY … TO`, `ATTACH`, `INSTALL`) on
+//!   the user's behalf, and reads only the files its reader calls name
+//!   (below). No credentials or connection details ever reach it.
+//! - **Local data files** (`read_csv('~/x.csv')`…) are read in a session of
+//!   their own, granted exactly those files, and come in as tables like the
+//!   cells' ([`super::files`]); the notebook's session is never granted a
+//!   file. Statements that write, attach or configure anything are refused
+//!   before running ([`super::files::refused`]).
 
+use super::files::{self, DataFile, FileRead};
 use crate::commands::chart::{read, Fail, Stop};
 use crate::commands::projects::sha256_hex;
 use crate::error::{CommandError, CommandResult};
@@ -447,6 +454,10 @@ pub struct LocalSource {
     /// limit) and ran exactly `sql`: its first result set.
     #[serde(default)]
     pub rows: Option<LiveRows>,
+    /// The files its SQL reads, as they are now (a "results" source): part
+    /// of its key, so it's built again when one of them changes.
+    #[serde(skip)]
+    pub files_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -464,7 +475,7 @@ pub fn source_key(src: &LocalSource, cap: u64, deps: &[String]) -> String {
         (Some(_), None) => "rows".to_string(),
         _ => "query".to_string(),
     };
-    let key = serde_json::json!([src.name.to_ascii_lowercase(), src.local, src.sql.trim(), src.connection_id, src.database, origin, cap, deps]);
+    let key = serde_json::json!([src.name.to_ascii_lowercase(), src.local, src.sql.trim(), src.connection_id, src.database, origin, cap, deps, src.files_key]);
     sha256_hex(key.to_string().as_bytes())
 }
 
@@ -522,11 +533,15 @@ pub struct LoadedTable {
     /// Already there from an earlier run (nothing loaded now).
     pub cached: bool,
     /// `run`: the rows of its run in this session; `query`: its query ran
-    /// again; `local`: built from the tables above it.
+    /// again; `local`: built from the tables above it; `file`: read from
+    /// local files (`files`, `name` is the file or the paths as written).
     pub origin: &'static str,
     /// Some of its columns had values that aren't of their type: they're text.
     pub as_text: bool,
     pub elapsed_ms: u64,
+    /// The files read (`origin: "file"`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<DataFile>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -806,7 +821,7 @@ where
             "query"
         };
         if let Some(l) = tables.get(&lname).filter(|l| l.key == k && present.contains(&lname)) {
-            loaded.push(LoadedTable { name: src.name.clone(), rows: l.rows, capped: l.capped, cached: true, origin, as_text: l.as_text, elapsed_ms: 0 });
+            loaded.push(LoadedTable { name: src.name.clone(), rows: l.rows, capped: l.capped, cached: true, origin, as_text: l.as_text, elapsed_ms: 0, files: Vec::new() });
             continue;
         }
         let (rows, capped, as_text) = if src.local {
@@ -846,14 +861,175 @@ where
             out.warning(format!("«{}» se cargó con las primeras {cap} filas (el tope por tabla de Configuración › Notebooks)", src.name));
         }
         tables.insert(lname, Loaded { key: k, rows, capped, as_text });
-        loaded.push(LoadedTable { name: src.name.clone(), rows, capped, cached: false, origin, as_text, elapsed_ms: t0.elapsed().as_millis() as u64 });
+        loaded.push(LoadedTable { name: src.name.clone(), rows, capped, cached: false, origin, as_text, elapsed_ms: t0.elapsed().as_millis() as u64, files: Vec::new() });
     }
     Ok(loaded)
 }
 
-/// Run `sql` (DuckDB SQL) over the tables of the sources it names, on the
-/// tab's DuckDB session. See the module docs.
-pub async fn run_local(state: &AppState, tab: &str, sql: &str, max_rows: usize, cap: u64, sources: &[LocalSource]) -> CommandResult<RunLocalResponse> {
+/// The rows of a reader call, read on the reader session: up to `cap`,
+/// and whether there were more. A cancel of the run interrupts it.
+async fn read_file(reader: &mut dyn Session, r: &FileRead, cap: u64, cancel: Option<&Notify>) -> CommandResult<Fetched> {
+    let sql = format!("SELECT * FROM {} LIMIT {}", r.text, cap.saturating_add(1));
+    let max = usize::try_from(cap.saturating_add(1)).unwrap_or(usize::MAX);
+    let interrupt = reader.interrupter();
+    let mut out = QueryOutcome::default();
+    let never = Notify::new();
+    let finished = tokio::select! {
+        r = reader.execute(&sql, max, &mut out) => Some(r),
+        _ = cancel.unwrap_or(&never).notified() => None,
+    };
+    let err = match finished {
+        None => {
+            if let Some(i) = interrupt {
+                i();
+            }
+            return Err(CommandError::Cancelled);
+        }
+        Some(Err(dbine_driver::Error::Cancelled)) => return Err(CommandError::Cancelled),
+        Some(Err(e)) => Some(e.to_string()),
+        Some(Ok(())) => out.error.take(),
+    };
+    if let Some(e) = err {
+        return Err(CommandError::Sql(format!("«{}»: {e}", r.display)));
+    }
+    let Some(res) = out.results.into_iter().find(|r| !r.columns.is_empty()) else {
+        return Err(CommandError::BadRequest(format!("«{}» no devolvió columnas", r.display)));
+    };
+    let mut rows = res.rows;
+    let capped = rows.len() as u64 > cap;
+    rows.truncate(cap as usize);
+    Ok((res.columns, rows, capped))
+}
+
+/// Load the files `reads` read into `s` as tables (each one once; again
+/// only when its key changed), reading them on a reader session granted
+/// exactly `allowed` ([`files::open_reader`]), opened only if something
+/// has to be read.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn load_files(
+    s: &mut dyn Session,
+    tables: &mut HashMap<String, Loaded>,
+    present: &HashSet<String>,
+    reads: &[FileRead],
+    allowed: &[DataFile],
+    cap: u64,
+    out: &mut QueryOutcome,
+    cancel: Option<&Notify>,
+) -> CommandResult<Vec<LoadedTable>> {
+    let mut loaded = Vec::new();
+    let mut seen = HashSet::new();
+    let mut reader: Option<Box<dyn Session>> = None;
+    for r in reads {
+        if !seen.insert(r.table.clone()) {
+            continue;
+        }
+        let t0 = std::time::Instant::now();
+        if let Some(l) = tables.get(&r.table).filter(|l| l.key == r.key && present.contains(&r.table)) {
+            loaded.push(LoadedTable { name: r.display.clone(), rows: l.rows, capped: l.capped, cached: true, origin: "file", as_text: l.as_text, elapsed_ms: 0, files: r.files.clone() });
+            continue;
+        }
+        if reader.is_none() {
+            let excel = reads.iter().any(|r| r.call.function == "read_xlsx");
+            reader = Some(files::open_reader(allowed, excel).await?);
+        }
+        let (columns, rows, capped) = read_file(reader.as_deref_mut().expect("reader"), r, cap, cancel).await?;
+        let (n, text) = load_rows(s, &r.table, &columns, &rows).await?;
+        if !text.is_empty() {
+            out.warning(format!("«{}»: sus columnas {} tienen valores que no son de su tipo y se cargaron como texto", r.display, text.join(", ")));
+        }
+        if capped {
+            out.warning(format!("«{}» se cargó con las primeras {cap} filas (el tope por tabla de Configuración › Notebooks)", r.display));
+        }
+        tables.insert(r.table.clone(), Loaded { key: r.key.clone(), rows: n, capped, as_text: !text.is_empty() });
+        loaded.push(LoadedTable {
+            name: r.display.clone(),
+            rows: n,
+            capped,
+            cached: false,
+            origin: "file",
+            as_text: !text.is_empty(),
+            elapsed_ms: t0.elapsed().as_millis() as u64,
+            files: r.files.clone(),
+        });
+    }
+    Ok(loaded)
+}
+
+/// What a results cell's run needs before its SQL runs on `s`: its
+/// statements checked ([`files::refused`]), the files it and the results
+/// sources it uses read (resolved against `base`, the notebook's folder)
+/// loaded as tables, then the sources' tables ([`materialize`]). Returns
+/// the cell's SQL with each reader call replaced by its table, and every
+/// table loaded (the cells' first, then the files).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn prepare<F, Fut>(
+    s: &mut dyn Session,
+    tables: &mut HashMap<String, Loaded>,
+    present: &HashSet<String>,
+    sql: &str,
+    sources: &[LocalSource],
+    cap: u64,
+    base: Option<&std::path::Path>,
+    out: &mut QueryOutcome,
+    cancel: Option<&Notify>,
+    rerun: F,
+) -> CommandResult<(String, Vec<LoadedTable>)>
+where
+    F: FnMut(usize) -> Fut,
+    Fut: std::future::Future<Output = CommandResult<Fetched>>,
+{
+    let need = needed(sql, sources);
+    let locals: Vec<usize> = need.iter().copied().filter(|&i| sources[i].local).collect();
+    if let Some(e) = files::refused(sql) {
+        return Err(CommandError::BadRequest(e));
+    }
+    for &i in &locals {
+        if let Some(e) = files::refused(&sources[i].sql) {
+            return Err(CommandError::BadRequest(format!("la celda «{}»: {e}", sources[i].name)));
+        }
+    }
+    let home = files::home_dir();
+    let cell = files::plan(sql, base, home.as_deref(), cap).map_err(CommandError::BadRequest)?;
+    let mut sources = sources.to_vec();
+    let mut reads = cell.clone();
+    for &i in &locals {
+        let r = files::plan(&sources[i].sql, base, home.as_deref(), cap).map_err(|e| CommandError::BadRequest(format!("la celda «{}»: {e}", sources[i].name)))?;
+        if !r.is_empty() {
+            sources[i].files_key = r.iter().map(|f| f.key.as_str()).collect::<Vec<_>>().join(",");
+            sources[i].sql = files::rewrite(&sources[i].sql, &r);
+            reads.extend(r);
+        }
+    }
+    let mut wanted: Vec<DataFile> = Vec::new();
+    for f in reads.iter().flat_map(|r| &r.files) {
+        if !wanted.iter().any(|w| w.path == f.path) {
+            wanted.push(f.clone());
+        }
+    }
+    // Only what `allowed_files` lets through is ever granted.
+    let allowed = files::allowed_files(&wanted);
+    if let Some(f) = wanted.iter().find(|f| !allowed.iter().any(|a| a.path == f.path)) {
+        return Err(CommandError::BadRequest(format!("no se permitió leer «{}»", f.display)));
+    }
+    let from_files = if reads.is_empty() { Vec::new() } else { load_files(s, tables, present, &reads, &allowed, cap, out, cancel).await? };
+    let mut loaded = materialize(s, tables, present, sql, &sources, cap, out, rerun).await?;
+    loaded.extend(from_files);
+    Ok((files::rewrite(sql, &cell), loaded))
+}
+
+/// Run `sql` (DuckDB SQL) over the tables of the sources it names and the
+/// local files it reads, on the tab's DuckDB session. `notebook_path`: the
+/// notebook's file, whose folder relative paths are read from (`None`
+/// while it's unsaved). See the module docs.
+pub async fn run_local(
+    state: &AppState,
+    tab: &str,
+    sql: &str,
+    max_rows: usize,
+    cap: u64,
+    sources: &[LocalSource],
+    notebook_path: Option<&str>,
+) -> CommandResult<RunLocalResponse> {
     let sql = sql.trim();
     if sql.is_empty() {
         return Err(CommandError::BadRequest("la consulta está vacía".into()));
@@ -884,11 +1060,13 @@ pub async fn run_local(state: &AppState, tab: &str, sql: &str, max_rows: usize, 
         let (src, duck) = (sources[i].clone(), duck.clone());
         async move { rerun(state, tab, &src, cap, &duck).await }
     };
-    let loaded = materialize(&mut **s, &mut tables, &present, sql, sources, cap, &mut out, rerun).await;
+    let base = notebook_path.filter(|p| !p.trim().is_empty()).and_then(|p| std::path::Path::new(p).parent()).map(std::path::Path::to_path_buf);
+    let prepared = prepare(&mut **s, &mut tables, &present, sql, sources, cap, base.as_deref(), &mut out, Some(&entry.cancel), rerun).await;
     if let Ok(mut all) = CATALOGS.lock() {
         all.insert(key.clone(), Catalog { entry: Arc::downgrade(&entry), tables });
     }
-    let loaded = loaded?;
+    let (sql, loaded) = prepared?;
+    let sql = sql.as_str();
 
     // The cell's own SQL.
     let mut run = QueryOutcome::default();

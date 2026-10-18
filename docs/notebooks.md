@@ -195,6 +195,61 @@ GROUP BY ALL
   for these cells (their result is already in memory: a `GROUP BY` in the
   cell does the same), and a full export exports the rows shown.
 
+### Reading local files
+
+A results cell can also read local data files with DuckDB's readers and
+join them with the cells' tables:
+
+```sql
+SELECT *
+FROM c2 c
+JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
+```
+
+- **Readers:** `read_csv`, `read_csv_auto`, `read_parquet` / `parquet_scan`,
+  `read_json`, `read_json_auto`, `read_ndjson`, `read_ndjson_auto` and
+  `read_xlsx` (an Excel workbook, one file; DuckDB's `excel` extension is
+  fetched the first time, as for `.xlsx` data-file connections). Their
+  options work as in DuckDB (`read_csv('x.csv', delim = ';', header = true)`).
+- **The path** is the reader's first argument, written as text: `'a.csv'`,
+  a glob (`'exports/ventas_*.csv'`, `'**/*.parquet'`) or a list
+  (`['a.csv', 'b.csv']`). `~` is the home folder; a relative path is read
+  from the notebook's folder (an unsaved notebook refuses it and asks to
+  save first, or to write the full path). A path built from a column or an
+  expression is refused. Each path is resolved to the real file (symlinks
+  followed, `..` removed); a missing file, a folder, or a glob that matches
+  nothing is an error naming the path.
+- **Local files only:** URLs (`http`, `https`, `s3`, `gs`, `azure`, `hf`…)
+  are refused; nothing goes over the network.
+- **What the cell shows:** under its summary, next to the cells' tables,
+  each file read (shortened: relative to the notebook's folder or with
+  `~`), its rows, size and modification time, and whether it was read now or
+  was already loaded; the tooltip lists every file of a glob or list in
+  full.
+- **Rows and cache:** a file read is a table like a cell's: capped at the
+  same rows per table (and said), and read again only when the call
+  changes or a file's size or modification time does. A results cell that
+  reads a file can be used as a table by the cells below it, and is built
+  again when the file changes.
+- **Only reads.** The files are read in a DuckDB session of their own,
+  granted exactly those files (`allowed_paths`) and then locked down like
+  the notebook's; it runs only the reader call, rebuilt with the resolved
+  paths, never the cell's SQL. The rows come into the notebook's database
+  as a table and the call in the cell's SQL is replaced by it. The
+  notebook's database is never granted a file, so `COPY … TO`, `ATTACH`,
+  `read_text('…')` or `FROM 'file.csv'` on a file the cell reads are still
+  refused by DuckDB. Nothing is written to disk.
+- **Refused statements.** These cells refuse, before running anything,
+  statements that write, attach or configure: `COPY`, `EXPORT` / `IMPORT
+  DATABASE`, `ATTACH` / `DETACH`, `INSTALL` / `LOAD` (and `FORCE INSTALL`,
+  `UPDATE EXTENSIONS`), `CREATE` / `DROP SECRET`, `SET` / `RESET` (except
+  `SET VARIABLE`), `PRAGMA` (the `pragma_…()` table functions still work)
+  and `CHECKPOINT`.
+- **Coming next:** approving each file before a notebook reads it (a
+  notebook from elsewhere can name any readable file today). One function
+  decides which detected files a run may read (`allowed_files` in
+  `src-tauri/src/notebook/files.rs`); the approval plugs in there.
+
 ### The DuckDB database
 
 - One per notebook tab, **in memory only**, opened on the first results cell
@@ -207,12 +262,14 @@ GROUP BY ALL
 - **Sandbox.** Before anything is loaded, the session switches off external
   access, extension autoloading and installing, community extensions and
   spilling to a temp directory, then locks the configuration, and checks
-  that it holds (the cell refuses to run otherwise). A notebook from
-  elsewhere can't use it to read or write files or reach the network on the
-  user's behalf: `read_csv('/…')`, `SELECT * FROM 'file.csv'`, `COPY … TO`,
-  `ATTACH`, `EXPORT DATABASE`, `INSTALL` / `LOAD`, URLs and `SET` are all
-  refused. Data goes in through the driver's bulk load (DuckDB's appender),
-  never through SQL that reads files. No connection names, hosts or
+  that it holds (the cell refuses to run otherwise). The cell's SQL can't
+  use it to write files or reach the network on the user's behalf:
+  `SELECT * FROM 'file.csv'`, `read_text('/…')`, `COPY … TO`, `ATTACH`,
+  `EXPORT DATABASE`, `INSTALL` / `LOAD`, URLs and `SET` are all refused.
+  The readers of [Reading local files](#reading-local-files) are the one
+  way files come in, through a separate reader session. Data goes in
+  through the driver's bulk load (DuckDB's appender), never through SQL
+  that reads files in this session. No connection names, hosts or
   credentials reach it, and the `.ipynb` stores only the cell names and
   `{ "results": true }`.
 

@@ -1132,11 +1132,23 @@ export interface LoadedTable {
   capped: boolean;
   /** Already there from an earlier run. */
   cached: boolean;
-  /** `run`: its run here; `query`: its query ran again; `local`: from the tables above. */
-  origin: 'run' | 'query' | 'local';
+  /** `run`: its run here; `query`: its query ran again; `local`: from the tables above;
+   *  `file`: read from local files (`name` is the file, or the paths as written). */
+  origin: 'run' | 'query' | 'local' | 'file';
   /** Some columns had values not of their type: loaded as text. */
   as_text: boolean;
   elapsed_ms: number;
+  /** The files read (`origin: 'file'`). */
+  files?: DataFile[];
+}
+/** A local file a results cell read (`read_csv('…')`…), as it was then. */
+export interface DataFile {
+  /** Canonical path. */
+  path: string;
+  /** Shortened: relative to the notebook's folder, or with `~`. */
+  display: string;
+  size: number;
+  mtime_ms: number;
 }
 export interface RunLocalResponse { outcome: QueryOutcome; loaded: LoadedTable[] }
 

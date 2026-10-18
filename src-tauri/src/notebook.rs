@@ -13,6 +13,7 @@
 //!   credential or a connection's details is dropped, with a warning.
 
 pub mod export;
+pub mod files;
 pub mod local;
 
 use serde::{Deserialize, Serialize};

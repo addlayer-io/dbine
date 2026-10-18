@@ -657,7 +657,7 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
       sources.push(s);
     }
     const rowCap = clamp(settings.get<number>(RESULTS_CAP_SETTING, RESULTS_CAP_DEFAULT), RESULTS_CAP_RANGE);
-    const r = await notebookApi.runLocal({ tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources });
+    const r = await notebookApi.runLocal({ tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources, notebookPath: props.tab.path ?? null });
     const o = r.outcome;
     cell.execution_count = ++counter;
     live[cell.id] = { outcome: markRaw(o), source: null, run: nextRunId(), loaded: markRaw(r.loaded) };

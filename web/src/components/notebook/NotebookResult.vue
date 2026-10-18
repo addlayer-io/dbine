@@ -133,14 +133,34 @@ function removeChart(i: number) {
   const list = charts.value.filter((_, k) => k !== i);
   commit({ ...stored.value, charts: list, active: Math.min(i <= active.value && active.value > 0 ? active.value - 1 : active.value, list.length - 1) });
 }
-/** "ventas_pg · 4 filas · 12 ms · de su ejecución" per loaded table. */
+/** "940 B", "4,1 KB", "12,3 MB". */
+function formatBytes(b: number): string {
+  if (b < 1024) return `${n(b)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = b / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toLocaleString(locale(), { maximumFractionDigits: 1 })} ${units[i]}`;
+}
+const when = (ms: number) => new Date(ms).toLocaleString(locale(), { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+/** "ventas_pg · 4 filas · 12 ms · de su ejecución" per loaded table; a file
+ *  read also says its size and when it was modified ("~/Downloads/x.csv ·
+ *  120 filas · 4,1 KB · modificado 18/10/26 14:32 · leído del archivo"). */
 const tables = computed(() => (props.running ? [] : props.loaded ?? []).map((l) => {
+  const files = l.files ?? [];
   const parts = [t('notebook:loaded.rows', { count: l.rows, rows: n(l.rows) })];
+  if (files.length > 1) parts.push(t('notebook:loaded.files', { count: files.length, files: n(files.length) }));
+  if (files.length) {
+    parts.push(formatBytes(files.reduce((x, f) => x + f.size, 0)));
+    parts.push(t('notebook:loaded.modified', { when: when(Math.max(...files.map((f) => f.mtime_ms))) }));
+  }
   if (!l.cached) parts.push(duration(l.elapsed_ms));
   parts.push(l.cached ? t('notebook:loaded.cached') : t(`notebook:loaded.${l.origin}`));
   if (l.capped) parts.push(t('notebook:loaded.capped'));
   if (l.as_text) parts.push(t('notebook:loaded.asText'));
-  return { name: l.name, text: parts.join(' · '), warn: l.capped || l.as_text };
+  // A file's tooltip: each path in full, with its size and date.
+  const tip = files.map((f) => `${f.path} · ${formatBytes(f.size)} · ${when(f.mtime_ms)}`).join('\n');
+  return { key: `${l.origin}:${l.name}`, name: l.name, text: parts.join(' · '), warn: l.capped || l.as_text, tip };
 }));
 /** The preview was cut: the summary offers an aggregated version. */
 const cut = computed(() => !!counts.value?.truncated && !props.running);
@@ -165,7 +185,7 @@ const cut = computed(() => !!counts.value?.truncated && !props.running);
     </div>
     <div v-if="tables.length" class="nr-tables" :title="$t('notebook:loaded.tip')">
       <span class="nr-tables-lbl">{{ $t('notebook:loaded.title') }}</span>
-      <span v-for="tbl in tables" :key="tbl.name" class="nr-table" :class="{ warn: tbl.warn }"><code>{{ tbl.name }}</code> {{ tbl.text }}</span>
+      <span v-for="tbl in tables" :key="tbl.key" class="nr-table" :class="{ warn: tbl.warn }" :title="tbl.tip || undefined"><code>{{ tbl.name }}</code> {{ tbl.text }}</span>
     </div>
     <div v-if="result?.error && !hasPane && !running" class="nr-error nm-selectable">{{ tb(result.error) }}</div>
     <div v-if="hasPane" class="nr-pane" :style="{ height: `${height}px` }">

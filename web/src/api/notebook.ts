@@ -45,6 +45,7 @@ export const notebookApi = {
   localRefs: (sql: string, sources: LocalSource[]) => invoke<string[]>('notebook_local_refs', { args: { sql, sources } }),
   /** Run a "Resultados del notebook" cell on the tab's DuckDB session
    *  (`nbx:<tabId>`, closed with the tab; cancel_query stops it). */
-  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[] }) =>
+  /** `notebookPath`: the notebook's file (relative paths in `read_csv('…')` are read from its folder). */
+  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null }) =>
     invoke<RunLocalResponse>('notebook_run_local', { args: a }),
 };

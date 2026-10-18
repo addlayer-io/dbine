@@ -20,7 +20,7 @@ fn col(name: &str, ty: &str) -> ResultColumn {
 }
 
 fn src(name: &str, sql: &str) -> LocalSource {
-    LocalSource { name: name.into(), local: false, sql: sql.into(), connection_id: Some("conn".into()), database: None, run: None, rows: None }
+    LocalSource { name: name.into(), local: false, sql: sql.into(), connection_id: Some("conn".into()), database: None, run: None, rows: None, files_key: String::new() }
 }
 
 fn with_rows(mut s: LocalSource, run: u64, columns: Vec<ResultColumn>, rows: Vec<Vec<Value>>) -> LocalSource {

@@ -249,6 +249,10 @@ pub struct RunLocalArgs {
     #[serde(default)]
     pub row_cap: Option<u64>,
     pub sources: Vec<notebook::local::LocalSource>,
+    /// The notebook's file (its folder is where relative paths in
+    /// `read_csv('…')` are read from); none while it's unsaved.
+    #[serde(default)]
+    pub notebook_path: Option<String>,
 }
 
 /// Run a "Resultados del notebook" cell: DuckDB SQL over the results of the
@@ -256,7 +260,7 @@ pub struct RunLocalArgs {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn notebook_run_local(state: tauri::State<'_, crate::state::AppState>, args: RunLocalArgs) -> CommandResult<notebook::local::RunLocalResponse> {
     let cap = args.row_cap.unwrap_or(notebook::local::DEFAULT_ROW_CAP);
-    notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources).await
+    notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources, args.notebook_path.as_deref()).await
 }
 
 #[cfg(test)]
