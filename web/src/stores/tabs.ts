@@ -205,13 +205,36 @@ export interface FileDiffTab extends TabBase {
   path: string;
 }
 
+/** A notebook (docs/notebooks.md): SQL and text cells in one .ipynb file.
+ *  One of: a standalone file (`path`), a project's file (`projectId` +
+ *  `projectPath`) or a new one not saved yet (`untitled`, "Notebook N").
+ *  `connectionId`/`database` follow the notebook's target (for the tab's
+ *  group and the assistant); each cell runs on its own target. */
+export interface NotebookTab extends TabBase {
+  kind: 'notebook';
+  /** A standalone file's absolute path. */
+  path?: string;
+  projectId?: string;
+  /** Relative to the project's root, with '/'. */
+  projectPath?: string;
+  /** Not saved yet: its number ("Notebook 2"); its draft is kept in localStorage. */
+  untitled?: number;
+}
+
+/** The backend sessions a notebook tab opened (one per connection and
+ *  database its cells ran on), closed with the tab. NotebookView fills it. */
+export const notebookSessions = new Map<string, Set<string>>();
+
+/** Where an untitled notebook's draft is kept between restarts. */
+export const notebookDraftKey = (tabId: string) => `dbine.notebook.draft.${tabId}`;
+
 /** "Diseñar consulta" (docs/query-builder.md): the design is kept with the tab. */
 export interface QueryBuilderTab extends TabBase {
   kind: 'queryBuilder';
   spec: QuerySpec;
 }
 
-export type Tab = QueryTab | FileTab | FileDiffTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ConnectionFormTab | QueryBuilderTab | SubsetTab | OptimizerTab;
+export type Tab = QueryTab | FileTab | FileDiffTab | NotebookTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ConnectionFormTab | QueryBuilderTab | SubsetTab | OptimizerTab;
 
 /** Editor tabs that can't move to another database right now (running, or
  *  with an open transaction). QueryView keeps it up to date. */
@@ -219,6 +242,9 @@ export const busyTabs = new Set<string>();
 
 /** The file's name, without its folder. */
 export const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+
+/** A Jupyter notebook (opened in a notebook tab). */
+export const isNotebookPath = (path: string) => /\.ipynb$/i.test(path);
 
 const KEY = 'dbine.tabs';
 
@@ -427,8 +453,10 @@ export const useTabsStore = defineStore('tabs', {
       this.place({ id: newId(), kind: 'query', queryId: q.id, connectionId: q.connection_id, database: q.database, preview });
     },
 
-    /** A project's file, on the project's active base (a preview tab by default). */
+    /** A project's file, on the project's active base (a preview tab by default).
+     *  A notebook (.ipynb) opens in a notebook tab. */
     openFile(projectId: string, path: string, preview = true, target?: ProjectTarget | null) {
+      if (isNotebookPath(path)) return this.openNotebook({ projectId, projectPath: path });
       const open = this.tabs.find((t) => t.kind === 'file' && t.projectId === projectId && t.path === path);
       if (open) {
         if (!preview) open.preview = false;
@@ -438,6 +466,41 @@ export const useTabsStore = defineStore('tabs', {
         id: newId(), kind: 'file', projectId, path, preview,
         connectionId: target?.connection_id ?? '', database: target?.database ?? '',
       });
+    },
+
+    /** A notebook: a standalone file (`path`) or a project's (`projectId` +
+     *  `projectPath`); focused when it's open already. */
+    openNotebook(o: { path?: string; projectId?: string; projectPath?: string }) {
+      const open = this.tabs.find((t) => t.kind === 'notebook' && (o.path
+        ? t.path === o.path
+        : !!o.projectId && t.projectId === o.projectId && t.projectPath === o.projectPath));
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'notebook', connectionId: '', database: '', preview: false, ...o });
+    },
+
+    /** "Archivo › Nuevo notebook": an untitled one ("Notebook N"). */
+    newNotebook() {
+      const used = new Set(this.tabs.flatMap((t) => (t.kind === 'notebook' && t.untitled ? [t.untitled] : [])));
+      let n = 1;
+      while (used.has(n)) n++;
+      this.place({ id: newId(), kind: 'notebook', connectionId: '', database: '', preview: false, untitled: n });
+    },
+
+    /** An untitled notebook was saved: it's that file from now on. */
+    notebookSaved(id: string, path: string) {
+      const t = this.tabs.find((x) => x.id === id);
+      if (t?.kind !== 'notebook') return;
+      t.path = path;
+      delete t.untitled;
+      try { localStorage.removeItem(notebookDraftKey(id)); } catch { /* storage blocked */ }
+      this.persist();
+    },
+
+    /** The notebook's target changed: the tab joins that connection's group. */
+    setNotebookTarget(id: string, connectionId: string, database: string) {
+      const t = this.tabs.find((x) => x.id === id);
+      if (t?.kind !== 'notebook' || (t.connectionId === connectionId && t.database === database)) return;
+      this.retarget(id, connectionId, database);
     },
 
     /** A project file's diff tab (one per file). */
@@ -466,6 +529,11 @@ export const useTabsStore = defineStore('tabs', {
     /** A file or folder of a project was renamed: its tabs follow. */
     renamePath(projectId: string, from: string, to: string) {
       for (const t of this.tabs) {
+        if (t.kind === 'notebook' && t.projectId === projectId && t.projectPath) {
+          if (t.projectPath === from) t.projectPath = to;
+          else if (t.projectPath.startsWith(`${from}/`)) t.projectPath = to + t.projectPath.slice(from.length);
+          continue;
+        }
         if ((t.kind !== 'file' && t.kind !== 'fileDiff') || t.projectId !== projectId) continue;
         if (t.path === from) t.path = to;
         else if (t.path.startsWith(`${from}/`)) t.path = to + t.path.slice(from.length);
@@ -475,16 +543,16 @@ export const useTabsStore = defineStore('tabs', {
 
     /** The project was unlinked: its tabs close (asking about unsaved ones). */
     closeProject(projectId: string) {
-      this.closeAsking((t) => (t.kind === 'file' || t.kind === 'fileDiff') && t.projectId === projectId);
+      this.closeAsking((t) => (t.kind === 'file' || t.kind === 'fileDiff' || t.kind === 'notebook') && t.projectId === projectId);
     },
 
     /** Connections that no longer exist: their tabs close, except project
      *  files, which stay open without a base (their text is the user's). */
     forgetConnections(gone: Set<string>) {
       for (const t of this.tabs) {
-        if (t.kind === 'file' && gone.has(t.connectionId)) { t.connectionId = ''; t.database = ''; }
+        if ((t.kind === 'file' || t.kind === 'notebook') && gone.has(t.connectionId)) { t.connectionId = ''; t.database = ''; }
       }
-      this.closeWhere((t) => t.kind !== 'file' && t.kind !== 'fileDiff' && gone.has(t.connectionId));
+      this.closeWhere((t) => t.kind !== 'file' && t.kind !== 'fileDiff' && t.kind !== 'notebook' && gone.has(t.connectionId));
       this.persist();
     },
 
@@ -706,7 +774,7 @@ export const useTabsStore = defineStore('tabs', {
       if (i < 0) return;
       const gone = this.tabs[i];
       const gid = eg.groupOf(this, gone);
-      this.release(gone);
+      this.release(gone, true);
       this.tabs.splice(i, 1);
       // Next its group's neighbor of the same connection, else any shown tab
       // of the group; the group closes with its last tab.
@@ -725,7 +793,7 @@ export const useTabsStore = defineStore('tabs', {
         confirmClose(others).then((ok) => { if (ok) this.closeOthers(id, true); });
         return;
       }
-      for (const t of this.tabs.filter((x) => others.includes(x.id))) this.release(t);
+      for (const t of this.tabs.filter((x) => others.includes(x.id))) this.release(t, true);
       this.tabs = this.tabs.filter((x) => !others.includes(x.id));
       this.collapsed = this.collapsed.filter((c) => this.tabs.some((t) => t.connectionId === c && t.id !== id));
       this.activate(id);
@@ -739,7 +807,7 @@ export const useTabsStore = defineStore('tabs', {
         confirmClose(ids).then((ok) => { if (ok) this.closeAll(true); });
         return;
       }
-      for (const t of this.tabs) this.release(t);
+      for (const t of this.tabs) this.release(t, true);
       this.tabs = [];
       this.activeId = null;
       this.collapsed = [];
@@ -787,8 +855,16 @@ export const useTabsStore = defineStore('tabs', {
       for (const t of this.tabs) this.release(t);
     },
 
-    /** The tab's backend session (its connection) is no longer needed. */
-    release(t: Tab) {
+    /** The tab's backend session (its connection) is no longer needed.
+     *  `closing`: the tab goes for good (not the window): an untitled
+     *  notebook's draft goes with it. */
+    release(t: Tab, closing = false) {
+      if (t.kind === 'notebook') {
+        for (const s of notebookSessions.get(t.id) ?? []) api.closeSession(s).catch(() => {});
+        notebookSessions.delete(t.id);
+        if (closing) { try { localStorage.removeItem(notebookDraftKey(t.id)); } catch { /* storage blocked */ } }
+        return;
+      }
       api.closeSession(t.id).catch(() => {});
     },
   },

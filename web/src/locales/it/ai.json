@@ -44,7 +44,11 @@
     "newQuery": "Nuova query",
     "replaceHint": "Sostituisci tutto il contenuto dell'editor (⌘Z annulla)",
     "replace": "Sostituisci",
-    "destructive": "Modifica dati o struttura. Non è stato eseguito nulla: rivedilo prima di eseguirlo tu."
+    "destructive": "Modifica dati o struttura. Non è stato eseguito nulla: rivedilo prima di eseguirlo tu.",
+    "asText": "Inserisci come testo",
+    "asTextHint": "Aggiungi la risposta come cella di testo del notebook (non esegue nulla)",
+    "textAdded": "Aggiunto come cella di testo.",
+    "cellAdded": "Aggiunto come nuova cella, senza eseguirla. Controllala ed eseguila quando vuoi."
   },
   "phase": {
     "schema": "Lettura della struttura del database…",

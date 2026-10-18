@@ -12,6 +12,7 @@
     "title": "File",
     "newConnection": "New connection",
     "newQuery": "New query",
+    "newNotebook": "New notebook",
     "newWindow": "New window",
     "closeTab": "Close tab",
     "open": "Open File…"

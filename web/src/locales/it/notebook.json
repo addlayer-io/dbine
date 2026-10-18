@@ -1,0 +1,116 @@
+{
+  "untitled": "Notebook {{n}}",
+  "new": "Nuovo notebook",
+  "newTip": "Celle SQL e di testo in un unico documento, con i loro risultati (file .ipynb)",
+  "newInProject": "Nuovo notebook…",
+  "link": {
+    "copied": "Impossibile aprire il link nel browser: {{url}} è stato copiato"
+  },
+  "settings": {
+    "nav": "Notebook",
+    "title": "Notebook",
+    "help": "Quanto di ogni risultato un notebook conserva nel suo file. Sullo schermo vedi sempre il risultato completo; il file ne conserva un'anteprima.",
+    "rows": "Righe per cella",
+    "rowsHelp": "Righe di ogni risultato salvate nel file (da 1 a 1000).",
+    "size": "Dimensione per cella",
+    "sizeHelp": "Un'anteprima più grande viene tagliata anche se ha meno righe."
+  },
+  "target": {
+    "none": "Scegli dove eseguire",
+    "unknown": "«{{name}}» non è su questa macchina",
+    "unboundEnv": "Ambiente «{{env}}» senza database",
+    "title": "Dove viene eseguito il notebook",
+    "cellTitle": "Dove viene eseguita questa cella",
+    "mapTitle": "Quale connessione è?",
+    "inherit": "Quella del notebook",
+    "inheritHelp": "La cella viene eseguita dove viene eseguito il notebook.",
+    "environment": "Un ambiente del progetto",
+    "environmentHelp": "Ognuno lo esegue sul proprio database di quell'ambiente. Il file conserva solo il nome dell'ambiente.",
+    "connection": "Una connessione e un database",
+    "mapIntro": "Il notebook usa la connessione «{{name}}», che non esiste su questa macchina. Quale delle tue connessioni è?",
+    "mapHelp": "Viene ricordato su questa macchina; il file non cambia.",
+    "use": "Usa",
+    "bindEnvironment": "Scegli il database dell'ambiente «{{env}}» nel progetto ed esegui di nuovo."
+  },
+  "summary": {
+    "ms": "{{ms}} ms",
+    "seconds": "{{s}} s",
+    "minutes": "{{m}} min {{s}} s",
+    "rowsOf_one": "{{kept}} di {{total}} riga",
+    "rowsOf_many": "{{kept}} di {{total}} righe",
+    "rowsOf_other": "{{kept}} di {{total}} righe",
+    "rows_one": "{{rows}} riga",
+    "rows_many": "{{rows}} righe",
+    "rows_other": "{{rows}} righe",
+    "affected_one": "{{rows}} riga interessata",
+    "affected_many": "{{rows}} righe interessate",
+    "affected_other": "{{rows}} righe interessate",
+    "stored": "anteprima salvata",
+    "storedTip": "Ciò che il file ha conservato. Esegui la cella per vedere il risultato completo.",
+    "dropped": "risultato non salvato",
+    "droppedTip": "«Non salvare il risultato»: il file conserva il riepilogo, non le righe."
+  },
+  "ai": {
+    "explain": "Spiega questo risultato",
+    "explainTip": "L'assistente lo spiega a partire dalla query, dalle colonne e dai totali (mai dalle righe)",
+    "propose": "Proponi la prossima cella",
+    "group": "Vuoi raggrupparlo?",
+    "groupTip": "L'anteprima è tagliata: l'assistente propone una versione raggruppata della query, senza eseguirla",
+    "busy": "L'assistente sta rispondendo a un'altra domanda.",
+    "explainPrompt": "Spiega cosa restituisce questa query del mio notebook e quali conclusioni se ne possono trarre. Non hai le righe, solo la query, le colonne e i totali. Rispondi con un breve testo in Markdown che possa restare come cella del notebook.\n\n```sql\n{{sql}}\n```\n\nRisultato:\n{{result}}",
+    "proposePrompt": "Questo è il mio notebook finora (titoli e query, senza risultati). Proponi la prossima query SQL sensata per proseguire l'analisi, in un unico blocco di codice, con una riga che spieghi perché.\n\n{{outline}}",
+    "groupPrompt": "Questa query restituisce più righe di quante ne stiano nell'anteprima. Proponi una versione raggruppata (con GROUP BY e aggregati) che riassuma il risultato in poche righe, in un unico blocco di codice.\n\n```sql\n{{sql}}\n```\n\nRisultato:\n{{result}}"
+  },
+  "cell": {
+    "countTip": "L'ordine in cui è stata eseguita l'ultima volta",
+    "run": "Esegui la cella",
+    "runTip": "Esegui la cella (⌘↵ / Ctrl+↵; ⇧↵ esegue e passa alla successiva)",
+    "targetTip": "Dove viene eseguita questa cella",
+    "runFrom": "Esegui da qui fino alla fine",
+    "edit": "Modifica",
+    "render": "Fatto (⌘↵ / Ctrl+↵)",
+    "moveUp": "Sposta su",
+    "moveDown": "Sposta giù",
+    "more": "Altre azioni",
+    "toSql": "Converti in cella SQL",
+    "toText": "Converti in cella di testo",
+    "target": "Scegli dove viene eseguita…",
+    "dontKeep": "Non salvare il risultato",
+    "delete": "Elimina la cella",
+    "sqlPlaceholder": "Scrivi una query. ⌘↵ / Ctrl+↵ la esegue",
+    "textPlaceholder": "Testo in Markdown. ⌘↵ / Ctrl+↵ per vederlo",
+    "dblClickEdit": "Doppio clic per modificare",
+    "emptyText": "Cella di testo vuota: doppio clic per scrivere",
+    "foreignTip": "Cella {{language}} di un altro programma: mostrata e salvata così com'è, DBine non la esegue"
+  },
+  "notice": {
+    "title": "Anteprima dei dati",
+    "body": "Questo file include un'anteprima dei dati interrogati. Per salvarlo senza, attiva «Salva senza risultati» nella barra del notebook, oppure «Non salvare il risultato» su una cella.",
+    "ok": "Ho capito"
+  },
+  "save": {
+    "conflict": "Il file è cambiato sul disco da quando l'hai aperto: non è stato salvato. Ricaricalo o sovrascrivilo.",
+    "filter": "Notebook",
+    "failed": "Impossibile salvare {{name}}: {{error}}"
+  },
+  "close": {
+    "title": "Modifiche non salvate",
+    "ask": "{{name}} ha modifiche non salvate. Salvarle prima di chiudere?",
+    "dontSave": "Non salvare"
+  },
+  "toolbar": {
+    "targetTip": "Dove vengono eseguite le celle (ognuna può avere la sua)",
+    "runAll": "Esegui tutto",
+    "clear": "Cancella i risultati",
+    "withoutResults": "Salva senza risultati",
+    "withoutResultsTip": "Il file conserva le query, il testo e i riepiloghi, senza righe: per condividerlo o metterlo in git",
+    "export": "Esporta",
+    "exportHtml": "HTML (una pagina)",
+    "exportMarkdown": "Markdown",
+    "saveTip": "Salva (⌘S / Ctrl+S)"
+  },
+  "add": {
+    "sql": "SQL",
+    "text": "Testo"
+  }
+}

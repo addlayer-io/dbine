@@ -43,7 +43,14 @@ async function openOne(path: string) {
   try {
     opened = await openFilesApi.open(path);
   } catch (e) {
+    // A notebook opens even if the backend doesn't know the kind.
+    if (/\.ipynb$/i.test(path)) { tabs.openNotebook({ path }); return; }
     ElMessage.error(t('core:openFiles.failed', { name: path.split(/[\\/]/).pop() ?? path, error: errorMessage(e) }));
+    return;
+  }
+  // A notebook isn't a connection: it opens in its own tab.
+  if (opened.kind === 'notebook') {
+    tabs.openNotebook({ path: opened.path ?? path });
     return;
   }
   const id = opened.connection_id;

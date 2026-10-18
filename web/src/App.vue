@@ -44,6 +44,7 @@ import { useUiStore, type SidebarView } from './stores/ui';
 import ObjectView from './views/ObjectView.vue';
 import QueryView from './views/QueryView.vue';
 import FileDiffView from './views/FileDiffView.vue';
+import NotebookView from './views/NotebookView.vue';
 import DesignerTabView from './views/DesignerTabView.vue';
 import DiagramTabView from './views/DiagramTabView.vue';
 import QueryBuilderView from './views/QueryBuilderView.vue';
@@ -96,7 +97,7 @@ onMounted(async () => {
   // Tabs of connections deleted since last run (a project's file stays, without a base).
   const ids = new Set(conns.list.map((c) => c.id));
   tabs.forgetConnections(new Set(tabs.tabs.filter((t) => t.kind !== 'connection' && t.connectionId && !ids.has(t.connectionId)).map((t) => t.connectionId)));
-  tabs.closeWhere((t) => t.kind !== 'connection' && t.kind !== 'file' && t.kind !== 'fileDiff' && !ids.has(t.connectionId));
+  tabs.closeWhere((t) => t.kind !== 'connection' && t.kind !== 'file' && t.kind !== 'fileDiff' && t.kind !== 'notebook' && !ids.has(t.connectionId));
   // Projects: file tabs follow their project's active base; a project
   // unlinked meanwhile leaves its tabs with saving off.
   projects.load().then(() => {
@@ -264,6 +265,7 @@ watch(
             <div class="ide-tab-view">
               <QueryView v-if="t.kind === 'query' || t.kind === 'file'" :tab="t" />
               <FileDiffView v-else-if="t.kind === 'fileDiff'" :tab="t" />
+              <NotebookView v-else-if="t.kind === 'notebook'" :tab="t" />
               <ObjectView v-else-if="t.kind === 'object'" :tab="t" />
               <DesignerTabView v-else-if="t.kind === 'designer'" :tab="t" />
               <DiagramTabView v-else-if="t.kind === 'diagram'" :tab="t" />

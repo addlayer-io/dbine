@@ -4,6 +4,9 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { projectsApi } from '../api/projects';
+import { notebookApi } from '../api/notebook';
+import { emptyNotebook } from '../composables/notebookModel';
+import { projectDefaultTarget } from '../composables/notebookTargets';
 import type { ChangeMark, FsEntry } from '../api/types';
 import { parentDir, useProjectsStore } from '../stores/projects';
 import { useTabsStore } from '../stores/tabs';
@@ -126,6 +129,23 @@ async function newFile(dir: string) {
     ElMessage.error(errorMessage(e));
   }
 }
+/** "Nuevo notebook…": an .ipynb with one SQL cell, on the project's base. */
+async function newNotebook(dir: string) {
+  let name = await askName(t('notebook:newInProject'), 'analisis.ipynb');
+  if (!name) return;
+  if (!/\.ipynb$/i.test(name)) name += '.ipynb';
+  const path = dir ? `${dir}/${name}` : name;
+  try {
+    const text = await notebookApi.serialize(emptyNotebook(true, projectDefaultTarget(props.projectId)), { rows: 100, bytes: 1_000_000 });
+    await projectsApi.createFile(props.projectId, path, text);
+    if (dir) projects.toggleDir(props.projectId, dir, true);
+    projects.invalidateDirs(props.projectId, [path]);
+    projects.refreshStatusSoon(props.projectId);
+    tabs.openNotebook({ projectId: props.projectId, projectPath: path });
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  }
+}
 async function newFolder(dir: string) {
   const name = await askName(t('projects:files.newFolder'), 'migraciones');
   if (!name) return;
@@ -168,6 +188,7 @@ function onContext(ev: MouseEvent, r: Row | null) {
   const changed = e && !e.is_dir && markOf(e.path);
   const items: MenuItem[] = [
     { label: t('projects:files.newFile'), action: () => newFile(dir) },
+    { label: t('notebook:newInProject'), action: () => newNotebook(dir) },
     { label: t('projects:files.newFolder'), action: () => newFolder(dir) },
   ];
   if (e && !r?.ghost) {
@@ -187,6 +208,7 @@ function onContext(ev: MouseEvent, r: Row | null) {
 /** The open file tab's file is highlighted. */
 const activePath = computed(() => {
   const a = tabs.active;
+  if (a?.kind === 'notebook') return a.projectId === props.projectId ? a.projectPath ?? null : null;
   return a && (a.kind === 'file' || a.kind === 'fileDiff') && a.projectId === props.projectId ? a.path : null;
 });
 </script>

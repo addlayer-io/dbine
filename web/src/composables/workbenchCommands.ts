@@ -129,6 +129,7 @@ function actions(layout: WorkbenchLayout): Action[] {
     { id: 'file.newConnection', group: 'general', run: () => ui.newConnection() },
     { id: 'file.newFolder', group: 'general', run: () => ui.newFolder(null) },
     { id: 'file.newScheduledTask', group: 'general', run: () => tabs.openScheduledTask(null) },
+    { id: 'file.newNotebook', group: 'general', run: () => tabs.newNotebook() },
     { id: 'file.closeOtherTabs', group: 'general', run: () => { if (tabs.activeId) tabs.closeOthers(tabs.activeId); }, when: () => tabs.tabs.length > 1 && !!tabs.activeId },
     { id: 'file.closeAllTabs', group: 'general', run: () => tabs.closeAll(), when: () => tabs.tabs.length > 0 },
 
@@ -142,11 +143,12 @@ function actions(layout: WorkbenchLayout): Action[] {
     view('view.showScheduled', 'scheduled'),
     {
       id: 'view.revealActive', group: 'view',
-      when: () => !!activeTarget() || tabs.active?.kind === 'file' || tabs.active?.kind === 'fileDiff',
+      when: () => !!activeTarget() || tabs.active?.kind === 'file' || tabs.active?.kind === 'fileDiff' || (tabs.active?.kind === 'notebook' && !!tabs.active.projectId),
       run: () => {
         const tab = tabs.active;
         if (!tab) return;
         if (tab.kind === 'file' || tab.kind === 'fileDiff') { projects.focusProject(tab.projectId); return; }
+        if (tab.kind === 'notebook') { if (tab.projectId) projects.focusProject(tab.projectId); return; }
         ui.revealInExplorer(tab.kind === 'query' ? { connectionId: tab.connectionId, database: tab.database, queryId: tab.queryId }
           : tab.kind === 'object' ? { connectionId: tab.connectionId, database: tab.database, object: tab.object }
             : { connectionId: tab.connectionId, database: tab.database });

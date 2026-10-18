@@ -44,7 +44,11 @@
     "newQuery": "Nova consulta",
     "replaceHint": "Substituir todo o conteúdo do editor (⌘Z desfaz)",
     "replace": "Substituir",
-    "destructive": "Altera dados ou estrutura. Nada foi executado: revise antes de executar você mesmo."
+    "destructive": "Altera dados ou estrutura. Nada foi executado: revise antes de executar você mesmo.",
+    "asText": "Inserir como texto",
+    "asTextHint": "Adicionar a resposta como célula de texto do notebook (não executa nada)",
+    "textAdded": "Adicionado como célula de texto.",
+    "cellAdded": "Adicionado como nova célula, sem executar. Revise e execute quando quiser."
   },
   "phase": {
     "schema": "Lendo a estrutura do banco…",

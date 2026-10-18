@@ -39,6 +39,7 @@ function reveal(t: Tab) {
   tabs.pin(t.id);
   // A project's file: its project in Proyectos.
   if (t.kind === 'file' || t.kind === 'fileDiff') { projects.focusProject(t.projectId); return; }
+  if (t.kind === 'notebook') { if (t.projectId) projects.focusProject(t.projectId); return; }
   ui.revealInExplorer(t.kind === 'query'
     ? { connectionId: t.connectionId, database: t.database, queryId: t.queryId }
     : t.kind === 'object'
@@ -54,6 +55,10 @@ function tooltip(t: Tab): string {
     const p = projects.byId(t.projectId)?.name ?? '';
     if (t.kind === 'fileDiff') return `${p} › ${t.path}`;
     return `${p} › ${t.path} · ${c ? `${c} › ${t.database}` : tr('workbench:tabs.noBase')}`;
+  }
+  if (t.kind === 'notebook') {
+    const where = t.projectId ? `${projects.byId(t.projectId)?.name ?? ''} › ${t.projectPath}` : t.path ?? title(t);
+    return c ? `${where} · ${c}${t.database ? ` › ${t.database}` : ''}` : where;
   }
   const where = [c, t.database].filter(Boolean).join(' · ');
   return t.kind === 'object' ? `${t.object.schema ? t.object.schema + '.' : ''}${t.object.name} — ${where}` : `${title(t)} — ${where}`;
@@ -102,7 +107,7 @@ const rows = computed<Row[]>(() => {
         : titles[i],
       tooltip: tooltip(t),
       color: inGroup ? groupColor(t.connectionId) : conns.colorOf(t.connectionId),
-      icon: { query: 'document', file: 'document', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', health: 'first-aid-kit', scheduledTask: 'alarm-clock', connection: 'connection', queryBuilder: 'set-up', subset: 'scissor', optimizer: 'trend-charts' }[t.kind],
+      icon: { query: 'document', file: 'document', notebook: 'notebook', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', health: 'first-aid-kit', scheduledTask: 'alarm-clock', connection: 'connection', queryBuilder: 'set-up', subset: 'scissor', optimizer: 'trend-charts' }[t.kind],
     });
   });
   return out;
@@ -154,7 +159,7 @@ function onContext(e: MouseEvent, t: Tab) {
     x: e.clientX, y: e.clientY,
     items: [
       ...(t.kind === 'query' ? [{ label: tr('common:rename'), action: () => { tabs.activate(t.id); startRename(t); } }] : []),
-      t.kind === 'file' || t.kind === 'fileDiff'
+      t.kind === 'file' || t.kind === 'fileDiff' || (t.kind === 'notebook' && t.projectId)
         ? { label: tr('workbench:tabs.revealInProjects'), shortcut: tr('workbench:tabs.doubleClick'), action: () => reveal(t) }
         : { label: tr('workbench:tabs.revealInExplorer'), shortcut: tr('workbench:tabs.doubleClick'), action: () => reveal(t) },
       ...(t.connectionId ? [{ label: tr('workbench:tabs.goToDatabase'), action: () => ui.revealInExplorer({ connectionId: t.connectionId, database: t.database, menu: true }) }] : []),

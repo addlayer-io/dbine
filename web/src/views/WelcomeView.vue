@@ -6,6 +6,9 @@ import { FAMILY_LABELS, type Family } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { useUiStore } from '../stores/ui';
 import { pickAndOpen } from '../composables/openFiles';
+import { useTabsStore } from '../stores/tabs';
+
+const tabs = useTabsStore();
 
 // Shown when no tab is open.
 
@@ -30,6 +33,7 @@ const families = computed(() => {
     </div>
     <div class="wv-actions">
       <el-button type="primary" @click="ui.newConnection()"><el-icon><ei-plus /></el-icon>&nbsp;{{ $t('workbench:welcome.newConnection') }}</el-button>
+      <el-button :title="$t('notebook:newTip')" @click="tabs.newNotebook()"><el-icon><ei-notebook /></el-icon>&nbsp;{{ $t('notebook:new') }}</el-button>
       <el-button :title="$t('workbench:welcome.openFileTitle')" @click="pickAndOpen()"><el-icon><ei-folder-opened /></el-icon>&nbsp;{{ $t('workbench:welcome.openFile') }}</el-button>
     </div>
     <div class="nm-card wv-tips">

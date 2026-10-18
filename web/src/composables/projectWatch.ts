@@ -26,6 +26,7 @@ async function checkOpenFiles(onlyProject?: string, onlyPaths?: Set<string>) {
   const byProject = new Map<string, { paths: string[]; known: FileStat[] }>();
   for (const d of fileDocs.values()) {
     const id = d.projectId();
+    if (!id) continue; // a notebook outside projects
     if (onlyProject && id !== onlyProject) continue;
     if (onlyPaths && !onlyPaths.has(d.path())) continue;
     const g = byProject.get(id) ?? { paths: [], known: [] };
@@ -83,13 +84,13 @@ export function useProjectWatch() {
   const report = () => {
     timer = null;
     const files = tabs.tabs
-      .filter((x) => x.kind === 'file' && ui.unsaved[x.id] && ui.unsaved[x.id] !== 'saving')
-      .map((x) => ({ id: x.id, title: x.kind === 'file' ? `${projects.byId(x.projectId)?.name ?? ''} › ${baseName(x.path)}` : '' }));
+      .filter((x) => (x.kind === 'file' || x.kind === 'notebook') && ui.unsaved[x.id] && ui.unsaved[x.id] !== 'saving')
+      .map((x) => ({ id: x.id, title: x.kind === 'file' ? `${projects.byId(x.projectId)?.name ?? ''} › ${baseName(x.path)}` : fileDocs.get(x.id)?.title?.() ?? '' }));
     unsavedFilesApi.report(files).catch(() => {});
   };
   effectScope(true).run(() => {
     watch(
-      () => tabs.tabs.filter((x) => x.kind === 'file' && ui.unsaved[x.id]).map((x) => `${x.id}\u0000${ui.unsaved[x.id]}`).join('\u0001'),
+      () => tabs.tabs.filter((x) => (x.kind === 'file' || x.kind === 'notebook') && ui.unsaved[x.id]).map((x) => `${x.id}\u0000${ui.unsaved[x.id]}`).join('\u0001'),
       () => {
         if (timer) clearTimeout(timer);
         timer = setTimeout(report, REPORT_DEBOUNCE_MS);
@@ -110,5 +111,5 @@ export async function saveAllFiles(): Promise<boolean> {
 /** This window's unsaved file tabs' titles. */
 export function unsavedHere(): string[] {
   const projects = useProjectsStore();
-  return [...fileDocs.values()].filter((d) => d.dirty()).map((d) => `${projects.byId(d.projectId())?.name ?? ''} › ${baseName(d.path())}`);
+  return [...fileDocs.values()].filter((d) => d.dirty()).map((d) => d.title?.() ?? `${projects.byId(d.projectId())?.name ?? ''} › ${baseName(d.path())}`);
 }

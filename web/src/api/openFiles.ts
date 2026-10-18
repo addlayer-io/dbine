@@ -4,8 +4,11 @@ import { invoke } from '@tauri-apps/api/core';
 // drop on the window, File › Open… (src-tauri/src/open_files.rs).
 
 export interface OpenedFile {
+  /** '' for a notebook (it isn't a connection). */
   connection_id: string;
-  kind: 'sqlite' | 'duckdb' | 'data';
+  kind: 'sqlite' | 'duckdb' | 'data' | 'notebook';
+  /** A notebook: the file's absolute path (it opens in a notebook tab). */
+  path?: string | null;
   /** The file's name. */
   name: string;
   /** It already had a connection (temporary or saved): focus it. */
@@ -16,7 +19,7 @@ export interface OpenedFile {
 
 /** The extensions File › Open… offers (what the backend opens). */
 export const OPENABLE_EXTENSIONS = [
-  'sqlite', 'sqlite3', 'db', 'db3', 'duckdb', 'ddb', 'csv', 'tsv', 'parquet', 'json', 'jsonl', 'ndjson', 'xlsx', 'gz', 'zst',
+  'sqlite', 'sqlite3', 'db', 'db3', 'duckdb', 'ddb', 'csv', 'tsv', 'parquet', 'json', 'jsonl', 'ndjson', 'xlsx', 'gz', 'zst', 'ipynb',
 ];
 
 export const openFilesApi = {

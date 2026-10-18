@@ -1005,3 +1005,72 @@ export interface ProjectFilesChanged { project_id: string; paths: string[]; reas
 // Feedback (src-tauri/src/commands/feedback.rs): what the optional
 // diagnostics of "Enviar comentarios" can say about the machine.
 export interface FeedbackSystemInfo { app_version: string; os: string; arch: string }
+
+// Notebooks (src-tauri/src/notebook.rs, docs/notebooks.md): SQL and text
+// cells saved as Jupyter .ipynb, with result previews. Targets are names
+// only (never ids or credentials).
+export interface NotebookTarget {
+  /** A connection's NAME. */
+  connection: string | null;
+  database: string | null;
+  /** A project environment's name (.dbine.json). */
+  environment: string | null;
+}
+/** `foreign`: a Python / R… cell from elsewhere, read-only, kept unchanged. */
+export type CellKind = 'markdown' | 'sql' | 'foreign';
+export interface StoredColumn { name: string; type_name: string }
+export interface StoredStatement {
+  columns: StoredColumn[];
+  rows: Cell[][];
+  /** Rows the query returned (before any cap). */
+  rows_total: number;
+  /** Rows kept in the file. */
+  rows_kept: number;
+  /** The preview was cut (row cap, byte cap, or the run itself was capped). */
+  truncated: boolean;
+  rows_affected: number | null;
+  statement: string | null;
+}
+export interface CellResult {
+  results: StoredStatement[];
+  messages: string[];
+  error: string | null;
+  /** RFC 3339 UTC. */
+  ran_at: string;
+  duration_ms: number;
+  /** Driver id. */
+  engine: string | null;
+  /** "Ventas prod › ventas". */
+  target_label: string | null;
+}
+export interface NotebookCell {
+  /** Stable id (nbformat 4.5 cell id). */
+  id: string;
+  kind: CellKind;
+  source: string;
+  /** Foreign: its language; SQL: "sql" or the engine's language. */
+  language: string | null;
+  /** Overrides the notebook's target. */
+  target: NotebookTarget | null;
+  /** false = "No guardar el resultado" (the summary stays, the rows don't). */
+  keep_result: boolean;
+  /** Chart settings and aggregated points, opaque to the backend. */
+  chart: unknown | null;
+  execution_count: number | null;
+  result: CellResult | null;
+  /** Foreign cells only: the original nbformat cell, written back unchanged. */
+  raw: unknown | null;
+}
+export interface Notebook {
+  target: NotebookTarget | null;
+  /** false = "Guardar sin resultados". */
+  save_results: boolean;
+  cells: NotebookCell[];
+  /** How it was read: "dbine" | "ads" | "jupyter". */
+  origin: string;
+  /** Notebook-level metadata DBine doesn't own, kept on save. */
+  extra_metadata: unknown;
+  /** Things ignored on read (Spanish, translated with tb()). */
+  warnings: string[];
+}
+export interface NotebookRead { notebook: Notebook; text_hash: string }

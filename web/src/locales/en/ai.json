@@ -44,7 +44,11 @@
     "newQuery": "New query",
     "replaceHint": "Replace the whole editor content (⌘Z undoes)",
     "replace": "Replace",
-    "destructive": "Changes data or structure. Nothing was run: review it before you run it yourself."
+    "destructive": "Changes data or structure. Nothing was run: review it before you run it yourself.",
+    "asText": "Insert as text",
+    "asTextHint": "Add the answer as a text cell of the notebook (runs nothing)",
+    "textAdded": "Added as a text cell.",
+    "cellAdded": "Added as a new cell, not run. Check it and run it when you want."
   },
   "phase": {
     "schema": "Reading the database structure…",

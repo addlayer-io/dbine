@@ -2,7 +2,7 @@ import { t as i18nT } from '../i18n';
 import { tb } from '../i18n/backend';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 import { useScheduledStore } from '../stores/scheduled';
-import { baseName, type Tab } from '../stores/tabs';
+import { baseName, type NotebookTab, type Tab } from '../stores/tabs';
 
 // An editor tab's title (the tab strip, "Ir a…"). `tr` is the translate
 // function to use: the tab strip passes its reactive one, so titles follow
@@ -15,8 +15,16 @@ function scheduledTitle(id: string | null, tr: Translate): string {
   return `${tr('scheduled:tab')} · ${scheduled.byId(id)?.name || tr('scheduled:newTask')}`;
 }
 
+/** A notebook's name: its file's, or "Notebook N" while untitled. */
+export function notebookTitle(t: NotebookTab, tr: Translate = i18nT): string {
+  const file = t.path ?? t.projectPath;
+  if (file) return file.split(/[\\/]/).pop() ?? file;
+  return tr('notebook:untitled', { n: t.untitled ?? 1 });
+}
+
 export function tabTitle(t: Tab, tr: Translate = i18nT): string {
   const conns = useConnectionsStore();
+  if (t.kind === 'notebook') return notebookTitle(t, tr);
   if (t.kind === 'object') return t.object.name;
   if (t.kind === 'file') return baseName(t.path);
   if (t.kind === 'fileDiff') return `${baseName(t.path)} ${tr('workbench:tabs.fileDiffSuffix')}`;

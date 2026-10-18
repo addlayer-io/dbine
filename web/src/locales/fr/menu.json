@@ -12,6 +12,7 @@
     "title": "Fichier",
     "newConnection": "Nouvelle connexion",
     "newQuery": "Nouvelle requête",
+    "newNotebook": "Nouveau notebook",
     "newWindow": "Nouvelle fenêtre",
     "closeTab": "Fermer l'onglet",
     "open": "Ouvrir un fichier…"

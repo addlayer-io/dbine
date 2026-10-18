@@ -23,6 +23,8 @@ export interface EditorBridge {
   replace: (code: string) => void;
   /** Rename the tab's saved query (the tab strip's inline rename). */
   rename?: (name: string) => Promise<void>;
+  /** A notebook: insert Markdown as a text cell after the active one. */
+  appendText?: (md: string) => void;
 }
 const bridges = new Map<string, EditorBridge>();
 export function editorBridge(tabId: string): EditorBridge | null {

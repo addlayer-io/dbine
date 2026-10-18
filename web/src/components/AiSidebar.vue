@@ -11,6 +11,8 @@ import { useAiStore, type UiMessage } from '../stores/ai';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 import { locale } from '../i18n';
+import { markdownParts } from '../composables/markdown';
+import { onMarkdownClick } from '../composables/externalLink';
 
 // The AI assistant (right sidebar, ⌘I). It writes code; it never runs it:
 // its code goes into the open query (appended, or replacing it when it
@@ -117,54 +119,8 @@ const suggestions = computed(() => {
   return out.slice(0, 4);
 });
 
-// -- rendering (a small Markdown subset; everything is escaped first) ----------------
-type Part = { kind: 'text'; html: string } | { kind: 'code'; lang: string; code: string; open: boolean };
-
-function esc(s: string) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-function inline(s: string) {
-  return esc(s)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[\s(])\*([^*\s][^*]*)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>');
-}
-function textHtml(block: string) {
-  const out: string[] = [];
-  let list: 'ul' | 'ol' | null = null;
-  const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
-  for (const raw of block.split('\n')) {
-    const line = raw.trimEnd();
-    const ul = /^\s*[-*]\s+(.*)$/.exec(line);
-    const ol = /^\s*\d+[.)]\s+(.*)$/.exec(line);
-    const h = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (ul || ol) {
-      const want = ul ? 'ul' : 'ol';
-      if (list !== want) { close(); out.push(`<${want}>`); list = want; }
-      out.push(`<li>${inline((ul ?? ol)![1])}</li>`);
-    } else {
-      close();
-      if (h) out.push(`<p class="ai-h">${inline(h[2])}</p>`);
-      else if (line.trim()) out.push(`<p>${inline(line)}</p>`);
-    }
-  }
-  close();
-  return out.join('');
-}
-function parts(md: string): Part[] {
-  const out: Part[] = [];
-  const re = /```([\w+#.-]*)[^\n]*\n([\s\S]*?)(```|$)/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(md))) {
-    if (m.index > last) out.push({ kind: 'text', html: textHtml(md.slice(last, m.index)) });
-    out.push({ kind: 'code', lang: m[1] || '', code: m[2].replace(/\n$/, ''), open: m[3] !== '```' });
-    last = re.lastIndex;
-    if (m[3] !== '```') break;
-  }
-  if (last < md.length) out.push({ kind: 'text', html: textHtml(md.slice(last)) });
-  return out;
-}
+// -- rendering (composables/markdown.ts: everything is escaped first) ----------------
+const parts = (md: string) => markdownParts(md);
 /** Hide a model's <think>…</think> (some local models inline it). */
 function visible(m: UiMessage) {
   return m.content.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trimStart();
@@ -187,10 +143,15 @@ function addToQuery(code: string) {
   const b = bridge.value;
   if (b) {
     b.append(code);
-    ElMessage.success(t('ai:code.appended'));
+    ElMessage.success(t(b.appendText ? 'ai:code.cellAdded' : 'ai:code.appended'));
   } else if (tab.value) {
     newQuery(tab.value.connectionId, tab.value.database, code, t('ai:code.newQueryTitle'));
   }
+}
+/** A notebook's "Insertar como texto": the answer becomes a text cell. */
+function addAsText(md: string) {
+  bridge.value?.appendText?.(md.trim());
+  ElMessage.success(t('ai:code.textAdded'));
 }
 function replaceQuery(code: string) {
   bridge.value?.replace(code);
@@ -377,7 +338,7 @@ const phaseText = computed(() => ({
               <pre class="nm-selectable">{{ thinkingOf(m) }}</pre>
             </details>
             <template v-for="(p, i) in parts(visible(m))" :key="i">
-              <div v-if="p.kind === 'text'" class="ai-md nm-selectable" v-html="p.html" />
+              <div v-if="p.kind === 'text'" class="ai-md nm-selectable" @click="onMarkdownClick" v-html="p.html" />
               <div v-else class="ai-code">
                 <div class="ai-code-bar">
                   <span>{{ p.lang || $t('ai:code.code') }}</span>
@@ -400,6 +361,12 @@ const phaseText = computed(() => ({
             </template>
             <div v-if="m.pending && !m.content && !m.approval" class="ai-muted ai-phase"><el-icon class="is-loading"><ei-loading /></el-icon> {{ phaseText || $t('ai:phase.thinking') }}</div>
             <div v-if="m.error" class="ai-error">{{ m.error }}</div>
+            <!-- A notebook takes the answer as a text cell (nothing runs). -->
+            <div v-if="!m.pending && bridge?.appendText && visible(m).trim()" class="ai-text-act">
+              <button class="ai-act" :title="$t('ai:code.asTextHint')" @click="addAsText(visible(m))">
+                <el-icon><ei-document-add /></el-icon>{{ $t('ai:code.asText') }}
+              </button>
+            </div>
             <div v-if="!m.pending && m.provider" class="ai-sent">{{ tb(m.provider) }}</div>
           </template>
         </div>
@@ -478,7 +445,14 @@ const phaseText = computed(() => ({
 .ai-sent { font-size: 10.5px; color: var(--nm-text-dim); margin-top: 3px; }
 .ai-msg.assistant { min-width: 0; }
 .ai-md :deep(p) { margin: 0 0 6px; line-height: 1.55; }
-.ai-md :deep(.ai-h) { font-weight: 600; color: var(--nm-text-strong); }
+.ai-md :deep(.md-h) { margin: 0 0 6px; font-weight: 600; color: var(--nm-text-strong); }
+.ai-md :deep(pre) { margin: 0 0 6px; padding: 6px 8px; overflow: auto; border-radius: 3px; background: var(--nm-overlay-code); }
+.ai-md :deep(pre code) { padding: 0; background: none; }
+.ai-md :deep(blockquote) { margin: 0 0 6px; padding-left: 8px; border-left: 3px solid var(--nm-border); color: var(--nm-text-dim); }
+.ai-md :deep(table) { border-collapse: collapse; margin: 0 0 6px; font-size: 12px; }
+.ai-md :deep(th), .ai-md :deep(td) { padding: 2px 6px; border: 1px solid var(--nm-border); }
+.ai-md :deep(hr) { border: 0; border-top: 1px solid var(--nm-border); margin: 8px 0; }
+.ai-md :deep(a) { color: var(--nm-syn-link, var(--nm-primary)); }
 .ai-md :deep(ul), .ai-md :deep(ol) { margin: 0 0 6px; padding-left: 18px; line-height: 1.55; }
 .ai-md :deep(code) { font-family: var(--nm-mono); font-size: 12px; padding: 0 4px; border-radius: 3px; background: var(--nm-overlay-code); }
 .ai-code { margin: 4px 0 8px; border: 1px solid var(--nm-border); border-radius: 6px; overflow: hidden; background: var(--ide-editor); }
@@ -487,6 +461,7 @@ const phaseText = computed(() => ({
 .ai-act { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border: none; border-radius: 4px; background: transparent; color: var(--nm-text); font: inherit; font-size: 11.5px; cursor: pointer; }
 .ai-act:hover { background: var(--ide-hover); }
 .ai-act.primary { color: var(--nm-accent); }
+.ai-text-act { display: flex; margin-top: 2px; }
 .ai-code pre { margin: 0; padding: 8px 10px; overflow: auto; white-space: pre-wrap; word-break: break-word; max-height: 360px; font-family: var(--nm-mono); font-size: 12px; line-height: 1.5; color: var(--nm-text-strong); }
 .ai-warn { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 11.5px; color: var(--nm-warning); border-top: 1px solid var(--nm-border); background: color-mix(in srgb, var(--nm-warning) 8%, transparent); }
 .ai-think { margin-bottom: 6px; font-size: 11.5px; color: var(--nm-text-dim); }

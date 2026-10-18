@@ -114,7 +114,7 @@ const where = (connectionId: string, database: string) => {
 function tabItem(tab: Tab): GoItem | null {
   if (tab.kind === 'connection') return null;
   const tabs = useTabsStore();
-  const icon = tab.kind === 'object' ? `ei-${KIND_ICONS[tab.object.kind] ?? 'document'}` : tab.kind === 'query' || tab.kind === 'file' ? 'ei-document' : 'ei-files';
+  const icon = tab.kind === 'object' ? `ei-${KIND_ICONS[tab.object.kind] ?? 'document'}` : tab.kind === 'query' || tab.kind === 'file' ? 'ei-document' : tab.kind === 'notebook' ? 'ei-notebook' : 'ei-files';
   return {
     id: `tab:${tab.id}`, rank: 0, icon, label: tabTitle(tab),
     description: [t('palette:goto.tab'), where(tab.connectionId, tab.database)].filter(Boolean).join(' · '),

@@ -1,0 +1,116 @@
+{
+  "untitled": "Notebook {{n}}",
+  "new": "New notebook",
+  "newTip": "SQL and text cells in one document, with their results (.ipynb file)",
+  "newInProject": "New notebook…",
+  "link": {
+    "copied": "Couldn't open the link in the browser: {{url}} was copied"
+  },
+  "settings": {
+    "nav": "Notebooks",
+    "title": "Notebooks",
+    "help": "How much of each result a notebook keeps in its file. On screen you always see the whole result; the file keeps a preview.",
+    "rows": "Rows per cell",
+    "rowsHelp": "Rows of each result saved in the file (1 to 1000).",
+    "size": "Size per cell",
+    "sizeHelp": "A larger preview is cut even if it has fewer rows."
+  },
+  "target": {
+    "none": "Choose where to run",
+    "unknown": "“{{name}}” isn't on this machine",
+    "unboundEnv": "Environment “{{env}}” has no database",
+    "title": "Where the notebook runs",
+    "cellTitle": "Where this cell runs",
+    "mapTitle": "Which connection is it?",
+    "inherit": "The notebook's",
+    "inheritHelp": "The cell runs where the notebook runs.",
+    "environment": "A project environment",
+    "environmentHelp": "Each person runs it on their own database for that environment. The file only keeps the environment's name.",
+    "connection": "A connection and a database",
+    "mapIntro": "The notebook uses the connection “{{name}}”, which doesn't exist on this machine. Which of your connections is it?",
+    "mapHelp": "Remembered on this machine; the file doesn't change.",
+    "use": "Use",
+    "bindEnvironment": "Choose the database of the “{{env}}” environment in the project and run again."
+  },
+  "summary": {
+    "ms": "{{ms}} ms",
+    "seconds": "{{s}} s",
+    "minutes": "{{m}} min {{s}} s",
+    "rowsOf_one": "{{kept}} of {{total}} row",
+    "rowsOf_many": "{{kept}} of {{total}} rows",
+    "rowsOf_other": "{{kept}} of {{total}} rows",
+    "rows_one": "{{rows}} row",
+    "rows_many": "{{rows}} rows",
+    "rows_other": "{{rows}} rows",
+    "affected_one": "{{rows}} row affected",
+    "affected_many": "{{rows}} rows affected",
+    "affected_other": "{{rows}} rows affected",
+    "stored": "saved preview",
+    "storedTip": "What the file kept. Run the cell to see the whole result.",
+    "dropped": "result not saved",
+    "droppedTip": "“Don't save result”: the file keeps the summary, not the rows."
+  },
+  "ai": {
+    "explain": "Explain this result",
+    "explainTip": "The assistant explains it from the query, the columns and the totals (never the rows)",
+    "propose": "Propose the next cell",
+    "group": "Do you want it grouped?",
+    "groupTip": "The preview is cut: the assistant proposes a grouped version of the query, without running it",
+    "busy": "The assistant is answering another question.",
+    "explainPrompt": "Explain what this query from my notebook returns and what conclusions can be drawn. You don't have the rows, only the query, the columns and the totals. Answer with a short Markdown text that can stay as a notebook cell.\n\n```sql\n{{sql}}\n```\n\nResult:\n{{result}}",
+    "proposePrompt": "This is my notebook so far (headings and queries, no results). Propose the next SQL query that makes sense to continue the analysis, in a single code block, with one line explaining why.\n\n{{outline}}",
+    "groupPrompt": "This query returns more rows than fit in the preview. Propose a grouped version (with GROUP BY and aggregates) that summarizes the result in a few rows, in a single code block.\n\n```sql\n{{sql}}\n```\n\nResult:\n{{result}}"
+  },
+  "cell": {
+    "countTip": "The order it last ran in",
+    "run": "Run the cell",
+    "runTip": "Run the cell (⌘↵ / Ctrl+↵; ⇧↵ runs and moves to the next one)",
+    "targetTip": "Where this cell runs",
+    "runFrom": "Run from here to the end",
+    "edit": "Edit",
+    "render": "Done (⌘↵ / Ctrl+↵)",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "more": "More actions",
+    "toSql": "Turn into a SQL cell",
+    "toText": "Turn into a text cell",
+    "target": "Choose where it runs…",
+    "dontKeep": "Don't save result",
+    "delete": "Delete the cell",
+    "sqlPlaceholder": "Write a query. ⌘↵ / Ctrl+↵ runs it",
+    "textPlaceholder": "Markdown text. ⌘↵ / Ctrl+↵ to see it",
+    "dblClickEdit": "Double click to edit",
+    "emptyText": "Empty text cell: double click to write",
+    "foreignTip": "{{language}} cell from another program: shown and saved as is, DBine doesn't run it"
+  },
+  "notice": {
+    "title": "Data preview",
+    "body": "This file includes a preview of the data you queried. To save it without them, turn on “Save without results” in the notebook's toolbar, or “Don't save result” on a cell.",
+    "ok": "Got it"
+  },
+  "save": {
+    "conflict": "The file changed on disk since you opened it: it wasn't saved. Reload it or overwrite it.",
+    "filter": "Notebook",
+    "failed": "Couldn't save {{name}}: {{error}}"
+  },
+  "close": {
+    "title": "Unsaved changes",
+    "ask": "{{name}} has unsaved changes. Save them before closing?",
+    "dontSave": "Don't save"
+  },
+  "toolbar": {
+    "targetTip": "Where the cells run (each one can have its own)",
+    "runAll": "Run all",
+    "clear": "Clear results",
+    "withoutResults": "Save without results",
+    "withoutResultsTip": "The file keeps the queries, the text and the summaries, without rows: for sharing it or putting it in git",
+    "export": "Export",
+    "exportHtml": "HTML (one page)",
+    "exportMarkdown": "Markdown",
+    "saveTip": "Save (⌘S / Ctrl+S)"
+  },
+  "add": {
+    "sql": "SQL",
+    "text": "Text"
+  }
+}

@@ -44,7 +44,11 @@
     "newQuery": "Nouvelle requête",
     "replaceHint": "Remplacer tout le contenu de l'éditeur (⌘Z annule)",
     "replace": "Remplacer",
-    "destructive": "Modifie des données ou la structure. Rien n'a été exécuté : relisez-le avant de l'exécuter vous-même."
+    "destructive": "Modifie des données ou la structure. Rien n'a été exécuté : relisez-le avant de l'exécuter vous-même.",
+    "asText": "Insérer comme texte",
+    "asTextHint": "Ajouter la réponse comme cellule de texte du notebook (n'exécute rien)",
+    "textAdded": "Ajouté comme cellule de texte.",
+    "cellAdded": "Ajouté comme nouvelle cellule, sans l'exécuter. Vérifiez-la et exécutez-la quand vous voulez."
   },
   "phase": {
     "schema": "Lecture de la structure de la base…",

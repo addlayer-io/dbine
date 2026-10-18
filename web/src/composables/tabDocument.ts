@@ -146,9 +146,13 @@ export function useQueryDocument(tab: QueryTab): TabDocument & { query: Ref<Save
 // -- a project's file -----------------------------------------------------------------
 
 /** What other parts need from an open file tab (the watcher, the quit
- *  guard, "Guardar todo" before a pull). Keyed by tab id. */
+ *  guard, "Guardar todo" before a pull). Keyed by tab id. Notebook tabs
+ *  are here too; a standalone one (outside projects) has `projectId` ''
+ *  and isn't watched. */
 export interface FileDocHandle {
   tabId: string;
+  /** What the quit guard lists (default: "Project › file"). */
+  title?(): string;
   projectId(): string;
   path(): string;
   dirty(): boolean;

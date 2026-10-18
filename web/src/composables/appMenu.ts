@@ -61,7 +61,7 @@ function menus() {
       item('app.quit', true),
     ] },
     { label: t('menu:file.title'), items: [
-      item('file.newConnection'), item('file.newQuery', true), item('file.newWindow', true), sep,
+      item('file.newConnection'), item('file.newQuery', true), item('file.newNotebook'), item('file.newWindow', true), sep,
       item('file.open', true), sep,
       item('file.closeTab', true),
     ] },
@@ -108,6 +108,7 @@ export function useAppMenu(actions: AppMenuActions) {
     'app.quit': () => { requestQuit(); },
     'file.newConnection': () => ui.newConnection(),
     'file.newQuery': actions.newQuery,
+    'file.newNotebook': () => tabs.newNotebook(),
     'file.open': () => { void pickAndOpen(); },
     'file.closeTab': () => { if (tabs.activeId) tabs.close(tabs.activeId); },
     'view.explorer': actions.toggleExplorer,

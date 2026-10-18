@@ -33,6 +33,7 @@ import { VIM_SETTING } from '../composables/commands';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
 import MapSettings from './MapSettings.vue';
+import NotebookSettings from './notebook/NotebookSettings.vue';
 import DevicesSettings from './DevicesSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 import { ALL_ROWS } from '../composables/queryControls';
@@ -387,6 +388,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         </button>
         <button :class="{ on: section === 'mail' }" @click="section = 'mail'"><el-icon><ei-message /></el-icon>{{ $t('mail:nav') }}</button>
         <button :class="{ on: section === 'maps' }" @click="section = 'maps'"><el-icon><ei-map-location /></el-icon>{{ $t('map:settings.nav') }}</button>
+        <button :class="{ on: section === 'notebooks' }" @click="section = 'notebooks'"><el-icon><ei-notebook /></el-icon>{{ $t('notebook:settings.nav') }}</button>
         <button v-if="driverPackages" :class="{ on: section === 'drivers' }" @click="section = 'drivers'"><el-icon><ei-connection /></el-icon>{{ $t('settings:nav.drivers') }}</button>
         <!-- Voluntary support: opens Buy Me a Coffee in the browser. -->
         <button class="st-support" :title="$t('settings:nav.supportHint')" @click="openSupport">
@@ -479,6 +481,11 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <!-- The results' map view: base map and online tiles (composables/mapTiles.ts) -->
       <section v-else-if="section === 'maps'" class="st-body">
         <MapSettings />
+      </section>
+
+      <!-- Notebooks: how much of each result the file keeps (docs/notebooks.md) -->
+      <section v-else-if="section === 'notebooks'" class="st-body">
+        <NotebookSettings />
       </section>
 
       <!-- The query editor's linter -->

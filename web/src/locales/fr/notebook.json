@@ -1,0 +1,116 @@
+{
+  "untitled": "Notebook {{n}}",
+  "new": "Nouveau notebook",
+  "newTip": "Des cellules SQL et de texte dans un seul document, avec leurs résultats (fichier .ipynb)",
+  "newInProject": "Nouveau notebook…",
+  "link": {
+    "copied": "Impossible d'ouvrir le lien dans le navigateur : {{url}} a été copié"
+  },
+  "settings": {
+    "nav": "Notebooks",
+    "title": "Notebooks",
+    "help": "La part de chaque résultat qu'un notebook garde dans son fichier. À l'écran, vous voyez toujours le résultat complet ; le fichier en garde un aperçu.",
+    "rows": "Lignes par cellule",
+    "rowsHelp": "Lignes de chaque résultat enregistrées dans le fichier (de 1 à 1000).",
+    "size": "Taille par cellule",
+    "sizeHelp": "Un aperçu plus grand est coupé même s'il a moins de lignes."
+  },
+  "target": {
+    "none": "Choisissez où exécuter",
+    "unknown": "« {{name}} » n'existe pas sur cette machine",
+    "unboundEnv": "Environnement « {{env}} » sans base",
+    "title": "Où le notebook s'exécute",
+    "cellTitle": "Où cette cellule s'exécute",
+    "mapTitle": "Quelle connexion est-ce ?",
+    "inherit": "Celle du notebook",
+    "inheritHelp": "La cellule s'exécute là où s'exécute le notebook.",
+    "environment": "Un environnement du projet",
+    "environmentHelp": "Chacun l'exécute sur sa propre base de cet environnement. Le fichier ne garde que le nom de l'environnement.",
+    "connection": "Une connexion et une base",
+    "mapIntro": "Le notebook utilise la connexion « {{name}} », qui n'existe pas sur cette machine. Laquelle de vos connexions est-ce ?",
+    "mapHelp": "Mémorisé sur cette machine ; le fichier ne change pas.",
+    "use": "Utiliser",
+    "bindEnvironment": "Choisissez la base de l'environnement « {{env}} » dans le projet, puis exécutez à nouveau."
+  },
+  "summary": {
+    "ms": "{{ms}} ms",
+    "seconds": "{{s}} s",
+    "minutes": "{{m}} min {{s}} s",
+    "rowsOf_one": "{{kept}} sur {{total}} ligne",
+    "rowsOf_many": "{{kept}} sur {{total}} lignes",
+    "rowsOf_other": "{{kept}} sur {{total}} lignes",
+    "rows_one": "{{rows}} ligne",
+    "rows_many": "{{rows}} lignes",
+    "rows_other": "{{rows}} lignes",
+    "affected_one": "{{rows}} ligne affectée",
+    "affected_many": "{{rows}} lignes affectées",
+    "affected_other": "{{rows}} lignes affectées",
+    "stored": "aperçu enregistré",
+    "storedTip": "Ce que le fichier a gardé. Exécutez la cellule pour voir le résultat complet.",
+    "dropped": "résultat non enregistré",
+    "droppedTip": "« Ne pas enregistrer le résultat » : le fichier garde le résumé, pas les lignes."
+  },
+  "ai": {
+    "explain": "Expliquer ce résultat",
+    "explainTip": "L'assistant l'explique à partir de la requête, des colonnes et des totaux (jamais des lignes)",
+    "propose": "Proposer la cellule suivante",
+    "group": "Voulez-vous le regrouper ?",
+    "groupTip": "L'aperçu est coupé : l'assistant propose une version regroupée de la requête, sans l'exécuter",
+    "busy": "L'assistant répond à une autre question.",
+    "explainPrompt": "Explique ce que renvoie cette requête de mon notebook et quelles conclusions on peut en tirer. Tu n'as pas les lignes, seulement la requête, les colonnes et les totaux. Réponds par un court texte en Markdown qui puisse rester comme cellule du notebook.\n\n```sql\n{{sql}}\n```\n\nRésultat :\n{{result}}",
+    "proposePrompt": "Voici mon notebook jusqu'ici (titres et requêtes, sans résultats). Propose la prochaine requête SQL pertinente pour poursuivre l'analyse, dans un seul bloc de code, avec une ligne qui explique pourquoi.\n\n{{outline}}",
+    "groupPrompt": "Cette requête renvoie plus de lignes que n'en contient l'aperçu. Propose une version regroupée (avec GROUP BY et des agrégats) qui résume le résultat en quelques lignes, dans un seul bloc de code.\n\n```sql\n{{sql}}\n```\n\nRésultat :\n{{result}}"
+  },
+  "cell": {
+    "countTip": "L'ordre de sa dernière exécution",
+    "run": "Exécuter la cellule",
+    "runTip": "Exécuter la cellule (⌘↵ / Ctrl+↵ ; ⇧↵ exécute et passe à la suivante)",
+    "targetTip": "Où cette cellule s'exécute",
+    "runFrom": "Exécuter d'ici jusqu'à la fin",
+    "edit": "Modifier",
+    "render": "Terminé (⌘↵ / Ctrl+↵)",
+    "moveUp": "Monter",
+    "moveDown": "Descendre",
+    "more": "Plus d'actions",
+    "toSql": "Convertir en cellule SQL",
+    "toText": "Convertir en cellule de texte",
+    "target": "Choisir où elle s'exécute…",
+    "dontKeep": "Ne pas enregistrer le résultat",
+    "delete": "Supprimer la cellule",
+    "sqlPlaceholder": "Écrivez une requête. ⌘↵ / Ctrl+↵ l'exécute",
+    "textPlaceholder": "Texte en Markdown. ⌘↵ / Ctrl+↵ pour l'afficher",
+    "dblClickEdit": "Double-cliquez pour modifier",
+    "emptyText": "Cellule de texte vide : double-cliquez pour écrire",
+    "foreignTip": "Cellule {{language}} d'un autre programme : affichée et enregistrée telle quelle, DBine ne l'exécute pas"
+  },
+  "notice": {
+    "title": "Aperçu des données",
+    "body": "Ce fichier contient un aperçu des données interrogées. Pour l'enregistrer sans elles, activez « Enregistrer sans résultats » dans la barre du notebook, ou « Ne pas enregistrer le résultat » sur une cellule.",
+    "ok": "Compris"
+  },
+  "save": {
+    "conflict": "Le fichier a changé sur le disque depuis son ouverture : il n'a pas été enregistré. Rechargez-le ou écrasez-le.",
+    "filter": "Notebook",
+    "failed": "Impossible d'enregistrer {{name}} : {{error}}"
+  },
+  "close": {
+    "title": "Modifications non enregistrées",
+    "ask": "{{name}} a des modifications non enregistrées. Les enregistrer avant de fermer ?",
+    "dontSave": "Ne pas enregistrer"
+  },
+  "toolbar": {
+    "targetTip": "Où s'exécutent les cellules (chacune peut avoir la sienne)",
+    "runAll": "Tout exécuter",
+    "clear": "Effacer les résultats",
+    "withoutResults": "Enregistrer sans résultats",
+    "withoutResultsTip": "Le fichier garde les requêtes, le texte et les résumés, sans lignes : pour le partager ou le mettre dans git",
+    "export": "Exporter",
+    "exportHtml": "HTML (une page)",
+    "exportMarkdown": "Markdown",
+    "saveTip": "Enregistrer (⌘S / Ctrl+S)"
+  },
+  "add": {
+    "sql": "SQL",
+    "text": "Texte"
+  }
+}
