@@ -7091,6 +7091,7 @@
   "«{0}» no es un privilegio de esquema en este motor": "«{0}» is not a schema privilege in this engine",
   "«{0}» no sirve como esquema de Phoenix: usá solo letras, números y _": "«{0}» doesn't work as a Phoenix schema: use only letters, numbers and _",
   "\nLa transacción tiene un error: deshacela (ROLLBACK) para seguir.": "\nThe transaction has an error: roll it back (ROLLBACK) to continue.",
+  "(¿falta az login?)": "(is az login missing?)",
   ", Procedimiento {0}, Línea {1}": ", Procedure {0}, Line {1}",
   ":param {0} necesita un mapa.": ":param {0} needs a map.",
   "Aborted": "Aborted",
@@ -10086,6 +10087,7 @@
   "Azure no creó la regla: {0}": "Azure didn't create the rule: {0}",
   "el nombre de la regla solo puede tener letras, números, «-» y «_»": "the rule name can only have letters, numbers, “-” and “_”",
   "la CLI de Azure (az) no terminó en {0} s": "the Azure CLI (az) didn't finish in {0} s",
+  "la CLI de Azure no tiene una sesión iniciada en ese inquilino: iniciá sesión con «az login --tenant {0}» y probá de nuevo": "the Azure CLI has no session signed in to that tenant: sign in with «az login --tenant {0}» and try again",
   "la CLI de Azure no tiene una sesión iniciada: corré «az login» y volvé a intentar": "the Azure CLI isn't logged in: run “az login” and try again",
   "la conexión no es a un servidor de Azure SQL (*.database.windows.net)": "the connection isn't to an Azure SQL server (*.database.windows.net)",
   "no se encontró el servidor {0} en las suscripciones de tu cuenta de Azure (la sesión de az puede ser de otra cuenta o de otro tenant)": "server {0} wasn't found in your Azure account's subscriptions (the az session may be another account's or another tenant's)",
@@ -10934,6 +10936,7 @@
   "políticas: {0}": "policies: {0}",
   "página desconocida": "unknown page",
   "{0} secretos visibles para la cuenta de máquina": "{0} secrets visible to the machine account",
+  "«az account list» no devolvió JSON": "«az account list» did not return JSON",
   "«az account show» no devolvió JSON": "«az account show» did not return JSON",
   "«gcloud config list» no devolvió JSON": "«gcloud config list» did not return JSON",
   "«op whoami» no dijo con qué cuenta inició sesión": "«op whoami» did not say which account is signed in"

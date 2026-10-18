@@ -7091,6 +7091,7 @@
   "«{0}» no es un privilegio de esquema en este motor": "« {0} » n'est pas un privilège de schéma dans ce moteur",
   "«{0}» no sirve como esquema de Phoenix: usá solo letras, números y _": "« {0} » ne convient pas comme schéma Phoenix : utilisez uniquement des lettres, des chiffres et _",
   "\nLa transacción tiene un error: deshacela (ROLLBACK) para seguir.": "\nLa transaction a une erreur : annulez-la (ROLLBACK) pour continuer.",
+  "(¿falta az login?)": "(az login manquant ?)",
   ", Procedimiento {0}, Línea {1}": ", Procédure {0}, Ligne {1}",
   ":param {0} necesita un mapa.": ":param {0} nécessite une map.",
   "Aborted": "Aborted",
@@ -10086,6 +10087,7 @@
   "Azure no creó la regla: {0}": "Azure n’a pas créé la règle : {0}",
   "el nombre de la regla solo puede tener letras, números, «-» y «_»": "le nom de la règle ne peut contenir que des lettres, des chiffres, « - » et « _ »",
   "la CLI de Azure (az) no terminó en {0} s": "Azure CLI (az) n’a pas terminé en {0} s",
+  "la CLI de Azure no tiene una sesión iniciada en ese inquilino: iniciá sesión con «az login --tenant {0}» y probá de nuevo": "la CLI Azure n'a pas de session ouverte sur ce tenant : connectez-vous avec «az login --tenant {0}» et réessayez",
   "la CLI de Azure no tiene una sesión iniciada: corré «az login» y volvé a intentar": "Azure CLI n’a pas de session ouverte : lancez « az login » puis réessayez",
   "la conexión no es a un servidor de Azure SQL (*.database.windows.net)": "la connexion ne vise pas un serveur Azure SQL (*.database.windows.net)",
   "no se encontró el servidor {0} en las suscripciones de tu cuenta de Azure (la sesión de az puede ser de otra cuenta o de otro tenant)": "le serveur {0} est introuvable dans les abonnements de votre compte Azure (la session az peut appartenir à un autre compte ou à un autre tenant)",
@@ -10934,6 +10936,7 @@
   "políticas: {0}": "politiques : {0}",
   "página desconocida": "page inconnue",
   "{0} secretos visibles para la cuenta de máquina": "{0} secrets visibles pour le compte machine",
+  "«az account list» no devolvió JSON": "«az account list» n'a pas renvoyé de JSON",
   "«az account show» no devolvió JSON": "«az account show» n'a pas renvoyé de JSON",
   "«gcloud config list» no devolvió JSON": "«gcloud config list» n'a pas renvoyé de JSON",
   "«op whoami» no dijo con qué cuenta inició sesión": "«op whoami» n'a pas indiqué avec quel compte la session est ouverte"

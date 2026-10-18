@@ -12,7 +12,7 @@ const API_VERSION: &str = "7.4";
 
 pub async fn get_secret(vault_url: &str, name: &str, version: &str, tenant: &str) -> Result<String, String> {
     let (host, resource) = dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string())?;
-    let (token, _) = cloud_auth::azure_token_for(resource, tenant_arg(tenant)?).await.map_err(|e| e.to_string())?;
+    let (token, _) = token_for(resource, tenant).await?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(20))
@@ -35,6 +35,124 @@ fn tenant_arg(tenant: &str) -> Result<Option<&str>, String> {
     Ok(Some(t))
 }
 
+/// A token for `resource` from the Azure CLI chain, for `tenant` when one
+/// is set. When the CLI has no sign-in in that tenant, the error says how
+/// to sign in there ([`no_sign_in`]): DBine never runs `az login` itself.
+async fn token_for(resource: &str, tenant: &str) -> Result<(String, u64), String> {
+    let t = tenant_arg(tenant)?;
+    cloud_auth::azure_token_for(resource, t).await.map_err(|e| {
+        let e = e.to_string();
+        match t {
+            Some(t) if needs_tenant_sign_in(&e) => no_sign_in(t),
+            _ => e,
+        }
+    })
+}
+
+/// The Azure CLI has no usable sign-in in the tenant (a valid one: it goes
+/// into the command the user copies).
+pub fn no_sign_in(tenant: &str) -> String {
+    format!("la CLI de Azure no tiene una sesión iniciada en ese inquilino: iniciá sesión con «az login --tenant {tenant}» y probá de nuevo")
+}
+
+/// What `az` says when the token for a tenant needs a new sign-in there:
+/// MFA or Conditional Access of that tenant (AADSTS50076, 50079, 53003,
+/// 50078), an expired or revoked refresh token (700082, 70043, 50173),
+/// a user that isn't in the tenant (50020), or MSAL asking for an
+/// interactive login.
+const SIGN_IN_MARKERS: &[&str] = &[
+    "aadsts50076",
+    "aadsts50079",
+    "aadsts53003",
+    "aadsts50078",
+    "aadsts700082",
+    "aadsts70043",
+    "aadsts50173",
+    "aadsts50020",
+    "interaction_required",
+    "invalid_grant",
+    "az login",
+    "--tenant",
+    "re-authenticate",
+    "msal cache",
+];
+
+/// Whether a token error (cloud_auth's chain) is the Azure CLI asking for a
+/// sign-in: only its own line, without the hint cloud_auth adds to every
+/// CLI failure («(¿falta az login?)»).
+pub fn needs_tenant_sign_in(err: &str) -> bool {
+    let line = err.lines().map(str::trim).find_map(|l| l.strip_prefix("- Azure CLI:")).unwrap_or(if err.contains("\n") { "" } else { err });
+    let line = line.trim();
+    let line = line.strip_suffix("(¿falta az login?)").unwrap_or(line).to_lowercase();
+    SIGN_IN_MARKERS.iter().any(|m| line.contains(m))
+}
+
+/// A tenant the Azure CLI knows (the wizard's list): nothing secret.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Tenant {
+    pub id: String,
+    pub display_name: String,
+    pub default_domain: String,
+}
+
+/// At most this many tenants go to the wizard.
+const MAX_TENANTS: usize = 500;
+
+/// `az account tenant list --output json`: `tenantId` (or `id`,
+/// `/tenants/<id>`), `displayName`, `defaultDomain`.
+pub fn parse_tenant_list(stdout: &str) -> Option<Vec<Tenant>> {
+    let json: Value = serde_json::from_str(stdout).ok()?;
+    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string();
+    let list = json.as_array()?.iter().map(|t| {
+        let id = Some(s(t, "tenantId")).filter(|v| !v.is_empty()).unwrap_or_else(|| s(t, "id").trim_start_matches("/tenants/").to_string());
+        Tenant { id, display_name: s(t, "displayName"), default_domain: s(t, "defaultDomain") }
+    });
+    Some(tidy(list))
+}
+
+/// `az account list --all --output json`: the subscriptions, grouped by
+/// `tenantId` (newer CLIs say `tenantDisplayName` and `tenantDefaultDomain`).
+pub fn parse_account_list(stdout: &str) -> Option<Vec<Tenant>> {
+    let json: Value = serde_json::from_str(stdout).ok()?;
+    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string();
+    let list = json.as_array()?.iter().map(|a| Tenant { id: s(a, "tenantId"), display_name: s(a, "tenantDisplayName"), default_domain: s(a, "tenantDefaultDomain") });
+    Some(tidy(list))
+}
+
+/// Well-formed IDs only, once each (the entry that names the tenant wins),
+/// by name.
+fn tidy(list: impl Iterator<Item = Tenant>) -> Vec<Tenant> {
+    let mut out: Vec<Tenant> = Vec::new();
+    for t in list.filter(|t| dbine_core::secret_sources::valid_azure_tenant(&t.id)) {
+        match out.iter().position(|o| o.id.eq_ignore_ascii_case(&t.id)) {
+            Some(i) => {
+                let o = &mut out[i];
+                if o.display_name.is_empty() {
+                    o.display_name = t.display_name;
+                }
+                if o.default_domain.is_empty() {
+                    o.default_domain = t.default_domain;
+                }
+            }
+            None if out.len() < MAX_TENANTS => out.push(t),
+            None => {}
+        }
+    }
+    out.sort_by(|a, b| (a.display_name.is_empty(), a.display_name.to_lowercase(), &a.id).cmp(&(b.display_name.is_empty(), b.display_name.to_lowercase(), &b.id)));
+    out
+}
+
+/// The tenants the Azure CLI knows: `az account tenant list`, else the
+/// tenants of `az account list --all`.
+pub async fn tenants() -> Result<Vec<Tenant>, String> {
+    let first = cloud_auth::run_cli("az", &["account", "tenant", "list", "--output", "json"], &[], &[], "az login").await;
+    if let Some(list) = first.as_deref().ok().and_then(parse_tenant_list) {
+        return Ok(list);
+    }
+    let out = cloud_auth::run_cli("az", &["account", "list", "--all", "--output", "json"], &[], &[], "az login").await.map_err(|e| e.to_string())?;
+    parse_account_list(&out).ok_or_else(|| "«az account list» no devolvió JSON".to_string())
+}
+
 /// Who a token is for (the account wizard's check): the user's name or
 /// the app's ID, and the tenant, from its claims (not verified: Azure's
 /// tools issued it and it only names who signed in).
@@ -52,7 +170,7 @@ pub fn token_identity(token: &str) -> Option<(String, String)> {
 /// Azure CLI chain, for the tenant when one is set. `(who, tenant)`.
 pub async fn whoami(vault_url: &str, tenant: &str) -> Result<(String, String), String> {
     let (_, resource) = dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string())?;
-    let (mut token, _) = cloud_auth::azure_token_for(resource, tenant_arg(tenant)?).await.map_err(|e| e.to_string())?;
+    let (mut token, _) = token_for(resource, tenant).await?;
     let who = token_identity(&token);
     dbine_core::secret_sources::wipe(&mut token);
     let (who, tid) = who.ok_or("Microsoft Entra ID no dijo para quién es el token")?;
@@ -64,12 +182,19 @@ pub async fn whoami(vault_url: &str, tenant: &str) -> Result<(String, String), S
 }
 
 /// What `az account show` says (the wizard's starting point): the tenant,
-/// the user and the subscription's name. Nothing secret.
+/// the user and the subscription's name, plus the tenants the CLI knows
+/// ([`tenants`]). Nothing secret.
 pub async fn current_account() -> Result<Value, String> {
     let out = cloud_auth::run_cli("az", &["account", "show", "--output", "json"], &[], &[], "az login").await.map_err(|e| e.to_string())?;
     let json: Value = serde_json::from_str(&out).map_err(|_| "«az account show» no devolvió JSON".to_string())?;
     let s = |p: &str| json.pointer(p).and_then(Value::as_str).unwrap_or("").to_string();
-    Ok(serde_json::json!({ "tenant": s("/tenantId"), "user": s("/user/name"), "subscription": s("/name") }))
+    let tenant = s("/tenantId");
+    // The tenants to choose from, with the current one always among them.
+    let mut list = tenants().await.unwrap_or_default();
+    if dbine_core::secret_sources::valid_azure_tenant(&tenant) && !list.iter().any(|t| t.id.eq_ignore_ascii_case(&tenant)) {
+        list.insert(0, Tenant { id: tenant.clone(), display_name: s("/tenantDisplayName"), default_domain: s("/tenantDefaultDomain") });
+    }
+    Ok(serde_json::json!({ "tenant": tenant, "user": s("/user/name"), "subscription": s("/name"), "tenants": list }))
 }
 
 pub fn secret_url(base: &str, name: &str, version: &str) -> String {
@@ -109,7 +234,7 @@ pub async fn get_secret_at(client: &reqwest::Client, base: &str, name: &str, ver
 /// keys (`item`).
 pub async fn browse(vault_url: &str, tenant: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
     let (host, resource) = dbine_core::secret_sources::azure_vault_host(vault_url).ok_or_else(|| "la URL del almacén tiene que ser https://<nombre>.vault.azure.net".to_string())?;
-    let (token, _) = cloud_auth::azure_token_for(resource, tenant_arg(tenant)?).await.map_err(|e| e.to_string())?;
+    let (token, _) = token_for(resource, tenant).await?;
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(20))
@@ -193,5 +318,68 @@ mod tests {
         assert!(tenant_arg("--debug").is_err());
         assert_eq!(tenant_arg(" contoso.onmicrosoft.com ").unwrap(), Some("contoso.onmicrosoft.com"));
         assert_eq!(tenant_arg("").unwrap(), None);
+    }
+
+    #[test]
+    fn tenant_lists() {
+        // `az account tenant list`: a repeated tenant once, a malformed ID out.
+        let out = r#"[
+            {"id":"/tenants/22222222-2222-4333-8444-555555555555","tenantId":"22222222-2222-4333-8444-555555555555","displayName":"Fabrikam","defaultDomain":"fabrikam.onmicrosoft.com","tenantCategory":"Home"},
+            {"id":"/tenants/11111111-2222-4333-8444-555555555555","displayName":"Contoso","defaultDomain":"contoso.onmicrosoft.com"},
+            {"tenantId":"22222222-2222-4333-8444-555555555555","displayName":"","defaultDomain":""},
+            {"tenantId":"--debug","displayName":"Evil"}
+        ]"#;
+        let t = parse_tenant_list(out).unwrap();
+        assert_eq!(t.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["11111111-2222-4333-8444-555555555555", "22222222-2222-4333-8444-555555555555"]);
+        assert_eq!((t[0].display_name.as_str(), t[0].default_domain.as_str()), ("Contoso", "contoso.onmicrosoft.com"));
+        assert_eq!(t[1].default_domain, "fabrikam.onmicrosoft.com");
+        assert!(parse_tenant_list("ERROR").is_none());
+        assert_eq!(parse_tenant_list("[]"), Some(vec![]));
+        // `az account list --all`: subscriptions grouped by tenant.
+        let out = r#"[
+            {"name":"Prod","tenantId":"11111111-2222-4333-8444-555555555555","tenantDisplayName":"Contoso","tenantDefaultDomain":"contoso.onmicrosoft.com"},
+            {"name":"Dev","tenantId":"11111111-2222-4333-8444-555555555555"},
+            {"name":"Other","tenantId":"33333333-2222-4333-8444-555555555555"}
+        ]"#;
+        let t = parse_account_list(out).unwrap();
+        assert_eq!(t, vec![
+            Tenant { id: "11111111-2222-4333-8444-555555555555".into(), display_name: "Contoso".into(), default_domain: "contoso.onmicrosoft.com".into() },
+            Tenant { id: "33333333-2222-4333-8444-555555555555".into(), display_name: String::new(), default_domain: String::new() },
+        ]);
+    }
+
+    #[test]
+    fn sign_in_errors() {
+        let chain = |cli: &str| format!("no se pudo obtener un token de Microsoft Entra ID. Se probó:\n- Azure CLI: {cli} (¿falta az login?)\n- Azure Developer CLI: «azd» no está instalada\n- identidad administrada: no responde (DBine no corre en la nube)");
+        for cli in [
+            "AADSTS50076: Due to a configuration change made by your administrator, or because you moved to a new location, you must use multi-factor authentication",
+            "AADSTS50079: Due to a configuration change made by your administrator, you must enroll in multi-factor authentication",
+            "AADSTS53003: Access has been blocked by Conditional Access policies.",
+            "AADSTS700082: The refresh token has expired due to inactivity.",
+            "The refresh token has expired. Please run 'az login --tenant 11111111-2222-4333-8444-555555555555'.",
+            "Run the command below to authenticate interactively; additional arguments may be added as needed: interaction_required",
+        ] {
+            assert!(needs_tenant_sign_in(&chain(cli)), "{cli}");
+        }
+        // The hint cloud_auth adds to every failure doesn't count.
+        assert!(!needs_tenant_sign_in(&chain("«az» no está instalada")));
+        assert!(!needs_tenant_sign_in(&chain("(Forbidden) The user does not have access to the resource")));
+        assert!(!needs_tenant_sign_in("no se pudo obtener un token de Microsoft Entra ID. Se probó:\n- Azure Developer CLI: run az login"));
+        assert_eq!(
+            no_sign_in("contoso.onmicrosoft.com"),
+            "la CLI de Azure no tiene una sesión iniciada en ese inquilino: iniciá sesión con «az login --tenant contoso.onmicrosoft.com» y probá de nuevo"
+        );
+    }
+
+    #[test]
+    fn tenant_validation() {
+        use dbine_core::secret_sources::valid_azure_tenant as ok;
+        for t in ["11111111-2222-4333-8444-555555555555", "contoso.onmicrosoft.com", "a"] {
+            assert!(ok(t) && tenant_arg(t).is_ok(), "{t}");
+        }
+        for t in ["-x", ".x", "a b", "a;b", "a/b", "ñ", &"a".repeat(256)] {
+            assert!(!ok(t) && tenant_arg(t).is_err(), "{t}");
+        }
+        assert!(ok(&"a".repeat(255)));
     }
 }

@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  back, canAdvance, configOf, emptyForm, formFromAccount, isLast, keepsSecrets, next, secretsOf, serviceUrl, stepForError, stepProblems, STEPS, WIZARD_KINDS,
+  azureTenants, back, canAdvance, configOf, emptyForm, filterTenants, formFromAccount, isLast, keepsSecrets, next, secretsOf, serviceUrl, stepForError, stepProblems, STEPS,
+  tenantLabel, tenantSignIn, validTenant, WIZARD_KINDS,
 } from './accountWizards.ts';
 
 const UUID = '6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04';
@@ -130,4 +131,49 @@ test('errors send the user back to the step that fixes them', () => {
   assert.equal(stepForError('conjur', 'Conjur rechazó el login «host/x» o su clave de API'), 2);
   assert.equal(stepForError('aws', 'no se pudo conectar con AWS STS: x'), 1);
   assert.equal(stepForError('gcp', 'otra cosa'), null);
+});
+
+test('Azure: the tenant select lists what the CLI knows; a typed one is checked like the backend does', () => {
+  const C = '11111111-2222-4333-8444-555555555555';
+  const F = '22222222-2222-4333-8444-555555555555';
+  const detected = {
+    tenant: C, user: 'ana@contoso.com',
+    tenants: [
+      { id: C, display_name: 'Contoso', default_domain: 'contoso.onmicrosoft.com' },
+      { id: F, display_name: 'Fabrikam', default_domain: 'fabrikam.onmicrosoft.com' },
+      { id: F.toUpperCase(), display_name: 'again', default_domain: '' },
+      { id: '--debug', display_name: 'Evil', default_domain: '' },
+      'junk',
+    ],
+  };
+  const list = azureTenants(detected);
+  assert.deepEqual(list.map((t) => t.id), [C, F], 'well formed, once each');
+  assert.deepEqual(azureTenants({ tenant: C }).map((t) => t.id), [C], 'the current one even without a list');
+  assert.deepEqual(azureTenants(null), []);
+  // Filtering by name, domain or ID.
+  assert.deepEqual(filterTenants(list, 'fabri').map((t) => t.id), [F]);
+  assert.deepEqual(filterTenants(list, '2222-2222').map((t) => t.id), [F]);
+  assert.deepEqual(filterTenants(list, 'contoso.on').map((t) => t.id), [C]);
+  assert.equal(filterTenants(list, '').length, 2);
+  assert.equal(tenantLabel(list[0]), 'Contoso · contoso.onmicrosoft.com');
+  assert.equal(tenantLabel({ id: C, display_name: '', default_domain: '' }), C);
+  // allow-create: a tenant that isn't listed goes as typed, when well formed.
+  const s = Object.assign(emptyForm(), { vault_url: 'https://kv1.vault.azure.net', tenant: ' northwind.onmicrosoft.com ' });
+  assert.deepEqual(stepProblems('azure', s), []);
+  assert.equal(configOf('azure', s).tenant, 'northwind.onmicrosoft.com');
+  for (const bad of ['-x', '.x', 'a b', 'a;b', 'a/b', 'ñandú', 'a'.repeat(256)]) {
+    assert.ok(!validTenant(bad), bad);
+    assert.deepEqual(stepProblems('azure', Object.assign(emptyForm(), { vault_url: 'https://kv1.vault.azure.net', tenant: bad })), ['tenant_format'], bad);
+  }
+  for (const ok of [C, 'contoso.onmicrosoft.com', 'a', 'a'.repeat(255)]) assert.ok(validTenant(ok), ok);
+  assert.deepEqual(stepProblems('azure', Object.assign(emptyForm(), { vault_url: 'https://kv1.vault.azure.net' })), [], "empty: the CLI's current tenant");
+});
+
+test('Azure: no sign-in in the tenant names the command, in any language', () => {
+  const es = `la CLI de Azure no tiene una sesión iniciada en ese inquilino: iniciá sesión con «az login --tenant 22222222-2222-4333-8444-555555555555» y probá de nuevo`;
+  assert.equal(tenantSignIn(es), '22222222-2222-4333-8444-555555555555');
+  assert.equal(tenantSignIn('the Azure CLI has no sign-in in that tenant: sign in with "az login --tenant contoso.onmicrosoft.com" and try again'), 'contoso.onmicrosoft.com');
+  assert.equal(tenantSignIn('el token es del inquilino 9, no de 1'), null);
+  assert.equal(tenantSignIn('no se pudo obtener un token (¿falta az login?)'), null);
+  assert.equal(stepForError('azure', es), 1, 'back to the vault step to pick another tenant');
 });
