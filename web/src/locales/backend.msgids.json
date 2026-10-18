@@ -7087,6 +7087,9 @@
  "El archivo tiene que ser un nombre, sin carpetas (la carpeta la da el directorio).": [
   "crates/drivers/oracle/src/backup.rs"
  ],
+ "El archivo traía datos de conexión o credenciales: DBine los ignoró y no los guarda.": [
+  "src-tauri/src/notebook.rs"
+ ],
  "El atributo {0} es clave de la tabla o de un índice: agregalo a la lista con su tipo (S, N o B).": [
   "crates/drivers/dynamodb/src/ddl.rs"
  ],
@@ -8285,7 +8288,8 @@
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/solr/src/backup.rs",
   "crates/drivers/trino/src/monitor.rs",
-  "src-tauri/src/devtools.rs"
+  "src-tauri/src/devtools.rs",
+  "src-tauri/src/notebook.rs"
  ],
  "Error de comunicación con el servidor: {0}": [
   "crates/drivers/elasticsearch/src/http.rs"
@@ -15397,6 +15401,9 @@
   "crates/drivers/snowflake/src/security.rs",
   "crates/drivers/trino/src/security.rs"
  ],
+ "Notebook": [
+  "src-tauri/src/notebook/export.rs"
+ ],
  "November": [
   "src-tauri/src/tasks/os.rs"
  ],
@@ -18865,6 +18872,12 @@
  ],
  "Se ignora si se completa el descriptor de conexión.": [
   "crates/drivers/oracle/src/lib.rs"
+ ],
+ "Se ignoró la conexión indicada en una celda %%sql: elegí en DBine dónde se ejecuta.": [
+  "src-tauri/src/notebook.rs"
+ ],
+ "Se ignoró la conexión indicada en {0} celdas %%sql: elegí en DBine dónde se ejecuta.": [
+  "src-tauri/src/notebook.rs"
  ],
  "Se leen el uso y las particiones de los primeros {0} de {1} contenedores.": [
   "crates/drivers/cosmosdb/src/monitor.rs"
@@ -24803,6 +24816,12 @@
  "el archivo no es un backup de DBine": [
   "crates/dbine-sync/src/crypto.rs"
  ],
+ "el archivo no es un notebook de Jupyter": [
+  "src-tauri/src/notebook.rs"
+ ],
+ "el archivo no es un notebook válido: {0}": [
+  "src-tauri/src/notebook.rs"
+ ],
  "el archivo no quedó escrito": [
   "crates/dbine-sync/src/folder.rs"
  ],
@@ -25396,6 +25415,12 @@
  ],
  "el nombre «{0}» tiene caracteres de control": [
   "crates/drivers/mongodb/src/security.rs"
+ ],
+ "el notebook no está en UTF-8": [
+  "src-tauri/src/commands/notebook.rs"
+ ],
+ "el notebook no usa la versión 4 del formato de Jupyter (nbformat 4)": [
+  "src-tauri/src/notebook.rs"
  ],
  "el número {0} tiene {1} dígitos significativos o un exponente fuera de rango, y el Decimal128 de MongoDB admite hasta 34 dígitos": [
   "crates/drivers/mongodb/src/transfer.rs"
@@ -27555,6 +27580,9 @@
  ],
  "formato de credenciales desconocido": [
   "crates/dbine-core/src/secrets.rs"
+ ],
+ "formato de exportación desconocido: «{0}»": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "formato de fecha": [
   "crates/drivers/orientdb/src/properties.rs"
@@ -29870,6 +29898,7 @@
  ],
  "no existe el archivo «{0}»": [
   "crates/drivers/duckdb/src/lib.rs",
+  "src-tauri/src/commands/notebook.rs",
   "src-tauri/src/open_files.rs"
  ],
  "no existe el esquema «{0}»": [
@@ -30264,6 +30293,9 @@
  ],
  "no se pudo abrir el catálogo «{0}»: {1}": [
   "crates/drivers/flightsql/src/lib.rs"
+ ],
+ "no se pudo abrir el enlace: {0}": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "no se pudo abrir el navegador para iniciar sesión: {0}": [
   "crates/drivers/sqlserver/src/entra.rs"
@@ -30874,6 +30906,9 @@
   "crates/dbine-core/src/conn_import/dbeaver.rs",
   "crates/dbine-core/src/conn_import/dbgate.rs",
   "crates/dbine-core/src/conn_import/ssms.rs"
+ ],
+ "no se pudo leer «{0}»: {1}": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "no se pudo listar los servidores de Azure SQL: {0}": [
   "src-tauri/src/commands/azure_firewall.rs"
@@ -32503,6 +32538,9 @@
  ],
  "solo las operaciones que cumplen el filtro del profiler": [
   "crates/drivers/mongodb/src/profiler.rs"
+ ],
+ "solo se abren enlaces http, https o mailto": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "solo se abren las versiones de DBine": [
   "mobile/src-tauri/src/lib.rs"
@@ -35424,6 +35462,9 @@
  ],
  "«{0}» no es un nombre válido de {1} de IBM i": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "«{0}» no es un notebook (.ipynb)": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "«{0}» no es un número": [
   "crates/drivers/dynamodb/src/transfer.rs",

@@ -243,11 +243,11 @@ impl Warnings {
             );
         }
         if self.magic_args > 0 {
-            out.push(format!(
-                "Se ignoró la conexión indicada en {} celda{} %%sql: elegí en DBine dónde se ejecuta.",
-                self.magic_args,
-                if self.magic_args == 1 { "" } else { "s" }
-            ));
+            out.push(if self.magic_args == 1 {
+                "Se ignoró la conexión indicada en una celda %%sql: elegí en DBine dónde se ejecuta.".to_string()
+            } else {
+                format!("Se ignoró la conexión indicada en {} celdas %%sql: elegí en DBine dónde se ejecuta.", self.magic_args)
+            });
         }
         out
     }

@@ -10852,5 +10852,18 @@
   "la lista de 1Password es demasiado larga": "la liste de 1Password est trop longue",
   "la respuesta de 1Password no es texto": "la réponse de 1Password n'est pas du texte",
   "no se pudo examinar {0}: {1}": "impossible de parcourir {0} : {1}",
-  "«op» no devolvió JSON": "«op» n'a pas renvoyé de JSON"
+  "«op» no devolvió JSON": "«op» n'a pas renvoyé de JSON",
+  "El archivo traía datos de conexión o credenciales: DBine los ignoró y no los guarda.": "Le fichier contenait des données de connexion ou des identifiants : DBine les a ignorés et ne les enregistre pas.",
+  "Notebook": "Notebook",
+  "el archivo no es un notebook de Jupyter": "le fichier n'est pas un notebook Jupyter",
+  "el archivo no es un notebook válido: {0}": "le fichier n'est pas un notebook valide : {0}",
+  "el notebook no está en UTF-8": "le notebook n'est pas en UTF-8",
+  "el notebook no usa la versión 4 del formato de Jupyter (nbformat 4)": "le notebook n'utilise pas la version 4 du format Jupyter (nbformat 4)",
+  "formato de exportación desconocido: «{0}»": "format d'exportation inconnu : « {0} »",
+  "no se pudo abrir el enlace: {0}": "impossible d'ouvrir le lien : {0}",
+  "no se pudo leer «{0}»: {1}": "impossible de lire « {0} » : {1}",
+  "solo se abren enlaces http, https o mailto": "seuls les liens http, https ou mailto peuvent être ouverts",
+  "«{0}» no es un notebook (.ipynb)": "« {0} » n'est pas un notebook (.ipynb)",
+  "Se ignoró la conexión indicada en una celda %%sql: elegí en DBine dónde se ejecuta.": "La connexion indiquée dans une cellule %%sql a été ignorée : choisissez dans DBine où elle s'exécute.",
+  "Se ignoró la conexión indicada en {0} celdas %%sql: elegí en DBine dónde se ejecuta.": "La connexion indiquée dans {0} cellules %%sql a été ignorée : choisissez dans DBine où elles s'exécutent."
 }
