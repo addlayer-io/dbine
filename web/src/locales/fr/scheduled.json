@@ -66,6 +66,7 @@
     "compare_schemas": "Comparer les schémas",
     "backup": "Sauvegarde",
     "document": "Documenter la base",
+    "run_notebook": "Exécuter un notebook",
     "send_mail": "Envoyer un e-mail"
   },
   "step": {
@@ -105,6 +106,8 @@
     "cc": "Cc",
     "subject": "Objet",
     "body": "Texte",
+    "htmlBody": "Corps HTML",
+    "htmlBodyHint": "Facultatif : un fichier HTML utilisé comme corps de l'e-mail (le texte reste pour les clients qui n'affichent pas le HTML). {steps.1.html} est l'export HTML d'une étape « Exécuter un notebook ».",
     "attachments": "Pièces jointes",
     "addAttachment": "Ajouter une pièce jointe",
     "pickFile": "Choisir un fichier",
@@ -148,5 +151,52 @@
     "text": "Ces étapes vont s'exécuter toutes seules, sans que personne ne les vérifie avant. Vérifiez quelle base elles ciblent :",
     "production": "Certaines étapes portent sur des connexions de production.",
     "ok": "Approuver et enregistrer"
+  },
+  "notebook": {
+    "file": "Notebook",
+    "pick": "Choisir un notebook",
+    "pickTitle": "Notebook à exécuter",
+    "filter": "Notebooks",
+    "hint": "Exécute toutes les cellules dans l'ordre, comme « Tout exécuter », et s'arrête à la première qui échoue. Ne demande rien : ce qui demande une confirmation dans l'application doit être autorisé ici.",
+    "loading": "Lecture du notebook…",
+    "cells": "Cellules",
+    "noCells": "Le notebook n'a aucune cellule SQL.",
+    "cell": "cellule « {{name}} »",
+    "dataframes": "DataFrame SQL",
+    "choose": "Choisissez la connexion",
+    "writes": "Modifie des données ({{what}}) : approuvé à l'enregistrement de la tâche.",
+    "readOnly": "lecture seule",
+    "confirmTitle": "Sans confirmation",
+    "confirmHint": "Dans l'application, ces bases demandent une confirmation avant d'exécuter (environnement avec confirmation ou connexion de production). Une tâche ne peut pas confirmer : sans l'autorisation, la cellule échoue.",
+    "allowUnconfirmed": "Autoriser l'exécution sur {{where}} sans confirmer",
+    "confirmEnv": "environnement {{env}}",
+    "confirmProd": "production",
+    "filesTitle": "Fichiers",
+    "filesOk_one": "Lit {{count}} fichier avec « Toujours autoriser » pour ce notebook.",
+    "filesOk_other": "Lit {{count}} fichiers avec « Toujours autoriser » pour ce notebook.",
+    "filesPending": "Ces fichiers n'ont pas « Toujours autoriser » pour ce notebook sur cette machine. La tâche ne demande rien et ne les lit pas : l'étape échouera tant que vous n'aurez pas ouvert le notebook, exécuté la cellule et choisi « Toujours autoriser ».",
+    "openNotebook": "Ouvrir le notebook",
+    "writeTitle": "Cellules qui écrivent",
+    "writeHint": "Une tâche n'exécute une cellule qui écrit dans une table que si vous l'autorisez ici. Si la table ou le mode change, il faut l'autoriser à nouveau.",
+    "writeAllow": "Autoriser « {{name}} » : {{target}} ({{mode}})",
+    "params": "Paramètres",
+    "paramsHint": "Valeurs des paramètres du notebook à chaque exécution. Elles acceptent des variables ({date}…).",
+    "save": "Notebook exécuté",
+    "saveModes": {
+      "none": "Ne pas l'enregistrer",
+      "beside": "À côté de l'original",
+      "folder": "Dans un dossier"
+    },
+    "saveHint": "Une copie avec les résultats de cette exécution (dans les limites d'aperçu de Paramètres › Notebooks). L'original n'est pas modifié.",
+    "export": "Exporter",
+    "formats": {
+      "none": "Ne pas exporter",
+      "html": "HTML",
+      "markdown": "Markdown"
+    },
+    "exportFolderHint": "Vide : là où va la copie ou, si elle n'est pas enregistrée, à côté du notebook.",
+    "chartsHint": "Dans une tâche, les tables sont exportées : les graphiques sont inclus lors de l'export depuis l'application.",
+    "outputsHint": "Dans les étapes suivantes : {steps.N.file} est l'export (ou la copie), {steps.N.html} l'export HTML (pour le corps d'un e-mail) et {steps.N.notebook} la copie.",
+    "planError": "Impossible de lire le notebook : {{error}}"
   }
 }

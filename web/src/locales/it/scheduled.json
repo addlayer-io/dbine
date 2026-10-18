@@ -66,6 +66,7 @@
     "compare_schemas": "Confronta schemi",
     "backup": "Backup",
     "document": "Documenta il database",
+    "run_notebook": "Esegui notebook",
     "send_mail": "Invia un'email"
   },
   "step": {
@@ -105,6 +106,8 @@
     "cc": "Cc",
     "subject": "Oggetto",
     "body": "Testo",
+    "htmlBody": "Corpo HTML",
+    "htmlBodyHint": "Facoltativo: un file HTML usato come corpo dell'email (il testo resta per i client che non mostrano l'HTML). {steps.1.html} è l'esportazione HTML di un passaggio «Esegui notebook».",
     "attachments": "Allegati",
     "addAttachment": "Aggiungi allegato",
     "pickFile": "Scegli file",
@@ -148,5 +151,52 @@
     "text": "Questi passaggi verranno eseguiti da soli, senza che nessuno li riveda prima. Controlla a quale database puntano:",
     "production": "Ci sono passaggi su connessioni di produzione.",
     "ok": "Approva e salva"
+  },
+  "notebook": {
+    "file": "Notebook",
+    "pick": "Scegli notebook",
+    "pickTitle": "Notebook da eseguire",
+    "filter": "Notebook",
+    "hint": "Esegue tutte le celle in ordine, come «Esegui tutto», e si ferma alla prima che fallisce. Non chiede nulla: ciò che nell'app richiede conferma deve essere consentito qui.",
+    "loading": "Lettura del notebook…",
+    "cells": "Celle",
+    "noCells": "Il notebook non ha celle SQL.",
+    "cell": "cella «{{name}}»",
+    "dataframes": "DataFrame SQL",
+    "choose": "Scegli la connessione",
+    "writes": "Modifica dati ({{what}}): viene approvato al salvataggio dell'attività.",
+    "readOnly": "sola lettura",
+    "confirmTitle": "Senza conferma",
+    "confirmHint": "Nell'app, questi database chiedono conferma prima di eseguire (ambiente con conferma o connessione di produzione). Un'attività non può confermare: senza il permesso, la cella fallisce.",
+    "allowUnconfirmed": "Consenti l'esecuzione su {{where}} senza conferma",
+    "confirmEnv": "ambiente {{env}}",
+    "confirmProd": "produzione",
+    "filesTitle": "File",
+    "filesOk_one": "Legge {{count}} file con «Consenti sempre» per questo notebook.",
+    "filesOk_other": "Legge {{count}} file con «Consenti sempre» per questo notebook.",
+    "filesPending": "Questi file non hanno «Consenti sempre» per questo notebook su questa macchina. L'attività non chiede né li legge: il passaggio fallirà finché non apri il notebook, esegui la cella e scegli «Consenti sempre».",
+    "openNotebook": "Apri il notebook",
+    "writeTitle": "Celle che scrivono",
+    "writeHint": "Un'attività esegue una cella che scrive in una tabella solo se la autorizzi qui. Se cambia la tabella o la modalità, va autorizzata di nuovo.",
+    "writeAllow": "Autorizza «{{name}}»: {{target}} ({{mode}})",
+    "params": "Parametri",
+    "paramsHint": "Valori per i parametri del notebook a ogni esecuzione. Accettano variabili ({date}…).",
+    "save": "Notebook eseguito",
+    "saveModes": {
+      "none": "Non salvarlo",
+      "beside": "Accanto all'originale",
+      "folder": "In una cartella"
+    },
+    "saveHint": "Una copia con i risultati di questa esecuzione (con i limiti di anteprima di Impostazioni › Notebook). L'originale non viene modificato.",
+    "export": "Esporta",
+    "formats": {
+      "none": "Non esportare",
+      "html": "HTML",
+      "markdown": "Markdown"
+    },
+    "exportFolderHint": "Vuoto: dove va la copia o, se non viene salvata, accanto al notebook.",
+    "chartsHint": "In un'attività si esportano le tabelle: i grafici sono inclusi esportando dall'app.",
+    "outputsHint": "Nei passaggi successivi: {steps.N.file} è l'esportazione (o la copia), {steps.N.html} l'esportazione HTML (per il corpo di un'email) e {steps.N.notebook} la copia.",
+    "planError": "Impossibile leggere il notebook: {{error}}"
   }
 }

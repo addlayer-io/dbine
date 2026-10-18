@@ -66,6 +66,7 @@
     "compare_schemas": "Compare schemas",
     "backup": "Backup",
     "document": "Document the database",
+    "run_notebook": "Run notebook",
     "send_mail": "Send an email"
   },
   "step": {
@@ -105,6 +106,8 @@
     "cc": "CC",
     "subject": "Subject",
     "body": "Body",
+    "htmlBody": "HTML body",
+    "htmlBodyHint": "Optional: an HTML file used as the email body (the text is kept for clients that don't show HTML). {steps.1.html} is the HTML export of a \"Run notebook\" step.",
     "attachments": "Attachments",
     "addAttachment": "Add attachment",
     "pickFile": "Choose file",
@@ -148,5 +151,52 @@
     "text": "These steps will run on their own, with nobody reviewing them first. Check which database they point to:",
     "production": "There are steps on production connections.",
     "ok": "Approve and save"
+  },
+  "notebook": {
+    "file": "Notebook",
+    "pick": "Choose notebook",
+    "pickTitle": "Notebook to run",
+    "filter": "Notebooks",
+    "hint": "Runs all cells in order, like \"Run all\", and stops at the first one that fails. It asks nothing: whatever asks for confirmation in the app has to be allowed here.",
+    "loading": "Reading the notebook…",
+    "cells": "Cells",
+    "noCells": "The notebook has no SQL cells.",
+    "cell": "cell \"{{name}}\"",
+    "dataframes": "DataFrame SQL",
+    "choose": "Choose the connection",
+    "writes": "Changes data ({{what}}): approved when the task is saved.",
+    "readOnly": "read-only",
+    "confirmTitle": "No confirmation",
+    "confirmHint": "In the app, these databases ask for confirmation before running (confirmation environment or production connection). A task can't confirm: without the permission, the cell fails.",
+    "allowUnconfirmed": "Allow running on {{where}} without confirming",
+    "confirmEnv": "{{env}} environment",
+    "confirmProd": "production",
+    "filesTitle": "Files",
+    "filesOk_one": "Reads {{count}} file with \"Always allow\" for this notebook.",
+    "filesOk_other": "Reads {{count}} files with \"Always allow\" for this notebook.",
+    "filesPending": "These files don't have \"Always allow\" for this notebook on this machine. The task doesn't ask or read them: the step will fail until you open the notebook, run the cell and choose \"Always allow\".",
+    "openNotebook": "Open the notebook",
+    "writeTitle": "Cells that write",
+    "writeHint": "A task runs a cell that writes to a table only if you authorize it here. If the table or the mode changes, it has to be authorized again.",
+    "writeAllow": "Authorize \"{{name}}\": {{target}} ({{mode}})",
+    "params": "Parameters",
+    "paramsHint": "Values for the notebook parameters on each run. They accept variables ({date}…).",
+    "save": "Executed notebook",
+    "saveModes": {
+      "none": "Don't save it",
+      "beside": "Next to the original",
+      "folder": "In a folder"
+    },
+    "saveHint": "A copy with the results of this run (within the preview limits in Settings › Notebooks). The original is not modified.",
+    "export": "Export",
+    "formats": {
+      "none": "Don't export",
+      "html": "HTML",
+      "markdown": "Markdown"
+    },
+    "exportFolderHint": "Empty: where the copy goes or, if it isn't saved, next to the notebook.",
+    "chartsHint": "A task exports the tables: charts are included when exporting from the app.",
+    "outputsHint": "In the following steps: {steps.N.file} is the export (or the copy), {steps.N.html} the HTML export (for an email body) and {steps.N.notebook} the copy.",
+    "planError": "Couldn't read the notebook: {{error}}"
   }
 }
