@@ -228,6 +228,11 @@ export const notebookSessions = new Map<string, Set<string>>();
 /** Where an untitled notebook's draft is kept between restarts. */
 export const notebookDraftKey = (tabId: string) => `dbine.notebook.draft.${tabId}`;
 
+/** Notebook tabs closed for good: their view writes no draft and marks
+ *  nothing unsaved any more (a run still in flight, the unmount). The view
+ *  takes its id out when it goes. */
+export const closedNotebooks = new Set<string>();
+
 /** "Diseñar consulta" (docs/query-builder.md): the design is kept with the tab. */
 export interface QueryBuilderTab extends TabBase {
   kind: 'queryBuilder';
@@ -862,7 +867,10 @@ export const useTabsStore = defineStore('tabs', {
       if (t.kind === 'notebook') {
         for (const s of notebookSessions.get(t.id) ?? []) api.closeSession(s).catch(() => {});
         notebookSessions.delete(t.id);
-        if (closing) { try { localStorage.removeItem(notebookDraftKey(t.id)); } catch { /* storage blocked */ } }
+        if (closing) {
+          closedNotebooks.add(t.id);
+          try { localStorage.removeItem(notebookDraftKey(t.id)); } catch { /* storage blocked */ }
+        }
         return;
       }
       api.closeSession(t.id).catch(() => {});

@@ -24,7 +24,7 @@ export const notebookApi = {
   read: (path: string) => invoke<NotebookRead>('notebook_read', { args: { path } }),
   write: (path: string, notebook: Notebook, limits: PreviewLimits) =>
     invoke<void>('notebook_write', { args: { path, notebook, rowsPerCell: limits.rows, bytesPerCell: limits.bytes } }),
-  /** A self-contained HTML page or Markdown, with the stored previews. */
-  export: (notebook: Notebook, format: 'html' | 'markdown') =>
-    invoke<string>('notebook_export', { args: { notebook, format } }),
+  /** A self-contained HTML page or Markdown, with the previews the file would keep. */
+  export: (notebook: Notebook, format: 'html' | 'markdown', limits: PreviewLimits) =>
+    invoke<string>('notebook_export', { args: { notebook, format, rowsPerCell: limits.rows, bytesPerCell: limits.bytes } }),
 };

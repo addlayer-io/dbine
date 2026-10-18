@@ -30,7 +30,9 @@
     "mapIntro": "O notebook usa a conexão “{{name}}”, que não existe nesta máquina. Qual das suas conexões é?",
     "mapHelp": "Fica lembrado nesta máquina; o arquivo não muda.",
     "use": "Usar",
-    "bindEnvironment": "Escolha o banco do ambiente “{{env}}” no projeto e execute de novo."
+    "bindEnvironment": "Escolha o banco do ambiente “{{env}}” no projeto e execute de novo.",
+    "ambiguousIntro": "Há várias conexões chamadas «{{name}}» nesta máquina. Qual delas este notebook usa?",
+    "ambiguousHelp": "Fica lembrado para este arquivo nesta máquina; o arquivo não muda."
   },
   "summary": {
     "ms": "{{ms}} ms",
@@ -59,7 +61,10 @@
     "busy": "O assistente está respondendo outra pergunta.",
     "explainPrompt": "Explique o que esta consulta do meu notebook retorna e que conclusões se podem tirar. Você não tem as linhas, só a consulta, as colunas e os totais. Responda com um texto curto em Markdown que possa ficar como célula do notebook.\n\n```sql\n{{sql}}\n```\n\nResultado:\n{{result}}",
     "proposePrompt": "Este é o meu notebook até agora (títulos e consultas, sem resultados). Proponha a próxima consulta SQL que faça sentido para continuar a análise, em um único bloco de código, com uma linha explicando o porquê.\n\n{{outline}}",
-    "groupPrompt": "Esta consulta retorna mais linhas do que cabem na prévia. Proponha uma versão agrupada (com GROUP BY e agregados) que resuma o resultado em poucas linhas, em um único bloco de código.\n\n```sql\n{{sql}}\n```\n\nResultado:\n{{result}}"
+    "groupPrompt": "Esta consulta retorna mais linhas do que cabem na prévia. Proponha uma versão agrupada (com GROUP BY e agregados) que resuma o resultado em poucas linhas, em um único bloco de código.\n\n```sql\n{{sql}}\n```\n\nResultado:\n{{result}}",
+    "explainPromptNative": "Explique o que esta consulta de {{engine}} do meu notebook retorna e que conclusões podem ser tiradas. Você não tem as linhas, só a consulta, as colunas e os totais. Responda com um texto curto em Markdown que possa ficar como célula do notebook.\n\n```{{lang}}\n{{sql}}\n```\n\nResultado:\n{{result}}",
+    "proposePromptNative": "Este é o meu notebook até agora (títulos e consultas, sem resultados). As células são executadas em {{engine}}. Proponha a próxima consulta ou comando na linguagem de {{engine}} (não SQL) que faça sentido para continuar a análise, em um único bloco de código, com uma linha explicando por quê.\n\n{{outline}}",
+    "groupPromptNative": "Esta consulta de {{engine}} retorna mais linhas do que cabem na prévia. Proponha uma versão que resuma o resultado em poucas linhas com o que {{engine}} oferece (sem SQL), em um único bloco de código. Se {{engine}} não puder resumi-lo, diga isso e proponha como restringir o resultado.\n\n```{{lang}}\n{{sql}}\n```\n\nResultado:\n{{result}}"
   },
   "cell": {
     "countTip": "A ordem em que foi executada pela última vez",
@@ -96,7 +101,10 @@
   "close": {
     "title": "Alterações não salvas",
     "ask": "{{name}} tem alterações não salvas. Salvar antes de fechar?",
-    "dontSave": "Não salvar"
+    "dontSave": "Não salvar",
+    "runningTitle": "Célula em execução",
+    "running": "Uma célula de {{name}} está em execução. Cancelá-la e fechar o notebook?",
+    "stop": "Cancelar e fechar"
   },
   "toolbar": {
     "targetTip": "Onde as células são executadas (cada uma pode ter a sua)",
@@ -112,5 +120,8 @@
   "add": {
     "sql": "SQL",
     "text": "Texto"
+  },
+  "tx": {
+    "askClose": "Este notebook tem uma transação aberta em {{where}}. Confirmar ou desfazer as alterações antes de fechá-lo?"
   }
 }

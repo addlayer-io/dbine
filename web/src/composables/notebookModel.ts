@@ -30,9 +30,16 @@ export function newCell(kind: Exclude<CellKind, 'foreign'>, source = ''): Notebo
   };
 }
 
-/** A new notebook: one SQL cell. `inProject`: saved without results by default (files that go to git). */
-export function emptyNotebook(inProject: boolean, target: NotebookTarget | null = null): Notebook {
-  return { target, save_results: !inProject, cells: [newCell('sql')], origin: 'dbine', extra_metadata: {}, warnings: [] };
+/** A new notebook: one SQL cell. `gitLinked`: a git project's, saved without results by default. */
+export function emptyNotebook(gitLinked: boolean, target: NotebookTarget | null = null): Notebook {
+  return { target, save_results: !gitLinked, save_results_set: true, cells: [newCell('sql')], origin: 'dbine', extra_metadata: {}, warnings: [] };
+}
+
+/** A notebook read from a git project's file that doesn't say whether it
+ *  keeps results (a foreign one): the project's default, without results. */
+export function applyProjectDefault(n: Notebook, gitLinked: boolean): Notebook {
+  if (gitLinked && !n.save_results_set) n.save_results = false;
+  return n;
 }
 
 export const sameTarget = (a: NotebookTarget | null | undefined, b: NotebookTarget | null | undefined) =>
@@ -144,8 +151,83 @@ export function outline(cells: NotebookCell[], upTo: number): string {
       const heads = c.source.split('\n').filter((l) => /^\s{0,3}#{1,6}\s/.test(l)).map((l) => l.trim());
       if (heads.length) out.push(heads.join('\n'));
     } else if (c.kind === 'sql' && c.source.trim()) {
-      out.push('```sql\n' + c.source.trim() + '\n```');
+      out.push('```' + (c.language || 'sql') + '\n' + c.source.trim() + '\n```');
     }
   }
   return out.join('\n\n');
+}
+
+// -- connections by name ----------------------------------------------------------------------
+
+/** What a file's connection name is on this machine. */
+export type NameMatch =
+  | { kind: 'one'; id: string }
+  /** More than one local connection has that name and nothing says which. */
+  | { kind: 'ambiguous'; ids: string[] }
+  | { kind: 'none' };
+
+/** A name in a file → a local connection. A unique exact name wins; a name
+ *  several connections share uses the choice remembered for this file
+ *  (`fileAlias`); a name nobody has uses the machine's alias, else a unique
+ *  case-insensitive match. */
+export function matchConnection(list: { id: string; name: string }[], name: string, fileAlias?: string | null, globalAlias?: string | null): NameMatch {
+  const exact = list.filter((c) => c.name === name);
+  if (exact.length === 1) return { kind: 'one', id: exact[0].id };
+  if (exact.length > 1) {
+    return fileAlias && exact.some((c) => c.id === fileAlias) ? { kind: 'one', id: fileAlias } : { kind: 'ambiguous', ids: exact.map((c) => c.id) };
+  }
+  if (fileAlias && list.some((c) => c.id === fileAlias)) return { kind: 'one', id: fileAlias };
+  if (globalAlias && list.some((c) => c.id === globalAlias)) return { kind: 'one', id: globalAlias };
+  const loose = list.filter((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
+  return loose.length === 1 ? { kind: 'one', id: loose[0].id } : loose.length > 1 ? { kind: 'ambiguous', ids: loose.map((c) => c.id) } : { kind: 'none' };
+}
+
+/** A path inside a linked project's folder: that project and the path
+ *  relative to its root (with '/'). Null when it's in none. */
+export function projectFileOf(projects: { id: string; path: string }[], path: string): { projectId: string; projectPath: string } | null {
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+  const file = norm(path);
+  const win = /^[a-z]:\//i.test(file);
+  const key = (p: string) => (win ? p.toLowerCase() : p);
+  let best: { projectId: string; projectPath: string; len: number } | null = null;
+  for (const p of projects) {
+    const root = norm(p.path);
+    if (!root || !key(file).startsWith(`${key(root)}/`)) continue;
+    if (!best || root.length > best.len) best = { projectId: p.id, projectPath: file.slice(root.length + 1), len: root.length };
+  }
+  return best && { projectId: best.projectId, projectPath: best.projectPath };
+}
+
+// -- saving: edits made while a save is in flight stay unsaved --------------------------------
+
+/** Counts edits; a save that started at version `v` ends 'saved' only if
+ *  nothing changed since. */
+export class EditVersion {
+  version = 0;
+  bump() { this.version++; }
+  /** What a save serializes (call before reading the notebook). */
+  start(): number { return this.version; }
+  /** After the write: 'saved' if no edit came in meanwhile, else 'dirty'. */
+  end(startedAt: number): 'saved' | 'dirty' { return this.version === startedAt ? 'saved' : 'dirty'; }
+}
+
+// -- running: one cell at a time --------------------------------------------------------------
+
+/** Taken synchronously before any await: a second run is refused at once. */
+export class RunLock {
+  held = false;
+  take(): boolean {
+    if (this.held) return false;
+    this.held = true;
+    return true;
+  }
+  release() { this.held = false; }
+}
+
+// -- the assistant's prompts per target language ----------------------------------------------
+
+/** The prompts' variant: SQL engines get "SQL" and GROUP BY; the others
+ *  (Redis, MongoDB, Cypher…) are asked in their own language. */
+export function promptVariant(language: string | null | undefined): 'sql' | 'native' {
+  return !language || language === 'sql' ? 'sql' : 'native';
 }

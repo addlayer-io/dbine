@@ -136,7 +136,9 @@ async function newNotebook(dir: string) {
   if (!/\.ipynb$/i.test(name)) name += '.ipynb';
   const path = dir ? `${dir}/${name}` : name;
   try {
-    const text = await notebookApi.serialize(emptyNotebook(true, projectDefaultTarget(props.projectId)), { rows: 100, bytes: 1_000_000 });
+    // In a git repo (or not known yet): without results by default.
+    const git = projects.byId(props.projectId)?.is_repo ?? true;
+    const text = await notebookApi.serialize(emptyNotebook(git, projectDefaultTarget(props.projectId, `p:${props.projectId}:${path}`)), { rows: 100, bytes: 1_000_000 });
     await projectsApi.createFile(props.projectId, path, text);
     if (dir) projects.toggleDir(props.projectId, dir, true);
     projects.invalidateDirs(props.projectId, [path]);

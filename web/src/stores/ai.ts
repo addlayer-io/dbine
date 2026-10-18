@@ -25,6 +25,9 @@ export interface EditorBridge {
   rename?: (name: string) => Promise<void>;
   /** A notebook: insert Markdown as a text cell after the active one. */
   appendText?: (md: string) => void;
+  /** Where the editor's text runs, when it isn't the tab's connection (a
+   *  notebook's active cell); null: the tab's. */
+  target?: () => { connectionId: string; database: string } | null;
 }
 const bridges = new Map<string, EditorBridge>();
 export function editorBridge(tabId: string): EditorBridge | null {
@@ -269,14 +272,16 @@ export const useAiStore = defineStore('ai', {
       this.running = answer.id;
       this.phase = 'thinking';
       const object = tab?.kind === 'object' ? [tab.object.schema, tab.object.name].filter(Boolean).join('.') : null;
+      // The editor's own target (a notebook's active cell), else the tab's.
+      const where = b?.target?.() ?? (tab ? { connectionId: tab.connectionId, database: tab.database } : null);
       // "Aprobar lecturas en esta conversación" holds for one connection and database.
-      const scope = `${tab?.connectionId ?? ''}|${tab?.database ?? ''}`;
+      const scope = `${where?.connectionId ?? ''}|${where?.database ?? ''}`;
       if (this.approveScope !== scope) { this.approveReads = false; this.approveScope = scope; }
       try {
         trackFeature('ai_message', p.kind);
         const r = await aiApi.chat(answer.id, p.kind, this.model, history, {
-          connection_id: tab?.connectionId ?? null,
-          database: tab?.database ?? null,
+          connection_id: where?.connectionId ?? null,
+          database: where?.database ?? null,
           object,
           editor_sql: b?.text() ?? null,
           selection: b?.selection() || null,

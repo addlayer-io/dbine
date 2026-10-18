@@ -80,15 +80,23 @@ a DBine notebook when it has `metadata.dbine`; any other `.ipynb` opens too
   another machine, a name that doesn't match a local connection asks once
   which connection it is, and that choice stays on that machine (like a
   project's environments). DBine never writes credentials to the file, and
-  ignores any it finds there.
+  ignores any it finds there (a target's connection that looks like a
+  connection string or URL is dropped too, with a warning).
+- **Names are not unique**: when several local connections have the stored
+  name, the cell asks which one (only those are offered), and the choice is
+  remembered **for that file** on this machine. Picking a connection whose
+  name others share remembers it for the file as well. A name that matches
+  exactly one connection keeps working with no question.
 - **Inside a project with environments** (`.dbine.json`), the target can be
   the **environment** (`dev`, `prod`…) instead of a connection, so the same
   notebook runs on each person's own database for that environment, and
   `confirm_run` asks before running on it.
 - The cell's language follows the target's engine: SQL in each engine's
   dialect, Redis commands, MongoDB's shell syntax, and so on, with that
-  engine's completion and highlighting. Nothing about the notebook depends on
-  the engine beyond that, so it works with **every driver**.
+  engine's completion and highlighting. The file stores it as the cell's
+  `language` (the driver's: `sql`, `redis`, `json`…). Nothing about the
+  notebook depends on the engine beyond that, so it works with **every
+  driver**.
 
 ## Running
 
@@ -97,8 +105,28 @@ a DBine notebook when it has `metadata.dbine`; any other `.ipynb` opens too
 - A cell runs exactly as in the query editor: same session, same read-only
   rules (a read-only connection refuses writes), same confirmation for
   dangerous statements, same history.
-- **Run all** stops at the first cell that fails.
+- **One cell runs at a time**: while one runs (or is asking where to run),
+  the other run actions are disabled and the shortcuts do nothing.
+- **Run all** stops at the first cell that fails. An environment with
+  `confirm_run` asks once per target in a Run all, like the editor asks once
+  per run.
 - The number next to a cell (`[3]`) is the order it last ran in, as in Jupyter.
+
+### Transactions
+
+Each connection and database a notebook's cells run on is one session, kept
+until the tab closes, as an editor tab's. Cells run with automatic
+transactions; a cell that opens one (`BEGIN`…) leaves it open for the next
+cells on that session:
+
+- The notebook's toolbar shows each open transaction with its connection ›
+  database, and **Commit** / **Rollback** for it.
+- Closing the notebook asks for each open transaction: commit, roll back or
+  cancel the close, as the editor does.
+- A cancel that closes the session rolls back the open transaction, and says
+  so.
+- Closing while a cell runs asks first; the run is cancelled only if the
+  close goes on.
 
 ## The result and what is saved
 
@@ -108,22 +136,37 @@ result, only a preview:**
 
 | | Default | Changeable |
 |---|---|---|
-| Rows per cell | **100** | Settings › Notebooks |
-| Size per cell | 1 MB (a preview over it is cut, even with fewer rows) | Settings › Notebooks |
+| Rows per cell | **100**, shared by the cell's statements (the first ones first) | Settings › Notebooks |
+| Size per cell | 1 MB for all the cell's outputs (a preview over it is cut, even with fewer rows) | Settings › Notebooks |
+
+- The size covers everything the cell stores: the summaries, the rows, the
+  server's messages, the error and the chart's points. When it doesn't all
+  fit, the summaries and at least the first 2,000 characters of the error
+  stay, then the rest of the error, the rows (the last ones go first), the
+  messages and the chart's points, in that order, while they fit; cut text
+  ends in "…" and the result is marked as cut.
 
 - **Every result keeps its summary**, even with no rows: total rows, when it
   ran, how long it took, the target and whether the preview was cut. Someone
   reading the file sees *"100 of 100,000,000 rows · 18/10 14:32 · 41 s ·
   Ventas prod › ventas"*.
-- A **chart** keeps its settings and the data it plots (already aggregated,
-  few points), not the source rows.
+- A **chart** keeps its settings and the data it plots only when that data
+  is **aggregated** (sum, average, count, min, max): at most the cell's rows
+  per series, long labels cut like cell values, and only if they fit in the
+  size per cell. A scatter or a chart without aggregation plots the raw
+  rows, so only its settings are kept. Changing a chart on a stored preview
+  drops the stored points (they'd no longer match); the next run brings new
+  ones.
 - **Per cell, "Don't save result"**, for sensitive queries: the summary is
   kept, the rows aren't.
 - **Per notebook, "Save without results"**: the file keeps queries, text and
   summaries only. It's meant for sharing and for clean diffs in git.
 - **In a project linked to git it is on by default**, because those files end
   up in a shared repository: results are saved only if that notebook turns it
-  off. Outside projects, previews are saved by default.
+  off. This applies to new notebooks and to notebooks from elsewhere that
+  don't say (no `metadata.dbine.save_results`); a project whose folder isn't
+  a git repository saves previews by default. Outside projects, previews are
+  saved by default.
 - The first time a notebook with results is saved, DBine says: *"This file
   includes a preview of the data you queried."*
 
@@ -137,10 +180,14 @@ AI proposes, the user runs.
   preview was cut and the error; **never row values**, as everywhere else).
   The answer comes in the assistant's panel, and **Insert as text** adds it
   as a draft text cell under the active cell.
-- **Propose the next cell**: a SQL cell built from the notebook so far,
+- **Propose the next cell**: a cell built from the notebook so far,
   inserted but not run.
 - **Summarise it**: when a preview was cut, the cell offers *"Do you want it
   grouped?"*, and the AI proposes an aggregated query in a new cell, not run.
+- The assistant gets the **active cell's** connection and database (each
+  cell may run elsewhere), and the prompts follow its engine: SQL engines
+  are asked for SQL (`GROUP BY`…), the others (Redis, MongoDB, Cypher…) in
+  their own language.
 
 ## Notebooks from elsewhere
 
@@ -154,10 +201,12 @@ AI proposes, the user runs.
 
 ## Export
 
-- **HTML** (one self-contained page) and **Markdown**, with the stored
-  previews.
+- **HTML** (one self-contained page) and **Markdown**, with the previews the
+  file would keep (the limits in Settings › Notebooks).
 - The result of one cell, in full, through the normal export (CSV, Excel,
-  Parquet…), which runs the query again.
+  Parquet…), which runs the query again: only for a cell that ran in this
+  session (exactly the query that ran). A preview read from the file exports
+  just its rows.
 
 ## Where notebooks live
 
@@ -169,7 +218,9 @@ AI proposes, the user runs.
   check, like any other file there.
 - The Library (scripts) doesn't hold notebooks.
 - Opening a `.ipynb` from the system (double click, drag and drop, *Open
-  with*) opens it in a notebook tab.
+  with*) opens it in a notebook tab: as the project's file when it is inside
+  a linked project's folder, else as a standalone file. Files over 64 MB
+  aren't opened.
 
 ## Version 1 and later
 

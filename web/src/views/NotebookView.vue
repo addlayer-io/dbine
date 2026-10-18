@@ -5,7 +5,7 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
 import { notebookApi, type PreviewLimits } from '../api/notebook';
 import { projectsApi } from '../api/projects';
-import type { CellResult, FileStat, Notebook, NotebookCell, NotebookTarget, QueryOutcome, UnsafeDml } from '../api/types';
+import type { FileStat, Notebook, NotebookCell, NotebookTarget, QueryOutcome, TxState, UnsafeDml } from '../api/types';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import NotebookCellView, { type CellContext } from '../components/notebook/NotebookCell.vue';
@@ -13,11 +13,11 @@ import NotebookTargetDialog from '../components/notebook/NotebookTargetDialog.vu
 import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { saveTextFile } from '../composables/files';
 import {
-  BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, PREVIEW_NOTICE_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp,
-  describeResult, emptyNotebook, emptyTarget, newCell, outcomeToResult, outline, resultToOutcome,
+  BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, EditVersion, PREVIEW_NOTICE_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, RunLock,
+  applyProjectDefault, clamp, describeResult, emptyNotebook, emptyTarget, newCell, outcomeToResult, outline, promptVariant, resultToOutcome,
 } from '../composables/notebookModel';
 import {
-  projectDefaultTarget, rememberAlias, resolveTarget, targetText, type ResolvedTarget,
+  moveFileAliases, projectDefaultTarget, rememberAlias, rememberFileAlias, resolveTarget, targetText, type FileKey, type ResolvedTarget,
 } from '../composables/notebookTargets';
 import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
 import { fileDocs, type FileDocHandle } from '../composables/tabDocument';
@@ -29,13 +29,14 @@ import { useProjectsStore } from '../stores/projects';
 import { useSettingsStore } from '../stores/settings';
 import { sameJson } from '../composables/chartSettings';
 import { readJson, writeJson } from '../stores/storage';
-import { busyTabs, closeGuards, notebookDraftKey, notebookSessions, useTabsStore, type NotebookTab } from '../stores/tabs';
+import { busyTabs, closeGuards, closedNotebooks, notebookDraftKey, notebookSessions, useTabsStore, type NotebookTab } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 
 // A notebook (docs/notebooks.md): SQL and text cells one under another,
 // each SQL cell with its result under it. It's a Jupyter .ipynb file: a
-// standalone one, a project's (with git: saved without results by
-// default), or a new one not saved yet (its draft survives a restart).
+// standalone one, a project's (in a git repo: saved without results by
+// default, also a foreign notebook that doesn't say), or a new one not
+// saved yet (its draft survives a restart).
 // A cell runs exactly as the query editor runs: same command, same
 // confirmation of dangerous statements, same read-only rules (the backend's),
 // same history. One backend session per connection and database.
@@ -60,9 +61,15 @@ const conflict = ref<FileStat | null | false>(false);
 let stat: FileStat | null = null;
 const warningsOpen = ref(true);
 
-const inProject = computed(() => !!props.tab.projectId);
 const project = computed(() => (props.tab.projectId ? projects.byId(props.tab.projectId) : undefined));
 const title = computed(() => notebookTitle(props.tab));
+/** A project in a git repo (not known yet: taken as one): its notebooks are
+ *  saved without results unless the file says otherwise. */
+const gitLinked = computed(() => !!props.tab.projectId && (project.value?.is_repo ?? true));
+/** This notebook on this machine (names several connections share are chosen per file). */
+const fileKey = computed<FileKey>(() => (props.tab.projectId && props.tab.projectPath
+  ? `p:${props.tab.projectId}:${props.tab.projectPath}`
+  : props.tab.path ? `f:${props.tab.path}` : `u:${props.tab.id}`));
 
 // -- loading -----------------------------------------------------------------------------------
 /** Results the file kept are big arrays: never made reactive. */
@@ -78,7 +85,9 @@ async function load() {
       const f = await projectsApi.readFile(props.tab.projectId, props.tab.projectPath);
       stat = { path: f.path, exists: true, mtime_ms: f.mtime_ms, size: f.size, hash: f.hash };
       // A file just created from the tree is empty: a new notebook.
-      nb.value = raw(f.text.trim() ? await notebookApi.parse(f.text) : emptyNotebook(true, projectDefaultTarget(props.tab.projectId)));
+      nb.value = raw(f.text.trim()
+        ? applyProjectDefault(await notebookApi.parse(f.text), gitLinked.value)
+        : emptyNotebook(gitLinked.value, projectDefaultTarget(props.tab.projectId, fileKey.value)));
     } else if (props.tab.path) {
       nb.value = raw((await notebookApi.read(props.tab.path)).notebook);
     } else {
@@ -86,6 +95,7 @@ async function load() {
     }
     // An untitled one's draft is unsaved work: closing it asks.
     saveState.value = props.tab.untitled && nb.value.cells.some((c) => c.source.trim()) ? 'dirty' : 'saved';
+    edits = new EditVersion();
     conflict.value = false;
     for (const k of Object.keys(live)) delete live[k];
     counter = Math.max(0, ...nb.value.cells.map((c) => c.execution_count ?? 0));
@@ -100,9 +110,15 @@ onMounted(load);
 
 // -- changes, the dirty dot and the draft --------------------------------------------------------
 let draftTimer: ReturnType<typeof setTimeout> | null = null;
+/** Edits so far: a save ends "saved" only if none came in while it ran. */
+let edits = new EditVersion();
+/** Closed for good (tabs.release): no draft, nothing unsaved, from now on. */
+let closed = false;
+const isClosed = () => closed || closedNotebooks.has(props.tab.id);
 /** Every change goes through here (the notebook is too big to deep-watch). */
 function touch() {
-  if (!nb.value) return;
+  if (!nb.value || isClosed()) return;
+  edits.bump();
   if (saveState.value !== 'saving') saveState.value = 'dirty';
   if (props.tab.untitled) {
     if (draftTimer) clearTimeout(draftTimer);
@@ -113,13 +129,16 @@ function touch() {
 function writeDraft() {
   draftTimer = null;
   const n = nb.value;
-  if (!n || !props.tab.untitled) return;
+  if (!n || !props.tab.untitled || isClosed()) return;
   writeJson(notebookDraftKey(props.tab.id), {
     ...n,
     cells: n.cells.map((c) => ({ ...c, result: c.result ? { ...c.result, results: c.result.results.map((s) => ({ ...s, rows: [], rows_kept: 0 })) } : null })),
   });
 }
-onBeforeUnmount(() => { if (draftTimer) { clearTimeout(draftTimer); writeDraft(); } });
+onBeforeUnmount(() => {
+  if (closedNotebooks.delete(props.tab.id)) closed = true;
+  if (draftTimer) { clearTimeout(draftTimer); writeDraft(); }
+});
 
 watch(saveState, (v) => {
   if (v === 'saved') delete ui.unsaved[props.tab.id];
@@ -149,6 +168,7 @@ function focusCell(id: string) {
 function addCell(kind: 'sql' | 'markdown', at?: number, source = ''): NotebookCell {
   const n = nb.value!;
   const cell = newCell(kind, source);
+  if (kind === 'sql') cell.language = languageOf(cell);
   const i = at ?? (activeId.value ? indexOf(activeId.value) + 1 : n.cells.length);
   n.cells.splice(Math.max(0, Math.min(i, n.cells.length)), 0, cell);
   if (kind === 'markdown' && !source) editing.add(cell.id);
@@ -180,7 +200,7 @@ function removeCell(cell: NotebookCell) {
 }
 function changeKind(cell: NotebookCell, kind: 'sql' | 'markdown') {
   cell.kind = kind;
-  cell.language = kind === 'sql' ? 'sql' : null;
+  cell.language = kind === 'sql' ? languageOf(cell) : null;
   if (kind === 'markdown') { cell.result = null; cell.execution_count = null; delete live[cell.id]; editing.add(cell.id); }
   touch();
 }
@@ -214,13 +234,18 @@ const saveWithout = computed({
 function storedTarget(cell: NotebookCell | null): NotebookTarget | null {
   if (cell && !emptyTarget(cell.target)) return cell.target;
   if (!emptyTarget(nb.value?.target)) return nb.value!.target;
-  return props.tab.projectId ? projectDefaultTarget(props.tab.projectId) : null;
+  return props.tab.projectId ? projectDefaultTarget(props.tab.projectId, fileKey.value) : null;
 }
 /** Re-read when connections, projects or aliases change. */
 const aliasSeq = ref(0);
 function resolved(cell: NotebookCell | null) {
   void aliasSeq.value;
-  return resolveTarget(storedTarget(cell), props.tab.projectId);
+  return resolveTarget(storedTarget(cell), props.tab.projectId, fileKey.value);
+}
+/** The language a SQL cell is written in: its target driver's ("sql", "redis"…). */
+function languageOf(cell: NotebookCell): string {
+  const r = resolved(cell);
+  return (r.ok ? conns.driverOf(r.target.connectionId)?.language : null) ?? cell.language ?? 'sql';
 }
 /** The tab's own connection (its group, the assistant's context): the notebook's target. */
 function syncTabTarget() {
@@ -229,13 +254,18 @@ function syncTabTarget() {
 }
 watch(() => [conns.list.length, projects.list.length] as const, syncTabTarget);
 
-const dialog = ref<
+type TargetDialog =
   | { mode: 'pick'; cell: NotebookCell | null; resolve: (ok: boolean) => void }
-  | { mode: 'map'; name: string; engine: string | null; resolve: (ok: boolean) => void }
-  | null
->(null);
+  /** `candidates`: several local connections have that name (ids). */
+  | { mode: 'map'; name: string; engine: string | null; candidates: string[] | null; resolve: (ok: boolean) => void };
+const dialog = ref<TargetDialog | null>(null);
+/** One dialog at a time: a second request while one is open is refused (false). */
+function openDialog(d: TargetDialog) {
+  if (dialog.value) d.resolve(false);
+  else dialog.value = d;
+}
 function pickTarget(cell: NotebookCell | null): Promise<boolean> {
-  return new Promise((resolve) => { dialog.value = { mode: 'pick', cell, resolve }; });
+  return new Promise((resolve) => openDialog({ mode: 'pick', cell, resolve }));
 }
 function onPicked(target: NotebookTarget | null) {
   const d = dialog.value;
@@ -250,7 +280,9 @@ function onPicked(target: NotebookTarget | null) {
 function onMapped(connectionId: string) {
   const d = dialog.value;
   if (d?.mode !== 'map') return;
-  rememberAlias(d.name, connectionId);
+  // A name several connections share: this file's choice; else the machine's.
+  if (d.candidates) rememberFileAlias(fileKey.value, d.name, connectionId);
+  else rememberAlias(d.name, connectionId);
   aliasSeq.value++;
   dialog.value = null;
   syncTabTarget();
@@ -272,7 +304,8 @@ async function ensureTarget(cell: NotebookCell): Promise<ResolvedTarget | null> 
       if (!(await pickTarget(null))) return null;
     } else if (r.problem === 'connection') {
       const engine = cell.result?.engine ?? null;
-      const ok = await new Promise<boolean>((resolve) => { dialog.value = { mode: 'map', name: r.name ?? '', engine, resolve }; });
+      const candidates = r.candidates ?? null;
+      const ok = await new Promise<boolean>((resolve) => openDialog({ mode: 'map', name: r.name ?? '', engine, candidates, resolve }));
       if (!ok) return null;
     } else {
       // An environment not bound on this machine: the project says which base it is.
@@ -284,15 +317,19 @@ async function ensureTarget(cell: NotebookCell): Promise<ResolvedTarget | null> 
   return null;
 }
 
-/** An environment marked `confirm_run` asks before running on it (as the editor does). */
-async function confirmEnvironment(target: ResolvedTarget): Promise<boolean> {
+/** An environment marked `confirm_run` asks before running on it (as the
+ *  editor does: once per run; "Ejecutar todo" asks once per target, kept in `asked`). */
+async function confirmEnvironment(target: ResolvedTarget, asked: Set<string> | null): Promise<boolean> {
   if (!target.env?.confirm_run) return true;
+  const key = `${target.env.name}\u0000${target.connectionId}\u0000${target.database}`;
+  if (asked?.has(key)) return true;
   try {
     await ElMessageBox.confirm(
       t('projects:file.confirmRun', { env: target.env.name, where: target.label }),
       t('projects:file.confirmRunTitle'),
       { type: 'warning', confirmButtonText: t('common:run'), cancelButtonText: t('common:cancel'), confirmButtonClass: 'el-button--danger' },
     );
+    asked?.add(key);
     return true;
   } catch {
     return false;
@@ -397,13 +434,79 @@ function confirmUnsafe(script: string, found: UnsafeDml[]): Promise<boolean> {
   }).then(() => true, () => false);
 }
 
+// -- transactions: per session, as the editor tracks its tab's ------------------------------------
+interface TxInfo { state: TxState; connectionId: string; database: string; label: string }
+/** Sessions with a transaction open (or failed), as their last run left them. */
+const txs = reactive<Record<string, TxInfo>>({});
+const openTxs = computed(() => Object.entries(txs).map(([sessionId, x]) => ({ sessionId, ...x })));
+const txBusy = ref(false);
+function setTx(sessionId: string, state: TxState | null, info: Omit<TxInfo, 'state'> | undefined) {
+  if ((state === 'open' || state === 'failed') && info) txs[sessionId] = { ...info, state };
+  else delete txs[sessionId];
+}
+/** Confirmar / Deshacer one session's transaction. True when it went through. */
+async function endTransaction(sessionId: string, commit: boolean): Promise<boolean> {
+  const info = txs[sessionId];
+  txBusy.value = true;
+  try {
+    setTx(sessionId, await (commit ? api.commitTab(sessionId) : api.rollbackTab(sessionId)), info);
+    ElMessage.success({ message: commit ? t('query:tx.committed') : t('query:tx.rolledBack'), duration: 1500 });
+    return true;
+  } catch (e) {
+    txError.value = errorMessage(e);
+    if (!txAsk.value) ElMessage.error(txError.value);
+    return false;
+  } finally {
+    txBusy.value = false;
+  }
+}
+// Closing with a transaction open asks, one session at a time: Confirmar / Deshacer / Cancelar.
+const txAsk = ref<{ sessionId: string; label: string; resolve: (ok: boolean) => void } | null>(null);
+const txError = ref<string | null>(null);
+/** True when no transaction is left open (the user settled each one). */
+async function settleTransactions(): Promise<boolean> {
+  for (const [id, info] of Object.entries(txs)) {
+    try { setTx(id, await api.tabTransactionState(id), info); } catch { /* keep the last known state */ }
+  }
+  for (const tx of openTxs.value) {
+    if (!txs[tx.sessionId]) continue;
+    tabs.activate(props.tab.id);
+    txError.value = null;
+    const ok = await new Promise<boolean>((resolve) => { txAsk.value = { sessionId: tx.sessionId, label: tx.label, resolve }; });
+    if (!ok) return false;
+  }
+  return true;
+}
+async function answerTx(choice: 'commit' | 'rollback' | 'cancel') {
+  const a = txAsk.value;
+  if (!a) return;
+  if (choice !== 'cancel' && !(await endTransaction(a.sessionId, choice === 'commit'))) return;
+  txAsk.value = null;
+  a.resolve(choice !== 'cancel');
+}
+onBeforeUnmount(() => txAsk.value?.resolve(false));
+
+/** One cell at a time: taken before the first await (dialogs included), so
+ *  ⌘↵, ⇧↵, the buttons and "Ejecutar todo" can't start a second run. */
+const lock = reactive(new RunLock());
+
 /** Run a SQL cell (`sql`: a selection of it). True when it ran without errors. */
 async function runCell(cell: NotebookCell, sql: string | null = null): Promise<boolean> {
-  if (runningId.value || cell.kind !== 'sql') return false;
+  if (cell.kind !== 'sql' || !lock.take()) return false;
+  try {
+    return await runHeld(cell, sql, null);
+  } finally {
+    lock.release();
+  }
+}
+
+/** The run itself, with the lock held. `asked`: the confirm_run targets
+ *  already confirmed in this "Ejecutar todo". */
+async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string> | null): Promise<boolean> {
   const script = (sql ?? cell.source).trim();
   if (!script) return true;
   const target = await ensureTarget(cell);
-  if (!target || !(await confirmEnvironment(target))) return false;
+  if (!target || !(await confirmEnvironment(target, asked))) return false;
   if (!(await ensureConnectedOrTell(target.connectionId))) return false;
   const { connectionId, database } = target;
   const sessionId = sessionOf(connectionId, database);
@@ -415,12 +518,18 @@ async function runCell(cell: NotebookCell, sql: string | null = null): Promise<b
   const ranAt = new Date();
   const where = target.label;
   const driver = conns.driverOf(connectionId);
+  // The cell is in its target's language (the file says so).
+  if (driver?.language) cell.language = driver.language;
+  // What a cancel that closes the session would roll back.
+  const txWasOpen = !!txs[sessionId];
+  const txInfo = { connectionId, database, label: where };
   let ok = false;
   try {
     let confirmed = false;
     for (;;) {
       const o = await api.executeQuery({
         sessionId, connectionId, database, sql: script, maxRows: settingsMaxRows.value, record: true, mode: 'auto', confirmedUnsafe: confirmed,
+        autocommit: driver?.supports_manual_transactions ? true : null,
       }).finally(() => { ui.historySeq++; });
       if (o.needs_confirmation?.length && !confirmed) {
         // Nothing ran: the previous result stays while the user decides.
@@ -428,6 +537,9 @@ async function runCell(cell: NotebookCell, sql: string | null = null): Promise<b
         confirmed = true;
         continue;
       }
+      // A cancel that closed the session took its open transaction with it.
+      if (o.session_closed && txWasOpen) ElMessage.warning({ message: t('query:tx.lostOnCancel'), duration: 5000 });
+      setTx(sessionId, o.transaction ?? null, txInfo);
       live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: script } };
       cell.result = markRaw(outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }));
       cell.execution_count = ++counter;
@@ -456,22 +568,25 @@ async function runCell(cell: NotebookCell, sql: string | null = null): Promise<b
 
 /** Run from cell `from` to the end; stops at the first failure (or Cancel). */
 async function runFrom(from: number) {
-  if (runningId.value || !nb.value) return;
+  if (!nb.value || !lock.take()) return;
   runAll.value = true;
   stopRequested = false;
+  const asked = new Set<string>();
   try {
     for (const cell of nb.value.cells.slice(from)) {
       if (cell.kind !== 'sql' || !cell.source.trim()) continue;
       activeId.value = cell.id;
-      if (!(await runCell(cell)) || stopRequested) break;
+      if (!(await runHeld(cell, null, asked)) || stopRequested) break;
     }
   } finally {
     runAll.value = false;
+    lock.release();
   }
 }
 
 /** ⇧↵: run, then the next cell (a new one at the end). */
 async function runAndNext(cell: NotebookCell) {
+  if (lock.held) return;
   const i = indexOf(cell.id);
   const next = nb.value!.cells[i + 1] ?? addCell('sql', i + 1);
   focusCell(next.id);
@@ -488,9 +603,17 @@ function cancel() {
   stopRequested = true;
   if (runningSession) api.cancelQuery(runningSession).catch(() => {});
 }
+/** Resolves once no run holds the lock. */
+function whenIdle(): Promise<void> {
+  if (!lock.held) return Promise.resolve();
+  return new Promise((resolve) => {
+    const stop = watch(() => lock.held, (held) => { if (!held) { stop(); resolve(); } });
+  });
+}
 
-// Busy: the close guard asks, and the tab is "running" for the rest of the app.
-watch(runningId, (id) => { if (id) busyTabs.add(props.tab.id); else busyTabs.delete(props.tab.id); });
+// Busy (running, or a transaction open): the close guard asks, and the tab
+// is "running" for the rest of the app.
+watch(() => lock.held || openTxs.value.length > 0, (on) => { if (on) busyTabs.add(props.tab.id); else busyTabs.delete(props.tab.id); });
 onBeforeUnmount(() => busyTabs.delete(props.tab.id));
 
 // -- saving ---------------------------------------------------------------------------------------
@@ -524,6 +647,8 @@ async function write(check: boolean): Promise<boolean> {
   const before = saveState.value;
   saveState.value = 'saving';
   try {
+    // Edits from here on (while it saves) leave it unsaved.
+    let started = edits.start();
     if (props.tab.projectId && props.tab.projectPath) {
       const text = await notebookApi.serialize(n, limits());
       const out = await projectsApi.writeFile({
@@ -543,13 +668,18 @@ async function write(check: boolean): Promise<boolean> {
       let path = props.tab.path;
       if (!path) {
         const picked = await saveDialog({ defaultPath: `${title.value}.ipynb`, filters: [{ name: t('notebook:save.filter'), extensions: ['ipynb'] }] });
-        if (!picked) { saveState.value = before; return false; }
+        if (!picked) { saveState.value = edits.end(started) === 'saved' ? before : 'dirty'; return false; }
         path = /\.ipynb$/i.test(picked) ? picked : `${picked}.ipynb`;
+        // What's written is the notebook as it is now.
+        started = edits.start();
       }
       await notebookApi.write(path, n, limits());
-      if (!props.tab.path) tabs.notebookSaved(props.tab.id, path);
+      if (!props.tab.path) {
+        moveFileAliases(fileKey.value, `f:${path}`);
+        tabs.notebookSaved(props.tab.id, path);
+      }
     }
-    saveState.value = 'saved';
+    saveState.value = edits.end(started);
     return true;
   } catch (e) {
     saveState.value = 'error';
@@ -583,9 +713,24 @@ const handle: FileDocHandle = {
 fileDocs.set(props.tab.id, handle);
 onBeforeUnmount(() => { if (fileDocs.get(props.tab.id) === handle) fileDocs.delete(props.tab.id); });
 
-// Closing asks while there's something unsaved: Guardar / No guardar / Cancelar.
+// Closing asks first, and only then stops anything: a cell running (stop it
+// and close?), each open transaction (Confirmar / Deshacer / Cancelar) and
+// unsaved changes (Guardar / No guardar / Cancelar).
 async function guardClose(): Promise<boolean> {
-  if (runningId.value) cancel();
+  if (lock.held) {
+    tabs.activate(props.tab.id);
+    try {
+      await ElMessageBox.confirm(t('notebook:close.running', { name: title.value }), t('notebook:close.runningTitle'), {
+        type: 'warning', confirmButtonText: t('notebook:close.stop'), cancelButtonText: t('common:cancel'),
+      });
+    } catch {
+      return false;
+    }
+    cancel();
+    closeDialog();
+    await whenIdle();
+  }
+  if (!(await settleTransactions())) return false;
   if (saveState.value !== 'dirty' && saveState.value !== 'error') return true;
   tabs.activate(props.tab.id);
   try {
@@ -597,7 +742,7 @@ async function guardClose(): Promise<boolean> {
   }
   return save();
 }
-watch(() => saveState.value === 'dirty' || saveState.value === 'error' || !!runningId.value, (on) => {
+watch(() => saveState.value === 'dirty' || saveState.value === 'error' || lock.held || openTxs.value.length > 0, (on) => {
   if (on) closeGuards.set(props.tab.id, guardClose);
   else closeGuards.delete(props.tab.id);
 }, { immediate: true });
@@ -607,7 +752,7 @@ onBeforeUnmount(() => closeGuards.delete(props.tab.id));
 async function exportAs(format: 'html' | 'markdown') {
   if (!nb.value) return;
   try {
-    const text = await notebookApi.export(nb.value, format);
+    const text = await notebookApi.export(nb.value, format, limits());
     const base = title.value.replace(/\.ipynb$/i, '');
     await saveTextFile(text, `${base}.${format === 'html' ? 'html' : 'md'}`, [{ name: format === 'html' ? 'HTML' : 'Markdown', extensions: [format === 'html' ? 'html' : 'md'] }]);
   } catch (e) {
@@ -618,6 +763,11 @@ async function exportAs(format: 'html' | 'markdown') {
 // -- the assistant: it proposes, the user runs (docs/ai-assistant.md). Rows never go. ----------------
 const activeSql = () => (activeCell.value?.kind === 'sql' ? activeCell.value : null);
 const unregisterAi = registerEditor(props.tab.id, {
+  // The active cell's target (each cell may run elsewhere), else the notebook's.
+  target: () => {
+    const r = resolved(activeSql());
+    return r.ok ? { connectionId: r.target.connectionId, database: r.target.database } : null;
+  },
   text: () => activeSql()?.source ?? '',
   selection: () => (activeSql() ? cellViews.get(activeSql()!.id)?.selectionText() ?? '' : ''),
   lastError: () => activeSql()?.result?.error ?? null,
@@ -637,17 +787,28 @@ function ask(prompt: string) {
   if (ai.running) { ElMessage.info({ message: t('notebook:ai.busy'), duration: 2500 }); return; }
   void ai.send(prompt);
 }
+/** The cell's target engine, for the prompts: SQL engines are asked for
+ *  SQL (GROUP BY…), the others in their own language. */
+function promptArgs(cell: NotebookCell) {
+  const r = resolved(cell.kind === 'sql' ? cell : activeSql());
+  const d = r.ok ? conns.driverOf(r.target.connectionId) : undefined;
+  const lang = d?.language ?? (cell.kind === 'sql' ? cell.language : null) ?? 'sql';
+  return { lang, engine: d?.name ?? lang, native: promptVariant(lang) === 'native' };
+}
 function explain(cell: NotebookCell) {
   activeId.value = cell.id;
-  ask(t('notebook:ai.explainPrompt', { sql: cell.source.trim(), result: describeResult(cell.result)}));
+  const p = promptArgs(cell);
+  ask(t(p.native ? 'notebook:ai.explainPromptNative' : 'notebook:ai.explainPrompt', { sql: cell.source.trim(), result: describeResult(cell.result), lang: p.lang, engine: p.engine }));
 }
 function propose(cell: NotebookCell) {
   activeId.value = cell.id;
-  ask(t('notebook:ai.proposePrompt', { outline: outline(nb.value!.cells, indexOf(cell.id))}));
+  const p = promptArgs(cell);
+  ask(t(p.native ? 'notebook:ai.proposePromptNative' : 'notebook:ai.proposePrompt', { outline: outline(nb.value!.cells, indexOf(cell.id)), lang: p.lang, engine: p.engine }));
 }
 function group(cell: NotebookCell) {
   activeId.value = cell.id;
-  ask(t('notebook:ai.groupPrompt', { sql: cell.source.trim(), result: describeResult(cell.result)}));
+  const p = promptArgs(cell);
+  ask(t(p.native ? 'notebook:ai.groupPromptNative' : 'notebook:ai.groupPrompt', { sql: cell.source.trim(), result: describeResult(cell.result), lang: p.lang, engine: p.engine }));
 }
 
 // -- keys --------------------------------------------------------------------------------------------
@@ -661,12 +822,10 @@ function onKey(e: KeyboardEvent) {
 function fallbackOf(cell: NotebookCell): QueryOutcome | null {
   return cell.result ? resultToOutcome(cell.result) : null;
 }
-/** A full export runs the query again: only where the target is known. */
+/** A full export runs the query again: only the query that ran here (a
+ *  stored preview exports just its rows; the cell's text may have changed). */
 function sourceOf(cell: NotebookCell) {
-  const l = live[cell.id];
-  if (l) return l.source;
-  const r = resolved(cell);
-  return r.ok && cell.source.trim() ? { connectionId: r.target.connectionId, database: r.target.database, sql: cell.source.trim() } : null;
+  return live[cell.id]?.source ?? null;
 }
 const notebookTarget = computed(() => {
   void aliasSeq.value;
@@ -717,18 +876,25 @@ const breadcrumbDir = computed(() => {
           <el-icon><ei-coin /></el-icon><span>{{ notebookTarget.text }}</span><el-icon><ei-arrow-down /></el-icon>
         </button>
       </el-tooltip>
-      <el-button v-if="!runningId" type="primary" :disabled="!nb" @click="runFrom(0)">
+      <el-button v-if="!runningId && !runAll" type="primary" :disabled="!nb || lock.held" @click="runFrom(0)">
         <el-icon><ei-video-play /></el-icon>&nbsp;{{ $t('notebook:toolbar.runAll') }}
       </el-button>
       <el-button v-else type="danger" @click="cancel">
         <el-icon><ei-video-pause /></el-icon>&nbsp;{{ $t('common:cancel') }}
       </el-button>
-      <el-button :disabled="!!runningId" @click="clearResults">
+      <el-button :disabled="lock.held" @click="clearResults">
         <el-icon><ei-delete /></el-icon><span class="nb-lbl">&nbsp;{{ $t('notebook:toolbar.clear') }}</span>
       </el-button>
       <el-tooltip :content="$t('notebook:toolbar.withoutResultsTip')" placement="bottom" :show-after="300">
         <el-checkbox v-model="saveWithout" size="small" class="nb-check"><span class="nb-lbl">{{ $t('notebook:toolbar.withoutResults') }}</span></el-checkbox>
       </el-tooltip>
+      <!-- Open transactions (a cell ran BEGIN…): where, and Confirmar / Deshacer at hand. -->
+      <div v-for="tx in openTxs" :key="tx.sessionId" class="nb-tx" :class="{ failed: tx.state === 'failed' }" role="status">
+        <el-icon><ei-warning-filled /></el-icon>
+        <span class="nb-tx-text" :title="tx.label">{{ tx.state === 'failed' ? $t('query:tx.failed') : $t('query:tx.open') }} · {{ tx.label }}</span>
+        <el-button size="small" :disabled="lock.held || txBusy" :title="$t('query:tx.commitTip')" @click="endTransaction(tx.sessionId, true)">{{ $t('query:tx.commit') }}</el-button>
+        <el-button size="small" :disabled="lock.held || txBusy" :title="$t('query:tx.rollbackTip')" @click="endTransaction(tx.sessionId, false)">{{ $t('query:tx.rollback') }}</el-button>
+      </div>
       <div class="nm-spacer" />
       <el-dropdown trigger="click" placement="bottom-end" @command="exportAs">
         <el-button :disabled="!nb"><el-icon><ei-download /></el-icon><span class="nb-lbl">&nbsp;{{ $t('notebook:toolbar.export') }}</span></el-button>
@@ -759,7 +925,7 @@ const breadcrumbDir = computed(() => {
           :count="nb.cells.length"
           :active="activeId === cell.id"
           :running="runningId === cell.id"
-          :busy="!!runningId"
+          :busy="lock.held"
           :editing="editing.has(cell.id)"
           :ctx="contexts[cell.id] ?? { schema: {}, snippets: [], target: '', overridden: false, unresolved: false }"
           :live="live[cell.id]?.outcome ?? null"
@@ -800,6 +966,7 @@ const breadcrumbDir = computed(() => {
       :initial="dialog.cell ? dialog.cell.target : nb?.target ?? null"
       :project-id="tab.projectId ?? null"
       :inherit="!!dialog.cell"
+      :file="fileKey"
       @pick="onPicked"
       @close="closeDialog"
     />
@@ -808,9 +975,28 @@ const breadcrumbDir = computed(() => {
       mode="map"
       :name="dialog.name"
       :engine="dialog.engine"
+      :candidates="dialog.candidates"
+      :file="fileKey"
       @map="onMapped"
       @close="closeDialog"
     />
+
+    <el-dialog
+      :model-value="!!txAsk"
+      :title="$t('query:tx.dialogTitle')"
+      width="460px"
+      append-to-body
+      :close-on-click-modal="false"
+      @update:model-value="(v: boolean) => { if (!v) answerTx('cancel'); }"
+    >
+      <p class="nb-dialog-text">{{ txAsk ? $t('notebook:tx.askClose', { where: txAsk.label }) : '' }}</p>
+      <div v-if="txError" class="nb-dialog-error" role="alert">{{ txError }}</div>
+      <template #footer>
+        <el-button :disabled="txBusy" @click="answerTx('cancel')">{{ $t('common:cancel') }}</el-button>
+        <el-button :loading="txBusy" @click="answerTx('rollback')">{{ $t('query:tx.rollback') }}</el-button>
+        <el-button type="primary" :loading="txBusy" @click="answerTx('commit')">{{ $t('query:tx.commit') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -860,6 +1046,17 @@ const breadcrumbDir = computed(() => {
 .nb-add.last button { height: 24px; padding: 0 12px; border-radius: 4px; font-size: 12px; }
 .nb-add button:hover { color: var(--nm-text-strong); border-color: var(--nm-border-hover); }
 .nb-loading { padding: 20px; }
+.nb-tx {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 420px; height: 26px; padding: 0 4px 0 8px; font-size: 12px; color: var(--nm-text);
+  border: 1px solid color-mix(in srgb, var(--nm-warning) 55%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--nm-warning) 12%, transparent);
+}
+.nb-tx > .el-icon { color: var(--nm-warning); }
+.nb-tx.failed { border-color: color-mix(in srgb, var(--nm-danger) 60%, transparent); background: color-mix(in srgb, var(--nm-danger) 12%, transparent); }
+.nb-tx.failed > .el-icon { color: var(--nm-danger); }
+.nb-tx-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-tx .el-button + .el-button { margin-left: 0; }
+.nb-dialog-text { margin: 0; line-height: 1.5; color: var(--nm-text); }
+.nb-dialog-error { margin-top: 10px; padding: 6px 10px; border-radius: 3px; font-size: 12px; white-space: pre-wrap; color: var(--nm-text); border: 1px solid color-mix(in srgb, var(--nm-danger) 50%, transparent); background: color-mix(in srgb, var(--nm-danger) 10%, transparent); }
 </style>
 
 <style>

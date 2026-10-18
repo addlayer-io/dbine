@@ -30,7 +30,9 @@
     "mapIntro": "Le notebook utilise la connexion « {{name}} », qui n'existe pas sur cette machine. Laquelle de vos connexions est-ce ?",
     "mapHelp": "Mémorisé sur cette machine ; le fichier ne change pas.",
     "use": "Utiliser",
-    "bindEnvironment": "Choisissez la base de l'environnement « {{env}} » dans le projet, puis exécutez à nouveau."
+    "bindEnvironment": "Choisissez la base de l'environnement « {{env}} » dans le projet, puis exécutez à nouveau.",
+    "ambiguousIntro": "Plusieurs connexions s'appellent « {{name}} » sur cette machine. Laquelle ce notebook utilise-t-il ?",
+    "ambiguousHelp": "Mémorisé pour ce fichier sur cette machine ; le fichier ne change pas."
   },
   "summary": {
     "ms": "{{ms}} ms",
@@ -59,7 +61,10 @@
     "busy": "L'assistant répond à une autre question.",
     "explainPrompt": "Explique ce que renvoie cette requête de mon notebook et quelles conclusions on peut en tirer. Tu n'as pas les lignes, seulement la requête, les colonnes et les totaux. Réponds par un court texte en Markdown qui puisse rester comme cellule du notebook.\n\n```sql\n{{sql}}\n```\n\nRésultat :\n{{result}}",
     "proposePrompt": "Voici mon notebook jusqu'ici (titres et requêtes, sans résultats). Propose la prochaine requête SQL pertinente pour poursuivre l'analyse, dans un seul bloc de code, avec une ligne qui explique pourquoi.\n\n{{outline}}",
-    "groupPrompt": "Cette requête renvoie plus de lignes que n'en contient l'aperçu. Propose une version regroupée (avec GROUP BY et des agrégats) qui résume le résultat en quelques lignes, dans un seul bloc de code.\n\n```sql\n{{sql}}\n```\n\nRésultat :\n{{result}}"
+    "groupPrompt": "Cette requête renvoie plus de lignes que n'en contient l'aperçu. Propose une version regroupée (avec GROUP BY et des agrégats) qui résume le résultat en quelques lignes, dans un seul bloc de code.\n\n```sql\n{{sql}}\n```\n\nRésultat :\n{{result}}",
+    "explainPromptNative": "Explique ce que renvoie cette requête {{engine}} de mon notebook et quelles conclusions on peut en tirer. Tu n'as pas les lignes, seulement la requête, les colonnes et les totaux. Réponds par un court texte en Markdown qui puisse rester comme cellule du notebook.\n\n```{{lang}}\n{{sql}}\n```\n\nRésultat :\n{{result}}",
+    "proposePromptNative": "Voici mon notebook jusqu'ici (titres et requêtes, sans résultats). Les cellules s'exécutent sur {{engine}}. Propose la prochaine requête ou commande dans le langage de {{engine}} (pas en SQL) qui ait du sens pour poursuivre l'analyse, dans un seul bloc de code, avec une ligne qui explique pourquoi.\n\n{{outline}}",
+    "groupPromptNative": "Cette requête {{engine}} renvoie plus de lignes que n'en contient l'aperçu. Propose une version qui résume le résultat en quelques lignes avec ce que propose {{engine}} (sans SQL), dans un seul bloc de code. Si {{engine}} ne peut pas le résumer, dis-le et propose comment restreindre le résultat.\n\n```{{lang}}\n{{sql}}\n```\n\nRésultat :\n{{result}}"
   },
   "cell": {
     "countTip": "L'ordre de sa dernière exécution",
@@ -96,7 +101,10 @@
   "close": {
     "title": "Modifications non enregistrées",
     "ask": "{{name}} a des modifications non enregistrées. Les enregistrer avant de fermer ?",
-    "dontSave": "Ne pas enregistrer"
+    "dontSave": "Ne pas enregistrer",
+    "runningTitle": "Cellule en cours d'exécution",
+    "running": "Une cellule de {{name}} est en cours d'exécution. L'annuler et fermer le notebook ?",
+    "stop": "Annuler et fermer"
   },
   "toolbar": {
     "targetTip": "Où s'exécutent les cellules (chacune peut avoir la sienne)",
@@ -112,5 +120,8 @@
   "add": {
     "sql": "SQL",
     "text": "Texte"
+  },
+  "tx": {
+    "askClose": "Ce notebook a une transaction ouverte sur {{where}}. Valider ou annuler les modifications avant de le fermer ?"
   }
 }

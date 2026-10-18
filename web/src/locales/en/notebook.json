@@ -30,7 +30,9 @@
     "mapIntro": "The notebook uses the connection “{{name}}”, which doesn't exist on this machine. Which of your connections is it?",
     "mapHelp": "Remembered on this machine; the file doesn't change.",
     "use": "Use",
-    "bindEnvironment": "Choose the database of the “{{env}}” environment in the project and run again."
+    "bindEnvironment": "Choose the database of the “{{env}}” environment in the project and run again.",
+    "ambiguousIntro": "Several connections on this machine are called “{{name}}”. Which one does this notebook use?",
+    "ambiguousHelp": "Remembered for this file on this machine; the file doesn't change."
   },
   "summary": {
     "ms": "{{ms}} ms",
@@ -59,7 +61,10 @@
     "busy": "The assistant is answering another question.",
     "explainPrompt": "Explain what this query from my notebook returns and what conclusions can be drawn. You don't have the rows, only the query, the columns and the totals. Answer with a short Markdown text that can stay as a notebook cell.\n\n```sql\n{{sql}}\n```\n\nResult:\n{{result}}",
     "proposePrompt": "This is my notebook so far (headings and queries, no results). Propose the next SQL query that makes sense to continue the analysis, in a single code block, with one line explaining why.\n\n{{outline}}",
-    "groupPrompt": "This query returns more rows than fit in the preview. Propose a grouped version (with GROUP BY and aggregates) that summarizes the result in a few rows, in a single code block.\n\n```sql\n{{sql}}\n```\n\nResult:\n{{result}}"
+    "groupPrompt": "This query returns more rows than fit in the preview. Propose a grouped version (with GROUP BY and aggregates) that summarizes the result in a few rows, in a single code block.\n\n```sql\n{{sql}}\n```\n\nResult:\n{{result}}",
+    "explainPromptNative": "Explain what this {{engine}} query from my notebook returns and what conclusions can be drawn. You don't have the rows, only the query, the columns and the totals. Answer with a short Markdown text that can stay as a notebook cell.\n\n```{{lang}}\n{{sql}}\n```\n\nResult:\n{{result}}",
+    "proposePromptNative": "This is my notebook so far (headings and queries, no results). The cells run on {{engine}}. Propose the next query or command in {{engine}}'s language (not SQL) that makes sense to continue the analysis, in a single code block, with one line explaining why.\n\n{{outline}}",
+    "groupPromptNative": "This {{engine}} query returns more rows than fit in the preview. Propose a version that summarizes the result in a few rows with what {{engine}} offers (no SQL), in a single code block. If {{engine}} can't summarize it, say so and propose how to narrow the result.\n\n```{{lang}}\n{{sql}}\n```\n\nResult:\n{{result}}"
   },
   "cell": {
     "countTip": "The order it last ran in",
@@ -96,7 +101,10 @@
   "close": {
     "title": "Unsaved changes",
     "ask": "{{name}} has unsaved changes. Save them before closing?",
-    "dontSave": "Don't save"
+    "dontSave": "Don't save",
+    "runningTitle": "Cell running",
+    "running": "A cell of {{name}} is running. Cancel it and close the notebook?",
+    "stop": "Cancel and close"
   },
   "toolbar": {
     "targetTip": "Where the cells run (each one can have its own)",
@@ -112,5 +120,8 @@
   "add": {
     "sql": "SQL",
     "text": "Text"
+  },
+  "tx": {
+    "askClose": "This notebook has an open transaction on {{where}}. Commit or roll back the changes before closing it?"
   }
 }

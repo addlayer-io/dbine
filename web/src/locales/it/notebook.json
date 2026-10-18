@@ -30,7 +30,9 @@
     "mapIntro": "Il notebook usa la connessione «{{name}}», che non esiste su questa macchina. Quale delle tue connessioni è?",
     "mapHelp": "Viene ricordato su questa macchina; il file non cambia.",
     "use": "Usa",
-    "bindEnvironment": "Scegli il database dell'ambiente «{{env}}» nel progetto ed esegui di nuovo."
+    "bindEnvironment": "Scegli il database dell'ambiente «{{env}}» nel progetto ed esegui di nuovo.",
+    "ambiguousIntro": "Su questa macchina ci sono più connessioni chiamate «{{name}}». Quale usa questo notebook?",
+    "ambiguousHelp": "Viene ricordato per questo file su questa macchina; il file non cambia."
   },
   "summary": {
     "ms": "{{ms}} ms",
@@ -59,7 +61,10 @@
     "busy": "L'assistente sta rispondendo a un'altra domanda.",
     "explainPrompt": "Spiega cosa restituisce questa query del mio notebook e quali conclusioni se ne possono trarre. Non hai le righe, solo la query, le colonne e i totali. Rispondi con un breve testo in Markdown che possa restare come cella del notebook.\n\n```sql\n{{sql}}\n```\n\nRisultato:\n{{result}}",
     "proposePrompt": "Questo è il mio notebook finora (titoli e query, senza risultati). Proponi la prossima query SQL sensata per proseguire l'analisi, in un unico blocco di codice, con una riga che spieghi perché.\n\n{{outline}}",
-    "groupPrompt": "Questa query restituisce più righe di quante ne stiano nell'anteprima. Proponi una versione raggruppata (con GROUP BY e aggregati) che riassuma il risultato in poche righe, in un unico blocco di codice.\n\n```sql\n{{sql}}\n```\n\nRisultato:\n{{result}}"
+    "groupPrompt": "Questa query restituisce più righe di quante ne stiano nell'anteprima. Proponi una versione raggruppata (con GROUP BY e aggregati) che riassuma il risultato in poche righe, in un unico blocco di codice.\n\n```sql\n{{sql}}\n```\n\nRisultato:\n{{result}}",
+    "explainPromptNative": "Spiega cosa restituisce questa query {{engine}} del mio notebook e quali conclusioni se ne possono trarre. Non hai le righe, solo la query, le colonne e i totali. Rispondi con un breve testo in Markdown che possa restare come cella del notebook.\n\n```{{lang}}\n{{sql}}\n```\n\nRisultato:\n{{result}}",
+    "proposePromptNative": "Questo è il mio notebook finora (titoli e query, senza risultati). Le celle vengono eseguite su {{engine}}. Proponi la prossima query o comando nel linguaggio di {{engine}} (non SQL) che abbia senso per proseguire l'analisi, in un unico blocco di codice, con una riga che spieghi perché.\n\n{{outline}}",
+    "groupPromptNative": "Questa query {{engine}} restituisce più righe di quante ne stiano nell'anteprima. Proponi una versione che riassuma il risultato in poche righe con ciò che offre {{engine}} (senza SQL), in un unico blocco di codice. Se {{engine}} non può riassumerlo, dillo e proponi come restringere il risultato.\n\n```{{lang}}\n{{sql}}\n```\n\nRisultato:\n{{result}}"
   },
   "cell": {
     "countTip": "L'ordine in cui è stata eseguita l'ultima volta",
@@ -96,7 +101,10 @@
   "close": {
     "title": "Modifiche non salvate",
     "ask": "{{name}} ha modifiche non salvate. Salvarle prima di chiudere?",
-    "dontSave": "Non salvare"
+    "dontSave": "Non salvare",
+    "runningTitle": "Cella in esecuzione",
+    "running": "Una cella di {{name}} è in esecuzione. Annullarla e chiudere il notebook?",
+    "stop": "Annulla e chiudi"
   },
   "toolbar": {
     "targetTip": "Dove vengono eseguite le celle (ognuna può avere la sua)",
@@ -112,5 +120,8 @@
   "add": {
     "sql": "SQL",
     "text": "Testo"
+  },
+  "tx": {
+    "askClose": "Questo notebook ha una transazione aperta su {{where}}. Confermare o annullare le modifiche prima di chiuderlo?"
   }
 }

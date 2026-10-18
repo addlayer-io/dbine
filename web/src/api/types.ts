@@ -1066,6 +1066,8 @@ export interface CellResult {
   engine: string | null;
   /** "Ventas prod › ventas". */
   target_label: string | null;
+  /** The stored messages or error were cut to fit the cell's byte cap. */
+  truncated?: boolean;
 }
 export interface NotebookCell {
   /** Stable id (nbformat 4.5 cell id). */
@@ -1089,6 +1091,9 @@ export interface Notebook {
   target: NotebookTarget | null;
   /** false = "Guardar sin resultados". */
   save_results: boolean;
+  /** The file said `save_results` itself (not written; a foreign notebook
+   *  in a git project then gets the project's default, without results). */
+  save_results_set?: boolean;
   cells: NotebookCell[];
   /** How it was read: "dbine" | "ads" | "jupyter". */
   origin: string;

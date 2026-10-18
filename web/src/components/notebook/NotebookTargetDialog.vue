@@ -9,7 +9,8 @@ import EngineIcon from '../EngineIcon.vue';
 
 // Where a notebook (or one cell) runs: a connection and database, or the
 // project's environment. `map`: the file names a connection this machine
-// doesn't have; the user says which one it is, once.
+// doesn't have (or several share that name); the user says which one it
+// is, once.
 
 const props = defineProps<{
   mode: 'pick' | 'map';
@@ -22,6 +23,10 @@ const props = defineProps<{
   /** map: the name in the file, and its engine when known. */
   name?: string | null;
   engine?: string | null;
+  /** map: several local connections have that name: only these are offered. */
+  candidates?: string[] | null;
+  /** The notebook (for names several connections share). */
+  file?: string | null;
 }>();
 const emit = defineEmits<{
   /** null: the cell uses the notebook's target. */
@@ -38,7 +43,7 @@ type Kind = 'inherit' | 'env' | 'connection';
 const kind = ref<Kind>(props.inherit && !props.initial ? 'inherit' : props.initial?.environment && envs.value.length ? 'env' : envs.value.length && !props.initial ? 'env' : 'connection');
 const env = ref(props.initial?.environment ?? projects.activeTarget(props.projectId ?? '').env?.name ?? envs.value[0]?.name ?? '');
 const direct = ref<ProjectTarget | null>((() => {
-  const c = props.initial?.connection ? connectionByName(props.initial.connection) : undefined;
+  const c = props.initial?.connection ? connectionByName(props.initial.connection, props.file) : undefined;
   return c ? { connection_id: c.id, database: props.initial?.database ?? c.config.database ?? '' } : null;
 })());
 
@@ -46,15 +51,21 @@ const canPick = computed(() => kind.value === 'inherit' || (kind.value === 'env'
 function confirmPick() {
   if (kind.value === 'inherit') emit('pick', null);
   else if (kind.value === 'env') emit('pick', { connection: null, database: null, environment: env.value });
-  else if (direct.value) emit('pick', targetOf(direct.value.connection_id, direct.value.database));
+  else if (direct.value) emit('pick', targetOf(direct.value.connection_id, direct.value.database, props.file));
 }
 
 // -- map ------------------------------------------------------------------------------------
 const showAll = ref(false);
 const mapped = ref('');
 const candidates = computed(() => conns.list
-  .filter((c) => showAll.value || !props.engine || c.config.driver === props.engine)
+  .filter((c) => (props.candidates?.length ? props.candidates.includes(c.id) : showAll.value || !props.engine || c.config.driver === props.engine))
   .sort((a, b) => a.name.localeCompare(b.name)));
+/** The same name: told apart by engine and where it points. */
+function detail(id: string): string {
+  const c = conns.byId(id);
+  if (!c) return '';
+  return [c.config.driver, c.config.host, c.config.database].filter(Boolean).join(' · ');
+}
 </script>
 
 <template>
@@ -85,14 +96,14 @@ const candidates = computed(() => conns.list
     </template>
 
     <template v-else>
-      <p class="ntd-text">{{ $t('notebook:target.mapIntro', { name: name ?? '' }) }}</p>
+      <p class="ntd-text">{{ props.candidates?.length ? $t('notebook:target.ambiguousIntro', { name: name ?? '' }) : $t('notebook:target.mapIntro', { name: name ?? '' }) }}</p>
       <el-select v-model="mapped" filterable style="width: 100%" :placeholder="$t('projects:picker.connection')">
         <el-option v-for="c in candidates" :key="c.id" :value="c.id" :label="c.name">
-          <span class="ntd-opt"><EngineIcon :id="c.config.driver" :name="c.name" :size="14" />{{ c.name }}</span>
+          <span class="ntd-opt"><EngineIcon :id="c.config.driver" :name="c.name" :size="14" />{{ c.name }}<span v-if="props.candidates?.length && detail(c.id)" class="ntd-detail">· {{ detail(c.id) }}</span></span>
         </el-option>
       </el-select>
-      <el-checkbox v-if="engine" v-model="showAll" class="ntd-all">{{ $t('projects:picker.showAll') }}</el-checkbox>
-      <p class="ntd-dim">{{ $t('notebook:target.mapHelp') }}</p>
+      <el-checkbox v-if="engine && !props.candidates?.length" v-model="showAll" class="ntd-all">{{ $t('projects:picker.showAll') }}</el-checkbox>
+      <p class="ntd-dim">{{ props.candidates?.length ? $t('notebook:target.ambiguousHelp') : $t('notebook:target.mapHelp') }}</p>
     </template>
 
     <template #footer>
@@ -110,4 +121,5 @@ const candidates = computed(() => conns.list
 .ntd-text { margin: 0 0 10px; color: var(--nm-text); line-height: 1.5; }
 .ntd-opt { display: inline-flex; align-items: center; gap: 6px; }
 .ntd-all { margin-top: 6px; }
+.ntd-detail { font-size: 12px; color: var(--nm-text-dim); }
 </style>

@@ -8,6 +8,8 @@ import type { SavedConnection } from '../api/types';
 import { t } from '../i18n';
 import { useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
+import { useProjectsStore } from '../stores/projects';
+import { projectFileOf } from './notebookModel';
 import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 
@@ -35,6 +37,17 @@ function databaseOf(connectionId: string): string {
   return live?.defaultDatabase || live?.databases[0] || '';
 }
 
+/** A notebook: inside a linked project's folder it opens as that project's
+ *  file (its git default, its environments); else as a standalone file. */
+async function openNotebookAt(path: string) {
+  const tabs = useTabsStore();
+  const projects = useProjectsStore();
+  try { await projects.load(); } catch { /* not known: a standalone file */ }
+  const inProject = projectFileOf(projects.list.filter((p) => p.exists), path);
+  if (inProject) tabs.openNotebook(inProject);
+  else tabs.openNotebook({ path });
+}
+
 async function openOne(path: string) {
   const conns = useConnectionsStore();
   const tabs = useTabsStore();
@@ -44,13 +57,13 @@ async function openOne(path: string) {
     opened = await openFilesApi.open(path);
   } catch (e) {
     // A notebook opens even if the backend doesn't know the kind.
-    if (/\.ipynb$/i.test(path)) { tabs.openNotebook({ path }); return; }
+    if (/\.ipynb$/i.test(path)) { await openNotebookAt(path); return; }
     ElMessage.error(t('core:openFiles.failed', { name: path.split(/[\\/]/).pop() ?? path, error: errorMessage(e) }));
     return;
   }
   // A notebook isn't a connection: it opens in its own tab.
   if (opened.kind === 'notebook') {
-    tabs.openNotebook({ path: opened.path ?? path });
+    await openNotebookAt(opened.path ?? path);
     return;
   }
   const id = opened.connection_id;
