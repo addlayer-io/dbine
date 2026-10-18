@@ -5,7 +5,9 @@ import type { SavedConnection, SecretBrowseListing } from '../api/types';
 const SOURCES: Record<string, Record<string, unknown>> = {
   keepass: { kind: 'keepass', file: '~/Passwords/databases.kdbx', entry: 'Databases/Prod/pg-main', master: 'ask', fill_username: true },
   vault_db: { kind: 'vault_db', address: 'https://vault.example.com:8200', role: 'readonly' },
-  bitwarden: { kind: 'bitwarden', server: 'bitwarden.com', item: 'pg-main', client_id: 'user.6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04' },
+  'keepass-legacy': { kind: 'keepass', file: '~/Passwords/databases.kdbx', entry: 'Databases/Prod/pg-main', master: 'ask' },
+  bitwarden: { kind: 'bitwarden', server: 'bitwarden.com', item: 'pg-main', client_id: 'user.6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04', fill_username: true },
+  vault: { kind: 'vault', address: 'https://vault.example.com:8200', path: 'secret/myapp/db', key: 'password' },
   command: { kind: 'command', command: 'pass show bases/produccion' },
   aws: { kind: 'aws', secret_id: 'prod/myapp/db', region: 'us-east-1', json_key: 'password' },
 };
@@ -13,7 +15,7 @@ const SOURCES: Record<string, Record<string, unknown>> = {
 export function sourceConnection(kind: string, driver: string): SavedConnection {
   const src = SOURCES[kind] ?? SOURCES.keepass;
   const sources: Record<string, unknown> = { password: src };
-  if (kind === 'keepass') sources['ssh.password'] = { ...src, entry: 'Servers/bastion', fill_username: undefined };
+  if (kind.startsWith('keepass')) sources['ssh.password'] = { ...src, entry: 'Servers/bastion', fill_username: undefined };
   return {
     id: 'c-src', name: 'Producción · ventas', color: '#3794ff', folder_id: null, tags: [], save_password: true, updated_at: '',
     config: {
@@ -32,7 +34,7 @@ export function browseSample(a: { source: { kind: string }; item?: string; path?
   const base = { complete: true, truncated: false, search: false };
   if (a.item) {
     const fields: Record<string, string[]> = {
-      keepass: ['Title', 'UserName', 'Password', 'URL', 'Notes', 'API token'],
+      keepass: ['Title', 'UserName', 'Password', 'URL', 'Notes', 'API token', 'Login (admin)', 'Password (admin)'],
       bitwarden: ['password', 'username', 'notes', 'Port', 'API token'],
     };
     return { ...base, entries: [], fields: fields[a.source.kind] ?? ['password', 'username'] };

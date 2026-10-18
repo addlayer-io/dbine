@@ -21,8 +21,11 @@ const props = defineProps<{
   field: string;
   connectionId: string | null;
   driver: string;
+  /** The entry gives the user and the password: its field step assigns
+   *  each (starting from these). */
+  roles?: { user: string; password: string };
 }>();
-const emit = defineEmits<{ pick: [entry: SecretBrowseEntry, field: string | null]; close: [] }>();
+const emit = defineEmits<{ pick: [entry: SecretBrowseEntry, field: string | null, userField?: string, fields?: string[]]; close: [] }>();
 const { t } = useTranslation();
 
 const open = ref(true);
@@ -35,6 +38,9 @@ const trail = ref<{ id: string; name: string }[]>([]);
 const cwd = ref('');
 const search = ref('');
 const chosen = ref<SecretBrowseEntry | null>(null);
+/** With `roles`: the fields chosen for the user and the password. */
+const userPick = ref(props.roles?.user ?? '');
+const passPick = ref(props.roles?.password ?? '');
 const fields = ref<string[] | null>(null);
 /** A master password asked for this browse. */
 const asked = ref('');
@@ -148,7 +154,7 @@ async function choose(e: SecretBrowseEntry) {
 }
 
 function pick(e: SecretBrowseEntry, field: string | null) {
-  emit('pick', e, field);
+  emit('pick', e, field, props.roles ? userPick.value : undefined, fields.value ?? undefined);
   open.value = false;
 }
 
@@ -194,21 +200,34 @@ function back() {
         <div v-if="listing?.truncated" class="sb-note">{{ $t('connection:source.browse.truncated') }}</div>
       </template>
       <template v-else-if="fields">
-        <div class="sb-hint">{{ $t('connection:source.browse.pickField') }}</div>
+        <div class="sb-hint">{{ roles ? $t('connection:source.browse.pickRoles') : $t('connection:source.browse.pickField') }}</div>
         <button v-if="wholeValueAllowed(kind)" type="button" class="sb-row" role="option" @click="pick(chosen, '')">
           <el-icon class="sb-icon"><ei-document /></el-icon>
           <span class="sb-name">{{ $t('connection:source.browse.wholeValue') }}</span>
         </button>
-        <button v-for="f in fields" :key="f" type="button" class="sb-row" role="option" @click="pick(chosen, f)">
-          <el-icon class="sb-icon"><ei-tickets /></el-icon>
-          <span class="sb-name sb-mono">{{ f }}</span>
-        </button>
+        <template v-if="roles">
+          <div v-for="f in fields" :key="f" class="sb-row sb-role-row">
+            <el-icon class="sb-icon"><ei-tickets /></el-icon>
+            <span class="sb-name sb-mono">{{ f }}</span>
+            <span class="sb-roles">
+              <button type="button" class="sb-role" :class="{ on: userPick === f }" :aria-pressed="userPick === f" @click="userPick = f">{{ $t('connection:source.advanced.user') }}</button>
+              <button type="button" class="sb-role" :class="{ on: passPick === f }" :aria-pressed="passPick === f" @click="passPick = f">{{ $t('connection:source.advanced.password') }}</button>
+            </span>
+          </div>
+        </template>
+        <template v-else>
+          <button v-for="f in fields" :key="f" type="button" class="sb-row" role="option" @click="pick(chosen, f)">
+            <el-icon class="sb-icon"><ei-tickets /></el-icon>
+            <span class="sb-name sb-mono">{{ f }}</span>
+          </button>
+        </template>
         <div v-if="!fields.length && !wholeValueAllowed(kind)" class="sb-empty">{{ $t('connection:source.browse.noFields') }}</div>
       </template>
     </div>
     <template #footer>
       <span class="sb-foot">{{ $t('connection:source.browse.namesOnly') }}</span>
-      <el-button v-if="chosen && fields && !fields.length && !wholeValueAllowed(kind)" type="primary" @click="pick(chosen, null)">{{ $t('connection:source.browse.useItem') }}</el-button>
+      <el-button v-if="chosen && fields && roles" type="primary" @click="pick(chosen, passPick)">{{ $t('connection:source.browse.useItem') }}</el-button>
+      <el-button v-else-if="chosen && fields && !fields.length && !wholeValueAllowed(kind)" type="primary" @click="pick(chosen, null)">{{ $t('connection:source.browse.useItem') }}</el-button>
       <el-button @click="open = false">{{ t('common:cancel') }}</el-button>
     </template>
   </el-dialog>
@@ -237,5 +256,13 @@ function back() {
 .sb-empty, .sb-note, .sb-hint { padding: 10px 12px; font-size: 12px; color: var(--nm-text-dim); }
 .sb-hint { padding: 6px 10px 4px; }
 .sb-error { padding: 10px 12px; font-size: 12px; color: var(--nm-danger); white-space: pre-wrap; word-break: break-word; }
+.sb-role-row { cursor: default; }
+.sb-roles { margin-left: auto; display: inline-flex; gap: 4px; flex: none; }
+.sb-role {
+  border: 1px solid var(--nm-border); background: none; color: var(--nm-text-dim); font: inherit; font-size: 11px;
+  padding: 1px 8px; border-radius: 10px; cursor: pointer;
+}
+.sb-role:hover { color: var(--nm-text-strong); border-color: var(--ide-focus); }
+.sb-role.on { background: var(--el-color-primary); border-color: var(--el-color-primary); color: #fff; }
 .sb-foot { float: left; font-size: 11.5px; color: var(--nm-text-muted); line-height: 32px; }
 </style>

@@ -315,7 +315,23 @@
       "noFields": "Cet élément n'a pas de champs à choisir.",
       "useItem": "Utiliser celui-ci",
       "namesOnly": "Seuls les noms sont affichés, jamais les valeurs.",
-      "fillFirst": "Renseignez d'abord : {{fields}}"
+      "fillFirst": "Renseignez d'abord : {{fields}}",
+      "pickRoles": "Choisissez quel champ est l'utilisateur et lequel est le mot de passe :"
+    },
+    "legacyUser": "Cette connexion utilise l'utilisateur du formulaire, pas celui de l'entrée.",
+    "useEntryUser": "Utiliser l'utilisateur de l'entrée",
+    "advanced": {
+      "title": "Configuration avancée",
+      "userField": "Champ de l'utilisateur",
+      "passwordField": "Champ du mot de passe",
+      "field": "Champ",
+      "user": "Utilisateur",
+      "password": "Mot de passe",
+      "loading": "Chargement des champs de l'entrée…",
+      "failed": "Impossible de charger les champs.",
+      "load": "Charger les champs",
+      "loaded": "{{n}} champs dans l'entrée.",
+      "hint": "Choisissez une entrée pour voir ses champs."
     }
   }
 }

@@ -315,7 +315,23 @@
       "noFields": "Este item não tem campos para escolher.",
       "useItem": "Usar este",
       "namesOnly": "Só são mostrados nomes, nunca valores.",
-      "fillFirst": "Preencha primeiro: {{fields}}"
+      "fillFirst": "Preencha primeiro: {{fields}}",
+      "pickRoles": "Escolha qual campo é o usuário e qual é a senha:"
+    },
+    "legacyUser": "Esta conexão usa o usuário do formulário, não o da entrada.",
+    "useEntryUser": "Usar o usuário da entrada",
+    "advanced": {
+      "title": "Configuração avançada",
+      "userField": "Campo do usuário",
+      "passwordField": "Campo da senha",
+      "field": "Campo",
+      "user": "Usuário",
+      "password": "Senha",
+      "loading": "Carregando os campos da entrada…",
+      "failed": "Não foi possível carregar os campos.",
+      "load": "Carregar campos",
+      "loaded": "{{n}} campos na entrada.",
+      "hint": "Escolha uma entrada para ver seus campos."
     }
   }
 }
