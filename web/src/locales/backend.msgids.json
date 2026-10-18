@@ -23391,6 +23391,9 @@
   "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "Zoho Vault no acepta tantos pedidos seguidos; probá en unos minutos ({0})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "Zoho Vault no devolvió la clave de la organización": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
@@ -23398,6 +23401,15 @@
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho Vault no devolvió los datos de la cuenta (GET_LOGIN)": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault rechazó el pedido ({0})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault rechazó el pedido ({0}): esta versión de DBine le pide algo que Zoho no acepta": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault rechazó el pedido ({0}): {1}": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho Vault rechazó el token de acceso (¿el cliente tiene acceso a Zoho Vault en este centro de datos?)": [
@@ -23425,6 +23437,9 @@
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho Vault: no hay un secreto «{0}» (parecidos: {1})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault: no hay un secreto «{0}» entre los primeros {1} (indicá su ID)": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Zoho no devolvió un token de acceso": [
