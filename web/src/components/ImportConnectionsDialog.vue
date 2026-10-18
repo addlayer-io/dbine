@@ -236,7 +236,7 @@ detect();
 .ic-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ic-folder { display: inline-flex; align-items: center; gap: 3px; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--nm-text-muted); }
 .ic-tag { flex: none; padding: 0 5px; border: 1px solid; border-radius: 8px; font-size: 10.5px; line-height: 15px; }
-.ic-key { vertical-align: -2px; color: #d7ba7d; }
+.ic-key { vertical-align: -2px; color: var(--nm-syn-code); }
 .ic-status { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; }
 .ic-bad { color: var(--nm-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ic-warn { color: var(--nm-warning); white-space: nowrap; }

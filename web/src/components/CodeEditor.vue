@@ -14,7 +14,8 @@ import {
   keywordCompletionSource,
 } from '@codemirror/lang-sql';
 import { json } from '@codemirror/lang-json';
-import { oneDark } from '@codemirror/theme-one-dark';
+import { editorTheme } from '../composables/editorTheme';
+import { editorFontSize, resolvedTheme } from '../composables/appearance';
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
 import type { Language } from '../api/types';
 import { useTranslation } from 'i18next-vue';
@@ -403,7 +404,7 @@ const links = [
     mouseleave(_e, v) { if (linkShown) showLink(v, null); return false; },
   }),
   EditorView.baseTheme({
-    '.cm-dbine-link': { textDecoration: 'underline', cursor: 'pointer', color: '#4fc1ff' },
+    '.cm-dbine-link': { textDecoration: 'underline', cursor: 'pointer', color: 'var(--nm-syn-link)' },
     '.cm-completionIcon-snippet:after': { content: "'⧉'" },
   }),
 ];
@@ -440,7 +441,7 @@ onMounted(() => {
         // box: there they open upwards when the cursor is on the last
         // lines, instead of being cut off or hidden under the results.
         tooltips({ parent: document.body }),
-        oneDark,
+        themeC.of(editorTheme(resolvedTheme.value)),
         lang.of(languageExt()),
         ro.of(EditorState.readOnly.of(props.readOnly)),
         ph.of(cmPlaceholder(props.placeholder)),
@@ -459,6 +460,11 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => view?.destroy());
+
+// Theme and font size (Configuración › General) follow at once.
+const themeC = new Compartment();
+watch(resolvedTheme, (t) => view?.dispatch({ effects: themeC.reconfigure(editorTheme(t)) }));
+watch(editorFontSize, () => view?.requestMeasure());
 
 // External changes (another tab loaded the query, a script was inserted).
 watch(() => props.modelValue, (v) => {

@@ -650,10 +650,10 @@ defineExpose({ step, targetMode });
 .im-grid tbody tr:hover td { background: var(--ide-hover); }
 .im-col-name { color: var(--nm-text-strong); font-size: 12px; }
 .im-col-type { display: inline-block; font-size: 10.5px; font-weight: 400; color: var(--nm-text-dim); font-family: var(--nm-mono); }
-.im-col-type.t-integer, .im-col-type.t-number { color: #b5cea8; }
-.im-col-type.t-boolean { color: #569cd6; }
-.im-col-type.t-date, .im-col-type.t-datetime { color: #d7ba7d; }
-.im-col-type.t-text { color: #ce9178; }
+.im-col-type.t-integer, .im-col-type.t-number { color: var(--nm-syn-number); }
+.im-col-type.t-boolean { color: var(--nm-syn-keyword); }
+.im-col-type.t-date, .im-col-type.t-datetime { color: var(--nm-syn-code); }
+.im-col-type.t-text { color: var(--nm-syn-string); }
 .im-empty { padding: 24px; text-align: center; }
 
 /* target */

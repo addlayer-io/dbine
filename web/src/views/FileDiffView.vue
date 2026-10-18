@@ -98,12 +98,12 @@ const project = computed(() => projects.byId(props.tab.projectId));
 .fd-bar { gap: 8px; }
 .fd-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .fd-mark { font-family: var(--nm-mono); font-weight: 700; font-size: 12px; width: 14px; text-align: center; }
-.fd-mark.M { color: #e2c08d; }
-.fd-mark.A, .fd-mark.U { color: #73c991; }
+.fd-mark.M { color: var(--nm-git-modified); }
+.fd-mark.A, .fd-mark.U { color: var(--nm-git-added); }
 .fd-mark.D, .fd-mark.C { color: var(--nm-danger); }
-.fd-mark.R { color: #75beff; }
+.fd-mark.R { color: var(--nm-accent-2); }
 .fd-stats { font-family: var(--nm-mono); font-size: 11.5px; }
-.fd-stats .add { color: #73c991; }
+.fd-stats .add { color: var(--nm-git-added); }
 .fd-stats .del { color: var(--nm-danger); }
 .fd-heads {
   display: grid; grid-template-columns: 1fr 1fr; flex-shrink: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;

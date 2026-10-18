@@ -407,7 +407,7 @@ function openHeadMenu(e: MouseEvent) {
 .lb-item.dim { opacity: 0.6; }
 .lb-item.selected { background: var(--ide-selection); }
 .lb-list { outline: none; }
-.lb-star { color: #e5c07b; font-size: 12px; flex: none; }
+.lb-star { color: var(--nm-yellow); font-size: 12px; flex: none; }
 .lb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nm-text-strong); }
 .lb-engines { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--nm-text-dim); }
 .lb-act { display: none; border: none; background: transparent; color: var(--nm-text-dim); cursor: pointer; padding: 2px; }

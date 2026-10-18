@@ -8,19 +8,24 @@ import { useTranslation } from 'i18next-vue';
 import type { Cell, ResultColumn } from '../api/types';
 import { locale } from '../i18n';
 import { saveBinaryFile } from '../composables/files';
+import { resolvedTheme } from '../composables/appearance';
 
 // A chart of a result set, for any engine (it works on the grid's rows).
 // The form comes from the data: a date column → lines, a text column →
 // bars, two numeric columns → dispersion; the user can change any choice.
 // Colors: the reference categorical palette, dark steps, validated against
-// the editor surface (#1e1e1e); assigned in fixed order, never cycled.
+// the editor surface (#1e1e1e); assigned in fixed order, never cycled. The
+// ink (text, axes, tooltip) follows the theme.
 
 echarts.use([BarChart, LineChart, PieChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer]);
 
 const props = defineProps<{ columns: ResultColumn[]; rows: Cell[][] }>();
 
 const PALETTE = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
-const INK = { primary: '#e7e7e7', secondary: '#9d9d9d', muted: '#6f6f6f', grid: '#2b2b2b', axis: '#3c3c3c', surface: '#1e1e1e' };
+const INKS = {
+  dark: { primary: '#e7e7e7', secondary: '#9d9d9d', muted: '#6f6f6f', grid: '#2b2b2b', axis: '#3c3c3c', surface: '#1e1e1e', tip: '#252526', tipBorder: '#454545', other: '#5a5a5a', otherLine: '#6f6f6f', shadow: 'rgba(255,255,255,0.04)' },
+  light: { primary: '#1f1f1f', secondary: '#646464', muted: '#8a8a8a', grid: '#e5e5e5', axis: '#d4d4d4', surface: '#ffffff', tip: '#f8f8f8', tipBorder: '#c8c8c8', other: '#b4b4b4', otherLine: '#8a8a8a', shadow: 'rgba(0,0,0,0.04)' },
+};
 /** Pie and scatter compare every pair of colors: past three, fold to "Otros". */
 const ALL_PAIRS_CAP = 3;
 
@@ -194,6 +199,7 @@ const seriesName = (j: number) => {
 };
 
 const option = computed(() => {
+  const INK = INKS[resolvedTheme.value];
   const { cats, series, names } = shaped.value;
   const many = cats.length > 40;
   const axisLabel = { color: INK.secondary, fontSize: 11, hideOverlap: true };
@@ -205,7 +211,7 @@ const option = computed(() => {
     animationDuration: 250,
     textStyle: { fontFamily: getComputedStyle(document.body).fontFamily, color: INK.primary },
     tooltip: {
-      backgroundColor: '#252526', borderColor: '#454545', textStyle: { color: INK.primary, fontSize: 12 },
+      backgroundColor: INK.tip, borderColor: INK.tipBorder, textStyle: { color: INK.primary, fontSize: 12 },
       valueFormatter: (v: unknown) => (typeof v === 'number' ? fmt(v) : String(v)),
     },
     legend: series.length >= 2 || kind.value === 'pie'
@@ -230,7 +236,7 @@ const option = computed(() => {
         itemStyle: { borderColor: INK.surface, borderWidth: 2, borderRadius: 4 },
         label: { color: INK.secondary, formatter: '{b}: {d}%' },
         labelLine: { lineStyle: { color: INK.axis } },
-        data: top.map((d, i) => (d.name === others() ? { ...d, itemStyle: { color: '#5a5a5a' } } : { ...d, itemStyle: { color: PALETTE[i % PALETTE.length] } })),
+        data: top.map((d, i) => (d.name === others() ? { ...d, itemStyle: { color: INK.other } } : { ...d, itemStyle: { color: PALETTE[i % PALETTE.length] } })),
       }],
     };
   }
@@ -257,13 +263,13 @@ const option = computed(() => {
   const isBar = ['bar', 'hbar', 'stacked'].includes(kind.value);
   return {
     ...base,
-    tooltip: { ...base.tooltip, trigger: 'axis', axisPointer: { type: isBar ? 'shadow' : 'line', lineStyle: { color: INK.muted }, shadowStyle: { color: 'rgba(255,255,255,0.04)' } } },
+    tooltip: { ...base.tooltip, trigger: 'axis', axisPointer: { type: isBar ? 'shadow' : 'line', lineStyle: { color: INK.muted }, shadowStyle: { color: INK.shadow } } },
     grid: { left: horizontal ? 120 : 56, right: 24, top: series.length >= 2 ? 36 : 16, bottom: many ? 64 : 40, containLabel: horizontal },
     xAxis: horizontal ? valAxis : catAxis,
     yAxis: horizontal ? { ...catAxis, inverse: true } : valAxis,
     dataZoom: many ? [{ type: 'inside', [horizontal ? 'yAxisIndex' : 'xAxisIndex']: 0 }, { type: 'slider', height: 18, bottom: 8, borderColor: INK.axis, textStyle: { color: INK.muted }, [horizontal ? 'yAxisIndex' : 'xAxisIndex']: 0 }] : undefined,
     series: series.map((s, j) => ({
-      color: names[j] === others() ? '#6f6f6f' : PALETTE[j % PALETTE.length],
+      color: names[j] === others() ? INK.otherLine : PALETTE[j % PALETTE.length],
       type: isBar ? 'bar' : 'line',
       name: names[j],
       data: s.map((v) => (Number.isFinite(v) ? v : null)),
@@ -302,7 +308,7 @@ const canChart = computed(() => yCols.value.length > 0 && shaped.value.cats.leng
 const tooMany = computed(() => ['pie', 'scatter'].includes(kind.value) ? false : shaped.value.cats.length > 5000);
 
 async function exportPng() {
-  const url = chart.value?.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: INK.surface });
+  const url = chart.value?.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: INKS[resolvedTheme.value].surface });
   if (url) await saveBinaryFile(url.split(',', 2)[1], `${t('results:chart.fileName')}.png`, [{ name: 'PNG', extensions: ['png'] }]);
 }
 </script>

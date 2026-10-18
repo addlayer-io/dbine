@@ -161,9 +161,9 @@ function openFile(c: FileChange) {
 }
 .pc-acts button:hover, .pc-conf-acts button:hover { color: var(--nm-text-strong); background: var(--ide-hover); }
 .pc-mark { flex: none; width: 12px; text-align: center; font-family: var(--nm-mono); font-size: 11px; font-weight: 700; }
-.m-M { color: #e2c08d; }
-.m-A, .m-U { color: #73c991; }
-.m-R { color: #75beff; }
+.m-M { color: var(--nm-git-modified); }
+.m-A, .m-U { color: var(--nm-git-added); }
+.m-R { color: var(--nm-accent-2); }
 .m-D { color: var(--nm-danger); text-decoration: line-through; }
 .pc-mark.m-D { text-decoration: none; }
 .m-C { color: var(--nm-danger); }

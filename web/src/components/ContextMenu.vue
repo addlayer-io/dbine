@@ -89,8 +89,8 @@ onBeforeUnmount(() => {
   z-index: 3000;
   min-width: 200px;
   padding: 4px 0;
-  background: #252526;
-  border: 1px solid #454545;
+  background: var(--ide-widget);
+  border: 1px solid var(--ide-widget-border);
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   font-size: 12.5px;
@@ -106,12 +106,12 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .cm-item:hover { background: var(--ide-selection-focus); color: #fff; }
-.cm-item.danger { color: #f48771; }
+.cm-item.danger { color: var(--nm-error-fg); }
 .cm-item.danger:hover { color: #fff; }
 .cm-item.disabled { opacity: 0.45; cursor: default; background: transparent; }
 .cm-key { color: var(--nm-text-dim); }
 .cm-header { padding: 4px 20px 2px; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--nm-text-dim); }
-.cm-check { display: inline-block; width: 16px; margin-left: -8px; color: #75beff; }
+.cm-check { display: inline-block; width: 16px; margin-left: -8px; color: var(--nm-accent-2); }
 .cm { max-height: calc(100vh - 16px); overflow-y: auto; }
-.cm-sep { height: 1px; margin: 4px 0; background: #454545; }
+.cm-sep { height: 1px; margin: 4px 0; background: var(--ide-widget-border); }
 </style>

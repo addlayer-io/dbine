@@ -248,19 +248,19 @@ const activePath = computed(() => {
 .ft-caret { width: 12px; flex: none; font-size: 10px; color: var(--nm-text-dim); transition: transform 0.1s; }
 .ft-caret.open { transform: rotate(90deg); }
 .ft-ic { flex: none; font-size: 14px; }
-.ft-ic.dir { color: #c5a46d; }
+.ft-ic.dir { color: var(--nm-folder); }
 .ft-ic.file { color: var(--nm-text-dim); }
 .ft-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ft-row.ignored { opacity: 0.5; }
-.ft-row.m-M .ft-name, .ft-row.m-M .ft-mark { color: #e2c08d; }
-.ft-row.m-A .ft-name, .ft-row.m-A .ft-mark, .ft-row.m-U .ft-name, .ft-row.m-U .ft-mark { color: #73c991; }
-.ft-row.m-R .ft-name, .ft-row.m-R .ft-mark { color: #75beff; }
+.ft-row.m-M .ft-name, .ft-row.m-M .ft-mark { color: var(--nm-git-modified); }
+.ft-row.m-A .ft-name, .ft-row.m-A .ft-mark, .ft-row.m-U .ft-name, .ft-row.m-U .ft-mark { color: var(--nm-git-added); }
+.ft-row.m-R .ft-name, .ft-row.m-R .ft-mark { color: var(--nm-accent-2); }
 .ft-row.m-D .ft-name, .ft-row.m-D .ft-mark, .ft-row.m-C .ft-name, .ft-row.m-C .ft-mark { color: var(--nm-danger); }
 .ft-row.ghost .ft-name { text-decoration: line-through; }
 .ft-mark { flex: none; width: 12px; text-align: center; font-family: var(--nm-mono); font-size: 11px; font-weight: 700; }
-.ft-dot { flex: none; width: 6px; height: 6px; margin: 0 3px; border-radius: 50%; background: #e2c08d; }
+.ft-dot { flex: none; width: 6px; height: 6px; margin: 0 3px; border-radius: 50%; background: var(--nm-git-modified); }
 .ft-rename {
   flex: 1; min-width: 0; height: 18px; padding: 0 4px; box-sizing: border-box; border: 1px solid var(--ide-focus, var(--nm-accent));
-  border-radius: 2px; background: var(--ide-input, #1e1e1e); color: var(--nm-text-strong); font: inherit; outline: none;
+  border-radius: 2px; background: var(--ide-input); color: var(--nm-text-strong); font: inherit; outline: none;
 }
 </style>

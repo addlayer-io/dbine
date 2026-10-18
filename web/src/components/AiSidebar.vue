@@ -440,7 +440,7 @@ const phaseText = computed(() => ({
 .ai-model-row, .ai-prov { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--nm-border-soft, var(--nm-border)); }
 .ai-model-row > div, .ai-prov > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .ai-tag { align-self: flex-start; font-size: 10.5px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--nm-success) 18%, transparent); color: var(--nm-success); }
-.ai-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--nm-text-muted, #666); flex: none; }
+.ai-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--nm-text-muted); flex: none; }
 .ai-dot.ok { background: var(--nm-success); }
 .ai-dot.warn { background: var(--nm-warning); }
 
@@ -480,7 +480,7 @@ const phaseText = computed(() => ({
 .ai-md :deep(p) { margin: 0 0 6px; line-height: 1.55; }
 .ai-md :deep(.ai-h) { font-weight: 600; color: var(--nm-text-strong); }
 .ai-md :deep(ul), .ai-md :deep(ol) { margin: 0 0 6px; padding-left: 18px; line-height: 1.55; }
-.ai-md :deep(code) { font-family: var(--nm-mono); font-size: 12px; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.07); }
+.ai-md :deep(code) { font-family: var(--nm-mono); font-size: 12px; padding: 0 4px; border-radius: 3px; background: var(--nm-overlay-code); }
 .ai-code { margin: 4px 0 8px; border: 1px solid var(--nm-border); border-radius: 6px; overflow: hidden; background: var(--ide-editor); }
 .ai-code-bar { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 8px; font-size: 11px; color: var(--nm-text-dim); border-bottom: 1px solid var(--nm-border); }
 .ai-code-bar > span { flex: 1; }

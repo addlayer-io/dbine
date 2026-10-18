@@ -57,7 +57,7 @@ const time = (d: Date) => d.toLocaleTimeString(locale(), { hour12: false });
 .op-line.error .op-text { color: var(--nm-danger); }
 .op-line.warn .op-text { color: var(--nm-warning); }
 .op-time { color: var(--nm-text-muted); flex-shrink: 0; }
-.op-where { color: #4ec9b0; flex-shrink: 0; }
+.op-where { color: var(--nm-syn-type); flex-shrink: 0; }
 .op-text { flex: 1; min-width: 0; }
 .op-ms { color: var(--nm-text-muted); flex-shrink: 0; }
 </style>

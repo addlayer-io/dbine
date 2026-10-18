@@ -1469,7 +1469,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .ex-changes {
   flex: none; min-width: 14px; height: 14px; padding: 0 4px; margin-left: 4px; box-sizing: border-box; border-radius: 7px;
-  background: color-mix(in srgb, #e2c08d 30%, transparent); color: #e2c08d; font-size: 10px; line-height: 14px; text-align: center;
+  background: color-mix(in srgb, var(--nm-git-modified) 30%, transparent); color: var(--nm-git-modified); font-size: 10px; line-height: 14px; text-align: center;
 }
 .ex-header { display: flex; align-items: center; gap: 2px; height: 35px; padding: 0 8px 0 20px; flex-shrink: 0; }
 .ex-filter { padding: 0 8px 6px; flex-shrink: 0; }
@@ -1477,7 +1477,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-tagbar .ex-tag { cursor: default; }
 .ex-tagbar-all {
   margin-left: auto; padding: 0; border: 0; background: none; font: inherit; cursor: pointer;
-  color: var(--nm-link, #3794ff);
+  color: var(--nm-link);
 }
 .ex-tagbar-all:hover { text-decoration: underline; }
 .ex-tree { flex: 1; min-height: 0; overflow: hidden; }
@@ -1518,14 +1518,14 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-hint { color: var(--nm-text-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ex-count { color: var(--nm-text-muted); font-size: 11px; }
 .ex-ic { flex-shrink: 0; color: var(--nm-text-dim); font-size: 14px; }
-.ex-ic.f { color: #dcb67a; }
-.ex-ic.g { color: #c5a46d; }
+.ex-ic.f { color: var(--nm-folder-2); }
+.ex-ic.g { color: var(--nm-folder); }
 .ex-ic.s { color: #9cb4d8; }
 /* Flat mode: the object's schema, dim before its name. */
 .ex-qual { color: var(--nm-text-muted); }
-.ex-ic.q { color: #75beff; }
-.ex-ic.o { color: #4ec9b0; }
-.ex-ic.pk { color: #d7ba7d; }
+.ex-ic.q { color: var(--nm-accent-2); }
+.ex-ic.o { color: var(--nm-syn-type); }
+.ex-ic.pk { color: var(--nm-syn-code); }
 .ex-ic.fk { color: #8ab4f8; }
 .ex-ic.ix { color: var(--nm-text-dim); }
 .ex-ixbadge { flex: none; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; line-height: 15px; background: color-mix(in srgb, var(--nm-accent) 18%, transparent); color: var(--nm-text); }
@@ -1541,7 +1541,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-connerr-actions { flex: none; display: flex; gap: 6px; }
 .ex-connerr-btn {
   padding: 0; border: 0; background: none; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
-  color: var(--nm-link, #3794ff);
+  color: var(--nm-link);
 }
 .ex-connerr-btn:hover { text-decoration: underline; }
 .ex-connerr-btn:disabled { opacity: .5; cursor: default; text-decoration: none; }
@@ -1552,7 +1552,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ic.mg.failed { color: var(--nm-danger); }
 .ex-ic.mg.interrupted, .ex-ic.mg.cancelled { color: var(--nm-warning); }
 .ex-ic.mg.elsewhere { opacity: 0.6; }
-.ex-node.keymore { color: var(--nm-link, #3794ff); cursor: pointer; }
+.ex-node.keymore { color: var(--nm-link); cursor: pointer; }
 .ex-node.keymore:hover .ex-label { text-decoration: underline; }
 .ex-node.keymore .ex-label { flex-shrink: 0; }
 /* A key's type, as Redis names it. */
@@ -1585,6 +1585,14 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
   width: 8px; height: 8px; border-radius: 50%; box-sizing: border-box;
   background: var(--nm-danger); box-shadow: 0 0 0 1.5px var(--ide-sidebar);
 }
-.ex-conn-dot.connected { background: var(--nm-success, #3fb950); }
-.ex-conn-dot.connecting { background: var(--nm-success, #3fb950); animation: ide-pulse 1.4s ease-in-out infinite; }
+.ex-conn-dot.connected { background: var(--nm-success); }
+.ex-conn-dot.connecting { background: var(--nm-success); animation: ide-pulse 1.4s ease-in-out infinite; }
+</style>
+
+<style>
+/* Light theme: icon colours with contrast on the light sidebar. */
+html.light .ex-ic.s { color: #4a6b9a; }
+html.light .ex-ic.fk { color: #2f6fd6; }
+/* tag chips: their colour, darkened to read on the light sidebar */
+html.light .ex-tag { color: color-mix(in srgb, var(--t) 62%, #000); }
 </style>

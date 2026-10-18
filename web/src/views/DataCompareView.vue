@@ -696,7 +696,7 @@ watch(() => result.value?.id, () => {
 .dc-table { width: 220px; }
 .dc-actions { display: flex; gap: 6px; align-items: center; flex-basis: 100%; }
 .dc-key { width: 320px; }
-.dc-count { margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; line-height: 16px; background: rgba(255, 255, 255, 0.22); }
+.dc-count { margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; line-height: 16px; background: var(--nm-overlay-count); }
 .dc-bulk { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-bottom: 1px solid var(--nm-border); font-size: 12px; color: var(--nm-text-dim); }
 .dc-bulk button { border: 1px solid var(--nm-border); border-radius: 3px; background: none; color: var(--nm-text); padding: 2px 8px; font: inherit; cursor: pointer; }
 .dc-bulk button.on { background: var(--ide-selection); border-color: var(--ide-focus, var(--el-color-primary)); }

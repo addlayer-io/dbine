@@ -1200,13 +1200,13 @@ function saveScript() {
 .mg-chip.on { background: var(--ide-selection); color: var(--nm-text-strong); }
 .mg-chip.dropped, .mg-sev.dropped { border-color: color-mix(in srgb, var(--nm-danger) 60%, transparent); }
 .mg-chip.loss, .mg-sev.loss { border-color: color-mix(in srgb, var(--nm-warning) 70%, transparent); }
-.mg-chip.warning, .mg-sev.warning { border-color: color-mix(in srgb, var(--nm-info, #4fc1ff) 60%, transparent); }
+.mg-chip.warning, .mg-sev.warning { border-color: color-mix(in srgb, var(--nm-info) 60%, transparent); }
 .mg-issues { max-height: 320px; overflow: auto; }
 .mg-issue { display: grid; grid-template-columns: 72px minmax(120px, 240px) 1fr; gap: 10px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--nm-border-soft, var(--nm-border)); font-size: 12.5px; }
 .mg-sev { justify-self: start; padding: 0 7px; border-radius: 9px; border: 1px solid var(--nm-border); font-size: 11px; }
 .mg-sev.dropped { color: var(--nm-danger); }
 .mg-sev.loss { color: var(--nm-warning); }
-.mg-sev.warning { color: var(--nm-info, #4fc1ff); }
+.mg-sev.warning { color: var(--nm-info); }
 .mg-sev.info { color: var(--nm-text-dim); }
 .mg-where { color: var(--nm-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mg-msg { color: var(--nm-text); }

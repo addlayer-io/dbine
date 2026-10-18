@@ -86,6 +86,6 @@ async function save() {
   width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--nm-border);
   cursor: pointer; color: var(--nm-text-dim); font-size: 11px; padding: 0;
 }
-.fd-color.active { outline: 2px solid #fff; outline-offset: 1px; }
+.fd-color.active { outline: 2px solid var(--nm-text-max); outline-offset: 1px; }
 .fd-help { font-size: 11.5px; color: var(--nm-text-dim); margin-top: 4px; line-height: 1.4; }
 </style>

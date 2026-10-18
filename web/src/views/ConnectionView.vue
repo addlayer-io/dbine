@@ -595,7 +595,7 @@ function selectOptions(f: Field): [string, string][] {
   width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--nm-border);
   cursor: pointer; color: var(--nm-text-dim); font-size: 11px; padding: 0;
 }
-.cd-color.active { outline: 2px solid #fff; outline-offset: 1px; }
+.cd-color.active { outline: 2px solid var(--nm-text-max); outline-offset: 1px; }
 .cd-test-error {
   display: flex; gap: 8px; margin-top: 12px; padding: 8px 10px; border-radius: 3px;
   border: 1px solid color-mix(in srgb, var(--nm-danger) 50%, transparent);

@@ -13,8 +13,10 @@ import 'element-plus/theme-chalk/dark/css-vars.css';
 import '../styles/global.scss';
 import AiSidebar from '../components/AiSidebar.vue';
 import { useAiStore } from '../stores/ai';
+import { applyThemeClass } from '../composables/appearance';
 
-document.documentElement.classList.add('dark');
+// ?theme=light previews the light theme.
+applyThemeClass(new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark');
 const state = new URLSearchParams(location.search).get('state') ?? 'chat';
 
 const callbacks = new Map<number, (e: unknown) => void>();

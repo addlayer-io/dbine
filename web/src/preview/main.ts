@@ -70,9 +70,11 @@ import { sampleLive, sampleMultiDbResponse, sampleTenantDatabases } from './mult
 import { EDITOR_SAMPLE_SQL, installEditorSample } from './editor-samples';
 import RenameDialog from '../components/RenameDialog.vue';
 import { installRenamePreview } from './rename-samples';
+import { applyThemeClass } from '../composables/appearance';
 
-document.documentElement.classList.add('dark');
 const params = new URLSearchParams(location.search);
+// &theme=light previews the light theme.
+applyThemeClass(params.get('theme') === 'light' ? 'light' : 'dark');
 const view = params.get('view') ?? 'plan';
 
 // view=script|import|run: dialogs that talk to the backend, over a mocked IPC.

@@ -946,7 +946,7 @@ const statusText = computed(() => {
   border: 1px solid var(--nm-border); border-radius: 3px; cursor: pointer;
 }
 .rp-export.off { opacity: 0.5; cursor: default; }
-.rp-export:hover:not(.off) { color: var(--nm-text-strong); border-color: #5a5a5a; }
+.rp-export:hover:not(.off) { color: var(--nm-text-strong); border-color: var(--nm-border-hover); }
 .rp-menu-row { display: flex; justify-content: space-between; gap: 24px; width: 100%; }
 .rp-menu-row kbd { font-family: var(--nm-mono); font-size: 11px; color: var(--nm-text-dim); }
 .rp-mode { display: inline-flex; margin: 0 6px; border: 1px solid var(--nm-border); border-radius: 3px; overflow: hidden; align-self: center; }

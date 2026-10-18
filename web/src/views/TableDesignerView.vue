@@ -1159,8 +1159,8 @@ defineExpose({ table });
   border: 1px solid transparent; border-radius: 2px; background: transparent; cursor: pointer;
   font: inherit; font-size: 12px;
 }
-.dz-issues.err { color: var(--nm-danger); border-color: rgba(241, 76, 76, 0.35); }
-.dz-issues.warn { color: var(--nm-warning); border-color: rgba(204, 167, 0, 0.35); }
+.dz-issues.err { color: var(--nm-danger); border-color: color-mix(in srgb, var(--nm-danger) 35%, transparent); }
+.dz-issues.warn { color: var(--nm-warning); border-color: color-mix(in srgb, var(--nm-warning) 35%, transparent); }
 .dz-issues:hover { background: var(--ide-hover); }
 .dz-issue-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
 .dz-issue-list li { display: flex; gap: 6px; align-items: flex-start; padding: 4px 2px; font-size: 12.5px; cursor: pointer; line-height: 1.4; }
@@ -1188,7 +1188,7 @@ defineExpose({ table });
 }
 .dz-grid td { padding: 2px 3px; border-bottom: 1px solid var(--nm-border-soft); vertical-align: middle; }
 .dz-grid tbody tr:hover td { background: var(--ide-hover); }
-.dz-grid tbody tr:focus-within td { background: rgba(4, 57, 94, 0.35); }
+.dz-grid tbody tr:focus-within td { background: color-mix(in srgb, var(--ide-selection-focus) 35%, transparent); }
 .dz-grid tr.dragging td { opacity: 0.4; }
 .dz-grid tr.drop-target td { box-shadow: inset 0 2px 0 var(--ide-focus); }
 
@@ -1206,7 +1206,7 @@ defineExpose({ table });
   color: var(--nm-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; cursor: grab; border-radius: 2px;
 }
 .dz-grip:hover { background: var(--ide-button-2); color: var(--nm-text); }
-.dz-key { color: #d7ba7d; }
+.dz-key { color: var(--nm-syn-code); }
 .dz-flag { text-align: center; }
 .dz-flag.warn :deep(.el-checkbox__inner) { border-color: var(--nm-warning); }
 .dz-actions { white-space: nowrap; text-align: right; padding-right: 6px !important; }
@@ -1235,7 +1235,7 @@ defineExpose({ table });
   font-family: var(--nm-mono); font-size: 12.5px;
 }
 .dz-name :deep(input) { color: var(--nm-text-strong); }
-.dz-type :deep(input) { color: #4ec9b0; }
+.dz-type :deep(input) { color: var(--nm-syn-type); }
 
 .dz-empty { padding: 14px 12px 4px; color: var(--nm-text-dim); font-size: 12.5px; }
 .dz-add {

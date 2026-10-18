@@ -40,10 +40,10 @@ const rows = computed(() => {
 }
 .cd-l { margin: 0; padding: 0 12px; white-space: pre-wrap; word-break: break-all; min-height: 18px; line-height: 18px; border-right: 1px solid var(--nm-border-soft); }
 .cd-line.changed .cd-l { background: color-mix(in srgb, var(--nm-warning) 14%, transparent); }
-.cd-line.left .cd-l:nth-child(2) { background: color-mix(in srgb, #3794ff 16%, transparent); }
-.cd-line.right .cd-l:nth-child(4) { background: color-mix(in srgb, #89d185 16%, transparent); }
+.cd-line.left .cd-l:nth-child(2) { background: color-mix(in srgb, var(--nm-accent) 16%, transparent); }
+.cd-line.right .cd-l:nth-child(4) { background: color-mix(in srgb, var(--nm-success) 16%, transparent); }
 .cd.git .cd-line.left .cd-l:nth-child(2) { background: color-mix(in srgb, var(--nm-danger) 16%, transparent); }
 .cd.git .cd-line.changed .cd-l:nth-child(2) { background: color-mix(in srgb, var(--nm-danger) 12%, transparent); }
-.cd.git .cd-line.changed .cd-l:nth-child(4) { background: color-mix(in srgb, #89d185 14%, transparent); }
+.cd.git .cd-line.changed .cd-l:nth-child(4) { background: color-mix(in srgb, var(--nm-success) 14%, transparent); }
 .cd-l.none { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--nm-text-muted) 10%, transparent) 6px 7px) !important; }
 </style>
