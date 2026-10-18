@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### New
+- **Light theme:** a light theme and a **Same as system** option (the default) that follows your OS as it changes; interface zoom with Cmd/Ctrl + "+", "−", "0" or the mouse wheel, and separate font sizes for the editor and the results grid, in **Settings › General**.
+- **Vim mode and your own shortcuts:** Vim mode for the SQL editor (Settings › General), and every keyboard shortcut can be changed in **Settings › Keyboard shortcuts**, with search, reset and conflict warnings.
+- **Split editor:** up to three editor groups side by side or one above the other (the tab's menu, the tab strip's button or Cmd/Ctrl+\); drag tabs between groups or onto a group's right or bottom half to split it. The layout is restored on restart.
+- **Jump to related rows:** in a table's data or a query's results, **Go to referenced row** (or Cmd/Ctrl+click) opens the parent table filtered by that foreign key, and **Rows that reference it** opens each child table filtered by the value, composite keys included. On every engine with foreign keys.
+
 ## [0.1.15] - 2026-10-17
 
 ### Improvements

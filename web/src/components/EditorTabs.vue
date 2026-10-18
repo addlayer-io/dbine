@@ -426,7 +426,7 @@ function onDrop(e: DragEvent) {
 .et-tab.grouped::after { opacity: 1; }
 /* Split editor: the strip of a group without the focus dims its active tab
    (as VS Code); drop markers while a tab is dragged. */
-.et.unfocused .et-tab.active { color: #b4b4b4; }
+.et.unfocused .et-tab.active { color: var(--nm-text-dim); }
 .et.unfocused .et-tab.active::before { opacity: 0.35; }
 .et-tab.drop-before { box-shadow: inset 2px 0 0 var(--ide-focus); }
 .et-tab.drop-after { box-shadow: inset -2px 0 0 var(--ide-focus); }
