@@ -27,5 +27,7 @@
     "notLoaded": "Os objetos do banco ainda não foram carregados: conecte-se para ir à definição."
   },
   "insertColumn": "Coluna {{n}} de {{total}}: {{name}}",
-  "insertExtra": "Valor {{n}}: a lista tem {{total}} colunas"
+  "insertExtra": "Valor {{n}}: a lista tem {{total}} colunas",
+  "pickFile": "Escolher arquivo…",
+  "dataFiles": "Arquivos de dados (CSV, Parquet, JSON, Excel)"
 }

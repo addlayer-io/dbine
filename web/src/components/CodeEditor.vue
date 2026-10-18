@@ -16,7 +16,7 @@ import { EditorState, Compartment, StateEffect, StateField, type Extension } fro
 import { Decoration, EditorView, keymap, placeholder as cmPlaceholder, showTooltip, tooltips, type DecorationSet, type Tooltip } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import {
-  closeCompletion, snippet, snippetCompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult,
+  CompletionContext, closeCompletion, snippet, snippetCompletion, startCompletion, type Completion, type CompletionResult,
 } from '@codemirror/autocomplete';
 import { indentWithTab, redo, selectAll, toggleComment, undo } from '@codemirror/commands';
 import { vim } from '@replit/codemirror-vim';
@@ -35,6 +35,10 @@ import { useTranslation } from 'i18next-vue';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import type { Snippet } from '../composables/snippets';
 import { insertColumnAt } from '../composables/insertColumns';
+import {
+  fileCompletion, isTableSlot, nameCompletion, nameTree, quotePath, readerPathAt, readerSnippet, tableSlotAt,
+  type NameNode,
+} from '../composables/sqlCompletion';
 import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys, registerCommand } from '../composables/commands';
 import { useSettingsStore } from '../stores/settings';
 
@@ -72,7 +76,17 @@ const props = withDefaults(defineProps<{
   /** The name at a position that ⌘/Ctrl+click opens (underlined while the
    *  key is down), or null. The parent handles `navigate`. */
   linkAt?: ((doc: string, pos: number) => { from: number; to: number } | null) | null;
-}>(), { language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null });
+  /** A "Resultados del notebook" cell: DuckDB's file readers in table
+   *  positions, and inside their quotes "Elegir archivo…" (`pickFile`) and
+   *  `grantedFiles` (composables/sqlCompletion.ts). */
+  fileReaders?: boolean;
+  grantedFiles?: string[];
+  /** The native file dialog: the chosen path, or null. */
+  pickFile?: (() => Promise<string | null>) | null;
+}>(), {
+  language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null,
+  fileReaders: false, grantedFiles: () => [], pickFile: null,
+});
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
@@ -130,147 +144,84 @@ const DIALECTS: Record<string, SQLDialect> = {
   sqlite: SQLite, oracle: PLSQL, cql: Cassandra,
 };
 
-/** Where a table name goes: right after FROM, JOIN, INTO, UPDATE or TABLE. */
-const TABLE_SLOT = /\b(from|join|into|update|table)\s+$/i;
-
-function tableSlot(ctx: CompletionContext): boolean {
-  const word = ctx.matchBefore(/[\w$#]*/);
-  const line = ctx.state.doc.lineAt(ctx.pos);
-  return TABLE_SLOT.test(ctx.state.sliceDoc(line.from, word ? word.from : ctx.pos));
-}
-
-/** A name completion offers: a schema, a table or a column. */
-interface NameNode {
-  label: string;
-  type: 'namespace' | 'class' | 'property';
-  /** From the top: `[schema, table]`, `[table]`… */
-  path: string[];
-  children: NameNode[];
-}
-
-/** The schemas, tables and columns of `schema`. A name can be a schema and a
- *  table at once (`Person` and `Person.Person`): both stay, each with its own
- *  icon. */
-function nameTree(schema: Record<string, string[]>): NameNode {
-  const top: NameNode = { label: '', type: 'namespace', path: [], children: [] };
-  const child = (parent: NameNode, label: string, type: NameNode['type']) => {
-    let n = parent.children.find((c) => c.label === label && c.type === type);
-    if (!n) parent.children.push((n = { label, type, path: [...parent.path, label], children: [] }));
-    return n;
-  };
-  for (const [key, cols] of Object.entries(schema)) {
-    const dot = key.indexOf('.');
-    const table = dot < 0
-      ? child(top, key, 'class')
-      : child(child(top, key.slice(0, dot), 'namespace'), key.slice(dot + 1), 'class');
-    for (const c of cols) child(table, c, 'property');
-  }
-  return top;
-}
-
-/** The children of `node` called `name`: the exact spelling, or else any
- *  case, since most engines don't tell `people` from `People`. */
-function childrenNamed(node: NameNode, name: string): NameNode[] {
-  const exact = node.children.filter((c) => c.label === name);
-  if (exact.length) return exact;
-  const lower = name.toLowerCase();
-  return node.children.filter((c) => c.label.toLowerCase() === lower);
-}
-
-/** An identifier, bare or quoted ([x], "x", `x`). */
-const ID = String.raw`(?:[\w$#]+|\[[^\]\n]+\]|"[^"\n]+"|\x60[^\x60\n]+\x60)`;
-const PARENT_BEFORE = new RegExp(String.raw`(${ID})\s*\.\s*$`);
-/** `FROM sales.orders o`, `JOIN people AS p`, `, items i`. */
-const ALIAS = new RegExp(String.raw`(?:\b(?:from|join|update|into)|,)\s*(${ID}(?:\s*\.\s*${ID})*)\s+(?:as\s+)?(${ID})`, 'gi');
-/** Words that follow a table name without being its alias. */
-const NOT_ALIAS = new Set(
-  'where on join inner left right full cross outer natural group order having union except intersect limit offset set values select from using with as'.split(' '),
-);
-
-function unquote(id: string): string {
-  return /^[[\"`]/.test(id) ? id.slice(1, -1) : id;
-}
-
-/** The `a.b.` before `pos`, as `['a', 'b']`. */
-function parentsBefore(text: string): string[] {
-  const parents: string[] = [];
-  for (let rest = text; ;) {
-    const m = PARENT_BEFORE.exec(rest);
-    if (!m) return parents;
-    parents.unshift(unquote(m[1]));
-    rest = rest.slice(0, m.index);
-  }
-}
-
-/** alias (lower case) → the path it stands for. */
-function aliasesIn(doc: string): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  const re = new RegExp(ALIAS);
-  for (let m = re.exec(doc); m; m = re.exec(doc)) {
-    const alias = unquote(m[2]);
-    if (NOT_ALIAS.has(alias.toLowerCase())) {
-      // `…, p.total FROM t x`: the keyword starts the next match.
-      re.lastIndex = m.index + m[0].length - m[2].length;
-      continue;
-    }
-    out.set(alias.toLowerCase(), m[1].split(/\s*\.\s*/).map(unquote));
-  }
-  return out;
-}
-
 /** Schemas, tables and columns, with what comes after a dot resolved by
  *  name (`sales.`, `orders.`, an alias). A table whose columns aren't loaded
  *  yet asks for them, and the list reopens when they arrive; so does a list
  *  asked for before there are any names at all. */
 function nameSource(dialect: SQLDialect) {
-  const tree = nameTree(props.schema);
-  const asked = new Set<string>();
-  let namesAsked = false;
   // SQL Server takes "x" too, but [x] is what everyone writes there.
   const quotes = dialect.spec.identifierQuotes ?? '"';
   const open = quotes.includes('[') ? '[' : quotes[0];
   const close = open === '[' ? ']' : open;
-  const option = (label: string, type: string): Completion =>
-    /^[a-z_][\w$#]*$/i.test(label) ? { label, type } : { label, type, apply: open + label + close };
+  const quote = (label: string) => open + label + close;
 
   return (ctx: CompletionContext): CompletionResult | null => {
-    if (/String|Comment|QuotedIdentifier/.test(syntaxTree(ctx.state).resolveInner(ctx.pos, -1).name)) return null;
-    const word = ctx.matchBefore(/[\w$#]*/) ?? { from: ctx.pos, text: '' };
-    let parents = parentsBefore(ctx.state.sliceDoc(Math.max(0, word.from - 300), word.from));
-    if (!parents.length && !word.text && !ctx.explicit) return null;
-    if (!tree.children.length) {
+    const { result, needNames, needColumns } = nameCompletion(ctx, names().tree, quote);
+    const n = names();
+    if (needNames && !n.namesAsked) {
       // No names yet (the tab's connection isn't open): ask once; the list
       // opens when they arrive if the cursor stayed.
-      if (!namesAsked) {
-        namesAsked = true;
-        reopenAt = ctx.pos;
-        emit('needNames');
-      }
-      return null;
+      n.namesAsked = true;
+      reopenAt = ctx.pos;
+      emit('needNames');
     }
-    const aliases = aliasesIn(ctx.state.doc.toString());
-    if (parents.length === 1) parents = aliases.get(parents[0].toLowerCase()) ?? parents;
-
-    let level = [tree];
-    for (const name of parents) {
-      level = level.flatMap((n) => childrenNamed(n, name));
-      if (!level.length) return null;
+    if (needColumns && !n.asked.has(needColumns.join('.'))) {
+      n.asked.add(needColumns.join('.'));
+      reopenAt = ctx.pos;
+      emit('needColumns', needColumns);
     }
-    if (parents.length && level.every((n) => !n.children.length)) {
-      const table = level.find((n) => n.type === 'class');
-      if (table && !asked.has(table.path.join('.'))) {
-        asked.add(table.path.join('.'));
-        reopenAt = ctx.pos;
-        emit('needColumns', table.path);
-      }
-      return null;
-    }
-
-    const options = level.flatMap((n) => n.children).map((c) => option(c.label, c.type));
-    if (!parents.length) for (const [alias] of aliases) options.push({ label: alias, type: 'variable' });
-    return { from: word.from, options, validFor: /^[\w$#]*$/ };
+    return result;
   };
 }
+
+/** The tree of `schema`, built once per `schema` object. The completion
+ *  sources read it when asked instead of being rebuilt with it: a new
+ *  `schema` (a notebook's context recomputed, columns arriving) must not
+ *  reconfigure the language, since CodeMirror then drops the open list and
+ *  asks the new sources again as if nobody had asked (the list after
+ *  FROM, opened by itself, closed at once). */
+let namesOf: { schema: Record<string, string[]>; tree: NameNode; asked: Set<string>; namesAsked: boolean } | null = null;
+function names() {
+  if (namesOf?.schema !== props.schema) namesOf = { schema: props.schema, tree: nameTree(props.schema), asked: new Set(), namesAsked: false };
+  return namesOf;
+}
+
+// -- DuckDB's file readers ("Resultados del notebook" cells) ------------------------------------------
+/** A reader: the snippet `read_csv('|')`, then the list inside the quotes. */
+function readerOption(name: string, format: string): Completion {
+  const insert = snippet(readerSnippet(name));
+  return {
+    label: name, type: 'function', detail: format, boost: -1,
+    apply: (v, c, from, to) => {
+      insert(v, c, from, to);
+      // Not from inside the pick's own transaction.
+      setTimeout(() => startCompletion(v));
+    },
+  };
+}
+
+/** "Elegir archivo…": the native dialog, and its path between the quotes. */
+function pickOption(at: { from: number; to: number }): Completion {
+  return {
+    label: t('editor:pickFile'), type: 'file', boost: 99,
+    apply: (v) => {
+      const pick = props.pickFile;
+      if (!pick) return;
+      void pick().then((path) => {
+        if (!path || !view) return;
+        // Where the quotes are now (the text may have moved meanwhile).
+        const now = readerPathAt(new CompletionContext(v.state, v.state.selection.main.head, true)) ?? at;
+        const insert = quotePath(path);
+        const after = v.state.sliceDoc(now.to, now.to + 2);
+        const end = now.from + insert.length + (after.startsWith("')") ? 2 : after.startsWith("'") ? 1 : 0);
+        v.dispatch({ changes: { from: now.from, to: now.to, insert }, selection: { anchor: end }, userEvent: 'input.complete' });
+        v.focus();
+      });
+    },
+  };
+}
+const fileSource = (ctx: CompletionContext): CompletionResult | null =>
+  fileCompletion(ctx, { enabled: props.fileReaders, grantedFiles: props.grantedFiles, pick: props.pickFile ? pickOption : null }, readerOption);
 
 /** Where the cursor was when a table's columns were asked for. */
 let reopenAt: number | null = null;
@@ -287,7 +238,8 @@ function sqlLanguage(dialect: SQLDialect): Extension {
   return [
     dialect.language,
     dialect.language.data.of({ autocomplete: nameSource(dialect) }),
-    dialect.language.data.of({ autocomplete: (ctx: CompletionContext) => (tableSlot(ctx) || afterDot(ctx) ? null : keywords(ctx)) }),
+    dialect.language.data.of({ autocomplete: fileSource }),
+    dialect.language.data.of({ autocomplete: (ctx: CompletionContext) => (tableSlotAt(ctx) || afterDot(ctx) ? null : keywords(ctx)) }),
   ];
 }
 
@@ -304,11 +256,12 @@ function languageExt(): Extension {
 const openTableList = EditorView.updateListener.of((u) => {
   if (!u.docChanged || !u.transactions.some((tr) => tr.isUserEvent('input.type'))) return;
   if (props.language !== 'sql' && props.language !== 'cql') return;
-  if (!Object.keys(props.schema).length) return;
+  if (!Object.keys(props.schema).length && !props.fileReaders) return;
   const pos = u.state.selection.main.head;
-  const line = u.state.doc.lineAt(pos);
+  // Only right after the space (or comma) typed: not while typing a name.
+  if (!/[\s,]$/.test(u.state.sliceDoc(pos - 1, pos))) return;
   // Not from inside this update: the editor refuses a dispatch mid-update.
-  if (TABLE_SLOT.test(u.state.sliceDoc(line.from, pos))) queueMicrotask(() => startCompletion(u.view));
+  if (isTableSlot(u.state.sliceDoc(Math.max(0, pos - 2000), pos))) queueMicrotask(() => startCompletion(u.view));
 });
 
 // -- snippets ----------------------------------------------------------------------------------
@@ -445,6 +398,7 @@ const links = [
   EditorView.baseTheme({
     '.cm-dbine-link': { textDecoration: 'underline', cursor: 'pointer', color: 'var(--nm-syn-link)' },
     '.cm-completionIcon-snippet:after': { content: "'⧉'" },
+    '.cm-completionIcon-file:after': { content: "'⋯'" },
   }),
 ];
 
@@ -572,9 +526,12 @@ watch(() => props.modelValue, (v) => {
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } });
   }
 });
-watch(() => [props.language, props.dialect, props.schema], () => {
+watch(() => [props.language, props.dialect], () => {
+  view?.dispatch({ effects: lang.reconfigure(languageExt()) });
+});
+// New names: the sources read them when asked (names()), nothing to rebuild.
+watch(() => props.schema, () => {
   if (!view) return;
-  view.dispatch({ effects: lang.reconfigure(languageExt()) });
   // The columns asked for after a dot arrived: show them if the cursor stayed.
   const at = reopenAt;
   reopenAt = null;

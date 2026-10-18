@@ -4,6 +4,7 @@ import type { Language, LoadedTable, NotebookCell, QueryOutcome } from '../../ap
 import type { Snippet } from '../../composables/snippets';
 import { renderMarkdown } from '../../composables/markdown';
 import { onMarkdownClick } from '../../composables/externalLink';
+import { pickDataFile } from '../../composables/files';
 import CodeEditor from '../CodeEditor.vue';
 import NotebookResult from './NotebookResult.vue';
 
@@ -24,6 +25,12 @@ export interface CellContext {
   overridden: boolean;
   /** The target can't be resolved yet (shown in warning color). */
   unresolved: boolean;
+  /** A "Resultados del notebook" cell: completion offers DuckDB's file
+   *  readers, and "Elegir archivo…" inside their quotes. */
+  localFiles?: boolean;
+  /** Files this notebook may already read, suggested inside a reader's
+   *  quotes (those in folders with credentials never are). Empty for now. */
+  grantedFiles?: string[];
 }
 
 const props = defineProps<{
@@ -215,6 +222,9 @@ function endRename(save: boolean) {
             :dialect="ctx.dialect"
             :schema="ctx.schema"
             :snippets="ctx.snippets"
+            :file-readers="!!ctx.localFiles"
+            :granted-files="ctx.grantedFiles ?? []"
+            :pick-file="ctx.localFiles ? pickDataFile : null"
             :placeholder="$t('notebook:cell.sqlPlaceholder')"
             run-actions
             @update:model-value="(v: string) => emit('source', v)"
