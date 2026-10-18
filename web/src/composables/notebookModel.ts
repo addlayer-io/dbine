@@ -14,7 +14,7 @@ export const BYTES_DEFAULT = 1_000_000;
 /** The backend clamps to these too. */
 export const ROWS_RANGE = [1, 1000] as const;
 export const BYTES_RANGE = [64 * 1024, 8 * 1024 * 1024] as const;
-/** Rows per table a "Resultados del notebook" cell loads (src-tauri notebook::local). */
+/** Rows per table a "DataFrame SQL" cell loads (src-tauri notebook::local). */
 export const RESULTS_CAP_SETTING = 'notebook.resultsRowCap';
 export const RESULTS_CAP_DEFAULT = 1_000_000;
 export const RESULTS_CAP_RANGE = [1_000, 10_000_000] as const;
@@ -34,7 +34,7 @@ export function newCell(kind: Exclude<CellKind, 'foreign'>, source = ''): Notebo
   };
 }
 
-// -- cell names: tables for "Resultados del notebook" cells ------------------------------------
+// -- cell names: tables for "DataFrame SQL" cells ------------------------------------
 
 /** Words a cell can't be named (DuckDB reads them as SQL); as notebook::local::RESERVED. */
 const RESERVED = new Set(('all and any array as asc between both by case cast check collate column constraint create cross current_date '
@@ -73,7 +73,7 @@ export function assignCellNames(cells: NotebookCell[]): NotebookCell[] {
   return cells;
 }
 
-/** The target is "Resultados del notebook". */
+/** The target is "DataFrame SQL". */
 export const isResultsTarget = (t: NotebookTarget | null | undefined) => !!t?.results;
 
 /** A new notebook: one SQL cell. `gitLinked`: a git project's, saved without results by default. */
@@ -163,7 +163,7 @@ export function resultToOutcome(r: CellResult): QueryOutcome {
 }
 
 /** A run's first result set, when it is complete (no row cut it, no error):
- *  what a "Resultados del notebook" cell can load as that cell's table
+ *  what a "DataFrame SQL" cell can load as that cell's table
  *  without running its query again. */
 export function completeRows(o: QueryOutcome | null | undefined): { columns: StatementResult['columns']; rows: StatementResult['rows'] } | null {
   if (!o || o.error || o.errors?.length) return null;

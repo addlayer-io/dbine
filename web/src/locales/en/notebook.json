@@ -14,8 +14,8 @@
     "rowsHelp": "Rows of each result saved in the file (1 to 1000).",
     "size": "Size per cell",
     "sizeHelp": "A larger preview is cut even if it has fewer rows.",
-    "resultsCap": "Rows per table of notebook results",
-    "resultsCapHelp": "How many rows of each cell a cell loads in “Notebook results” (in memory, never on disk)."
+    "resultsCap": "Rows per DataFrame",
+    "resultsCapHelp": "How many rows of each cell's result a DataFrame SQL cell loads (in memory, never on disk)."
   },
   "target": {
     "none": "Choose where to run",
@@ -35,8 +35,9 @@
     "bindEnvironment": "Choose the database of the “{{env}}” environment in the project and run again.",
     "ambiguousIntro": "Several connections on this machine are called “{{name}}”. Which one does this notebook use?",
     "ambiguousHelp": "Remembered for this file on this machine; the file doesn't change.",
-    "results": "Notebook results",
-    "resultsHelp": "The cell queries the results of the cells above with DuckDB SQL, each one as a table with its name (for example, SELECT … FROM c1 JOIN c2 …). It runs in memory, with no connection, and neither reads nor writes files."
+    "results": "DataFrames",
+    "dataframeSql": "DataFrame SQL",
+    "resultsHelp": "SQL over the results of the cells above and files on your computer. Uses DuckDB's SQL and no connection."
   },
   "summary": {
     "ms": "{{ms}} ms",
@@ -142,19 +143,19 @@
   },
   "name": {
     "label": "Cell name",
-    "tip": "Cell name: with it, a cell in “Notebook results” uses its result as a table. Click to change it",
+    "tip": "Name of this cell's DataFrame: other DataFrame SQL cells query it as a table. Click to change it",
     "invalid": "“{{name}}” is not valid as a table name: use letters, numbers and _, starting with a letter or _, with no SQL words",
     "taken": "Another cell is already called “{{name}}”"
   },
   "loaded": {
-    "title": "Tables:",
-    "tip": "The cells above and the files this query uses, loaded as tables in the notebook's in-memory database",
+    "title": "DataFrames:",
+    "tip": "The DataFrames this query uses (cells above and files), loaded as tables in the notebook's in-memory database",
     "rows_one": "{{rows}} row",
     "rows_many": "{{rows}} rows",
     "rows_other": "{{rows}} rows",
     "run": "from its run",
     "query": "its query was run again",
-    "local": "from the tables above",
+    "local": "from the DataFrames above",
     "file": "read from the file",
     "files_one": "{{files}} file",
     "files_many": "{{files}} files",

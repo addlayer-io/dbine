@@ -25,7 +25,7 @@ export interface CellContext {
   overridden: boolean;
   /** The target can't be resolved yet (shown in warning color). */
   unresolved: boolean;
-  /** A "Resultados del notebook" cell: completion offers DuckDB's file
+  /** A "DataFrame SQL" cell: completion offers DuckDB's file
    *  readers, and "Elegir archivo…" inside their quotes. */
   localFiles?: boolean;
   /** Files this notebook may already read, suggested inside a reader's
@@ -47,7 +47,7 @@ const props = defineProps<{
   fallback: QueryOutcome | null;
   source: { connectionId: string; database: string; sql: string } | null;
   title: string;
-  /** A "Resultados del notebook" cell's run here: the tables it loaded. */
+  /** A "DataFrame SQL" cell's run here: the tables it loaded. */
   loaded?: LoadedTable[] | null;
 }>();
 const emit = defineEmits<{
@@ -132,7 +132,7 @@ const foreignOutput = computed(() => {
 
 const counter = computed(() => (props.running ? '*' : props.cell.execution_count ?? ' '));
 
-// The cell's name (its table for "Resultados del notebook" cells): click to edit.
+// The cell's name (its table for "DataFrame SQL" cells): click to edit.
 const naming = ref(false);
 const nameDraft = ref('');
 const nameInput = ref<{ focus: () => void; select?: () => void } | null>(null);
@@ -185,8 +185,8 @@ function endRename(save: boolean) {
           />
           <button v-else class="nc-name" :title="$t('notebook:name.tip')" @click="startRename">{{ cell.name || '—' }}</button>
         </template>
-        <button v-if="cell.kind === 'sql'" class="nc-target" :class="{ own: ctx.overridden, warn: ctx.unresolved, results: !!cell.target?.results }" :title="$t('notebook:cell.targetTip')" @click="emit('target')">
-          <el-icon><ei-coin /></el-icon>{{ ctx.target }}
+        <button v-if="cell.kind === 'sql'" class="nc-target" :class="{ own: ctx.overridden, warn: ctx.unresolved, results: !!ctx.localFiles }" :title="$t('notebook:cell.targetTip')" @click="emit('target')">
+          <el-icon><ei-coin /></el-icon>{{ ctx.target }}<span v-if="ctx.localFiles" class="nc-engine">· DuckDB</span>
         </button>
         <span v-if="cell.kind === 'foreign'" class="nc-lang">{{ cell.language || '?' }}</span>
         <button v-if="cell.kind === 'sql'" class="nc-btn" :disabled="busy" :title="$t('notebook:cell.runFrom')" @click="emit('runFrom')"><el-icon><ei-d-arrow-right /></el-icon></button>
@@ -307,6 +307,8 @@ function endRename(save: boolean) {
 }
 .nc-target:hover { background: var(--ide-hover); color: var(--nm-text-strong); }
 .nc-target.results { color: var(--nm-accent); }
+.nc-engine { font-size: 10.5px; color: var(--nm-text-muted); }
+.nc-target:hover .nc-engine { color: var(--nm-text-dim); }
 .nc-name {
   flex-shrink: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 2px;
   border: 1px solid var(--nm-border-soft); padding: 0 6px; border-radius: 3px; line-height: 16px; background: none;

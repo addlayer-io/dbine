@@ -1,4 +1,4 @@
-//! Which local files a "Resultados del notebook" cell may read
+//! Which local files a "DataFrame SQL" cell may read
 //! (docs/notebooks.md › Reading local files › Approval).
 //!
 //! - **Always blocked** ([`Policy`]): credentials, keys, shell history and

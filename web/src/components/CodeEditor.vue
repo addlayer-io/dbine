@@ -76,7 +76,7 @@ const props = withDefaults(defineProps<{
   /** The name at a position that ⌘/Ctrl+click opens (underlined while the
    *  key is down), or null. The parent handles `navigate`. */
   linkAt?: ((doc: string, pos: number) => { from: number; to: number } | null) | null;
-  /** A "Resultados del notebook" cell: DuckDB's file readers in table
+  /** A "DataFrame SQL" cell: DuckDB's file readers in table
    *  positions, and inside their quotes "Elegir archivo…" (`pickFile`) and
    *  `grantedFiles` (composables/sqlCompletion.ts). */
   fileReaders?: boolean;
@@ -186,7 +186,7 @@ function names() {
   return namesOf;
 }
 
-// -- DuckDB's file readers ("Resultados del notebook" cells) ------------------------------------------
+// -- DuckDB's file readers ("DataFrame SQL" cells) ------------------------------------------
 /** A reader: the snippet `read_csv('|')`, then the list inside the quotes. */
 function readerOption(name: string, format: string): Completion {
   const insert = snippet(readerSnippet(name));

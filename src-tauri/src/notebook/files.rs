@@ -1,4 +1,4 @@
-//! Local data files in "Resultados del notebook" cells (docs/notebooks.md ›
+//! Local data files in "DataFrame SQL" cells (docs/notebooks.md ›
 //! Reading local files): `read_csv('~/Downloads/clientes.csv')` and the
 //! other DuckDB readers ([`READERS`]), joined with the cells' tables.
 //!
@@ -193,7 +193,7 @@ pub fn refused(sql: &str) -> Option<String> {
             _ => continue,
         };
         return Some(format!(
-            "«{what}» no se puede usar en una celda de Resultados del notebook: su base solo lee archivos y nunca escribe, adjunta ni configura nada"
+            "«{what}» no se puede usar en una celda DataFrame SQL: su base solo lee archivos y nunca escribe, adjunta ni configura nada"
         ));
     }
     None

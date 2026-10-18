@@ -14,8 +14,8 @@
     "rowsHelp": "Lignes de chaque résultat enregistrées dans le fichier (de 1 à 1000).",
     "size": "Taille par cellule",
     "sizeHelp": "Un aperçu plus grand est coupé même s'il a moins de lignes.",
-    "resultsCap": "Lignes par table des résultats du notebook",
-    "resultsCapHelp": "Combien de lignes de chaque cellule une cellule charge dans « Résultats du notebook » (en mémoire, jamais sur le disque)."
+    "resultsCap": "Lignes par DataFrame",
+    "resultsCapHelp": "Combien de lignes du résultat de chaque cellule une cellule DataFrame SQL charge (en mémoire, jamais sur le disque)."
   },
   "target": {
     "none": "Choisissez où exécuter",
@@ -35,8 +35,9 @@
     "bindEnvironment": "Choisissez la base de l'environnement « {{env}} » dans le projet, puis exécutez à nouveau.",
     "ambiguousIntro": "Plusieurs connexions s'appellent « {{name}} » sur cette machine. Laquelle ce notebook utilise-t-il ?",
     "ambiguousHelp": "Mémorisé pour ce fichier sur cette machine ; le fichier ne change pas.",
-    "results": "Résultats du notebook",
-    "resultsHelp": "La cellule interroge avec du SQL DuckDB les résultats des cellules au-dessus, chacun sous forme de table portant son nom (par exemple, SELECT … FROM c1 JOIN c2 …). Elle s'exécute en mémoire, sans connexion, et ne lit ni n'écrit aucun fichier."
+    "results": "DataFrames",
+    "dataframeSql": "DataFrame SQL",
+    "resultsHelp": "Du SQL sur les résultats des cellules précédentes et des fichiers de votre ordinateur. Utilise le SQL de DuckDB et aucune connexion."
   },
   "summary": {
     "ms": "{{ms}} ms",
@@ -142,19 +143,19 @@
   },
   "name": {
     "label": "Nom de la cellule",
-    "tip": "Nom de la cellule : avec lui, une cellule dans « Résultats du notebook » utilise son résultat comme table. Cliquez pour le modifier",
+    "tip": "Nom du DataFrame de cette cellule : les autres cellules DataFrame SQL l'interrogent comme une table. Cliquez pour le modifier",
     "invalid": "« {{name}} » ne convient pas comme nom de table : utilisez des lettres, des chiffres et _, en commençant par une lettre ou _, sans mots SQL",
     "taken": "Une autre cellule s'appelle déjà « {{name}} »"
   },
   "loaded": {
-    "title": "Tables :",
-    "tip": "Les cellules au-dessus et les fichiers que cette requête utilise, chargés comme tables dans la base en mémoire du notebook",
+    "title": "DataFrames :",
+    "tip": "Les DataFrames que cette requête utilise (cellules au-dessus et fichiers), chargés comme tables dans la base en mémoire du notebook",
     "rows_one": "{{rows}} ligne",
     "rows_many": "{{rows}} lignes",
     "rows_other": "{{rows}} lignes",
     "run": "de son exécution",
     "query": "sa requête a été exécutée à nouveau",
-    "local": "des tables au-dessus",
+    "local": "des DataFrames au-dessus",
     "file": "lue depuis le fichier",
     "files_one": "{{files}} fichier",
     "files_many": "{{files}} fichiers",

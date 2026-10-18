@@ -219,7 +219,7 @@ pub async fn notebook_export(args: ExportArgs) -> CommandResult<String> {
     tauri::async_runtime::spawn_blocking(move || export_notebook(&args)).await.map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
-// -- "Resultados del notebook" (notebook::local) -----------------------------------------------
+// -- "DataFrame SQL" (notebook::local) -----------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -271,8 +271,8 @@ fn app_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
     dirs
 }
 
-/// Run a "Resultados del notebook" cell: DuckDB SQL over the results of the
-/// cells above (docs/notebooks.md › Notebook results). A cell that reads
+/// Run a "DataFrame SQL" cell: DuckDB SQL over the results of the
+/// cells above (docs/notebooks.md › DataFrame SQL cells). A cell that reads
 /// local files nobody allowed yet runs nothing and returns `approval`: the
 /// UI asks, answers with [`notebook_file_decision`] and runs again with the
 /// token.

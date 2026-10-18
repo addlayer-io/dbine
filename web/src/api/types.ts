@@ -1042,7 +1042,7 @@ export interface NotebookTarget {
   database: string | null;
   /** A project environment's name (.dbine.json). */
   environment: string | null;
-  /** "Resultados del notebook": DuckDB SQL over the cells above (no connection). */
+  /** "DataFrame SQL": DuckDB SQL over the cells above (no connection). */
   results?: boolean;
 }
 /** `foreign`: a Python / R… cell from elsewhere, read-only, kept unchanged. */
@@ -1083,7 +1083,7 @@ export interface NotebookCell {
   language: string | null;
   /** Overrides the notebook's target. */
   target: NotebookTarget | null;
-  /** SQL cells: its name as a table for "Resultados del notebook" cells. */
+  /** SQL cells: its name as a table for "DataFrame SQL" cells. */
   name?: string | null;
   /** false = "No guardar el resultado" (the summary stays, the rows don't). */
   keep_result: boolean;
@@ -1111,7 +1111,7 @@ export interface Notebook {
 }
 export interface NotebookRead { notebook: Notebook; text_hash: string }
 
-// "Resultados del notebook" (src-tauri/src/notebook/local.rs): a cell's DuckDB
+// "DataFrame SQL" (src-tauri/src/notebook/local.rs): a cell's DuckDB
 // SQL over the results of the cells above.
 /** A SQL cell above, as `notebook_run_local` gets it. */
 export interface LocalSource {

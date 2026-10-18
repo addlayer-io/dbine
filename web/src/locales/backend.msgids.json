@@ -30652,7 +30652,7 @@
   "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/odbc/src/design.rs"
  ],
- "no se pudo aislar la base de los resultados del notebook: {0}": [
+ "no se pudo aislar la base en memoria de las celdas DataFrame SQL: {0}": [
   "src-tauri/src/notebook/local.rs"
  ],
  "no se pudo ajustar la identidad «{0}» ({1})": [
@@ -36116,7 +36116,7 @@
  "«{0}» no se puede usar en un recurso de OrientDB": [
   "crates/drivers/orientdb/src/security.rs"
  ],
- "«{0}» no se puede usar en una celda de Resultados del notebook: su base solo lee archivos y nunca escribe, adjunta ni configura nada": [
+ "«{0}» no se puede usar en una celda DataFrame SQL: su base solo lee archivos y nunca escribe, adjunta ni configura nada": [
   "src-tauri/src/notebook/files.rs"
  ],
  "«{0}» no se renombra desde DBine: el nombre de la base tiene caracteres que no son letras, dígitos, «_» ni «-».": [

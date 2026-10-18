@@ -109,6 +109,9 @@ fn cell_images<'a>(c: &NotebookCell, nb: &Notebook, images: &'a CellImages) -> &
 pub type ExportFiles = Vec<(String, Vec<u8>)>;
 
 fn target_text(t: &NotebookTarget) -> String {
+    if t.results {
+        return "DataFrame SQL".into();
+    }
     [&t.environment, &t.connection, &t.database].iter().filter_map(|v| v.as_deref()).filter(|v| !v.is_empty()).collect::<Vec<_>>().join(" › ")
 }
 

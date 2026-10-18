@@ -1,11 +1,11 @@
 // The SQL editor's name completion (CodeEditor.vue), kept apart from the
 // component so it can be tested without a browser: which names go where,
-// what an alias stands for, and, in a "Resultados del notebook" cell, the
+// what an alias stands for, and, in a "DataFrame SQL" cell, the
 // DuckDB file readers and the paths inside their quotes.
 //
 // - **Table positions** (after FROM, JOIN, INTO, UPDATE, TABLE, or a comma
 //   in a FROM list, on the same line or the lines above): the tables, and
-//   in a notebook results cell the cells above (each one a table) and the
+//   in a DataFrame SQL cell the cells above (each one a table) and the
 //   file readers.
 // - **After a dot** (`sales.`, `orders.`, an alias): what is under that name.
 // - **Anywhere else** (the select list, WHERE, ON…): the names at the top
@@ -202,7 +202,7 @@ export function nameCompletion(ctx: CompletionContext, tree: NameNode, quote: (l
   return { result: { from: word.from, options, validFor: /^[\w$#]*$/ } };
 }
 
-// -- DuckDB's file readers ("Resultados del notebook" cells) ----------------------------------------
+// -- DuckDB's file readers ("DataFrame SQL" cells) ----------------------------------------
 /** The readers a results cell may call, as src-tauri/src/notebook/files.rs
  *  READERS; `format` is what the list shows next to each; `table`: it
  *  reads a table of a database file (`sqlite_scan('x.db', 'tabla')`). */
@@ -295,7 +295,7 @@ export function readerPathCompletion(
 }
 
 /** What a cell's editor knows about local files: `enabled` only in a
- *  "Resultados del notebook" cell (a cell on a real database never gets the
+ *  "DataFrame SQL" cell (a cell on a real database never gets the
  *  readers); `pick` makes the "Elegir archivo…" entry. */
 export interface FileCompletion {
   enabled: boolean;

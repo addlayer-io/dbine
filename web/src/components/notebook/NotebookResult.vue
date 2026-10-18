@@ -33,7 +33,7 @@ const props = defineProps<{
   title: string;
   /** The cell's stored charts: { view, active, charts: [{ title, type, x, y, agg, sort, split, points… }], map }. */
   chart: unknown | null;
-  /** A "Resultados del notebook" cell's run here: the tables it loaded. */
+  /** A "DataFrame SQL" cell's run here: the tables it loaded. */
   loaded?: LoadedTable[] | null;
 }>();
 const emit = defineEmits<{ group: []; explain: []; chart: [chart: Record<string, unknown>] }>();

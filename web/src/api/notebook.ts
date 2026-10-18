@@ -40,10 +40,10 @@ export const notebookApi = {
     invoke<string>('notebook_export', {
       args: { notebook, format, rowsPerCell: limits.rows, bytesPerCell: limits.bytes, images, path: path ?? null },
     }),
-  /** "Resultados del notebook": the cells above that `sql` needs (their names,
+  /** "DataFrame SQL": the cells above that `sql` needs (their names,
    *  in loading order, through the "results" cells it names). */
   localRefs: (sql: string, sources: LocalSource[]) => invoke<string[]>('notebook_local_refs', { args: { sql, sources } }),
-  /** Run a "Resultados del notebook" cell on the tab's DuckDB session
+  /** Run a "DataFrame SQL" cell on the tab's DuckDB session
    *  (`nbx:<tabId>`, closed with the tab; cancel_query stops it). */
   /** `notebookPath`: the notebook's file (relative paths in `read_csv('…')` are read from its folder). */
   /** `approval`: the token of the file approval just answered (the run may read those files). */

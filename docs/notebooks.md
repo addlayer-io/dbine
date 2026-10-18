@@ -92,9 +92,11 @@ a DBine notebook when it has `metadata.dbine`; any other `.ipynb` opens too
   the **environment** (`dev`, `prod`…) instead of a connection, so the same
   notebook runs on each person's own database for that environment, and
   `confirm_run` asks before running on it.
-- A cell can also run on **Notebook results** instead of a connection (see
-  [Notebook results](#notebook-results-cross-engine)); the file stores that
-  target as `{ "results": true }`, with no connection name.
+- A cell can also run on **DataFrames** instead of a connection, as a
+  DataFrame SQL cell (see
+  [DataFrame SQL cells](#dataframe-sql-cells-cross-engine)); the file stores
+  that target as `{ "dataframes": true }`, with no connection name (files
+  written before say `{ "results": true }`, which is still read).
 - The cell's language follows the target's engine: SQL in each engine's
   dialect, Redis commands, MongoDB's shell syntax, and so on, with that
   engine's completion and highlighting. The file stores it as the cell's
@@ -132,10 +134,14 @@ cells on that session:
 - Closing while a cell runs asks first; the run is cancelled only if the
   close goes on.
 
-## Notebook results (cross-engine)
+## DataFrame SQL cells (cross-engine)
 
-A cell whose target is **Resultados del notebook** runs DuckDB SQL over the
-results of the cells above it, each one a table named after its cell. One
+Each cell's result is a **DataFrame** with the cell's name (`c1`,
+`ventas`…), and so is a file read with `read_csv`, `st_read` and the other
+readers. A **DataFrame SQL** cell (target **DataFrames**; its header says
+*DataFrame SQL · DuckDB*) queries and joins those DataFrames on your
+computer with [DuckDB's SQL](https://duckdb.org/docs/stable/sql/introduction),
+using no connection: each DataFrame is a table named after its cell. One
 notebook can query PostgreSQL in one cell, SQL Server in another and MongoDB
 in a third, and join them in a fourth:
 
@@ -157,9 +163,9 @@ GROUP BY ALL
   it opens, and keeps them once saved.
 - **What gets loaded.** Only the cells the SQL names as tables, read outside
   strings and comments (`t.c1` is a column, not a table), and only cells
-  above it. A source that is itself on Notebook results is loaded as its
-  query over the tables above it (`CREATE TABLE … AS`), so results cells can
-  build on each other; it must be a single query.
+  above it. A source that is itself a DataFrame SQL cell is loaded as its
+  query over the tables above it (`CREATE TABLE … AS`), so DataFrame SQL
+  cells can build on each other; it must be a single query.
 - **Where the rows come from.** Never from a preview read from the file.
   - The source's **run in this session**, when it ran exactly its current
     text on its current target and nothing cut it (not truncated by the
@@ -197,7 +203,7 @@ GROUP BY ALL
 
 ### Reading local files
 
-A results cell can also read local data files with DuckDB's readers and
+A DataFrame SQL cell can also read local data files with DuckDB's readers and
 join them with the cells' tables:
 
 ```sql
@@ -230,8 +236,8 @@ JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
   full.
 - **Rows and cache:** a file read is a table like a cell's: capped at the
   same rows per table (and said), and read again only when the call
-  changes or a file's size or modification time does. A results cell that
-  reads a file can be used as a table by the cells below it, and is built
+  changes or a file's size or modification time does. A DataFrame SQL cell
+  that reads a file can be used as a table by the cells below it, and is built
   again when the file changes.
 - **Only reads.** The files are read in a DuckDB session of their own,
   granted exactly those files (`allowed_paths`) and then locked down like
@@ -287,7 +293,7 @@ GROUP BY ALL
   (the dialog shows the file with *"+ N archivos asociados"*, listed in its
   tooltip; one answer covers them; *Permitir siempre* grants each one, so a
   sidecar that appears later asks again), and a change in any of them reads
-  the file again and raises the change notice. The *Tablas:* line shows the
+  the file again and raises the change notice. The *DataFrames:* line shows the
   file with *"+ N archivos asociados"*, and its tooltip lists them.
 - **Parameters:** `layer`, `keep_wkb`, `max_batch_size` and
   `open_options`, with literal values. `open_options` takes only these GDAL
@@ -320,7 +326,7 @@ GROUP BY ALL
   that isn't WKB keeps the column as text, and the cell says so.
 - **Spatial functions in the cell** (`ST_Contains`, `ST_Point`…) need the
   `spatial` extension in the notebook's database too: when a cell (or a
-  results cell it uses) calls an `ST_…` function or `st_read`, the
+  DataFrame SQL cell it uses) calls an `ST_…` function or `st_read`, the
   notebook's database is opened with `spatial` loaded before the lockdown
   (a database opened without it is opened again, and its tables are loaded
   again as needed). If the extension can't be fetched, the cell says so.
@@ -424,12 +430,12 @@ in one place (`allowed_files` in `src-tauri/src/notebook/files.rs`, rules in
   grants and that token's files cover every one of them (a new file is
   asked about again); the token works once, for that tab and notebook, for
   15 minutes. A blocked file is refused whatever the token says. No MCP
-  tool or assistant tool runs a results cell.
+  tool or assistant tool runs a DataFrame SQL cell.
 - **Content change notice** (it doesn't stop the run): each run keeps, for
   each file read, its size, modification time and SHA-256, per notebook.
   The hash is computed only when the size or the modification time changed
   since the stored record (no big file is hashed on every run). When a file
-  read before has a different hash, the result's *Tablas:* line says
+  read before has a different hash, the result's *DataFrames:* line says
   *"cambió desde la última ejecución (fecha anterior → fecha nueva)"*. An
   unsaved notebook keeps no records.
 - **Where it lives:** the grants and the records are in DBine's local
@@ -447,7 +453,7 @@ in one place (`allowed_files` in `src-tauri/src/notebook/files.rs`, rules in
 
 ### The DuckDB database
 
-- One per notebook tab, **in memory only**, opened on the first results cell
+- One per notebook tab, **in memory only**, opened on the first DataFrame SQL cell
   and closed with the tab: nothing is written to disk, and closing the tab
   drops every loaded table. It is a database of its own (the DuckDB driver's
   `isolated` option), shared with no DuckDB connection of the app.
@@ -468,7 +474,7 @@ in one place (`allowed_files` in `src-tauri/src/notebook/files.rs`, rules in
   through the driver's bulk load (DuckDB's appender), never through SQL
   that reads files in this session. No connection names, hosts or
   credentials reach it, and the `.ipynb` stores only the cell names and
-  `{ "results": true }`.
+  `{ "dataframes": true }`.
 
 ## The result and what is saved
 
@@ -569,8 +575,8 @@ AI proposes, the user runs.
 **Version 1 (this one):** the file format, SQL and text cells, targets (connection,
 database or project environment), running, previews with their limits, the
 three AI actions, notebooks from elsewhere, export to HTML and Markdown, and
-[Notebook results](#notebook-results-cross-engine): cells that join the
-results of cells on different engines.
+[DataFrame SQL cells](#dataframe-sql-cells-cross-engine): cells that join the
+results of cells on different engines and local files.
 
 **Later:**
 - **Run notebook** as a step of a [scheduled task](scheduled-tasks.md),

@@ -44,7 +44,7 @@ import { useUiStore } from '../stores/ui';
 // A cell runs exactly as the query editor runs: same command, same
 // confirmation of dangerous statements, same read-only rules (the backend's),
 // same history. One backend session per connection and database.
-// A cell on "Resultados del notebook" runs DuckDB SQL over the results of
+// A cell on "DataFrame SQL" runs DuckDB SQL over the results of
 // the cells above, named as tables by the cells' names, on the tab's own
 // in-memory DuckDB session (notebook_run_local; docs/notebooks.md).
 
@@ -227,7 +227,7 @@ function changeKind(cell: NotebookCell, kind: 'sql' | 'markdown') {
 function setEditing(cell: NotebookCell, on: boolean) {
   if (on) editing.add(cell.id); else editing.delete(cell.id);
 }
-/** A new name (its table for "Resultados del notebook" cells): a plain identifier, unique in the notebook. */
+/** A new name (its table for "DataFrame SQL" cells): a plain identifier, unique in the notebook. */
 function renameCell(cell: NotebookCell, name: string) {
   const problem = cellNameProblem(nb.value!.cells, cell.id, name);
   if (problem) { ElMessage.error({ message: t(`notebook:name.${problem}`, { name }), duration: 4000 }); return; }
@@ -269,7 +269,7 @@ function resolved(cell: NotebookCell | null) {
   void aliasSeq.value;
   return resolveTarget(storedTarget(cell), props.tab.projectId, fileKey.value);
 }
-/** The cell runs on "Resultados del notebook" (its own target, else the notebook's). */
+/** The cell runs on "DataFrame SQL" (its own target, else the notebook's). */
 function isLocal(cell: NotebookCell | null): boolean {
   return isResultsTarget(storedTarget(cell));
 }
@@ -381,7 +381,7 @@ function schemaFor(connectionId: string, database: string): Record<string, strin
   return out;
 }
 const userSnippets = computed(() => settings.get<UserSnippet[]>(SNIPPETS_SETTING, []));
-/** A "Resultados del notebook" cell's completion: the cells above as tables, with their columns. */
+/** A "DataFrame SQL" cell's completion: the cells above as tables, with their columns. */
 function localSchema(cell: NotebookCell): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   const cells = nb.value?.cells ?? [];
@@ -401,7 +401,7 @@ const contexts = computed<Record<string, CellContext>>(() => {
       const duck = conns.drivers.find((d) => d.id === 'duckdb');
       out[c.id] = {
         language: 'sql', dialect: duck?.dialect, schema: localSchema(c), snippets: snippetsFor(duck, userSnippets.value),
-        target: t('notebook:target.results'), overridden: !emptyTarget(c.target), unresolved: false,
+        target: t('notebook:target.dataframeSql'), overridden: !emptyTarget(c.target), unresolved: false,
         localFiles: true, grantedFiles: grantedFiles.value,
       };
       continue;
@@ -467,13 +467,13 @@ onBeforeUnmount(() => { if (columnsTimer) clearTimeout(columnsTimer); });
 
 // -- running ----------------------------------------------------------------------------------------
 /** This session's runs, with every row (the file keeps only a preview). Not deep. */
-/** `source`: null for a "Resultados del notebook" cell (no connection);
+/** `source`: null for a "DataFrame SQL" cell (no connection);
  *  `run`: the run counter it got; `loaded`: such a cell's tables. */
 interface LiveRun { outcome: QueryOutcome; source: { connectionId: string; database: string; sql: string } | null; run?: number; loaded?: LoadedTable[] }
 const live = shallowReactive<Record<string, LiveRun>>({});
 /** A run's id, unique in this app session (unlike the [n] counter, never
  *  reset nor repeated when the view mounts again): what the backend's cached
- *  tables of "Resultados del notebook" cells are keyed by. Microseconds. */
+ *  tables of "DataFrame SQL" cells are keyed by. Microseconds. */
 let lastRunId = 0;
 function nextRunId(): number {
   lastRunId = Math.max(lastRunId + 1, Math.floor((performance.timeOrigin + performance.now()) * 1000));
@@ -638,7 +638,7 @@ async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string
   return ok;
 }
 
-/** A "Resultados del notebook" cell: its DuckDB SQL over the cells above,
+/** A "DataFrame SQL" cell: its DuckDB SQL over the cells above,
  *  each one it names loaded as a table (the backend says which; their
  *  targets are resolved and connected here first). A source's rows come
  *  from its complete run here, else its query runs again on its own
@@ -675,7 +675,7 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
   runningId.value = cell.id;
   runningSession = sessionId;
   const ranAt = new Date();
-  const where = t('notebook:target.results');
+  const where = t('notebook:target.dataframeSql');
   cell.language = 'sql';
   let ok = false;
   try {

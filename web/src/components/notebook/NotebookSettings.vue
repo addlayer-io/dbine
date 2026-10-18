@@ -9,7 +9,7 @@ import {
 // Configuración › Notebooks: how much of each cell's result a notebook file
 // keeps (docs/notebooks.md › The result and what is saved). The screen
 // always shows the whole result; only the file is cut. Also the rows per
-// table a "Resultados del notebook" cell loads, and the local files
+// table a "DataFrame SQL" cell loads, and the local files
 // notebooks may read ("Permitir siempre").
 
 const settings = useSettingsStore();

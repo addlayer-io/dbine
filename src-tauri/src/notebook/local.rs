@@ -1,5 +1,5 @@
-//! "Resultados del notebook": a cell that queries the results of the cells
-//! above it as tables, with DuckDB (docs/notebooks.md › Notebook results).
+//! "DataFrame SQL": a cell that queries the results of the cells
+//! above it as tables, with DuckDB (docs/notebooks.md › DataFrame SQL cells).
 //!
 //! - Every SQL cell has a **name** ([`valid_name`]); a cell whose target is
 //!   the notebook's results runs DuckDB SQL in which those names are tables.
@@ -623,7 +623,7 @@ pub fn uses_spatial(sql: &str) -> bool {
 
 /// [`SANDBOX`], then a check that it holds.
 pub async fn sandbox(s: &mut dyn Session) -> CommandResult<()> {
-    let fail = |e: String| CommandError::Internal(format!("no se pudo aislar la base de los resultados del notebook: {e}"));
+    let fail = |e: String| CommandError::Internal(format!("no se pudo aislar la base en memoria de las celdas DataFrame SQL: {e}"));
     let mut out = QueryOutcome::default();
     s.execute(SANDBOX, 10, &mut out).await.map_err(|e| fail(e.to_string()))?;
     if let Some(e) = out.error {
@@ -744,7 +744,7 @@ async fn load_rows(s: &mut dyn Session, name: &str, columns: &[ResultColumn], ro
             Err(e) if types.iter().all(|t| *t == DuckType::Varchar) => return Err(e),
             Err(e) => e,
         };
-        tracing::debug!(%first, "notebook results: «{name}» loaded as text, then cast");
+        tracing::debug!(%first, "DataFrame SQL: «{name}» loaded as text, then cast");
         let stage = format!("{name}__dbine_text");
         let text = vec![DuckType::Varchar; columns.len()];
         let n = load_table(s, &stage, columns, rows, &text).await?;

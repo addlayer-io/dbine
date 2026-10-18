@@ -42,9 +42,11 @@ pub struct NotebookTarget {
     /// A project environment's name (`.dbine.json`).
     #[serde(default)]
     pub environment: Option<String>,
-    /// "Resultados del notebook": the cell runs DuckDB SQL over the results
-    /// of the cells above (`notebook::local`), on no connection. Stored as
-    /// `{"results": true}`, with no connection name.
+    /// "DataFrame SQL": the cell runs DuckDB SQL over the results of the
+    /// cells above (each one a DataFrame) and local files
+    /// (`notebook::local`), on no connection. Written as
+    /// `{"dataframes": true}`, with no connection name; the earlier
+    /// `{"results": true}` is still read.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub results: bool,
 }
@@ -294,8 +296,8 @@ fn read_target(v: Option<&Value>, w: &mut Warnings) -> Option<NotebookTarget> {
     if m.keys().any(|k| is_credential_key(k)) {
         w.credentials = true;
     }
-    // The notebook's results: nothing else applies.
-    if m.get("results").and_then(Value::as_bool) == Some(true) {
+    // DataFrame SQL (`results` is how it was first written): nothing else applies.
+    if ["dataframes", "results"].iter().any(|k| m.get(*k).and_then(Value::as_bool) == Some(true)) {
         return Some(NotebookTarget { results: true, ..Default::default() });
     }
     let name = |k: &str| str_of(m, k).map(str::trim).filter(|s| !s.is_empty()).map(String::from);
@@ -1001,7 +1003,7 @@ fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_count: Opti
 
 fn target_json(t: &NotebookTarget) -> Option<Value> {
     if t.results {
-        return Some(json!({ "results": true }));
+        return Some(json!({ "dataframes": true }));
     }
     let mut m = Map::new();
     for (k, v) in [("connection", &t.connection), ("database", &t.database), ("environment", &t.environment)] {
@@ -1445,7 +1447,7 @@ mod tests {
     }
 
     #[test]
-    fn cell_names_and_the_results_target_round_trip() {
+    fn cell_names_and_the_dataframe_sql_target_round_trip() {
         let mut nb = notebook(vec![sql_cell("a", "SELECT 1", None), sql_cell("b", "SELECT * FROM ventas", None)]);
         nb.cells[0].name = Some("ventas".into());
         nb.cells[1].name = Some("c2".into());
@@ -1454,7 +1456,7 @@ mod tests {
         let v: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["cells"][0]["metadata"]["dbine"]["name"], "ventas");
         // No connection name is made up for it.
-        assert_eq!(v["cells"][1]["metadata"]["dbine"]["target"], json!({ "results": true }));
+        assert_eq!(v["cells"][1]["metadata"]["dbine"]["target"], json!({ "dataframes": true }));
         let back = parse(&text).unwrap();
         assert_eq!(back.cells[0].name.as_deref(), Some("ventas"));
         assert_eq!(back.cells[1].name.as_deref(), Some("c2"));
@@ -1470,6 +1472,24 @@ mod tests {
         let nb = parse(bad).unwrap();
         assert_eq!(nb.cells.iter().map(|c| c.name.as_deref()).collect::<Vec<_>>(), vec![Some("Ventas"), None, None]);
         assert_eq!(nb.cells[2].target, Some(NotebookTarget { results: true, ..Default::default() }));
+    }
+
+    #[test]
+    fn the_earlier_results_target_is_still_read_and_written_as_dataframes() {
+        let df = NotebookTarget { results: true, ..Default::default() };
+        let file = |target: &str| {
+            format!(r#"{{"nbformat":4,"nbformat_minor":5,"metadata":{{"dbine":{{"version":1}}}},"cells":[{{"cell_type":"code","id":"x","metadata":{{"dbine":{{"target":{target}}}}},"outputs":[],"source":"SELECT 1"}}]}}"#)
+        };
+        for target in [r#"{"results":true}"#, r#"{"dataframes":true}"#, r#"{"dataframes":true,"connection":"Ventas"}"#] {
+            let nb = parse(&file(target)).unwrap();
+            assert_eq!(nb.cells[0].target, Some(df.clone()), "{target}");
+            // Saved again: the new form, nothing else.
+            let v: Value = serde_json::from_str(&serialize(&nb, PreviewLimits::default())).unwrap();
+            assert_eq!(v["cells"][0]["metadata"]["dbine"]["target"], json!({ "dataframes": true }), "{target}");
+        }
+        // `false` is no target of its own; a connection beside it still reads.
+        let nb = parse(&file(r#"{"dataframes":false,"connection":"Ventas"}"#)).unwrap();
+        assert_eq!(nb.cells[0].target, Some(NotebookTarget { connection: Some("Ventas".into()), ..Default::default() }));
     }
 
     #[test]

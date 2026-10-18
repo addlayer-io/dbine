@@ -1,6 +1,6 @@
 // view=nbxresults[&theme=light][&dialog=1][&full=1][&set=geo]
 //   A notebook's cells (NotebookCell.vue) querying three engines, and a
-//   "Resultados del notebook" cell joining their results in DuckDB, with
+//   "DataFrame SQL" cell joining their results in DuckDB, with
 //   the tables it loaded. dialog=1: the target dialog with that option.
 //   full=1: the whole NotebookView over an untitled draft of those cells
 //   (the last one never run), for its editor's completion. set=geo: a
@@ -123,11 +123,11 @@ function geoCell(params: URLSearchParams) {
   const ran = new Date('2026-10-18T14:32:05Z');
   const o = outcome(GEO.columns, GEO.rows, 92);
   const cell = cellOf({ name: 'zonas', source: GEO.source, language: 'sql' }, 2, true);
-  cell.result = outcomeToResult(o, { script: GEO.source, ranAt: ran, engine: 'duckdb', targetLabel: 'Resultados del notebook' });
+  cell.result = outcomeToResult(o, { script: GEO.source, ranAt: ran, engine: 'duckdb', targetLabel: 'DataFrame SQL' });
   cell.chart = { view: 'map' };
   const ctx: CellContext = {
     language: 'sql', dialect: 'standard', schema: { ventas_pg: ['id', 'cliente', 'total', 'lon', 'lat'] },
-    snippets: [], target: 'Resultados del notebook', overridden: true, unresolved: false, localFiles: true, grantedFiles: [],
+    snippets: [], target: 'DataFrame SQL', overridden: true, unresolved: false, localFiles: true, grantedFiles: [],
   };
   return h('div', { style: `width: ${params.get('w') ?? 1100}px; padding: 8px 18px 20px 6px; background: var(--ide-editor); display: flex; flex-direction: column; gap: 10px` }, [
     h(NotebookCellView, {
@@ -150,12 +150,12 @@ export function notebookResultsPreview(params: URLSearchParams) {
   });
   const o = outcome(JOIN.columns, JOIN.rows, 64);
   const cell = cellOf({ name: 'resumen', source: JOIN.source, language: 'sql' }, 4, true);
-  cell.result = outcomeToResult(o, { script: JOIN.source, ranAt: ran, engine: 'duckdb', targetLabel: 'Resultados del notebook' });
+  cell.result = outcomeToResult(o, { script: JOIN.source, ranAt: ran, engine: 'duckdb', targetLabel: 'DataFrame SQL' });
   rows.push({
     cell, live: o, loaded: LOADED,
     ctx: {
       language: 'sql', dialect: 'standard', schema: Object.fromEntries(SAMPLES.map((s) => [s.name, s.columns.map((c) => c.name)])),
-      snippets: [], target: 'Resultados del notebook', overridden: true, unresolved: false, localFiles: true, grantedFiles: [],
+      snippets: [], target: 'DataFrame SQL', overridden: true, unresolved: false, localFiles: true, grantedFiles: [],
     },
   });
   return h('div', { style: `width: ${params.get('w') ?? 1100}px; padding: 8px 18px 20px 6px; background: var(--ide-editor); display: flex; flex-direction: column; gap: 10px` }, [

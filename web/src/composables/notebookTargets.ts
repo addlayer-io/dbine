@@ -64,7 +64,7 @@ export type Resolution =
   /** `none`: no target at all; `connection`: no local connection by that
    *  name (`name`), or several (`candidates`: their ids); `environment`:
    *  the project's environment isn't bound here (or doesn't exist);
-   *  `results`: "Resultados del notebook", which runs on no connection
+   *  `results`: "DataFrame SQL", which runs on no connection
    *  (the notebook view runs it on its DuckDB session). */
   | { ok: false; problem: 'none' | 'connection' | 'environment' | 'results'; name: string | null; candidates?: string[] };
 
@@ -121,7 +121,7 @@ export function resolveTarget(target: NotebookTarget | null, projectId?: string 
 /** How a target reads on screen without resolving it ("Ventas prod › ventas", "dev"). */
 export function targetText(target: NotebookTarget | null): string {
   if (emptyTarget(target)) return t('notebook:target.none');
-  if (target!.results) return t('notebook:target.results');
+  if (target!.results) return t('notebook:target.dataframeSql');
   if (target!.environment) return target!.environment;
   return target!.database ? `${target!.connection} › ${target!.database}` : target!.connection!;
 }

@@ -8,7 +8,7 @@ import ProjectTargetPicker from '../ProjectTargetPicker.vue';
 import EngineIcon from '../EngineIcon.vue';
 
 // Where a notebook (or one cell) runs: a connection and database, the
-// project's environment, or "Resultados del notebook" (DuckDB over the
+// project's environment, or "DataFrame SQL" (DuckDB over the
 // results of the cells above, on no connection). `map`: the file names a connection this machine
 // doesn't have (or several share that name); the user says which one it
 // is, once.

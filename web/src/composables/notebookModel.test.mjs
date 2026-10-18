@@ -91,7 +91,7 @@ test('prompts per target language; the outline fences each cell in its language'
   assert.equal(outline(cells, 1), '```redis\nGET k\n```\n\n```sql\nSELECT 1\n```');
 });
 
-// -- cell names and "Resultados del notebook" --------------------------------------------------
+// -- cell names and "DataFrame SQL" --------------------------------------------------
 
 const sql = (name, source = 'SELECT 1') => ({ ...newCell('sql', source), name });
 const md = () => newCell('markdown', '# t');
