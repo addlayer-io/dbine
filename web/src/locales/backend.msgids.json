@@ -821,6 +821,9 @@
  "Actian Zen respalda con la herramienta butil (-startbu / -endbu), no con SQL": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "Action": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "Activa (active)": [
   "crates/drivers/couchbase/src/properties.rs"
  ],
@@ -1381,6 +1384,9 @@
   "crates/drivers/orientdb/src/lib.rs",
   "crates/drivers/orientdb/src/monitor.rs"
  ],
+ "Arn": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "Arquitectura (bits)": [
   "crates/drivers/redis/src/monitor.rs"
  ],
@@ -1532,6 +1538,7 @@
   "crates/drivers/odbc/src/security/netezza.rs",
   "crates/drivers/oracle/src/properties.rs",
   "crates/drivers/oracle/src/security.rs",
+  "crates/drivers/postgres/src/cloud_auth.rs",
   "crates/drivers/snowflake/src/lib.rs",
   "crates/drivers/snowflake/src/security.rs",
   "crates/drivers/solr/src/security.rs",
@@ -4017,6 +4024,9 @@
  "Con AUTO_CLOSE la base se cierra cuando no hay conexiones y cada apertura vacía la caché.": [
   "crates/drivers/sqlserver/src/health.rs"
  ],
+ "Con AWS IAM, Google Cloud IAM o Entra ID, DBine pide un token nuevo antes de cada conexión con las credenciales de esta máquina (aws, gcloud o az): no hace falta pegar tokens que vencen. Exigen TLS con el certificado del servidor verificado. El usuario es el de la base (el usuario IAM, la cuenta o el grupo).": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "Con DEFINER, el código nuevo corre con los permisos de su dueño, aunque quien lo llame tenga menos: es un riesgo de seguridad.": [
   "crates/drivers/firebird/src/properties.rs"
  ],
@@ -4764,10 +4774,10 @@
  "Contraseña del wallet": [
   "crates/drivers/oracle/src/lib.rs"
  ],
- "Contraseña o token de IAM (gcloud sql generate-login-token); el token exige TLS.": [
+ "Contraseña o un token IAM pegado. Para no pegar tokens que vencen, elegí Autenticación → AWS IAM.": [
   "crates/drivers/mysql/src/lib.rs"
  ],
- "Contraseña o token de autenticación IAM (aws rds generate-db-auth-token); el token exige TLS.": [
+ "Contraseña o un token de IAM pegado. Para no pegar tokens que vencen, elegí Autenticación → Google Cloud IAM.": [
   "crates/drivers/mysql/src/lib.rs"
  ],
  "Contraseña vence": [
@@ -5111,6 +5121,9 @@
  ],
  "Cuenta de Google": [
   "crates/drivers/bigquery/src/security.rs"
+ ],
+ "Cuenta de Google Cloud": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "Cuenta de servicio": [
   "crates/drivers/bigquery/src/security.rs"
@@ -8759,6 +8772,9 @@
  "Expirar documentos (segundos)": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
+ "Expiration": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "Exportación Data Pump": [
   "crates/drivers/oracle/src/backup.rs"
  ],
@@ -9555,7 +9571,8 @@
   "src-tauri/src/commands/datagen.rs"
  ],
  "Google": [
-  "crates/drivers/bigquery/src/gcp.rs"
+  "crates/drivers/bigquery/src/gcp.rs",
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "Google rechazó las credenciales: {0}": [
   "crates/drivers/bigquery/src/gcp.rs"
@@ -10564,6 +10581,9 @@
  ],
  "Inmutable": [
   "crates/drivers/neo4j/src/security.rs"
+ ],
+ "Inquilino de Entra ID (tenant)": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "Inserciones": [
   "crates/drivers/firebird/src/monitor.rs",
@@ -12083,6 +12103,7 @@
  ],
  "Login": [
   "crates/drivers/odbc/src/security/sybase.rs",
+  "crates/drivers/postgres/src/cloud_auth.rs",
   "crates/drivers/snowflake/src/security.rs",
   "crates/drivers/sqlserver/src/security.rs"
  ],
@@ -13041,6 +13062,7 @@
   "crates/drivers/postgres/src/session.rs"
  ],
  "Metadata": [
+  "crates/drivers/postgres/src/cloud_auth.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Metadatos": [
@@ -15726,8 +15748,17 @@
  "Opcional: la CA que firmó el certificado del servidor, en PEM.": [
   "crates/drivers/postgres/src/lib.rs"
  ],
+ "Opcional: la cuenta de gcloud que pide el token. Vacía: la activa en gcloud (gcloud auth login), las credenciales predeterminadas de la aplicación o la cuenta de servicio de la máquina.": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "Opcional: nombre del tenant cuando el puerto es el de SYSTEMDB (3<instancia>13).": [
   "crates/drivers/hana/src/lib.rs"
+ ],
+ "Opcional: sin él vale el inquilino de la cuenta de az login.": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "Opcional: un perfil de ~/.aws/config (también con SSO o credential_process). Vacío: las variables AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, AWS_PROFILE o el perfil default.": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "Opciones": [
   "crates/drivers/neo4j/src/properties.rs",
@@ -16325,6 +16356,9 @@
   "crates/drivers/odbc/src/security.rs",
   "crates/drivers/odbc/src/security/sqlstd.rs",
   "crates/drivers/odbc/src/security/teradata.rs"
+ ],
+ "Perfil de AWS": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "Perfil de ~/.aws": [
   "crates/drivers/dynamodb/src/aws.rs"
@@ -17443,6 +17477,9 @@
  ],
  "Región (datacenter)": [
   "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "Región de AWS": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "Región de los jobs (US, EU, southamerica-east1…). Vacía = la del dataset.": [
   "crates/drivers/bigquery/src/lib.rs"
@@ -20312,6 +20349,9 @@
  "TIMESTAMP guarda milisegundos salvo que la base se cree con PRECISION 'us' o 'ns'.": [
   "crates/dbine-schema/src/dialect/tdengine.rs"
  ],
+ "TLS: el paquete de CA de Amazon RDS no se pudo leer: {0}": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
  "TRACING no está en DBine: «Ejecutar + plan» muestra el trace de la consulta.": [
   "crates/drivers/cassandra/src/lib.rs"
  ],
@@ -22044,7 +22084,8 @@
   "crates/drivers/elasticsearch/src/security.rs"
  ],
  "Usuario y contraseña": [
-  "crates/drivers/mongodb/src/lib.rs"
+  "crates/drivers/mongodb/src/lib.rs",
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "Usuarios": [
   "crates/drivers/influxdb/src/monitor.rs",
@@ -22194,6 +22235,9 @@
  ],
  "Vacía: se quita la etiqueta.": [
   "crates/drivers/bigquery/src/properties.rs"
+ ],
+ "Vacía: se toma del endpoint (….us-east-1.rds.amazonaws.com), de AWS_REGION o del perfil.": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "Vacía: sin cuota (0).": [
   "crates/drivers/oracle/src/properties.rs"
@@ -23176,6 +23220,7 @@
   "crates/drivers/couchdb/src/monitor.rs"
  ],
  "argumentos no válidos": [
+  "crates/drivers/postgres/src/cloud_auth.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "arreglo de {0}": [
@@ -23810,6 +23855,18 @@
  "credenciales de usuario incompletas": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
+ "credenciales predeterminadas de la aplicación": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "credential_process falló: {0}": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "credential_process no respondió en {0} s": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "credential_process no se pudo ejecutar: {0}": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "creándose": [
   "crates/drivers/dynamodb/src/admin.rs",
   "crates/drivers/dynamodb/src/backup.rs"
@@ -24040,6 +24097,9 @@
  ],
  "dev harness not started: no token file": [
   "src-tauri/src/devtools.rs"
+ ],
+ "devolvió algo que no es JSON": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "dice ser la versión 0.9.0+p1.e3": [
   "crates/dbine-plugin/src/remote.rs"
@@ -24675,8 +24735,14 @@
  "el host SSH no es de confianza todavía: conectate una vez desde una terminal": [
   "src-tauri/src/commands/git_cli.rs"
  ],
+ "el inicio de sesión con la nube manda un token que no puede ir a un servidor sin verificar: desmarcá «Confiar en el certificado del servidor» e indicá la CA si hace falta": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "el inquilino (tenant ID) no es válido": [
   "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "el inquilino «{0}» no es válido": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "el instante {0} tiene más precisión que la base de destino (PRECISION '{1}'); TDengine lo recortaría y las filas que quedan con la misma marca de tiempo se pisan entre sí. Creá la base de destino con una precisión más fina.": [
   "crates/drivers/tdengine/src/transfer.rs"
@@ -26422,6 +26488,9 @@
  "falló la conexión segura con {0} ({1}): revisá que la seguridad elegida corresponda al puerto (STARTTLS con 587, SSL/TLS con 465)": [
   "src-tauri/src/tasks/mail.rs"
  ],
+ "falló la lectura: {0}": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "falló la negociación TLS: {0}": [
   "crates/drivers/neo4j/src/bolt.rs"
  ],
@@ -26565,6 +26634,9 @@
  "falta el usuario de dominio (DOMINIO\\usuario)": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "falta el usuario de la base (el que tiene el permiso rds_iam / AWSAuthenticationPlugin)": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "falta en el clon «{0}»": [
   "crates/dbine-transfer/src/clone_table/mysql.rs"
  ],
@@ -26645,6 +26717,9 @@
  ],
  "falta la región de AWS": [
   "crates/drivers/dynamodb/src/aws.rs"
+ ],
+ "falta la región de AWS (no se pudo deducir del endpoint): indicala en el formulario": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "falta la ruta": [
   "src-tauri/src/commands/project_paths.rs"
@@ -27688,6 +27763,9 @@
  "la copia no informó la tabla": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "la cuenta de Google Cloud «{0}» no es válida": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "la cuenta es federada pero ADFS no publica sus metadatos (MEX)": [
   "crates/drivers/sqlserver/src/entra.rs"
  ],
@@ -27948,6 +28026,9 @@
  "la rama no existe en el remoto: hacé Push": [
   "src-tauri/src/commands/projects_git.rs"
  ],
+ "la región de AWS «{0}» no es válida": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "la región principal no se puede vaciar: para que la base deje de ser multirregión, quitá sus regiones (la principal, la última)": [
   "crates/drivers/postgres/src/properties.rs"
  ],
@@ -28193,8 +28274,14 @@
   "crates/drivers/sqlserver/src/babelfish.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "la versión de Flathub de DBine no puede usar la CLI de AWS ni credential_process: el sandbox de Flatpak no tiene acceso a los programas del sistema. Usá claves en AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY o en ~/.aws/credentials, o la versión de DBine de dbine.com": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "la versión de Flathub de DBine no puede usar la CLI de Azure (az): el sandbox de Flatpak no tiene acceso a los programas del sistema. Creá la regla desde el portal de Azure, con T-SQL o con «az» en una terminal": [
   "src-tauri/src/commands/azure_firewall.rs"
+ ],
+ "la versión de Flathub de DBine no puede usar «{0}»: el sandbox de Flatpak no tiene acceso a los programas del sistema. Usá la versión de DBine de dbine.com, o un token como contraseña": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "la vista": [
   "crates/drivers/mysql/src/rename_db.rs",
@@ -28269,6 +28356,15 @@
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/sqlserver/src/babelfish.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "las credenciales de AWS no traen AccessKeyId y SecretAccessKey": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "las credenciales de AWS no vinieron en JSON": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "las credenciales de AWS traen una fecha de vencimiento no válida": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "las entradas de un stream de Redis no se pueden modificar": [
   "crates/drivers/redis/src/ddl.rs"
@@ -28715,6 +28811,9 @@
  "muestra de operaciones: «{0}» no es un número entre 0 y 1": [
   "crates/drivers/mongodb/src/properties.rs"
  ],
+ "mysql cancel: no new cloud token: {0}": [
+  "crates/drivers/mysql/src/session.rs"
+ ],
  "máx. escrituras a demanda": [
   "crates/drivers/dynamodb/src/monitor.rs"
  ],
@@ -28817,6 +28916,12 @@
  "no credentials": [
   "crates/drivers/sqlserver/src/lib.rs"
  ],
+ "no devolvió JSON": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "no devolvió un token": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "no driver {0}": [
   "src-tauri/src/commands/grid_new_rows_live_tests.rs",
   "src-tauri/src/optimizer/live_tests.rs"
@@ -28910,6 +29015,9 @@
  ],
  "no existe el objeto «{0}» en «{1}» (list_objects muestra los que hay)": [
   "src-tauri/src/mcp/tools.rs"
+ ],
+ "no existe el perfil de AWS «{0}» en ~/.aws/config ni en ~/.aws/credentials": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "no existe el rol «{0}»": [
   "crates/drivers/mysql/src/security/doris.rs"
@@ -29111,9 +29219,18 @@
  "no registra consultas": [
   "crates/drivers/postgres/src/profiler.rs"
  ],
+ "no responde (DBine no corre en la nube)": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "no responde: {0}": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "no respondió": [
   "mobile/src-tauri/src/lib.rs",
   "src-tauri/src/tasks/headless.rs"
+ ],
+ "no respondió a tiempo": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "no respondió en 20 s": [
   "crates/dbine-tunnel/src/lib.rs"
@@ -29261,6 +29378,9 @@
  ],
  "no se pudieron listar": [
   "crates/drivers/odbc/src/odbc.rs"
+ ],
+ "no se pudieron obtener credenciales de AWS para el perfil «{0}»: {1}": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "no se pudo abrir el catálogo «{0}»: {1}": [
   "crates/drivers/flightsql/src/lib.rs"
@@ -29831,6 +29951,9 @@
  ],
  "no se pudo obtener un token de Microsoft Entra ID con la autenticación predeterminada. Se probó:\n{0}": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "no se pudo obtener un token de {0}. Se probó:\n{1}": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "no se pudo pausar la consulta {0}: {1}": [
   "crates/drivers/ksqldb/src/processes.rs"
@@ -30717,6 +30840,15 @@
   "crates/drivers/cassandra/src/properties.rs",
   "crates/drivers/mysql/src/properties.rs"
  ],
+ "respondió {0}": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "respondió {0}: {1}": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "respuesta HTTP no válida": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "respuesta RowBinary inválida: {0}": [
   "crates/drivers/clickhouse/src/transfer.rs"
  ],
@@ -30857,12 +30989,14 @@
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
  ],
  "ruta del programa no válida": [
+  "crates/drivers/postgres/src/cloud_auth.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "ruta en Keeper": [
   "crates/drivers/clickhouse/src/create_db.rs"
  ],
  "ruta o argumentos del programa no válidos": [
+  "crates/drivers/postgres/src/cloud_auth.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "rápido": [
@@ -30922,6 +31056,7 @@
   "crates/dbine-sync/src/crypto.rs"
  ],
  "salida no válida": [
+  "crates/drivers/postgres/src/cloud_auth.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "salud": [
@@ -31152,6 +31287,9 @@
  ],
  "servidor": [
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "servidor de metadatos": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "sesión": [
   "crates/drivers/drill/src/lib.rs",
@@ -31529,6 +31667,7 @@
   "crates/drivers/flightsql/src/lib.rs"
  ],
  "terminó con {0}": [
+  "crates/drivers/postgres/src/cloud_auth.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "texto de hasta {0}": [
@@ -32302,6 +32441,9 @@
  "{0} (trigger): su definición guardada en el origen lo nombra {1}, en otro esquema (su tabla cambió de esquema); no se clona": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
+ "{0} (variables de entorno)": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "{0} ({1} de {2} réplicas activas)": [
   "crates/drivers/clickhouse/src/health.rs"
  ],
@@ -32348,6 +32490,7 @@
   "crates/dbine-tunnel/src/lib.rs"
  ],
  "{0} (¿falta {1}?)": [
+  "crates/drivers/postgres/src/cloud_auth.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "{0} = 1 (estaba en {1})": [
@@ -34482,11 +34625,20 @@
  "«{0}» no está declarada en el esquema: se mueve el valor en cada registro de {1} (y de sus subclases) que la tiene.": [
   "crates/drivers/orientdb/src/rename.rs"
  ],
+ "«{0}» no está instalada": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
  "«{0}» no está unida a las demás tablas: se combina con todas sus filas (CROSS JOIN)": [
   "src-tauri/src/commands/query_builder.rs"
  ],
  "«{0}» no puede estar dentro de «{1}»: solo los campos object o nested tienen subcampos.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "«{0}» no respondió en {1} s": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "«{0}» no se pudo ejecutar: {1}": [
+  "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "«{0}» no se puede usar en un recurso de OrientDB": [
   "crates/drivers/orientdb/src/security.rs"

@@ -2914,12 +2914,13 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-mysql"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "dbine-driver",
  "futures",
  "mysql_async",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
  "tracing",
 ]
@@ -2999,13 +3000,14 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-postgres"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "dbine-driver",
  "futures",
  "native-tls",
  "postgres-native-tls",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
  "tokio-postgres",
  "tracing",

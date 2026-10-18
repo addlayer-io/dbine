@@ -8,6 +8,10 @@
 mod backup;
 mod blocking;
 mod cells;
+/// Cloud sign-in (AWS IAM, Google Cloud IAM, Entra ID), shared with the
+/// PostgreSQL driver.
+#[path = "../../postgres/src/cloud_auth.rs"]
+pub(crate) mod cloud_auth;
 mod create_db;
 mod design;
 mod health;
@@ -89,6 +93,18 @@ impl Variant {
     /// as the password (mysql_clear_password, over TLS).
     fn iam_tokens(self) -> bool {
         matches!(self, Variant::AuroraMySql | Variant::CloudSqlMySql)
+    }
+
+    /// The cloud sign-ins the form offers: MySQL itself (RDS, Azure
+    /// Database for MySQL, Cloud SQL by IP) gets the three; RDS for MariaDB
+    /// takes AWS IAM; each managed product, its own cloud.
+    fn cloud_offer(self) -> cloud_auth::Offer {
+        match self {
+            Variant::MySql => cloud_auth::Offer { aws: true, gcp: true, azure: true },
+            Variant::MariaDb | Variant::AuroraMySql => cloud_auth::Offer { aws: true, ..Default::default() },
+            Variant::CloudSqlMySql => cloud_auth::Offer { gcp: true, ..Default::default() },
+            _ => cloud_auth::Offer::default(),
+        }
     }
 
     fn default_port(self) -> u16 {
@@ -204,6 +220,7 @@ impl Variant {
                 .ssl(),
         );
         managed_fields(product, &mut fields);
+        cloud_auth::adapt(&mut fields, product.cloud_offer());
         DriverInfo {
             id,
             name,
@@ -231,11 +248,11 @@ fn managed_fields(product: Variant, fields: &mut [Field]) {
     let (encrypt_help, password_help) = match product {
         Variant::AuroraMySql => (
             "Aurora acepta TLS; para verificar el certificado, indicá el paquete de CA de Amazon RDS (global-bundle.pem).",
-            "Contraseña o token de autenticación IAM (aws rds generate-db-auth-token); el token exige TLS.",
+            "Contraseña o un token IAM pegado. Para no pegar tokens que vencen, elegí Autenticación → AWS IAM.",
         ),
         Variant::CloudSqlMySql => (
             "Cloud SQL puede exigir TLS; indicá el server-ca.pem de la instancia para verificarlo. Los certificados de cliente no están soportados: usá el Cloud SQL Auth Proxy si la instancia los exige.",
-            "Contraseña o token de IAM (gcloud sql generate-login-token); el token exige TLS.",
+            "Contraseña o un token de IAM pegado. Para no pegar tokens que vencen, elegí Autenticación → Google Cloud IAM.",
         ),
         Variant::VeloDb => ("VeloDB Cloud exige TLS en los endpoints públicos.", ""),
         _ => return,
@@ -415,7 +432,6 @@ impl Driver for MySqlDriver {
             .ip_or_hostname(if cfg.host.is_empty() { "localhost" } else { cfg.host.as_str() })
             .tcp_port(cfg.port_or(v.default_port()))
             .user(cfg.username.as_deref().filter(|u| !u.is_empty()))
-            .pass(cfg.password.as_deref())
             .db_name(db.clone())
             .prefer_socket(false);
         if !v.is_mysql_server() {
@@ -423,16 +439,39 @@ impl Driver for MySqlDriver {
             // which not every emulation answers.
             builder = builder.max_allowed_packet(Some(64 * 1024 * 1024)).wait_timeout(Some(28_800));
         }
-        if cfg.encrypt {
+        // A cloud sign-in: a new token before every connect (the app opens
+        // every session through here; the session signs again for its own
+        // reconnects).
+        let spec = cloud_auth::Spec { default_port: v.default_port(), gcp_access_token: false, mysql: true };
+        let cloud = cloud_auth::login(cfg, spec).await?;
+        match &cloud {
+            Some(login) => {
+                builder = builder.pass(Some(login.password.clone()));
+                if let (Some(u), true) = (&login.user, cfg.username.as_deref().is_none_or(|u| u.is_empty())) {
+                    builder = builder.user(Some(u.clone()));
+                }
+            }
+            None => builder = builder.pass(cfg.password.as_deref()),
+        }
+        if cfg.encrypt || cloud.is_some() {
+            let ca = cfg.option("ca_cert").map(str::trim).filter(|p| !p.is_empty());
+            // Only the chain is checked when the certificate can't name the
+            // host dialed: through an SSH tunnel (127.0.0.1), and Cloud SQL's
+            // (it names the instance, not its IP) with its CA.
+            let tunnel = cloud.is_some() && cfg.option(cloud_auth::ORIGIN_HOST).is_some();
+            let cloud_sql = ca.is_some() && (self.product == Variant::CloudSqlMySql || cloud_auth::method(cfg) == Some(cloud_auth::GCP));
             let mut ssl = SslOpts::default()
                 .with_danger_accept_invalid_certs(cfg.trust_server_certificate)
-                .with_danger_skip_domain_validation(cfg.trust_server_certificate);
-            if let Some(ca) = cfg.option("ca_cert").map(str::trim).filter(|p| !p.is_empty()) {
+                .with_danger_skip_domain_validation(cfg.trust_server_certificate || tunnel || cloud_sql);
+            if let Some(ca) = ca {
                 ssl = ssl.with_root_certs(vec![std::path::PathBuf::from(ca).into()]);
+            } else if cloud_auth::method(cfg) == Some(cloud_auth::AWS) || self.product == Variant::AuroraMySql {
+                // Amazon's RDS CAs are in no system store.
+                ssl = ssl.with_root_certs(vec![cloud_auth::RDS_CA_BUNDLE.into()]);
             }
             builder = builder.ssl_opts(ssl);
-            // IAM tokens go as mysql_clear_password, only over TLS.
-            if self.product.iam_tokens() {
+            // IAM and Entra ID tokens go as mysql_clear_password, only over TLS.
+            if self.product.iam_tokens() || cloud.is_some() {
                 builder = builder.enable_cleartext_plugin(true);
             }
         }
@@ -454,7 +493,14 @@ impl Driver for MySqlDriver {
                 tracing::debug!("{}: {s}: {e}", self.info.id);
             }
         }
-        Ok(Box::new(MySqlSession::new(conn, opts, self.product, db)))
+        let mut session = MySqlSession::new(conn, opts, self.product, db);
+        if let Some(login) = cloud {
+            session.identity = login.identity;
+            let mut again = cfg.clone();
+            again.options.remove(cloud_auth::DESCRIBE);
+            session.relogin = Some(Arc::new((again, spec)));
+        }
+        Ok(Box::new(session))
     }
 }
 
@@ -679,6 +725,24 @@ mod tests {
         // Manticore: comments don't split, no DELIMITER.
         let units = get("manticore").split_script("SELECT 1 /* ; */; -- x;\nSELECT 2");
         assert_eq!(units.len(), 2, "{units:?}");
+    }
+
+    #[test]
+    fn cloud_sign_ins_match_the_product() {
+        let offered = |id: &str| -> Vec<&'static str> {
+            let d = drivers().into_iter().find(|d| d.info().id == id).unwrap();
+            match d.info().fields.iter().find(|f| f.key == cloud_auth::AUTH).map(|f| f.kind.clone()) {
+                Some(FieldKind::Select(o)) => o.into_iter().map(|o| o.0).collect(),
+                _ => vec![],
+            }
+        };
+        assert_eq!(offered("mysql"), [cloud_auth::PASSWORD, cloud_auth::AWS, cloud_auth::GCP, cloud_auth::AZURE]);
+        assert_eq!(offered("mariadb"), [cloud_auth::PASSWORD, cloud_auth::AWS]);
+        assert_eq!(offered("aurora-mysql"), [cloud_auth::PASSWORD, cloud_auth::AWS]);
+        assert_eq!(offered("cloudsql-mysql"), [cloud_auth::PASSWORD, cloud_auth::GCP]);
+        for id in ["tidb", "singlestore", "starrocks", "velodb", "manticore"] {
+            assert!(offered(id).is_empty(), "{id}");
+        }
     }
 
     #[test]

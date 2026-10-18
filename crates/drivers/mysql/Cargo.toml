@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-mysql"
-version = "0.1.9"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+version = "0.1.10"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 
@@ -11,3 +11,6 @@ serde_json.workspace = true
 tracing.workspace = true
 mysql_async = { version = "0.37.1", features = ["native-tls-tls"] }
 futures.workspace = true
+# Cloud sign-in (../postgres/src/cloud_auth.rs): SHA-256 for the AWS SigV4
+# token, the same release mysql_async already uses.
+sha2 = "0.10"
