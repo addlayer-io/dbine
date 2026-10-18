@@ -391,6 +391,7 @@ const contexts = computed<Record<string, CellContext>>(() => {
       out[c.id] = {
         language: 'sql', dialect: duck?.dialect, schema: localSchema(c), snippets: snippetsFor(duck, userSnippets.value),
         target: t('notebook:target.results'), overridden: !emptyTarget(c.target), unresolved: false,
+        localFiles: true, grantedFiles: [],
       };
       continue;
     }

@@ -27,5 +27,7 @@
     "notLoaded": "The database objects haven't loaded yet: connect to go to the definition."
   },
   "insertColumn": "Column {{n}} of {{total}}: {{name}}",
-  "insertExtra": "Value {{n}}: the list has {{total}} columns"
+  "insertExtra": "Value {{n}}: the list has {{total}} columns",
+  "pickFile": "Choose file…",
+  "dataFiles": "Data files (CSV, Parquet, JSON, Excel)"
 }

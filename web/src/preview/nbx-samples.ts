@@ -1,8 +1,12 @@
-// view=nbxresults[&theme=light][&dialog=1]
+// view=nbxresults[&theme=light][&dialog=1][&full=1]
 //   A notebook's cells (NotebookCell.vue) querying three engines, and a
 //   "Resultados del notebook" cell joining their results in DuckDB, with
 //   the tables it loaded. dialog=1: the target dialog with that option.
+//   full=1: the whole NotebookView over an untitled draft of those cells
+//   (the last one never run), for its editor's completion.
 import { h } from 'vue';
+import NotebookView from '../views/NotebookView.vue';
+import { notebookDraftKey, type NotebookTab } from '../stores/tabs';
 import NotebookCellView, { type CellContext } from '../components/notebook/NotebookCell.vue';
 import NotebookTargetDialog from '../components/notebook/NotebookTargetDialog.vue';
 import type { Cell, LoadedTable, NotebookCell, QueryOutcome, ResultColumn } from '../api/types';
@@ -55,7 +59,30 @@ function cellOf(s: { name: string; source: string; language: string }, n: number
   return c;
 }
 
+/** full=1: NotebookView itself, its cells from an untitled draft. */
+function fullNotebook(params: URLSearchParams) {
+  const ran = new Date('2026-10-18T14:32:05Z');
+  const cells = SAMPLES.map((s, i) => {
+    const cell = cellOf(s, i + 1, false);
+    cell.result = outcomeToResult(outcome(s.columns, s.rows, s.ms), { script: s.source, ranAt: ran, engine: s.engine, targetLabel: s.target });
+    return cell;
+  });
+  // Never run: still a table, without columns.
+  const pending = cellOf({ name: 'pendiente', source: 'SELECT 1 AS uno', language: 'sql' }, 0, true);
+  pending.execution_count = null;
+  const last = cellOf({ name: 'resumen', source: '', language: 'sql' }, 0, true);
+  last.execution_count = null;
+  const tab: NotebookTab = { id: 'nbx-full', kind: 'notebook', connectionId: '', database: '', preview: false, untitled: 1 };
+  try {
+    localStorage.setItem(notebookDraftKey(tab.id), JSON.stringify({
+      target: null, save_results: true, save_results_set: true, cells: [...cells, pending, last], origin: 'dbine', extra_metadata: {}, warnings: [],
+    }));
+  } catch { /* storage blocked */ }
+  return h('div', { style: `width: ${params.get('w') ?? 1100}px; height: ${params.get('h') ?? 900}px; display: flex; background: var(--ide-editor)` }, [h(NotebookView, { tab })]);
+}
+
 export function notebookResultsPreview(params: URLSearchParams) {
+  if (params.get('full')) return fullNotebook(params);
   const ran = new Date('2026-10-18T14:32:05Z');
   const rows = SAMPLES.map((s, i) => {
     const o = outcome(s.columns, s.rows, s.ms);
@@ -69,7 +96,10 @@ export function notebookResultsPreview(params: URLSearchParams) {
   cell.result = outcomeToResult(o, { script: JOIN.source, ranAt: ran, engine: 'duckdb', targetLabel: 'Resultados del notebook' });
   rows.push({
     cell, live: o, loaded: LOADED,
-    ctx: { language: 'sql', dialect: 'standard', schema: { ventas_pg: ['id', 'cliente', 'total', 'dia'] }, snippets: [], target: 'Resultados del notebook', overridden: true, unresolved: false },
+    ctx: {
+      language: 'sql', dialect: 'standard', schema: Object.fromEntries(SAMPLES.map((s) => [s.name, s.columns.map((c) => c.name)])),
+      snippets: [], target: 'Resultados del notebook', overridden: true, unresolved: false, localFiles: true, grantedFiles: [],
+    },
   });
   return h('div', { style: `width: ${params.get('w') ?? 1100}px; padding: 8px 18px 20px 6px; background: var(--ide-editor); display: flex; flex-direction: column; gap: 10px` }, [
     ...rows.map((r, i) => h(NotebookCellView, {
