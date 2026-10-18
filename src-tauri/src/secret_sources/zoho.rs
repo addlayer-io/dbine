@@ -114,7 +114,13 @@ async fn access_token(client: &reqwest::Client, ep: &Endpoints, creds: &Creds) -
     let key = token_cache_key(ep, creds);
     {
         let mut c = TOKENS.lock().unwrap_or_else(|e| e.into_inner());
-        c.retain(|_, (until, _)| *until > Instant::now());
+        c.retain(|_, (until, t)| {
+            let keep = *until > Instant::now();
+            if !keep {
+                wipe(t);
+            }
+            keep
+        });
         if let Some((_, t)) = c.get(&key) {
             return Ok(t.clone());
         }

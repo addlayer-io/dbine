@@ -39,6 +39,8 @@ const missing = computed(() => missingInputs(draft.value));
 
 function setKind(k: DraftKind) {
   draft.value.kind = k;
+  // Zoho Vault always needs its passphrase.
+  if (k === 'zoho' && draft.value.master === 'none') draft.value.master = 'keychain';
 }
 
 async function browse(input: 'ca_file' | 'file' | 'key_file') {
