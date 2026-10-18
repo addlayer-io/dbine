@@ -412,6 +412,17 @@ impl StateStore {
                  run_json   TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS task_runs_by_task ON task_runs(task_id, started_at);
+             -- Secret-manager accounts (secret_accounts.rs): this machine's
+             -- only, never in the snapshot; their secrets are in the keychain.
+             CREATE TABLE IF NOT EXISTS secret_accounts (
+                 id          TEXT PRIMARY KEY,
+                 kind        TEXT NOT NULL,
+                 label       TEXT NOT NULL,
+                 identity    TEXT NOT NULL DEFAULT '',
+                 config_json TEXT NOT NULL,
+                 created_at  TEXT NOT NULL,
+                 updated_at  TEXT NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS settings (
                  key   TEXT PRIMARY KEY,
                  value TEXT NOT NULL
@@ -542,7 +553,7 @@ impl StateStore {
         Ok(())
     }
 
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+    pub(crate) fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
         self.conn.lock().map_err(|_| Error::State("state store poisoned".into()))
     }
 
