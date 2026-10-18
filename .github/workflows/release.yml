@@ -135,6 +135,7 @@ jobs:
     needs: [route, driver-shards]
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    environment: ${{ matrix.environment }}
     strategy:
       fail-fast: false
       matrix:
@@ -142,6 +143,9 @@ jobs:
           - name: windows-x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
+            # The code-signing secrets live in this environment, which asks
+            # the owner to approve each run.
+            environment: windows-signing
           - name: macos-arm64
             os: macos-latest
             target: aarch64-apple-darwin
@@ -278,6 +282,30 @@ jobs:
             exit 1
           fi
 
+      # Windows: Authenticode signing with Certum's cloud certificate
+      # (SimplySign) through ssign, pinned. Tauri runs scripts/win-sign.py
+      # for each binary it builds, before the updater signs the installer.
+      - name: Windows code signing
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          CERTUM_EMAIL: ${{ secrets.CERTUM_EMAIL }}
+          CERTUM_OTP: ${{ secrets.CERTUM_OTP }}
+        run: |
+          if [ -z "$CERTUM_EMAIL" ] || [ -z "$CERTUM_OTP" ]; then
+            echo "::error::Missing CERTUM_* secrets (environment windows-signing): Windows can't be signed."
+            exit 1
+          fi
+          cargo install ssign@0.1.8 --locked
+          python - <<'PY'
+          import json, os
+          path = "src-tauri/tauri.updater.conf.json"
+          conf = json.load(open(path))
+          script = os.path.join(os.environ["GITHUB_WORKSPACE"], "scripts", "win-sign.py")
+          conf["bundle"].setdefault("windows", {})["signCommand"] = {"cmd": "python", "args": [script, "%1"]}
+          json.dump(conf, open(path, "w"), indent=2)
+          PY
+
       # The app below is built without the downloadable drivers' crates
       # (`--no-default-features`); this checks every crate it does compile
       # gets the same features as in a build with every driver, so leaving
@@ -306,6 +334,9 @@ jobs:
           APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
           APPLE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
+          # Windows: read by ssign (scripts/win-sign.py).
+          CERTUM_EMAIL: ${{ runner.os == 'Windows' && secrets.CERTUM_EMAIL || '' }}
+          CERTUM_OTP: ${{ runner.os == 'Windows' && secrets.CERTUM_OTP || '' }}
           # Cloud sync app registrations (docs/sync.md); empty
           # when the secrets aren't set: the providers show as unavailable.
           DBINE_GOOGLE_CLIENT_ID: ${{ secrets.DBINE_GOOGLE_CLIENT_ID }}
@@ -345,6 +376,20 @@ jobs:
           codesign -dvv "$app" 2>&1 | grep -E "^(Authority|TeamIdentifier|Runtime)"
           xcrun stapler validate "$app"
           spctl -a -vv -t exec "$app"
+
+      # The installer and the app it carries are signed by Certum's
+      # certificate with a timestamp, and Windows accepts the signature.
+      - name: Check Windows signature
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = "target/${{ matrix.target }}/release/bundle"
+          $files = @(Get-ChildItem "$bundle/nsis/*-setup.exe") + @(Get-Item "target/${{ matrix.target }}/release/dbine.exe")
+          foreach ($f in $files) {
+            $s = Get-AuthenticodeSignature $f.FullName
+            "{0}: {1} · {2} · timestamp: {3}" -f $f.Name, $s.Status, $s.SignerCertificate.Subject, ($null -ne $s.TimeStamperCertificate)
+            if ($s.Status -ne 'Valid' -or $null -eq $s.TimeStamperCertificate) { exit 1 }
+          }
 
       - name: Keep drivers as artifacts (manual runs and local releases)
         if: ${{ needs.route.outputs.publish != 'true' }}
@@ -593,7 +638,7 @@ jobs:
           Version 0.1.4 and later receive it through the automatic update.
 
           - **macOS**: signed with an Apple Developer ID and notarized by Apple, so it opens without warnings.
-          - **Windows**: not signed yet; SmartScreen may ask for "More info" › "Run anyway".
+          - **Windows**: the `-setup.exe` installer is signed (Open Source Developer Marcos Panichella, Certum). While the certificate builds its reputation, SmartScreen may still ask for "More info" › "Run anyway".
           - Each engine's driver (except SQLite) is downloaded the first time you connect.
           EOF
           } > notes.md
