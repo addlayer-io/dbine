@@ -16,6 +16,7 @@ import { addTrusted, askTrustSshHost } from '../composables/sshTrust';
 import { TAG_SUGGESTIONS, tagColor, tagsInUse } from '../composables/tags';
 import { mcpApi, type McpLevel } from '../api/mcp';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
+import { inFocusedEditor } from '../stores/editorGroups';
 
 // New / edit connection, as an editor tab. Step 1 picks the engine; step 2 is
 // the form the driver declares (its `fields`). Secret fields are never read
@@ -312,7 +313,7 @@ async function save() {
 // conectar", when this tab is the visible one and no dialog is open.
 const root = ref<HTMLDivElement | null>(null);
 function onSaveKey(e: KeyboardEvent) {
-  if (!isSaveShortcut(e) || inCodeEditor(e) || !root.value?.offsetParent) return;
+  if (!isSaveShortcut(e) || inCodeEditor(e) || !inFocusedEditor(root.value)) return;
   e.preventDefault();
   if (step.value === 'form' && !saving.value && !modalOpen()) save();
 }

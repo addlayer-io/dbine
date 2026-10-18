@@ -1,6 +1,6 @@
 // Development only (not part of the app build): renders UI pieces with
 // sample data in a plain browser, to look at them without Tauri or a
-// database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|dependencies
+// database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|split|dependencies
 // |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
 // |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
 // |query[&sample=editor] (⌘-click, unknown names, parameters, snippets: preview/editor-samples.ts)
@@ -47,6 +47,7 @@ import ExplorerSidebar from '../components/ExplorerSidebar.vue';
 import { installKeysPreview } from './keys-samples';
 import EditorTabs from '../components/EditorTabs.vue';
 import { installTabsPreview } from './tabs-samples';
+import { installSplitPreview, setupSplitConnections, splitPreview } from './split-samples';
 import { sampleDependents } from './dependencies-samples';
 import DependenciesView from '../views/DependenciesView.vue';
 import QueryView from '../views/QueryView.vue';
@@ -228,7 +229,7 @@ if (view === 'feedback') {
 
 const app = createApp({
   render: () =>
-    view === 'projects' ? h(App) : view === 'timeline' ? h(TimelinePreview) : h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
+    view === 'projects' ? h(App) : view === 'split' ? splitPreview() : view === 'timeline' ? h(TimelinePreview) : h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
       view === 'tabs' ? h('div', { style: 'width: 1100px; background: var(--ide-editor)' }, [h(EditorTabs)]) :
       view === 'keys' ? h('div', { style: 'width: 340px; height: 640px; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
       view === 'connection' ? connectionTab() : view === 'monitor'
@@ -353,6 +354,7 @@ if (view === 'rename') {
   setTimeout(() => { if (renameDialog.value) renameDialog.value.name = params.get('name') ?? 'ClientesActivos'; }, 300);
 }
 if (view === 'tabs') installTabsPreview();
+if (view === 'split') { installSplitPreview(params); setupSplitConnections(); }
 if (view === 'projects') installProjectsPreview();
 if (view === 'timeline') installTimelinePreview();
 for (const [name, comp] of Object.entries(Icons)) app.component(`Ei${name}`, comp as never);
