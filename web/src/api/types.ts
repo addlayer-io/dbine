@@ -193,6 +193,35 @@ export interface ConnectionConfig {
   options: Record<string, string>;
 }
 
+/** Where a secret field takes its value when it isn't kept in the keychain
+ *  (src-tauri: dbine_core::secret_sources::SecretSource; docs/secret-sources.md).
+ *  Stored as JSON in the `secret_sources` option, by field key. */
+export type SecretSource =
+  | { kind: 'command'; command: string; json_key?: string }
+  | { kind: 'onepassword'; reference: string; account?: string; json_key?: string }
+  | { kind: 'vault'; address: string; path: string; key: string; namespace?: string; kv_version?: '1' | '2'; ca_file?: string }
+  | { kind: 'aws'; secret_id: string; region?: string; profile?: string; json_key?: string; fill_username?: boolean }
+  | { kind: 'azure'; vault_url: string; name: string; version?: string; json_key?: string }
+  | { kind: 'gcp'; project: string; secret: string; version?: string; json_key?: string };
+export type SecretSourceKind = SecretSource['kind'];
+
+/** A `secret_source_approval` error's `approval`: the definition to confirm. */
+export interface SecretSourceApproval {
+  connection_id: string | null;
+  connection_name: string;
+  field: string;
+  /** The field's label (a backend message: `tb()` it). */
+  field_label: string;
+  source: SecretSource;
+}
+
+/** "Probar" of a secret field's source: only the value's length. */
+export interface SecretSourceTest {
+  chars: number;
+  /** The secret also had a `username` (AWS, "fill the user"). */
+  username: boolean;
+}
+
 /** Fields of the form that map to typed config fields (the rest are options). */
 export const TYPED_FIELDS = [
   'host', 'port', 'database', 'username', 'password', 'encrypt', 'trust_server_certificate', 'read_only',

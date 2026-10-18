@@ -307,6 +307,11 @@ pub fn set_vault_path(path: PathBuf) {
     let _ = VAULT_PATH.set(path);
 }
 
+/// The folder the vault is in (the app's config folder), if it was set.
+pub fn vault_dir() -> Option<PathBuf> {
+    VAULT_PATH.get().and_then(|p| p.parent().map(Path::to_path_buf))
+}
+
 /// Run `f` on the vault (opened on first use), or return `None` when there's
 /// no vault path.
 fn with_vault<T>(f: impl FnOnce(&mut Vault) -> Result<T>) -> Option<Result<T>> {

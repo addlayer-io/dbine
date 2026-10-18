@@ -6,12 +6,15 @@ import { useTranslation } from 'i18next-vue';
 import { tb } from '../i18n/backend';
 import { isMaskedField } from '../composables/secretFields';
 import { api, errorMessage } from '../api/client';
-import { FAMILY_LABELS, TYPED_FIELDS, type ConnectionConfig, type DriverInfo, type Family, type Field, type SavedConnection } from '../api/types';
+import { FAMILY_LABELS, TYPED_FIELDS, type ConnectionConfig, type DriverInfo, type Family, type Field, type SavedConnection, type SecretSource } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type ConnectionFormTab } from '../stores/tabs';
 import EngineIcon from '../components/EngineIcon.vue';
 import FolderPicker from '../components/FolderPicker.vue';
 import SshTunnelSection, { type SshValues } from '../components/SshTunnelSection.vue';
+import SecretSourcePicker from '../components/SecretSourcePicker.vue';
+import { draftFrom, isExternal, missingInputs, readSources, sourceFrom, TOKEN_PREFIX, writeSources, type SourceDraft } from '../composables/secretSources';
+import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { addTrusted, askTrustSshHost } from '../composables/sshTrust';
 import { TAG_SUGGESTIONS, tagColor, tagsInUse } from '../composables/tags';
 import { mcpApi, type McpLevel } from '../api/mcp';
@@ -60,6 +63,9 @@ const tagOptions = computed(() => {
   return all.filter((t, i) => all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i);
 });
 const values = reactive<Record<string, string | boolean>>({});
+/** Where each secret field takes its value (docs/secret-sources.md), by
+ *  field key; the SSH tunnel's as `ssh.password` / `ssh.passphrase`. */
+const drafts = reactive<Record<string, SourceDraft>>({});
 /** The SSH tunnel (`ssh.*` options; docs/ssh-tunnels.md). */
 const SSH_EMPTY: SshValues = { enabled: false, host: '', port: '', user: '', auth: 'password', password: '', key_path: '', passphrase: '', jump: '', trusted: '' };
 const ssh = ref<SshValues>({ ...SSH_EMPTY });
@@ -172,6 +178,10 @@ function pick(d: DriverInfo, existing: SavedConnection | null = null) {
     values[f.key] = f.kind.type === 'bool' ? f.default === 'true' : f.key === 'port' ? String(d.default_port || '') : f.default;
   }
   const o = existing?.config.options ?? {};
+  const sources = readSources(o);
+  for (const k of Object.keys(drafts)) delete drafts[k];
+  for (const f of d.fields.filter((f) => f.secret)) drafts[f.key] = draftFrom(sources[f.key], f.key === 'password' && !!existing && !existing.save_password);
+  for (const k of ['ssh.password', 'ssh.passphrase']) drafts[k] = draftFrom(sources[k]);
   ssh.value = {
     ...SSH_EMPTY,
     enabled: o['ssh.enabled'] === 'true', host: o['ssh.host'] ?? '', port: o['ssh.port'] ?? '', user: o['ssh.user'] ?? '',
@@ -202,7 +212,6 @@ function pick(d: DriverInfo, existing: SavedConnection | null = null) {
   step.value = 'form';
 }
 
-const secretFields = computed(() => shownFields.value.filter((f) => f.secret));
 
 function buildConfig(): ConnectionConfig {
   const d = driver.value!;
@@ -210,8 +219,20 @@ function buildConfig(): ConnectionConfig {
     driver: d.id, host: '', port: 0, database: '', username: null, password: null,
     encrypt: false, trust_server_certificate: false, read_only: false, options: {},
   };
+  const sources: Record<string, SecretSource> = {};
+  /** A field whose value comes from a source: its definition (and a Vault
+   *  token typed for it) instead of a value. */
+  const sourced = (key: string): boolean => {
+    const dr = drafts[key];
+    const src = dr ? sourceFrom(dr, key) : null;
+    if (!src) return false;
+    sources[key] = src;
+    if (dr.kind === 'vault' && dr.token) cfg.options[`${TOKEN_PREFIX}${key}`] = dr.token;
+    return true;
+  };
   // Only the fields that apply: another auth method's leftovers aren't saved.
   for (const f of d.fields.filter((f) => visible(f))) {
+    if (f.secret && sourced(f.key)) continue;
     const v = values[f.key];
     switch (f.key) {
       case 'host': cfg.host = String(v ?? '').trim(); break;
@@ -232,10 +253,11 @@ function buildConfig(): ConnectionConfig {
     const set = (k: string, v: string) => { if (v.trim()) cfg.options[`ssh.${k}`] = v.trim(); };
     cfg.options['ssh.enabled'] = 'true';
     set('host', s.host); set('port', s.port); set('user', s.user); set('auth', s.auth); set('jump', s.jump);
-    if (s.auth === 'key') { set('key_path', s.key_path); if (s.passphrase) cfg.options['ssh.passphrase'] = s.passphrase; }
-    if (s.auth === 'password' && s.password) cfg.options['ssh.password'] = s.password;
+    if (s.auth === 'key') { set('key_path', s.key_path); if (!sourced('ssh.passphrase') && s.passphrase) cfg.options['ssh.passphrase'] = s.passphrase; }
+    if (s.auth === 'password' && !sourced('ssh.password') && s.password) cfg.options['ssh.password'] = s.password;
   }
   if (s.trusted.trim()) cfg.options['ssh.trusted'] = s.trusted.trim();
+  writeSources(cfg.options, sources);
   return cfg;
 }
 
@@ -245,15 +267,25 @@ function defaultName(): string {
   return where ? `${driver.value!.name} · ${where}` : driver.value!.name;
 }
 
+/** The user comes from the password's AWS secret ("Tomar también el usuario"). */
+const userFromSecret = computed(() => drafts.password?.kind === 'aws' && drafts.password.fill_username);
+
 const missing = computed(() => {
   const out: { label: string; section: Section }[] = shownFields.value
-    .filter((f) => f.required && !(f.secret && editing.value) && String(values[f.key] ?? '').trim() === '')
+    .filter((f) => f.required && !(f.secret && (editing.value || drafts[f.key]?.kind !== 'saved')) && !(f.key === 'username' && userFromSecret.value) && String(values[f.key] ?? '').trim() === '')
     .map((f) => ({ label: tb(f.label), section: sectionOf(f) }));
+  // A source without what it needs (the command, the Vault path…).
+  const inputs = (key: string, label: string, section: Section) => {
+    for (const k of missingInputs(drafts[key])) out.push({ label: `${label} · ${t(`connection:source.input.${k}`)}`, section });
+  };
+  for (const f of shownFields.value.filter((f) => f.secret)) inputs(f.key, tb(f.label), sectionOf(f));
   const s = ssh.value;
   if (networked.value && s.enabled) {
     if (!s.host.trim()) out.push({ label: t('tunnel:host'), section: 'ssh' });
     if (!s.user.trim()) out.push({ label: t('tunnel:user'), section: 'ssh' });
     if (s.auth === 'key' && !s.key_path.trim()) out.push({ label: t('tunnel:keyPath'), section: 'ssh' });
+    if (s.auth === 'password') inputs('ssh.password', t('tunnel:password'), 'ssh');
+    if (s.auth === 'key') inputs('ssh.passphrase', t('tunnel:passphrase'), 'ssh');
   }
   return out;
 });
@@ -265,6 +297,12 @@ async function test() {
     const r = await api.testConnection(buildConfig(), editing.value?.id ?? null);
     testResult.value = { ...r, message: tb(r.message) };
   } catch (e) {
+    // A field's source came from outside and isn't confirmed: show it, and
+    // test again if the user confirms it.
+    if (await askApproveSecretSource(e)) {
+      testing.value = false;
+      return test();
+    }
     // The tunnel's SSH server isn't known yet: trust it and test again.
     const entry = await askTrustSshHost(e);
     // Null if the server has another key accepted (it's forgotten first, in
@@ -294,7 +332,8 @@ async function save() {
       name: name.value.trim() || defaultName(),
       color: color.value || null,
       config: buildConfig(),
-      save_password: savePassword.value,
+      // "Preguntar cada vez" on the password; otherwise as it was.
+      save_password: shownFields.value.some((f) => f.key === 'password') ? drafts.password?.kind !== 'ask' : savePassword.value,
       folder_id: folder.value,
       tags: tags.value.map((t) => t.trim()).filter(Boolean),
       mcp_level: mcpLevel.value || null,
@@ -458,16 +497,26 @@ function selectOptions(f: Field): [string, string][] {
             </div>
           </el-form-item>
         </template>
-        <SshTunnelSection v-if="section === 'ssh'" v-model="ssh" :editing="!!editing" />
+        <SshTunnelSection v-if="section === 'ssh'" v-model="ssh" :editing="!!editing" :drafts="drafts" :connection-id="editing?.id ?? null" :driver="driver?.id ?? ''" />
         <template v-else>
           <div class="cd-fields">
             <el-form-item
               v-for="f in fieldsIn(section)"
               :key="f.key"
               :label="f.kind.type === 'bool' ? '' : tb(f.label)"
-              :required="f.required && !(f.secret && editing)"
-              :class="{ 'cd-wide': ['textarea', 'file'].includes(f.kind.type) || f.key === 'host' || controllers.has(f.key), 'cd-bool': f.kind.type === 'bool' }"
+              :required="f.required && !(f.secret && (editing || drafts[f.key]?.kind !== 'saved'))"
+              :class="{ 'cd-wide': ['textarea', 'file'].includes(f.kind.type) || f.key === 'host' || controllers.has(f.key) || (f.secret && isExternal(drafts[f.key])), 'cd-bool': f.kind.type === 'bool' }"
             >
+              <SecretSourcePicker
+                v-if="f.secret && drafts[f.key]"
+                v-model="drafts[f.key]"
+                :field="f.key"
+                :allow-ask="f.key === 'password'"
+                :connection-id="editing?.id ?? null"
+                :driver="driver.id"
+                :editing="!!editing"
+              />
+              <template v-if="!(f.secret && isExternal(drafts[f.key]))">
               <el-checkbox v-if="f.kind.type === 'bool'" v-model="values[f.key] as boolean">{{ tb(f.label) }}</el-checkbox>
               <el-select v-else-if="f.kind.type === 'select'" v-model="values[f.key] as string" style="width: 100%">
                 <el-option v-for="[v, l] in selectOptions(f)" :key="v" :label="tb(l)" :value="v" />
@@ -485,20 +534,18 @@ function selectOptions(f: Field): [string, string][] {
                 :type="isMaskedField(f) ? 'password' : 'text'"
                 :show-password="isMaskedField(f)"
                 :autocomplete="isMaskedField(f) ? 'new-password' : undefined"
-                :placeholder="f.secret && editing ? $t('connection:form.secretKeptFem') : f.key === 'port' ? String(driver.default_port || '') : tb(f.placeholder)"
+                :placeholder="f.secret && drafts[f.key]?.kind === 'ask' ? $t('connection:source.askPlaceholder') : f.secret && editing ? $t('connection:form.secretKeptFem') : f.key === 'port' ? String(driver.default_port || '') : tb(f.placeholder)"
               >
                 <template v-if="f.kind.type === 'file'" #append>
                   <el-button @click="browse(f)"><el-icon><ei-folder-opened /></el-icon></el-button>
                 </template>
               </el-input>
+              </template>
               <div v-if="f.help" class="cd-help">{{ tb(f.help) }}</div>
             </el-form-item>
           </div>
           <div v-if="section !== 'general' && !fieldsIn(section).length" class="cd-empty">{{ $t('tunnel:tabs.empty') }}</div>
         </template>
-        <el-checkbox v-if="section === 'general' && secretFields.length" v-model="savePassword">
-          {{ $t('connection:form.savePassword', { fields: secretFields.map((f) => tb(f.label).toLowerCase()).join($t('connection:form.and')) }) }}
-        </el-checkbox>
       </div>
       <div v-if="testResult && !testResult.ok" class="cd-test-error" role="alert">
         <el-icon><ei-circle-close-filled /></el-icon>

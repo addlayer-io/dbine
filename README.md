@@ -42,6 +42,13 @@ and queries are organized inside each database.
   computer's own credentials (AWS profiles and SSO, gcloud, az), so short-lived
   tokens are never pasted; they stay in memory only. Details:
   [`docs/cloud-authentication.md`](docs/cloud-authentication.md).
+- **Passwords from a command or a secret manager:** any secret field of any
+  engine, and the SSH tunnel's, can come from a command, 1Password, HashiCorp
+  Vault, AWS Secrets Manager, Azure Key Vault or Google Secret Manager,
+  resolved at each connection and kept in memory only. A definition that came
+  from elsewhere (an import, a restored backup) runs only after it's
+  confirmed on the computer. Details:
+  [`docs/secret-sources.md`](docs/secret-sources.md).
 - **Database context menu:**
   - new query, new table with a designer (and modify an existing one), new objects from templates;
   - ER diagram, generate script, export or import the database, run a script

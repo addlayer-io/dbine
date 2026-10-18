@@ -19,9 +19,11 @@
 //! disk, in the state file or in the logs, and the phone and MCP never see
 //! them (they only reach the database's login).
 //!
-//! The PostgreSQL crate owns this file; the MySQL crate includes it with
-//! `#[path]`, so it only depends on what both declare: `dbine-driver`,
-//! `serde_json`, `tokio` and `sha2` (0.10 or 0.11, same API here).
+//! The PostgreSQL crate owns this file; the MySQL crate and the app (the
+//! secret managers of src-tauri/src/secret_sources reuse the credential
+//! chains and SigV4) include it with `#[path]`, so it only depends on what
+//! all of them declare: `dbine-driver`, `serde_json`, `tokio` and `sha2`
+//! (0.10 or 0.11, same API here).
 
 // Each crate uses a different subset.
 #![allow(dead_code)]
@@ -61,7 +63,7 @@ const RDS_TOKEN_TTL: u64 = 900;
 /// Tokens whose expiry nobody tells (gcloud) are kept this long.
 const UNKNOWN_TTL: u64 = 10 * 60;
 
-fn now() -> u64 {
+pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
@@ -70,7 +72,7 @@ fn auth(msg: impl Into<String>) -> Error {
 }
 
 /// The first line of a message, at most `max` characters.
-fn short(msg: &str, max: usize) -> String {
+pub fn short(msg: &str, max: usize) -> String {
     let line = msg.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
     match line.char_indices().nth(max) {
         Some((i, _)) => format!("{}…", &line[..i]),
@@ -262,12 +264,12 @@ fn remember(key: String, token: &str, expires_on: u64) {
 // ------------------------------------------------------------- AWS IAM
 
 #[derive(Clone, PartialEq)]
-struct AwsCreds {
-    access_key_id: String,
-    secret_access_key: String,
-    session_token: Option<String>,
+pub struct AwsCreds {
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub session_token: Option<String>,
     /// Unix seconds; `None` for long-term keys.
-    expires_on: Option<u64>,
+    pub expires_on: Option<u64>,
 }
 
 impl std::fmt::Debug for AwsCreds {
@@ -322,7 +324,7 @@ fn valid_region(r: &str) -> bool {
 
 /// Where the credentials came from, for "Probar".
 #[derive(Debug, Clone, PartialEq)]
-enum AwsSource {
+pub enum AwsSource {
     Env,
     Profile(String),
 }
@@ -331,7 +333,7 @@ enum AwsSource {
 /// profile), the profile's static keys, its `credential_process`, and
 /// whatever else the AWS CLI resolves (SSO, assumed roles, the instance or
 /// container role).
-async fn aws_credentials(
+pub async fn aws_credentials(
     profile_named: bool,
     profile: &str,
     files: &AwsFiles,
@@ -458,13 +460,13 @@ fn mask(key: &str) -> String {
 /// `~/.aws/config` and `~/.aws/credentials` (or `AWS_CONFIG_FILE` and
 /// `AWS_SHARED_CREDENTIALS_FILE`), by profile.
 #[derive(Debug, Default)]
-struct AwsFiles {
+pub struct AwsFiles {
     config: HashMap<String, HashMap<String, String>>,
     credentials: HashMap<String, HashMap<String, String>>,
 }
 
 impl AwsFiles {
-    fn load(env: &impl Fn(&str) -> Option<String>) -> AwsFiles {
+    pub fn load(env: &impl Fn(&str) -> Option<String>) -> AwsFiles {
         let home = env("HOME").or_else(|| env("USERPROFILE")).map(PathBuf::from);
         let path = |var: &str, file: &str| env(var).map(PathBuf::from).or_else(|| home.as_ref().map(|h| h.join(".aws").join(file)));
         let read = |p: Option<PathBuf>| p.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
@@ -480,7 +482,7 @@ impl AwsFiles {
     }
 
     /// A profile's setting; the credentials file wins over the config.
-    fn get(&self, p: &str, key: &str) -> Option<String> {
+    pub fn get(&self, p: &str, key: &str) -> Option<String> {
         let from = |m: &HashMap<String, HashMap<String, String>>| m.get(p)?.get(key).filter(|v| !v.is_empty()).cloned();
         from(&self.credentials).or_else(|| from(&self.config))
     }
@@ -529,7 +531,7 @@ fn ini(text: &str, config: bool) -> HashMap<String, HashMap<String, String>> {
 
 // ----------------------------------------------------------- SigV4 / RDS
 
-fn sha256(parts: &[&[u8]]) -> [u8; 32] {
+pub fn sha256(parts: &[&[u8]]) -> [u8; 32] {
     let mut h = Sha256::new();
     for p in parts {
         h.update(p);
@@ -541,7 +543,7 @@ fn sha256(parts: &[&[u8]]) -> [u8; 32] {
 }
 
 /// HMAC-SHA256 (RFC 2104).
-fn hmac(key: &[u8], msg: &[u8]) -> [u8; 32] {
+pub fn hmac(key: &[u8], msg: &[u8]) -> [u8; 32] {
     let mut k = [0u8; 64];
     if key.len() > 64 {
         k[..32].copy_from_slice(&sha256(&[key]));
@@ -557,12 +559,12 @@ fn hmac(key: &[u8], msg: &[u8]) -> [u8; 32] {
     sha256(&[&opad, &inner])
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// SigV4's URI encoding: everything but `A-Z a-z 0-9 - _ . ~`.
-fn uri_encode(s: &str) -> String {
+pub fn uri_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
@@ -575,7 +577,7 @@ fn uri_encode(s: &str) -> String {
 }
 
 /// `20150830T123600Z` and `20150830` for Unix seconds (UTC).
-fn amz_date(unix: u64) -> (String, String) {
+pub fn amz_date(unix: u64) -> (String, String) {
     let days = (unix / 86_400) as i64;
     let secs = unix % 86_400;
     let (y, m, d) = civil_from_days(days);
@@ -722,7 +724,7 @@ fn gcp_db_user(email: &str, mysql: bool) -> String {
 /// gcloud with the account (or the active one), its application default
 /// credentials, then the metadata server: the token, when it expires and,
 /// from the metadata server, the service account's email.
-async fn gcp_token(account: Option<&str>, access_token: bool) -> Result<(String, u64, Option<String>)> {
+pub async fn gcp_token(account: Option<&str>, access_token: bool) -> Result<(String, u64, Option<String>)> {
     let mut tried = vec![];
     let mut args: Vec<&str> = if access_token { vec!["auth", "print-access-token"] } else { vec!["sql", "generate-login-token"] };
     if let Some(a) = account {
@@ -818,8 +820,20 @@ async fn azure_login(cfg: &ConnectionConfig, want_user: bool) -> Result<Login> {
 
 /// Azure CLI, Azure Developer CLI, then the managed identity.
 async fn azure_token(tenant: Option<&str>) -> Result<(String, u64)> {
+    azure_token_for(OSS_RDBMS, tenant).await
+}
+
+/// A token for `resource` (Azure Database's, Key Vault's…): Azure CLI,
+/// Azure Developer CLI, then the managed identity.
+pub async fn azure_token_for(resource: &str, tenant: Option<&str>) -> Result<(String, u64)> {
     let mut tried = vec![];
-    let mut args = vec!["account", "get-access-token", "--resource-type", "oss-rdbms", "--output", "json"];
+    let mut args = vec!["account", "get-access-token"];
+    if resource == OSS_RDBMS {
+        args.extend(["--resource-type", "oss-rdbms"]);
+    } else {
+        args.extend(["--resource", resource]);
+    }
+    args.extend(["--output", "json"]);
     if let Some(t) = tenant {
         args.extend(["--tenant", t]);
     }
@@ -827,7 +841,7 @@ async fn azure_token(tenant: Option<&str>) -> Result<(String, u64)> {
         Ok(t) => return Ok(t),
         Err(e) => tried.push(("Azure CLI", e)),
     }
-    let scope = format!("{OSS_RDBMS}/.default");
+    let scope = format!("{resource}/.default");
     let mut args = vec!["auth", "token", "--scope", scope.as_str(), "--output", "json"];
     if let Some(t) = tenant {
         args.extend(["--tenant-id", t]);
@@ -836,7 +850,7 @@ async fn azure_token(tenant: Option<&str>) -> Result<(String, u64)> {
         Ok(t) => return Ok(t),
         Err(e) => tried.push(("Azure Developer CLI", e)),
     }
-    match azure_msi().await {
+    match azure_msi(resource).await {
         Ok(t) => return Ok(t),
         Err(e) => tried.push(("identidad administrada", e)),
     }
@@ -861,8 +875,8 @@ fn parse_azd(stdout: &str) -> Result<(String, u64)> {
     Ok((access.to_string(), expires_on))
 }
 
-async fn azure_msi() -> Result<(String, u64)> {
-    let path = format!("/metadata/identity/oauth2/token?api-version=2018-02-01&resource={}", uri_encode(OSS_RDBMS));
+async fn azure_msi(resource: &str) -> Result<(String, u64)> {
+    let path = format!("/metadata/identity/oauth2/token?api-version=2018-02-01&resource={}", uri_encode(resource));
     let (status, body) = http_get(METADATA, &path, &[("Metadata", "true")]).await?;
     let json: Value = serde_json::from_str(&body).map_err(|_| auth(format!("respondió {status}")))?;
     if status != 200 {
@@ -910,7 +924,7 @@ fn number(v: Option<&Value>) -> Option<u64> {
 }
 
 /// One error that says what was tried and why each step failed.
-fn chain_error(cloud: &str, tried: &[(&str, Error)]) -> Error {
+pub fn chain_error(cloud: &str, tried: &[(&str, Error)]) -> Error {
     let lines: Vec<String> = tried.iter().map(|(what, e)| format!("- {what}: {}", short(&e.to_string(), 200))).collect();
     auth(format!("no se pudo obtener un token de {cloud}. Se probó:\n{}", lines.join("\n")))
 }
@@ -955,13 +969,13 @@ fn parse_http(buf: &[u8]) -> Option<(u16, String)> {
 
 /// The Flathub build: the sandbox has no aws, gcloud or az and can't run
 /// the system's (`/.flatpak-info` exists in every Flatpak sandbox).
-fn sandboxed() -> bool {
+pub fn sandboxed() -> bool {
     cfg!(target_os = "linux") && Path::new("/.flatpak-info").exists()
 }
 
 const SANDBOX_AWS: &str = "la versión de Flathub de DBine no puede usar la CLI de AWS ni credential_process: el sandbox de Flatpak no tiene acceso a los programas del sistema. Usá claves en AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY o en ~/.aws/credentials, o la versión de DBine de dbine.com";
 
-fn sandbox_message(name: &str) -> String {
+pub fn sandbox_message(name: &str) -> String {
     format!(
         "la versión de Flathub de DBine no puede usar «{name}»: el sandbox de Flatpak no tiene acceso a los programas del sistema. Usá la versión de DBine de dbine.com, o un token como contraseña"
     )
@@ -1006,7 +1020,7 @@ fn cli_candidates(name: &str, path: Option<&std::ffi::OsStr>, home: Option<&Path
     dirs.flat_map(|d| files.iter().map(move |f| d.join(f)).collect::<Vec<_>>()).collect()
 }
 
-fn find_cli(name: &str) -> Option<PathBuf> {
+pub fn find_cli(name: &str) -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
     cli_candidates(name, std::env::var_os("PATH").as_deref(), home.as_deref()).into_iter().find(|p| p.is_file())
 }
@@ -1056,7 +1070,7 @@ fn cli_command(program: &Path, args: &[&str]) -> Result<tokio::process::Command>
 
 /// Runs a CLI (no shell) and returns its standard output. `envs` are set
 /// and `remove` taken out of the child's environment only.
-async fn run_cli(name: &str, args: &[&str], envs: &[(&str, &str)], remove: &[&str], login: &str) -> Result<String> {
+pub async fn run_cli(name: &str, args: &[&str], envs: &[(&str, &str)], remove: &[&str], login: &str) -> Result<String> {
     if sandboxed() {
         return Err(auth(sandbox_message(name)));
     }
