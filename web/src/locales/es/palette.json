@@ -1,0 +1,104 @@
+{
+  "cmd": {
+    "file": {
+      "newConnection": "Nueva conexión…",
+      "newFolder": "Nueva carpeta de conexiones…",
+      "newScheduledTask": "Nueva tarea programada",
+      "closeOtherTabs": "Cerrar las otras pestañas",
+      "closeAllTabs": "Cerrar todas las pestañas"
+    },
+    "palette": {
+      "open": "Mostrar todos los comandos"
+    },
+    "goto": {
+      "open": "Ir a…"
+    },
+    "view": {
+      "showExplorer": "Mostrar el explorador",
+      "showProjects": "Mostrar Proyectos",
+      "showLibrary": "Mostrar la biblioteca de scripts",
+      "showHistory": "Mostrar el historial",
+      "showScheduled": "Mostrar las tareas programadas",
+      "revealActive": "Mostrar la pestaña en el explorador"
+    },
+    "editor": {
+      "runSelection": "Ejecutar la selección",
+      "cancel": "Cancelar la ejecución",
+      "optimize": "Optimizar la query",
+      "runMultiDb": "Ejecutar en varias bases…",
+      "saveToLibrary": "Guardar en la biblioteca",
+      "showProblems": "Mostrar los problemas",
+      "commit": "Confirmar la transacción",
+      "rollback": "Deshacer la transacción",
+      "toggleManualTx": "Activar o desactivar las transacciones manuales",
+      "toggleContinueOnError": "Activar o desactivar \"Seguir si hay un error\""
+    },
+    "database": {
+      "reveal": "Mostrar en el explorador",
+      "search": "Buscar en la base…",
+      "healthCheck": "Chequeo de salud",
+      "designer": "Abrir el diseñador de tablas",
+      "newFromTemplate": "Nuevo objeto desde una plantilla…",
+      "diagram": "Diagrama de la base",
+      "queryBuilder": "Diseñar query…",
+      "document": "Documentar la base…",
+      "profiler": "Profiler",
+      "scriptGenerator": "Generar script…",
+      "migrate": "Migrar…",
+      "compareSchemas": "Comparar esquemas…",
+      "compareData": "Comparar datos…",
+      "usersAndPermissions": "Usuarios y permisos…",
+      "backups": "Backups…",
+      "importData": "Importar datos…",
+      "runScriptFile": "Ejecutar archivo de script…",
+      "linkProject": "Vincular proyecto…"
+    },
+    "connection": {
+      "connect": "Conectar",
+      "disconnect": "Desconectar",
+      "monitor": "Monitor del servidor",
+      "serverBackups": "Backups del servidor…",
+      "newDatabase": "Nueva base de datos…",
+      "edit": "Editar conexión…",
+      "duplicate": "Duplicar conexión"
+    },
+    "settings": {
+      "sync": "Sincronización",
+      "drivers": "Drivers",
+      "mcp": "Clientes MCP (asistentes de IA)",
+      "devices": "Teléfonos vinculados",
+      "mail": "Correo",
+      "lint": "Reglas del analizador de código",
+      "snippets": "Fragmentos de código",
+      "shortcuts": "Atajos de teclado"
+    },
+    "help": {
+      "checkUpdates": "Buscar actualizaciones…",
+      "support": "Apoyar el proyecto",
+      "feedback": "Enviar comentarios"
+    }
+  },
+  "commands": {
+    "placeholder": "Escribí el nombre de un comando",
+    "empty": "No hay comandos que coincidan",
+    "recent": "usado recientemente",
+    "other": "otros comandos"
+  },
+  "goto": {
+    "placeholder": "Buscá una conexión, base, tabla, vista, rutina, query o pestaña (\">\" para los comandos)",
+    "empty": "No hay nada con ese nombre",
+    "tabs": "pestañas abiertas",
+    "connections": "conexiones",
+    "tab": "Pestaña",
+    "connection": "Conexión",
+    "database": "Base",
+    "query": "Query"
+  },
+  "pick": {
+    "connection": "Elegí la conexión",
+    "database": "Elegí la base de {{connection}}",
+    "noConnection": "Ninguna conexión tiene esta acción",
+    "noDatabases": "No hay bases para elegir",
+    "template": "Elegí la plantilla"
+  }
+}

@@ -18,9 +18,24 @@ const ask = computed(() => (req.value?.kind === 'input' ? req.value.options : nu
 
 const shown = computed<QuickPickItem[]>(() => {
   const items = pick.value?.items() ?? [];
+  if (pick.value?.filter) return pick.value.filter(items, filter.value);
   const q = filter.value.trim().toLowerCase();
   return q ? items.filter((i) => i.label.toLowerCase().includes(q) || i.description?.toLowerCase().includes(q)) : items;
 });
+
+/** The label in runs of plain and highlighted (matched) text. */
+function segments(item: QuickPickItem): { text: string; hit: boolean }[] {
+  if (!item.matches?.length) return [{ text: item.label, hit: false }];
+  const hits = new Set(item.matches);
+  const out: { text: string; hit: boolean }[] = [];
+  [...item.label].forEach((c, i) => {
+    const hit = hits.has(i);
+    const last = out[out.length - 1];
+    if (last && last.hit === hit) last.text += c;
+    else out.push({ text: c, hit });
+  });
+  return out;
+}
 const busy = computed(() => !!pick.value?.busy?.());
 const inputError = computed(() => (ask.value?.validate ? ask.value.validate(filter.value) : null));
 
@@ -29,16 +44,20 @@ watch(req, async (r) => {
   if (!(document.activeElement instanceof HTMLElement && document.activeElement.closest('.qp'))) {
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   }
-  filter.value = r.kind === 'input' ? r.options.value ?? '' : '';
+  filter.value = r.options.value ?? '';
   activeIndex.value = r.kind === 'pick' ? Math.max(0, shown.value.findIndex((i) => i.current)) : 0;
   await nextTick();
   input.value?.focus();
-  input.value?.select();
+  // An input's value is selected (typing replaces it); a pick's text (the
+  // command palette's ">") keeps the caret after it.
+  if (r.kind === 'input') input.value?.select();
+  else input.value?.setSelectionRange(filter.value.length, filter.value.length);
   scrollActive();
 });
 // Filtering moves the highlight to the first match (the current one before typing).
 watch(filter, () => {
   if (!pick.value) return;
+  if (pick.value.onText?.(filter.value)) return;
   const i = filter.value ? shown.value.findIndex((x) => !x.disabled) : shown.value.findIndex((x) => x.current);
   activeIndex.value = Math.max(0, i);
 });
@@ -115,16 +134,20 @@ function onKey(e: KeyboardEvent) {
               :id="`qp-item-${i}`"
               :key="item.id"
               class="qp-item"
-              :class="{ active: i === activeIndex, disabled: item.disabled }"
+              :class="{ active: i === activeIndex, disabled: item.disabled, grouped: item.group && i > 0 }"
               role="option"
               :aria-selected="i === activeIndex"
               :aria-disabled="item.disabled || undefined"
               @pointermove="item.disabled || (activeIndex = i)"
               @click="choose(item)"
             >
-              <span class="qp-check"><el-icon v-if="item.current"><ei-check /></el-icon></span>
-              <span class="qp-label">{{ item.label }}</span>
+              <span v-if="item.icon" class="qp-icon"><el-icon><component :is="item.icon" /></el-icon></span>
+              <span v-else class="qp-check"><el-icon v-if="item.current"><ei-check /></el-icon></span>
+              <span class="qp-label"><template v-for="(sg, k) in segments(item)" :key="k"><mark v-if="sg.hit" class="qp-hit">{{ sg.text }}</mark><template v-else>{{ sg.text }}</template></template></span>
               <span v-if="item.description" class="qp-desc">{{ item.description }}</span>
+              <span v-else class="qp-fill" />
+              <span v-if="item.group" class="qp-group">{{ item.group }}</span>
+              <kbd v-if="item.keybinding" class="qp-key">{{ item.keybinding }}</kbd>
             </div>
             <div v-if="!shown.length && !busy" class="qp-empty">{{ pick.empty ?? $t('workbench:quickPick.noResults') }}</div>
           </div>
@@ -160,6 +183,17 @@ function onKey(e: KeyboardEvent) {
 .qp-item.active { background: var(--ide-selection-focus); color: var(--nm-text-strong); }
 .qp-item.disabled { opacity: 0.5; cursor: default; }
 .qp-check { flex: none; width: 16px; display: inline-flex; color: var(--nm-text-strong); }
+.qp-icon { flex: none; width: 16px; display: inline-flex; color: var(--nm-text-dim); }
+.qp-item.active .qp-icon { color: inherit; }
+.qp-hit { background: none; color: var(--ide-match, #2aaaff); font-weight: 600; }
+.qp-fill { flex: 1; }
+.qp-group { flex: none; color: var(--nm-text-dim); font-size: 12px; }
+.qp-item.grouped { position: relative; margin-top: 3px; overflow: visible; }
+.qp-item.grouped::before { content: ''; position: absolute; left: 0; right: 0; top: -2px; border-top: 1px solid var(--nm-border); }
+.qp-key {
+  flex: none; font-family: inherit; font-size: 11px; line-height: 15px; padding: 0 4px; border-radius: 3px; color: var(--nm-text);
+  background: var(--ide-input); border: 1px solid var(--nm-border); border-bottom-width: 2px;
+}
 .qp-label { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; }
 .qp-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--nm-text-dim); font-size: 12px; }
 .qp-empty { padding: 4px 8px; color: var(--nm-text-dim); }

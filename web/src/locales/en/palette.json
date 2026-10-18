@@ -1,0 +1,104 @@
+{
+  "cmd": {
+    "file": {
+      "newConnection": "New connection…",
+      "newFolder": "New connection folder…",
+      "newScheduledTask": "New scheduled task",
+      "closeOtherTabs": "Close other tabs",
+      "closeAllTabs": "Close all tabs"
+    },
+    "palette": {
+      "open": "Show all commands"
+    },
+    "goto": {
+      "open": "Go to…"
+    },
+    "view": {
+      "showExplorer": "Show Explorer",
+      "showProjects": "Show Projects",
+      "showLibrary": "Show script library",
+      "showHistory": "Show history",
+      "showScheduled": "Show scheduled tasks",
+      "revealActive": "Reveal tab in Explorer"
+    },
+    "editor": {
+      "runSelection": "Run selection",
+      "cancel": "Cancel run",
+      "optimize": "Optimize query",
+      "runMultiDb": "Run on several databases…",
+      "saveToLibrary": "Save to library",
+      "showProblems": "Show problems",
+      "commit": "Commit transaction",
+      "rollback": "Roll back transaction",
+      "toggleManualTx": "Toggle manual transactions",
+      "toggleContinueOnError": "Toggle \"Continue on error\""
+    },
+    "database": {
+      "reveal": "Reveal in Explorer",
+      "search": "Search the database…",
+      "healthCheck": "Health check",
+      "designer": "Open table designer",
+      "newFromTemplate": "New object from a template…",
+      "diagram": "Database diagram",
+      "queryBuilder": "Design query…",
+      "document": "Document the database…",
+      "profiler": "Profiler",
+      "scriptGenerator": "Generate script…",
+      "migrate": "Migrate…",
+      "compareSchemas": "Compare schemas…",
+      "compareData": "Compare data…",
+      "usersAndPermissions": "Users and permissions…",
+      "backups": "Backups…",
+      "importData": "Import data…",
+      "runScriptFile": "Run script file…",
+      "linkProject": "Link project…"
+    },
+    "connection": {
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "monitor": "Server monitor",
+      "serverBackups": "Server backups…",
+      "newDatabase": "New database…",
+      "edit": "Edit connection…",
+      "duplicate": "Duplicate connection"
+    },
+    "settings": {
+      "sync": "Sync",
+      "drivers": "Drivers",
+      "mcp": "MCP clients (AI assistants)",
+      "devices": "Paired phones",
+      "mail": "Mail",
+      "lint": "Code analyzer rules",
+      "snippets": "Snippets",
+      "shortcuts": "Keyboard shortcuts"
+    },
+    "help": {
+      "checkUpdates": "Check for updates…",
+      "support": "Support the project",
+      "feedback": "Send feedback"
+    }
+  },
+  "commands": {
+    "placeholder": "Type the name of a command",
+    "empty": "No matching commands",
+    "recent": "recently used",
+    "other": "other commands"
+  },
+  "goto": {
+    "placeholder": "Search a connection, database, table, view, routine, query or tab (\">\" for commands)",
+    "empty": "Nothing by that name",
+    "tabs": "open tabs",
+    "connections": "connections",
+    "tab": "Tab",
+    "connection": "Connection",
+    "database": "Database",
+    "query": "Query"
+  },
+  "pick": {
+    "connection": "Choose the connection",
+    "database": "Choose the database of {{connection}}",
+    "noConnection": "No connection offers this action",
+    "noDatabases": "No databases to choose from",
+    "template": "Choose the template"
+  }
+}

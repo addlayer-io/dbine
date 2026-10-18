@@ -27,6 +27,8 @@
     "keyExplorer": "explorador",
     "keyOutput": "salida",
     "keyClose": "cierra la pestaña",
+    "keyPalette": "comandos",
+    "keyGoTo": "ir a…",
     "engines": "Motores disponibles ({{n}})",
     "family": {
       "relational": "Relacionales",

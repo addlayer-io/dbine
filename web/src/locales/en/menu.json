@@ -40,5 +40,11 @@
     "title": "Help",
     "checkUpdates": "Check for updates…",
     "support": "Support the project"
+  },
+  "palette": {
+    "open": "Command palette…"
+  },
+  "goto": {
+    "open": "Go to…"
   }
 }

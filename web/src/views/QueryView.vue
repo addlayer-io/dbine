@@ -809,6 +809,20 @@ const controls: QueryControls = reactive({
   showDatabase: computed(() => !unbound.value && driver.value?.databases_label !== ''),
   loadDatabases, changeConnection, changeDatabase, setManualTx,
   setMaxRows: (n: number) => { maxRows.value = n; },
+  // The command palette's "Editor: …" (composables/workbenchCommands.ts).
+  editor: {
+    runnable: computed(() => runnable.value && !unbound.value),
+    multiDb: multiDbAvailable, lint: computed(() => !!lintSource.value), perStatement, continueOnError,
+    hasSelection: () => !!editor.value?.selectionText().trim(),
+    runSelection: () => { if (editor.value?.selectionText().trim()) void run(); },
+    cancel,
+    optimize: () => { void optimize(); },
+    runMultiDb: () => { void openMultiDb(); },
+    saveToLibrary,
+    showProblems: () => { problemsOpen.value = true; },
+    endTransaction: (commit: boolean) => { void endTransaction(commit); },
+    toggleContinueOnError: () => { continueOnError.value = !continueOnError.value; },
+  },
 });
 queryControls.set(props.tab.id, controls);
 onBeforeUnmount(() => { if (queryControls.get(props.tab.id) === controls) queryControls.delete(props.tab.id); });

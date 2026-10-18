@@ -29,6 +29,7 @@ import { newQuery } from './composables/actions';
 import { ownsShortcut, useAppMenu } from './composables/appMenu';
 import { VIM_SETTING, commandForEvent, recordingKeys, registerCommand, runCommand } from './composables/commands';
 import { useCrossWindow } from './composables/crossWindow';
+import { useWorkbenchCommands } from './composables/workbenchCommands';
 import { useProjectWatch } from './composables/projectWatch';
 import { fileDocs } from './composables/tabDocument';
 import { useProjectsStore } from './stores/projects';
@@ -188,6 +189,8 @@ onBeforeUnmount(() => {
 });
 // macOS menu bar; it runs the shortcuts above while it's there.
 useAppMenu({ newQuery: newQueryHere, toggleExplorer: () => { sidebarOpen.value = !sidebarOpen.value; }, toggleOutput: () => { panelOpen.value = !panelOpen.value; } });
+// The command palette (⌘⇧P) and "Ir a…" (⌘P).
+useWorkbenchCommands({ showView: (v) => { ui.sidebarView = v; sidebarOpen.value = true; }, feedback: () => { feedbackOpen.value = true; } });
 
 // Element Plus's own texts (date pickers, "no data"…) in the app's language;
 // the synced preference wins over this machine's once settings load.

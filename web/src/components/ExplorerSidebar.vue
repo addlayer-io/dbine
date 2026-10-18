@@ -34,6 +34,7 @@ import DatabasePropertiesDialog from './DatabasePropertiesDialog.vue';
 import GenerateDataDialog from './GenerateDataDialog.vue';
 import DbDocsDialog from './DbDocsDialog.vue';
 import { openDbDocs } from '../composables/dbDocs';
+import { KIND_ICONS } from '../composables/kindIcons';
 import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
@@ -106,16 +107,6 @@ const projects = useProjectsStore();
 void projects.load();
 const { t } = useTranslation();
 
-const KIND_ICONS: Record<string, string> = {
-  table: 'grid', view: 'view', materialized_view: 'copy-document', procedure: 'operation',
-  function: 'cpu', trigger: 'lightning', sequence: 'sort', collection: 'files', key: 'key',
-  index: 'collection', topic: 'chat-line-square', stream: 'share', measurement: 'trend-charts',
-  package: 'box', alias: 'link', type: 'price-tag', device: 'monitor', dictionary: 'notebook',
-  constraint: 'lock', supertable: 'menu', subtable: 'grid', task: 'timer', file: 'document',
-  label: 'coordinate', vertex: 'coordinate', relationship: 'connection', edge: 'connection',
-  source: 'upload', sink: 'download', synonym: 'link', domain: 'price-tag', virtual_table: 'grid',
-  fulltext_catalog: 'reading', fulltext_stoplist: 'document-remove',
-};
 const DEFAULT_SCHEMAS = new Set(['dbo', 'public', 'main']);
 
 function status(parent: string, s: 'loading' | 'error' | 'empty', label: string): TNode {
@@ -1147,15 +1138,17 @@ watch(() => ui.reveal?.seq, async () => {
   if (filter.value) { filter.value = ''; applyFilter(); }
   if (!(await ensureConnectedOrTell(c.id))) return;
   const d = conns.driverOf(c.id);
-  await Promise.all([conns.loadObjects(c.id, r.database), conns.loadQueries(c.id, r.database)]);
+  // No database ("Ir a…" a connection): the connection's own node.
+  const connOnly = !!d?.databases_label && !r.database && !r.queryId && !r.object;
+  if (!connOnly) await Promise.all([conns.loadObjects(c.id, r.database), conns.loadQueries(c.id, r.database)]);
   // Everything above the target must be open.
   const keys: string[] = [];
   for (let f = conns.folders.find((x) => x.id === c.folder_id), g = 0; f && g < 50; f = conns.folders.find((x) => x.id === f!.parent_id), g++) {
     keys.unshift(`g:${f.id}`);
   }
   keys.push(`c:${c.id}`);
-  const dbNode = d?.databases_label ? `d:${c.id}:${r.database}` : `c:${c.id}`;
-  if (d?.databases_label) keys.push(dbNode);
+  const dbNode = d?.databases_label && !connOnly ? `d:${c.id}:${r.database}` : `c:${c.id}`;
+  if (d?.databases_label && !connOnly) keys.push(dbNode);
   let target = dbNode;
   if (r.queryId) {
     keys.push(`qs:${c.id}:${r.database}`);

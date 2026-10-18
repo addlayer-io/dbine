@@ -14,7 +14,7 @@ import { formatKey, isModifierOnly, isMac } from '../composables/keybindings';
 
 const { t } = useTranslation();
 const query = ref('');
-const GROUPS: CommandGroup[] = ['general', 'view', 'editor', 'results'];
+const GROUPS: CommandGroup[] = ['general', 'view', 'editor', 'results', 'database', 'connection', 'settings', 'help'];
 
 const rows = computed(() => {
   const q = query.value.trim().toLowerCase();

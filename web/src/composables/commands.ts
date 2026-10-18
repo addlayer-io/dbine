@@ -17,7 +17,8 @@ import { eventKey, findConflicts, formatKey, isMac, isReservedKey, normalizeKey,
 //   (`keys.bindings`: id → key, or null for "no keys"); `bindingOf` is the
 //   effective one and is reactive, so everything follows a change at once.
 
-export type CommandGroup = 'general' | 'view' | 'editor' | 'results';
+/** `database` / `connection` / `settings` / `help`: the command palette's (composables/workbenchCommands.ts). */
+export type CommandGroup = 'general' | 'view' | 'editor' | 'results' | 'database' | 'connection' | 'settings' | 'help';
 
 export interface CommandDef {
   id: string;

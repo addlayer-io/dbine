@@ -29,6 +29,31 @@ export interface QueryControls {
   changeDatabase(db: string): Promise<void>;
   setManualTx(on: boolean): Promise<void>;
   setMaxRows(n: number): void;
+  /** The editor's own actions, for the command palette. */
+  editor: EditorActions;
+}
+
+/** The query editor's toolbar actions that have no keys of their own (⌘↵,
+ *  ⌘L, ⇧⌥F… are the registry's `editor.*`, run by the focused editor), and
+ *  when each applies: composables/workbenchCommands.ts lists them in the
+ *  palette. */
+export interface EditorActions {
+  /** Runs SQL (a script file of a project, or a query). */
+  runnable: boolean;
+  multiDb: boolean;
+  lint: boolean;
+  /** "Seguir si hay un error" applies (the engine runs statement by statement). */
+  perStatement: boolean;
+  continueOnError: boolean;
+  hasSelection(): boolean;
+  runSelection(): void;
+  cancel(): void;
+  optimize(): void;
+  runMultiDb(): void;
+  saveToLibrary(): void;
+  showProblems(): void;
+  endTransaction(commit: boolean): void;
+  toggleContinueOnError(): void;
 }
 
 /** By tab id. */

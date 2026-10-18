@@ -40,5 +40,11 @@
     "title": "Ayuda",
     "checkUpdates": "Buscar actualizaciones…",
     "support": "Apoyar el proyecto"
+  },
+  "palette": {
+    "open": "Paleta de comandos…"
+  },
+  "goto": {
+    "open": "Ir a…"
   }
 }

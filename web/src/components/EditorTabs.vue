@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import { useTranslation } from 'i18next-vue';
-import { tb } from '../i18n/backend';
 import { editorBridge } from '../stores/ai';
-import { dbKey, useConnectionsStore } from '../stores/connections';
-import { baseName, useTabsStore, type Tab } from '../stores/tabs';
+import { useConnectionsStore } from '../stores/connections';
+import { useTabsStore, type Tab } from '../stores/tabs';
 import { useProjectsStore } from '../stores/projects';
-import { useScheduledStore } from '../stores/scheduled';
 import { useUiStore } from '../stores/ui';
+import { tabTitle } from '../composables/tabTitle';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
 
@@ -20,7 +19,6 @@ const tabs = useTabsStore();
 const conns = useConnectionsStore();
 const ui = useUiStore();
 const projects = useProjectsStore();
-const scheduled = useScheduledStore();
 // Reactive t: tab titles follow a language switch.
 const { t: tr } = useTranslation();
 
@@ -36,43 +34,8 @@ function reveal(t: Tab) {
       : { connectionId: t.connectionId, database: t.database });
 }
 
-function scheduledTitle(id: string | null): string {
-  return `${tr('scheduled:tab')} · ${scheduled.byId(id)?.name || tr('scheduled:newTask')}`;
-}
-
-function title(t: Tab): string {
-  if (t.kind === 'object') return t.object.name;
-  if (t.kind === 'file') return baseName(t.path);
-  if (t.kind === 'fileDiff') return `${baseName(t.path)} ${tr('workbench:tabs.fileDiffSuffix')}`;
-  if (t.kind === 'designer' && t.table) return tr('designer:alter.tab', { name: t.table.name });
-  if (t.kind === 'designer') return conns.driverOf(t.connectionId)?.designer?.label ? tb(conns.driverOf(t.connectionId)!.designer!.label) : tr('workbench:tabs.designer');
-  if (t.kind === 'monitor') return `${tr('workbench:tabs.monitor')} · ${conns.byId(t.connectionId)?.name || ''}`;
-  if (t.kind === 'profiler') return `Profiler · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
-  if (t.kind === 'connection') {
-    if (t.editId) return `${tr('workbench:tabs.connection')} · ${conns.byId(t.editId)?.name ?? ''}`;
-    return t.duplicateOf ? tr('workbench:tabs.duplicateConnection') : tr('workbench:tabs.newConnection');
-  }
-  if (t.kind === 'compare') return `${tr('workbench:tabs.compare')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
-  if (t.kind === 'indexes') return `${tr('explorer:indexes.tab')} · ${t.object.name}`;
-  if (t.kind === 'health') return `${tr('health:tab')} · ${t.database}`;
-  if (t.kind === 'optimizer') return `${tr('optimizer:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
-  if (t.kind === 'subset') return `${tr('subset:tab')} · ${t.object.name}`;
-  if (t.kind === 'scheduledTask') return scheduledTitle(t.taskId);
-  if (t.kind === 'search') return `${tr('search:tab')} · ${t.database}`;
-  if (t.kind === 'dependencies') return `${tr('dependencies:tab')} · ${t.column ? `${t.object.name}.${t.column}` : t.object.name}`;
-  if (t.kind === 'backups') return `${tr('backups:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
-  if (t.kind === 'security') return `${tr('security:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
-  if (t.kind === 'dataCompare') return `${tr('dataCompare:tab')} · ${t.object?.name || t.database || conns.byId(t.connectionId)?.name || ''}`;
-  if (t.kind === 'migration') {
-    const saved = t.migrationId ? conns.migrationById(t.migrationId) : undefined;
-    return `${tr('workbench:tabs.migrate')} · ${saved?.name || t.database || conns.byId(t.connectionId)?.name || ''}`;
-  }
-  if (t.kind === 'diagram') return `${tr('workbench:tabs.diagram')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
-  if (t.kind === 'queryBuilder') return `${tr('queryBuilder:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
-  if (t.kind !== 'query') return '';
-  const q = conns.queries[dbKey(t.connectionId, t.database)]?.items.find((x) => x.id === t.queryId);
-  return q?.name ?? tr('workbench:tabs.query');
-}
+/** The tab's title, in the current language (reactive through `tr`). */
+const title = (x: Tab) => tabTitle(x, tr);
 function tooltip(t: Tab): string {
   const c = conns.byId(t.connectionId)?.name ?? '';
   if (t.kind === 'file' || t.kind === 'fileDiff') {

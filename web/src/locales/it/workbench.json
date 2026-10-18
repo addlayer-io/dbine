@@ -27,6 +27,8 @@
     "keyExplorer": "esplora risorse",
     "keyOutput": "output",
     "keyClose": "chiude la scheda",
+    "keyPalette": "comandi",
+    "keyGoTo": "vai a…",
     "engines": "Motori disponibili ({{n}})",
     "family": {
       "relational": "Relazionali",
