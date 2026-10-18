@@ -10900,5 +10900,17 @@
   "una exportación Markdown con gráficos necesita la ruta del archivo": "un'esportazione Markdown con grafici richiede il percorso del file",
   "«{0}» es un enlace: no se sobrescribe": "«{0}» è un collegamento: non viene sovrascritto",
   "«{0}» existe y no es una carpeta": "«{0}» esiste e non è una cartella",
-  "«{0}» no es un archivo Markdown (.md) válido": "«{0}» non è un file Markdown (.md) valido"
+  "«{0}» no es un archivo Markdown (.md) válido": "«{0}» non è un file Markdown (.md) valido",
+  "filas de la celda": "righe della cella",
+  "la celda «{0}» falló al volver a ejecutarse: {1}": "la cella «{0}» non è riuscita a essere eseguita di nuovo: {1}",
+  "la celda «{0}» no devolvió un resultado con columnas": "la cella «{0}» non ha restituito un risultato con colonne",
+  "la celda «{0}» no es solo una lectura: DBine no la vuelve a ejecutar por su cuenta. Ejecutala y volvé a ejecutar esta celda": "la cella «{0}» non è solo una lettura: DBine non la riesegue da solo. Eseguila e poi esegui di nuovo questa cella",
+  "la celda «{0}» no tiene dónde ejecutarse: elegí su conexión": "la cella «{0}» non ha dove essere eseguita: scegli la sua connessione",
+  "la celda «{0}» tiene varias sentencias: dejá una sola consulta para usarla como tabla": "la cella «{0}» ha più istruzioni: lascia una sola query per usarla come tabella",
+  "la celda «{0}»: {1}": "la cella «{0}»: {1}",
+  "no se pudo aislar la base de los resultados del notebook: {0}": "impossibile isolare il database dei risultati del notebook: {0}",
+  "tablas del notebook": "tabelle del notebook",
+  "«{0}» no es un nombre de tabla válido": "«{0}» non è un nome di tabella valido",
+  "«{0}» se cargó con las primeras {1} filas (el tope por tabla de Configuración › Notebooks)": "«{0}» è stata caricata con le prime {1} righe (il tetto per tabella in Impostazioni › Notebook)",
+  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": "«{0}»: le sue colonne {1} hanno valori che non sono del loro tipo e sono state caricate come testo"
 }

@@ -13,7 +13,9 @@
     "rows": "Righe per cella",
     "rowsHelp": "Righe di ogni risultato salvate nel file (da 1 a 1000).",
     "size": "Dimensione per cella",
-    "sizeHelp": "Un'anteprima più grande viene tagliata anche se ha meno righe."
+    "sizeHelp": "Un'anteprima più grande viene tagliata anche se ha meno righe.",
+    "resultsCap": "Righe per tabella dei risultati del notebook",
+    "resultsCapHelp": "Quante righe di ogni cella carica una cella in «Risultati del notebook» (in memoria, mai su disco)."
   },
   "target": {
     "none": "Scegli dove eseguire",
@@ -32,7 +34,9 @@
     "use": "Usa",
     "bindEnvironment": "Scegli il database dell'ambiente «{{env}}» nel progetto ed esegui di nuovo.",
     "ambiguousIntro": "Su questa macchina ci sono più connessioni chiamate «{{name}}». Quale usa questo notebook?",
-    "ambiguousHelp": "Viene ricordato per questo file su questa macchina; il file non cambia."
+    "ambiguousHelp": "Viene ricordato per questo file su questa macchina; il file non cambia.",
+    "results": "Risultati del notebook",
+    "resultsHelp": "La cella interroga con SQL di DuckDB i risultati delle celle sopra, ciascuno come una tabella con il suo nome (ad esempio, SELECT … FROM c1 JOIN c2 …). Viene eseguita in memoria, senza connessione, e non legge né scrive file."
   },
   "summary": {
     "ms": "{{ms}} ms",
@@ -135,5 +139,24 @@
     "renameTip": "Doppio clic per rinominare",
     "menu": "Opzioni del grafico",
     "remove": "Elimina il grafico"
+  },
+  "name": {
+    "label": "Nome della cella",
+    "tip": "Nome della cella: con esso, una cella in «Risultati del notebook» usa il suo risultato come tabella. Clic per cambiarlo",
+    "invalid": "«{{name}}» non va bene come nome di tabella: usa lettere, numeri e _, iniziando con una lettera o _, senza parole SQL",
+    "taken": "Un'altra cella si chiama già «{{name}}»"
+  },
+  "loaded": {
+    "title": "Tabelle:",
+    "tip": "Le celle sopra che questa query usa, caricate come tabelle nel database in memoria del notebook",
+    "rows_one": "{{rows}} riga",
+    "rows_many": "{{rows}} righe",
+    "rows_other": "{{rows}} righe",
+    "run": "dalla sua esecuzione",
+    "query": "la sua query è stata eseguita di nuovo",
+    "local": "dalle tabelle sopra",
+    "cached": "già caricata",
+    "capped": "tagliata al tetto per tabella",
+    "asText": "alcune colonne come testo"
   }
 }

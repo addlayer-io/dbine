@@ -10900,5 +10900,17 @@
   "una exportación Markdown con gráficos necesita la ruta del archivo": "a Markdown export with charts needs the file path",
   "«{0}» es un enlace: no se sobrescribe": "\"{0}\" is a link: it isn't overwritten",
   "«{0}» existe y no es una carpeta": "\"{0}\" exists and is not a folder",
-  "«{0}» no es un archivo Markdown (.md) válido": "\"{0}\" is not a valid Markdown (.md) file"
+  "«{0}» no es un archivo Markdown (.md) válido": "\"{0}\" is not a valid Markdown (.md) file",
+  "filas de la celda": "cell rows",
+  "la celda «{0}» falló al volver a ejecutarse: {1}": "cell “{0}” failed when run again: {1}",
+  "la celda «{0}» no devolvió un resultado con columnas": "cell “{0}” did not return a result with columns",
+  "la celda «{0}» no es solo una lectura: DBine no la vuelve a ejecutar por su cuenta. Ejecutala y volvé a ejecutar esta celda": "cell “{0}” is not just a read: DBine does not run it again on its own. Run it and then run this cell again",
+  "la celda «{0}» no tiene dónde ejecutarse: elegí su conexión": "cell “{0}” has nowhere to run: choose its connection",
+  "la celda «{0}» tiene varias sentencias: dejá una sola consulta para usarla como tabla": "cell “{0}” has several statements: leave a single query to use it as a table",
+  "la celda «{0}»: {1}": "cell “{0}”: {1}",
+  "no se pudo aislar la base de los resultados del notebook: {0}": "could not isolate the notebook results database: {0}",
+  "tablas del notebook": "notebook tables",
+  "«{0}» no es un nombre de tabla válido": "“{0}” is not a valid table name",
+  "«{0}» se cargó con las primeras {1} filas (el tope por tabla de Configuración › Notebooks)": "“{0}” was loaded with the first {1} rows (the per-table cap in Settings › Notebooks)",
+  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": "“{0}”: its columns {1} have values that don't match their type and were loaded as text"
 }

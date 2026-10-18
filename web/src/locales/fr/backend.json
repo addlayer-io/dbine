@@ -10900,5 +10900,17 @@
   "una exportación Markdown con gráficos necesita la ruta del archivo": "un export Markdown avec graphiques nécessite le chemin du fichier",
   "«{0}» es un enlace: no se sobrescribe": "« {0} » est un lien : il n'est pas écrasé",
   "«{0}» existe y no es una carpeta": "« {0} » existe et n'est pas un dossier",
-  "«{0}» no es un archivo Markdown (.md) válido": "« {0} » n'est pas un fichier Markdown (.md) valide"
+  "«{0}» no es un archivo Markdown (.md) válido": "« {0} » n'est pas un fichier Markdown (.md) valide",
+  "filas de la celda": "lignes de la cellule",
+  "la celda «{0}» falló al volver a ejecutarse: {1}": "la cellule « {0} » a échoué lors de la nouvelle exécution : {1}",
+  "la celda «{0}» no devolvió un resultado con columnas": "la cellule « {0} » n'a pas renvoyé de résultat avec des colonnes",
+  "la celda «{0}» no es solo una lectura: DBine no la vuelve a ejecutar por su cuenta. Ejecutala y volvé a ejecutar esta celda": "la cellule « {0} » n'est pas une simple lecture : DBine ne la réexécute pas de lui-même. Exécutez-la, puis exécutez à nouveau cette cellule",
+  "la celda «{0}» no tiene dónde ejecutarse: elegí su conexión": "la cellule « {0} » n'a aucun endroit où s'exécuter : choisissez sa connexion",
+  "la celda «{0}» tiene varias sentencias: dejá una sola consulta para usarla como tabla": "la cellule « {0} » contient plusieurs instructions : laissez une seule requête pour l'utiliser comme table",
+  "la celda «{0}»: {1}": "la cellule « {0} » : {1}",
+  "no se pudo aislar la base de los resultados del notebook: {0}": "impossible d'isoler la base des résultats du notebook : {0}",
+  "tablas del notebook": "tables du notebook",
+  "«{0}» no es un nombre de tabla válido": "« {0} » n'est pas un nom de table valide",
+  "«{0}» se cargó con las primeras {1} filas (el tope por tabla de Configuración › Notebooks)": "« {0} » a été chargée avec les {1} premières lignes (le plafond par table de Paramètres › Notebooks)",
+  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": "« {0} » : ses colonnes {1} ont des valeurs qui ne correspondent pas à leur type et ont été chargées en texte"
 }
