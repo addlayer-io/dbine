@@ -12,6 +12,9 @@
 // |nbxresults[&dialog=1] (cells on three engines and a "Resultados del notebook" cell joining them: preview/nbx-samples.ts)
 // |zoho-wizard[&step=1..4][&filled=1][&result=ok][&error=expired|mismatch] ("Conectar Zoho Vault", each step)
 // |connection&source=zoho|zoho-manual|zoho-missing (the Zoho block: an account, the inline sign-in, an account not on this computer)
+// |account-wizard&kind=<bitwarden|bitwarden_sm|vault|delinea|conjur|ccp|onepassword|aws|azure|gcp|keepass>[&step=n][&result=ok][&error=1][&detect=none|missing]
+//   ("Conectar <gestor>", each step: preview/account-samples.ts)
+// |connection&source=vault-account|bitwarden-account|aws-account|keepass-account|onepassword-account|vault-missing (the account block of each manager)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';
@@ -82,6 +85,8 @@ import { chartPreview, installWholeMock, notebookCellPreview } from './chart-sam
 import { notebookResultsPreview } from './nbx-samples';
 import { browseSample, sourceConnection, SAMPLE_ACCOUNTS } from './source-samples';
 import ZohoConnectWizard from '../components/ZohoConnectWizard.vue';
+import AccountConnectWizard from '../components/AccountConnectWizard.vue';
+import { accountWizardSample } from './account-samples';
 import { tb } from '../i18n/backend';
 
 const params = new URLSearchParams(location.search);
@@ -288,6 +293,7 @@ const app = createApp({
       view === 'compare' ? h(CompareView, { tab: { id: 'cmp', kind: 'compare', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'profiler' ? h(ProfilerView, { tab: { id: 'p', kind: 'profiler', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'zoho-wizard' ? zohoWizardPreview() :
+      view === 'account-wizard' ? accountWizardPreview() :
       view === 'settings' ? h(SettingsDialog) : view.startsWith('diagram') ? diagram() : ['script', 'import', 'run'].includes(view) ? dialogView() : view === 'designer' ? designer() : view === 'chart'
         ? chartPreview(params)
         : view === 'nbcell' ? notebookCellPreview(params)
@@ -414,6 +420,13 @@ function zohoWizardPreview() {
   };
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { transformCallback: () => 0, invoke: async () => null };
   return h(ZohoConnectWizard, { initialStep: step, preview });
+}
+
+/** "Conectar <gestor>" at one step, filled as the user would have it. */
+function accountWizardPreview() {
+  const { kind, step, preview } = accountWizardSample(params);
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = { transformCallback: () => 0, invoke: async () => null };
+  return h(AccountConnectWizard, { kind, initialStep: step, preview });
 }
 
 function connectionTab() {

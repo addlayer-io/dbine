@@ -4,7 +4,8 @@ import type { SecretSourceApproval } from '../api/types';
 import { tb } from '../i18n/backend';
 import { t } from '../i18n';
 import { sourceRows } from './secretSources';
-import { accountLabel, loadSecretAccounts } from './secretAccounts';
+import { accountLabel, loadSecretAccounts, PROVIDER } from './secretAccounts';
+import { accountKindOf } from './secretSources';
 
 // A secret field's source that came from outside this computer (an import, a
 // restored backup) doesn't run until the user confirms it here
@@ -30,14 +31,17 @@ function escape(s: string): string {
 export async function askApproveSecretSource(e: unknown): Promise<boolean> {
   const a = approvalOf(e);
   if (!a) return false;
-  if (a.source.kind === 'zoho' && a.source.account) await loadSecretAccounts();
+  const rec = a.source as unknown as Record<string, unknown>;
+  if ((a.source.kind === 'zoho' && rec.account) || rec.secret_account) await loadSecretAccounts();
+  const provider = PROVIDER[accountKindOf(a.source.kind) ?? 'zoho'];
   const rows = sourceRows(a.source)
     .map(([k, v]) => {
-      // Zoho's `account`: a saved account of this computer, by its name.
-      const zohoAccount = k === 'account' && a.source.kind === 'zoho';
-      const label = escape(zohoAccount ? t('secretAccounts:approvalAccount') : t(`connection:source.input.${k}`));
+      // A saved account of this computer (Zoho's `account`, the others'
+      // `secret_account`), by its name.
+      const saved = (k === 'account' && a.source.kind === 'zoho') || k === 'secret_account';
+      const label = escape(saved ? t('secretAccounts:approvalAccountAny', { provider }) : t(`connection:source.input.${k}`));
       const value = k === 'fill_username' ? escape(t('common:yes')) : k === 'master' ? escape(t(`connection:source.master.${v}`))
-        : zohoAccount ? escape(accountLabel(v) === v ? t('secretAccounts:notHere', { id: v }) : `${accountLabel(v)} (${v})`) : escape(v);
+        : saved ? escape(accountLabel(v) === v ? t('secretAccounts:notHere', { id: v }) : `${accountLabel(v)} (${v})`) : escape(v);
       return `<div style="margin-top:6px"><div style="font-size:11.5px;opacity:.75">${label}</div><code style="display:block;white-space:pre-wrap;word-break:break-all;user-select:all">${value}</code></div>`;
     })
     .join('');

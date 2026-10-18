@@ -172,7 +172,7 @@
       "master_command": "Comando che restituisce la password principale",
       "data_center": "Data center",
       "secret_name": "Nome o ID del segreto",
-      "zoho_account": "Account",
+      "account_id": "Account",
       "client_id": "ID del client",
       "client_secret": "Segreto del client",
       "refresh_token": "Token di aggiornamento",
@@ -215,7 +215,8 @@
       "list_index": "Elemento dell'elenco (facoltativo)",
       "master_bitwarden": "Password principale",
       "master_value_bitwarden": "Password principale",
-      "fill_username_bitwarden": "Prendi anche l'utente da questo elemento (il suo nome utente)"
+      "fill_username_bitwarden": "Prendi anche l'utente da questo elemento (il suo nome utente)",
+      "tenant": "Tenant (Microsoft Entra)"
     },
     "placeholder": {
       "command": "pass show database/produzione",

@@ -2,10 +2,24 @@
 // (view=connection&source=…) and what "Examinar" lists for it.
 import type { SavedConnection, SecretAccount, SecretBrowseListing } from '../api/types';
 
-/** Zoho Vault accounts of this computer (list_secret_accounts). */
+/** The accounts of this computer (list_secret_accounts): Zoho Vault's and one or two of each other manager. */
+const acct = (n: number) => `6f1c2d4e-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`;
+const at = { created_at: '', updated_at: '' };
 export const SAMPLE_ACCOUNTS: SecretAccount[] = [
-  { id: '6f1c2d4e-0000-4000-8000-000000000001', kind: 'zoho', label: 'Zoho Vault · ana@example.com', identity: 'ana@example.com', data_center: 'eu', client_id: '1000.XMDEG1KBDO9SE2IFTMDFSRPYYJ5L0U', created_at: '', updated_at: '' },
-  { id: '6f1c2d4e-0000-4000-8000-000000000002', kind: 'zoho', label: 'Zoho · equipo de datos', identity: 'datos@example.com', data_center: 'com', client_id: '1000.B', master: 'ask', created_at: '', updated_at: '' },
+  { id: acct(1), kind: 'zoho', label: 'Zoho Vault · ana@example.com', identity: 'ana@example.com', data_center: 'eu', client_id: '1000.XMDEG1KBDO9SE2IFTMDFSRPYYJ5L0U', ...at },
+  { id: acct(2), kind: 'zoho', label: 'Zoho · equipo de datos', identity: 'datos@example.com', data_center: 'com', client_id: '1000.B', master: 'ask', ...at },
+  { id: acct(10), kind: 'bitwarden', label: 'Bitwarden · ana@example.com', identity: 'ana@example.com', server: 'bitwarden.eu', client_id: 'user.6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04', ...at },
+  { id: acct(11), kind: 'bitwarden_sm', label: 'Secrets Manager · producción', identity: 'a0a1a2a3-b0b1-4c0c-9d0d-e0e1e2e3e4e5', server: 'bitwarden.com', ...at },
+  { id: acct(12), kind: 'vault', label: 'HashiCorp Vault · vault.example.com:8200', identity: 'approle', address: 'https://vault.example.com:8200', namespace: 'admin/datos', auth: 'approle', role_id: 'dbine', ...at },
+  { id: acct(13), kind: 'vault', label: 'Vault local', identity: 'token', address: 'http://127.0.0.1:8200', ...at },
+  { id: acct(14), kind: 'delinea', label: 'Delinea · svc_dbine', identity: 'svc_dbine', url: 'https://acme.secretservercloud.com', username: 'svc_dbine', domain: 'CORP', master: 'ask', ...at },
+  { id: acct(15), kind: 'conjur', label: 'CyberArk Conjur · host/apps/dbine (myorg)', identity: 'host/apps/dbine (myorg)', url: 'https://conjur.example.com', conjur_account: 'myorg', login: 'host/apps/dbine', ...at },
+  { id: acct(16), kind: 'ccp', label: 'CyberArk CCP · DBine · ccp.example.com', identity: 'DBine', url: 'https://ccp.example.com', app_id: 'DBine', client_cert: '~/certs/dbine.p12', ...at },
+  { id: acct(17), kind: 'onepassword', label: '1Password · ana@example.com', identity: 'ana@example.com', account: 'my.1password.com', ...at },
+  { id: acct(18), kind: 'aws', label: 'AWS · prod · eu-west-1', identity: 'arn:aws:iam::123456789012:user/ana', profile: 'prod', region: 'eu-west-1', ...at },
+  { id: acct(19), kind: 'azure', label: 'Azure Key Vault · kv-ventas', identity: 'ana@contoso.com', tenant: 'contoso.onmicrosoft.com', vault_url: 'https://kv-ventas.vault.azure.net', ...at },
+  { id: acct(20), kind: 'gcp', label: 'Google Cloud · ventas-prod', identity: 'ana@example.com', project: 'ventas-prod', ...at },
+  { id: acct(21), kind: 'keepass', label: 'KeePass · databases.kdbx', identity: 'databases.kdbx', file: '~/Passwords/databases.kdbx', master: 'ask', ...at },
 ];
 
 const SOURCES: Record<string, Record<string, unknown>> = {
@@ -19,6 +33,14 @@ const SOURCES: Record<string, Record<string, unknown>> = {
   zoho: { kind: 'zoho', secret_name: 'pg-main', fill_username: true, account: '6f1c2d4e-0000-4000-8000-000000000001' },
   'zoho-missing': { kind: 'zoho', secret_name: 'pg-main', fill_username: true, account: '6f1c2d4e-0000-4000-8000-00000000dead' },
   'zoho-manual': { kind: 'zoho', data_center: 'eu', secret_name: 'pg-main', client_id: '1000.XMDEG1KBDO9SE2IFTMDFSRPYYJ5L0U', fill_username: true },
+  // Every other manager through a saved account (and one not on this computer).
+  'vault-account': { kind: 'vault', path: 'secret/myapp/db', key: 'password', secret_account: acct(12) },
+  'vault_db-account': { kind: 'vault_db', role: 'readonly', secret_account: acct(12) },
+  'bitwarden-account': { kind: 'bitwarden', item: 'pg-main', fill_username: true, secret_account: acct(10) },
+  'aws-account': { kind: 'aws', secret_id: 'prod/myapp/db', json_key: 'password', secret_account: acct(18) },
+  'keepass-account': { kind: 'keepass', entry: 'Databases/Prod/pg-main', fill_username: true, secret_account: acct(21) },
+  'onepassword-account': { kind: 'onepassword', reference: 'op://Private/pg-main/password', fill_username: true, secret_account: acct(17) },
+  'vault-missing': { kind: 'vault', path: 'secret/myapp/db', key: 'password', secret_account: acct(99) },
 };
 
 export function sourceConnection(kind: string, driver: string): SavedConnection {

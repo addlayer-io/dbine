@@ -172,7 +172,7 @@
       "master_command": "Comando que retorna a senha mestra",
       "data_center": "Data center",
       "secret_name": "Nome ou ID do segredo",
-      "zoho_account": "Conta",
+      "account_id": "Conta",
       "client_id": "ID do cliente",
       "client_secret": "Segredo do cliente",
       "refresh_token": "Token de atualização",
@@ -215,7 +215,8 @@
       "list_index": "Item da lista (opcional)",
       "master_bitwarden": "Senha mestra",
       "master_value_bitwarden": "Senha mestra",
-      "fill_username_bitwarden": "Usar também o usuário deste item (seu nome de usuário)"
+      "fill_username_bitwarden": "Usar também o usuário deste item (seu nome de usuário)",
+      "tenant": "Tenant (Microsoft Entra)"
     },
     "placeholder": {
       "command": "pass show bancos/producao",

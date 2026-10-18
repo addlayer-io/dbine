@@ -172,7 +172,7 @@
       "master_command": "Comando que devuelve la contraseña maestra",
       "data_center": "Centro de datos",
       "secret_name": "Nombre o ID del secreto",
-      "zoho_account": "Cuenta",
+      "account_id": "Cuenta",
       "client_id": "ID del cliente",
       "client_secret": "Secreto del cliente",
       "refresh_token": "Token de actualización",
@@ -215,7 +215,8 @@
       "list_index": "Elemento de la lista (opcional)",
       "master_bitwarden": "Contraseña maestra",
       "master_value_bitwarden": "Contraseña maestra",
-      "fill_username_bitwarden": "Tomar también el usuario de este elemento (su nombre de usuario)"
+      "fill_username_bitwarden": "Tomar también el usuario de este elemento (su nombre de usuario)",
+      "tenant": "Inquilino (Microsoft Entra)"
     },
     "placeholder": {
       "command": "pass show bases/produccion",

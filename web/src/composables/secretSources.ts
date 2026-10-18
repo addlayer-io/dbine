@@ -33,6 +33,43 @@ export const ZOHO_DATA_CENTERS: [string, string][] = [
 /** Bitwarden's clouds (dbine_core::secret_sources::BITWARDEN_CLOUDS); else a self-hosted URL. */
 export const BITWARDEN_CLOUDS = ['bitwarden.com', 'bitwarden.eu'] as const;
 
+/** The kind of saved account (Settings › Gestores de secretos) each source
+ *  signs in with: Vault's KV and database credentials share one, and so do
+ *  AWS Secrets Manager and Parameter Store (dbine_core::secret_sources::account_kind_of). */
+export const ACCOUNT_KIND = {
+  zoho: 'zoho', bitwarden: 'bitwarden', bitwarden_sm: 'bitwarden_sm', vault: 'vault', vault_db: 'vault', delinea: 'delinea', conjur: 'conjur',
+  ccp: 'ccp', onepassword: 'onepassword', aws: 'aws', ssm: 'aws', azure: 'azure', gcp: 'gcp', keepass: 'keepass',
+} as const satisfies Partial<Record<DraftKind, string>>;
+export type AccountSourceKind = keyof typeof ACCOUNT_KIND;
+export type AccountKind = (typeof ACCOUNT_KIND)[AccountSourceKind];
+
+/** The account kind of a source kind (`undefined`: it has none). */
+export function accountKindOf(kind: string): AccountKind | undefined {
+  return (ACCOUNT_KIND as Record<string, AccountKind>)[kind];
+}
+
+/** The inputs that sign in, per source: with an account they're the account's. */
+export const SIGN_IN: Record<AccountSourceKind, (keyof SourceDraft)[]> = {
+  zoho: ['data_center', 'client_id', 'master', 'master_command'],
+  onepassword: ['account'],
+  vault: ['address', 'namespace', 'ca_file', 'auth', 'approle_mount', 'role_id'],
+  vault_db: ['address', 'namespace', 'ca_file', 'auth', 'approle_mount', 'role_id'],
+  aws: ['region', 'profile'],
+  ssm: ['region', 'profile'],
+  azure: ['vault_url', 'tenant'],
+  gcp: ['project'],
+  keepass: ['file', 'key_file', 'master', 'master_command'],
+  conjur: ['url', 'conjur_account', 'login', 'ca_file'],
+  ccp: ['url', 'app_id', 'client_cert', 'client_key', 'ca_file'],
+  delinea: ['url', 'platform_url', 'username', 'domain', 'master', 'master_command'],
+  bitwarden: ['server', 'client_id', 'master', 'master_command'],
+  bitwarden_sm: ['server'],
+};
+/** The draft names a saved account (not the inline sign-in). */
+export function accountMode(d: SourceDraft | undefined): boolean {
+  return !!d && !!accountKindOf(d.kind) && !d.manual;
+}
+
 /** The keychain key of a field's token (`slot` empty: the main one). */
 export function tokenKey(field: string, slot = ''): string {
   return slot ? `${TOKEN_PREFIX}${field}#${slot}` : `${TOKEN_PREFIX}${field}`;
@@ -70,9 +107,10 @@ export interface SourceDraft {
   key_file: string;
   master: MasterKind;
   master_command: string;
-  /** Zoho Vault: a saved account's ID (the definition's `account`), or,
-   *  `manual`, the inline sign-in below (definitions from before accounts). */
-  zoho_account: string;
+  /** A saved account's ID (crate::secret_accounts; the definition's
+   *  `secret_account`, Zoho Vault's `account`), or, `manual`, the inline
+   *  sign-in (definitions from before accounts, or whoever wants it). */
+  account_id: string;
   manual: boolean;
   data_center: string;
   secret_name: string;
@@ -117,16 +155,19 @@ export interface SourceDraft {
   /** AWS Parameter Store. */
   parameter: string;
   list_index: string;
+  /** Azure Key Vault: the Microsoft Entra tenant (empty: the CLI's current one). */
+  tenant: string;
 }
 
 export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
   return {
     kind, command: '', json_key: '', reference: '', account: '', address: '', path: '', key: '', namespace: '', kv_version: 'auto',
     ca_file: '', token: '', secret_id: '', region: '', profile: '', fill_username: false, vault_url: '', name: '', version: '', project: '', secret: '',
-    file: '', entry: '', attribute: '', key_file: '', master: 'keychain', master_command: '', zoho_account: '', manual: false, data_center: '', secret_name: '', client_id: '',
+    file: '', entry: '', attribute: '', key_file: '', master: 'keychain', master_command: '', account_id: '', manual: false, data_center: '', secret_name: '', client_id: '',
     client_secret: '', refresh_token: '', auth: 'token', approle_mount: '', role_id: '', approle_secret_id: '', mount: '', role: '', static_role: false, url: '',
     conjur_account: '', login: '', variable: '', username_variable: '', app_id: '', safe: '', folder: '', object: '', account_user: '', account_address: '',
     client_cert: '', client_key: '', platform_url: '', username: '', domain: '', server: '', item: '', user_field: '', parameter: '', list_index: '',
+    tenant: '',
   };
 }
 
@@ -161,9 +202,15 @@ export function draftFrom(source: SecretSource | undefined, ask = false): Source
   if (!(MASTER_SOURCES as readonly string[]).includes(d.master)) d.master = 'keychain';
   if (d.kind === 'zoho') {
     // Zoho's `account` is a saved account's ID (1Password's is its sign-in address).
-    d.zoho_account = d.account;
+    d.account_id = d.account;
     d.account = '';
-    d.manual = !d.zoho_account && !!(d.data_center || d.client_id);
+    d.manual = !d.account_id && !!(d.data_center || d.client_id);
+  } else if (accountKindOf(d.kind)) {
+    // The others name it in `secret_account`; a definition without one is
+    // inline (manual mode).
+    const id = (source as unknown as Record<string, unknown>).secret_account;
+    d.account_id = typeof id === 'string' ? id : '';
+    d.manual = !d.account_id;
   }
   return d;
 }
@@ -176,6 +223,18 @@ export function isExternal(d: SourceDraft | undefined): boolean {
 /** The definition a draft stands for (`null` for saved / ask). Optional
  *  inputs left empty are left out, as the backend stores them. */
 export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
+  const inline = inlineSourceFrom(d, field);
+  if (!inline || d.kind === 'zoho' || !accountMode(d)) return inline;
+  // Through an account: what to read, and the account; its sign-in is the account's.
+  const rec = { ...(inline as unknown as Record<string, unknown>) };
+  for (const k of SIGN_IN[d.kind as AccountSourceKind] ?? []) delete rec[k];
+  // Bitwarden's server has no default in the stored JSON; the account's is used.
+  if (d.kind === 'bitwarden' || d.kind === 'bitwarden_sm') delete rec.server;
+  rec.secret_account = d.account_id.trim();
+  return rec as unknown as SecretSource;
+}
+
+function inlineSourceFrom(d: SourceDraft, field: string): SecretSource | null {
   const t = (s: string) => s.trim();
   const opt = <T extends object>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== '' && v !== false && v !== undefined)) as T;
   switch (d.kind) {
@@ -192,7 +251,7 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
       kind: 'aws' as const, secret_id: t(d.secret_id), region: t(d.region), profile: t(d.profile), json_key: t(d.json_key),
       fill_username: field === 'password' && d.fill_username,
     });
-    case 'azure': return opt({ kind: 'azure' as const, vault_url: t(d.vault_url), name: t(d.name), version: t(d.version), json_key: t(d.json_key) });
+    case 'azure': return opt({ kind: 'azure' as const, vault_url: t(d.vault_url), name: t(d.name), version: t(d.version), json_key: t(d.json_key), tenant: t(d.tenant) });
     case 'gcp': return opt({ kind: 'gcp' as const, project: t(d.project), secret: t(d.secret), version: t(d.version), json_key: t(d.json_key) });
     case 'keepass': return opt({
       kind: 'keepass' as const, file: t(d.file), entry: t(d.entry), attribute: t(d.attribute), key_file: t(d.key_file),
@@ -202,7 +261,7 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
     case 'zoho': return !d.manual ? opt({
       kind: 'zoho' as const, secret_name: t(d.secret_name), attribute: t(d.attribute),
       fill_username: field === 'password' && d.fill_username, user_field: field === 'password' && d.fill_username ? t(d.user_field) : '',
-      account: t(d.zoho_account),
+      account: t(d.account_id),
     }) as SecretSource : opt({
       kind: 'zoho' as const, data_center: t(d.data_center), secret_name: t(d.secret_name), attribute: t(d.attribute), client_id: t(d.client_id),
       master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
@@ -270,8 +329,14 @@ export const REQUIRED: Record<SecretSourceKind, (keyof SourceDraft)[]> = {
  *  choice needs: the command, or a key file when there's no password). */
 export function missingInputs(d: SourceDraft | undefined): (keyof SourceDraft)[] {
   if (!d || !isExternal(d)) return [];
-  // Zoho through an account: the account and the secret.
-  const need = d.kind === 'zoho' && !d.manual ? ['zoho_account', 'secret_name'] as (keyof SourceDraft)[] : [...REQUIRED[d.kind as SecretSourceKind]];
+  // Through an account: the account and what to read.
+  if (accountMode(d)) {
+    const sign = SIGN_IN[d.kind as AccountSourceKind] ?? [];
+    const need = ['account_id' as keyof SourceDraft, ...REQUIRED[d.kind as SecretSourceKind].filter((k) => !sign.includes(k))];
+    if (d.kind === 'ccp' && ![d.object, d.account_user, d.account_address].some((v) => v.trim())) need.push('object');
+    return need.filter((k) => String(d[k] ?? '').trim() === '');
+  }
+  const need = [...REQUIRED[d.kind as SecretSourceKind]];
   if (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'delinea' || d.kind === 'bitwarden') {
     if (d.master === 'command') need.push('master_command');
     if (d.kind === 'keepass' && d.master === 'none') need.push('key_file');
@@ -287,15 +352,15 @@ export function missingInputs(d: SourceDraft | undefined): (keyof SourceDraft)[]
  *  Zoho's client secret and refresh token, Bitwarden's client secret. */
 export function typedTokens(d: SourceDraft): Record<string, string> {
   const out: Record<string, string> = {};
+  // Through an account: the account keeps them.
+  if (accountMode(d)) return out;
   const keepsMaster = (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'delinea' || d.kind === 'bitwarden') && d.master === 'keychain';
   const vault = d.kind === 'vault' || d.kind === 'vault_db';
   // Vault's token, a master password, Conjur's API key, the CCP key's passphrase, Bitwarden Secrets Manager's access token.
   if (((vault && d.auth !== 'approle') || keepsMaster || d.kind === 'conjur' || d.kind === 'ccp' || d.kind === 'bitwarden_sm') && d.token) out[''] = d.token;
   if (vault && d.auth === 'approle' && d.approle_secret_id) out.secret_id = d.approle_secret_id;
   if (d.kind === 'bitwarden' && d.client_secret) out.client_secret = d.client_secret;
-  // Zoho through an account: the account keeps them.
-  if (d.kind === 'zoho' && !d.manual) delete out[''];
-  if (d.kind === 'zoho' && d.manual) {
+  if (d.kind === 'zoho') {
     if (d.client_secret) out.client_secret = d.client_secret;
     if (d.refresh_token) out.refresh_token = d.refresh_token;
   }
@@ -310,6 +375,7 @@ export function sourceRows(s: SecretSource): [string, string][] {
     'project', 'secret', 'version', 'file', 'entry', 'data_center', 'secret_name', 'client_id', 'attribute', 'key_file', 'master', 'master_command', 'json_key',
     'fill_username', 'mount', 'role', 'static_role', 'auth', 'approle_mount', 'role_id', 'url', 'platform_url', 'conjur_account', 'login', 'variable',
     'username_variable', 'app_id', 'safe', 'folder', 'object', 'account_user', 'account_address', 'client_cert', 'client_key', 'username', 'domain', 'server', 'item', 'user_field', 'parameter', 'list_index',
+    'tenant', 'secret_account',
   ];
   const rec = s as unknown as Record<string, unknown>;
   return order.filter((k) => rec[k] !== undefined && rec[k] !== '' && rec[k] !== false).map((k) => [k, String(rec[k])]);
@@ -412,11 +478,12 @@ export function missingForBrowse(d: SourceDraft, editing = false): (keyof Source
   const b = BROWSE[d.kind];
   if (!b) return [];
   const need = missingInputs(d).filter((k) => k !== b.item && k !== b.field);
-  // A new connection has nothing kept: what signs in has to be typed.
-  if (!editing) {
+  // A new connection has nothing kept: what signs in has to be typed
+  // (through an account, nothing: the account has it).
+  if (!editing && !accountMode(d)) {
     const masterKept = ['keepass', 'delinea', 'bitwarden'].includes(d.kind) && d.master === 'keychain';
     if ((masterKept || d.kind === 'conjur') && !d.token) need.push('token');
-    const zohoManual = d.kind === 'zoho' && d.manual;
+    const zohoManual = d.kind === 'zoho';
     if ((d.kind === 'bitwarden' || zohoManual) && !d.client_secret) need.push('client_secret');
     if (zohoManual && !d.refresh_token) need.push('refresh_token');
   }

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { SecretAccount, ZohoExchanged } from './types';
+import type { ConnectedAccount, SecretAccount, SecretAccountConfig, ZohoExchanged } from './types';
 
 // Secret-manager accounts saved on this computer (src-tauri:
 // secret_sources/accounts.rs; docs/secret-sources.md, "Accounts").
@@ -21,4 +21,12 @@ export const accountsApi = {
   zohoCancel: (pending: string) => invoke<void>('zoho_connect_cancel', { args: { pending } }),
   /** Step 1: Zoho's API console in the browser. */
   openZohoConsole: () => invoke<void>('open_zoho_api_console'),
+  /** Every other manager's last step: check live and, only if that passed,
+   *  save (with `accountId`: reconnect it, keeping its ID). `secrets` by slot. */
+  connect: (a: { accountId: string | null; label: string; config: SecretAccountConfig; secrets: Record<string, string> }) =>
+    invoke<ConnectedAccount>('connect_secret_account', { args: { account_id: a.accountId, label: a.label, config: a.config, secrets: a.secrets } }),
+  /** What a wizard starts from on this computer (1Password's accounts, AWS's profiles, az, gcloud). */
+  detect: (kind: 'onepassword' | 'aws' | 'azure' | 'gcp') => invoke<Record<string, unknown>>('detect_secret_account', { args: { kind } }),
+  /** A fixed help page in the browser (the Bitwarden web vault, 1Password's CLI docs). */
+  openPage: (page: string) => invoke<void>('open_secret_manager_page', { args: { page } }),
 };

@@ -5,6 +5,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { draftFrom, emptyDraft, isExternal, missingForBrowse, missingInputs, readSources, sourceFrom, sourceRows, SOURCES_OPTION, tokenKey, typedTokens, writeSources } from './secretSources.ts';
 
+/** A draft with the inline sign-in (manual mode), as definitions from before accounts. */
+const inlineDraft = (kind) => ({ ...emptyDraft(kind), manual: true });
+
 test('definitions round-trip through the options', () => {
   const options = { sslmode: 'require' };
   const sources = {
@@ -37,7 +40,7 @@ test('a draft gives back the definition it came from, without empty inputs', () 
   // The username only fills from the password's source.
   assert.equal(sourceFrom(draftFrom(cases[3]), 'api_key').fill_username, undefined);
   // Trimmed; auto KV version left out.
-  const d = emptyDraft('vault');
+  const d = inlineDraft('vault');
   Object.assign(d, { address: ' https://v ', path: 'secret/x ', key: 'k' });
   assert.deepEqual(sourceFrom(d, 'password'), { kind: 'vault', address: 'https://v', path: 'secret/x', key: 'k' });
 });
@@ -51,7 +54,7 @@ test('saved and ask are not definitions', () => {
 });
 
 test('what each kind needs', () => {
-  assert.deepEqual(missingInputs(emptyDraft('vault')), ['address', 'path', 'key']);
+  assert.deepEqual(missingInputs(inlineDraft('vault')), ['address', 'path', 'key']);
   assert.deepEqual(missingInputs(emptyDraft('saved')), []);
   const d = emptyDraft('command');
   assert.deepEqual(missingInputs(d), ['command']);
@@ -69,7 +72,7 @@ test('the confirmation shows every input that has a value, exactly', () => {
 });
 
 test('KeePass and Zoho Vault: the master password choice', () => {
-  const kp = emptyDraft('keepass');
+  const kp = inlineDraft('keepass');
   Object.assign(kp, { file: '/x.kdbx', entry: 'e' });
   assert.deepEqual(missingInputs(kp), []);
   kp.master = 'none';
@@ -83,7 +86,7 @@ test('KeePass and Zoho Vault: the master password choice', () => {
   assert.equal(sourceFrom(kp, 'password').master, 'ask');
   kp.master = 'keychain';
   assert.equal(sourceFrom(kp, 'password').master, undefined, 'the default is left out, as the backend stores it');
-  assert.deepEqual(missingInputs(emptyDraft('zoho')), ['zoho_account', 'secret_name'], 'a new Zoho source names an account');
+  assert.deepEqual(missingInputs(emptyDraft('zoho')), ['account_id', 'secret_name'], 'a new Zoho source names an account');
   assert.deepEqual(missingInputs({ ...emptyDraft('zoho'), manual: true }), ['data_center', 'secret_name', 'client_id']);
   const zo = emptyDraft('zoho');
   zo.manual = true;
@@ -92,10 +95,10 @@ test('KeePass and Zoho Vault: the master password choice', () => {
 });
 
 test('what goes to the keychain, by slot', () => {
-  const v = emptyDraft('vault');
+  const v = inlineDraft('vault');
   v.token = 'hvs.x';
   assert.deepEqual(typedTokens(v), { '': 'hvs.x' });
-  const kp = emptyDraft('keepass');
+  const kp = inlineDraft('keepass');
   kp.token = 'master';
   assert.deepEqual(typedTokens(kp), { '': 'master' });
   kp.master = 'ask';
@@ -139,24 +142,24 @@ test('Vault database credentials, CyberArk and Delinea round-trip', () => {
 });
 
 test('what the new kinds need, and what they keep', () => {
-  assert.deepEqual(missingInputs(emptyDraft('vault_db')), ['address', 'role']);
-  const ar = emptyDraft('vault_db');
+  assert.deepEqual(missingInputs(inlineDraft('vault_db')), ['address', 'role']);
+  const ar = inlineDraft('vault_db');
   Object.assign(ar, { address: 'https://v', role: 'ro', auth: 'approle' });
   assert.deepEqual(missingInputs(ar), ['role_id']);
   Object.assign(ar, { token: 'not-used', approle_secret_id: 'sid' });
   assert.deepEqual(typedTokens(ar), { secret_id: 'sid' }, 'AppRole keeps the secret ID, not a token');
   ar.auth = 'token';
   assert.deepEqual(typedTokens(ar), { '': 'not-used' });
-  assert.deepEqual(missingInputs(emptyDraft('conjur')), ['url', 'conjur_account', 'login', 'variable']);
-  const cj = emptyDraft('conjur');
+  assert.deepEqual(missingInputs(inlineDraft('conjur')), ['url', 'conjur_account', 'login', 'variable']);
+  const cj = inlineDraft('conjur');
   cj.token = 'api-key';
   assert.deepEqual(typedTokens(cj), { '': 'api-key' });
-  const ccp = emptyDraft('ccp');
+  const ccp = inlineDraft('ccp');
   Object.assign(ccp, { url: 'https://ccp', app_id: 'A' });
   assert.deepEqual(missingInputs(ccp), ['object'], 'an account to ask for');
   ccp.account_address = 'db.example.com';
   assert.deepEqual(missingInputs(ccp), []);
-  const dl = emptyDraft('delinea');
+  const dl = inlineDraft('delinea');
   assert.deepEqual(missingInputs(dl), ['url', 'username', 'secret_name']);
   dl.token = 'pw';
   assert.deepEqual(typedTokens(dl), { '': 'pw' });
@@ -176,24 +179,24 @@ test('Bitwarden, Bitwarden Secrets Manager and Parameter Store', () => {
     { kind: 'ssm', parameter: '/prod/db', version: 'current', region: 'eu-west-1', profile: 'prod', list_index: '2', json_key: 'password', fill_username: true },
   ];
   for (const c of cases) assert.deepEqual(sourceFrom(draftFrom(c), 'password'), c, c.kind);
-  assert.deepEqual(missingInputs(emptyDraft('bitwarden')), ['item', 'client_id']);
-  assert.deepEqual(missingInputs(emptyDraft('bitwarden_sm')), ['secret']);
-  assert.deepEqual(missingInputs(emptyDraft('ssm')), ['parameter']);
+  assert.deepEqual(missingInputs(inlineDraft('bitwarden')), ['item', 'client_id']);
+  assert.deepEqual(missingInputs(inlineDraft('bitwarden_sm')), ['secret']);
+  assert.deepEqual(missingInputs(inlineDraft('ssm')), ['parameter']);
   const bw = draftFrom(cases[0]);
   bw.master = 'command';
   assert.deepEqual(missingInputs(bw), ['master_command']);
   bw.master = 'none';
   assert.equal(sourceFrom(bw, 'password').master, undefined, 'Bitwarden always has a master password');
   // The keychain: the master password and the client secret; the access token.
-  const typed = emptyDraft('bitwarden');
+  const typed = inlineDraft('bitwarden');
   Object.assign(typed, { token: 'master', client_secret: 'cs' });
   assert.deepEqual(typedTokens(typed), { '': 'master', client_secret: 'cs' });
   typed.master = 'ask';
   assert.deepEqual(typedTokens(typed), { client_secret: 'cs' }, 'an asked password is never kept');
-  const sm = emptyDraft('bitwarden_sm');
+  const sm = inlineDraft('bitwarden_sm');
   sm.token = '0.id.secret:key';
   assert.deepEqual(typedTokens(sm), { '': '0.id.secret:key' });
-  assert.deepEqual(typedTokens(emptyDraft('ssm')), {});
+  assert.deepEqual(typedTokens(inlineDraft('ssm')), {});
   // The confirmation shows the server and the item.
   assert.deepEqual(sourceRows(cases[1]).map((r) => r[0]), ['client_id', 'master', 'master_command', 'server', 'item']);
   assert.equal(sourceFrom(draftFrom(cases[3]), 'api_key').fill_username, undefined);
@@ -219,7 +222,7 @@ test('the selector: local kinds first, then the managers by their name in the la
 
 test('browsing fills the item and its field; the user comes from the source', async () => {
   const { applyBrowse, missingForBrowse, userFromSource, emptyDraft } = await import('./secretSources.ts');
-  const kp = emptyDraft('keepass');
+  const kp = inlineDraft('keepass');
   assert.deepEqual(missingForBrowse(kp, true), ['file'], 'the entry is what browsing chooses');
   kp.file = '~/db.kdbx';
   assert.deepEqual(missingForBrowse(kp, true), []);
@@ -234,24 +237,24 @@ test('browsing fills the item and its field; the user comes from the source', as
   assert.equal(kp.user_field, 'Login');
   applyBrowse(kp, { id: 'Databases/Prod/pg-main' }, 'Password', 'UserName');
   assert.equal(kp.user_field, '', "the entry's own user field is the default");
-  const op = emptyDraft('onepassword');
+  const op = inlineDraft('onepassword');
   applyBrowse(op, { id: 'op://Private/pg' }, 'Database/password');
   assert.equal(op.reference, 'op://Private/pg/Database/password');
-  const db = emptyDraft('vault_db');
+  const db = inlineDraft('vault_db');
   applyBrowse(db, { id: 'app', path: 'static-roles' }, null);
   assert.equal(db.role, 'app');
   assert.equal(db.static_role, true);
-  const aws = emptyDraft('aws');
+  const aws = inlineDraft('aws');
   applyBrowse(aws, { id: 'prod/db' }, '');
   assert.equal(aws.json_key, '', 'the whole value');
   assert.equal(userFromSource(db), true, 'Vault database credentials always give the user');
   assert.equal(userFromSource(aws), false);
   aws.fill_username = true;
   assert.equal(userFromSource(aws), true);
-  const conjur = emptyDraft('conjur');
+  const conjur = inlineDraft('conjur');
   conjur.username_variable = 'db/user';
   assert.equal(userFromSource(conjur), true);
-  const vault = emptyDraft('vault');
+  const vault = inlineDraft('vault');
   vault.fill_username = true;
   assert.equal(userFromSource(vault), false, 'Vault KV has no user to give');
 });
@@ -266,7 +269,7 @@ test('entries give the user: fields, 1Password references, older definitions', a
   assert.equal(userFromSource(kp), true);
   assert.equal(sourceFrom(kp, 'password').user_field, 'Login');
   assert.equal(sourceFrom(kp, 'api_key').user_field, undefined, 'only the password gives the user');
-  const op = emptyDraft('onepassword');
+  const op = inlineDraft('onepassword');
   op.reference = 'op://Private/pg/password';
   assert.equal(passwordField(op), 'password');
   setPasswordField(op, 'Database/secret');
@@ -275,7 +278,7 @@ test('entries give the user: fields, 1Password references, older definitions', a
   op.fill_username = true;
   assert.equal(userFromSource(op), true);
   assert.equal(sourceFrom(op, 'password').fill_username, true);
-  assert.equal(fieldsQuery(emptyDraft('keepass')), null, 'no entry yet');
+  assert.equal(fieldsQuery(inlineDraft('keepass')), null, 'no entry yet');
 });
 
 test('Zoho: an account, or the inline sign-in (manual mode)', () => {
@@ -283,12 +286,12 @@ test('Zoho: an account, or the inline sign-in (manual mode)', () => {
   const acct = { kind: 'zoho', secret_name: 'pg-main', fill_username: true, account: '6f1c2d4e-0000-4000-8000-000000000001' };
   const d = draftFrom(acct);
   assert.equal(d.manual, false);
-  assert.equal(d.zoho_account, acct.account);
+  assert.equal(d.account_id, acct.account);
   assert.equal(d.account, '', "1Password's account input stays empty");
   assert.deepEqual(sourceFrom(d, 'password'), acct);
   assert.deepEqual(missingInputs(d), []);
   assert.deepEqual(missingForBrowse(d), [], 'browsing needs the account only, nothing typed');
-  assert.deepEqual(missingForBrowse({ ...d, zoho_account: '' }), ['zoho_account']);
+  assert.deepEqual(missingForBrowse({ ...d, account_id: '' }), ['account_id']);
   // Inline (older definitions): the same JSON back, in manual mode.
   const inline = { kind: 'zoho', data_center: 'eu', secret_name: 'pg-main', client_id: '1000.ABC', master: 'command', master_command: 'pass show zoho' };
   const m = draftFrom(inline);
@@ -297,8 +300,53 @@ test('Zoho: an account, or the inline sign-in (manual mode)', () => {
   assert.deepEqual(missingForBrowse(m), ['client_secret', 'refresh_token'], 'a new form types what signs in');
   // Switching modes: nothing of the other mode is written.
   m.manual = false;
-  m.zoho_account = 'a-1';
+  m.account_id = 'a-1';
   assert.deepEqual(sourceFrom(m, 'password'), { kind: 'zoho', secret_name: 'pg-main', account: 'a-1' });
   // The confirmation dialog lists the account.
   assert.ok(sourceRows(acct).some(([k, v]) => k === 'account' && v === acct.account));
+});
+
+test('every manager: through a saved account, only what to read and the account', () => {
+  const A = '6f1c2d4e-0000-4000-8000-000000000001';
+  const cases = [
+    { kind: 'onepassword', reference: 'op://Private/pg/password', fill_username: true, secret_account: A },
+    { kind: 'vault', path: 'secret/app', key: 'pw', kv_version: '2', secret_account: A },
+    { kind: 'vault_db', role: 'ro', static_role: true, secret_account: A },
+    { kind: 'aws', secret_id: 'prod/db', json_key: 'password', fill_username: true, secret_account: A },
+    { kind: 'ssm', parameter: '/prod/db', list_index: '2', secret_account: A },
+    { kind: 'azure', name: 'db-pw', version: 'abc', secret_account: A },
+    { kind: 'gcp', secret: 'db-pw', secret_account: A },
+    { kind: 'keepass', entry: 'Databases/pg', fill_username: true, secret_account: A },
+    { kind: 'conjur', variable: 'db/pw', username_variable: 'db/user', secret_account: A },
+    { kind: 'ccp', safe: 'DB', object: 'pg', fill_username: true, secret_account: A },
+    { kind: 'delinea', secret_name: 'pg', fill_username: true, secret_account: A },
+    { kind: 'bitwarden', item: 'pg', fill_username: true, secret_account: A },
+    { kind: 'bitwarden_sm', secret: '1c9d6c0e-55aa-4b6f-8a43-0a1b2c3d4e5f', secret_account: A },
+  ];
+  for (const src of cases) {
+    const d = draftFrom(src);
+    assert.equal(d.manual, false, src.kind);
+    assert.equal(d.account_id, A);
+    assert.deepEqual(sourceFrom(d, 'password'), src, `${src.kind}: written as read`);
+    assert.deepEqual(missingInputs(d), [], src.kind);
+    assert.deepEqual(typedTokens({ ...d, token: 'x', client_secret: 'y', approle_secret_id: 'z' }), {}, `${src.kind}: the account keeps the secrets`);
+    // A sign-in typed in the form isn't written in account mode.
+    const mixed = { ...d, address: 'https://evil', url: 'https://evil', file: '/x.kdbx', region: 'us-east-1', vault_url: 'https://kv.vault.azure.net', project: 'p', server: 'https://evil', client_id: 'user.x', account: 'evil' };
+    assert.deepEqual(sourceFrom(mixed, 'password'), src, `${src.kind}: no inline sign-in`);
+    assert.deepEqual(missingInputs({ ...d, account_id: '' }), ['account_id'], src.kind);
+    // Switched to manual mode: the inline form, without the account.
+    const m = { ...d, manual: true };
+    assert.equal(sourceFrom(m, 'password').secret_account, undefined, src.kind);
+  }
+  // A new definition names an account; browsing needs nothing typed then.
+  const bw = emptyDraft('bitwarden');
+  bw.item = 'pg';
+  assert.deepEqual(missingInputs(bw), ['account_id']);
+  bw.account_id = A;
+  assert.deepEqual(missingForBrowse(bw), []);
+  // The confirmation dialog lists the account (shown by its name).
+  assert.ok(sourceRows(cases[1]).some(([k, v]) => k === 'secret_account' && v === A));
+  // Azure's tenant, inline.
+  const az = { kind: 'azure', vault_url: 'https://kv1.vault.azure.net', name: 'pw', tenant: 'contoso.onmicrosoft.com' };
+  assert.deepEqual(sourceFrom(draftFrom(az), 'password'), az);
 });
