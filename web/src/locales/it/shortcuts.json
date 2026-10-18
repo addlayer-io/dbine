@@ -1,0 +1,52 @@
+{
+  "nav": "Scorciatoie da tastiera",
+  "help": "I tasti di ogni azione. Fai clic su una combinazione e premi quella nuova (Esc annulla). La modifica vale subito e viaggia con il resto delle impostazioni.",
+  "search": "Cerca per azione o tasto",
+  "none": "Nessuna azione corrisponde alla ricerca.",
+  "resetAll": "Ripristina tutte",
+  "reset": "Torna alla combinazione originale",
+  "remove": "Rimuovi la combinazione",
+  "change": "Cambia la combinazione",
+  "recording": "Premi la combinazione…",
+  "unbound": "Nessuna scorciatoia",
+  "conflict": "Usata anche da: {{names}}",
+  "reserved": "È una scorciatoia di sistema (copia, incolla, annulla…): smette di funzionare dove l'azione è attiva.",
+  "group": {
+    "general": "Generale",
+    "view": "Visualizza",
+    "editor": "Editor",
+    "results": "Risultati"
+  },
+  "cmd": {
+    "file": {
+      "newQuery": "Nuova query",
+      "newWindow": "Nuova finestra",
+      "closeTab": "Chiudi la scheda",
+      "save": "Salva"
+    },
+    "app": {
+      "settings": "Impostazioni",
+      "quit": "Esci da DBine"
+    },
+    "view": {
+      "explorer": "Mostra o nascondi l'esploratore",
+      "output": "Mostra o nascondi il pannello inferiore",
+      "ai": "Mostra o nascondi l'assistente IA"
+    },
+    "editor": {
+      "run": "Esegui la selezione o tutto",
+      "runStatement": "Esegui l'istruzione del cursore",
+      "planEstimated": "Piano stimato",
+      "planActual": "Esegui con il piano reale",
+      "format": "Formatta",
+      "comment": "Commenta o decommenta",
+      "find": "Trova e sostituisci",
+      "gotoLine": "Vai alla riga…",
+      "autocomplete": "Suggerimenti di completamento",
+      "toggleVim": "Attiva o disattiva la modalità Vim"
+    },
+    "results": {
+      "export": "Esporta i risultati…"
+    }
+  }
+}

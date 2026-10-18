@@ -355,5 +355,15 @@ if (view === 'rename') {
 if (view === 'tabs') installTabsPreview();
 if (view === 'projects') installProjectsPreview();
 if (view === 'timeline') installTimelinePreview();
+// ?vim=1: the editors in Vim mode. ?bind=view.ai=Mod-b,…: the user's own
+// shortcuts. Again after a moment: the settings view loads its mock first.
+function previewPrefs() {
+  const st = useSettingsStore();
+  if (params.get('vim')) st.values['editor.vim'] = true;
+  const bind = params.get('bind');
+  if (bind) st.values['keys.bindings'] = Object.fromEntries(bind.split(',').map((p) => p.split('=')));
+}
+previewPrefs();
+setTimeout(previewPrefs, 300);
 for (const [name, comp] of Object.entries(Icons)) app.component(`Ei${name}`, comp as never);
 app.mount('#app');

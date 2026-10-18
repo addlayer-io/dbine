@@ -28,6 +28,8 @@ import { runTask, type TaskHandle } from '../stores/tasks';
 import DriversSettings from './DriversSettings.vue';
 import LintSettings from './LintSettings.vue';
 import SnippetSettings from './SnippetSettings.vue';
+import ShortcutSettings from './ShortcutSettings.vue';
+import { VIM_SETTING } from '../composables/commands';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
 import DevicesSettings from './DevicesSettings.vue';
@@ -89,6 +91,12 @@ if ('__TAURI_INTERNALS__' in window) {
 const groupBySchema = computed({
   get: () => settings.get<boolean>('explorer.groupBySchema', true),
   set: (v) => settings.set('explorer.groupBySchema', v),
+});
+
+/** "Modo Vim en el editor": every code editor follows it at once. */
+const vimMode = computed({
+  get: () => settings.get<boolean>(VIM_SETTING, false),
+  set: (v) => settings.set(VIM_SETTING, v),
 });
 
 // -- drivers ------------------------------------------------------------------------
@@ -361,6 +369,9 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <button :class="{ on: section === 'devices' }" @click="section = 'devices'"><el-icon><ei-iphone /></el-icon>{{ $t('devices:nav') }}</button>
         <button :class="{ on: section === 'lint' }" @click="section = 'lint'"><el-icon><ei-circle-check /></el-icon>{{ $t('lint:nav') }}</button>
         <button :class="{ on: section === 'snippets' }" @click="section = 'snippets'"><el-icon><ei-document-copy /></el-icon>{{ $t('snippets:nav') }}</button>
+        <button :class="{ on: section === 'shortcuts' }" @click="section = 'shortcuts'">
+          <el-icon><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" /></svg></el-icon>{{ $t('shortcuts:nav') }}
+        </button>
         <button :class="{ on: section === 'mail' }" @click="section = 'mail'"><el-icon><ei-message /></el-icon>{{ $t('mail:nav') }}</button>
         <button v-if="driverPackages" :class="{ on: section === 'drivers' }" @click="section = 'drivers'"><el-icon><ei-connection /></el-icon>{{ $t('settings:nav.drivers') }}</button>
         <!-- Voluntary support: opens Buy Me a Coffee in the browser. -->
@@ -391,6 +402,10 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
             <el-option v-for="n in maxRowsOptions" :key="n" :label="n.toLocaleString(locale())" :value="n" />
             <el-option :label="$t('query:status.rowsAllOption')" :value="ALL_ROWS" />
           </el-select>
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.vim') }}</strong><span>{{ $t('settings:general.vimHelp') }}</span></div>
+          <el-switch v-model="vimMode" />
         </div>
         <div class="st-row">
           <div><strong>{{ $t('settings:general.groupBySchema') }}</strong><span>{{ $t('settings:general.groupBySchemaHelp') }}</span></div>
@@ -424,6 +439,11 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <!-- The query editor's linter -->
       <section v-else-if="section === 'lint'" class="st-body">
         <LintSettings />
+      </section>
+
+      <!-- Keyboard shortcuts (composables/commands.ts) -->
+      <section v-else-if="section === 'shortcuts'" class="st-body">
+        <ShortcutSettings />
       </section>
 
       <!-- The query editor's snippets -->

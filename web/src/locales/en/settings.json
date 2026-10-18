@@ -13,6 +13,8 @@
     "copyFormatHelp": "What ⌘C copies in the results grid.",
     "maxRows": "Max rows per query",
     "maxRowsHelp": "Row limit each run fetches in the editor.",
+    "vim": "Vim mode in the editor",
+    "vimHelp": "Vim keys (NORMAL, INSERT, VISUAL) in the query, file and routine editors. The editor's status line shows the mode and :w saves.",
     "groupBySchema": "Group by schema",
     "groupBySchemaHelp": "In the explorer, each schema is a folder with its objects. When off, objects go in a single list with the schema before the name."
   },

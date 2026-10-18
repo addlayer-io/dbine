@@ -1,4 +1,4 @@
-import { onScopeDispose } from 'vue';
+import { onScopeDispose, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { windowApi } from '../api/client';
@@ -7,7 +7,7 @@ import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { checkForUpdateNow } from './updates';
 import { requestQuit } from './quitGuard';
-import { isMac } from './shortcuts';
+import { bindingAccelerator, bindingOf, keyOfEvent, matchesCommand, recordingKeys } from './commands';
 
 // The native menu bar (macOS only: Windows and Linux have none, as VS Code).
 // Its labels follow the app's language, so the UI builds it and sends it to
@@ -23,6 +23,11 @@ import { isMac } from './shortcuts';
 // when it gains focus, and the backend sends a click only to the window it
 // belongs to. "Nueva ventana" (⌘⇧N) is handled in Rust; where there's no
 // menu, this module takes Ctrl+Shift+N itself.
+//
+// Item ids are the action registry's command ids (composables/commands.ts):
+// an item's accelerator is the keys the user gave that command, and the menu
+// is sent again when they change. While Configuración records new keys the
+// menu goes without accelerators, so ⌘N & co. reach the page.
 
 /** What the menu runs that lives in App.vue's layout. */
 export interface AppMenuActions {
@@ -38,10 +43,9 @@ type Entry =
 
 const sep: Entry = { kind: 'separator' };
 const native = (item: string, key?: string): Entry => ({ kind: 'native', item, label: key ? t(`menu:${key}`) : undefined });
-/** `key`: the shortcut's letter, always with ⌘ (the app's own shortcuts),
- *  optionally after `Shift+`. */
-const item = (id: string, key?: string): Entry => ({
-  kind: 'item', id, label: t(`menu:${id}`), accelerator: key ? `CmdOrCtrl+${key.toUpperCase()}` : undefined,
+/** `keys`: the item runs a registry command (its id), with its keys. */
+const item = (id: string, keys = false): Entry => ({
+  kind: 'item', id, label: t(`menu:${id}`), accelerator: keys && !recordingKeys.value ? bindingAccelerator(id) : undefined,
 });
 
 /** The menu, in the current language. Item ids are the labels' keys. */
@@ -49,15 +53,15 @@ function menus() {
   return [
     // macOS titles the application menu with the app's name.
     { label: 'DBine', items: [
-      native('about', 'app.about'), item('app.settings', ','), sep,
+      native('about', 'app.about'), item('app.settings', true), sep,
       native('services', 'app.services'), sep,
       native('hide', 'app.hide'), native('hideOthers', 'app.hideOthers'), native('showAll', 'app.showAll'), sep,
       // Ours, not the native one: quitting asks first when tasks are running.
-      item('app.quit', 'q'),
+      item('app.quit', true),
     ] },
     { label: t('menu:file.title'), items: [
-      item('file.newConnection'), item('file.newQuery', 'n'), item('file.newWindow', 'Shift+N'), sep,
-      item('file.closeTab', 'w'),
+      item('file.newConnection'), item('file.newQuery', true), item('file.newWindow', true), sep,
+      item('file.closeTab', true),
     ] },
     // Without these, ⌘C / ⌘V / ⌘Z don't reach the webview on macOS.
     { label: t('menu:edit.title'), items: [
@@ -65,7 +69,7 @@ function menus() {
       native('cut', 'edit.cut'), native('copy', 'edit.copy'), native('paste', 'edit.paste'), native('selectAll', 'edit.selectAll'),
     ] },
     { label: t('menu:view.title'), items: [
-      item('view.explorer', 'b'), item('view.output', 'j'), item('view.ai', 'i'), sep,
+      item('view.explorer', true), item('view.output', true), item('view.ai', true), sep,
       native('fullscreen', 'view.fullscreen'),
     ] },
     { label: t('menu:window.title'), items: [native('minimize', 'window.minimize'), native('zoom', 'window.zoom')] },
@@ -73,26 +77,23 @@ function menus() {
   ] satisfies { label: string; items: Entry[] }[];
 }
 
-/** The keys the menu's items take (⌘ + key, as `shift+n` when shifted),
- *  from the menu itself. */
-const menuKeys = new Set(
-  menus().flatMap((m) => m.items).flatMap((e) => (e.kind === 'item' && e.accelerator ? [e.accelerator.slice(10).toLowerCase()] : [])),
-);
+/** The commands whose menu items carry their keys (`item(id, true)` above). */
+const menuCommands = ['app.settings', 'app.quit', 'file.newQuery', 'file.newWindow', 'file.closeTab', 'view.explorer', 'view.output', 'view.ai'];
 
 let installed = false;
 
-/** ⌘⇧N on macOS, Ctrl+Shift+N on Windows / Linux: a new window. */
+/** ⌘⇧N on macOS, Ctrl+Shift+N on Windows / Linux (or the user's keys): a new window. */
 function isNewWindowKey(e: KeyboardEvent): boolean {
-  const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-  return mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n';
+  return matchesCommand(e, 'file.newWindow');
 }
 
 /** True when the native menu, or this module, runs this key (the caller
  *  then ignores it). */
 export function ownsShortcut(e: KeyboardEvent): boolean {
   if (isNewWindowKey(e)) return true;
-  const key = (e.shiftKey ? 'shift+' : '') + e.key.toLowerCase();
-  return installed && e.metaKey && !e.ctrlKey && !e.altKey && menuKeys.has(key);
+  if (!installed) return false;
+  const k = keyOfEvent(e);
+  return !!k && menuCommands.some((id) => bindingOf(id) === k);
 }
 
 /** Install the menu and run its items. Call from App.vue's setup. */
@@ -120,10 +121,12 @@ export function useAppMenu(actions: AppMenuActions) {
   if (!('__TAURI_INTERNALS__' in window)) return;
   send();
   i18next.on('languageChanged', send);
+  // New keys for a menu command, or recording started / ended.
+  const stopWatch = watch(() => [recordingKeys.value, ...menuCommands.map((id) => bindingOf(id))].join('|'), send);
 
   // Without the menu (Windows, Linux) the new-window key is ours.
   const onKey = (e: KeyboardEvent) => {
-    if (installed || !isNewWindowKey(e)) return;
+    if (installed || recordingKeys.value || !isNewWindowKey(e)) return;
     e.preventDefault();
     windowApi.newWindow().catch(() => {});
   };
@@ -145,6 +148,7 @@ export function useAppMenu(actions: AppMenuActions) {
   }
   onScopeDispose(() => {
     disposed = true;
+    stopWatch();
     i18next.off('languageChanged', send);
     window.removeEventListener('keydown', onKey);
     unlisteners.forEach((f) => f());

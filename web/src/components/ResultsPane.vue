@@ -19,6 +19,7 @@ import ExportDialog from './ExportDialog.vue';
 import type { FilterState } from '../composables/gridFilter';
 import { EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat } from '../composables/export';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
+import { bindingLabel, registerCommand } from '../composables/commands';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // What a run produced: one sub-tab per result set, "Plan de ejecución" when
@@ -634,17 +635,15 @@ function onExportCommand(cmd: string) {
   else quickExport(cmd as ExportFormat);
 }
 
-// ⌘E opens the advanced export, when this pane is the visible one.
+// ⌘E (the registry's `results.export`) opens the advanced export, when this
+// pane is the visible one.
 const root = ref<HTMLDivElement | null>(null);
 function onKey(e: KeyboardEvent) {
-  if (isSaveShortcut(e)) { saveShortcut(e); return; }
-  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'e') return;
-  if (!current.value || !root.value?.offsetParent) return;
-  e.preventDefault();
-  exporting.value = { format: 'csv' };
+  if (isSaveShortcut(e)) saveShortcut(e);
 }
+const unregisterExport = registerCommand('results.export', () => { exporting.value = { format: 'csv' }; }, () => !!current.value && !!root.value?.offsetParent);
 onMounted(() => window.addEventListener('keydown', onKey));
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); unregisterExport(); });
 
 // ⌘S (Ctrl+S on Windows / Linux) is "Guardar": the review dialog, when this
 // pane is the visible one and its grid has pending edits. Inside the SQL
@@ -789,7 +788,7 @@ const statusText = computed(() => {
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item command="advanced">
-              <span class="rp-menu-row"><span>{{ $t('results:export.advanced') }}</span><kbd>⌘E</kbd></span>
+              <span class="rp-menu-row"><span>{{ $t('results:export.advanced') }}</span><kbd>{{ bindingLabel('results.export') }}</kbd></span>
             </el-dropdown-item>
             <el-dropdown-item v-for="(f, i) in EXPORT_FORMATS" :key="f.id" :command="f.id" :divided="i === 0">{{ $t(`results:export.format.${f.id}`, f.label) }}</el-dropdown-item>
           </el-dropdown-menu>
@@ -825,7 +824,7 @@ const statusText = computed(() => {
       <div v-if="codeError" class="rp-edits-note err">{{ codeError }}</div>
     </div>
     <div v-if="!outcome && !running" class="rp-empty nm-muted">
-      <i18next :translation="$t('results:empty')"><template #key><kbd>⌘↵</kbd></template></i18next>
+      <i18next :translation="$t('results:empty')"><template #key><kbd>{{ bindingLabel('editor.run') }}</kbd></template></i18next>
     </div>
     <PlanView v-else-if="active === 'plan' && outcome?.plans.length" :plans="outcome.plans" />
     <template v-else-if="current">

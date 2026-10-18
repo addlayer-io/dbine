@@ -13,6 +13,8 @@
     "copyFormatHelp": "Ce que ⌘C copie dans la grille de résultats.",
     "maxRows": "Lignes max. par requête",
     "maxRowsHelp": "Nombre maximal de lignes ramenées par chaque exécution dans l'éditeur.",
+    "vim": "Mode Vim dans l'éditeur",
+    "vimHelp": "Touches Vim (NORMAL, INSERT, VISUAL) dans les éditeurs de requêtes, de fichiers et de routines. La ligne d'état de l'éditeur affiche le mode et :w enregistre.",
     "groupBySchema": "Grouper par schéma",
     "groupBySchemaHelp": "Dans l'explorateur, chaque schéma est un dossier contenant ses objets. Désactivé, les objets sont dans une seule liste avec le schéma avant le nom."
   },

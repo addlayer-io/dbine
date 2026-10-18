@@ -13,6 +13,8 @@
     "copyFormatHelp": "O que ⌘C copia na grade de resultados.",
     "maxRows": "Máximo de linhas por consulta",
     "maxRowsHelp": "Limite de linhas que cada execução traz no editor.",
+    "vim": "Modo Vim no editor",
+    "vimHelp": "Teclas do Vim (NORMAL, INSERT, VISUAL) nos editores de consultas, arquivos e rotinas. A linha de status do editor mostra o modo e :w salva.",
     "groupBySchema": "Agrupar por esquema",
     "groupBySchemaHelp": "No explorador, cada esquema é uma pasta com seus objetos. Desativado, os objetos ficam em uma única lista com o esquema antes do nome."
   },

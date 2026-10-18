@@ -36,6 +36,7 @@ import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/
 import QueryParamsDialog from '../components/QueryParamsDialog.vue';
 import { queryControls, type QueryControls } from '../composables/queryControls';
 import { useToolbarOverflow } from '../composables/toolbarOverflow';
+import { bindingLabel } from '../composables/commands';
 
 // A saved query, or a project's file, open in the editor. A query's text is
 // saved as you type (to the state store, under its database in the
@@ -819,7 +820,7 @@ const syntaxOpen = ref(false);
 /** The collapsed actions, as the "…" menu shows them. */
 const overflowItems = computed<MenuItem[]>(() => {
   const all: Record<string, () => MenuItem> = {
-    format: () => ({ label: t('query:format'), shortcut: '⇧⌥F', disabled: !!formatOff.value || formatting.value, action: formatQuery }),
+    format: () => ({ label: t('query:format'), shortcut: bindingLabel('editor.format'), disabled: !!formatOff.value || formatting.value, action: formatQuery }),
     optimize: () => ({ label: t('optimizer:action'), disabled: unbound.value, action: optimize }),
     multiDb: () => ({ label: t('multiDb:action'), action: openMultiDb }),
     builder: () => ({ label: t('queryBuilder:toolbar'), action: () => tabs.openQueryBuilder(props.tab.connectionId, props.tab.database) }),

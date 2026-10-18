@@ -27,6 +27,7 @@ import FeedbackDialog from './components/FeedbackDialog.vue';
 import { errorMessage } from './api/client';
 import { newQuery } from './composables/actions';
 import { ownsShortcut, useAppMenu } from './composables/appMenu';
+import { VIM_SETTING, commandForEvent, recordingKeys, registerCommand, runCommand } from './composables/commands';
 import { useCrossWindow } from './composables/crossWindow';
 import { useProjectWatch } from './composables/projectWatch';
 import { fileDocs } from './composables/tabDocument';
@@ -164,19 +165,27 @@ function newQueryHere() {
   newQuery(tab.connectionId, tab.database);
 }
 
-// ⌘B explorer, ⌘J panel, ⌘W close tab, ⌘N new query (as in VS Code).
+// The window's actions (composables/commands.ts): ⌘B explorer, ⌘J panel,
+// ⌘W close tab, ⌘N new query (as in VS Code)… with the keys the user set.
+const unregister = [
+  registerCommand('view.explorer', () => { sidebarOpen.value = !sidebarOpen.value; }),
+  registerCommand('view.output', () => { panelOpen.value = !panelOpen.value; }),
+  registerCommand('file.closeTab', () => { if (tabs.activeId) tabs.close(tabs.activeId); }, () => !!tabs.activeId),
+  registerCommand('file.newQuery', newQueryHere),
+  registerCommand('app.settings', () => ui.openSettings()),
+  registerCommand('view.ai', () => { ui.aiOpen = !ui.aiOpen; }),
+  registerCommand('editor.toggleVim', () => { settingsStore.set(VIM_SETTING, !settingsStore.get(VIM_SETTING, false)); }),
+];
 function onKey(e: KeyboardEvent) {
-  if (!(e.metaKey || e.ctrlKey) || ownsShortcut(e)) return;
-  const k = e.key.toLowerCase();
-  if (k === 'b') { e.preventDefault(); sidebarOpen.value = !sidebarOpen.value; }
-  if (k === 'j') { e.preventDefault(); panelOpen.value = !panelOpen.value; }
-  if (k === 'w' && tabs.activeId) { e.preventDefault(); tabs.close(tabs.activeId); }
-  if (k === 'n') { e.preventDefault(); newQueryHere(); }
-  if (k === ',') { e.preventDefault(); ui.openSettings(); }
-  if (k === 'i' && !e.shiftKey) { e.preventDefault(); ui.aiOpen = !ui.aiOpen; }
+  if (recordingKeys.value || ownsShortcut(e)) return;
+  const id = commandForEvent(e, 'global');
+  if (id && runCommand(id)) e.preventDefault();
 }
 onMounted(() => window.addEventListener('keydown', onKey));
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey);
+  unregister.forEach((f) => f());
+});
 // macOS menu bar; it runs the shortcuts above while it's there.
 useAppMenu({ newQuery: newQueryHere, toggleExplorer: () => { sidebarOpen.value = !sidebarOpen.value; }, toggleOutput: () => { panelOpen.value = !panelOpen.value; } });
 

@@ -1,0 +1,52 @@
+{
+  "nav": "Raccourcis clavier",
+  "help": "Les touches de chaque action. Cliquez sur une combinaison et appuyez sur la nouvelle (Échap annule). Le changement s'applique aussitôt et suit le reste des paramètres.",
+  "search": "Rechercher par action ou touche",
+  "none": "Aucune action ne correspond à la recherche.",
+  "resetAll": "Tout réinitialiser",
+  "reset": "Revenir à la combinaison d'origine",
+  "remove": "Supprimer la combinaison",
+  "change": "Modifier la combinaison",
+  "recording": "Appuyez sur la combinaison…",
+  "unbound": "Aucun raccourci",
+  "conflict": "Aussi utilisée par : {{names}}",
+  "reserved": "C'est un raccourci du système (copier, coller, annuler…) : il ne fonctionne plus là où l'action s'exécute.",
+  "group": {
+    "general": "Général",
+    "view": "Affichage",
+    "editor": "Éditeur",
+    "results": "Résultats"
+  },
+  "cmd": {
+    "file": {
+      "newQuery": "Nouvelle requête",
+      "newWindow": "Nouvelle fenêtre",
+      "closeTab": "Fermer l'onglet",
+      "save": "Enregistrer"
+    },
+    "app": {
+      "settings": "Paramètres",
+      "quit": "Quitter DBine"
+    },
+    "view": {
+      "explorer": "Afficher ou masquer l'explorateur",
+      "output": "Afficher ou masquer le panneau inférieur",
+      "ai": "Afficher ou masquer l'assistant IA"
+    },
+    "editor": {
+      "run": "Exécuter la sélection ou tout",
+      "runStatement": "Exécuter l'instruction du curseur",
+      "planEstimated": "Plan estimé",
+      "planActual": "Exécuter avec le plan réel",
+      "format": "Formater",
+      "comment": "Commenter ou décommenter",
+      "find": "Rechercher et remplacer",
+      "gotoLine": "Aller à la ligne…",
+      "autocomplete": "Suggestions d'autocomplétion",
+      "toggleVim": "Activer ou désactiver le mode Vim"
+    },
+    "results": {
+      "export": "Exporter les résultats…"
+    }
+  }
+}
