@@ -75,6 +75,15 @@ rusqlite.workspace = true
 # Scheduled tasks' "Enviar un mail" (SMTP, tasks/mail.rs): rustls with ring
 # and the OS's certificates, the TLS stack the rest of the app uses.
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1-rustls", "ring", "rustls-platform-verifier"] }
+# Secret sources (src/secret_sources): KeePass databases read here (KDBX 3.1
+# and 4: AES, ChaCha20, Twofish; AES-KDF and Argon2), and Zoho Vault's
+# client-side encryption (PBKDF2, AES-256 in counter mode, the
+# organization key's RSA). The rsa version is the one already in the tree.
+keepass = "0.15.2"
+aes = "0.8"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+rsa = { version = "=0.10.0-rc.18", default-features = false, features = ["std", "encoding", "sha2"] }
+
 
 # Release builds (`plugins`) don't compile the downloadable drivers, but
 # until then the app was built with them, and they turn on features of
@@ -204,3 +213,9 @@ plugins = [
 # the sandbox, so the features that need them say so. Built without
 # `plugins`: every driver is inside the app.
 flatpak = ["all-drivers"]
+
+[dev-dependencies]
+# Writes the KeePass databases the tests read.
+keepass = { version = "0.15.2", features = ["save_kdbx4"] }
+# A mock of Zoho Vault's API (secret_sources/zoho.rs).
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "form"] }

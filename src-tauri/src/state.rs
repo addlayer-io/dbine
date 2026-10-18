@@ -197,8 +197,9 @@ impl AppState {
         // whether or not it is: the tunnel's secrets, Vault tokens, the
         // driver's other secret fields. A typed password with
         // `save_password` means the keychain refused: not asked again.
+        let typed_password = typed.as_ref().is_some_and(|t| t.contains_key("password"));
         let wants_keychain = if saved.save_password {
-            typed.is_none()
+            !typed_password
         } else {
             crate::tunnels::enabled(&cfg) || !sources.is_empty() || other_secret_fields(&cfg, &sources)
         };
@@ -206,20 +207,25 @@ impl AppState {
         if wants_keychain {
             match self.keychain_secrets(connection_id, &cfg, &sources) {
                 Ok(s) => stored = s,
-                Err(e) if typed.is_some() || !saved.save_password => tracing::warn!(%e, "keychain read refused"),
+                Err(e) if typed_password || !saved.save_password => tracing::warn!(%e, "keychain read refused"),
                 Err(e) => return Err(e),
             }
         }
         if !saved.save_password {
             stored.remove("password");
         }
-        let tokens = crate::secret_sources::tokens_of(&stored);
+        let mut tokens = crate::secret_sources::tokens_of(&stored);
         stored.retain(|k, _| !k.starts_with(dbine_core::secret_sources::TOKEN_PREFIX) && !sources.contains_key(k));
         apply_secrets(&mut cfg, &stored);
-        match typed {
-            Some(t) => apply_secrets(&mut cfg, &t),
-            None if !saved.save_password && needs_password(&cfg, &sources)? => return Err(CommandError::PasswordRequired(None)),
-            None => {}
+        // What was typed this run: the password, and master passwords asked
+        // for a field's source (tokens, never in the driver's config).
+        if let Some(mut t) = typed {
+            tokens.extend(crate::secret_sources::tokens_of(&t));
+            t.retain(|k, _| !k.starts_with(dbine_core::secret_sources::TOKEN_PREFIX));
+            apply_secrets(&mut cfg, &t);
+        }
+        if !typed_password && !saved.save_password && needs_password(&cfg, &sources)? {
+            return Err(CommandError::PasswordRequired(None));
         }
         Ok(StoredConfig { name: saved.name, config: cfg, sources, tokens })
     }

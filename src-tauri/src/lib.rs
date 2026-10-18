@@ -298,6 +298,7 @@ pub fn run() {
             commands::connections::trust_ssh_host,
             secret_sources::test_secret_source,
             secret_sources::approve_secret_source,
+            secret_sources::unlock_secret_source,
             commands::history::history_list,
             commands::history::history_of,
             commands::history::history_delete,
