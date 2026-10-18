@@ -170,7 +170,16 @@ fn build<R: Runtime>(app: &AppHandle<R>, menus: &[MenuSpec]) -> tauri::Result<Me
 fn native<R: Runtime>(app: &AppHandle<R>, item: NativeItem, text: Option<&str>) -> tauri::Result<PredefinedMenuItem<R>> {
     use NativeItem::*;
     match item {
-        About => PredefinedMenuItem::about(app, text, Some(AboutMetadata::default())),
+        // The window icon too, so a dev build (no bundle) shows DBine's icon.
+        About => PredefinedMenuItem::about(
+            app,
+            text,
+            Some(AboutMetadata {
+                icon: app.default_window_icon().cloned(),
+                copyright: Some("© AddLayer · dbine.com".into()),
+                ..Default::default()
+            }),
+        ),
         Services => PredefinedMenuItem::services(app, text),
         Hide => PredefinedMenuItem::hide(app, text),
         HideOthers => PredefinedMenuItem::hide_others(app, text),
