@@ -635,3 +635,33 @@ Event: `datagen-progress`, with `{ id, rows, total }`. Cancel:
 - `changes` is field → new value, only what changed. With no changes,
   `alter_database` does nothing. `alter_database_script` returns the script
   that is shown before applying.
+
+## Notebooks ([`notebooks.md`](notebooks.md))
+
+| Command | args | Returns |
+|---|---|---|
+| `notebook_parse` | `{ text }` | `Notebook` |
+| `notebook_serialize` | `{ notebook, rows_per_cell?, bytes_per_cell? }` | the `.ipynb` text |
+| `notebook_read` | `{ path }` | `{ notebook, text_hash }` |
+| `notebook_write` | `{ path, notebook, rows_per_cell?, bytes_per_cell? }` | `()` |
+| `notebook_export` | `{ notebook, format }` (`html` or `markdown`) | the exported text |
+| `notebook_open_link` | `{ url }` | `()` |
+
+- `Notebook`: `{ target, save_results, cells, origin, extra_metadata,
+  warnings }`. A cell is `{ id, kind, source, language, target, keep_result,
+  chart, execution_count, result, raw }`, with `kind` `markdown`, `sql` or
+  `foreign` (a cell in another language, kept unchanged). Targets are names:
+  `{ connection, database, environment }`.
+- Previews are capped **per cell** when serializing: rows from 1 to 1000
+  (default 100) and bytes from 64 KiB to 8 MiB (default 1,000,000).
+  `save_results: false` or a cell's `keep_result: false` keep only the
+  summary.
+- Credentials never go in or out: credential-like keys in the metadata and
+  the connection strings of `%%sql` cells are dropped on read, with a
+  message in `warnings`.
+- `notebook_read` and `notebook_write` only accept absolute paths to
+  `.ipynb` files. Notebooks inside projects use the projects' file commands
+  with the text from `notebook_serialize`.
+- `notebook_open_link` opens only `http`, `https` and `mailto` addresses.
+- Opening a `.ipynb` from the system (`open_file`, `open_files_take`) returns
+  `{ kind: "notebook", path }` and creates no connection.
