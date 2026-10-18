@@ -10938,5 +10938,22 @@
   "tablas del notebook": "notebook tables",
   "«{0}» no es un nombre de tabla válido": "“{0}” is not a valid table name",
   "«{0}» se cargó con las primeras {1} filas (el tope por tabla de Configuración › Notebooks)": "“{0}” was loaded with the first {1} rows (the per-table cap in Settings › Notebooks)",
-  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": "“{0}”: its columns {1} have values that don't match their type and were loaded as text"
+  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": "“{0}”: its columns {1} have values that don't match their type and were loaded as text",
+  "falta cerrar el paréntesis de «{0}»": "the closing parenthesis of “{0}” is missing",
+  "la ruta de un archivo está vacía": "a file path is empty",
+  "ningún archivo coincide con «{0}»": "no file matches “{0}”",
+  "no se encontró la carpeta personal para «{0}»": "couldn't find the home folder for “{0}”",
+  "no se permitió leer «{0}»": "reading “{0}” isn't allowed",
+  "no se pudo cargar la extensión excel de DuckDB para leer el libro: {0}": "couldn't load DuckDB's excel extension to read the workbook: {0}",
+  "no se pudo preparar la lectura de archivos: {0}": "couldn't prepare file reading: {0}",
+  "no se puede leer «{0}»: {1}": "can't read “{0}”: {1}",
+  "«read_xlsx» lee un solo archivo y «{0}» son {1}": "“read_xlsx” reads a single file and “{0}” is {1}",
+  "«{0}» es una carpeta: escribí un archivo o un patrón como «carpeta/*.csv»": "“{0}” is a folder: write a file or a pattern like “folder/*.csv”",
+  "«{0}» es una ruta relativa: guardá el notebook para leerla desde su carpeta, o escribí la ruta completa": "“{0}” is a relative path: save the notebook to read it from its folder, or write the full path",
+  "«{0}» lee archivos solo con la ruta escrita entre comillas simples: '…' o una lista ['…', '…']": "“{0}” reads files only with the path written in single quotes: '…' or a list ['…', '…']",
+  "«{0}» lee más de {1} archivos": "“{0}” reads more than {1} files",
+  "«{0}» no devolvió columnas": "“{0}” returned no columns",
+  "«{0}» no es un archivo local: estas celdas no leen de la red (http, s3, gs, azure…)": "“{0}” isn't a local file: these cells don't read from the network (http, s3, gs, azure…)",
+  "«{0}» no se puede usar en una celda de Resultados del notebook: su base solo lee archivos y nunca escribe, adjunta ni configura nada": "“{0}” can't be used in a Notebook results cell: its database only reads files and never writes, attaches or configures anything",
+  "«{0}»: escribí sus textos entre comillas simples ('…')": "“{0}”: write its text values in single quotes ('…')"
 }

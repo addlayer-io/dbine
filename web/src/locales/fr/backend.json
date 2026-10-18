@@ -10938,5 +10938,22 @@
   "tablas del notebook": "tables du notebook",
   "«{0}» no es un nombre de tabla válido": "« {0} » n'est pas un nom de table valide",
   "«{0}» se cargó con las primeras {1} filas (el tope por tabla de Configuración › Notebooks)": "« {0} » a été chargée avec les {1} premières lignes (le plafond par table de Paramètres › Notebooks)",
-  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": "« {0} » : ses colonnes {1} ont des valeurs qui ne correspondent pas à leur type et ont été chargées en texte"
+  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": "« {0} » : ses colonnes {1} ont des valeurs qui ne correspondent pas à leur type et ont été chargées en texte",
+  "falta cerrar el paréntesis de «{0}»": "la parenthèse fermante de « {0} » est manquante",
+  "la ruta de un archivo está vacía": "le chemin d'un fichier est vide",
+  "ningún archivo coincide con «{0}»": "aucun fichier ne correspond à « {0} »",
+  "no se encontró la carpeta personal para «{0}»": "dossier personnel introuvable pour « {0} »",
+  "no se permitió leer «{0}»": "la lecture de « {0} » n'est pas autorisée",
+  "no se pudo cargar la extensión excel de DuckDB para leer el libro: {0}": "impossible de charger l'extension excel de DuckDB pour lire le classeur : {0}",
+  "no se pudo preparar la lectura de archivos: {0}": "impossible de préparer la lecture des fichiers : {0}",
+  "no se puede leer «{0}»: {1}": "impossible de lire « {0} » : {1}",
+  "«read_xlsx» lee un solo archivo y «{0}» son {1}": "« read_xlsx » lit un seul fichier et « {0} » en sont {1}",
+  "«{0}» es una carpeta: escribí un archivo o un patrón como «carpeta/*.csv»": "« {0} » est un dossier : indiquez un fichier ou un motif comme « dossier/*.csv »",
+  "«{0}» es una ruta relativa: guardá el notebook para leerla desde su carpeta, o escribí la ruta completa": "« {0} » est un chemin relatif : enregistrez le notebook pour le lire depuis son dossier, ou indiquez le chemin complet",
+  "«{0}» lee archivos solo con la ruta escrita entre comillas simples: '…' o una lista ['…', '…']": "« {0} » lit des fichiers uniquement avec le chemin écrit entre apostrophes : '…' ou une liste ['…', '…']",
+  "«{0}» lee más de {1} archivos": "« {0} » lit plus de {1} fichiers",
+  "«{0}» no devolvió columnas": "« {0} » n'a renvoyé aucune colonne",
+  "«{0}» no es un archivo local: estas celdas no leen de la red (http, s3, gs, azure…)": "« {0} » n'est pas un fichier local : ces cellules ne lisent pas depuis le réseau (http, s3, gs, azure…)",
+  "«{0}» no se puede usar en una celda de Resultados del notebook: su base solo lee archivos y nunca escribe, adjunta ni configura nada": "« {0} » ne peut pas être utilisé dans une cellule Résultats du notebook : sa base lit uniquement des fichiers et n'écrit, n'attache ni ne configure jamais rien",
+  "«{0}»: escribí sus textos entre comillas simples ('…')": "« {0} » : écrivez ses textes entre apostrophes ('…')"
 }

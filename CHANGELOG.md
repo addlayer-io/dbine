@@ -24,7 +24,8 @@
 - **More chart kinds:** histogram, heatmap, box plot (with whiskers and outliers), bars with lines, and KPI (the total of the whole result).
 - **Several charts per notebook cell:** a notebook cell can show more than one chart of its result, and it remembers which source its map uses.
 - **Charts in notebook exports:** notebooks exported to HTML or Markdown include their charts as images.
-- **Join results from different databases in a notebook:** a cell set to run on **Notebook results** queries the cells above it as tables, by their names (shown and editable in each cell's header), so one cell can join a PostgreSQL result with a SQL Server one and a MongoDB one. It runs in a DuckDB database in memory that can't read or write files or reach the network, and is dropped when the notebook closes; each source's rows come from its run in this session or its query run again, read-only, on its own connection (up to 1,000,000 rows per table, in **Settings › Notebooks**).
+- **Join results from different databases in a notebook:** a cell set to run on **Notebook results** queries the cells above it as tables, by their names (shown and editable in each cell's header), so one cell can join a PostgreSQL result with a SQL Server one and a MongoDB one. It runs in a DuckDB database in memory that can't write files or reach the network, and is dropped when the notebook closes; each source's rows come from its run in this session or its query run again, read-only, on its own connection (up to 1,000,000 rows per table, in **Settings › Notebooks**).
+- **Local files in notebook results cells:** a cell set to run on **Notebook results** can read CSV, Parquet, JSON or NDJSON and Excel files on your computer with `read_csv`, `read_parquet`, `read_json` and `read_xlsx`, including patterns such as `data/*.csv` and lists of files, and join them with the results of cells from any engine. Files are only read, never written.
 
 ## [0.1.15] - 2026-10-17
 
