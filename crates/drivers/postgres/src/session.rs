@@ -45,6 +45,9 @@ pub struct PgSession {
     /// statements or bound parameters, so the explorer inlines its values,
     /// result columns go without type names, and bulk copies are refused.
     pub(crate) simple: bool,
+    /// Who signed in with a cloud token, when "Probar" asked (it goes
+    /// after the version).
+    pub(crate) identity: Option<String>,
 }
 
 /// `$1`/`$2` (schema, name) resolved to a regclass; an empty schema means
@@ -66,7 +69,7 @@ impl PgSession {
         database: String,
         notices: mpsc::UnboundedReceiver<DbError>,
     ) -> Self {
-        Self { client, tls, variant, version, database, notices, profiler: None, autocommit: true, tx: TxState::Idle, tx_unsure: false, simple: false }
+        Self { client, tls, variant, version, database, notices, profiler: None, autocommit: true, tx: TxState::Idle, tx_unsure: false, simple: false, identity: None }
     }
 
     /// `pg_proc` filter for plain functions and procedures (no aggregates
@@ -804,7 +807,7 @@ fn text_objects(rows: &[SimpleQueryRow], with_schema: bool) -> Vec<DbObject> {
 impl Session for PgSession {
     async fn server_version(&mut self) -> Result<String> {
         match self.client.simple_query("SELECT version()").await {
-            Ok(msgs) => Ok(first_cell(&msgs).unwrap_or_default()),
+            Ok(msgs) => Ok(crate::cloud_auth::with_identity(first_cell(&msgs).unwrap_or_default(), self.identity.as_deref())),
             Err(e) if self.variant == Variant::Denodo => {
                 tracing::debug!("denodo: version() unavailable: {e}");
                 Ok("Denodo".into())

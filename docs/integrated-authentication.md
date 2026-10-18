@@ -93,6 +93,9 @@ already carry `Trusted_Connection=yes` or the attribute the driver asks for.
 
 ## Microsoft Entra ID (SQL Server, Azure SQL Database, Microsoft Fabric)
 
+For Azure Database for PostgreSQL and MySQL, see
+[`cloud-authentication.md`](cloud-authentication.md).
+
 The **Authentication** field offers the same Microsoft Entra ID methods as
 SQL Server Management Studio. Every one ends in an access token for
 `https://database.windows.net/`; DBine keeps it in memory while it runs and

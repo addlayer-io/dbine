@@ -43,6 +43,13 @@ impl Tunnels {
         }
         let (spec, target) = spec(cfg)?;
         strip(cfg);
+        // Where the tunnel goes, for a cloud sign-in: the token is signed
+        // for the real endpoint (the RDS IAM token names host and port) and
+        // its certificate is verified by that name.
+        if matches!(cfg.option("auth"), Some("aws_iam" | "gcp_iam" | "azure_entra")) {
+            cfg.options.insert("tunnel.origin_host".into(), spec.target_host.clone());
+            cfg.options.insert("tunnel.origin_port".into(), spec.target_port.to_string());
+        }
         let tunnel = match connection_id {
             None => Arc::new(dbine_tunnel::open(&spec).await.map_err(error)?),
             Some(id) => {

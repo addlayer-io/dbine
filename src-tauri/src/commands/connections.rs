@@ -213,6 +213,12 @@ pub async fn test_connection(state: State<'_, AppState>, args: TestConnectionArg
         Err(e @ CommandError::SshUnknownHost { .. }) => return Err(e),
         Err(e) => return Ok(TestResult { ok: false, message: e.to_string() }),
     };
+    // A cloud sign-in (AWS IAM, Google Cloud IAM, Entra ID): the result
+    // says who signed in. Only here: never in the explorer, the feedback
+    // report or the documentation, which also show the version.
+    if matches!(cfg.option("auth"), Some("aws_iam" | "gcp_iam" | "azure_entra")) {
+        cfg.options.insert("describe_identity".into(), "true".into());
+    }
     let run = async {
         let mut s = dbine_drivers::open_session(&cfg, None).await?;
         s.server_version().await

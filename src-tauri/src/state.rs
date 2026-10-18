@@ -355,9 +355,44 @@ impl AppState {
 }
 
 /// Whether to ask for the password before connecting: the driver has a
-/// password field and the connection names a user.
+/// password field that applies to this connection (not with a sign-in
+/// that takes none, like a cloud token or Entra ID) and the connection
+/// names a user.
 fn needs_password(cfg: &ConnectionConfig) -> CommandResult<bool> {
     let info = driver_info(&cfg.driver)?;
-    let has_field = info.fields.iter().any(|f| f.key == "password");
-    Ok(has_field && cfg.username.as_deref().is_some_and(|u| !u.is_empty()))
+    Ok(password_applies(&info.fields, cfg) && cfg.username.as_deref().is_some_and(|u| !u.is_empty()))
+}
+
+/// The password field is there and its `when` holds (the controlling
+/// option as saved, or that field's default).
+fn password_applies(fields: &[dbine_driver::Field], cfg: &ConnectionConfig) -> bool {
+    let Some(f) = fields.iter().find(|f| f.key == "password") else { return false };
+    let Some(when) = &f.when else { return true };
+    let value = cfg
+        .option(when.key)
+        .or_else(|| fields.iter().find(|c| c.key == when.key).map(|c| c.default))
+        .unwrap_or("");
+    when.values.contains(&value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dbine_driver::{Field, FieldKind};
+
+    #[test]
+    fn the_password_is_asked_only_where_it_applies() {
+        let fields = vec![
+            Field::new("auth", "Autenticación", FieldKind::Select(vec![("password", "p"), ("aws_iam", "a")])).default_value("password"),
+            Field::password().when("auth", &["password"]),
+        ];
+        let mut cfg = ConnectionConfig::default();
+        assert!(password_applies(&fields, &cfg), "the default sign-in takes a password");
+        cfg.options.insert("auth".into(), "aws_iam".into());
+        assert!(!password_applies(&fields, &cfg));
+        cfg.options.insert("auth".into(), "password".into());
+        assert!(password_applies(&fields, &cfg));
+        assert!(password_applies(&[Field::password()], &cfg));
+        assert!(!password_applies(&[Field::host()], &cfg));
+    }
 }

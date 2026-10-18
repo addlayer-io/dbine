@@ -43,6 +43,21 @@ pub struct MySqlSession {
     /// (READ ONLY?), to give back. Still set when the call was dropped
     /// half-way; the next call settles it first.
     read_only_pending: Option<bool>,
+    /// A cloud sign-in: what it takes to sign a new token for the
+    /// connections opened later (reconnect, KILL QUERY), since the one in
+    /// `opts` expires.
+    pub(crate) relogin: Option<Arc<(dbine_driver::ConnectionConfig, crate::cloud_auth::Spec)>>,
+    /// Who signed in with a cloud token, when "Probar" asked.
+    pub(crate) identity: Option<String>,
+}
+
+/// `opts` with a fresh cloud token when the session signs in with one.
+pub(crate) async fn fresh_opts(opts: &Opts, relogin: Option<&(dbine_driver::ConnectionConfig, crate::cloud_auth::Spec)>) -> Result<Opts> {
+    let Some((cfg, spec)) = relogin else { return Ok(opts.clone()) };
+    match crate::cloud_auth::login(cfg, *spec).await? {
+        Some(login) => Ok(Opts::from(mysql_async::OptsBuilder::from_opts(opts.clone()).pass(Some(login.password)))),
+        None => Ok(opts.clone()),
+    }
 }
 
 /// A string literal for a text-protocol query. Doubling `'` is safe with
@@ -93,6 +108,8 @@ impl MySqlSession {
             conn_id,
             protected_reads: None,
             read_only_pending: None,
+            relogin: None,
+            identity: None,
         }
     }
 
@@ -314,6 +331,7 @@ impl MySqlSession {
     /// A new connection in place of this one, with its database, charset
     /// and access mode.
     async fn reconnect(&mut self, read_only: bool) -> Result<()> {
+        self.opts = fresh_opts(&self.opts, self.relogin.as_deref()).await?;
         let conn = tokio::time::timeout(std::time::Duration::from_secs(20), Conn::new(self.opts.clone()))
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
@@ -1161,7 +1179,8 @@ fn warnings_note(n: u16) -> Option<String> {
 impl Session for MySqlSession {
     async fn server_version(&mut self) -> Result<String> {
         let rows = self.rows("SELECT VERSION()").await?;
-        Ok(rows.first().and_then(|r| at(r, 0)).unwrap_or_default())
+        let version = rows.first().and_then(|r| at(r, 0)).unwrap_or_default();
+        Ok(crate::cloud_auth::with_identity(version, self.identity.as_deref()))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
@@ -1546,12 +1565,20 @@ impl Session for MySqlSession {
         // Dropping the connection leaves the statement running on the
         // server; KILL QUERY from a second connection stops it.
         let (opts, conn_id, flag) = (self.opts.clone(), self.conn_id.clone(), self.cancelled.clone());
+        let relogin = self.relogin.clone();
         let kill = if self.variant == Variant::TiDb { "KILL TIDB QUERY" } else { "KILL QUERY" };
         let rt = tokio::runtime::Handle::try_current().ok()?;
         Some(Arc::new(move || {
-            let (opts, flag, id) = (opts.clone(), flag.clone(), conn_id.load(Ordering::SeqCst));
+            let (opts, flag, id, relogin) = (opts.clone(), flag.clone(), conn_id.load(Ordering::SeqCst), relogin.clone());
             rt.spawn(async move {
                 flag.store(true, Ordering::SeqCst);
+                let opts = match fresh_opts(&opts, relogin.as_deref()).await {
+                    Ok(o) => o,
+                    Err(e) => {
+                        tracing::debug!("mysql cancel: no new cloud token: {e}");
+                        return;
+                    }
+                };
                 match mysql_async::Conn::new(opts).await {
                     Ok(mut c) => {
                         if let Err(e) = c.query_drop(format!("{kill} {id}")).await {

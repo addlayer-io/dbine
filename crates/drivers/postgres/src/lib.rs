@@ -19,6 +19,7 @@ mod backup;
 mod blocking;
 mod catalog;
 mod clone;
+pub(crate) mod cloud_auth;
 mod compare;
 mod create_db;
 mod delta;
@@ -169,6 +170,18 @@ impl Variant {
     /// Greenplum and its forks: MPP on a coordinator and segments.
     pub(crate) fn mpp(self) -> bool {
         matches!(self, Variant::Greenplum | Variant::Cloudberry | Variant::Greengage)
+    }
+
+    /// The cloud sign-ins the form offers: PostgreSQL itself (RDS, Azure
+    /// Database for PostgreSQL, Cloud SQL by IP) gets the three; each
+    /// managed variant, its own cloud.
+    pub(crate) fn cloud_offer(self) -> cloud_auth::Offer {
+        match self {
+            Variant::Postgres => cloud_auth::Offer { aws: true, gcp: true, azure: true },
+            Variant::Aurora => cloud_auth::Offer { aws: true, ..Default::default() },
+            Variant::CloudSql | Variant::AlloyDb => cloud_auth::Offer { gcp: true, ..Default::default() },
+            _ => cloud_auth::Offer::default(),
+        }
     }
 
     /// Managed PostgreSQL: the engine is PostgreSQL's, the host isn't ours.
@@ -365,6 +378,7 @@ impl Variant {
                 });
             }
         }
+        cloud_auth::adapt(&mut fields, self.cloud_offer());
         fields
     }
 }
@@ -611,9 +625,18 @@ impl Driver for PgDriver {
             .unwrap_or(v.default_database())
             .to_string();
 
+        // A cloud sign-in through an SSH tunnel dials the local end but
+        // verifies the certificate against the real endpoint's name.
+        let tunnel = match (cloud_auth::method(cfg), cfg.option(cloud_auth::ORIGIN_HOST)) {
+            (Some(_), Some(origin)) => cfg.host.trim().parse::<std::net::IpAddr>().ok().map(|local| (origin.trim(), local)),
+            _ => None,
+        };
         let mut pg = tokio_postgres::Config::new();
-        pg.host(if cfg.host.is_empty() { "localhost" } else { &cfg.host })
-            .port(cfg.port_or(v.default_port()))
+        match tunnel {
+            Some((origin, local)) => pg.host(origin).hostaddr(local),
+            None => pg.host(if cfg.host.is_empty() { "localhost" } else { &cfg.host }),
+        };
+        pg.port(cfg.port_or(v.default_port()))
             .dbname(&dbname)
             .connect_timeout(Duration::from_secs(15))
             .ssl_mode(if cfg.encrypt {
@@ -629,11 +652,26 @@ impl Driver for PgDriver {
         } else if let Some(u) = v.default_user() {
             pg.user(u);
         }
-        if let Some(p) = &cfg.password {
-            pg.password(p.as_str());
+        // A cloud sign-in: a new token before every connect (the app opens
+        // every session, and every reconnect, through here).
+        let spec = cloud_auth::Spec { default_port: v.default_port(), gcp_access_token: v == Variant::AlloyDb, mysql: false };
+        let cloud = cloud_auth::login(cfg, spec).await?;
+        match &cloud {
+            Some(login) => {
+                pg.password(login.password.as_str()).ssl_mode(tokio_postgres::config::SslMode::Require);
+                if let (Some(u), true) = (&login.user, cfg.username.as_deref().is_none_or(|u| u.is_empty())) {
+                    pg.user(u);
+                }
+            }
+            None => {
+                if let Some(p) = &cfg.password {
+                    pg.password(p.as_str());
+                }
+            }
         }
 
-        let tls = MakeTlsConnector::new(tls_connector(v, cfg)?);
+        let rds_roots = cloud_auth::method(cfg) == Some(cloud_auth::AWS) || (v == Variant::Aurora && cfg.encrypt);
+        let tls = MakeTlsConnector::new(tls_connector(v, cfg, rds_roots)?);
 
         let (mut client, mut notices) = open(v, &pg, &tls).await?;
         // Gateways and proxies that only take the simple protocol answer a
@@ -679,6 +717,7 @@ impl Driver for PgDriver {
 
         let mut session = PgSession::new(client, tls, v, version, dbname, notices);
         session.simple = simple;
+        session.identity = cloud.and_then(|l| l.identity);
         Ok(Box::new(session))
     }
 }
@@ -731,22 +770,48 @@ fn extended_refused(e: &tokio_postgres::Error) -> bool {
 }
 
 /// TLS as the form asks: the CA file, when given, is trusted on top of the
-/// system's. Cloud SQL and AlloyDB certificates name the instance, not the
-/// IP the client dials, so with their CA only the chain is checked.
-fn tls_connector(v: Variant, cfg: &ConnectionConfig) -> Result<native_tls::TlsConnector> {
+/// system's (every certificate of a bundle, like AWS's global-bundle.pem).
+/// Cloud SQL and AlloyDB certificates name the instance, not the IP the
+/// client dials, so with their CA only the chain is checked. `rds_roots`
+/// (AWS IAM, Aurora) trusts Amazon's RDS CAs when no file is given.
+fn tls_connector(v: Variant, cfg: &ConnectionConfig, rds_roots: bool) -> Result<native_tls::TlsConnector> {
     let mut b = native_tls::TlsConnector::builder();
     b.danger_accept_invalid_certs(cfg.trust_server_certificate)
         .danger_accept_invalid_hostnames(cfg.trust_server_certificate);
     if let Some(path) = cfg.option("ssl_root_cert").map(str::trim).filter(|p| !p.is_empty()) {
         let pem = std::fs::read(path).map_err(|e| Error::Connect(format!("no se pudo leer el certificado de CA «{path}»: {e}")))?;
-        let certs = native_tls::Certificate::from_pem(&pem)
-            .map_err(|e| Error::Connect(format!("el certificado de CA «{path}» no es un PEM válido: {e}")))?;
-        b.add_root_certificate(certs);
-        if matches!(v, Variant::CloudSql | Variant::AlloyDb) {
+        let bad = |e: String| Error::Connect(format!("el certificado de CA «{path}» no es un PEM válido: {e}"));
+        let blocks = cloud_auth::pem_certificates(&pem);
+        if blocks.is_empty() {
+            b.add_root_certificate(native_tls::Certificate::from_pem(&pem).map_err(|e| bad(e.to_string()))?);
+        }
+        for block in blocks {
+            b.add_root_certificate(native_tls::Certificate::from_pem(block).map_err(|e| bad(e.to_string()))?);
+        }
+        // Also a Cloud SQL instance reached as PostgreSQL with Google Cloud IAM.
+        if matches!(v, Variant::CloudSql | Variant::AlloyDb) || cloud_auth::method(cfg) == Some(cloud_auth::GCP) {
             b.danger_accept_invalid_hostnames(true);
+        }
+    } else if rds_roots {
+        for c in rds_certificates()? {
+            b.add_root_certificate(c);
         }
     }
     b.build().map_err(|e| Error::Connect(format!("TLS: {e}")))
+}
+
+/// Amazon's RDS CAs, parsed once.
+fn rds_certificates() -> Result<Vec<native_tls::Certificate>> {
+    static CERTS: std::sync::OnceLock<Vec<native_tls::Certificate>> = std::sync::OnceLock::new();
+    if let Some(c) = CERTS.get() {
+        return Ok(c.clone());
+    }
+    let parsed = cloud_auth::pem_certificates(cloud_auth::RDS_CA_BUNDLE)
+        .into_iter()
+        .map(native_tls::Certificate::from_pem)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::Connect(format!("TLS: el paquete de CA de Amazon RDS no se pudo leer: {e}")))?;
+    Ok(CERTS.get_or_init(|| parsed).clone())
 }
 
 fn connect_error(v: Variant, e: tokio_postgres::Error) -> Error {
@@ -857,6 +922,37 @@ mod tests {
         assert_eq!(port("h2"), 5435);
     }
 
+    /// The cloud sign-ins show only where that cloud runs the engine.
+    #[test]
+    fn cloud_sign_ins_match_the_variant() {
+        let offered = |id: &str| -> Vec<&'static str> {
+            let d = drivers().into_iter().find(|d| d.info().id == id).unwrap();
+            match d.info().fields.iter().find(|f| f.key == cloud_auth::AUTH).map(|f| f.kind.clone()) {
+                Some(FieldKind::Select(o)) => o.into_iter().map(|o| o.0).collect(),
+                _ => vec![],
+            }
+        };
+        assert_eq!(offered("postgres"), [cloud_auth::PASSWORD, cloud_auth::AWS, cloud_auth::GCP, cloud_auth::AZURE]);
+        assert_eq!(offered("aurora_postgres"), [cloud_auth::PASSWORD, cloud_auth::AWS]);
+        assert_eq!(offered("cloudsql_postgres"), [cloud_auth::PASSWORD, cloud_auth::GCP]);
+        assert_eq!(offered("alloydb"), [cloud_auth::PASSWORD, cloud_auth::GCP]);
+        for id in ["redshift", "cockroachdb", "h2", "denodo", "timescaledb"] {
+            assert!(offered(id).is_empty(), "{id}");
+        }
+    }
+
+    /// A cloud sign-in with "trust the certificate" never sends the token.
+    #[tokio::test]
+    async fn cloud_tokens_need_a_verified_server() {
+        let d = drivers().into_iter().find(|d| d.info().id == "aurora_postgres").unwrap();
+        let mut cfg = ConnectionConfig {
+            driver: "aurora_postgres".into(), host: "127.0.0.1".into(), port: 1, username: Some("u".into()),
+            trust_server_certificate: true, ..Default::default()
+        };
+        cfg.options.insert(cloud_auth::AUTH.into(), cloud_auth::AWS.into());
+        assert!(matches!(d.connect(&cfg, None).await.err(), Some(Error::AuthFailed(_))));
+    }
+
     #[test]
     fn managed_services_start_with_tls_and_take_a_ca() {
         for v in Variant::ALL.into_iter().filter(|v| *v != Variant::H2) {
@@ -871,7 +967,8 @@ mod tests {
     fn a_missing_ca_file_is_a_connect_error() {
         let mut cfg = ConnectionConfig::default();
         cfg.options.insert("ssl_root_cert".into(), "/nonexistent/ca.pem".into());
-        assert!(matches!(tls_connector(Variant::Aurora, &cfg), Err(Error::Connect(_))));
-        assert!(tls_connector(Variant::Aurora, &ConnectionConfig::default()).is_ok());
+        assert!(matches!(tls_connector(Variant::Aurora, &cfg, false), Err(Error::Connect(_))));
+        assert!(tls_connector(Variant::Aurora, &ConnectionConfig::default(), false).is_ok());
+        assert!(tls_connector(Variant::Aurora, &ConnectionConfig::default(), true).is_ok());
     }
 }
