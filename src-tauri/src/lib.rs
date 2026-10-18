@@ -557,6 +557,7 @@ pub fn run() {
             commands::notebook::notebook_read,
             commands::notebook::notebook_write,
             commands::notebook::notebook_export,
+            commands::notebook::notebook_open_link,
             open_files::open_files_take,
             open_files::open_file,
         ])

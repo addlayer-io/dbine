@@ -135,3 +135,47 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenLinkArgs {
+    pub url: String,
+}
+
+/// A link's address is opened outside the app only when it's http(s) or
+/// mailto, with no spaces or control characters.
+fn openable_link(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let scheme_ok = ["http://", "https://", "mailto:"].iter().any(|s| lower.starts_with(s) && lower.len() > s.len());
+    scheme_ok && url.len() <= 2048 && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+/// Open a link from a notebook's text (or the assistant's answer) in the
+/// system's browser or mail app.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_open_link(app: tauri::AppHandle, args: OpenLinkArgs) -> CommandResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    if !openable_link(&args.url) {
+        return Err(CommandError::BadRequest("solo se abren enlaces http, https o mailto".into()));
+    }
+    app.opener()
+        .open_url(&args.url, None::<&str>)
+        .map_err(|e| CommandError::Internal(format!("no se pudo abrir el enlace: {e}")))
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::openable_link;
+
+    #[test]
+    fn only_web_and_mail_links_open() {
+        assert!(openable_link("https://dbine.com/docs"));
+        assert!(openable_link("http://example.com"));
+        assert!(openable_link("mailto:someone@example.com"));
+        assert!(!openable_link("javascript:alert(1)"));
+        assert!(!openable_link("file:///etc/passwd"));
+        assert!(!openable_link("https://"));
+        assert!(!openable_link("https://example.com/a b"));
+        assert!(!openable_link("/Applications/Calculator.app"));
+    }
+}
