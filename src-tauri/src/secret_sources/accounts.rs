@@ -1339,7 +1339,9 @@ mod tests {
         );
         write(
             "az",
-            format!("#!/bin/sh\ncase \"$*\" in\n  'account show --output json') echo '{{\"tenantId\":\"11111111-2222-4333-8444-555555555555\",\"name\":\"Pay-As-You-Go\",\"user\":{{\"name\":\"ana@contoso.com\",\"type\":\"user\"}}}}' ;;\n  'account get-access-token --resource https://vault.azure.net --output json'*) echo '{{\"accessToken\":\"{jwt}\",\"expires_on\":4102444800}}' ;;\n  *) exit 3 ;;\nesac\n"),
+            format!("#!/bin/sh\ncase \"$*\" in\n  'account show --output json') echo '{{\"tenantId\":\"11111111-2222-4333-8444-555555555555\",\"name\":\"Pay-As-You-Go\",\"user\":{{\"name\":\"ana@contoso.com\",\"type\":\"user\"}}}}' ;;\n  'account tenant list --output json') echo '[{{\"tenantId\":\"11111111-2222-4333-8444-555555555555\",\"displayName\":\"Contoso\",\"defaultDomain\":\"contoso.onmicrosoft.com\"}},{{\"tenantId\":\"22222222-2222-4333-8444-555555555555\",\"displayName\":\"Fabrikam\",\"defaultDomain\":\"fabrikam.onmicrosoft.com\"}}]' ;;
+  *'--tenant 22222222-2222-4333-8444-555555555555') echo 'ERROR: AADSTS50076: Due to a configuration change made by your administrator, you must use multi-factor authentication to access this tenant.' >&2; exit 1 ;;
+  'account get-access-token --resource https://vault.azure.net --output json'*) echo '{{\"accessToken\":\"{jwt}\",\"expires_on\":4102444800}}' ;;\n  *) exit 3 ;;\nesac\n"),
         );
         write(
             "gcloud",
@@ -1354,6 +1356,8 @@ mod tests {
         assert!(op["accounts"][0].get("secret").is_none(), "only the known fields");
         let az = detect("azure").await.unwrap();
         assert_eq!((az["tenant"].as_str(), az["user"].as_str()), (Some("11111111-2222-4333-8444-555555555555"), Some("ana@contoso.com")));
+        assert_eq!(az["tenants"].as_array().map(Vec::len), Some(2), "{az}");
+        assert_eq!((az["tenants"][1]["display_name"].as_str(), az["tenants"][1]["default_domain"].as_str()), (Some("Fabrikam"), Some("fabrikam.onmicrosoft.com")));
         let g = detect("gcp").await.unwrap();
         assert_eq!((g["account"].as_str(), g["project"].as_str()), (Some("ana@example.com"), Some("my-proj")));
         let none = Secrets::new();
@@ -1363,6 +1367,9 @@ mod tests {
         assert_eq!((who.as_str(), detail.as_str()), ("ana@contoso.com", "inquilino 11111111-2222-4333-8444-555555555555"));
         let e = verify(&AccountConfig::Azure { tenant: "99999999-2222-4333-8444-555555555555".into(), vault_url: "https://kv1.vault.azure.net".into() }, &none).await.unwrap_err();
         assert!(e.contains("es del inquilino"), "another tenant's token: {e}");
+        // No sign-in in that tenant: how to sign in there (DBine doesn't run az login).
+        let e = verify(&AccountConfig::Azure { tenant: "22222222-2222-4333-8444-555555555555".into(), vault_url: "https://kv1.vault.azure.net".into() }, &none).await.unwrap_err();
+        assert_eq!(e, azure::no_sign_in("22222222-2222-4333-8444-555555555555"));
         assert_eq!(verify(&AccountConfig::Gcp { project: "my-proj".into() }, &none).await.unwrap().0, "ana@example.com");
         std::env::set_var("PATH", old);
     }

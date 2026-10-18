@@ -7091,6 +7091,7 @@
   "«{0}» no es un privilegio de esquema en este motor": "«{0}» não é um privilégio de esquema neste motor",
   "«{0}» no sirve como esquema de Phoenix: usá solo letras, números y _": "«{0}» não serve como esquema do Phoenix: use apenas letras, números e _",
   "\nLa transacción tiene un error: deshacela (ROLLBACK) para seguir.": "\nA transação tem um erro: desfaça-a (ROLLBACK) para continuar.",
+  "(¿falta az login?)": "(falta o az login?)",
   ", Procedimiento {0}, Línea {1}": ", Procedimento {0}, Linha {1}",
   ":param {0} necesita un mapa.": ":param {0} precisa de um mapa.",
   "Aborted": "Aborted",
@@ -10086,6 +10087,7 @@
   "Azure no creó la regla: {0}": "O Azure não criou a regra: {0}",
   "el nombre de la regla solo puede tener letras, números, «-» y «_»": "o nome da regra só pode ter letras, números, “-” e “_”",
   "la CLI de Azure (az) no terminó en {0} s": "a CLI do Azure (az) não terminou em {0} s",
+  "la CLI de Azure no tiene una sesión iniciada en ese inquilino: iniciá sesión con «az login --tenant {0}» y probá de nuevo": "a CLI do Azure não tem uma sessão iniciada nesse tenant: faça login com «az login --tenant {0}» e tente novamente",
   "la CLI de Azure no tiene una sesión iniciada: corré «az login» y volvé a intentar": "a CLI do Azure não tem uma sessão iniciada: execute “az login” e tente novamente",
   "la conexión no es a un servidor de Azure SQL (*.database.windows.net)": "a conexão não é a um servidor do Azure SQL (*.database.windows.net)",
   "no se encontró el servidor {0} en las suscripciones de tu cuenta de Azure (la sesión de az puede ser de otra cuenta o de otro tenant)": "o servidor {0} não foi encontrado nas assinaturas da sua conta do Azure (a sessão do az pode ser de outra conta ou de outro tenant)",
@@ -10934,6 +10936,7 @@
   "políticas: {0}": "políticas: {0}",
   "página desconocida": "página desconhecida",
   "{0} secretos visibles para la cuenta de máquina": "{0} segredos visíveis para a conta de máquina",
+  "«az account list» no devolvió JSON": "«az account list» não retornou JSON",
   "«az account show» no devolvió JSON": "«az account show» não retornou JSON",
   "«gcloud config list» no devolvió JSON": "«gcloud config list» não retornou JSON",
   "«op whoami» no dijo con qué cuenta inició sesión": "«op whoami» não disse com qual conta está logado"

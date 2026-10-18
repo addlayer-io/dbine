@@ -1,6 +1,7 @@
 // Development only: "Conectar <gestor>" (AccountConnectWizard) filled as the
 // user would have it at each step, with what the last step would find
-// (view=account-wizard&kind=…&step=…[&result=ok][&error=1][&detect=none|missing]).
+// (view=account-wizard&kind=…&step=…[&result=ok][&error=1][&detect=none|missing]; Azure: &error=signin,
+// no sign-in in the chosen tenant).
 import { tb } from '../i18n/backend';
 import { STEPS, type WizardForm, type WizardKind } from '../composables/accountWizards';
 
@@ -48,10 +49,21 @@ const ERRORS: Record<WizardKind, string> = {
   keepass: 'la contraseña maestra o el archivo de clave no abren la base de KeePass',
 };
 
+/** Azure without a sign-in in the chosen tenant (azure.rs `no_sign_in`). */
+const SIGN_IN = 'la CLI de Azure no tiene una sesión iniciada en ese inquilino: iniciá sesión con «az login --tenant 22222222-2222-4333-8444-555555555555» y probá de nuevo';
+
 const DETECT: Partial<Record<WizardKind, Record<string, unknown>>> = {
   onepassword: { installed: true, accounts: [{ url: 'my.1password.com', email: 'ana@example.com' }, { url: 'acme.1password.com', email: 'ana@acme.com' }] },
   aws: { profiles: [{ name: 'default', region: 'us-east-1' }, { name: 'prod', region: 'eu-west-1' }, { name: 'sso-datos', region: '' }], region: '' },
-  azure: { tenant: '11111111-2222-4333-8444-555555555555', user: 'ana@contoso.com', subscription: 'Producción' },
+  azure: {
+    tenant: '11111111-2222-4333-8444-555555555555', user: 'ana@contoso.com', subscription: 'Producción',
+    tenants: [
+      { id: '11111111-2222-4333-8444-555555555555', display_name: 'Contoso', default_domain: 'contoso.onmicrosoft.com' },
+      { id: '22222222-2222-4333-8444-555555555555', display_name: 'Fabrikam', default_domain: 'fabrikam.onmicrosoft.com' },
+      { id: '33333333-2222-4333-8444-555555555555', display_name: 'Northwind Traders', default_domain: 'northwind.onmicrosoft.com' },
+      { id: '44444444-2222-4333-8444-555555555555', display_name: '', default_domain: '' },
+    ],
+  },
   gcp: { account: 'ana@example.com', project: 'ventas-prod' },
 };
 
@@ -74,7 +86,8 @@ export function accountWizardSample(params: URLSearchParams) {
     result: result ? ('ok' as const) : undefined,
     identity,
     detail,
-    error: params.get('error') ? tb(ERRORS[kind]) : undefined,
+    ...(params.get('error') === 'signin' && kind === 'azure' ? { tenant: '22222222-2222-4333-8444-555555555555' } : {}),
+    error: params.get('error') ? tb(params.get('error') === 'signin' && kind === 'azure' ? SIGN_IN : ERRORS[kind]) : undefined,
   };
   return { kind, step: result ? last : step, preview };
 }

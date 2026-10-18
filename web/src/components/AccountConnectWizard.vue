@@ -2,14 +2,15 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { open as openFile } from '@tauri-apps/plugin-dialog';
+import { ElMessage } from 'element-plus';
 import { accountsApi } from '../api/secretAccounts';
 import { errorMessage } from '../api/client';
 import type { SecretAccount } from '../api/types';
 import { tb } from '../i18n/backend';
 import { loadSecretAccounts, PROVIDER } from '../composables/secretAccounts';
 import {
-  back, configOf, destinations, emptyForm, formFromAccount, isLast, keepsSecrets, SECRET_INPUTS, secretsOf, stepForError, stepProblems, STEPS, suggestedLabel,
-  type WizardForm, type WizardKind,
+  azureTenants, back, configOf, destinations, emptyForm, formFromAccount, isLast, keepsSecrets, SECRET_INPUTS, secretsOf, stepForError, stepProblems, STEPS,
+  suggestedLabel, tenantChoices, tenantLabel, tenantSignIn, type WizardForm, type WizardKind,
 } from '../composables/accountWizards';
 
 // "Conectar <gestor>" (docs/secret-sources.md, "Accounts") for every secret
@@ -111,6 +112,11 @@ const awsProfiles = computed(() => (Array.isArray(detected.value?.profiles) ? (d
 function profileRegion(name: string): string {
   return awsProfiles.value.find((p) => p.name === (name || 'default'))?.region ?? '';
 }
+/** Azure: the tenants the CLI knows (the current one among them), filtered by what's typed. */
+const tenants = computed(() => azureTenants(detected.value));
+const currentTenant = computed(() => (typeof detected.value?.tenant === 'string' ? detected.value.tenant : '').toLowerCase());
+const tenantQuery = ref('');
+const tenantOptions = computed(() => tenantChoices(tenants.value, tenantQuery.value, s.tenant));
 watch(() => s.profile, (p, old) => {
   const r = profileRegion(p);
   if (r && (!s.region || s.region === profileRegion(old))) s.region = r;
@@ -136,6 +142,19 @@ function goTo(step: number) {
 }
 const errorText = computed(() => error.value.charAt(0).toUpperCase() + error.value.slice(1));
 const errorStep = computed(() => (error.value ? stepForError(props.kind, rawError || error.value) : null));
+/** Azure without a sign-in in the chosen tenant: the command that signs in there (DBine never runs it). */
+const signInTenant = computed(() => (props.kind === 'azure' && error.value ? tenantSignIn(rawError || error.value) : null));
+const signInCommand = computed(() => (signInTenant.value ? `az login --tenant ${signInTenant.value}` : ''));
+const signInText = computed(() => t('secretAccounts:acct.azure.signIn', { command: `«${signInCommand.value}»`, interpolation: { escapeValue: false } }));
+const copied = ref(false);
+async function copyCommand() {
+  try {
+    await navigator.clipboard.writeText(signInCommand.value);
+    copied.value = true;
+    ElMessage.success(t('common:copied'));
+    setTimeout(() => { copied.value = false; }, 2000);
+  } catch { /* no clipboard: the command can still be selected */ }
+}
 
 /** The last step: check live and, if it passes, save. */
 async function finish() {
@@ -476,9 +495,26 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
             <el-input v-model="s.vault_url" placeholder="https://my-vault.vault.azure.net" spellcheck="false" />
           </el-form-item>
           <el-form-item :label="$t('secretAccounts:acct.input.tenant')">
-            <el-input v-model="s.tenant" class="aw-mono" placeholder="contoso.onmicrosoft.com" spellcheck="false" />
+            <el-select
+              v-model="s.tenant" filterable default-first-option clearable style="width: 100%" data-tenant
+              :filter-method="(q: string) => (tenantQuery = q)" popper-class="aw-tenant-popper"
+              :placeholder="tenants.length ? $t('secretAccounts:acct.azure.vault.tenantPlaceholder') : 'contoso.onmicrosoft.com'"
+              @visible-change="(open: boolean) => { if (!open) tenantQuery = ''; }"
+            >
+              <el-option v-for="tn in tenantOptions" :key="tn.id" :value="tn.id" :label="tenantLabel(tn)">
+                <div class="aw-tenant-opt">
+                  <span class="aw-tenant-name">
+                    <span :class="{ 'aw-tenant-typed': tn.typed }">{{ tn.display_name || tn.default_domain || tn.id }}</span>
+                    <span v-if="tn.display_name && tn.default_domain" class="aw-tenant-domain">{{ tn.default_domain }}</span>
+                    <span v-if="tn.id.toLowerCase() === currentTenant" class="aw-tenant-current">{{ $t('secretAccounts:acct.azure.vault.current') }}</span>
+                  </span>
+                  <span v-if="!tn.typed" class="aw-tenant-id">{{ tn.id }}</span>
+                </div>
+              </el-option>
+            </el-select>
           </el-form-item>
         </el-form>
+        <p class="aw-muted aw-note">{{ $t('secretAccounts:acct.azure.vault.perAccount') }}</p>
       </template>
 
       <!-- Google Secret Manager: the project. -->
@@ -534,7 +570,11 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
     </section>
 
     <div v-if="error && !busy && !done" class="aw-error-actions">
-      <div class="aw-error" role="alert">{{ errorText }}</div>
+      <div v-if="signInTenant" class="aw-signin" role="alert" data-signin>
+        <div class="aw-error">{{ signInText }}</div>
+        <div class="aw-cmd"><code>{{ signInCommand }}</code><el-button size="small" data-copy @click="copyCommand">{{ copied ? $t('common:copied') : $t('common:copy') }}</el-button></div>
+      </div>
+      <div v-else class="aw-error" role="alert">{{ errorText }}</div>
       <el-button v-if="errorStep && errorStep !== s.step" size="small" @click="goTo(errorStep)">{{ $t('secretAccounts:acct.toStep', { step: $t(`secretAccounts:acct.steps.${steps[errorStep - 1]}`) }) }}</el-button>
     </div>
     <div v-else-if="showProblems && problemText && !done" class="aw-error" role="alert">{{ problemText }}</div>
@@ -605,7 +645,25 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
 }
 .aw-error { margin-top: 10px; font-size: 12.5px; color: var(--nm-danger); white-space: pre-wrap; word-break: break-word; }
 .aw-error-actions { margin-top: 10px; .aw-error { margin: 0 0 8px; } }
+.aw-cmd {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 6px 6px 6px 10px; border-radius: 4px;
+  background: var(--nm-bg-soft, var(--el-fill-color-light)); border: 1px solid var(--nm-border-soft);
+  code { flex: 1; min-width: 0; font-family: var(--nm-font-mono, ui-monospace, monospace); font-size: 12px; color: var(--nm-text-strong); user-select: all; word-break: break-all; }
+}
 .aw-done { text-align: center; padding: 18px 0 6px; h4 { font-size: 15px; } }
 .aw-done-icon { font-size: 34px; color: var(--nm-success); margin-bottom: 6px; }
 .aw-who { font-family: var(--nm-font-mono, ui-monospace, monospace); font-size: 13px; color: var(--nm-text-strong); margin: 0 0 8px; word-break: break-all; }
+</style>
+
+<style lang="scss">
+/* The tenant select's list (teleported, so not scoped): name and domain, the ID below. */
+.aw-tenant-popper .el-select-dropdown__item:has(.aw-tenant-opt) { height: auto; padding-top: 5px; padding-bottom: 5px; line-height: 1.35; }
+.aw-tenant-opt { display: flex; flex-direction: column; min-width: 0; }
+.aw-tenant-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.aw-tenant-domain { font-size: 11.5px; color: var(--nm-text-dim); font-weight: normal; }
+.aw-tenant-current {
+  font-size: 10.5px; padding: 0 5px; border-radius: 3px; color: var(--el-color-primary); border: 1px solid var(--el-color-primary-light-5); font-weight: normal;
+}
+.aw-tenant-typed { font-family: var(--nm-font-mono, ui-monospace, monospace); font-size: 12px; }
+.aw-tenant-id { font-family: var(--nm-font-mono, ui-monospace, monospace); font-size: 11px; color: var(--nm-text-dim); font-weight: normal; }
 </style>

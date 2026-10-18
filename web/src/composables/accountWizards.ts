@@ -117,10 +117,70 @@ export const validAccessToken = (v: string) => /^0\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9
 export const validAwsRegion = (v: string) => /^[a-z0-9]+(-[a-z0-9]+)+-\d+$/.test(v.trim());
 export const validAwsProfile = (v: string) => /^[A-Za-z0-9.@+_][A-Za-z0-9.@+_-]{0,127}$/.test(v.trim());
 export const validAzureVault = (v: string) => /^https:\/\/[a-z0-9-]+\.vault\.(azure\.net|azure\.cn|usgovcloudapi\.net|microsoftazure\.de)\/?$/i.test(v.trim());
+/** A Microsoft Entra tenant, its ID or a domain: dbine_core's `valid_azure_tenant`. */
 export const validTenant = (v: string) => /^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$/.test(v.trim());
 export const validGcpProject = (v: string) => /^[A-Za-z0-9._-]{1,255}$/.test(v.trim());
 export const validDelineaPlatform = (v: string) => /^https:\/\/[a-z0-9-]+\.delinea\.app\/?$/i.test(v.trim());
 export const validOpAccount = (v: string) => /^[A-Za-z0-9._@][A-Za-z0-9._@-]{0,254}$/.test(v.trim());
+
+// ---- Azure: the tenants the CLI knows ------------------------------------------------
+
+/** A tenant from `detect_secret_account` (`az account tenant list`). */
+export interface AzureTenant {
+  id: string;
+  display_name: string;
+  default_domain: string;
+}
+
+/** The detected tenants, well formed only, once each; the CLI's current one
+ *  is always among them. */
+export function azureTenants(detected: Record<string, unknown> | null | undefined): AzureTenant[] {
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const out: AzureTenant[] = [];
+  const add = (t: AzureTenant) => {
+    if (validTenant(t.id) && !out.some((o) => o.id.toLowerCase() === t.id.toLowerCase())) out.push(t);
+  };
+  for (const t of Array.isArray(detected?.tenants) ? (detected!.tenants as Record<string, unknown>[]) : []) {
+    if (t && typeof t === 'object') add({ id: str(t.id), display_name: str(t.display_name), default_domain: str(t.default_domain) });
+  }
+  const current = str(detected?.tenant);
+  if (current && !out.some((o) => o.id.toLowerCase() === current.toLowerCase())) add({ id: current, display_name: '', default_domain: '' });
+  return out;
+}
+
+/** The tenants matching what's typed in the select (name, domain or ID). */
+export function filterTenants(list: AzureTenant[], query: string): AzureTenant[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((t) => [t.id, t.display_name, t.default_domain].some((v) => v.toLowerCase().includes(q)));
+}
+
+/** The select's options: the listed tenants matching what's typed, then
+ *  what's typed itself as one more option, only when it's a well-formed
+ *  tenant (valid_azure_tenant) that no listed tenant's ID or domain equals.
+ *  It goes last, so Enter (the first option) picks a listed tenant whenever
+ *  one matches. `selected`: a typed tenant chosen before stays an option. */
+export function tenantChoices(list: AzureTenant[], query: string, selected = ''): (AzureTenant & { typed?: boolean })[] {
+  const out: (AzureTenant & { typed?: boolean })[] = [...filterTenants(list, query)];
+  const known = (v: string) => list.some((t) => [t.id, t.default_domain].some((x) => x && x.toLowerCase() === v.toLowerCase()));
+  for (const v of [query.trim(), query.trim() ? '' : selected.trim()]) {
+    if (v && validTenant(v) && !known(v) && !out.some((t) => t.id.toLowerCase() === v.toLowerCase())) out.push({ id: v, display_name: '', default_domain: '', typed: true });
+  }
+  return out;
+}
+
+/** A tenant in the select once chosen: its name and domain, else its ID. */
+export function tenantLabel(t: AzureTenant): string {
+  return [t.display_name, t.default_domain].filter(Boolean).join(' · ') || t.id;
+}
+
+/** The tenant of the backend's "no sign-in in that tenant" message
+ *  (azure.rs `no_sign_in`: «az login --tenant <id>», the same in every
+ *  language), or null for any other message. */
+export function tenantSignIn(message: string): string | null {
+  const m = /az login --tenant ([A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]|[A-Za-z0-9])/.exec(message ?? '');
+  return m && validTenant(m[1]) ? m[1] : null;
+}
 
 /** Bitwarden's server as the account keeps it. */
 export function bitwardenServer(s: WizardForm): string {
@@ -353,6 +413,7 @@ export function stepForError(kind: WizardKind, message: string): number | null {
   if (kind === 'delinea' && m.includes('rechazó el usuario')) return at('user');
   if (kind === 'conjur' && (m.includes('rechazó el login') || m.includes('clave de api'))) return at('identity');
   if (kind === 'ccp' && (m.includes('certificado') || m.includes('clave privada') || m.includes('pkcs#12'))) return at('certificate');
+  if (kind === 'azure' && tenantSignIn(message)) return at('vault');
   if (m.includes('no se pudo conectar')) return 1;
   return null;
 }

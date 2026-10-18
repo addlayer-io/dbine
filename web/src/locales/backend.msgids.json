@@ -339,6 +339,9 @@
  "(todo el snapshot)": [
   "crates/drivers/postgres/src/backup.rs"
  ],
+ "(¿falta az login?)": [
+  "src-tauri/src/secret_sources/azure.rs"
+ ],
  ", Procedimiento {0}, Línea {1}": [
   "crates/drivers/sqlserver/src/script.rs"
  ],
@@ -28170,6 +28173,9 @@
  "la CLI de Azure (az) no terminó en {0} s": [
   "src-tauri/src/commands/azure_firewall.rs"
  ],
+ "la CLI de Azure no tiene una sesión iniciada en ese inquilino: iniciá sesión con «az login --tenant {0}» y probá de nuevo": [
+  "src-tauri/src/secret_sources/azure.rs"
+ ],
  "la CLI de Azure no tiene una sesión iniciada: corré «az login» y volvé a intentar": [
   "src-tauri/src/commands/azure_firewall.rs"
  ],
@@ -35333,6 +35339,9 @@
  ],
  "«analysis» tiene que ser un objeto JSON (analyzer, tokenizer, filter…).": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "«az account list» no devolvió JSON": [
+  "src-tauri/src/secret_sources/azure.rs"
  ],
  "«az account show» no devolvió JSON": [
   "src-tauri/src/secret_sources/azure.rs"
