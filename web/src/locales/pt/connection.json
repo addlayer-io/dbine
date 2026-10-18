@@ -128,7 +128,11 @@
       "azure": "Azure Key Vault",
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
-      "zoho": "Zoho Vault"
+      "zoho": "Zoho Vault",
+      "vault_db": "HashiCorp Vault (credenciais de banco de dados)",
+      "conjur": "CyberArk Conjur",
+      "ccp": "CyberArk Central Credential Provider",
+      "delinea": "Delinea Secret Server"
     },
     "askHelp": "É pedida ao conectar e não é salva.",
     "askPlaceholder": "(somente para testar; é pedida ao conectar)",
@@ -169,7 +173,36 @@
       "client_secret": "Segredo do cliente",
       "refresh_token": "Token de atualização",
       "fill_username_keepass": "Usar também o usuário desta entrada (seu campo «UserName»)",
-      "fill_username_zoho": "Usar também o usuário deste segredo (seu campo «username»)"
+      "fill_username_zoho": "Usar também o usuário deste segredo (seu campo «username»)",
+      "auth": "Login no Vault",
+      "role_id": "Role ID",
+      "approle_secret_id": "Secret ID",
+      "approle_mount": "Caminho do AppRole (opcional)",
+      "mount": "Motor de banco de dados (opcional)",
+      "role": "Role",
+      "static_role": "Role estática (um usuário fixo cuja senha o Vault rotaciona)",
+      "url": "URL",
+      "conjur_account": "Conta",
+      "login": "Login (host/<id> ou um usuário)",
+      "variable": "ID da variável",
+      "username_variable": "Variável com o usuário (opcional)",
+      "api_key": "Chave de API",
+      "app_id": "AppID",
+      "safe": "Safe (opcional)",
+      "folder": "Pasta (opcional)",
+      "object": "Objeto",
+      "account_user": "Usuário da conta (opcional)",
+      "account_address": "Endereço da conta (opcional)",
+      "client_cert": "Certificado de cliente (opcional)",
+      "client_key": "Chave privada (opcional)",
+      "cert_passphrase": "Frase secreta da chave ou do PKCS#12 (opcional)",
+      "fill_username_ccp": "Pegar também o usuário desta conta (seu «UserName»)",
+      "platform_url": "URL do Delinea Platform (opcional)",
+      "username": "Usuário (ou ID do cliente)",
+      "domain": "Domínio (opcional)",
+      "master_delinea": "Senha",
+      "master_value_delinea": "Senha (ou segredo do cliente)",
+      "fill_username_delinea": "Pegar também o usuário deste segredo (seu campo «username»)"
     },
     "placeholder": {
       "command": "pass show bancos/producao",
@@ -188,7 +221,12 @@
       "gcp": "Usa a sessão do gcloud («gcloud auth login») ou as credenciais padrão do aplicativo.",
       "entry": "Grupo/Subgrupo/Título, só o título se não se repetir, ou o UUID da entrada.",
       "keepass": "O banco é lido neste computador, sem programas externos (KDBX 3.1 e 4). A senha mestra digitada é salva no chaveiro do sistema; com «Perguntar ao conectar» ela é pedida na primeira vez que você conecta e fica só na memória até você fechar o DBine.",
-      "zoho": "Com um cliente próprio («Self Client») do console de API do Zoho e um token de atualização com as permissões ZohoVault.secrets.READ e ZohoVault.user.READ. Os valores são descriptografados neste computador com a frase secreta mestra; o segredo do cliente, o token e a frase digitados são salvos no chaveiro do sistema."
+      "zoho": "Com um cliente próprio («Self Client») do console de API do Zoho e um token de atualização com as permissões ZohoVault.secrets.READ e ZohoVault.user.READ. Os valores são descriptografados neste computador com a frase secreta mestra; o segredo do cliente, o token e a frase digitados são salvos no chaveiro do sistema.",
+      "vault_db": "O Vault cria um usuário e uma senha para esta conexão com o motor de banco de dados (ou fornece os de uma role estática), e o usuário da conexão é tirado daí. As credenciais são reutilizadas enquanto a conexão está aberta, renovadas antes de vencer e revogadas ao desconectar ou fechar o DBine. Sem token, usa-se VAULT_TOKEN ou o do «vault login».",
+      "approle": "O DBine faz login com AppRole (auth/<caminho>/login) e revoga esse token ao terminar. O secret ID que você digitar é guardado no chaveiro do sistema.",
+      "conjur": "Usa a chave de API de um host ou usuário do Conjur, que é guardada no chaveiro do sistema. Conjur Cloud: https://<subdomínio>.secretsmgr.cyberark.cloud/api e a conta «conjur». Somente HTTPS (HTTP somente para este computador).",
+      "ccp": "Pede a conta ao Central Credential Provider da CyberArk (AIMWebService) com o AppID e, se o provedor exigir, um certificado de cliente: PEM (com a chave no mesmo arquivo ou em outro) ou PKCS#12 (.p12/.pfx). A frase secreta que você digitar é guardada no chaveiro do sistema. Somente HTTPS.",
+      "delinea": "Faz login com OAuth2 no Secret Server (um usuário ou uma conta de aplicativo) e lê o campo do segredo pelo slug. Com o Delinea Platform, o token é pedido ao tenant (https://<tenant>.delinea.app) com o ID e o segredo de um usuário de serviço. O ID ou o nome do segredo: se houver mais de um com esse nome, use o ID. Somente HTTPS."
     },
     "test": "Testar",
     "testOk": "OK · {{n}} caracteres",
@@ -223,7 +261,12 @@
       "keepass": "A conexão «{{name}}» obtém «{{field}}» de um banco do KeePass. Digite a senha mestra dele (ela não é salva):",
       "zoho": "A conexão «{{name}}» obtém «{{field}}» do Zoho Vault. Digite a frase secreta mestra (ela não é salva):",
       "wrong": "A senha digitada não abriu o banco.",
-      "empty": "Digite a senha mestra"
+      "empty": "Digite a senha mestra",
+      "delinea": "A conexão «{{name}}» pega «{{field}}» do Delinea Secret Server. Digite a senha (não é guardada):"
+    },
+    "vaultAuth": {
+      "token": "Token",
+      "approle": "AppRole"
     }
   }
 }

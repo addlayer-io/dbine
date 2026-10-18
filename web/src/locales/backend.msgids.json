@@ -708,7 +708,9 @@
   "crates/drivers/orientdb/src/lib.rs",
   "crates/drivers/orientdb/src/transfer.rs",
   "crates/drivers/snowflake/src/lib.rs",
-  "crates/drivers/snowflake/src/transfer.rs"
+  "crates/drivers/snowflake/src/transfer.rs",
+  "src-tauri/src/secret_sources/cyberark.rs",
+  "src-tauri/src/secret_sources/delinea.rs"
  ],
  "Acceso": [
   "crates/drivers/cosmosdb/src/security.rs",
@@ -925,7 +927,8 @@
   "crates/drivers/sqlserver/src/properties.rs"
  ],
  "Address": [
-  "crates/drivers/sqlserver/src/entra.rs"
+  "crates/drivers/sqlserver/src/entra.rs",
+  "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "Además, DBA_INDEX_USAGE se llena por muestreo (salvo con _iut_stat_collection_type = ALL): un índice que se usa poco puede verse sin uso.": [
   "crates/drivers/oracle/src/index_usage.rs"
@@ -1596,6 +1599,7 @@
   "crates/drivers/spanner/src/lib.rs",
   "crates/drivers/spanner/src/transfer.rs",
   "crates/drivers/sqlserver/src/entra.rs",
+  "src-tauri/src/secret_sources/cyberark.rs",
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Auto vacuum": [
@@ -4530,6 +4534,33 @@
   "crates/dbine-schema/src/dialect/manticore.rs",
   "crates/dbine-schema/src/dialect/tdengine.rs"
  ],
+ "Conjur": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "Conjur no devolvió un token de acceso": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "Conjur no tiene la cuenta «{0}» (o la URL no es la de la API)": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "Conjur rechazó el login «{0}» o su clave de API": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "Conjur rechazó el token de acceso": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "Conjur respondió {0}": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "Conjur respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "Conjur: no existe la variable «{0}» o todavía no tiene valor": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "Conjur: permiso denegado para leer «{0}» (falta el privilegio execute)": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
  "Connection": [
   "crates/drivers/mysql/src/backup.rs"
  ],
@@ -4791,6 +4822,9 @@
  ],
  "Contenido": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Content": [
+  "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "Continuar": [
   "src-tauri/src/commands/projects_git.rs"
@@ -5223,6 +5257,9 @@
  ],
  "Cuántos clusters se crean con cada clase nueva; las clases existentes no cambian.": [
   "crates/drivers/orientdb/src/properties.rs"
+ ],
+ "CyberArk: no hay una cuenta que coincida con el pedido ({0}: {1})": [
+  "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "Cyberdyne": [
   "src-tauri/src/commands/datagen.rs"
@@ -5820,6 +5857,21 @@
  ],
  "Dejarlo como está": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "Delinea necesita la contraseña (o el secreto del cliente)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "Delinea no devolvió un token de acceso": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "Delinea rechazó el pedido del token de acceso: {0}": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "Delinea rechazó el usuario o la contraseña (o el ID y el secreto del cliente)": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "Delinea respondió {0} al pedir el token de acceso": [
+  "src-tauri/src/secret_sources/delinea.rs"
  ],
  "Delta (en línea)": [
   "crates/drivers/odbc/src/backup.rs"
@@ -9443,6 +9495,9 @@
  ],
  "Flux ordena todas las columnas en el mismo sentido: con sentidos mezclados se ordenan las filas cargadas": [
   "crates/drivers/influxdb/src/v2.rs"
+ ],
+ "Folder": [
+  "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "Forbidden": [
   "src-tauri/src/devtools.rs"
@@ -15645,7 +15700,8 @@
   "crates/drivers/snowflake/src/permissions.rs"
  ],
  "Object": [
-  "crates/drivers/sqlserver/src/plan.rs"
+  "crates/drivers/sqlserver/src/plan.rs",
+  "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "ObjectId inválido: \"{0}\"": [
   "crates/drivers/mongodb/src/shell.rs"
@@ -18455,6 +18511,9 @@
  "SYSTEMDB no se restaura por SQL: se recupera con el sistema detenido (HANA cockpit o recoverSys.py)": [
   "crates/drivers/hana/src/backup.rs"
  ],
+ "Safe": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
  "Sale de la cuota libre del cluster. Mínimo 100 MB (Magma: 1024 MB antes de 7.6).": [
   "crates/drivers/couchbase/src/properties.rs"
  ],
@@ -18735,6 +18794,27 @@
  ],
  "Search": [
   "crates/drivers/elasticsearch/src/plan.rs"
+ ],
+ "Secret Server no devolvió el ID del secreto": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "Secret Server pide un paso más para ver este secreto ({0}): DBine no puede leerlo así": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "Secret Server rechazó el token de acceso": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "Secret Server respondió {0}": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "Secret Server respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "Secret Server tiene {0} secretos «{1}» (IDs: {2}): indicá el ID del que corresponde": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "Secret Server: no hay un secreto «{0}» (o el usuario no tiene acceso)": [
+  "src-tauri/src/secret_sources/delinea.rs"
  ],
  "Secret access key": [
   "crates/drivers/dynamodb/src/aws.rs",
@@ -22606,7 +22686,19 @@
  "Vault está sellado o no disponible": [
   "src-tauri/src/secret_sources/vault.rs"
  ],
+ "Vault no devolvió credenciales": [
+  "src-tauri/src/secret_sources/vault_db.rs"
+ ],
  "Vault no devolvió datos para «{0}»": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault no devolvió el usuario y la contraseña del rol": [
+  "src-tauri/src/secret_sources/vault_db.rs"
+ ],
+ "Vault no tiene AppRole en «auth/{0}»": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault rechazó el role_id o el secret_id de AppRole (¿venció el secret_id?)": [
   "src-tauri/src/secret_sources/vault.rs"
  ],
  "Vault respondió con una redirección: usá la dirección del servidor activo": [
@@ -22618,11 +22710,17 @@
  "Vault respondió {0}: {1}": [
   "src-tauri/src/secret_sources/vault.rs"
  ],
+ "Vault: no existe el rol «{0}» en ese motor de bases de datos": [
+  "src-tauri/src/secret_sources/vault_db.rs"
+ ],
  "Vault: no existe el secreto «{0}»": [
   "src-tauri/src/secret_sources/vault.rs"
  ],
  "Vault: permiso denegado para leer «{0}» (el token venció o su política no lo permite)": [
   "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault: permiso denegado para pedir las credenciales del rol «{0}» (el token venció o su política no lo permite)": [
+  "src-tauri/src/secret_sources/vault_db.rs"
  ],
  "Ve la información del sistema": [
   "crates/drivers/tdengine/src/security.rs"
@@ -24458,8 +24556,23 @@
  "el COPY trajo {0} columnas y se esperaban {1}": [
   "crates/drivers/postgres/src/transfer.rs"
  ],
+ "el Central Credential Provider no devolvió la contraseña (Content)": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "el Central Credential Provider rechazó el pedido ({0}): revisá el AppID y el certificado de cliente": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "el Central Credential Provider respondió {0}": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "el Central Credential Provider respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
  "el DDL depende de la base detrás del servidor Avatica": [
   "crates/drivers/phoenix/src/lib.rs"
+ ],
+ "el ID de la variable de Conjur no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "el ID del proyecto": [
   "crates/drivers/spanner/src/lib.rs"
@@ -24501,8 +24614,17 @@
  "el adjunto «{0}» llega sin su contenido (solo la referencia al original); no se puede copiar": [
   "crates/drivers/couchdb/src/transfer.rs"
  ],
+ "el archivo PKCS#12 no tiene el certificado de la clave": [
+  "src-tauri/src/secret_sources/https.rs"
+ ],
+ "el archivo PKCS#12 no tiene una clave privada con su certificado": [
+  "src-tauri/src/secret_sources/https.rs"
+ ],
  "el archivo de clave no es válido": [
   "src-tauri/src/secret_sources/keepass.rs"
+ ],
+ "el archivo de la CA no tiene certificados (PEM)": [
+  "src-tauri/src/secret_sources/https.rs"
  ],
  "el archivo de puntos de restauración": [
   "crates/drivers/odbc/src/backup.rs"
@@ -24552,11 +24674,17 @@
  "el campo de la entrada de KeePass no es válido": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "el campo del secreto de Delinea no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "el campo del secreto de Zoho Vault no es válido": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "el campo «{0}» de la colección de destino no se guarda (stored=false y sin docValues): Solr aceptaría el valor y lo descartaría, así que después se leería como NULL. Cambiá el campo a stored=true o dejalo fuera de la carga.": [
   "crates/drivers/solr/src/transfer.rs"
+ ],
+ "el campo «{0}» del secreto «{1}» es un archivo": [
+  "src-tauri/src/secret_sources/delinea.rs"
  ],
  "el campo «{0}» es de un tipo de Solr que DBine no conoce: no se puede verificar que el número {1} se guarde sin cambios, así que no se carga.": [
   "crates/drivers/solr/src/transfer.rs"
@@ -24586,7 +24714,11 @@
  "el certificado de CA «{0}» no es un PEM válido: {1}": [
   "crates/drivers/postgres/src/lib.rs"
  ],
+ "el certificado de cliente o su clave no son válidos (PEM: el certificado y una clave PKCS#8, RSA o EC)": [
+  "src-tauri/src/secret_sources/https.rs"
+ ],
  "el certificado de la CA no es válido: {0}": [
+  "src-tauri/src/secret_sources/https.rs",
   "src-tauri/src/secret_sources/vault.rs"
  ],
  "el cliente necesita un nombre": [
@@ -24799,6 +24931,9 @@
  ],
  "el dominio": [
   "src-tauri/src/commands/compare.rs"
+ ],
+ "el dominio de Delinea no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "el dominio no conoce el servicio MSSQLSvc de ese servidor (usá el nombre completo del host, no la IP ni un alias)": [
   "crates/drivers/sqlserver/src/lib.rs"
@@ -25225,6 +25360,12 @@
  "el puerto {0} está ocupado por otro programa: elegí otro en Configuración › MCP": [
   "src-tauri/src/mcp/mod.rs"
  ],
+ "el punto de montaje de AppRole no es válido (approle)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "el punto de montaje del motor de bases de datos de Vault no es válido (database)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "el punto de {0}": [
   "crates/drivers/influxdb/src/transfer.rs"
  ],
@@ -25275,6 +25416,12 @@
  ],
  "el secreto no tiene la clave «{0}» (tiene: {1})": [
   "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "el secreto «{0}» de Secret Server no tiene el campo «{1}» (tiene: {2})": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "el secreto «{0}» de Secret Server no tiene usuario (username)": [
+  "src-tauri/src/secret_sources/delinea.rs"
  ],
  "el secreto «{0}» de Vault no tiene la clave «{1}» (tiene: {2})": [
   "src-tauri/src/secret_sources/vault.rs"
@@ -26753,14 +26900,23 @@
  "falta configurar el servidor de correo en Configuración › Correo": [
   "src-tauri/src/tasks/mail.rs"
  ],
+ "falta el AppID del Central Credential Provider": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "falta el ID de la aplicación": [
   "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "falta el ID de la variable de Conjur": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el ID del cliente de Zoho (1000.XXXX)": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el ID del proyecto": [
   "crates/drivers/bigquery/src/lib.rs"
+ ],
+ "falta el ID o el nombre del secreto de Delinea": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el SQL warehouse": [
   "crates/drivers/databricks/src/lib.rs"
@@ -26837,6 +26993,9 @@
  "falta el inquilino (tenant ID)": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "falta el login de Conjur (host/<id> o un usuario)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "falta el motor de IA que viene con DBine ({0})": [
   "crates/dbine-ai/src/embedded.rs"
  ],
@@ -26879,6 +27038,12 @@
  "falta el repositorio del snapshot": [
   "crates/drivers/postgres/src/backup.rs"
  ],
+ "falta el rol de Vault (o no es válido)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "falta el role_id de AppRole": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "falta el secreto de la aplicación": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
@@ -26907,6 +27072,9 @@
  ],
  "falta el usuario SSH": [
   "src-tauri/src/tunnels.rs"
+ ],
+ "falta el usuario de Delinea (o el ID del cliente en Delinea Platform)": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el usuario de dominio (DOMINIO\\usuario)": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -26962,6 +27130,9 @@
  "falta la clave JSON de la cuenta de servicio": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
+ "falta la clave de API de Conjur: escribila en el formulario": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
  "falta la clave del secreto de Vault (password)": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
@@ -26977,6 +27148,9 @@
  "falta la columna «{0}» en el destino": [
   "crates/dbine-transfer/src/check.rs"
  ],
+ "falta la contraseña de Delinea: escribila en el formulario": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
  "falta la contraseña maestra": [
   "src-tauri/src/secret_sources/mod.rs"
  ],
@@ -26991,6 +27165,9 @@
  ],
  "falta la cuenta": [
   "crates/drivers/snowflake/src/lib.rs"
+ ],
+ "falta la cuenta de Conjur (o no es válida)": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta la cuenta de Entra ID (usuario@dominio)": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -27030,6 +27207,9 @@
  ],
  "falta la tabla del trigger para renombrarlo": [
   "crates/drivers/postgres/src/rename.rs"
+ ],
+ "falta qué cuenta pedir al Central Credential Provider: el objeto, o el usuario o la dirección": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta un espacio después de las comillas": [
   "crates/drivers/redis/src/command.rs"
@@ -27590,6 +27770,22 @@
  "la SGA (V$SGAINFO)": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
+ "la URL de Conjur tiene que ser https:// (http:// solo para esta computadora)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "la URL de Delinea Platform tiene que ser https://<inquilino>.delinea.app": [
+  "crates/dbine-core/src/secret_sources.rs",
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
+ "la URL de Secret Server tiene que ser https:// (http:// solo para esta computadora)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "la URL de {0} tiene que ser https:// (http:// solo para esta computadora)": [
+  "src-tauri/src/secret_sources/https.rs"
+ ],
+ "la URL del Central Credential Provider tiene que ser https:// (http:// solo para esta computadora)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "la URL del almacén tiene que ser https://<nombre>.vault.azure.net": [
   "crates/dbine-core/src/secret_sources.rs",
   "src-tauri/src/secret_sources/azure.rs"
@@ -27822,11 +28018,26 @@
  "la clave primaria no se puede deshabilitar": [
   "crates/drivers/mysql/src/index_usage.rs"
  ],
+ "la clave privada cifrada está incompleta": [
+  "src-tauri/src/secret_sources/https.rs"
+ ],
+ "la clave privada cifrada no es válida": [
+  "src-tauri/src/secret_sources/https.rs"
+ ],
+ "la clave privada está cifrada: escribí su frase de contraseña": [
+  "src-tauri/src/secret_sources/https.rs"
+ ],
  "la clave privada está cifrada; exportala sin passphrase": [
   "crates/drivers/snowflake/src/lib.rs"
  ],
+ "la clave privada necesita su certificado de cliente": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "la clave privada no está en formato PEM": [
   "crates/drivers/snowflake/src/lib.rs"
+ ],
+ "la clave privada usa el cifrado antiguo de OpenSSL: convertila a PKCS#8 (openssl pkcs8 -topk8) o usá un archivo PKCS#12": [
+  "src-tauri/src/secret_sources/https.rs"
  ],
  "la clave {0} está repetida en el mapa y solo quedaría una": [
   "crates/drivers/cassandra/src/transfer.rs"
@@ -28107,6 +28318,9 @@
  "la cuenta de Google Cloud «{0}» no es válida": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
+ "la cuenta del Central Credential Provider no tiene usuario (UserName)": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
  "la cuenta es federada pero ADFS no publica sus metadatos (MEX)": [
   "crates/drivers/sqlserver/src/entra.rs"
  ],
@@ -28201,6 +28415,9 @@
  ],
  "la frase clave tiene que tener al menos {0} caracteres": [
   "src-tauri/src/commands/sync.rs"
+ ],
+ "la frase de contraseña de la clave privada no es la correcta": [
+  "src-tauri/src/secret_sources/https.rs"
  ],
  "la frase de contraseña maestra de Zoho Vault no es la correcta": [
   "src-tauri/src/secret_sources/zoho.rs"
@@ -28639,6 +28856,9 @@
  ],
  "la validación {0} no tiene función": [
   "crates/drivers/couchdb/src/ddl.rs"
+ ],
+ "la variable «{0}» de Conjur no es texto": [
+  "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "la versión": [
   "crates/drivers/sqlserver/src/babelfish.rs",
@@ -29786,6 +30006,9 @@
  "no se pudieron obtener credenciales de AWS para el perfil «{0}»: {1}": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
+ "no se pudo abrir el archivo PKCS#12 (¿la frase de contraseña es la correcta?)": [
+  "src-tauri/src/secret_sources/https.rs"
+ ],
  "no se pudo abrir el catálogo «{0}»: {1}": [
   "crates/drivers/flightsql/src/lib.rs"
  ],
@@ -29972,6 +30195,12 @@
  "no se pudo conectar con Azure Key Vault: {0}": [
   "src-tauri/src/secret_sources/azure.rs"
  ],
+ "no se pudo conectar con Conjur en {0}: {1}": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "no se pudo conectar con Delinea en {0}: {1}": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
  "no se pudo conectar con Google Secret Manager: {0}": [
   "src-tauri/src/secret_sources/gcp.rs"
  ],
@@ -29982,6 +30211,9 @@
   "crates/drivers/iotdb/src/lib.rs",
   "crates/drivers/iotdb/src/transfer.rs"
  ],
+ "no se pudo conectar con Secret Server en {0}: {1}": [
+  "src-tauri/src/secret_sources/delinea.rs"
+ ],
  "no se pudo conectar con Vault en {0}: {1}": [
   "src-tauri/src/secret_sources/vault.rs"
  ],
@@ -29990,6 +30222,9 @@
  ],
  "no se pudo conectar con Zoho Vault ({0}): {1}": [
   "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "no se pudo conectar con el Central Credential Provider en {0}: {1}": [
+  "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "no se pudo conectar con el remoto ({0})": [
   "src-tauri/src/commands/git_cli.rs"
@@ -30216,7 +30451,11 @@
  "no se pudo leer el certificado de CA «{0}»: {1}": [
   "crates/drivers/postgres/src/lib.rs"
  ],
+ "no se pudo leer el certificado de cliente {0}: {1}": [
+  "src-tauri/src/secret_sources/https.rs"
+ ],
  "no se pudo leer el certificado de la CA {0}: {1}": [
+  "src-tauri/src/secret_sources/https.rs",
   "src-tauri/src/secret_sources/vault.rs"
  ],
  "no se pudo leer el contador del IDENTITY; no se clona": [
@@ -30257,6 +30496,9 @@
  ],
  "no se pudo leer la clave primaria con hash de «{0}»": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
+ ],
+ "no se pudo leer la clave privada {0}: {1}": [
+  "src-tauri/src/secret_sources/https.rs"
  ],
  "no se pudo leer la columna de partición de la clave primaria del original; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -32386,6 +32628,9 @@
  ],
  "un comando": [
   "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "un dato del Central Credential Provider no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "un decimal de más de {0} dígitos no se copia (sería enorme sin exponente)": [
   "crates/drivers/cassandra/src/transfer.rs"

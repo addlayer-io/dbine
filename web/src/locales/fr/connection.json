@@ -128,7 +128,11 @@
       "azure": "Azure Key Vault",
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
-      "zoho": "Zoho Vault"
+      "zoho": "Zoho Vault",
+      "vault_db": "HashiCorp Vault (identifiants de base de données)",
+      "conjur": "CyberArk Conjur",
+      "ccp": "CyberArk Central Credential Provider",
+      "delinea": "Delinea Secret Server"
     },
     "askHelp": "Demandé à la connexion et non enregistré.",
     "askPlaceholder": "(pour tester seulement ; demandé à la connexion)",
@@ -169,7 +173,36 @@
       "client_secret": "Secret du client",
       "refresh_token": "Jeton d'actualisation",
       "fill_username_keepass": "Prendre aussi l'utilisateur de cette entrée (son champ « UserName »)",
-      "fill_username_zoho": "Prendre aussi l'utilisateur de ce secret (son champ « username »)"
+      "fill_username_zoho": "Prendre aussi l'utilisateur de ce secret (son champ « username »)",
+      "auth": "Connexion à Vault",
+      "role_id": "Role ID",
+      "approle_secret_id": "Secret ID",
+      "approle_mount": "Chemin d'AppRole (facultatif)",
+      "mount": "Moteur de bases de données (facultatif)",
+      "role": "Rôle",
+      "static_role": "Rôle statique (un utilisateur fixe dont Vault fait tourner le mot de passe)",
+      "url": "URL",
+      "conjur_account": "Compte",
+      "login": "Login (host/<id> ou un utilisateur)",
+      "variable": "ID de la variable",
+      "username_variable": "Variable contenant l'utilisateur (facultatif)",
+      "api_key": "Clé d'API",
+      "app_id": "AppID",
+      "safe": "Safe (facultatif)",
+      "folder": "Dossier (facultatif)",
+      "object": "Objet",
+      "account_user": "Utilisateur du compte (facultatif)",
+      "account_address": "Adresse du compte (facultatif)",
+      "client_cert": "Certificat client (facultatif)",
+      "client_key": "Clé privée (facultatif)",
+      "cert_passphrase": "Phrase secrète de la clé ou du PKCS#12 (facultatif)",
+      "fill_username_ccp": "Prendre aussi l'utilisateur de ce compte (son « UserName »)",
+      "platform_url": "URL de Delinea Platform (facultatif)",
+      "username": "Utilisateur (ou ID du client)",
+      "domain": "Domaine (facultatif)",
+      "master_delinea": "Mot de passe",
+      "master_value_delinea": "Mot de passe (ou secret du client)",
+      "fill_username_delinea": "Prendre aussi l'utilisateur de ce secret (son champ « username »)"
     },
     "placeholder": {
       "command": "pass show bases/production",
@@ -188,7 +221,12 @@
       "gcp": "Utilise votre session gcloud (« gcloud auth login ») ou les identifiants par défaut de l'application.",
       "entry": "Groupe/Sous-groupe/Titre, le titre seul s'il n'est pas répété, ou l'UUID de l'entrée.",
       "keepass": "La base est lue sur cet ordinateur, sans programme externe (KDBX 3.1 et 4). Le mot de passe principal saisi est enregistré dans le trousseau du système ; avec « Demander à la connexion », il est demandé la première fois que vous vous connectez et reste en mémoire seulement jusqu'à la fermeture de DBine.",
-      "zoho": "Avec un client propre (« Self Client ») de la console d'API de Zoho et un jeton d'actualisation disposant des autorisations ZohoVault.secrets.READ et ZohoVault.user.READ. Les valeurs sont déchiffrées sur cet ordinateur avec la phrase secrète principale ; le secret du client, le jeton et la phrase saisis sont enregistrés dans le trousseau du système."
+      "zoho": "Avec un client propre (« Self Client ») de la console d'API de Zoho et un jeton d'actualisation disposant des autorisations ZohoVault.secrets.READ et ZohoVault.user.READ. Les valeurs sont déchiffrées sur cet ordinateur avec la phrase secrète principale ; le secret du client, le jeton et la phrase saisis sont enregistrés dans le trousseau du système.",
+      "vault_db": "Vault crée un utilisateur et un mot de passe pour cette connexion avec le moteur de bases de données (ou fournit ceux d'un rôle statique), et l'utilisateur de la connexion en est tiré. Les identifiants sont réutilisés tant que la connexion est ouverte, renouvelés avant leur expiration et révoqués à la déconnexion ou à la fermeture de DBine. Sans jeton, on utilise VAULT_TOKEN ou celui de « vault login ».",
+      "approle": "DBine se connecte avec AppRole (auth/<chemin>/login) et révoque ce jeton à la fin. Le secret ID saisi est enregistré dans le trousseau du système.",
+      "conjur": "Utilise la clé d'API d'un hôte ou d'un utilisateur de Conjur, enregistrée dans le trousseau du système. Conjur Cloud : https://<sous-domaine>.secretsmgr.cyberark.cloud/api et le compte « conjur ». HTTPS uniquement (HTTP uniquement pour cet ordinateur).",
+      "ccp": "Demande le compte au Central Credential Provider de CyberArk (AIMWebService) avec l'AppID et, si le fournisseur l'exige, un certificat client : PEM (avec la clé dans le même fichier ou à part) ou PKCS#12 (.p12/.pfx). La phrase secrète saisie est enregistrée dans le trousseau du système. HTTPS uniquement.",
+      "delinea": "Se connecte avec OAuth2 à Secret Server (un utilisateur ou un compte d'application) et lit le champ du secret par son slug. Avec Delinea Platform, le jeton est demandé au tenant (https://<tenant>.delinea.app) avec l'ID et le secret d'un utilisateur de service. L'ID ou le nom du secret : s'il y en a plusieurs portant ce nom, utilisez l'ID. HTTPS uniquement."
     },
     "test": "Tester",
     "testOk": "OK · {{n}} caractères",
@@ -223,7 +261,12 @@
       "keepass": "La connexion « {{name}} » obtient « {{field}} » d'une base KeePass. Saisissez son mot de passe principal (il n'est pas enregistré) :",
       "zoho": "La connexion « {{name}} » obtient « {{field}} » de Zoho Vault. Saisissez la phrase secrète principale (elle n'est pas enregistrée) :",
       "wrong": "Le mot de passe saisi n'a pas ouvert la base.",
-      "empty": "Saisissez le mot de passe principal"
+      "empty": "Saisissez le mot de passe principal",
+      "delinea": "La connexion « {{name}} » prend « {{field}} » dans Delinea Secret Server. Saisissez le mot de passe (il n'est pas enregistré) :"
+    },
+    "vaultAuth": {
+      "token": "Jeton",
+      "approle": "AppRole"
     }
   }
 }

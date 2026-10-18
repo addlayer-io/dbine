@@ -69,6 +69,8 @@ pub(crate) fn exit_cleanup(app: &tauri::AppHandle) {
     // The timeout's timer must be created inside the runtime.
     tauri::async_runtime::block_on(async {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), commands::profiler::stop_all(&state)).await;
+        // Vault's database credentials held by open connections: revoked.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), secret_sources::release_all_leases()).await;
     });
 }
 

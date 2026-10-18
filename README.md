@@ -46,7 +46,9 @@ and queries are organized inside each database.
   engine, and the SSH tunnel's, can come from a command, 1Password, HashiCorp
   Vault, AWS Secrets Manager, Azure Key Vault, Google Secret Manager, a
   KeePass database or Zoho Vault, resolved at each connection and kept in
-  memory only. A definition that came
+  memory only; also database credentials HashiCorp Vault makes for the
+  connection (revoked when it closes), CyberArk (Conjur and the Central
+  Credential Provider) and Delinea Secret Server. A definition that came
   from elsewhere (an import, a restored backup) runs only after it's
   confirmed on the computer. Details:
   [`docs/secret-sources.md`](docs/secret-sources.md).

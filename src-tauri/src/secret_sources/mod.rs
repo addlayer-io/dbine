@@ -25,6 +25,10 @@ mod keepass;
 mod onepassword;
 mod vault;
 mod zoho;
+mod cyberark;
+mod delinea;
+mod https;
+mod vault_db;
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::{driver_info, field_applies, AppState};
@@ -164,6 +168,10 @@ fn provider(src: &SecretSource) -> &'static str {
         SecretSource::Gcp { .. } => "Google Secret Manager",
         SecretSource::KeePass { .. } => "KeePass",
         SecretSource::Zoho { .. } => "Zoho Vault",
+        SecretSource::VaultDb { .. } => "HashiCorp Vault",
+        SecretSource::Conjur { .. } => "CyberArk Conjur",
+        SecretSource::Ccp { .. } => "CyberArk",
+        SecretSource::Delinea { .. } => "Delinea Secret Server",
     }
 }
 
@@ -189,7 +197,9 @@ pub fn field_tokens(tokens: &Secrets, field: &str) -> Secrets {
 /// (typed this run, else [`NEEDS_MASTER`]), a command's output, or none.
 async fn master_password(src: &SecretSource, slots: &Secrets) -> Result<Option<String>, String> {
     let (master, command) = match src {
-        SecretSource::KeePass { master, master_command, .. } | SecretSource::Zoho { master, master_command, .. } => (*master, master_command),
+        SecretSource::KeePass { master, master_command, .. } | SecretSource::Zoho { master, master_command, .. } | SecretSource::Delinea { master, master_command, .. } => {
+            (*master, master_command)
+        }
         _ => return Ok(None),
     };
     let typed = slots.get("").filter(|t| !t.is_empty()).cloned();
@@ -212,7 +222,7 @@ fn asks_again(src: &SecretSource, message: &str) -> Option<bool> {
     }
     match message {
         NEEDS_MASTER => Some(false),
-        keepass::WRONG_KEY | zoho::WRONG_PASSPHRASE => Some(true),
+        keepass::WRONG_KEY | zoho::WRONG_PASSPHRASE | delinea::WRONG_PASSWORD => Some(true),
         _ => None,
     }
 }
@@ -235,6 +245,29 @@ fn command_failure(f: exec::Failure) -> String {
 /// master password, Zoho's client secret and refresh token), by slot.
 pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, String> {
     let token = slots.get("").map(String::as_str);
+    if let SecretSource::VaultDb { .. } = src {
+        // A one-off (Test): the credentials are revoked right away.
+        let r = vault_db::test(&vault_db_source(src, slots)).await;
+        return finish(src, r);
+    }
+    if let SecretSource::Conjur { url, account, login, variable, username_variable, ca_file, .. } = src {
+        let req = cyberark::Conjur { url, account, login, variable, username_variable, ca_file };
+        let (mut raw, username) = cyberark::conjur_read(&req, token).await?;
+        let picked = defs::pick_json(&raw, src.json_key()).map_err(|e| e.to_string());
+        defs::wipe(&mut raw);
+        return finish(src, picked.map(|v| (v, username)));
+    }
+    if let SecretSource::Ccp { url, app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file, fill_username } = src {
+        let req = cyberark::Ccp { url, app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file, username: *fill_username };
+        return finish(src, cyberark::ccp_read(&req, token).await);
+    }
+    if let SecretSource::Delinea { url, platform_url, username, domain, secret_name, attribute, fill_username, .. } = src {
+        let mut password = master_password(src, slots).await?.unwrap_or_default();
+        let req = delinea::Request { url, platform_url, username, domain, secret: secret_name, field: attribute, fill_username: *fill_username };
+        let r = delinea::read(&req, &password).await;
+        defs::wipe(&mut password);
+        return finish(src, r);
+    }
     if let SecretSource::KeePass { file, entry, attribute, key_file, fill_username, .. } = src {
         let mut master = master_password(src, slots).await?;
         let req = keepass::Request {
@@ -262,14 +295,16 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
     let mut raw = match src {
         SecretSource::Command { command, .. } => exec::run(exec::shell_command(command), exec::COMMAND_LIMIT).await.map(exec::trim_newline).map_err(command_failure)?,
         SecretSource::OnePassword { reference, account, .. } => onepassword::read(reference, account).await?,
-        SecretSource::Vault { address, path, key, namespace, kv_version, ca_file } => {
+        SecretSource::Vault { address, path, key, namespace, kv_version, ca_file, auth, approle_mount, role_id } => {
             let req = vault::Request { address, path, key, namespace, kv_version: *kv_version, ca_file };
-            vault::read(&req, token).await?
+            vault::read(&req, &vault::Auth::of(*auth, approle_mount, role_id, slots)).await?
         }
         SecretSource::Aws { secret_id, region, profile, .. } => aws::get_secret(secret_id, region, profile).await?,
         SecretSource::Azure { vault_url, name, version, .. } => azure::get_secret(vault_url, name, version).await?,
         SecretSource::Gcp { project, secret, version, .. } => gcp::get_secret(project, secret, version).await?,
-        SecretSource::KeePass { .. } | SecretSource::Zoho { .. } => unreachable!("resolved above"),
+        SecretSource::KeePass { .. } | SecretSource::Zoho { .. } | SecretSource::VaultDb { .. } | SecretSource::Conjur { .. } | SecretSource::Ccp { .. } | SecretSource::Delinea { .. } => {
+            unreachable!("resolved above")
+        }
     };
     let picked = defs::pick_json(&raw, src.json_key()).map_err(|e| e.to_string());
     let username = match src {
@@ -286,6 +321,29 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
         });
     }
     Ok(Resolved { value, username })
+}
+
+/// A Vault database role's definition, with the field's kept slots.
+fn vault_db_source<'a>(src: &'a SecretSource, slots: &'a Secrets) -> vault_db::Source<'a> {
+    let SecretSource::VaultDb { address, mount, role, static_role, namespace, ca_file, auth, approle_mount, role_id } = src else {
+        unreachable!("a vault_db definition")
+    };
+    vault_db::Source {
+        req: vault_db::Request { address, namespace, ca_file, mount, role, static_role: *static_role },
+        auth: vault::Auth::of(*auth, approle_mount, role_id, slots),
+    }
+}
+
+/// Revoke the Vault leases a connection holds (disconnect, edit, delete):
+/// in the background, best effort (crate::state::close_connection_sessions).
+pub fn release_leases(connection_id: &str) {
+    let id = connection_id.to_string();
+    tauri::async_runtime::spawn(async move { vault_db::release(&id).await });
+}
+
+/// Revoke every Vault lease held (DBine is closing).
+pub async fn release_all_leases() {
+    vault_db::release_all().await;
 }
 
 /// A provider that gives the value and the username itself.
@@ -358,6 +416,15 @@ pub async fn fill(store: &StateStore, cfg: &mut ConnectionConfig, sources: &Secr
         let key = cache_key(origin.id(), &digest);
         let saved = matches!(origin, Origin::Saved { .. });
         let resolved = match cached(&key).filter(|_| saved) {
+            // Vault's database credentials: held with their lease while the
+            // connection is open (vault_db.rs), not in the minute's cache.
+            None if matches!(src, SecretSource::VaultDb { .. }) => {
+                let slots = field_tokens(tokens, field);
+                let key = if saved { key } else { format!("form:{}\u{0}{digest}", uuid::Uuid::new_v4()) };
+                vault_db::acquire(&key, saved, &vault_db_source(src, &slots))
+                    .await
+                    .map_err(|m| CommandError::SecretSource(format!("no se pudo obtener «{label}» de {}: {m}", provider(src))))?
+            }
             Some(r) => r,
             None => {
                 let fetched = fetch(src, &field_tokens(tokens, field)).await.map_err(|m| match asks_again(src, &m) {
@@ -737,6 +804,198 @@ pub(crate) mod tests {
         assert_eq!(field_tokens(&all, "ssh.password").len(), 1);
     }
 
+    // ---- Vault's database credentials against a mock -----------------------------
+
+    #[derive(Default)]
+    struct VaultMock {
+        issued: Mutex<u32>,
+        /// The next leases' duration and whether they can be renewed.
+        ttl: Mutex<(u64, bool)>,
+        renewed: Mutex<Vec<String>>,
+        revoked: Mutex<Vec<String>>,
+        tokens_revoked: Mutex<u32>,
+        /// The tokens each call came with.
+        tokens: Mutex<Vec<String>>,
+    }
+
+    async fn vault_mock() -> (String, Arc<VaultMock>) {
+        use axum::extract::{Path as AxPath, State as AxState};
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::{get, post, put};
+        use axum::{Json, Router};
+        use serde_json::{json, Value};
+        let m = Arc::new(VaultMock { ttl: Mutex::new((3600, true)), ..Default::default() });
+        let tok = |h: &HeaderMap| h.get("x-vault-token").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        let app = Router::new()
+            .route(
+                "/v1/database/creds/{role}",
+                get(move |AxState(m): AxState<Arc<VaultMock>>, AxPath(role): AxPath<String>, h: HeaderMap| async move {
+                    let t = tok(&h);
+                    m.tokens.lock().unwrap().push(t.clone());
+                    if t != "root" && t != "at-approle" {
+                        return (StatusCode::FORBIDDEN, Json(json!({ "errors": ["permission denied"] })));
+                    }
+                    if role != "ro" {
+                        return (StatusCode::BAD_REQUEST, Json(json!({ "errors": [format!("unknown role: {role}")] })));
+                    }
+                    let n = {
+                        let mut i = m.issued.lock().unwrap();
+                        *i += 1;
+                        *i
+                    };
+                    let (ttl, renewable) = *m.ttl.lock().unwrap();
+                    (StatusCode::OK, Json(json!({ "lease_id": format!("database/creds/ro/L{n}"), "lease_duration": ttl, "renewable": renewable,
+                        "data": { "username": format!("v-ro-{n}"), "password": format!("pw-{n}") } })))
+                }),
+            )
+            .route(
+                "/v1/sys/leases/renew",
+                put(|AxState(m): AxState<Arc<VaultMock>>, Json(b): Json<Value>| async move {
+                    m.renewed.lock().unwrap().push(b["lease_id"].as_str().unwrap_or("").to_string());
+                    (StatusCode::OK, Json(json!({ "lease_id": b["lease_id"], "lease_duration": 3600, "renewable": true })))
+                }),
+            )
+            .route(
+                "/v1/sys/leases/revoke",
+                put(|AxState(m): AxState<Arc<VaultMock>>, Json(b): Json<Value>| async move {
+                    m.revoked.lock().unwrap().push(b["lease_id"].as_str().unwrap_or("").to_string());
+                    StatusCode::NO_CONTENT
+                }),
+            )
+            .route(
+                "/v1/auth/approle/login",
+                post(|Json(b): Json<Value>| async move {
+                    if b["role_id"] == "role-1" && b["secret_id"] == "dummy-secret-id" {
+                        (StatusCode::OK, Json(json!({ "auth": { "client_token": "at-approle", "lease_duration": 1200, "renewable": true } })))
+                    } else {
+                        (StatusCode::BAD_REQUEST, Json(json!({ "errors": ["invalid role or secret ID"] })))
+                    }
+                }),
+            )
+            .route(
+                "/v1/auth/token/revoke-self",
+                post(|AxState(m): AxState<Arc<VaultMock>>| async move {
+                    *m.tokens_revoked.lock().unwrap() += 1;
+                    StatusCode::NO_CONTENT
+                }),
+            )
+            .with_state(m.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://{addr}"), m)
+    }
+
+    fn vault_db_src(address: &str, role: &str, auth: defs::VaultAuth) -> SecretSource {
+        SecretSource::VaultDb {
+            address: address.into(),
+            mount: String::new(),
+            role: role.into(),
+            static_role: false,
+            namespace: String::new(),
+            ca_file: String::new(),
+            auth,
+            approle_mount: String::new(),
+            role_id: if auth == defs::VaultAuth::Approle { "role-1".into() } else { String::new() },
+        }
+    }
+
+    /// The lease's life against a mock of Vault: one lease for the user and
+    /// the password, shared by the sessions of a connection; renewed near
+    /// its end; replaced when it can't be; every one revoked when the
+    /// connection closes; Test revokes at once; AppRole signs in and its
+    /// token is revoked too.
+    #[tokio::test]
+    async fn vault_database_leases_follow_the_connection() {
+        let (addr, m) = vault_mock().await;
+        let dir = temp_dir("vault-db");
+        let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
+        let id = format!("vdb-{}", uuid::Uuid::new_v4());
+        let src = vault_db_src(&addr, "ro", defs::VaultAuth::Token);
+        let sources: SecretSources = [("password".to_string(), src.clone())].into();
+        defs::approve(&defs::digest(&id, "password", &src)).unwrap();
+        let root: Secrets = [(defs::token_key("password", ""), "root".to_string())].into();
+        let base = ConnectionConfig { driver: "postgres".into(), host: "h".into(), username: Some("typed-user".into()), ..Default::default() };
+        let saved = Origin::Saved { id: &id, name: "Vault DB" };
+        let connect = || {
+            let (store, sources, root, base) = (&store, &sources, &root, base.clone());
+            async move {
+                let mut cfg = base;
+                fill(store, &mut cfg, sources, root, saved).await.map(|_| (cfg.username.unwrap_or_default(), cfg.password.unwrap_or_default()))
+            }
+        };
+        // Two sessions: one lease, its user and password together.
+        assert_eq!(connect().await.unwrap(), ("v-ro-1".into(), "pw-1".into()));
+        assert_eq!(connect().await.unwrap(), ("v-ro-1".into(), "pw-1".into()));
+        assert_eq!(*m.issued.lock().unwrap(), 1);
+        assert_eq!(vault_db::held_count(&id), (1, 0));
+        // A lease about to end is renewed (and reused).
+        vault_db::release(&id).await;
+        *m.ttl.lock().unwrap() = (5, true);
+        assert_eq!(connect().await.unwrap().1, "pw-2");
+        assert_eq!(connect().await.unwrap().1, "pw-2", "renewed, not replaced");
+        assert_eq!(m.renewed.lock().unwrap().as_slice(), ["database/creds/ro/L2"]);
+        // One that can't be renewed is replaced; the old one waits for the
+        // connection to close (a session may still use it).
+        vault_db::release(&id).await;
+        *m.ttl.lock().unwrap() = (5, false);
+        assert_eq!(connect().await.unwrap().1, "pw-3");
+        assert_eq!(connect().await.unwrap().1, "pw-4");
+        assert_eq!(vault_db::held_count(&id), (1, 1));
+        // Disconnect: everything revoked.
+        vault_db::release(&id).await;
+        assert_eq!(vault_db::held_count(&id), (0, 0));
+        let mut revoked = m.revoked.lock().unwrap().clone();
+        revoked.sort();
+        assert_eq!(revoked, ["database/creds/ro/L1", "database/creds/ro/L2", "database/creds/ro/L3", "database/creds/ro/L4"]);
+        // After a disconnect, new credentials.
+        *m.ttl.lock().unwrap() = (3600, true);
+        assert_eq!(connect().await.unwrap().1, "pw-5");
+        vault_db::release(&id).await;
+        // Test: issued and revoked at once, never held.
+        let r = fetch(&src, &field_tokens(&root, "password")).await.unwrap();
+        assert_eq!((r.value.as_str(), r.username.as_deref()), ("pw-6", Some("v-ro-6")));
+        assert_eq!(m.revoked.lock().unwrap().last().map(String::as_str), Some("database/creds/ro/L6"));
+        // Errors carry Vault's reason, never a value.
+        let e = fetch(&vault_db_src(&addr, "nope", defs::VaultAuth::Token), &field_tokens(&root, "password")).await.unwrap_err();
+        assert!(e.contains("no existe el rol «nope»"), "{e}");
+        let bad: Secrets = [(String::new(), "wrong".to_string())].into();
+        assert!(fetch(&src, &bad).await.unwrap_err().contains("permiso denegado"));
+        // AppRole: signs in with the role ID and the kept secret ID; the
+        // token goes with the lease and is revoked after it.
+        let approle = vault_db_src(&addr, "ro", defs::VaultAuth::Approle);
+        let ar_sources: SecretSources = [("password".to_string(), approle.clone())].into();
+        defs::approve(&defs::digest(&id, "password", &approle)).unwrap();
+        let sid: Secrets = [(defs::token_key("password", "secret_id"), "dummy-secret-id".to_string())].into();
+        let mut cfg = base.clone();
+        fill(&store, &mut cfg, &ar_sources, &sid, saved).await.unwrap();
+        assert_eq!(cfg.username.as_deref(), Some("v-ro-7"));
+        assert_eq!(m.tokens.lock().unwrap().last().map(String::as_str), Some("at-approle"));
+        let before = *m.tokens_revoked.lock().unwrap();
+        vault_db::release(&id).await;
+        assert_eq!(*m.tokens_revoked.lock().unwrap(), before + 1, "the AppRole token too");
+        let wrong: Secrets = [(defs::token_key("password", "secret_id"), "nope".to_string())].into();
+        let e = fill(&store, &mut base.clone(), &ar_sources, &wrong, saved).await.unwrap_err().to_string();
+        assert!(e.contains("role_id o el secret_id") && !e.contains("nope"), "{e}");
+        defs::forget(&[defs::digest(&id, "password", &src), defs::digest(&id, "password", &approle)]).unwrap();
+    }
+
+    /// AppRole for a KV read: signs in, reads, revokes its token.
+    #[tokio::test]
+    async fn approle_signs_in_for_kv_too() {
+        let (addr, m) = vault_mock().await;
+        let client = reqwest::Client::new();
+        let conn = vault::Conn { address: &addr, namespace: "" };
+        let slots: Secrets = [("secret_id".to_string(), "dummy-secret-id".to_string())].into();
+        let login = vault::login(&client, &conn, &vault::Auth::of(defs::VaultAuth::Approle, "", "role-1", &slots)).await.unwrap();
+        assert_eq!((login.token.as_str(), login.owned), ("at-approle", true));
+        login.done(&client, &conn).await;
+        assert_eq!(*m.tokens_revoked.lock().unwrap(), 1);
+        let none = Secrets::new();
+        let e = vault::login(&client, &conn, &vault::Auth::of(defs::VaultAuth::Approle, "", "role-1", &none)).await.err().unwrap();
+        assert!(e.contains("AppRole"), "{e}");
+    }
+
     /// End to end against `dbine-test-postgres` (port 25010, password `pw`):
     /// the password from a command, from a KeePass file written here (KDBX 4,
     /// Argon2, a key file; the user from the entry too) and from Vault
@@ -775,7 +1034,17 @@ pub(crate) mod tests {
         };
         tries.push(("keepass", keepass, [(token_key("password"), "dummy-master".to_string())].into()));
         if let Ok(addr) = std::env::var("DBINE_TEST_VAULT") {
-            let vault = SecretSource::Vault { address: addr, path: "secret/dbine/pg".into(), key: "password".into(), namespace: String::new(), kv_version: Default::default(), ca_file: String::new() };
+            let vault = SecretSource::Vault {
+                address: addr,
+                path: "secret/dbine/pg".into(),
+                key: "password".into(),
+                namespace: String::new(),
+                kv_version: Default::default(),
+                ca_file: String::new(),
+                auth: Default::default(),
+                approle_mount: String::new(),
+                role_id: String::new(),
+            };
             tries.push(("vault", vault, [(token_key("password"), "dbine-root".to_string())].into()));
         }
         for (what, src, tokens) in tries {
@@ -790,5 +1059,121 @@ pub(crate) mod tests {
             let v = s.server_version().await.unwrap();
             eprintln!("{what}: connected, {v}");
         }
+    }
+
+    /// Vault's database secrets engine against `dbine-test-postgres`: a
+    /// real session opens with the credentials Vault made, the role exists
+    /// while the connection is open and is gone after the disconnect (the
+    /// lease is revoked); with a token and with AppRole; and a static role.
+    /// Setup (`dbine-test-vault-db`, dev mode, the `database` engine with
+    /// the roles `ro` and `static-app`, AppRole `dbine`): docs/secret-sources.md,
+    /// "For developers". Then
+    /// `DBINE_TEST_VAULT_DB=http://127.0.0.1:28201 DBINE_TEST_VAULT_APPROLE=<role_id>:<secret_id> cargo test -p dbine secret_sources::tests::live_vault_database -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_vault_database() {
+        let Ok(addr) = std::env::var("DBINE_TEST_VAULT_DB") else { return };
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let dir = temp_dir("vault-db-live");
+        let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
+        // Asked to the server itself, as its superuser, in the container.
+        let role_exists = async |name: &str| {
+            let q = format!("SELECT count(*) FROM pg_roles WHERE rolname = '{}'", name.replace('\'', "''"));
+            let out = tokio::process::Command::new("docker").args(["exec", "dbine-test-postgres", "psql", "-U", "postgres", "-tAc", &q]).output().await.unwrap();
+            String::from_utf8_lossy(&out.stdout).trim() == "1"
+        };
+        let base = ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("someone-else".into()), ..Default::default() };
+        let mut tries: Vec<(&str, SecretSource, Secrets)> = vec![("token", vault_db_src(&addr, "ro", defs::VaultAuth::Token), [(defs::token_key("password", ""), "dbine-root".to_string())].into())];
+        if let Some((role_id, secret_id)) = std::env::var("DBINE_TEST_VAULT_APPROLE").ok().and_then(|v| v.split_once(':').map(|(a, b)| (a.to_string(), b.to_string()))) {
+            let mut src = vault_db_src(&addr, "ro", defs::VaultAuth::Approle);
+            if let SecretSource::VaultDb { role_id: r, approle_mount, .. } = &mut src {
+                *r = role_id;
+                *approle_mount = "approle".into();
+            }
+            tries.push(("approle", src, [(defs::token_key("password", "secret_id"), secret_id)].into()));
+        }
+        for (what, src, tokens) in tries {
+            let id = format!("vdb-live-{what}-{}", uuid::Uuid::new_v4());
+            let sources: SecretSources = [("password".to_string(), src.clone())].into();
+            defs::approve(&defs::digest(&id, "password", &src)).unwrap();
+            let origin = Origin::Saved { id: &id, name: "live" };
+            let mut cfg = base.clone();
+            fill(&store, &mut cfg, &sources, &tokens, origin).await.unwrap_or_else(|e| panic!("{what}: {e}"));
+            let user = cfg.username.clone().unwrap();
+            assert!(user.starts_with("v-"), "{what}: a user Vault made: {user}");
+            let mut s1 = dbine_drivers::open_session(&cfg, None).await.unwrap_or_else(|e| panic!("{what}: connect: {e}"));
+            eprintln!("{what}: connected as a Vault user, {}", s1.server_version().await.unwrap());
+            // A second session of the same connection: the same user.
+            let mut cfg2 = base.clone();
+            fill(&store, &mut cfg2, &sources, &tokens, origin).await.unwrap();
+            assert_eq!(cfg2.username.as_deref(), Some(user.as_str()), "{what}: one lease for the connection");
+            let mut s2 = dbine_drivers::open_session(&cfg2, None).await.unwrap();
+            s2.server_version().await.unwrap();
+            assert!(role_exists(&user).await, "{what}: the role exists while connected");
+            drop(s1);
+            drop(s2);
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            // Disconnect: the lease is revoked and Vault drops the role.
+            vault_db::release(&id).await;
+            let mut gone = false;
+            for _ in 0..20 {
+                if !role_exists(&user).await {
+                    gone = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            assert!(gone, "{what}: the role is gone after the disconnect");
+            eprintln!("{what}: role {user} revoked after disconnect");
+            defs::forget(&[defs::digest(&id, "password", &src)]).unwrap();
+        }
+        // A static role: the same user, the password Vault rotates.
+        let mut st = vault_db_src(&addr, "static-app", defs::VaultAuth::Token);
+        if let SecretSource::VaultDb { static_role, .. } = &mut st {
+            *static_role = true;
+        }
+        let r = fetch(&st, &[(String::new(), "dbine-root".to_string())].into()).await.unwrap();
+        assert_eq!(r.username.as_deref(), Some("static_app"));
+        let mut cfg = base.clone();
+        cfg.username = r.username.clone();
+        cfg.password = Some(r.value.clone());
+        dbine_drivers::open_session(&cfg, None).await.unwrap().server_version().await.unwrap();
+        eprintln!("static role: connected as static_app");
+    }
+
+    /// CyberArk Conjur Open Source (`dbine-test-conjur`, with its database
+    /// `dbine-test-conjur-db`): the host `apps/dbine` reads `db/prod/password`
+    /// and `db/prod/username` (`pw`, `postgres`), and DBine connects to
+    /// `dbine-test-postgres` with them. Setup: docs/secret-sources.md, "For
+    /// developers". Then `DBINE_TEST_CONJUR=http://127.0.0.1:28280
+    /// DBINE_TEST_CONJUR_KEY=<the host's API key> cargo test -p dbine secret_sources::tests::live_conjur -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_conjur() {
+        let (Ok(url), Ok(key)) = (std::env::var("DBINE_TEST_CONJUR"), std::env::var("DBINE_TEST_CONJUR_KEY")) else { return };
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let dir = temp_dir("conjur-live");
+        let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
+        let src = |variable: &str| SecretSource::Conjur {
+            url: url.clone(),
+            account: "myorg".into(),
+            login: "host/apps/dbine".into(),
+            variable: variable.into(),
+            username_variable: "db/prod/username".into(),
+            json_key: String::new(),
+            ca_file: String::new(),
+        };
+        let tokens: Secrets = [(defs::token_key("password", ""), key.clone())].into();
+        let mut cfg = ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("someone-else".into()), ..Default::default() };
+        let sources: SecretSources = [("password".to_string(), src("db/prod/password"))].into();
+        fill(&store, &mut cfg, &sources, &tokens, Origin::Form { id: None, name: "" }).await.unwrap();
+        assert_eq!(cfg.username.as_deref(), Some("postgres"), "the user from the second variable");
+        let mut s = dbine_drivers::open_session(&cfg, None).await.unwrap();
+        eprintln!("conjur: connected, {}", s.server_version().await.unwrap());
+        let e = fetch(&src("db/forbidden"), &field_tokens(&tokens, "password")).await.unwrap_err();
+        assert!(e.contains("permiso denegado") || e.contains("no existe"), "{e}");
+        let wrong: Secrets = [(String::new(), "wrong-key".to_string())].into();
+        let e = fetch(&src("db/prod/password"), &wrong).await.unwrap_err();
+        assert!(e.contains("rechazó el login") && !e.contains("wrong-key"), "{e}");
     }
 }

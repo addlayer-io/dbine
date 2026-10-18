@@ -141,6 +141,15 @@ pub enum SecretSource {
         /// PEM file of the CA that signed Vault's certificate.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         ca_file: String,
+        /// How DBine signs in to Vault: a token, or AppRole.
+        #[serde(default, skip_serializing_if = "is_token_auth")]
+        auth: VaultAuth,
+        /// AppRole's mount (empty: `approle`).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        approle_mount: String,
+        /// AppRole's role ID (not secret; the secret ID is in the keychain).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        role_id: String,
     },
     /// AWS Secrets Manager (`GetSecretValue`).
     Aws {
@@ -216,6 +225,104 @@ pub enum SecretSource {
         #[serde(default, skip_serializing_if = "is_false")]
         fill_username: bool,
     },
+    /// HashiCorp Vault's database secrets engine: a user and a password
+    /// made for this connection (`<mount>/creds/<role>`), or a static
+    /// role's (`<mount>/static-creds/<role>`). Fills the user too.
+    #[serde(rename = "vault_db")]
+    VaultDb {
+        address: String,
+        /// The engine's mount (empty: `database`).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        mount: String,
+        role: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        static_role: bool,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        namespace: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        ca_file: String,
+        #[serde(default, skip_serializing_if = "is_token_auth")]
+        auth: VaultAuth,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        approle_mount: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        role_id: String,
+    },
+    /// CyberArk Conjur (Open Source, Enterprise, Conjur Cloud): a variable,
+    /// with a host's or user's API key (in the keychain).
+    Conjur {
+        /// The appliance URL (Conjur Cloud: `https://<subdomain>.secretsmgr.cyberark.cloud/api`).
+        url: String,
+        #[serde(rename = "conjur_account")]
+        account: String,
+        /// `host/<id>` or a user name.
+        login: String,
+        variable: String,
+        /// Another variable with the connection's user.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        username_variable: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        json_key: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        ca_file: String,
+    },
+    /// CyberArk's Central Credential Provider (`/AIMWebService/api/Accounts`),
+    /// usually with a client certificate.
+    Ccp {
+        url: String,
+        app_id: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        safe: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        folder: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        object: String,
+        /// The account's `UserName` (a query, with or instead of `object`).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        account_user: String,
+        /// The account's `Address`.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        account_address: String,
+        /// PEM certificate (with or without its key), or a PKCS#12 file.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        client_cert: String,
+        /// PEM private key, when it isn't in `client_cert`.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        client_key: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        ca_file: String,
+        /// The connection's user comes from the account's `UserName`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        fill_username: bool,
+    },
+    /// Delinea Secret Server (on premises or Secret Server Cloud), signed in
+    /// with OAuth2; with Delinea Platform, the token comes from the
+    /// platform's tenant.
+    Delinea {
+        /// Secret Server's URL (`https://<tenant>.secretservercloud.com`,
+        /// `https://ss.example.com/SecretServer`).
+        url: String,
+        /// `https://<tenant>.delinea.app`: sign in there with a service
+        /// user's client ID (`username`) and secret.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        platform_url: String,
+        username: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        domain: String,
+        /// The secret's ID or name.
+        secret_name: String,
+        /// The field's slug; empty: `password`.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        attribute: String,
+        /// Where the password (or the client secret) comes from.
+        #[serde(default, skip_serializing_if = "is_keychain")]
+        master: MasterSource,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        master_command: String,
+        /// The connection's user comes from the secret's `username` field.
+        #[serde(default, skip_serializing_if = "is_false")]
+        fill_username: bool,
+    },
 }
 
 pub type SecretSources = BTreeMap<String, SecretSource>;
@@ -271,6 +378,10 @@ impl SecretSource {
             Self::Gcp { .. } => "gcp",
             Self::KeePass { .. } => "keepass",
             Self::Zoho { .. } => "zoho",
+            Self::VaultDb { .. } => "vault_db",
+            Self::Conjur { .. } => "conjur",
+            Self::Ccp { .. } => "ccp",
+            Self::Delinea { .. } => "delinea",
         }
     }
 
@@ -278,9 +389,11 @@ impl SecretSource {
     /// main one). A master password asked or taken from a command isn't.
     pub fn token_slots(&self) -> &'static [&'static str] {
         match self {
+            Self::Vault { auth: VaultAuth::Approle, .. } | Self::VaultDb { auth: VaultAuth::Approle, .. } => &["secret_id"],
             Self::Vault { .. } | Self::KeePass { master: MasterSource::Keychain, .. } => &[""],
             Self::Zoho { master: MasterSource::Keychain, .. } => &["", "client_secret", "refresh_token"],
             Self::Zoho { .. } => &["client_secret", "refresh_token"],
+            Self::VaultDb { .. } | Self::Conjur { .. } | Self::Ccp { .. } | Self::Delinea { master: MasterSource::Keychain, .. } => &[""],
             _ => &[],
         }
     }
@@ -288,7 +401,7 @@ impl SecretSource {
     /// Where the master password comes from (KeePass, Zoho Vault).
     pub fn master(&self) -> Option<MasterSource> {
         match self {
-            Self::KeePass { master, .. } | Self::Zoho { master, .. } => Some(*master),
+            Self::KeePass { master, .. } | Self::Zoho { master, .. } | Self::Delinea { master, .. } => Some(*master),
             _ => None,
         }
     }
@@ -300,8 +413,9 @@ impl SecretSource {
             | Self::OnePassword { json_key, .. }
             | Self::Aws { json_key, .. }
             | Self::Azure { json_key, .. }
-            | Self::Gcp { json_key, .. } => json_key.trim(),
-            Self::Vault { .. } | Self::KeePass { .. } | Self::Zoho { .. } => "",
+            | Self::Gcp { json_key, .. }
+            | Self::Conjur { json_key, .. } => json_key.trim(),
+            Self::Vault { .. } | Self::KeePass { .. } | Self::Zoho { .. } | Self::VaultDb { .. } | Self::Ccp { .. } | Self::Delinea { .. } => "",
         }
     }
 
@@ -326,12 +440,9 @@ impl SecretSource {
                     return Err(bad("la cuenta de 1Password no es válida"));
                 }
             }
-            Self::Vault { address, path, key, namespace, ca_file, .. } => {
-                let a = address.trim();
-                let rest = a.strip_prefix("https://").or_else(|| a.strip_prefix("http://"));
-                if rest.is_none_or(|r| r.is_empty() || r.contains(['@', '?', '#']) || !no_control(r) || r.contains(char::is_whitespace)) {
-                    return Err(bad("la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)"));
-                }
+            Self::Vault { address, path, key, namespace, ca_file, auth, approle_mount, role_id, .. } => {
+                check_vault_address(address)?;
+                check_vault_auth(*auth, approle_mount, role_id)?;
                 if path.trim().trim_matches('/').is_empty() || !no_control(path) || path.contains("..") || path.contains(['?', '#']) {
                     return Err(bad("falta la ruta del secreto en Vault (secret/miapp/db)"));
                 }
@@ -413,6 +524,87 @@ impl SecretSource {
                 }
                 if *master == MasterSource::None {
                     return Err(bad("Zoho Vault necesita la frase de contraseña maestra"));
+                }
+                check_master_command(*master, master_command)?;
+            }
+            Self::VaultDb { address, mount, role, namespace, ca_file, auth, approle_mount, role_id, .. } => {
+                check_vault_address(address)?;
+                if !mount.is_empty() && !vault_path(mount) {
+                    return Err(bad("el punto de montaje del motor de bases de datos de Vault no es válido (database)"));
+                }
+                if !url_segment(role.trim()) || role.contains(':') {
+                    return Err(bad("falta el rol de Vault (o no es válido)"));
+                }
+                if !namespace.is_empty() && !no_control(namespace) {
+                    return Err(bad("el espacio de nombres de Vault no es válido"));
+                }
+                if !no_control(ca_file) {
+                    return Err(bad("la ruta del certificado de la CA no es válida"));
+                }
+                check_vault_auth(*auth, approle_mount, role_id)?;
+            }
+            Self::Conjur { url, account, login, variable, username_variable, ca_file, .. } => {
+                if service_url(url).is_none() {
+                    return Err(bad("la URL de Conjur tiene que ser https:// (http:// solo para esta computadora)"));
+                }
+                if account.trim().is_empty() || account.len() > 255 || !no_control(account) || account.contains(['/', '?', '#']) {
+                    return Err(bad("falta la cuenta de Conjur (o no es válida)"));
+                }
+                if login.trim().is_empty() || login.len() > 1024 || !no_control(login) {
+                    return Err(bad("falta el login de Conjur (host/<id> o un usuario)"));
+                }
+                for v in [variable, username_variable] {
+                    if v.len() > 1024 || !no_control(v) {
+                        return Err(bad("el ID de la variable de Conjur no es válido"));
+                    }
+                }
+                if variable.trim().is_empty() {
+                    return Err(bad("falta el ID de la variable de Conjur"));
+                }
+                if !no_control(ca_file) {
+                    return Err(bad("la ruta del certificado de la CA no es válida"));
+                }
+            }
+            Self::Ccp { url, app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file, .. } => {
+                if service_url(url).is_none() {
+                    return Err(bad("la URL del Central Credential Provider tiene que ser https:// (http:// solo para esta computadora)"));
+                }
+                if app_id.trim().is_empty() {
+                    return Err(bad("falta el AppID del Central Credential Provider"));
+                }
+                for v in [app_id, safe, folder, object, account_user, account_address, client_cert, client_key, ca_file] {
+                    if v.len() > 1024 || !no_control(v) {
+                        return Err(bad("un dato del Central Credential Provider no es válido"));
+                    }
+                }
+                if object.trim().is_empty() && account_user.trim().is_empty() && account_address.trim().is_empty() {
+                    return Err(bad("falta qué cuenta pedir al Central Credential Provider: el objeto, o el usuario o la dirección"));
+                }
+                if client_cert.trim().is_empty() && !client_key.trim().is_empty() {
+                    return Err(bad("la clave privada necesita su certificado de cliente"));
+                }
+            }
+            Self::Delinea { url, platform_url, username, domain, secret_name, attribute, master, master_command, .. } => {
+                if service_url(url).is_none() {
+                    return Err(bad("la URL de Secret Server tiene que ser https:// (http:// solo para esta computadora)"));
+                }
+                if !platform_url.trim().is_empty() && delinea_platform_host(platform_url).is_none() {
+                    return Err(bad("la URL de Delinea Platform tiene que ser https://<inquilino>.delinea.app"));
+                }
+                if username.trim().is_empty() || username.len() > 255 || !no_control(username) {
+                    return Err(bad("falta el usuario de Delinea (o el ID del cliente en Delinea Platform)"));
+                }
+                if domain.len() > 255 || !no_control(domain) {
+                    return Err(bad("el dominio de Delinea no es válido"));
+                }
+                if secret_name.trim().is_empty() || secret_name.len() > 255 || !no_control(secret_name) {
+                    return Err(bad("falta el ID o el nombre del secreto de Delinea"));
+                }
+                if attribute.len() > 255 || !no_control(attribute) {
+                    return Err(bad("el campo del secreto de Delinea no es válido"));
+                }
+                if *master == MasterSource::None {
+                    return Err(bad("Delinea necesita la contraseña (o el secreto del cliente)"));
                 }
                 check_master_command(*master, master_command)?;
             }
@@ -585,6 +777,90 @@ pub fn wipe_bytes(v: &mut Vec<u8>) {
     v.clear();
 }
 
+// ---- Vault sign-in, service URLs ------------------------------------------
+
+/// How DBine signs in to HashiCorp Vault.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VaultAuth {
+    /// A token: the one kept for the field, `VAULT_TOKEN`, `~/.vault-token`.
+    #[default]
+    Token,
+    /// AppRole: the role ID in the definition, the secret ID in the keychain.
+    Approle,
+}
+
+fn is_token_auth(a: &VaultAuth) -> bool {
+    *a == VaultAuth::Token
+}
+
+fn check_vault_address(address: &str) -> Result<()> {
+    let a = address.trim();
+    let rest = a.strip_prefix("https://").or_else(|| a.strip_prefix("http://"));
+    if rest.is_none_or(|r| r.is_empty() || r.contains(['@', '?', '#']) || r.chars().any(char::is_control) || r.contains(char::is_whitespace)) {
+        return Err(bad("la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)"));
+    }
+    Ok(())
+}
+
+/// A Vault mount: segments of letters, digits, `-`, `_`, `.`.
+fn vault_path(p: &str) -> bool {
+    let p = p.trim().trim_matches('/');
+    !p.is_empty() && p.len() <= 255 && p.split('/').all(|s| !s.is_empty() && s != "." && s != ".." && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')))
+}
+
+fn check_vault_auth(auth: VaultAuth, mount: &str, role_id: &str) -> Result<()> {
+    if auth == VaultAuth::Approle {
+        if !mount.is_empty() && !vault_path(mount) {
+            return Err(bad("el punto de montaje de AppRole no es válido (approle)"));
+        }
+        if role_id.trim().is_empty() || role_id.len() > 255 || role_id.chars().any(char::is_control) {
+            return Err(bad("falta el role_id de AppRole"));
+        }
+    }
+    Ok(())
+}
+
+/// Whether a host is this computer (`localhost`, `127.x.x.x`, `::1`).
+pub fn is_loopback_host(host: &str) -> bool {
+    let h = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    h == "localhost" || h == "::1" || h.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// A service's base URL: `https://host[:port][/path]`, or `http://` only to
+/// this computer. No credentials, query or fragment. `(https, host)`.
+pub fn service_url(url: &str) -> Option<(bool, String)> {
+    let u = url.trim();
+    let (https, rest) = match (u.strip_prefix("https://"), u.strip_prefix("http://")) {
+        (Some(r), _) => (true, r),
+        (_, Some(r)) => (false, r),
+        _ => return None,
+    };
+    if rest.is_empty() || rest.contains(['@', '?', '#', '\\']) || rest.chars().any(|c| c.is_control() || c.is_whitespace()) || rest.contains("/../") || rest.ends_with("/..") {
+        return None;
+    }
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = if let Some(v6) = authority.strip_prefix('[') {
+        format!("[{}]", v6.split(']').next()?)
+    } else {
+        authority.split(':').next().unwrap_or("").to_string()
+    };
+    if host.is_empty() || !host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '[' | ']' | ':')) {
+        return None;
+    }
+    if !https && !is_loopback_host(&host) {
+        return None;
+    }
+    Some((https, host.to_ascii_lowercase()))
+}
+
+/// `https://<tenant>.delinea.app` (no path): the tenant's host.
+pub fn delinea_platform_host(url: &str) -> Option<String> {
+    let host = url.trim().strip_prefix("https://")?.trim_end_matches('/').to_ascii_lowercase();
+    let tenant = host.strip_suffix(".delinea.app")?;
+    (!tenant.is_empty() && tenant.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')).then_some(host)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -607,6 +883,9 @@ mod tests {
                 namespace: String::new(),
                 kv_version: KvVersion::V2,
                 ca_file: String::new(),
+                auth: VaultAuth::Token,
+                approle_mount: String::new(),
+                role_id: String::new(),
             },
         );
         write(&mut cfg, &s);
@@ -668,7 +947,17 @@ mod tests {
         assert!(gcp("my-proj", "3").validate().is_ok());
         assert!(gcp("my/proj", "").validate().is_err());
         assert!(gcp("p", "../x").validate().is_err());
-        let vault = |a: &str| SecretSource::Vault { address: a.into(), path: "secret/x".into(), key: "k".into(), namespace: String::new(), kv_version: KvVersion::Auto, ca_file: String::new() };
+        let vault = |a: &str| SecretSource::Vault {
+            address: a.into(),
+            path: "secret/x".into(),
+            key: "k".into(),
+            namespace: String::new(),
+            kv_version: KvVersion::Auto,
+            ca_file: String::new(),
+            auth: VaultAuth::Token,
+            approle_mount: String::new(),
+            role_id: String::new(),
+        };
         assert!(vault("https://vault.example.com:8200").validate().is_ok());
         assert!(vault("ftp://vault").validate().is_err());
         assert!(vault("https://user:pw@vault").validate().is_err());
@@ -864,5 +1153,111 @@ mod tests {
         assert!(!snapshot.contains("hunter2-resolved"));
         assert_eq!(back.config.password, None);
         assert_eq!(read(&back.config).unwrap()["password"], cmd("printf hunter2"));
+    }
+
+    #[test]
+    fn vault_db_cyberark_and_delinea_definitions() {
+        let json = r#"{
+            "a": {"kind":"vault_db","address":"http://127.0.0.1:8200","role":"readonly"},
+            "b": {"kind":"vault_db","address":"https://vault:8200","mount":"pg/prod","role":"app","static_role":true,"auth":"approle","role_id":"r-1"},
+            "c": {"kind":"conjur","url":"https://conjur.example.com","conjur_account":"myorg","login":"host/apps/dbine","variable":"db/prod/password","username_variable":"db/prod/username"},
+            "d": {"kind":"ccp","url":"https://ccp.example.com","app_id":"DBine","safe":"DB","object":"pg-prod","client_cert":"~/c.p12","fill_username":true},
+            "e": {"kind":"delinea","url":"https://acme.secretservercloud.com","username":"svc","secret_name":"pg-prod","master":"ask"},
+            "f": {"kind":"delinea","url":"https://acme.secretservercloud.eu","platform_url":"https://acme.delinea.app","username":"client-1","secret_name":"42"},
+            "g": {"kind":"vault","address":"https://v","path":"secret/x","key":"k","auth":"approle","role_id":"r","approle_mount":"auth-approle"}
+        }"#;
+        let mut cfg = ConnectionConfig::default();
+        cfg.options.insert(OPTION.into(), json.into());
+        let s = read(&cfg).unwrap();
+        for (k, v) in &s {
+            v.validate().unwrap_or_else(|e| panic!("{k}: {e}"));
+        }
+        assert_eq!(s["a"].token_slots(), &[""]);
+        assert_eq!(s["b"].token_slots(), &["secret_id"], "AppRole: the secret ID, never a token");
+        assert_eq!(s["g"].token_slots(), &["secret_id"]);
+        assert_eq!(s["c"].token_slots(), &[""], "the API key");
+        assert_eq!(s["d"].token_slots(), &[""], "the client key's passphrase");
+        assert!(s["e"].token_slots().is_empty(), "an asked password is never kept");
+        assert_eq!(s["f"].token_slots(), &[""]);
+        assert_eq!(s["e"].master(), Some(MasterSource::Ask));
+        assert_eq!((s["a"].kind(), s["c"].kind(), s["d"].kind(), s["e"].kind()), ("vault_db", "conjur", "ccp", "delinea"));
+        // Written back as read (the confirmation's digest depends on it).
+        for v in s.values() {
+            let back: SecretSource = serde_json::from_str(&serde_json::to_string(v).unwrap()).unwrap();
+            assert_eq!(&back, v);
+        }
+        assert!(serde_json::to_string(&s["c"]).unwrap().contains("\"conjur_account\":\"myorg\""));
+    }
+
+    #[test]
+    fn a_token_vault_definition_is_written_as_before() {
+        // Definitions confirmed before AppRole existed keep their digest.
+        let v: SecretSource = serde_json::from_str(r#"{"kind":"vault","address":"https://v","path":"secret/x","key":"k"}"#).unwrap();
+        assert_eq!(serde_json::to_string(&v).unwrap(), r#"{"kind":"vault","address":"https://v","path":"secret/x","key":"k"}"#);
+    }
+
+    #[test]
+    fn service_urls_and_hosts() {
+        for ok in ["https://ccp.example.com", "https://ss.example.com/SecretServer/", "https://10.0.0.5:8443", "http://localhost:8080", "http://127.0.0.1:1", "http://[::1]:9000/api"] {
+            assert!(service_url(ok).is_some(), "{ok}");
+        }
+        for bad in ["http://ccp.example.com", "ftp://x", "https://user:pw@x", "https://x?a=1", "https://x#f", "https://", "https://a b", "https://x/../y", "http://127.0.0.1.evil.com"] {
+            assert!(service_url(bad).is_none(), "{bad}");
+        }
+        assert_eq!(delinea_platform_host("https://acme.delinea.app/").as_deref(), Some("acme.delinea.app"));
+        for bad in ["http://acme.delinea.app", "https://delinea.app", "https://acme.delinea.app.evil.com", "https://acme.delinea.app/identity", "https://a@b.delinea.app"] {
+            assert!(delinea_platform_host(bad).is_none(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn new_kinds_say_what_is_wrong() {
+        let vdb = |role: &str, mount: &str, auth: VaultAuth, role_id: &str| SecretSource::VaultDb {
+            address: "https://v".into(),
+            mount: mount.into(),
+            role: role.into(),
+            static_role: false,
+            namespace: String::new(),
+            ca_file: String::new(),
+            auth,
+            approle_mount: String::new(),
+            role_id: role_id.into(),
+        };
+        assert!(vdb("app", "", VaultAuth::Token, "").validate().is_ok());
+        assert!(vdb("", "", VaultAuth::Token, "").validate().is_err());
+        assert!(vdb("a/b", "", VaultAuth::Token, "").validate().is_err(), "a role is one segment");
+        assert!(vdb("app", "db/../sys", VaultAuth::Token, "").validate().is_err());
+        assert!(vdb("app", "", VaultAuth::Approle, "").validate().is_err(), "AppRole needs the role ID");
+        let ccp = |object: &str, user: &str| SecretSource::Ccp {
+            url: "https://ccp".into(),
+            app_id: "App".into(),
+            safe: String::new(),
+            folder: String::new(),
+            object: object.into(),
+            account_user: user.into(),
+            account_address: String::new(),
+            client_cert: String::new(),
+            client_key: String::new(),
+            ca_file: String::new(),
+            fill_username: false,
+        };
+        assert!(ccp("pg", "").validate().is_ok());
+        assert!(ccp("", "app_user").validate().is_ok());
+        assert!(ccp("", "").validate().is_err());
+        let del = |url: &str, master: MasterSource| SecretSource::Delinea {
+            url: url.into(),
+            platform_url: String::new(),
+            username: "svc".into(),
+            domain: String::new(),
+            secret_name: "pg".into(),
+            attribute: String::new(),
+            master,
+            master_command: String::new(),
+            fill_username: false,
+        };
+        assert!(del("https://ss", MasterSource::Keychain).validate().is_ok());
+        assert!(del("http://ss.example.com", MasterSource::Keychain).validate().is_err(), "HTTPS only");
+        assert!(del("https://ss", MasterSource::None).validate().is_err());
+        assert!(del("https://ss", MasterSource::Command).validate().is_err(), "the command is missing");
     }
 }

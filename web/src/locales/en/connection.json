@@ -128,7 +128,11 @@
       "azure": "Azure Key Vault",
       "gcp": "Google Secret Manager",
       "keepass": "KeePass",
-      "zoho": "Zoho Vault"
+      "zoho": "Zoho Vault",
+      "vault_db": "HashiCorp Vault (database credentials)",
+      "conjur": "CyberArk Conjur",
+      "ccp": "CyberArk Central Credential Provider",
+      "delinea": "Delinea Secret Server"
     },
     "askHelp": "Asked for when connecting and not saved.",
     "askPlaceholder": "(for testing only; asked for when connecting)",
@@ -169,7 +173,36 @@
       "client_secret": "Client secret",
       "refresh_token": "Refresh token",
       "fill_username_keepass": "Also take the user from this entry (its «UserName» field)",
-      "fill_username_zoho": "Also take the user from this secret (its «username» field)"
+      "fill_username_zoho": "Also take the user from this secret (its «username» field)",
+      "auth": "Vault login",
+      "role_id": "Role ID",
+      "approle_secret_id": "Secret ID",
+      "approle_mount": "AppRole path (optional)",
+      "mount": "Database engine (optional)",
+      "role": "Role",
+      "static_role": "Static role (a fixed user whose password Vault rotates)",
+      "url": "URL",
+      "conjur_account": "Account",
+      "login": "Login (host/<id> or a user)",
+      "variable": "Variable ID",
+      "username_variable": "Variable with the user (optional)",
+      "api_key": "API key",
+      "app_id": "AppID",
+      "safe": "Safe (optional)",
+      "folder": "Folder (optional)",
+      "object": "Object",
+      "account_user": "Account user (optional)",
+      "account_address": "Account address (optional)",
+      "client_cert": "Client certificate (optional)",
+      "client_key": "Private key (optional)",
+      "cert_passphrase": "Passphrase of the key or the PKCS#12 (optional)",
+      "fill_username_ccp": "Also take the user from this account (its «UserName»)",
+      "platform_url": "Delinea Platform URL (optional)",
+      "username": "User (or client ID)",
+      "domain": "Domain (optional)",
+      "master_delinea": "Password",
+      "master_value_delinea": "Password (or client secret)",
+      "fill_username_delinea": "Also take the user from this secret (its «username» field)"
     },
     "placeholder": {
       "command": "pass show databases/production",
@@ -188,7 +221,12 @@
       "gcp": "Uses your gcloud session («gcloud auth login») or the application default credentials.",
       "entry": "Group/Subgroup/Title, the title alone if it isn't repeated, or the entry's UUID.",
       "keepass": "The database is read on this computer, with no external programs (KDBX 3.1 and 4). The master password you type is saved in the system keychain; with «Ask when connecting» it is asked the first time you connect and stays in memory only until you close DBine.",
-      "zoho": "With your own client («Self Client») from the Zoho API console and a refresh token with the ZohoVault.secrets.READ and ZohoVault.user.READ scopes. Values are decrypted on this computer with the master passphrase; the client secret, the token and the passphrase you type are saved in the system keychain."
+      "zoho": "With your own client («Self Client») from the Zoho API console and a refresh token with the ZohoVault.secrets.READ and ZohoVault.user.READ scopes. Values are decrypted on this computer with the master passphrase; the client secret, the token and the passphrase you type are saved in the system keychain.",
+      "vault_db": "Vault creates a user and a password for this connection with the database engine (or gives those of a static role), and the connection's user is taken from there. The credentials are reused while the connection is open, renewed before they expire and revoked when you disconnect or close DBine. Without a token, VAULT_TOKEN or the one from «vault login» is used.",
+      "approle": "DBine signs in with AppRole (auth/<path>/login) and revokes that token when it finishes. The secret ID you type is saved in the system keychain.",
+      "conjur": "Uses the API key of a Conjur host or user, which is saved in the system keychain. Conjur Cloud: https://<subdomain>.secretsmgr.cyberark.cloud/api and the account «conjur». HTTPS only (HTTP only for this computer).",
+      "ccp": "Requests the account from CyberArk's Central Credential Provider (AIMWebService) with the AppID and, if the provider requires it, a client certificate: PEM (with the key in the same file or in a separate one) or PKCS#12 (.p12/.pfx). The passphrase you type is saved in the system keychain. HTTPS only.",
+      "delinea": "Signs in to Secret Server with OAuth2 (a user or an application account) and reads the secret's field by its slug. With Delinea Platform, the token is requested from the tenant (https://<tenant>.delinea.app) with the ID and secret of a service user. The secret's ID or name: if more than one has that name, use the ID. HTTPS only."
     },
     "test": "Test",
     "testOk": "OK · {{n}} characters",
@@ -223,7 +261,12 @@
       "keepass": "The connection «{{name}}» takes «{{field}}» from a KeePass database. Type its master password (it isn't saved):",
       "zoho": "The connection «{{name}}» takes «{{field}}» from Zoho Vault. Type the master passphrase (it isn't saved):",
       "wrong": "The password you typed didn't open it.",
-      "empty": "Type the master password"
+      "empty": "Type the master password",
+      "delinea": "Connection «{{name}}» takes «{{field}}» from Delinea Secret Server. Type the password (it is not saved):"
+    },
+    "vaultAuth": {
+      "token": "Token",
+      "approle": "AppRole"
     }
   }
 }

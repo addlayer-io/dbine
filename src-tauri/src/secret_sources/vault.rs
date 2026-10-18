@@ -1,11 +1,14 @@
 //! HashiCorp Vault: one key of a KV secret (v1 or v2), over Vault's HTTP
 //! API. The token: the one kept for the field (typed in the form), else
-//! `VAULT_TOKEN`, else `~/.vault-token` (what `vault login` writes). It only
-//! goes in the `X-Vault-Token` header to the address the user gave; no
-//! redirect is followed (it would carry the token elsewhere).
+//! `VAULT_TOKEN`, else `~/.vault-token` (what `vault login` writes); or one
+//! AppRole gives for the role ID and the secret ID kept for the field (used
+//! for one read and revoked). It only goes in the `X-Vault-Token` header to
+//! the address the user gave; no redirect is followed (it would carry the
+//! token elsewhere). The sign-in is shared with the database secrets engine
+//! (vault_db.rs).
 
 use super::cloud_auth::uri_encode;
-use dbine_core::secret_sources::KvVersion;
+use dbine_core::secret_sources::{wipe, KvVersion, VaultAuth};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -44,28 +47,139 @@ pub fn token(kept: Option<&str>, env: impl Fn(&str) -> Option<String>, home: Opt
     Err("no hay un token de Vault: escribilo en el formulario, definí VAULT_TOKEN o iniciá sesión con «vault login» (~/.vault-token)".into())
 }
 
-pub async fn read(req: &Request<'_>, kept_token: Option<&str>) -> Result<String, String> {
-    let token = token(kept_token, |k| std::env::var(k).ok(), home())?;
+pub async fn read(req: &Request<'_>, auth: &Auth<'_>) -> Result<String, String> {
+    let client = client(req.ca_file)?;
+    let conn = Conn { address: req.address, namespace: req.namespace };
+    let login = login(&client, &conn, auth).await?;
+    let out = read_with(&client, req, &login.token).await;
+    login.done(&client, &conn).await;
+    out
+}
+
+/// The HTTP client for a Vault: no redirects, the CA file if given.
+pub fn client(ca_file: &str) -> Result<reqwest::Client, String> {
     let mut b = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::none());
-    if !req.ca_file.trim().is_empty() {
-        let path = expand_home(req.ca_file.trim());
+    if !ca_file.trim().is_empty() {
+        let path = expand_home(ca_file.trim());
         let pem = std::fs::read(&path).map_err(|e| format!("no se pudo leer el certificado de la CA {}: {e}", path.display()))?;
         let cert = reqwest::Certificate::from_pem(&pem).map_err(|e| format!("el certificado de la CA no es válido: {e}"))?;
         b = b.add_root_certificate(cert);
     }
-    let client = b.build().map_err(|e| e.to_string())?;
-    read_with(&client, req, &token).await
+    b.build().map_err(|e| e.to_string())
+}
+
+/// Where a Vault is.
+pub struct Conn<'a> {
+    pub address: &'a str,
+    pub namespace: &'a str,
+}
+
+/// How to sign in: a token (the kept one, else the environment's), or
+/// AppRole.
+pub enum Auth<'a> {
+    Token(Option<&'a str>),
+    AppRole { mount: &'a str, role_id: &'a str, secret_id: Option<&'a str> },
+}
+
+impl<'a> Auth<'a> {
+    /// A definition's sign-in, with the field's kept slots.
+    pub fn of(kind: VaultAuth, approle_mount: &'a str, role_id: &'a str, slots: &'a dbine_core::secrets::Secrets) -> Self {
+        match kind {
+            VaultAuth::Token => Auth::Token(slots.get("").map(String::as_str)),
+            VaultAuth::Approle => Auth::AppRole { mount: approle_mount, role_id, secret_id: slots.get("secret_id").map(String::as_str) },
+        }
+    }
+}
+
+/// A token to use; wiped on drop. `owned`: AppRole made it for DBine, so
+/// it's revoked when no longer needed (and its leases with it).
+pub struct Login {
+    pub token: String,
+    pub owned: bool,
+    pub renewable: bool,
+}
+
+impl Drop for Login {
+    fn drop(&mut self) {
+        wipe(&mut self.token);
+    }
+}
+
+impl Login {
+    /// Done with a token AppRole made: revoke it (best effort).
+    pub async fn done(&self, client: &reqwest::Client, conn: &Conn<'_>) {
+        if self.owned {
+            let _ = call(client, conn, &self.token, reqwest::Method::POST, "auth/token/revoke-self", None).await;
+        }
+    }
+}
+
+pub async fn login(client: &reqwest::Client, conn: &Conn<'_>, auth: &Auth<'_>) -> Result<Login, String> {
+    match auth {
+        Auth::Token(kept) => Ok(Login { token: token(*kept, |k| std::env::var(k).ok(), home())?, owned: false, renewable: false }),
+        Auth::AppRole { mount, role_id, secret_id } => {
+            let mount = Some(mount.trim().trim_matches('/')).filter(|m| !m.is_empty()).unwrap_or("approle");
+            let mut body = serde_json::json!({ "role_id": role_id.trim() });
+            if let Some(s) = secret_id.map(str::trim).filter(|s| !s.is_empty()) {
+                body["secret_id"] = Value::String(s.to_string());
+            }
+            let api = format!("auth/{}/login", encode(&segments(mount)));
+            let (status, json) = call(client, conn, "", reqwest::Method::POST, &api, Some(&body)).await;
+            if let Value::Object(mut m) = body {
+                if let Some(Value::String(s)) = m.get_mut("secret_id") {
+                    wipe(s);
+                }
+            }
+            let (status, json) = (status?, json);
+            let auth = json.get("auth");
+            match auth.and_then(|a| a.get("client_token")).and_then(Value::as_str).filter(|t| !t.is_empty()) {
+                Some(t) if status == 200 => Ok(Login {
+                    token: t.to_string(),
+                    owned: true,
+                    renewable: auth.and_then(|a| a.get("renewable")).and_then(Value::as_bool).unwrap_or(false),
+                }),
+                _ => Err(match status {
+                    400 | 401 | 403 => "Vault rechazó el role_id o el secret_id de AppRole (¿venció el secret_id?)".into(),
+                    404 => format!("Vault no tiene AppRole en «auth/{mount}»"),
+                    _ => status_error(status, &json, &format!("auth/{mount}")),
+                }),
+            }
+        }
+    }
+}
+
+/// A call to Vault's API (`/v1/<api>`): `(status, JSON)` (`Null` if none).
+/// An empty token is sent as none (a sign-in).
+pub async fn call(client: &reqwest::Client, conn: &Conn<'_>, token: &str, method: reqwest::Method, api: &str, body: Option<&Value>) -> (Result<u16, String>, Value) {
+    let base = conn.address.trim().trim_end_matches('/');
+    let mut r = client.request(method, format!("{base}/v1/{api}")).header("X-Vault-Request", "true");
+    if !token.is_empty() {
+        r = r.header("X-Vault-Token", token);
+    }
+    if !conn.namespace.trim().is_empty() {
+        r = r.header("X-Vault-Namespace", conn.namespace.trim());
+    }
+    if let Some(b) = body {
+        r = r.json(b);
+    }
+    let resp = match r.send().await {
+        Ok(r) => r,
+        Err(e) => return (Err(format!("no se pudo conectar con Vault en {base}: {}", e.without_url())), Value::Null),
+    };
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    (Ok(status), serde_json::from_str(&body).unwrap_or(Value::Null))
 }
 
 /// The path's segments, without empty ones.
-fn segments(path: &str) -> Vec<&str> {
+pub(super) fn segments(path: &str) -> Vec<&str> {
     path.split('/').map(str::trim).filter(|s| !s.is_empty()).collect()
 }
 
-fn encode(segs: &[&str]) -> String {
+pub(super) fn encode(segs: &[&str]) -> String {
     segs.iter().map(|s| uri_encode(s)).collect::<Vec<_>>().join("/")
 }
 
@@ -81,15 +195,9 @@ pub fn api_path(path: &str, v2: bool, mount: Option<&str>) -> String {
 }
 
 async fn get(client: &reqwest::Client, req: &Request<'_>, token: &str, api: &str) -> Result<(u16, Value), String> {
-    let base = req.address.trim().trim_end_matches('/');
-    let mut r = client.get(format!("{base}/v1/{api}")).header("X-Vault-Token", token).header("X-Vault-Request", "true");
-    if !req.namespace.trim().is_empty() {
-        r = r.header("X-Vault-Namespace", req.namespace.trim());
-    }
-    let resp = r.send().await.map_err(|e| format!("no se pudo conectar con Vault en {base}: {}", e.without_url()))?;
-    let status = resp.status().as_u16();
-    let body = resp.text().await.unwrap_or_default();
-    Ok((status, serde_json::from_str(&body).unwrap_or(Value::Null)))
+    let conn = Conn { address: req.address, namespace: req.namespace };
+    let (status, json) = call(client, &conn, token, reqwest::Method::GET, api, None).await;
+    Ok((status?, json))
 }
 
 /// The mount and its KV version, if the token may ask (it usually can).
@@ -132,7 +240,7 @@ pub async fn read_with(client: &reqwest::Client, req: &Request<'_>, token: &str)
     Err(last)
 }
 
-fn status_error(status: u16, json: &Value, path: &str) -> String {
+pub(super) fn status_error(status: u16, json: &Value, path: &str) -> String {
     let errors = json.get("errors").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; ")).unwrap_or_default();
     let errors = super::exec::first_lines(&errors, 300);
     match status {
