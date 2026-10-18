@@ -12,6 +12,9 @@ import {
 import type { SecretBrowseEntry } from '../api/types';
 import SecretBrowseDialog from './SecretBrowseDialog.vue';
 import SecretMasterInputs from './SecretMasterInputs.vue';
+import ZohoConnectWizard from './ZohoConnectWizard.vue';
+import { loadSecretAccounts, secretAccounts, secretAccountsLoaded } from '../composables/secretAccounts';
+import type { SecretAccount } from '../api/types';
 
 // Where one secret field takes its value (docs/secret-sources.md): a
 // selector first, then that source's inputs in the form's own grid (same
@@ -130,9 +133,38 @@ const fillUserHint = computed(() => {
 });
 const userShown = computed(() => !userFromSource(draft.value));
 
+// ---- Zoho Vault: a saved account, or the inline sign-in ("modo manual") -----------
+// New definitions name an account (Settings › Cuentas de gestores de secretos);
+// older ones, and whoever asks for it, keep the client and token in the form.
+const zohoAccounts = computed(() => secretAccounts.value.filter((a) => a.kind === 'zoho'));
+const zohoAccountMode = computed(() => draft.value.kind === 'zoho' && !draft.value.manual);
+/** The definition names an account this computer doesn't have (an import, a restore, removed). */
+const accountMissing = computed(() => zohoAccountMode.value && secretAccountsLoaded.value && !!draft.value.zoho_account
+  && !zohoAccounts.value.some((a) => a.id === draft.value.zoho_account));
+const accountValue = computed(() => (accountMissing.value ? '' : draft.value.zoho_account));
+const CONNECT_ACCOUNT = '__connect__';
+const wizardOpen = ref(false);
+watch(() => draft.value.kind, async (k) => {
+  if (k !== 'zoho') return;
+  const list = secretAccountsLoaded.value ? secretAccounts.value : await loadSecretAccounts();
+  // A new definition and only one account: that one.
+  const zoho = list.filter((a) => a.kind === 'zoho');
+  if (!draft.value.manual && !draft.value.zoho_account && zoho.length === 1) draft.value.zoho_account = zoho[0].id;
+}, { immediate: true });
+function pickAccount(v: string) {
+  if (v === CONNECT_ACCOUNT) wizardOpen.value = true;
+  else draft.value.zoho_account = v;
+}
+function accountConnected(a: SecretAccount) {
+  draft.value.zoho_account = a.id;
+}
+
 // ---- "Examinar" ----------------------------------------------------------------
 // Disabled, with what's missing in its tooltip, until what signs in is filled.
-const browseMissing = computed(() => missingForBrowse(draft.value, props.editing));
+const browseMissing = computed(() => {
+  const m = missingForBrowse(draft.value, props.editing);
+  return accountMissing.value && !m.includes('zoho_account') ? [...m, 'zoho_account' as keyof SourceDraft] : m;
+});
 /** An input's name, for "Completá primero". */
 function inputLabel(k: keyof SourceDraft): string {
   const kind = draft.value.kind;
@@ -444,7 +476,32 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </el-form-item>
       </template>
 
+      <template v-else-if="draft.kind === 'zoho' && !draft.manual">
+        <!-- Through a saved account: the account, then the secret. -->
+        <el-form-item :label="$t('secretAccounts:picker.account')" :required="!draft.zoho_account" class="ss-wide">
+          <el-select
+            :model-value="accountValue" class="ss-account" style="width: 100%" :placeholder="$t('secretAccounts:picker.choose')" data-zoho-account
+            @update:model-value="pickAccount"
+          >
+            <el-option v-for="a in zohoAccounts" :key="a.id" :value="a.id" :label="a.label">
+              <span>{{ a.label }}</span><span v-if="a.identity && !a.label.includes(a.identity)" class="ss-opt-detail">{{ a.identity }}</span>
+            </el-option>
+            <el-option :value="CONNECT_ACCOUNT" :label="$t('secretAccounts:picker.connect')" class="ss-opt-connect">
+              <el-icon><ei-plus /></el-icon><span>{{ $t('secretAccounts:picker.connect') }}</span>
+            </el-option>
+          </el-select>
+          <div v-if="accountMissing" class="ss-missing" role="alert"><el-icon><ei-warning-filled /></el-icon>{{ $t('secretAccounts:picker.missing') }}</div>
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.secret_name')" :required="req('secret_name')" class="ss-wide">
+          <el-input v-model="draft.secret_name" class="ss-mono" placeholder="pg-main" spellcheck="false">
+            <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
+          </el-input>
+        </el-form-item>
+      </template>
+
       <template v-else-if="draft.kind === 'zoho'">
+        <!-- Manual mode: this connection's own client, token and passphrase. -->
+        <div class="ss-help ss-wide">{{ $t('secretAccounts:picker.manualNote') }}</div>
         <el-form-item :label="$t('connection:source.input.data_center')" :required="req('data_center')">
           <el-select v-model="draft.data_center" style="width: 100%" :placeholder="$t('connection:source.placeholder.data_center')">
             <el-option v-for="[id, domain] in ZOHO_DATA_CENTERS" :key="id" :value="id" :label="$t(`connection:source.dataCenter.${id.replace('.', '_')}`, { domain })" />
@@ -639,6 +696,12 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
             <el-input v-model="draft.json_key" class="ss-mono" placeholder="password" spellcheck="false" />
             <div class="ss-help">{{ $t('connection:source.help.json_key') }}</div>
           </el-form-item>
+          <!-- Zoho Vault: the inline sign-in, for whoever needs it, and back. -->
+          <div v-if="draft.kind === 'zoho'" class="ss-adv-mode ss-wide">
+            <el-button link type="primary" size="small" data-zoho-mode @click="draft.manual = !draft.manual">
+              {{ draft.manual ? $t('secretAccounts:picker.accountLink') : $t('secretAccounts:picker.manualLink') }}
+            </el-button>
+          </div>
           <div class="ss-adv-state ss-wide">
             <span v-if="fieldsState === 'loading'">{{ $t('connection:source.advanced.loading') }}</span>
             <template v-else-if="fieldsState === 'locked' || fieldsState === 'error'">
@@ -651,6 +714,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </div>
       </div>
     </template>
+    <ZohoConnectWizard v-if="wizardOpen" @connected="accountConnected" @close="wizardOpen = false" />
     <SecretBrowseDialog
       v-if="browsing" :kind="draft.kind" :source="browsing.source" :tokens="browsing.tokens" :field="field" :connection-id="connectionId" :driver="driver"
       :roles="browsing.roles" @pick="picked" @close="browsing = null"
@@ -683,6 +747,9 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
 .ss-adv-arrow.open { transform: rotate(90deg); }
 .ss-adv-sum { margin-left: 6px; font-size: 11.5px; color: var(--nm-text-dim); font-family: var(--nm-font-mono, ui-monospace, monospace); }
 .ss-adv-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; padding-top: 8px; }
+.ss-adv-mode { margin: -2px 0 8px; }
+.ss-missing { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12px; color: var(--nm-warning, #d29922); }
+.ss-opt-detail { margin-left: 8px; font-size: 11.5px; color: var(--nm-text-dim); }
 .ss-adv-state { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--nm-text-dim); margin: -4px 0 4px; }
 .ss-adv-state .bad { color: var(--nm-danger); }
 .ss-mono-select :deep(input) { font-family: var(--nm-font-mono, ui-monospace, monospace); font-size: 12px; }

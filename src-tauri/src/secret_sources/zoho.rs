@@ -166,6 +166,189 @@ pub fn oauth_error(status: u16, code: &str, desc: &str) -> String {
     }
 }
 
+/// Forget the access token of these credentials (an account removed or
+/// reconnected): the next use asks Zoho for a new one.
+pub fn forget_token_of(data_center: &str, creds: &Creds) {
+    if let Some(ep) = Endpoints::of(data_center) {
+        forget_token(&token_cache_key(&ep, creds));
+    }
+}
+
+/// Keep an access token just issued (connecting an account), so the first
+/// use doesn't spend one of Zoho's refreshes.
+fn seed_token(ep: &Endpoints, creds: &Creds, token: &str, expires_in: u64) {
+    let secs = expires_in.clamp(120, 3600);
+    TOKENS.lock().unwrap_or_else(|e| e.into_inner()).insert(token_cache_key(ep, creds), (Instant::now() + Duration::from_secs(secs - 60), token.to_string()));
+}
+
+// ---- connecting an account (the wizard) -----------------------------------------
+
+/// The scopes the code has to be generated with: the secrets (names, data,
+/// the organization key) and `GET_LOGIN` (the passphrase check, the user).
+pub const SCOPES: &str = "ZohoVault.secrets.READ,ZohoVault.user.READ";
+
+/// Accounts servers that Zoho lists (`/oauth/serverinfo`) but where DBine
+/// doesn't know Zoho Vault's host: a Self Client found there gets a clear
+/// error instead of "not recognized anywhere".
+pub const ACCOUNTS_WITHOUT_VAULT: &[(&str, &str)] = &[("inec", "accounts.zohohq.in")];
+
+/// The code expired or was already used: the user generates a new one.
+pub const CODE_EXPIRED: &str = "el código de Zoho venció o ya se usó: generá un código nuevo en la pestaña «Generate Code»";
+pub const UNKNOWN_CLIENT: &str = "Zoho no reconoce ese ID de cliente en ningún centro de datos: copiá el «Client ID» de la pestaña «Client Secret» de tu Self Client";
+pub const WRONG_CLIENT_SECRET: &str = "Zoho rechazó el secreto del cliente: copiá de nuevo el «Client Secret» de tu Self Client";
+
+/// What exchanging the code gave.
+pub struct Exchanged {
+    /// The data centre the Self Client answered from.
+    pub data_center: String,
+    pub refresh_token: String,
+    pub access_token: String,
+    pub expires_in: u64,
+}
+
+impl Drop for Exchanged {
+    fn drop(&mut self) {
+        wipe(&mut self.refresh_token);
+        wipe(&mut self.access_token);
+    }
+}
+
+/// Every accounts server the code may be tried at, in order: Zoho's data
+/// centres (with Vault), then the ones without a known Vault host. Only
+/// these, over HTTPS.
+pub fn accounts_servers() -> Vec<(String, String)> {
+    dbine_core::secret_sources::ZOHO_DATA_CENTERS
+        .iter()
+        .map(|(id, accounts, _)| (id.to_string(), format!("https://{accounts}")))
+        .chain(ACCOUNTS_WITHOUT_VAULT.iter().map(|(id, accounts)| (id.to_string(), format!("https://{accounts}"))))
+        .collect()
+}
+
+/// A client for Zoho: HTTPS only, no redirects, short timeouts.
+pub fn https_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// Exchange a code generated in the Self Client for a refresh token, at
+/// Zoho's own data centres. A Self Client exists in its owner's data
+/// centre only, so the others answer `invalid_client`: the first that
+/// doesn't is the one.
+pub async fn exchange_code(client_id: &str, client_secret: &str, code: &str) -> Result<Exchanged, String> {
+    exchange_code_with(&https_client()?, &accounts_servers(), client_id, client_secret, code).await
+}
+
+/// The same, against `servers` (`(data centre, accounts base URL)`).
+pub async fn exchange_code_with(client: &reqwest::Client, servers: &[(String, String)], client_id: &str, client_secret: &str, code: &str) -> Result<Exchanged, String> {
+    let (client_id, client_secret, code) = (client_id.trim(), client_secret.trim(), code.trim());
+    if client_id.is_empty() || client_secret.is_empty() || code.is_empty() {
+        return Err("faltan el ID del cliente, el secreto del cliente o el código de Zoho".into());
+    }
+    let form = [("grant_type", "authorization_code"), ("client_id", client_id), ("client_secret", client_secret), ("code", code)];
+    let mut expired = false;
+    let mut unreachable: Vec<String> = Vec::new();
+    for (dc, base) in servers {
+        let resp = match client.post(format!("{base}/oauth/v2/token")).form(&form).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::debug!(dc = %dc, "zoho code exchange: {}", e.without_url());
+                unreachable.push(dc.clone());
+                continue;
+            }
+        };
+        let status = resp.status().as_u16();
+        let json: Value = serde_json::from_str(&resp.text().await.unwrap_or_default()).unwrap_or(Value::Null);
+        let refresh = json.get("refresh_token").and_then(Value::as_str).filter(|t| !t.is_empty());
+        let access = json.get("access_token").and_then(Value::as_str).filter(|t| !t.is_empty());
+        if let (Some(r), Some(a)) = (refresh, access) {
+            return Ok(Exchanged {
+                data_center: dc.clone(),
+                refresh_token: r.to_string(),
+                access_token: a.to_string(),
+                expires_in: json.get("expires_in").and_then(Value::as_u64).unwrap_or(3600),
+            });
+        }
+        let error = json.get("error").and_then(Value::as_str).unwrap_or("");
+        match error {
+            // Not this data centre's client: the next one.
+            "invalid_client" => continue,
+            // The client is here (or replicated here): the code isn't.
+            "invalid_code" => expired = true,
+            "invalid_client_secret" => return Err(WRONG_CLIENT_SECRET.into()),
+            "Access Denied" | "access_denied" => {
+                let desc = json.get("error_description").and_then(Value::as_str).unwrap_or("");
+                return Err(format!("Zoho no permite pedir tokens tan seguido; probá en unos minutos ({})", super::exec::first_lines(desc, 200)));
+            }
+            "" if access.is_some() => return Err("Zoho no devolvió un token de actualización: generá un código nuevo y volvé a intentar".into()),
+            "" => unreachable.push(format!("{dc} ({status})")),
+            other => return Err(format!("Zoho rechazó el código: {}", super::exec::first_lines(other, 100))),
+        }
+    }
+    if expired {
+        return Err(CODE_EXPIRED.into());
+    }
+    if !unreachable.is_empty() {
+        return Err(format!("no se pudo consultar a Zoho en {}: revisá la conexión a internet y volvé a intentar", unreachable.join(", ")));
+    }
+    Err(UNKNOWN_CLIENT.into())
+}
+
+/// `GET_LOGIN` with a just-issued access token: the passphrase's salt,
+/// iterations and check value, and the user. Says plainly when the code
+/// lacked Vault's scopes or the user has no Zoho Vault.
+pub async fn login_details_with(client: &reqwest::Client, vault_base: &str, access_token: &str) -> Result<Value, String> {
+    let ep = Endpoints { accounts: String::new(), vault: vault_base.to_string() };
+    match get(client, &ep, access_token, "/api/json/login?OPERATION_NAME=GET_LOGIN").await {
+        Ok(json) => json.pointer("/operation/details").cloned().ok_or_else(|| "Zoho Vault no devolvió los datos de la cuenta (GET_LOGIN)".to_string()),
+        Err(Some(e)) => Err(e),
+        Err(None) => Err(format!("Zoho Vault rechazó el token: generá el código con los permisos {SCOPES}")),
+    }
+}
+
+/// The user's e-mail (else their user name) in `GET_LOGIN`'s details.
+pub fn identity_of(details: &Value) -> String {
+    let user = details.get("USER");
+    let pick = |k: &str| user.and_then(|u| u.get(k)).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && s.len() <= 320 && !s.chars().any(char::is_control));
+    pick("EMAIL").or_else(|| pick("USERNAME")).unwrap_or("").to_string()
+}
+
+/// Only what checks the passphrase, out of `GET_LOGIN`'s details.
+pub fn passphrase_check(details: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for k in ["LOGIN", "SALT", "ITERATION", "PASSPHRASE"] {
+        if let Some(v) = details.get(k) {
+            out.insert(k.to_string(), v.clone());
+        }
+    }
+    Value::Object(out)
+}
+
+/// Revoke a refresh token (a connect cancelled after the exchange). Best
+/// effort: Zoho keeps at most 20 per client and user anyway.
+pub async fn revoke_with(client: &reqwest::Client, accounts_base: &str, client_id: &str, client_secret: &str, refresh_token: &str) -> Result<(), String> {
+    let basic = base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", client_id.trim(), client_secret.trim()));
+    let resp = client
+        .post(format!("{accounts_base}/oauth/v2/revoke/token"))
+        .header("Authorization", format!("Basic {basic}"))
+        .form(&[("token", refresh_token), ("token_type", "refresh_token")])
+        .send()
+        .await
+        .map_err(|e| e.without_url().to_string())?;
+    if resp.status().is_success() { Ok(()) } else { Err(format!("Zoho respondió {}", resp.status().as_u16())) }
+}
+
+/// The access token of an account just connected, kept for its first use.
+pub fn keep_first_token(data_center: &str, creds: &Creds, ex: &Exchanged) {
+    if let Some(ep) = Endpoints::of(data_center) {
+        seed_token(&ep, creds, &ex.access_token, ex.expires_in);
+    }
+}
+
 // ---- API ---------------------------------------------------------------------
 
 /// GET a Vault API path; `Err(None)` when Zoho says the access token is no
@@ -866,6 +1049,143 @@ mod tests {
         let v = vectors();
         let json = serde_json::to_string(&l).unwrap();
         assert!(!json.contains(s(&v, "personal_secret_data")), "{json}");
+        forget_token(&token_cache_key(&ep, &c));
+    }
+
+    // ---- connecting an account ------------------------------------------------
+
+    /// Zoho's accounts servers, one per data centre, under `/{dc}`: the Self
+    /// Client lives in `eu`; the others don't know it (`invalid_client`),
+    /// as Zoho answers. `eu` also checks the secret and the code (`used`
+    /// once, `expired` never valid).
+    async fn dc_mock() -> (String, Arc<Mutex<Vec<String>>>) {
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let app = Router::new()
+            .route(
+                "/{dc}/oauth/v2/token",
+                post(|State(seen): State<Arc<Mutex<Vec<String>>>>, AxPath(dc): AxPath<String>, Form(f): Form<HashMap<String, String>>| async move {
+                    seen.lock().unwrap().push(dc.clone());
+                    let get = |k: &str| f.get(k).map(String::as_str).unwrap_or("");
+                    if dc != "eu" || get("client_id") != "1000.CLIENT" || get("grant_type") != "authorization_code" {
+                        return Json(json!({ "error": "invalid_client" }));
+                    }
+                    if get("client_secret") != "dummy-client-secret" {
+                        return Json(json!({ "error": "invalid_client_secret" }));
+                    }
+                    if get("code") != "1000.good-code" {
+                        return Json(json!({ "error": "invalid_code" }));
+                    }
+                    Json(json!({ "access_token": "at-new", "refresh_token": "1000.rt-new", "api_domain": "https://www.zohoapis.eu", "token_type": "Bearer", "expires_in": 3600 }))
+                }),
+            )
+            .with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://{addr}"), seen)
+    }
+
+    fn servers(base: &str) -> Vec<(String, String)> {
+        ["com", "eu", "in", "jp"].iter().map(|dc| (dc.to_string(), format!("{base}/{dc}"))).collect()
+    }
+
+    /// The data centre is found by trying the code: `invalid_client`
+    /// elsewhere, a token at the Self Client's own. It stops there.
+    #[tokio::test]
+    async fn the_data_centre_is_detected() {
+        let (base, seen) = dc_mock().await;
+        let client = reqwest::Client::new();
+        let ex = exchange_code_with(&client, &servers(&base), " 1000.CLIENT ", "dummy-client-secret", "1000.good-code\n").await.unwrap();
+        assert_eq!((ex.data_center.as_str(), ex.refresh_token.as_str(), ex.access_token.as_str()), ("eu", "1000.rt-new", "at-new"));
+        assert_eq!(seen.lock().unwrap().as_slice(), ["com", "eu"], "tried in order, stopped at the one");
+    }
+
+    /// Expired or used codes, a wrong secret, an unknown client: each its
+    /// own message, none with the values typed.
+    #[tokio::test]
+    async fn exchange_errors() {
+        let (base, _) = dc_mock().await;
+        let client = reqwest::Client::new();
+        let e = exchange_code_with(&client, &servers(&base), "1000.CLIENT", "dummy-client-secret", "1000.old-code").await.err().unwrap();
+        assert_eq!(e, CODE_EXPIRED);
+        assert!(e.contains("generá un código nuevo"));
+        let e = exchange_code_with(&client, &servers(&base), "1000.CLIENT", "nope-secret", "1000.good-code").await.err().unwrap();
+        assert_eq!(e, WRONG_CLIENT_SECRET);
+        let e = exchange_code_with(&client, &servers(&base), "1000.OTHER", "dummy-client-secret", "1000.good-code").await.err().unwrap();
+        assert_eq!(e, UNKNOWN_CLIENT);
+        assert!(!e.contains("1000.OTHER") && !e.contains("dummy-client-secret"));
+        assert!(exchange_code_with(&client, &servers(&base), "1000.CLIENT", "dummy-client-secret", "  ").await.is_err());
+        // A server that can't be reached is skipped, and said when nothing answered.
+        let down = vec![("com".to_string(), "http://127.0.0.1:9".to_string())];
+        let e = exchange_code_with(&client, &down, "1000.CLIENT", "s", "c").await.err().unwrap();
+        assert!(e.contains("no se pudo consultar a Zoho en com"), "{e}");
+    }
+
+    /// The code and the secret only go to Zoho's accounts servers, over
+    /// HTTPS: the data centres' table and the ones Zoho lists without a
+    /// known Vault host. The production client refuses plain HTTP and
+    /// doesn't follow redirects.
+    #[tokio::test]
+    async fn only_zohos_accounts_servers() {
+        let list = accounts_servers();
+        assert!(list.len() >= 12);
+        for (dc, url) in &list {
+            let host = url.strip_prefix("https://").unwrap_or_else(|| panic!("{dc}: {url}"));
+            assert!(host.starts_with("accounts."), "{dc}: {host}");
+            let domain = host.trim_start_matches("accounts.");
+            assert!(["zoho.", "zohocloud.ca", "zohohq.in"].iter().any(|d| domain.starts_with(d)), "{dc}: {domain}");
+            assert!(!host.contains(['/', '@', ':', '?']), "{dc}: {host}");
+        }
+        assert!(list.iter().any(|(dc, u)| dc == "inec" && u == "https://accounts.zohohq.in"), "Zoho's live list has it");
+        let (base, seen) = dc_mock().await;
+        let e = exchange_code_with(&https_client().unwrap(), &servers(&base), "1000.CLIENT", "dummy-client-secret", "1000.good-code").await.err().unwrap();
+        assert!(e.contains("no se pudo consultar"), "{e}");
+        assert!(seen.lock().unwrap().is_empty(), "nothing went over plain HTTP");
+    }
+
+    /// GET_LOGIN with the new token: the user for the label, and only what
+    /// checks the passphrase is kept.
+    #[tokio::test]
+    async fn the_user_and_the_passphrase_check() {
+        let (base, _) = mock_server().await;
+        let client = reqwest::Client::new();
+        let d = login_details_with(&client, &base, "at-1").await.unwrap();
+        let v = vectors();
+        assert_eq!(identity_of(&d), "", "the mock has no USER");
+        assert_eq!(identity_of(&json!({ "USER": { "USERNAME": "ana", "EMAIL": "ana@example.com" } })), "ana@example.com");
+        assert_eq!(identity_of(&json!({ "USER": { "USERNAME": "ana", "EMAIL": "" } })), "ana");
+        let check = passphrase_check(&d);
+        assert_eq!(master_key(&check, s(&v, "passphrase")).unwrap(), s(&v, "master"));
+        assert_eq!(master_key(&check, "wrong").unwrap_err(), WRONG_PASSPHRASE);
+        let e = login_details_with(&client, &base, "bad-token").await.unwrap_err();
+        assert!(e.contains(SCOPES), "{e}");
+    }
+
+    /// Two connections through one account: the same credentials, so one
+    /// access token serves both (Zoho allows 10 refreshes per 10 minutes);
+    /// forgetting the account's token makes the next use refresh.
+    #[tokio::test]
+    async fn one_access_token_per_account() {
+        let (base, mock) = mock_server().await;
+        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let client = reqwest::Client::new();
+        let v = vectors();
+        let account = || creds(s(&v, "passphrase"), "1000.dummy-refresh-acct");
+        forget_token(&token_cache_key(&ep, &account()));
+        let conn_a = Request { data_center: "eu", secret: "pg-main", attribute: "", username: false, user_field: "" };
+        let conn_b = Request { data_center: "eu", secret: "org-db", attribute: "", username: false, user_field: "" };
+        let before = *mock.token_requests.lock().unwrap();
+        // The mock only knows `1000.dummy-refresh`: seed as the wizard does.
+        seed_token(&ep, &account(), "at-1", 3600);
+        assert_eq!(read_with(&client, &ep, &conn_a, &account()).await.unwrap().0, "pg-secret-1");
+        assert_eq!(read_with(&client, &ep, &conn_b, &account()).await.unwrap().0, "org-secret-9");
+        assert_eq!(*mock.token_requests.lock().unwrap(), before, "the token the exchange gave serves both connections");
+        forget_token(&token_cache_key(&ep, &account()));
+        let c = creds(s(&v, "passphrase"), "1000.dummy-refresh");
+        forget_token(&token_cache_key(&ep, &c));
+        read_with(&client, &ep, &conn_a, &c).await.unwrap();
+        read_with(&client, &ep, &conn_b, &c).await.unwrap();
+        assert_eq!(*mock.token_requests.lock().unwrap(), before + 1, "one refresh for both");
         forget_token(&token_cache_key(&ep, &c));
     }
 

@@ -1,6 +1,12 @@
 // Development only: a saved connection whose secrets come from a source
 // (view=connection&source=…) and what "Examinar" lists for it.
-import type { SavedConnection, SecretBrowseListing } from '../api/types';
+import type { SavedConnection, SecretAccount, SecretBrowseListing } from '../api/types';
+
+/** Zoho Vault accounts of this computer (list_secret_accounts). */
+export const SAMPLE_ACCOUNTS: SecretAccount[] = [
+  { id: '6f1c2d4e-0000-4000-8000-000000000001', kind: 'zoho', label: 'Zoho Vault · ana@example.com', identity: 'ana@example.com', data_center: 'eu', client_id: '1000.XMDEG1KBDO9SE2IFTMDFSRPYYJ5L0U', created_at: '', updated_at: '' },
+  { id: '6f1c2d4e-0000-4000-8000-000000000002', kind: 'zoho', label: 'Zoho · equipo de datos', identity: 'datos@example.com', data_center: 'com', client_id: '1000.B', master: 'ask', created_at: '', updated_at: '' },
+];
 
 const SOURCES: Record<string, Record<string, unknown>> = {
   keepass: { kind: 'keepass', file: '~/Passwords/databases.kdbx', entry: 'Databases/Prod/pg-main', master: 'ask', fill_username: true },
@@ -10,6 +16,9 @@ const SOURCES: Record<string, Record<string, unknown>> = {
   vault: { kind: 'vault', address: 'https://vault.example.com:8200', path: 'secret/myapp/db', key: 'password' },
   command: { kind: 'command', command: 'pass show bases/produccion' },
   aws: { kind: 'aws', secret_id: 'prod/myapp/db', region: 'us-east-1', json_key: 'password' },
+  zoho: { kind: 'zoho', secret_name: 'pg-main', fill_username: true, account: '6f1c2d4e-0000-4000-8000-000000000001' },
+  'zoho-missing': { kind: 'zoho', secret_name: 'pg-main', fill_username: true, account: '6f1c2d4e-0000-4000-8000-00000000dead' },
+  'zoho-manual': { kind: 'zoho', data_center: 'eu', secret_name: 'pg-main', client_id: '1000.XMDEG1KBDO9SE2IFTMDFSRPYYJ5L0U', fill_username: true },
 };
 
 export function sourceConnection(kind: string, driver: string): SavedConnection {

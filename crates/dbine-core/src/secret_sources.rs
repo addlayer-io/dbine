@@ -218,9 +218,15 @@ pub enum SecretSource {
         user_field: String,
     },
     /// A secret of Zoho Vault: its REST API with an OAuth self client, the
-    /// values decrypted here with the master passphrase.
+    /// values decrypted here with the master passphrase. Either through a
+    /// saved account of this computer (`account`, crate::secret_accounts:
+    /// the sign-in and the passphrase are the account's), or with the
+    /// sign-in inline ("manual" mode: `data_center`, `client_id`, `master`,
+    /// the client secret and refresh token kept for the field). Inline
+    /// definitions are written exactly as before `account` existed.
     Zoho {
-        /// `com`, `eu`, `in`… ([`ZOHO_DATA_CENTERS`]).
+        /// `com`, `eu`, `in`… ([`ZOHO_DATA_CENTERS`]); empty with an account.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
         data_center: String,
         /// The secret's name, or its ID.
         secret_name: String,
@@ -228,7 +234,8 @@ pub enum SecretSource {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         attribute: String,
         /// The self client's ID (not secret; its secret and the refresh
-        /// token are in the keychain).
+        /// token are in the keychain); empty with an account.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
         client_id: String,
         #[serde(default, skip_serializing_if = "is_keychain")]
         master: MasterSource,
@@ -241,6 +248,11 @@ pub enum SecretSource {
         /// empty: the provider's own user field.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         user_field: String,
+        /// The ID of a Zoho account saved on this computer
+        /// (crate::secret_accounts); empty: the inline sign-in above. Last,
+        /// so an inline definition's JSON (and its confirmation) is as before.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        account: String,
     },
     /// HashiCorp Vault's database secrets engine: a user and a password
     /// made for this connection (`<mount>/creds/<role>`), or a static
@@ -475,6 +487,8 @@ impl SecretSource {
         match self {
             Self::Vault { auth: VaultAuth::Approle, .. } | Self::VaultDb { auth: VaultAuth::Approle, .. } => &["secret_id"],
             Self::Vault { .. } | Self::KeePass { master: MasterSource::Keychain, .. } => &[""],
+            // Through an account: the account keeps them (crate::secret_accounts).
+            Self::Zoho { account, .. } if !account.is_empty() => &[],
             Self::Zoho { master: MasterSource::Keychain, .. } => &["", "client_secret", "refresh_token"],
             Self::Zoho { .. } => &["client_secret", "refresh_token"],
             Self::VaultDb { .. } | Self::Conjur { .. } | Self::Ccp { .. } | Self::Delinea { master: MasterSource::Keychain, .. } => &[""],
@@ -488,7 +502,17 @@ impl SecretSource {
     /// Where the master password comes from (KeePass, Zoho Vault, Bitwarden).
     pub fn master(&self) -> Option<MasterSource> {
         match self {
+            // Through an account: the account's (crate::secret_accounts).
+            Self::Zoho { account, .. } if !account.is_empty() => None,
             Self::KeePass { master, .. } | Self::Zoho { master, .. } | Self::Delinea { master, .. } | Self::Bitwarden { master, .. } => Some(*master),
+            _ => None,
+        }
+    }
+
+    /// The saved account a Zoho Vault definition signs in with, if any.
+    pub fn zoho_account(&self) -> Option<&str> {
+        match self {
+            Self::Zoho { account, .. } if !account.is_empty() => Some(account),
             _ => None,
         }
     }
@@ -609,6 +633,21 @@ impl SecretSource {
                     return Err(bad("sin contraseña maestra, la base de KeePass necesita un archivo de clave"));
                 }
                 check_master_command(*master, master_command)?;
+            }
+            Self::Zoho { data_center, secret_name, attribute, client_id, master, master_command, account, .. } if !account.is_empty() => {
+                if !crate::secret_accounts::valid_account_id(account) {
+                    return Err(bad("la cuenta de Zoho Vault no es válida"));
+                }
+                // The sign-in and the passphrase are the account's.
+                if !data_center.is_empty() || !client_id.is_empty() || *master != MasterSource::Keychain || !master_command.is_empty() {
+                    return Err(bad("con una cuenta de Zoho Vault, el centro de datos, el cliente y la frase son los de la cuenta"));
+                }
+                if secret_name.trim().is_empty() || secret_name.len() > 255 || !no_control(secret_name) {
+                    return Err(bad("falta el nombre o el ID del secreto de Zoho Vault"));
+                }
+                if !no_control(attribute) {
+                    return Err(bad("el campo del secreto de Zoho Vault no es válido"));
+                }
             }
             Self::Zoho { data_center, secret_name, attribute, client_id, master, master_command, .. } => {
                 if zoho_hosts(data_center).is_none() {
@@ -1227,6 +1266,7 @@ mod tests {
             master_command: String::new(),
             fill_username: false,
             user_field: String::new(),
+            account: String::new(),
         }
     }
 
@@ -1258,6 +1298,57 @@ mod tests {
             *master = MasterSource::None;
         }
         assert!(z.validate().is_err(), "Zoho always needs the passphrase");
+    }
+
+    /// Inline Zoho definitions (from before accounts) read and write the
+    /// same JSON, so their confirmations stay valid: the digests are the
+    /// ones those definitions always had.
+    #[test]
+    fn inline_zoho_definitions_are_unchanged() {
+        let cases = [
+            (
+                r#"{"kind":"zoho","data_center":"eu","secret_name":"pg-main","client_id":"1000.ABC","master":"command","master_command":"pass show zoho","fill_username":true,"user_field":"Login"}"#,
+                "95fb292d5fa2c3e6f7ca1482562a254692dd189cd02e3d68aec3d8f26b27eeaf",
+            ),
+            (r#"{"kind":"zoho","data_center":"com","secret_name":"42","attribute":"token","client_id":"1000.X"}"#, "a4750dc9b8b0f31459bb5c685bac8e989c68452ad625f5523398fd3ff1e20695"),
+        ];
+        for (json, digest_before) in cases {
+            let src: SecretSource = serde_json::from_str(json).unwrap();
+            assert_eq!(serde_json::to_string(&src).unwrap(), json);
+            assert_eq!(digest("c-1", "password", &src), digest_before, "{json}");
+            assert_eq!(src.zoho_account(), None);
+            src.validate().unwrap();
+        }
+        let inline: SecretSource = serde_json::from_str(cases[1].0).unwrap();
+        assert_eq!(inline.token_slots(), &["", "client_secret", "refresh_token"]);
+    }
+
+    /// A definition through a saved account: the account's ID, the secret,
+    /// its fields. Nothing to keep for the field; nothing of the sign-in.
+    #[test]
+    fn account_zoho_definitions() {
+        let json = r#"{"kind":"zoho","secret_name":"pg-main","fill_username":true,"account":"6f1c2d4e-0000-4000-8000-000000000001"}"#;
+        let src: SecretSource = serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&src).unwrap(), json);
+        assert_eq!(src.zoho_account(), Some("6f1c2d4e-0000-4000-8000-000000000001"));
+        src.validate().unwrap();
+        assert!(src.token_slots().is_empty(), "the account keeps the secrets");
+        assert_eq!(src.master(), None, "the account's passphrase, not the field's");
+        // The account's ID is part of what's confirmed.
+        let other: SecretSource = serde_json::from_str(&json.replace("0001", "0002")).unwrap();
+        assert_ne!(digest("c", "password", &src), digest("c", "password", &other));
+        // Mixed with the inline sign-in, or a bad ID: not valid.
+        for bad_json in [
+            r#"{"kind":"zoho","secret_name":"s","account":"a","data_center":"eu"}"#,
+            r#"{"kind":"zoho","secret_name":"s","account":"a","client_id":"1000.X"}"#,
+            r#"{"kind":"zoho","secret_name":"s","account":"a","master":"ask"}"#,
+            r#"{"kind":"zoho","secret_name":"s","account":"../a"}"#,
+            r#"{"kind":"zoho","secret_name":"","account":"a"}"#,
+            r#"{"kind":"zoho","secret_name":"s"}"#,
+        ] {
+            let s: SecretSource = serde_json::from_str(bad_json).unwrap();
+            assert!(s.validate().is_err(), "{bad_json}");
+        }
     }
 
     #[test]

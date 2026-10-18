@@ -172,6 +172,7 @@
       "master_command": "Commande qui renvoie le mot de passe principal",
       "data_center": "Centre de données",
       "secret_name": "Nom ou ID du secret",
+      "zoho_account": "Compte",
       "client_id": "ID du client",
       "client_secret": "Secret du client",
       "refresh_token": "Jeton d'actualisation",

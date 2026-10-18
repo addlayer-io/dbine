@@ -3,6 +3,7 @@ import type { Plan, PlanNode, ResultColumn, Cell } from '../api/types';
 import type { ColumnDef, ForeignKeyDef, IndexDef } from '../api/schema-types';
 import type { Field, FieldKind } from '../api/types';
 import type { DesignerSpec, TableSchema } from '../api/schema-types';
+import { SAMPLE_ACCOUNTS } from './source-samples';
 
 function n(op: string, o: Partial<PlanNode> = {}, children: PlanNode[] = []): PlanNode {
   return {
@@ -344,6 +345,7 @@ export function installSettingsMock(state: string) {
       switch (cmd) {
         case 'plugin:event|listen': return ++cb;
         case 'sync_status': return status;
+        case 'list_secret_accounts': return SAMPLE_ACCOUNTS;
         case 'list_settings': return { 'grid.copyFormat': 'csv', 'query.maxRows': 5000 };
         case 'sync_local_backups': return state === 'active' ? [
           { path: '/x/a.json', updated_at: '2026-09-20T14:02:00Z', device: 'MacBook Pro de Martín', size: 48_120 },

@@ -35,6 +35,7 @@ import McpSettings from './McpSettings.vue';
 import MapSettings from './MapSettings.vue';
 import NotebookSettings from './notebook/NotebookSettings.vue';
 import DevicesSettings from './DevicesSettings.vue';
+import SecretAccountsSettings from './SecretAccountsSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 import { ALL_ROWS } from '../composables/queryControls';
 import { isMac } from '../composables/shortcuts';
@@ -381,6 +382,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <button :class="{ on: section === 'sync' }" @click="section = 'sync'"><el-icon><ei-upload-filled /></el-icon>{{ $t('settings:nav.sync') }}</button>
         <button :class="{ on: section === 'mcp' }" @click="section = 'mcp'"><el-icon><ei-cpu /></el-icon>{{ $t('mcp:nav') }}</button>
         <button :class="{ on: section === 'devices' }" @click="section = 'devices'"><el-icon><ei-iphone /></el-icon>{{ $t('devices:nav') }}</button>
+        <button :class="{ on: section === 'secrets' }" @click="section = 'secrets'"><el-icon><ei-key /></el-icon>{{ $t('secretAccounts:nav') }}</button>
         <button :class="{ on: section === 'lint' }" @click="section = 'lint'"><el-icon><ei-circle-check /></el-icon>{{ $t('lint:nav') }}</button>
         <button :class="{ on: section === 'snippets' }" @click="section = 'snippets'"><el-icon><ei-document-copy /></el-icon>{{ $t('snippets:nav') }}</button>
         <button :class="{ on: section === 'shortcuts' }" @click="section = 'shortcuts'">
@@ -471,6 +473,11 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <!-- The phone app (docs/mobile-companion.md) -->
       <section v-else-if="section === 'devices'" class="st-body">
         <DevicesSettings />
+      </section>
+
+      <!-- Secret-manager accounts of this computer (docs/secret-sources.md) -->
+      <section v-else-if="section === 'secrets'" class="st-body">
+        <SecretAccountsSettings />
       </section>
 
       <!-- The mail server of the scheduled tasks -->
