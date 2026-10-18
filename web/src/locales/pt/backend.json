@@ -11064,5 +11064,6 @@
   "tiene que ser uno de los valores de la lista": "precisa ser um dos valores da lista",
   "tiene que ser verdadero o falso": "precisa ser verdadeiro ou falso",
   "{0} no recibe parámetros aparte del texto desde DBine": "{0} não recebe parâmetros separados do texto a partir do DBine",
-  "{0} no tiene un valor nulo: el parámetro necesita un valor": "{0} não tem um valor nulo: o parâmetro precisa de um valor"
+  "{0} no tiene un valor nulo: el parámetro necesita un valor": "{0} não tem um valor nulo: o parâmetro precisa de um valor",
+  "el texto tiene un carácter nulo (\\0)": "o texto tem um caractere nulo (\\0)"
 }

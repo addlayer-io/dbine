@@ -11064,5 +11064,6 @@
   "tiene que ser uno de los valores de la lista": "must be one of the values in the list",
   "tiene que ser verdadero o falso": "must be true or false",
   "{0} no recibe parámetros aparte del texto desde DBine": "{0} does not take parameters apart from the text from DBine",
-  "{0} no tiene un valor nulo: el parámetro necesita un valor": "{0} has no null value: the parameter needs a value"
+  "{0} no tiene un valor nulo: el parámetro necesita un valor": "{0} has no null value: the parameter needs a value",
+  "el texto tiene un carácter nulo (\\0)": "the text has a null character (\\0)"
 }

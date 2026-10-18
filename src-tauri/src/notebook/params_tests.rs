@@ -343,3 +343,11 @@ fn a_whole_notebook_prepares_for_a_run_without_the_ui() {
 fn mentioned_lists_the_defined_ones() {
     assert_eq!(mentioned("SELECT {{mes}}, {{tope}}, '{{mes}}', {{nada}} -- {{region}}", &defs()), vec!["mes", "tope", "region"]);
 }
+
+#[test]
+fn a_text_value_with_a_nul_is_refused() {
+    let defs = vec![p("q", ParamType::Text)];
+    let err = resolve(&defs, &serde_json::from_value(json!({ "q": "a\u{0}' OR 1=1 --" })).unwrap()).unwrap_err();
+    assert!(err.to_string().contains("nulo"), "{err}");
+    assert!(resolve(&defs, &serde_json::from_value(json!({ "q": "a' OR 1=1 --" })).unwrap()).is_ok());
+}

@@ -218,6 +218,10 @@ pub fn value_of(p: &NotebookParameter, v: &Value) -> Result<ParamValue, ParamErr
             if s.chars().count() > MAX_TEXT {
                 return Err(bad("el texto es demasiado largo"));
             }
+            // A NUL ends a string in some engines and protocols.
+            if s.contains('\0') {
+                return Err(bad("el texto tiene un carácter nulo (\\0)"));
+            }
             Ok(ParamValue::Text(s))
         }
         ParamType::Number => text().and_then(|s| ParamValue::number(&s)).ok_or_else(|| bad("tiene que ser un número (por ejemplo 12 o -3.5)")),

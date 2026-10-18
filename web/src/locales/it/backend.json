@@ -11064,5 +11064,6 @@
   "tiene que ser uno de los valores de la lista": "deve essere uno dei valori dell'elenco",
   "tiene que ser verdadero o falso": "deve essere vero o falso",
   "{0} no recibe parámetros aparte del texto desde DBine": "{0} non riceve parametri separati dal testo da DBine",
-  "{0} no tiene un valor nulo: el parámetro necesita un valor": "{0} non ha un valore nullo: il parametro ha bisogno di un valore"
+  "{0} no tiene un valor nulo: el parámetro necesita un valor": "{0} non ha un valore nullo: il parametro ha bisogno di un valore",
+  "el texto tiene un carácter nulo (\\0)": "il testo contiene un carattere nullo (\\0)"
 }

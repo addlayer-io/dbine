@@ -26001,6 +26001,9 @@
  "el texto es demasiado largo": [
   "src-tauri/src/notebook/params.rs"
  ],
+ "el texto tiene un carácter nulo (\\0)": [
+  "src-tauri/src/notebook/params.rs"
+ ],
  "el tiempo activo": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
