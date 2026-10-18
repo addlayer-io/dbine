@@ -228,18 +228,27 @@ export type SecretSource =
   | {
     kind: 'delinea'; url: string; platform_url?: string; username: string; domain?: string; secret_name: string; attribute?: string;
     master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean;
+  }
+  | {
+    kind: 'bitwarden'; server?: string; item: string; attribute?: string; json_key?: string; client_id: string;
+    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean;
+  }
+  | { kind: 'bitwarden_sm'; server?: string; secret: string; json_key?: string }
+  | {
+    kind: 'ssm'; parameter: string; version?: string; region?: string; profile?: string; list_index?: string; json_key?: string;
+    fill_username?: boolean;
   };
 export type SecretSourceKind = SecretSource['kind'];
 
 /** A `secret_source_unlock` error's `unlock`: a master password to ask for
- *  (KeePass, Zoho Vault set to "ask"). */
+ *  (KeePass, Zoho Vault, Bitwarden set to "ask"). */
 export interface SecretSourceUnlock {
   connection_id: string | null;
   connection_name: string;
   field: string;
   /** The field's label (a backend message: `tb()` it). */
   field_label: string;
-  kind: 'keepass' | 'zoho' | 'delinea';
+  kind: 'keepass' | 'zoho' | 'delinea' | 'bitwarden';
   /** The one typed before didn't open it. */
   wrong: boolean;
 }

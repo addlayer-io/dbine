@@ -6,14 +6,15 @@ import type { SecretSource, SecretSourceKind } from '../api/types';
 // connection's options as JSON (`secret_sources`); a Vault token (or a KeePass
 // / Zoho Vault master password) typed in the form goes as
 // `source_token:<field>`, Zoho's client secret and refresh token as
-// `source_token:<field>#<slot>`, and the backend moves them to the keychain.
+// `source_token:<field>#<slot>` (Bitwarden's client secret too), and the
+// backend moves them to the keychain.
 // Pure functions: the form (ConnectionView, SshTunnelSection) and the tests.
 
 export const SOURCES_OPTION = 'secret_sources';
 export const TOKEN_PREFIX = 'source_token:';
 
 /** What the picker offers, in order. `ask` only for the password. */
-export const SOURCE_KINDS = ['saved', 'ask', 'command', 'onepassword', 'vault', 'aws', 'azure', 'gcp', 'keepass', 'zoho', 'vault_db', 'conjur', 'ccp', 'delinea'] as const;
+export const SOURCE_KINDS = ['saved', 'ask', 'command', 'onepassword', 'vault', 'aws', 'azure', 'gcp', 'keepass', 'zoho', 'vault_db', 'conjur', 'ccp', 'delinea', 'bitwarden', 'bitwarden_sm', 'ssm'] as const;
 export type DraftKind = (typeof SOURCE_KINDS)[number];
 
 /** How DBine signs in to HashiCorp Vault (KV and database credentials). */
@@ -28,6 +29,9 @@ export const ZOHO_DATA_CENTERS: [string, string][] = [
   ['com', 'zoho.com'], ['eu', 'zoho.eu'], ['in', 'zoho.in'], ['com.au', 'zoho.com.au'], ['jp', 'zoho.jp'], ['ca', 'zohocloud.ca'],
   ['sa', 'zoho.sa'], ['uk', 'zoho.uk'], ['ae', 'zoho.ae'], ['sg', 'zoho.sg'], ['com.cn', 'zoho.com.cn'],
 ];
+
+/** Bitwarden's clouds (dbine_core::secret_sources::BITWARDEN_CLOUDS); else a self-hosted URL. */
+export const BITWARDEN_CLOUDS = ['bitwarden.com', 'bitwarden.eu'] as const;
 
 /** The keychain key of a field's token (`slot` empty: the main one). */
 export function tokenKey(field: string, slot = ''): string {
@@ -101,6 +105,12 @@ export interface SourceDraft {
   platform_url: string;
   username: string;
   domain: string;
+  /** Bitwarden (and Secrets Manager): `bitwarden.com`, `bitwarden.eu` or a URL. */
+  server: string;
+  item: string;
+  /** AWS Parameter Store. */
+  parameter: string;
+  list_index: string;
 }
 
 export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
@@ -110,7 +120,7 @@ export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
     file: '', entry: '', attribute: '', key_file: '', master: 'keychain', master_command: '', data_center: '', secret_name: '', client_id: '',
     client_secret: '', refresh_token: '', auth: 'token', approle_mount: '', role_id: '', approle_secret_id: '', mount: '', role: '', static_role: false, url: '',
     conjur_account: '', login: '', variable: '', username_variable: '', app_id: '', safe: '', folder: '', object: '', account_user: '', account_address: '',
-    client_cert: '', client_key: '', platform_url: '', username: '', domain: '',
+    client_cert: '', client_key: '', platform_url: '', username: '', domain: '', server: '', item: '', parameter: '', list_index: '',
   };
 }
 
@@ -198,6 +208,16 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
       master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
       fill_username: field === 'password' && d.fill_username,
     }) as SecretSource;
+    case 'bitwarden': return opt({
+      kind: 'bitwarden' as const, server: t(d.server), item: t(d.item), attribute: t(d.attribute), json_key: t(d.json_key), client_id: t(d.client_id),
+      master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
+      fill_username: field === 'password' && d.fill_username,
+    }) as SecretSource;
+    case 'bitwarden_sm': return opt({ kind: 'bitwarden_sm' as const, server: t(d.server), secret: t(d.secret), json_key: t(d.json_key) });
+    case 'ssm': return opt({
+      kind: 'ssm' as const, parameter: t(d.parameter), version: t(d.version), region: t(d.region), profile: t(d.profile), list_index: t(d.list_index),
+      json_key: t(d.json_key), fill_username: field === 'password' && d.fill_username,
+    });
     default: return null;
   }
 }
@@ -222,6 +242,9 @@ export const REQUIRED: Record<SecretSourceKind, (keyof SourceDraft)[]> = {
   conjur: ['url', 'conjur_account', 'login', 'variable'],
   ccp: ['url', 'app_id'],
   delinea: ['url', 'username', 'secret_name'],
+  bitwarden: ['item', 'client_id'],
+  bitwarden_sm: ['secret'],
+  ssm: ['parameter'],
 };
 
 /** The required inputs a draft left empty (with what its master password
@@ -229,7 +252,7 @@ export const REQUIRED: Record<SecretSourceKind, (keyof SourceDraft)[]> = {
 export function missingInputs(d: SourceDraft | undefined): (keyof SourceDraft)[] {
   if (!d || !isExternal(d)) return [];
   const need = [...REQUIRED[d.kind as SecretSourceKind]];
-  if (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'delinea') {
+  if (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'delinea' || d.kind === 'bitwarden') {
     if (d.master === 'command') need.push('master_command');
     if (d.kind === 'keepass' && d.master === 'none') need.push('key_file');
   }
@@ -239,15 +262,17 @@ export function missingInputs(d: SourceDraft | undefined): (keyof SourceDraft)[]
   return need.filter((k) => String(d[k] ?? '').trim() === '');
 }
 
-/** What a draft typed for the keychain, by slot: the Vault token or the
- *  master password kept there (`''`), Zoho's client secret and refresh token. */
+/** What a draft typed for the keychain, by slot: the Vault token, the
+ *  Secrets Manager access token or the master password kept there (`''`),
+ *  Zoho's client secret and refresh token, Bitwarden's client secret. */
 export function typedTokens(d: SourceDraft): Record<string, string> {
   const out: Record<string, string> = {};
-  const keepsMaster = (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'delinea') && d.master === 'keychain';
+  const keepsMaster = (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'delinea' || d.kind === 'bitwarden') && d.master === 'keychain';
   const vault = d.kind === 'vault' || d.kind === 'vault_db';
-  // Vault's token, a master password, Conjur's API key, the CCP key's passphrase.
-  if (((vault && d.auth !== 'approle') || keepsMaster || d.kind === 'conjur' || d.kind === 'ccp') && d.token) out[''] = d.token;
+  // Vault's token, a master password, Conjur's API key, the CCP key's passphrase, Bitwarden Secrets Manager's access token.
+  if (((vault && d.auth !== 'approle') || keepsMaster || d.kind === 'conjur' || d.kind === 'ccp' || d.kind === 'bitwarden_sm') && d.token) out[''] = d.token;
   if (vault && d.auth === 'approle' && d.approle_secret_id) out.secret_id = d.approle_secret_id;
+  if (d.kind === 'bitwarden' && d.client_secret) out.client_secret = d.client_secret;
   if (d.kind === 'zoho') {
     if (d.client_secret) out.client_secret = d.client_secret;
     if (d.refresh_token) out.refresh_token = d.refresh_token;
@@ -262,7 +287,7 @@ export function sourceRows(s: SecretSource): [string, string][] {
     'command', 'reference', 'account', 'address', 'path', 'key', 'namespace', 'kv_version', 'ca_file', 'secret_id', 'region', 'profile', 'vault_url', 'name',
     'project', 'secret', 'version', 'file', 'entry', 'data_center', 'secret_name', 'client_id', 'attribute', 'key_file', 'master', 'master_command', 'json_key',
     'fill_username', 'mount', 'role', 'static_role', 'auth', 'approle_mount', 'role_id', 'url', 'platform_url', 'conjur_account', 'login', 'variable',
-    'username_variable', 'app_id', 'safe', 'folder', 'object', 'account_user', 'account_address', 'client_cert', 'client_key', 'username', 'domain',
+    'username_variable', 'app_id', 'safe', 'folder', 'object', 'account_user', 'account_address', 'client_cert', 'client_key', 'username', 'domain', 'server', 'item', 'parameter', 'list_index',
   ];
   const rec = s as unknown as Record<string, unknown>;
   return order.filter((k) => rec[k] !== undefined && rec[k] !== '' && rec[k] !== false).map((k) => [k, String(rec[k])]);

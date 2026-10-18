@@ -132,7 +132,10 @@
       "vault_db": "HashiCorp Vault (credenciales de base de datos)",
       "conjur": "CyberArk Conjur",
       "ccp": "CyberArk Central Credential Provider",
-      "delinea": "Delinea Secret Server"
+      "delinea": "Delinea Secret Server",
+      "bitwarden": "Bitwarden",
+      "bitwarden_sm": "Bitwarden Secrets Manager",
+      "ssm": "AWS Parameter Store"
     },
     "askHelp": "Se pide al conectar y no se guarda.",
     "askPlaceholder": "(solo para probar; se pide al conectar)",
@@ -202,13 +205,24 @@
       "domain": "Dominio (opcional)",
       "master_delinea": "Contraseña",
       "master_value_delinea": "Contraseña (o secreto del cliente)",
-      "fill_username_delinea": "Tomar también el usuario de este secreto (su campo «username»)"
+      "fill_username_delinea": "Tomar también el usuario de este secreto (su campo «username»)",
+      "server": "Servidor",
+      "item": "Elemento (ID o nombre)",
+      "secret_uuid": "ID del secreto",
+      "access_token": "Token de acceso",
+      "parameter": "Nombre o ARN del parámetro",
+      "list_index": "Elemento de la lista (opcional)",
+      "master_bitwarden": "Contraseña maestra",
+      "master_value_bitwarden": "Contraseña maestra",
+      "fill_username_bitwarden": "Tomar también el usuario de este elemento (su nombre de usuario)"
     },
     "placeholder": {
       "command": "pass show bases/produccion",
       "token": "VAULT_TOKEN o ~/.vault-token",
       "latest": "la más reciente",
-      "data_center": "El de tu cuenta de Zoho"
+      "data_center": "El de tu cuenta de Zoho",
+      "server": "bitwarden.com, bitwarden.eu o https://bitwarden.ejemplo.com",
+      "ssmVersion": "la más reciente (o un número, o una etiqueta)"
     },
     "kvAuto": "Detectar",
     "help": {
@@ -226,7 +240,11 @@
       "approle": "DBine inicia sesión con AppRole (auth/<ruta>/login) y revoca ese token cuando termina. El secret ID que escribas se guarda en el llavero del sistema.",
       "conjur": "Con la clave de API de un host o un usuario de Conjur, que se guarda en el llavero del sistema. Conjur Cloud: https://<subdominio>.secretsmgr.cyberark.cloud/api y la cuenta «conjur». Solo HTTPS (HTTP solo para esta computadora).",
       "ccp": "Pide la cuenta al Central Credential Provider de CyberArk (AIMWebService) con el AppID y, si el proveedor lo exige, un certificado de cliente: PEM (con la clave en el mismo archivo o aparte) o PKCS#12 (.p12/.pfx). La frase de contraseña que escribas se guarda en el llavero del sistema. Solo HTTPS.",
-      "delinea": "Inicia sesión con OAuth2 en Secret Server (un usuario o una cuenta de aplicación) y lee el campo del secreto por su slug. Con Delinea Platform, el token se pide al inquilino (https://<inquilino>.delinea.app) con el ID y el secreto de un usuario de servicio. El ID o el nombre del secreto: si hay más de uno con ese nombre, usá el ID. Solo HTTPS."
+      "delinea": "Inicia sesión con OAuth2 en Secret Server (un usuario o una cuenta de aplicación) y lee el campo del secreto por su slug. Con Delinea Platform, el token se pide al inquilino (https://<inquilino>.delinea.app) con el ID y el secreto de un usuario de servicio. El ID o el nombre del secreto: si hay más de uno con ese nombre, usá el ID. Solo HTTPS.",
+      "server": "bitwarden.com, bitwarden.eu o la URL de tu servidor propio (https://; http:// solo en esta computadora).",
+      "bitwarden": "Con una clave de API personal (Configuración de la cuenta › Seguridad › Claves: client_id y client_secret). La bóveda se descifra en esta computadora con la contraseña maestra, sin programas externos. Campo: password, username, notes o el nombre de un campo personalizado; si el valor es JSON (por ejemplo, las notas), indicá su clave. El client_secret y la contraseña que escribas se guardan en el llavero del sistema.",
+      "bitwarden_sm": "Con el token de acceso de una cuenta de máquina; el secreto se descifra en esta computadora. Sin token se usa BWS_ACCESS_TOKEN. El token que escribas se guarda en el llavero del sistema.",
+      "ssm": "Con las credenciales de AWS de esta computadora, como AWS Secrets Manager. SecureString se descifra (hace falta kms:Decrypt); de una StringList se usa el elemento indicado (1 es el primero)."
     },
     "test": "Probar",
     "testOk": "OK · {{n}} caracteres",
@@ -266,7 +284,12 @@
     },
     "vaultAuth": {
       "token": "Token",
-      "approle": "AppRole"
+      "approle": "AppRole",
+      "bitwarden": "La conexión «{{name}}» toma «{{field}}» de Bitwarden. Escribí la contraseña maestra (no se guarda):"
+    },
+    "bitwardenCloud": {
+      "com": "Estados Unidos ({{domain}})",
+      "eu": "Europa ({{domain}})"
     }
   }
 }

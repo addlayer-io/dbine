@@ -20,6 +20,9 @@ has an **Origin** selector in the connection form:
 | **CyberArk Conjur** | A variable, read with a host's or user's API key. |
 | **CyberArk Central Credential Provider** | An account's password (and user), usually with a client certificate. |
 | **Delinea Secret Server** | A field of a secret, on premises or Secret Server Cloud (also through Delinea Platform). |
+| **Bitwarden** | A field of an item of your vault (personal or an organization's), decrypted by DBine with your master password. |
+| **Bitwarden Secrets Manager** | A secret, with a machine account's access token. |
+| **AWS Parameter Store** | A parameter of AWS Systems Manager Parameter Store (SecureString, String or StringList). |
 
 DBine resolves the value right before each connection opens, before the SSH
 tunnel and the engine's driver get the settings, so it works the same way on
@@ -39,8 +42,9 @@ Secrets are often a JSON object (`{"username": "app", "password": "…"}`).
 and booleans as written). If the key isn't there, the error lists the keys
 the secret has (never their values). With AWS Secrets Manager, **Take the
 user from this secret too** also fills the connection's user from the
-secret's `username` key; KeePass and Zoho Vault have the same option (the
-entry's `UserName`, the secret's `username`).
+secret's `username` key; KeePass, Zoho Vault, Bitwarden and AWS Parameter
+Store have the same option (the entry's `UserName`, the secret's `username`,
+the item's username, the value's `username` key).
 
 ## Command
 
@@ -86,6 +90,9 @@ DBine talks to Vault's HTTP API itself (no `vault` CLI needed). The token
 only goes in the `X-Vault-Token` header to the address in the form, and no
 redirect is followed. Errors: permission denied (the token's policy, or it
 expired), secret not found, key not in the secret, Vault sealed.
+
+OpenBao speaks the same KV API: use this source with its address (and its
+token, or `VAULT_TOKEN`).
 
 ## AWS Secrets Manager
 
@@ -290,6 +297,79 @@ again), permission denied, secret not found, field not found or a file.
 This integration follows Delinea's REST API documentation; it was tested
 against a mock of the API, not against a live Secret Server.
 
+## Bitwarden
+
+| Field | |
+|---|---|
+| Server | `bitwarden.com` (US cloud), `bitwarden.eu` (EU cloud), or your self-hosted server's URL (`https://bitwarden.example.com`; its `/identity` and `/api` are used). Plain `http://` only for this computer (`localhost`, `127.0.0.1`). |
+| Item | The item's ID, or its exact name (else ignoring case). Items in the trash don't count. |
+| Field | Optional: `password` by default; `username`, `notes`, `totp`, or the name of a custom field (text, hidden, boolean, or linked to the username or password). |
+| JSON key | Optional: when the field holds JSON (often the notes), the key to use. |
+| client_id, client_secret | Your **personal API key** (web vault: *Account settings › Security › Keys › View API key*). The `client_id` (`user.…`) is part of the definition; the `client_secret` is kept in the system keychain. |
+| Master password | **Saved in the keychain**, **Ask when connecting** or **From a command**, as for KeePass. |
+
+Bitwarden encrypts every value on the client: its API only returns
+ciphertext. DBine does what Bitwarden's own clients do, with no `bw` program
+installed (the `bw` CLI needs an interactive unlock and a session per run,
+which a connection can't do):
+
+1. Logs in with the API key (`client_credentials`) and reads the vault
+   (`/sync`). The access token is reused while it's valid.
+2. Derives the master key from the master password with the account's
+   settings (PBKDF2-SHA256, or Argon2id) and opens the user key with it
+   (AES-256-CBC + HMAC-SHA256: the MAC is checked first, so a wrong master
+   password says so instead of returning garbage).
+3. Finds the item (by ID, or by name: more than one with the same name is an
+   error listing their IDs) and decrypts the field. An organization's item
+   is encrypted with the organization's key, which DBine opens with your RSA
+   private key (RSA-OAEP), itself under your user key; an item with its own
+   key is handled too.
+
+Tokens only go to the server in the form, over HTTPS, and no redirect is
+followed. The access token, the user key and the vault stay in memory.
+Errors: API key rejected, too many logins, wrong master password, item not
+found (with similar names), more than one item with that name, field not
+found (with the item's field names, never values).
+
+Not supported (the error says so): accounts without a master password
+(single sign-on with trusted devices, Key Connector) and accounts on the new
+v2 encryption format. Tested live against a Bitwarden-compatible server with
+items created by the official Bitwarden CLI; not against bitwarden.com
+itself.
+
+## Bitwarden Secrets Manager
+
+| Field | |
+|---|---|
+| Server | As for Bitwarden: `bitwarden.com`, `bitwarden.eu` or your self-hosted URL. |
+| Secret ID | The secret's ID (a UUID, as the Secrets Manager web app shows it). |
+| Access token | A **machine account**'s access token. Kept in the system keychain; empty: `BWS_ACCESS_TOKEN`. |
+| JSON key | Optional, as for the other sources. |
+
+The access token carries the key that opens what Bitwarden sends back with
+the login (the organization's key), which opens the secret: DBine does it
+itself, as Bitwarden's SDK does, without the `bws` program. Errors: token
+malformed or rejected (revoked, or from another server), secret not found
+(or the machine account has no access to its project).
+
+Tested against a mock of the API with values the official Bitwarden SDK
+decrypted back; not against bitwarden.com itself.
+
+## AWS Parameter Store
+
+Parameter name (`/prod/myapp/db/password`) or ARN, version (optional: a
+number or a label; empty: the latest), list element (optional, for a
+`StringList`: 1 is the first), region and profile (optional, as for AWS
+Secrets Manager). DBine signs `GetParameter` with `WithDecryption` itself
+(SigV4), with the same credential chain as AWS Secrets Manager. SecureString
+values come decrypted (the credentials need `kms:Decrypt` on the key); a
+`StringList` without an element chosen is an error that says how many it
+has. The request goes to `ssm.<region>.amazonaws.com`, or to the endpoint in
+`AWS_ENDPOINT_URL_SSM` / `AWS_ENDPOINT_URL` when set (the AWS tools' standard
+variables, e.g. for LocalStack). Errors: parameter or version not found,
+access denied (`ssm:GetParameter`, `kms:Decrypt`), credentials rejected or
+expired.
+
 ## Connections that come from elsewhere
 
 A source runs a program or sends your credentials to a service, so a
@@ -299,7 +379,7 @@ or restored from a cloud backup. The first time such a connection needs it
 (connecting, **Test connection**, the field's **Test**), DBine shows the connection,
 the field and the exact definition (the whole command, the reference, the
 Vault address and path, the KeePass file and entry, the Zoho data centre and
-client…) and runs it only if you confirm.
+client, the Bitwarden server…) and runs it only if you confirm.
 
 - The confirmation is kept on this computer only, next to the state
   (`secret-source-approvals.json`), never in the cloud backup or an export.
@@ -332,9 +412,10 @@ and travels with them (backup, export, import). Its value never does.
 The Flathub build runs commands inside its sandbox, which doesn't have the
 system's programs (`op`, `pass`, `aws`, `az`, `gcloud`): the 1Password, AWS
 CLI, Azure and Google steps answer that they aren't available in the
-sandbox. Vault, Zoho Vault, CyberArk and Delinea work (plain HTTPS), AWS Secrets Manager works
-with keys from the environment or `~/.aws/credentials`, and KeePass reads
-files the sandbox can see (your home folder).
+sandbox. Vault, Zoho Vault, CyberArk, Delinea, Bitwarden and Bitwarden
+Secrets Manager work (plain HTTPS), AWS Secrets Manager and Parameter Store
+work with keys from the environment or `~/.aws/credentials`, and KeePass
+reads files the sandbox can see (your home folder).
 
 ## For developers
 
@@ -343,22 +424,33 @@ files the sandbox can see (your home folder).
   validation, the confirmation digests, JSON keys, Zoho's data centres). A
   Vault token or a master password typed in the form travels as the option
   `source_token:<field>`, Zoho's client secret and refresh token as
-  `source_token:<field>#client_secret` / `#refresh_token`, and
+  `source_token:<field>#client_secret` / `#refresh_token` (Bitwarden's
+  client secret as `#client_secret`; a Secrets Manager access token is the
+  main slot), and
   `save_connection` moves to the keychain the slots the definition keeps
   (`SecretSource::token_slots`: none for a master password that's asked or
   comes from a command).
 - Resolution: `src-tauri/src/secret_sources/` (`fill`, called by
   `AppState::connect_config` before the tunnel and the driver; the providers;
   the command runner; `keepass.rs` with the `keepass` crate, `zoho.rs` with
-  Zoho's AES-CTR, PBKDF2 and RSA). The cloud credential chains and SigV4 come
+  Zoho's AES-CTR, PBKDF2 and RSA, `bitwarden.rs` with Bitwarden's
+  EncStrings, PBKDF2/Argon2id, HKDF and RSA-OAEP, `ssm.rs` with SigV4). The cloud credential chains and SigV4 come
   from `crates/drivers/postgres/src/cloud_auth.rs`, included with `#[path]`.
 - Tests: KDBX 4 databases are written by the tests (Argon2d/Argon2id, AES,
   ChaCha20, Twofish, key files); `src-tauri/src/secret_sources/testdata/` has
   KDBX 3.1 files from other writers and the Zoho vectors
   (`zoho-vectors.json`, made with Zoho's web crypto, Node and OpenSSL as
-  `zoho-vectors.mjs` says). `secret_sources::tests::live_postgres` connects
-  to `dbine-test-postgres` with a password from a command, a KeePass file and
-  (if running) Vault.
+  `zoho-vectors.mjs` says), the Bitwarden vectors (`bitwarden-vectors.json`:
+  Secrets Manager values the official SDK decrypted back, KDF vectors) and a
+  recorded vault (`bitwarden-recorded.json`: items the official CLI created
+  on vaultwarden; `bitwarden-setup.mjs` says how).
+  `secret_sources::tests::live_postgres` connects to `dbine-test-postgres`
+  with a password from a command, a KeePass file and (if running) Vault;
+  `secret_sources::bitwarden::tests::live_vaultwarden` (container
+  `dbine-test-vaultwarden`) and `secret_sources::ssm::tests::live_localstack`
+  (container `dbine-test-localstack`, `localstack/localstack:4.9` with
+  `SERVICES=secretsmanager,ssm,kms`; parameters made with `awslocal ssm
+  put-parameter`) do the same with Bitwarden and Parameter Store.
 - Vault database credentials: the lease store is `vault_db.rs` (held by
   connection, renewer task, `release` from `AppState::close_connection_sessions`,
   `release_all` from `exit_cleanup`). `secret_sources::tests::live_vault_database`

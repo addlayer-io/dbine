@@ -132,7 +132,10 @@
       "vault_db": "HashiCorp Vault (credenciais de banco de dados)",
       "conjur": "CyberArk Conjur",
       "ccp": "CyberArk Central Credential Provider",
-      "delinea": "Delinea Secret Server"
+      "delinea": "Delinea Secret Server",
+      "bitwarden": "Bitwarden",
+      "bitwarden_sm": "Bitwarden Secrets Manager",
+      "ssm": "AWS Parameter Store"
     },
     "askHelp": "É pedida ao conectar e não é salva.",
     "askPlaceholder": "(somente para testar; é pedida ao conectar)",
@@ -202,13 +205,24 @@
       "domain": "Domínio (opcional)",
       "master_delinea": "Senha",
       "master_value_delinea": "Senha (ou segredo do cliente)",
-      "fill_username_delinea": "Pegar também o usuário deste segredo (seu campo «username»)"
+      "fill_username_delinea": "Pegar também o usuário deste segredo (seu campo «username»)",
+      "server": "Servidor",
+      "item": "Item (ID ou nome)",
+      "secret_uuid": "ID do segredo",
+      "access_token": "Token de acesso",
+      "parameter": "Nome ou ARN do parâmetro",
+      "list_index": "Item da lista (opcional)",
+      "master_bitwarden": "Senha mestra",
+      "master_value_bitwarden": "Senha mestra",
+      "fill_username_bitwarden": "Usar também o usuário deste item (seu nome de usuário)"
     },
     "placeholder": {
       "command": "pass show bancos/producao",
       "token": "VAULT_TOKEN ou ~/.vault-token",
       "latest": "a mais recente",
-      "data_center": "O da sua conta do Zoho"
+      "data_center": "O da sua conta do Zoho",
+      "server": "bitwarden.com, bitwarden.eu ou https://bitwarden.exemplo.com",
+      "ssmVersion": "a mais recente (ou um número, ou um rótulo)"
     },
     "kvAuto": "Detectar",
     "help": {
@@ -226,7 +240,11 @@
       "approle": "O DBine faz login com AppRole (auth/<caminho>/login) e revoga esse token ao terminar. O secret ID que você digitar é guardado no chaveiro do sistema.",
       "conjur": "Usa a chave de API de um host ou usuário do Conjur, que é guardada no chaveiro do sistema. Conjur Cloud: https://<subdomínio>.secretsmgr.cyberark.cloud/api e a conta «conjur». Somente HTTPS (HTTP somente para este computador).",
       "ccp": "Pede a conta ao Central Credential Provider da CyberArk (AIMWebService) com o AppID e, se o provedor exigir, um certificado de cliente: PEM (com a chave no mesmo arquivo ou em outro) ou PKCS#12 (.p12/.pfx). A frase secreta que você digitar é guardada no chaveiro do sistema. Somente HTTPS.",
-      "delinea": "Faz login com OAuth2 no Secret Server (um usuário ou uma conta de aplicativo) e lê o campo do segredo pelo slug. Com o Delinea Platform, o token é pedido ao tenant (https://<tenant>.delinea.app) com o ID e o segredo de um usuário de serviço. O ID ou o nome do segredo: se houver mais de um com esse nome, use o ID. Somente HTTPS."
+      "delinea": "Faz login com OAuth2 no Secret Server (um usuário ou uma conta de aplicativo) e lê o campo do segredo pelo slug. Com o Delinea Platform, o token é pedido ao tenant (https://<tenant>.delinea.app) com o ID e o segredo de um usuário de serviço. O ID ou o nome do segredo: se houver mais de um com esse nome, use o ID. Somente HTTPS.",
+      "server": "bitwarden.com, bitwarden.eu ou a URL do seu servidor próprio (https://; http:// somente neste computador).",
+      "bitwarden": "Com uma chave de API pessoal (Configurações da conta › Segurança › Chaves: client_id e client_secret). O cofre é descriptografado neste computador com a senha mestra, sem programas externos. Campo: password, username, notes ou o nome de um campo personalizado; se o valor for JSON (por exemplo, as notas), informe a chave dele. O client_secret e a senha digitados são salvos no chaveiro do sistema.",
+      "bitwarden_sm": "Com o token de acesso de uma conta de máquina; o segredo é descriptografado neste computador. Sem token, usa-se BWS_ACCESS_TOKEN. O token digitado é salvo no chaveiro do sistema.",
+      "ssm": "Com as credenciais da AWS deste computador, como o AWS Secrets Manager. SecureString é descriptografado (é necessário kms:Decrypt); de uma StringList usa-se o item indicado (1 é o primeiro)."
     },
     "test": "Testar",
     "testOk": "OK · {{n}} caracteres",
@@ -266,7 +284,12 @@
     },
     "vaultAuth": {
       "token": "Token",
-      "approle": "AppRole"
+      "approle": "AppRole",
+      "bitwarden": "A conexão «{{name}}» obtém «{{field}}» do Bitwarden. Digite a senha mestra (ela não é salva):"
+    },
+    "bitwardenCloud": {
+      "com": "Estados Unidos ({{domain}})",
+      "eu": "Europa ({{domain}})"
     }
   }
 }

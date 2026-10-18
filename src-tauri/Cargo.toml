@@ -87,6 +87,11 @@ rsa = { version = "=0.10.0-rc.18", default-features = false, features = ["std", 
 # file, or a PEM key encrypted with a passphrase (PKCS#8).
 p12-keystore = "0.4"
 pkcs8 = { version = "0.11", features = ["encryption", "pem", "std"] }
+# Bitwarden's vault (secret_sources/bitwarden.rs): its Argon2id KDF and the
+# organization keys' RSA-OAEP-SHA1. The versions already in the tree
+# (dbine-sync's argon2, rsa's sha1).
+argon2 = "0.5"
+sha1 = { version = "0.11", default-features = false, features = ["oid"] }
 
 
 # Release builds (`plugins`) don't compile the downloadable drivers, but

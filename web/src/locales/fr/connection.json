@@ -132,7 +132,10 @@
       "vault_db": "HashiCorp Vault (identifiants de base de données)",
       "conjur": "CyberArk Conjur",
       "ccp": "CyberArk Central Credential Provider",
-      "delinea": "Delinea Secret Server"
+      "delinea": "Delinea Secret Server",
+      "bitwarden": "Bitwarden",
+      "bitwarden_sm": "Bitwarden Secrets Manager",
+      "ssm": "AWS Parameter Store"
     },
     "askHelp": "Demandé à la connexion et non enregistré.",
     "askPlaceholder": "(pour tester seulement ; demandé à la connexion)",
@@ -202,13 +205,24 @@
       "domain": "Domaine (facultatif)",
       "master_delinea": "Mot de passe",
       "master_value_delinea": "Mot de passe (ou secret du client)",
-      "fill_username_delinea": "Prendre aussi l'utilisateur de ce secret (son champ « username »)"
+      "fill_username_delinea": "Prendre aussi l'utilisateur de ce secret (son champ « username »)",
+      "server": "Serveur",
+      "item": "Élément (ID ou nom)",
+      "secret_uuid": "ID du secret",
+      "access_token": "Jeton d'accès",
+      "parameter": "Nom ou ARN du paramètre",
+      "list_index": "Élément de la liste (facultatif)",
+      "master_bitwarden": "Mot de passe principal",
+      "master_value_bitwarden": "Mot de passe principal",
+      "fill_username_bitwarden": "Prendre aussi l'utilisateur de cet élément (son nom d'utilisateur)"
     },
     "placeholder": {
       "command": "pass show bases/production",
       "token": "VAULT_TOKEN ou ~/.vault-token",
       "latest": "la plus récente",
-      "data_center": "Celui de votre compte Zoho"
+      "data_center": "Celui de votre compte Zoho",
+      "server": "bitwarden.com, bitwarden.eu ou https://bitwarden.exemple.com",
+      "ssmVersion": "la plus récente (ou un numéro, ou une étiquette)"
     },
     "kvAuto": "Détecter",
     "help": {
@@ -226,7 +240,11 @@
       "approle": "DBine se connecte avec AppRole (auth/<chemin>/login) et révoque ce jeton à la fin. Le secret ID saisi est enregistré dans le trousseau du système.",
       "conjur": "Utilise la clé d'API d'un hôte ou d'un utilisateur de Conjur, enregistrée dans le trousseau du système. Conjur Cloud : https://<sous-domaine>.secretsmgr.cyberark.cloud/api et le compte « conjur ». HTTPS uniquement (HTTP uniquement pour cet ordinateur).",
       "ccp": "Demande le compte au Central Credential Provider de CyberArk (AIMWebService) avec l'AppID et, si le fournisseur l'exige, un certificat client : PEM (avec la clé dans le même fichier ou à part) ou PKCS#12 (.p12/.pfx). La phrase secrète saisie est enregistrée dans le trousseau du système. HTTPS uniquement.",
-      "delinea": "Se connecte avec OAuth2 à Secret Server (un utilisateur ou un compte d'application) et lit le champ du secret par son slug. Avec Delinea Platform, le jeton est demandé au tenant (https://<tenant>.delinea.app) avec l'ID et le secret d'un utilisateur de service. L'ID ou le nom du secret : s'il y en a plusieurs portant ce nom, utilisez l'ID. HTTPS uniquement."
+      "delinea": "Se connecte avec OAuth2 à Secret Server (un utilisateur ou un compte d'application) et lit le champ du secret par son slug. Avec Delinea Platform, le jeton est demandé au tenant (https://<tenant>.delinea.app) avec l'ID et le secret d'un utilisateur de service. L'ID ou le nom du secret : s'il y en a plusieurs portant ce nom, utilisez l'ID. HTTPS uniquement.",
+      "server": "bitwarden.com, bitwarden.eu ou l'URL de votre propre serveur (https:// ; http:// seulement sur cet ordinateur).",
+      "bitwarden": "Avec une clé d'API personnelle (Paramètres du compte › Sécurité › Clés : client_id et client_secret). Le coffre est déchiffré sur cet ordinateur avec le mot de passe principal, sans programme externe. Champ : password, username, notes ou le nom d'un champ personnalisé ; si la valeur est du JSON (par exemple, les notes), indiquez sa clé. Le client_secret et le mot de passe saisis sont enregistrés dans le trousseau du système.",
+      "bitwarden_sm": "Avec le jeton d'accès d'un compte machine ; le secret est déchiffré sur cet ordinateur. Sans jeton, on utilise BWS_ACCESS_TOKEN. Le jeton saisi est enregistré dans le trousseau du système.",
+      "ssm": "Avec les identifiants AWS de cet ordinateur, comme AWS Secrets Manager. SecureString est déchiffré (kms:Decrypt est nécessaire) ; pour une StringList, on utilise l'élément indiqué (1 est le premier)."
     },
     "test": "Tester",
     "testOk": "OK · {{n}} caractères",
@@ -266,7 +284,12 @@
     },
     "vaultAuth": {
       "token": "Jeton",
-      "approle": "AppRole"
+      "approle": "AppRole",
+      "bitwarden": "La connexion « {{name}} » obtient « {{field}} » de Bitwarden. Saisissez le mot de passe principal (il n'est pas enregistré) :"
+    },
+    "bitwardenCloud": {
+      "com": "États-Unis ({{domain}})",
+      "eu": "Europe ({{domain}})"
     }
   }
 }

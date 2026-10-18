@@ -132,7 +132,10 @@
       "vault_db": "HashiCorp Vault (database credentials)",
       "conjur": "CyberArk Conjur",
       "ccp": "CyberArk Central Credential Provider",
-      "delinea": "Delinea Secret Server"
+      "delinea": "Delinea Secret Server",
+      "bitwarden": "Bitwarden",
+      "bitwarden_sm": "Bitwarden Secrets Manager",
+      "ssm": "AWS Parameter Store"
     },
     "askHelp": "Asked for when connecting and not saved.",
     "askPlaceholder": "(for testing only; asked for when connecting)",
@@ -202,13 +205,24 @@
       "domain": "Domain (optional)",
       "master_delinea": "Password",
       "master_value_delinea": "Password (or client secret)",
-      "fill_username_delinea": "Also take the user from this secret (its «username» field)"
+      "fill_username_delinea": "Also take the user from this secret (its «username» field)",
+      "server": "Server",
+      "item": "Item (ID or name)",
+      "secret_uuid": "Secret ID",
+      "access_token": "Access token",
+      "parameter": "Parameter name or ARN",
+      "list_index": "List item (optional)",
+      "master_bitwarden": "Master password",
+      "master_value_bitwarden": "Master password",
+      "fill_username_bitwarden": "Also take the user from this item (its username)"
     },
     "placeholder": {
       "command": "pass show databases/production",
       "token": "VAULT_TOKEN or ~/.vault-token",
       "latest": "the latest",
-      "data_center": "The one for your Zoho account"
+      "data_center": "The one for your Zoho account",
+      "server": "bitwarden.com, bitwarden.eu or https://bitwarden.example.com",
+      "ssmVersion": "the latest (or a number, or a label)"
     },
     "kvAuto": "Detect",
     "help": {
@@ -226,7 +240,11 @@
       "approle": "DBine signs in with AppRole (auth/<path>/login) and revokes that token when it finishes. The secret ID you type is saved in the system keychain.",
       "conjur": "Uses the API key of a Conjur host or user, which is saved in the system keychain. Conjur Cloud: https://<subdomain>.secretsmgr.cyberark.cloud/api and the account «conjur». HTTPS only (HTTP only for this computer).",
       "ccp": "Requests the account from CyberArk's Central Credential Provider (AIMWebService) with the AppID and, if the provider requires it, a client certificate: PEM (with the key in the same file or in a separate one) or PKCS#12 (.p12/.pfx). The passphrase you type is saved in the system keychain. HTTPS only.",
-      "delinea": "Signs in to Secret Server with OAuth2 (a user or an application account) and reads the secret's field by its slug. With Delinea Platform, the token is requested from the tenant (https://<tenant>.delinea.app) with the ID and secret of a service user. The secret's ID or name: if more than one has that name, use the ID. HTTPS only."
+      "delinea": "Signs in to Secret Server with OAuth2 (a user or an application account) and reads the secret's field by its slug. With Delinea Platform, the token is requested from the tenant (https://<tenant>.delinea.app) with the ID and secret of a service user. The secret's ID or name: if more than one has that name, use the ID. HTTPS only.",
+      "server": "bitwarden.com, bitwarden.eu or the URL of your own server (https://; http:// only on this computer).",
+      "bitwarden": "With a personal API key (Account settings › Security › Keys: client_id and client_secret). The vault is decrypted on this computer with the master password, with no external programs. Field: password, username, notes or the name of a custom field; if the value is JSON (for example, the notes), give its key. The client_secret and the password you type are saved in the system keychain.",
+      "bitwarden_sm": "With the access token of a machine account; the secret is decrypted on this computer. Without a token, BWS_ACCESS_TOKEN is used. The token you type is saved in the system keychain.",
+      "ssm": "With this computer's AWS credentials, like AWS Secrets Manager. SecureString is decrypted (kms:Decrypt is required); for a StringList, the item you indicate is used (1 is the first)."
     },
     "test": "Test",
     "testOk": "OK · {{n}} characters",
@@ -266,7 +284,12 @@
     },
     "vaultAuth": {
       "token": "Token",
-      "approle": "AppRole"
+      "approle": "AppRole",
+      "bitwarden": "The connection «{{name}}» takes «{{field}}» from Bitwarden. Type the master password (it isn't saved):"
+    },
+    "bitwardenCloud": {
+      "com": "United States ({{domain}})",
+      "eu": "Europe ({{domain}})"
     }
   }
 }

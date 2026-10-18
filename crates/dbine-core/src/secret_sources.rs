@@ -1,7 +1,8 @@
 //! Where a connection's secret field takes its value from when it isn't
 //! kept in the keychain (docs/secret-sources.md): a command's output, a
 //! 1Password reference, HashiCorp Vault, AWS Secrets Manager, Azure Key
-//! Vault, Google Secret Manager, a KeePass database or Zoho Vault.
+//! Vault, Google Secret Manager, a KeePass database, Zoho Vault, Bitwarden,
+//! Bitwarden Secrets Manager or AWS Systems Manager Parameter Store.
 //!
 //! The definition (the command, the `op://` reference, the Vault path…) is
 //! not secret: it lives in the connection's options under [`OPTION`], as
@@ -323,6 +324,62 @@ pub enum SecretSource {
         #[serde(default, skip_serializing_if = "is_false")]
         fill_username: bool,
     },
+    /// A field of an item of a Bitwarden vault (personal or an
+    /// organization's): its API with a personal API key, the vault
+    /// decrypted here with the master password.
+    Bitwarden {
+        /// `bitwarden.com` (also empty), `bitwarden.eu` or a self-hosted
+        /// server's URL ([`bitwarden_urls`]).
+        #[serde(default)]
+        server: String,
+        /// The item's ID, or its exact name.
+        item: String,
+        /// `password` (empty), `username`, `notes` or a custom field's name.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        attribute: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        json_key: String,
+        /// The API key's `client_id` (`user.<uuid>`; not secret: its
+        /// `client_secret` is in the keychain).
+        client_id: String,
+        #[serde(default, skip_serializing_if = "is_keychain")]
+        master: MasterSource,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        master_command: String,
+        /// The connection's user comes from the item's username.
+        #[serde(default, skip_serializing_if = "is_false")]
+        fill_username: bool,
+    },
+    /// A secret of Bitwarden Secrets Manager, with a machine account's
+    /// access token (in the keychain, else `BWS_ACCESS_TOKEN`).
+    BitwardenSm {
+        #[serde(default)]
+        server: String,
+        /// The secret's ID (a UUID).
+        secret: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        json_key: String,
+    },
+    /// AWS Systems Manager Parameter Store (`GetParameter`, decrypted).
+    Ssm {
+        /// The parameter's name (`/prod/db/password`) or ARN.
+        parameter: String,
+        /// A version number or a label; empty: the latest.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        version: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        region: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        profile: String,
+        /// For a `StringList`, which element (1 is the first).
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        list_index: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        json_key: String,
+        /// The connection's user comes from the value's `username` key.
+        #[serde(default, skip_serializing_if = "is_false")]
+        fill_username: bool,
+    },
 }
 
 pub type SecretSources = BTreeMap<String, SecretSource>;
@@ -382,6 +439,9 @@ impl SecretSource {
             Self::Conjur { .. } => "conjur",
             Self::Ccp { .. } => "ccp",
             Self::Delinea { .. } => "delinea",
+            Self::Bitwarden { .. } => "bitwarden",
+            Self::BitwardenSm { .. } => "bitwarden_sm",
+            Self::Ssm { .. } => "ssm",
         }
     }
 
@@ -394,14 +454,17 @@ impl SecretSource {
             Self::Zoho { master: MasterSource::Keychain, .. } => &["", "client_secret", "refresh_token"],
             Self::Zoho { .. } => &["client_secret", "refresh_token"],
             Self::VaultDb { .. } | Self::Conjur { .. } | Self::Ccp { .. } | Self::Delinea { master: MasterSource::Keychain, .. } => &[""],
+            Self::Bitwarden { master: MasterSource::Keychain, .. } => &["", "client_secret"],
+            Self::Bitwarden { .. } => &["client_secret"],
+            Self::BitwardenSm { .. } => &[""],
             _ => &[],
         }
     }
 
-    /// Where the master password comes from (KeePass, Zoho Vault).
+    /// Where the master password comes from (KeePass, Zoho Vault, Bitwarden).
     pub fn master(&self) -> Option<MasterSource> {
         match self {
-            Self::KeePass { master, .. } | Self::Zoho { master, .. } | Self::Delinea { master, .. } => Some(*master),
+            Self::KeePass { master, .. } | Self::Zoho { master, .. } | Self::Delinea { master, .. } | Self::Bitwarden { master, .. } => Some(*master),
             _ => None,
         }
     }
@@ -414,7 +477,10 @@ impl SecretSource {
             | Self::Aws { json_key, .. }
             | Self::Azure { json_key, .. }
             | Self::Gcp { json_key, .. }
-            | Self::Conjur { json_key, .. } => json_key.trim(),
+            | Self::Conjur { json_key, .. }
+            | Self::Bitwarden { json_key, .. }
+            | Self::BitwardenSm { json_key, .. }
+            | Self::Ssm { json_key, .. } => json_key.trim(),
             Self::Vault { .. } | Self::KeePass { .. } | Self::Zoho { .. } | Self::VaultDb { .. } | Self::Ccp { .. } | Self::Delinea { .. } => "",
         }
     }
@@ -608,8 +674,133 @@ impl SecretSource {
                 }
                 check_master_command(*master, master_command)?;
             }
+            Self::Bitwarden { server, item, attribute, client_id, master, master_command, .. } => {
+                check_bitwarden_server(server)?;
+                if item.trim().is_empty() || item.len() > 500 || !no_control(item) {
+                    return Err(bad("falta el ID o el nombre del elemento de Bitwarden"));
+                }
+                if !no_control(attribute) {
+                    return Err(bad("el campo del elemento de Bitwarden no es válido"));
+                }
+                let id = client_id.trim().strip_prefix("user.").unwrap_or("");
+                if !is_uuid(id) {
+                    return Err(bad("falta el client_id de la clave de API de Bitwarden (user.xxxxxxxx-…)"));
+                }
+                if *master == MasterSource::None {
+                    return Err(bad("Bitwarden necesita la contraseña maestra"));
+                }
+                check_master_command(*master, master_command)?;
+            }
+            Self::BitwardenSm { server, secret, .. } => {
+                check_bitwarden_server(server)?;
+                if !is_uuid(secret.trim()) {
+                    return Err(bad("falta el ID del secreto de Bitwarden Secrets Manager (un UUID)"));
+                }
+            }
+            Self::Ssm { parameter, version, region, profile, list_index, .. } => {
+                if !valid_ssm_parameter(parameter.trim()) {
+                    return Err(bad("falta el nombre o el ARN del parámetro de AWS (/prod/db/password)"));
+                }
+                let v = version.trim();
+                if !v.is_empty() && (v.len() > 100 || !v.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))) {
+                    return Err(bad("la versión del parámetro tiene que ser un número o una etiqueta"));
+                }
+                if !region.trim().is_empty() && !valid_aws_region(region.trim()) {
+                    return Err(bad(format!("la región de AWS «{}» no es válida", region.trim())));
+                }
+                if !profile.is_empty() && (profile.starts_with('-') || !profile.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '@' | '+'))) {
+                    return Err(bad("el perfil de AWS no es válido"));
+                }
+                let i = list_index.trim();
+                if !i.is_empty() && !i.parse::<usize>().is_ok_and(|n| (1..=10_000).contains(&n)) {
+                    return Err(bad("el elemento de la lista tiene que ser un número desde 1"));
+                }
+            }
         }
         Ok(())
+    }
+}
+
+/// `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (any case).
+pub fn is_uuid(s: &str) -> bool {
+    s.len() == 36 && s.char_indices().all(|(i, c)| if matches!(i, 8 | 13 | 18 | 23) { c == '-' } else { c.is_ascii_hexdigit() })
+}
+
+/// Bitwarden's US and EU clouds: `(name, identity URL, API URL)`.
+pub const BITWARDEN_CLOUDS: &[(&str, &str, &str)] = &[
+    ("bitwarden.com", "https://identity.bitwarden.com", "https://api.bitwarden.com"),
+    ("bitwarden.eu", "https://identity.bitwarden.eu", "https://api.bitwarden.eu"),
+];
+
+/// The identity and API base URLs of a Bitwarden server: `bitwarden.com`
+/// (also empty) or `bitwarden.eu`, else a self-hosted server's URL
+/// (`https://host[:port][/path]`, whose `/identity` and `/api` are used).
+/// Plain `http://` only for this computer (`localhost`, `127.x`, `[::1]`).
+/// No credentials, query or fragment: tokens only go to that origin.
+pub fn bitwarden_urls(server: &str) -> Option<(String, String)> {
+    let s = server.trim().trim_end_matches('/');
+    let cloud = |name: &str| BITWARDEN_CLOUDS.iter().find(|(n, _, _)| *n == name).map(|(_, i, a)| (i.to_string(), a.to_string()));
+    match s.to_ascii_lowercase().as_str() {
+        "" | "bitwarden.com" | "https://vault.bitwarden.com" => return cloud("bitwarden.com"),
+        "bitwarden.eu" | "https://vault.bitwarden.eu" => return cloud("bitwarden.eu"),
+        _ => {}
+    }
+    let (https, rest) = match (s.strip_prefix("https://"), s.strip_prefix("http://")) {
+        (Some(r), _) => (true, r),
+        (_, Some(r)) => (false, r),
+        _ => return None,
+    };
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(v6) => {
+            let (h, after) = v6.split_once(']')?;
+            (h, if after.is_empty() { None } else { Some(after.strip_prefix(':')?) })
+        }
+        None => match authority.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        },
+    };
+    let host_ok = !host.is_empty()
+        && host.len() <= 253
+        && if authority.starts_with('[') { host.chars().all(|c| c.is_ascii_hexdigit() || c == ':') } else { host.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') };
+    let port_ok = port.is_none_or(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit()));
+    let path_ok = path.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | '~')) && !path.contains("//") && !path.split('/').any(|seg| seg == "..");
+    if !host_ok || !port_ok || !path_ok {
+        return None;
+    }
+    let h = host.to_ascii_lowercase();
+    let local = h == "localhost" || h == "::1" || (h.starts_with("127.") && h.split('.').count() == 4 && h.split('.').all(|o| o.parse::<u8>().is_ok()));
+    if !https && !local {
+        return None;
+    }
+    let base = format!("{}://{}{}", if https { "https" } else { "http" }, authority.to_ascii_lowercase(), path);
+    Some((format!("{base}/identity"), format!("{base}/api")))
+}
+
+fn check_bitwarden_server(server: &str) -> Result<()> {
+    if bitwarden_urls(server).is_none() {
+        return Err(bad("el servidor de Bitwarden tiene que ser bitwarden.com, bitwarden.eu o la URL https:// del servidor propio"));
+    }
+    Ok(())
+}
+
+/// `/prod/db/password`, `db-password`, or its ARN
+/// (`arn:aws:ssm:<region>:<account>:parameter/…`).
+pub fn valid_ssm_parameter(p: &str) -> bool {
+    let name_ok = |n: &str| !n.is_empty() && n.len() <= 2048 && n.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-' | '/')) && !n.contains("//");
+    match p.strip_prefix("arn:") {
+        Some(rest) => {
+            let parts: Vec<&str> = rest.splitn(5, ':').collect();
+            parts.len() == 5
+                && parts[0].starts_with("aws")
+                && parts[1] == "ssm"
+                && valid_aws_region(parts[2])
+                && parts[3].len() == 12
+                && parts[3].chars().all(|c| c.is_ascii_digit())
+                && parts[4].strip_prefix("parameter").is_some_and(|n| n.starts_with('/') && name_ok(n))
+        }
+        None => name_ok(p),
     }
 }
 
@@ -1259,5 +1450,117 @@ mod tests {
         assert!(del("http://ss.example.com", MasterSource::Keychain).validate().is_err(), "HTTPS only");
         assert!(del("https://ss", MasterSource::None).validate().is_err());
         assert!(del("https://ss", MasterSource::Command).validate().is_err(), "the command is missing");
+    }
+
+    fn bitwarden(server: &str, master: MasterSource) -> SecretSource {
+        SecretSource::Bitwarden {
+            server: server.into(),
+            item: "dbine-test-postgres".into(),
+            attribute: String::new(),
+            json_key: String::new(),
+            client_id: "user.6a2f40a5-d692-4c8e-953c-5271ccb77291".into(),
+            master,
+            master_command: String::new(),
+            fill_username: false,
+        }
+    }
+
+    #[test]
+    fn bitwarden_bitwarden_sm_and_ssm_parse_and_validate() {
+        let json = r#"{
+            "a": {"kind":"bitwarden","server":"bitwarden.eu","item":"pg-main","attribute":"notes","json_key":"password","client_id":"user.6a2f40a5-d692-4c8e-953c-5271ccb77291","master":"ask","fill_username":true},
+            "b": {"kind":"bitwarden_sm","server":"https://vault.example.com","secret":"1C9D6C0E-55AA-4B6F-8A43-0A1B2C3D4E5F","json_key":"password"},
+            "c": {"kind":"ssm","parameter":"/prod/db/password","version":"3","region":"eu-west-1","list_index":"2"},
+            "d": {"kind":"ssm","parameter":"arn:aws:ssm:us-east-1:123456789012:parameter/prod/db","version":"current"}
+        }"#;
+        let mut cfg = ConnectionConfig::default();
+        cfg.options.insert(OPTION.into(), json.into());
+        let s = read(&cfg).unwrap();
+        for (k, v) in &s {
+            v.validate().unwrap_or_else(|e| panic!("{k}: {e}"));
+        }
+        assert_eq!((s["a"].kind(), s["b"].kind(), s["c"].kind()), ("bitwarden", "bitwarden_sm", "ssm"));
+        assert_eq!(s["a"].master(), Some(MasterSource::Ask));
+        assert_eq!((s["a"].json_key(), s["b"].json_key(), s["c"].json_key()), ("password", "password", ""));
+        // Round trip: the stored JSON is the same definition.
+        let mut back = ConnectionConfig::default();
+        write(&mut back, &s);
+        assert_eq!(read(&back).unwrap(), s);
+
+        assert!(bitwarden("bitwarden.com", MasterSource::Keychain).validate().is_ok());
+        assert!(bitwarden("bitwarden.com", MasterSource::None).validate().is_err(), "Bitwarden always needs the master password");
+        assert!(bitwarden("bitwarden.com", MasterSource::Command).validate().is_err(), "the command is missing");
+        assert!(bitwarden("http://vault.example.com", MasterSource::Keychain).validate().is_err(), "plain HTTP only on this computer");
+        let mut b = bitwarden("bitwarden.com", MasterSource::Keychain);
+        if let SecretSource::Bitwarden { client_id, .. } = &mut b {
+            *client_id = "organization.6a2f40a5-d692-4c8e-953c-5271ccb77291".into();
+        }
+        assert!(b.validate().is_err(), "an organization's API key can't read a vault");
+        let sm = |secret: &str| SecretSource::BitwardenSm { server: "bitwarden.com".into(), secret: secret.into(), json_key: String::new() };
+        assert!(sm("1c9d6c0e-55aa-4b6f-8a43-0a1b2c3d4e5f").validate().is_ok());
+        for bad_id in ["", "dbine/pg", "1c9d6c0e-55aa-4b6f-8a43-0a1b2c3d4e5", "../../1c9d6c0e-55aa-4b6f-8a43-0a1b2c3d"] {
+            assert!(sm(bad_id).validate().is_err(), "{bad_id}");
+        }
+        let ssm = |p: &str, v: &str, i: &str| SecretSource::Ssm {
+            parameter: p.into(),
+            version: v.into(),
+            region: String::new(),
+            profile: String::new(),
+            list_index: i.into(),
+            json_key: String::new(),
+            fill_username: false,
+        };
+        assert!(ssm("db-password", "", "").validate().is_ok());
+        assert!(ssm("/a/b", "my_label", "1").validate().is_ok());
+        for (p, v, i) in [("", "", ""), ("/a b", "", ""), ("/a?x", "", ""), ("/a", "3:4", ""), ("/a", "", "0"), ("/a", "", "x"), ("arn:aws:ssm:evil:1:parameter/a", "", "")] {
+            assert!(ssm(p, v, i).validate().is_err(), "{p} {v} {i}");
+        }
+    }
+
+    #[test]
+    fn bitwarden_servers() {
+        let us = Some(("https://identity.bitwarden.com".to_string(), "https://api.bitwarden.com".to_string()));
+        let eu = Some(("https://identity.bitwarden.eu".to_string(), "https://api.bitwarden.eu".to_string()));
+        for s in ["", "bitwarden.com", "https://vault.bitwarden.com/", "BITWARDEN.COM"] {
+            assert_eq!(bitwarden_urls(s), us, "{s}");
+        }
+        assert_eq!(bitwarden_urls("bitwarden.eu"), eu);
+        assert_eq!(bitwarden_urls("https://vault.bitwarden.eu"), eu);
+        let own = |base: &str| Some((format!("{base}/identity"), format!("{base}/api")));
+        assert_eq!(bitwarden_urls("https://vault.example.com/"), own("https://vault.example.com"));
+        assert_eq!(bitwarden_urls("https://vault.example.com:8443/bw"), own("https://vault.example.com:8443/bw"));
+        assert_eq!(bitwarden_urls("http://127.0.0.1:28080"), own("http://127.0.0.1:28080"));
+        assert_eq!(bitwarden_urls("http://localhost"), own("http://localhost"));
+        assert_eq!(bitwarden_urls("http://[::1]:8080"), own("http://[::1]:8080"));
+        assert_eq!(bitwarden_urls("https://[2001:db8::1]"), own("https://[2001:db8::1]"));
+        for s in [
+            "http://vault.example.com",
+            "http://127.0.0.1.evil.com",
+            "http://localhost.evil.com",
+            "https://user:pw@vault.example.com",
+            "https://vault.example.com?x=1",
+            "https://vault.example.com#a",
+            "https://vault.example.com/../x",
+            "https://vault example.com",
+            "ftp://vault.example.com",
+            "vault.example.com",
+            "https://vault.example.com:port",
+            "https://[::1",
+            "https://[::1]x",
+        ] {
+            assert_eq!(bitwarden_urls(s), None, "{s}");
+        }
+    }
+
+    #[test]
+    fn bitwarden_and_sm_token_slots() {
+        assert_eq!(bitwarden("bitwarden.com", MasterSource::Keychain).token_slots(), &["", "client_secret"]);
+        assert_eq!(bitwarden("bitwarden.com", MasterSource::Ask).token_slots(), &["client_secret"], "an asked password is never kept");
+        let sm = SecretSource::BitwardenSm { server: "bitwarden.eu".into(), secret: "1c9d6c0e-55aa-4b6f-8a43-0a1b2c3d4e5f".into(), json_key: String::new() };
+        assert_eq!(sm.token_slots(), &[""]);
+        let p = SecretSource::Ssm { parameter: "/a".into(), version: String::new(), region: String::new(), profile: String::new(), list_index: String::new(), json_key: String::new(), fill_username: false };
+        assert!(p.token_slots().is_empty());
+        // Another server is another definition: an imported one is confirmed again.
+        assert_ne!(digest("c", "password", &bitwarden("bitwarden.com", MasterSource::Ask)), digest("c", "password", &bitwarden("https://evil.example.com", MasterSource::Ask)));
     }
 }

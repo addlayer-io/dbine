@@ -6,7 +6,7 @@ import { api, errorMessage } from '../api/client';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import {
-  isExternal, MASTER_SOURCES, missingInputs, SOURCE_KINDS, sourceFrom, typedTokens, VAULT_AUTHS, ZOHO_DATA_CENTERS, type DraftKind, type SourceDraft,
+  BITWARDEN_CLOUDS, isExternal, MASTER_SOURCES, missingInputs, SOURCE_KINDS, sourceFrom, typedTokens, VAULT_AUTHS, ZOHO_DATA_CENTERS, type DraftKind, type SourceDraft,
 } from '../composables/secretSources';
 
 // Where one secret field takes its value (docs/secret-sources.md): the
@@ -39,8 +39,10 @@ const missing = computed(() => missingInputs(draft.value));
 
 function setKind(k: DraftKind) {
   draft.value.kind = k;
-  // Zoho Vault always needs its passphrase, Delinea its password.
-  if ((k === 'zoho' || k === 'delinea') && draft.value.master === 'none') draft.value.master = 'keychain';
+  // Zoho Vault and Bitwarden always need their passphrase, Delinea its password.
+  if ((k === 'zoho' || k === 'delinea' || k === 'bitwarden') && draft.value.master === 'none') draft.value.master = 'keychain';
+  // Bitwarden's server starts as the US cloud.
+  if ((k === 'bitwarden' || k === 'bitwarden_sm') && !draft.value.server) draft.value.server = BITWARDEN_CLOUDS[0];
 }
 
 async function browse(input: 'ca_file' | 'file' | 'key_file' | 'client_cert' | 'client_key') {
@@ -51,9 +53,9 @@ async function browse(input: 'ca_file' | 'file' | 'key_file' | 'client_cert' | '
   } catch { /* no dialog outside Tauri */ }
 }
 
-/** KeePass / Zoho Vault: where the master password comes from. */
+/** KeePass / Zoho Vault / Bitwarden: where the master password comes from. */
 const masters = computed(() => MASTER_SOURCES.filter((m) => m !== 'none' || draft.value.kind === 'keepass'));
-const hasMaster = computed(() => ['keepass', 'zoho', 'delinea'].includes(draft.value.kind));
+const hasMaster = computed(() => ['keepass', 'zoho', 'delinea', 'bitwarden'].includes(draft.value.kind));
 /** HashiCorp Vault (KV or database credentials): its sign-in. */
 const isVault = computed(() => draft.value.kind === 'vault' || draft.value.kind === 'vault_db');
 /** A master password asked while testing ("ask"): this picker's tests only. */
@@ -397,6 +399,65 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           </el-form-item>
           <div class="ss-help ss-wide">{{ $t('connection:source.help.approle') }}</div>
         </template>
+      </template>
+      <template v-else-if="draft.kind === 'bitwarden' || draft.kind === 'bitwarden_sm'">
+        <el-form-item :label="$t('connection:source.input.server')" class="ss-wide">
+          <el-select
+            v-model="draft.server" filterable allow-create default-first-option style="width: 100%"
+            :placeholder="$t('connection:source.placeholder.server')"
+          >
+            <el-option v-for="c in BITWARDEN_CLOUDS" :key="c" :value="c" :label="$t(`connection:source.bitwardenCloud.${c.replace('bitwarden.', '')}`, { domain: c })" />
+          </el-select>
+          <div class="ss-help">{{ $t('connection:source.help.server') }}</div>
+        </el-form-item>
+        <template v-if="draft.kind === 'bitwarden'">
+          <el-form-item :label="$t('connection:source.input.item')" :required="req('item')">
+            <el-input v-model="draft.item" class="ss-mono" placeholder="pg-main" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.attribute')">
+            <el-input v-model="draft.attribute" class="ss-mono" placeholder="password" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.client_id')" :required="req('client_id')">
+            <el-input v-model="draft.client_id" class="ss-mono" placeholder="user.xxxxxxxx-xxxx-…" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.client_secret')">
+            <el-input
+              v-model="draft.client_secret" type="password" show-password autocomplete="new-password"
+              :placeholder="editing ? $t('connection:form.secretKeptMasc') : ''"
+            />
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item :label="$t('connection:source.input.secret_uuid')" :required="req('secret')" class="ss-wide">
+            <el-input v-model="draft.secret" class="ss-mono" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.access_token')" class="ss-wide">
+            <el-input
+              v-model="draft.token" type="password" show-password autocomplete="new-password"
+              :placeholder="editing ? $t('connection:form.secretKeptMasc') : 'BWS_ACCESS_TOKEN'"
+            />
+          </el-form-item>
+          <div class="ss-help ss-wide">{{ $t('connection:source.help.bitwarden_sm') }}</div>
+        </template>
+      </template>
+      <template v-else-if="draft.kind === 'ssm'">
+        <el-form-item :label="$t('connection:source.input.parameter')" :required="req('parameter')" class="ss-wide">
+          <el-input v-model="draft.parameter" class="ss-mono" placeholder="/prod/myapp/db/password" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.version')">
+          <el-input v-model="draft.version" :placeholder="$t('connection:source.placeholder.ssmVersion')" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.list_index')">
+          <el-input v-model="draft.list_index" placeholder="1" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.region')">
+          <el-input v-model="draft.region" placeholder="us-east-1" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.profile')">
+          <el-input v-model="draft.profile" placeholder="default" />
+        </el-form-item>
+        <el-checkbox v-if="field === 'password'" v-model="draft.fill_username" class="ss-wide">{{ $t('connection:source.input.fill_username') }}</el-checkbox>
+        <div class="ss-help ss-wide">{{ $t('connection:source.help.ssm') }}</div>
       </template>
       <template v-if="hasMaster">
         <el-form-item :label="$t(`connection:source.input.master_${draft.kind}`)">
