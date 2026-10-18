@@ -70,7 +70,10 @@ export interface SourceDraft {
   key_file: string;
   master: MasterKind;
   master_command: string;
-  /** Zoho Vault. */
+  /** Zoho Vault: a saved account's ID (the definition's `account`), or,
+   *  `manual`, the inline sign-in below (definitions from before accounts). */
+  zoho_account: string;
+  manual: boolean;
   data_center: string;
   secret_name: string;
   client_id: string;
@@ -120,7 +123,7 @@ export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
   return {
     kind, command: '', json_key: '', reference: '', account: '', address: '', path: '', key: '', namespace: '', kv_version: 'auto',
     ca_file: '', token: '', secret_id: '', region: '', profile: '', fill_username: false, vault_url: '', name: '', version: '', project: '', secret: '',
-    file: '', entry: '', attribute: '', key_file: '', master: 'keychain', master_command: '', data_center: '', secret_name: '', client_id: '',
+    file: '', entry: '', attribute: '', key_file: '', master: 'keychain', master_command: '', zoho_account: '', manual: false, data_center: '', secret_name: '', client_id: '',
     client_secret: '', refresh_token: '', auth: 'token', approle_mount: '', role_id: '', approle_secret_id: '', mount: '', role: '', static_role: false, url: '',
     conjur_account: '', login: '', variable: '', username_variable: '', app_id: '', safe: '', folder: '', object: '', account_user: '', account_address: '',
     client_cert: '', client_key: '', platform_url: '', username: '', domain: '', server: '', item: '', user_field: '', parameter: '', list_index: '',
@@ -156,6 +159,12 @@ export function draftFrom(source: SecretSource | undefined, ask = false): Source
   if (!['auto', '1', '2'].includes(d.kv_version)) d.kv_version = 'auto';
   if (!(VAULT_AUTHS as readonly string[]).includes(d.auth)) d.auth = 'token';
   if (!(MASTER_SOURCES as readonly string[]).includes(d.master)) d.master = 'keychain';
+  if (d.kind === 'zoho') {
+    // Zoho's `account` is a saved account's ID (1Password's is its sign-in address).
+    d.zoho_account = d.account;
+    d.account = '';
+    d.manual = !d.zoho_account && !!(d.data_center || d.client_id);
+  }
   return d;
 }
 
@@ -190,7 +199,11 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
       master: d.master === 'keychain' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
       fill_username: field === 'password' && d.fill_username, user_field: field === 'password' && d.fill_username ? t(d.user_field) : '',
     }) as SecretSource;
-    case 'zoho': return opt({
+    case 'zoho': return !d.manual ? opt({
+      kind: 'zoho' as const, secret_name: t(d.secret_name), attribute: t(d.attribute),
+      fill_username: field === 'password' && d.fill_username, user_field: field === 'password' && d.fill_username ? t(d.user_field) : '',
+      account: t(d.zoho_account),
+    }) as SecretSource : opt({
       kind: 'zoho' as const, data_center: t(d.data_center), secret_name: t(d.secret_name), attribute: t(d.attribute), client_id: t(d.client_id),
       master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
       fill_username: field === 'password' && d.fill_username, user_field: field === 'password' && d.fill_username ? t(d.user_field) : '',
@@ -257,7 +270,8 @@ export const REQUIRED: Record<SecretSourceKind, (keyof SourceDraft)[]> = {
  *  choice needs: the command, or a key file when there's no password). */
 export function missingInputs(d: SourceDraft | undefined): (keyof SourceDraft)[] {
   if (!d || !isExternal(d)) return [];
-  const need = [...REQUIRED[d.kind as SecretSourceKind]];
+  // Zoho through an account: the account and the secret.
+  const need = d.kind === 'zoho' && !d.manual ? ['zoho_account', 'secret_name'] as (keyof SourceDraft)[] : [...REQUIRED[d.kind as SecretSourceKind]];
   if (d.kind === 'keepass' || d.kind === 'zoho' || d.kind === 'delinea' || d.kind === 'bitwarden') {
     if (d.master === 'command') need.push('master_command');
     if (d.kind === 'keepass' && d.master === 'none') need.push('key_file');
@@ -279,7 +293,9 @@ export function typedTokens(d: SourceDraft): Record<string, string> {
   if (((vault && d.auth !== 'approle') || keepsMaster || d.kind === 'conjur' || d.kind === 'ccp' || d.kind === 'bitwarden_sm') && d.token) out[''] = d.token;
   if (vault && d.auth === 'approle' && d.approle_secret_id) out.secret_id = d.approle_secret_id;
   if (d.kind === 'bitwarden' && d.client_secret) out.client_secret = d.client_secret;
-  if (d.kind === 'zoho') {
+  // Zoho through an account: the account keeps them.
+  if (d.kind === 'zoho' && !d.manual) delete out[''];
+  if (d.kind === 'zoho' && d.manual) {
     if (d.client_secret) out.client_secret = d.client_secret;
     if (d.refresh_token) out.refresh_token = d.refresh_token;
   }
@@ -400,8 +416,9 @@ export function missingForBrowse(d: SourceDraft, editing = false): (keyof Source
   if (!editing) {
     const masterKept = ['keepass', 'delinea', 'bitwarden'].includes(d.kind) && d.master === 'keychain';
     if ((masterKept || d.kind === 'conjur') && !d.token) need.push('token');
-    if ((d.kind === 'bitwarden' || d.kind === 'zoho') && !d.client_secret) need.push('client_secret');
-    if (d.kind === 'zoho' && !d.refresh_token) need.push('refresh_token');
+    const zohoManual = d.kind === 'zoho' && d.manual;
+    if ((d.kind === 'bitwarden' || zohoManual) && !d.client_secret) need.push('client_secret');
+    if (zohoManual && !d.refresh_token) need.push('refresh_token');
   }
   return need;
 }

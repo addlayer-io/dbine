@@ -85,7 +85,7 @@ pub fn expand_with(store: &StateStore, src: &SecretSource, mut slots: Secrets, g
     let mut out = Secrets::new();
     for slot in ["client_secret", "refresh_token"] {
         let v = get(id, slot).map_err(|e| format!("no se pudo leer la cuenta de Zoho Vault del llavero: {e}"))?;
-        let v = v.filter(|v| !v.is_empty()).ok_or("a la cuenta de Zoho Vault le faltan datos en el llavero: reconectala en Configuración › Cuentas de gestores de secretos")?;
+        let v = v.filter(|v| !v.is_empty()).ok_or("a la cuenta de Zoho Vault le faltan datos en el llavero: reconectala en Configuración › Gestores de secretos")?;
         out.insert(slot.to_string(), v);
     }
     let typed = slots.remove("").filter(|t| !t.is_empty());
@@ -396,6 +396,18 @@ pub async fn zoho_connect_cancel(args: ZohoCancelArgs) -> CommandResult<()> {
         }
     }
     Ok(())
+}
+
+/// Where the Self Client is created.
+pub const ZOHO_API_CONSOLE: &str = "https://api-console.zoho.com/";
+
+/// Step 1: open Zoho's API console in the browser (that address only).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn open_zoho_api_console(app: tauri::AppHandle) -> CommandResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(ZOHO_API_CONSOLE, None::<&str>)
+        .map_err(|e| CommandError::Internal(format!("no se pudo abrir el navegador: {e}")))
 }
 
 // ---- managing ----------------------------------------------------------------------

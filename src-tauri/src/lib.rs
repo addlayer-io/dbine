@@ -308,6 +308,7 @@ pub fn run() {
             secret_sources::accounts::zoho_connect_exchange,
             secret_sources::accounts::zoho_connect_finish,
             secret_sources::accounts::zoho_connect_cancel,
+            secret_sources::accounts::open_zoho_api_console,
             commands::history::history_list,
             commands::history::history_of,
             commands::history::history_delete,

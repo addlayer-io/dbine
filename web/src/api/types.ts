@@ -211,8 +211,10 @@ export type SecretSource =
     master?: 'ask' | 'command' | 'none'; master_command?: string; fill_username?: boolean; user_field?: string;
   }
   | {
-    kind: 'zoho'; data_center: string; secret_name: string; attribute?: string; client_id: string;
+    kind: 'zoho'; data_center?: string; secret_name: string; attribute?: string; client_id?: string;
     master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean; user_field?: string;
+    /** A Zoho account saved on this computer (`SecretAccount`); then no inline sign-in. */
+    account?: string;
   }
   | {
     kind: 'vault_db'; address: string; mount?: string; role: string; static_role?: boolean; namespace?: string; ca_file?: string;
@@ -1029,3 +1031,27 @@ export interface ProjectFilesChanged { project_id: string; paths: string[]; reas
 // Feedback (src-tauri/src/commands/feedback.rs): what the optional
 // diagnostics of "Enviar comentarios" can say about the machine.
 export interface FeedbackSystemInfo { app_version: string; os: string; arch: string }
+
+/** A secret manager's account saved on this computer (dbine_core::secret_accounts):
+ *  never exported nor synced; its secrets are in the keychain. */
+export interface SecretAccount {
+  id: string;
+  kind: 'zoho';
+  label: string;
+  /** The account's e-mail or user name ('' when the manager didn't say). */
+  identity: string;
+  data_center: string;
+  client_id: string;
+  /** Where the master passphrase comes from; absent: the keychain. */
+  master?: 'ask' | 'command';
+  master_command?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** "Conectar Zoho Vault", step 3: the code exchanged (src-tauri: accounts::ZohoExchanged). */
+export interface ZohoExchanged {
+  pending: string;
+  data_center: string;
+  identity: string;
+}

@@ -172,6 +172,7 @@
       "master_command": "Comando que retorna a senha mestra",
       "data_center": "Data center",
       "secret_name": "Nome ou ID do segredo",
+      "zoho_account": "Conta",
       "client_id": "ID do cliente",
       "client_secret": "Segredo do cliente",
       "refresh_token": "Token de atualização",
