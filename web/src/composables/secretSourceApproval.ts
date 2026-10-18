@@ -32,7 +32,7 @@ export async function askApproveSecretSource(e: unknown): Promise<boolean> {
   const rows = sourceRows(a.source)
     .map(([k, v]) => {
       const label = escape(t(`connection:source.input.${k}`));
-      const value = k === 'fill_username' ? escape(t('common:yes')) : escape(v);
+      const value = k === 'fill_username' ? escape(t('common:yes')) : k === 'master' ? escape(t(`connection:source.master.${v}`)) : escape(v);
       return `<div style="margin-top:6px"><div style="font-size:11.5px;opacity:.75">${label}</div><code style="display:block;white-space:pre-wrap;word-break:break-all;user-select:all">${value}</code></div>`;
     })
     .join('');

@@ -1,7 +1,7 @@
 //! Where a connection's secret field takes its value from when it isn't
 //! kept in the keychain (docs/secret-sources.md): a command's output, a
 //! 1Password reference, HashiCorp Vault, AWS Secrets Manager, Azure Key
-//! Vault or Google Secret Manager.
+//! Vault, Google Secret Manager, a KeePass database or Zoho Vault.
 //!
 //! The definition (the command, the `op://` reference, the Vault path…) is
 //! not secret: it lives in the connection's options under [`OPTION`], as
@@ -26,8 +26,67 @@ use std::sync::Mutex;
 /// The connection option holding the definitions, by field key.
 pub const OPTION: &str = "secret_sources";
 /// A Vault token typed in the form is kept in the keychain under this
-/// prefix plus the field key (`source_token:password`).
+/// prefix plus the field key (`source_token:password`). Providers that need
+/// more than one value add a slot (`source_token:password#refresh_token`);
+/// see [`token_key`].
 pub const TOKEN_PREFIX: &str = "source_token:";
+
+/// The keychain key of a field's token (`slot` empty: the main one, the
+/// Vault token or the master password; else `#slot` after the field).
+pub fn token_key(field: &str, slot: &str) -> String {
+    if slot.is_empty() {
+        format!("{TOKEN_PREFIX}{field}")
+    } else {
+        format!("{TOKEN_PREFIX}{field}#{slot}")
+    }
+}
+
+/// `(field, slot)` of a token key, if it is one.
+pub fn token_parts(key: &str) -> Option<(&str, &str)> {
+    let rest = key.strip_prefix(TOKEN_PREFIX)?;
+    Some(rest.split_once('#').unwrap_or((rest, "")))
+}
+
+/// Where a KeePass database's master password (or Zoho Vault's master
+/// passphrase) comes from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MasterSource {
+    /// Typed in the form, kept in the keychain (the field's main token).
+    #[default]
+    Keychain,
+    /// Asked when connecting; kept in memory while the connection is open.
+    Ask,
+    /// The output of `master_command`.
+    Command,
+    /// No password: the key file alone opens the database (KeePass only).
+    None,
+}
+
+fn is_keychain(m: &MasterSource) -> bool {
+    *m == MasterSource::Keychain
+}
+
+/// Zoho's data centres: `(id, accounts host, Vault host)`. Tokens only go
+/// to the two hosts of the one chosen.
+pub const ZOHO_DATA_CENTERS: &[(&str, &str, &str)] = &[
+    ("com", "accounts.zoho.com", "vault.zoho.com"),
+    ("eu", "accounts.zoho.eu", "vault.zoho.eu"),
+    ("in", "accounts.zoho.in", "vault.zoho.in"),
+    ("com.au", "accounts.zoho.com.au", "vault.zoho.com.au"),
+    ("jp", "accounts.zoho.jp", "vault.zoho.jp"),
+    ("ca", "accounts.zohocloud.ca", "vault.zohocloud.ca"),
+    ("sa", "accounts.zoho.sa", "vault.zoho.sa"),
+    ("uk", "accounts.zoho.uk", "vault.zoho.uk"),
+    ("ae", "accounts.zoho.ae", "vault.zoho.ae"),
+    ("sg", "accounts.zoho.sg", "vault.zoho.sg"),
+    ("com.cn", "accounts.zoho.com.cn", "vault.zoho.com.cn"),
+];
+
+/// The accounts and Vault hosts of a Zoho data centre.
+pub fn zoho_hosts(data_center: &str) -> Option<(&'static str, &'static str)> {
+    ZOHO_DATA_CENTERS.iter().find(|(id, _, _)| *id == data_center.trim()).map(|(_, a, v)| (*a, *v))
+}
 
 /// KV secrets engine version of a Vault path.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +174,48 @@ pub enum SecretSource {
         #[serde(default, skip_serializing_if = "String::is_empty")]
         json_key: String,
     },
+    /// An entry of a KeePass database (.kdbx), read here.
+    #[serde(rename = "keepass")]
+    KeePass {
+        /// The .kdbx file (`~/` is the home folder).
+        file: String,
+        /// `Group/Subgroup/Title`, a title alone, or the entry's UUID.
+        entry: String,
+        /// The entry's field; empty: `Password`.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        attribute: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        key_file: String,
+        #[serde(default, skip_serializing_if = "is_keychain")]
+        master: MasterSource,
+        /// With `master: command`, the command that prints the password.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        master_command: String,
+        /// The connection's user comes from the entry's `UserName`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        fill_username: bool,
+    },
+    /// A secret of Zoho Vault: its REST API with an OAuth self client, the
+    /// values decrypted here with the master passphrase.
+    Zoho {
+        /// `com`, `eu`, `in`… ([`ZOHO_DATA_CENTERS`]).
+        data_center: String,
+        /// The secret's name, or its ID.
+        secret_name: String,
+        /// The secret's field; empty: `password`.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        attribute: String,
+        /// The self client's ID (not secret; its secret and the refresh
+        /// token are in the keychain).
+        client_id: String,
+        #[serde(default, skip_serializing_if = "is_keychain")]
+        master: MasterSource,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        master_command: String,
+        /// The connection's user comes from the secret's `username`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        fill_username: bool,
+    },
 }
 
 pub type SecretSources = BTreeMap<String, SecretSource>;
@@ -168,6 +269,27 @@ impl SecretSource {
             Self::Aws { .. } => "aws",
             Self::Azure { .. } => "azure",
             Self::Gcp { .. } => "gcp",
+            Self::KeePass { .. } => "keepass",
+            Self::Zoho { .. } => "zoho",
+        }
+    }
+
+    /// The token slots kept in the keychain for this definition ("": the
+    /// main one). A master password asked or taken from a command isn't.
+    pub fn token_slots(&self) -> &'static [&'static str] {
+        match self {
+            Self::Vault { .. } | Self::KeePass { master: MasterSource::Keychain, .. } => &[""],
+            Self::Zoho { master: MasterSource::Keychain, .. } => &["", "client_secret", "refresh_token"],
+            Self::Zoho { .. } => &["client_secret", "refresh_token"],
+            _ => &[],
+        }
+    }
+
+    /// Where the master password comes from (KeePass, Zoho Vault).
+    pub fn master(&self) -> Option<MasterSource> {
+        match self {
+            Self::KeePass { master, .. } | Self::Zoho { master, .. } => Some(*master),
+            _ => None,
         }
     }
 
@@ -179,7 +301,7 @@ impl SecretSource {
             | Self::Aws { json_key, .. }
             | Self::Azure { json_key, .. }
             | Self::Gcp { json_key, .. } => json_key.trim(),
-            Self::Vault { .. } => "",
+            Self::Vault { .. } | Self::KeePass { .. } | Self::Zoho { .. } => "",
         }
     }
 
@@ -257,9 +379,58 @@ impl SecretSource {
                     return Err(bad("la versión del secreto de Google tiene que ser un número o latest"));
                 }
             }
+            Self::KeePass { file, entry, attribute, key_file, master, master_command, .. } => {
+                if file.trim().is_empty() || !no_control(file) {
+                    return Err(bad("falta el archivo de la base de KeePass (.kdbx)"));
+                }
+                if entry.trim().is_empty() || !no_control(entry) {
+                    return Err(bad("falta la entrada de KeePass (Grupo/Subgrupo/Título o su UUID)"));
+                }
+                if !no_control(attribute) {
+                    return Err(bad("el campo de la entrada de KeePass no es válido"));
+                }
+                if !no_control(key_file) {
+                    return Err(bad("la ruta del archivo de clave no es válida"));
+                }
+                if *master == MasterSource::None && key_file.trim().is_empty() {
+                    return Err(bad("sin contraseña maestra, la base de KeePass necesita un archivo de clave"));
+                }
+                check_master_command(*master, master_command)?;
+            }
+            Self::Zoho { data_center, secret_name, attribute, client_id, master, master_command, .. } => {
+                if zoho_hosts(data_center).is_none() {
+                    return Err(bad(format!("el centro de datos de Zoho «{}» no es válido", data_center.trim())));
+                }
+                if secret_name.trim().is_empty() || secret_name.len() > 255 || !no_control(secret_name) {
+                    return Err(bad("falta el nombre o el ID del secreto de Zoho Vault"));
+                }
+                if !no_control(attribute) {
+                    return Err(bad("el campo del secreto de Zoho Vault no es válido"));
+                }
+                let id = client_id.trim();
+                if id.is_empty() || id.len() > 200 || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')) {
+                    return Err(bad("falta el ID del cliente de Zoho (1000.XXXX)"));
+                }
+                if *master == MasterSource::None {
+                    return Err(bad("Zoho Vault necesita la frase de contraseña maestra"));
+                }
+                check_master_command(*master, master_command)?;
+            }
         }
         Ok(())
     }
+}
+
+fn check_master_command(master: MasterSource, command: &str) -> Result<()> {
+    if master == MasterSource::Command {
+        if command.trim().is_empty() {
+            return Err(bad("falta el comando que devuelve la contraseña maestra"));
+        }
+        if command.contains('\0') || command.contains(['\n', '\r']) {
+            return Err(bad("el comando tiene que ser una sola línea"));
+        }
+    }
+    Ok(())
 }
 
 /// The definitions in a config's options (none if absent).
@@ -456,12 +627,16 @@ mod tests {
             "c": {"kind":"vault","address":"http://127.0.0.1:8200","path":"secret/x","key":"pw"},
             "d": {"kind":"aws","secret_id":"prod/db","region":"us-east-1","json_key":"password","fill_username":true},
             "e": {"kind":"azure","vault_url":"https://kv1.vault.azure.net","name":"db-pw"},
-            "f": {"kind":"gcp","project":"my-proj","secret":"db-pw"}
+            "f": {"kind":"gcp","project":"my-proj","secret":"db-pw"},
+            "g": {"kind":"keepass","file":"~/db.kdbx","entry":"Databases/Prod/pg-main","key_file":"~/db.keyx","master":"ask","fill_username":true},
+            "h": {"kind":"zoho","data_center":"eu","secret_name":"pg-main","client_id":"1000.ABC","master":"command","master_command":"pass show zoho"}
         }"#;
         let mut cfg = ConnectionConfig::default();
         cfg.options.insert(OPTION.into(), json.into());
         let s = read(&cfg).unwrap();
-        assert_eq!(s.len(), 6);
+        assert_eq!(s.len(), 8);
+        assert_eq!(s["g"].master(), Some(MasterSource::Ask));
+        assert_eq!(s["h"].kind(), "zoho");
         for (k, v) in &s {
             v.validate().unwrap_or_else(|e| panic!("{k}: {e}"));
         }
@@ -497,6 +672,115 @@ mod tests {
         assert!(vault("https://vault.example.com:8200").validate().is_ok());
         assert!(vault("ftp://vault").validate().is_err());
         assert!(vault("https://user:pw@vault").validate().is_err());
+    }
+
+    fn keepass(file: &str, master: MasterSource) -> SecretSource {
+        SecretSource::KeePass {
+            file: file.into(),
+            entry: "Databases/Prod/pg-main".into(),
+            attribute: String::new(),
+            key_file: String::new(),
+            master,
+            master_command: String::new(),
+            fill_username: false,
+        }
+    }
+
+    fn zoho(dc: &str) -> SecretSource {
+        SecretSource::Zoho {
+            data_center: dc.into(),
+            secret_name: "pg-main".into(),
+            attribute: String::new(),
+            client_id: "1000.ABCDEF".into(),
+            master: MasterSource::Keychain,
+            master_command: String::new(),
+            fill_username: false,
+        }
+    }
+
+    #[test]
+    fn keepass_and_zoho_validation() {
+        assert!(keepass("~/db.kdbx", MasterSource::Keychain).validate().is_ok());
+        assert!(keepass("  ", MasterSource::Keychain).validate().is_err());
+        let e = keepass("~/db.kdbx", MasterSource::None).validate().unwrap_err().to_string();
+        assert!(e.contains("archivo de clave"), "no password needs a key file: {e}");
+        assert!(keepass("~/db.kdbx", MasterSource::Command).validate().is_err(), "the command is missing");
+        let mut no_entry = keepass("~/db.kdbx", MasterSource::Ask);
+        if let SecretSource::KeePass { entry, .. } = &mut no_entry {
+            entry.clear();
+        }
+        assert!(no_entry.validate().is_err());
+        for dc in ["com", "eu", "in", "com.au", "jp", "ca", "sa", "uk", "ae", "sg", "com.cn"] {
+            assert!(zoho(dc).validate().is_ok(), "{dc}");
+        }
+        for dc in ["", "evil.com", "zoho.com", "eu/../x", "COM"] {
+            assert!(zoho(dc).validate().is_err(), "{dc}");
+        }
+        let mut z = zoho("eu");
+        if let SecretSource::Zoho { client_id, .. } = &mut z {
+            *client_id = "1000.x y".into();
+        }
+        assert!(z.validate().is_err());
+        let mut z = zoho("eu");
+        if let SecretSource::Zoho { master, .. } = &mut z {
+            *master = MasterSource::None;
+        }
+        assert!(z.validate().is_err(), "Zoho always needs the passphrase");
+    }
+
+    #[test]
+    fn zoho_hosts_are_zoho_domains() {
+        for (id, accounts, vault) in ZOHO_DATA_CENTERS {
+            assert_eq!(zoho_hosts(id), Some((*accounts, *vault)));
+            assert!(accounts.starts_with("accounts.") && vault.starts_with("vault."), "{id}");
+            let domain = accounts.trim_start_matches("accounts.");
+            assert_eq!(vault.trim_start_matches("vault."), domain, "{id}: both hosts in one domain");
+            assert!(domain.starts_with("zoho.") || domain == "zohocloud.ca", "{id}: {domain}");
+        }
+        assert_eq!(zoho_hosts("eu"), Some(("accounts.zoho.eu", "vault.zoho.eu")));
+        assert_eq!(zoho_hosts("ca"), Some(("accounts.zohocloud.ca", "vault.zohocloud.ca")));
+        assert_eq!(zoho_hosts("example.com"), None);
+    }
+
+    #[test]
+    fn token_keys_and_slots() {
+        assert_eq!(token_key("password", ""), "source_token:password");
+        assert_eq!(token_key("ssh.password", "refresh_token"), "source_token:ssh.password#refresh_token");
+        assert_eq!(token_parts("source_token:ssh.password#refresh_token"), Some(("ssh.password", "refresh_token")));
+        assert_eq!(token_parts("source_token:password"), Some(("password", "")));
+        assert_eq!(token_parts("password"), None);
+        assert_eq!(keepass("f", MasterSource::Keychain).token_slots(), &[""]);
+        assert!(keepass("f", MasterSource::Ask).token_slots().is_empty(), "an asked password is never kept");
+        assert_eq!(zoho("eu").token_slots(), &["", "client_secret", "refresh_token"]);
+        assert!(cmd("x").token_slots().is_empty());
+    }
+
+    #[test]
+    fn imported_keepass_and_zoho_definitions_need_a_confirmation() {
+        let mut imported = SavedConnection {
+            id: "imp-kp".into(),
+            name: "imported".into(),
+            color: None,
+            config: ConnectionConfig::default(),
+            save_password: true,
+            folder_id: None,
+            tags: vec![],
+            mcp_level: None,
+            updated_at: String::new(),
+        };
+        let kp = keepass("/tmp/other-user.kdbx", MasterSource::Keychain);
+        let zo = zoho("eu");
+        write(&mut imported.config, &[("password".to_string(), kp.clone()), ("ssh.password".to_string(), zo.clone())].into());
+        let saved = vec![imported];
+        assert!(from_outside(&saved, "password", &kp));
+        assert!(from_outside(&saved, "ssh.password", &zo));
+        // Another file, key file or entry is another definition.
+        assert_ne!(digest("imp-kp", "password", &kp), digest("imp-kp", "password", &keepass("/tmp/other-user2.kdbx", MasterSource::Keychain)));
+        assert_ne!(digest("imp-kp", "password", &kp), digest("imp-kp", "password", &keepass("/tmp/other-user.kdbx", MasterSource::Ask)));
+        approve(&digest("imp-kp", "password", &kp)).unwrap();
+        assert!(!from_outside(&saved, "password", &kp));
+        assert!(from_outside(&saved, "ssh.password", &zo), "each field on its own");
+        forget(&[digest("imp-kp", "password", &kp)]).unwrap();
     }
 
     #[test]

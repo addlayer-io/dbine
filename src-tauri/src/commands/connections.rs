@@ -133,13 +133,13 @@ pub async fn save_connection(state: State<'_, AppState>, args: SaveConnectionArg
         if sources.contains_key(k) {
             return false;
         }
-        if let Some(field) = k.strip_prefix(source_defs::TOKEN_PREFIX) {
-            return matches!(sources.get(field), Some(source_defs::SecretSource::Vault { .. }));
+        if let Some((field, slot)) = source_defs::token_parts(k) {
+            return sources.get(field).is_some_and(|s| s.token_slots().contains(&slot));
         }
         crate::tunnels::SECRETS.contains(&k) || info.fields.iter().any(|f| f.secret && f.key == k && (k != "password" || conn.save_password))
     };
     let typed: secrets::Secrets = typed.into_iter().filter(|(k, _)| keep(k)).collect();
-    let has_vault = sources.values().any(|s| matches!(s, source_defs::SecretSource::Vault { .. }));
+    let has_vault = sources.values().any(|s| !s.token_slots().is_empty());
     // The keychain is only touched when there's something to keep.
     if conn.save_password || !typed.is_empty() || crate::tunnels::enabled(&conn.config) || has_vault || info.fields.iter().any(|f| f.secret && f.key != "password") {
         let mut stored = secrets::get(&conn.id).unwrap_or_default();
@@ -267,11 +267,12 @@ pub async fn test_connection(state: State<'_, AppState>, args: TestConnectionArg
         apply_secrets(&mut cfg, &known);
         name = state.store.get_connection(id)?.map(|c| c.name).unwrap_or_default();
     }
-    // A definition that came from outside asks first (an error the UI
-    // answers); one that fails is a failed test.
+    // A definition that came from outside asks first, and so does a master
+    // password asked when needed (errors the UI answers); one that fails is
+    // a failed test.
     match crate::secret_sources::fill(&state.store, &mut cfg, &sources, &tokens, crate::secret_sources::Origin::Form { id, name: &name }).await {
         Ok(()) => {}
-        Err(e @ CommandError::SecretSourceApproval(_)) => return Err(e),
+        Err(e @ (CommandError::SecretSourceApproval(_) | CommandError::SecretSourceUnlock(_))) => return Err(e),
         Err(e) => return Ok(TestResult { ok: false, message: e.to_string() }),
     }
     // The tunnel lives until the test ends. An unknown SSH server is an
@@ -317,7 +318,8 @@ pub struct ConnectResult {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn connect(state: State<'_, AppState>, args: ConnectArgs) -> CommandResult<ConnectResult> {
     if let Some(p) = args.password {
-        state.typed_secrets.insert(args.connection_id.clone(), [("password".to_string(), p)].into());
+        // Next to a master password asked for a field's source, if any.
+        state.typed_secrets.entry(args.connection_id.clone()).or_default().insert("password".to_string(), p);
     }
     let result = async {
         let cfg = state.resolve_config(&args.connection_id)?;

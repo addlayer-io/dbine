@@ -3,7 +3,7 @@
 // strips the TypeScript types itself). Not part of the app's build.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftFrom, emptyDraft, isExternal, missingInputs, readSources, sourceFrom, sourceRows, SOURCES_OPTION, writeSources } from './secretSources.ts';
+import { draftFrom, emptyDraft, isExternal, missingInputs, readSources, sourceFrom, sourceRows, SOURCES_OPTION, tokenKey, typedTokens, writeSources } from './secretSources.ts';
 
 test('definitions round-trip through the options', () => {
   const options = { sslmode: 'require' };
@@ -29,6 +29,9 @@ test('a draft gives back the definition it came from, without empty inputs', () 
     { kind: 'aws', secret_id: 'prod/db', region: 'eu-west-1', json_key: 'password', fill_username: true },
     { kind: 'azure', vault_url: 'https://kv1.vault.azure.net', name: 'db-pw' },
     { kind: 'gcp', project: 'my-proj', secret: 'db-pw', version: '3' },
+    { kind: 'keepass', file: '~/db.kdbx', entry: 'Databases/Prod/pg-main', attribute: 'API token', key_file: '~/db.keyx', master: 'command', master_command: 'pass show kp', fill_username: true },
+    { kind: 'keepass', file: '~/db.kdbx', entry: 'pg-main' },
+    { kind: 'zoho', data_center: 'eu', secret_name: 'pg-main', client_id: '1000.ABC', master: 'ask', fill_username: true },
   ];
   for (const c of cases) assert.deepEqual(sourceFrom(draftFrom(c), 'password'), c, c.kind);
   // The username only fills from the password's source.
@@ -63,4 +66,49 @@ test('the confirmation shows every input that has a value, exactly', () => {
   assert.deepEqual(rows, [['command', 'curl -s https://x | jq -r .pw']]);
   const aws = sourceRows({ kind: 'aws', secret_id: 'prod/db', region: 'us-east-1', fill_username: true });
   assert.deepEqual(aws.map((r) => r[0]), ['secret_id', 'region', 'fill_username']);
+});
+
+test('KeePass and Zoho Vault: the master password choice', () => {
+  const kp = emptyDraft('keepass');
+  Object.assign(kp, { file: '/x.kdbx', entry: 'e' });
+  assert.deepEqual(missingInputs(kp), []);
+  kp.master = 'none';
+  assert.deepEqual(missingInputs(kp), ['key_file'], 'no password: a key file');
+  kp.master = 'command';
+  assert.deepEqual(missingInputs(kp), ['master_command']);
+  kp.master_command = 'echo pw';
+  // A command left over from another choice isn't stored.
+  kp.master = 'ask';
+  assert.equal(sourceFrom(kp, 'password').master_command, undefined);
+  assert.equal(sourceFrom(kp, 'password').master, 'ask');
+  kp.master = 'keychain';
+  assert.equal(sourceFrom(kp, 'password').master, undefined, 'the default is left out, as the backend stores it');
+  assert.deepEqual(missingInputs(emptyDraft('zoho')), ['data_center', 'secret_name', 'client_id']);
+  const zo = emptyDraft('zoho');
+  zo.master = 'none';
+  assert.equal(sourceFrom(Object.assign(zo, { data_center: 'eu', secret_name: 's', client_id: 'c' }), 'password').master, undefined, 'Zoho always has a passphrase');
+});
+
+test('what goes to the keychain, by slot', () => {
+  const v = emptyDraft('vault');
+  v.token = 'hvs.x';
+  assert.deepEqual(typedTokens(v), { '': 'hvs.x' });
+  const kp = emptyDraft('keepass');
+  kp.token = 'master';
+  assert.deepEqual(typedTokens(kp), { '': 'master' });
+  kp.master = 'ask';
+  assert.deepEqual(typedTokens(kp), {}, 'an asked password is never kept');
+  const zo = emptyDraft('zoho');
+  Object.assign(zo, { token: 'pass', client_secret: 'cs', refresh_token: 'rt' });
+  assert.deepEqual(typedTokens(zo), { '': 'pass', client_secret: 'cs', refresh_token: 'rt' });
+  zo.master = 'command';
+  assert.deepEqual(typedTokens(zo), { client_secret: 'cs', refresh_token: 'rt' });
+  assert.deepEqual(typedTokens(emptyDraft('command')), {});
+  assert.equal(tokenKey('ssh.password'), 'source_token:ssh.password');
+  assert.equal(tokenKey('password', 'refresh_token'), 'source_token:password#refresh_token');
+});
+
+test('the confirmation shows a KeePass definition', () => {
+  const rows = sourceRows({ kind: 'keepass', file: '/tmp/x.kdbx', entry: 'a/b', master: 'command', master_command: 'curl x | sh' });
+  assert.deepEqual(rows.map((r) => r[0]), ['file', 'entry', 'master', 'master_command']);
 });

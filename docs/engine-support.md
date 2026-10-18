@@ -3128,8 +3128,9 @@ a password ([`cloud-authentication.md`](cloud-authentication.md)).
 
 Every secret field of every engine (password, API key, token, service-account
 key) and the SSH tunnel's password and key passphrase can come from a
-command, 1Password, HashiCorp Vault, AWS Secrets Manager, Azure Key Vault or
-Google Secret Manager ([`secret-sources.md`](secret-sources.md)). The value is
+command, 1Password, HashiCorp Vault, AWS Secrets Manager, Azure Key Vault,
+Google Secret Manager, a KeePass database or Zoho Vault
+([`secret-sources.md`](secret-sources.md)). The value is
 resolved by DBine before the driver gets the connection's settings, so no
 engine is left out: the engines without secret fields (local files without
 encryption, servers without authentication) simply have nothing to fill.
@@ -3143,8 +3144,13 @@ encryption, servers without authentication) simply have nothing to fill.
   Manager on LocalStack (`dbine-test-localstack`), Azure Key Vault on Lowkey
   Vault (`dbine-test-lowkey-vault`), 1Password and Google with fake `op` and
   `gcloud` and a local HTTP server.
+- KeePass: KDBX 4 databases written by the tests (Argon2d and Argon2id; AES,
+  ChaCha20 and Twofish; with and without a key file) and KDBX 3.1 files
+  written by other KeePass programs. Zoho Vault: decryption against vectors
+  made with Zoho's own web crypto, and the whole flow against a mock of its
+  API (no live Zoho account).
 - End to end: a PostgreSQL connection (`dbine-test-postgres`) whose password
-  comes from a command and from Vault.
+  comes from a command, from a KeePass file (the user too) and from Vault.
 
 ## Processes
 

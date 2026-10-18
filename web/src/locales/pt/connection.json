@@ -126,7 +126,9 @@
       "vault": "HashiCorp Vault",
       "aws": "AWS Secrets Manager",
       "azure": "Azure Key Vault",
-      "gcp": "Google Secret Manager"
+      "gcp": "Google Secret Manager",
+      "keepass": "KeePass",
+      "zoho": "Zoho Vault"
     },
     "askHelp": "É pedida ao conectar e não é salva.",
     "askPlaceholder": "(somente para testar; é pedida ao conectar)",
@@ -150,12 +152,30 @@
       "name": "Nome do segredo",
       "version": "Versão (opcional)",
       "project": "Projeto",
-      "secret": "Segredo"
+      "secret": "Segredo",
+      "file": "Arquivo do banco (.kdbx)",
+      "entry": "Entrada",
+      "attribute": "Campo (opcional)",
+      "key_file": "Arquivo de chave (opcional)",
+      "master": "Senha mestra",
+      "master_keepass": "Senha mestra",
+      "master_zoho": "Frase secreta mestra",
+      "master_value_keepass": "Senha mestra",
+      "master_value_zoho": "Frase secreta mestra",
+      "master_command": "Comando que retorna a senha mestra",
+      "data_center": "Data center",
+      "secret_name": "Nome ou ID do segredo",
+      "client_id": "ID do cliente",
+      "client_secret": "Segredo do cliente",
+      "refresh_token": "Token de atualização",
+      "fill_username_keepass": "Usar também o usuário desta entrada (seu campo «UserName»)",
+      "fill_username_zoho": "Usar também o usuário deste segredo (seu campo «username»)"
     },
     "placeholder": {
       "command": "pass show bancos/producao",
       "token": "VAULT_TOKEN ou ~/.vault-token",
-      "latest": "a mais recente"
+      "latest": "a mais recente",
+      "data_center": "O da sua conta do Zoho"
     },
     "kvAuto": "Detectar",
     "help": {
@@ -165,7 +185,10 @@
       "vault": "Sem token, usa-se VAULT_TOKEN ou o de «vault login» (~/.vault-token). O token digitado é salvo no chaveiro do sistema.",
       "aws": "Usa as credenciais da AWS deste computador: variáveis de ambiente, ~/.aws ou a CLI da AWS (SSO, roles).",
       "azure": "Usa a sessão da CLI do Azure («az login»), do Azure Developer CLI ou a identidade gerenciada.",
-      "gcp": "Usa a sessão do gcloud («gcloud auth login») ou as credenciais padrão do aplicativo."
+      "gcp": "Usa a sessão do gcloud («gcloud auth login») ou as credenciais padrão do aplicativo.",
+      "entry": "Grupo/Subgrupo/Título, só o título se não se repetir, ou o UUID da entrada.",
+      "keepass": "O banco é lido neste computador, sem programas externos (KDBX 3.1 e 4). A senha mestra digitada é salva no chaveiro do sistema; com «Perguntar ao conectar» ela é pedida na primeira vez que você conecta e fica só na memória até você fechar o DBine.",
+      "zoho": "Com um cliente próprio («Self Client») do console de API do Zoho e um token de atualização com as permissões ZohoVault.secrets.READ e ZohoVault.user.READ. Os valores são descriptografados neste computador com a frase secreta mestra; o segredo do cliente, o token e a frase digitados são salvos no chaveiro do sistema."
     },
     "test": "Testar",
     "testOk": "OK · {{n}} caracteres",
@@ -175,6 +198,32 @@
       "body": "A conexão «{{name}}» obtém «{{field}}» desta origem, que veio de fora deste computador (uma importação ou um backup restaurado). O DBine vai usá-la exatamente assim:",
       "warning": "Confirme somente se você a reconhece: um comando é executado com as suas permissões e um gerenciador de segredos recebe as suas credenciais.",
       "confirm": "Confirmar e usar"
+    },
+    "master": {
+      "keychain": "Salva no chaveiro",
+      "ask": "Perguntar ao conectar",
+      "command": "De um comando",
+      "none": "Nenhuma (somente o arquivo de chave)"
+    },
+    "dataCenter": {
+      "com": "Estados Unidos ({{domain}})",
+      "eu": "Europa ({{domain}})",
+      "in": "Índia ({{domain}})",
+      "com_au": "Austrália ({{domain}})",
+      "jp": "Japão ({{domain}})",
+      "ca": "Canadá ({{domain}})",
+      "sa": "Arábia Saudita ({{domain}})",
+      "uk": "Reino Unido ({{domain}})",
+      "ae": "Emirados Árabes Unidos ({{domain}})",
+      "sg": "Singapura ({{domain}})",
+      "com_cn": "China ({{domain}})"
+    },
+    "unlock": {
+      "title": "Senha mestra",
+      "keepass": "A conexão «{{name}}» obtém «{{field}}» de um banco do KeePass. Digite a senha mestra dele (ela não é salva):",
+      "zoho": "A conexão «{{name}}» obtém «{{field}}» do Zoho Vault. Digite a frase secreta mestra (ela não é salva):",
+      "wrong": "A senha digitada não abriu o banco.",
+      "empty": "Digite a senha mestra"
     }
   }
 }

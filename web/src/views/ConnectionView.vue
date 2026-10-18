@@ -13,8 +13,9 @@ import EngineIcon from '../components/EngineIcon.vue';
 import FolderPicker from '../components/FolderPicker.vue';
 import SshTunnelSection, { type SshValues } from '../components/SshTunnelSection.vue';
 import SecretSourcePicker from '../components/SecretSourcePicker.vue';
-import { draftFrom, isExternal, missingInputs, readSources, sourceFrom, TOKEN_PREFIX, writeSources, type SourceDraft } from '../composables/secretSources';
+import { draftFrom, isExternal, missingInputs, readSources, sourceFrom, tokenKey, typedTokens, writeSources, type SourceDraft } from '../composables/secretSources';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
+import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import { addTrusted, askTrustSshHost } from '../composables/sshTrust';
 import { TAG_SUGGESTIONS, tagColor, tagsInUse } from '../composables/tags';
 import { mcpApi, type McpLevel } from '../api/mcp';
@@ -220,14 +221,14 @@ function buildConfig(): ConnectionConfig {
     encrypt: false, trust_server_certificate: false, read_only: false, options: {},
   };
   const sources: Record<string, SecretSource> = {};
-  /** A field whose value comes from a source: its definition (and a Vault
-   *  token typed for it) instead of a value. */
+  /** A field whose value comes from a source: its definition (and the
+   *  tokens typed for it: Vault's, a master password, Zoho's) instead of a value. */
   const sourced = (key: string): boolean => {
     const dr = drafts[key];
     const src = dr ? sourceFrom(dr, key) : null;
     if (!src) return false;
     sources[key] = src;
-    if (dr.kind === 'vault' && dr.token) cfg.options[`${TOKEN_PREFIX}${key}`] = dr.token;
+    for (const [slot, v] of Object.entries(typedTokens(dr))) cfg.options[tokenKey(key, slot)] = v;
     return true;
   };
   // Only the fields that apply: another auth method's leftovers aren't saved.
@@ -290,11 +291,19 @@ const missing = computed(() => {
   return out;
 });
 
+/** Master passwords asked while testing (sources set to "ask"): for the
+ *  tests of this form only, never saved. */
+const askedMasters: Record<string, string> = {};
+
 async function test() {
   testing.value = true;
   testResult.value = null;
   try {
-    const r = await api.testConnection(buildConfig(), editing.value?.id ?? null);
+    const cfg = buildConfig();
+    for (const [field, v] of Object.entries(askedMasters)) {
+      if (drafts[field]?.master === 'ask' && isExternal(drafts[field])) cfg.options[tokenKey(field)] = v;
+    }
+    const r = await api.testConnection(cfg, editing.value?.id ?? null);
     testResult.value = { ...r, message: tb(r.message) };
   } catch (e) {
     // A field's source came from outside and isn't confirmed: show it, and
@@ -302,6 +311,16 @@ async function test() {
     if (await askApproveSecretSource(e)) {
       testing.value = false;
       return test();
+    }
+    // A master password set to "ask": ask it, and test again with it.
+    const unlock = unlockOf(e);
+    if (unlock) {
+      const typed = await askMasterPassword(unlock);
+      if (typed !== null) {
+        askedMasters[unlock.field] = typed;
+        testing.value = false;
+        return test();
+      }
     }
     // The tunnel's SSH server isn't known yet: trust it and test again.
     const entry = await askTrustSshHost(e);

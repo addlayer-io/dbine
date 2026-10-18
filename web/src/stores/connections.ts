@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { api, errorDetail, errorKind, errorMessage } from '../api/client';
 import { askTrustSshHost } from '../composables/sshTrust';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
+import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import type { ColumnInfo, ConnectDetail, ConnectionFolder, DbObject, DriverInfo, KeyEntry, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -308,6 +309,16 @@ export const useConnectionsStore = defineStore('connections', {
         // import, a restored backup): the user sees exactly what would run
         // and, if they confirm it, it connects again.
         if (await askApproveSecretSource(e)) return this.openConnection(id, password);
+        // A KeePass / Zoho Vault master password set to "ask": the backend
+        // keeps what's typed in memory for this run, and it connects again.
+        const unlock = unlockOf(e);
+        if (unlock) {
+          const typed = await askMasterPassword(unlock);
+          if (typed !== null) {
+            await api.unlockSecretSource(id, unlock.field, typed);
+            return this.openConnection(id, password);
+          }
+        }
         // The tunnel's SSH server isn't known yet: trust it (the user checks
         // the fingerprint) and connect again.
         const entry = await askTrustSshHost(e);

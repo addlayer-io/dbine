@@ -72,6 +72,12 @@ pub enum CommandError {
     /// (all MCP and the phone get) never has the definition's text.
     #[error("la conexión «{}» toma un secreto ({}) de un origen que todavía no se confirmó en esta computadora: abrila en DBine para revisarlo", .0.connection_name, .0.field_label)]
     SecretSourceApproval(Box<crate::secret_sources::Approval>),
+
+    /// A secret field's source asks for its master password (KeePass, Zoho
+    /// Vault with "ask"): the UI asks (`unlock`), answers with
+    /// `unlock_secret_source` and retries. MCP and the phone get the message.
+    #[error("la conexión «{}» necesita la contraseña maestra del origen de «{}»: conectala en DBine para escribirla", .0.connection_name, .0.field_label)]
+    SecretSourceUnlock(Box<crate::secret_sources::Unlock>),
 }
 
 impl CommandError {
@@ -93,6 +99,7 @@ impl CommandError {
             Self::SshUnknownHost { .. } => "ssh_unknown_host",
             Self::SecretSource(_) => "secret_source",
             Self::SecretSourceApproval(_) => "secret_source_approval",
+            Self::SecretSourceUnlock(_) => "secret_source_unlock",
         }
     }
 }
@@ -108,6 +115,7 @@ impl Serialize for CommandError {
         }
         match self {
             Self::SecretSourceApproval(a) => s.serialize_field("approval", a)?,
+            Self::SecretSourceUnlock(u) => s.serialize_field("unlock", u)?,
             _ => s.skip_field("approval")?,
         }
         s.end()
