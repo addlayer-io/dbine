@@ -315,7 +315,23 @@
       "noFields": "Questo elemento non ha campi tra cui scegliere.",
       "useItem": "Usa questo",
       "namesOnly": "Vengono mostrati solo i nomi, mai i valori.",
-      "fillFirst": "Compila prima: {{fields}}"
+      "fillFirst": "Compila prima: {{fields}}",
+      "pickRoles": "Scegli quale campo è l'utente e quale la password:"
+    },
+    "legacyUser": "Questa connessione usa l'utente del modulo, non quello della voce.",
+    "useEntryUser": "Usa l'utente della voce",
+    "advanced": {
+      "title": "Configurazione avanzata",
+      "userField": "Campo dell'utente",
+      "passwordField": "Campo della password",
+      "field": "Campo",
+      "user": "Utente",
+      "password": "Password",
+      "loading": "Caricamento dei campi della voce…",
+      "failed": "Impossibile caricare i campi.",
+      "load": "Carica campi",
+      "loaded": "{{n}} campi nella voce.",
+      "hint": "Scegli una voce per vedere i suoi campi."
     }
   }
 }

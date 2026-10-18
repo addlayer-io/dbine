@@ -24861,6 +24861,9 @@
  "el campo del secreto de Zoho Vault no es válido": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "el campo del usuario no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "el campo «{0}» de la colección de destino no se guarda (stored=false y sin docValues): Solr aceptaría el valor y lo descartaría, así que después se leería como NULL. Cambiá el campo a stored=true o dejalo fuera de la carga.": [
   "crates/drivers/solr/src/transfer.rs"
  ],
@@ -25161,6 +25164,9 @@
  ],
  "el día del mes tiene que estar entre 1 y 28": [
   "crates/dbine-core/src/tasks.rs"
+ ],
+ "el elemento de 1Password no tiene usuario ({0})": [
+  "src-tauri/src/secret_sources/mod.rs"
  ],
  "el elemento de la lista tiene que ser un número desde 1": [
   "crates/dbine-core/src/secret_sources.rs"
@@ -25640,7 +25646,7 @@
  "el secreto «{0}» de Secret Server no tiene el campo «{1}» (tiene: {2})": [
   "src-tauri/src/secret_sources/delinea.rs"
  ],
- "el secreto «{0}» de Secret Server no tiene usuario (username)": [
+ "el secreto «{0}» de Secret Server no tiene usuario ({1})": [
   "src-tauri/src/secret_sources/delinea.rs"
  ],
  "el secreto «{0}» de Vault no tiene la clave «{1}» (tiene: {2})": [
@@ -25649,7 +25655,7 @@
  "el secreto «{0}» de Zoho Vault no tiene el campo «{1}» (tiene: {2})": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
- "el secreto «{0}» de Zoho Vault no tiene usuario (username)": [
+ "el secreto «{0}» de Zoho Vault no tiene usuario ({1})": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
  "el secreto «{0}» está borrado o no tiene datos": [
@@ -28632,7 +28638,7 @@
  "la entrada «{0}» de KeePass no tiene el campo «{1}» (tiene: {2})": [
   "src-tauri/src/secret_sources/keepass.rs"
  ],
- "la entrada «{0}» de KeePass no tiene usuario (UserName)": [
+ "la entrada «{0}» de KeePass no tiene usuario ({1})": [
   "src-tauri/src/secret_sources/keepass.rs"
  ],
  "la escala": [

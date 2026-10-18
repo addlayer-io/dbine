@@ -315,7 +315,23 @@
       "noFields": "Este elemento no tiene campos para elegir.",
       "useItem": "Usar este",
       "namesOnly": "Solo se muestran nombres, nunca valores.",
-      "fillFirst": "Completá primero: {{fields}}"
+      "fillFirst": "Completá primero: {{fields}}",
+      "pickRoles": "Elegí qué campo es el usuario y cuál la contraseña:"
+    },
+    "legacyUser": "Esta conexión toma el usuario del formulario, no de la entrada.",
+    "useEntryUser": "Usar el usuario de la entrada",
+    "advanced": {
+      "title": "Configuración avanzada",
+      "userField": "Campo del usuario",
+      "passwordField": "Campo de la contraseña",
+      "field": "Campo",
+      "user": "Usuario",
+      "password": "Contraseña",
+      "loading": "Cargando los campos de la entrada…",
+      "failed": "No se pudieron cargar los campos.",
+      "load": "Cargar campos",
+      "loaded": "{{n}} campos de la entrada.",
+      "hint": "Elegí una entrada para ver sus campos."
     }
   }
 }

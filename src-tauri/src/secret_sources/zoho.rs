@@ -59,6 +59,8 @@ pub struct Request<'a> {
     /// Empty: `password`.
     pub attribute: &'a str,
     pub username: bool,
+    /// The secret's field the user comes from; empty: `username`.
+    pub user_field: &'a str,
 }
 
 /// The base URLs to talk to: Zoho's for a data centre; a mock in tests.
@@ -433,8 +435,9 @@ pub fn values(secret: &Value, key: &str, req: &Request<'_>) -> Result<(String, O
         return Err(format!("el secreto «{name}» de Zoho Vault no tiene el campo «{want}» (tiene: {})", names.join(", ")));
     };
     let value = open_value(c, key, k, &name)?;
+    let user_field = Some(req.user_field.trim()).filter(|f| !f.is_empty()).unwrap_or("username");
     let username = if req.username {
-        match find("username") {
+        match find(user_field) {
             Some((k, c)) => Some(open_value(c, key, k, &name)?).filter(|u| !u.is_empty()),
             None => None,
         }
@@ -442,7 +445,7 @@ pub fn values(secret: &Value, key: &str, req: &Request<'_>) -> Result<(String, O
         None
     };
     if req.username && username.is_none() {
-        return Err(format!("el secreto «{name}» de Zoho Vault no tiene usuario (username)"));
+        return Err(format!("el secreto «{name}» de Zoho Vault no tiene usuario ({user_field})"));
     }
     Ok((value, username))
 }
@@ -624,7 +627,7 @@ mod tests {
     fn fields_and_usernames() {
         let v = vectors();
         let personal = secret("pg-main", "1", false, s(&v, "personal_secret_data"));
-        let r = |attr: &'static str, username: bool| Request { data_center: "eu", secret: "pg-main", attribute: attr, username };
+        let r = |attr: &'static str, username: bool| Request { data_center: "eu", secret: "pg-main", attribute: attr, username, user_field: "" };
         assert_eq!(values(&personal, s(&v, "master"), &r("", true)).unwrap(), ("pg-secret-1".to_string(), Some("app_user".to_string())));
         assert_eq!(values(&personal, s(&v, "master"), &r("username", false)).unwrap().0, "app_user");
         assert_eq!(values(&personal, s(&v, "master"), &r("PASSWORD", false)).unwrap().0, "pg-secret-1", "case doesn't matter");
@@ -811,7 +814,7 @@ mod tests {
         let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
         let v = vectors();
         let pass = s(&v, "passphrase").to_string();
-        let r = |secret: &'static str, attribute: &'static str, username: bool| Request { data_center: "eu", secret, attribute, username };
+        let r = |secret: &'static str, attribute: &'static str, username: bool| Request { data_center: "eu", secret, attribute, username, user_field: "" };
         // Each test uses its own refresh token: the access token cache is
         // keyed by it.
         let c = creds(&pass, "1000.dummy-refresh");
@@ -873,7 +876,7 @@ mod tests {
         let client = reqwest::Client::builder().https_only(true).build().unwrap();
         let ep = Endpoints { accounts: base.clone(), vault: base };
         let c = creds("x", "1000.dummy-refresh-https");
-        let e = read_with(&client, &ep, &Request { data_center: "eu", secret: "pg-main", attribute: "", username: false }, &c).await.unwrap_err();
+        let e = read_with(&client, &ep, &Request { data_center: "eu", secret: "pg-main", attribute: "", username: false, user_field: "" }, &c).await.unwrap_err();
         assert!(e.starts_with("no se pudo conectar con Zoho"), "{e}");
     }
 }

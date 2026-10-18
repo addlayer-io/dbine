@@ -362,6 +362,8 @@ pub struct Request<'a> {
     /// Empty: `password`.
     pub attribute: &'a str,
     pub username: bool,
+    /// The field the user comes from; empty: the login's username.
+    pub user_field: &'a str,
 }
 
 /// `(value, username)`.
@@ -646,9 +648,10 @@ pub async fn read_with(client: &reqwest::Client, ep: &Endpoints, req: &Request<'
     let items: Vec<&Value> = get(&vault, "ciphers").and_then(Value::as_array).map(|a| a.iter().filter(|c| get(c, "deletedDate").is_none()).collect()).unwrap_or_default();
     let (item, key, name) = find_item(&mut keys, &items, req.item.trim())?;
     let value = field(item, &key, req.attribute, &name)?;
+    let user_field = Some(req.user_field.trim()).filter(|f| !f.is_empty()).unwrap_or("username");
     let username = if req.username {
-        match decrypt_text(get(item, "login").and_then(|l| get(l, "username")), &key) {
-            Ok(Some(u)) if !u.is_empty() => Some(u),
+        match field(item, &key, user_field, &name) {
+            Ok(u) if !u.is_empty() => Some(u),
             _ => {
                 let mut v = value;
                 wipe(&mut v);
@@ -1315,14 +1318,16 @@ mod tests {
         let pw = s(&rec, "password").to_string();
         // Each test its own secret: the token cache is keyed by it.
         let c = creds(&pw, "dummy-api-secret");
-        let r = |item: &'static str, attribute: &'static str, username: bool| Request { server: "", item, attribute, username };
+        let r = |item: &'static str, attribute: &'static str, username: bool| Request { server: "", item, attribute, username, user_field: "" };
         assert_eq!(read_with(&client, &ep, &r("dbine-test-postgres", "", true), &c).await.unwrap(), ("pw".into(), Some("postgres".into())));
         assert_eq!(read_with(&client, &ep, &r("DBINE-test-postgres", "port", false), &c).await.unwrap().0, "5432", "a custom field; the name ignoring case");
         assert_eq!(read_with(&client, &ep, &r("dbine-test-postgres", "API token", false), &c).await.unwrap().0, "hidden-token-1", "a hidden field");
         let notes = read_with(&client, &ep, &r("dbine-test-postgres", "notes", false), &c).await.unwrap().0;
         assert_eq!(dbine_core::secret_sources::pick_json(&notes, "password").unwrap(), "pw");
+        let custom_user = Request { server: "", item: "dbine-test-postgres", attribute: "", username: true, user_field: "port" };
+        assert_eq!(read_with(&client, &ep, &custom_user, &c).await.unwrap(), ("pw".into(), Some("5432".into())), "the user from a custom field");
         let main = rec["items"]["main"].as_str().unwrap();
-        let by_id = Request { server: "", item: main, attribute: "username", username: false };
+        let by_id = Request { server: "", item: main, attribute: "username", username: false, user_field: "" };
         assert_eq!(read_with(&client, &ep, &by_id, &c).await.unwrap().0, "postgres", "by ID");
         assert_eq!(read_with(&client, &ep, &r("org-db", "", true), &c).await.unwrap(), ("org-secret-9".into(), Some("org_user".into())), "an organization's item");
         assert_eq!(read_with(&client, &ep, &r("pg notes", "notes", false), &c).await.unwrap().0, r#"{"password":"pw-from-note"}"#, "a secure note");
@@ -1382,7 +1387,7 @@ mod tests {
         let client = client_for(&ep).unwrap();
         // Its own server (port): its own cached token.
         let c = creds(s(&recorded(), "password"), "dummy-api-secret");
-        let req = Request { server: "", item: "dbine-test-postgres", attribute: "", username: false };
+        let req = Request { server: "", item: "dbine-test-postgres", attribute: "", username: false, user_field: "" };
         assert_eq!(read_with(&client, &ep, &req, &c).await.unwrap().0, "pw");
         assert_eq!(*mock.prelogins.lock().unwrap(), 1);
         forget_token(&token_cache_key(&ep.identity, &c.client_id, &c.client_secret));
@@ -1425,7 +1430,7 @@ mod tests {
         let ep = Endpoints::of(&base.replace("http://", "https://")).unwrap();
         let client = client_for(&ep).unwrap();
         let ep_http = Endpoints { identity: format!("{base}/identity"), api: format!("{base}/api") };
-        let e = read_with(&client, &ep_http, &Request { server: "", item: "x", attribute: "", username: false }, &creds("x", "dummy-api-secret-https")).await.unwrap_err();
+        let e = read_with(&client, &ep_http, &Request { server: "", item: "x", attribute: "", username: false, user_field: "" }, &creds("x", "dummy-api-secret-https")).await.unwrap_err();
         assert!(e.starts_with("no se pudo conectar con Bitwarden"), "{e}");
     }
 
@@ -1453,6 +1458,7 @@ mod tests {
                 master,
                 master_command: String::new(),
                 fill_username,
+                user_field: String::new(),
             };
             let src = bw("dbine-test-postgres", "", "", MasterSource::Keychain, true);
             let tokens: dbine_core::secrets::Secrets = [(defs::token_key("password", ""), s(u, "password").to_string()), (defs::token_key("password", "client_secret"), s(u, "client_secret").to_string())].into();

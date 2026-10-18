@@ -38,20 +38,50 @@ managers sorted by name in the interface's language:
   no selector.
 - **A command line or a secret manager**: the user and password fields go
   away and that source's inputs take their place, in the form's own two
-  columns. Where the source can give the user too, **Also use the entry's
-  user** appears; with it off, the user field comes back (the password still
-  comes from the source). Vault database credentials always give the user,
-  so the field stays hidden; with Conjur the user comes from the user
-  variable when it's set.
+  columns. Each source asks first for what signs in to it, then for the item:
+  KeePass: database file → key file → master password → entry; Bitwarden:
+  server → client ID and secret → master password → item; Zoho Vault: data
+  centre → client ID, secret and refresh token → passphrase → secret; Vault:
+  address → namespace and CA → sign-in → path (or role); AWS and Parameter
+  Store: region → profile → secret or parameter; Azure, Google, Conjur,
+  Delinea and 1Password likewise. **Browse** stays disabled, its tooltip
+  saying what's missing, until what signs in is filled (on a new connection
+  that includes the passwords and secrets to be kept in the keychain).
+- **Entries give the user and the password.** With KeePass, Bitwarden,
+  1Password, Zoho Vault, Delinea or the Central Credential Provider as the
+  credentials, both come from the entry, always: the connection's user field
+  doesn't show. By default the user is the entry's own (KeePass `UserName`,
+  the login's username in Bitwarden, the item's `username` in 1Password, the
+  `username` field in Zoho Vault and Delinea, the account's `UserName` in the
+  CCP) and the password its password.
+- **Configuración avanzada**, collapsed at the very bottom of the source,
+  picks other fields: **User field** and **Password field** (for another
+  secret, just **Field**). Both list the entry's field names, which load in
+  the background once the entry and the sign-in are there (names only); a
+  master password set to "Ask when connecting" is asked only when you click
+  **Load fields**. A name can also be typed. The Central Credential Provider
+  has no fields to choose.
+- **Single values** (AWS Secrets Manager, Parameter Store, Azure Key Vault,
+  Google Secret Manager, Vault KV, Bitwarden Secrets Manager, Conjur) keep
+  their JSON key; AWS and Parameter Store can also take the user from the
+  same secret (**Also use the entry's user**), Conjur from a user variable,
+  and Vault database credentials always give it.
 - **Other secret fields** (tokens, API keys, the SSH tunnel's password and
   passphrase) work the same way: the selector, then the field's input or the
   source's inputs.
 - **Test** at the end of the source's inputs resolves it with what the form
   has now and shows only how many characters came back.
 
-What the form stores didn't change: the definitions go in the connection's
-`secret_sources` option by field key, "Ask every time" is the connection's
-`save_password` set to false, and confirmations of definitions stay valid.
+What the form stores: the definitions go in the connection's
+`secret_sources` option by field key, and "Ask every time" is the
+connection's `save_password` set to false. The entry sources (KeePass,
+Bitwarden, 1Password, Zoho Vault, Delinea) take an optional `user_field`
+(left out when it's the entry's own), and 1Password a `fill_username`; a
+definition without them reads and writes the same JSON, so its confirmation
+stays valid. New entry definitions as the credentials are saved with
+`fill_username: true`. An older one saved without it keeps working as it
+did: the connection's user field shows, with a note and **Use the entry's
+user** to switch.
 
 ## Browse
 
@@ -59,9 +89,10 @@ Next to the item input of the sources that can list, **Browse** (the
 magnifier) opens the source's groups and items with a filter, then the
 chosen item's field names; picking one fills the item and the field. It
 needs the source's other inputs first (the file, the address, the client
-ID…), and signs in as **Test** does: a master password set to **Ask when
-connecting** is asked for this browse only and kept in memory while the
-dialog is open.
+ID…), and signs in as **Test** does. When the entry gives the database user
+and password, the field step marks which field is the **User** and which
+the **Password**. A master password set to **Ask when connecting** is
+asked for this browse only and kept in memory while the dialog is open.
 
 | Source | What it lists | Fields |
 |---|---|---|
@@ -115,12 +146,10 @@ characters came back (`OK · 24 characters`), never the value.
 Secrets are often a JSON object (`{"username": "app", "password": "…"}`).
 **JSON key** picks the key whose value is used (strings as they are, numbers
 and booleans as written). If the key isn't there, the error lists the keys
-the secret has (never their values). With AWS Secrets Manager, **Also use
-the entry's user** also fills the connection's user from the secret's
-`username` key; KeePass, Zoho Vault, Bitwarden, Delinea, the Central
-Credential Provider and AWS Parameter Store have the same option (the
-entry's `UserName`, the secret's `username`, the item's username, the
-account's `UserName`, the value's `username` key).
+the secret has (never their values). With AWS Secrets Manager and Parameter
+Store, **Also use the entry's user** also fills the connection's user from
+the value's `username` key. The entry sources give the user without asking
+(see [The form](#the-form)).
 
 ## Command line
 
@@ -148,6 +177,10 @@ and signed in: with the desktop app's CLI integration, `op` asks for Touch
 ID / Windows Hello itself (DBine waits up to 60 s). The errors say which case
 it is: CLI not installed, not signed in (`op signin`), unlock cancelled, item
 or field not found.
+
+As the credentials, the user comes from the same item: a second `op read` of
+`op://<vault>/<item>/username`, or of the field chosen as **User field**
+under **Configuración avanzada** (`[section/]field`).
 
 ## HashiCorp Vault
 
@@ -209,7 +242,7 @@ to `secretmanager.googleapis.com`. Errors: token rejected, permission denied
 |---|---|
 | Database file | The `.kdbx` file (`~/` is your home folder). |
 | Entry | `Group/Subgroup/Title` from the top of the database (the root group's own name may lead too), the title alone when no other entry has it, or the entry's UUID (with or without braces and dashes). |
-| Field | Optional: `Password` by default; `UserName`, `URL`, `Notes` or any custom (advanced) field. Exact name first, then ignoring case. |
+| Password field, user field | Under **Configuración avanzada**: `Password` and `UserName` by default; `URL`, `Notes` or any custom (advanced) field. Exact name first, then ignoring case. |
 | Key file | Optional: the key file the database needs besides (or instead of) the master password. |
 | Master password | **Saved in the keychain** (typed here), **Ask when connecting**, **From a command** (its output, as for the Command line source) or **None** (the key file alone). |
 
@@ -238,7 +271,7 @@ of the database is dropped. Entries in the recycle bin don't count.
 |---|---|
 | Data centre | The one of your Zoho account: `zoho.com` (US), `zoho.eu`, `zoho.in`, `zoho.com.au`, `zoho.jp`, `zohocloud.ca`, `zoho.sa`, `zoho.uk`, `zoho.ae`, `zoho.sg` or `zoho.com.cn`. |
 | Secret name or ID | The secret's exact name (else ignoring case), or its numeric ID. |
-| Field | Optional: `password` by default; `username` or any of the secret's fields, custom fields included. |
+| Password field, user field | Under **Configuración avanzada**: `password` and `username` by default; any of the secret's fields, custom fields included. |
 | Client ID, client secret, refresh token | A **Self Client** from Zoho's API console and a refresh token generated with the scopes `ZohoVault.secrets.READ` and `ZohoVault.user.READ`. The client secret and the token are kept in the system keychain. |
 | Master passphrase | **Saved in the keychain**, **Ask when connecting** or **From a command**, as for KeePass. |
 
@@ -338,7 +371,7 @@ variable, variable not found or without a value.
 | Client certificate | Optional (usually required by the CCP): a PEM file with the certificate (and its key, or the key in **Private key**), or a PKCS#12 file (`.p12`/`.pfx`). |
 | Passphrase | Of the PKCS#12 file or of an encrypted PKCS#8 key; kept in the system keychain. |
 | CA certificate | Optional: PEM file of the CA that signed the CCP's certificate. |
-| Take the user too | The connection's user comes from the account's `UserName`. |
+| User | As the credentials, the connection's user always comes from the account's `UserName`. |
 
 The CCP answers the account's `Content` (the password) and `UserName`. HTTPS
 only (plain HTTP only to this computer), and no redirect is followed. A PEM
@@ -358,7 +391,7 @@ AppID), the certificate refused, the passphrase wrong.
 | Secret ID or name | Its numeric ID, or its exact name (else ignoring case); more than one secret with that name is an error listing their IDs. |
 | Field | Optional: the field's slug (`password` by default; `username`, `server`, …) or its name. |
 | Password | **Saved in the keychain**, **Ask when connecting** or **From a command**, as for KeePass. With Delinea Platform, the client secret. |
-| Take the user too | The connection's user comes from the secret's `username` field. |
+| User field | Under **Configuración avanzada**: as the credentials, the connection's user comes from the secret's `username` field, or the slug chosen here. |
 
 DBine gets an OAuth2 access token from Secret Server (`POST /oauth2/token`,
 the password grant, with the domain if given) or, with Delinea Platform, from
@@ -379,7 +412,7 @@ against a mock of the API, not against a live Secret Server.
 |---|---|
 | Server | `bitwarden.com` (US cloud), `bitwarden.eu` (EU cloud), or your self-hosted server's URL (`https://bitwarden.example.com`; its `/identity` and `/api` are used). Plain `http://` only for this computer (`localhost`, `127.0.0.1`). |
 | Item | The item's ID, or its exact name (else ignoring case). Items in the trash don't count. |
-| Field | Optional: `password` by default; `username`, `notes`, `totp`, or the name of a custom field (text, hidden, boolean, or linked to the username or password). |
+| Password field, user field | Under **Configuración avanzada**: the login's password and username by default; `notes`, `totp`, or the name of a custom field (text, hidden, boolean, or linked to the username or password). |
 | JSON key | Optional: when the field holds JSON (often the notes), the key to use. |
 | client_id, client_secret | Your **personal API key** (web vault: *Account settings › Security › Keys › View API key*). The `client_id` (`user.…`) is part of the definition; the `client_secret` is kept in the system keychain. |
 | Master password | **Saved in the keychain**, **Ask when connecting** or **From a command**, as for KeePass. |

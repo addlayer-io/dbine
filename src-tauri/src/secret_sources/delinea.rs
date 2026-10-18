@@ -35,6 +35,8 @@ pub struct Request<'a> {
     /// The field's slug; empty: `password`.
     pub field: &'a str,
     pub fill_username: bool,
+    /// The field (slug or name) the user comes from; empty: `username`.
+    pub user_field: &'a str,
 }
 
 /// `(value, username)`.
@@ -182,10 +184,11 @@ pub fn values(secret: &Value, req: &Request<'_>) -> Result<(String, Option<Strin
     if item.get("isFile").and_then(Value::as_bool) == Some(true) {
         return Err(format!("el campo «{want}» del secreto «{name}» es un archivo"));
     }
+    let user_field = Some(req.user_field.trim()).filter(|f| !f.is_empty()).unwrap_or("username");
     let username = if req.fill_username {
-        match find("username").map(text).filter(|u| !u.is_empty()) {
+        match find(user_field).map(text).filter(|u| !u.is_empty()) {
             Some(u) => Some(u),
-            None => return Err(format!("el secreto «{name}» de Secret Server no tiene usuario (username)")),
+            None => return Err(format!("el secreto «{name}» de Secret Server no tiene usuario ({user_field})")),
         }
     } else {
         None
@@ -363,7 +366,7 @@ mod tests {
     }
 
     fn r<'a>(url: &'a str, secret: &'a str, field: &'a str, fill: bool) -> Request<'a> {
-        Request { url, platform_url: "", username: "svc_dbine", domain: "", secret, field, fill_username: fill }
+        Request { url, platform_url: "", username: "svc_dbine", domain: "", secret, field, fill_username: fill, user_field: "" }
     }
 
     /// Against a mock of Secret Server's API (no Delinea tenant was
@@ -378,6 +381,9 @@ mod tests {
         assert_eq!(read_with(&client, &r(&url, "pg-prod", "", false), pw).await.unwrap(), ("pg-secret-1".into(), None), "by name, exact");
         assert_eq!(read_with(&client, &r(&url, "PG-PROD-old", "server", false), pw).await.unwrap_err(), "Secret Server: no hay un secreto «PG-PROD-old» (o el usuario no tiene acceso)", "the mock's search is case sensitive");
         assert_eq!(read_with(&client, &r(&url, "41", "Server", false), pw).await.unwrap().0, "db.example.com", "a field by name");
+        let mut other_user = r(&url, "41", "", true);
+        other_user.user_field = "server";
+        assert_eq!(read_with(&client, &other_user, pw).await.unwrap().1.as_deref(), Some("db.example.com"), "the user from another slug");
         let e = read_with(&client, &r(&url, "twin", "", false), pw).await.unwrap_err();
         assert!(e.contains("2 secretos «twin»") && e.contains("51") && e.contains("52"), "{e}");
         let e = read_with(&client, &r(&url, "41", "pin", false), pw).await.unwrap_err();

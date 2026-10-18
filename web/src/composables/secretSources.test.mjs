@@ -216,12 +216,20 @@ test('the selector: local kinds first, then the managers by their name in the la
 test('browsing fills the item and its field; the user comes from the source', async () => {
   const { applyBrowse, missingForBrowse, userFromSource, emptyDraft } = await import('./secretSources.ts');
   const kp = emptyDraft('keepass');
-  assert.deepEqual(missingForBrowse(kp), ['file'], 'the entry is what browsing chooses');
+  assert.deepEqual(missingForBrowse(kp, true), ['file'], 'the entry is what browsing chooses');
   kp.file = '~/db.kdbx';
+  assert.deepEqual(missingForBrowse(kp, true), []);
+  assert.deepEqual(missingForBrowse(kp), ['token'], 'a new connection: the master password typed first');
+  kp.master = 'ask';
   assert.deepEqual(missingForBrowse(kp), []);
   applyBrowse(kp, { id: 'Databases/Prod/pg-main' }, 'Password');
   assert.equal(kp.entry, 'Databases/Prod/pg-main');
-  assert.equal(kp.attribute, 'Password');
+  assert.equal(kp.attribute, '', "the entry's own password field is the default");
+  applyBrowse(kp, { id: 'Databases/Prod/pg-main' }, 'API token', 'Login');
+  assert.equal(kp.attribute, 'API token');
+  assert.equal(kp.user_field, 'Login');
+  applyBrowse(kp, { id: 'Databases/Prod/pg-main' }, 'Password', 'UserName');
+  assert.equal(kp.user_field, '', "the entry's own user field is the default");
   const op = emptyDraft('onepassword');
   applyBrowse(op, { id: 'op://Private/pg' }, 'Database/password');
   assert.equal(op.reference, 'op://Private/pg/Database/password');
@@ -242,4 +250,26 @@ test('browsing fills the item and its field; the user comes from the source', as
   const vault = emptyDraft('vault');
   vault.fill_username = true;
   assert.equal(userFromSource(vault), false, 'Vault KV has no user to give');
+});
+
+test('entries give the user: fields, 1Password references, older definitions', async () => {
+  const { draftFrom, sourceFrom, userFromSource, passwordField, setPasswordField, fieldsQuery, emptyDraft } = await import('./secretSources.ts');
+  // An older KeePass definition without the user keeps the connection's user field.
+  const old = draftFrom({ kind: 'keepass', file: '~/db.kdbx', entry: 'pg' });
+  assert.equal(userFromSource(old), false);
+  assert.deepEqual(sourceFrom(old, 'password'), { kind: 'keepass', file: '~/db.kdbx', entry: 'pg' }, 'unchanged: same confirmation');
+  const kp = draftFrom({ kind: 'keepass', file: '~/db.kdbx', entry: 'pg', fill_username: true, user_field: 'Login' });
+  assert.equal(userFromSource(kp), true);
+  assert.equal(sourceFrom(kp, 'password').user_field, 'Login');
+  assert.equal(sourceFrom(kp, 'api_key').user_field, undefined, 'only the password gives the user');
+  const op = emptyDraft('onepassword');
+  op.reference = 'op://Private/pg/password';
+  assert.equal(passwordField(op), 'password');
+  setPasswordField(op, 'Database/secret');
+  assert.equal(op.reference, 'op://Private/pg/Database/secret');
+  assert.deepEqual(fieldsQuery(op), { item: 'op://Private/pg', path: 'Private' });
+  op.fill_username = true;
+  assert.equal(userFromSource(op), true);
+  assert.equal(sourceFrom(op, 'password').fill_username, true);
+  assert.equal(fieldsQuery(emptyDraft('keepass')), null, 'no entry yet');
 });

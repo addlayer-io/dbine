@@ -129,6 +129,14 @@ pub enum SecretSource {
         account: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         json_key: String,
+        /// The connection's user comes from the same item (its `username`
+        /// field, or `user_field`: `[section/]field`).
+        #[serde(default, skip_serializing_if = "is_false")]
+        fill_username: bool,
+        /// The entry's field the user comes from (with `fill_username`);
+        /// empty: the provider's own user field.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        user_field: String,
     },
     /// A key of a KV secret (v1 or v2).
     Vault {
@@ -204,6 +212,10 @@ pub enum SecretSource {
         /// The connection's user comes from the entry's `UserName`.
         #[serde(default, skip_serializing_if = "is_false")]
         fill_username: bool,
+        /// The entry's field the user comes from (with `fill_username`);
+        /// empty: the provider's own user field.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        user_field: String,
     },
     /// A secret of Zoho Vault: its REST API with an OAuth self client, the
     /// values decrypted here with the master passphrase.
@@ -225,6 +237,10 @@ pub enum SecretSource {
         /// The connection's user comes from the secret's `username`.
         #[serde(default, skip_serializing_if = "is_false")]
         fill_username: bool,
+        /// The entry's field the user comes from (with `fill_username`);
+        /// empty: the provider's own user field.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        user_field: String,
     },
     /// HashiCorp Vault's database secrets engine: a user and a password
     /// made for this connection (`<mount>/creds/<role>`), or a static
@@ -323,6 +339,10 @@ pub enum SecretSource {
         /// The connection's user comes from the secret's `username` field.
         #[serde(default, skip_serializing_if = "is_false")]
         fill_username: bool,
+        /// The entry's field the user comes from (with `fill_username`);
+        /// empty: the provider's own user field.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        user_field: String,
     },
     /// A field of an item of a Bitwarden vault (personal or an
     /// organization's): its API with a personal API key, the vault
@@ -349,6 +369,10 @@ pub enum SecretSource {
         /// The connection's user comes from the item's username.
         #[serde(default, skip_serializing_if = "is_false")]
         fill_username: bool,
+        /// The entry's field the user comes from (with `fill_username`);
+        /// empty: the provider's own user field.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        user_field: String,
     },
     /// A secret of Bitwarden Secrets Manager, with a machine account's
     /// access token (in the keychain, else `BWS_ACCESS_TOKEN`).
@@ -469,6 +493,15 @@ impl SecretSource {
         }
     }
 
+    /// The entry's field the user comes from; empty: the provider's own
+    /// (KeePass `UserName`, `username` elsewhere).
+    pub fn user_field(&self) -> &str {
+        match self {
+            Self::OnePassword { user_field, .. } | Self::KeePass { user_field, .. } | Self::Zoho { user_field, .. } | Self::Delinea { user_field, .. } | Self::Bitwarden { user_field, .. } => user_field.trim(),
+            _ => "",
+        }
+    }
+
     /// The JSON key to take from the secret (empty: the whole value).
     pub fn json_key(&self) -> &str {
         match self {
@@ -488,6 +521,9 @@ impl SecretSource {
     /// Everything the definition needs, well formed. Says what's wrong.
     pub fn validate(&self) -> Result<()> {
         let no_control = |s: &str| !s.chars().any(|c| c.is_control() && c != '\t');
+        if !no_control(self.user_field()) || self.user_field().len() > 256 {
+            return Err(bad("el campo del usuario no es válido"));
+        }
         match self {
             Self::Command { command, .. } => {
                 if command.trim().is_empty() {
@@ -1089,6 +1125,20 @@ mod tests {
         assert!(!cfg.options.contains_key(OPTION));
     }
 
+    /// A definition saved before `user_field` reads back the same and
+    /// writes the same JSON, so its confirmation stays valid.
+    #[test]
+    fn user_field_keeps_old_definitions() {
+        let old = r#"{"kind":"keepass","file":"~/db.kdbx","entry":"pg","fill_username":true}"#;
+        let src: SecretSource = serde_json::from_str(old).unwrap();
+        assert_eq!(serde_json::to_string(&src).unwrap(), old);
+        assert_eq!(src.user_field(), "");
+        let with: SecretSource = serde_json::from_str(r#"{"kind":"bitwarden","item":"pg","client_id":"user.x","fill_username":true,"user_field":"Login"}"#).unwrap();
+        assert_eq!(with.user_field(), "Login");
+        let bad: SecretSource = serde_json::from_str(r#"{"kind":"keepass","file":"f","entry":"e","user_field":"a\nb"}"#).unwrap();
+        assert!(bad.validate().is_err());
+    }
+
     #[test]
     fn every_kind_parses_from_its_json() {
         let json = r#"{
@@ -1118,7 +1168,7 @@ mod tests {
     fn validation_says_what_is_wrong() {
         assert!(cmd("  ").validate().is_err());
         assert!(cmd("a\nb").validate().is_err());
-        let op = |r: &str| SecretSource::OnePassword { reference: r.into(), account: String::new(), json_key: String::new() };
+        let op = |r: &str| SecretSource::OnePassword { reference: r.into(), account: String::new(), json_key: String::new(), fill_username: false, user_field: String::new() };
         assert!(op("Private/DB/password").validate().is_err());
         assert!(op("op://Private Vault/DB/password").validate().is_ok(), "names with spaces are fine");
         let az = |u: &str| SecretSource::Azure { vault_url: u.into(), name: "pw".into(), version: String::new(), json_key: String::new() };
@@ -1130,7 +1180,7 @@ mod tests {
         assert!(aws("eu-west-1").validate().is_ok());
         let profile = SecretSource::Aws { secret_id: "x".into(), region: String::new(), profile: "--debug".into(), json_key: String::new(), fill_username: false };
         assert!(profile.validate().is_err(), "nothing that reads as a flag");
-        let account = SecretSource::OnePassword { reference: "op://a/b/c".into(), account: "--debug".into(), json_key: String::new() };
+        let account = SecretSource::OnePassword { reference: "op://a/b/c".into(), account: "--debug".into(), json_key: String::new(), fill_username: false, user_field: String::new() };
         assert!(account.validate().is_err());
         assert!(aws("evil.com/").validate().is_err());
         let gcp = |p: &str, v: &str| SecretSource::Gcp { project: p.into(), secret: "pw".into(), version: v.into(), json_key: String::new() };
@@ -1163,6 +1213,7 @@ mod tests {
             master,
             master_command: String::new(),
             fill_username: false,
+            user_field: String::new(),
         }
     }
 
@@ -1175,6 +1226,7 @@ mod tests {
             master: MasterSource::Keychain,
             master_command: String::new(),
             fill_username: false,
+            user_field: String::new(),
         }
     }
 
@@ -1445,6 +1497,7 @@ mod tests {
             master,
             master_command: String::new(),
             fill_username: false,
+            user_field: String::new(),
         };
         assert!(del("https://ss", MasterSource::Keychain).validate().is_ok());
         assert!(del("http://ss.example.com", MasterSource::Keychain).validate().is_err(), "HTTPS only");
@@ -1462,6 +1515,7 @@ mod tests {
             master,
             master_command: String::new(),
             fill_username: false,
+            user_field: String::new(),
         }
     }
 

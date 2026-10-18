@@ -108,6 +108,9 @@ export interface SourceDraft {
   /** Bitwarden (and Secrets Manager): `bitwarden.com`, `bitwarden.eu` or a URL. */
   server: string;
   item: string;
+  /** The entry's field the user comes from (KeePass, Bitwarden, 1Password,
+   *  Zoho Vault, Delinea); empty: the provider's own. */
+  user_field: string;
   /** AWS Parameter Store. */
   parameter: string;
   list_index: string;
@@ -120,7 +123,7 @@ export function emptyDraft(kind: DraftKind = 'saved'): SourceDraft {
     file: '', entry: '', attribute: '', key_file: '', master: 'keychain', master_command: '', data_center: '', secret_name: '', client_id: '',
     client_secret: '', refresh_token: '', auth: 'token', approle_mount: '', role_id: '', approle_secret_id: '', mount: '', role: '', static_role: false, url: '',
     conjur_account: '', login: '', variable: '', username_variable: '', app_id: '', safe: '', folder: '', object: '', account_user: '', account_address: '',
-    client_cert: '', client_key: '', platform_url: '', username: '', domain: '', server: '', item: '', parameter: '', list_index: '',
+    client_cert: '', client_key: '', platform_url: '', username: '', domain: '', server: '', item: '', user_field: '', parameter: '', list_index: '',
   };
 }
 
@@ -168,7 +171,10 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
   const opt = <T extends object>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== '' && v !== false && v !== undefined)) as T;
   switch (d.kind) {
     case 'command': return opt({ kind: 'command' as const, command: t(d.command), json_key: t(d.json_key) });
-    case 'onepassword': return opt({ kind: 'onepassword' as const, reference: t(d.reference), account: t(d.account), json_key: t(d.json_key) });
+    case 'onepassword': return opt({
+      kind: 'onepassword' as const, reference: t(d.reference), account: t(d.account), json_key: t(d.json_key),
+      fill_username: field === 'password' && d.fill_username, user_field: field === 'password' && d.fill_username ? t(d.user_field) : '',
+    });
     case 'vault': return opt({
       kind: 'vault' as const, address: t(d.address), path: t(d.path), key: t(d.key), namespace: t(d.namespace),
       kv_version: d.kv_version === 'auto' ? '' : d.kv_version, ca_file: t(d.ca_file), ...vaultAuth(d),
@@ -182,12 +188,12 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
     case 'keepass': return opt({
       kind: 'keepass' as const, file: t(d.file), entry: t(d.entry), attribute: t(d.attribute), key_file: t(d.key_file),
       master: d.master === 'keychain' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
-      fill_username: field === 'password' && d.fill_username,
+      fill_username: field === 'password' && d.fill_username, user_field: field === 'password' && d.fill_username ? t(d.user_field) : '',
     }) as SecretSource;
     case 'zoho': return opt({
       kind: 'zoho' as const, data_center: t(d.data_center), secret_name: t(d.secret_name), attribute: t(d.attribute), client_id: t(d.client_id),
       master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
-      fill_username: field === 'password' && d.fill_username,
+      fill_username: field === 'password' && d.fill_username, user_field: field === 'password' && d.fill_username ? t(d.user_field) : '',
     }) as SecretSource;
     case 'vault_db': return opt({
       kind: 'vault_db' as const, address: t(d.address), mount: t(d.mount), role: t(d.role), static_role: d.static_role, namespace: t(d.namespace),
@@ -206,12 +212,12 @@ export function sourceFrom(d: SourceDraft, field: string): SecretSource | null {
       kind: 'delinea' as const, url: t(d.url), platform_url: t(d.platform_url), username: t(d.username), domain: t(d.domain),
       secret_name: t(d.secret_name), attribute: t(d.attribute),
       master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
-      fill_username: field === 'password' && d.fill_username,
+      fill_username: field === 'password' && d.fill_username, user_field: field === 'password' && d.fill_username ? t(d.user_field) : '',
     }) as SecretSource;
     case 'bitwarden': return opt({
       kind: 'bitwarden' as const, server: t(d.server), item: t(d.item), attribute: t(d.attribute), json_key: t(d.json_key), client_id: t(d.client_id),
       master: d.master === 'keychain' || d.master === 'none' ? '' : d.master, master_command: d.master === 'command' ? t(d.master_command) : '',
-      fill_username: field === 'password' && d.fill_username,
+      fill_username: field === 'password' && d.fill_username, user_field: field === 'password' && d.fill_username ? t(d.user_field) : '',
     }) as SecretSource;
     case 'bitwarden_sm': return opt({ kind: 'bitwarden_sm' as const, server: t(d.server), secret: t(d.secret), json_key: t(d.json_key) });
     case 'ssm': return opt({
@@ -287,7 +293,7 @@ export function sourceRows(s: SecretSource): [string, string][] {
     'command', 'reference', 'account', 'address', 'path', 'key', 'namespace', 'kv_version', 'ca_file', 'secret_id', 'region', 'profile', 'vault_url', 'name',
     'project', 'secret', 'version', 'file', 'entry', 'data_center', 'secret_name', 'client_id', 'attribute', 'key_file', 'master', 'master_command', 'json_key',
     'fill_username', 'mount', 'role', 'static_role', 'auth', 'approle_mount', 'role_id', 'url', 'platform_url', 'conjur_account', 'login', 'variable',
-    'username_variable', 'app_id', 'safe', 'folder', 'object', 'account_user', 'account_address', 'client_cert', 'client_key', 'username', 'domain', 'server', 'item', 'parameter', 'list_index',
+    'username_variable', 'app_id', 'safe', 'folder', 'object', 'account_user', 'account_address', 'client_cert', 'client_key', 'username', 'domain', 'server', 'item', 'user_field', 'parameter', 'list_index',
   ];
   const rec = s as unknown as Record<string, unknown>;
   return order.filter((k) => rec[k] !== undefined && rec[k] !== '' && rec[k] !== false).map((k) => [k, String(rec[k])]);
@@ -315,7 +321,41 @@ export function orderedKinds(label: (k: DraftKind) => string, locale: string, al
 
 /** Sources that can also give the connection's user ("Usar también el
  *  usuario de la entrada"). */
-export const FILLS_USER: readonly DraftKind[] = ['aws', 'keepass', 'zoho', 'ccp', 'delinea', 'bitwarden', 'ssm'];
+export const FILLS_USER: readonly DraftKind[] = ['aws', 'keepass', 'zoho', 'ccp', 'delinea', 'bitwarden', 'ssm', 'onepassword'];
+
+/** Sources whose item is an entry with its own user: as the database
+ *  credentials they give the user and the password, always (new
+ *  definitions). An older definition without `fill_username` keeps the
+ *  connection's user field. */
+export const ENTRY_KINDS: readonly DraftKind[] = ['keepass', 'bitwarden', 'onepassword', 'delinea', 'zoho', 'ccp'];
+
+/** The entry's own user and password fields (`user_field` / the password's
+ *  field left empty means these). */
+export const ENTRY_FIELDS: Partial<Record<DraftKind, { user: string; password: string }>> = {
+  keepass: { user: 'UserName', password: 'Password' },
+  bitwarden: { user: 'username', password: 'password' },
+  onepassword: { user: 'username', password: 'password' },
+  zoho: { user: 'username', password: 'password' },
+  delinea: { user: 'username', password: 'password' },
+};
+
+/** The draft's password field for an entry source (1Password: the
+ *  reference's field after `op://<vault>/<item>/`). */
+export function passwordField(d: SourceDraft): string {
+  if (d.kind === 'onepassword') return d.reference.trim().replace(/^op:\/\//, '').split('/').slice(2).join('/');
+  return d.attribute;
+}
+export function setPasswordField(d: SourceDraft, f: string): void {
+  if (d.kind === 'onepassword') {
+    const item = onePasswordItem(d.reference);
+    d.reference = item ? `${item}/${f || 'password'}` : d.reference;
+  } else d.attribute = f === ENTRY_FIELDS[d.kind]?.password ? '' : f;
+}
+/** `op://<vault>/<item>` of a 1Password reference ('' when it isn't one). */
+export function onePasswordItem(reference: string): string {
+  const parts = reference.trim().replace(/^op:\/\//, '').split('/');
+  return reference.trim().startsWith('op://') && parts.length >= 2 && parts[0] && parts[1] ? `op://${parts[0]}/${parts[1]}` : '';
+}
 
 /** The password's source gives the user too: the form hides its user field. */
 export function userFromSource(d: SourceDraft | undefined): boolean {
@@ -352,17 +392,27 @@ export function wholeValueAllowed(kind: DraftKind): boolean {
 
 /** What still has to be filled before browsing: the required inputs but
  *  the item (and its field) the browse chooses. */
-export function missingForBrowse(d: SourceDraft): (keyof SourceDraft)[] {
+export function missingForBrowse(d: SourceDraft, editing = false): (keyof SourceDraft)[] {
   const b = BROWSE[d.kind];
   if (!b) return [];
-  return missingInputs(d).filter((k) => k !== b.item && k !== b.field);
+  const need = missingInputs(d).filter((k) => k !== b.item && k !== b.field);
+  // A new connection has nothing kept: what signs in has to be typed.
+  if (!editing) {
+    const masterKept = ['keepass', 'delinea', 'bitwarden'].includes(d.kind) && d.master === 'keychain';
+    if ((masterKept || d.kind === 'conjur') && !d.token) need.push('token');
+    if ((d.kind === 'bitwarden' || d.kind === 'zoho') && !d.client_secret) need.push('client_secret');
+    if (d.kind === 'zoho' && !d.refresh_token) need.push('refresh_token');
+  }
+  return need;
 }
 
 /** Put what was chosen in the draft. `field`: the chosen field name, `''`
  *  for the whole value, `null` when the provider has no field step. */
-export function applyBrowse(d: SourceDraft, entry: { id: string; path?: string }, field: string | null): void {
+export function applyBrowse(d: SourceDraft, entry: { id: string; path?: string }, field: string | null, userField?: string): void {
   const b = BROWSE[d.kind];
   if (!b) return;
+  const defaults = ENTRY_FIELDS[d.kind];
+  if (userField !== undefined) d.user_field = userField === defaults?.user ? '' : userField;
   if (d.kind === 'onepassword') {
     // The entry is `op://<vault>/<item>`; the field goes after it.
     d.reference = field ? `${entry.id}/${field}` : entry.id;
@@ -370,5 +420,18 @@ export function applyBrowse(d: SourceDraft, entry: { id: string; path?: string }
   }
   (d as unknown as Record<string, string>)[b.item] = entry.id;
   if (d.kind === 'vault_db') d.static_role = entry.path === 'static-roles';
-  if (b.field && field !== null) (d as unknown as Record<string, string>)[b.field] = field;
+  // The entry's own password field is left empty (the default).
+  if (b.field && field !== null) (d as unknown as Record<string, string>)[b.field] = defaults && field === defaults.password ? '' : field;
+}
+
+/** The `item` / `path` a browse asks an entry's field names with, or null
+ *  while there's no entry. */
+export function fieldsQuery(d: SourceDraft): { item: string; path?: string } | null {
+  if (d.kind === 'onepassword') {
+    const item = onePasswordItem(d.reference);
+    return item ? { item, path: item.slice('op://'.length).split('/')[0] } : null;
+  }
+  const b = BROWSE[d.kind];
+  const v = b ? String(d[b.item] ?? '').trim() : '';
+  return v ? { item: v } : null;
 }

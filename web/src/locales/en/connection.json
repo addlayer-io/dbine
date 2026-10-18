@@ -315,7 +315,23 @@
       "noFields": "This item has no fields to pick.",
       "useItem": "Use this one",
       "namesOnly": "Only names are shown, never values.",
-      "fillFirst": "Fill in first: {{fields}}"
+      "fillFirst": "Fill in first: {{fields}}",
+      "pickRoles": "Choose which field is the user and which is the password:"
+    },
+    "legacyUser": "This connection takes the user from the form, not from the entry.",
+    "useEntryUser": "Use the entry's user",
+    "advanced": {
+      "title": "Advanced settings",
+      "userField": "User field",
+      "passwordField": "Password field",
+      "field": "Field",
+      "user": "User",
+      "password": "Password",
+      "loading": "Loading the entry's fields…",
+      "failed": "Couldn't load the fields.",
+      "load": "Load fields",
+      "loaded": "{{n}} fields in the entry.",
+      "hint": "Pick an entry to see its fields."
     }
   }
 }
