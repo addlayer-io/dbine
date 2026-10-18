@@ -229,7 +229,12 @@
       "line": "Linhas",
       "area": "Área",
       "pie": "Pizza",
-      "scatter": "Dispersão"
+      "scatter": "Dispersão",
+      "combo": "Barras + linhas",
+      "histogram": "Histograma",
+      "heatmap": "Mapa de calor",
+      "box": "Diagrama de caixa",
+      "kpi": "Indicador (KPI)"
     },
     "agg": {
       "none": "Sem agrupar",
@@ -258,7 +263,36 @@
     },
     "noNumeric": "Este resultado não tem colunas numéricas para o gráfico.",
     "pickValues": "Escolha pelo menos uma coluna em «Valores».",
-    "tooMany": "Categorias demais ({{n}}): agrupe por outra coluna ou escolha uma agregação."
+    "tooMany": "Categorias demais ({{n}}): agrupe por outra coluna ou escolha uma agregação.",
+    "yAxis": "Eixo Y",
+    "value": "Valor",
+    "noCategory": "Sem categoria",
+    "bins": "Intervalos",
+    "binsTitle": "Quantidade de intervalos do histograma",
+    "binsAuto": "Automático",
+    "pickYAxis": "Escolha uma coluna para o «Eixo Y».",
+    "kpiRows_one": "sobre {{rows}} linha",
+    "kpiRows_other": "sobre {{rows}} linhas",
+    "kpiRows_many": "sobre {{rows}} linhas",
+    "whole": {
+      "label": "Calcular sobre todo o resultado",
+      "title": "Executa novamente a consulta agrupada (somente leitura) para plotar todas as suas linhas, não só as carregadas",
+      "needsRun": "Execute a consulta para calcular o gráfico sobre todo o resultado",
+      "unsupported": "Este gráfico não pode ser calculado sobre todo o resultado (dispersão ou sem agrupamento)",
+      "running": "Calculando sobre todo o resultado…",
+      "failed": "Não foi possível calcular sobre todo o resultado: {{error}}. Exibindo as linhas carregadas.",
+      "retry": "Tentar novamente",
+      "refresh": "Recalcular",
+      "server": "Agregado no servidor",
+      "client_one": "Agregado no DBine sobre {{rows}} linha",
+      "client_other": "Agregado no DBine sobre {{rows}} linhas",
+      "client_many": "Agregado no DBine sobre {{rows}} linhas",
+      "clientNoCount": "Agregado no DBine",
+      "capped": "Agregado no DBine sobre as primeiras {{rows}} linhas (o máximo que ele lê)",
+      "truncated": "somente os primeiros grupos",
+      "stored": "salvo com o notebook",
+      "cancelled": "Cálculo cancelado: exibindo as linhas carregadas."
+    }
   },
   "insert": {
     "addRow": "Adicionar linha",

@@ -115,7 +115,10 @@
     "export": "Export",
     "exportHtml": "HTML (one page)",
     "exportMarkdown": "Markdown",
-    "saveTip": "Save (⌘S / Ctrl+S)"
+    "saveTip": "Save (⌘S / Ctrl+S)",
+    "exportedWithCharts_one": "Exported with {{count}} chart",
+    "exportedWithCharts_other": "Exported with {{count}} charts",
+    "exportedWithCharts_many": "Exported with {{count}} charts"
   },
   "add": {
     "sql": "SQL",
@@ -123,5 +126,14 @@
   },
   "tx": {
     "askClose": "This notebook has an open transaction on {{where}}. Commit or roll back the changes before closing it?"
+  },
+  "chart": {
+    "tabs": "Cell charts",
+    "untitled": "Chart {{n}}",
+    "add": "Add a chart",
+    "rename": "Rename",
+    "renameTip": "Double-click to rename",
+    "menu": "Chart options",
+    "remove": "Delete the chart"
   }
 }

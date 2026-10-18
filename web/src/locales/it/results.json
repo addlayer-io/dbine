@@ -229,7 +229,12 @@
       "line": "Linee",
       "area": "Area",
       "pie": "Torta",
-      "scatter": "Dispersione"
+      "scatter": "Dispersione",
+      "combo": "Barre + linee",
+      "histogram": "Istogramma",
+      "heatmap": "Mappa di calore",
+      "box": "Box plot",
+      "kpi": "Indicatore (KPI)"
     },
     "agg": {
       "none": "Senza raggruppare",
@@ -258,7 +263,36 @@
     },
     "noNumeric": "Questo risultato non ha colonne numeriche da rappresentare.",
     "pickValues": "Scegli almeno una colonna in «Valori».",
-    "tooMany": "Troppe categorie ({{n}}): raggruppa per un’altra colonna o scegli un’aggregazione."
+    "tooMany": "Troppe categorie ({{n}}): raggruppa per un’altra colonna o scegli un’aggregazione.",
+    "yAxis": "Asse Y",
+    "value": "Valore",
+    "noCategory": "Senza categoria",
+    "bins": "Intervalli",
+    "binsTitle": "Numero di intervalli dell'istogramma",
+    "binsAuto": "Automatico",
+    "pickYAxis": "Scegli una colonna per l'«Asse Y».",
+    "kpiRows_one": "su {{rows}} riga",
+    "kpiRows_other": "su {{rows}} righe",
+    "kpiRows_many": "su {{rows}} righe",
+    "whole": {
+      "label": "Calcola su tutto il risultato",
+      "title": "Riesegue la query raggruppata (sola lettura) per rappresentare tutte le sue righe, non solo quelle caricate",
+      "needsRun": "Esegui la query per calcolare il grafico su tutto il risultato",
+      "unsupported": "Questo grafico non può essere calcolato su tutto il risultato (dispersione o non raggruppato)",
+      "running": "Calcolo su tutto il risultato…",
+      "failed": "Impossibile calcolare su tutto il risultato: {{error}}. Vengono mostrate le righe caricate.",
+      "retry": "Riprova",
+      "refresh": "Ricalcola",
+      "server": "Aggregato sul server",
+      "client_one": "Aggregato in DBine su {{rows}} riga",
+      "client_other": "Aggregato in DBine su {{rows}} righe",
+      "client_many": "Aggregato in DBine su {{rows}} righe",
+      "clientNoCount": "Aggregato in DBine",
+      "capped": "Aggregato in DBine sulle prime {{rows}} righe (il massimo che legge)",
+      "truncated": "solo i primi gruppi",
+      "stored": "salvato con il notebook",
+      "cancelled": "Calcolo annullato: vengono mostrate le righe caricate."
+    }
   },
   "insert": {
     "addRow": "Aggiungi riga",

@@ -229,7 +229,12 @@
       "line": "Lignes",
       "area": "Aires",
       "pie": "Secteurs",
-      "scatter": "Nuage de points"
+      "scatter": "Nuage de points",
+      "combo": "Barres + lignes",
+      "histogram": "Histogramme",
+      "heatmap": "Carte thermique",
+      "box": "Boîte à moustaches",
+      "kpi": "Indicateur (KPI)"
     },
     "agg": {
       "none": "Sans regroupement",
@@ -258,7 +263,36 @@
     },
     "noNumeric": "Ce résultat n'a pas de colonnes numériques à représenter.",
     "pickValues": "Choisissez au moins une colonne dans « Valeurs ».",
-    "tooMany": "Trop de catégories ({{n}}) : regroupez par une autre colonne ou choisissez une agrégation."
+    "tooMany": "Trop de catégories ({{n}}) : regroupez par une autre colonne ou choisissez une agrégation.",
+    "yAxis": "Axe Y",
+    "value": "Valeur",
+    "noCategory": "Sans catégorie",
+    "bins": "Intervalles",
+    "binsTitle": "Nombre d'intervalles de l'histogramme",
+    "binsAuto": "Automatique",
+    "pickYAxis": "Choisissez une colonne pour l’« Axe Y ».",
+    "kpiRows_one": "sur {{rows}} ligne",
+    "kpiRows_other": "sur {{rows}} lignes",
+    "kpiRows_many": "sur {{rows}} lignes",
+    "whole": {
+      "label": "Calculer sur tout le résultat",
+      "title": "Réexécute la requête groupée (lecture seule) pour tracer toutes ses lignes, pas seulement celles chargées",
+      "needsRun": "Exécutez la requête pour calculer le graphique sur tout le résultat",
+      "unsupported": "Ce graphique ne peut pas être calculé sur tout le résultat (nuage de points ou non groupé)",
+      "running": "Calcul sur tout le résultat…",
+      "failed": "Impossible de calculer sur tout le résultat : {{error}}. Affichage des lignes chargées.",
+      "retry": "Réessayer",
+      "refresh": "Recalculer",
+      "server": "Agrégé sur le serveur",
+      "client_one": "Agrégé dans DBine sur {{rows}} ligne",
+      "client_other": "Agrégé dans DBine sur {{rows}} lignes",
+      "client_many": "Agrégé dans DBine sur {{rows}} lignes",
+      "clientNoCount": "Agrégé dans DBine",
+      "capped": "Agrégé dans DBine sur les {{rows}} premières lignes (le maximum lu)",
+      "truncated": "seulement les premiers groupes",
+      "stored": "enregistré avec le notebook",
+      "cancelled": "Calcul annulé : affichage des lignes chargées."
+    }
   },
   "insert": {
     "addRow": "Ajouter une ligne",

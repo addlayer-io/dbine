@@ -229,7 +229,12 @@
       "line": "Lines",
       "area": "Area",
       "pie": "Pie",
-      "scatter": "Scatter"
+      "scatter": "Scatter",
+      "combo": "Bars + lines",
+      "histogram": "Histogram",
+      "heatmap": "Heatmap",
+      "box": "Box plot",
+      "kpi": "Indicator (KPI)"
     },
     "agg": {
       "none": "No grouping",
@@ -258,7 +263,36 @@
     },
     "noNumeric": "This result has no numeric columns to chart.",
     "pickValues": "Pick at least one column in «Values».",
-    "tooMany": "Too many categories ({{n}}): group by another column or pick an aggregation."
+    "tooMany": "Too many categories ({{n}}): group by another column or pick an aggregation.",
+    "yAxis": "Y axis",
+    "value": "Value",
+    "noCategory": "No category",
+    "bins": "Bins",
+    "binsTitle": "Number of histogram bins",
+    "binsAuto": "Automatic",
+    "pickYAxis": "Pick a column for the \"Y axis\".",
+    "kpiRows_one": "over {{rows}} row",
+    "kpiRows_other": "over {{rows}} rows",
+    "kpiRows_many": "over {{rows}} rows",
+    "whole": {
+      "label": "Compute over the whole result",
+      "title": "Re-runs the grouped query (read-only) to chart all its rows, not just the loaded ones",
+      "needsRun": "Run the query to compute the chart over the whole result",
+      "unsupported": "This chart can't be computed over the whole result (scatter or ungrouped)",
+      "running": "Computing over the whole result…",
+      "failed": "Couldn't compute over the whole result: {{error}}. Showing the loaded rows.",
+      "retry": "Retry",
+      "refresh": "Recompute",
+      "server": "Aggregated on the server",
+      "client_one": "Aggregated in DBine over {{rows}} row",
+      "client_other": "Aggregated in DBine over {{rows}} rows",
+      "client_many": "Aggregated in DBine over {{rows}} rows",
+      "clientNoCount": "Aggregated in DBine",
+      "capped": "Aggregated in DBine over the first {{rows}} rows (the most it reads)",
+      "truncated": "only the first groups",
+      "stored": "saved with the notebook",
+      "cancelled": "Computation cancelled: showing the loaded rows."
+    }
   },
   "insert": {
     "addRow": "Add row",

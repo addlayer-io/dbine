@@ -115,7 +115,10 @@
     "export": "Esporta",
     "exportHtml": "HTML (una pagina)",
     "exportMarkdown": "Markdown",
-    "saveTip": "Salva (⌘S / Ctrl+S)"
+    "saveTip": "Salva (⌘S / Ctrl+S)",
+    "exportedWithCharts_one": "Esportato con {{count}} grafico",
+    "exportedWithCharts_other": "Esportato con {{count}} grafici",
+    "exportedWithCharts_many": "Esportato con {{count}} grafici"
   },
   "add": {
     "sql": "SQL",
@@ -123,5 +126,14 @@
   },
   "tx": {
     "askClose": "Questo notebook ha una transazione aperta su {{where}}. Confermare o annullare le modifiche prima di chiuderlo?"
+  },
+  "chart": {
+    "tabs": "Grafici della cella",
+    "untitled": "Grafico {{n}}",
+    "add": "Aggiungi un grafico",
+    "rename": "Rinomina",
+    "renameTip": "Doppio clic per rinominare",
+    "menu": "Opzioni del grafico",
+    "remove": "Elimina il grafico"
   }
 }

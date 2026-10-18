@@ -18,6 +18,10 @@
 - **Open data files directly:** SQLite, DuckDB, CSV, TSV, Parquet, JSON and Excel files open by double-clicking them or using "Open with DBine", by dropping them on the window, or with **File › Open…** (Cmd/Ctrl+O). Each one opens as a temporary connection you can keep with **Save connection**, and data files show their first 1,000 rows right away.
 - **Command palette:** Cmd/Ctrl+Shift+P finds and runs any action, showing only what the current engine supports, and **Go to…** (Cmd/Ctrl+P) jumps to connections, databases, tables, views, routines, saved queries and open tabs. Every palette action can also be given its own shortcut.
 - **Jump to related rows:** in a table's data or a query's results, **Go to referenced row** (or Cmd/Ctrl+click) opens the parent table filtered by that foreign key, and **Rows that reference it** opens each child table filtered by the value, composite keys included. On every engine with foreign keys.
+- **Charts over the whole result:** charts are computed over every row of the result, not only the rows loaded in the grid. On SQL engines the grouping runs on the server; on the other engines DBine does it.
+- **More chart kinds:** histogram, heatmap, box plot (with whiskers and outliers), bars with lines, and KPI (the total of the whole result).
+- **Several charts per notebook cell:** a notebook cell can show more than one chart of its result, and it remembers which source its map uses.
+- **Charts in notebook exports:** notebooks exported to HTML or Markdown include their charts as images.
 
 ## [0.1.15] - 2026-10-17
 
