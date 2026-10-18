@@ -1271,10 +1271,7 @@
   "crates/drivers/tdengine/src/properties.rs"
  ],
  "Ana": [
-  "src-tauri/src/commands/datagen.rs",
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs",
-  "src-tauri/src/notebook/files_tests.rs",
-  "src-tauri/src/notebook/local_tests.rs"
+  "src-tauri/src/commands/datagen.rs"
  ],
  "Analizador": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -1310,9 +1307,6 @@
  ],
  "April": [
   "src-tauri/src/tasks/os.rs"
- ],
- "Aprobado": [
-  "src-tauri/src/mcp/tests.rs"
  ],
  "Aprobado (el usuario aprobó todo lo de este cliente) y ejecutado.": [
   "src-tauri/src/mcp/write.rs"
@@ -1488,7 +1482,6 @@
   "crates/drivers/mysql/src/properties.rs"
  ],
  "Asistente de DBine": [
-  "src-tauri/src/mcp/tests.rs",
   "src-tauri/src/mcp/tools.rs"
  ],
  "Assertion": [
@@ -2405,7 +2398,6 @@
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/neo4j/src/monitor.rs",
   "crates/drivers/odbc/src/monitor.rs",
-  "crates/drivers/odbc/src/monitor_tests.rs",
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/phoenix/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
@@ -2526,11 +2518,9 @@
   "crates/drivers/influxdb/src/monitor.rs"
  ],
  "Buffer cache hit ratio": [
-  "crates/drivers/odbc/src/monitor_tests.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
  "Buffer cache hit ratio base": [
-  "crates/drivers/odbc/src/monitor_tests.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
  "Buffer pool (datos)": [
@@ -3832,8 +3822,7 @@
  ],
  "Codex": [
   "crates/dbine-ai/src/cli.rs",
-  "crates/dbine-ai/src/lib.rs",
-  "src-tauri/src/mcp/tests.rs"
+  "crates/dbine-ai/src/lib.rs"
  ],
  "Codex no está instalado": [
   "crates/dbine-ai/src/cli.rs"
@@ -5376,15 +5365,6 @@
   "crates/drivers/mysql/src/properties.rs",
   "crates/drivers/oracle/src/properties.rs"
  ],
- "CustomerID,ciudad\n1,Mendoza\n2,Córdoba\n": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
- "CustomerID,ciudad\n1,Mendoza\n2,Córdoba\n3,Jujuy\n": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
- "CustomerID,ciudad\n1,Rosario\n2,Córdoba\n4,Salta\n": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "Cuántas purgas recuerda la base para pasarlas a las réplicas y los índices. Por defecto, 1000.": [
   "crates/drivers/couchdb/src/properties.rs"
  ],
@@ -5466,8 +5446,7 @@
   "crates/drivers/bigquery/src/plan.rs"
  ],
  "Córdoba": [
-  "src-tauri/src/commands/datagen.rs",
-  "src-tauri/src/notebook/files_tests.rs"
+  "src-tauri/src/commands/datagen.rs"
  ],
  "DATA VERSION RETENTION TIME, para consultas sobre datos pasados (time travel). 0: sin retención.": [
   "crates/drivers/odbc/src/properties.rs"
@@ -5561,12 +5540,6 @@
  "DECIMAL de {0} dígitos supera los {1} de {2}: se usa DECFLOAT(34), que los guarda exactos.": [
   "crates/dbine-schema/src/dialect/db2.rs"
  ],
- "DEL dbine_chart": [
-  "src-tauri/src/commands/chart_live_tests.rs"
- ],
- "DEL {0}:1 {1}:2": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
- ],
  "DIFF o FULL activan la captura de cambios (CDC).": [
   "crates/drivers/neo4j/src/properties.rs"
  ],
@@ -5628,9 +5601,6 @@
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/odbc/src/presets.rs",
   "crates/drivers/postgres/src/processes.rs"
- ],
- "Database pages": [
-  "crates/drivers/odbc/src/monitor_tests.rs"
  ],
  "Databases": [
   "crates/drivers/cosmosdb/src/lib.rs",
@@ -5963,8 +5933,7 @@
   "src-tauri/src/tasks/os.rs"
  ],
  "Decimal": [
-  "crates/dbine-schema/src/dialect/clickhouse.rs",
-  "src-tauri/src/notebook/local_tests.rs"
+  "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
  "Decimal como scaled_float con factor 10^{0}: exacto hasta {1} decimales.": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs"
@@ -8761,7 +8730,6 @@
   "crates/drivers/neo4j/src/monitor.rs",
   "crates/drivers/neo4j/src/properties.rs",
   "crates/drivers/odbc/src/monitor.rs",
-  "crates/drivers/odbc/src/monitor_tests.rs",
   "crates/drivers/odbc/src/properties.rs",
   "crates/drivers/odbc/src/security/misc.rs",
   "crates/drivers/odbc/src/security/oracle_like.rs",
@@ -8943,11 +8911,6 @@
  ],
  "Etiquetas nuevas": [
   "crates/drivers/bigquery/src/properties.rs"
- ],
- "Eva": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs",
-  "src-tauri/src/notebook/files_tests.rs",
-  "src-tauri/src/notebook/local_tests.rs"
  ],
  "Evento": [
   "crates/drivers/oracle/src/monitor.rs",
@@ -10021,9 +9984,6 @@
  "Guardarla como carpeta por defecto del cluster": [
   "crates/drivers/solr/src/backup.rs"
  ],
- "Guid": [
-  "src-tauri/src/notebook/local_tests.rs"
- ],
  "Gómez": [
   "src-tauri/src/commands/datagen.rs"
  ],
@@ -10787,9 +10747,6 @@
  ],
  "Información del sistema": [
   "crates/drivers/odbc/src/monitor.rs"
- ],
- "Informix": [
-  "crates/drivers/odbc/src/monitor_tests.rs"
  ],
  "Informix actualiza solo las vistas que usan el nombre viejo. En los triggers cambia el encabezado pero no las acciones, y los procedimientos SPL quedan como estaban: los que se reescriben se borran y se vuelven a crear.": [
   "crates/drivers/odbc/src/rename.rs"
@@ -12301,7 +12258,6 @@
   "crates/drivers/firebird/src/monitor.rs"
  ],
  "Linux": [
-  "crates/drivers/odbc/src/monitor_tests.rs",
   "src-tauri/src/commands/telemetry.rs"
  ],
  "Lisboa": [
@@ -12617,11 +12573,6 @@
  ],
  "Lucía": [
   "src-tauri/src/commands/datagen.rs"
- ],
- "Luis": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs",
-  "src-tauri/src/notebook/files_tests.rs",
-  "src-tauri/src/notebook/local_tests.rs"
  ],
  "Líder": [
   "crates/drivers/etcd/src/lib.rs"
@@ -13328,9 +13279,6 @@
  "Memtables (heap)": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
- "Mendoza": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "Mensaje": [
   "crates/drivers/hana/src/backup.rs",
   "crates/drivers/mysql/src/backup.rs"
@@ -13482,8 +13430,7 @@
  "Modificado": [
   "crates/drivers/bigquery/src/properties.rs",
   "crates/drivers/influxdb/src/properties.rs",
-  "crates/drivers/odbc/src/monitor.rs",
-  "crates/drivers/odbc/src/monitor_tests.rs"
+  "crates/drivers/odbc/src/monitor.rs"
  ],
  "Modo": [
   "crates/drivers/clickhouse/src/schema.rs",
@@ -13708,8 +13655,7 @@
  "Motor": [
   "crates/drivers/clickhouse/src/schema.rs",
   "crates/drivers/hana/src/plan.rs",
-  "crates/drivers/odbc/src/monitor.rs",
-  "crates/drivers/odbc/src/monitor_tests.rs"
+  "crates/drivers/odbc/src/monitor.rs"
  ],
  "Motor (ms)": [
   "crates/drivers/athena/src/monitor.rs"
@@ -16701,9 +16647,6 @@
  "Permiso inválido: {0}. Elegí READ, WRITE o READWRITE.": [
   "crates/drivers/etcd/src/security.rs"
  ],
- "Permission": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "Permission denied (publickey)": [
   "src-tauri/src/commands/git_cli.rs"
  ],
@@ -17083,9 +17026,6 @@
  ],
  "Processes blocked": [
   "crates/drivers/sqlserver/src/monitor.rs"
- ],
- "Prod": [
-  "src-tauri/src/commands/subset/tests.rs"
  ],
  "Producidos": [
   "crates/drivers/ksqldb/src/monitor.rs"
@@ -17481,9 +17421,6 @@
  ],
  "Rechaza UPDATE y DELETE sin WHERE. Vacío: RESET.": [
   "crates/drivers/postgres/src/properties.rs"
- ],
- "Rechazado": [
-  "src-tauri/src/mcp/tests.rs"
  ],
  "Rechazado por el usuario en DBine: no se ejecutó nada.": [
   "src-tauri/src/mcp/tools.rs",
@@ -18293,9 +18230,7 @@
   "src-tauri/src/commands/datagen.rs"
  ],
  "Rosario": [
-  "src-tauri/src/commands/datagen.rs",
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs",
-  "src-tauri/src/notebook/files_tests.rs"
+  "src-tauri/src/commands/datagen.rs"
  ],
  "Rossi": [
   "src-tauri/src/commands/datagen.rs"
@@ -19288,7 +19223,6 @@
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/neo4j/src/monitor.rs",
   "crates/drivers/odbc/src/monitor.rs",
-  "crates/drivers/odbc/src/monitor_tests.rs",
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/orientdb/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
@@ -21167,7 +21101,6 @@
   "crates/drivers/postgres/src/monitor.rs"
  ],
  "Teradata": [
-  "crates/drivers/odbc/src/monitor_tests.rs",
   "crates/drivers/odbc/src/presets.rs"
  ],
  "Teradata admite hasta 38 dígitos; el origen tiene {0}.": [
@@ -22394,7 +22327,6 @@
   "crates/drivers/influxdb/src/security.rs",
   "crates/drivers/neo4j/src/security.rs",
   "crates/drivers/odbc/src/monitor.rs",
-  "crates/drivers/odbc/src/monitor_tests.rs",
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/postgres/src/backup.rs",
   "crates/drivers/postgres/src/monitor.rs",
@@ -23418,9 +23350,6 @@
  "Zen no tiene binarios de largo variable con límite: se usa LONGVARBINARY.": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
  ],
- "Zoe": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
- ],
  "Zoho Vault devolvió una cantidad de iteraciones fuera de rango ({0})": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
@@ -23744,8 +23673,7 @@
   "crates/drivers/phoenix/src/transfer.rs"
  ],
  "año": [
-  "crates/dbine-schema/src/logical.rs",
-  "src-tauri/src/notebook/local_tests.rs"
+  "crates/dbine-schema/src/logical.rs"
  ],
  "backup de {0} ({1}), DBine {2}": [
   "crates/dbine-sync/examples/open_backup.rs"
@@ -24468,15 +24396,6 @@
  ],
  "decimal sin precisión fija": [
   "crates/dbine-schema/src/logical.rs"
- ],
- "del \"\" --prefix": [
-  "src-tauri/src/lint/tests.rs"
- ],
- "del --from-key '\\0'": [
-  "src-tauri/src/lint/tests.rs"
- ],
- "del /app/ --prefix": [
-  "src-tauri/src/lint/tests.rs"
  ],
  "del servidor": [
   "crates/drivers/sqlserver/src/profiler.rs"
@@ -26532,9 +26451,6 @@
  "es una base de archivos sin servidor: no tiene sesiones que listar": [
   "crates/drivers/odbc/src/processes.rs"
  ],
- "es una carpeta": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "es una columna de clustering": [
   "crates/drivers/bigquery/src/rename.rs"
  ],
@@ -27226,8 +27142,7 @@
   "crates/drivers/dremio/src/profiler.rs",
   "crates/drivers/postgres/src/backup.rs",
   "crates/drivers/snowflake/src/profiler.rs",
-  "crates/drivers/trino/src/profiler.rs",
-  "src-tauri/src/notebook/local_tests.rs"
+  "crates/drivers/trino/src/profiler.rs"
  ],
  "falló (SQL{0})": [
   "crates/drivers/odbc/src/backup.rs"
@@ -27826,9 +27741,6 @@
  ],
  "guardar el archivo": [
   "src-tauri/src/commands/projects.rs"
- ],
- "guardá el notebook": [
-  "src-tauri/src/notebook/access_tests.rs"
  ],
  "guardá el notebook para recordar qué archivos puede leer": [
   "src-tauri/src/notebook/access.rs"
@@ -29968,9 +29880,6 @@
  "ninguno asociado: nadie puede ingresar con este rol": [
   "crates/drivers/dsql/src/security.rs"
  ],
- "ningún archivo coincide con «": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "ningún archivo coincide con «{0}»": [
   "src-tauri/src/notebook/files.rs"
  ],
@@ -29992,21 +29901,6 @@
   "crates/drivers/tdengine/src/create_db.rs",
   "crates/drivers/tdengine/src/properties.rs"
  ],
- "no Ana": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
- ],
- "no Eva": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
- ],
- "no Luis": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
- ],
- "no Zoe": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
- ],
- "no _id: {0}": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
- ],
  "no accounts configured": [
   "src-tauri/src/secret_sources/onepassword.rs"
  ],
@@ -30022,9 +29916,6 @@
  "no arrancó: {0}": [
   "crates/dbine-plugin/src/remote.rs"
  ],
- "no candidate for {0}": [
-  "src-tauri/src/optimizer/live_tests.rs"
- ],
  "no chkpt on recovery": [
   "crates/drivers/odbc/src/properties.rs"
  ],
@@ -30039,10 +29930,6 @@
  ],
  "no devolvió un token": [
   "crates/drivers/postgres/src/cloud_auth.rs"
- ],
- "no driver {0}": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs",
-  "src-tauri/src/optimizer/live_tests.rs"
  ],
  "no entra en {0}": [
   "crates/drivers/athena/src/transfer.rs"
@@ -30072,9 +29959,6 @@
  "no es la primera columna de la clave": [
   "crates/drivers/sqlserver/src/delta.rs"
  ],
- "no es solo una lectura": [
-  "src-tauri/src/notebook/local_tests.rs"
- ],
  "no es texto (se reescribiría)": [
   "crates/drivers/athena/src/transfer.rs"
  ],
@@ -30086,9 +29970,6 @@
  ],
  "no es un archivo de texto UTF-8": [
   "src-tauri/src/commands/projects.rs"
- ],
- "no es un archivo local": [
-  "src-tauri/src/notebook/files_tests.rs"
  ],
  "no es un código de DBine": [
   "crates/dbine-link/src/lib.rs"
@@ -30141,7 +30022,6 @@
   "crates/drivers/duckdb/src/lib.rs",
   "src-tauri/src/commands/notebook.rs",
   "src-tauri/src/notebook/files.rs",
-  "src-tauri/src/notebook/files_tests.rs",
   "src-tauri/src/open_files.rs"
  ],
  "no existe el esquema «{0}»": [
@@ -30347,9 +30227,6 @@
  "no latest.json in the latest release (or HTTP error), asking GitHub": [
   "src-tauri/src/commands/updates.rs"
  ],
- "no leen de la red": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "no parece una URL ni una cadena de conexión": [
   "crates/dbine-core/src/conn_import/urls.rs"
  ],
@@ -30396,12 +30273,6 @@
  "no respondió en {0} s": [
   "crates/dbine-plugin/src/remote.rs",
   "crates/drivers/sqlserver/src/entra.rs"
- ],
- "no result": [
-  "src-tauri/src/commands/grid_new_rows_live_tests.rs"
- ],
- "no rows without «datos»: {0}": [
-  "src-tauri/src/mcp/tests.rs"
  ],
  "no se borran documentos en una vista de CouchDB": [
   "crates/drivers/couchdb/src/ddl.rs"
@@ -31466,9 +31337,6 @@
  "no se puede tocar la carpeta .git": [
   "src-tauri/src/commands/project_paths.rs"
  ],
- "no se puede usar en una celda": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "no se reconoce el encabezado de la definición de la vista «{0}»": [
   "crates/drivers/athena/src/rename.rs",
   "crates/drivers/dremio/src/rename.rs",
@@ -31495,9 +31363,6 @@
  "no such function": [
   "crates/drivers/libsql/src/transfer.rs"
  ],
- "no table {0}": [
-  "crates/drivers/odbc/src/monitor_tests.rs"
- ],
  "no tiene clave primaria ni claves únicas: no se puede sincronizar": [
   "src-tauri/src/commands/migration.rs"
  ],
@@ -31518,9 +31383,6 @@
  ],
  "no token needed": [
   "crates/drivers/bigquery/src/gcp.rs"
- ],
- "no write request came": [
-  "src-tauri/src/mcp/tests.rs"
  ],
  "no {0} in {1}": [
   "crates/drivers/sqlserver/src/script_live.rs"
@@ -32405,9 +32267,6 @@
  "se cargaron las filas pero no se pudo mover la secuencia de «{0}» más allá del máximo cargado: {1}": [
   "crates/drivers/dsql/src/transfer.rs"
  ],
- "se cargó con las primeras 4 filas": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "se cerró antes de estar listo": [
   "crates/dbine-plugin/src/remote.rs"
  ],
@@ -32690,9 +32549,6 @@
  ],
  "sin particionar": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
- ],
- "sin permiso": [
-  "crates/drivers/odbc/src/monitor_tests.rs"
  ],
  "sin plan del servidor": [
   "crates/drivers/cosmosdb/src/plan.rs"
@@ -33311,9 +33167,6 @@
  ],
  "un servidor Avatica genérico no informa métricas": [
   "crates/drivers/phoenix/src/lib.rs"
- ],
- "un solo archivo": [
-  "src-tauri/src/notebook/files_tests.rs"
  ],
  "un solo documento ocupa más de {0} MiB en la respuesta: no se puede leer con la memoria acotada de la transferencia": [
   "crates/drivers/elasticsearch/src/transfer.rs"
@@ -35182,9 +35035,6 @@
  "{0}: máximo": [
   "crates/drivers/iotdb/src/properties.rs"
  ],
- "{0}: no category {1}": [
-  "src-tauri/src/commands/chart_live_tests.rs"
- ],
  "{0}: no database list: {1}": [
   "crates/drivers/postgres/src/session.rs"
  ],
@@ -35206,9 +35056,6 @@
  ],
  "{0}: no se pudo ver si ya tiene filas: {1}": [
   "crates/dbine-transfer/src/engine.rs"
- ],
- "{0}: no series {1}": [
-  "src-tauri/src/commands/chart_live_tests.rs"
  ],
  "{0}: pasar de tabla a supertabla (o al revés) requiere recrearla; se deja como está.": [
   "crates/drivers/tdengine/src/sync.rs"
@@ -35360,23 +35207,14 @@
  "{0}log_queries está desactivado para este usuario: las consultas de los usuarios con ese perfil no se registran.": [
   "crates/drivers/clickhouse/src/profiler.rs"
  ],
- "«CustomerTest.csv» es una ruta relativa": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "«Expirar documentos» solo vale para series temporales o colecciones agrupadas; para las demás use un índice TTL": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
  "«Transacciones iniciadas» se toma del número de transacción de la base actual: cuenta lecturas y escrituras.": [
   "crates/drivers/neo4j/src/monitor.rs"
  ],
- "«a.csv» es una ruta relativa: guardá el notebook": [
-  "src-tauri/src/notebook/files_tests.rs"
- ],
  "«analysis» tiene que ser un objeto JSON (analyzer, tokenizer, filter…).": [
   "crates/drivers/elasticsearch/src/ddl.rs"
- ],
- "«c1» se cargó con las primeras 4 filas": [
-  "src-tauri/src/notebook/local_tests.rs"
  ],
  "«op» falló sin explicar por qué": [
   "src-tauri/src/secret_sources/onepassword.rs"

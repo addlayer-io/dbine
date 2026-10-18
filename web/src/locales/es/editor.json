@@ -27,5 +27,7 @@
     "notLoaded": "Los objetos de la base todavía no se cargaron: conectate para ir a la definición."
   },
   "insertColumn": "Columna {{n}} de {{total}}: {{name}}",
-  "insertExtra": "Valor {{n}}: la lista tiene {{total}} columnas"
+  "insertExtra": "Valor {{n}}: la lista tiene {{total}} columnas",
+  "pickFile": "Elegir archivo…",
+  "dataFiles": "Archivos de datos (CSV, Parquet, JSON, Excel)"
 }

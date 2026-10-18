@@ -10,7 +10,8 @@ to web/src/locales/backend.msgids.json:
 - `format!` placeholders (`{}`, `{name}`, `{0:?}`, `{:.1}`…) become `{0}`,
   `{1}`… in order, which is how `tb()` matches them;
 - `{{` / `}}` become literal braces;
-- test code (`#[cfg(test)]` items, `tests/` folders) is skipped; code after
+- test code (`#[cfg(test)]` items, `tests/` folders, `tests.rs` and
+  `*_tests.rs` files) is skipped; code after
   a mid-file `#[cfg(test)]` field or fn is kept.
 
 Run it after changing backend messages, then translate what's new in each
@@ -249,6 +250,8 @@ def main():
     # The phone app's Rust (its errors reach the phone's screen).
     files += list((ROOT / "mobile/src-tauri/src").rglob("*.rs"))
     files = [f for f in files if str(f.relative_to(ROOT)) not in PROMPT_FILES]
+    # Test modules kept in their own file (`#[cfg(test)] #[path = "x_tests.rs"]`).
+    files = [f for f in files if not (f.name == "tests.rs" or f.name.endswith("_tests.rs"))]
     for f in sorted(files):
         src = strip_tests(f.read_text(encoding="utf-8"))
         for lit in literals(src):

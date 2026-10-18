@@ -245,6 +245,14 @@ JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
   `UPDATE EXTENSIONS`), `CREATE` / `DROP SECRET`, `SET` / `RESET` (except
   `SET VARIABLE`), `PRAGMA` (the `pragma_…()` table functions still work)
   and `CHECKPOINT`.
+- **Completion:** after `FROM`, `JOIN` or a comma in a `FROM` list, the
+  editor offers the cells above (a cell that hasn't run too, without
+  columns) and these readers; picking a reader writes `read_csv('')` with
+  the cursor between the quotes, where "Elegir archivo…" opens the system's
+  file dialog and writes the chosen path. The editor never lists a folder:
+  choosing or typing a path grants nothing: the file is approved when the cell runs. After `name.` or an alias come
+  the cell's columns, and the select list offers the columns of the tables
+  the statement reads.
 - **Approval:** a notebook reads no file the user hasn't allowed (see
   [Approving the files a notebook reads](#approving-the-files-a-notebook-reads)).
 

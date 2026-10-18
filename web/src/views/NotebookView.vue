@@ -402,6 +402,7 @@ const contexts = computed<Record<string, CellContext>>(() => {
       out[c.id] = {
         language: 'sql', dialect: duck?.dialect, schema: localSchema(c), snippets: snippetsFor(duck, userSnippets.value),
         target: t('notebook:target.results'), overridden: !emptyTarget(c.target), unresolved: false,
+        localFiles: true, grantedFiles: grantedFiles.value,
       };
       continue;
     }
@@ -560,7 +561,14 @@ async function runCell(cell: NotebookCell, sql: string | null = null): Promise<b
     return await runHeld(cell, sql, null);
   } finally {
     lock.release();
+    revealResult(cell.id);
   }
+}
+
+/** After a single run: the result in view, even when ⇧↵ already moved the
+ *  focus (and the view) to the next cell before the rows arrived. */
+function revealResult(id: string) {
+  void nextTick(() => requestAnimationFrame(() => cellViews.get(id)?.revealResult()));
 }
 
 /** The run itself, with the lock held. `asked`: the confirm_run targets
@@ -647,6 +655,14 @@ function answerFiles(d: FileDecision) {
 }
 /** "Permisos de archivos…": this notebook's grants. */
 const grantsOpen = ref(false);
+/** The files and patterns this notebook may always read: completion offers
+ *  them inside a reader's quotes (offering a path grants nothing). */
+const grantedFiles = ref<string[]>([]);
+async function loadGrantedFiles() {
+  const file = notebookFile.value;
+  grantedFiles.value = file ? (await notebookApi.fileGrants(file).catch(() => [])).map((g) => g.target) : [];
+}
+watch([notebookFile, grantsOpen], () => void loadGrantedFiles(), { immediate: true });
 
 async function runLocal(cell: NotebookCell, script: string, asked: Set<string> | null): Promise<boolean> {
   const cells = nb.value!.cells;
@@ -694,6 +710,7 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
         throw new Error(t('notebook:fileAccess.denied', { count: req.files.length, files: req.files.map((f) => f.path).join(', ') }));
       }
       await notebookApi.decideFiles(req.token, decision);
+      if (decision === 'always') void loadGrantedFiles();
       r = await notebookApi.runLocal({ ...args, approval: req.token });
     }
     const o = r.outcome;
