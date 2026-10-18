@@ -13,7 +13,8 @@
 //!    EXTRA_PARAM_FOUND). A personal secret is encrypted with the
 //!    master key; a shared one (`isshared: YES`) with the organization key,
 //!    which is RSA-encrypted for the user with a private key that is itself
-//!    encrypted with the master key (`/user/orgkey`).
+//!    encrypted with the master key (`/user/orgkey`): jsbn's hex key and
+//!    PKCS#1 v1.5 (`RSA_1024`, the default) or PKCS#8 and OAEP (`RSA_4096`).
 //! 5. Each value: base64 of an 8-byte nonce and AES-256 in counter mode, the
 //!    cipher key being the first 16 bytes of the key text encrypted with
 //!    AES-256 under itself, twice (Zoho's web client uses Chris Veness'
@@ -607,26 +608,138 @@ async fn org_key(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, master
     let d = first_detail(&json).ok_or("Zoho Vault no devolvió la clave de la organización")?;
     let private = d.get("privateKey").and_then(Value::as_str).filter(|s| !s.is_empty() && *s != "null");
     let shared = d.get("sharedKey").and_then(Value::as_str).filter(|s| !s.is_empty() && *s != "null");
+    let kind = d.get("rsaKeyType").and_then(Value::as_str).unwrap_or("");
     match (private, shared) {
-        (Some(p), Some(s)) => decrypt_org_key(p, s, master),
+        (Some(p), Some(s)) => decrypt_org_key(p, s, kind, master),
         _ => Err("el secreto es compartido, pero Zoho Vault no devolvió la clave de la organización para este usuario".into()),
     }
 }
 
-pub fn decrypt_org_key(private_key: &str, shared_key: &str, master: &str) -> Result<String, String> {
+/// The master passphrase opened the account but not the organization's
+/// private key.
+pub const ORG_PASSPHRASE: &str = "la frase de contraseña maestra no abre la clave privada de la organización de Zoho Vault";
+/// The private key decrypted, but isn't any format Zoho's clients write.
+pub const ORG_PRIVATE_FORMAT: &str = "la clave privada de la organización de Zoho Vault tiene un formato que DBine no reconoce";
+/// The RSA-encrypted organization key isn't hex or base64 as expected.
+pub const ORG_SHARED_FORMAT: &str = "la clave de la organización de Zoho Vault viene cifrada en un formato que DBine no reconoce";
+/// RSA refused the shared key with that private key.
+pub const ORG_RSA: &str = "la clave de la organización de Zoho Vault no se pudo descifrar con la clave privada";
+
+/// The organization key from `/user/orgkey`'s `privateKey` and `sharedKey`.
+/// Zoho's clients (the browser extension's VaultLogin.decryptOrgKey and
+/// BgZCrypt) write two kinds, told apart here by the decrypted private key
+/// (`rsaKeyType`, `RSA_1024` when absent, only goes to the log):
+///
+/// - `RSA_1024`: the private key is the text `n,e,d,p,q,dmp1,dmq1,coeff`
+///   in hex (jsbn's `RSAKey.setPrivateEx`), the shared key RSA PKCS#1 v1.5
+///   ciphertext in hex (`RSAKey.decrypt`).
+/// - `RSA_4096`: the private key is base64 PKCS#8, the shared key base64
+///   RSA-OAEP with SHA-256 (WebCrypto's `RSA-OAEP`, hash `SHA-256`).
+///
+/// Each stage fails with its own message, and the log says where it stopped
+/// with lengths and shapes only: never a key, a value or plaintext.
+pub fn decrypt_org_key(private_key: &str, shared_key: &str, key_type: &str, master: &str) -> Result<String, String> {
     use rsa::pkcs8::DecodePrivateKey;
-    let bad_key = || "no se pudo descifrar la clave de la organización de Zoho Vault".to_string();
-    let mut b64 = decrypt(private_key, master).ok().and_then(|b| String::from_utf8(b).ok()).ok_or_else(bad_key)?;
-    let der = base64::engine::general_purpose::STANDARD.decode(b64.trim().as_bytes());
-    wipe(&mut b64);
-    let mut der = der.map_err(|_| bad_key())?;
-    let key = rsa::RsaPrivateKey::from_pkcs8_der(&der);
-    wipe_bytes(&mut der);
-    let key = key.map_err(|_| bad_key())?;
-    let ct = base64::engine::general_purpose::STANDARD.decode(shared_key.trim().as_bytes()).map_err(|_| bad_key())?;
-    // OAEP with SHA-256 (what current clients write), else PKCS#1 v1.5.
-    let plain = key.decrypt(rsa::Oaep::<rsa::sha2::Sha256>::new(), &ct).or_else(|_| key.decrypt(rsa::Pkcs1v15Encrypt, &ct)).map_err(|_| bad_key())?;
-    String::from_utf8(plain).map_err(|_| bad_key())
+    use rsa::traits::PublicKeyParts;
+    // Zoho's label, not the text Zoho sent (it goes to the log).
+    let kind = match key_type {
+        "" => "(none: RSA_1024)",
+        "RSA_1024" => "RSA_1024",
+        "RSA_4096" => "RSA_4096",
+        _ => "(another)",
+    };
+    let stop = |stage: &str, msg: &str| {
+        tracing::warn!(rsa_key_type = kind, private_key_len = private_key.len(), shared_key_len = shared_key.len(), "zoho org key: {stage}");
+        msg.to_string()
+    };
+    let Ok(mut bytes) = decrypt(private_key, master) else {
+        return Err(stop("privateKey is not base64 of a nonce and ciphertext", ORG_PRIVATE_FORMAT));
+    };
+    // The key text is ASCII either way; anything else is another key's garbage.
+    if !bytes.iter().all(|b| b.is_ascii_graphic() || b.is_ascii_whitespace()) {
+        let n = bytes.len();
+        wipe_bytes(&mut bytes);
+        return Err(stop(&format!("privateKey decrypted to {n} bytes that are not text: the master key does not open it"), ORG_PASSPHRASE));
+    }
+    let mut text = String::from_utf8(bytes).unwrap_or_default();
+    let parts = text.trim().split(',').count();
+    let key = if parts > 1 {
+        let key = jsbn_private_key(&text);
+        let shape = format!("privateKey decrypted: {} chars, comma-separated: {parts} parts", text.trim().len());
+        wipe(&mut text);
+        let Some(key) = key else {
+            return Err(stop(&format!("{shape}, not 8 hex parts of an RSA key"), ORG_PRIVATE_FORMAT));
+        };
+        tracing::debug!("zoho org key: {shape} (jsbn RSAKey)");
+        let Some(mut ct) = unhex(shared_key.trim()) else {
+            return Err(stop("sharedKey is not hex (RSA_1024)", ORG_SHARED_FORMAT));
+        };
+        let plain = left_pad(&ct, key.size()).and_then(|c| key.decrypt(rsa::Pkcs1v15Encrypt, &c).ok());
+        wipe_bytes(&mut ct);
+        plain.ok_or_else(|| stop(&format!("sharedKey: {} hex chars, RSA PKCS#1 v1.5 refused it", shared_key.trim().len()), ORG_RSA))?
+    } else {
+        let der = base64::engine::general_purpose::STANDARD.decode(text.trim().as_bytes());
+        let shape = format!("privateKey decrypted: {} chars, without commas", text.trim().len());
+        wipe(&mut text);
+        let Ok(mut der) = der else {
+            return Err(stop(&format!("{shape}, not base64"), ORG_PRIVATE_FORMAT));
+        };
+        let key = rsa::RsaPrivateKey::from_pkcs8_der(&der);
+        let der_len = der.len();
+        wipe_bytes(&mut der);
+        let Ok(key) = key else {
+            return Err(stop(&format!("{shape}, base64 of {der_len} bytes that are not a PKCS#8 RSA key"), ORG_PRIVATE_FORMAT));
+        };
+        tracing::debug!("zoho org key: {shape} (PKCS#8, {der_len} bytes)");
+        let Ok(mut ct) = base64::engine::general_purpose::STANDARD.decode(shared_key.trim().as_bytes()) else {
+            return Err(stop("sharedKey is not base64 (RSA_4096)", ORG_SHARED_FORMAT));
+        };
+        let plain = left_pad(&ct, key.size()).and_then(|c| key.decrypt(rsa::Oaep::<rsa::sha2::Sha256>::new(), &c).ok());
+        let ct_len = ct.len();
+        wipe_bytes(&mut ct);
+        plain.ok_or_else(|| stop(&format!("sharedKey: base64 of {ct_len} bytes, RSA-OAEP SHA-256 refused it"), ORG_RSA))?
+    };
+    String::from_utf8(key).map_err(|e| {
+        wipe_bytes(&mut e.into_bytes());
+        stop("sharedKey decrypted to bytes that are not UTF-8", ORG_RSA)
+    })
+}
+
+/// jsbn's `setPrivateEx(n, e, d, p, q, dmp1, dmq1, coeff)` from its hex
+/// text. Like jsbn's CRT decryption, only `p`, `q` and `e` make the key
+/// (`n` must agree); the rest is derived again.
+fn jsbn_private_key(text: &str) -> Option<rsa::RsaPrivateKey> {
+    use rsa::traits::PublicKeyParts;
+    let mut parts: Vec<Vec<u8>> = text.trim().split(',').map(|p| unhex(p.trim())).collect::<Option<_>>()?;
+    let trim = |b: &[u8]| b[b.iter().position(|x| *x != 0).unwrap_or(b.len())..].to_vec();
+    let key = (parts.len() == 8).then(|| {
+        let e = rsa::BoxedUint::from_be_slice_vartime(&parts[1]);
+        let (p, q) = (rsa::BoxedUint::from_be_slice_vartime(&parts[3]), rsa::BoxedUint::from_be_slice_vartime(&parts[4]));
+        rsa::RsaPrivateKey::from_p_q(p, q, e).ok().filter(|k| trim(&k.n().as_ref().to_be_bytes()) == trim(&parts[0]))
+    });
+    parts.iter_mut().for_each(|p| wipe_bytes(p));
+    key.flatten()
+}
+
+/// Hex digits (either case; an odd count gets a leading zero, as jsbn
+/// writes numbers) as bytes.
+fn unhex(s: &str) -> Option<Vec<u8>> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let padded = if s.len() % 2 == 1 { format!("0{s}") } else { s.to_string() };
+    padded.as_bytes().chunks(2).map(|c| u8::from_str_radix(std::str::from_utf8(c).ok()?, 16).ok()).collect()
+}
+
+/// The ciphertext as the modulus' length: jsbn drops leading zero bytes.
+fn left_pad(ct: &[u8], size: usize) -> Option<Vec<u8>> {
+    let start = ct.iter().position(|b| *b != 0).unwrap_or(ct.len());
+    let ct = &ct[start..];
+    (ct.len() <= size).then(|| {
+        let mut out = vec![0u8; size - ct.len()];
+        out.extend_from_slice(ct);
+        out
+    })
 }
 
 /// The secret's data: `secretData` (a JSON object, or its text) plus the
@@ -857,9 +970,53 @@ mod tests {
     #[test]
     fn organization_key_vectors() {
         let v = vectors();
-        assert_eq!(decrypt_org_key(s(&v, "private_key"), s(&v, "shared_key_oaep"), s(&v, "master")).unwrap(), s(&v, "org_key"));
-        assert_eq!(decrypt_org_key(s(&v, "private_key"), s(&v, "shared_key_pkcs1"), s(&v, "master")).unwrap(), s(&v, "org_key"));
-        assert!(decrypt_org_key(s(&v, "private_key"), s(&v, "shared_key_oaep"), s(&v, "legacy_master")).is_err(), "another master key");
+        let (master, org) = (s(&v, "master"), s(&v, "org_key"));
+        // RSA_1024 (jsbn: hex components, hex PKCS#1 v1.5), with or without
+        // rsaKeyType: the data says which.
+        assert_eq!(decrypt_org_key(s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"), "", master).unwrap(), org);
+        assert_eq!(decrypt_org_key(s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"), "RSA_1024", master).unwrap(), org);
+        assert_eq!(decrypt_org_key(s(&v, "rsa1024_private_key"), &s(&v, "rsa1024_shared_key").to_uppercase(), "", master).unwrap(), org, "hex in either case");
+        // RSA_4096 (WebCrypto: base64 PKCS#8, base64 OAEP SHA-256).
+        assert_eq!(decrypt_org_key(s(&v, "rsa4096_private_key"), s(&v, "rsa4096_shared_key"), "RSA_4096", master).unwrap(), org);
+        // The organization key opens the shared secrets.
+        let shared = secret("org-db", "2", true, s(&v, "shared_secret_data"));
+        let key = decrypt_org_key(s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"), "", master).unwrap();
+        let r = Request { data_center: "eu", secret: "org-db", attribute: "", username: true, user_field: "" };
+        assert_eq!(values(&shared, &key, &r).unwrap(), ("org-secret-9".to_string(), Some("org_user".to_string())));
+    }
+
+    /// Each stage of the organization key fails with its own message, and
+    /// none carries a key, a value or plaintext.
+    #[test]
+    fn organization_key_stages() {
+        // `cargo test organization_key_stages -- --nocapture` shows the log lines.
+        let _ = tracing_subscriber::fmt().with_test_writer().with_max_level(tracing::Level::DEBUG).try_init();
+        let v = vectors();
+        let (master, org) = (s(&v, "master"), s(&v, "org_key"));
+        let (p1024, s1024) = (s(&v, "rsa1024_private_key"), s(&v, "rsa1024_shared_key"));
+        let (p4096, s4096) = (s(&v, "rsa4096_private_key"), s(&v, "rsa4096_shared_key"));
+        let fails = |p: &str, sk: &str, m: &str| decrypt_org_key(p, sk, "", m).unwrap_err();
+        // The master key doesn't open the private key.
+        assert_eq!(fails(p1024, s1024, s(&v, "legacy_master")), ORG_PASSPHRASE);
+        assert_eq!(fails(p4096, s4096, s(&v, "legacy_master")), ORG_PASSPHRASE);
+        // The private key isn't any format Zoho writes.
+        assert_eq!(fails("not base64!", s1024, master), ORG_PRIVATE_FORMAT);
+        assert_eq!(fails(&encrypt("a1,b2,c3", master, [1; 8]), s1024, master), ORG_PRIVATE_FORMAT, "too few parts");
+        assert_eq!(fails(&encrypt("a1,b2,c3,d4,e5,f6,a7,zz", master, [1; 8]), s1024, master), ORG_PRIVATE_FORMAT, "not hex");
+        assert_eq!(fails(&encrypt("a1,10001,c3,d5,e5,f7,a7,b9", master, [1; 8]), s1024, master), ORG_PRIVATE_FORMAT, "not an RSA key");
+        assert_eq!(fails(&encrypt("!!no-commas!!", master, [1; 8]), s4096, master), ORG_PRIVATE_FORMAT);
+        assert_eq!(fails(&encrypt("AAAA", master, [1; 8]), s4096, master), ORG_PRIVATE_FORMAT, "base64, not PKCS#8");
+        // The shared key isn't the encoding that key type uses.
+        assert_eq!(fails(p1024, s4096, master), ORG_SHARED_FORMAT, "base64 for a jsbn key");
+        assert_eq!(fails(p4096, "%%%", master), ORG_SHARED_FORMAT);
+        // RSA refuses it: encrypted for another key, or tampered with.
+        let other = format!("{}{}", &s1024[..10], if &s1024[10..11] == "0" { "1" } else { "0" }) + &s1024[11..];
+        assert_eq!(fails(p1024, &other, master), ORG_RSA);
+        assert_eq!(fails(p4096, &base64::engine::general_purpose::STANDARD.encode([7u8; 256]), master), ORG_RSA);
+        assert_eq!(fails(p1024, &"ff".repeat(200), master), ORG_RSA, "longer than the modulus");
+        for m in [ORG_PASSPHRASE, ORG_PRIVATE_FORMAT, ORG_SHARED_FORMAT, ORG_RSA] {
+            assert!(!m.contains(org) && !m.contains(master), "{m}");
+        }
     }
 
     fn secret(name: &str, id: &str, shared: bool, data: &str) -> Value {
@@ -1076,7 +1233,7 @@ mod tests {
                     }
                     let v = vectors();
                     Json(json!({ "operation": { "result": { "status": "Success", "message": "" }, "Details": {
-                        "privateKey": v["private_key"], "sharedKey": v["shared_key_oaep"], "rsaKeyType": "RSA_4096"
+                        "privateKey": v["rsa1024_private_key"], "sharedKey": v["rsa1024_shared_key"]
                     } } }))
                 }),
             )
