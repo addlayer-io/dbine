@@ -193,7 +193,7 @@ up to 16 MiB).
 | DuckDB (spatial) | `GEOMETRY` | `0x` + WKB, whole |
 | SAP HANA | `ST_GEOMETRY`, `ST_POINT` | `0x` + WKB, whole |
 | TDengine | `GEOMETRY` | `0x` + WKB, whole |
-| Oracle | `SDO_GEOMETRY` | Partial: the Oracle client library DBine uses doesn't decode object types, so the raw column isn't drawn. `SELECT SDO_UTIL.TO_WKTGEOMETRY(geom)` (or `TO_GEOJSON`) is drawn (text, up to 64 KB per value) |
+| Oracle, Autonomous Database | `SDO_GEOMETRY` | EWKT text converted on the server, whole (up to 16 MiB), typed `SDO_GEOMETRY`: the Oracle client library DBine uses doesn't decode object types, so the driver asks for `SDO_UTIL.TO_WKTGEOMETRY` (see below). Needs Spatial / Locator in the database (all editions since 12.2; not in the `slim` Free image) |
 | ClickHouse | `Point`, `Ring`, `LineString`, `MultiLineString`, `Polygon`, `MultiPolygon` | Nested arrays with the type name |
 | BigQuery | `GEOGRAPHY` | WKT |
 | Snowflake | `GEOGRAPHY`, `GEOMETRY` | GeoJSON (the session's default output format) |
@@ -207,12 +207,54 @@ up to 16 MiB).
 | Redis, Valkey, Dragonfly | GEO sets | Not applicable: GEO members are sorted-set members whose score is a geohash, not a column; `GEOPOS` replies aren't tabular |
 | Cassandra, ScyllaDB, DynamoDB, Spanner, Firebird, InfluxDB, IoTDB, ksqlDB, etcd, Phoenix, Dremio, Drill, Flight SQL, Aurora DSQL, OrientDB | None (or not exposed by the protocol) | Not applicable, except latitude / longitude columns, which work in every engine |
 
+**Oracle `SDO_GEOMETRY`.** The pure-Rust Oracle client can't read object
+types: a query with an `SDO_GEOMETRY` column fails in the client with
+"unsupported database type DB_TYPE_OBJECT". The server converts the
+geometries instead, on two paths:
+
+- *Table data* ("Ver datos", sort and filters, data compare, copies): the
+  browse query lists the columns and selects each `SDO_GEOMETRY` one as
+  `CASE WHEN t."G".SDO_SRID IS NOT NULL THEN 'SRID=' || DECODE(t."G".SDO_SRID, 8307, 4326, t."G".SDO_SRID) || ';' END || SDO_UTIL.TO_WKTGEOMETRY(t."G") AS "G"`.
+  Tables without geometries keep `SELECT *`.
+- *Any other query* (one written in the editor, with joins, `SELECT *`,
+  `ORDER BY`, duplicate column names): when the client reports an object
+  column, the driver runs that statement again as
+  `WITH "DBINE_Q" ("C1", …, "Cn") AS (<the statement>) SELECT q."C1" AS "ID", …, <the same EWKT expression on q."Cn"> AS "G" FROM "DBINE_Q" q`.
+  The editor text doesn't change and the grid shows the converted result,
+  with a message that names the converted columns. The alias list renames
+  by position, so duplicate names don't clash, and the statement's own
+  `ORDER BY` / `FETCH FIRST` stay inside. In a script, each `SELECT` is
+  handled on its own. An object type that isn't a geometry
+  (`SDO_POINT_TYPE`, a user type, a `VARRAY`) can't be converted: the
+  statement fails with the client's error and a message that says to
+  select its attributes or use `SDO_UTIL.TO_WKTGEOMETRY(column)`.
+
+EWKT keeps the SRID; 8307 (Oracle's WGS 84) is sent as 4326 and the map
+also takes 8307 and 8265 as WGS 84-like. A geometry without `SDO_SRID`
+comes as plain WKT and is drawn when its numbers are degrees. The numbers
+are Oracle's own decimal text of the stored `NUMBER`s, so nothing is
+rounded on the way; the rectangle shorthand (etype 1003, interpretation 3)
+comes as its polygon and Z is dropped by the map. Any result column that is
+`SDO_UTIL.TO_WKTGEOMETRY(…)` (DBine's or written by hand, with or without
+an alias) is typed `SDO_GEOMETRY` and not cut at 64 KB. Those columns are
+read-only in the grid (the edit would write text into an object column):
+the cell says to change it with SQL; the other columns of the row stay
+editable, and the geometry is left out of an all-columns `WHERE`. A
+query with object columns that the client rejects has run once on the
+server before the converted run.
+
 Tested against real servers: PostGIS 3.4 (`postgres/tests/spatial.rs`),
 MySQL 8.4 and MariaDB 11.8 (`mysql/tests/spatial.rs`) and SQL Server 2022
 (`sqlserver/tests/spatial.rs`), each with a point and a 241-vertex polygon
 (past 1 KiB); the values they returned are decoded by the UI's parser
 (`web/src/composables/geo.test.mjs` holds vectors taken from those servers).
-SQLite has a unit test for whole spatial blobs. DuckDB, HANA, TDengine,
+Oracle Free 23 with Spatial (`gvenzl/oracle-free:23-full`,
+`oracle/tests/spatial.rs`): a point in 4326, a polygon in 8307, a
+geometry without SRID, a NULL and a 6,000-vertex line (past 64 KB), read
+through the browse query sorted and filtered, through a join with
+`ORDER BY` and duplicate column names, through `SELECT *` in a script, and
+an object type that isn't a geometry (the hint); the values it returned
+are in `geo.test.mjs`. SQLite has a unit test for whole spatial blobs. DuckDB, HANA, TDengine,
 ClickHouse, BigQuery, Snowflake, Databricks, Trino, MongoDB, Elasticsearch,
 Solr and Neo4j are read from the formats documented for each driver above,
 not yet checked against a live server.

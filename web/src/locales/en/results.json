@@ -79,7 +79,8 @@
     "newRows_other": "{{count}} new rows",
     "newDocs_one": "{{count}} new document",
     "newDocs_many": "{{count}} new documents",
-    "newDocs_other": "{{count}} new documents"
+    "newDocs_other": "{{count}} new documents",
+    "convertedSpatial": "{{column}} is SDO_GEOMETRY converted to text (WKT) to show it; change it with SQL"
   },
   "exportDialog": {
     "title": "Export result",

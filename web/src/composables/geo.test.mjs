@@ -185,6 +185,23 @@ test('WKT and EWKT', () => {
   assert.equal(parseWkt('hello'), null);
 });
 
+test('Oracle SDO_GEOMETRY as the driver sends it (EWKT from SDO_UTIL.TO_WKTGEOMETRY)', () => {
+  // Oracle Free 23 (full image), SDO_GEOMETRY(2001, 4326, SDO_POINT_TYPE(-58.3816, -34.6037, NULL), NULL, NULL)
+  const p = parseCell('SRID=4326;POINT (-58.3816 -34.6037)', 'SDO_GEOMETRY');
+  assert.deepEqual(p, { geometry: { type: 'Point', coordinates: [-58.3816, -34.6037] }, srid: 4326 });
+  // SRID 8307 (Oracle's WGS 84) comes as 4326; the rectangle shorthand (etype 1003, interpretation 3) as its polygon
+  const g = parseCell('SRID=4326;POLYGON ((-59.0 -35.0, -58.0 -35.0, -58.0 -34.0, -59.0 -34.0, -59.0 -35.0))', 'SDO_GEOMETRY');
+  assert.deepEqual(g.geometry.coordinates[0][2], [-58, -34]);
+  // 3D point (SDO_GTYPE 3001): three numbers without a Z tag
+  assert.deepEqual(parseCell('SRID=4326;POINT (1.0 2.0 0.0)', 'SDO_GEOMETRY').geometry.coordinates, [1, 2]);
+  // No SDO_SRID: plain WKT, drawn when the numbers are degrees
+  assert.equal(parseCell('POINT (10.0 20.0)', 'SDO_GEOMETRY').srid, null);
+  // Oracle's legacy geodetic codes, should an EWKT carry them
+  assert.ok('geometry' in toWgs84({ geometry: { type: 'Point', coordinates: [-58, -34] }, srid: 8307 }));
+  const d = detectSpatial([{ name: 'ID', type_name: 'NUMBER' }, { name: 'Geom', type_name: 'SDO_GEOMETRY' }], [[1, 'SRID=4326;POINT (-58.3816 -34.6037)'], [3, null]]);
+  assert.deepEqual(d.geometry, [1]);
+});
+
 // -- GeoJSON and points -----------------------------------------------------------------
 
 test('GeoJSON as text (MongoDB, Snowflake) and as an object', () => {

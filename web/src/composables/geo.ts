@@ -569,7 +569,9 @@ export function parseCell(v: CellValue, type = '', name = ''): Spatial | null {
 // -- coordinate systems --------------------------------------------------------------
 
 /** Geographic systems that match WGS 84 to within a few metres: drawn as is. */
-export const WGS84_LIKE = new Set([4326, 4979, 4258, 4269, 4283, 7844, 4674, 5340, 4190, 4148, 4167, 4612, 6668, 4490, 4617, 4019, 4030]);
+export const WGS84_LIKE = new Set([4326, 4979, 4258, 4269, 4283, 7844, 4674, 5340, 4190, 4148, 4167, 4612, 6668, 4490, 4617, 4019, 4030,
+  // Oracle's legacy geodetic codes: 8307 (WGS 84), 8265 (NAD 83).
+  8307, 8265]);
 /** Web Mercator under its several codes. */
 export const MERCATOR = new Set([3857, 900913, 3785, 102100, 102113]);
 

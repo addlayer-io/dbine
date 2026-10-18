@@ -7,7 +7,7 @@
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 // |timeline[&tab=tq|tf|to] (the history sidebar's "Esta pestaña" next to a stand-in editor: preview/timeline-samples.ts)
 // |rename[&prod=0][&name=<nuevo>][&fail=1] ("Renombrar…" over a fake impact and script: preview/rename-samples.ts)
-// |map[&set=points|shapes|latlon][&theme=light] (the results' map view over the offline base map: preview/map-samples.ts)
+// |map[&set=points|shapes|latlon|oracle][&theme=light] (the results' map view over the offline base map: preview/map-samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next from '../i18n';

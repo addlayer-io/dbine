@@ -1,7 +1,9 @@
-// view=map[&set=points|shapes|latlon][&theme=light]: the results' map view
-// (MapView.vue) with sample spatial data over Argentina, on the bundled
+// view=map[&set=points|shapes|latlon|oracle][&theme=light]: the results' map
+// view (MapView.vue) with sample spatial data over Argentina, on the bundled
 // offline base map. Points come as EWKB hex (as PostGIS sends them), shapes
-// as EWKT, and `set=latlon` as latitude / longitude columns.
+// as EWKT, `set=latlon` as latitude / longitude columns and `set=oracle` as
+// the Oracle driver sends SDO_GEOMETRY (EWKT from SDO_UTIL.TO_WKTGEOMETRY,
+// typed SDO_GEOMETRY).
 import { h } from 'vue';
 import ResultsPane from '../components/ResultsPane.vue';
 import type { Cell, ResultColumn } from '../api/types';
@@ -103,6 +105,27 @@ function shapes(): { columns: ResultColumn[]; rows: Cell[][] } {
   };
 }
 
+/** A table's data on Oracle: the driver's EWKT, Oracle's number format. */
+function oracle(): { columns: ResultColumn[]; rows: Cell[][] } {
+  const n = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
+  const ring = (pts: [number, number][]) => [...pts, pts[0]].map(([x, y]) => `${n(x)} ${n(y)}`).join(', ');
+  const rows: Cell[][] = CITIES.slice(0, 12).map(([name, prov, lat, lon], i) => [i + 1, name, prov, `SRID=4326;POINT (${n(lon)} ${n(lat)})`]);
+  rows.push(
+    [13, 'Parque Nacional Iguazú', 'Misiones', `SRID=4326;POLYGON ((${ring([[-54.6, -25.55], [-54.1, -25.55], [-54.1, -25.95], [-54.6, -25.95]])}))`],
+    [14, 'Parque Nacional Los Glaciares', 'Santa Cruz', `SRID=4326;POLYGON ((${ring([[-73.5, -49.2], [-72.6, -49.0], [-72.3, -50.2], [-73.4, -50.7]])}))`],
+    [15, 'Sin geometría', 'Chubut', null],
+  );
+  return {
+    columns: [
+      { name: 'ID', type_name: 'NUMBER' },
+      { name: 'NOMBRE', type_name: 'VARCHAR2(60)' },
+      { name: 'PROVINCIA', type_name: 'VARCHAR2(40)' },
+      { name: 'Geom', type_name: 'SDO_GEOMETRY' },
+    ],
+    rows,
+  };
+}
+
 function latLon(): { columns: ResultColumn[]; rows: Cell[][] } {
   return {
     columns: [
@@ -122,7 +145,7 @@ export function mapPreview(params: URLSearchParams) {
     document.documentElement.classList.add('light');
   }
   const set = params.get('set') ?? 'shapes';
-  const data = set === 'points' ? points() : set === 'latlon' ? latLon() : shapes();
+  const data = set === 'points' ? points() : set === 'latlon' ? latLon() : set === 'oracle' ? oracle() : shapes();
   // The pane opens on the grid; the preview presses "Mapa" for the screenshot.
   setTimeout(() => document.querySelector<HTMLButtonElement>('.rp-mode button:last-child')?.click(), 50);
   return h('div', { style: `width: ${params.get('w') ?? 1200}px; height: ${params.get('h') ?? 760}px; display: flex; flex-direction: column; background: var(--ide-editor)` }, [

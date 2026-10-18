@@ -29,6 +29,10 @@ const props = defineProps<{
   editable?: boolean;
   /** Why they can't, shown when trying. */
   noEditReason?: string | null;
+  /** Columns that can't be edited even when the rows can, by index, with
+   *  the reason (a value converted to be shown, such as Oracle's
+   *  SDO_GEOMETRY as text). */
+  readOnlyColumns?: Record<number, string>;
   /** Edited values, row → column → value. */
   edits?: Edits;
   /** Rows marked for deletion (their edits are ignored). */
@@ -169,6 +173,7 @@ const isUnset = (r: number, c: number) => isAdded(r) && !(props.edits?.[r] && c 
 /** A row's cells can be edited: the result's when editable, new rows when
  *  rows can be added (a table without a key still takes new rows). */
 const canEditRow = (r: number) => (isAdded(r) ? !!props.insertable : !!props.editable);
+const canEditCell = (r: number, c: number) => canEditRow(r) && !props.readOnlyColumns?.[c];
 /** The value shown: the edit, if any (a row marked for deletion shows its
  *  original values: its edits are ignored). */
 function valueAt(r: number, c: number): Cell {
@@ -329,8 +334,8 @@ function onKey(e: KeyboardEvent) {
   const sel = selection.value;
   if (sel && !mod && !e.altKey) {
     if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); startEdit(sel.r, sel.c); return; }
-    if (canEditRow(sel.r) && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); startEdit(sel.r, sel.c, ''); return; }
-    if (canEditRow(sel.r) && e.key.length === 1) { e.preventDefault(); startEdit(sel.r, sel.c, e.key); return; }
+    if (canEditCell(sel.r, sel.c) && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); startEdit(sel.r, sel.c, ''); return; }
+    if (canEditCell(sel.r, sel.c) && e.key.length === 1) { e.preventDefault(); startEdit(sel.r, sel.c, e.key); return; }
   }
   if (rowSel.value && !mod && !e.altKey && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); toggleDelete(selectedRows()); return; }
   if (mod && e.key.toLowerCase() === 'c') { e.preventDefault(); copyAs(copyFormat.value); return; }
@@ -369,6 +374,8 @@ function startEdit(r: number, c: number, text?: string) {
     if (props.noEditReason) ElMessage.info({ message: t('results:grid.cantEdit', { reason: props.noEditReason }), duration: 3500 });
     return;
   }
+  const readOnly = props.readOnlyColumns?.[c];
+  if (readOnly) { ElMessage.info({ message: t('results:grid.cantEdit', { reason: readOnly }), duration: 3500 }); return; }
   if (isDeleted(r)) { ElMessage.info({ message: t('results:grid.rowDeleted'), duration: 3500 }); return; }
   const v = valueAt(r, c);
   selection.value = { r, c };
@@ -424,7 +431,7 @@ function onEditKey(ev: KeyboardEvent) {
   ev.stopPropagation();
 }
 function setNull(r: number, c: number) {
-  if (!canEditRow(r) || isDeleted(r)) return startEdit(r, c);
+  if (!canEditCell(r, c) || isDeleted(r)) return startEdit(r, c);
   if (isAdded(r)) { emit('edit', r, c, !isUnset(r, c) && valueAt(r, c) === null ? undefined : null); return; }
   emit('edit', r, c, props.rows[r]?.[c] === null ? undefined : null);
 }
@@ -757,11 +764,12 @@ function onContext(e: MouseEvent, r: number, c: number | null) {
   if (c !== null) items.push({ label: t('results:grid.viewValue'), action: () => openViewer(r, c) });
   if (c !== null) items.push(...linkItems(r, c));
   if (c !== null) {
-    items.push({ label: t('results:grid.editCell'), shortcut: 'F2', divided: true, disabled: !canEditRow(r), action: () => startEdit(r, c) });
-    items.push({ label: t('results:grid.setNull'), disabled: !canEditRow(r) || isDeleted(r), action: () => setNull(r, c) });
+    items.push({ label: t('results:grid.editCell'), shortcut: 'F2', divided: true, disabled: !canEditCell(r, c), action: () => startEdit(r, c) });
+    items.push({ label: t('results:grid.setNull'), disabled: !canEditCell(r, c) || isDeleted(r), action: () => setNull(r, c) });
     items.push(delItem, addItem);
     if (isEdited(r, c)) items.push({ label: t('results:grid.undoChange'), action: () => emit('edit', r, c, undefined) });
     if (!canEditRow(r) && props.noEditReason) items.push({ label: t('results:grid.notEditable', { reason: props.noEditReason }), disabled: true });
+    else if (canEditRow(r) && props.readOnlyColumns?.[c]) items.push({ label: t('results:grid.notEditable', { reason: props.readOnlyColumns[c] }), disabled: true });
   }
   const scope = t(rowSel.value || block.value || cellExtra.value.length ? 'results:grid.scopeSelected' : selection.value ? 'results:grid.scopeRow' : 'results:grid.scopeAll');
   items.push({ label: t('results:grid.copyHeader', { scope }), header: true, divided: true });
@@ -904,7 +912,7 @@ function columnsMenu(e: MouseEvent) {
           @mousedown="onCellDown($event, i, c)"
           @mouseenter="onCellEnter(i, c); hoverStart($event, i, c)"
           @mouseleave="hideSoon()"
-          @dblclick="canEditRow(i) ? startEdit(i, c) : openViewer(i, c)"
+          @dblclick="canEditCell(i, c) ? startEdit(i, c) : openViewer(i, c)"
           @contextmenu="onContext($event, i, c)"
         >{{ isUnset(i, c) ? $t('results:grid.defaultValue') : display(valueAt(i, c)) }}</div>
       </div>
