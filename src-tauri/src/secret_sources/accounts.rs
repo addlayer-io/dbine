@@ -672,23 +672,22 @@ fn gather(config: &AccountConfig, typed: &Typed, existing: Option<&SecretAccount
 /// found. Each sends the credentials only to the account's own endpoint.
 async fn verify(config: &AccountConfig, s: &Secrets) -> Result<(String, String), String> {
     let slot = |k: &str| s.get(k).cloned().unwrap_or_default();
-    let missing = |what: &str| format!("falta {what}");
     match config {
         AccountConfig::Zoho { .. } => Err("Zoho Vault se conecta con su propio asistente".into()),
         AccountConfig::Bitwarden { server, client_id, .. } => {
             let creds = bitwarden::Creds { client_id: client_id.trim().to_string(), client_secret: slot("client_secret"), password: slot("passphrase") };
             if creds.client_secret.trim().is_empty() {
-                return Err(missing("el client_secret de la clave de API"));
+                return Err("falta el client_secret de la clave de API de Bitwarden".into());
             }
             if creds.password.is_empty() {
-                return Err(missing("la contraseña maestra de Bitwarden"));
+                return Err("falta la contraseña maestra de Bitwarden".into());
             }
             Ok((bitwarden::whoami(server, &creds).await?, String::new()))
         }
         AccountConfig::BitwardenSm { server } => {
             let mut token = slot("token");
             if token.trim().is_empty() {
-                return Err(missing("el token de acceso de la cuenta de máquina"));
+                return Err("falta el token de acceso de la cuenta de máquina".into());
             }
             let r = bitwarden::sm_whoami(server, &token).await;
             wipe(&mut token);
@@ -711,7 +710,7 @@ async fn verify(config: &AccountConfig, s: &Secrets) -> Result<(String, String),
         AccountConfig::Delinea { url, platform_url, username, domain, .. } => {
             let mut password = slot("password");
             if password.is_empty() {
-                return Err(missing("la contraseña de Delinea"));
+                return Err("falta la contraseña de Delinea".into());
             }
             let req = delinea::Request { url, platform_url, username, domain, secret: "", field: "", fill_username: false, user_field: "" };
             let r = delinea::whoami(&req, &password).await;
@@ -758,6 +757,16 @@ async fn verify(config: &AccountConfig, s: &Secrets) -> Result<(String, String),
 fn host_of(url: &str) -> String {
     let rest = url.trim().split_once("://").map_or(url.trim(), |(_, r)| r);
     rest.split('/').next().unwrap_or(rest).to_string()
+}
+
+/// The access token a check got (Bitwarden's), dropped when it failed.
+fn forget_checked_tokens(config: &AccountConfig, s: &Secrets) {
+    let slot = |k: &str| s.get(k).map(String::as_str).unwrap_or("");
+    match config {
+        AccountConfig::Bitwarden { server, client_id, .. } => bitwarden::forget_token_of(server, client_id, slot("client_secret")),
+        AccountConfig::BitwardenSm { server } => bitwarden::sm_forget(server, slot("token")),
+        _ => {}
+    }
 }
 
 /// The name an account gets when the wizard leaves it empty.
@@ -839,6 +848,9 @@ pub async fn connect_secret_account(state: State<'_, AppState>, args: ConnectAcc
     let (identity, detail) = match verified {
         Ok(v) => v,
         Err(e) => {
+            // A login that worked before the check failed (a wrong master
+            // password) leaves no access token behind.
+            forget_checked_tokens(&args.config, &checked);
             wipe_all(&mut checked);
             return Err(CommandError::SecretSource(e));
         }
@@ -1361,7 +1373,8 @@ mod tests {
     /// its variable is set; it changes the environment, so it runs alone:
     /// `DBINE_KEYCHAIN_SERVICE=io.addlayer.dbine.accounts-test DBINE_TEST_VAULT=http://127.0.0.1:28200
     /// DBINE_TEST_VAULT_APPROLE=<role_id>:<secret_id> DBINE_TEST_BITWARDEN=live.json
-    /// DBINE_TEST_LOCALSTACK=http://127.0.0.1:24566 cargo test -p dbine live_accounts -- --ignored --test-threads=1`.
+    /// DBINE_TEST_LOCALSTACK=http://127.0.0.1:24566 DBINE_TEST_CONJUR=… DBINE_TEST_CONJUR_KEY=…
+    /// cargo test -p dbine live_accounts -- --ignored --test-threads=1`.
     #[tokio::test]
     #[ignore]
     async fn live_accounts() {
@@ -1435,6 +1448,25 @@ mod tests {
             cfg.password = Some(r.value.clone());
             cfg.username = r.username.clone();
             connect(cfg, "bitwarden account").await;
+        }
+        // Conjur Open Source (`dbine-test-conjur`, account `myorg`, host
+        // `apps/dbine` permitted on `db/prod/password` and `db/prod/username`):
+        // DBINE_TEST_CONJUR=http://127.0.0.1:28090 DBINE_TEST_CONJUR_KEY=<the host's API key>.
+        if let (Ok(url), Ok(key)) = (std::env::var("DBINE_TEST_CONJUR"), std::env::var("DBINE_TEST_CONJUR_KEY")) {
+            let config = AccountConfig::Conjur { url, conjur_account: "myorg".into(), login: "host/apps/dbine".into(), ca_file: String::new() };
+            let (who, _) = verify(&config, &[("api_key".to_string(), key.trim().to_string())].into()).await.unwrap();
+            assert_eq!(who, "host/apps/dbine (myorg)");
+            assert!(verify(&config, &[("api_key".to_string(), "nope".to_string())].into()).await.unwrap_err().contains("rechazó el login"));
+            let id = "6f1c2d4e-0000-4000-8000-0000000000d1";
+            store.save_secret_account(&acct(id, config)).unwrap();
+            let src: SecretSource = serde_json::from_str(&format!(r#"{{"kind":"conjur","variable":"db/prod/password","username_variable":"db/prod/username","secret_account":"{id}"}}"#)).unwrap();
+            let x = expand_with(&store, &src, Secrets::new(), |_: &str, slot: &str| Ok((slot == "api_key").then(|| key.trim().to_string()))).unwrap();
+            let r = super::super::fetch(&x.src, &x.slots).await.unwrap();
+            assert_eq!((r.value.as_str(), r.username.as_deref()), ("pw", Some("postgres")));
+            let mut cfg = pg();
+            cfg.password = Some(r.value.clone());
+            cfg.username = r.username.clone();
+            connect(cfg, "conjur account").await;
         }
         if let Ok(url) = std::env::var("DBINE_TEST_LOCALSTACK") {
             std::env::set_var("AWS_ENDPOINT_URL_STS", &url);
