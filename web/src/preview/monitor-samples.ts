@@ -40,8 +40,19 @@ const ENGINES: [string, string, Family, number][] = [
   ['ksqldb', 'ksqlDB', 'streaming', 8088], ['neo4j', 'Neo4j', 'graph', 7687],
 ];
 
+/** Engines whose form differs (view=connection): a file and no credentials,
+ *  a password without a user, a token. */
+const ENGINE_FIELDS: Record<string, Field[]> = {
+  sqlite: [f('host', 'Archivo', 'file', { required: true, placeholder: '~/datos.db' }), f('read_only', 'Solo lectura', 'bool')],
+  redis: [SERVER_FIELDS[0], SERVER_FIELDS[1], f('password', 'Contraseña', 'password', { secret: true }), SERVER_FIELDS[6]],
+  databricks: [
+    f('host', 'Servidor', 'text', { required: true, placeholder: 'adb-123.azuredatabricks.net' }), f('http_path', 'Ruta HTTP', 'text', { required: true }),
+    f('token', 'Token de acceso personal', 'password', { secret: true, required: true }), SERVER_FIELDS[6],
+  ],
+};
+
 export const sampleDrivers: DriverInfo[] = ENGINES.map(([id, name, family, port]) => ({
-  id, name, family, language: 'sql', dialect: 'postgres', default_port: port, fields: SERVER_FIELDS,
+  id, name, family, language: 'sql', dialect: 'postgres', default_port: port, fields: ENGINE_FIELDS[id] ?? SERVER_FIELDS,
   databases_label: 'Bases de datos', has_schemas: true, object_kinds: [], query_help: '', supports_explain: true, supports_profiler: true, key_search: null,
     supports_schema_sync: true,
   capabilities: { create_database: true, drop_database: true, foreign_keys: true, monitor: true },

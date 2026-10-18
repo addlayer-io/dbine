@@ -10837,5 +10837,20 @@
   "parámetros de Argon2 no válidos: {0}": "parametri Argon2 non validi: {0}",
   "Bitwarden: no hay un elemento «{0}» (parecidos: {1})": "Bitwarden: non c'è un elemento «{0}» (simili: {1})",
   "Bitwarden: no hay un elemento «{0}» ({1} elementos no se pudieron descifrar)": "Bitwarden: non c'è un elemento «{0}» ({1} elementi non sono stati decifrati)",
-  "Bitwarden: no hay un elemento «{0}» (parecidos: {1}; {2} elementos no se pudieron descifrar)": "Bitwarden: non c'è un elemento «{0}» (simili: {1}; {2} elementi non sono stati decifrati)"
+  "Bitwarden: no hay un elemento «{0}» (parecidos: {1}; {2} elementos no se pudieron descifrar)": "Bitwarden: non c'è un elemento «{0}» (simili: {1}; {2} elementi non sono stati decifrati)",
+  "1Password no tiene la bóveda «{0}»": "1Password non ha il vault «{0}»",
+  "Azure Key Vault: permiso denegado para listar los secretos (hace falta un rol o una directiva de acceso que permita list): {0}": "Azure Key Vault: permesso negato per elencare i segreti (serve un ruolo o un criterio di accesso che consenta list): {0}",
+  "Bitwarden no dijo de qué organización es la cuenta de máquina": "Bitwarden non ha indicato a quale organizzazione appartiene l'account macchina",
+  "Conjur: permiso denegado para listar las variables": "Conjur: permesso negato per elencare le variabili",
+  "Google Secret Manager: no existe el proyecto «{0}»": "Google Secret Manager: il progetto «{0}» non esiste",
+  "Google Secret Manager: permiso denegado para listar los secretos (hace falta el rol «Secret Manager Viewer»): {0}": "Google Secret Manager: permesso negato per elencare i segreti (serve il ruolo «Secret Manager Viewer»): {0}",
+  "Parameters": "Parameters",
+  "Secret Server no devolvió la plantilla del secreto": "Secret Server non ha restituito il modello del segreto",
+  "Vault: permiso denegado para listar los roles de «{0}» (la política tiene que permitir list en {1}/{2})": "Vault: permesso negato per elencare i ruoli di «{0}» (il criterio deve consentire list su {1}/{2})",
+  "el origen no es válido: {0}": "l'origine non è valida: {0}",
+  "este origen no tiene una lista para examinar": "questa origine non ha un elenco da esplorare",
+  "la lista de 1Password es demasiado larga": "l'elenco di 1Password è troppo lungo",
+  "la respuesta de 1Password no es texto": "la risposta di 1Password non è testo",
+  "no se pudo examinar {0}: {1}": "impossibile esplorare {0}: {1}",
+  "«op» no devolvió JSON": "«op» non ha restituito JSON"
 }

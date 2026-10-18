@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { open as openFile } from '@tauri-apps/plugin-dialog';
 import { forgetTrusted, parseTrusted } from '../composables/sshTrust';
-import { isExternal, type SourceDraft } from '../composables/secretSources';
+import type { SourceDraft } from '../composables/secretSources';
 import SecretSourcePicker from './SecretSourcePicker.vue';
 
 // The SSH tunnel of a connection (docs/ssh-tunnels.md): its settings go to
@@ -84,10 +84,15 @@ function forget(i: number) {
           <el-radio-button value="agent">{{ $t('tunnel:authAgent') }}</el-radio-button>
         </el-radio-group>
       </el-form-item>
-      <el-form-item v-if="model.auth === 'password'" :label="$t('tunnel:password')">
-        <SecretSourcePicker v-if="drafts['ssh.password']" v-model="drafts['ssh.password']" field="ssh.password" :allow-ask="false" :connection-id="connectionId" :driver="driver" :editing="editing" />
-        <el-input v-if="!isExternal(drafts['ssh.password'])" v-model="model.password" type="password" show-password :placeholder="editing ? $t('tunnel:secretKept') : ''" />
-      </el-form-item>
+      <SecretSourcePicker
+        v-if="model.auth === 'password' && drafts['ssh.password']"
+        v-model="drafts['ssh.password']" mode="field" :label="$t('tunnel:password')" field="ssh.password" :allow-ask="false"
+        :connection-id="connectionId" :driver="driver" :editing="editing"
+      >
+        <template #local>
+          <el-input v-model="model.password" type="password" show-password autocomplete="new-password" :placeholder="editing ? $t('tunnel:secretKept') : ''" />
+        </template>
+      </SecretSourcePicker>
       <template v-else-if="model.auth === 'key'">
         <el-form-item :label="$t('tunnel:keyPath')" required>
           <el-input v-model="model.key_path" placeholder="~/.ssh/id_ed25519">
@@ -96,10 +101,15 @@ function forget(i: number) {
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item :label="$t('tunnel:passphrase')">
-          <SecretSourcePicker v-if="drafts['ssh.passphrase']" v-model="drafts['ssh.passphrase']" field="ssh.passphrase" :allow-ask="false" :connection-id="connectionId" :driver="driver" :editing="editing" />
-          <el-input v-if="!isExternal(drafts['ssh.passphrase'])" v-model="model.passphrase" type="password" show-password :placeholder="editing ? $t('tunnel:secretKept') : $t('tunnel:passphrasePlaceholder')" />
-        </el-form-item>
+        <SecretSourcePicker
+          v-if="drafts['ssh.passphrase']"
+          v-model="drafts['ssh.passphrase']" mode="field" :label="$t('tunnel:passphrase')" field="ssh.passphrase" :allow-ask="false"
+          :connection-id="connectionId" :driver="driver" :editing="editing"
+        >
+          <template #local>
+            <el-input v-model="model.passphrase" type="password" show-password autocomplete="new-password" :placeholder="editing ? $t('tunnel:secretKept') : $t('tunnel:passphrasePlaceholder')" />
+          </template>
+        </SecretSourcePicker>
       </template>
       <div v-else class="st-help">{{ $t('tunnel:agentHelp') }}</div>
       <el-form-item :label="$t('tunnel:jump')">

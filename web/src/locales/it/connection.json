@@ -119,9 +119,9 @@
   "source": {
     "label": "Origine",
     "kind": {
-      "saved": "Salvata nel portachiavi",
+      "saved": "Salva nel portachiavi",
       "ask": "Chiedi ogni volta",
-      "command": "Comando",
+      "command": "Riga di comando",
       "onepassword": "1Password",
       "vault": "HashiCorp Vault",
       "aws": "AWS Secrets Manager",
@@ -280,16 +280,42 @@
       "zoho": "La connessione «{{name}}» prende «{{field}}» da Zoho Vault. Inserisci la passphrase principale (non viene salvata):",
       "wrong": "La password inserita non ha aperto il database.",
       "empty": "Inserisci la password principale",
-      "delinea": "La connessione «{{name}}» prende «{{field}}» da Delinea Secret Server. Scrivi la password (non viene salvata):"
+      "delinea": "La connessione «{{name}}» prende «{{field}}» da Delinea Secret Server. Scrivi la password (non viene salvata):",
+      "bitwarden": "La connessione «{{name}}» prende «{{field}}» da Bitwarden. Inserisci la password principale (non viene salvata):",
+      "titles": {
+        "keepass": "Password principale",
+        "bitwarden": "Password principale",
+        "zoho": "Passphrase principale",
+        "delinea": "Password"
+      }
     },
     "vaultAuth": {
       "token": "Token",
-      "approle": "AppRole",
-      "bitwarden": "La connessione «{{name}}» prende «{{field}}» da Bitwarden. Inserisci la password principale (non viene salvata):"
+      "approle": "AppRole"
     },
     "bitwardenCloud": {
       "com": "Stati Uniti ({{domain}})",
       "eu": "Europa ({{domain}})"
+    },
+    "credentials": "Credenziali",
+    "group": {
+      "local": "Su questo computer",
+      "managers": "Gestori di segreti"
+    },
+    "fillUser": "Usa anche l'utente della voce",
+    "browse": {
+      "button": "Esplora",
+      "title": "Esplora {{source}}",
+      "search": "Filtra",
+      "searchServer": "Cerca sul server",
+      "empty": "Non c'è niente qui.",
+      "truncated": "L'elenco è stato troncato perché ce ne sono altri. Filtra per trovare quello che cerchi.",
+      "pickField": "Scegli il campo:",
+      "wholeValue": "Il valore intero",
+      "noFields": "Questo elemento non ha campi tra cui scegliere.",
+      "useItem": "Usa questo",
+      "namesOnly": "Vengono mostrati solo i nomi, mai i valori.",
+      "fillFirst": "Compila prima: {{fields}}"
     }
   }
 }

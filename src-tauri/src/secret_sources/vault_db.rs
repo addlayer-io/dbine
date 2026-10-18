@@ -433,6 +433,39 @@ pub async fn test(src: &Source<'_>) -> Result<(String, Option<String>), String> 
     Ok((i.password.clone(), Some(i.username.clone())))
 }
 
+/// The engine's roles (`roles`) and static roles (`static-roles`): names
+/// only, each under the list it's in.
+pub async fn browse(src: &Source<'_>) -> Result<super::browse::Listing, String> {
+    let client = vault::client(src.req.ca_file)?;
+    let conn = Conn { address: src.req.address, namespace: src.req.namespace };
+    let login = vault::login(&client, &conn, &src.auth).await?;
+    let r = browse_with(&client, &conn, &login.token, &src.req).await;
+    login.done(&client, &conn).await;
+    r
+}
+
+pub async fn browse_with(client: &reqwest::Client, conn: &Conn<'_>, token: &str, req: &Request<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{Entry, Listing};
+    let mount = Some(req.mount.trim().trim_matches('/')).filter(|m| !m.is_empty()).unwrap_or("database");
+    let mut out = Vec::new();
+    for which in ["roles", "static-roles"] {
+        let api = format!("{}/{which}?list=true", vault::encode(&vault::segments(mount)));
+        let (status, json) = vault::call(client, conn, token, reqwest::Method::GET, &api, None).await;
+        match status? {
+            200 => {
+                let keys = json.pointer("/data/keys").and_then(Value::as_array).cloned().unwrap_or_default();
+                out.extend(keys.iter().filter_map(Value::as_str).map(|k| Entry::item(k, k, which, "")));
+            }
+            // None of that kind (or no static roles in this Vault).
+            404 | 405 => {}
+            403 => return Err(format!("Vault: permiso denegado para listar los roles de «{mount}» (la política tiene que permitir list en {mount}/{which})")),
+            s => return Err(vault::status_error(s, &json, &format!("{mount}/{which}"))),
+        }
+    }
+    out.sort_by(|a, b| (a.path.as_str(), a.name.to_lowercase()).cmp(&(b.path.as_str(), b.name.to_lowercase())));
+    Ok(Listing::complete(out))
+}
+
 /// How many leases are held (tests).
 #[cfg(test)]
 pub fn held_count(connection_id: &str) -> (usize, usize) {

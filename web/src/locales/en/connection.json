@@ -119,9 +119,9 @@
   "source": {
     "label": "Source",
     "kind": {
-      "saved": "Saved in the keychain",
+      "saved": "Save in the keychain",
       "ask": "Ask every time",
-      "command": "Command",
+      "command": "Command line",
       "onepassword": "1Password",
       "vault": "HashiCorp Vault",
       "aws": "AWS Secrets Manager",
@@ -280,16 +280,42 @@
       "zoho": "The connection «{{name}}» takes «{{field}}» from Zoho Vault. Type the master passphrase (it isn't saved):",
       "wrong": "The password you typed didn't open it.",
       "empty": "Type the master password",
-      "delinea": "Connection «{{name}}» takes «{{field}}» from Delinea Secret Server. Type the password (it is not saved):"
+      "delinea": "Connection «{{name}}» takes «{{field}}» from Delinea Secret Server. Type the password (it is not saved):",
+      "bitwarden": "The connection «{{name}}» takes «{{field}}» from Bitwarden. Type the master password (it isn't saved):",
+      "titles": {
+        "keepass": "Master password",
+        "bitwarden": "Master password",
+        "zoho": "Passphrase",
+        "delinea": "Password"
+      }
     },
     "vaultAuth": {
       "token": "Token",
-      "approle": "AppRole",
-      "bitwarden": "The connection «{{name}}» takes «{{field}}» from Bitwarden. Type the master password (it isn't saved):"
+      "approle": "AppRole"
     },
     "bitwardenCloud": {
       "com": "United States ({{domain}})",
       "eu": "Europe ({{domain}})"
+    },
+    "credentials": "Credentials",
+    "group": {
+      "local": "On this computer",
+      "managers": "Secret managers"
+    },
+    "fillUser": "Also use the entry's user",
+    "browse": {
+      "button": "Browse",
+      "title": "Browse {{source}}",
+      "search": "Filter",
+      "searchServer": "Search on the server",
+      "empty": "There is nothing here.",
+      "truncated": "The list was cut off because there are more. Filter to find the one you want.",
+      "pickField": "Pick the field:",
+      "wholeValue": "The whole value",
+      "noFields": "This item has no fields to pick.",
+      "useItem": "Use this one",
+      "namesOnly": "Only names are shown, never values.",
+      "fillFirst": "Fill in first: {{fields}}"
     }
   }
 }

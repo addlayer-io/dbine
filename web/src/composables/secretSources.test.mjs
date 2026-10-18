@@ -194,3 +194,52 @@ test('Bitwarden, Bitwarden Secrets Manager and Parameter Store', () => {
   assert.deepEqual(sourceRows(cases[1]).map((r) => r[0]), ['client_id', 'master', 'master_command', 'server', 'item']);
   assert.equal(sourceFrom(draftFrom(cases[3]), 'api_key').fill_username, undefined);
 });
+
+test('the selector: local kinds first, then the managers by their name in the language', async () => {
+  const { orderedKinds, SOURCE_KINDS } = await import('./secretSources.ts');
+  const names = { saved: 'Guardar en el llavero', ask: 'Preguntar cada vez', command: 'Línea de comandos', onepassword: '1Password', vault: 'HashiCorp Vault',
+    aws: 'AWS Secrets Manager', azure: 'Azure Key Vault', gcp: 'Google Secret Manager', keepass: 'KeePass', zoho: 'Zoho Vault',
+    vault_db: 'HashiCorp Vault (credenciales de base de datos)', conjur: 'CyberArk Conjur', ccp: 'CyberArk Central Credential Provider',
+    delinea: 'Delinea Secret Server', bitwarden: 'Bitwarden', bitwarden_sm: 'Bitwarden Secrets Manager', ssm: 'AWS Parameter Store' };
+  const { local, managers } = orderedKinds((k) => names[k], 'es', true);
+  assert.deepEqual(local, ['saved', 'ask', 'command']);
+  assert.deepEqual(managers.map((k) => names[k]), ['1Password', 'AWS Parameter Store', 'AWS Secrets Manager', 'Azure Key Vault', 'Bitwarden',
+    'Bitwarden Secrets Manager', 'CyberArk Central Credential Provider', 'CyberArk Conjur', 'Delinea Secret Server', 'Google Secret Manager',
+    'HashiCorp Vault', 'HashiCorp Vault (credenciales de base de datos)', 'KeePass', 'Zoho Vault']);
+  assert.equal(local.length + managers.length, SOURCE_KINDS.length);
+  // Without "ask" (SSH, tokens), and another language's names sort their own way.
+  assert.deepEqual(orderedKinds((k) => names[k], 'es', false).local, ['saved', 'command']);
+  const de = orderedKinds((k) => (k === 'zoho' ? 'Ärger Vault' : names[k]), 'de', false).managers;
+  assert.ok(de.indexOf('zoho') < de.indexOf('bitwarden'), 'Ä sorts with A in German');
+});
+
+test('browsing fills the item and its field; the user comes from the source', async () => {
+  const { applyBrowse, missingForBrowse, userFromSource, emptyDraft } = await import('./secretSources.ts');
+  const kp = emptyDraft('keepass');
+  assert.deepEqual(missingForBrowse(kp), ['file'], 'the entry is what browsing chooses');
+  kp.file = '~/db.kdbx';
+  assert.deepEqual(missingForBrowse(kp), []);
+  applyBrowse(kp, { id: 'Databases/Prod/pg-main' }, 'Password');
+  assert.equal(kp.entry, 'Databases/Prod/pg-main');
+  assert.equal(kp.attribute, 'Password');
+  const op = emptyDraft('onepassword');
+  applyBrowse(op, { id: 'op://Private/pg' }, 'Database/password');
+  assert.equal(op.reference, 'op://Private/pg/Database/password');
+  const db = emptyDraft('vault_db');
+  applyBrowse(db, { id: 'app', path: 'static-roles' }, null);
+  assert.equal(db.role, 'app');
+  assert.equal(db.static_role, true);
+  const aws = emptyDraft('aws');
+  applyBrowse(aws, { id: 'prod/db' }, '');
+  assert.equal(aws.json_key, '', 'the whole value');
+  assert.equal(userFromSource(db), true, 'Vault database credentials always give the user');
+  assert.equal(userFromSource(aws), false);
+  aws.fill_username = true;
+  assert.equal(userFromSource(aws), true);
+  const conjur = emptyDraft('conjur');
+  conjur.username_variable = 'db/user';
+  assert.equal(userFromSource(conjur), true);
+  const vault = emptyDraft('vault');
+  vault.fill_username = true;
+  assert.equal(userFromSource(vault), false, 'Vault KV has no user to give');
+});

@@ -58,6 +58,107 @@ fn explain(stderr: &str, reference: &str) -> String {
     }
 }
 
+// ---- browse ------------------------------------------------------------------
+
+/// A listing's output can be long (an item list); a secret can't.
+const LIST_LIMIT: u64 = 8 * 1024 * 1024;
+
+/// Run `op <args> --format json` and parse it.
+async fn op_json(args: &[&str], account: &str) -> Result<serde_json::Value, String> {
+    if cloud_auth::sandboxed() {
+        return Err(cloud_auth::sandbox_message("op"));
+    }
+    let op = find_op().ok_or_else(|| "la CLI de 1Password («op») no está instalada: instalala desde 1password.com/downloads/command-line".to_string())?;
+    let mut cmd = tokio::process::Command::new(op);
+    cmd.args(args).arg("--format=json");
+    if !account.trim().is_empty() {
+        cmd.arg(format!("--account={}", account.trim()));
+    }
+    let mut out = match exec::run_capped(cmd, LIMIT, LIST_LIMIT).await {
+        Ok(out) => out,
+        Err(Failure::Exit { stderr, .. }) => return Err(explain(&stderr, &args.join(" "))),
+        Err(Failure::Timeout(d)) => return Err(format!("«op» no respondió en {} s (¿quedó esperando que desbloquees 1Password?)", d.as_secs())),
+        Err(Failure::Spawn(e)) => return Err(format!("«op» no se pudo ejecutar: {e}")),
+        Err(Failure::TooLong) => return Err("la lista de 1Password es demasiado larga".into()),
+        Err(Failure::NotText) => return Err("la respuesta de 1Password no es texto".into()),
+    };
+    let parsed = serde_json::from_str(&out).map_err(|_| "«op» no devolvió JSON".to_string());
+    dbine_core::secret_sources::wipe(&mut out);
+    parsed
+}
+
+/// A segment of an `op://` reference: the name when it can be one (no
+/// slash, nothing `op` would read otherwise, not repeated), else the ID.
+fn segment(name: &str, id: &str, unique: bool) -> String {
+    let plain = unique && !name.is_empty() && name.trim() == name && name.chars().all(|c| c.is_alphanumeric() || " -_.".contains(c));
+    if plain { name.to_string() } else { id.to_string() }
+}
+
+/// The vaults (no `path`), a vault's items (`path`: its ID), or an item's
+/// field names as they go after `op://<vault>/<item>/` (`item`: its
+/// entry's reference, `path`: the vault's ID).
+pub async fn browse(account: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{unique_names, wipe_json, Entry, Listing};
+    use serde_json::Value;
+    let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    if let Some(item) = at.item {
+        // The entry's reference (`op://<vault>/<item>`): its item, in the vault browsed.
+        let item = item.strip_prefix("op://").and_then(|r| r.split_once('/')).map(|(_, i)| i).unwrap_or(item);
+        let mut json = op_json(&["item", "get", item, "--vault", at.path], account).await?;
+        let fields = fields_of(&json);
+        wipe_json(&mut json);
+        return Ok(Listing::fields(fields));
+    }
+    let vaults = op_json(&["vault", "list"], account).await?;
+    let vaults: Vec<Value> = vaults.as_array().cloned().unwrap_or_default();
+    let vault_names = unique_names(vaults.iter().map(|v| v.get("name").and_then(Value::as_str).unwrap_or("")));
+    if at.path.is_empty() {
+        let mut out: Vec<Entry> = vaults.iter().map(|v| Entry::group(s(v, "id"), s(v, "name"), "")).collect();
+        out.sort_by_key(|e| e.name.to_lowercase());
+        return Ok(Listing::level(out));
+    }
+    let vault = vaults.iter().find(|v| s(v, "id") == at.path).ok_or_else(|| format!("1Password no tiene la bóveda «{}»", at.path))?;
+    let (vid, vname) = (s(vault, "id"), s(vault, "name"));
+    let vseg = segment(&vname, &vid, vault_names.contains(&vname));
+    let items = op_json(&["item", "list", "--vault", &vid], account).await?;
+    let items: Vec<Value> = items.as_array().cloned().unwrap_or_default();
+    let titles = unique_names(items.iter().map(|i| i.get("title").and_then(Value::as_str).unwrap_or("")));
+    let mut out: Vec<Entry> = items
+        .iter()
+        .map(|i| {
+            let (id, title) = (s(i, "id"), s(i, "title"));
+            let reference = format!("op://{vseg}/{}", segment(&title, &id, titles.contains(&title)));
+            Entry::item(reference, if title.is_empty() { id.clone() } else { title }, vname.clone(), s(i, "category").to_lowercase())
+        })
+        .collect();
+    out.sort_by_key(|e| e.name.to_lowercase());
+    Ok(Listing::level(out))
+}
+
+/// An item's fields as `[section/]field` (labels when they can be read
+/// back, else IDs); the values are never read here.
+pub fn fields_of(item: &serde_json::Value) -> Vec<String> {
+    use serde_json::Value;
+    let fields: Vec<&Value> = item.get("fields").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
+    let label = |f: &Value| f.get("label").and_then(Value::as_str).unwrap_or("").to_string();
+    let labels = super::browse::unique_names(fields.iter().map(|f| f.get("label").and_then(Value::as_str).unwrap_or("")));
+    fields
+        .iter()
+        .filter_map(|f| {
+            let id = f.get("id").and_then(Value::as_str).unwrap_or("");
+            let name = segment(&label(f), id, labels.contains(&label(f)));
+            if name.is_empty() {
+                return None;
+            }
+            let section = f.get("section").and_then(|s| s.get("label")).and_then(Value::as_str).filter(|l| !l.is_empty());
+            Some(match section {
+                Some(sec) if f.get("purpose").is_none() => format!("{}/{name}", segment(sec, f.pointer("/section/id").and_then(Value::as_str).unwrap_or(""), true)),
+                _ => name,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,6 +172,22 @@ mod tests {
     }
 
     /// A fake `op` on PATH: `DBINE_TEST_FAKE_OP=1 cargo test -p dbine secret_sources::onepassword -- --ignored`.
+    #[test]
+    fn item_fields_without_values() {
+        let item = serde_json::json!({ "id": "abc", "title": "pg", "fields": [
+            { "id": "username", "type": "STRING", "purpose": "USERNAME", "label": "username", "value": "app" },
+            { "id": "password", "type": "CONCEALED", "purpose": "PASSWORD", "label": "password", "value": "s3cret" },
+            { "id": "k1", "section": { "id": "s1", "label": "Database" }, "type": "STRING", "label": "port", "value": "5432" },
+            { "id": "k2", "type": "CONCEALED", "label": "api/token", "value": "t0k" },
+            { "id": "notesPlain", "type": "STRING", "purpose": "NOTES", "label": "notesPlain" }
+        ] });
+        let f = fields_of(&item);
+        assert_eq!(f, ["username", "password", "Database/port", "k2", "notesPlain"]);
+        assert_eq!(segment("Private", "v1", true), "Private");
+        assert_eq!(segment("a/b", "v1", true), "v1");
+        assert_eq!(segment("Dup", "v2", false), "v2");
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     #[ignore]
