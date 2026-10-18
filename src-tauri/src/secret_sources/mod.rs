@@ -31,6 +31,7 @@ mod https;
 mod vault_db;
 mod bitwarden;
 mod ssm;
+pub mod browse;
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::{driver_info, field_applies, AppState};
@@ -492,6 +493,35 @@ pub fn take_tokens(cfg: &mut ConnectionConfig) -> Secrets {
 
 // ---- commands ---------------------------------------------------------------
 
+/// A form's tokens for a field: typed now (`typed`, `token` the main one),
+/// else kept for the saved connection (the keychain; a master password
+/// asked this run).
+fn form_slots(state: &AppState, id: Option<&str>, field: &str, src: &SecretSource, typed: Secrets, token: Option<String>) -> Secrets {
+    let mut slots: Secrets = typed.into_iter().filter(|(_, v)| !v.is_empty()).collect();
+    if let Some(t) = token.filter(|t| !t.is_empty()) {
+        slots.insert(String::new(), t);
+    }
+    let wanted = src.token_slots();
+    if let Some(i) = id {
+        let mut known = Secrets::new();
+        if wanted.iter().any(|s| !slots.contains_key(*s)) {
+            known = secrets::get(i).unwrap_or_default();
+        }
+        if let Some(t) = state.typed_secrets.get(i) {
+            known.extend(t.clone());
+        }
+        for (slot, v) in field_tokens(&known, field) {
+            if wanted.contains(&slot.as_str()) || (slot.is_empty() && src.master() == Some(MasterSource::Ask)) {
+                slots.entry(slot).or_insert(v);
+            }
+        }
+        for v in known.values_mut() {
+            defs::wipe(v);
+        }
+    }
+    slots
+}
+
 #[derive(Deserialize)]
 pub struct TestSecretSourceArgs {
     /// The connection being edited, if it's saved.
@@ -532,29 +562,7 @@ pub async fn test_secret_source(state: State<'_, AppState>, args: TestSecretSour
     let info = driver.as_deref().and_then(|d| driver_info(d).ok());
     let origin = Origin::Form { id, name: &name };
     check_trust(&state.store, origin, info, &args.field, &args.source)?;
-    // Typed now, else kept (the keychain; a master password asked this run).
-    let mut slots: Secrets = args.tokens.unwrap_or_default().into_iter().filter(|(_, v)| !v.is_empty()).collect();
-    if let Some(t) = args.token.filter(|t| !t.is_empty()) {
-        slots.insert(String::new(), t);
-    }
-    let wanted = args.source.token_slots();
-    if let Some(i) = id {
-        let mut known = Secrets::new();
-        if wanted.iter().any(|s| !slots.contains_key(*s)) {
-            known = secrets::get(i).unwrap_or_default();
-        }
-        if let Some(t) = state.typed_secrets.get(i) {
-            known.extend(t.clone());
-        }
-        for (slot, v) in field_tokens(&known, &args.field) {
-            if wanted.contains(&slot.as_str()) || (slot.is_empty() && args.source.master() == Some(MasterSource::Ask)) {
-                slots.entry(slot).or_insert(v);
-            }
-        }
-        for v in known.values_mut() {
-            defs::wipe(v);
-        }
-    }
+    let mut slots = form_slots(&state, id, &args.field, &args.source, args.tokens.unwrap_or_default(), args.token);
     let r = fetch(&args.source, &slots).await;
     for v in slots.values_mut() {
         defs::wipe(v);
@@ -878,6 +886,15 @@ pub(crate) mod tests {
                 }),
             )
             .route(
+                "/v1/database/roles",
+                get(move |AxState(_m): AxState<Arc<VaultMock>>, h: HeaderMap| async move {
+                    if tok(&h) != "root" {
+                        return (StatusCode::FORBIDDEN, Json(json!({ "errors": ["permission denied"] })));
+                    }
+                    (StatusCode::OK, Json(json!({ "data": { "keys": ["ro", "admin"] } })))
+                }),
+            )
+            .route(
                 "/v1/sys/leases/renew",
                 put(|AxState(m): AxState<Arc<VaultMock>>, Json(b): Json<Value>| async move {
                     m.renewed.lock().unwrap().push(b["lease_id"].as_str().unwrap_or("").to_string());
@@ -927,6 +944,57 @@ pub(crate) mod tests {
             approle_mount: String::new(),
             role_id: if auth == defs::VaultAuth::Approle { "role-1".into() } else { String::new() },
         }
+    }
+
+    /// "Examinar": a Vault database engine's roles, through the same
+    /// dispatch the command uses; nothing is issued.
+    #[tokio::test]
+    async fn browse_vault_database_roles() {
+        let (addr, m) = vault_mock().await;
+        let src = vault_db_src(&addr, "", defs::VaultAuth::Token);
+        let slots: Secrets = [(String::new(), "root".to_string())].into();
+        let l = browse::list(&src, &slots, Default::default()).await.unwrap();
+        let shown: Vec<(&str, &str)> = l.entries.iter().map(|e| (e.path.as_str(), e.id.as_str())).collect();
+        assert_eq!(shown, [("roles", "admin"), ("roles", "ro")], "no static roles here (404)");
+        assert_eq!(*m.issued.lock().unwrap(), 0, "browsing issues no credentials");
+        let none: Secrets = [(String::new(), "nope".to_string())].into();
+        assert!(browse::list(&src, &none, Default::default()).await.unwrap_err().contains("permiso denegado"));
+    }
+
+    /// Browsing what came from outside asks to confirm it first: the form's
+    /// definition when it's the imported one, and anything while the edited
+    /// connection's own definition isn't confirmed.
+    #[test]
+    fn browsing_imported_definitions_is_confirmed_first() {
+        let dir = temp_dir("browse-trust");
+        let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
+        let src = SecretSource::KeePass {
+            file: format!("{}/imported.kdbx", dir.display()),
+            entry: "Databases/pg".into(),
+            attribute: String::new(),
+            key_file: String::new(),
+            master: MasterSource::Ask,
+            master_command: String::new(),
+            fill_username: false,
+        };
+        let mut cfg = ConnectionConfig { driver: "postgres".into(), ..Default::default() };
+        defs::write(&mut cfg, &[("password".to_string(), src.clone())].into());
+        let saved = dbine_core::SavedConnection { id: format!("imported-browse-{}", uuid::Uuid::new_v4()), name: "imp".into(), color: None, config: cfg, save_password: true, folder_id: None, tags: vec![], mcp_level: None, updated_at: String::new() };
+        store.save_connection(&saved).unwrap();
+        // A new form, the imported definition typed as is: confirm it first.
+        assert!(matches!(browse::may_browse(&store, None, None, "password", &src), Err(CommandError::SecretSourceApproval(_))));
+        // Editing the imported connection, even with another definition.
+        let mut other = src.clone();
+        if let SecretSource::KeePass { file, .. } = &mut other {
+            *file = "~/mine.kdbx".into();
+        }
+        let e = browse::may_browse(&store, Some(&saved), None, "password", &other).unwrap_err();
+        assert!(matches!(&e, CommandError::SecretSourceApproval(a) if a.source == src), "the saved one is shown: {e:?}");
+        // Confirmed: browsing goes on.
+        defs::approve(&defs::digest(&saved.id, "password", &src)).unwrap();
+        assert!(browse::may_browse(&store, Some(&saved), None, "password", &other).is_ok());
+        assert!(browse::may_browse(&store, None, None, "password", &other).is_ok(), "typed in a new form");
+        defs::forget(&[defs::digest(&saved.id, "password", &src)]).unwrap();
     }
 
     /// The lease's life against a mock of Vault: one lease for the user and

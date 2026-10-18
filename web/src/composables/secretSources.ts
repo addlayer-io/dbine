@@ -292,3 +292,83 @@ export function sourceRows(s: SecretSource): [string, string][] {
   const rec = s as unknown as Record<string, unknown>;
   return order.filter((k) => rec[k] !== undefined && rec[k] !== '' && rec[k] !== false).map((k) => [k, String(rec[k])]);
 }
+
+// ---- the selector ------------------------------------------------------------
+
+/** The selector's first group, in this order: kept in the keychain, asked
+ *  every time (the database password only), a command line. */
+export const LOCAL_KINDS = ['saved', 'ask', 'command'] as const satisfies readonly DraftKind[];
+
+/** The selector's options: the local ones first (`ask` only when it
+ *  applies), then the secret managers sorted by their visible name in the
+ *  UI's language. `label` gives that name. */
+export function orderedKinds(label: (k: DraftKind) => string, locale: string, allowAsk: boolean): { local: DraftKind[]; managers: DraftKind[] } {
+  const local = LOCAL_KINDS.filter((k) => k !== 'ask' || allowAsk);
+  const managers = SOURCE_KINDS.filter((k) => !(LOCAL_KINDS as readonly string[]).includes(k))
+    .map((k) => [k, label(k)] as const)
+    .sort((a, b) => a[1].localeCompare(b[1], locale, { sensitivity: 'base' }))
+    .map(([k]) => k);
+  return { local, managers };
+}
+
+// ---- the user ------------------------------------------------------------------
+
+/** Sources that can also give the connection's user ("Usar también el
+ *  usuario de la entrada"). */
+export const FILLS_USER: readonly DraftKind[] = ['aws', 'keepass', 'zoho', 'ccp', 'delinea', 'bitwarden', 'ssm'];
+
+/** The password's source gives the user too: the form hides its user field. */
+export function userFromSource(d: SourceDraft | undefined): boolean {
+  if (!d) return false;
+  if (d.kind === 'vault_db') return true;
+  if (d.kind === 'conjur') return !!d.username_variable.trim();
+  return FILLS_USER.includes(d.kind) && d.fill_username;
+}
+
+// ---- browsing ------------------------------------------------------------------
+
+/** Per source that can list its items: the input the chosen item goes to,
+ *  and the one its chosen field (or JSON key) goes to. */
+export const BROWSE: Partial<Record<DraftKind, { item: keyof SourceDraft; field?: keyof SourceDraft }>> = {
+  keepass: { item: 'entry', field: 'attribute' },
+  onepassword: { item: 'reference' },
+  bitwarden: { item: 'item', field: 'attribute' },
+  bitwarden_sm: { item: 'secret', field: 'json_key' },
+  vault: { item: 'path', field: 'key' },
+  vault_db: { item: 'role' },
+  aws: { item: 'secret_id', field: 'json_key' },
+  ssm: { item: 'parameter', field: 'json_key' },
+  azure: { item: 'name', field: 'json_key' },
+  gcp: { item: 'secret', field: 'json_key' },
+  zoho: { item: 'secret_name', field: 'attribute' },
+  conjur: { item: 'variable', field: 'json_key' },
+  delinea: { item: 'secret_name', field: 'attribute' },
+};
+
+/** The field step offers "the whole value" (a JSON key is optional there). */
+export function wholeValueAllowed(kind: DraftKind): boolean {
+  return BROWSE[kind]?.field === 'json_key';
+}
+
+/** What still has to be filled before browsing: the required inputs but
+ *  the item (and its field) the browse chooses. */
+export function missingForBrowse(d: SourceDraft): (keyof SourceDraft)[] {
+  const b = BROWSE[d.kind];
+  if (!b) return [];
+  return missingInputs(d).filter((k) => k !== b.item && k !== b.field);
+}
+
+/** Put what was chosen in the draft. `field`: the chosen field name, `''`
+ *  for the whole value, `null` when the provider has no field step. */
+export function applyBrowse(d: SourceDraft, entry: { id: string; path?: string }, field: string | null): void {
+  const b = BROWSE[d.kind];
+  if (!b) return;
+  if (d.kind === 'onepassword') {
+    // The entry is `op://<vault>/<item>`; the field goes after it.
+    d.reference = field ? `${entry.id}/${field}` : entry.id;
+    return;
+  }
+  (d as unknown as Record<string, string>)[b.item] = entry.id;
+  if (d.kind === 'vault_db') d.static_role = entry.path === 'static-roles';
+  if (b.field && field !== null) (d as unknown as Record<string, string>)[b.field] = field;
+}

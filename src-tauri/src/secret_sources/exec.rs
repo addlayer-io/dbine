@@ -81,7 +81,12 @@ fn kill_group(pid: u32) {
 
 /// Run `cmd` and return its stdout (the caller wipes it). The child gets no
 /// stdin and its own process group, killed whole at `limit`.
-pub async fn run(mut cmd: tokio::process::Command, limit: Duration) -> Result<String, Failure> {
+pub async fn run(cmd: tokio::process::Command, limit: Duration) -> Result<String, Failure> {
+    run_capped(cmd, limit, MAX_STDOUT).await
+}
+
+/// [`run`] with another cap on stdout (a listing is longer than a secret).
+pub async fn run_capped(mut cmd: tokio::process::Command, limit: Duration, max_stdout: u64) -> Result<String, Failure> {
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     cmd.process_group(0);
@@ -94,7 +99,7 @@ pub async fn run(mut cmd: tokio::process::Command, limit: Duration) -> Result<St
     let mut stderr = child.stderr.take().expect("piped");
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let work = async {
-        let (mut o, mut e) = ((&mut stdout).take(MAX_STDOUT + 1), (&mut stderr).take(MAX_STDERR));
+        let (mut o, mut e) = ((&mut stdout).take(max_stdout + 1), (&mut stderr).take(MAX_STDERR));
         let (a, b) = tokio::join!(o.read_to_end(&mut out), e.read_to_end(&mut err));
         let status = child.wait().await;
         (a, b, status)
@@ -106,7 +111,7 @@ pub async fn run(mut cmd: tokio::process::Command, limit: Duration) -> Result<St
             kill_group(pid);
         }
         // Not reaped yet, so the group id is still the child's.
-        let too_long = out.len() as u64 > MAX_STDOUT;
+        let too_long = out.len() as u64 > max_stdout;
         wipe_bytes(&mut out);
         return Err(if too_long { Failure::TooLong } else { Failure::Timeout(limit) });
     };
@@ -119,7 +124,7 @@ pub async fn run(mut cmd: tokio::process::Command, limit: Duration) -> Result<St
         wipe_bytes(&mut out);
         return Err(Failure::Exit { code: status.code(), stderr: first_lines(&String::from_utf8_lossy(&err), STDERR_SHOWN) });
     }
-    if out.len() as u64 > MAX_STDOUT {
+    if out.len() as u64 > max_stdout {
         wipe_bytes(&mut out);
         return Err(Failure::TooLong);
     }

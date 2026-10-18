@@ -10837,5 +10837,20 @@
   "parámetros de Argon2 no válidos: {0}": "invalid Argon2 parameters: {0}",
   "Bitwarden: no hay un elemento «{0}» (parecidos: {1})": "Bitwarden: there is no item «{0}» (similar: {1})",
   "Bitwarden: no hay un elemento «{0}» ({1} elementos no se pudieron descifrar)": "Bitwarden: there is no item «{0}» ({1} items could not be decrypted)",
-  "Bitwarden: no hay un elemento «{0}» (parecidos: {1}; {2} elementos no se pudieron descifrar)": "Bitwarden: there is no item «{0}» (similar: {1}; {2} items could not be decrypted)"
+  "Bitwarden: no hay un elemento «{0}» (parecidos: {1}; {2} elementos no se pudieron descifrar)": "Bitwarden: there is no item «{0}» (similar: {1}; {2} items could not be decrypted)",
+  "1Password no tiene la bóveda «{0}»": "1Password has no vault «{0}»",
+  "Azure Key Vault: permiso denegado para listar los secretos (hace falta un rol o una directiva de acceso que permita list): {0}": "Azure Key Vault: permission denied to list the secrets (a role or access policy that allows list is required): {0}",
+  "Bitwarden no dijo de qué organización es la cuenta de máquina": "Bitwarden did not say which organization the machine account belongs to",
+  "Conjur: permiso denegado para listar las variables": "Conjur: permission denied to list the variables",
+  "Google Secret Manager: no existe el proyecto «{0}»": "Google Secret Manager: project «{0}» does not exist",
+  "Google Secret Manager: permiso denegado para listar los secretos (hace falta el rol «Secret Manager Viewer»): {0}": "Google Secret Manager: permission denied to list the secrets (the «Secret Manager Viewer» role is required): {0}",
+  "Parameters": "Parameters",
+  "Secret Server no devolvió la plantilla del secreto": "Secret Server did not return the secret template",
+  "Vault: permiso denegado para listar los roles de «{0}» (la política tiene que permitir list en {1}/{2})": "Vault: permission denied to list the roles of «{0}» (the policy must allow list on {1}/{2})",
+  "el origen no es válido: {0}": "the source is not valid: {0}",
+  "este origen no tiene una lista para examinar": "this source has no list to browse",
+  "la lista de 1Password es demasiado larga": "the 1Password list is too long",
+  "la respuesta de 1Password no es texto": "the 1Password response is not text",
+  "no se pudo examinar {0}: {1}": "could not browse {0}: {1}",
+  "«op» no devolvió JSON": "«op» did not return JSON"
 }

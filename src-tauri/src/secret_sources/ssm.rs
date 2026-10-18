@@ -50,14 +50,21 @@ pub struct Request<'a> {
 
 /// The parameter's value (one element of a StringList).
 pub async fn get_parameter(req: &Request<'_>) -> Result<String, String> {
+    let (client, url, host, region, creds) = session(req.parameter, req.region, req.profile).await?;
+    let (kind, value) = get_parameter_at(&client, &url, &host, &region, &creds, req.parameter.trim(), req.version.trim()).await?;
+    pick(kind, value, req.list_index.trim(), req.parameter.trim())
+}
+
+/// The client, the endpoint (`(url, host)`), the region and the credentials.
+async fn session(parameter: &str, region: &str, profile: &str) -> Result<(reqwest::Client, String, String, String, AwsCreds), String> {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
     let files = AwsFiles::load(&env);
-    let profile_field = Some(req.profile.trim()).filter(|p| !p.is_empty());
+    let profile_field = Some(profile.trim()).filter(|p| !p.is_empty());
     let profile_name = profile_field.map(str::to_string).or_else(|| env("AWS_PROFILE")).unwrap_or_else(|| "default".into());
-    let region = Some(req.region.trim())
+    let region = Some(region.trim())
         .filter(|r| !r.is_empty())
         .map(str::to_string)
-        .or_else(|| region_from_arn(req.parameter.trim()).map(str::to_string))
+        .or_else(|| region_from_arn(parameter.trim()).map(str::to_string))
         .or_else(|| env("AWS_REGION"))
         .or_else(|| env("AWS_DEFAULT_REGION"))
         .or_else(|| files.get(&profile_name, "region"))
@@ -79,8 +86,63 @@ pub async fn get_parameter(req: &Request<'_>) -> Result<String, String> {
             (format!("https://{h}/"), h)
         }
     };
-    let (kind, value) = get_parameter_at(&client, &url, &host, &region, &creds, req.parameter.trim(), req.version.trim()).await?;
-    pick(kind, value, req.list_index.trim(), req.parameter.trim())
+    Ok((client, url, host, region, creds))
+}
+
+// ---- browse ------------------------------------------------------------------
+
+/// The parameters' names and types (`DescribeParameters`: no values), or
+/// a parameter's JSON keys (`item`).
+pub async fn browse(region: &str, profile: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    let (client, url, host, region, creds) = session(at.item.unwrap_or(""), region, profile).await?;
+    browse_at(&client, &url, &host, &region, &creds, at).await
+}
+
+pub async fn browse_at(client: &reqwest::Client, url: &str, host: &str, region: &str, creds: &AwsCreds, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{Entry, Listing, MAX_ENTRIES};
+    if let Some(item) = at.item {
+        let (kind, value) = get_parameter_at(client, url, host, region, creds, item, "").await?;
+        // A StringList's elements aren't keys.
+        let keys = if kind == "StringList" {
+            let mut v = value;
+            dbine_core::secret_sources::wipe(&mut v);
+            Vec::new()
+        } else {
+            super::browse::json_keys(value)
+        };
+        return Ok(Listing::fields(keys));
+    }
+    let mut out = Vec::new();
+    let mut next: Option<String> = None;
+    loop {
+        let mut q = serde_json::json!({ "MaxResults": 50 });
+        if let Some(n) = &next {
+            q["NextToken"] = Value::String(n.clone());
+        }
+        let body = serde_json::to_vec(&q).map_err(|e| e.to_string())?;
+        let headers = sign("POST", host, "/", &[("content-type", CONTENT_TYPE), ("x-amz-target", "AmazonSSM.DescribeParameters")], &body, creds, region, "ssm", cloud_auth::now());
+        let mut r = client.post(url).body(body);
+        for (k, v) in &headers {
+            r = r.header(k.as_str(), v.as_str());
+        }
+        let resp = r.send().await.map_err(|e| format!("no se pudo conectar con AWS Systems Manager: {}", e.without_url()))?;
+        let status = resp.status().as_u16();
+        let json: Value = serde_json::from_str(&resp.text().await.unwrap_or_default()).unwrap_or(Value::Null);
+        if status != 200 {
+            return Err(ssm_error(status, &json, ""));
+        }
+        for p in json.get("Parameters").and_then(Value::as_array).into_iter().flatten() {
+            if let Some(name) = p.get("Name").and_then(Value::as_str) {
+                out.push(Entry::named(name, p.get("Type").and_then(Value::as_str).unwrap_or("")));
+            }
+        }
+        next = json.get("NextToken").and_then(Value::as_str).map(str::to_string);
+        if next.is_none() || out.len() > MAX_ENTRIES {
+            break;
+        }
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(Listing::complete(out))
 }
 
 /// `GetParameter` at `url`: `(Type, Value)`.
@@ -132,6 +194,7 @@ fn ssm_error(status: u16, json: &Value, name: &str) -> String {
     match kind {
         "ParameterNotFound" => format!("AWS Systems Manager: no existe el parámetro «{name}» en esa región"),
         "ParameterVersionNotFound" => format!("AWS Systems Manager: el parámetro no tiene la versión o etiqueta pedida («{name}»)"),
+        "AccessDeniedException" if name.is_empty() => format!("AWS Systems Manager: permiso denegado (falta ssm:DescribeParameters): {msg}"),
         "AccessDeniedException" => format!("AWS Systems Manager: permiso denegado (falta ssm:GetParameter o kms:Decrypt): {msg}"),
         "UnrecognizedClientException" | "InvalidSignatureException" | "ExpiredTokenException" | "IncompleteSignature" | "InvalidClientTokenId" => {
             format!("AWS rechazó las credenciales (¿vencieron? probá «aws sso login»): {msg}")
@@ -221,6 +284,13 @@ mod tests {
         assert_eq!(pick(kind, list, "2", "/dbine/list").unwrap(), "pw");
         assert!(get("/dbine/none", "").await.unwrap_err().contains("no existe el parámetro"));
         assert!(get("/dbine/plain", "9").await.is_err(), "no such version");
+        // Browsing: names and types, then a parameter's JSON keys.
+        let l = browse_at(&client, &u, &host, "us-east-1", &creds, Default::default()).await.unwrap();
+        assert!(l.entries.iter().any(|e| e.id == "/dbine/pg" && e.name == "pg" && e.path == "dbine" && e.detail == "SecureString"), "{:?}", l.entries);
+        let at = super::super::browse::At { item: Some("/dbine/pg"), ..Default::default() };
+        assert_eq!(browse_at(&client, &u, &host, "us-east-1", &creds, at).await.unwrap().fields.unwrap(), ["password", "username"]);
+        let at = super::super::browse::At { item: Some("/dbine/list"), ..Default::default() };
+        assert!(browse_at(&client, &u, &host, "us-east-1", &creds, at).await.unwrap().fields.unwrap().is_empty(), "a StringList has no keys");
         // As a connection does: fill, with the endpoint and keys from the environment.
         // This ignored test runs alone (`--test-threads=1`).
         std::env::set_var("AWS_ENDPOINT_URL_SSM", &url);

@@ -193,6 +193,66 @@ pub fn values(secret: &Value, req: &Request<'_>) -> Result<(String, Option<Strin
     Ok((text(item), username))
 }
 
+// ---- browse ------------------------------------------------------------------
+
+/// The secrets matching `query` (Secret Server's search; empty: the first
+/// ones), or a secret's field slugs (`item`, an ID or a name), from its
+/// template: no value is read.
+pub async fn browse(req: &Request<'_>, password: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    let client = https::client(req.url, "Secret Server", "", None)?;
+    if !req.platform_url.trim().is_empty() && delinea_platform_host(req.platform_url).is_none() {
+        return Err("la URL de Delinea Platform tiene que ser https://<inquilino>.delinea.app".into());
+    }
+    browse_with(&client, req, password, at).await
+}
+
+pub async fn browse_with(client: &reqwest::Client, req: &Request<'_>, password: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{unique_names, Entry, Listing, MAX_ENTRIES};
+    let mut token = access_token(client, req, password).await?;
+    let out = async {
+        if let Some(item) = at.item {
+            let r = Request { secret: item, ..*req };
+            let id = find(client, &r, &token).await?;
+            let summary = api(client, req, &token, &format!("/api/v1/secrets/{id}/summary")).await?;
+            let template = summary.get("secretTemplateId").and_then(|i| i.as_u64().or_else(|| i.as_str().and_then(|s| s.parse().ok()))).ok_or("Secret Server no devolvió la plantilla del secreto")?;
+            let t = api(client, req, &token, &format!("/api/v1/secret-templates/{template}")).await?;
+            let slugs: Vec<String> = t
+                .get("fields")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|f| f.get("isFile").and_then(Value::as_bool) != Some(true))
+                .filter_map(|f| ["fieldSlugName", "slug", "name"].iter().find_map(|k| f.get(*k).and_then(Value::as_str).filter(|v| !v.is_empty())).map(str::to_string))
+                .collect();
+            return Ok(Listing::fields(slugs));
+        }
+        let q = format!("/api/v1/secrets?filter.searchText={}&take={}", uri_encode(at.query), MAX_ENTRIES);
+        let json = api(client, req, &token, &q).await?;
+        let records: Vec<Value> = json.get("records").and_then(Value::as_array).cloned().unwrap_or_default();
+        let unique = unique_names(records.iter().map(name_of));
+        let mut out: Vec<Entry> = records
+            .iter()
+            .filter_map(|r| {
+                let id = id_of(r)?.to_string();
+                let name = name_of(r).to_string();
+                let folder = r.get("folderPath").and_then(Value::as_str).unwrap_or("").replace('\\', "/").trim_matches('/').to_string();
+                let template = r.get("secretTemplateName").and_then(Value::as_str).unwrap_or("");
+                let by_name = !name.trim().is_empty() && name.parse::<u64>().is_err() && unique.contains(&name);
+                let detail = if template.is_empty() { id.clone() } else { format!("{id} · {template}") };
+                Some(Entry::item(if by_name { name.clone() } else { id.clone() }, if name.is_empty() { id } else { name }, folder, detail))
+            })
+            .collect();
+        out.sort_by_key(|e| (e.path.to_lowercase(), e.name.to_lowercase()));
+        let mut l = Listing::complete(out);
+        l.search = true;
+        l.truncated = l.truncated || json.get("hasNext").and_then(Value::as_bool) == Some(true);
+        Ok(l)
+    }
+    .await;
+    wipe(&mut token);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,6 +319,29 @@ mod tests {
                 }),
             )
             .route(
+                "/api/v1/secrets/{id}/summary",
+                get(move |h: HeaderMap, AxPath(id): AxPath<u64>| async move {
+                    if !ok(&h) || id != 41 {
+                        return (StatusCode::NOT_FOUND, Json(json!({ "message": "Secret not found" })));
+                    }
+                    (StatusCode::OK, Json(json!({ "id": 41, "name": "pg-prod", "secretTemplateId": 6001 })))
+                }),
+            )
+            .route(
+                "/api/v1/secret-templates/{id}",
+                get(move |h: HeaderMap, AxPath(id): AxPath<u64>| async move {
+                    if !ok(&h) || id != 6001 {
+                        return (StatusCode::NOT_FOUND, Json(json!({ "message": "Template not found" })));
+                    }
+                    (StatusCode::OK, Json(json!({ "id": 6001, "name": "SQL Server Account", "fields": [
+                        { "fieldSlugName": "server", "displayName": "Server", "isFile": false },
+                        { "fieldSlugName": "username", "displayName": "Username", "isFile": false },
+                        { "fieldSlugName": "password", "displayName": "Password", "isFile": false, "isPassword": true },
+                        { "fieldSlugName": "private-key", "displayName": "Key", "isFile": true }
+                    ] })))
+                }),
+            )
+            .route(
                 "/api/v1/secrets/{id}",
                 get(move |h: HeaderMap, AxPath(id): AxPath<u64>| async move {
                     if !ok(&h) {
@@ -314,6 +397,24 @@ mod tests {
         platform.username = "client-1";
         assert_eq!(read_with(&client, &platform, pw).await.unwrap().1.as_deref(), Some("app_user"));
         assert_eq!(read_with(&client, &platform, "nope").await.unwrap_err(), WRONG_PASSWORD);
+    }
+
+    /// Browsing: a search (repeated names by ID), then a secret's field
+    /// slugs from its template, never a value.
+    #[tokio::test]
+    async fn browse_against_the_mock() {
+        let (url, _) = mock().await;
+        let client = reqwest::Client::new();
+        let l = browse_with(&client, &r(&url, "", "", false), "dummy-pass", Default::default()).await.unwrap();
+        assert!(l.search && l.complete);
+        assert_eq!(l.entries.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["pg-prod", "pg-prod-old", "51", "52"]);
+        let at = crate::secret_sources::browse::At { query: "pg", ..Default::default() };
+        assert_eq!(browse_with(&client, &r(&url, "", "", false), "dummy-pass", at).await.unwrap().entries.len(), 2);
+        let at = crate::secret_sources::browse::At { item: Some("pg-prod"), ..Default::default() };
+        let l = browse_with(&client, &r(&url, "", "", false), "dummy-pass", at).await.unwrap();
+        assert_eq!(l.fields.as_deref().unwrap(), ["server", "username", "password"]);
+        assert!(!serde_json::to_string(&l).unwrap().contains("pg-secret"));
+        assert_eq!(browse_with(&client, &r(&url, "", "", false), "nope", Default::default()).await.unwrap_err(), WRONG_PASSWORD);
     }
 
     #[test]

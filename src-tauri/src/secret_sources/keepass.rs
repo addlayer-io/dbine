@@ -231,6 +231,68 @@ pub fn field(entry: &keepass::db::EntryRef<'_>, attribute: &str, wanted: &str) -
     Err(format!("la entrada «{}» de KeePass no tiene el campo «{attr}» (tiene: {})", wanted.trim(), names.join(", ")))
 }
 
+// ---- browse ------------------------------------------------------------------
+
+/// The database's entries (outside the recycle bin) with their group paths,
+/// or one entry's field names (`item`). Opened on a blocking thread; the
+/// master password is wiped after.
+pub async fn browse(file: PathBuf, key_file: Option<PathBuf>, master: Option<String>, item: Option<String>) -> Result<super::browse::Listing, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut master = master;
+        let r = browse_blocking(&file, key_file.as_deref(), master.as_deref(), item.as_deref());
+        if let Some(m) = &mut master {
+            dbine_core::secret_sources::wipe(m);
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("la lectura de la base de KeePass se interrumpió: {e}"))?
+}
+
+/// The standard fields first, in KeePass' order; then the others by name.
+const STANDARD: [&str; 5] = [fields::TITLE, fields::USERNAME, fields::PASSWORD, fields::URL, fields::NOTES];
+
+pub fn browse_blocking(file: &Path, key_file: Option<&Path>, master: Option<&str>, item: Option<&str>) -> Result<super::browse::Listing, String> {
+    use super::browse::{Entry, Listing};
+    let db = open(file, key_file, master)?;
+    if let Some(wanted) = item {
+        let entry = find_entry(&db, wanted)?;
+        let mut names: Vec<String> = entry.fields.keys().cloned().collect();
+        names.sort_by_key(|n| (STANDARD.iter().position(|s| s == n).unwrap_or(STANDARD.len()), n.to_lowercase()));
+        return Ok(Listing::fields(names));
+    }
+    let entries: Vec<_> = db.iter_all_entries().filter(|e| !in_recycle_bin(&db, e)).collect();
+    // (path, title, uuid, a group or the title has a slash or edge spaces).
+    let placed: Vec<(String, String, String, bool)> = entries
+        .iter()
+        .map(|e| {
+            let (path, _) = group_path(e);
+            let title = e.get_title().unwrap_or("").to_string();
+            let odd = path.iter().chain(std::iter::once(&title)).any(|s| s.contains('/') || s.trim() != s || s.is_empty());
+            (path.join("/"), title, e.id().uuid().hyphenated().to_string(), odd)
+        })
+        .collect();
+    // `Group/Title` when that names one entry (find_entry reads it back the
+    // same way), else the UUID.
+    let full = |p: &str, t: &str| if p.is_empty() { t.to_string() } else { format!("{p}/{t}") };
+    let wholes: Vec<String> = placed.iter().map(|(p, t, _, _)| full(p, t)).collect();
+    let unique = super::browse::unique_names(wholes.iter().map(String::as_str));
+    let titles = super::browse::unique_names(placed.iter().map(|(_, t, _, _)| t.as_str()));
+    let mut out: Vec<Entry> = placed
+        .into_iter()
+        .map(|(path, title, uuid, odd)| {
+            let whole = full(&path, &title);
+            // At the top a title alone matches that title anywhere.
+            let named = if path.is_empty() { titles.contains(&title) } else { unique.contains(&whole) };
+            let id = if !odd && named { whole } else { uuid.clone() };
+            let name = if title.is_empty() { uuid.clone() } else { title };
+            Entry::item(id, name, path, uuid)
+        })
+        .collect();
+    out.sort_by(|a, b| (a.path.to_lowercase(), a.name.to_lowercase()).cmp(&(b.path.to_lowercase(), b.name.to_lowercase())));
+    Ok(Listing::complete(out))
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -405,6 +467,35 @@ pub(crate) mod tests {
         assert!(read_blocking(&r, Some("demopass")).unwrap_err().starts_with("no existe el archivo de clave"));
         r.key_file = None;
         assert_eq!(read_blocking(&r, None).unwrap_err(), "falta la contraseña maestra de la base de KeePass");
+    }
+
+    /// Browsing: every entry outside the recycle bin with its group path, a
+    /// path where it names one entry and the UUID where it doesn't; then an
+    /// entry's field names, never a value.
+    #[test]
+    fn browse_entries_and_fields() {
+        let dir = super::super::tests::temp_dir("kdbx-browse");
+        let file = dir.join("db.kdbx");
+        save(&sample_db(OuterCipherConfig::AES256, false), &file, Some("pw"), None);
+        let l = browse_blocking(&file, None, Some("pw"), None).unwrap();
+        assert!(l.complete && !l.truncated && l.fields.is_none());
+        let shown: Vec<(&str, &str)> = l.entries.iter().map(|e| (e.path.as_str(), e.name.as_str())).collect();
+        assert_eq!(shown, [("Databases/Prod", "mysql"), ("Databases/Prod", "pg-main"), ("Databases/Staging", "pg-main")]);
+        assert_eq!(l.entries[0].id, "Databases/Prod/mysql");
+        // Each id reads back the same entry.
+        let db = open(&file, None, Some("pw")).unwrap();
+        for e in &l.entries {
+            assert_eq!(find_entry(&db, &e.id).unwrap().id().uuid().hyphenated().to_string(), e.detail, "{}", e.id);
+        }
+        let json = serde_json::to_string(&l).unwrap();
+        assert!(!json.contains("secret") && !json.contains("tok-123") && !json.contains("old-db"), "{json}");
+        let f = browse_blocking(&file, None, Some("pw"), Some("Databases/Prod/mysql")).unwrap();
+        assert_eq!(f.fields.unwrap(), ["Title", "UserName", "Password", "API token"]);
+        assert_eq!(browse_blocking(&file, None, Some("wrong"), None).unwrap_err(), WRONG_KEY);
+        // KeePassXC's file with a key file: the twin titles go by UUID only
+        // where their paths are the same.
+        let l = browse_blocking(&testdata("kdbx31-keyfile.kdbx"), Some(&testdata("kdbx31.keyx")), Some("dummy-master"), None).unwrap();
+        assert!(l.entries.iter().any(|e| e.id == "Databases/Prod/pg-main"), "{:?}", l.entries);
     }
 
     #[test]

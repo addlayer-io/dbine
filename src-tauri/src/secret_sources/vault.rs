@@ -213,6 +213,14 @@ async fn mount_of(client: &reqwest::Client, req: &Request<'_>, token: &str) -> O
 }
 
 pub async fn read_with(client: &reqwest::Client, req: &Request<'_>, token: &str) -> Result<String, String> {
+    let (mut json, v2) = read_json(client, req, token).await?;
+    let r = extract(&json, v2, req.key, req.path);
+    super::browse::wipe_json(&mut json);
+    r
+}
+
+/// The secret at `req.path` as Vault answers it, and whether it's KV v2.
+async fn read_json(client: &reqwest::Client, req: &Request<'_>, token: &str) -> Result<(Value, bool), String> {
     let (mount, v2) = match req.kv_version {
         KvVersion::V1 => (None, Some(false)),
         KvVersion::V2 => (mount_of(client, req, token).await.map(|m| m.0), Some(true)),
@@ -230,7 +238,7 @@ pub async fn read_with(client: &reqwest::Client, req: &Request<'_>, token: &str)
     for (i, v2) in tries.iter().enumerate() {
         let (status, json) = get(client, req, token, &api_path(req.path, *v2, mount.as_deref())).await?;
         if status == 200 {
-            return extract(&json, *v2, req.key, req.path);
+            return Ok((json, *v2));
         }
         last = status_error(status, &json, req.path);
         if status != 404 || i + 1 == tries.len() {
@@ -273,6 +281,105 @@ pub fn extract(json: &Value, v2: bool, key: &str, path: &str) -> Result<String, 
     }
 }
 
+// ---- browse ------------------------------------------------------------------
+
+/// The KV mounts (no `path`), the keys under a path (one level: a key
+/// ending in `/` is a folder), or a secret's keys (`item`; read, its keys
+/// taken and the values wiped).
+pub async fn browse(req: &Request<'_>, auth: &Auth<'_>, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    let client = client(req.ca_file)?;
+    let conn = Conn { address: req.address, namespace: req.namespace };
+    let login = login(&client, &conn, auth).await?;
+    let out = browse_with(&client, req, &login.token, at).await;
+    login.done(&client, &conn).await;
+    out
+}
+
+pub async fn browse_with(client: &reqwest::Client, req: &Request<'_>, token: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{Entry, Listing};
+    if let Some(item) = at.item {
+        let r = Request { path: item, ..*req };
+        let (mut json, v2) = read_json(client, &r, token).await?;
+        let keys = data_keys(&json, v2);
+        super::browse::wipe_json(&mut json);
+        return Ok(Listing::fields(keys));
+    }
+    if segments(at.path).is_empty() {
+        let (status, json) = get(client, req, token, "sys/internal/ui/mounts").await?;
+        if status != 200 {
+            return Err(status_error(status, &json, "sys/internal/ui/mounts"));
+        }
+        let mounts = json.pointer("/data/secret").and_then(Value::as_object).cloned().unwrap_or_default();
+        let mut out: Vec<Entry> = mounts
+            .iter()
+            .filter(|(_, m)| matches!(m.get("type").and_then(Value::as_str), Some("kv" | "generic")))
+            .map(|(path, _)| Entry::group(path.clone(), path.trim_end_matches('/'), ""))
+            .collect();
+        out.sort_by_key(|e| e.name.to_lowercase());
+        return Ok(Listing::level(out));
+    }
+    let r = Request { path: at.path, ..*req };
+    let (mount, v2) = match req.kv_version {
+        KvVersion::V1 => (None, Some(false)),
+        KvVersion::V2 => (mount_of(client, &r, token).await.map(|m| m.0), Some(true)),
+        KvVersion::Auto => match mount_of(client, &r, token).await {
+            Some((m, v2)) => (Some(m), Some(v2)),
+            None => (None, None),
+        },
+    };
+    let tries: Vec<bool> = match v2 {
+        Some(v) => vec![v],
+        None => vec![true, false],
+    };
+    let base = format!("{}/", segments(at.path).join("/"));
+    for (i, v2) in tries.iter().enumerate() {
+        let (status, json) = get(client, req, token, &format!("{}?list=true", list_path(at.path, *v2, mount.as_deref()))).await?;
+        if status == 200 || (status == 404 && i + 1 == tries.len()) {
+            let keys: Vec<&str> = json.pointer("/data/keys").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+            let shown = base.trim_end_matches('/').to_string();
+            let mut out: Vec<Entry> = keys
+                .into_iter()
+                .map(|k| match k.strip_suffix('/') {
+                    Some(folder) => Entry::group(format!("{base}{k}"), folder, shown.clone()),
+                    None => Entry::item(format!("{base}{k}"), k, shown.clone(), ""),
+                })
+                .collect();
+            out.sort_by(|a, b| (a.kind == super::browse::EntryKind::Item, a.name.to_lowercase()).cmp(&(b.kind == super::browse::EntryKind::Item, b.name.to_lowercase())));
+            return Ok(Listing::level(out));
+        }
+        if status != 404 {
+            return Err(status_error(status, &json, at.path));
+        }
+    }
+    Ok(Listing::level(Vec::new()))
+}
+
+/// Where a path's keys are listed: `<mount>/metadata/<rest>` in KV v2.
+pub fn list_path(path: &str, v2: bool, mount: Option<&str>) -> String {
+    let segs = segments(path);
+    if !v2 {
+        return encode(&segs);
+    }
+    let mount_segs = mount.map(segments).filter(|m| !m.is_empty() && segs.starts_with(m)).unwrap_or_else(|| segs[..1.min(segs.len())].to_vec());
+    let rest = &segs[mount_segs.len()..];
+    if rest.is_empty() {
+        format!("{}/metadata", encode(&mount_segs))
+    } else {
+        format!("{}/metadata/{}", encode(&mount_segs), encode(rest))
+    }
+}
+
+/// A secret's keys (never its values).
+pub fn data_keys(json: &Value, v2: bool) -> Vec<String> {
+    let mut data = json.get("data");
+    if v2 || data.is_some_and(|d| d.get("data").is_some_and(Value::is_object) && d.get("metadata").is_some()) {
+        data = data.and_then(|d| d.get("data"));
+    }
+    let mut keys: Vec<String> = data.and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    keys.sort_unstable();
+    keys
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,6 +408,94 @@ mod tests {
         assert!(e.contains("«pw»") && e.contains("password") && !e.contains("old"), "{e}");
         let deleted = json!({ "data": { "data": null, "metadata": {} } });
         assert!(extract(&deleted, true, "password", "secret/app").unwrap_err().contains("borrado"));
+    }
+
+
+    #[test]
+    fn list_paths_and_keys() {
+        assert_eq!(list_path("secret/", true, Some("secret/")), "secret/metadata");
+        assert_eq!(list_path("secret/myapp/", true, Some("secret/")), "secret/metadata/myapp");
+        assert_eq!(list_path("team/kv/app", true, Some("team/kv/")), "team/kv/metadata/app");
+        assert_eq!(list_path("kv/app/", false, None), "kv/app");
+        let v2 = json!({ "data": { "data": { "password": "s3cr3t", "port": 5432 }, "metadata": { "version": 3 } } });
+        assert_eq!(data_keys(&v2, true), ["password", "port"]);
+        assert_eq!(data_keys(&json!({ "data": { "pw": "x" } }), false), ["pw"]);
+    }
+
+    /// Browsing against a mock of Vault: the KV mounts, one level of keys
+    /// (v2 metadata, v1 paths), a secret's keys and never its values.
+    #[tokio::test]
+    async fn browse_against_a_mock() {
+        use axum::extract::{Path as AxPath, Query};
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::get as aget;
+        use axum::{Json, Router};
+        use std::collections::HashMap;
+        let ok = |h: &HeaderMap| h.get("x-vault-token").and_then(|v| v.to_str().ok()) == Some("root");
+        let app = Router::new()
+            .route("/v1/sys/internal/ui/mounts", aget(move |h: HeaderMap| async move {
+                if !ok(&h) { return (StatusCode::FORBIDDEN, Json(json!({ "errors": ["permission denied"] }))); }
+                (StatusCode::OK, Json(json!({ "data": { "secret": {
+                    "secret/": { "type": "kv", "options": { "version": "2" } },
+                    "old/": { "type": "kv", "options": { "version": "1" } },
+                    "database/": { "type": "database" }
+                } } })))
+            }))
+            .route("/v1/sys/internal/ui/mounts/{*p}", aget(|AxPath(p): AxPath<String>| async move {
+                let (path, v) = if p.starts_with("secret") { ("secret/", "2") } else { ("old/", "1") };
+                Json(json!({ "data": { "path": path, "type": "kv", "options": { "version": v } } }))
+            }))
+            .route("/v1/{*p}", aget(|AxPath(p): AxPath<String>, Query(q): Query<HashMap<String, String>>| async move {
+                let list = q.get("list").is_some_and(|l| l == "true");
+                match (p.as_str(), list) {
+                    ("secret/metadata", true) => (StatusCode::OK, Json(json!({ "data": { "keys": ["myapp/", "shared"] } }))),
+                    ("secret/metadata/myapp", true) => (StatusCode::OK, Json(json!({ "data": { "keys": ["db"] } }))),
+                    ("old/team", true) => (StatusCode::OK, Json(json!({ "data": { "keys": ["pg"] } }))),
+                    ("secret/data/myapp/db", false) => (StatusCode::OK, Json(json!({ "data": { "data": { "password": "s3cr3t", "username": "app" }, "metadata": {} } }))),
+                    _ => (StatusCode::NOT_FOUND, Json(json!({ "errors": [] }))),
+                }
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let req = Request { address: &addr, path: "", key: "", namespace: "", kv_version: KvVersion::Auto, ca_file: "" };
+        let c = reqwest::Client::new();
+        let at = |path: &'static str| super::super::browse::At { path, ..Default::default() };
+        let l = browse_with(&c, &req, "root", at("")).await.unwrap();
+        assert_eq!(l.entries.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["old/", "secret/"], "KV mounts only");
+        let l = browse_with(&c, &req, "root", at("secret/")).await.unwrap();
+        assert_eq!(l.entries.iter().map(|e| (e.id.as_str(), e.name.as_str())).collect::<Vec<_>>(), [("secret/myapp/", "myapp"), ("secret/shared", "shared")]);
+        let l = browse_with(&c, &req, "root", at("secret/myapp/")).await.unwrap();
+        assert_eq!(l.entries[0].id, "secret/myapp/db");
+        let l = browse_with(&c, &req, "root", at("old/team")).await.unwrap();
+        assert_eq!(l.entries[0].id, "old/team/pg", "KV v1");
+        let l = browse_with(&c, &req, "root", super::super::browse::At { item: Some("secret/myapp/db"), ..Default::default() }).await.unwrap();
+        assert_eq!(l.fields.as_deref().unwrap(), ["password", "username"]);
+        assert!(!serde_json::to_string(&l).unwrap().contains("s3cr3t"));
+        assert!(browse_with(&c, &req, "nope", at("")).await.unwrap_err().contains("permiso denegado"));
+    }
+
+    /// Against Vault in dev mode as `dbine-test-vault` (port 28200, root
+    /// token `dbine-root`) with `secret/dbine/pg` (KV v2), `old/team/pg`
+    /// (KV v1 at `old/`) and a database role `ro`; see docs/secret-sources.md:
+    /// `DBINE_TEST_VAULT=http://127.0.0.1:28200 cargo test -p dbine live_vault_browse -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_vault_browse() {
+        use super::super::browse::At;
+        let Ok(addr) = std::env::var("DBINE_TEST_VAULT") else { return };
+        let req = Request { address: &addr, path: "", key: "", namespace: "", kv_version: KvVersion::Auto, ca_file: "" };
+        let auth = Auth::Token(Some("dbine-root"));
+        let ids = |l: super::super::browse::Listing| l.entries.into_iter().map(|e| e.id).collect::<Vec<_>>();
+        let mounts = ids(browse(&req, &auth, At::default()).await.unwrap());
+        assert!(mounts.contains(&"secret/".to_string()) && mounts.contains(&"old/".to_string()), "{mounts:?}");
+        assert!(ids(browse(&req, &auth, At { path: "secret/", ..Default::default() }).await.unwrap()).contains(&"secret/dbine/".to_string()));
+        assert!(ids(browse(&req, &auth, At { path: "secret/dbine/", ..Default::default() }).await.unwrap()).contains(&"secret/dbine/pg".to_string()));
+        assert_eq!(ids(browse(&req, &auth, At { path: "old/team/", ..Default::default() }).await.unwrap()), ["old/team/pg"]);
+        let l = browse(&req, &auth, At { item: Some("secret/dbine/pg"), ..Default::default() }).await.unwrap();
+        assert_eq!(l.fields.unwrap(), ["password", "username"]);
+        let db = super::super::vault_db::Source { req: super::super::vault_db::Request { address: &addr, namespace: "", ca_file: "", mount: "", role: "", static_role: false }, auth: Auth::Token(Some("dbine-root")) };
+        assert!(ids(super::super::vault_db::browse(&db).await.unwrap()).contains(&"ro".to_string()));
     }
 
     #[test]

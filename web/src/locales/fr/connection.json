@@ -119,9 +119,9 @@
   "source": {
     "label": "Source",
     "kind": {
-      "saved": "Enregistré dans le trousseau",
+      "saved": "Enregistrer dans le trousseau",
       "ask": "Demander à chaque fois",
-      "command": "Commande",
+      "command": "Ligne de commande",
       "onepassword": "1Password",
       "vault": "HashiCorp Vault",
       "aws": "AWS Secrets Manager",
@@ -280,16 +280,42 @@
       "zoho": "La connexion « {{name}} » obtient « {{field}} » de Zoho Vault. Saisissez la phrase secrète principale (elle n'est pas enregistrée) :",
       "wrong": "Le mot de passe saisi n'a pas ouvert la base.",
       "empty": "Saisissez le mot de passe principal",
-      "delinea": "La connexion « {{name}} » prend « {{field}} » dans Delinea Secret Server. Saisissez le mot de passe (il n'est pas enregistré) :"
+      "delinea": "La connexion « {{name}} » prend « {{field}} » dans Delinea Secret Server. Saisissez le mot de passe (il n'est pas enregistré) :",
+      "bitwarden": "La connexion « {{name}} » obtient « {{field}} » de Bitwarden. Saisissez le mot de passe principal (il n'est pas enregistré) :",
+      "titles": {
+        "keepass": "Mot de passe principal",
+        "bitwarden": "Mot de passe principal",
+        "zoho": "Phrase secrète principale",
+        "delinea": "Mot de passe"
+      }
     },
     "vaultAuth": {
       "token": "Jeton",
-      "approle": "AppRole",
-      "bitwarden": "La connexion « {{name}} » obtient « {{field}} » de Bitwarden. Saisissez le mot de passe principal (il n'est pas enregistré) :"
+      "approle": "AppRole"
     },
     "bitwardenCloud": {
       "com": "États-Unis ({{domain}})",
       "eu": "Europe ({{domain}})"
+    },
+    "credentials": "Identifiants",
+    "group": {
+      "local": "Sur cet ordinateur",
+      "managers": "Gestionnaires de secrets"
+    },
+    "fillUser": "Utiliser aussi l'utilisateur de l'entrée",
+    "browse": {
+      "button": "Parcourir",
+      "title": "Parcourir {{source}}",
+      "search": "Filtrer",
+      "searchServer": "Rechercher sur le serveur",
+      "empty": "Il n'y a rien ici.",
+      "truncated": "La liste a été tronquée car il y en a davantage. Filtrez pour trouver celui que vous cherchez.",
+      "pickField": "Choisissez le champ :",
+      "wholeValue": "La valeur entière",
+      "noFields": "Cet élément n'a pas de champs à choisir.",
+      "useItem": "Utiliser celui-ci",
+      "namesOnly": "Seuls les noms sont affichés, jamais les valeurs.",
+      "fillFirst": "Renseignez d'abord : {{fields}}"
     }
   }
 }

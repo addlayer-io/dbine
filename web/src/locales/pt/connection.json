@@ -119,9 +119,9 @@
   "source": {
     "label": "Origem",
     "kind": {
-      "saved": "Salva no chaveiro",
+      "saved": "Salvar no chaveiro",
       "ask": "Perguntar toda vez",
-      "command": "Comando",
+      "command": "Linha de comando",
       "onepassword": "1Password",
       "vault": "HashiCorp Vault",
       "aws": "AWS Secrets Manager",
@@ -280,16 +280,42 @@
       "zoho": "A conexão «{{name}}» obtém «{{field}}» do Zoho Vault. Digite a frase secreta mestra (ela não é salva):",
       "wrong": "A senha digitada não abriu o banco.",
       "empty": "Digite a senha mestra",
-      "delinea": "A conexão «{{name}}» pega «{{field}}» do Delinea Secret Server. Digite a senha (não é guardada):"
+      "delinea": "A conexão «{{name}}» pega «{{field}}» do Delinea Secret Server. Digite a senha (não é guardada):",
+      "bitwarden": "A conexão «{{name}}» obtém «{{field}}» do Bitwarden. Digite a senha mestra (ela não é salva):",
+      "titles": {
+        "keepass": "Senha mestra",
+        "bitwarden": "Senha mestra",
+        "zoho": "Frase secreta mestra",
+        "delinea": "Senha"
+      }
     },
     "vaultAuth": {
       "token": "Token",
-      "approle": "AppRole",
-      "bitwarden": "A conexão «{{name}}» obtém «{{field}}» do Bitwarden. Digite a senha mestra (ela não é salva):"
+      "approle": "AppRole"
     },
     "bitwardenCloud": {
       "com": "Estados Unidos ({{domain}})",
       "eu": "Europa ({{domain}})"
+    },
+    "credentials": "Credenciais",
+    "group": {
+      "local": "Neste computador",
+      "managers": "Gerenciadores de segredos"
+    },
+    "fillUser": "Usar também o usuário da entrada",
+    "browse": {
+      "button": "Examinar",
+      "title": "Examinar {{source}}",
+      "search": "Filtrar",
+      "searchServer": "Buscar no servidor",
+      "empty": "Não há nada aqui.",
+      "truncated": "A lista foi cortada porque há mais itens. Filtre para encontrar o que você procura.",
+      "pickField": "Escolha o campo:",
+      "wholeValue": "O valor inteiro",
+      "noFields": "Este item não tem campos para escolher.",
+      "useItem": "Usar este",
+      "namesOnly": "Só são mostrados nomes, nunca valores.",
+      "fillFirst": "Preencha primeiro: {{fields}}"
     }
   }
 }

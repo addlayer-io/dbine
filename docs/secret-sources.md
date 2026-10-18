@@ -2,27 +2,102 @@
 
 Every secret field of a connection (the database password, an API key or
 token, a service-account key, the SSH tunnel's password or key passphrase)
-has an **Origin** selector in the connection form:
+has a source selector in the connection form. It comes **first**, before the
+field: for the database user and password it's **Credentials**; for any
+other secret it's a small selector on the field's row, with the field's own
+input next to it while the source is local.
 
-| Origin | Where the value comes from |
+The selector lists the local sources first, then a line, then the secret
+managers sorted by name in the interface's language:
+
+| Source | Where the value comes from |
 |---|---|
-| **Saved in the keychain** (default) | What you type, kept in the system keychain, as before. |
+| **Save in the keychain** (default) | What you type, kept in the system keychain, as before. |
 | **Ask every time** (the database password) | Asked when connecting; never kept. |
-| **Command** | The output of a command you write. |
+| **Command line** | The output of a command you write. |
 | **1Password** | An `op://vault/item/field` reference, read with the 1Password CLI. |
-| **HashiCorp Vault** | A key of a KV secret (v1 or v2). |
+| **AWS Parameter Store** | A parameter of AWS Systems Manager Parameter Store (SecureString, String or StringList). |
 | **AWS Secrets Manager** | A secret by name or ARN. |
 | **Azure Key Vault** | A secret of a vault. |
-| **Google Secret Manager** | A secret version of a project. |
-| **KeePass** | A field of an entry of a `.kdbx` file, read by DBine itself. |
-| **Zoho Vault** | A field of a secret, decrypted by DBine with your master passphrase. |
-| **HashiCorp Vault (database credentials)** | A user and a password Vault makes for this connection (database secrets engine), revoked when it closes. |
-| **CyberArk Conjur** | A variable, read with a host's or user's API key. |
-| **CyberArk Central Credential Provider** | An account's password (and user), usually with a client certificate. |
-| **Delinea Secret Server** | A field of a secret, on premises or Secret Server Cloud (also through Delinea Platform). |
 | **Bitwarden** | A field of an item of your vault (personal or an organization's), decrypted by DBine with your master password. |
 | **Bitwarden Secrets Manager** | A secret, with a machine account's access token. |
-| **AWS Parameter Store** | A parameter of AWS Systems Manager Parameter Store (SecureString, String or StringList). |
+| **CyberArk Central Credential Provider** | An account's password (and user), usually with a client certificate. |
+| **CyberArk Conjur** | A variable, read with a host's or user's API key. |
+| **Delinea Secret Server** | A field of a secret, on premises or Secret Server Cloud (also through Delinea Platform). |
+| **Google Secret Manager** | A secret version of a project. |
+| **HashiCorp Vault** | A key of a KV secret (v1 or v2). |
+| **HashiCorp Vault (database credentials)** | A user and a password Vault makes for this connection (database secrets engine), revoked when it closes. |
+| **KeePass** | A field of an entry of a `.kdbx` file, read by DBine itself. |
+| **Zoho Vault** | A field of a secret, decrypted by DBine with your master passphrase. |
+
+## The form
+
+- **Local sources** (Save in the keychain, Ask every time): the user and
+  password fields show as always. Engines without a user (a password only)
+  show the password alone; engines with no credentials (a local file) have
+  no selector.
+- **A command line or a secret manager**: the user and password fields go
+  away and that source's inputs take their place, in the form's own two
+  columns. Where the source can give the user too, **Also use the entry's
+  user** appears; with it off, the user field comes back (the password still
+  comes from the source). Vault database credentials always give the user,
+  so the field stays hidden; with Conjur the user comes from the user
+  variable when it's set.
+- **Other secret fields** (tokens, API keys, the SSH tunnel's password and
+  passphrase) work the same way: the selector, then the field's input or the
+  source's inputs.
+- **Test** at the end of the source's inputs resolves it with what the form
+  has now and shows only how many characters came back.
+
+What the form stores didn't change: the definitions go in the connection's
+`secret_sources` option by field key, "Ask every time" is the connection's
+`save_password` set to false, and confirmations of definitions stay valid.
+
+## Browse
+
+Next to the item input of the sources that can list, **Browse** (the
+magnifier) opens the source's groups and items with a filter, then the
+chosen item's field names; picking one fills the item and the field. It
+needs the source's other inputs first (the file, the address, the client
+ID…), and signs in as **Test** does: a master password set to **Ask when
+connecting** is asked for this browse only and kept in memory while the
+dialog is open.
+
+| Source | What it lists | Fields |
+|---|---|---|
+| KeePass | Every entry outside the recycle bin, by group, with its UUID | The entry's field names |
+| 1Password | The vaults, then a vault's items (`op vault list`, `op item list`) | The item's field labels (`op item get`), as they go in the reference |
+| Bitwarden | The items, by folder or organization (names decrypted on this computer) | The item's standard fields it has and its custom fields' names |
+| Bitwarden Secrets Manager | The secrets the machine account can read | The JSON keys of the value |
+| HashiCorp Vault | The KV mounts, then one level of keys at a time | The keys of the secret |
+| Vault database credentials | The roles and static roles of the engine | — |
+| AWS Secrets Manager | The secrets (`ListSecrets`), by `/` in their names | The JSON keys of the value |
+| AWS Parameter Store | The parameters and their types (`DescribeParameters`), by path | The JSON keys of the value |
+| Azure Key Vault | The secrets of the vault | The JSON keys of the value |
+| Google Secret Manager | The secrets of the project | The JSON keys of the latest version |
+| Zoho Vault | The secrets' names | The secret's field names |
+| CyberArk Conjur | The variables the login can see, by `/` in their IDs | The JSON keys of the value |
+| Delinea Secret Server | A search of the secrets, by folder | The field slugs of the secret's template |
+
+The Central Credential Provider has no list: its inputs stay as typed.
+
+- Browsing returns names, paths, IDs and field names, **never a value**.
+  Where the field names are the keys of a JSON value or of a Vault secret,
+  DBine reads the value, takes its keys and wipes it.
+- An item whose name repeats is chosen by its ID (KeePass: its UUID), so the
+  reference reads back the same item.
+- It's only in the connection form on this computer: the MCP server, the AI
+  assistant and the phone app can't browse. A definition that came from
+  elsewhere (an import, a restored backup) is confirmed before it can be
+  browsed, and while the connection being edited has such a definition for
+  that field, it's confirmed first.
+- A password or token typed only to browse is used for that call and not
+  saved; it's kept only where you chose **Save in the keychain**, when the
+  connection is saved.
+- Listings stop at 5,000 entries (the dialog says so); filter to find the
+  rest. Delinea searches on the server as you type.
+
+## How it resolves
 
 DBine resolves the value right before each connection opens, before the SSH
 tunnel and the engine's driver get the settings, so it works the same way on
@@ -32,21 +107,22 @@ run the command again; disconnecting, editing or deleting the connection
 drops it, and the next connection fetches it again. A rotated password is
 picked up at the next connection.
 
-**Test** next to the field resolves it with what the form has now and shows
-only how many characters came back (`OK · 24 characters`), never the value.
+**Test** resolves it with what the form has now and shows only how many
+characters came back (`OK · 24 characters`), never the value.
 
 ## JSON secrets
 
 Secrets are often a JSON object (`{"username": "app", "password": "…"}`).
 **JSON key** picks the key whose value is used (strings as they are, numbers
 and booleans as written). If the key isn't there, the error lists the keys
-the secret has (never their values). With AWS Secrets Manager, **Take the
-user from this secret too** also fills the connection's user from the
-secret's `username` key; KeePass, Zoho Vault, Bitwarden and AWS Parameter
-Store have the same option (the entry's `UserName`, the secret's `username`,
-the item's username, the value's `username` key).
+the secret has (never their values). With AWS Secrets Manager, **Also use
+the entry's user** also fills the connection's user from the secret's
+`username` key; KeePass, Zoho Vault, Bitwarden, Delinea, the Central
+Credential Provider and AWS Parameter Store have the same option (the
+entry's `UserName`, the secret's `username`, the item's username, the
+account's `UserName`, the value's `username` key).
 
-## Command
+## Command line
 
 The command runs with your **login shell** (`$SHELL -l -c` on macOS and
 Linux, so `PATH` finds the same tools as in a terminal; `cmd.exe /c` on
@@ -135,7 +211,7 @@ to `secretmanager.googleapis.com`. Errors: token rejected, permission denied
 | Entry | `Group/Subgroup/Title` from the top of the database (the root group's own name may lead too), the title alone when no other entry has it, or the entry's UUID (with or without braces and dashes). |
 | Field | Optional: `Password` by default; `UserName`, `URL`, `Notes` or any custom (advanced) field. Exact name first, then ignoring case. |
 | Key file | Optional: the key file the database needs besides (or instead of) the master password. |
-| Master password | **Saved in the keychain** (typed here), **Ask when connecting**, **From a command** (its output, as for the Command origin) or **None** (the key file alone). |
+| Master password | **Saved in the keychain** (typed here), **Ask when connecting**, **From a command** (its output, as for the Command line source) or **None** (the key file alone). |
 
 DBine reads the file itself, with no KeePass program installed: KDBX 3.1 and
 KDBX 4, AES-256, ChaCha20 or Twofish, AES-KDF or Argon2 (d and id). Opening
@@ -487,7 +563,16 @@ reads files the sandbox can see (your home folder).
 | `test_secret_source` | `{ connection_id \| null, driver, field, source, token \| null, tokens \| null }` (`tokens`: typed now, by slot; the kept ones fill the rest) | `{ chars, username }` |
 | `approve_secret_source` | `{ connection_id \| null, field, source }` | `void` |
 | `unlock_secret_source` | `{ connection_id, field, value }` (a master password asked for a saved connection; memory only) | `void` |
+| `browse_secret_source` | `{ connection_id \| null, driver, field, source, tokens \| null, path?, item?, query? }` (`source` may leave its item input empty; `path`: the group to list, `item`: the item whose field names to list, `query`: Delinea's search) | `{ entries: [{ id, name, path?, kind: 'group' \| 'item', detail? }], fields?, complete, truncated, search }` |
 
+- Browsing (`secret_sources/browse.rs`, a `browse` function in each
+  provider's module): `complete` listings come whole and the dialog walks
+  their `path`s; Vault KV and 1Password list one level at a time (a group's
+  `id` is the next `path`). It's registered only as a Tauri command; the
+  MCP server, the assistant and the phone have no route to it. Tests run
+  against the mocks and fixtures of each provider;
+  `secret_sources::vault::tests::live_vault_browse` and the LocalStack tests
+  (`aws`, `ssm`) browse real servers.
 - Errors: `secret_source` (a provider failed; the message says which and
   why), `secret_source_approval` (not confirmed; `approval` carries
   `{ connection_id, connection_name, field, field_label, source }` for the

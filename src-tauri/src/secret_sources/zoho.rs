@@ -447,6 +447,59 @@ pub fn values(secret: &Value, key: &str, req: &Request<'_>) -> Result<(String, O
     Ok((value, username))
 }
 
+// ---- browse ------------------------------------------------------------------
+
+/// The secrets' names (paged), or a secret's field names (`item`, an ID or
+/// a name). Neither is encrypted: no passphrase, nothing decrypted.
+pub async fn browse(data_center: &str, creds: &Creds, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    let ep = Endpoints::of(data_center).ok_or_else(|| format!("el centro de datos de Zoho «{}» no es válido", data_center.trim()))?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| e.to_string())?;
+    browse_with(&client, &ep, creds, at).await
+}
+
+pub async fn browse_with(client: &reqwest::Client, ep: &Endpoints, creds: &Creds, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{unique_names, wipe_json, Entry, Listing, MAX_ENTRIES};
+    if let Some(item) = at.item {
+        let mut secret = find_secret(client, ep, creds, item).await?;
+        let mut names: Vec<String> = fields_of(&secret).into_iter().map(|(mut k, mut v)| {
+            wipe(&mut v);
+            std::mem::take(&mut k)
+        }).collect();
+        wipe_json(&mut secret);
+        names.dedup();
+        return Ok(Listing::fields(names));
+    }
+    const PAGE: usize = 100;
+    let mut all: Vec<Value> = Vec::new();
+    for page in 0.. {
+        let json = api(client, ep, creds, &format!("/api/rest/json/v1/secrets?isAsc=true&pageNum={page}&rowPerPage={PAGE}")).await?;
+        let list: Vec<Value> = json.pointer("/operation/Details").and_then(Value::as_array).cloned().unwrap_or_default();
+        let n = list.len();
+        // Names and IDs only; the rest (ciphertext) isn't kept.
+        all.extend(list.iter().map(|s| serde_json::json!({ "secretname": name_of(s), "secretid": id_of(s) })));
+        if n < PAGE || all.len() > MAX_ENTRIES {
+            break;
+        }
+    }
+    let unique = unique_names(all.iter().map(name_of));
+    let mut out: Vec<Entry> = all
+        .iter()
+        .map(|s| {
+            let (name, id) = (name_of(s).to_string(), id_of(s));
+            let by_name = !name.trim().is_empty() && !name.chars().all(|c| c.is_ascii_digit()) && unique.contains(&name);
+            Entry::item(if by_name { name.clone() } else { id.clone() }, if name.is_empty() { id.clone() } else { name }, "", id)
+        })
+        .collect();
+    out.sort_by_key(|e| e.name.to_lowercase());
+    Ok(Listing::complete(out))
+}
+
 // ---- Zoho's AES-CTR ------------------------------------------------------------
 
 /// The AES-256 key of a key text: its first 32 bytes (zero-padded) as an
@@ -789,6 +842,27 @@ mod tests {
         let e = read_with(&client, &ep, &r("pg-main", "", false), &bad).await.unwrap_err();
         assert!(e.contains("secreto del cliente") && !e.contains("nope"), "{e}");
         assert_eq!(*mock.bad_auth.lock().unwrap(), 0, "every API call carried the access token");
+        forget_token(&token_cache_key(&ep, &c));
+    }
+
+    /// Browsing: names (a repeated one by its ID), then a secret's field
+    /// names, never a value or its ciphertext.
+    #[tokio::test]
+    async fn browse_against_the_mock() {
+        let (base, _) = mock_server().await;
+        let ep = Endpoints { accounts: base.clone(), vault: base.clone() };
+        let client = reqwest::Client::new();
+        let c = creds("", "1000.dummy-refresh");
+        let l = browse_with(&client, &ep, &c, Default::default()).await.unwrap();
+        let ids: Vec<&str> = l.entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, ["org-db", "pg-main", "2000000000003", "2000000000004"]);
+        let at = crate::secret_sources::browse::At { item: Some("pg-main"), ..Default::default() };
+        let l = browse_with(&client, &ep, &c, at).await.unwrap();
+        let fields = l.fields.clone().unwrap();
+        assert!(fields.contains(&"password".to_string()) && fields.contains(&"username".to_string()), "{fields:?}");
+        let v = vectors();
+        let json = serde_json::to_string(&l).unwrap();
+        assert!(!json.contains(s(&v, "personal_secret_data")), "{json}");
         forget_token(&token_cache_key(&ep, &c));
     }
 

@@ -59,6 +59,14 @@ pub fn sign(method: &str, host: &str, path: &str, headers: &[(&str, &str)], body
 
 /// The secret's value (`SecretString`, or `SecretBinary` as UTF-8).
 pub async fn get_secret(secret_id: &str, region: &str, profile: &str) -> Result<String, String> {
+    let (client, region, creds) = session(secret_id, region, profile).await?;
+    let host = host(&region);
+    get_secret_at(&client, &format!("https://{host}/"), &host, &region, &creds, secret_id.trim()).await
+}
+
+/// The client, the region and the credentials (the region: the form's,
+/// the ARN's, the environment's or the profile's).
+async fn session(secret_id: &str, region: &str, profile: &str) -> Result<(reqwest::Client, String, AwsCreds), String> {
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
     let files = AwsFiles::load(&env);
     let profile_field = Some(profile.trim()).filter(|p| !p.is_empty());
@@ -76,8 +84,57 @@ pub async fn get_secret(secret_id: &str, region: &str, profile: &str) -> Result<
     }
     let (creds, _) = cloud_auth::aws_credentials(profile_field.is_some(), &profile_name, &files, &env).await.map_err(|e| e.to_string())?;
     let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(20)).build().map_err(|e| e.to_string())?;
+    Ok((client, region, creds))
+}
+
+// ---- browse ------------------------------------------------------------------
+
+/// The secrets' names (ListSecrets), or a secret's JSON keys (`item`).
+pub async fn browse(region: &str, profile: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    let (client, region, creds) = session(at.item.unwrap_or(""), region, profile).await?;
     let host = host(&region);
-    get_secret_at(&client, &format!("https://{host}/"), &host, &region, &creds, secret_id.trim()).await
+    browse_at(&client, &format!("https://{host}/"), &host, &region, &creds, at).await
+}
+
+pub async fn browse_at(client: &reqwest::Client, url: &str, host: &str, region: &str, creds: &AwsCreds, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    use super::browse::{Entry, Listing, MAX_ENTRIES};
+    if let Some(item) = at.item {
+        let raw = get_secret_at(client, url, host, region, creds, item).await?;
+        return Ok(Listing::fields(super::browse::json_keys(raw)));
+    }
+    let mut out = Vec::new();
+    let mut next: Option<String> = None;
+    loop {
+        let mut q = serde_json::json!({ "MaxResults": 100, "SortOrder": "asc" });
+        if let Some(n) = &next {
+            q["NextToken"] = Value::String(n.clone());
+        }
+        let json = call(client, url, host, region, creds, "secretsmanager.ListSecrets", &q).await.map_err(|(status, json)| aws_error(status, &json, ""))?;
+        for s in json.get("SecretList").and_then(Value::as_array).into_iter().flatten() {
+            if let Some(name) = s.get("Name").and_then(Value::as_str) {
+                out.push(Entry::named(name, ""));
+            }
+        }
+        next = json.get("NextToken").and_then(Value::as_str).map(str::to_string);
+        if next.is_none() || out.len() > MAX_ENTRIES {
+            break;
+        }
+    }
+    Ok(Listing::complete(out))
+}
+
+/// One signed JSON call; the answer, or `(status, body)`.
+async fn call(client: &reqwest::Client, url: &str, host: &str, region: &str, creds: &AwsCreds, target: &str, body: &Value) -> Result<Value, (u16, Value)> {
+    let body = serde_json::to_vec(body).unwrap_or_default();
+    let headers = sign("POST", host, "/", &[("content-type", CONTENT_TYPE), ("x-amz-target", target)], &body, creds, region, "secretsmanager", cloud_auth::now());
+    let mut req = client.post(url).body(body);
+    for (k, v) in &headers {
+        req = req.header(k.as_str(), v.as_str());
+    }
+    let resp = req.send().await.map_err(|e| (0, Value::String(format!("no se pudo conectar con AWS Secrets Manager: {}", e.without_url()))))?;
+    let status = resp.status().as_u16();
+    let json: Value = serde_json::from_str(&resp.text().await.unwrap_or_default()).unwrap_or(Value::Null);
+    if status == 200 { Ok(json) } else { Err((status, json)) }
 }
 
 /// `GetSecretValue` at `url` (AWS's endpoint; an emulator in tests).
@@ -106,12 +163,16 @@ pub async fn get_secret_at(client: &reqwest::Client, url: &str, host: &str, regi
 }
 
 fn aws_error(status: u16, json: &Value, secret_id: &str) -> String {
+    if let (0, Value::String(m)) = (status, json) {
+        return m.clone();
+    }
     let kind = json.get("__type").and_then(Value::as_str).unwrap_or("");
     let kind = kind.rsplit('#').next().unwrap_or(kind);
     let msg = json.get("message").or_else(|| json.get("Message")).and_then(Value::as_str).unwrap_or("");
     let msg = super::exec::first_lines(msg, 300);
     match kind {
         "ResourceNotFoundException" => format!("AWS Secrets Manager: no existe el secreto «{secret_id}» en esa región"),
+        "AccessDeniedException" if secret_id.is_empty() => format!("AWS Secrets Manager: permiso denegado (falta secretsmanager:ListSecrets): {msg}"),
         "AccessDeniedException" => format!("AWS Secrets Manager: permiso denegado (falta secretsmanager:GetSecretValue o kms:Decrypt): {msg}"),
         "UnrecognizedClientException" | "InvalidSignatureException" | "ExpiredTokenException" | "IncompleteSignature" | "InvalidClientTokenId" => {
             format!("AWS rechazó las credenciales (¿vencieron? probá «aws sso login»): {msg}")
@@ -194,5 +255,11 @@ mod tests {
         assert_eq!(dbine_core::secret_sources::pick_json(&raw, "username").unwrap(), "postgres");
         let e = get_secret_at(&client, &url, &host, "us-east-1", &creds, "dbine/none").await.unwrap_err();
         assert!(e.contains("no existe el secreto"), "{e}");
+        // Browsing: the names, then the JSON keys of one, never its values.
+        let l = browse_at(&client, &url, &host, "us-east-1", &creds, Default::default()).await.unwrap();
+        assert!(l.entries.iter().any(|e| e.id == "dbine/pg" && e.name == "pg" && e.path == "dbine"), "{:?}", l.entries);
+        let at = crate::secret_sources::browse::At { item: Some("dbine/pg"), ..Default::default() };
+        let l = browse_at(&client, &url, &host, "us-east-1", &creds, at).await.unwrap();
+        assert_eq!(l.fields.as_deref().unwrap(), ["password", "username"]);
     }
 }

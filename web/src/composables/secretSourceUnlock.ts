@@ -22,7 +22,7 @@ export async function askMasterPassword(u: SecretSourceUnlock): Promise<string |
   const what = t(`connection:source.unlock.${kind}`, { field: tb(u.field_label), name: u.connection_name || '—' });
   const message = u.wrong ? `${t('connection:source.unlock.wrong')}\n\n${what}` : what;
   try {
-    const { value } = await ElMessageBox.prompt(message, t('connection:source.unlock.title'), {
+    const { value } = await ElMessageBox.prompt(message, t(`connection:source.unlock.titles.${kind}`), {
       inputType: 'password',
       confirmButtonText: t('common:connect'),
       cancelButtonText: t('common:cancel'),
