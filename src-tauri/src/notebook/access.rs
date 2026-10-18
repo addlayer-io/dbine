@@ -239,11 +239,23 @@ pub struct Access<'a> {
     pub approved: Vec<String>,
     /// Where the files' records are kept (the change notice); `None`: none.
     pub store: Option<&'a StateStore>,
+    /// How objects on the web and in cloud storage are reached.
+    pub net: super::remote::Net,
 }
 
 impl Access<'_> {
     fn granted(&self, path: &str) -> bool {
-        self.approved.iter().any(|a| a == path) || self.grants.iter().any(|g| if g.pattern { pattern_matches(&g.target, path) } else { g.target == path })
+        let remote = super::remote::scheme_of(path).is_some();
+        self.approved.iter().any(|a| a == path)
+            || self.grants.iter().any(|g| {
+                g.target == path
+                    || g.pattern
+                        && if remote {
+                            super::remote::scheme_of(&g.target).is_some() && super::remote::url_pattern_matches(&g.target, path)
+                        } else {
+                            super::remote::scheme_of(&g.target).is_none() && pattern_matches(&g.target, path)
+                        }
+            })
     }
 
     /// `files` if every one may be read; else why not (blocked first). A
@@ -251,8 +263,14 @@ impl Access<'_> {
     /// list, and the file is pending until it and all its sidecars are
     /// granted or approved.
     pub fn gate(&self, files: &[DataFile]) -> Result<Vec<DataFile>, Gate> {
-        let blocked: Vec<String> =
-            files.iter().flat_map(|f| f.all()).filter_map(|f| self.policy.blocked(Path::new(&f.path)).map(|why| format!("«{}» ({why})", f.path))).collect();
+        // URLs have their own rules, checked when they are parsed and
+        // connected to ([`super::remote`]).
+        let blocked: Vec<String> = files
+            .iter()
+            .flat_map(|f| f.all())
+            .filter(|f| f.host.is_none())
+            .filter_map(|f| self.policy.blocked(Path::new(&f.path)).map(|why| format!("«{}» ({why})", f.path)))
+            .collect();
         if !blocked.is_empty() {
             return Err(Gate::Blocked(format!(
                 "DBine nunca deja que un notebook lea {}: son credenciales, claves, historial o configuración del sistema",
@@ -336,6 +354,8 @@ pub fn grant_targets(files: &[DataFile]) -> Vec<(String, bool)> {
     let mut out: Vec<(String, bool)> = Vec::new();
     for f in files {
         let t = match &f.pattern {
+            // A URL pattern (`s3://ventas/2026/*.parquet`) is granted as written.
+            Some(p) if f.host.is_some() => (p.clone(), true),
             Some(p) if pattern_matches(p, &f.path) => (p.clone(), true),
             _ => (f.path.clone(), false),
         };
@@ -421,6 +441,16 @@ pub async fn changes(access: &Access<'_>, files: &[DataFile]) -> Vec<Seen> {
     let mut out = Vec::new();
     for f in files {
         let old = store.file_record(nb, &f.path).ok().flatten();
+        // An object on the web or in cloud storage: its version (ETag, else
+        // Last-Modified and size) stands for the hash; one without a
+        // version keeps no record.
+        if f.host.is_some() {
+            let Some(v) = &f.version else { continue };
+            let previous_mtime_ms = old.as_ref().filter(|o| o.sha256 != *v).map(|o| o.mtime_ms);
+            let dirty = old.as_ref().is_none_or(|o| o.sha256 != *v || o.size != f.size || o.mtime_ms != f.mtime_ms);
+            out.push(Seen { path: f.path.clone(), record: FileRecord { size: f.size, mtime_ms: f.mtime_ms, sha256: v.clone() }, previous_mtime_ms, dirty });
+            continue;
+        }
         if let Some(o) = old.as_ref().filter(|o| o.size == f.size && o.mtime_ms == f.mtime_ms) {
             out.push(Seen { path: f.path.clone(), record: o.clone(), previous_mtime_ms: None, dirty: false });
             continue;

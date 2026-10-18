@@ -358,7 +358,7 @@ async fn notebook_local_whole_result_chart_aggregates_in_duckdb() {
     let state = test_state();
     let tab = "chart-tab";
     // The cell shows 5 rows of its 60.
-    let r = run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(1, 60), None, None, super::super::access::Policy::default()).await.unwrap();
+    let r = run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(1, 60), None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
     assert!(r.outcome.error.is_none(), "{:?}", r.outcome.error);
     assert_eq!(r.outcome.results.iter().find(|x| !x.columns.is_empty()).unwrap().rows.len(), 5);
 
@@ -404,7 +404,7 @@ async fn notebook_local_whole_result_chart_refuses_and_asks_to_run() {
     // Nothing ran in this tab: no session.
     let e = aggregate_local(&state, tab, CHART_CELL, &kpi).await.unwrap_err();
     assert!(e.to_string().contains("Ejecutá la celda"), "{e}");
-    run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(1, 60), None, None, super::super::access::Policy::default()).await.unwrap();
+    run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(1, 60), None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
     // A cell that didn't run in it.
     let e = aggregate_local(&state, tab, "SELECT * FROM ventas", &kpi).await.unwrap_err();
     assert!(e.to_string().contains("Ejecutá la celda"), "{e}");
@@ -413,10 +413,10 @@ async fn notebook_local_whole_result_chart_refuses_and_asks_to_run() {
     assert!(matches!(e, CommandError::BadRequest(_)), "{e}");
     assert!(!std::path::Path::new("/tmp/dbine-nbx-chart.csv").exists());
     // Another cell loaded `ventas` again (its source ran again): asked to run this one again.
-    run_local(&state, tab, "SELECT count(*) FROM ventas", 5, 1_000, &chart_sources(2, 80), None, None, super::super::access::Policy::default()).await.unwrap();
+    run_local(&state, tab, "SELECT count(*) FROM ventas", 5, 1_000, &chart_sources(2, 80), None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
     let e = aggregate_local(&state, tab, CHART_CELL, &kpi).await.unwrap_err();
     assert!(e.to_string().contains("cambiaron"), "{e}");
-    run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(2, 80), None, None, super::super::access::Policy::default()).await.unwrap();
+    run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(2, 80), None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
     let a = aggregate_local(&state, tab, CHART_CELL, &kpi).await.unwrap();
     assert_eq!(a.rows_scanned, Some(80));
     // The tab closed (its session with it).

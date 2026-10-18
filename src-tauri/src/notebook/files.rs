@@ -126,7 +126,7 @@ const SHAPE_SIDECARS: &[&str] = &["shx", "dbf", "prj", "cpg", "sbn", "sbx", "qix
 /// A CSV's (GDAL reads its column types and projection from them).
 const CSV_SIDECARS: &[&str] = &["csvt", "prj"];
 /// Files a pattern (or a run) may read at most.
-const MAX_FILES: usize = 1_000;
+pub const MAX_FILES: usize = 1_000;
 /// Directory entries a glob may look at.
 const MAX_SCANNED: usize = 200_000;
 /// Folders deep a `**` goes.
@@ -400,8 +400,9 @@ pub fn reader_calls(sql: &str) -> Result<Vec<ReaderCall>, String> {
 // ---------------------------------------------------------------------------
 // Resolution
 
-/// One file a reader reads, as it is now.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// One file a reader reads, as it is now: a local file, or an object on
+/// the web or in cloud storage (`host` set, [`super::remote`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct DataFile {
     /// Canonical: absolute, symlinks resolved, no `..`.
     pub path: String,
@@ -423,6 +424,15 @@ pub struct DataFile {
     /// SQLite file's pending `-wal`): granted, checked and approved with it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sidecars: Vec<DataFile>,
+    /// An object on the web or in cloud storage: what the dialog shows
+    /// first (`example.com`, `ventas (Amazon S3)`). `path` is its canonical
+    /// URL (or, before it is approved, the pattern).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// An object's version (its `ETag`, else `Last-Modified` and size): the
+    /// change notice compares it instead of a hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 impl DataFile {
@@ -432,8 +442,8 @@ impl DataFile {
     }
 }
 
-/// A URL (`https://…`, `s3://…`, `hf://…`, GDAL's `WFS:http://…`): not a
-/// local file.
+/// Anything with `://` (GDAL's `WFS:http://…`, `/vsicurl/https://…`) that
+/// [`super::remote::parse`] didn't take: not a local file.
 fn is_url(p: &str) -> bool {
     p.contains("://")
 }
@@ -447,7 +457,7 @@ fn is_virtual(p: &str) -> bool {
     })
 }
 
-fn has_glob(s: &str) -> bool {
+pub(crate) fn has_glob(s: &str) -> bool {
     s.contains(['*', '?', '['])
 }
 
@@ -465,7 +475,7 @@ fn plain(p: PathBuf) -> PathBuf {
 }
 
 /// `name` matches the glob segment `pat` (`*`, `?`, `[a-z]`, `[!x]`).
-fn wild(pat: &[char], name: &[char]) -> bool {
+pub(crate) fn wild(pat: &[char], name: &[char]) -> bool {
     match pat.first() {
         None => name.is_empty(),
         Some('*') => (0..=name.len()).any(|k| wild(&pat[1..], &name[k..])),
@@ -614,11 +624,11 @@ fn resolve_found(raw: &str, base: Option<&Path>, home: Option<&Path>) -> Result<
     if p.is_empty() {
         return Err("la ruta de un archivo está vacía".into());
     }
-    if is_url(p) {
-        return Err(format!("«{p}» no es un archivo local: estas celdas no leen de la red (http, s3, gs, azure…)"));
-    }
     if is_virtual(p) {
-        return Err(format!("«{p}» es una ruta virtual de GDAL (/vsi…): estas celdas leen solo archivos locales, escritos con su ruta"));
+        return Err(format!("«{p}» es una ruta virtual de GDAL (/vsi…): estas celdas leen archivos locales escritos con su ruta, o URLs (https://, s3://, gs://, az://)"));
+    }
+    if is_url(p) {
+        return Err(format!("«{p}» no es un archivo local ni una URL que estas celdas lean (https://, s3://, gs://, az://)"));
     }
     let tilde = p == "~" || p.starts_with("~/") || p.starts_with("~\\");
     let path = if tilde {
@@ -678,7 +688,7 @@ fn display(path: &Path, base: Option<&Path>, home: Option<&Path>) -> String {
 fn data_file(path: &Path, base: Option<&Path>, home: Option<&Path>) -> Result<DataFile, String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("no se puede leer «{}»: {e}", path.display()))?;
     let mtime_ms = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as i64);
-    Ok(DataFile { path: path.to_string_lossy().to_string(), display: display(path, base, home), size: meta.len(), mtime_ms, pattern: None, previous_mtime_ms: None, sidecars: Vec::new() })
+    Ok(DataFile { path: path.to_string_lossy().to_string(), display: display(path, base, home), size: meta.len(), mtime_ms, ..Default::default() })
 }
 
 /// The home folder.
@@ -717,6 +727,35 @@ pub struct FileRead {
     /// For the cell: the file, or the paths as written for several.
     pub display: String,
     pub kind: ReadKind,
+    /// What goes after the path in [`FileRead::text`] (`, header = true`),
+    /// as DBine passes it: the text again with other paths ([`FileRead::text_for`]).
+    pub rest: String,
+    /// Its files are objects on the web or in cloud storage: downloaded by
+    /// DBine once approved ([`super::remote`]), read from local copies.
+    pub remote: bool,
+    /// A GeoPackage with a pending `-wal` or `-journal`: read from a private
+    /// copy with them applied ([`gpkg_copy`]), so the originals are never
+    /// written.
+    pub gpkg_copy: bool,
+}
+
+impl FileRead {
+    /// The call over `paths` instead of its files (the local copies of its
+    /// objects, a GeoPackage's copy).
+    pub fn text_for(&self, paths: &[String]) -> String {
+        let single = !self.call.list && paths.len() == 1 && !self.call.paths.iter().any(|p| has_glob(p));
+        let arg = if single { lit(&paths[0]) } else { format!("[{}]", paths.iter().map(|p| lit(p)).collect::<Vec<_>>().join(", ")) };
+        format!("{}({arg}{})", self.call.function, self.rest)
+    }
+
+    /// Its key again, once its objects are known ([`super::remote::expand`]):
+    /// their versions instead of the files' times. An object without one is
+    /// read every time.
+    pub fn rekey(&mut self, cap: u64) {
+        let metas: Vec<(&str, u64, i64, Option<&str>)> = self.files.iter().flat_map(|f| f.all()).map(|f| (f.path.as_str(), f.size, f.mtime_ms, f.version.as_deref())).collect();
+        let nonce = if self.files.iter().any(|f| f.host.is_some() && f.version.is_none()) { uuid::Uuid::new_v4().simple().to_string() } else { String::new() };
+        self.key = sha256_hex(serde_json::json!([self.text, metas, cap, nonce]).to_string().as_bytes());
+    }
 }
 
 /// A table name for `sqlite_scan` / `read_duckdb`: `tabla` or, where
@@ -739,7 +778,12 @@ pub fn table_name(raw: &str, schema: bool, function: &str) -> Result<(Option<Str
 /// The file's extension as [`GEO_FORMATS`] has it (`shp.zip` for a zipped
 /// shapefile), lowercase.
 fn geo_ext(path: &Path) -> String {
-    let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    geo_ext_of(&path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())
+}
+
+/// [`geo_ext`] of a file name (a URL's last segment).
+fn geo_ext_of(name: &str) -> String {
+    let name = name.to_lowercase();
     if name.ends_with(".shp.zip") {
         return "shp.zip".into();
     }
@@ -819,10 +863,82 @@ fn geo_args(call: &ReaderCall) -> Result<String, String> {
 
 /// The reader calls of `sql`, resolved against `base` (the notebook's
 /// folder; `None` for an unsaved notebook).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn plan(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64) -> Result<Vec<FileRead>, String> {
+    plan_with(sql, base, home, cap, &super::remote::Net::default())
+}
+
+/// A reader call over URLs (`https://`, `s3://`, `gs://`, `az://`): its
+/// entries are the URLs and patterns as written, canonical, with nothing
+/// fetched yet (the approval comes first, [`super::remote::expand`] after).
+fn plan_remote(call: ReaderCall, urls: Vec<super::remote::RemoteUrl>, cap: u64) -> Result<FileRead, String> {
+    use super::remote::{pending_file, Cloud, REMOTE_READERS};
+    let f = call.function.as_str();
+    if !REMOTE_READERS.contains(&f) {
+        return Err(format!("«{f}» lee solo archivos locales; desde la red leen read_csv, read_parquet, read_json y read_ndjson (y st_read desde https://)"));
+    }
+    let mut rest = call.rest.clone();
+    let mut extension = None;
+    if f == "st_read" {
+        let [u] = urls.as_slice() else {
+            return Err(format!("«st_read» lee un solo archivo y «{}» son {}", call.paths.join(", "), urls.len()));
+        };
+        if call.list {
+            return Err(format!("«st_read» lee un solo archivo y «{}» es una lista", call.paths.join(", ")));
+        }
+        if u.cloud != Cloud::Https {
+            return Err(format!("«st_read» lee de la red solo https://: «{}»", u.canonical));
+        }
+        let name = u.key.split('?').next().unwrap_or("").rsplit('/').next().unwrap_or("").to_string();
+        let ext = geo_ext_of(&name);
+        if GEO_INDIRECT.contains(&ext.as_str()) {
+            return Err(format!("«st_read» no lee archivos «.{ext}» en estas celdas: apuntan a otros archivos o a la red (un VRT, un GML…)"));
+        }
+        if matches!(ext.as_str(), "shp" | "dbf") {
+            return Err(format!("«st_read» lee un shapefile desde la red solo comprimido («.shp.zip» o «.shz»): «{}»", u.canonical));
+        }
+        if ext == "zip" {
+            return Err(format!("«st_read» lee comprimido solo un shapefile «.shp.zip» o «.shz»: «{}»", u.canonical));
+        }
+        if !GEO_FORMATS.contains(&ext.as_str()) {
+            let list: Vec<String> = GEO_FORMATS.iter().filter(|e| !matches!(**e, "shp" | "dbf")).map(|e| format!(".{e}")).collect();
+            return Err(format!("«st_read» no lee «.{ext}» en estas celdas (sí: {})", list.join(", ")));
+        }
+        rest = geo_args(&call)?;
+        extension = Some("spatial");
+    }
+    let mut files: Vec<DataFile> = Vec::new();
+    for u in &urls {
+        if !files.iter().any(|x| x.path == u.canonical) {
+            files.push(pending_file(u));
+        }
+    }
+    if files.len() > MAX_FILES {
+        return Err(format!("«{f}» lee más de {MAX_FILES} archivos"));
+    }
+    let single = !call.list && files.len() == 1 && !urls[0].glob;
+    let arg = if single { lit(&files[0].path) } else { format!("[{}]", files.iter().map(|x| lit(&x.path)).collect::<Vec<_>>().join(", ")) };
+    let text = format!("{f}({arg}{rest})");
+    let table = format!("file:{}", &sha256_hex(text.as_bytes())[..16]);
+    let display = if files.len() == 1 { files[0].display.clone() } else { call.paths.join(", ") };
+    let mut r = FileRead { call, text, files, table, key: String::new(), display, kind: ReadKind::Duck { extension }, rest, remote: true, gpkg_copy: false };
+    r.rekey(cap);
+    Ok(r)
+}
+
+/// [`plan`], reading URLs as `net` allows ([`super::remote::parse`]).
+pub fn plan_with(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64, net: &super::remote::Net) -> Result<Vec<FileRead>, String> {
     let mut out = Vec::new();
     for call in reader_calls(sql)? {
         let f = call.function.as_str();
+        let urls: Vec<Option<super::remote::RemoteUrl>> = call.paths.iter().map(|p| super::remote::parse(p.trim(), net)).collect::<Result<_, _>>()?;
+        if urls.iter().any(Option::is_some) {
+            if urls.iter().any(Option::is_none) {
+                return Err(format!("«{f}» no puede mezclar archivos locales y URLs en la misma llamada"));
+            }
+            out.push(plan_remote(call, urls.into_iter().flatten().collect(), cap)?);
+            continue;
+        }
         let mut paths = Vec::new();
         let mut patterns: Vec<Option<String>> = Vec::new();
         for raw in &call.paths {
@@ -850,6 +966,7 @@ pub fn plan(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64) -> Re
         let mut rest = call.rest.clone();
         // (the file it goes with, the sidecar)
         let mut side: Vec<(usize, PathBuf)> = Vec::new();
+        let mut gpkg = false;
         match f {
             "st_read" => {
                 let ext = geo_ext(&paths[0]);
@@ -870,6 +987,12 @@ pub fn plan(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64) -> Re
                     _ => &[],
                 };
                 side = sidecars(&paths[0], exts).into_iter().map(|p| (0, p)).collect();
+                // A GeoPackage is a SQLite file: a pending -wal or -journal
+                // is part of it, read from a private copy ([`gpkg_copy`]).
+                if ext == "gpkg" {
+                    side.extend(sqlite_journals(&paths[0]).into_iter().map(|p| (0, p)));
+                    gpkg = !side.is_empty();
+                }
                 kind = ReadKind::Duck { extension: Some("spatial") };
             }
             "sqlite_scan" => {
@@ -919,7 +1042,7 @@ pub fn plan(sql: &str, base: Option<&Path>, home: Option<&Path>, cap: u64) -> Re
         let metas: Vec<(&str, u64, i64)> = files.iter().flat_map(|f| f.all()).map(|f| (f.path.as_str(), f.size, f.mtime_ms)).collect();
         let key = sha256_hex(serde_json::json!([text, metas, cap]).to_string().as_bytes());
         let display = if files.len() == 1 { files[0].display.clone() } else { call.paths.join(", ") };
-        out.push(FileRead { call, text, files, table, key, display, kind });
+        out.push(FileRead { call, text, files, table, key, display, kind, rest, remote: false, gpkg_copy: gpkg });
     }
     Ok(out)
 }
@@ -1018,6 +1141,35 @@ pub async fn open_reader(paths: &[String], extension: Option<&str>) -> CommandRe
 
 // ---------------------------------------------------------------------------
 // SQLite files
+
+/// A private copy, in `dir`, of a GeoPackage with a pending `-wal` or
+/// `-journal` (its sidecars), with them applied: SQLite checkpoints the
+/// WAL into the copy (or rolls the journal back) and leaves it in rollback
+/// mode, so GDAL reads one self-contained file and creates nothing. The
+/// originals are only read. Returns the copy's path.
+pub fn gpkg_copy(main: &DataFile, dir: &Path) -> Result<String, String> {
+    use rusqlite::OpenFlags;
+    let name = Path::new(&main.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "copia.gpkg".into());
+    let db = dir.join(&name);
+    std::fs::copy(&main.path, &db).map_err(|e| format!("no se pudo copiar «{}»: {e}", main.display))?;
+    for s in &main.sidecars {
+        let suffix = s.path.strip_prefix(&main.path).unwrap_or("");
+        if matches!(suffix, "-wal" | "-journal") {
+            std::fs::copy(&s.path, dir.join(format!("{name}{suffix}"))).map_err(|e| format!("no se pudo copiar «{}»: {e}", s.display))?;
+        }
+    }
+    let fail = |e: rusqlite::Error| format!("no se pudo aplicar el -wal de «{}» a su copia: {e}", main.display);
+    {
+        let c = rusqlite::Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(fail)?;
+        let _ = c.pragma_update(None, "trusted_schema", false);
+        c.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).map_err(fail)?;
+        c.query_row("PRAGMA journal_mode = DELETE", [], |_| Ok(())).map_err(fail)?;
+    }
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let _ = std::fs::remove_file(dir.join(format!("{name}{suffix}")));
+    }
+    Ok(db.to_string_lossy().to_string())
+}
 
 /// `file:` URI of `path` for SQLite, read-only and `immutable`: SQLite
 /// neither locks the file nor creates or touches a `-wal`, `-shm` or

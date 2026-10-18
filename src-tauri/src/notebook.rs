@@ -17,6 +17,8 @@ pub mod export;
 pub mod files;
 pub mod headless;
 pub mod local;
+pub mod python;
+pub mod remote;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -925,12 +927,12 @@ pub fn html_table(cols: &[StoredColumn], rows: &[Vec<Value>]) -> String {
 }
 
 /// Splits text as nbformat stores sources: lines, each with its `\n`.
-fn lines(s: &str) -> Value {
+pub(crate) fn lines(s: &str) -> Value {
     Value::Array(s.split_inclusive('\n').map(|l| Value::String(l.into())).collect())
 }
 
 /// The outputs of a SQL cell's result (already previewed).
-fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_count: Option<u32>) -> Vec<Value> {
+pub(crate) fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_count: Option<u32>) -> Vec<Value> {
     let mut out = Vec::new();
     for s in &p.statements {
         let summary = summary_line(s, r);

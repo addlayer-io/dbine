@@ -142,6 +142,15 @@ test('inside the quotes: "Elegir archivo…" and the granted files, never a sens
   assert.equal(readerPathCompletion(ctxOf("FROM read_duckdb('a.duckdb', 'ven|')"), granted, pick), null);
 });
 
+test('granted URLs and cloud patterns are offered like granted files', () => {
+  const pick = (at) => ({ label: 'Elegir archivo…', at });
+  const granted = ['https://datos.gob.ar/ventas.csv', 's3://ventas/2026/*.parquet', 'https://example.com/credentials.csv', '/Users/ana/a.csv'];
+  const r = readerPathCompletion(ctxOf("SELECT * FROM read_parquet('s3|')"), granted, pick);
+  assert.deepEqual(labels(r), ['Elegir archivo…', 's3://ventas/2026/*.parquet']);
+  const all = readerPathCompletion(ctxOf("SELECT * FROM read_csv('|')"), granted, pick);
+  assert.deepEqual(labels(all), ['Elegir archivo…', 'https://datos.gob.ar/ventas.csv', 's3://ventas/2026/*.parquet', '/Users/ana/a.csv']);
+});
+
 test('folders and files with credentials are sensitive', () => {
   for (const p of ['/Users/ana/.ssh/config', '~/.aws/credentials', '/home/x/.env', '/home/x/app/.env.local', 'C:\\Users\\x\\.azure\\a.json',
     '/Users/ana/.config/gcloud/creds.json', '/Users/ana/Library/Keychains/login.keychain-db', '/srv/tls/server.key', '/home/x/.pgpass', '/home/x/id_rsa']) {

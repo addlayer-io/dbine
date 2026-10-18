@@ -1157,6 +1157,13 @@ export interface DataFile {
   /** Files read with it (a shapefile's .shx, .dbf, .prj…; a SQLite file's
    *  pending -wal): approved and granted with it. */
   sidecars?: DataFile[];
+  /** An object on the web or in cloud storage (`notebook::remote`): the host,
+   *  or the bucket with its cloud ("ventas (Amazon S3)"), shown first. Its
+   *  `path` is the canonical URL (before approval, maybe a pattern); before
+   *  approval nothing was fetched, so `size` and `mtime_ms` are 0. */
+  host?: string;
+  /** Its ETag (or Last-Modified and size), for the change notice. */
+  version?: string;
 }
 /** "Este notebook quiere leer estos archivos" (`notebook::access::ApprovalRequest`). */
 export interface FileApprovalRequest {

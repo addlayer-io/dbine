@@ -40,6 +40,14 @@ export const notebookApi = {
     invoke<string>('notebook_export', {
       args: { notebook, format, rowsPerCell: limits.rows, bytesPerCell: limits.bytes, images, path: path ?? null },
     }),
+  /** A Python (Jupyter) notebook that reproduces this one: `targets` is each
+   *  SQL cell's resolved connection (by cell id); DBine reads only their
+   *  non-secret fields, and the code reads passwords from environment
+   *  variables. `previews`: each cell's stored preview as its output. */
+  exportPython: (notebook: Notebook, targets: Record<string, { connectionId: string; database: string }>, previews: boolean, limits: PreviewLimits) =>
+    invoke<string>('notebook_export', {
+      args: { notebook, format: 'python', rowsPerCell: limits.rows, bytesPerCell: limits.bytes, targets, previews },
+    }),
   /** "DataFrame SQL": the cells above that `sql` needs (their names,
    *  in loading order, through the "results" cells it names). */
   localRefs: (sql: string, sources: LocalSource[]) => invoke<string[]>('notebook_local_refs', { args: { sql, sources } }),
@@ -47,7 +55,7 @@ export const notebookApi = {
    *  (`nbx:<tabId>`, closed with the tab; cancel_query stops it). */
   /** `notebookPath`: the notebook's file (relative paths in `read_csv('…')` are read from its folder). */
   /** `approval`: the token of the file approval just answered (the run may read those files). */
-  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null; approval?: string | null }) =>
+  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null; approval?: string | null; awsProfile?: string | null }) =>
     invoke<RunLocalResponse>('notebook_run_local', { args: a }),
   /** The answer to a run's `approval` request. */
   decideFiles: (token: string, decision: FileDecision) => invoke<void>('notebook_file_decision', { args: { token, decision } }),

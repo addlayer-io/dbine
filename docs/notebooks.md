@@ -237,8 +237,10 @@ JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
   expression is refused. Each path is resolved to the real file (symlinks
   followed, `..` removed); a missing file, a folder, or a glob that matches
   nothing is an error naming the path.
-- **Local files only:** URLs (`http`, `https`, `s3`, `gs`, `azure`, `hf`…)
-  are refused; nothing goes over the network.
+- **URLs:** `https://`, `s3://`, `gs://` and `az://` / `abfss://` are read
+  too, by DBine and never by DuckDB (see
+  [Reading files from the web and cloud storage](#reading-files-from-the-web-and-cloud-storage));
+  any other scheme (`http`, `file`, `hf`…) is refused.
 - **What the cell shows:** under its summary, next to the cells' tables,
   each file read (shortened: relative to the notebook's folder or with
   `~`), its rows, size and modification time, and whether it was read now or
@@ -256,7 +258,9 @@ JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
   as a table and the call in the cell's SQL is replaced by it. The
   notebook's database is never granted a file, so `COPY … TO`, `ATTACH`,
   `read_text('…')` or `FROM 'file.csv'` on a file the cell reads are still
-  refused by DuckDB. Nothing is written to disk.
+  refused by DuckDB. Nothing is written to disk, except the short-lived
+  private copies described for downloaded objects and GeoPackages with a
+  pending `-wal`.
 - **Refused statements.** These cells refuse, before running anything,
   statements that write, attach or configure: `COPY`, `EXPORT` / `IMPORT
   DATABASE`, `ATTACH` / `DETACH`, `INSTALL` / `LOAD` (and `FORCE INSTALL`,
@@ -305,6 +309,15 @@ GROUP BY ALL
   sidecar that appears later asks again), and a change in any of them reads
   the file again and raises the change notice. The *DataFrames:* line shows the
   file with *"+ N archivos asociados"*, and its tooltip lists them.
+- **A GeoPackage with a pending `-wal`** (open in another program, in WAL
+  mode) or a hot `-journal` isn't the whole layer set by itself: that
+  journal is a sidecar, as for `sqlite_scan` (approved, blocked and cached
+  with the file; the `-shm` is never read). The file and its journal are
+  copied into a private folder in the temp folder, SQLite applies the
+  journal to the copy and leaves it in rollback mode, GDAL reads the copy
+  (the reader session is granted only the copy) and the folder is removed.
+  The originals are never written, so their bytes and modification times
+  don't change.
 - **Parameters:** `layer`, `keep_wkb`, `max_batch_size` and
   `open_options`, with literal values. `open_options` takes only these GDAL
   options, whose values can't contain `/`, `\`, `:` or `vsi`:
@@ -441,8 +454,13 @@ in one place (`allowed_files` in `src-tauri/src/notebook/files.rs`, rules in
   asked about again); the token works once, for that tab and notebook, for
   15 minutes. A blocked file is refused whatever the token says. No MCP
   tool or assistant tool runs a DataFrame SQL cell.
+- **URLs** are approved like files, in the same dialog and with the same
+  three answers, keyed by the canonical URL (see
+  [Reading files from the web and cloud storage](#reading-files-from-the-web-and-cloud-storage)).
 - **Content change notice** (it doesn't stop the run): each run keeps, for
-  each file read, its size, modification time and SHA-256, per notebook.
+  each file read, its size, modification time and SHA-256, per notebook
+  (for an object on the web or in cloud storage, its `ETag` instead of the
+  hash, else its `Last-Modified` and size).
   The hash is computed only when the size or the modification time changed
   since the stored record (no big file is hashed on every run). When a file
   read before has a different hash, the result's *DataFrames:* line says
@@ -460,6 +478,108 @@ in one place (`allowed_files` in `src-tauri/src/notebook/files.rs`, rules in
   when it was granted), each one with its remove button, and *Quitar
   todos*. A notebook's toolbar has *Permisos de archivos…* with that
   notebook's grants.
+
+### Reading files from the web and cloud storage
+
+```sql
+SELECT r.region, sum(v.total)
+FROM read_parquet('s3://ventas-anuales/2026/*.parquet') v
+JOIN read_csv('https://datos.gob.ar/dataset/regiones.csv') r USING (cliente)
+GROUP BY ALL
+```
+
+- **What is read:** `read_csv`, `read_csv_auto`, `read_parquet` /
+  `parquet_scan`, `read_json`, `read_json_auto`, `read_ndjson` and
+  `read_ndjson_auto` take URLs as their path; `st_read` takes one
+  `https://` file of a format that needs no sidecars (a shapefile only
+  zipped, `.shp.zip` or `.shz`), with the same parameters, options and
+  `allowed_drivers` as a local file. `read_xlsx`, `sqlite_scan` and
+  `read_duckdb` read local files only. A call reads either local files or
+  URLs, not both.
+- **Which URLs:**
+  - `https://host/path?query`: one file; no globs. `http://` is refused,
+    since it travels unencrypted (and anyone on the way could change the
+    data).
+  - `s3://bucket/key`, `gs://bucket/key` (or `gcs://`),
+    `az://account.blob.core.windows.net/container/blob`,
+    `abfss://container@account.dfs.core.windows.net/path` and, with
+    `AZURE_STORAGE_ACCOUNT` set, `az://container/blob`. Their keys may be
+    globs (`s3://ventas/2026/*.parquet`, `gs://b/**/*.csv`): DBine lists the
+    bucket under the prefix before the first wildcard and reads the objects
+    that match, up to 1,000.
+  - Refused: a URL with a user or password (`https://ana:clave@…`), or with
+    a signature or token in its query (`X-Amz-Signature`, `X-Goog-Signature`,
+    Azure's `sig=`, `token=`, `key=`, `access_token=`…). Credentials never go
+    in the notebook or the cell's SQL; the message says to use the URL
+    without them and the computer's sign-in. Also refused: keys with `.` or
+    `..` segments, and any other scheme (`file://`, `hf://`, `ftp://`…).
+- **Never DuckDB's network.** Neither the notebook's database nor the
+  reader session ever loads `httpfs` or reaches the network. DuckDB 1.5's
+  `allowed_paths` does filter URLs by their text (a URL not in the list is
+  refused, tested), but `httpfs` would resolve the host itself (so a public
+  name pointing at `127.0.0.1` or `169.254.169.254` couldn't be checked),
+  follow redirects to any host, and need the credentials inside DuckDB.
+  So, once approved, **DBine fetches each object itself**: into a private
+  folder in the temp folder (`0700`, one per reader call), which the reader
+  session is granted exactly like local files (`allowed_paths`, then the
+  lockdown), and which is removed as soon as the call has been read (also
+  when it fails or is cancelled). Each object keeps its key's path below
+  that folder, so Hive partitions (`año=2026/`) and compressed extensions
+  (`.csv.gz`) work as for local files. This is the one place DataFrame
+  SQL cells write to disk.
+- **Which hosts.** Before connecting, DBine resolves the host itself and
+  refuses it if any of its addresses is loopback (`127.0.0.0/8`, `::1`),
+  private (`10/8`, `172.16/12`, `192.168/16`), link-local (`169.254/16`,
+  the cloud metadata service `169.254.169.254` included; `fe80::/10`),
+  unique-local IPv6 (`fc00::/7`, `fd00::/8` included), CGNAT
+  (`100.64/10`), unspecified, multicast, broadcast, documentation or
+  reserved, IPv4-mapped and NAT64 forms included; names such as
+  `localhost`, `*.localhost`, `*.local`, `*.internal` and
+  `metadata.google.internal` are refused before resolving. The connection
+  is pinned to the addresses that were checked (no second lookup that
+  could answer differently) and never goes through a proxy. A redirect is
+  followed only to the same scheme, host and port (at most 5); one to
+  another server stops the read with a message naming it.
+- **Credentials** are the computer's sign-ins, never the notebook's, the
+  same chains as the connections' cloud sign-ins:
+  - **S3:** the AWS chain: environment keys, the profile of
+    **Settings › Notebooks › Perfil de AWS** (else `AWS_PROFILE`, else
+    `default`) with its keys, `credential_process`, SSO or roles through the
+    AWS CLI. DBine signs each request with SigV4 (the keys never leave the
+    process); a bucket in another region is asked again in the region its
+    answer names.
+  - **Google Cloud Storage:** gcloud, then the application default
+    credentials (`gcloud auth application-default login`).
+  - **Azure:** the Azure CLI (`az login`), the Azure Developer CLI, the
+    managed identity.
+
+  Without a sign-in an object is read anonymously (public buckets); a
+  denied read says how to sign in (`aws sso login`,
+  `gcloud auth application-default login`, `az login`). No secret is
+  stored anywhere by this feature, and DuckDB never gets one.
+- **Approval:** the same dialog, grants and token as local files (see
+  [Approving the files a notebook reads](#approving-the-files-a-notebook-reads)).
+  Nothing is sent over the network before the answer. The dialog shows
+  each URL with its host (or bucket and cloud) first, in bold, and the
+  full URL under it. A grant is keyed by the canonical URL (scheme, host,
+  port, path and query; the fragment dropped); a cloud pattern is granted
+  as written (`s3://ventas/2026/*.parquet`) and covers the objects that
+  match it later. The always-blocked list is for local files; URLs have
+  the rules above.
+- **Limits:** 2 GiB per object (`MAX_OBJECT_BYTES`, checked against the
+  listing, the announced length and the bytes received) and 8 GiB per
+  reader call, plus the rows per table of Settings › Notebooks; 15 s to
+  connect and 60 s without a byte. **Cancel** stops the listing or the
+  download.
+- **Cache and change notice:** each run asks for the objects' `ETag` and
+  `Last-Modified` (a `HEAD`, or the listing for a pattern); an object
+  downloads again only when its version changed (an object whose server
+  gives neither is read every run). The change notice compares the
+  `ETag` (else `Last-Modified` and size); nothing is hashed.
+- **What the cell shows:** the URLs on the *DataFrames:* line, with size,
+  time (when the server gave one) and *"descargado de la red"*.
+- **Completion** keeps its rules; granted URLs and cloud patterns are
+  offered inside a reader's quotes like granted files.
 
 ### The DuckDB database
 
@@ -565,6 +685,115 @@ AI proposes, the user runs.
   Parquet…), which runs the query again: only for a cell that ran in this
   session (exactly the query that ran). A preview read from the file exports
   just its rows.
+- **Python notebook** (see below).
+
+### Export as a Python notebook
+
+**Exportar › Notebook de Python (.ipynb)** writes a new Jupyter notebook (kernel
+`python3`) that reproduces this one outside DBine, saved as
+`<name> (Python).ipynb`:
+
+- **First, a Markdown cell** with what to do before running it: the
+  `pip install` line with the exact packages the notebook needs, and the
+  environment variables to set, one per secret (`DBINE_VENTAS_PG_PASSWORD`,
+  `DBINE_LAKE_TOKEN`…), named after the connection. It also says what to set
+  up by hand: an SSH tunnel (with the `ssh -L` line), cloud sign-in (AWS
+  IAM, Google Cloud, Entra ID, key pairs), a secret manager, extra ODBC
+  attributes.
+- **Then a setup cell**: the imports and one client per connection and
+  database the cells use, built from the connection's non-secret fields
+  (host, port, database, user and a few named options such as Oracle's
+  service or Snowflake's warehouse) with the password read from its
+  variable: `password=os.environ["DBINE_VENTAS_PG_PASSWORD"]`.
+- **Each SQL cell** reads its result into a pandas DataFrame named after the
+  cell, and shows it: `ventas = pd.read_sql(text("""…"""), engine_ventas_pg)`
+  (SQLAlchemy's `text()`; a `:word` that isn't a parameter is escaped so it
+  stays as written). Other engines use their own client's call (below).
+- **Each DataFrame SQL cell** becomes `cruce = duckdb.sql("""…""").df()`:
+  DuckDB finds the DataFrames above by their names (its replacement scans
+  of pandas variables), and the file readers (`read_csv`, `st_read`,
+  `sqlite_scan`, `read_xlsx`…) are kept as written, paths included; the
+  extensions they need are loaded in the setup cell. A relative path is read
+  from the folder the Python notebook runs in, so it goes next to the
+  original. A cell name that is a Python keyword or a name the code uses
+  (`pd`, `os`…) gets `_df` and is registered under its name
+  (`duckdb.register("pd", pd_df)`).
+- **Text cells** stay Markdown cells (with their attachments); cells from
+  other notebooks in Python are kept, others are kept as comments.
+- **Charts**: a plain chart (bars, lines, areas, scatter or pie, with no
+  split) becomes a pandas plot (matplotlib) under its cell; the other kinds
+  are left out.
+- **Results** are left out (a clean notebook) unless **Incluir vistas
+  previas** is checked: then each cell's stored preview is its output, with
+  the limits in Settings › Notebooks.
+- **Parameters** (once notebooks have them): the export already writes
+  them as a first cell tagged `parameters` (papermill) with their defaults,
+  bound in the SQLAlchemy queries as `:name` with `params=`; the notebook
+  model doesn't carry them yet (`notebook::python::parameters`). Write
+  cells, when there are any, are to become a commented `to_sql(…)` with a
+  warning, never run by default.
+- A cell whose target isn't a connection on this computer, or whose text
+  can't be mapped, is a **commented cell** with a `TODO` that says why and
+  its original text.
+
+**Secrets never go out.** The export reads each connection's non-secret
+fields only: passwords, tokens, keys, connection strings, the SSH tunnel's
+credentials, secret-manager references and extra ODBC attributes are never
+copied, a host URL loses its user, password and query string, and option
+values that look like credentials are dropped. A test exports a notebook on
+every driver with secrets in every field and checks none appears.
+
+The results can differ from DBine's: the Python code reads every row (DBine
+caps them), with each client's own types.
+
+#### Per engine
+
+| Engines | Python | Cells |
+|---|---|---|
+| PostgreSQL and its family (AlloyDB, Aurora, Cloud SQL, CockroachDB, CrateDB, Denodo, EDB, Fujitsu, Greenplum, Cloudberry, Greengage, H2, Kingbase, Materialize, openGauss, Redshift, RisingWave, TimescaleDB, Yellowbrick, YugabyteDB) | SQLAlchemy `postgresql+psycopg` (`psycopg[binary]`) | `pd.read_sql` |
+| Aurora DSQL | `postgresql+psycopg`, with an IAM token in the variable | `pd.read_sql` |
+| MySQL and its family (MariaDB, Aurora, Cloud SQL, TiDB, SingleStore, OceanBase, Doris, StarRocks, VeloDB, Databend, GreptimeDB, Manticore) | `mysql+pymysql` (`pymysql`) | `pd.read_sql` |
+| SQL Server, Azure SQL, Fabric, Babelfish | `mssql+pymssql` (`pymssql`) | `pd.read_sql` |
+| Oracle, Oracle Autonomous Database | `oracle+oracledb` (`oracledb`); service, SID, descriptor or wallet | `pd.read_sql` |
+| SQLite | `sqlite` (no package) | `pd.read_sql` |
+| libSQL / Turso | `sqlite+libsql` (`sqlalchemy-libsql`), auth token in a variable | `pd.read_sql` |
+| DuckDB | `duckdb.connect(…, read_only=True)` | `.sql(…).df()` |
+| Snowflake | `snowflake` (`snowflake-sqlalchemy`), PAT or key-pair file | `pd.read_sql` |
+| BigQuery | `bigquery` (`sqlalchemy-bigquery`), Google credentials | `pd.read_sql` |
+| Spanner | `spanner+spanner` (`sqlalchemy-spanner`) | `pd.read_sql` |
+| Athena | `awsathena+rest` (`pyathena[sqlalchemy]`), AWS credentials | `pd.read_sql` |
+| Databricks, Azure Databricks | `databricks` (`databricks-sqlalchemy`), personal access token | `pd.read_sql` |
+| Trino, Starburst / Presto | `trino` (`trino[sqlalchemy]`) / `presto` (`pyhive[presto]`) | `pd.read_sql` |
+| SAP HANA | `hana+hdbcli` (`sqlalchemy-hana`, `hdbcli`) | `pd.read_sql` |
+| Firebird | `firebird+firebird` (`sqlalchemy-firebird`) | `pd.read_sql` |
+| Drill | `drill+sadrill` (`sqlalchemy-drill`) | `pd.read_sql` |
+| Phoenix, Avatica | `phoenix` (`phoenixdb`) | `pd.read_sql` |
+| TDengine | `taosrest` (`taospy`) | `pd.read_sql` |
+| Db2 (LUW, i, z/OS) | `db2+ibm_db` (`ibm-db-sa`) | `pd.read_sql` |
+| Teradata | `teradatasql` (`teradatasqlalchemy`) | `pd.read_sql` |
+| Vertica | `vertica+vertica_python` (`sqlalchemy-vertica-python`) | `pd.read_sql` |
+| Exasol | `exa+websocket` (`sqlalchemy-exasol`) | `pd.read_sql` |
+| Hive, Spark, Kyuubi / Impala | `hive` (`pyhive[hive_pure_sasl]`) / `impala` (`impyla`) | `pd.read_sql` |
+| MonetDB | `monetdb` (`sqlalchemy-monetdb`) | `pd.read_sql` |
+| InterSystems IRIS, Caché | `iris` (`sqlalchemy-iris`) | `pd.read_sql` |
+| The other ODBC engines (Access, Altibase, CUBRID, Dameng, dBase, GBase 8s, HeavyDB, Ignite, Informix, Ingres, Machbase, MaxDB, Mimer, Netezza, NetSuite, NuoDB, Ocient, OpenEdge, SQL Anywhere, SQream, Sybase, Virtuoso, Zen, generic ODBC with a DSN) | `pyodbc.connect` with the ODBC driver's name (or the DSN) | `pd.read_sql` |
+| ClickHouse, Timeplus | `clickhouse_connect.get_client` (`clickhouse-connect`) | `.query_df(…)` |
+| MongoDB, DocumentDB, FerretDB | `MongoClient` (`pymongo`) | `db.<c>.find(…)` (with `sort`, `skip`, `limit`) and `.aggregate([…])` with strict JSON arguments become pymongo calls (extended JSON through `bson.json_util`); other shell syntax is commented |
+| Redis, Valkey, Dragonfly | `redis.Redis` (`redis`) | each command line with `execute_command`; the last reply as the DataFrame |
+| Cassandra, ScyllaDB, Keyspaces | `Cluster(…).connect()` (`cassandra-driver`) | `session.execute(…)` |
+| Neo4j, Memgraph, Neptune | `GraphDatabase.driver` (`neo4j`) | `execute_query(…, result_transformer_=neo4j.Result.to_df)` |
+| InfluxDB 1 / 2 / 3 | `influxdb` / `influxdb-client` / `influxdb3-python` | InfluxQL, Flux (`query_data_frame`) or SQL |
+| Elasticsearch, OpenSearch, Open Distro, Solr, CouchDB | `requests` | one read request (`GET`, or `POST` to `_search`, `_find`, `_sql`, `select`…) with a strict JSON body, and Elasticsearch/OpenSearch SQL lines; requests that change data are commented |
+| DynamoDB | `boto3` | PartiQL with `execute_statement`, every page |
+| Couchbase | `couchbase` | `cluster.query(…)` |
+| Flight SQL, Dremio | `adbc-driver-flightsql` (Dremio on its Arrow Flight port) | `cursor.fetch_df()` |
+| Cosmos DB | `CosmosClient` (`azure-cosmos`) | **commented**: a query runs on one container, which the cell doesn't name |
+| DuckDB over a folder of files | — | **commented**: read the files in a DataFrame SQL cell |
+| IoTDB, TimechoDB | — | **commented**: DBine uses the REST API; the Python client uses another port and API |
+| ksqlDB | — | **commented**: no maintained Python client |
+| OrientDB | — | **commented**: no maintained Python client for current versions |
+| etcd | — | **commented**: DBine's commands have no direct Python equivalent |
+| Cloudera Data Warehouse | — | **commented**: its HTTP transport has to be set up by hand |
 
 ## Where notebooks live
 
@@ -584,7 +813,8 @@ AI proposes, the user runs.
 
 **Version 1 (this one):** the file format, SQL and text cells, targets (connection,
 database or project environment), running, previews with their limits, the
-three AI actions, notebooks from elsewhere, export to HTML and Markdown, and
+three AI actions, notebooks from elsewhere, export to HTML, Markdown and a
+Python notebook, and
 [DataFrame SQL cells](#dataframe-sql-cells-cross-engine): cells that join the
 results of cells on different engines and local files.
 
@@ -595,6 +825,7 @@ runs every cell with DBine closed, saves the executed copy and exports it
 and environments with confirmation need the step's opt-in.
 
 **Later:**
-- **Export as a Python notebook**: each SQL cell becomes `pd.read_sql(…)`,
-  with the connection as an environment variable and no password.
+- **Run notebook** as a step of a [scheduled task](scheduled-tasks.md),
+  followed by **Send an email**, which turns a notebook into a periodic
+  report.
 - Notebook **parameters** (values the cells use, asked for when running).

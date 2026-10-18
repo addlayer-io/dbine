@@ -15,7 +15,10 @@
     "size": "Size per cell",
     "sizeHelp": "A larger preview is cut even if it has fewer rows.",
     "resultsCap": "Rows per DataFrame",
-    "resultsCapHelp": "How many rows of each cell's result a DataFrame SQL cell loads (in memory, never on disk)."
+    "resultsCapHelp": "How many rows of each cell's result a DataFrame SQL cell loads (in memory, never on disk).",
+    "awsProfile": "AWS profile",
+    "awsProfileHelp": "The ~/.aws profile DataFrame SQL cells use to read s3://. Empty: AWS_PROFILE or «default».",
+    "awsProfilePlaceholder": "default"
   },
   "target": {
     "none": "Choose where to run",
@@ -120,10 +123,18 @@
     "export": "Export",
     "exportHtml": "HTML (one page)",
     "exportMarkdown": "Markdown",
+    "exportPython": "Python notebook (.ipynb)",
     "saveTip": "Save (⌘S / Ctrl+S)",
     "exportedWithCharts_one": "Exported with {{count}} chart",
     "exportedWithCharts_other": "Exported with {{count}} charts",
     "exportedWithCharts_many": "Exported with {{count}} charts"
+  },
+  "pyExport": {
+    "title": "Export as Python notebook",
+    "text": "A new Jupyter notebook (python3 kernel): each SQL cell reads its result into a pandas DataFrame with its name, and DataFrame SQL cells run in DuckDB. Passwords are not exported: the code reads them from environment variables, which the first cell lists along with the packages to install.",
+    "previews": "Include previews (the saved results of each cell)",
+    "export": "Export…",
+    "filter": "Jupyter notebook"
   },
   "add": {
     "sql": "SQL",
@@ -170,7 +181,8 @@
     "changedMany_other": "{{files}} files changed since the last run",
     "sidecars_one": "+ {{files}} associated file",
     "sidecars_many": "+ {{files}} associated files",
-    "sidecars_other": "+ {{files}} associated files"
+    "sidecars_other": "+ {{files}} associated files",
+    "remote": "downloaded from the network"
   },
   "fileAccess": {
     "title": "Read local files",
@@ -190,7 +202,10 @@
     "denied_other": "Reading these files was not allowed: {{files}}",
     "sidecars_one": "+ {{count}} associated file",
     "sidecars_many": "+ {{count}} associated files",
-    "sidecars_other": "+ {{count}} associated files"
+    "sidecars_other": "+ {{count}} associated files",
+    "titleRemote": "Read files from the network",
+    "remoteTag": "From the network",
+    "remoteNote": "DBine downloads what you allow to a private temporary folder, reads it and deletes it. Only public servers over https:// and AWS, Google Cloud and Azure storage, using this computer's session: credentials never go in the notebook."
   },
   "fileGrants": {
     "title": "Files notebooks can read",

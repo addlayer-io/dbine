@@ -2142,7 +2142,8 @@
   "crates/drivers/bigquery/src/gcp.rs",
   "crates/drivers/databricks/src/lib.rs",
   "crates/drivers/dremio/src/lib.rs",
-  "crates/drivers/snowflake/src/lib.rs"
+  "crates/drivers/snowflake/src/lib.rs",
+  "src-tauri/src/notebook/remote.rs"
  ],
  "Belgrano": [
   "src-tauri/src/commands/datagen.rs"
@@ -25905,6 +25906,9 @@
   "crates/drivers/phoenix/src/lib.rs",
   "crates/drivers/phoenix/src/transfer.rs"
  ],
+ "el servidor pide credenciales, y estas celdas no las mandan a sitios web": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "el servidor rechazó el token ({0}): {1}": [
   "crates/drivers/libsql/src/hrana.rs",
   "crates/drivers/libsql/src/transfer.rs"
@@ -28094,6 +28098,15 @@
   "crates/drivers/solr/src/monitor.rs",
   "crates/drivers/tdengine/src/lib.rs"
  ],
+ "iniciá sesión con «aws sso login» (o elegí el perfil de AWS en Configuración › Notebooks)": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "iniciá sesión con «az login»": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "iniciá sesión con «gcloud auth application-default login»": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "inprog (o enableProfiler sobre todas las bases: el profiling de «{0}» está apagado y su sampleRate está en {1})": [
   "crates/drivers/mongodb/src/permissions.rs"
  ],
@@ -29224,6 +29237,9 @@
  "la respuesta de Google no trae access_token": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
+ "la respuesta del listado es demasiado grande": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "la respuesta no trae encabezado": [
   "crates/drivers/clickhouse/src/transfer.rs"
  ],
@@ -29723,6 +29739,9 @@
  "libSQL tiene una sola base («main»), no «{0}»": [
   "crates/drivers/sqlite/src/properties.rs"
  ],
+ "listar «{0}» tardó demasiado": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "llamadas": [
   "crates/drivers/redis/src/monitor.rs"
  ],
@@ -29755,6 +29774,9 @@
  ],
  "los archivos de datos (DBA_DATA_FILES)": [
   "crates/drivers/oracle/src/monitor.rs"
+ ],
+ "los archivos de «{0}» pesan más de {1} GB en total": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "los archivos temporales": [
   "crates/drivers/duckdb/src/monitor.rs"
@@ -30088,7 +30110,8 @@
   "crates/drivers/dsql/src/security.rs"
  ],
  "ningún archivo coincide con «{0}»": [
-  "src-tauri/src/notebook/files.rs"
+  "src-tauri/src/notebook/files.rs",
+  "src-tauri/src/notebook/remote.rs"
  ],
  "nivel de MCP desconocido: {0}": [
   "src-tauri/src/mcp/mod.rs"
@@ -30321,7 +30344,8 @@
  ],
  "no existe «{0}»": [
   "crates/drivers/orientdb/src/security.rs",
-  "src-tauri/src/commands/project_paths.rs"
+  "src-tauri/src/commands/project_paths.rs",
+  "src-tauri/src/notebook/remote.rs"
  ],
  "no figura en la base de seguridad": [
   "crates/drivers/firebird/src/security.rs"
@@ -30533,6 +30557,9 @@
  "no se encontró la carpeta personal para «{0}»": [
   "src-tauri/src/notebook/files.rs"
  ],
+ "no se encontró la dirección de «{0}»": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "no se encontró la sesión de la consulta {0}": [
   "crates/drivers/snowflake/src/processes.rs"
  ],
@@ -30719,6 +30746,9 @@
  ],
  "no se pudo analizar": [
   "crates/drivers/duckdb/src/transfer.rs"
+ ],
+ "no se pudo aplicar el -wal de «{0}» a su copia: {1}": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "no se pudo armar el mail: {0}": [
   "src-tauri/src/tasks/mail.rs"
@@ -31279,7 +31309,8 @@
   "crates/dbine-core/src/conn_import/ssms.rs"
  ],
  "no se pudo leer «{0}»: {1}": [
-  "src-tauri/src/commands/notebook.rs"
+  "src-tauri/src/commands/notebook.rs",
+  "src-tauri/src/notebook/remote.rs"
  ],
  "no se pudo listar los servidores de Azure SQL: {0}": [
   "src-tauri/src/commands/azure_firewall.rs"
@@ -31338,6 +31369,9 @@
  "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
+ "no se pudo preparar la carpeta temporal: {0}": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
@@ -31358,6 +31392,12 @@
  ],
  "no se pudo reproducir la columna dispersa «{0}» (SPARSE / COLUMN_SET) en el clon; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
+ "no se pudo resolver «{0}»: tardó demasiado": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "no se pudo resolver «{0}»: {1}": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "no se pudo saber cómo terminó la carga en «{0}» (trabajo {1}), se pidió cancelarla: {2}": [
   "crates/drivers/bigquery/src/transfer.rs"
@@ -32525,6 +32565,9 @@
   "crates/dbine-plugin/src/install.rs",
   "crates/drivers/duckdb/src/loader.rs"
  ],
+ "se cortó la descarga de «{0}»: {1}": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "se cortó la lectura: {0}": [
   "crates/drivers/libsql/src/transfer.rs"
  ],
@@ -32804,6 +32847,9 @@
  ],
  "sin respuesta en {0} s: rechazado, no se ejecutó nada": [
   "src-tauri/src/mcp/write.rs"
+ ],
+ "sin sesión": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "sin signo ": [
   "crates/dbine-schema/src/logical.rs"
@@ -33471,6 +33517,9 @@
  ],
  "una URL http no dice qué motor es: creala a mano eligiendo el motor": [
   "crates/dbine-core/src/conn_import/urls.rs"
+ ],
+ "una URL https:// no se lista": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "una carga anterior de DBine en «{0}» (trabajo {1}) siguió corriendo y terminó ahora: sus filas ya están en la tabla, así que hay que vaciarla y copiarla de nuevo": [
   "crates/drivers/bigquery/src/transfer.rs"
@@ -35502,7 +35551,22 @@
  "«st_read» lee comprimido solo un shapefile «.shp.zip» o «.shz»: descomprimí «{0}» y leé el archivo de adentro": [
   "src-tauri/src/notebook/files.rs"
  ],
+ "«st_read» lee comprimido solo un shapefile «.shp.zip» o «.shz»: «{0}»": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read» lee de la red solo https://: «{0}»": [
+  "src-tauri/src/notebook/files.rs"
+ ],
  "«st_read» lee un archivo: después de la ruta van solo opciones con nombre (layer = '…')": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read» lee un shapefile desde la red solo comprimido («.shp.zip» o «.shz»): «{0}»": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read» lee un solo archivo y «{0}» es una lista": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "«st_read» lee un solo archivo y «{0}» son {1}": [
   "src-tauri/src/notebook/files.rs"
  ],
  "«st_read» no acepta «{0}» en estas celdas (sí: {1})": [
@@ -35543,6 +35607,9 @@
  ],
  "«{0}.{1}» tiene que ser una lista de textos": [
   "crates/drivers/couchdb/src/properties.rs"
+ ],
+ "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): estas celdas leen de la red solo servidores públicos": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "«{0}» coincide con varios objetos: {1}. Indicá el esquema.": [
   "src-tauri/src/mcp/tools.rs"
@@ -35589,6 +35656,9 @@
  "«{0}» es el índice de tiempo (TIME INDEX) de la tabla.": [
   "crates/dbine-schema/src/dialect/greptimedb.rs"
  ],
+ "«{0}» es esta computadora, la red local o un servicio interno de la nube: estas celdas leen de la red solo servidores públicos": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "«{0}» es parte de la clave primaria o de una clave foránea: Firebird no renombra una columna que usa una restricción.": [
   "crates/drivers/firebird/src/rename.rs"
  ],
@@ -35597,6 +35667,9 @@
  ],
  "«{0}» es un espacio o un origen: escribí el script con ON SPACE o ON SOURCE en el editor": [
   "crates/drivers/dremio/src/security.rs"
+ ],
+ "«{0}» es un patrón, no un archivo": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "«{0}» es una base del sistema de MongoDB y no se borra": [
   "crates/drivers/mongodb/src/lib.rs"
@@ -35622,7 +35695,7 @@
  "«{0}» es una ruta relativa: guardá el notebook para leerla desde su carpeta, o escribí la ruta completa": [
   "src-tauri/src/notebook/files.rs"
  ],
- "«{0}» es una ruta virtual de GDAL (/vsi…): estas celdas leen solo archivos locales, escritos con su ruta": [
+ "«{0}» es una ruta virtual de GDAL (/vsi…): estas celdas leen archivos locales escritos con su ruta, o URLs (https://, s3://, gs://, az://)": [
   "src-tauri/src/notebook/files.rs"
  ],
  "«{0}» es una subtabla: sus columnas y tags son los de su supertabla. Los tags se renombran en la supertabla.": [
@@ -35659,6 +35732,10 @@
   "src-tauri/src/notebook/files.rs"
  ],
  "«{0}» lee más de {1} archivos": [
+  "src-tauri/src/notebook/files.rs",
+  "src-tauri/src/notebook/local.rs"
+ ],
+ "«{0}» lee solo archivos locales; desde la red leen read_csv, read_parquet, read_json y read_ndjson (y st_read desde https://)": [
   "src-tauri/src/notebook/files.rs"
  ],
  "«{0}» lee un solo archivo y «{1}» son {2}": [
@@ -35666,6 +35743,15 @@
  ],
  "«{0}» llegó al tope de filas por tabla: no se copian todas las que cuelgan.": [
   "src-tauri/src/commands/subset/mod.rs"
+ ],
+ "«{0}» lleva un usuario o una contraseña en la URL: las credenciales nunca van en el notebook; DBine usa la sesión de la nube de esta computadora ({1})": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}» lleva una firma o un token en la URL (X-Amz-Signature, sig=, token=…): las credenciales nunca van en el notebook; escribí la URL sin firma y DBine usa la sesión de la nube de esta computadora ({1})": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}» necesita credenciales y no hay una sesión que sirva: {1} ({2})": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "«{0}» no acepta nulos": [
   "src-tauri/src/commands/datagen.rs"
@@ -35718,7 +35804,7 @@
  "«{0}» no es un archivo Markdown (.md) válido": [
   "src-tauri/src/commands/notebook.rs"
  ],
- "«{0}» no es un archivo local: estas celdas no leen de la red (http, s3, gs, azure…)": [
+ "«{0}» no es un archivo local ni una URL que estas celdas lean (https://, s3://, gs://, az://)": [
   "src-tauri/src/notebook/files.rs"
  ],
  "«{0}» no es un arreglo": [
@@ -35914,6 +36000,12 @@
  "«{0}» no es un nombre de base de Db2": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "«{0}» no es un nombre de bucket de Google Cloud Storage válido": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}» no es un nombre de bucket de S3 válido": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "«{0}» no es un nombre de bucket válido: letras, números y _ - . % (hasta 100)": [
   "crates/drivers/couchbase/src/create_db.rs"
  ],
@@ -35922,6 +36014,12 @@
  ],
  "«{0}» no es un nombre de colección válido: no puede tener $ ni empezar con «system.»": [
   "crates/drivers/mongodb/src/rename.rs"
+ ],
+ "«{0}» no es un nombre de contenedor de Azure válido": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}» no es un nombre de cuenta de Azure Storage válido": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "«{0}» no es un nombre de función válido": [
   "crates/drivers/dsql/src/security.rs"
@@ -36085,8 +36183,17 @@
  "«{0}» no es un valor {1}": [
   "crates/drivers/ksqldb/src/transfer.rs"
  ],
+ "«{0}» no es una URL": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "«{0}» no es una URL de servidor de paso válida: {1}": [
   "crates/dbine-link/src/net.rs"
+ ],
+ "«{0}» no es una URL de un objeto (tiene «#»)": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}» no es una URL válida: {1}": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "«{0}» no es una acción válida de MongoDB (find, insert, update, remove…)": [
   "crates/drivers/mongodb/src/security.rs"
@@ -36170,8 +36277,14 @@
  "«{0}» no está unida a las demás tablas: se combina con todas sus filas (CROSS JOIN)": [
   "src-tauri/src/commands/query_builder.rs"
  ],
+ "«{0}» no nombra un archivo: escribí el objeto (…/archivo.parquet) o un patrón (…/*.parquet)": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "«{0}» no puede estar dentro de «{1}»: solo los campos object o nested tienen subcampos.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "«{0}» no puede mezclar archivos locales y URLs en la misma llamada": [
+  "src-tauri/src/notebook/files.rs"
  ],
  "«{0}» no respondió en {1} s": [
   "crates/drivers/postgres/src/cloud_auth.rs"
@@ -36210,6 +36323,9 @@
  "«{0}» no tiene puntos en la política de retención predeterminada: no hay nada que clonar": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
  ],
+ "«{0}» no tiene servidor": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "«{0}» no tiene {1} elementos": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
@@ -36219,8 +36335,17 @@
  "«{0}» pasa a ser la primera columna: en TDengine la marca de tiempo es la clave (una fila por instante; repetir uno sobrescribe la fila).": [
   "crates/dbine-schema/src/dialect/tdengine.rs"
  ],
+ "«{0}» pesa más de {1} GB, el máximo por archivo": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "«{0}» pide confirmación antes de ejecutar y una tarea no puede confirmar: abrí la tarea y marcá «Permitir ejecutar en {1} sin confirmar» en el paso": [
   "src-tauri/src/notebook/headless.rs"
+ ],
+ "«{0}» redirige a una dirección que no es válida": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}» redirige a «{1}»: DBine sigue redirecciones solo dentro del mismo servidor; escribí la URL final": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "«{0}» repite el campo «{1}», que ya tiene su propia columna": [
   "crates/drivers/elasticsearch/src/transfer.rs"
@@ -36242,6 +36367,9 @@
  ],
  "«{0}» solo lleva names y roles, no «{1}»": [
   "crates/drivers/couchdb/src/properties.rs"
+ ],
+ "«{0}» tardó demasiado en responder": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "«{0}» tiene caracteres (`, \\, ; o de control) que DBine no escribe en un script de OrientDB: hacelo desde la consola del servidor": [
   "crates/drivers/orientdb/src/lib.rs"
@@ -36297,6 +36425,9 @@
  "«{0}» tiene que ser un objeto JSON.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
+ "«{0}» tiene segmentos «.» o «..» o caracteres de control": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "«{0}» tiene un argumento de un tipo que DBine no reconoce («{1}»): no se renombra (hacelo desde Snowsight o SnowSQL).": [
   "crates/drivers/snowflake/src/rename.rs"
  ],
@@ -36317,14 +36448,32 @@
   "crates/drivers/postgres/src/rename.rs",
   "crates/drivers/snowflake/src/rename.rs"
  ],
+ "«{0}» usa http://, que viaja sin cifrar: estas celdas leen de la web solo https://": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "«{0}» y «{1}» difieren en {2}.": [
   "src-tauri/src/tasks/steps.rs"
  ],
  "«{0}»: el UNION no tiene el miembro {1} (tiene {2})": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
+ "«{0}»: el acceso fue denegado: {1}, con una cuenta que pueda leerlo": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}»: el bucket no responde en su región": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}»: el servidor respondió {1}": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}»: escribí az://<cuenta>.blob.core.windows.net/<contenedor>/<archivo>, abfss://<contenedor>@<cuenta>.dfs.core.windows.net/<archivo> o, con AZURE_STORAGE_ACCOUNT definida, az://<contenedor>/<archivo>": [
+  "src-tauri/src/notebook/remote.rs"
+ ],
  "«{0}»: escribí sus textos entre comillas simples ('…')": [
   "src-tauri/src/notebook/files.rs"
+ ],
+ "«{0}»: estas celdas leen de la red solo https://, s3://, gs:// y az:// (o abfss://); ningún otro esquema": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "«{0}»: la lista de valores está vacía": [
   "src-tauri/src/commands/datagen.rs"
@@ -36334,6 +36483,9 @@
  ],
  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": [
   "src-tauri/src/notebook/local.rs"
+ ],
+ "«{0}»: una URL https:// no puede ser un patrón; los patrones (*.parquet) van solo en s3://, gs:// y az://": [
+  "src-tauri/src/notebook/remote.rs"
  ],
  "«{0}»: «{1}» no es un nombre de tabla válido (letras, números, _, $, - o espacios{2})": [
   "src-tauri/src/notebook/files.rs"

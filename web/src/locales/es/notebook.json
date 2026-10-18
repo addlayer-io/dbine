@@ -15,7 +15,10 @@
     "size": "Tamaño por celda",
     "sizeHelp": "Una vista previa más grande se corta aunque tenga menos filas.",
     "resultsCap": "Filas por DataFrame",
-    "resultsCapHelp": "Cuántas filas del resultado de cada celda carga una celda DataFrame SQL (en memoria, nunca en el disco)."
+    "resultsCapHelp": "Cuántas filas del resultado de cada celda carga una celda DataFrame SQL (en memoria, nunca en el disco).",
+    "awsProfile": "Perfil de AWS",
+    "awsProfileHelp": "El perfil de ~/.aws con el que las celdas DataFrame SQL leen s3://. Vacío: AWS_PROFILE o «default».",
+    "awsProfilePlaceholder": "default"
   },
   "target": {
     "none": "Elegí dónde ejecutar",
@@ -120,10 +123,18 @@
     "export": "Exportar",
     "exportHtml": "HTML (una página)",
     "exportMarkdown": "Markdown",
+    "exportPython": "Notebook de Python (.ipynb)",
     "saveTip": "Guardar (⌘S / Ctrl+S)",
     "exportedWithCharts_one": "Exportado con {{count}} gráfico",
     "exportedWithCharts_other": "Exportado con {{count}} gráficos",
     "exportedWithCharts_many": "Exportado con {{count}} gráficos"
+  },
+  "pyExport": {
+    "title": "Exportar como notebook de Python",
+    "text": "Un notebook de Jupyter nuevo (kernel python3): cada celda SQL lee su resultado en un DataFrame de pandas con su nombre y las celdas DataFrame SQL corren en DuckDB. Las contraseñas no se exportan: el código las lee de variables de entorno, que la primera celda enumera junto con los paquetes a instalar.",
+    "previews": "Incluir vistas previas (los resultados guardados de cada celda)",
+    "export": "Exportar…",
+    "filter": "Notebook de Jupyter"
   },
   "add": {
     "sql": "SQL",
@@ -157,6 +168,7 @@
     "query": "su consulta se ejecutó de nuevo",
     "local": "de los DataFrames de arriba",
     "file": "leído del archivo",
+    "remote": "descargado de la red",
     "files_one": "{{files}} archivo",
     "files_many": "{{files}} archivos",
     "files_other": "{{files}} archivos",
@@ -174,6 +186,9 @@
   },
   "fileAccess": {
     "title": "Leer archivos locales",
+    "titleRemote": "Leer archivos de la red",
+    "remoteTag": "Desde la red",
+    "remoteNote": "DBine descarga lo que permitas a una carpeta temporal privada, lo lee y la borra. Solo servidores públicos por https:// y almacenamiento de AWS, Google Cloud y Azure, con la sesión de esta computadora: las credenciales nunca van en el notebook.",
     "lead_one": "Este notebook quiere leer este archivo:",
     "lead_many": "Este notebook quiere leer estos archivos:",
     "lead_other": "Este notebook quiere leer estos archivos:",

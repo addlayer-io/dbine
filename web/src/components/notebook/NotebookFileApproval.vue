@@ -10,7 +10,9 @@ import { locale } from '../../i18n';
 // Permitir siempre (this notebook, on this machine; not for an unsaved
 // notebook) or Denegar. A file read with its sidecars (a shapefile's .shx,
 // .dbf…) shows "+ N archivos asociados", listed in its tooltip; the same
-// answer covers them. The backend checks the answer against the files it
+// answer covers them. A URL or a cloud pattern (s3://…/*.parquet) shows its
+// host first, in bold, and the URL in full below; nothing is fetched
+// before the answer. The backend checks the answer against the files it
 // resolved; this dialog only relays it.
 
 const props = defineProps<{ request: FileApprovalRequest }>();
@@ -30,22 +32,27 @@ const detail = (f: DataFile) => `${formatBytes(f.size)} · ${when(f.mtime_ms)}`;
 /** A file's sidecars (a shapefile's .shx, .dbf…), one per line with their details. */
 const sidecarTip = (f: DataFile) => (f.sidecars ?? []).map((s) => `${s.path} · ${detail(s)}`).join('\n');
 
-/** The files written out first, then each glob with its files. */
+/** The local files written out first, then each glob with its files. */
 const groups = computed(() => {
-  const plain = props.request.files.filter((f) => !f.pattern);
+  const local = props.request.files.filter((f) => !f.host);
+  const plain = local.filter((f) => !f.pattern);
   const globs = new Map<string, DataFile[]>();
-  for (const f of props.request.files) if (f.pattern) globs.set(f.pattern, [...(globs.get(f.pattern) ?? []), f]);
+  for (const f of local) if (f.pattern) globs.set(f.pattern, [...(globs.get(f.pattern) ?? []), f]);
   return [
     ...(plain.length ? [{ pattern: null as string | null, files: plain }] : []),
     ...[...globs].map(([pattern, files]) => ({ pattern: pattern as string | null, files })),
   ];
 });
+/** URLs and cloud patterns (docs/notebooks.md › Reading files from the web
+ *  and cloud storage): nothing was fetched yet, so the host goes first and
+ *  big, then the URL in full; no size or time. */
+const remote = computed(() => props.request.files.filter((f) => f.host));
 </script>
 
 <template>
   <el-dialog
     :model-value="true"
-    :title="$t('notebook:fileAccess.title')"
+    :title="remote.length ? $t('notebook:fileAccess.titleRemote') : $t('notebook:fileAccess.title')"
     width="600px"
     append-to-body
     :close-on-click-modal="false"
@@ -69,7 +76,18 @@ const groups = computed(() => {
           <span class="nfa-meta">{{ detail(f) }}</span>
         </div>
       </div>
+      <div v-for="f in remote" :key="f.path" class="nfa-group nfa-remote">
+        <div class="nfa-host">
+          <span class="nfa-host-name nm-selectable">{{ f.host }}</span>
+          <span v-if="f.pattern" class="nfa-tag">{{ $t('notebook:fileAccess.pattern') }}</span>
+          <span class="nfa-tag">{{ $t('notebook:fileAccess.remoteTag') }}</span>
+        </div>
+        <div class="nfa-file nested">
+          <code class="nm-selectable">{{ f.path }}</code>
+        </div>
+      </div>
     </div>
+    <p v-if="remote.length" class="nfa-note">{{ $t('notebook:fileAccess.remoteNote') }}</p>
     <p class="nfa-note">{{ request.saved ? $t('notebook:fileAccess.noteSaved') : $t('notebook:fileAccess.noteUnsaved') }}</p>
     <template #footer>
       <div class="nfa-footer">
@@ -111,5 +129,7 @@ const groups = computed(() => {
 .nfa-footer .el-button + .el-button { margin-left: 0; }
 .nfa-always { display: inline-flex; }
 .nfa-sidecars { cursor: default; white-space: nowrap; }
+.nfa-host { display: flex; align-items: center; gap: 8px; padding: 6px 10px 0; min-width: 0; }
+.nfa-host-name { font-size: 14px; font-weight: 600; color: var(--nm-text-strong); overflow-wrap: anywhere; min-width: 0; }
 .nfa-sidecar-list { white-space: pre-line; font-family: var(--nm-mono); font-size: 11.5px; }
 </style>

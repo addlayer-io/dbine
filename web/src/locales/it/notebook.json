@@ -15,7 +15,10 @@
     "size": "Dimensione per cella",
     "sizeHelp": "Un'anteprima più grande viene tagliata anche se ha meno righe.",
     "resultsCap": "Righe per DataFrame",
-    "resultsCapHelp": "Quante righe del risultato di ogni cella carica una cella DataFrame SQL (in memoria, mai su disco)."
+    "resultsCapHelp": "Quante righe del risultato di ogni cella carica una cella DataFrame SQL (in memoria, mai su disco).",
+    "awsProfile": "Profilo AWS",
+    "awsProfileHelp": "Il profilo di ~/.aws con cui le celle DataFrame SQL leggono s3://. Vuoto: AWS_PROFILE o «default».",
+    "awsProfilePlaceholder": "default"
   },
   "target": {
     "none": "Scegli dove eseguire",
@@ -120,10 +123,18 @@
     "export": "Esporta",
     "exportHtml": "HTML (una pagina)",
     "exportMarkdown": "Markdown",
+    "exportPython": "Notebook Python (.ipynb)",
     "saveTip": "Salva (⌘S / Ctrl+S)",
     "exportedWithCharts_one": "Esportato con {{count}} grafico",
     "exportedWithCharts_other": "Esportato con {{count}} grafici",
     "exportedWithCharts_many": "Esportato con {{count}} grafici"
+  },
+  "pyExport": {
+    "title": "Esporta come notebook Python",
+    "text": "Un nuovo notebook Jupyter (kernel python3): ogni cella SQL legge il proprio risultato in un DataFrame pandas con il suo nome, e le celle DataFrame SQL vengono eseguite in DuckDB. Le password non vengono esportate: il codice le legge da variabili d'ambiente, che la prima cella elenca insieme ai pacchetti da installare.",
+    "previews": "Includi le anteprime (i risultati salvati di ogni cella)",
+    "export": "Esporta…",
+    "filter": "Notebook Jupyter"
   },
   "add": {
     "sql": "SQL",
@@ -170,7 +181,8 @@
     "changedMany_other": "{{files}} file modificati dall'ultima esecuzione",
     "sidecars_one": "+ {{files}} file associato",
     "sidecars_many": "+ {{files}} file associati",
-    "sidecars_other": "+ {{files}} file associati"
+    "sidecars_other": "+ {{files}} file associati",
+    "remote": "scaricata dalla rete"
   },
   "fileAccess": {
     "title": "Leggi file locali",
@@ -190,7 +202,10 @@
     "denied_other": "La lettura di questi file non è stata consentita: {{files}}",
     "sidecars_one": "+ {{count}} file associato",
     "sidecars_many": "+ {{count}} file associati",
-    "sidecars_other": "+ {{count}} file associati"
+    "sidecars_other": "+ {{count}} file associati",
+    "titleRemote": "Leggere file dalla rete",
+    "remoteTag": "Dalla rete",
+    "remoteNote": "DBine scarica ciò che consenti in una cartella temporanea privata, lo legge e la elimina. Solo server pubblici tramite https:// e lo storage di AWS, Google Cloud e Azure, con la sessione di questo computer: le credenziali non vanno mai nel notebook."
   },
   "fileGrants": {
     "title": "File che i notebook possono leggere",

@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { useSettingsStore } from '../../stores/settings';
 import NotebookFileGrants from './NotebookFileGrants.vue';
 import {
-  BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, RESULTS_CAP_DEFAULT, RESULTS_CAP_RANGE, RESULTS_CAP_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp,
+  AWS_PROFILE_SETTING, BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, RESULTS_CAP_DEFAULT, RESULTS_CAP_RANGE, RESULTS_CAP_SETTING, ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp,
 } from '../../composables/notebookModel';
 
 // Configuración › Notebooks: how much of each cell's result a notebook file
@@ -29,6 +29,12 @@ const resultsCap = computed({
   get: () => settings.get<number>(RESULTS_CAP_SETTING, RESULTS_CAP_DEFAULT),
   set: (v: number | undefined) => settings.set(RESULTS_CAP_SETTING, clamp(v ?? RESULTS_CAP_DEFAULT, RESULTS_CAP_RANGE)),
 });
+/** The AWS profile for `s3://` in DataFrame SQL cells: a name only (letters,
+ *  digits, - . _ @ +), the backend checks it again. */
+const awsProfile = computed({
+  get: () => settings.get<string>(AWS_PROFILE_SETTING, ''),
+  set: (v: string) => settings.set(AWS_PROFILE_SETTING, (v ?? '').replace(/[^A-Za-z0-9._@+-]/g, '').slice(0, 128)),
+});
 </script>
 
 <template>
@@ -49,6 +55,10 @@ const resultsCap = computed({
     <div class="ns-row">
       <div><strong>{{ $t('notebook:settings.resultsCap') }}</strong><span>{{ $t('notebook:settings.resultsCapHelp') }}</span></div>
       <el-input-number v-model="resultsCap" :min="RESULTS_CAP_RANGE[0]" :max="RESULTS_CAP_RANGE[1]" :step="100000" controls-position="right" style="width: 160px" />
+    </div>
+    <div class="ns-row">
+      <div><strong>{{ $t('notebook:settings.awsProfile') }}</strong><span>{{ $t('notebook:settings.awsProfileHelp') }}</span></div>
+      <el-input v-model="awsProfile" :placeholder="$t('notebook:settings.awsProfilePlaceholder')" clearable style="width: 160px" />
     </div>
     <NotebookFileGrants />
   </div>

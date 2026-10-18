@@ -445,7 +445,9 @@ pub fn plan(state: &AppState, opts: &Options, policy: Policy) -> CommandResult<P
         Some(n) => state.store.list_file_grants(Some(n))?,
         None => Vec::new(),
     };
-    let access = super::access::Access { policy, notebook, grants, approved: Vec::new(), store: None };
+    // Unattended: the default cloud credential chain (the AWS profile of
+    // Settings › Notebooks lives in the app's settings, not here).
+    let access = super::access::Access { policy, notebook, grants, approved: Vec::new(), store: None, net: super::remote::Net::current(None) };
     for f in files {
         match access.gate(std::slice::from_ref(&f)) {
             Ok(_) => out.files.push(f),
@@ -790,7 +792,7 @@ async fn dataframes(
         s.connection_id = Some(r.connection_id);
         s.database = Some(r.database);
     }
-    let r = local::run_local(state, tab, script, max_rows, cap, &base, Some(path), None, policy).await.map_err(|e| e.to_string())?;
+    let r = local::run_local(state, tab, script, max_rows, cap, &base, Some(path), None, policy, super::remote::Net::current(None)).await.map_err(|e| e.to_string())?;
     if let Some(a) = r.approval {
         let list: Vec<String> = a.files.iter().map(|f| f.path.clone()).collect();
         return Err(format!(
