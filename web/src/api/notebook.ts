@@ -40,6 +40,14 @@ export const notebookApi = {
     invoke<string>('notebook_export', {
       args: { notebook, format, rowsPerCell: limits.rows, bytesPerCell: limits.bytes, images, path: path ?? null },
     }),
+  /** A Python (Jupyter) notebook that reproduces this one: `targets` is each
+   *  SQL cell's resolved connection (by cell id); DBine reads only their
+   *  non-secret fields, and the code reads passwords from environment
+   *  variables. `previews`: each cell's stored preview as its output. */
+  exportPython: (notebook: Notebook, targets: Record<string, { connectionId: string; database: string }>, previews: boolean, limits: PreviewLimits) =>
+    invoke<string>('notebook_export', {
+      args: { notebook, format: 'python', rowsPerCell: limits.rows, bytesPerCell: limits.bytes, targets, previews },
+    }),
   /** "DataFrame SQL": the cells above that `sql` needs (their names,
    *  in loading order, through the "results" cells it names). */
   localRefs: (sql: string, sources: LocalSource[]) => invoke<string[]>('notebook_local_refs', { args: { sql, sources } }),

@@ -120,10 +120,18 @@
     "export": "Exportar",
     "exportHtml": "HTML (una página)",
     "exportMarkdown": "Markdown",
+    "exportPython": "Notebook de Python (.ipynb)",
     "saveTip": "Guardar (⌘S / Ctrl+S)",
     "exportedWithCharts_one": "Exportado con {{count}} gráfico",
     "exportedWithCharts_other": "Exportado con {{count}} gráficos",
     "exportedWithCharts_many": "Exportado con {{count}} gráficos"
+  },
+  "pyExport": {
+    "title": "Exportar como notebook de Python",
+    "text": "Un notebook de Jupyter nuevo (kernel python3): cada celda SQL lee su resultado en un DataFrame de pandas con su nombre y las celdas DataFrame SQL corren en DuckDB. Las contraseñas no se exportan: el código las lee de variables de entorno, que la primera celda enumera junto con los paquetes a instalar.",
+    "previews": "Incluir vistas previas (los resultados guardados de cada celda)",
+    "export": "Exportar…",
+    "filter": "Notebook de Jupyter"
   },
   "add": {
     "sql": "SQL",

@@ -565,6 +565,115 @@ AI proposes, the user runs.
   Parquet…), which runs the query again: only for a cell that ran in this
   session (exactly the query that ran). A preview read from the file exports
   just its rows.
+- **Python notebook** (see below).
+
+### Export as a Python notebook
+
+**Exportar › Notebook de Python (.ipynb)** writes a new Jupyter notebook (kernel
+`python3`) that reproduces this one outside DBine, saved as
+`<name> (Python).ipynb`:
+
+- **First, a Markdown cell** with what to do before running it: the
+  `pip install` line with the exact packages the notebook needs, and the
+  environment variables to set, one per secret (`DBINE_VENTAS_PG_PASSWORD`,
+  `DBINE_LAKE_TOKEN`…), named after the connection. It also says what to set
+  up by hand: an SSH tunnel (with the `ssh -L` line), cloud sign-in (AWS
+  IAM, Google Cloud, Entra ID, key pairs), a secret manager, extra ODBC
+  attributes.
+- **Then a setup cell**: the imports and one client per connection and
+  database the cells use, built from the connection's non-secret fields
+  (host, port, database, user and a few named options such as Oracle's
+  service or Snowflake's warehouse) with the password read from its
+  variable: `password=os.environ["DBINE_VENTAS_PG_PASSWORD"]`.
+- **Each SQL cell** reads its result into a pandas DataFrame named after the
+  cell, and shows it: `ventas = pd.read_sql(text("""…"""), engine_ventas_pg)`
+  (SQLAlchemy's `text()`; a `:word` that isn't a parameter is escaped so it
+  stays as written). Other engines use their own client's call (below).
+- **Each DataFrame SQL cell** becomes `cruce = duckdb.sql("""…""").df()`:
+  DuckDB finds the DataFrames above by their names (its replacement scans
+  of pandas variables), and the file readers (`read_csv`, `st_read`,
+  `sqlite_scan`, `read_xlsx`…) are kept as written, paths included; the
+  extensions they need are loaded in the setup cell. A relative path is read
+  from the folder the Python notebook runs in, so it goes next to the
+  original. A cell name that is a Python keyword or a name the code uses
+  (`pd`, `os`…) gets `_df` and is registered under its name
+  (`duckdb.register("pd", pd_df)`).
+- **Text cells** stay Markdown cells (with their attachments); cells from
+  other notebooks in Python are kept, others are kept as comments.
+- **Charts**: a plain chart (bars, lines, areas, scatter or pie, with no
+  split) becomes a pandas plot (matplotlib) under its cell; the other kinds
+  are left out.
+- **Results** are left out (a clean notebook) unless **Incluir vistas
+  previas** is checked: then each cell's stored preview is its output, with
+  the limits in Settings › Notebooks.
+- **Parameters** (once notebooks have them): the export already writes
+  them as a first cell tagged `parameters` (papermill) with their defaults,
+  bound in the SQLAlchemy queries as `:name` with `params=`; the notebook
+  model doesn't carry them yet (`notebook::python::parameters`). Write
+  cells, when there are any, are to become a commented `to_sql(…)` with a
+  warning, never run by default.
+- A cell whose target isn't a connection on this computer, or whose text
+  can't be mapped, is a **commented cell** with a `TODO` that says why and
+  its original text.
+
+**Secrets never go out.** The export reads each connection's non-secret
+fields only: passwords, tokens, keys, connection strings, the SSH tunnel's
+credentials, secret-manager references and extra ODBC attributes are never
+copied, a host URL loses its user, password and query string, and option
+values that look like credentials are dropped. A test exports a notebook on
+every driver with secrets in every field and checks none appears.
+
+The results can differ from DBine's: the Python code reads every row (DBine
+caps them), with each client's own types.
+
+#### Per engine
+
+| Engines | Python | Cells |
+|---|---|---|
+| PostgreSQL and its family (AlloyDB, Aurora, Cloud SQL, CockroachDB, CrateDB, Denodo, EDB, Fujitsu, Greenplum, Cloudberry, Greengage, H2, Kingbase, Materialize, openGauss, Redshift, RisingWave, TimescaleDB, Yellowbrick, YugabyteDB) | SQLAlchemy `postgresql+psycopg` (`psycopg[binary]`) | `pd.read_sql` |
+| Aurora DSQL | `postgresql+psycopg`, with an IAM token in the variable | `pd.read_sql` |
+| MySQL and its family (MariaDB, Aurora, Cloud SQL, TiDB, SingleStore, OceanBase, Doris, StarRocks, VeloDB, Databend, GreptimeDB, Manticore) | `mysql+pymysql` (`pymysql`) | `pd.read_sql` |
+| SQL Server, Azure SQL, Fabric, Babelfish | `mssql+pymssql` (`pymssql`) | `pd.read_sql` |
+| Oracle, Oracle Autonomous Database | `oracle+oracledb` (`oracledb`); service, SID, descriptor or wallet | `pd.read_sql` |
+| SQLite | `sqlite` (no package) | `pd.read_sql` |
+| libSQL / Turso | `sqlite+libsql` (`sqlalchemy-libsql`), auth token in a variable | `pd.read_sql` |
+| DuckDB | `duckdb.connect(…, read_only=True)` | `.sql(…).df()` |
+| Snowflake | `snowflake` (`snowflake-sqlalchemy`), PAT or key-pair file | `pd.read_sql` |
+| BigQuery | `bigquery` (`sqlalchemy-bigquery`), Google credentials | `pd.read_sql` |
+| Spanner | `spanner+spanner` (`sqlalchemy-spanner`) | `pd.read_sql` |
+| Athena | `awsathena+rest` (`pyathena[sqlalchemy]`), AWS credentials | `pd.read_sql` |
+| Databricks, Azure Databricks | `databricks` (`databricks-sqlalchemy`), personal access token | `pd.read_sql` |
+| Trino, Starburst / Presto | `trino` (`trino[sqlalchemy]`) / `presto` (`pyhive[presto]`) | `pd.read_sql` |
+| SAP HANA | `hana+hdbcli` (`sqlalchemy-hana`, `hdbcli`) | `pd.read_sql` |
+| Firebird | `firebird+firebird` (`sqlalchemy-firebird`) | `pd.read_sql` |
+| Drill | `drill+sadrill` (`sqlalchemy-drill`) | `pd.read_sql` |
+| Phoenix, Avatica | `phoenix` (`phoenixdb`) | `pd.read_sql` |
+| TDengine | `taosrest` (`taospy`) | `pd.read_sql` |
+| Db2 (LUW, i, z/OS) | `db2+ibm_db` (`ibm-db-sa`) | `pd.read_sql` |
+| Teradata | `teradatasql` (`teradatasqlalchemy`) | `pd.read_sql` |
+| Vertica | `vertica+vertica_python` (`sqlalchemy-vertica-python`) | `pd.read_sql` |
+| Exasol | `exa+websocket` (`sqlalchemy-exasol`) | `pd.read_sql` |
+| Hive, Spark, Kyuubi / Impala | `hive` (`pyhive[hive_pure_sasl]`) / `impala` (`impyla`) | `pd.read_sql` |
+| MonetDB | `monetdb` (`sqlalchemy-monetdb`) | `pd.read_sql` |
+| InterSystems IRIS, Caché | `iris` (`sqlalchemy-iris`) | `pd.read_sql` |
+| The other ODBC engines (Access, Altibase, CUBRID, Dameng, dBase, GBase 8s, HeavyDB, Ignite, Informix, Ingres, Machbase, MaxDB, Mimer, Netezza, NetSuite, NuoDB, Ocient, OpenEdge, SQL Anywhere, SQream, Sybase, Virtuoso, Zen, generic ODBC with a DSN) | `pyodbc.connect` with the ODBC driver's name (or the DSN) | `pd.read_sql` |
+| ClickHouse, Timeplus | `clickhouse_connect.get_client` (`clickhouse-connect`) | `.query_df(…)` |
+| MongoDB, DocumentDB, FerretDB | `MongoClient` (`pymongo`) | `db.<c>.find(…)` (with `sort`, `skip`, `limit`) and `.aggregate([…])` with strict JSON arguments become pymongo calls (extended JSON through `bson.json_util`); other shell syntax is commented |
+| Redis, Valkey, Dragonfly | `redis.Redis` (`redis`) | each command line with `execute_command`; the last reply as the DataFrame |
+| Cassandra, ScyllaDB, Keyspaces | `Cluster(…).connect()` (`cassandra-driver`) | `session.execute(…)` |
+| Neo4j, Memgraph, Neptune | `GraphDatabase.driver` (`neo4j`) | `execute_query(…, result_transformer_=neo4j.Result.to_df)` |
+| InfluxDB 1 / 2 / 3 | `influxdb` / `influxdb-client` / `influxdb3-python` | InfluxQL, Flux (`query_data_frame`) or SQL |
+| Elasticsearch, OpenSearch, Open Distro, Solr, CouchDB | `requests` | one read request (`GET`, or `POST` to `_search`, `_find`, `_sql`, `select`…) with a strict JSON body, and Elasticsearch/OpenSearch SQL lines; requests that change data are commented |
+| DynamoDB | `boto3` | PartiQL with `execute_statement`, every page |
+| Couchbase | `couchbase` | `cluster.query(…)` |
+| Flight SQL, Dremio | `adbc-driver-flightsql` (Dremio on its Arrow Flight port) | `cursor.fetch_df()` |
+| Cosmos DB | `CosmosClient` (`azure-cosmos`) | **commented**: a query runs on one container, which the cell doesn't name |
+| DuckDB over a folder of files | — | **commented**: read the files in a DataFrame SQL cell |
+| IoTDB, TimechoDB | — | **commented**: DBine uses the REST API; the Python client uses another port and API |
+| ksqlDB | — | **commented**: no maintained Python client |
+| OrientDB | — | **commented**: no maintained Python client for current versions |
+| etcd | — | **commented**: DBine's commands have no direct Python equivalent |
+| Cloudera Data Warehouse | — | **commented**: its HTTP transport has to be set up by hand |
 
 ## Where notebooks live
 
@@ -584,7 +693,8 @@ AI proposes, the user runs.
 
 **Version 1 (this one):** the file format, SQL and text cells, targets (connection,
 database or project environment), running, previews with their limits, the
-three AI actions, notebooks from elsewhere, export to HTML and Markdown, and
+three AI actions, notebooks from elsewhere, export to HTML, Markdown and a
+Python notebook, and
 [DataFrame SQL cells](#dataframe-sql-cells-cross-engine): cells that join the
 results of cells on different engines and local files.
 
@@ -592,6 +702,4 @@ results of cells on different engines and local files.
 - **Run notebook** as a step of a [scheduled task](scheduled-tasks.md),
   followed by **Send an email**, which turns a notebook into a periodic
   report.
-- **Export as a Python notebook**: each SQL cell becomes `pd.read_sql(…)`,
-  with the connection as an environment variable and no password.
 - Notebook **parameters** (values the cells use, asked for when running).
