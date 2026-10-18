@@ -25,6 +25,8 @@ pub struct Request {
     pub attribute: String,
     pub key_file: Option<PathBuf>,
     pub username: bool,
+    /// The entry's field the user comes from; empty: `UserName`.
+    pub user_field: String,
 }
 
 /// `(value, username)`. `master`: none for a key file alone.
@@ -46,13 +48,27 @@ pub fn read_blocking(req: &Request, master: Option<&str>) -> Result<(String, Opt
     let (value, username) = {
         let entry = find_entry(&db, &req.entry)?;
         let value = field(&entry, &req.attribute, &req.entry)?;
-        let username = if req.username { entry.get(fields::USERNAME).map(str::to_string).filter(|u| !u.is_empty()) } else { None };
+        let user_field = Some(req.user_field.trim()).filter(|f| !f.is_empty()).unwrap_or(fields::USERNAME);
+        let username = if req.username {
+            match field(&entry, user_field, &req.entry) {
+                Ok(u) if !u.is_empty() => Some(u),
+                Ok(_) => None,
+                Err(e) => {
+                    let mut v = value;
+                    dbine_core::secret_sources::wipe(&mut v);
+                    return Err(e);
+                }
+            }
+        } else {
+            None
+        };
         (value, username)
     };
     if req.username && username.is_none() {
         let mut v = value;
         dbine_core::secret_sources::wipe(&mut v);
-        return Err(format!("la entrada «{}» de KeePass no tiene usuario (UserName)", req.entry.trim()));
+        let user_field = Some(req.user_field.trim()).filter(|f| !f.is_empty()).unwrap_or(fields::USERNAME);
+        return Err(format!("la entrada «{}» de KeePass no tiene usuario ({user_field})", req.entry.trim()));
     }
     Ok((value, username))
 }
@@ -366,7 +382,7 @@ pub(crate) mod tests {
     }
 
     fn req(file: &Path, entry: &str) -> Request {
-        Request { file: file.to_path_buf(), entry: entry.into(), attribute: String::new(), key_file: None, username: false }
+        Request { file: file.to_path_buf(), entry: entry.into(), attribute: String::new(), key_file: None, username: false, user_field: String::new() }
     }
 
     /// The fixtures (src/secret_sources/testdata/): `kdbx31-keyfile.kdbx`
@@ -448,6 +464,15 @@ pub(crate) mod tests {
         assert_eq!(read_blocking(&r, Some("pw")).unwrap().0, "tok-123", "a custom field");
         r.attribute = "password".into();
         assert_eq!(read_blocking(&r, Some("pw")).unwrap().0, "my-secret", "case doesn't matter");
+        // The user from another field ("Configuración avanzada").
+        r.attribute = String::new();
+        r.username = true;
+        r.user_field = "API token".into();
+        assert_eq!(read_blocking(&r, Some("pw")).unwrap(), ("my-secret".into(), Some("tok-123".into())));
+        r.user_field = "Login".into();
+        assert!(read_blocking(&r, Some("pw")).unwrap_err().contains("no tiene el campo «Login»"));
+        r.username = false;
+        r.user_field = String::new();
         r.attribute = "PIN".into();
         let e = read_blocking(&r, Some("pw")).unwrap_err();
         assert!(e.contains("no tiene el campo «PIN»") && e.contains("API token") && e.contains("Password") && !e.contains("my-secret") && !e.contains("tok-123"), "{e}");

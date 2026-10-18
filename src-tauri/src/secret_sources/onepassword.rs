@@ -58,6 +58,15 @@ fn explain(stderr: &str, reference: &str) -> String {
     }
 }
 
+/// The reference of the same item's user field: `op://<vault>/<item>/` and
+/// `user_field` (`[section/]field`), else `username`.
+pub fn user_reference(reference: &str, user_field: &str) -> String {
+    let r = reference.trim().trim_start_matches("op://");
+    let item: Vec<&str> = r.splitn(3, '/').take(2).collect();
+    let field = Some(user_field.trim().trim_matches('/')).filter(|f| !f.is_empty()).unwrap_or("username");
+    format!("op://{}/{field}", item.join("/"))
+}
+
 // ---- browse ------------------------------------------------------------------
 
 /// A listing's output can be long (an item list); a secret can't.
@@ -172,6 +181,12 @@ mod tests {
     }
 
     /// A fake `op` on PATH: `DBINE_TEST_FAKE_OP=1 cargo test -p dbine secret_sources::onepassword -- --ignored`.
+    #[test]
+    fn user_references() {
+        assert_eq!(user_reference("op://Private/pg/password", ""), "op://Private/pg/username");
+        assert_eq!(user_reference("op://Private/pg/Database/password", "Database/user"), "op://Private/pg/Database/user");
+    }
+
     #[test]
     fn item_fields_without_values() {
         let item = serde_json::json!({ "id": "abc", "title": "pg", "fields": [
